@@ -1,0 +1,43 @@
+# Armadillo — Capital Preservation / Low-Vol. Single-wallet PACKAGE: this manifest
+# + one self-contained runtime.yaml + scanners/ (Bison's validated multi-factor
+# momentum scorer, ported VERBATIM). The "sleep at night" strategy: trades ONLY
+# the most liquid majors, at LOW leverage (1-2x), small margin, behind a HIGH
+# conviction bar, with low turnover and a tight drawdown circuit-breaker. Its job
+# is to NOT lose money. NEVER closes — DSL owns every exit (tight).
+schema_version: 1
+
+id: armadillo
+version: "1.0.0"
+
+catalog:
+  name: "Armadillo — Capital Preservation"
+  emoji: "🛡️"
+  tagline: "A sleep-at-night strategy that trades only the biggest, most liquid coins, at low leverage (1-2x), with small position sizes and a high bar for entering — so it makes few, careful trades and protects your money first. Tight stops cut losers fast and lock in gains early, and a hard drawdown halt is the backstop. Built to NOT lose money, not to swing for the fences."
+  belief_plain: "This is the conservative, capital-preservation option. It sticks to the majors (the deepest, most liquid markets), uses low leverage and small sizes, and only opens a position when a real, strong trend lines up — so most of the time it's patient and does nothing. When it is in a trade, a tight trailing stop protects it: it cuts losers quickly and starts locking in profit early instead of giving gains back. A hard 10% drawdown halt stops everything if things go wrong. It won't shoot the lights out — that's the point."
+  thesis: "Most users who ask for 'low risk' don't want the highest return — they want to not lose money and to sleep at night. Armadillo is built for exactly that: restricting to the most liquid majors removes the thin-coin blow-up risk, low leverage (1-2x) and small margin cap the downside on any single trade, and a demanding score floor means it only acts on the strongest setups (few, high-quality entries, low turnover so fees don't bleed it). The momentum entry is Bison's validated multi-factor scorer, ported verbatim; the conservatism is entirely in the configuration — a high entry bar and low sizing — not in new, unproven math. The DSL owns every exit with a tight floor and an early profit-lock ladder, and the runtime drawdown_halt is the equity backstop."
+  group: multi-asset-universe
+  archetype: trend_following
+  sub_style: conviction_holder
+  asset_classes: [btc_eth, major_alts]
+  asset_scope: universe
+  direction: long_short
+  risk_level: conservative
+  tier: starter
+  time_horizon: swing
+  leverage_max: 2
+  max_slots: 4
+  min_budget: 100
+  assets: []                 # DERIVED live from the main DEX (high vol floor + top-N)
+  tags: [conservative, capital-preservation, low-risk, low-leverage, defensive, majors, sleep-at-night, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name armadillo-main, group armadillo
+    wallet_env: ARMADILLO_WALLET
+    funding_share: 1.0

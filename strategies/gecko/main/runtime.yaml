@@ -1,0 +1,124 @@
+# ── GECKO · Configurable Single-Asset Confluence — "trade the coin I name." ──
+# One instance, one user-named asset (inputs.asset, default BTC), one position. The
+# scanner points bison's validated confluence scorer (trend structure 1h/4h +
+# momentum + RSI + funding) at that ONE name and opens a single conviction-sized
+# position when the score clears minScore. Fills the long tail of "make me a
+# strategy for <my coin>". NEVER closes — the DSL owns every exit and the
+# drawdown_halt is the equity backstop. Set inputs.asset (with `xyz:` for HIP-3
+# instruments) to retarget; everything else is the same proven engine.
+name: gecko-main
+group: gecko
+version: 1.0.0
+description: >
+  GECKO — Configurable Single-Asset Confluence. Point it at any one liquid coin
+  (inputs.asset, default BTC; `xyz:` prefix for HIP-3 instruments): it runs bison's
+  validated multi-signal confluence scorer — 1h/4h trend structure + 1h/4h momentum
+  + RSI + funding alignment — on that single name and opens ONE conviction-banded
+  LONG/SHORT (5x/4x/3x, 20/15/10% margin, clamped to venue max) when the score clears
+  minScore. Single slot, never stacks, NEVER closes — DSL is the ONLY exit (15% Phase 1,
+  breakeven-first profit-lock ladder to +90%, 24h weak-peak); drawdown_halt is the backstop.
+
+strategy:
+  wallet: "${GECKO_WALLET}"
+  slots: 1                                  # single asset, single position
+  margin_pct: 10                            # fallback; scan emits per-signal 10/15/20 by band
+  default_leverage: 3                       # fallback; scan emits per-signal 3/4/5 by band
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: gecko_scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 600                    # wake every 10m — swing-horizon single asset
+    timeout_seconds: 120                     # 2 MCP reads/tick (clearinghouse + asset_data)
+    default_signal_validity_seconds: 3600
+    state_history_max_count: 100
+    inputs:
+      # ── the one thing a user sets ──
+      asset: "BTC"                           # the coin to trade; `xyz:` prefix for HIP-3 instruments
+      # ── confluence thesis knobs (bison-ported) ──
+      minScore: 6                            # entry floor — open only when confluence clears this
+      apexScore: 12                          # >= -> apex band (5x / 20%)
+      goodScore: 10                          # >= -> good band (4x / 15%)
+      minVolTrendPct: 10
+      rsiMaxLong: 72
+      rsiMinShort: 28
+      # ── single high-conviction sizing slot ──
+      leverageTiers: { apex: 5, good: 4, base: 3 }
+      marginPctTiers: { apex: 20, good: 15, base: 10 }
+      maxLeverage: 5
+      maxMarginPct: 25
+      recentSignalTtlSeconds: 7200           # 120m — mirror the per-asset cooldown (anti re-fire)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      band: { type: string, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: gecko_open
+    action_type: OPEN_POSITION
+    decision_mode: rule                      # the scan already applied every filter
+    scanners: [gecko_scanner]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: gecko_scanner
+  # NO CLOSE_POSITION action — DSL is the only exit.
+
+# EXIT — DSL only. Single-asset family pattern: time cuts DISABLED (Phase 1 + Phase 2
+# own all exits via price action); weak_peak_cut kept as a 24h stall-out. Granular
+# breakeven-first profit-lock ladder (no back-loaded gap): locks early, ramps smoothly.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 1440              # 24h — a stalled name frees the single slot
+      min_value: 2.5
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,  lock_hw_pct: 0 }
+        - { trigger_pct: 15, lock_hw_pct: 35 }
+        - { trigger_pct: 25, lock_hw_pct: 52 }
+        - { trigger_pct: 40, lock_hw_pct: 65 }
+        - { trigger_pct: 60, lock_hw_pct: 77 }
+        - { trigger_pct: 90, lock_hw_pct: 86 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 3
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 900
+    per_asset_cooldown_seconds: 7200
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true

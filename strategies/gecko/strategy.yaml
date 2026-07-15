@@ -1,0 +1,44 @@
+# Gecko — Configurable Single-Asset Confluence ("trade the coin I name"). A single-
+# instance PACKAGE: this manifest + one self-contained runtime.yaml + scanners/. A
+# user sets inputs.asset (default BTC) and gecko runs bison's validated multi-signal
+# confluence scorer (trend structure 1h/4h + momentum + RSI + funding) on that ONE
+# asset, opening ONE conviction-sized position. Fills the long tail of "make me a
+# strategy for <my coin>". NEVER closes — DSL owns every exit. Install/teardown via
+# senpi-strategy-ops.
+schema_version: 1
+
+id: gecko
+version: "1.0.0"
+
+catalog:
+  name: "Gecko — Any-Coin Confluence"
+  emoji: "🦎"
+  tagline: "Point it at any liquid coin you name and it trades just that one: it scores trend structure, momentum and funding into a single confluence read on that name, goes long or short when enough signals line up — sizing conviction to the strength of the setup — and trails a stop instead of guessing the exit."
+  belief_plain: "You pick the coin; Gecko trades only that coin. It waits until the 1-hour and 4-hour trend, momentum and funding all point the same way, then goes in — harder when more of them agree — and never guesses the exit: a trailing stop does all the closing. One coin, one position, done well."
+  thesis: "Most people don't want a scattergun across the whole market — they want their coin traded properly. Gecko is bison's validated confluence scorer pointed at a single user-named asset: trend structure (1h/4h), momentum, RSI and funding are summed into one conviction score, direction resolves from the timeframe waterfall, and leverage/margin scale to the score. One asset, one high-conviction slot; the DSL owns every exit and the drawdown_halt is the backstop. It fills the long tail of 'make me a strategy for <my coin>' without a bespoke build each time."
+  group: single-asset
+  archetype: single_market
+  sub_style: confluence_sniper
+  asset_classes: [btc_eth, major_alts, xyz_equities]
+  asset_scope: single
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 100
+  assets: ["BTC"]            # DEFAULT; configurable — the user sets inputs.asset to any liquid coin
+  tags: [configurable, any-asset, confluence, single-asset, custom, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name gecko-main, group gecko
+    wallet_env: GECKO_WALLET
+    funding_share: 1.0

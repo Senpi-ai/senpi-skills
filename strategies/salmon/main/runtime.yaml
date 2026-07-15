@@ -1,0 +1,126 @@
+# ── SALMON · RSI Mean-Reversion / Dip-Buyer ──────────────────────────────────
+# Buys oversold BOUNCES and sells overbought FADES on liquid crypto majors. Every
+# 10 minutes the scanner derives the live main-DEX universe (vol floor + top-N) and,
+# for each free slot, looks for an RSI(14) CROSS back through a band: LONG when RSI
+# dipped below the oversold line and has crossed back UP while rising with an up
+# bar; SHORT on the symmetric overbought case. It is a mean-reversion play (bets
+# price reverts to its mean), deliberately NOT a falling-knife catcher — a still-
+# falling RSI below the line does NOT trigger. NEVER closes — the DSL owns every
+# exit, kept TIGHT because reversions fail fast, with the drawdown_halt as backstop.
+name: salmon-main
+group: salmon
+version: 1.0.0
+description: >
+  SALMON — RSI Mean-Reversion / Dip-Buyer. A universe reversion book (main-DEX only,
+  vol floor + top-N liquid crypto majors) that goes LONG on an oversold RSI(14)
+  cross-back-UP and SHORT on an overbought cross-back-DOWN, each requiring the cross
+  + a rising/falling RSI + a price-reversal bar (anti-falling-knife). Conviction-
+  banded sizing to a moderate cap (leverage <= 4, margin <= 20%). Up to 5 positions.
+  DSL is the ONLY exit — tight because reversions fail fast (8% Phase 1, early
+  profit-lock ladder to +50%, 12h weak-peak).
+
+strategy:
+  wallet: "${SALMON_WALLET}"
+  slots: 5
+  margin_pct: 6
+  default_leverage: 2
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: salmon_scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 600              # wake every 10m — reversion signals decay fast
+    timeout_seconds: 300
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 200
+    inputs:
+      # ── universe (main-only; reversion is cleanest on liquid crypto majors) ──
+      includeXyz: false
+      universeVolFloorUsd: 30000000
+      maxUniverse: 25
+      maxSlots: 5
+      recentSignalTtlSeconds: 14400     # 4h — don't re-fire the same name into the same swing
+      # ── RSI mean-reversion cross knobs ──
+      oversoldLevel: 30
+      overboughtLevel: 70
+      crossLookback: 5                  # bars to look back for the dip/pop before the cross
+      # ── conviction band cutoffs + tiered sizing ──
+      apexScore: 7
+      goodScore: 5
+      leverageTiers: { apex: 4, good: 3, base: 2 }
+      marginPctTiers: { apex: 12, good: 9, base: 6 }
+      maxLeverage: 4
+      maxMarginPct: 20
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      band: { type: string, required: false }
+      rsi: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: salmon_open
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [salmon_scanner]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: salmon_scanner
+  # NO CLOSE_POSITION action — DSL is the only exit.
+
+# EXIT — DSL only, TIGHT (reversions fail fast). Locks profit early and ramps so a
+# reversion that works isn't given back, and caps the loss well short of a rout.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 720          # 12h — a stalled reversion frees its slot
+      min_value: 2.0
+    phase1:
+      enabled: true
+      max_loss_pct: 8.0
+      retrace_threshold: 6
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 6,  lock_hw_pct: 0 }
+        - { trigger_pct: 12, lock_hw_pct: 40 }
+        - { trigger_pct: 20, lock_hw_pct: 60 }
+        - { trigger_pct: 35, lock_hw_pct: 75 }
+        - { trigger_pct: 50, lock_hw_pct: 85 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 5
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 900
+    per_asset_cooldown_seconds: 14400
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true

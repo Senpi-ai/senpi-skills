@@ -1,0 +1,43 @@
+# Ram — GOLD XYZ specialist. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. The precious-metals analogue of Dire
+# (single-commodity BRENTOIL specialist): one hardcoded asset (xyz:GOLD, Hyperliquid
+# HIP-3 DEX), one position, safe-haven + momentum. Bison's validated momentum engine
+# narrowed to a single instrument, plus a risk-off safe-haven tilt to longs. NEVER
+# closes — DSL owns every exit. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: ram
+version: "1.0.0"
+
+catalog:
+  name: "Ram — Gold Specialist"
+  emoji: "🐏"
+  tagline: "A single-asset gold (xyz:GOLD) specialist: goes long when gold's trend lines up across the 1h and 4h and momentum agrees — and leans in harder when the market turns risk-off and money is looking for a safe haven — and can short a clean downtrend. Holds one position at a time and trails a stop instead of guessing the exit."
+  belief_plain: "Trades only gold. It buys when gold is trending up and, especially, when the market gets defensive and flows into safe havens; it can short a clear downtrend. It never picks a top or bottom by hand — a trailing stop does all the exiting. Gold trades around the clock, weekends included."
+  thesis: "Gold is the market's safe-haven anchor: it trends on real-rate and risk-regime shifts and gets bid hardest when risk assets wobble. An agent that watches only gold can read its 1h/4h trend structure, momentum and RSI far more tightly than a broad scanner, and add a safe-haven tilt when a risk-off funding regime shows up — catching the defensive bid early and locking profit as the move matures. Concentration by conviction on one asset, with the DSL owning every exit."
+  group: single-asset
+  archetype: single_market
+  sub_style: commodity
+  asset_classes: [commodities]
+  asset_scope: single
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 100
+  assets: ["xyz:GOLD"]
+  tags: [gold, xau, metals, safe-haven, commodity, single-asset, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml           # → runtime name ram-main, group ram
+    wallet_env: RAM_WALLET
+    funding_share: 1.0

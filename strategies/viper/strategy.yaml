@@ -1,0 +1,41 @@
+# Viper — SMC/ICT + Wyckoff Structure Trader. Single-wallet PACKAGE: this manifest +
+# one self-contained runtime.yaml + scanners/ (a pure market-structure engine: swing
+# mapping, Break of Structure / Change of Character, liquidity sweeps, Fair Value Gaps).
+# Universe-derived like raven, single-instance `main`. NEVER closes — DSL owns every exit.
+schema_version: 1
+
+id: viper
+version: "1.0.0"
+
+catalog:
+  name: "Viper — SMC/ICT Structure Trader"
+  emoji: "🐍"
+  tagline: "Reads a chart the way a smart-money trader does. It marks the recent peaks and troughs, then waits for price to actually break structure — punch through a prior high (or low) — and only takes the trade when the break is backed by a stop-hunt wick that grabbed liquidity and snapped back, a price gap that shows one-sided pressure, and the bigger-picture 4h trend pointing the same way. A trailing stop does all the exiting; Viper never sells manually."
+  belief_plain: "Markets move from one pool of resting stop orders to the next, and the honest tell is structure: a 'Break of Structure' is price closing past the last swing high or low in the trend's direction (it's continuing), and a 'Change of Character' is the first close through the OPPOSITE swing (the trend may be flipping). Viper enters on those breaks — but only the high-quality ones, where a liquidity sweep (a wick that runs the stops just past a prior swing then closes back inside) and a fair-value gap (a 3-candle imbalance where price left a gap it tends to revisit) agree with it, and the 4h structure confirms. It never manually closes — a ratchet stop protects and exits every position, and a hard drawdown halt is the backstop."
+  thesis: "Price is delivered between liquidity pools, and market structure — not an oscillator — is the cleanest read on which pool is next. Viper maps confirmed swing pivots, classifies each close through the most-recent swing as a Break of Structure (continuation) or Change of Character (reversal), and requires SMC/ICT confluence before committing: a liquidity sweep of a prior swing that closes back inside (the stop-hunt / Wyckoff spring), a 3-candle Fair Value Gap in the break direction, and higher-timeframe (4h) structure agreement. Confluence is scored, conviction-banded, and gated to a minimum; sizing scales with conviction and leverage is clamped to the venue max. The edge is entry QUALITY on structure; the DSL owns exits and the runtime drawdown_halt is the equity backstop."
+  group: multi-asset-universe
+  archetype: breakout_momentum
+  sub_style: market_structure
+  asset_classes: [btc_eth, major_alts, xyz_equities, commodities]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 6
+  min_budget: 100
+  assets: []                 # DERIVED live from both dexes (vol floor + top-N)
+  tags: [smc, ict, wyckoff, market-structure, liquidity-sweep, fvg, bos, choch]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name viper-main, group viper
+    wallet_env: VIPER_WALLET
+    funding_share: 1.0

@@ -1,0 +1,126 @@
+# ── VIPER · SMC/ICT + Wyckoff Structure Trader ───────────────────────────────
+# Trades market structure the way a smart-money-concepts trader reads a chart. On a
+# derived universe (main + xyz, vol floor + top-N) it maps swing highs/lows, then
+# enters on a Break of Structure (BOS, continuation) or Change of Character (CHoCH,
+# reversal) that lines up with a liquidity sweep (a wick that runs stops past a prior
+# swing then closes back inside), a Fair Value Gap (3-candle imbalance), and an
+# agreeing 4h structure. Conviction-banded sizing, leverage clamped to venue max.
+# NEVER closes — the DSL owns every exit and the drawdown_halt is the equity backstop.
+name: viper-main
+group: viper
+version: 1.0.0
+description: >
+  VIPER — SMC/ICT + Wyckoff Structure Trader. A universe structure book (main + xyz
+  derived, vol floor + top-N) that maps swing highs/lows and enters in the structure
+  direction when a Break of Structure or Change of Character lines up with a liquidity
+  sweep, a Fair Value Gap, and an agreeing higher timeframe. Up to 6 conviction-banded
+  positions, leverage clamped to venue max. DSL is the ONLY exit (15% Phase 1, granular
+  profit-lock ladder to +90%, 24h weak-peak).
+
+strategy:
+  wallet: "${VIPER_WALLET}"
+  slots: 6
+  margin_pct: 10
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: viper_scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 900             # wake every 15m; map structure, fill free slots
+    timeout_seconds: 300
+    default_signal_validity_seconds: 3600
+    state_history_max_count: 200
+    inputs:
+      # ── universe ──
+      includeXyz: true
+      universeVolFloorUsd: 25000000
+      xyzVolFloorUsd: 3000000
+      maxUniverse: 40
+      maxSlots: 6
+      recentSignalTtlSeconds: 21600
+      # ── structure engine ──
+      minScore: 5                     # entry floor on the composite structure score
+      apexScore: 9                    # conviction bands
+      goodScore: 7
+      swingLeft: 2                    # fractal pivot confirmation (bars before)
+      swingRight: 2                   # fractal pivot confirmation (bars after)
+      # ── sizing ──
+      leverageTiers: { apex: 5, good: 4, base: 3 }
+      marginPctTiers: { apex: 14, good: 10, base: 7 }
+      maxLeverage: 5
+      maxMarginPct: 25
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      band: { type: string, required: false }
+      structure: { type: string, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: viper_open
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [viper_scanner]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: viper_scanner
+  # NO CLOSE_POSITION action — DSL is the only exit.
+
+# EXIT — DSL only. Granular breakeven-first ladder (no back-loaded gap): locks
+# early and ramps smoothly so a modest winner isn't given all the way back.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 1440        # 24h — a stalled structure name frees its slot
+      min_value: 2.5
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,  lock_hw_pct: 0 }
+        - { trigger_pct: 15, lock_hw_pct: 35 }
+        - { trigger_pct: 25, lock_hw_pct: 52 }
+        - { trigger_pct: 40, lock_hw_pct: 65 }
+        - { trigger_pct: 60, lock_hw_pct: 77 }
+        - { trigger_pct: 90, lock_hw_pct: 86 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 900
+    per_asset_cooldown_seconds: 21600
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
