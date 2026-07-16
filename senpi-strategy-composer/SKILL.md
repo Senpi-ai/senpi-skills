@@ -154,17 +154,21 @@ requires: []        # name a capability that may not exist yet -> gap report, no
    → a COMPLETE, VALID graph with mechanically-bindable values filled and bespoke slots
    marked `# TODO(edit)` (working defaults, so it validates unedited). `new` refuses to
    clobber a hand-edited graph without `--force`.
-2. **Prefer the answers; hand-edit is the escape hatch, not the norm.** Most gate/indicator intent
-   now belongs in the answers file (`scoring` + `indicators` + `threshold_gate`, above), so `new`
-   generates it directly. When generation genuinely can't express an intent, escalate least-bespoke
-   first: (a) add a plain registry indicator node and promote it to a hard gate — usually now
-   expressible via `indicators` + `scoring` without touching the graph; (b) a `threshold_gate` for a
-   numeric condition; (c) a **`kind: pure_fn` node** ONLY for genuinely bespoke cross-feature logic
-   the registry vocabulary can't reach — typed `inputs:`/`outputs:`, exactly one top-level `def`,
-   `math`/`statistics` only (no I/O, no ctx/MCP), inline `tests:`. A gap report is for a
-   genuinely-missing capability (no data feed / not in the world), NOT a dead-end to hand the user.
-   Need a node's real ports before wiring it? `openclaw senpi composer describe <node>` — never
-   guess ports from the catalog one-liner.
+2. **Compute is never gated; only the seams are.** The hard limits are the graph's seams: data IN
+   (source nodes are the only place I/O happens — a data feed with no source node is a real wall;
+   report it, don't fake it in a scanner), the signal envelope OUT, and execution (actions/DSL —
+   the runtime's job). Everything between the seams — gates, scoring, classification, the user's
+   EDGE — is yours to build. Prefer an existing registry ingredient when one fits (don't reinvent
+   `volume_surge_ratio`; the catalog is tested, reusable, and legible), and most gate/indicator
+   intent now flows straight from the answers (`scoring` + `indicators` + `threshold_gate`, above).
+   But a **`kind: pure_fn` node is a first-class path, not a last resort** — bespoke logic the
+   vocabulary doesn't have is exactly what it exists for: typed `inputs:`/`outputs:`, exactly one
+   top-level `def`, `math`/`statistics` only (no I/O, no ctx/MCP), inline `tests:`. Hand-editing
+   the graph is likewise fine when surgical: stay inside the node-graph shape, and `describe` every
+   node you wire (`openclaw senpi composer describe <node>` — never guess ports from the catalog
+   one-liner). A gap report means a missing SOURCE capability (no data feed / not yet in the
+   supplied world) — surface it to the Senpi team as an add request, never as a dead-end to the
+   user, and offer the nearest buildable alternative from the catalog.
 3. **Check — GREEN now means INSTALLABLE:** `openclaw senpi composer check <graph>` → ONE verdict
    over five stages (validate · pure_fn tests · compile · smoke · **runtime_validate**). GREEN =
    ready to deploy AND install. RED = located, actionable `CMPxxx` errors (node / port / line, or a
