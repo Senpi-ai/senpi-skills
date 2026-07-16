@@ -13,9 +13,11 @@ import sys
 from pathlib import Path
 
 try:
-    import yaml
+    import yaml  # prefer PyYAML when present
 except ImportError:
-    sys.exit("PyYAML required: pip install pyyaml")
+    # Agent hosts may lack PyYAML AND pip (externally-managed Python) — never make the author
+    # pip-install just to validate. Same vendored stdlib-only fallback _pkg.py (strategy-ops) uses.
+    import _yaml as yaml
 
 
 _VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")

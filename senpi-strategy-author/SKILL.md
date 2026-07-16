@@ -257,12 +257,17 @@ built and validated:
 
 1. **Confirm with the user** — budget + "ready to deploy?" Funding a wallet is real money and one-way,
    so this is an explicit yes, not an assumption.
-2. **Preflight** — `python3 senpi-strategy-ops/scripts/deploy.py validate <id>` — reports every fix in
-   **one pass**, no side effects. The deployer **accepts the flat package you built** (it synthesizes
-   the `main` instance), so you do **not** restructure into `main/` or hand-write `.deploy-state.json`.
-3. **Deploy** — `deploy.py create <id> --budget <N>` → `deploy.py runtime <id>`. Done. (Already
-   smoke-deployed a tiny wallet in step 9? `create` self-heals to that existing wallet and will NOT
-   add the difference — top it up to the user's budget with `strategy_top_up` instead of re-creating.)
+2. **Preflight** — `python3 senpi-strategy-ops/scripts/deploy.py validate <path-to-package>` — reports
+   every fix in **one pass**, no side effects. The deployer **accepts the flat package you built** (it
+   synthesizes the `main` instance), so you do **not** restructure into `main/` or hand-write
+   `.deploy-state.json`. **Pass the package DIRECTORY you authored** (absolute path is safest, e.g.
+   `/data/workspace/strategies/<id>`) — a **bare id** is resolved relative to your CWD and, failing
+   that, treated as a **catalog id and fetched from remote**, which is never what you want for a
+   package you just wrote.
+3. **Deploy** — `deploy.py create <path-to-package> --budget <N>` → `deploy.py runtime
+   <path-to-package>`. Done. (Already smoke-deployed a tiny wallet in step 9? `create` self-heals to
+   that existing wallet and will NOT add the difference — top it up to the user's budget with
+   `strategy_top_up` instead of re-creating.)
 
 **NEVER deploy an authored strategy with `strategy_create_custom_strategy` / `create_position`.** Those
 raw MCP tools fund a wallet with **no runtime** — a naked funded wallet: no scanner, no DSL, no

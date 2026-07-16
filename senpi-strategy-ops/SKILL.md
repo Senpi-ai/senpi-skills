@@ -46,8 +46,13 @@ python3 senpi-strategy-ops/scripts/close.py          --all                 # tea
 **Always tear down through `close.py`** (one `<id>` or `--all`) — it deletes the runtime *and* closes the
 strategy. A raw `strategy_close` MCP call closes the strategy but **leaves the runtime registered**, which
 collides on the next deploy. "close all strategies / return funds to main" → `close.py --all`.
-Pass the **strategy `id`** (what `senpi-strategy-discover` hands over, e.g. `spider`); the package is
-fetched from the remote if not on disk. The scripts call MCP directly (`scripts/mcp_client.py`, reads
+Pass the **strategy `id`** for a CATALOG strategy (what `senpi-strategy-discover` hands over, e.g.
+`spider`) — it's fetched from the remote if not on disk. For a **locally-authored package, pass its
+DIRECTORY path** (absolute is safest, e.g. `/data/workspace/strategies/<id>`): a bare id only resolves
+locally relative to your CWD, so from anywhere else it becomes a remote catalog fetch — never what you
+want for a package you just wrote. An on-disk package is authoritative; an invalid one surfaces its
+real errors and is never silently replaced by a remote fetch. The scripts call MCP directly
+(`scripts/mcp_client.py`, reads
 `SENPI_AUTH_TOKEN`) + drive `openclaw senpi runtime …`. Mechanics + state machine:
 [`references/lifecycle.md`](references/lifecycle.md). Manifest: [`references/strategy-yaml-schema.md`](references/strategy-yaml-schema.md).
 
