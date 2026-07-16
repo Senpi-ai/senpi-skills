@@ -146,7 +146,9 @@ For each: ask the question, offer the options as plain choices, then map the ans
    `let_winners_run` (wide; rides to +100%, protect both sides) · `balanced` (default) ·
    `mean_reversion` (tight, locks early — for faders) · `scalp` (HFT) · `parabolic_runner` (scalpel).
    Then set guard rails (`drawdown_halt_pct`, `daily_loss_limit_pct`) sized to the style, and cadence
-   (`interval_seconds`). **Never hand-roll stops — copy a preset from `references/dsl-presets.yaml`.**
+   (`interval_seconds`). **Never hand-roll stops — copy a preset from
+   `senpi-strategy-author/references/dsl-presets.yaml`** (full path — it lives in THIS skill, not the
+   runtime package).
 
 ## After the 7 — build it in STAGES, narrating as you go
 
@@ -167,10 +169,15 @@ the catalog entry, then unit-test → validate → hand to smoke-test."* Then ti
 2. **Scaffold.** Match the idea to an archetype row in `references/creating-a-strategy.md`, create the
    package dirs, and state the archetype + file plan. → *"Matched the cohort-rotation archetype; scaffolding
    `strategies/<id>/…`."* This lets the user catch a wrong archetype/universe **before** you write code.
+   **Layout: single-instance = FLAT** — `strategy.yaml` + `runtime.yaml` + `scanners/` at the package
+   root, **no `instances:` list, no `main/` dir** (the deployer synthesizes the `main` instance).
+   Multi-instance (e.g. a long book + a short book) = one `<instance>/` dir each + an explicit
+   `instances:` list in `strategy.yaml`.
 3. **`scoring.py`** (pure math). Write it → one line on what it scores. → *"scoring.py in — ranks the cohort
    by 3-day relative strength."*
-4. **`<instance>/scanners/scan.py`** (read-only, emits `marginPct` intent). Write it → one line on what it
-   emits.
+4. **`scanners/scan.py`** (read-only, emits `marginPct` intent) — at the package **root** for a flat
+   single-instance strategy; under `<instance>/scanners/` only for multi-instance. Write it → one line
+   on what it emits.
 5. **`runtime.yaml`** — the plain-language **`description`** of the thesis + how it works (the runtime
    registers it and senpi-portfolio reads it back as the mandate) plus inputs, entry action, DSL preset,
    risk gates. Write it → one line on the thesis + DSL + risk posture.
@@ -178,11 +185,16 @@ the catalog entry, then unit-test → validate → hand to smoke-test."* Then ti
    `references/strategy-yaml-schema.md`; what each facet does for matching:
    `references/discovery-catalog-fields.md`). Write it → *"catalog entry in."*
 7. **Unit-test `scoring.py`** on sample candles (pure — no mocks). Run it → report pass/fail as its own beat.
-8. **Validate** → `python3 senpi-strategy-author/scripts/validate_strategy.py strategies/<id>` (0 errors),
-   then the **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py strategies/<id>`
-   — every hardcoded ticker must be a live HL instrument (`deploy.py create` also runs this as a preflight
-   and refuses to fund a bad universe; derived-universe strategies pass trivially). Run each, report the
-   result. **If validation fails, narrate the fix and re-run — don't go silent while you debug.**
+8. **Validate — three gates, all before any wallet exists:**
+   (a) **code-level** → `python3 senpi-strategy-author/scripts/validate_strategy.py strategies/<id>`
+   (0 errors — scan/scoring shape, DSL exit present, mandate description, retention/cooldown bounds);
+   (b) **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py strategies/<id>`
+   — every hardcoded ticker must be a live HL instrument (derived-universe strategies pass trivially);
+   (c) **deploy contract** → `python3 senpi-strategy-ops/scripts/deploy.py validate strategies/<id>`
+   — the deployer's own one-pass preflight (structure, linkage, render; **no side effects**). Green
+   here means `create` will not reject the package. (`deploy.py create` re-runs (b)+(c) itself and
+   refuses to fund on failure.) Run each, report the result. **If validation fails, narrate the fix
+   and re-run — don't go silent while you debug.**
 9. **Smoke-test (hand to `senpi-strategy-ops`):** dry-run → run `scan()` once on live read-only MCP →
    tiny deploy → confirm the runtime **accepted** a signal (`openclaw senpi state -r <id>-<inst>
    --json`), not just that it ticked. **Green = `scan` → signal → runtime-accepted, end to end.**
@@ -248,7 +260,9 @@ built and validated:
 2. **Preflight** — `python3 senpi-strategy-ops/scripts/deploy.py validate <id>` — reports every fix in
    **one pass**, no side effects. The deployer **accepts the flat package you built** (it synthesizes
    the `main` instance), so you do **not** restructure into `main/` or hand-write `.deploy-state.json`.
-3. **Deploy** — `deploy.py create <id> --budget <N>` → `deploy.py runtime <id>`. Done.
+3. **Deploy** — `deploy.py create <id> --budget <N>` → `deploy.py runtime <id>`. Done. (Already
+   smoke-deployed a tiny wallet in step 9? `create` self-heals to that existing wallet and will NOT
+   add the difference — top it up to the user's budget with `strategy_top_up` instead of re-creating.)
 
 **NEVER deploy an authored strategy with `strategy_create_custom_strategy` / `create_position`.** Those
 raw MCP tools fund a wallet with **no runtime** — a naked funded wallet: no scanner, no DSL, no

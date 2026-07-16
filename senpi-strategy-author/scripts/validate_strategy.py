@@ -18,6 +18,22 @@ except ImportError:
     sys.exit("PyYAML required: pip install pyyaml")
 
 
+_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _flat_wallet_env(pkg: Path, sid) -> str:
+    """Mirror the deployer's flat-instance synthesis: bind wallet_env to the ${...} the flat
+    runtime.yaml already uses for its wallet, falling back to <ID>_WALLET."""
+    try:
+        doc = yaml.safe_load((pkg / "runtime.yaml").read_text()) or {}
+        m = _VAR_RE.search(str((doc.get("strategy") or {}).get("wallet") or ""))
+        if m:
+            return m.group(1)
+    except Exception:  # noqa: BLE001 — best-effort; the binding check below flags a miss
+        pass
+    return re.sub(r"[^A-Za-z0-9]", "_", str(sid or "")).upper().strip("_") + "_WALLET"
+
+
 def validate(pkg: Path) -> list:
     errs = []
     man_path = pkg / "strategy.yaml"
@@ -34,7 +50,16 @@ def validate(pkg: Path) -> list:
     if not man.get("version"):
         errs.append("missing version (single source for catalog + attribution)")
     if not man.get("instances"):
-        errs.append("no instances[]")
+        # FLAT single-instance package — the layout agents naturally scaffold; the deployer accepts
+        # it (strategy-ops v2.4.0+) by synthesizing the canonical `main` instance. Synthesize the SAME
+        # instance here so every code-level check below still runs — a red author validator on a
+        # package the deployer would accept is exactly the author↔ops drift this file must not have.
+        if (pkg / "runtime.yaml").is_file():
+            man = dict(man)
+            man["instances"] = [{"name": "main", "runtime": "runtime.yaml",
+                                 "wallet_env": _flat_wallet_env(pkg, sid)}]
+        else:
+            errs.append("no instances[] (and no flat root runtime.yaml to synthesize one from)")
 
     seen_wallet_envs = set()
     for inst in man.get("instances", []):
@@ -47,6 +72,21 @@ def validate(pkg: Path) -> list:
             errs.append(f"instance {name}: runtime {rt_rel!r} not found")
             continue
         rt_text = rt.read_text()
+
+        # Linkage convention — the deployer + runtime engine key on these, and it was the #1
+        # tripwire in the 3-model deploy bake-off (every model wrote `name: <id>`): the runtime's
+        # `name:` must be `<id>-<instance>` and `group:` must be `<id>`. Same prescriptive wording
+        # as strategy-ops `_pkg.validate`, so author-green ≈ deploy-green.
+        try:
+            rt_doc = yaml.safe_load(rt_text) or {}
+        except Exception:  # noqa: BLE001 — unparseable YAML surfaces via the checks below
+            rt_doc = None
+        if isinstance(rt_doc, dict):
+            expect = f"{sid}-{name}"
+            if rt_doc.get("name") != expect:
+                errs.append(f"instance {name}: set runtime `name: {expect}` (found {rt_doc.get('name')!r})")
+            if rt_doc.get("group") != sid:
+                errs.append(f"instance {name}: set runtime `group: {sid}` (found {rt_doc.get('group')!r})")
 
         # data_retention: Runtime 3.0 uses data_retention_seconds (integer 3600–604800);
         # the v2 data_retention_hours field is deprecated. (See senpi-trading-runtime/references/runtime-yaml.md.)
@@ -145,7 +185,9 @@ def main(argv):
                 print(f"    - {e}")
         else:
             man = yaml.safe_load((pkg / "strategy.yaml").read_text())
-            print(f"✓ {pkg.name} v{man.get('version')} ({len(man.get('instances', []))} instance(s))")
+            n = len(man.get("instances") or [])
+            label = f"{n} instance(s)" if n else "flat single-instance"
+            print(f"✓ {pkg.name} v{man.get('version')} ({label})")
     sys.exit(1 if bad else 0)
 
 
