@@ -185,4 +185,3 @@ what IS possible instead (from the catalog), and that adding the capability is a
 registry-side change, not something to fake in a scanner. Same for ambiguity: if a brief
 lacks something you can't responsibly guess (which assets, long/short, how much risk), ask —
 don't invent a plausible-sounding specific.
-</content>
