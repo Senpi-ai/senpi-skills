@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.3.0"
+  version: "1.4.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -83,12 +83,21 @@ Two sources, two jobs. Never mix them, and never reconstruct one from the other.
   the discovery trades — it fills `exit_reason` and produces the standalone streams; it **never** becomes the
   trade list and **never** re-derives a price or PnL.
 
-**When telemetry is unavailable** (an older runtime build without the event RPC, or a *closed* strategy whose
-on-disk ring is already gone) the engine **fails open to discovery**: the trades are still listed, and
-`exit_reason.terminal` falls back to the ratchet record or honest `UNKNOWN`. Say **"exit mechanism not
-recorded on this build"** (or "…this strategy's event ring is gone — it's closed") — **never** report it as a
-bug. `meta.telemetry_source` (`available` / `partial` / `unavailable`) and `meta.exit_reason_source_counts`
-tell you exactly how much enrichment landed; surface that honestly.
+**Telemetry is read ONLY from the current book.** The event-log ring lives on-disk with a running runtime, so
+the engine shells `openclaw senpi events` **only for ACTIVE/PAUSED strategies** — a *closed* strategy's ring is
+torn down with its runtime, and querying it just hangs to a timeout. (Fanning that hang across a churned book of
+dozens of closed redeployments is what once made a whole review report "telemetry unavailable / every exit
+UNKNOWN," even for the live strategies whose ring was readable. The engine no longer does that.) A closed
+strategy's exit reasons therefore come from the ratchet record or honest `UNKNOWN` — and the **durable central
+event log** (keyed by strategy address, survives the close) is the recovery path for them, not the ephemeral
+local ring.
+
+**When telemetry is unavailable** (an older runtime build without the event RPC, or a closed strategy) the
+engine **fails open to discovery**: the trades are still listed, and `exit_reason.terminal` falls back to the
+ratchet record or honest `UNKNOWN`. Say **"exit mechanism not recorded on this build"** (or "…this strategy is
+closed — its live event ring is gone; the durable log is the recovery path") — **never** report it as a bug.
+`meta.telemetry_source` (`available` / `partial` / `unavailable`) and `meta.exit_reason_source_counts` tell you
+exactly how much enrichment landed; surface that honestly.
 
 **Closed strategies are recovered ON-CHAIN — the engine handles the trap for you.** `discovery_get_trader_history` returns **empty** once a strategy is closed/torn down — Senpi clears its own index, but the trades are **NOT gone** (Hyperliquid keys fills by wallet **address**, so they survive the close). The engine detects an empty discovery result and **falls back to on-chain HL fills**, rebuilding the real round-trips (`meta.closed_trade_source == "onchain_fills"`, wallets in `meta.onchain_recovered_wallets`); `realized_pnl` then comes from HL's own `closedPnl`. So a closed strategy's trades and realized total come back **real** — an empty discovery result is never "no trades." You do **not** hand-read `strategy_get_pnl_and_account_value_history` for this. If `trades[]` is still empty after the on-chain fallback, the book genuinely never traded (guardrail 9).
 
@@ -100,7 +109,7 @@ step(s) the ask needs; route every fix through the depth choice at the end — n
 
 | Intent (what the user asks) | Step(s) to run | Data (engine output) | Actionable lever |
 |---|---|---|---|
-| *"Did I sell too early / late? / improve my last 10"* | `timing` | `timing_summary` (exit_ahead/held_higher/flat) + per-trade `if_held_delta_usd`, `exit_vs_hold` | NEUTRAL context — a reversal is one data point, never "premature"; the counterfactual is not a grade (guardrail 1) → the DSL tier that fired (`exit_reason`) |
+| *"Did I sell too early / late? / improve my last 10"* | `timing`, then `telemetry` for the exit *mechanism* — **pass `--last N`** when the ask names a count ("last 10" → `--last 10`) | `timing_summary` (exit_ahead/held_higher/flat) + per-trade `if_held_delta_usd`, `exit_vs_hold`; `dsl_close_reason_mix` for how each exit fired | NEUTRAL context — a reversal is one data point, never "premature"; the counterfactual is not a grade (guardrail 1) → the DSL tier that fired (`exit_reason`) |
 | *"Master my week" / "analyze my strategies and trades" / "suggest improvements"* | **all steps in order** (`timing`→`strategies`→`telemetry`→`market`) | `timing_summary` + `strategies[]` (per-mandate) + `book_vs_market` + the telemetry streams | Process recap, each strategy vs its own mandate |
 | *"What did I miss this week? / compare to market"* | `market` (+ `telemetry` for the blocked cohort) | `book_vs_market.gaps` (unheld movers) + `missed_signals` (telemetry-blocked) | Is the missed mover in the mandate? loosen a gate only if so |
 | *"How could I make more gains?"* | `strategies` + `telemetry` | `strategies[]` mandate reads + `dsl_close_reason_mix` + `blocked_summary` | Strategy tune (DSL / entry gate), never a $/week promise |
@@ -165,6 +174,12 @@ the Quick-actions "Step(s)" column (e.g. "did I sell too early" → just `timing
 `--window` / `--last` / `--no-market` / `--fixture` apply to every step. Same fail-open contract as `all`:
 each step returns valid JSON with `meta.warnings` on partial data and never crashes on a missing/corrupt
 state file (it recomputes).
+
+**Scope the ask.** When the user names a trade count — "improve my last 10", "review my last 20 trades" —
+**pass `--last N`**: it's a GLOBAL bound (the N most-recent closed trades across the whole book), so the review
+stays about what they asked and the telemetry step touches only the handful of strategies those trades belong
+to. Without it the default `--window 7` reviews the entire 7-day book — on a large, churned book that's dozens
+of strategies and a needlessly heavy telemetry pass.
 
 ## How to run (one-shot fallback)
 
@@ -521,10 +536,12 @@ Don't re-implement these — call them and weave their output into the four-part
 
 ## Sources today, and the one future upgrade
 
-**Telemetry is a live v1 source.** The engine reads the runtime **event log** (`openclaw senpi events`) to
-enrich each discovery trade's `exit_reason` and to produce the standalone streams — `missed_signals`, `leaks`,
-`execution_quality`. A telemetry-enriched trade reads `source: "telemetry"`; when telemetry is unavailable
-(older build / a closed strategy's ring is gone) the engine fails open to discovery + the ratchet record
+**Telemetry is a live v1 source.** The engine reads the **current book's** runtime **event log**
+(`openclaw senpi events`, ACTIVE/PAUSED strategies only — a closed strategy's ring is torn down, so it's never
+queried) to enrich each discovery trade's `exit_reason` and to produce the standalone streams — `missed_signals`,
+`leaks`, `execution_quality`. A telemetry-enriched trade reads `source: "telemetry"`; when telemetry is
+unavailable (older build / a closed strategy's ring is gone) the engine fails open to discovery + the ratchet
+record
 (`source: "reconstructed"`, `exit_reason.source` `ratchet`/`unknown`) — that's the honest fallback, not a bug.
 Discovery remains the sole owner of the onchain trade facts (list, prices, realized PnL, fees, timing).
 
