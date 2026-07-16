@@ -48,16 +48,36 @@ ORDER = ("pending", "creating", "active", "registered", "live")
 # ---------- package + state ----------
 
 def ensure_pkg(arg, ref, log):
-    try:
+    # A package that EXISTS on disk is authoritative — load it and let any BadPackage surface as the
+    # real, fixable error. NEVER fall through to a (possibly stale) remote fetch just because a local
+    # package is invalid: that silently deploys the wrong version and discards the author's local fixes.
+    # Only a bare id that isn't a local directory triggers the catalog fetch from remote.
+    if (_pkg.resolve_pkg_dir(arg) / "strategy.yaml").is_file():
         return _pkg.load(arg)
-    except _pkg.BadPackage as e:
-        sid = Path(arg).name
-        log(f"package not on disk — fetching {sid} from remote…")
+    sid = Path(arg).name
+    log(f"package {sid!r} not on disk — fetching from remote…")
+    try:
+        _fetch.fetch_package(sid, "strategies", ref=ref)
+        return _pkg.load(sid)
+    except (_fetch.FetchError, _pkg.BadPackage) as e:
+        raise SystemExit(f"error: {e}")
+
+
+def full_validate(pkg):
+    """Every error deploy.py can see, in ONE pass, with NO side effects: structural (`_pkg.validate`)
+    plus a render dry-run per instance (unresolved `${...}`, a `decision_mode: llm` with no model). Lets
+    `validate` and the `create` preflight report everything BEFORE a wallet is funded. (Runtime-engine
+    schema errors still surface at `runtime`, but everything modellable here is caught first.)"""
+    errs = list(_pkg.validate(pkg))
+    for inst in pkg.instances:
+        if inst.runtime_doc is None:
+            continue  # already reported by _pkg.validate
         try:
-            _fetch.fetch_package(sid, "strategies", ref=ref)
-            return _pkg.load(sid)
-        except (_fetch.FetchError, _pkg.BadPackage):
-            raise SystemExit(f"error: {e}")
+            inst.render("0x0000000000000000000000000000000000000000",
+                        model_env=pkg.model_env, model="validation-model")
+        except _pkg.BadPackage as e:
+            errs.append(str(e))
+    return errs
 
 
 def _state_path(pkg):
@@ -427,14 +447,31 @@ def main(argv):
     ps = sub.add_parser("status", help="Show the deploy state.")
     common(ps)
 
+    pval = sub.add_parser("validate",
+                          help="Preflight: is the package deploy-ready? (structural + render — no side effects)")
+    common(pval)
+
     a = ap.parse_args(argv[1:])
     log = (lambda m: None) if a.json else (lambda m: print(m))
 
     pkg = ensure_pkg(a.package, a.ref, log)
-    errs = _pkg.validate(pkg)
-    if errs:
-        print(f"✗ {pkg.id}: invalid package", file=sys.stderr)
-        for e in errs:
+
+    # `validate` is the standalone, side-effect-free preflight; `create` runs the SAME full check
+    # before funding any wallet; runtime/verify/status keep the structural gate.
+    gate = full_validate(pkg) if a.cmd in ("validate", "create") else _pkg.validate(pkg)
+    if a.cmd == "validate":
+        if a.json:
+            print(json.dumps({"status": "valid" if not gate else "invalid", "id": pkg.id, "errors": gate}))
+        elif gate:
+            print(f"✗ {pkg.id}: {len(gate)} issue(s) to fix before deploy:", file=sys.stderr)
+            for e in gate:
+                print(f"    - {e}", file=sys.stderr)
+        else:
+            print(f"✓ {pkg.id}: deploy-ready ({len(pkg.instances)} instance(s))")
+        sys.exit(2 if gate else 0)
+    if gate:
+        print(f"✗ {pkg.id}: {len(gate)} issue(s) to fix before deploy:", file=sys.stderr)
+        for e in gate:
             print(f"    - {e}", file=sys.stderr)
         sys.exit(1)
 

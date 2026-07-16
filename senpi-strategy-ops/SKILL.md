@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.3.0"
+  version: "2.4.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -35,6 +35,7 @@ sizing/execution, the two-phase DSL exit, risk guard-rails. **There is no separa
 tool call — wallet funding and the first scan tick are slow, so they must not block one long call):
 
 ```
+python3 senpi-strategy-ops/scripts/deploy.py validate <id>                 # 0. preflight — deploy-ready? (no side effects)
 python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget <usd>   # 1. create wallets & fund them
 python3 senpi-strategy-ops/scripts/deploy.py runtime <id>                  # 2. set up autonomous trading (DONE after this)
 python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                  # optional: confirm a scan fired (only if asked)
@@ -58,8 +59,17 @@ exists, check the registry; no match → hand to **senpi-strategy-discover**:
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/strategies/catalog.json
 ```
 
+**Step 0.5 — preflight (recommended).** `deploy.py validate <id>` reports every structural + render
+issue in **one pass**, with **no side effects**, before you fund anything. The deployer **accepts the
+flat single-instance layout** agents naturally scaffold — one `runtime.yaml` + `scanners/` at the
+package root — by synthesizing the canonical `main` instance, so there's **no need to restructure into
+`main/`**. Any remaining fix is named prescriptively (e.g. `set runtime name: <id>-main`). A package
+that exists **on disk is authoritative** — an invalid local package surfaces its real error and is
+never silently replaced by a stale remote fetch.
+
 **Step 1 — creating wallets & funding them** (`create`; one fresh wallet per instance; budget splits by
-`funding_share`, **min $100 each** — confirm with the user first):
+`funding_share`, **min $100 each** — confirm with the user first). `create` runs the same full preflight
+first, so it refuses **before funding** if the package isn't deploy-ready:
 ```
 python3 scripts/deploy.py create spider --budget 200
 ```

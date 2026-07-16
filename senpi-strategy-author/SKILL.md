@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.4.2"
+  version: "2.5.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -238,8 +238,21 @@ Same references; usually no rebuild: tune `runtime.yaml` `inputs` (universe/thre
 the `dsl_preset`, adjust `risk.guard_rails`, or change the `scoring.py` math. Re-validate, then
 re-smoke-test if you touched `scan.py`/`runtime.yaml`.
 
-## Handoff
+## Handoff — deploy is `senpi-strategy-ops`, NEVER raw MCP
 
-Authoring produces the package only. **Deploy/monitor/close is `senpi-strategy-ops`** — hand off the
-`id` once the smoke test is green. Attribution (`skillName`/`skillVersion`) is set by ops from
-`strategy.yaml` `id`/`version`.
+Authoring produces the **package** only; going live is a **separate, gated step**. Once the package is
+built and validated:
+
+1. **Confirm with the user** — budget + "ready to deploy?" Funding a wallet is real money and one-way,
+   so this is an explicit yes, not an assumption.
+2. **Preflight** — `python3 senpi-strategy-ops/scripts/deploy.py validate <id>` — reports every fix in
+   **one pass**, no side effects. The deployer **accepts the flat package you built** (it synthesizes
+   the `main` instance), so you do **not** restructure into `main/` or hand-write `.deploy-state.json`.
+3. **Deploy** — `deploy.py create <id> --budget <N>` → `deploy.py runtime <id>`. Done.
+
+**NEVER deploy an authored strategy with `strategy_create_custom_strategy` / `create_position`.** Those
+raw MCP tools fund a wallet with **no runtime** — a naked funded wallet: no scanner, no DSL, no
+guard-rails (the recurring failure that stranded real money). A "created" strategy with no runtime **is
+the bug**, not the deploy. The only path to live is `senpi-strategy-ops deploy.py`.
+
+Attribution (`skillName`/`skillVersion`) is set by ops from `strategy.yaml` `id`/`version`.
