@@ -4,18 +4,19 @@ description: >-
   Turn a trading idea — or a lay thesis ("I want to be short the Iran war") —
   into a running, verified Senpi strategy, by driving the Strategy Composer: a
   registry-backed toolchain that GENERATES a complete valid strategy graph, checks
-  it with one GREEN/RED verdict, and stages it for deploy. Use for "build a
+  it with one GREEN/RED verdict, stages a self-contained unit, and installs it onto
+  the box. Use for "build a
   strategy", "create/design a strategy", "I have a trading idea", "make a strategy
   from this", or ANY strategy that needs a supervised exit (stop-loss / trailing
   stop / profit-lock). ALSO use the moment a user asks WHAT IS POSSIBLE — "what
   can I build?", "is X possible?", "can Senpi detect/trade Y?" — to fetch the node
   catalog (the world) and answer from it instead of guessing. Experimental POC
   successor to senpi-strategy-author. NOT for picking an existing strategy
-  (senpi-strategy-discover) or installing/monitoring one (senpi-strategy-ops).
+  (senpi-strategy-discover) or monitoring/closing an already-running one (senpi-strategy-ops).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "0.1.0"
+  version: "0.2.0"
   status: experimental
   platform: senpi
   exchange: hyperliquid
@@ -39,7 +40,8 @@ Real form inside a claw:
 openclaw senpi composer <verb> ...
 ```
 Verbs: `catalog`, `describe <node>`, `new`, `check <graph>`, `deploy <graph>`,
-`status <graph>`. (Ignore any `uvx --with … python -m composer.cli` form you may see in
+`install <staged-dir> --wallet 0x…`, `status <graph>`. (Ignore any `uvx --with … python -m
+composer.cli` form you may see in
 composer/AUTHORING.md — that is a dev-only convenience, not the claw invocation.)
 
 ## When to engage — and the boundary with the sibling skills
@@ -47,7 +49,8 @@ composer/AUTHORING.md — that is a dev-only convenience, not the claw invocatio
 - **Build / design a new strategy, or a lay thesis to turn into one** → you, here.
 - **"What can I build? Is X possible?"** → you, but FETCH THE CATALOG FIRST (below).
 - **"Pick / recommend an existing strategy for me"** → `senpi-strategy-discover`.
-- **"Deploy / monitor / close a named strategy"** → `senpi-strategy-ops`.
+- **Monitor, close, or manage an already-running strategy** → `senpi-strategy-ops`.
+  (You now own the full build→check→deploy→install path here; ops still owns teardown.)
 - **Anything with a supervised exit is composed here**, never stood up with a raw MCP
   `strategy_create*` call (that path carries no supervised exit and registers no named
   strategy — a confirmed silent failure).
@@ -107,7 +110,7 @@ edge: >
 requires: []        # name a capability that may not exist yet -> gap report, nothing built
 ```
 
-## Generate → edit → verify
+## Generate → check → deploy → install
 
 1. **Generate the anchor:**
    `openclaw senpi composer new my_strat --archetype thesis_fund --answers <file> -o <dir>`
@@ -120,20 +123,57 @@ requires: []        # name a capability that may not exist yet -> gap report, no
    one top-level `def`, `math`/`statistics` only (no I/O, no ctx/MCP), and inline `tests:`.
    Need a node's real ports before wiring it? `openclaw senpi composer describe <node>` —
    never guess ports from the catalog one-liner.
-3. **Check:** `openclaw senpi composer check <graph>` → ONE verdict over five stages
-   (validate · pure_fn tests · compile · smoke · **runtime_validate**). GREEN = ready. RED =
-   located, actionable `CMPxxx` errors (node / port / line, or a runtime.yaml dot-path for the
-   `CMP1xx` runtime-unit class + fix hint). The `runtime_validate` stage runs the REAL Zod + DSL
-   validator over the emitted `runtime.yaml` AND enforces protection-by-default (CMP120). Fix
-   exactly what it names, re-check, repeat until GREEN — don't rewrite unrelated parts.
-4. **Deploy (stage the COMPLETE unit):** `openclaw senpi composer deploy <graph> -o <dir>/dist`
-   — hard-gated on a GREEN check; stages a standalone strategy PACKAGE TREE (`strategy.yaml` +
-   `main/runtime.yaml` with the DSL exit + `main/scanners/scan.py` + graph copy + `manifest.json`),
-   does NOT install. The unit is complete on its own — there is no host runtime.yaml to borrow.
-   Hand the staged dir + the `id` to **senpi-strategy-ops**, which reads `strategy.yaml.instances[]`,
-   mints one funded wallet per instance, and installs each runtime.yaml onto its wallet.
-5. **Resume anytime:** `openclaw senpi composer status <graph>` — the file IS the state; it
-   reports your lifecycle position and names the next verb. No journal to reconcile.
+3. **Check — GREEN now means INSTALLABLE:** `openclaw senpi composer check <graph>` → ONE verdict
+   over five stages (validate · pure_fn tests · compile · smoke · **runtime_validate**). GREEN =
+   ready to deploy AND install. RED = located, actionable `CMPxxx` errors (node / port / line, or a
+   runtime.yaml dot-path + fix hint). The `runtime_validate` stage runs the REAL Zod + DSL validator
+   over the emitted `runtime.yaml` and now enforces the checks that used to fail only when the
+   runtime booted: protection-by-default (CMP120), position-tracking wiring (CMP112), duplicate
+   scanner/action names (CMP113), unresolvable action-prompt placeholders (CMP114), unbound `${VAR}`
+   (CMP115). Fix exactly what it names, re-check, repeat until GREEN — don't rewrite unrelated parts.
+4. **Deploy — stage the PRISTINE, self-contained unit:**
+   `openclaw senpi composer deploy <graph> -o <dir>/dist` — hard-gated on a GREEN check; stages a
+   standalone strategy PACKAGE TREE (`strategy.yaml` + `main/runtime.yaml` with the DSL exit +
+   `main/scanners/scan.py` + `main/scanners/strategy_primitives/` — a vendored primitives snapshot,
+   so scan.py imports NO composer code and runs on a box with none of the checkout — + graph copy +
+   `manifest.json` hashing every artifact plus the oracle verdict). Does NOT install. The staged
+   tree is PRISTINE: the wallet is a `${..._WALLET}` placeholder, left intact. **NEVER hand-edit a
+   staged unit** — install re-verifies every artifact against the manifest and REFUSES a tampered one
+   (CMP201). To change anything, re-author → re-check → re-deploy.
+5. **Wallet — create/verify it conversationally (MCP); install binds it:** the runtime binds ONE
+   strategy wallet, which must be **ACTIVE**. Create or find it with the MCP tools
+   `strategy_create_custom_strategy` (create) / `strategy_list` (read its `strategyWalletAddress` +
+   status); funding/budget stays an agent↔user conversation, as always. This MCP call mints only the
+   WALLET — it does NOT stand up the strategy (that path carries no DSL exit); the DSL-protected
+   runtime comes from `composer install` binding the composed unit onto the wallet. Wait until the
+   wallet reaches ACTIVE before installing.
+6. **Install — the ONE sanctioned box-side path:**
+   `openclaw senpi composer install <staged-dir> --wallet 0x…` (`--wallet` REQUIRED — a 0x… 40-hex
+   address from `strategy_list`; pass a graph file plus `-o <staging-dir>` if you don't have the
+   staged dir path). It copies the unit to an immutable, content-addressed dir under senpi-state,
+   binds the wallet into the COPY (staged source stays pristine), and invokes
+   `openclaw senpi runtime create -p` **itself**. This verb owns the entire box-side step. Re-install
+   with the same content + wallet is a safe no-op (`ALREADY_INSTALLED`). On failure it prints a
+   `CMP2xx` teaching error naming the exact next command — **READ it and DO what it says; do not
+   improvise around the verb.**
+7. **Verify + update:** `openclaw senpi runtime list` shows the installed runtime (id
+   `<strategy>-<hash8>`). ONE running runtime per wallet. To UPDATE a strategy: re-author → re-check
+   → re-deploy (new content ⇒ new hash) → delete the old runtime (`openclaw senpi runtime delete
+   <id>`) → install the new one.
+8. **Resume anytime:** `openclaw senpi composer status <graph>` — the file IS the state; it reports
+   your lifecycle position and names the next verb. No journal to reconcile.
+
+### Never improvise the install — each rule below is a real dev-box failure
+- **No `--content` installs.** It drops the scanner dir the external scanner needs. `composer install`
+  always uses PATH mode (`-p`) and calls the frozen consumer for you — never run `openclaw senpi
+  runtime create` by hand.
+- **No hand-crafted or hand-edited `runtime.yaml`** (staged or copied). The unit is generated and
+  manifest-verified; editing it trips CMP201 (tampered unit) or CMP115 (leftover placeholder).
+- **No raw `strategy_create*` + manual runtime setup when a staged unit exists.** Use the wallet the
+  MCP call minted as `--wallet` for `composer install`; don't rebuild the strategy by hand.
+- **No `pip install` to "fix" a missing import.** The unit vendors its primitives and is
+  self-contained by construction — a missing import means a bad unit, so re-deploy, don't patch the box.
+- **If install fails, read the `CMPxxx` error and follow its fix.** Don't route around the verb.
 
 ## Gap reports = the honest refusal
 
