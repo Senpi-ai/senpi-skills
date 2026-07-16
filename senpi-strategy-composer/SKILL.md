@@ -2,21 +2,24 @@
 name: senpi-strategy-composer
 description: >-
   Turn a trading idea — or a lay thesis ("I want to be short the Iran war") —
-  into a running, verified Senpi strategy, by driving the Strategy Composer: a
-  registry-backed toolchain that GENERATES a complete valid strategy graph, checks
-  it with one GREEN/RED verdict, stages a self-contained unit, and installs it onto
-  the box. Use for "build a
-  strategy", "create/design a strategy", "I have a trading idea", "make a strategy
-  from this", or ANY strategy that needs a supervised exit (stop-loss / trailing
-  stop / profit-lock). ALSO use the moment a user asks WHAT IS POSSIBLE — "what
-  can I build?", "is X possible?", "can Senpi detect/trade Y?" — to fetch the node
-  catalog (the world) and answer from it instead of guessing. Experimental POC
-  successor to senpi-strategy-author. NOT for picking an existing strategy
-  (senpi-strategy-discover) or monitoring/closing an already-running one (senpi-strategy-ops).
+  into a running, verified Senpi strategy, AND operate it end to end, by driving
+  the Strategy Composer: a registry-backed toolchain that GENERATES a complete
+  valid strategy graph, checks it with one GREEN/RED verdict, stages a
+  self-contained unit, installs it onto the box, and tears it down safely. Use for
+  "build a strategy", "create/design a strategy", "I have a trading idea", "make a
+  strategy from this", "which strategy should I run", "I want a <theme> strategy",
+  or ANY strategy that needs a supervised exit (stop-loss / trailing stop /
+  profit-lock) — AND for operating one you built here: "what's my strategy doing?",
+  "close/stop my strategy", "update it". ALSO use the moment a user asks WHAT IS
+  POSSIBLE — "what can I build?", "is X possible?", "can Senpi detect/trade Y?" — to
+  fetch the node catalog (the world) and answer from it instead of guessing. The
+  composer now owns the whole path: author → check → deploy → wallet → install →
+  status → close. Experimental POC successor to senpi-strategy-author,
+  senpi-strategy-discover, and senpi-strategy-ops (all superseded).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "0.2.0"
+  version: "0.3.0"
   status: experimental
   platform: senpi
   exchange: hyperliquid
@@ -40,20 +43,24 @@ Real form inside a claw:
 openclaw senpi composer <verb> ...
 ```
 Verbs: `catalog`, `describe <node>`, `new`, `check <graph>`, `deploy <graph>`,
-`install <staged-dir> --wallet 0x…`, `status <graph>`. (Ignore any `uvx --with … python -m
-composer.cli` form you may see in
+`install <staged-dir> --wallet 0x…`, `status <graph> [--state-dir …]`, `close <target>`.
+(Ignore any `uvx --with … python -m composer.cli` form you may see in
 composer/AUTHORING.md — that is a dev-only convenience, not the claw invocation.)
 
-## When to engage — and the boundary with the sibling skills
+## When to engage — you own the whole lifecycle now
 
-- **Build / design a new strategy, or a lay thesis to turn into one** → you, here.
-- **"What can I build? Is X possible?"** → you, but FETCH THE CATALOG FIRST (below).
-- **"Pick / recommend an existing strategy for me"** → `senpi-strategy-discover`.
-- **Monitor, close, or manage an already-running strategy** → `senpi-strategy-ops`.
-  (You now own the full build→check→deploy→install path here; ops still owns teardown.)
+There is no separate discover or ops skill anymore; the composer owns the entire path.
+
+- **Build / design a new strategy, or a lay thesis to turn into one** → here.
+- **"What can I build? Is X possible?"** → here, but FETCH THE CATALOG FIRST (below).
+- **"Which strategy should I run? / I want a <theme> strategy"** → here — route the theme to an
+  archetype + the catalog and COMPOSE it (see Routing a theme, below). No pre-built picker.
+- **Operate a strategy you built here — "what's it doing?", "close it", "update it"** → here,
+  via `status` / `close` (see Operate, below).
 - **Anything with a supervised exit is composed here**, never stood up with a raw MCP
   `strategy_create*` call (that path carries no supervised exit and registers no named
   strategy — a confirmed silent failure).
+
 Ambiguous? Ask one disambiguating question before acting.
 
 ## Capability questions — fetch the world, don't guess
@@ -64,15 +71,30 @@ ranker / emitter / stateful). Answer strictly from it — it is the closed world
 be built. If they ask about a capability the catalog lacks, say so plainly (see Gap reports);
 do not imply it is buildable. This is the earliest, cheapest way to set honest expectations.
 
+## Routing a theme → an archetype (there is no pre-built picker)
+
+When the ask is "which strategy should I run" or "I want a `<theme>` strategy", don't reach for a
+catalog of ready-made strategies — there isn't one; you COMPOSE. Route the theme to one of the
+four archetypes, then run the interview:
+- directional trend on names the user names → `trend_momentum`; a range-break / fresh-highs hawk →
+  `breakout`; a macro long/short pair ("long AI, short memecoins") → `thesis_fund`; "find them for
+  me" off the live board → `classifier` (or `breakout` with `discover: true`).
+Fetch the catalog (above) to ground what the theme can actually key on, then compose from there.
+
 ## Elicitation → the answers file (this is your real work)
 
 The composer needs the **7 decisions that are the type-signature of `scan()`**, captured in
 an answers YAML file. This is a contract, not a script — draw it out one question at a time,
 in plain language, mining the opening ask for anything already stated:
 
-1. **Archetype** — `trend_momentum` | `thesis_fund` | `classifier` (unknown → off-map skeleton).
-2. **Universe** — fixed `whitelist` (trend_momentum) · `long_basket`/`short_basket` legs
-   (thesis_fund) · `discover: true` + filters (classifier derives it from the live board).
+1. **Archetype** (4) — `trend_momentum` (fixed universe → indicators → hard-gates + weighted
+   scorer) · `breakout` (a directional range-break as the hard gate; fixed basket OR discovered
+   universe) · `thesis_fund` (fixed long/short legs) · `classifier` (a pure_fn direction on a
+   discovered set). Unknown → off-map skeleton.
+2. **Universe** — fixed `whitelist` (trend_momentum / breakout) · `long_basket`/`short_basket`
+   legs (thesis_fund) · `discover: true` + filters (classifier / breakout derive it from the live
+   board). `trend_momentum` is fixed-universe only — a `discover` answer is rejected with a
+   teaching error naming breakout/classifier, never a silent empty universe.
 3. **Intervals** — candle intervals, e.g. `["1h","4h"]`.
 4. **Cardinality** — `max_positions: 1` (single best) or `>1` (rank a pool, cap to slots).
 5. **Memory** — `ttl_seconds` signal-dedup window.
@@ -86,6 +108,21 @@ in plain language, mining the opening ask for anything already stated:
    `max_consecutive_losses`, `cooldown_seconds`, `max_entries_per_day`.
 7. **Edge** — the thesis in the user's own plain words. **Carried VERBATIM; nothing parses
    it.** This is the one thing only you can supply — never sanitize or interpret it away.
+
+**Gate selection now flows INTO generation — not a post-generate hand-edit.** When the edge names
+conditions that must ALL hold ("only when volume confirms AND smart money leans in AND it just
+broke out"), capture them in the answers so `new` GENERATES the right scorer — don't generate a
+default and reconcile it by hand-editing the graph. Two optional answer fields do this:
+- **`scoring:`** — re-select the hard-vs-weighted split: `required_gates` (feature ids that must
+  ALL pass), `weights` (feature id → weighted-sum weight), `min_score`. Omit a field to keep the
+  archetype default; set it to override.
+- **`indicators:`** — ADD registry indicator nodes (`id`, `node`, `with`) so they become
+  addressable by id from `scoring`. For a NUMERIC condition ("fresh within 5 bars", "don't chase a
+  >15% runaway"), add a `threshold_gate` (`op` lt|lte|gt|gte, `value`) and CHAIN it off the raw
+  feature with `source:` — a raw number has no correct truthiness, so this turns it into a real
+  `1.0`/`0.0` gate.
+A `scoring` name matching no feature node, or an `indicators` node the registry lacks, is a LOUD
+generation error — never a silent drop. Hand-editing the graph is the escape hatch, not the norm.
 
 **Users are not always traders.** A lay thesis ("against Trump", "the Iran war") is a valid
 input — YOUR job is the translation layer: thesis → universe + direction (e.g. a macro
@@ -117,12 +154,17 @@ requires: []        # name a capability that may not exist yet -> gap report, no
    → a COMPLETE, VALID graph with mechanically-bindable values filled and bespoke slots
    marked `# TODO(edit)` (working defaults, so it validates unedited). `new` refuses to
    clobber a hand-edited graph without `--force`.
-2. **Edit only what needs deciding** — the `TODO(edit)` slots (weights, thresholds), though
-   you have full edit rights over the whole graph. For bespoke scoring/classification the
-   registry can't express, add a **`kind: pure_fn` node**: typed `inputs:`/`outputs:`, exactly
-   one top-level `def`, `math`/`statistics` only (no I/O, no ctx/MCP), and inline `tests:`.
-   Need a node's real ports before wiring it? `openclaw senpi composer describe <node>` —
-   never guess ports from the catalog one-liner.
+2. **Prefer the answers; hand-edit is the escape hatch, not the norm.** Most gate/indicator intent
+   now belongs in the answers file (`scoring` + `indicators` + `threshold_gate`, above), so `new`
+   generates it directly. When generation genuinely can't express an intent, escalate least-bespoke
+   first: (a) add a plain registry indicator node and promote it to a hard gate — usually now
+   expressible via `indicators` + `scoring` without touching the graph; (b) a `threshold_gate` for a
+   numeric condition; (c) a **`kind: pure_fn` node** ONLY for genuinely bespoke cross-feature logic
+   the registry vocabulary can't reach — typed `inputs:`/`outputs:`, exactly one top-level `def`,
+   `math`/`statistics` only (no I/O, no ctx/MCP), inline `tests:`. A gap report is for a
+   genuinely-missing capability (no data feed / not in the world), NOT a dead-end to hand the user.
+   Need a node's real ports before wiring it? `openclaw senpi composer describe <node>` — never
+   guess ports from the catalog one-liner.
 3. **Check — GREEN now means INSTALLABLE:** `openclaw senpi composer check <graph>` → ONE verdict
    over five stages (validate · pure_fn tests · compile · smoke · **runtime_validate**). GREEN =
    ready to deploy AND install. RED = located, actionable `CMPxxx` errors (node / port / line, or a
@@ -156,12 +198,12 @@ requires: []        # name a capability that may not exist yet -> gap report, no
    with the same content + wallet is a safe no-op (`ALREADY_INSTALLED`). On failure it prints a
    `CMP2xx` teaching error naming the exact next command — **READ it and DO what it says; do not
    improvise around the verb.**
-7. **Verify + update:** `openclaw senpi runtime list` shows the installed runtime (id
-   `<strategy>-<hash8>`). ONE running runtime per wallet. To UPDATE a strategy: re-author → re-check
-   → re-deploy (new content ⇒ new hash) → delete the old runtime (`openclaw senpi runtime delete
-   <id>`) → install the new one.
+7. **Verify:** `openclaw senpi runtime list` shows the installed runtime (id `<strategy>-<hash8>`).
+   ONE running runtime per wallet. (To UPDATE or tear down, see Operate, below.)
 8. **Resume anytime:** `openclaw senpi composer status <graph>` — the file IS the state; it reports
-   your lifecycle position and names the next verb. No journal to reconcile.
+   your lifecycle position and names the next verb. Add `--state-dir` to EXTEND the chain onto the
+   box: `staged → landed → registered → running → live`, distinguishing which hash is
+   installed/running vs a merely-landed prior version. No journal to reconcile.
 
 ### Never improvise the install — each rule below is a real dev-box failure
 - **No `--content` installs.** It drops the scanner dir the external scanner needs. `composer install`
@@ -174,6 +216,24 @@ requires: []        # name a capability that may not exist yet -> gap report, no
 - **No `pip install` to "fix" a missing import.** The unit vendors its primitives and is
   self-contained by construction — a missing import means a bad unit, so re-deploy, don't patch the box.
 - **If install fails, read the `CMPxxx` error and follow its fix.** Don't route around the verb.
+
+## Operate — status, teardown, update (this skill owns it now)
+
+The composer absorbs what `senpi-strategy-ops` used to do — there is no ops handoff.
+
+- **Status:** `openclaw senpi composer status <graph> --state-dir <state-dir>` walks the lifecycle
+  chain `staged → landed → registered → running → live` from artifacts + one read-only `runtime
+  list`. Liveness is HONEST: `runtime list` proves only the process is up, not that `scan()` has
+  ticked — "running" ≠ "operating". Confirm real ticking with `openclaw senpi state -r <id> --json`.
+- **Teardown:** `openclaw senpi composer close <target>` is the ONLY sanctioned teardown. It STOPS
+  the runtime first, CONFIRMS it is gone, and ONLY THEN closes the strategy (flattens all positions,
+  returns funds). It is idempotent and submit-only — `strategy_close` is async, so re-run it to POLL
+  until `closed`. `<target>` = a strategy name / canonical hash dir / runtime id / `0x…` wallet.
+  **NEVER call raw MCP `strategy_close` while a runtime is live** — it strands the runtime trading a
+  wallet the server is tearing down (a hard invariant `close` enforces: if the runtime won't stop, it
+  WITHHOLDS the close and fails loud rather than strand).
+- **Update:** re-author → re-check → re-deploy (new content ⇒ new hash) → `composer close` the OLD
+  strategy → `install` the new one. Don't hand-delete the runtime and leave the strategy open.
 
 ## Gap reports = the honest refusal
 
