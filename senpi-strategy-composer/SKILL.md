@@ -13,7 +13,7 @@ description: >-
   "close/stop my strategy", "update it". ALSO use the moment a user asks WHAT IS
   POSSIBLE — "what can I build?", "is X possible?", "can Senpi detect/trade Y?" — to
   fetch the node catalog (the world) and answer from it instead of guessing. The
-  composer now owns the whole path: author → check → deploy → wallet → install →
+  composer now owns the whole path: author → check → deploy → fund → install →
   status → close. Experimental POC successor to senpi-strategy-author,
   senpi-strategy-discover, and senpi-strategy-ops (all superseded).
 license: Apache-2.0
@@ -43,7 +43,7 @@ Real form inside a claw:
 openclaw senpi composer <verb> ...
 ```
 Verbs: `catalog`, `describe <node>`, `new`, `check <graph>`, `deploy <graph>`,
-`install <staged-dir> --wallet 0x…`, `status <graph> [--state-dir …]`, `close <target>`.
+`fund <staged-dir> --budget N`, `install <staged-dir> [--wallet 0x…]`, `status <graph> [--state-dir …]`, `close <target>`.
 (Ignore any `uvx --with … python -m composer.cli` form you may see in
 composer/AUTHORING.md — that is a dev-only convenience, not the claw invocation.)
 
@@ -182,17 +182,19 @@ requires: []        # name a capability that may not exist yet -> gap report, no
    tree is PRISTINE: the wallet is a `${..._WALLET}` placeholder, left intact. **NEVER hand-edit a
    staged unit** — install re-verifies every artifact against the manifest and REFUSES a tampered one
    (CMP201). To change anything, re-author → re-check → re-deploy.
-5. **Wallet — create/verify it conversationally (MCP); install binds it:** the runtime binds ONE
-   strategy wallet, which must be **ACTIVE**. Create or find it with the MCP tools
-   `strategy_create_custom_strategy` (create) / `strategy_list` (read its `strategyWalletAddress` +
-   status); funding/budget stays an agent↔user conversation, as always. This MCP call mints only the
-   WALLET — it does NOT stand up the strategy (that path carries no DSL exit); the DSL-protected
-   runtime comes from `composer install` binding the composed unit onto the wallet. Wait until the
-   wallet reaches ACTIVE before installing.
+5. **Wallet — `composer fund` creates + funds it (never improvise a budget):** first AGREE the
+   budget with the user explicitly (never invent one; ≥ $100), then
+   `openclaw senpi composer fund <staged-dir> --budget N`. It preflights your visible balance,
+   creates the strategy wallet (MCP `strategy_create_custom_strategy`, DSL-protected runtime still
+   comes from `install`), waits for it to reach ACTIVE, and is SAFE to re-run while funding settles
+   (re-run IS the poll). If it reports a shortfall or a wait: funds moved from Hyperliquid to EVM can
+   LAG ~a minute before the backend sees them — just wait and re-run; do NOT go bridging in pieces.
+   Never call raw `strategy_create*` to stand up the wallet by hand.
 6. **Install — the ONE sanctioned box-side path:**
-   `openclaw senpi composer install <staged-dir> --wallet 0x…` (`--wallet` REQUIRED — a 0x… 40-hex
-   address from `strategy_list`; pass a graph file plus `-o <staging-dir>` if you don't have the
-   staged dir path). It copies the unit to an immutable, content-addressed dir under senpi-state,
+   `openclaw senpi composer install <staged-dir>` — omit `--wallet` and it auto-binds the wallet
+   `composer fund` just funded (or pass `--wallet 0x…` explicitly to override; a 0x… 40-hex address
+   from `strategy_list`; pass a graph file plus `-o <staging-dir>` if you don't have the staged dir
+   path). It copies the unit to an immutable, content-addressed dir under senpi-state,
    binds the wallet into the COPY (staged source stays pristine), and invokes
    `openclaw senpi runtime create -p` **itself**. This verb owns the entire box-side step. Re-install
    with the same content + wallet is a safe no-op (`ALREADY_INSTALLED`). On failure it prints a
