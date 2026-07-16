@@ -126,6 +126,31 @@ def resolve_pkg_dir(arg):
     return p  # let load() raise the BadPackage with the original arg
 
 
+_DEFAULT_INSTANCE = "main"
+
+
+def _flat_instance(pkg_dir, pkg_id):
+    """Synthesize the manifest entry for a FLAT single-instance package (one `runtime.yaml` at the
+    package root + `scanners/`) — the layout agents naturally scaffold. Binds `wallet_env` to the
+    `${...}` the flat runtime already uses for its wallet, so render substitutes correctly; falls back
+    to `<ID>_WALLET` when the runtime declares none (validate then flags the missing binding, rather
+    than the deploy failing opaquely). The synthesized instance flows through validate/render/deploy
+    identically to a declared one."""
+    wallet_env = None
+    try:
+        doc = yaml.safe_load((pkg_dir / "runtime.yaml").read_text()) or {}
+        wallet_ref = (doc.get("strategy") or {}).get("wallet") if isinstance(doc, dict) else None
+        m = _VAR_RE.search(str(wallet_ref or ""))
+        if m:
+            wallet_env = m.group(1)
+    except Exception:  # noqa — best-effort detection; validate catches a bad/absent binding
+        pass
+    if not wallet_env:
+        wallet_env = re.sub(r"[^A-Za-z0-9]", "_", str(pkg_id or "")).upper().strip("_") + "_WALLET"
+    return {"name": _DEFAULT_INSTANCE, "runtime": "runtime.yaml",
+            "wallet_env": wallet_env, "funding_share": 1.0}
+
+
 def load(pkg_dir) -> Package:
     """Parse strategy.yaml into a Package. Accepts a path or a bare id (resolved to strategies/<id>).
     Raises BadPackage if it can't be modelled at all."""
@@ -143,7 +168,15 @@ def load(pkg_dir) -> Package:
     if not man.get("id"):
         raise BadPackage("strategy.yaml: missing 'id'")
     if not isinstance(man.get("instances"), list) or not man["instances"]:
-        raise BadPackage("strategy.yaml: 'instances' must be a non-empty list")
+        # Accept a FLAT single-instance package — synthesize the canonical `main` instance when there
+        # IS a root runtime.yaml to point it at. A package with neither instances nor a root
+        # runtime.yaml is genuinely unusable.
+        if (pkg / "runtime.yaml").is_file():
+            man = dict(man)
+            man["instances"] = [_flat_instance(pkg, man.get("id"))]
+        else:
+            raise BadPackage("strategy.yaml: 'instances' must be a non-empty list "
+                             "(or ship a single flat runtime.yaml at the package root)")
     return Package(pkg, man)
 
 
@@ -167,12 +200,13 @@ def validate(pkg: Package) -> list:
         if inst.runtime_doc is None:
             errs.append(f"{tag}: runtime {inst.runtime_rel!r} is not valid YAML")
             continue
-        # linkage convention
+        # linkage convention — messages are PRESCRIPTIVE (the exact value to set), since every model
+        # in the bake-off tripped on `name: <id>` vs the required `<id>-<instance>`.
         if inst.group != pkg.id:
-            errs.append(f"{tag}: runtime group {inst.group!r} != strategy id {pkg.id!r}")
+            errs.append(f"{tag}: set runtime `group: {pkg.id}` (found {inst.group!r})")
         expect_name = f"{pkg.id}-{inst.name}"
         if inst.runtime_name != expect_name:
-            errs.append(f"{tag}: runtime name {inst.runtime_name!r} != {expect_name!r}")
+            errs.append(f"{tag}: set runtime `name: {expect_name}` (found {inst.runtime_name!r})")
         # wallet binding
         if not inst.wallet_env:
             errs.append(f"{tag}: missing wallet_env")
@@ -189,6 +223,13 @@ def validate(pkg: Package) -> list:
             ep = inst.runtime_path.parent / sub / es.get("entrypoint", "scan.py")
             if not ep.is_file():
                 errs.append(f"{tag}: scanner entrypoint {ep.name!r} not found at {ep.parent}")
+            # the runtime engine requires a non-empty signal_data_schema MAP on the external_scanner,
+            # as a sibling of `inputs` (not nested inside it) — the other bake-off tripwire. Surface it
+            # here, pre-funding, instead of at runtime-create after the wallet is already funded.
+            sds = es.get("signal_data_schema")
+            if not isinstance(sds, dict) or not sds:
+                errs.append(f"{tag}: external_scanner needs a non-empty `signal_data_schema` map "
+                            f"(a sibling of `inputs`, not nested inside it)")
         if inst.funding_share is None:
             errs.append(f"{tag}: missing funding_share")
         # llm actions need a model env declared

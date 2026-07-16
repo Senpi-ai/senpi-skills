@@ -23,6 +23,12 @@ strategies/<id>/
 ```
 One instance binds to one wallet. A long book + a short book, or a swing + a scalp leg, = **multiple instances**.
 
+**Single-instance? Build it FLAT** — `strategy.yaml` + `runtime.yaml` + `scanners/` at the package root,
+no `instances:` list and no `<instance>/` dir: the deployer (strategy-ops v2.4.0+) synthesizes the
+canonical `main` instance for you. The nested `<instance>/` layout above is only *required* for
+multi-instance strategies. Either way, `deploy.py validate strategies/<id>` tells you in one pass
+whether the package is deploy-ready.
+
 ## 3. Division of labor — memorize this
 
 | **You own** | **Runtime 3.0 owns** |

@@ -1,5 +1,5 @@
 # ── MAGPIE · PRE-LISTING book — accumulate pre-IPO perpetuals (IPOPs) into the IPO ──
-name: magpie-pre-listing
+name: magpie-pre_listing
 group: magpie
 version: 3.0.0
 description: >
