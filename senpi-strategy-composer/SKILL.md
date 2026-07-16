@@ -166,9 +166,17 @@ requires: []        # name a capability that may not exist yet -> gap report, no
    top-level `def`, `math`/`statistics` only (no I/O, no ctx/MCP), inline `tests:`. Hand-editing
    the graph is likewise fine when surgical: stay inside the node-graph shape, and `describe` every
    node you wire (`openclaw senpi composer describe <node>` — never guess ports from the catalog
-   one-liner). A gap report means a missing SOURCE capability (no data feed / not yet in the
-   supplied world) — surface it to the Senpi team as an add request, never as a dead-end to the
-   user, and offer the nearest buildable alternative from the catalog.
+   one-liner). **For reads: reach for a curated source node FIRST** (`catalog`/`describe` before
+   anything). When none exposes the read you need, the **`mcp_read` escape hatch** calls an
+   arbitrary MCP tool (must be snapshot-listed and read-only — mutations are refused) and emits a
+   `raw` payload you MUST normalize in a `pure_fn` (a `raw` wire feeds nothing else). It is a LAST
+   RESORT: say in the `edge:` WHAT you're fetching and WHY the curated path can't express it
+   (`check` annotates the use anyway, and flags when a first-class node already wraps the tool —
+   prefer it). **NEVER invent a capability** — if a tool or data feed doesn't exist, do not
+   fabricate it or fake it in a scanner. A gap report means a missing SOURCE capability that no
+   hatch reaches — surface it to the Senpi team as an add request, and come back to the user with
+   the nearest thing that IS possible from the catalog; only when there is no path at all, tell
+   them plainly what cannot be done and why.
 3. **Check — GREEN now means INSTALLABLE:** `openclaw senpi composer check <graph>` → ONE verdict
    over five stages (validate · pure_fn tests · compile · smoke · **runtime_validate**). GREEN =
    ready to deploy AND install. RED = located, actionable `CMPxxx` errors (node / port / line, or a
