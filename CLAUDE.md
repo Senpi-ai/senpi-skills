@@ -102,6 +102,15 @@ Hard-won invariants (each failed silently in production once):
   tradeable.
 - **Copy identifiers from their source, never from memory** — a plausible field name, enum, or
   unit compiles fine, ticks clean, and trades nothing.
+- **Coin symbols on money-moving tools: plain for main-dex crypto, dex-prefixed for HIP-3
+  assets — never mix the two up.** On `strategy_create_custom_strategy`, `create_position`,
+  `edit_position`, `close_position`, `strategy_close_positions`, `ratchet_stop_*`, and the
+  estimate tools, main-dex crypto stays bare (`BTC`, not `xyz:BTC`) and HIP-3 builder-dex assets
+  carry their dex prefix — today that's the XYZ dex (equities, metals, indices, energy):
+  `xyz:BRENTOIL`, not `BRENTOIL`. When unsure which side a symbol falls on, check
+  `market_list_instruments`. Unknown coins are rejected as `INVALID_ARGUMENT` — never retry
+  them. In `discovery_*` output, `coinDisplayName` (`"NVDA"`) is display-only — **always copy
+  the `coin` field into tool calls**, it holds the tradeable form.
 
 ---
 
