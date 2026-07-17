@@ -83,6 +83,10 @@ Fetch the catalog (above) to ground what the theme can actually key on, then com
 
 ## Elicitation → the answers file (this is your real work)
 
+**Verify buildability BEFORE the question burn.** Map the thesis to catalog nodes + an archetype first
+(`composer catalog`/`describe`); if the mapping needs a hatch (pure_fn / surgical edit / mcp_read), know WHICH
+one before you ask the user six questions — don't elicit a full spec you then can't build.
+
 The composer needs the **7 decisions that are the type-signature of `scan()`**, captured in
 an answers YAML file. This is a contract, not a script — draw it out one question at a time,
 in plain language, mining the opening ask for anything already stated:
@@ -97,7 +101,8 @@ in plain language, mining the opening ask for anything already stated:
    teaching error naming breakout/classifier, never a silent empty universe.
 3. **Intervals** — candle intervals, e.g. `["1h","4h"]`.
 4. **Cardinality** — `max_positions: 1` (single best) or `>1` (rank a pool, cap to slots).
-5. **Memory** — `ttl_seconds` signal-dedup window.
+5. **Memory** — `ttl_seconds` signal-dedup window. Three TTL-ish knobs, never conflate: `ttl_seconds` = signal
+   DEDUP window · `interval_seconds` = scan CADENCE · `valid_for_seconds` = per-signal envelope TTL.
 6. **Risk + protection** — `margin_pct` (PERCENT of withdrawable, (0,100]) + `leverage`, and
    the **exit protection preset**: `protected_standard` (balanced, the DEFAULT) ·
    `protected_tight` (cut failures fast) · `protected_wide` (let a runner breathe). PROTECTION
@@ -218,6 +223,22 @@ requires: []        # name a capability that may not exist yet -> gap report, no
    your lifecycle position and names the next verb. Add `--state-dir` to EXTEND the chain onto the
    box: `staged → landed → registered → running → live`, distinguishing which hash is
    installed/running vs a merely-landed prior version. No journal to reconcile.
+
+### Never improvise authoring — keyed to a real dev-test failure
+- **The composer artifact chain (graph → check → deploy → install) is the ONLY authoring path.** Never
+  hand-write `scan.py`, scanner modules, or `runtime.yaml` outside the staged tree — even when the composer
+  seems unable to express the thesis (doing so loses vendoring, the check oracle, the install path, and the
+  teaching errors). The sanctioned hatches below — `pure_fn`, surgical graph edits, `mcp_read` — are IN-chain:
+  graph-level, still pass `check`, allowed.
+- **Climb the hatch ladder before concluding the vocabulary lacks something:** (1) re-check the registry —
+  `composer catalog` + `composer describe <node|kind|port_type|archetype>`; a capability's absence from your
+  memory or from ONE CLI surface is not absence — `describe pure_fn` is the authoring contract for bespoke
+  compute; (2) `kind: pure_fn` / surgical graph edits / `mcp_read` for unwrapped reads (all above); (3) only if
+  genuinely inexpressible at a hard seam: tell the user plainly what IS buildable, offer the nearest
+  approximation with the difference stated honestly, and record a gap report for maintainers. Never a dead-end
+  refusal, never a bypass.
+- **A tool error like "unknown node" for something the catalog's prose names → CHECK THE OTHER SURFACE**
+  (`describe`/`catalog`), not proof the capability is fiction.
 
 ### Never improvise the install — each rule below is a real dev-box failure
 - **No `--content` installs.** It drops the scanner dir the external scanner needs. `composer install`
