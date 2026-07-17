@@ -863,6 +863,142 @@ def test_no_trades_when_both_sources_empty():
     assert "closed_trade_source" not in meta
 
 
+# ────────────────────────────── scope + fast-fail (the "telemetry unavailable" live-run fix, M404726) ──
+# The failure: "improve my last 10 trades" fanned the event-log shell-out across a churned book of dozens of
+# CLOSED runtimes. A closed runtime's on-disk ring is torn down, so each `openclaw senpi events` hung to its
+# timeout; N hangs → the whole review reported "telemetry unavailable" (every exit_reason UNKNOWN) — even for
+# the live strategies whose ring WAS readable. Fix: only current (active/paused) strategies are ever event-
+# fetched, last_n is a GLOBAL bound, and repeated timeouts trip a breaker.
+def _mixed_result_with_telemetry(last_n=None):
+    """Mixed current/closed fixture WITH the event-log fixture pinned (both env vars restored after)."""
+    old_ev = os.environ.get("SENPI_EVENTS_FIXTURE")
+    os.environ["SENPI_EVENTS_FIXTURE"] = EVENTS_FIXTURE
+    try:
+        return _mixed_result(last_n=last_n)
+    finally:
+        if old_ev is None:
+            os.environ.pop("SENPI_EVENTS_FIXTURE", None)
+        else:
+            os.environ["SENPI_EVENTS_FIXTURE"] = old_ev
+
+
+def test_closed_strategy_is_never_event_fetched():
+    """A CLOSED strategy's ring is gone — the engine must NEVER shell `openclaw senpi events` at it (that
+    hang, fanned across a churned book, is what made a full review 'time out'). The mixed fixture has 3
+    strategies (kodiak ACTIVE, grizzly PAUSED, kodiak CLOSED); only the 2 CURRENT ones are ever event-fetched
+    — the closed redeployment is skipped, and its trades stay reconstructed (never telemetry-sourced)."""
+    calls = []
+    real = review._fetch_events
+    def _spy(runtime_id, since_ms, meta):
+        calls.append(runtime_id)
+        return real(runtime_id, since_ms, meta)
+    review._fetch_events = _spy
+    try:
+        res = _mixed_result_with_telemetry()
+    finally:
+        review._fetch_events = real
+    assert len(calls) == 2                                   # only the 2 current strategies — never the closed one
+    by = {t["asset"]: t for t in res["trades"]}
+    assert by["BTC"]["source"] != "telemetry"                # closed-strategy trades: reconstructed, not enriched
+    assert by["DOGE"]["source"] != "telemetry"
+
+
+def test_last_n_is_global_not_per_strategy():
+    """--last N is a GLOBAL bound across the whole book, not N-per-strategy. The mixed fixture has 4 trades
+    across 2 wallets (current + closed); last_n=2 → the 2 most-recent overall (pre-fix: up to 2 per wallet =
+    4). The two returned are exactly the two newest by close_time."""
+    full = _mixed_result()
+    assert full["meta"]["trade_count"] == 4
+    top2 = [t["asset"] for t in full["trades"][:2]]         # the engine returns trades newest-first
+    capped = _mixed_result(last_n=2)
+    assert capped["meta"]["trade_count"] == 2                # GLOBAL cap — not 2 per wallet
+    assert [t["asset"] for t in capped["trades"]] == top2
+
+
+def test_event_timeout_fails_open_without_a_breaker():
+    """A slow event fetch fails open for THAT strategy only (returns [] + a warning) — and there is NO
+    count-based circuit breaker: the parallel fan-out gives each worker a private meta, so a cross-strategy
+    timeout counter could never accumulate mid-fan-out (the real bound is the current-book-only guard, which
+    never probes closed strategies). Guards against reintroducing the dead breaker Duncan flagged."""
+    import subprocess as _sp
+    old_ev = os.environ.pop("SENPI_EVENTS_FIXTURE", None)   # force the subprocess path, not the fixture
+    def _raise_timeout(*a, **k):
+        raise _sp.TimeoutExpired(cmd="openclaw", timeout=review.EVENTS_CALL_TIMEOUT_S)
+    real_run = review.subprocess.run
+    review.subprocess.run = _raise_timeout
+    try:
+        meta = {}
+        assert review._fetch_events("rt-1", NOW_MS, meta) == []            # fail-open for this strategy
+        assert any("timed out" in w for w in meta.get("warnings", []))     # a warning was recorded
+        assert "_telemetry_dead" not in meta                               # ONE timeout is not terminal
+        assert not hasattr(review, "EVENTS_TIMEOUT_BUDGET")                # the dead breaker constant is gone
+    finally:
+        review.subprocess.run = real_run
+        if old_ev is not None:
+            os.environ["SENPI_EVENTS_FIXTURE"] = old_ev
+
+
+# ─────────────────────── stdout context-cost slimming (the samurai-pro timeout fix) ───────────────
+# review.py's stdout IS the model's context next turn. A 146-trade account dumped the full array (~29k
+# tokens) into context → prefill blew the delivery timeout (samurai-pro >60s tail). The fix: stdout
+# carries a top-N OUTLIER sample + counts; aggregates stay complete; the on-disk state keeps the full
+# array; `--full` restores it.
+def _big_result(n_trades=146, n_missed=40):
+    def mk(i):
+        return {"asset": f"A{i % 40}", "direction": "long" if i % 2 else "short",
+                "realized_pnl": round((i - 73) * 3.14, 2), "if_held_delta_usd": round((73 - i) * 5.5, 2),
+                "close_time": 1782500000000 + i * 60000, "exit_vs_hold": "held_higher",
+                "price_since_exit_pct": round((i - 73) * 0.3, 2), "strategy_label": "lion",
+                "strategy_wallet": f"0xwallet{i:036x}", "margin_used": 250.0, "leverage": 5,
+                "mandate": "Long winners, short laggards — a deliberately verbose per-trade field.",
+                "exit_reason": {"terminal": "SL_TRIGGERED", "tier_reached": 2, "high_water_roe": 41.0}}
+    return {"trades": [mk(i) for i in range(n_trades)],
+            "timing_summary": {"trade_count": n_trades, "exits_ahead": 124},
+            "pnl_summary": {"total": 468.44, "realized": -239.44},
+            "missed_signals": [{"asset": f"M{i}", "reason_code": "no_slots"} for i in range(n_missed)],
+            "meta": {"trade_count": n_trades}}
+
+
+def test_stdout_slim_samples_trades_and_keeps_aggregates():
+    """STDOUT carries a top-N outlier SAMPLE (not the 146-row array that blew the delivery timeout); every
+    aggregate stays intact; the payload shrinks >85%."""
+    big = _big_result()
+    slim = review._slim_for_context(big, full=False)
+    assert len(slim["trades"]) == review.STDOUT_TRADES_SAMPLE                  # sampled, not all 146
+    assert slim["trades_sample"]["total"] == 146                              # true count preserved
+    assert slim["timing_summary"]["exits_ahead"] == 124                       # aggregate untouched
+    assert slim["pnl_summary"]["total"] == 468.44
+    assert len(slim["missed_signals"]) == review.STDOUT_MISSED_SAMPLE
+    keys = set(slim["trades"][0].keys())                                      # per-trade fields trimmed
+    assert "realized_pnl" in keys and "exit_reason" in keys
+    assert not ({"strategy_wallet", "mandate", "margin_used"} & keys)         # verbose internals dropped
+    assert len(json.dumps(slim)) < 0.15 * len(json.dumps(big))               # the whole point
+
+
+def test_stdout_slim_samples_the_outliers():
+    """The sample is the biggest-realized + biggest-hold-to-now moves — the trades a coach actually cites."""
+    big = _big_result()
+    slim = review._slim_for_context(big, full=False)
+    biggest = max(big["trades"], key=lambda t: abs(t["realized_pnl"]))
+    assert any(t["realized_pnl"] == biggest["realized_pnl"] for t in slim["trades"])
+
+
+def test_stdout_slim_full_flag_restores_everything():
+    big = _big_result()
+    assert review._slim_for_context(big, full=True) is big                    # unchanged, complete
+
+
+def test_stdout_slim_small_book_not_falsely_sampled():
+    """A small book (<= sample size) is field-trimmed but NOT flagged as a 'sample' — nothing hidden, so
+    the narrator must not imply trades were dropped."""
+    small = {"trades": [{"asset": "BTC", "realized_pnl": 10.0, "strategy_wallet": "0xabc"}],
+             "meta": {"trade_count": 1}}
+    slim = review._slim_for_context(small, full=False)
+    assert len(slim["trades"]) == 1
+    assert "strategy_wallet" not in slim["trades"][0]                         # still field-trimmed
+    assert "trades_sample" not in slim                                        # NOT flagged as truncated
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

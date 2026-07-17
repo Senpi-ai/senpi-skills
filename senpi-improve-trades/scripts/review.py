@@ -61,6 +61,10 @@ REGISTRY_FILENAME = "installed_runtimes.json"
 # ("what did I miss"). It NEVER reconstructs a trade or re-derives a price/PnL — discovery OWNS those.
 EVENTS_FIXTURE_ENV = "SENPI_EVENTS_FIXTURE"   # offline test hook: JSON {"<runtime_id>": [entries…]}
 EVENTS_PULL = 500                             # events to pull per runtime before matching (recent ring)
+# `openclaw senpi events` spawnSyncs a SECOND `openclaw gateway call` process, so this timer wraps two CLI
+# boots + the read — a HEALTHY fetch on a loaded host can take several seconds (it exceeded 8s during the
+# incident). Keep it generous; the current-book-only guard already bounds worst-case wall to ~ceil(N/8)×this.
+EVENTS_CALL_TIMEOUT_S = 8                      # per-runtime event shell-out timeout (wraps double CLI boot + read)
 EXIT_MATCH_WINDOW_MS = 120000.0               # ±2 min asset+time fallback when there's no order_id
 _EXIT_EVENT_NAMES = ("dsl.closed", "position.closed")
 _MISSED_RESULTS = ("rejected", "blocked")     # signal.outcome results that never became a trade
@@ -484,12 +488,18 @@ def _fetch_events(runtime_id, since_ms, meta):
     if since_iso:
         cmd += ["--since", since_iso]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=EVENTS_CALL_TIMEOUT_S)
     except FileNotFoundError:                # no `openclaw` on PATH (not a runtime host)
         meta["_telemetry_dead"] = True       # no CLI at all → every runtime fails; stop shelling out
         _note_telemetry_unavailable(meta, "openclaw CLI not found; exit reasons from ratchet fallback only")
         return []
-    except Exception as e:  # noqa — timeout / OS error → fail-open
+    except subprocess.TimeoutExpired:        # this fetch was slow (double CLI boot + read under host load).
+        # Fail-open for THIS strategy only — NO count-based circuit breaker: the parallel fan-out gives each
+        # worker a private meta, so a cross-strategy timeout counter can't accumulate mid-fan-out anyway. The
+        # real bound on total cost is the current-book-only guard below (closed strategies are never probed).
+        _note_telemetry_unavailable(meta, "event-log read timed out")
+        return []
+    except Exception as e:  # noqa — other OS error → fail-open
         _note_telemetry_unavailable(meta, f"event-log read failed ({e})")
         return []
     if proc.returncode != 0:
@@ -1046,10 +1056,18 @@ def _collect_one_strategy(client, strat, meta, since_ms, until_ms, cap, enrich_e
              "risk_halts": {"count": 0, "samples": []}}
     fills = {"maker": 0, "taker": 0, "unknown": 0}
     closed = fetch_closed_trades(client, strat["wallet"], since_ms, until_ms, cap, meta)
-    # telemetry ring for this runtime (enrichment only; guarded + fail-open to []). Fetched even when
-    # the wallet has no closed trades in-window, since its missed_signals + leaks still count. SKIPPED
-    # entirely on the fast timing path (enrich_exit=False) so telemetry latency never blocks it.
-    events = _fetch_events(strat.get("runtime_id"), since_ms, meta) if enrich_exit else []
+    # telemetry ring for this runtime (enrichment only; guarded + fail-open to []). SKIPPED on the fast
+    # timing path (enrich_exit=False). ALSO skipped for non-current strategies: only ACTIVE/PAUSED runtimes
+    # have a live on-disk ring — a CLOSED strategy's ring is torn down with its runtime. Probing it isn't a
+    # hang (the gateway returns an immediate NOT_FOUND); the cost is that EVERY `openclaw senpi events`
+    # spawnSyncs a SECOND `openclaw gateway call` process — two Node CLI boots per fetch. Fanning dozens of
+    # those process pairs across the 8-thread pool STARVES the CPU, pushing even live-ring reads past the
+    # timeout — which is why the pre-fix review reported "telemetry unavailable" for the live strategies too.
+    # Not probing the closed runtimes at all is the real win. Skipping costs nothing: the trade list still
+    # comes from discovery/on-chain, exit_reason falls to the ratchet/UNKNOWN fallback below, and the durable
+    # central event log is the recovery path for a CLOSED strategy's exit reasons (not the ephemeral ring).
+    events = (_fetch_events(strat.get("runtime_id"), since_ms, meta)
+              if (enrich_exit and _is_current(strat.get("status"))) else [])
     if events:
         missed_signals.extend(_missed_signals_from_events(events, strat.get("label")))
         # scan the SAME entries once for leaks (failed orders / protection gaps / risk halts) + fills.
@@ -1164,6 +1182,14 @@ def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_mark
                 fills[k] += rf[k]
             _merge_meta(meta, res["meta"])
 
+    # sort newest-first + apply the GLOBAL 'last N' bound BEFORE pricing, so we only price/report the trades
+    # that survive the cap. `cap` (= last_n) is also applied per-wallet in fetch_closed_trades; this global
+    # pass makes 'last 10' the 10 most-recent trades across the WHOLE book, not 10 per strategy (the pre-fix
+    # behavior returned up to 10 × strategy_count — a churned book turned "last 10" into 140+ trades).
+    trades.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
+    if cap:
+        trades = trades[:cap]
+
     # ── Phase 2: dedupe + parallelize the price fetches, then apply _if_held from the cache ──
     price_cache = {}
     if want_market and trades:
@@ -1202,7 +1228,6 @@ def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_mark
             "exit_vs_hold": verdict,        # engine verdict of the exit vs holding-to-now
         })
 
-    trades.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
     missed_signals.sort(key=lambda m: _num(m.get("ts")) or 0, reverse=True)
     return trades, missed_signals, leaks, fills
 
@@ -1241,7 +1266,12 @@ def _enrich_exit_and_streams(client, trades, strategies, meta, since_ms):
                          "risk_halts": {"count": 0, "samples": []}},
                "fills": {"maker": 0, "taker": 0, "unknown": 0}, "meta": priv}
         try:
-            events = _fetch_events(strat.get("runtime_id"), since_ms, priv)
+            # only current (active/paused) strategies have a live on-disk ring — never shell at a closed one
+            # (its ring is torn down; probing it just burns two CLI-boot processes for an immediate NOT_FOUND,
+            # and the fan-out of those starves the pool). Its trades still enrich via the ratchet fallback
+            # below. See _collect_one_strategy for the full rationale.
+            events = (_fetch_events(strat.get("runtime_id"), since_ms, priv)
+                      if _is_current(strat.get("status")) else [])
             if events:
                 res["missed_signals"].extend(_missed_signals_from_events(events, strat.get("label")))
                 _scan_leak_and_fill_events(events, strat.get("label"), res["leaks"], res["fills"])
@@ -2061,6 +2091,63 @@ def _all_and_persist(client, window_days, last_n, want_market, state_path, now_m
     return result
 
 
+# ──────────────────────────────────────────────────────── stdout slimming (context-cost control)
+# review.py's stdout IS the model's context on the next turn. The narrator writes from the AGGREGATES
+# (pnl_summary / timing_summary / strategies / dsl_close_reason_mix) — never the raw per-trade rows. On
+# a big multi-strategy account the full `trades[]` is 40-60k tokens of prefill it doesn't need, which is
+# most of the model time and blows the delivery timeout (the samurai-pro >60s tail hits power users
+# hardest). So the STDOUT payload carries a top-N OUTLIER SAMPLE + counts; the on-disk state file keeps
+# the COMPLETE arrays for the stepped path. `--full` restores everything (debug / "the whole ledger").
+STDOUT_TRADES_SAMPLE = 12
+STDOUT_MISSED_SAMPLE = 10
+_TRADE_STDOUT_FIELDS = ("asset", "direction", "strategy_label", "realized_pnl", "close_time",
+                        "exit_vs_hold", "price_since_exit_pct", "if_held_delta_usd", "exit_reason")
+
+
+def _slim_trade(t):
+    return {k: t.get(k) for k in _TRADE_STDOUT_FIELDS if k in t} if isinstance(t, dict) else t
+
+
+def _sample_trades(trades):
+    """The outliers a coach actually calls out — the biggest realized moves AND the biggest hold-to-now
+    deltas ('biggest miss') — deduped, newest-first, trimmed to the narratable fields. NOT all N rows."""
+    if not isinstance(trades, list) or len(trades) <= STDOUT_TRADES_SAMPLE:
+        return [_slim_trade(t) for t in (trades or [])]
+    by_pnl = sorted(trades, key=lambda t: abs(_num(t.get("realized_pnl")) or 0), reverse=True)
+    by_hold = sorted(trades, key=lambda t: abs(_num(t.get("if_held_delta_usd")) or 0), reverse=True)
+    picked, seen = [], set()
+    for t in by_pnl[:STDOUT_TRADES_SAMPLE] + by_hold[:STDOUT_TRADES_SAMPLE]:
+        if id(t) not in seen:
+            seen.add(id(t))
+            picked.append(t)
+    picked.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
+    return [_slim_trade(t) for t in picked[:STDOUT_TRADES_SAMPLE]]
+
+
+def _slim_for_context(result, full=False):
+    """Trim the STDOUT payload (what enters the model's context) — NEVER the on-disk state. Replaces the
+    raw `trades` / `missed_signals` arrays with a top-N sample + explicit counts; every AGGREGATE is left
+    untouched (the narration reads those). `full=True` returns the result unchanged."""
+    if full or not isinstance(result, dict):
+        return result
+    out = dict(result)
+    trades = out.get("trades")
+    if isinstance(trades, list):
+        sampled = _sample_trades(trades)                      # key kept; field-trimmed rows
+        out["trades"] = sampled
+        if len(trades) > len(sampled):                        # only when we actually dropped rows
+            out["trades_sample"] = {
+                "shown": len(sampled), "total": len(trades),
+                "note": "OUTLIER SAMPLE only (biggest realized + biggest hold-to-now) — the aggregates "
+                        "(timing_summary / pnl_summary / dsl_close_reason_mix) cover ALL trades. Full "
+                        "ledger: re-run with --full. Never imply the sample is the whole book."}
+    ms = out.get("missed_signals")
+    if isinstance(ms, list) and len(ms) > STDOUT_MISSED_SAMPLE:
+        out["missed_signals"] = ms[:STDOUT_MISSED_SAMPLE]
+        out["missed_signals_sample"] = {"shown": STDOUT_MISSED_SAMPLE, "total": len(ms)}
+    return out
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     # optional leading positional STEP (timing|strategies|telemetry|market|all); default `all` = the
@@ -2088,6 +2175,9 @@ def main(argv=None):
                     help="shared state file path (default <tempdir>/senpi-improve-trades/state-<window>d.json)")
     ap.add_argument("--fixture", help="offline: path to a recorded MCP-response map (tests only)")
     ap.add_argument("--dry", action="store_true", help="dump raw MCP responses for schema debugging")
+    ap.add_argument("--full", action="store_true",
+                    help="emit the COMPLETE trades/missed_signals arrays; default is a top-N outlier "
+                         "sample to keep the model-context payload small (aggregates are always complete)")
     # `step` was already peeled off argv above; feed the remainder (flags only).
     args = ap.parse_args(argv)
 
@@ -2120,7 +2210,7 @@ def main(argv=None):
     except Exception as e:  # noqa
         print(json.dumps({"trades": [], "meta": {"error": f"engine failure: {e}"}}))
         return 1
-    print(json.dumps(result, ensure_ascii=False))
+    print(json.dumps(_slim_for_context(result, args.full), ensure_ascii=False))
     return 0
 
 
