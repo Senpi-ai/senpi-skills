@@ -73,10 +73,13 @@ do not imply it is buildable. This is the earliest, cheapest way to set honest e
 
 When the ask is "which strategy should I run" or "I want a `<theme>` strategy", don't reach for a
 catalog of ready-made strategies — there isn't one; you COMPOSE. Route the theme to one of the
-four archetypes, then run the interview:
+archetypes, then run the interview:
 - directional trend on names the user names → `trend_momentum`; a range-break / fresh-highs hawk →
   `breakout`; a macro long/short pair ("long AI, short memecoins") → `thesis_fund`; "find them for
   me" off the live board → `classifier` (or `breakout` with `discover: true`).
+- a benchmark-relative / "X always beats Y" thesis (exit when the pair inverts) → `relative_value`
+  (pairwise), NOT `trend_momentum` — the exit is cross-asset, unobservable to the DSL, so it composes
+  a thesis-driven exit pair (routing test below; `describe relative_value` for the shape).
 Fetch the catalog (above) to ground what the theme can actually key on, then compose from there.
 
 ## Elicitation → the answers file (this is your real work)
@@ -89,10 +92,11 @@ The composer needs the **7 decisions that are the type-signature of `scan()`**, 
 an answers YAML file. This is a contract, not a script — draw it out one question at a time,
 in plain language, mining the opening ask for anything already stated:
 
-1. **Archetype** (4) — `trend_momentum` (fixed universe → indicators → hard-gates + weighted
+1. **Archetype** (5) — `trend_momentum` (fixed universe → indicators → hard-gates + weighted
    scorer) · `breakout` (a directional range-break as the hard gate; fixed basket OR discovered
    universe) · `thesis_fund` (fixed long/short legs) · `classifier` (a pure_fn direction on a
-   discovered set). Unknown → off-map skeleton.
+   discovered set) · `relative_value` (pairwise: a signed net-score entry PLUS a thesis-driven exit
+   the DSL can't observe — see Exit composition below). Unknown → off-map skeleton.
 2. **Universe** — fixed `whitelist` (trend_momentum / breakout) · `long_basket`/`short_basket`
    legs (thesis_fund) · `discover: true` + filters (classifier / breakout derive it from the live
    board). `trend_momentum` is fixed-universe only — a `discover` answer is rejected with a
@@ -108,9 +112,26 @@ in plain language, mining the opening ask for anything already stated:
    trailing stop + time-cuts). Only pass `unmanaged: true` if the user KNOWINGLY wants no exit
    (naked positions that can run to liquidation) — `check` is RED (CMP120) otherwise, and the
    opt-out prints a loud warning. Optional guard rails: `drawdown_halt_pct`,
-   `max_consecutive_losses`, `cooldown_seconds`, `max_entries_per_day`.
+   `max_consecutive_losses`, `cooldown_seconds`, `max_entries_per_day`. When `exit_signals` is
+   present (a thesis-driven exit — see Exit composition) the unset default flips to `protected_wide`.
 7. **Edge** — the thesis in the user's own plain words. **Carried VERBATIM; nothing parses
    it.** This is the one thing only you can supply — never sanitize or interpret it away.
+
+### Exit composition — the thesis-driven exit pair (route with the guard FIRST)
+**Routing guard (verbatim test):** exit expressible as this position's own price/PnL/time → DSL preset,
+NO exit scanner. The compiled entry/exit pair is ONLY for exits the DSL cannot observe (cross-asset /
+thesis-driven). Default stays single scanner + DSL.
+
+**Three exit mechanisms, never conflated:** **on-order SL/TP** (static, exchange-side) vs **DSL** (our
+dynamic engine — Hyperliquid has NO native dynamic stop) vs **signal exits** (thesis-driven closes via
+a second, exit scanner). A signal exit NEVER replaces the DSL preset — they are complementary (CMP123).
+
+When — and ONLY when — the thesis has a signal-driven exit, capture **`exit_signals`** (cadence + the
+two hysteresis thresholds + cooldown; defaults `{interval_seconds: 300, enter_threshold: 3.0,
+exit_threshold: 2.0, reentry_cooldown_seconds: 1800}` are strong — ask ONLY what the thesis implies).
+And ASK the protection question: protected_wide recommended (the DSL is the safety net behind your
+thesis exit; opting tighter may front-run it, opting out is at your own risk — CMP123 blocks
+unmanaged). `describe close_signal_envelope` / `describe open_positions` carry the shape.
 
 **Gate selection now flows INTO generation — not a post-generate hand-edit.** When the edge names
 conditions that must ALL hold ("only when volume confirms AND smart money leans in AND it just
@@ -191,7 +212,8 @@ requires: []        # name a capability that may not exist yet -> gap report, no
 4. **Deploy — stage the PRISTINE, self-contained unit:**
    `openclaw senpi composer deploy <graph> -o <dir>/dist` — hard-gated on a GREEN check; stages a
    standalone strategy PACKAGE TREE (`strategy.yaml` + `main/runtime.yaml` with the DSL exit +
-   `main/scanners/scan.py` + `main/scanners/strategy_primitives/` — a vendored primitives snapshot,
+   `main/scanners/scan.py` + `main/scanners/exit_scan.py` when the unit composes a thesis exit (one
+   staged tree, one install) + `main/scanners/strategy_primitives/` — a vendored primitives snapshot,
    so scan.py imports NO composer code and runs on a box with none of the checkout — + graph copy +
    `manifest.json` hashing every artifact plus the oracle verdict). Does NOT install. The staged
    tree is PRISTINE: the wallet is a `${..._WALLET}` placeholder, left intact. **NEVER hand-edit a
@@ -237,6 +259,10 @@ requires: []        # name a capability that may not exist yet -> gap report, no
   refusal, never a bypass.
 - **A tool error like "unknown node" for something the catalog's prose names → CHECK THE OTHER SURFACE**
   (`describe`/`catalog`), not proof the capability is fiction.
+- **Adding to a held position is NOT supported** (never existed in the runtime). The nearest workaround
+  is close-then-reopen larger — fees/slippage twice, a moment flat, DSL floors reset,
+  `per_asset_cooldown_seconds` delays the reopen — usually not what the user wants. Say so plainly;
+  never improvise a pyramid.
 
 ### Never improvise the install — each rule below is a real dev-box failure
 - **No `--content` installs.** It drops the scanner dir the external scanner needs. `composer install`
