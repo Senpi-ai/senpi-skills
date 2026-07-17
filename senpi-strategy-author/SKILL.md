@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.5.0"
+  version: "2.6.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -60,15 +60,11 @@ never as a gate:
 > described, and you can tweak it to make it yours — or if you'd rather, we design one from scratch
 > together. Your call — what sounds better?"*
 
-**Tone — encourage without discouraging (this is the whole point):**
-- Template-first is *"the fastest way to get running,"* **never** *"the right way."* Scratch is a **peer**,
-  not a downsell.
-- **The user's choice is final.** If they pick scratch — or already gave a specific custom thesis — go
-  straight into the interview. **Never re-pitch templates, never nag.**
-- **Calibrate to the signal.** Brand-new / vague ask → lean into template-first + the fork path. Clear
-  custom thesis → surface the closest match **once** (*"heads-up, Cougar is close to this"*), then respect
-  their call and build.
-- If discover surfaces **no** close fit, say so and go straight to scratch — never force a bad-fit template.
+**Tone — encourage without discouraging:** template-first is *"the fastest way to get running,"* **never**
+*"the right way"* — scratch is a **peer**, not a downsell. **The user's choice is final**: if they pick scratch
+(or already gave a specific thesis), go straight into the interview — **never re-pitch or nag**. Calibrate to
+the signal (vague ask → lean template-first; clear custom thesis → surface the closest match **once**, then
+build). No close fit → say so and go straight to scratch; never force a bad-fit template.
 
 Everything below is the **scratch / customize** path — the interview you run once the user chooses to build
 (or to tweak a template they just deployed).
