@@ -915,25 +915,23 @@ def test_last_n_is_global_not_per_strategy():
     assert [t["asset"] for t in capped["trades"]] == top2
 
 
-def test_event_timeout_trips_the_breaker():
-    """Repeated event-log TIMEOUTS (a hung ring) trip the telemetry-dead breaker after EVENTS_TIMEOUT_BUDGET,
-    so a churned book can't pay N × the per-call timeout. Once tripped, further calls short-circuit WITHOUT
-    shelling out. (Pre-fix: each runtime timed out independently → the whole review 'timed out'.)"""
+def test_event_timeout_fails_open_without_a_breaker():
+    """A slow event fetch fails open for THAT strategy only (returns [] + a warning) — and there is NO
+    count-based circuit breaker: the parallel fan-out gives each worker a private meta, so a cross-strategy
+    timeout counter could never accumulate mid-fan-out (the real bound is the current-book-only guard, which
+    never probes closed strategies). Guards against reintroducing the dead breaker Duncan flagged."""
     import subprocess as _sp
     old_ev = os.environ.pop("SENPI_EVENTS_FIXTURE", None)   # force the subprocess path, not the fixture
-    n = {"runs": 0}
     def _raise_timeout(*a, **k):
-        n["runs"] += 1
         raise _sp.TimeoutExpired(cmd="openclaw", timeout=review.EVENTS_CALL_TIMEOUT_S)
     real_run = review.subprocess.run
     review.subprocess.run = _raise_timeout
     try:
         meta = {}
-        for i in range(5):
-            assert review._fetch_events(f"rt-{i}", NOW_MS, meta) == []
-        assert meta.get("_telemetry_dead") is True                    # breaker tripped
-        assert meta["_telemetry_timeouts"] >= review.EVENTS_TIMEOUT_BUDGET
-        assert n["runs"] == review.EVENTS_TIMEOUT_BUDGET              # stopped shelling out after the budget
+        assert review._fetch_events("rt-1", NOW_MS, meta) == []            # fail-open for this strategy
+        assert any("timed out" in w for w in meta.get("warnings", []))     # a warning was recorded
+        assert "_telemetry_dead" not in meta                               # ONE timeout is not terminal
+        assert not hasattr(review, "EVENTS_TIMEOUT_BUDGET")                # the dead breaker constant is gone
     finally:
         review.subprocess.run = real_run
         if old_ev is not None:

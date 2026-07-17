@@ -61,8 +61,10 @@ REGISTRY_FILENAME = "installed_runtimes.json"
 # ("what did I miss"). It NEVER reconstructs a trade or re-derives a price/PnL — discovery OWNS those.
 EVENTS_FIXTURE_ENV = "SENPI_EVENTS_FIXTURE"   # offline test hook: JSON {"<runtime_id>": [entries…]}
 EVENTS_PULL = 500                             # events to pull per runtime before matching (recent ring)
-EVENTS_CALL_TIMEOUT_S = 5                      # per-runtime event shell-out timeout (a live ring answers <1s)
-EVENTS_TIMEOUT_BUDGET = 2                      # after this many event-log timeouts, treat the host telemetry-dead
+# `openclaw senpi events` spawnSyncs a SECOND `openclaw gateway call` process, so this timer wraps two CLI
+# boots + the read — a HEALTHY fetch on a loaded host can take several seconds (it exceeded 8s during the
+# incident). Keep it generous; the current-book-only guard already bounds worst-case wall to ~ceil(N/8)×this.
+EVENTS_CALL_TIMEOUT_S = 8                      # per-runtime event shell-out timeout (wraps double CLI boot + read)
 EXIT_MATCH_WINDOW_MS = 120000.0               # ±2 min asset+time fallback when there's no order_id
 _EXIT_EVENT_NAMES = ("dsl.closed", "position.closed")
 _MISSED_RESULTS = ("rejected", "blocked")     # signal.outcome results that never became a trade
@@ -491,14 +493,10 @@ def _fetch_events(runtime_id, since_ms, meta):
         meta["_telemetry_dead"] = True       # no CLI at all → every runtime fails; stop shelling out
         _note_telemetry_unavailable(meta, "openclaw CLI not found; exit reasons from ratchet fallback only")
         return []
-    except subprocess.TimeoutExpired:        # a hung event RPC (an unreachable ring). Budget the damage:
-        # a live ring answers in well under a second, so repeated timeouts mean the host's event log is
-        # unreachable — after a few, mark it dead so we stop paying the per-call timeout across the whole
-        # book. This is the safety net behind the CURRENT-strategy-only guard (the pre-fix failure mode was
-        # N runtimes × the timeout → the entire review reported "telemetry unavailable").
-        meta["_telemetry_timeouts"] = meta.get("_telemetry_timeouts", 0) + 1
-        if meta["_telemetry_timeouts"] >= EVENTS_TIMEOUT_BUDGET:
-            meta["_telemetry_dead"] = True
+    except subprocess.TimeoutExpired:        # this fetch was slow (double CLI boot + read under host load).
+        # Fail-open for THIS strategy only — NO count-based circuit breaker: the parallel fan-out gives each
+        # worker a private meta, so a cross-strategy timeout counter can't accumulate mid-fan-out anyway. The
+        # real bound on total cost is the current-book-only guard below (closed strategies are never probed).
         _note_telemetry_unavailable(meta, "event-log read timed out")
         return []
     except Exception as e:  # noqa — other OS error → fail-open
@@ -1060,12 +1058,14 @@ def _collect_one_strategy(client, strat, meta, since_ms, until_ms, cap, enrich_e
     closed = fetch_closed_trades(client, strat["wallet"], since_ms, until_ms, cap, meta)
     # telemetry ring for this runtime (enrichment only; guarded + fail-open to []). SKIPPED on the fast
     # timing path (enrich_exit=False). ALSO skipped for non-current strategies: only ACTIVE/PAUSED runtimes
-    # have a live on-disk ring — a CLOSED strategy's ring is torn down with its runtime, so shelling
-    # `openclaw senpi events` at it just hangs to the timeout. That per-closed-runtime hang, fanned across a
-    # churned book of dozens of closed strategies, is what made a full review report "telemetry unavailable"
-    # (every trade UNKNOWN). Skipping it costs nothing real: the trade list still comes from discovery/
-    # on-chain, exit_reason falls to the ratchet/UNKNOWN fallback below, and the durable central event log
-    # is the recovery path for a CLOSED strategy's exit reasons (not the ephemeral local ring).
+    # have a live on-disk ring — a CLOSED strategy's ring is torn down with its runtime. Probing it isn't a
+    # hang (the gateway returns an immediate NOT_FOUND); the cost is that EVERY `openclaw senpi events`
+    # spawnSyncs a SECOND `openclaw gateway call` process — two Node CLI boots per fetch. Fanning dozens of
+    # those process pairs across the 8-thread pool STARVES the CPU, pushing even live-ring reads past the
+    # timeout — which is why the pre-fix review reported "telemetry unavailable" for the live strategies too.
+    # Not probing the closed runtimes at all is the real win. Skipping costs nothing: the trade list still
+    # comes from discovery/on-chain, exit_reason falls to the ratchet/UNKNOWN fallback below, and the durable
+    # central event log is the recovery path for a CLOSED strategy's exit reasons (not the ephemeral ring).
     events = (_fetch_events(strat.get("runtime_id"), since_ms, meta)
               if (enrich_exit and _is_current(strat.get("status"))) else [])
     if events:
@@ -1267,8 +1267,9 @@ def _enrich_exit_and_streams(client, trades, strategies, meta, since_ms):
                "fills": {"maker": 0, "taker": 0, "unknown": 0}, "meta": priv}
         try:
             # only current (active/paused) strategies have a live on-disk ring — never shell at a closed one
-            # (its ring is torn down; the call would just hang to the timeout). Its trades still enrich via the
-            # ratchet fallback below. See _collect_one_strategy for the full rationale.
+            # (its ring is torn down; probing it just burns two CLI-boot processes for an immediate NOT_FOUND,
+            # and the fan-out of those starves the pool). Its trades still enrich via the ratchet fallback
+            # below. See _collect_one_strategy for the full rationale.
             events = (_fetch_events(strat.get("runtime_id"), since_ms, priv)
                       if _is_current(strat.get("status")) else [])
             if events:
