@@ -18,8 +18,12 @@ strategies/<id>/                # all strategy packages live under strategies/
   <instance2>/ …                # one subdir per instance (multi-runtime, e.g. spider swing + scalp)
 ```
 
-A single-instance strategy has one `<instance>/` dir; a multi-instance one (spider) has several, **each
-on its own wallet** (a runtime binds to exactly one wallet).
+A single-instance strategy may use the **FLAT layout** instead — `runtime.yaml` + `scanners/` at the
+package root with **no `instances:` list at all**: the deployer (strategy-ops v2.4.0+) synthesizes the
+canonical `main` instance, binding `wallet_env` to the `${...}` the runtime already uses. A
+multi-instance strategy (spider) has one `<instance>/` dir per runtime, **each on its own wallet** (a
+runtime binds to exactly one wallet), and declares them in `instances:`. `deploy.py validate <id>`
+confirms either form is deploy-ready.
 
 ## Schema
 
