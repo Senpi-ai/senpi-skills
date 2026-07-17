@@ -44,8 +44,6 @@ openclaw senpi composer <verb> ...
 ```
 Verbs: `catalog`, `describe <node>`, `new`, `check <graph>`, `deploy <graph>`,
 `fund <staged-dir> --budget N`, `install <staged-dir> [--wallet 0x…]`, `status <graph> [--state-dir …]`, `close <target>`.
-(Ignore any `uvx --with … python -m composer.cli` form you may see in
-composer/AUTHORING.md — that is a dev-only convenience, not the claw invocation.)
 
 ## When to engage — you own the whole lifecycle now
 
