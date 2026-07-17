@@ -45,6 +45,9 @@ openclaw senpi composer <verb> ...
 Verbs: `catalog`, `describe <node>`, `new`, `check <graph>`, `deploy <graph>`,
 `fund <staged-dir> --budget N`, `install <staged-dir> [--wallet 0x…]`, `status <graph> [--state-dir …]`, `close <target>`.
 
+**Always invoke verbs with `--json`** — you need the machine-readable verdict (verdict/stages/errors, the
+`DEFAULTED:` block, the GREEN `SUMMARY`); the human render can be buried under box noise.
+
 ## When to engage — you own the whole lifecycle now
 
 There is no separate discover or ops skill anymore; the composer owns the entire path.
@@ -178,6 +181,9 @@ requires: []        # name a capability that may not exist yet -> gap report, no
    → a COMPLETE, VALID graph with mechanically-bindable values filled and bespoke slots
    marked `# TODO(edit)` (working defaults, so it validates unedited). `new` refuses to
    clobber a hand-edited graph without `--force`.
+   **Relay the `DEFAULTED:` block `new` prints** — it names every interview-relevant field you did NOT
+   set explicitly (the value that got baked). Surface all of them to the user; the protection question
+   (`exit_preset`) is ALWAYS asked explicitly, never accepted silently by default.
 2. **Compute is never gated; only the seams are.** The hard limits are the graph's seams: data IN
    (source nodes are the only place I/O happens — a data feed with no source node is a real wall;
    report it, don't fake it in a scanner), the signal envelope OUT, and execution (actions/DSL —
@@ -209,6 +215,9 @@ requires: []        # name a capability that may not exist yet -> gap report, no
    runtime booted: protection-by-default (CMP120), position-tracking wiring (CMP112), duplicate
    scanner/action names (CMP113), unresolvable action-prompt placeholders (CMP114), unbound `${VAR}`
    (CMP115). Fix exactly what it names, re-check, repeat until GREEN — don't rewrite unrelated parts.
+   **A GREEN check emits a `SUMMARY` block** (universe, indicators, pure_fn params, emitter sizing,
+   exit preset, thesis-exit tuning, risk). Before fund/install, relay it VERBATIM as the pre-fund
+   sign-off — it is the strategy's actual spec; never re-describe the strategy from memory or arithmetic.
 4. **Deploy — stage the PRISTINE, self-contained unit:**
    `openclaw senpi composer deploy <graph> -o <dir>/dist` — hard-gated on a GREEN check; stages a
    standalone strategy PACKAGE TREE (`strategy.yaml` + `main/runtime.yaml` with the DSL exit +
@@ -250,6 +259,10 @@ requires: []        # name a capability that may not exist yet -> gap report, no
   seems unable to express the thesis (doing so loses vendoring, the check oracle, the install path, and the
   teaching errors). The sanctioned hatches below — `pure_fn`, surgical graph edits, `mcp_read` — are IN-chain:
   graph-level, still pass `check`, allowed.
+- **Edit doctrine — answers are the spec until you hand-edit the graph.** While a graph is purely
+  machine-generated, make changes in the answers and re-run `composer new`. The MOMENT you hand-edit the
+  graph, that graph IS the spec permanently (params too) — NEVER `composer new --force` over it (that
+  discards the edits). To re-baseline, generate to a DIFFERENT path and merge your edits across.
 - **Climb the hatch ladder before concluding the vocabulary lacks something:** (1) re-check the registry —
   `composer catalog` + `composer describe <node|kind|port_type|archetype>`; a capability's absence from your
   memory or from ONE CLI surface is not absence — `describe pure_fn` is the authoring contract for bespoke
@@ -290,9 +303,13 @@ The composer absorbs what `senpi-strategy-ops` used to do — there is no ops ha
   until `closed`. `<target>` = a strategy name / canonical hash dir / runtime id / `0x…` wallet.
   **NEVER call raw MCP `strategy_close` while a runtime is live** — it strands the runtime trading a
   wallet the server is tearing down (a hard invariant `close` enforces: if the runtime won't stop, it
-  WITHHOLDS the close and fails loud rather than strand).
-- **Update:** re-author → re-check → re-deploy (new content ⇒ new hash) → `composer close` the OLD
-  strategy → `install` the new one. Don't hand-delete the runtime and leave the strategy open.
+  WITHHOLDS the close and fails loud rather than strand). `strategy_close` is the server-side FULL
+  teardown (flattens ALL positions, returns funds) — it is NEVER part of an edit; teardown goes through
+  `composer close` only.
+- **Update an INSTALLED strategy — never tears down the strategy, wallet, or funds.** Editing a live
+  strategy does NOT flatten positions or return funds: re-author → re-check → re-deploy, then
+  `composer update <staged-dir>` — it swaps in the new runtime version in place and the wallet auto-binds
+  (no `fund`, no `close`). Reserve the close-then-install path for a full teardown, not an edit.
 
 ## Gap reports = the honest refusal
 
