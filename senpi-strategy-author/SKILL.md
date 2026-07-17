@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.5.0"
+  version: "2.6.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -37,6 +37,19 @@ much risk). Your job is to draw those out, one question at a time, and compile t
 > no name). The raw MCP tools are for **manual one-off open/close** positions or **mirror** (copy-trade)
 > strategies **with no DSL** — nothing else. If protection is anywhere in the ask, you're in the right
 > skill; author it.
+
+> **Opening a position for the user is a FORK — ASK, never assume.** When the user asks to *open* a
+> position (or a set) — "go long HYPE", "buy BTC 5x", "short SOFTBANK" — do **not** just place it. Ask which
+> of two different products they want:
+> - **(A) A DSL-protected strategy** — a named, supervised Runtime 3.0 strategy that manages a trailing stop
+>   + profit-lock ladder. → **author it here.** The path for anything the user wants *managed* or persistent.
+> - **(B) A plain position with a standard take-profit / stop-loss** — a one-off via raw `create_position`
+>   (it carries `stopLoss` / `takeProfit`), placed in a **discretionary wallet, NOT a strategy wallet.**
+>
+> **Either way, NEVER open into an existing scanner-managed strategy's wallet.** A hand-placed position in a
+> wallet a deployed strategy runs is reconciled as *foreign* and **DSL-flattened within minutes** — the order
+> "succeeds," the position is gone, and the user eats the round-trip. If the user hasn't said which of
+> (A)/(B) they want, **ask before placing anything** — and never route (B) into a managed wallet to save a step.
 
 ## Start here — offer the fast path before building from scratch
 
@@ -250,28 +263,31 @@ Same references; usually no rebuild: tune `runtime.yaml` `inputs` (universe/thre
 the `dsl_preset`, adjust `risk.guard_rails`, or change the `scoring.py` math. Re-validate, then
 re-smoke-test if you touched `scan.py`/`runtime.yaml`.
 
-## Handoff — deploy is `senpi-strategy-ops`, NEVER raw MCP
+## Handoff & the live gate — deploy is `senpi-strategy-ops` (NEVER raw MCP); "done" means verified LIVE
 
-Authoring produces the **package** only; going live is a **separate, gated step**. Once the package is
-built and validated:
+Authoring produces the **package** only; going live is a **separate, gated loop**, and a strategy is live
+only once **`senpi-strategy-ops` deploys it AND `deploy.py verify` passes**. Walk the full loop every time:
 
-1. **Confirm with the user** — budget + "ready to deploy?" Funding a wallet is real money and one-way,
-   so this is an explicit yes, not an assumption.
-2. **Preflight** — `python3 senpi-strategy-ops/scripts/deploy.py validate <path-to-package>` — reports
-   every fix in **one pass**, no side effects. The deployer **accepts the flat package you built** (it
-   synthesizes the `main` instance), so you do **not** restructure into `main/` or hand-write
-   `.deploy-state.json`. **Pass the package DIRECTORY you authored** (absolute path is safest, e.g.
-   `/data/workspace/strategies/<id>`) — a **bare id** is resolved relative to your CWD and, failing
-   that, treated as a **catalog id and fetched from remote**, which is never what you want for a
-   package you just wrote.
-3. **Deploy** — `deploy.py create <path-to-package> --budget <N>` → `deploy.py runtime
-   <path-to-package>`. Done. (Already smoke-deployed a tiny wallet in step 9? `create` self-heals to
-   that existing wallet and will NOT add the difference — top it up to the user's budget with
-   `strategy_top_up` instead of re-creating.)
+1. **Confirm with the user** — budget + "ready to deploy?" Funding a wallet is real money and one-way, so
+   this is an explicit yes, not an assumption.
+2. **Preflight** — `deploy.py validate <path-to-package>` — every fix in **one pass**, no side effects. The
+   deployer **accepts the flat package you built** (it synthesizes the `main` instance), so you do **not**
+   restructure into `main/` or hand-write `.deploy-state.json`. **Pass the package DIRECTORY** (absolute is
+   safest, e.g. `/data/workspace/strategies/<id>`) — a bare id resolves CWD-relative and otherwise becomes a
+   remote catalog fetch, never what you want for a package you just wrote.
+3. **Deploy** — `deploy.py create <path> --budget <the user's exact amount>` → `deploy.py runtime <path>`.
+   The budget is a **hard target** — if the live balance can't cover it, `create` halts `underfunded`;
+   fund/confirm a lower amount, **never silently fund less**. `create` deploys on a **FRESH wallet every
+   time** (it never reuses — a leftover smoke-test/runtime-less wallet is closed and its funds recovered
+   first, so do NOT try to top it up or reuse it).
+4. **GATE — `deploy.py verify <id>`**: the strategy is **live** only when *every* instance is
+   **runtime-running + scanner-active + DSL-wired + funded**. If verify returns `not-live` (e.g.
+   `scanner=broken`, `dsl=config-missing`, `budget=underfunded`), it is **NOT live** — fix the flagged
+   component and re-run. **Never tell the user it's live until `verify` returns `live`.**
 
-**NEVER deploy an authored strategy with `strategy_create_custom_strategy` / `create_position`.** Those
-raw MCP tools fund a wallet with **no runtime** — a naked funded wallet: no scanner, no DSL, no
-guard-rails (the recurring failure that stranded real money). A "created" strategy with no runtime **is
-the bug**, not the deploy. The only path to live is `senpi-strategy-ops deploy.py`.
-
+**NEVER deploy an authored strategy with `strategy_create_custom_strategy` / `create_position`.** Those raw
+MCP tools fund a wallet with **no runtime** — a naked funded wallet: no scanner, no DSL, no guard-rails (the
+recurring failure that stranded real money). A "created" strategy with no runtime **is the bug**, not the
+deploy. The only path to live is `senpi-strategy-ops deploy.py`. **If any step of the loop is incomplete,
+the strategy is not live — say exactly which step failed.**
 Attribution (`skillName`/`skillVersion`) is set by ops from `strategy.yaml` `id`/`version`.

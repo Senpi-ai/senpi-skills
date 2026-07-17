@@ -23,6 +23,8 @@ strategy:
   wallet: "${{{wallet_env}}}"
   slots: 1
   margin_pct: 20
+exit:
+  dsl_preset: let_winners_run
 scanners:
   - type: external_scanner
     path: ./scanners

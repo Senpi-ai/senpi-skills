@@ -138,17 +138,23 @@ def available_usd(mcp):
 
 
 def plan_funding(need, budget, available):
-    """Per-instance initialBudget for the instances still needing a wallet. Splits the requested
-    budget by funding_share, but caps the TOTAL at the live available balance minus a per-wallet fee
-    buffer (so sequential funding + creation fees can't leave a later instance $1 short). Floors at MIN_WALLET."""
+    """Per-instance initialBudget for the instances still needing a wallet, split by funding_share and
+    floored at MIN_WALLET. Returns (amounts, shortfall).
+
+    The requested budget is a HARD TARGET, not a suggestion: if the live balance can't cover it (minus a
+    per-wallet fee buffer) we return a `shortfall` dict and the caller HALTS — we never silently fund
+    LESS than asked. The old behaviour scaled every wallet down to fit `available`, which quietly turned
+    a "$1,000 / $2,000" request into two $100 floor wallets; that silent under-funding is the bug this
+    removes. (`available` unreadable → shortfall stays None → proceed; create would fail loudly anyway.)"""
     raw = {i.name: max(MIN_WALLET, round((budget or 0) * (i.funding_share or (1.0 / len(need))), 2)) for i in need}
-    total = sum(raw.values())
+    total = round(sum(raw.values()), 2)
+    shortfall = None
     if available is not None:
-        cap = max(0.0, available - FEE_BUFFER * len(need))
-        if total > cap and total > 0:
-            scale = cap / total
-            raw = {n: max(MIN_WALLET, round(a * scale, 2)) for n, a in raw.items()}
-    return raw
+        usable = max(0.0, round(available - FEE_BUFFER * len(need), 2))
+        if total > usable:
+            shortfall = {"requested": total, "available": round(float(available), 2),
+                         "usable": usable, "short_by": round(total - usable, 2), "wallets": len(need)}
+    return raw, shortfall
 
 
 def report(pkg, st, overall, note=None, as_json=False):
@@ -161,6 +167,7 @@ def report(pkg, st, overall, note=None, as_json=False):
         print(f"\n{pkg.id} v{pkg.version}: {overall}")
         for r in insts:
             print(f"  - {r['instance']}: {r['status']}"
+                  + (f"  requested=${r['requested']:g}" if r.get("requested") else "")
                   + (f"  wallet={r['wallet']}" if r.get("wallet") else "")
                   + (f"  ({r['error']})" if r.get("error") else ""))
         if note:
@@ -255,9 +262,18 @@ def cmd_create(pkg, a, log):
 
     need = [i for i in pkg.instances if not inst_state(st, i.name).get("strategyId")]
 
-    # size the to-create instances against the LIVE available balance (minus a per-wallet fee buffer),
-    # so sequential funding + creation fees can't leave a later instance short.
-    amounts = plan_funding(need, a.budget, available_usd(mcp)) if need else {}
+    # Size the to-create instances against the LIVE available balance. The requested --budget is a HARD
+    # TARGET: if the balance can't cover it, HALT with the shortfall (fund more / lower the ask) rather
+    # than silently funding the $100 floor. Nothing is created on this path.
+    amounts, shortfall = plan_funding(need, a.budget, available_usd(mcp)) if need else ({}, None)
+    if shortfall:
+        return report(pkg, st, "underfunded", note=(
+            f"Requested ${shortfall['requested']:g} across {shortfall['wallets']} wallet(s) "
+            f"(min ${MIN_WALLET:g}/wallet), but only ${shortfall['available']:g} is accessible "
+            f"(${shortfall['usable']:g} after fees) — short by ${shortfall['short_by']:g}. "
+            f"NOT funding; no wallet was created. Add USDC (or free some from another strategy), or "
+            f"confirm a lower amount with the user and re-run `create` with --budget ≤ ${shortfall['usable']:g}."),
+            as_json=a.json)
 
     # create any instance that has no strategyId yet — record the id IMMEDIATELY (before polling),
     # so an interrupted run resumes instead of re-creating.
@@ -266,6 +282,7 @@ def cmd_create(pkg, a, log):
         if s.get("strategyId"):
             continue
         amt = amounts.get(inst.name, max(MIN_WALLET, round((a.budget or 0) * (inst.funding_share or 1.0), 2)))
+        s["requested"] = amt  # remember what the user asked to fund → reconciled against actual at verify
         # Name each wallet for its role in the strategy (matches the pkg-instance runtime naming),
         # so wallets are legible in the app / balances / notifications instead of a bare 0x address.
         # e.g. a WhaleHunter deploy → "whalehunter-long", "whalehunter-short". Sanitized to the
@@ -433,9 +450,9 @@ def cmd_runtime(pkg, a, log):
     failed = [i.name for i in pkg.instances if inst_state(st, i.name).get("error")]
     overall = "failed" if failed else "registered"
     note = ("Some instances failed to register — see errors above." if failed else
-            "Done — " + pkg.id + " is deployed and trading autonomously (it scans on its own cadence and "
-            "opens positions when its signals fire). No need to wait for the first tick. "
-            "Optional: `deploy.py verify " + pkg.id + "` only if you want to confirm a scan has fired.")
+            "Registered — now confirm it's actually live: run `deploy.py verify " + pkg.id + "`. "
+            "That gate checks every instance is runtime-running + scanner-active + DSL-wired + funded; "
+            "the strategy is NOT live until it passes. (verify does not wait for the first scan tick.)")
     return report(pkg, st, overall, note=note, as_json=a.json)
 
 
@@ -458,48 +475,121 @@ def _deep_find_scanner(obj, name):
     return None
 
 
-def _check_ticks(pkg, st):
-    """One pass: mark each instance live if its external_scanner has ticked. Returns the list of
-    instances not yet live as (name, reason)."""
-    pending = []
+def _scanner_verdict(inst, state):
+    """(status, detail) for the instance's external_scanner, from `openclaw senpi state` JSON.
+      ticked    — runCount>0 (it has actually scanned)
+      scheduled — mounted + enabled + no error, runCount==0 (first tick fires on interval_seconds)
+      broken    — not mounted / disabled / erroring
+    'scheduled' counts as live: everything is wired and will fire on cadence — we do NOT block the gate
+    waiting for a slow first tick, but we DO fail a scanner that threw on init."""
+    sc = _deep_find_scanner(state, inst.external_scanner.get("name")) if state else None
+    if not sc:
+        return "broken", "scanner not mounted in runtime state"
+    if _cli.dig(sc, "enabled", default=True) is False:
+        return "broken", "scanner disabled"
+    err = _cli.dig(sc, "lastError")
+    cec = _cli.dig(sc, "consecutiveErrorCount", default=0) or 0
+    if err or (isinstance(cec, (int, float)) and cec >= 1):
+        return "broken", f"scanner erroring: {str(err)[:120] if err else f'{int(cec)} consecutive errors'}"
+    runs = _cli.dig(sc, "runCount", "ticks", "runs", default=0) or 0
+    if isinstance(runs, (int, float)) and runs > 0:
+        return "ticked", f"{int(runs)} scan(s)"
+    return "scheduled", f"awaiting first tick (~{inst.interval_seconds or '?'}s cadence)"
+
+
+def _dsl_verdict(inst, status_json):
+    """(status, detail) for DSL protection. The STATIC check — the deployed runtime.yaml has an
+    `exit.dsl_preset` — is load-bearing (it closes the funded-but-no-DSL hole); the runtime monitor's
+    `enabled` flag (from `senpi status`) confirms it wired. If status is unreadable we trust the static
+    config — never fail the gate on an unreadable status alone."""
+    if not inst.has_dsl:
+        return "config-missing", "runtime.yaml has no exit.dsl_preset — positions would run naked"
+    dsl = _cli._deep_first(status_json, ["dsl"]) if status_json else None
+    if isinstance(dsl, dict) and _cli.dig(dsl, "enabled") is False:
+        return "monitor-down", "DSL configured but its monitor is disabled in the runtime"
+    return "wired", "exit.dsl_preset present; DSL monitor active"
+
+
+def _budget_verdict(s, funded_by_id):
+    """(status, detail) comparing the wallet's ACTUAL funded USDC to what was requested. Best-effort: if
+    we can't read the funded amount we don't block (the create-time shortfall halt is the primary guard;
+    this reconciliation also catches a backend partial-fund)."""
+    req = s.get("requested")
+    funded = funded_by_id.get(s.get("strategyId"))
+    if not req or funded is None:
+        return "ok", (f"${funded:g}" if isinstance(funded, (int, float)) else "")
+    if funded < req * 0.9:
+        return "underfunded", f"funded ${funded:g} of requested ${req:g}"
+    return "ok", f"${funded:g} (asked ${req:g})"
+
+
+def _check_live(pkg, st, mcp):
+    """One pass over every instance → the composite live verdict: runtime running AND scanner active AND
+    DSL wired AND budget funded. Returns a list of per-instance rows."""
+    # one strategy_list read → actual funded amount per strategyId (best-effort budget reconciliation)
+    funded_by_id = {}
+    try:
+        for m in _cli.strategies_for(mcp, skill_name=pkg.id, timeout=POLL_HTTP_TIMEOUT):
+            fid = _cli.strategy_id_of(m)
+            fv = _cli.dig(_cli.strategy_obj(m), "totalFunded", "netFunded", "initialBudget")
+            if fid and isinstance(fv, (int, float)):
+                funded_by_id[fid] = float(fv)
+    except Exception:  # noqa: BLE001 — a read hiccup must not fail the gate; budget stays best-effort
+        pass
+    health = _cli.runtime_health_map()  # one status --json for all runtimes' DSL/health lines
+    rows = []
     for inst in pkg.instances:
         s = inst_state(st, inst.name)
-        if s.get("status") == "live":
-            continue
         rt = _cli.find_runtime(inst.runtime_name)
         if not rt or not _cli.runtime_running(rt):
-            pending.append((inst.name, "no live runtime"))
+            rows.append({"instance": inst.name, "live": False, "scanner": "no-runtime",
+                         "dsl": "-", "budget": "-", "reason": "runtime not running"})
             continue
         state = _cli.cli_json(["openclaw", "senpi", "state", "-r", inst.runtime_name, "--json"], POLL_HTTP_TIMEOUT)
-        sc = _deep_find_scanner(state, inst.external_scanner.get("name")) if state else None
-        runs = _cli.dig(sc or {}, "runCount", "ticks", "runs", default=0) or 0
-        if isinstance(runs, (int, float)) and runs > 0:
-            s["status"] = "live"
-            save_state(pkg, st)
-        else:
-            pending.append((inst.name, f"awaiting first tick (~{inst.interval_seconds or '?'}s cadence)"))
-    return pending
+        status = health.get(inst.runtime_name) or _cli.runtime_status(inst.runtime_name, POLL_HTTP_TIMEOUT)
+        sc_st, sc_d = _scanner_verdict(inst, state)
+        dsl_st, dsl_d = _dsl_verdict(inst, status)
+        bud_st, bud_d = _budget_verdict(s, funded_by_id)
+        live = sc_st in ("ticked", "scheduled") and dsl_st == "wired" and bud_st == "ok"
+        s["status"] = "live" if live else s.get("status", "registered")
+        save_state(pkg, st)
+        reason = "; ".join(d for ok, d in
+                           ((sc_st in ("ticked", "scheduled"), sc_d), (dsl_st == "wired", dsl_d),
+                            (bud_st == "ok", bud_d)) if not ok and d)
+        rows.append({"instance": inst.name, "live": live, "scanner": sc_st, "dsl": dsl_st,
+                     "budget": bud_st, "reason": reason})
+    return rows
 
 
 def cmd_verify(pkg, a, log):
-    # Single fast check by default — the first scan() tick is gated by the scanner's interval_seconds
-    # (e.g. spider swing = 300s), so blocking here would just burn the tool budget. Report liveness or
-    # the expected cadence and let the agent re-run when it's worth re-checking. `--max-wait S` opts
-    # into a bounded poll for fast instances.
+    # THE liveness gate: a strategy is `live` only when EVERY instance has a running runtime + an active
+    # scanner (ticked or scheduled) + a wired DSL + a funded budget. It does NOT wait for a slow first
+    # scan tick (a 'scheduled' scanner is live — it fires on interval_seconds); --max-wait re-checks only
+    # for a runtime/scanner that hasn't finished mounting yet.
+    mcp = MCPClient()
     st = load_state(pkg)
     deadline = time.time() + a.max_wait
     while True:
-        pending = _check_ticks(pkg, st)
-        if not pending:
-            out = report(pkg, st, "live", as_json=a.json)
-            delete_state(pkg)  # deploy complete → state is ephemeral; next deploy starts clean
+        rows = _check_live(pkg, st, mcp)
+        live = bool(rows) and all(r["live"] for r in rows)
+        if live or time.time() >= deadline:
+            out = {"strategy": pkg.id, "version": pkg.version,
+                   "status": "live" if live else "not-live", "instances": rows}
+            if a.json:
+                print(json.dumps(out, indent=2))
+            else:
+                print(f"\n{pkg.id} v{pkg.version}: {out['status']}")
+                for r in rows:
+                    print(f"  - {r['instance']}: scanner={r['scanner']}, dsl={r['dsl']}, "
+                          f"budget={r['budget']}" + (f"  → {r['reason']}" if r["reason"] else ""))
+                if not live:
+                    print(f"\nNOT live — fix the flagged component(s) and re-run `deploy.py verify {pkg.id}`. "
+                          "A strategy is live only when every instance is runtime-running + scanner-active "
+                          "+ DSL-wired + funded.")
+            if live:
+                delete_state(pkg)  # deploy complete → state is ephemeral; next deploy starts clean
             return out
-        if time.time() >= deadline:
-            note = "Not ticking yet — each instance's first scan() fires on its interval_seconds:\n  " + \
-                   "\n  ".join(f"{n}: {why}" for n, why in pending) + \
-                   f"\nRe-run `deploy.py verify {pkg.id}` after that to confirm `live`."
-            return report(pkg, st, "registered", note=note, as_json=a.json)
-        log(f"  waiting on {', '.join(n for n, _ in pending)}…")
+        log("  re-checking liveness…")
         time.sleep(POLL_EVERY)
 
 
@@ -571,7 +661,7 @@ def main(argv):
     else:  # status
         out = report(pkg, load_state(pkg), "status", as_json=a.json)
 
-    sys.exit(2 if out.get("status") == "failed" else 0)
+    sys.exit(2 if out.get("status") in ("failed", "underfunded", "not-live") else 0)
 
 
 if __name__ == "__main__":
