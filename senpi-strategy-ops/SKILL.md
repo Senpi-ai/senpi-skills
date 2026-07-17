@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.3.0"
+  version: "2.5.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -35,9 +35,10 @@ sizing/execution, the two-phase DSL exit, risk guard-rails. **There is no separa
 tool call — wallet funding and the first scan tick are slow, so they must not block one long call):
 
 ```
+python3 senpi-strategy-ops/scripts/deploy.py validate <id>                 # 0. preflight — deploy-ready? (no side effects)
 python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget <usd>   # 1. create wallets & fund them
-python3 senpi-strategy-ops/scripts/deploy.py runtime <id>                  # 2. set up autonomous trading (DONE after this)
-python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                  # optional: confirm a scan fired (only if asked)
+python3 senpi-strategy-ops/scripts/deploy.py runtime <id>                  # 2. register the runtime(s)
+python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                  # 3. GATE — confirm LIVE (runtime+scanner+DSL+budget)
 python3 senpi-strategy-ops/scripts/status.py                               # what am I running? (+ health)
 python3 senpi-strategy-ops/scripts/close.py          <id>                  # teardown one strategy
 python3 senpi-strategy-ops/scripts/close.py          --all                 # teardown EVERY open strategy
@@ -45,12 +46,22 @@ python3 senpi-strategy-ops/scripts/close.py          --all                 # tea
 **Always tear down through `close.py`** (one `<id>` or `--all`) — it deletes the runtime *and* closes the
 strategy. A raw `strategy_close` MCP call closes the strategy but **leaves the runtime registered**, which
 collides on the next deploy. "close all strategies / return funds to main" → `close.py --all`.
-Pass the **strategy `id`** (what `senpi-strategy-discover` hands over, e.g. `spider`); the package is
-fetched from the remote if not on disk. The scripts call MCP directly (`scripts/mcp_client.py`, reads
+Pass the **strategy `id`** for a CATALOG strategy (what `senpi-strategy-discover` hands over, e.g.
+`spider`) — it's fetched from the remote if not on disk. For a **locally-authored package, pass its
+DIRECTORY path** (absolute is safest, e.g. `/data/workspace/strategies/<id>`): a bare id only resolves
+locally relative to your CWD, so from anywhere else it becomes a remote catalog fetch — never what you
+want for a package you just wrote. An on-disk package is authoritative; an invalid one surfaces its
+real errors and is never silently replaced by a remote fetch. The scripts call MCP directly
+(`scripts/mcp_client.py`, reads
 `SENPI_AUTH_TOKEN`) + drive `openclaw senpi runtime …`. Mechanics + state machine:
 [`references/lifecycle.md`](references/lifecycle.md). Manifest: [`references/strategy-yaml-schema.md`](references/strategy-yaml-schema.md).
 
-## Deploy — two steps (then it's autonomously trading; `verify` is optional)
+## Deploy — three steps: create → runtime → verify (NOT live until `verify` passes)
+
+> **The loop is a gate, not a suggestion.** A strategy is LIVE only when `verify` returns `live` — every
+> instance **runtime-running + scanner-active + DSL-wired + funded to what was requested**. If any step is
+> incomplete, the strategy is **not live**; say so and fix the flagged component. Never report "live" off
+> `registered` alone.
 
 **Step 0 — resolve which strategy.** The user's word ("spider") is a strategy **`id`**. To confirm it
 exists, check the registry; no match → hand to **senpi-strategy-discover**:
@@ -58,8 +69,17 @@ exists, check the registry; no match → hand to **senpi-strategy-discover**:
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/strategies/catalog.json
 ```
 
+**Step 0.5 — preflight (recommended).** `deploy.py validate <id>` reports every structural + render
+issue in **one pass**, with **no side effects**, before you fund anything. The deployer **accepts the
+flat single-instance layout** agents naturally scaffold — one `runtime.yaml` + `scanners/` at the
+package root — by synthesizing the canonical `main` instance, so there's **no need to restructure into
+`main/`**. Any remaining fix is named prescriptively (e.g. `set runtime name: <id>-main`). A package
+that exists **on disk is authoritative** — an invalid local package surfaces its real error and is
+never silently replaced by a stale remote fetch.
+
 **Step 1 — creating wallets & funding them** (`create`; one fresh wallet per instance; budget splits by
-`funding_share`, **min $100 each** — confirm with the user first):
+`funding_share`, **min $100 each** — confirm with the user first). `create` runs the same full preflight
+first, so it refuses **before funding** if the package isn't deploy-ready:
 ```
 python3 scripts/deploy.py create spider --budget 200
 ```
@@ -71,35 +91,54 @@ and notifications. Naming is best-effort: if the backend rejects a name (conflic
 is still created (unnamed) rather than failing the deploy. It records the `strategyId`, and polls
 `strategy_list` to **ACTIVE** — **bounded** (~150s). If it prints
 **`creating`** (wallets still funding), just **re-run the same `create` command** — it resumes and
-**never re-creates** a wallet. It prints **`wallets-ready`** when done. `create` is **self-healing**: it
-reconciles recorded wallets against the backend (drops any CLOSED/FAILED and recreates) and **sizes each
-wallet to your live balance minus a fee buffer**. So **never hand-edit `.deploy-state.json` and never
-lower `--budget` to dodge a rounding/funding error** — just re-run `create`.
+**never re-creates** a wallet. It prints **`wallets-ready`** when done. **`create` never reuses an existing
+wallet — every deploy gets a FRESH one.** If an existing `<id>` strategy is found: a **runtime-less** one
+(funded but never got a runtime — the reuse trap an agent keeps landing back on) is **closed to recover its
+funds**, then a new wallet is created (prints **`closing-existing`**; re-run `create` once it's closed and
+funds are back); a **live, running** one is left untouched — `create` **refuses** so it can't silently
+flatten a real book (`close.py <id>` first to redeploy). The **`--budget` is a hard target**: create funds
+exactly what you ask (split by `funding_share`, $100/wallet floor); if your live balance can't cover it,
+create **HALTS with `underfunded`** and the exact shortfall — it will **NEVER silently fund less** (the
+"$1,000 → $100" failure). Fund/free USDC or confirm a smaller amount, then re-run. **Never hand-edit
+`.deploy-state.json` and never lower `--budget` to dodge a funding error** — just re-run `create`. When the
+user names a budget per strategy ("$1k on X, $2k on Y"), deploy each with its own `--budget` and **confirm
+the split before funding**.
 
 **Step 2 — setting up the autonomous trading strategy** (`runtime`, fast): `python3 scripts/deploy.py
-runtime spider` renders each instance's runtime.yaml with its wallet and runs `openclaw senpi runtime create`.
-**Self-healing**: if a runtime already exists on the right ACTIVE wallet it's skipped; if it's stale
-(different/CLOSED wallet, e.g. orphaned by an earlier close) it's deleted and recreated. Prints
-`registered`. `--decision-model` only for a `decision_mode: llm` action (rule-mode strategies need none).
+runtime spider` renders each instance's runtime.yaml **fresh from its `${WALLET_ENV}` template with the
+wallet Step 1 created** and runs `openclaw senpi runtime create`. **Never reuses an old wallet:** the
+runtime is always (re)built from scratch on the fresh wallet — if a same-name runtime already exists on a
+**different/old** wallet it is **deleted and recreated**, never `runtime update`d in place; only an exact
+same-wallet match is an idempotent skip. **Self-heals a lost deploy state:** if Step 1 succeeded but its
+`.deploy-state.json` was lost (a sub-agent died before persisting), `runtime` **re-resolves the fresh
+wallet from the live ACTIVE `<id>` strategy** instead of dead-ending — so you never hand-register a runtime
+onto an old wallet. It **won't guess**: if the backend is ambiguous (0 or >1 ACTIVE `<id>` wallets) it
+refuses and tells you to redeploy fresh (`close.py` any stale wallet, then `create`). Prints `registered`.
+`--decision-model` only for a `decision_mode: llm` action (rule-mode strategies need none).
 
-**Once Step 2 prints `registered`, deployment is DONE — the strategy is live and trading autonomously.**
-It scans on its own schedule and opens positions when *its* signals fire (spider swing ~300s, scalp ~60s
-cadence). Tell the user it's set up and running; **do NOT sleep/poll waiting for the first scan tick** —
-that's normal strategy behavior, not part of deploy.
+**Once Step 2 prints `registered`, the runtime is wired — but the strategy is NOT confirmed live yet.**
+Run **Step 3 `verify`**. **Do NOT tell the user the strategy is live until `verify` returns `live`.**
 
-**Optional — `verify`** (only if the user asks "is it actually scanning / live yet?"): `python3
-scripts/deploy.py verify spider` checks each `external_scanner` once. The first `scan()` only fires on its
-`interval_seconds`, so right after `runtime` it reports `registered` (not ticked yet) — expected, not a
-failure; re-run after the interval to see `live`. `deploy.py status <id>` shows current state any time.
-Do not run `verify` (and never `sleep` then verify) as a default step.
+**Step 3 — `verify`** (the required gate): `python3 scripts/deploy.py verify spider` returns **`live`** only
+when every instance is runtime-running + scanner-active (ticked *or* scheduled, never erroring) + **DSL-wired**
+(`exit.dsl_preset` present and the monitor enabled) + **funded to what was requested**; otherwise **`not-live`**
+with the failing component named (e.g. `scanner=broken`, `dsl=config-missing`, `budget=underfunded`). Fix the
+flagged component and re-run. It's a **single fast check** — a scheduled scanner passes, so it does **not**
+wait for the first scan tick and you must **never `sleep` then verify**. `deploy.py status <id>` shows deploy
+state any time.
 
 > **Do NOT improvise.** A package strategy is a **runtime-supervised scanner** — deploy it **only** via
 > these steps. Never substitute a raw `strategy_create_custom_strategy` MCP call to "deploy" it: that
 > makes an **empty** custom-position strategy, not the running scanner. Funding is **automatic**
-> (Hyperliquid perps → HL spot → EVM bridge). If `create` reports insufficient USDC / `available: 0`, the
-> wallet genuinely lacks accessible funds (often locked in other strategies) — have the user fund/free
-> USDC, then **re-run `create`**. Do not switch tools. If `create` **refuses** with "existing strategies
-> not in deploy state", a prior run was interrupted — `close.py <id>` the strays first, then `create`.
+> (Hyperliquid perps → HL spot → EVM bridge). If `create` reports **`underfunded`** (or insufficient USDC /
+> `available: 0`), the balance can't cover the requested budget (often locked in other strategies) — have
+> the user fund/free USDC or confirm a lower amount, then **re-run `create`**. Do not switch tools. If
+> `create` reports **`closing-existing`**, it's closing a runtime-less `<id>` wallet to recover funds so it
+> can deploy fresh — re-run `create` once it's closed. If it **refuses** "already deployed AND running", a
+> live `<id>` strategy exists — `close.py <id>` first to redeploy on a fresh wallet. If **`runtime`** says
+> "wallet(s) not ready and not safely recoverable", **never hand-register a runtime onto an old wallet** (no
+> manual `runtime create`/`update` with a wallet from a leftover yaml) — `close.py <id>` any stale wallet,
+> then re-run `create` → `runtime`.
 
 **Report** from the structured output, not raw logs (then always close with the **How it runs** block below):
 ```jsonc
@@ -108,10 +147,11 @@ Do not run `verify` (and never `sleep` then verify) as a default step.
   "instances":[ { "instance":"swing","runtime_id":"spider-swing","wallet":"0x…","status":"live" },
                 { "instance":"scalp","runtime_id":"spider-scalp","wallet":"0x…","status":"live" } ] }
 ```
-Overall status across the steps: `create` → `creating` (re-run) | `wallets-ready`; `runtime` →
-`registered`; `verify` → `live` (scanner ticked) | `registered` (re-run verify). Per-instance status
-flows `pending → creating → active → registered → live`. **`registered` ≠ ticking.** `create`/`runtime`
-take `--dry-run` (plan only; no side effects).
+Overall status across the steps: `create` → `creating` (re-run) | `closing-existing` (re-run once closed) |
+`wallets-ready` | **`underfunded`** (balance < requested — fund more / lower the ask); `runtime` →
+`registered`; `verify` → **`live`** | **`not-live`** (a component failed — fix it, re-run). Per-instance
+status flows `pending → creating → active → registered → live`. **`registered` ≠ live — `verify` is the
+gate.** `create`/`runtime` take `--dry-run` (plan only; no side effects).
 
 ### Final step — tell the user HOW each strategy runs (REQUIRED on every deploy)
 
@@ -125,12 +165,12 @@ Keep it to ~3 short lines per strategy. Multi-instance packages whose legs diffe
 
 ### Worked example — "install spider"
 ```
-user: "deploy spider with $200"
-1. resolve → id = spider (two instances: swing 60% / scalp 40%; $200 → swing ~$120, scalp $100 min)
-2. create → python3 scripts/deploy.py create spider --budget 200
-            → wallets-ready  (if "creating", re-run the same command until wallets-ready)
+user: "deploy spider with $300"
+1. resolve → id = spider (two instances: swing 60% / scalp 40%; $300 → swing $180, scalp $120)
+2. create → python3 scripts/deploy.py create spider --budget 300
+            → wallets-ready  (if "creating", re-run until wallets-ready; if "underfunded", fund more / lower)
 3. runtime → python3 scripts/deploy.py runtime spider          → registered (spider-swing + spider-scalp)
-4. verify  → python3 scripts/deploy.py verify spider           → live  (re-run if a slow instance hasn't ticked)
+4. verify  → python3 scripts/deploy.py verify spider           → live  (runtime+scanner+DSL+budget all green)
 5. confirm → "🕷️ Spider is live (swing + scalp)." + the required How it runs block, e.g.:
    • Cadence — scans every 5 min (swing) / 5 min (scalp).
    • Scoring — grades tech/AI names on 4h/1h trend + smart-money consensus; opens above its score bar,

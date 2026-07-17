@@ -289,6 +289,12 @@ def strategy_wallet(s):
     return dig(strategy_obj(s), "strategyWalletAddress", "walletAddress", "wallet", "address")
 
 
+def strategy_name(s):
+    """The strategyName a strategy was created under (create sets it to <id> or <id>-<instance>).
+    Lets a lost-state redeploy match a backend strategy back to its package instance."""
+    return dig(strategy_obj(s), "strategyName", "tradingStrategyName", "name")
+
+
 def strategy_skill(s):
     """The package id a strategy was created under. Lives in strategyMetadata.skillName (set by
     strategy_create_custom_strategy's skillName arg); falls back to tradingStrategyName."""
