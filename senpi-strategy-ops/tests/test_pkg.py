@@ -6,6 +6,7 @@ bake-off (Samurai/Qwen, Gemini, GLM), where every model tripped on the same auth
     python3 -m pytest senpi-strategy-ops/tests/
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import json
 import os
 import sys
 
@@ -179,6 +180,97 @@ def test_full_validate_catches_unresolved_placeholder(tmp_path):
     pkg = _pkg.load(str(d))
     errs = deploy.full_validate(pkg)
     assert any("UNBOUND_THING" in e for e in errs)
+
+
+# ─────────────────────────── template-only mode (temporary gate) ───────────────────────────
+# While the from-scratch builder is being hardened, deploy.py refuses to FUND a package whose id
+# isn't a catalog template. These lock in the four behaviours that keep it safe + reversible:
+# blocks scratch, allows templates, honours the override, and never touches non-`create` commands.
+from types import SimpleNamespace  # noqa: E402
+
+
+def test_template_only_blocks_non_catalog_create(monkeypatch):
+    """A from-scratch id (not in the catalog) is refused at `create` — before any wallet is funded —
+    with the warm template pointer, not a stack trace."""
+    deploy = _import_deploy()
+    monkeypatch.setattr(deploy, "TEMPLATE_ONLY_MODE", True)
+    monkeypatch.setattr(deploy, "_catalog_template_ids", lambda: {"raven", "wolf"})
+    monkeypatch.delenv("SENPI_ALLOW_CUSTOM_DEPLOY", raising=False)
+    with pytest.raises(SystemExit) as ei:
+        deploy._template_only_guard(SimpleNamespace(id="my-scratch-idea"), "create")
+    msg = str(ei.value)
+    assert "my-scratch-idea" in msg and "senpi-strategy-discover" in msg
+
+
+def test_template_only_allows_catalog_template(monkeypatch):
+    """A real catalog template deploys unimpeded (and a re-deploy of an already-fetched template is
+    NOT falsely blocked — membership is by id, not by whether it's cached on disk)."""
+    deploy = _import_deploy()
+    monkeypatch.setattr(deploy, "TEMPLATE_ONLY_MODE", True)
+    monkeypatch.setattr(deploy, "_catalog_template_ids", lambda: {"raven", "wolf"})
+    monkeypatch.delenv("SENPI_ALLOW_CUSTOM_DEPLOY", raising=False)
+    deploy._template_only_guard(SimpleNamespace(id="raven"), "create")  # no raise
+
+
+def test_template_only_override_env_lets_internal_deploys_through(monkeypatch):
+    """SENPI_ALLOW_CUSTOM_DEPLOY=1 is the internal escape hatch — fleet/CI can still deploy a new,
+    not-yet-catalogued strategy from scratch."""
+    deploy = _import_deploy()
+    monkeypatch.setattr(deploy, "TEMPLATE_ONLY_MODE", True)
+    monkeypatch.setattr(deploy, "_catalog_template_ids", lambda: {"raven"})
+    monkeypatch.setenv("SENPI_ALLOW_CUSTOM_DEPLOY", "1")
+    deploy._template_only_guard(SimpleNamespace(id="brand-new-fleet-agent"), "create")  # no raise
+
+
+def test_template_only_ignores_non_create_commands(monkeypatch):
+    """validate/status/runtime/verify are never gated — a user can still VALIDATE a scratch package
+    (and get feedback); only funding is blocked."""
+    deploy = _import_deploy()
+    monkeypatch.setattr(deploy, "TEMPLATE_ONLY_MODE", True)
+    monkeypatch.setattr(deploy, "_catalog_template_ids", lambda: {"raven"})
+    monkeypatch.delenv("SENPI_ALLOW_CUSTOM_DEPLOY", raising=False)
+    for cmd in ("validate", "status", "runtime", "verify"):
+        deploy._template_only_guard(SimpleNamespace(id="my-scratch-idea"), cmd)  # no raise
+
+
+def test_template_only_fails_open_when_catalog_unreadable(monkeypatch):
+    """If the catalog can't be fetched (None), the guard does NOT block — funding needs the network
+    anyway, so failing open here can't let an offline scratch deploy complete."""
+    deploy = _import_deploy()
+    monkeypatch.setattr(deploy, "TEMPLATE_ONLY_MODE", True)
+    monkeypatch.setattr(deploy, "_catalog_template_ids", lambda: None)
+    monkeypatch.delenv("SENPI_ALLOW_CUSTOM_DEPLOY", raising=False)
+    deploy._template_only_guard(SimpleNamespace(id="my-scratch-idea"), "create")  # no raise
+
+
+def test_template_only_mode_off_is_a_clean_noop(monkeypatch):
+    """Flipping TEMPLATE_ONLY_MODE = False fully restores custom deploys — the one-line switch back."""
+    deploy = _import_deploy()
+    monkeypatch.setattr(deploy, "TEMPLATE_ONLY_MODE", False)
+    monkeypatch.delenv("SENPI_ALLOW_CUSTOM_DEPLOY", raising=False)
+    deploy._template_only_guard(SimpleNamespace(id="my-scratch-idea"), "create")  # no raise
+
+
+def test_catalog_ids_parses_skills_and_caches(monkeypatch):
+    """_catalog_template_ids extracts skills[].id from the fetched catalog.json and caches per run
+    (one network hit); an HTTP error or exception fails open to None (→ guard won't block)."""
+    deploy = _import_deploy()
+    monkeypatch.setattr(deploy, "_CATALOG_IDS", None)
+    body = json.dumps({"skills": [{"id": "raven"}, {"id": "wolf"}, {"no_id": 1}]}).encode()
+    calls = {"n": 0}
+
+    def _fake_get(host, path, accept, timeout):
+        calls["n"] += 1
+        assert "catalog.json" in path
+        return 200, body
+    monkeypatch.setattr(deploy._fetch, "_get", _fake_get)
+    assert deploy._catalog_template_ids() == {"raven", "wolf"}
+    assert deploy._catalog_template_ids() == {"raven", "wolf"}  # cached
+    assert calls["n"] == 1
+
+    monkeypatch.setattr(deploy, "_CATALOG_IDS", None)
+    monkeypatch.setattr(deploy._fetch, "_get", lambda *a, **k: (404, b""))
+    assert deploy._catalog_template_ids() is None  # HTTP error → fail open
 
 
 if __name__ == "__main__":

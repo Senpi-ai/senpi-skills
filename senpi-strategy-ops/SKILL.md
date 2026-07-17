@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.5.0"
+  version: "2.6.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -55,6 +55,13 @@ real errors and is never silently replaced by a remote fetch. The scripts call M
 (`scripts/mcp_client.py`, reads
 `SENPI_AUTH_TOKEN`) + drive `openclaw senpi runtime …`. Mechanics + state machine:
 [`references/lifecycle.md`](references/lifecycle.md). Manifest: [`references/strategy-yaml-schema.md`](references/strategy-yaml-schema.md).
+
+> **⏸ Template-only mode (temporary).** While the from-scratch builder is being hardened, `deploy.py
+> create` refuses to fund a package whose id isn't a **catalog template** (the ones
+> `senpi-strategy-discover` offers) — a custom/from-scratch build is turned away *before any wallet is
+> funded*, with a pointer to the template path. Deploying a real catalog template is unaffected.
+> Internal fleet/CI deploying a new, not-yet-catalogued strategy: set `SENPI_ALLOW_CUSTOM_DEPLOY=1`.
+> Reversible in one line — `TEMPLATE_ONLY_MODE = False` in `deploy.py`.
 
 ## Deploy — three steps: create → runtime → verify (NOT live until `verify` passes)
 

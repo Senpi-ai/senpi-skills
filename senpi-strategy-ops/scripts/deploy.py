@@ -24,6 +24,7 @@ on first use if it isn't on disk.
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -43,6 +44,71 @@ POLL_EVERY = 10
 FEE_BUFFER = 1.5        # USDC reserved per wallet for the creation fee (observed ~$1)
 MIN_WALLET = 100.0      # platform minimum per strategy wallet
 ORDER = ("pending", "creating", "active", "registered", "live")
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+# TEMPORARY — template-only mode.  While we harden the from-scratch strategy builder/compiler,
+# deploys are limited to the proven catalog templates (what senpi-strategy-discover offers). A
+# custom/from-scratch package — an id NOT in the catalog — is refused HERE, before any wallet is
+# funded, with a warm pointer to the template path. The strategy-author SKILL is the primary gate
+# (it steers users to templates); this is the backstop for an agent that scaffolds anyway.
+#
+#   ⟳ TO RE-ENABLE CUSTOM DEPLOYS when the builder is ready:  flip TEMPLATE_ONLY_MODE = False
+#     (one line) — or delete this block together with the `_template_only_guard(...)` call in main().
+#   • SENPI_ALLOW_CUSTOM_DEPLOY=1 overrides per-invocation (internal fleet / CI deploys of new,
+#     not-yet-catalogued strategies).
+# ══════════════════════════════════════════════════════════════════════════════════════════════
+TEMPLATE_ONLY_MODE = True
+
+_TEMPLATE_ONLY_MSG = """\
+error: custom (from-scratch) strategies are paused for a few days while we harden the builder.
+
+Here's what most tools hide: every Senpi strategy is real quant engineering — a Python scanner,
+scoring math, a runtime spec, and a supervised DSL exit engine — that Senpi compiles and runs for
+you. We're upgrading that builder/compiler right now, so {id!r} (not one of our catalog templates)
+can't deploy just yet.
+
+Meanwhile, launch from one of our 90+ proven templates — you start from code that's already been
+validated and battle-tested end-to-end, and you're live in a single step:
+  → browse them with senpi-strategy-discover, pick the closest to your thesis, and deploy.
+
+Custom building is coming back shortly — it's a one-line switch on our side.
+(internal: set SENPI_ALLOW_CUSTOM_DEPLOY=1 to deploy a non-catalog package.)"""
+
+_CATALOG_IDS = None  # cached per-process: the set of deployable template ids
+
+
+def _catalog_template_ids():
+    """The allow-list — ids in strategies/catalog.json on the deploy ref, fetched from the public repo
+    (same channel as package fetch) and cached. Returns None if the catalog can't be read; the guard
+    treats None as 'can't verify → don't block' (fail-open). That's safe: funding a wallet needs the
+    network anyway, so a fail-open here can't let an offline scratch deploy actually complete."""
+    global _CATALOG_IDS
+    if _CATALOG_IDS is not None:
+        return _CATALOG_IDS
+    try:
+        status, body = _fetch._get("raw.githubusercontent.com",
+                                   f"/{_fetch.REPO}/{_fetch.REF}/strategies/catalog.json", "*/*", 15)
+        if status != 200:
+            return None
+        skills = json.loads(body).get("skills", [])
+        _CATALOG_IDS = {s["id"] for s in skills if isinstance(s, dict) and s.get("id")}
+        return _CATALOG_IDS
+    except Exception:  # noqa: BLE001 — any failure → can't verify → fail open (see docstring)
+        return None
+
+
+def _template_only_guard(pkg, cmd):
+    """Backstop for TEMPLATE_ONLY_MODE: refuse to FUND a package whose id isn't a catalog template.
+    Gates `create` only (the funding step); with no wallet, runtime/verify can't proceed anyway."""
+    if not TEMPLATE_ONLY_MODE or cmd != "create":
+        return
+    if os.environ.get("SENPI_ALLOW_CUSTOM_DEPLOY"):
+        return
+    ids = _catalog_template_ids()
+    if ids is None or pkg.id in ids:  # can't verify → don't block;  in catalog → allow
+        return
+    raise SystemExit(_TEMPLATE_ONLY_MSG.format(id=pkg.id))
+# ══════════════════════════════════════════════════════════════════════════════════════════════
 
 
 # ---------- package + state ----------
@@ -632,6 +698,7 @@ def main(argv):
     log = (lambda m: None) if a.json else (lambda m: print(m))
 
     pkg = ensure_pkg(a.package, a.ref, log)
+    _template_only_guard(pkg, a.cmd)  # TEMPORARY template-only mode — remove with the block above
 
     # `validate` is the standalone, side-effect-free preflight; `create` runs the SAME full check
     # before funding any wallet; runtime/verify/status keep the structural gate.

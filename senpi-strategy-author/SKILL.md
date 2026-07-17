@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.6.1"
+  version: "2.7.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -52,6 +52,37 @@ much risk). Your job is to draw those out, one question at a time, and compile t
 > (A)/(B) they want, **ask before placing anything** — and never route (B) into a managed wallet to save a step.
 
 ## Start here — offer the fast path before building from scratch
+
+<!-- ══════════════════════════════════════════════════════════════════════════════════════════════
+     TEMPORARY — TEMPLATE-ONLY MODE.  While we harden the from-scratch builder/compiler, do NOT run
+     the from-scratch interview (option 3 below): steer the user to a proven template instead. The
+     deployer enforces the same rule (deploy.py refuses to FUND a non-catalog package), so beginning a
+     scratch build here only burns the user's time before it hits that wall.
+     ⟳ TO RESTORE full from-scratch building: delete this one comment block — the 3-path "Start here"
+       below is intact and governs again. (Pair with `TEMPLATE_ONLY_MODE = False` in strategy-ops
+       deploy.py.)
+     ══════════════════════════════════════════════════════════════════════════════════════════════ -->
+> ### ⏸ Custom (from-scratch) building is paused for a few days — start from a proven template
+>
+> Here's what most tools hide from you: **every Senpi strategy is real code.** Behind the name is a
+> Python **scanner**, the **scoring math** that ranks candidates, a **runtime spec**, and a supervised
+> **DSL exit engine** — Senpi writes and compiles all of it for you. That's genuine quant engineering,
+> and we're **upgrading the builder/compiler that generates it right now.**
+>
+> While we do, you launch from one of our **90+ proven templates** — each is code that's already been
+> validated and battle-tested end-to-end, so you start from something that *works* and you're live in a
+> single step. Pick the closest to your thesis and make it yours: editing a template's universe /
+> thresholds / sizing / DSL is fully open (you inherit working code — that's the reliable way to
+> customize today).
+>
+> **So while this block is here:**
+> - **Any "build from scratch" / "design my own" ask →** don't run the interview. Hand the user's
+>   thesis words to **`senpi-strategy-discover`**, name the closest one or two templates, and offer to
+>   deploy + tailor. Frame it warmly and honestly: *custom from-scratch is paused for a few days while
+>   we make it rock-solid — here's the proven template closest to what you want, and we can tune it.*
+> - **Template + edits** (option 2 below) is how to "customize" right now — it inherits working code
+>   and deploys clean.
+> - **Ignore option 3 (from-scratch) below** until this block is removed.
 
 Building from scratch is powerful, but it's the **slow** path (the full interview + compile + smoke-test).
 Most users — especially new ones — are best served by starting from a **proven template** and tweaking it
