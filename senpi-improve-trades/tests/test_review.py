@@ -940,6 +940,67 @@ def test_event_timeout_trips_the_breaker():
             os.environ["SENPI_EVENTS_FIXTURE"] = old_ev
 
 
+# ─────────────────────── stdout context-cost slimming (the samurai-pro timeout fix) ───────────────
+# review.py's stdout IS the model's context next turn. A 146-trade account dumped the full array (~29k
+# tokens) into context → prefill blew the delivery timeout (samurai-pro >60s tail). The fix: stdout
+# carries a top-N OUTLIER sample + counts; aggregates stay complete; the on-disk state keeps the full
+# array; `--full` restores it.
+def _big_result(n_trades=146, n_missed=40):
+    def mk(i):
+        return {"asset": f"A{i % 40}", "direction": "long" if i % 2 else "short",
+                "realized_pnl": round((i - 73) * 3.14, 2), "if_held_delta_usd": round((73 - i) * 5.5, 2),
+                "close_time": 1782500000000 + i * 60000, "exit_vs_hold": "held_higher",
+                "price_since_exit_pct": round((i - 73) * 0.3, 2), "strategy_label": "lion",
+                "strategy_wallet": f"0xwallet{i:036x}", "margin_used": 250.0, "leverage": 5,
+                "mandate": "Long winners, short laggards — a deliberately verbose per-trade field.",
+                "exit_reason": {"terminal": "SL_TRIGGERED", "tier_reached": 2, "high_water_roe": 41.0}}
+    return {"trades": [mk(i) for i in range(n_trades)],
+            "timing_summary": {"trade_count": n_trades, "exits_ahead": 124},
+            "pnl_summary": {"total": 468.44, "realized": -239.44},
+            "missed_signals": [{"asset": f"M{i}", "reason_code": "no_slots"} for i in range(n_missed)],
+            "meta": {"trade_count": n_trades}}
+
+
+def test_stdout_slim_samples_trades_and_keeps_aggregates():
+    """STDOUT carries a top-N outlier SAMPLE (not the 146-row array that blew the delivery timeout); every
+    aggregate stays intact; the payload shrinks >85%."""
+    big = _big_result()
+    slim = review._slim_for_context(big, full=False)
+    assert len(slim["trades"]) == review.STDOUT_TRADES_SAMPLE                  # sampled, not all 146
+    assert slim["trades_sample"]["total"] == 146                              # true count preserved
+    assert slim["timing_summary"]["exits_ahead"] == 124                       # aggregate untouched
+    assert slim["pnl_summary"]["total"] == 468.44
+    assert len(slim["missed_signals"]) == review.STDOUT_MISSED_SAMPLE
+    keys = set(slim["trades"][0].keys())                                      # per-trade fields trimmed
+    assert "realized_pnl" in keys and "exit_reason" in keys
+    assert not ({"strategy_wallet", "mandate", "margin_used"} & keys)         # verbose internals dropped
+    assert len(json.dumps(slim)) < 0.15 * len(json.dumps(big))               # the whole point
+
+
+def test_stdout_slim_samples_the_outliers():
+    """The sample is the biggest-realized + biggest-hold-to-now moves — the trades a coach actually cites."""
+    big = _big_result()
+    slim = review._slim_for_context(big, full=False)
+    biggest = max(big["trades"], key=lambda t: abs(t["realized_pnl"]))
+    assert any(t["realized_pnl"] == biggest["realized_pnl"] for t in slim["trades"])
+
+
+def test_stdout_slim_full_flag_restores_everything():
+    big = _big_result()
+    assert review._slim_for_context(big, full=True) is big                    # unchanged, complete
+
+
+def test_stdout_slim_small_book_not_falsely_sampled():
+    """A small book (<= sample size) is field-trimmed but NOT flagged as a 'sample' — nothing hidden, so
+    the narrator must not imply trades were dropped."""
+    small = {"trades": [{"asset": "BTC", "realized_pnl": 10.0, "strategy_wallet": "0xabc"}],
+             "meta": {"trade_count": 1}}
+    slim = review._slim_for_context(small, full=False)
+    assert len(slim["trades"]) == 1
+    assert "strategy_wallet" not in slim["trades"][0]                         # still field-trimmed
+    assert "trades_sample" not in slim                                        # NOT flagged as truncated
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

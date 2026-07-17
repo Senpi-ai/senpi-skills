@@ -2090,6 +2090,63 @@ def _all_and_persist(client, window_days, last_n, want_market, state_path, now_m
     return result
 
 
+# ──────────────────────────────────────────────────────── stdout slimming (context-cost control)
+# review.py's stdout IS the model's context on the next turn. The narrator writes from the AGGREGATES
+# (pnl_summary / timing_summary / strategies / dsl_close_reason_mix) — never the raw per-trade rows. On
+# a big multi-strategy account the full `trades[]` is 40-60k tokens of prefill it doesn't need, which is
+# most of the model time and blows the delivery timeout (the samurai-pro >60s tail hits power users
+# hardest). So the STDOUT payload carries a top-N OUTLIER SAMPLE + counts; the on-disk state file keeps
+# the COMPLETE arrays for the stepped path. `--full` restores everything (debug / "the whole ledger").
+STDOUT_TRADES_SAMPLE = 12
+STDOUT_MISSED_SAMPLE = 10
+_TRADE_STDOUT_FIELDS = ("asset", "direction", "strategy_label", "realized_pnl", "close_time",
+                        "exit_vs_hold", "price_since_exit_pct", "if_held_delta_usd", "exit_reason")
+
+
+def _slim_trade(t):
+    return {k: t.get(k) for k in _TRADE_STDOUT_FIELDS if k in t} if isinstance(t, dict) else t
+
+
+def _sample_trades(trades):
+    """The outliers a coach actually calls out — the biggest realized moves AND the biggest hold-to-now
+    deltas ('biggest miss') — deduped, newest-first, trimmed to the narratable fields. NOT all N rows."""
+    if not isinstance(trades, list) or len(trades) <= STDOUT_TRADES_SAMPLE:
+        return [_slim_trade(t) for t in (trades or [])]
+    by_pnl = sorted(trades, key=lambda t: abs(_num(t.get("realized_pnl")) or 0), reverse=True)
+    by_hold = sorted(trades, key=lambda t: abs(_num(t.get("if_held_delta_usd")) or 0), reverse=True)
+    picked, seen = [], set()
+    for t in by_pnl[:STDOUT_TRADES_SAMPLE] + by_hold[:STDOUT_TRADES_SAMPLE]:
+        if id(t) not in seen:
+            seen.add(id(t))
+            picked.append(t)
+    picked.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
+    return [_slim_trade(t) for t in picked[:STDOUT_TRADES_SAMPLE]]
+
+
+def _slim_for_context(result, full=False):
+    """Trim the STDOUT payload (what enters the model's context) — NEVER the on-disk state. Replaces the
+    raw `trades` / `missed_signals` arrays with a top-N sample + explicit counts; every AGGREGATE is left
+    untouched (the narration reads those). `full=True` returns the result unchanged."""
+    if full or not isinstance(result, dict):
+        return result
+    out = dict(result)
+    trades = out.get("trades")
+    if isinstance(trades, list):
+        sampled = _sample_trades(trades)                      # key kept; field-trimmed rows
+        out["trades"] = sampled
+        if len(trades) > len(sampled):                        # only when we actually dropped rows
+            out["trades_sample"] = {
+                "shown": len(sampled), "total": len(trades),
+                "note": "OUTLIER SAMPLE only (biggest realized + biggest hold-to-now) — the aggregates "
+                        "(timing_summary / pnl_summary / dsl_close_reason_mix) cover ALL trades. Full "
+                        "ledger: re-run with --full. Never imply the sample is the whole book."}
+    ms = out.get("missed_signals")
+    if isinstance(ms, list) and len(ms) > STDOUT_MISSED_SAMPLE:
+        out["missed_signals"] = ms[:STDOUT_MISSED_SAMPLE]
+        out["missed_signals_sample"] = {"shown": STDOUT_MISSED_SAMPLE, "total": len(ms)}
+    return out
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     # optional leading positional STEP (timing|strategies|telemetry|market|all); default `all` = the
@@ -2117,6 +2174,9 @@ def main(argv=None):
                     help="shared state file path (default <tempdir>/senpi-improve-trades/state-<window>d.json)")
     ap.add_argument("--fixture", help="offline: path to a recorded MCP-response map (tests only)")
     ap.add_argument("--dry", action="store_true", help="dump raw MCP responses for schema debugging")
+    ap.add_argument("--full", action="store_true",
+                    help="emit the COMPLETE trades/missed_signals arrays; default is a top-N outlier "
+                         "sample to keep the model-context payload small (aggregates are always complete)")
     # `step` was already peeled off argv above; feed the remainder (flags only).
     args = ap.parse_args(argv)
 
@@ -2149,7 +2209,7 @@ def main(argv=None):
     except Exception as e:  # noqa
         print(json.dumps({"trades": [], "meta": {"error": f"engine failure: {e}"}}))
         return 1
-    print(json.dumps(result, ensure_ascii=False))
+    print(json.dumps(_slim_for_context(result, args.full), ensure_ascii=False))
     return 0
 
 
