@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.4.0"
+  version: "1.5.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -171,9 +171,18 @@ what an earlier one fetched instead of re-pulling. **For a NARROW ask, run only 
 the Quick-actions "Step(s)" column (e.g. "did I sell too early" → just `timing`; "where am I leaking" → just
 `telemetry`) — faster, and each step self-heals its prerequisites so it also works standalone.
 
-`--window` / `--last` / `--no-market` / `--fixture` apply to every step. Same fail-open contract as `all`:
-each step returns valid JSON with `meta.warnings` on partial data and never crashes on a missing/corrupt
-state file (it recomputes).
+`--window` / `--last` / `--no-market` / `--fixture` / `--full` apply to every step. Same fail-open contract
+as `all`: each step returns valid JSON with `meta.warnings` on partial data and never crashes on a
+missing/corrupt state file (it recomputes).
+
+**`trades[]` is a curated OUTLIER SAMPLE, not the whole book.** To keep the model-context payload small
+(the raw ledger on a big multi-strategy account is tens of thousands of tokens and blows the delivery
+timeout), the engine emits only the top handful of trades by biggest realized PnL + biggest hold-to-now
+delta — the ones a coach actually cites. When `trades_sample` is present, `trades_sample.total` is the real
+count. **Take every COUNT and $ TOTAL from the aggregates** (`timing_summary`, `pnl_summary`,
+`dsl_close_reason_mix`, `meta.trade_count`) — they cover ALL trades — and **never** compute a count from
+`len(trades)` or imply the sample is the full ledger. Need the complete per-trade list (rare)? re-run with
+`--full`.
 
 **Scope the ask.** When the user names a trade count — "improve my last 10", "review my last 20 trades" —
 **pass `--last N`**: it's a GLOBAL bound (the N most-recent closed trades across the whole book), so the review
