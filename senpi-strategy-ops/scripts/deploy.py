@@ -103,13 +103,22 @@ def save_state(pkg, st):
     _state_path(pkg).write_text(json.dumps(st, indent=2) + "\n")
 
 
-def delete_state(pkg):
-    """Remove the ephemeral deploy state — called once a deploy is fully live, or on close."""
-    p = _state_path(pkg)
+def _safe_unlink(p):
+    """Delete a file, ignoring if it's already gone."""
     try:
-        p.unlink()
+        Path(p).unlink()
     except OSError:
         pass
+
+
+def delete_state(pkg):
+    """Remove the ephemeral deploy state — called once a deploy is fully live, or on close. Also sweeps
+    any rendered `<inst>.deploy.runtime.yaml` build artifacts: they carry a baked-in wallet, and a stale
+    one left on disk is exactly what a lost-state manual redeploy wrongly picks up (the reuse trap)."""
+    _safe_unlink(_state_path(pkg))
+    for inst in pkg.instances:
+        if inst.runtime_path:
+            _safe_unlink(inst.runtime_path.with_name(f"{inst.name}.deploy.runtime.yaml"))
 
 
 def inst_state(st, name):
@@ -206,19 +215,45 @@ def cmd_create(pkg, a, log):
             st["instances"][inst.name] = {"status": "pending"}
     save_state(pkg, st)
 
-    # Safety: refuse if there are skillName==id strategies we never recorded (interrupted run) — do
-    # NOT blindly fund duplicates. The operator must close the strays first.
-    recorded = {inst_state(st, i.name).get("strategyId") for i in pkg.instances}
-    recorded.discard(None)
-    existing = _cli.strategies_for(mcp, skill_name=pkg.id)
-    # only OPEN, unrecorded strategies indicate an interrupted run — closed/failed history is harmless
-    untracked = [s for s in existing if _cli.strategy_open(s) and _cli.strategy_id_of(s) not in recorded]
-    need = [i for i in pkg.instances if not inst_state(st, i.name).get("strategyId")]
-    if untracked and need:
+    # NEVER reuse an existing strategy's wallet. Re-using a funded, runtime-less wallet is the trap an
+    # agent keeps falling into (creates <id>, never deploys the runtime, keeps landing back on the same
+    # dead wallet); creating a second alongside it double-funds. So every `create` deploys on a FRESH
+    # wallet, resolving any existing OPEN <id> strategy first:
+    #   • RUNNING runtime → a live, working deploy: REFUSE to silently flatten it; redeploy is explicit
+    #     (close.py first). Protects a real book from an accidental `create`.
+    #   • no running runtime → the funded-but-stuck trap: CLOSE it (recovers its funds), then this deploy
+    #     creates a fresh wallet. strategy_close is async, so hand off and re-run `create` once it's closed.
+    runtimes = _cli.list_runtimes()
+    existing_open = [s for s in _cli.strategies_for(mcp, skill_name=pkg.id) if _cli.strategy_open(s)]
+
+    def _has_running_runtime(s):
+        rt = _cli.find_runtime_by_wallet(_cli.strategy_wallet(s))
+        return bool(rt) and _cli.runtime_running(rt)
+
+    live = [s for s in existing_open if _has_running_runtime(s)]
+    if live:
         raise SystemExit(
-            f"error: found {len(untracked)} existing {pkg.id} strateg(y/ies) not in this deploy's state "
-            f"(likely an interrupted run). Close them first to avoid duplicate funded wallets:\n"
-            f"  python3 {Path(__file__).with_name('close.py')} {pkg.id}")
+            f"error: {pkg.id} is already deployed AND running ({len(live)} live wallet(s)) — `create` will not "
+            f"silently close a live strategy. To redeploy on a fresh wallet, close it first:\n"
+            f"  python3 {Path(__file__).with_name('close.py')} {pkg.id}\n"
+            f"Or just re-check it:  python3 {Path(__file__).name} verify {pkg.id}")
+
+    if existing_open:  # open but NOT running → the runtime-less trap: close (recover funds) → fresh wallet
+        import close as _close  # noqa: E402 — sibling module, lazy import
+        for s in existing_open:
+            _close.close_one(pkg.id, s, runtimes, False, log)
+        for inst in pkg.instances:  # forget the old ids so the re-run makes NEW wallets, never resumes them
+            prev = inst_state(st, inst.name)
+            st["instances"][inst.name] = ({"status": "pending", "requested": prev["requested"]}
+                                          if prev.get("requested") else {"status": "pending"})
+        save_state(pkg, st)
+        return report(pkg, st, "closing-existing", note=(
+            f"Found {len(existing_open)} existing {pkg.id} strateg(y/ies) with NO running runtime — closing "
+            f"them (recovering funds) so this deploys on a FRESH wallet, never reusing the runtime-less one. "
+            f"strategy_close is async; re-run `python3 {Path(__file__).name} create {pkg.id} --budget "
+            f"{a.budget:g}` once they're CLOSED and the funds are back."), as_json=a.json)
+
+    need = [i for i in pkg.instances if not inst_state(st, i.name).get("strategyId")]
 
     # size the to-create instances against the LIVE available balance (minus a per-wallet fee buffer),
     # so sequential funding + creation fees can't leave a later instance short.
@@ -300,12 +335,54 @@ def cmd_create(pkg, a, log):
 
 # ---------- step 2: deploy runtimes ----------
 
+def _recover_wallet(pkg, inst, active):
+    """Re-resolve one instance's FRESH wallet from the live ACTIVE <id> strategies when the deploy
+    state was lost (the sub-agent died before persisting it). Returns (wallet, error).
+
+    NEVER guesses: if the backend is ambiguous (0, or >1 candidate wallets for the instance) it
+    returns an error so cmd_runtime refuses rather than binding a runtime to the wrong/old wallet —
+    the exact reuse trap (agent hand-registers onto a stale wallet from a leftover rendered yaml)."""
+    if len(pkg.instances) > 1:  # multi-instance: match by the name create assigned each wallet
+        cands = [s for s in active if _cli.strategy_name(s) == f"{pkg.id}-{inst.name}"]
+    else:  # single-instance: the lone ACTIVE <id> strategy is this instance
+        cands = list(active)
+    wallets = {str(_cli.strategy_wallet(s)).lower() for s in cands if _cli.strategy_wallet(s)}
+    if cands and len(wallets) == 1:
+        return _cli.strategy_wallet(cands[0]), None
+    if not cands:
+        return None, f"no ACTIVE {pkg.id} wallet on the backend for instance {inst.name!r}"
+    return None, f"{len(cands)} ACTIVE {pkg.id} wallets match instance {inst.name!r} — ambiguous, won't guess"
+
+
 def cmd_runtime(pkg, a, log):
     st = load_state(pkg)
-    not_ready = [i.name for i in pkg.instances
-                 if not inst_state(st, i.name).get("wallet")]
-    if not_ready and not a.dry_run:
-        raise SystemExit(f"error: wallets not ready for {', '.join(not_ready)} — run `deploy.py create {pkg.id}` first")
+
+    # Self-heal a lost/partial deploy state: if `create` succeeded but its state file was lost (the
+    # sub-agent died before persisting), re-resolve each instance's FRESH wallet from the live ACTIVE
+    # <id> strategies instead of dead-ending. Otherwise the agent improvises a manual `runtime update`
+    # onto an OLD wallet baked into a leftover rendered yaml / a pre-existing same-name runtime — the
+    # reuse trap. We never guess: an ambiguous backend refuses with a redeploy-fresh instruction.
+    missing = [i for i in pkg.instances if not inst_state(st, i.name).get("wallet")]
+    if missing and not a.dry_run:
+        active = _cli.strategies_for(MCPClient(), skill_name=pkg.id, statuses=["ACTIVE"])
+        recovered, unresolved = [], []
+        for inst in missing:
+            w, err = _recover_wallet(pkg, inst, active)
+            if w:
+                inst_state(st, inst.name).update(wallet=w, status="active")
+                recovered.append(inst.name)
+            else:
+                unresolved.append((inst.name, err))
+        if recovered:
+            save_state(pkg, st)
+            log(f"  deploy-state was lost — recovered fresh wallet(s) from the backend for: {', '.join(recovered)}")
+        if unresolved:
+            lines = "\n".join(f"    - {n}: {why}" for n, why in unresolved)
+            raise SystemExit(
+                f"error: wallet(s) not ready and not safely recoverable:\n{lines}\n"
+                f"Do NOT hand-register a runtime on an old wallet. Redeploy on a fresh wallet:\n"
+                f"  python3 {Path(__file__).with_name('close.py')} {pkg.id}   # if a stale {pkg.id} wallet is lingering\n"
+                f"  python3 {Path(__file__).name} create {pkg.id} --budget <usd>")
     if pkg.any_needs_model and not a.decision_model and not a.dry_run:
         raise SystemExit("error: a runtime has a decision_mode: llm action — pass --decision-model <bare-model>")
 
@@ -324,16 +401,20 @@ def cmd_runtime(pkg, a, log):
             s["plan"] = f"openclaw senpi runtime create -p {build} --runtime-id {inst.runtime_name}"
             save_state(pkg, st)
             continue
-        # Reconcile an existing runtime of this id: same+correct wallet → already deployed (skip);
-        # stale (wallet differs, or its wallet is CLOSED — e.g. orphaned by a prior close) → delete it
-        # and recreate. Self-heals the "already exists" / "wallet CLOSED" collisions.
+        # Reconcile an existing runtime of this id. The runtime is ALWAYS (re)built from scratch on the
+        # freshly-resolved wallet — we never reuse an old wallet a same-name runtime is still bound to:
+        #   same + correct wallet → already deployed on this wallet (idempotent skip);
+        #   wallet differs / unreadable / its wallet is CLOSED (orphaned by a prior close) → DELETE the
+        #   old runtime and recreate on the fresh wallet (never `runtime update` it in place).
         existing = _cli.find_runtime(inst.runtime_name)
         if existing:
             if _cli.wallet_match(_cli.runtime_wallet(existing), wallet):
                 s.update(status="registered", error=None)
                 save_state(pkg, st)
+                _safe_unlink(build)  # runtime owns its config now — drop the rendered yaml so no stale wallet lingers
                 continue
-            log(f"  [{inst.name}] stale runtime {inst.runtime_name!r} (wallet mismatch) — deleting")
+            log(f"  [{inst.name}] existing runtime {inst.runtime_name!r} is on a different/old wallet "
+                f"— deleting and recreating on the fresh wallet (never reusing the old one)")
             _cli.run_cli(["openclaw", "senpi", "runtime", "delete", inst.runtime_name], timeout=60)
         build.write_text(text)
         log(f"  [{inst.name}] runtime create…")
@@ -342,9 +423,10 @@ def cmd_runtime(pkg, a, log):
         if rc != 0:
             s.update(error=(err or "runtime create failed").strip()[:300])
             save_state(pkg, st)
-            continue
+            continue  # keep the rendered yaml on failure for debugging
         s.update(status="registered", error=None)
         save_state(pkg, st)
+        _safe_unlink(build)  # registered — the runtime holds its own config; remove the rendered wallet-bearing yaml
 
     if a.dry_run:
         return report(pkg, st, "planned", as_json=a.json)
