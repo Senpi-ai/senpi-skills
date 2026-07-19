@@ -19,7 +19,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "0.3.3"
+  version: "0.3.4"
   status: experimental
   platform: senpi
   exchange: hyperliquid
@@ -266,7 +266,10 @@ requires: []        # name a capability that may not exist yet -> gap report, no
 - **Exit protection is materialized IN the graph** — `new` writes the resolved ladder to
   `metadata.spec.protection` (seeded from the preset). Tune tiers/floors THERE, then
   `check → deploy → update`; NEVER edit the emitted `runtime.yaml` (install verifies content hashes
-  and will refuse).
+  and will refuse). An OLDER graph (legacy `answers` block, no `spec.protection`): run
+  `composer materialize <graph>` ONCE — it renames the block and backfills the resolved ladder
+  in place (`check` also prints the paste-ready block as an annotation). Never hand-add a partial
+  `spec:` beside a legacy `answers:` block (CMP247).
 - **Climb the hatch ladder before concluding the vocabulary lacks something:** (1) re-check the registry —
   `composer catalog` + `composer describe <node|kind|port_type|archetype>`; a capability's absence from your
   memory or from ONE CLI surface is not absence — `describe pure_fn` is the authoring contract for bespoke
