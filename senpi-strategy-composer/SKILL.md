@@ -19,7 +19,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "0.3.4"
+  version: "0.3.5"
   status: experimental
   platform: senpi
   exchange: hyperliquid
@@ -42,8 +42,9 @@ Real form inside a claw:
 ```
 openclaw senpi composer <verb> ...
 ```
-Verbs: `catalog`, `describe <node>`, `new`, `check <graph>`, `deploy <graph>`,
-`fund <staged-dir> --budget N`, `install <staged-dir> [--wallet 0x…]`, `status <graph> [--state-dir …]`, `close <target>`.
+Verbs: `catalog`, `describe <node>`, `new`, `materialize <graph>`, `check <graph>`, `deploy <graph>`,
+`fund <staged-dir> --budget N`, `install <staged-dir> [--wallet 0x…]`, `update <staged-dir>`,
+`status <graph> [--state-dir …]`, `close <target>`.
 
 **Always invoke verbs with `--json`** — you need the machine-readable verdict (verdict/stages/errors, the
 `DEFAULTED:` block, the GREEN `SUMMARY`); the human render can be buried under box noise.
