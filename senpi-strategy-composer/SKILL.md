@@ -19,7 +19,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "0.3.5"
+  version: "0.3.6"
   status: experimental
   platform: senpi
   exchange: hyperliquid
@@ -68,9 +68,10 @@ Ambiguous? Ask one disambiguating question before acting.
 ## Capability questions — fetch the world, don't guess
 
 The moment the user asks what is possible, run `openclaw senpi composer catalog` (~1.2k
-tokens: every node name + one-liner + params, grouped source / indicator / filter / scorer /
-ranker / emitter / stateful). Answer strictly from it — it is the closed world of what can
-be built. If they ask about a capability the catalog lacks, say so plainly (see Gap reports);
+tokens: every node name + one-liner + params, grouped source / filter / scorer / ranker /
+emitter / stateful). Answer strictly from it — it is the closed world of DATA and PIPELINE;
+COMPUTE is not a shelf, it is yours to write (`pure_fn` — see the catalog's compute block;
+`describe indicators` lists the curated formulas when one fits exactly). If they ask about a capability the catalog lacks, say so plainly (see Gap reports);
 do not imply it is buildable. This is the earliest, cheapest way to set honest expectations.
 
 ## Routing a theme → an archetype (there is no pre-built picker)
