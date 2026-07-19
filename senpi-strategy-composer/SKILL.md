@@ -14,12 +14,12 @@ description: >-
   POSSIBLE — "what can I build?", "is X possible?", "can Senpi detect/trade Y?" — to
   fetch the node catalog (the world) and answer from it instead of guessing. The
   composer now owns the whole path: author → check → deploy → fund → install →
-  status → close. Experimental POC successor to senpi-strategy-author,
-  senpi-strategy-discover, and senpi-strategy-ops (all superseded).
+  update → status → close. This is the ONE strategy-lifecycle skill on this box:
+  discovery, authoring, ops, and teardown all live here — no other skill handles them.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "0.3.1"
+  version: "0.3.2"
   status: experimental
   platform: senpi
   exchange: hyperliquid
@@ -291,7 +291,7 @@ requires: []        # name a capability that may not exist yet -> gap report, no
 
 ## Operate — status, teardown, update (this skill owns it now)
 
-The composer absorbs what `senpi-strategy-ops` used to do — there is no ops handoff.
+The composer owns the operational surface end to end — there is no separate ops skill and no handoff.
 
 - **Status:** `openclaw senpi composer status <graph> --state-dir <state-dir>` walks the lifecycle
   chain `staged → landed → registered → running → live` from artifacts + one read-only `runtime

@@ -8,12 +8,11 @@ description: >-
   working with runtime.yaml, the scan(inputs, ctx) contract, external_scanner, ctx, or
   the DSL exit engine — including verifying open positions are protected by DSL (have a
   working stop-loss). The shared runtime contract the lifecycle skills reference. NOT
-  for building, installing, or picking a strategy (→ senpi-strategy-author /
-  senpi-strategy-ops / senpi-strategy-discover).
+  for building, installing, or picking a strategy (→ senpi-strategy-composer).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.0.2"
+  version: "3.0.3"
   platform: senpi
   exchange: hyperliquid
 ---

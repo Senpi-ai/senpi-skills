@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.9.0"
+  version: "1.9.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -160,7 +160,7 @@ funded but has NO runtime registered** via `strategy_groups[].not_running` (and 
 / `runtime_registered`), plus a `meta.warnings` line. Such a strategy is **not running at all** — its
 scanner has never ticked, so it has **no DSL and no guardrails** — even though it shows ACTIVE and holds
 capital. Report it as **⛔ NOT RUNNING / UNPROTECTED — funded but no runtime; no scanner, no DSL, no
-guardrails**, and tell the user to redeploy it via `senpi-strategy-ops`. **Never** call a `not_running`
+guardrails**, and tell the user to redeploy it via `senpi-strategy-composer`. **Never** call a `not_running`
 strategy "alive and waiting," "scanner is live," or "DSL-protected" — that is a false all-clear (a funded
 strategy sat exactly like this while the user believed it was protected and running). This is DISTINCT from
 the flat-but-running case above: a flat sleeve with a *registered, ticking* runtime is waiting for a signal
@@ -180,11 +180,12 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
   downgrade it to "broken." This is the honest bar: **only `live` means "confirmed working."**
 
 This health check owns **liveness triage** (registered + running + healthy) via telemetry, and **references
-`diagnose.py` as the confirmation step** — it does not re-derive the deep checks. A thorough health check
-does not stop at the verdict: for **any** strategy that isn't cleanly `live` (`not_running` / `degraded` /
-`unknown`), running **`senpi-strategy-ops` `diagnose.py <id>`** (registered? ticked? BARREN? erroring?
-`--run-scan` for the literal scan output) is how you **confirm what's actually wrong and fix it** — surface
-it as the required next step (and its verdict, if you can run it), then close.py → redeploy as needed. For
+the composer's `status` verb as the confirmation step** — it does not re-derive the deep checks. A thorough
+health check does not stop at the verdict: for **any** strategy that isn't cleanly `live` (`not_running` /
+`degraded` / `unknown`), running **`openclaw senpi composer status <target> --json`** (derives the lifecycle
+chain — staged → installed → registered → running — and names the broken step + the next verb) is how you
+**confirm what's actually wrong and fix it** — surface it as the required next step (and its verdict, if you
+can run it), then `composer update` (new version) or `composer close` → redeploy as needed. For
 **"where am I leaking / did a stop fail / any halts / exit quality"**, hand to `senpi-improve-trades` (it
 reads the runtime event log for protection gaps, risk halts, failed orders, and exit quality). Reference the
 right tool to *confirm* — never re-derive its analysis here.
@@ -419,7 +420,7 @@ A full portfolio read is several MCP round-trips (embedded wallet + a live clear
 wallet + the live DSL/ratchet reads + the per-asset market fan-out). Run as **ONE** call it can take
 minutes, blow the `exec` timeout, and push you to raw MCP — which loses every guardrail. So run the read as
 **fast, resumable STEPS** and **narrate each slice the moment it returns** (this mirrors
-`senpi-improve-trades` / `senpi-strategy-ops` — short steps over a shared state file, the skill narrates
+`senpi-improve-trades` / the composer's lifecycle verbs — short steps over a shared state file, the skill narrates
 between). Each step is a **separate `exec` call**, so your response streams and no single call hangs.
 
 ```sh
@@ -618,7 +619,7 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
   before any change; never trade unprompted.
 - **CTA 2 → deploy idle.** If there's meaningful **truly-free** idle capital (lead from
   `signals.idle_drag_pct` and `idle_in_embedded` — NOT a flat sleeve of a live multi-wallet strategy,
-  which is committed), offer to hand it to **senpi-strategy-discover** / **senpi-strategy-author** — fund
+  which is committed), offer to hand it to **senpi-strategy-composer** — fund
   a new strategy from the embedded idle, or top up an existing *whole* strategy via `strategy_top_up`.
   Propose; never deploy without confirmation.
 

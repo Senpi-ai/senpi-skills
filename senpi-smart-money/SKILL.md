@@ -10,7 +10,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.1.1"
+  version: "1.1.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -156,7 +156,7 @@ bias with its member count — conviction is the whole point.
 
 - **CTA 1 → positions read.** Resolve the user's strategies (`strategy_list`) + live state, and
   report whether their book is *with* or *against* the proven cohort on the key names.
-- **CTA 2 → strategy.** Hand to **senpi-strategy-author** with a brief built from the strongest
+- **CTA 2 → strategy.** Hand to **senpi-strategy-composer** with a brief built from the strongest
   divergence (e.g. *"proven cohort short HYPE −0.8/30 vs crowd long +0.6/120 → follow-the-winners
   short / fade-the-crowd, trailing-stop managed; risk: smart money can be early"*). The
   **whalehunter** strategy template already trades exactly this divergence — name it as the ready
@@ -172,8 +172,8 @@ bias with its member count — conviction is the whole point.
 ## Skill Attribution
 
 Guide/analysis skill — it *reads* positioning and *recommends*; it does not create a wallet or place
-a trade. Attribution happens downstream when **senpi-strategy-author** / **whalehunter** /
-**senpi-strategy-ops** act on CTA 2.
+a trade. Attribution happens downstream when **senpi-strategy-composer** / **whalehunter**
+act on CTA 2.
 
 
 ## Install — both scripts are required

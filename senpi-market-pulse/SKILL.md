@@ -10,7 +10,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.1.1"
+  version: "1.1.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -151,7 +151,7 @@ Always end every market read with exactly these two offers:
 - **CTA 1 → positions read.** Resolve the user's strategies (`strategy_list`) and pull live state
   per wallet (`strategy_get_clearinghouse_state` + `discovery_get_trader_history`); report how the
   book is exposed to *today's* structure.
-- **CTA 2 → new strategy.** Hand to **senpi-strategy-author** with a structured brief built from the
+- **CTA 2 → new strategy.** Hand to **senpi-strategy-composer** with a structured brief built from the
   thesis you just produced (e.g. *"semi-led risk-off, memory −10%/logic −3%, software green, gold &
   DXY calm = orderly rotation → candidate: long asset-light software / short memory, or fade if
   washout; risk: timing"*). **Propose the strategy and get the user's go-ahead — never build or
@@ -169,7 +169,7 @@ Always end every market read with exactly these two offers:
 
 This is a guide/analysis skill (it *reads* the market and *recommends*; it does not create a
 strategy wallet or place a trade), so it has no `references/skill-attribution.md` wallet flow.
-Attribution happens downstream when **senpi-strategy-author** / **senpi-strategy-ops** act on CTA 2.
+Attribution happens downstream when **senpi-strategy-composer** acts on CTA 2.
 
 
 ## Install — both scripts are required

@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.2.0"
+  version: "1.2.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -103,7 +103,7 @@ step(s) the ask needs; route every fix through the depth choice at the end — n
 | *"What did I miss this week? / compare to market"* | `market` (+ `telemetry` for the blocked cohort) | `book_vs_market.gaps` (unheld movers) + `missed_signals` (telemetry-blocked) | Is the missed mover in the mandate? loosen a gate only if so |
 | *"How could I make more gains?"* | `strategies` + `telemetry` | `strategies[]` mandate reads + `dsl_close_reason_mix` + `blocked_summary` | Strategy tune (DSL / entry gate), never a $/week promise |
 | *"Compare me to the whales / the market"* | `market` | `book_vs_market` (`smart_money_pct` per mover) | Compose `senpi-smart-money` / `senpi-market-pulse` |
-| **1.** *"Am I getting shaken out too early? / how are my exits firing?"* | `strategies` + `telemetry` | `dsl_close_reason_mix` — terminal mix overall + by asset_class + by strategy, plus the **premature** bucket (`trailing_floor`/`weak_peak`/`max_retrace`, or a low tier locked on a small ROE) | The **DSL preset lever** — widen phase1 retrace / retune a tier → `senpi-strategy-author` / `-ops` |
+| **1.** *"Am I getting shaken out too early? / how are my exits firing?"* | `strategies` + `telemetry` | `dsl_close_reason_mix` — terminal mix overall + by asset_class + by strategy, plus the **premature** bucket (`trailing_floor`/`weak_peak`/`max_retrace`, or a low tier locked on a small ROE) | The **DSL preset lever** — widen phase1 retrace / retune a tier → `senpi-strategy-composer` |
 | **2.** *"What did my own limits block? / what couldn't I take?"* | `telemetry` | `blocked_summary` / `missed_signals` — tallied by `reason_code` (`no_slots`/`no_margin`/`risk_gate_*`/`asset_banned`/…) | Add a slot · fund margin · loosen a risk gate — the exact gate the `reason_code` names |
 | **3.** *"Where am I leaking? / fees"* | `telemetry` | `leaks` — `order.failed` (order rejected), `dsl.sl_sync_failed`/`dsl.handoff_failed` (protection gaps → a naked leg), `runtime.paused` (risk halts) — **plus** premature exits (from `dsl_close_reason_mix`) + fee drag (from `execution_quality`) | Fix the failing order path / the stop sync, review the halt reason, tighten the leaky exit |
 | **4.** *"Walk me through / explain my [asset] trade"* | *(none — `explain` CLI)* | Run **`openclaw senpi explain <ASSET> --runtime <id> --json`** directly — the native opened→dsl→close+reason lifecycle for that asset (oldest-first, threaded by position id) | Read the lifecycle; the fix routes to whichever leg misfired |
@@ -128,8 +128,8 @@ say so, don't call it a bug.
 
 A full review is several MCP round-trips; run as **ONE** call it can take minutes, blow the `exec` timeout,
 and make you bail to raw MCP — which loses every guardrail. So run the review as **fast, resumable STEPS**
-and **narrate each slice the moment it returns** (this mirrors `senpi-strategy-ops` `deploy.py`
-create→runtime→verify: short steps over a shared state file, the skill narrates between). Each step is a
+and **narrate each slice the moment it returns** (the same pattern the composer's lifecycle
+verbs use: short resumable steps over shared state, narration between). Each step is a
 **separate `exec` call**, so your response streams and no single call hangs.
 
 ```sh
@@ -232,7 +232,7 @@ strategy terms; `held_higher` is not itself a defect.
 The engine gives you the exact lever: each trade's `exit_reason` (which DSL tier or hard stop fired) and each
 strategy's `dsl` ladder (`hard_stop_roe_pct`, `arm_at_roe_pct`, the `tiers[]`). A fix reads like *"Kodiak's
 SOL exit locked at tier 2 (+41% high-water) then trailed out; if you want it to ride further, that's the
-phase-2 tier ladder, not anything you did"* — and it routes to **`senpi-strategy-author` / `senpi-strategy-ops`**
+phase-2 tier ladder, not anything you did"* — and it routes to **`senpi-strategy-composer`**
 to apply. Frame every improvement as a strategy tune, never a user scolding.
 
 **Config vs live state — do NOT confuse "not armed yet" with "not configured / unprotected."** Judge what a
@@ -381,11 +381,11 @@ run on a just-deployed book):
 - **Never give generic execution / config-tuning advice** — slippage, market-vs-limit, leverage. It's out of
   scope for a *trade review*, it second-guesses a strategy that was just set up, and nudging toward MARKET /
   higher-slippage fills **raises fees** — the biggest killer of returns. `slippage: 0` is not a defect to
-  "fix." If the user explicitly asks about execution, hand it to `senpi-strategy-author` / `senpi-strategy-ops`;
+  "fix." If the user explicitly asks about execution, hand it to `senpi-strategy-composer`;
   don't free-style a number.
 - **What TO say instead:** there's nothing to review yet; the strategies will trade on their own signals
   (idle-by-design for a fresh deploy); check back after they've traded. Offer real next moves as **options,
-  not obligations** — add a complementary strategy (`senpi-strategy-discover`), or top up / adjust via ops.
+  not obligations** — add a complementary strategy, or top up / adjust — both via `senpi-strategy-composer`.
   Idle embedded cash is an **opportunity to deploy more if they want**, never a "$0/day leak."
 
 ## What the engine gives you — the output shape
@@ -497,7 +497,7 @@ not recorded on this build," never guess. `tier_index`/`tier_reached` = the tier
 > **How deep do you want me to go?**
 > - **Explain only** — I lay out the diagnosis + the plain-terms fix, and stop.
 > - **Hand it to the strategy tools** — I route the concrete change (e.g. "loosen Kodiak's phase-2 tier 2
->   lock so SOL rides further") to `senpi-strategy-author` / `senpi-strategy-ops` to apply.
+>   lock so SOL rides further") to `senpi-strategy-composer` to apply.
 > - **Draft the config change** — I produce the exact `runtime.yaml` / DSL-preset diff for you to review
 >   before anything is applied.
 
