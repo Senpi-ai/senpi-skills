@@ -19,7 +19,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "0.3.2"
+  version: "0.3.3"
   status: experimental
   platform: senpi
   exchange: hyperliquid
@@ -263,6 +263,10 @@ requires: []        # name a capability that may not exist yet -> gap report, no
   machine-generated, make changes in the answers and re-run `composer new`. The MOMENT you hand-edit the
   graph, that graph IS the spec permanently (params too) — NEVER `composer new --force` over it (that
   discards the edits). To re-baseline, generate to a DIFFERENT path and merge your edits across.
+- **Exit protection is materialized IN the graph** — `new` writes the resolved ladder to
+  `metadata.spec.protection` (seeded from the preset). Tune tiers/floors THERE, then
+  `check → deploy → update`; NEVER edit the emitted `runtime.yaml` (install verifies content hashes
+  and will refuse).
 - **Climb the hatch ladder before concluding the vocabulary lacks something:** (1) re-check the registry —
   `composer catalog` + `composer describe <node|kind|port_type|archetype>`; a capability's absence from your
   memory or from ONE CLI surface is not absence — `describe pure_fn` is the authoring contract for bespoke
@@ -272,6 +276,11 @@ requires: []        # name a capability that may not exist yet -> gap report, no
   refusal, never a bypass.
 - **A tool error like "unknown node" for something the catalog's prose names → CHECK THE OTHER SURFACE**
   (`describe`/`catalog`), not proof the capability is fiction.
+- **Tests encode expectations — update them, never stub them to pass.** A pure_fn signature change
+  gives EXISTING fixtures realistic values for the new input; new behavior gets NEW cases. Weakening
+  or stubbing a test to pass is a fabricated GREEN, not a fix.
+- **One semantic unit per node/pure_fn.** A gate is not a scorer — don't bury new compute inside an
+  existing node; give every pure_fn a descriptive title/one-liner.
 - **Adding to a held position is NOT supported** (never existed in the runtime). The nearest workaround
   is close-then-reopen larger — fees/slippage twice, a moment flat, DSL floors reset,
   `per_asset_cooldown_seconds` delays the reopen — usually not what the user wants. Say so plainly;
@@ -297,6 +306,11 @@ The composer owns the operational surface end to end — there is no separate op
   chain `staged → landed → registered → running → live` from artifacts + one read-only `runtime
   list`. Liveness is HONEST: `runtime list` proves only the process is up, not that `scan()` has
   ticked — "running" ≠ "operating". Confirm real ticking with `openclaw senpi state -r <id> --json`.
+- **Live position/protection state — VERBATIM RELAY, never re-derived.** Quote `openclaw senpi dsl
+  positions` / `openclaw senpi dsl inspect <asset>` output to the user; NEVER recompute PnL, ROE, or
+  floors in prose from raw MCP reads (a re-derivation flipped a sign on real money once). Boundary:
+  `composer status` = lifecycle chain above; `openclaw senpi dsl ...` = live protection state (phase,
+  tier, floor, exchange stop).
 - **Teardown:** `openclaw senpi composer close <target>` is the ONLY sanctioned teardown. It STOPS
   the runtime first, CONFIRMS it is gone, and ONLY THEN closes the strategy (flattens all positions,
   returns funds). It is idempotent and submit-only — `strategy_close` is async, so re-run it to POLL
@@ -310,6 +324,8 @@ The composer owns the operational surface end to end — there is no separate op
   strategy does NOT flatten positions or return funds: re-author → re-check → re-deploy, then
   `composer update <staged-dir>` — it swaps in the new runtime version in place and the wallet auto-binds
   (no `fund`, no `close`). Reserve the close-then-install path for a full teardown, not an edit.
+  **Batch related edits into ONE check → deploy → update cycle** — every `update` is a live runtime
+  swap (a brief unprotected window), not a per-tweak ritual.
 
 ## Gap reports = the honest refusal
 
