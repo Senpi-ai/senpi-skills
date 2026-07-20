@@ -6,11 +6,12 @@ description: >-
   money", "what are the whales doing", "smart money vs the crowd", "follow the smart money". Use
   this instead of stitching discovery_get_top_traders + leaderboard calls by hand. A
   hidden engine (scripts/smartmoney.py) builds the cohorts and finds the divergences; you analyze.
-  Requires a USER-scoped Senpi token.
+  Turning a smart-money read into a running strategy or a copy-trade setup routes to
+  senpi-strategy-composer (the sole strategy-lifecycle skill). Requires a USER-scoped Senpi token.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.1.2"
+  version: "1.1.3"
   platform: senpi
   exchange: hyperliquid
 ---

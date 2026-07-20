@@ -12,11 +12,13 @@ description: >-
   their DSL / what tier are my positions in?", and "what happened to my closed [asset] position / did my
   trade actually go through / do I still hold X" — the authority for position facts, OPEN and CLOSED, which
   come from a fresh engine read, never from memory or a raw order response. A hidden engine (scripts/portfolio.py)
-  does the multi-wallet pull and taxonomy; you narrate. Requires a USER-scoped Senpi token.
+  does the multi-wallet pull and taxonomy; you narrate. Strategy-scoped follow-ups — status,
+  health, iterate, improve, copy-trade setup, close — route to senpi-strategy-composer (the sole
+  strategy-lifecycle skill): this skill reports strategy state, composer changes it. Requires a USER-scoped Senpi token.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.9.1"
+  version: "1.9.2"
   platform: senpi
   exchange: hyperliquid
 ---

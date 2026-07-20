@@ -13,11 +13,13 @@ description: >-
   not the one reversal), it's the STRATEGY not the user, NO fabricated "+$X/week", no performance-chasing,
   honest sourcing (onchain facts = discovery, exit reason / blocked / leaks = telemetry), and the user
   chooses how deep the fix goes. Composes senpi-market-pulse (movers), senpi-smart-money (whales), and
-  senpi-portfolio (live state). Requires a USER-scoped Senpi token.
+  senpi-portfolio (live state). Acting on the fix — iterate, improve, rebuild, or set up a copy-trade
+  strategy — routes to senpi-strategy-composer (the sole strategy-lifecycle skill): this skill
+  diagnoses, composer changes the strategy. Requires a USER-scoped Senpi token.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.2.1"
+  version: "1.2.2"
   platform: senpi
   exchange: hyperliquid
 ---

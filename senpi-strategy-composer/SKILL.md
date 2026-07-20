@@ -9,8 +9,11 @@ description: >-
   "build a strategy", "create/design a strategy", "I have a trading idea", "make a
   strategy from this", "which strategy should I run", "I want a <theme> strategy",
   or ANY strategy that needs a supervised exit (stop-loss / trailing stop /
-  profit-lock) — AND for operating one you built here: "what's my strategy doing?",
-  "close/stop my strategy", "update it". ALSO use the moment a user asks WHAT IS
+  profit-lock) — AND for operating ANY running strategy, built here or not:
+  "what's my strategy doing?", "is it healthy?", "why did(n't) it trade?",
+  "close/stop it", "update it". Composer strategies appear as bare CUSTOM strategies on
+  backend reads with NO obvious markers — NEVER conclude "no runtime exists" from a
+  backend MCP read alone. ALSO use the moment a user asks WHAT IS
   POSSIBLE — "what can I build?", "is X possible?", "can Senpi detect/trade Y?" — to
   fetch the node catalog (the world) and answer from it instead of guessing. The
   composer now owns the whole path: author → check → deploy → fund → install →
@@ -19,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "0.3.8"
+  version: "0.3.9"
   status: experimental
   platform: senpi
   exchange: hyperliquid
@@ -70,11 +73,15 @@ There is no separate discover or ops skill anymore; the composer owns the entire
 - **"What can I build? Is X possible?"** → here, but FETCH THE CATALOG FIRST (below).
 - **"Which strategy should I run? / I want a <theme> strategy"** → here — route the theme to an
   archetype + the catalog and COMPOSE it (see Routing a theme, below). No pre-built picker.
-- **Operate a strategy you built here — "what's it doing?", "close it", "update it"** → here,
-  via `status` / `close` (see Operate, below).
+- **Operate ANY running strategy, built here or not — "what's it doing?", "is it healthy?",
+  "why did(n't) it trade?", "close it", "update it"** → here, via `status` / `close` (see Operate,
+  below). Composer strategies read back as bare CUSTOM on the backend — never infer "no runtime" from an MCP read.
 - **Anything with a supervised exit is composed here**, never stood up with a raw MCP
   `strategy_create*` call (that path carries no supervised exit and registers no named
   strategy — a confirmed silent failure).
+- **Situational awareness FIRST** — before proposing ANY new build or teardown, run `composer
+  status` / `openclaw senpi runtime list` to learn what already exists. Never propose a fresh build
+  while a related strategy is running; never propose teardown before diagnosis.
 
 Ambiguous? Ask one disambiguating question before acting.
 
@@ -109,10 +116,13 @@ archetypes, then run the interview:
   (pairwise), NOT `trend_momentum` — the exit is cross-asset, unobservable to the DSL, so it composes
   a thesis-driven exit pair (routing test below; `describe relative_value` for the shape).
 - "copy good traders / follow whales / mirror the leaderboard" → `copy_trading` (addresses given →
-  named_traders; "find the best" → leaderboard_follow; `describe copy_trading`). Distinct product
-  path: mirroring ONE specific trader verbatim is the backend MIRROR strategy (MCP `strategy_create`
-  with `traderAddress` — server-side, NO DSL protection); offer both honestly and say which
-  protections each carries.
+  named_traders; "find the best" → leaderboard_follow; `describe copy_trading`). BEFORE creating
+  anything, PRESENT BOTH paths and let the USER choose: (a) **backend raw mirror** (MCP
+  `strategy_create` with `traderAddress`) — mirrors one trader's every trade exactly, no DSL
+  protection, no filters, inherits their current book; (b) **composer `copy_trading` archetype** —
+  conviction aggregation across a cohort, hysteresis exits, DSL trailing-stop protection, custom
+  filters/risk. RULE: a copy ask with ANY condition or filter attached (consistency windows,
+  don't-enter-at-top, asset filters) is a strategy specification → composer, never a raw mirror.
 Fetch the catalog (above) to ground what the theme can actually key on, then compose from there.
 
 ## Elicitation → the answers file (this is your real work)
@@ -300,13 +310,15 @@ requires: []        # name a capability that may not exist yet -> gap report, no
   machine-generated, make changes in the answers and re-run `composer new`. The MOMENT you hand-edit the
   graph, that graph IS the spec permanently (params too) — NEVER `composer new --force` over it (that
   discards the edits). To re-baseline, generate to a DIFFERENT path and merge your edits across.
-- **Exit protection is materialized IN the graph** — `new` writes the resolved ladder to
+- **Never rewrite the whole graph file.** When a surgical graph edit fails mechanically (edit-tool
+  friction), retry with SMALLER edits — a wholesale rewrite once produced an invalid graph and
+  burned a session.
+- **Exit protection lives IN the graph** — `new` writes the resolved ladder to
   `metadata.spec.protection` (seeded from the preset). Tune tiers/floors THERE, then
   `check → deploy → update`; NEVER edit the emitted `runtime.yaml` (install verifies content hashes
-  and will refuse). An OLDER graph (legacy `answers` block, no `spec.protection`): run
-  `composer materialize <graph>` ONCE — it renames the block and backfills the resolved ladder
-  in place (`check` also prints the paste-ready block as an annotation). Never hand-add a partial
-  `spec:` beside a legacy `answers:` block (CMP247).
+  and will refuse). A graph one `spec` version behind is AUTO-UPGRADED in place by `check` (it
+  relays the notice) — no manual step. A graph more than one version behind is a regenerate, not an
+  edit: `check` refuses with CMP249.
 - **Climb the hatch ladder before concluding the vocabulary lacks something:** (1) re-check the registry —
   `composer catalog` + `composer describe <node|kind|port_type|archetype>`; a capability's absence from your
   memory or from ONE CLI surface is not absence — `describe pure_fn` is the authoring contract for bespoke
@@ -351,6 +363,9 @@ The composer owns the operational surface end to end — there is no separate op
   floors in prose from raw MCP reads (a re-derivation flipped a sign on real money once). Boundary:
   `composer status` = lifecycle chain above; `openclaw senpi dsl ...` = live protection state (phase,
   tier, floor, exchange stop).
+- **Lifecycle claims are verbatim too** — NEVER assert runtime/deploy/protection status ("it's
+  live", "it's protected", "it deployed") without quoting the surface that proves it (`composer
+  status`, `runtime list`, `dsl inspect`). No status claim from memory.
 - **Teardown:** `openclaw senpi composer close <target>` is the ONLY sanctioned teardown. It STOPS
   the runtime first, CONFIRMS it is gone, and ONLY THEN closes the strategy (flattens all positions,
   returns funds). It is idempotent and submit-only — `strategy_close` is async, so re-run it to POLL

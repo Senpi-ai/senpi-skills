@@ -6,11 +6,12 @@ description: >-
   "should I copy 0x…?", "best traders this month", "top copy strategies". Use this instead of
   piecing together discovery_get_trader_history / discovery_get_trader_state + leaderboard yourself.
   A hidden engine (scripts/research.py) pulls track record, current positions, and 4h momentum; you make the call.
-  Requires a USER-scoped Senpi token.
+  Vetting stays here; standing up or operating a copy-trade strategy (any filters/conditions, DSL
+  protection) routes to senpi-strategy-composer (the sole strategy-lifecycle skill). Requires a USER-scoped Senpi token.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.0.2"
+  version: "1.0.3"
   platform: senpi
   exchange: hyperliquid
 ---
