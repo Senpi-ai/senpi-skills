@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "0.3.10"
+  version: "0.3.11"
   status: experimental
   platform: senpi
   exchange: hyperliquid
@@ -363,15 +363,19 @@ requires: []        # name a capability that may not exist yet -> gap report, no
 
 The composer owns the operational surface end to end — there is no separate ops skill and no handoff.
 
-- **Status:** `openclaw senpi composer status <graph> --state-dir <state-dir>` walks the lifecycle
-  chain `staged → landed → registered → running → live` from artifacts + one read-only `runtime
-  list`. Liveness is HONEST: `runtime list` proves only the process is up, not that `scan()` has
-  ticked — "running" ≠ "operating". Confirm real ticking with `openclaw senpi state -r <id> --json`.
-- **Live position/protection state — VERBATIM RELAY, never re-derived.** Quote `openclaw senpi dsl
-  positions` / `openclaw senpi dsl inspect <asset>` output to the user; NEVER recompute PnL, ROE, or
-  floors in prose from raw MCP reads (a re-derivation flipped a sign on real money once). Boundary:
-  `composer status` = lifecycle chain above; `openclaw senpi dsl ...` = live protection state (phase,
-  tier, floor, exchange stop).
+- **Status is the FRONT DOOR:** `openclaw senpi composer status <strategy> --state-dir <state-dir>`
+  answers any question about a specific strategy — the lifecycle chain `staged → landed → registered
+  → running → live` PLUS, when the runtime is live, each scanner's cadence/last-check/quiet-checks/
+  errors, every open position's protection in plain ROE, and the risk gates. RELAY IT VERBATIM; do
+  not paraphrase or infer. A quiet scanner reads "no signal emitted yet" — there is NO invented
+  reason. If the live section reads `UNAVAILABLE [CMP259]`, the gateway is unreachable or the
+  runtime is not running — report that; never guess protection state.
+- **2-RUNG LADDER:** run `composer status` FIRST. Only when it flags trouble it cannot explain do
+  you drop to the raw plumbing — `openclaw senpi state|scanner|dsl positions|dsl inspect --json` —
+  and those outputs are ALSO relayed verbatim, never re-derived (a re-derivation flipped a PnL sign
+  on real money once). Protection semantics are the engine's, as status renders them: breaches are
+  phase-1-only and CONSECUTIVE (any tick back above the floor resets the count); in phase 2 the
+  venue stop tracks the tier floor; tiers display 1-based.
 - **Lifecycle claims are verbatim too** — NEVER assert runtime/deploy/protection status ("it's
   live", "it's protected", "it deployed") without quoting the surface that proves it (`composer
   status`, `runtime list`, `dsl inspect`). No status claim from memory.
