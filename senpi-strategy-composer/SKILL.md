@@ -19,7 +19,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "0.3.6"
+  version: "0.3.7"
   status: experimental
   platform: senpi
   exchange: hyperliquid
@@ -74,6 +74,13 @@ COMPUTE is not a shelf, it is yours to write (`pure_fn` — see the catalog's co
 `describe indicators` lists the curated formulas when one fits exactly). If they ask about a capability the catalog lacks, say so plainly (see Gap reports);
 do not imply it is buildable. This is the earliest, cheapest way to set honest expectations.
 
+## Composition ladder — one thesis can be N strategies
+When a thesis needs BOTH directions on one asset ("cut the loser, let the winner run"), independent
+risk budgets per leg, or per-leg exit styles → never call it impossible: propose N strategies (each
+its OWN wallet) operated as one logical position. Be explicit with the user: each wallet funds
+separately (N× minimums), and cross-strategy PnL is viewed at the PORTFOLIO level — there is no
+automated cross-strategy linkage today.
+
 ## Routing a theme → an archetype (there is no pre-built picker)
 
 When the ask is "which strategy should I run" or "I want a `<theme>` strategy", don't reach for a
@@ -110,6 +117,8 @@ in plain language, mining the opening ask for anything already stated:
 4. **Cardinality** — `max_positions: 1` (single best) or `>1` (rank a pool, cap to slots).
 5. **Memory** — `ttl_seconds` signal-dedup window. Three TTL-ish knobs, never conflate: `ttl_seconds` = signal
    DEDUP window · `interval_seconds` = scan CADENCE · `valid_for_seconds` = per-signal envelope TTL.
+   Trade FREQUENCY comes from `interval_seconds` + how often the edge conditions fire; NEVER shrink
+   `ttl_seconds` to "trade more" — it only re-admits duplicate signals.
 6. **Risk + protection** — `margin_pct` (PERCENT of withdrawable, (0,100]) + `leverage`, and
    the **exit protection preset**: `protected_standard` (balanced, the DEFAULT) ·
    `protected_tight` (cut failures fast) · `protected_wide` (let a runner breathe). PROTECTION
@@ -256,6 +265,9 @@ requires: []        # name a capability that may not exist yet -> gap report, no
    installed/running vs a merely-landed prior version. No journal to reconcile.
 
 ### Never improvise authoring — keyed to a real dev-test failure
+- **One graph = one entry + one exit scanner (the machine-emitted pair).** A second INDEPENDENT entry
+  thesis is another strategy/wallet (the composition ladder above) — never hand-add scanners to a
+  compiled unit.
 - **The composer artifact chain (graph → check → deploy → install) is the ONLY authoring path.** Never
   hand-write `scan.py`, scanner modules, or `runtime.yaml` outside the staged tree — even when the composer
   seems unable to express the thesis (doing so loses vendoring, the check oracle, the install path, and the
@@ -339,6 +351,11 @@ If the answers or an edit reference a data source / capability the registry lack
 it isn't buildable, and the nearest registry alternatives. Relay that to the user as-is — it
 is the correct outcome for something not yet buildable, not a bug to code around. Tell them
 what IS possible instead (from the catalog), and that adding the capability is a
-registry-side change, not something to fake in a scanner. Same for ambiguity: if a brief
-lacks something you can't responsibly guess (which assets, long/short, how much risk), ask —
-don't invent a plausible-sounding specific.
+registry-side change, not something to fake in a scanner.
+
+**Capital orchestration is MANUAL today — say so plainly, never quietly drop it.** Rebalancing
+triggers, winner-allocation, "split capital into 3 at $N" are NOT automatable: state that honestly
+and offer the manual alternative (the user re-funds / closes strategies via the composer verbs).
+
+Same for ambiguity: if a brief lacks something you can't responsibly guess (which assets,
+long/short, how much risk), ask — don't invent a plausible-sounding specific.
