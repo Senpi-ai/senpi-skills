@@ -19,7 +19,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "0.3.7"
+  version: "0.3.8"
   status: experimental
   platform: senpi
   exchange: hyperliquid
@@ -42,9 +42,22 @@ Real form inside a claw:
 ```
 openclaw senpi composer <verb> ...
 ```
-Verbs: `catalog`, `describe <node>`, `new`, `materialize <graph>`, `check <graph>`, `deploy <graph>`,
-`fund <staged-dir> --budget N`, `install <staged-dir> [--wallet 0x…]`, `update <staged-dir>`,
-`status <graph> [--state-dir …]`, `close <target>`.
+Verbs: `catalog`, `describe <node>`, `new`, `check <graph>`, `deploy <graph>`,
+`simulate <target> --from 30d`, `fund <target> --budget N`, `install <target> [--wallet 0x…]`,
+`update <target>`, `status <target|--group X>`, `close <target|--group X>`.
+
+**Preview before funding:** `composer simulate <target> --from 30d` replays the compiled scanners
+over historical candles and prints the signal timeline ("would have entered/exited here"). Offer it
+before `fund` on any new or edited strategy. Relay its LOW-FIDELITY banner verbatim — signals only:
+no fills/fees/PnL, no DSL exit protection, non-candle sources frozen. Never present simulate output
+as expected returns.
+
+**Canonical layout — `graph.yaml` is THE strategy record.** Every verb defaults to
+`<state>/composer/<strategy>/` (graph.yaml · wallet.json · staged/ · releases/<hash8>/); lifecycle
+verbs accept the bare STRATEGY NAME. Never scatter graphs into tmp or `-v2` copies — edit the one
+graph.yaml and re-run the chain; each installed release permanently embeds the graph that produced
+it. `check` auto-upgrades a one-version-old `spec` block in place (relays its notice); anything
+older is a regenerate, not an edit.
 
 **Always invoke verbs with `--json`** — you need the machine-readable verdict (verdict/stages/errors, the
 `DEFAULTED:` block, the GREEN `SUMMARY`); the human render can be buried under box noise.
@@ -78,8 +91,11 @@ do not imply it is buildable. This is the earliest, cheapest way to set honest e
 When a thesis needs BOTH directions on one asset ("cut the loser, let the winner run"), independent
 risk budgets per leg, or per-leg exit styles → never call it impossible: propose N strategies (each
 its OWN wallet) operated as one logical position. Be explicit with the user: each wallet funds
-separately (N× minimums), and cross-strategy PnL is viewed at the PORTFOLIO level — there is no
-automated cross-strategy linkage today.
+separately (N× minimums), and cross-strategy PnL is viewed at the PORTFOLIO level. Link the legs
+with `new --group <name>`: `status --group` / `close --group` then operate the set, and telemetry
+aggregates per group. The group is a box-local LABEL (not visible in the web UI) with NO
+coordinated behavior — no pooled funding, no rebalancing; group close is sequential, and the
+warning it prints about remaining legs holding naked exposure is real — relay it.
 
 ## Routing a theme → an archetype (there is no pre-built picker)
 
@@ -92,6 +108,11 @@ archetypes, then run the interview:
 - a benchmark-relative / "X always beats Y" thesis (exit when the pair inverts) → `relative_value`
   (pairwise), NOT `trend_momentum` — the exit is cross-asset, unobservable to the DSL, so it composes
   a thesis-driven exit pair (routing test below; `describe relative_value` for the shape).
+- "copy good traders / follow whales / mirror the leaderboard" → `copy_trading` (addresses given →
+  named_traders; "find the best" → leaderboard_follow; `describe copy_trading`). Distinct product
+  path: mirroring ONE specific trader verbatim is the backend MIRROR strategy (MCP `strategy_create`
+  with `traderAddress` — server-side, NO DSL protection); offer both honestly and say which
+  protections each carries.
 Fetch the catalog (above) to ground what the theme can actually key on, then compose from there.
 
 ## Elicitation → the answers file (this is your real work)
@@ -104,21 +125,23 @@ The composer needs the **7 decisions that are the type-signature of `scan()`**, 
 an answers YAML file. This is a contract, not a script — draw it out one question at a time,
 in plain language, mining the opening ask for anything already stated:
 
-1. **Archetype** (5) — `trend_momentum` (fixed universe → indicators → hard-gates + weighted
+1. **Archetype** (6) — `trend_momentum` (fixed universe → indicators → hard-gates + weighted
    scorer) · `breakout` (a directional range-break as the hard gate; fixed basket OR discovered
    universe) · `thesis_fund` (fixed long/short legs) · `classifier` (a pure_fn direction on a
    discovered set) · `relative_value` (pairwise: a signed net-score entry PLUS a thesis-driven exit
-   the DSL can't observe — see Exit composition below). Unknown → off-map skeleton.
+   the DSL can't observe — see Exit composition below) · `copy_trading` (follow traders: fixed
+   addresses or the leaderboard; universe DERIVED from the cohort's holdings, no whitelist).
+   Unknown → off-map skeleton.
 2. **Universe** — fixed `whitelist` (trend_momentum / breakout) · `long_basket`/`short_basket`
    legs (thesis_fund) · `discover: true` + filters (classifier / breakout derive it from the live
    board). `trend_momentum` is fixed-universe only — a `discover` answer is rejected with a
    teaching error naming breakout/classifier, never a silent empty universe.
 3. **Intervals** — candle intervals, e.g. `["1h","4h"]`.
 4. **Cardinality** — `max_positions: 1` (single best) or `>1` (rank a pool, cap to slots).
-5. **Memory** — `ttl_seconds` signal-dedup window. Three TTL-ish knobs, never conflate: `ttl_seconds` = signal
+5. **Memory** — `dedup_seconds` signal-dedup window. Three TTL-ish knobs, never conflate: `dedup_seconds` = signal
    DEDUP window · `interval_seconds` = scan CADENCE · `valid_for_seconds` = per-signal envelope TTL.
    Trade FREQUENCY comes from `interval_seconds` + how often the edge conditions fire; NEVER shrink
-   `ttl_seconds` to "trade more" — it only re-admits duplicate signals.
+   `dedup_seconds` to "trade more" — it only re-admits duplicate signals.
 6. **Risk + protection** — `margin_pct` (PERCENT of withdrawable, (0,100]) + `leverage`, and
    the **exit protection preset**: `protected_standard` (balanced, the DEFAULT) ·
    `protected_tight` (cut failures fast) · `protected_wide` (let a runner breathe). PROTECTION
@@ -177,7 +200,7 @@ strategy: my_strat
 universe: { long_basket: ["BTC","ETH"], short_basket: ["SOL"] }
 intervals: ["4h"]
 max_positions: 2
-ttl_seconds: 240
+dedup_seconds: 240
 exit_preset: protected_standard   # protection-by-default; omit to bind the default, or set tight/wide
 risk: { margin_pct: 5.0, leverage: 3.0 }
 edge: >
