@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "0.3.9"
+  version: "0.3.10"
   status: experimental
   platform: senpi
   exchange: hyperliquid
@@ -33,7 +33,7 @@ metadata:
 # Senpi Strategy Composer — idea → verified strategy, driven by the composer
 
 You do NOT hand-write scanners, YAML schemas, or DSL presets. The **composer** owns all
-construction: you elicit the user's intent into a typed answers file, `composer new`
+construction: you elicit the user's intent into `composer new` inputs, `composer new`
 generates a complete, valid graph, and `composer check` issues the verdict. Your only
 irreplaceable jobs are **the interview**, **passing the user's edge verbatim**, and
 **reading the composer's verdicts back to the user honestly**. Everything about what nodes
@@ -125,15 +125,16 @@ archetypes, then run the interview:
   don't-enter-at-top, asset filters) is a strategy specification → composer, never a raw mirror.
 Fetch the catalog (above) to ground what the theme can actually key on, then compose from there.
 
-## Elicitation → the answers file (this is your real work)
+## Elicitation → `composer new` inputs (this is your real work)
 
 **Verify buildability BEFORE the question burn.** Map the thesis to catalog nodes + an archetype first
 (`composer catalog`/`describe`); if the mapping needs a hatch (pure_fn / surgical edit / mcp_read), know WHICH
 one before you ask the user six questions — don't elicit a full spec you then can't build.
 
-The composer needs the **7 decisions that are the type-signature of `scan()`**, captured in
-an answers YAML file. This is a contract, not a script — draw it out one question at a time,
-in plain language, mining the opening ask for anything already stated:
+The composer needs the **7 decisions that are the type-signature of `scan()`**, fed to
+`composer new` as flags or a THROWAWAY scratch answers file. This is a contract, not a script —
+draw it out one question at a time, in plain language, mining the opening ask for anything already
+stated:
 
 1. **Archetype** (6) — `trend_momentum` (fixed universe → indicators → hard-gates + weighted
    scorer) · `breakout` (a directional range-break as the hard gate; fixed basket OR discovered
@@ -202,8 +203,12 @@ language; the answer domains come from the catalog, so you cannot elicit an impo
 requirement without the composer flagging it. Reflect each answer back before moving on;
 replay the full captured spec and get a "yes" before generating.
 
-Write the answers file to a scratch dir. Minimal shape (every field has a sane default, so a
-short file is enough):
+Pass these to `composer new` as flags, or write a THROWAWAY scratch answers file (`--answers`)
+and DELETE it after `new` — it is TRANSIENT interview input, NOT a record. The graph's
+`metadata.spec` is the sole record; nothing keeps an answers file (there is no answers slot in the
+canonical layout). To CHANGE a machine-generated strategy later you edit `metadata.spec` in the
+graph and regenerate (see the edit doctrine) — never "keep the answers file and re-run". Minimal
+scratch shape (every field has a sane default, so a short file is enough):
 ```yaml
 archetype: thesis_fund
 strategy: my_strat
@@ -221,10 +226,11 @@ requires: []        # name a capability that may not exist yet -> gap report, no
 ## Generate → check → deploy → install
 
 1. **Generate the anchor:**
-   `openclaw senpi composer new my_strat --archetype thesis_fund --answers <file> -o <dir>`
+   `openclaw senpi composer new my_strat --archetype thesis_fund --answers <scratch> -o <dir>`
    → a COMPLETE, VALID graph with mechanically-bindable values filled and bespoke slots
-   marked `# TODO(edit)` (working defaults, so it validates unedited). `new` refuses to
-   clobber a hand-edited graph without `--force`.
+   marked `# TODO(edit)` (working defaults, so it validates unedited). `--answers <scratch>` (or
+   flags) is TRANSIENT input — delete the scratch file after; the graph's `metadata.spec` now holds
+   everything. `new` refuses to clobber a hand-edited graph without `--force`.
    **Relay the `DEFAULTED:` block `new` prints** — it names every interview-relevant field you did NOT
    set explicitly (the value that got baked). Surface all of them to the user; the protection question
    (`exit_preset`) is ALWAYS asked explicitly, never accepted silently by default.
@@ -306,10 +312,13 @@ requires: []        # name a capability that may not exist yet -> gap report, no
   seems unable to express the thesis (doing so loses vendoring, the check oracle, the install path, and the
   teaching errors). The sanctioned hatches below — `pure_fn`, surgical graph edits, `mcp_read` — are IN-chain:
   graph-level, still pass `check`, allowed.
-- **Edit doctrine — answers are the spec until you hand-edit the graph.** While a graph is purely
-  machine-generated, make changes in the answers and re-run `composer new`. The MOMENT you hand-edit the
-  graph, that graph IS the spec permanently (params too) — NEVER `composer new --force` over it (that
-  discards the edits). To re-baseline, generate to a DIFFERENT path and merge your edits across.
+- **Edit doctrine — the graph's `metadata.spec` is the SOLE record (no answers file is kept).** For a
+  MACHINE-GENERATED graph (it carries a `composer new` marker), the edit loop is: edit `metadata.spec`
+  IN the graph, then `composer new <strategy> --from-spec` — it rebuilds the answers from that spec and
+  REGENERATES the graph in place (params AND structure), no answers file involved. The MOMENT you
+  hand-edit the graph's NODES/fn bodies, that graph IS the spec permanently — `--from-spec` REFUSES it
+  (CMP257, no clean spec→graph mapping) and NEVER `composer new --force` over it (that discards the
+  edits). To re-baseline a hand-edited graph, generate to a DIFFERENT path and merge your edits across.
 - **Never rewrite the whole graph file.** When a surgical graph edit fails mechanically (edit-tool
   friction), retry with SMALLER edits — a wholesale rewrite once produced an invalid graph and
   burned a session.
