@@ -522,7 +522,13 @@ def fetch_embedded(client, meta):
     for tb in (_field(p, "token_balances", default=[]) or []):
         sym = str(_field(tb, "symbol", "tokenSymbol", default="")).upper()
         if sym in ("USDC", "USDC.E", "USDT"):
-            amt = _f(tb, "usdValue", "usd_value", "amountUsd", "balanceUsd", "amount", default=0.0)
+            # Live GetPortfolioV3 uses `balanceInUSD` (+ `formattedBalance`/`tokenPriceInUSD`) —
+            # without it every token read $0 and evm_usdc was always [].
+            amt = _f(tb, "usdValue", "usd_value", "amountUsd", "balanceUsd", "balanceInUSD", "amount", default=0.0)
+            if amt == 0.0:
+                raw = _f(tb, "formattedBalance", "amount", default=0.0)
+                price = _f(tb, "tokenPriceInUSD", default=1.0)
+                amt = raw * price
             chain = _field(tb, "chain", "network", "chainName", default="EVM")
             if amt:
                 out["evm_usdc"].append({"chain": chain, "usd": round(amt, 2)})
