@@ -127,6 +127,17 @@ flagged component and re-run. It's a **single fast check** — a scheduled scann
 wait for the first scan tick and you must **never `sleep` then verify**. `deploy.py status <id>` shows deploy
 state any time.
 
+> **⛔ `runCount 0` / no positions ≠ broken — do NOT thrash the strategy.** A newly-deployed scanner shows
+> **`runCount = 0`, no signals, no positions until its first interval elapses** — and on a **slow clock that is
+> HOURS** (the 6h regime scanners; a from-scratch 4–6h build). That is **healthy** — `verify` reports it as
+> `scanner=scheduled` = **live**. It does **not** mean the deploy failed. **Never `close`/recreate, re-run
+> `create`, or re-`runtime` to "force a tick"** — that tears down a working strategy on a fresh wallet and, if it
+> fumbles the redeploy, leaves it closed (the confirmed **LION** incident: a slow scanner mistaken for broken,
+> thrashed for an hour, strategy destroyed). If `verify` says `scheduled` (or `create`/`runtime` already
+> succeeded), **you are done** — tell the user it's live and will scan on its interval; re-run `verify` later only
+> if they want to confirm the first tick landed. The only reasons to touch a deployed strategy again are a
+> **`broken` verdict with a real error** (`scanner erroring: …`, `dsl=…`, `budget=underfunded`), never `runCount 0`.
+
 > **Do NOT improvise.** A package strategy is a **runtime-supervised scanner** — deploy it **only** via
 > these steps. Never substitute a raw `strategy_create_custom_strategy` MCP call to "deploy" it: that
 > makes an **empty** custom-position strategy, not the running scanner. Funding is **automatic**

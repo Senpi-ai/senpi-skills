@@ -494,7 +494,15 @@ def _scanner_verdict(inst, state):
     runs = _cli.dig(sc, "runCount", "ticks", "runs", default=0) or 0
     if isinstance(runs, (int, float)) and runs > 0:
         return "ticked", f"{int(runs)} scan(s)"
-    return "scheduled", f"awaiting first tick (~{inst.interval_seconds or '?'}s cadence)"
+    iv = inst.interval_seconds
+    cad = f"~{iv // 3600}h" if isinstance(iv, (int, float)) and iv >= 3600 else \
+          (f"~{int(iv)}s" if isinstance(iv, (int, float)) and iv else "its interval")
+    # runCount==0 is HEALTHY, not broken: the scanner is mounted + wired and fires on its interval. On a
+    # slow clock (the 6h regime scanners) that first tick is HOURS out — say so loudly, because an
+    # impatient agent that reads this as "not working" and close+recreates DESTROYS a working strategy
+    # (the LION incident). 'scheduled' counts as LIVE in the gate above.
+    return "scheduled", (f"HEALTHY — mounted + wired, first scan due in {cad} (runCount 0 until then is "
+                         f"expected); NOT broken, do NOT redeploy/close — just re-run verify later")
 
 
 def _dsl_verdict(inst, status_json):
