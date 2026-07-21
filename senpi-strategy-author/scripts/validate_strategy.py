@@ -25,12 +25,10 @@ _MARGIN_PCT_RE = re.compile(r"margin_?pct", re.I)
 
 
 def margin_fraction_offenders(doc, path=""):
-    """Any margin-percent key in a runtime doc whose value is a FRACTION (0,1] where a PERCENT (0,100]
-    is required. `marginPct: 0.10` (meant 10) sizes 100× too small — (0.10/100)×withdrawable → sub-$10
-    notional → EVERY order rejected, so the strategy funds but never trades. This is the recurring
-    v2-fraction-vs-3.0-percent slip (0.15/0.10/0.08 for 15/10/8). Walks the whole doc, so it catches the
-    value under `scanners[].inputs`, the runtime `strategy.margin_pct`, or a top-level emit — under any
-    key name (marginPct / marginPctBase / margin_pct). Returns [(dotted_key, value), ...]."""
+    """Margin-percent keys whose value is a fraction (0,1] where a PERCENT (0,100] is required
+    (`marginPct: 0.10` meant 10 — 100× too small). Walks the whole doc (scanners[].inputs,
+    strategy.margin_pct, or a top-level emit; any key: marginPct / marginPctBase / margin_pct).
+    Returns [(dotted_key, value), ...]."""
     out = []
     if isinstance(doc, dict):
         for k, v in doc.items():
@@ -112,14 +110,11 @@ def validate(pkg: Path) -> list:
                 errs.append(f"instance {name}: set runtime `name: {expect}` (found {rt_doc.get('name')!r})")
             if rt_doc.get("group") != sid:
                 errs.append(f"instance {name}: set runtime `group: {sid}` (found {rt_doc.get('group')!r})")
-            # marginPct/margin_pct is a PERCENT in (0,100]; a value <= 1 is the v2 FRACTION slip
-            # (0.10 meant 10) that sizes 100x too small — sub-$10 notional, every order rejected, so the
-            # strategy funds but never trades. Flag pre-deploy with the exact fix. (See scan-contract.md.)
+            # marginPct is a PERCENT in (0,100]; a value <= 1 is the fraction slip (0.10 meant 10, 100x
+            # too small). Flag it pre-deploy with the exact fix. (See scan-contract.md.)
             for kp, val in margin_fraction_offenders(rt_doc):
-                errs.append(f"instance {name}: `{kp}: {val}` looks like a FRACTION — marginPct is a "
-                            f"PERCENT in (0,100], sized as (marginPct/100)×withdrawable. Set {val * 100:g} "
-                            f"(not {val}); as-authored every order is below the ~$10 min notional and is "
-                            f"rejected, so it funds but never trades.")
+                errs.append(f"instance {name}: `{kp}` must be a PERCENT in (0,100] — set {val * 100:g} "
+                            f"(not {val})")
 
         # data_retention: Runtime 3.0 uses data_retention_seconds (integer 3600–604800);
         # the v2 data_retention_hours field is deprecated. (See senpi-trading-runtime/references/runtime-yaml.md.)

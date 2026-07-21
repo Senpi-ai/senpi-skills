@@ -198,12 +198,12 @@ def test_margin_offenders_flags_fraction_passes_percent():
 
 
 def test_validate_refuses_fraction_marginpct(tmp_path):
-    """A scanner-inputs marginPct: 0.1 (the doc-copy slip) is refused pre-funding, prescribing `Set 10`."""
+    """A scanner-inputs marginPct: 0.1 (the doc-copy slip) is refused pre-funding, prescribing `set 10`."""
     d = make_flat(tmp_path, pkg_id="fracbug")
     rt = d / "runtime.yaml"
     rt.write_text(rt.read_text().replace("inputs: {}", "inputs:\n      marginPct: 0.1"))
     errs = _pkg.validate(_pkg.load(str(d)))
-    assert any("looks like a FRACTION" in e and "Set 10" in e for e in errs)
+    assert any("must be a PERCENT in (0,100]" in e and "set 10" in e for e in errs)
 
 
 def test_validate_accepts_percent_marginpct(tmp_path):

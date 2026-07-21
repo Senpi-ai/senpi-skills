@@ -26,12 +26,10 @@ _MARGIN_PCT_RE = re.compile(r"margin_?pct", re.I)
 
 
 def margin_fraction_offenders(doc, path=""):
-    """Any margin-percent key whose value is a FRACTION (0,1] where a PERCENT (0,100] is required.
-    `marginPct: 0.10` (meant 10) sizes 100× too small — (0.10/100)×withdrawable → sub-$10 notional →
-    EVERY order rejected, so the strategy funds but never trades (the recurring v2-fraction slip:
-    0.15/0.10/0.08 for 15/10/8). Walks the whole runtime doc — catches `scanners[].inputs`,
-    `strategy.margin_pct`, or a top-level emit, under any key (marginPct / marginPctBase / margin_pct).
-    Mirrors senpi-strategy-author validate_strategy so author-green == deploy-green. [(key, value), ...]."""
+    """Margin-percent keys whose value is a fraction (0,1] where a PERCENT (0,100] is required
+    (`marginPct: 0.10` meant 10 — 100× too small). Walks the whole runtime doc (scanners[].inputs,
+    strategy.margin_pct, or a top-level emit; any key: marginPct / marginPctBase / margin_pct). Mirrors
+    senpi-strategy-author validate_strategy so author-green == deploy-green. [(key, value), ...]."""
     out = []
     if isinstance(doc, dict):
         for k, v in doc.items():
@@ -243,14 +241,10 @@ def validate(pkg: Package) -> list:
         expect_name = f"{pkg.id}-{inst.name}"
         if inst.runtime_name != expect_name:
             errs.append(f"{tag}: set runtime `name: {expect_name}` (found {inst.runtime_name!r})")
-        # marginPct is a PERCENT in (0,100]; a value <= 1 is the v2 FRACTION slip (0.10 meant 10) that
-        # sizes 100× too small — sub-$10 notional, every order rejected, funds-but-never-trades. Refuse
-        # to fund it here (author's validate_strategy flags it too; ops re-checks a hand-edited / fetched
-        # package). Prescriptive, like the name/group linkage errors above.
+        # marginPct is a PERCENT in (0,100]; a value <= 1 is the fraction slip (0.10 meant 10, 100x too
+        # small). Refuse to fund it (author's validate_strategy flags it too; ops re-checks fetched packages).
         for kp, val in margin_fraction_offenders(inst.runtime_doc):
-            errs.append(f"{tag}: `{kp}: {val}` looks like a FRACTION — marginPct is a PERCENT in (0,100], "
-                        f"sized as (marginPct/100)×withdrawable. Set {val * 100:g} (not {val}); as-authored "
-                        f"every order is below the ~$10 min notional and is rejected (funds but never trades).")
+            errs.append(f"{tag}: `{kp}` must be a PERCENT in (0,100] — set {val * 100:g} (not {val})")
         # wallet binding
         if not inst.wallet_env:
             errs.append(f"{tag}: missing wallet_env")
