@@ -44,12 +44,10 @@ def margin_fraction_offenders(doc, path=""):
     return out
 
 
-# OHLC candle keys — `market_get_asset_data` returns candles keyed `o/h/l/c/v` (string values); the long
-# forms (open/high/low/close) don't exist, so `candle.get("close")` is always None → the scan silently
-# emits nothing. The working idiom keeps a short-key access (direct `c["c"]`, or the
-# `c.get("close", c.get("c", 0))` fallback); a file that reads a LONG key with NO short-form counterpart
-# anywhere is the bug (0 false positives fleet-wide). `volume`/`v` is deliberately EXCLUDED — scanners
-# legitimately read a `volume` field from leaderboard/market rows (not candles), so it isn't a clean signal.
+# Candles (market_get_asset_data) are keyed o/h/l/c/v; the long forms (open/high/low/close) don't exist,
+# so `candle.get("close")` is always None → the scan silently emits nothing. A file that reads a long key
+# with NO short-form counterpart anywhere is the bug (0 fleet false positives). volume/v is EXCLUDED —
+# scanners legitimately read a `volume` field from market rows.
 _OHLCV_LONG = {"open": "o", "high": "h", "low": "l", "close": "c"}
 _CANDLE_ACCESS = {k: re.compile(r"""(?:\.get\(|\[)\s*['"]%s['"]""" % k)
                   for k in list(_OHLCV_LONG) + list(_OHLCV_LONG.values())}
@@ -208,9 +206,8 @@ def validate(pkg: Path) -> list:
         except SyntaxError as e:
             errs.append(f"{py.name}: syntax error ({e})")
         for lng, sht in candle_key_bug(src):
-            errs.append(f"{py.name}: reads candles by `{lng}` — Senpi candles (market_get_asset_data) are "
-                        f"keyed `o/h/l/c/v` (string values); use `float(candle['{sht}'])`. `{lng}` doesn't "
-                        f"exist → always None → the scan silently emits nothing.")
+            errs.append(f"{py.name}: candles are keyed `o/h/l/c/v` — use `candle['{sht}']`, not `{lng}` "
+                        f"(no such key → always None → the scan emits nothing).")
     for f in pkg.rglob("*"):
         if f.is_file() and f.suffix in (".py", ".yaml", ".md"):
             t = f.read_text(errors="ignore")
