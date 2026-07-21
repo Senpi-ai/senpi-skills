@@ -1,12 +1,16 @@
-# Is my position protected? — verifying DSL coverage
+# Is my position protected? — rung-2 DSL triage
 
-**Short version:** run **`senpi dsl positions -r <runtime-id>`** — every open position must appear there,
-each with a `floorPrice` (its live stop). **An open position that is *missing* from that list is
-UNPROTECTED.** That is the whole trap: an unprotected position shows up as an *absence*, not a warning, so
-you have to look for what's *not* there. The rest of this doc is how to be sure and how to triage.
+> **The protection front door is `composer status`.** For any "is my strategy protected?" question,
+> run `composer status <target>` (via the `senpi_strategy` tool) FIRST — it renders every open
+> position's protection in plain ROE and is relayed verbatim. This doc is **rung 2**: reach for the
+> raw `senpi dsl …` commands below only when `composer status` flags a protection anomaly it cannot
+> explain (e.g. a stranded/unmanaged runtime, an `UNAVAILABLE` live section, or a surface divergence),
+> or when you need to understand what an underlying `dsl` field means. Relay the raw output verbatim.
 
-Run these checks yourself when you deploy a strategy, before you tell the user "you're covered," or any
-time positions might be running without a stop. Don't ask the user to confirm — read it from the runtime.
+**The raw trap this exposes:** in `senpi dsl positions -r <runtime-id>`, every open position must
+appear, each with a `floorPrice` (its live stop). **An open position *missing* from that list is
+UNPROTECTED** — an unprotected position shows up as an *absence*, not a warning, so you have to look
+for what's *not* there. Read it from the runtime; don't ask the user to confirm.
 
 ## Mental model — why this is usually simple
 
@@ -51,13 +55,17 @@ computed **floor/stop price**, active **tier**, and ROE. Use it to confirm the s
 
 ## Strategy + monitor health
 
+The authoritative monitor-health read is **`composer status`** (front door). At rung 2 the raw digest is:
+
 ```
 senpi status -r <id>
 ```
-Read the DSL line — `DSL: enabled=… activePositions=N …`:
-- `enabled=false` / no DSL line → **the strategy has no exit engine — positions are unprotected.** Check
-  the package's `runtime.yaml` `exit:` block.
+Its DSL monitor line reports whether DSL is enabled, active-position count, and monitor liveness:
+- DSL not enabled / no DSL line → **the strategy has no exit engine — positions are unprotected.** Check
+  the emitted `runtime.yaml` `exit:` block (inspect-only — do not hand-edit it).
 - monitor stopped or a stale next-tick → DSL isn't evaluating, so positions won't be trailed or cut.
+
+Do not re-interpret the raw field beyond this; `composer status` is the authority on protection semantics.
 
 ## Why a position closed
 

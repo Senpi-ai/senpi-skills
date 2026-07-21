@@ -1,9 +1,18 @@
-# Runtime CLI — `openclaw senpi …`
+# Runtime CLI — `openclaw senpi …` (rung-2 raw plumbing)
 
-The complete command surface for interacting with the Senpi trading runtime (`@senpi-ai/runtime`).
-The plugin registers a `senpi` command group on the OpenClaw gateway, so every command is invoked as
+The complete raw command surface for the Senpi trading runtime (`@senpi-ai/runtime`). The plugin
+registers a `senpi` command group on the OpenClaw gateway, so every command is invoked as
 **`openclaw senpi <group> <subcommand>`**. Most read commands accept `--json` to print the raw
 gateway payload, and `-r/--runtime <id>` / `-a/--address <wallet>` to filter to one runtime.
+
+> **This is rung 2.** For any strategy-scoped question, the front door is the composer:
+> `openclaw senpi composer status|review …` (via the `senpi_strategy` tool) — it renders the
+> lifecycle chain, scanner health, protection, and risk gates and is relayed verbatim. Reach for the
+> raw `senpi state|scanner|dsl|action|risk|status` commands below only when `composer status` flags
+> trouble it cannot explain. The composer also owns **deploy / install / update / teardown**
+> (`composer deploy|install|update|close`); the `senpi runtime` verbs below are the raw plumbing it
+> drives, not the strategy-lifecycle path — never hand-deploy a hand-written `runtime.yaml` for new
+> work. Raw outputs are relayed verbatim, never re-derived.
 
 ## Install
 
@@ -29,14 +38,14 @@ Stored in `~/.openclaw/senpi-cli.json`; changes require a gateway restart to app
 
 | Command | What it does | Options |
 |---|---|---|
-| `runtime create` | Add a runtime from a YAML file (or pasted YAML); the gateway validates and runs it. Hot-loads — no gateway restart. | `-p, --path <path>` (path to the runtime.yaml) · `-c, --content <yaml>` (paste YAML directly) · `--runtime-id <id>` (name; default derived from the file name/content) |
+| `runtime create` | Raw: add a runtime from a YAML file (or pasted YAML); the gateway validates and runs it. Hot-loads — no gateway restart. **Composer `deploy`/`install` is the front door for strategies; use this only for low-level inspection/repair.** | `-p, --path <path>` (path to the runtime.yaml) · `-c, --content <yaml>` (paste YAML directly) · `--runtime-id <id>` (name; default derived from the file name/content) |
 | `runtime list` | List all installed runtimes with their id, source, and status (running/stopped). | — |
-| `runtime delete [runtime_id]` | Remove a runtime by id or wallet address. | `--id <runtime_id>` (from `runtime list`) · `--address <wallet>` |
+| `runtime delete [runtime_id]` | Raw removal by id or wallet address. **For strategy teardown use `composer close`** (it stops the runtime, confirms it is gone, then flattens/returns funds); raw delete leaves the strategy record behind. | `--id <runtime_id>` (from `runtime list`) · `--address <wallet>` |
 
 ```bash
-openclaw senpi runtime create -p runtime.yaml     # deploy / hot-load
-openclaw senpi runtime list                        # verify it is running
-openclaw senpi runtime delete --id iguana-tracker  # tear down
+openclaw senpi runtime list                        # raw: is a runtime running?
+openclaw senpi runtime create -p runtime.yaml      # raw hot-load (NOT the strategy-deploy path — that's composer deploy/install)
+openclaw senpi runtime delete --id iguana-tracker  # raw teardown (strategy teardown = composer close)
 ```
 
 ## `senpi dsl` — inspect the DSL exit engine
@@ -71,7 +80,7 @@ behind: **`references/dsl-protection-check.md`**.
 
 | Command | What it does | Options |
 |---|---|---|
-| `scanner` | Per-scanner health: schedule mode, run/error/consecutive-error counts, next-run time, in-flight, cumulative `signals` produced, and external-scanner `alive` (heartbeat from the intake liveness clock; `n/a` for interval scanners). Flags a `BARREN` scanner — alive and has run but produced no signals. Reuses the `state` RPC. | `-r, --runtime <id>` · `--json` |
+| `scanner` | Per-scanner health: schedule mode, external-scanner cadence rendered explicitly (e.g. "checks every 300s (external)" — the legacy `interval=0s` render is gone), last-post time + quiet-check count (so "last check 2m ago, no signal" is expressible), run/error/consecutive-error counts incl. `errorCount`/`lastError` (an erroring `scan.py` is now distinguishable from a healthy-quiet one), next-run time, in-flight, and cumulative `signals` produced. Flags a `BARREN` scanner — alive and has run but produced no signals. Reuses the `state` RPC. | `-r, --runtime <id>` · `--json` |
 
 ## `senpi audit` — backend trade-audit trail
 
@@ -88,12 +97,19 @@ The trade narrative (position/dsl/order/signal/runtime events) is persisted to a
 | `events` | The domain-event log as a table (time, level, event, asset, narrative). | `-r, --runtime <id>` (required) · `-a, --address <addr>` · `--name <event>` · `--asset <symbol>` · `--level <debug\|info\|warn\|error>` · `--since <iso>` · `--until <iso>` · `-l, --limit <n>` (default 200) · `--json` |
 | `explain <asset>` | Stitch one asset's position lifecycle (opened → dsl transitions → close+reason) into a chronological narrative tagged by position id. | `-r, --runtime <id>` (required) · `-a, --address <addr>` · `-l, --limit <n>` (events to scan, default 500) · `--json` |
 
-## `senpi status` / `senpi state` — runtime health
+## `senpi status` / `senpi state` — raw runtime health (rung 2)
+
+> The strategy-facing health front door is **`composer status`**, which absorbs the gateway system
+> state plus `dsl positions/inspect` and renders a strategy-language summary (lifecycle chain,
+> per-scanner cadence/last-check/quiet-check, protection in plain ROE, risk gates) that is relayed
+> verbatim. The raw `senpi status`/`senpi state` below are the rung-2 escape hatch — reach for them
+> only when `composer status` flags trouble it cannot explain, and do not re-interpret their fields
+> (composer status is the authority on health/protection semantics).
 
 | Command | What it does | Options |
 |---|---|---|
-| `status` | Lightweight runtime health digest for running runtimes: overall health, scanner summary (with a degraded-scanner count), DSL monitor liveness (running/stopped, tick-in-flight, next tick, last tick error), and — when risk is enabled — trade eligibility (OPEN/COOLDOWN/CLOSED) and the per-gate table. | `-r, --runtime <id>` · `--json` |
-| `state` | Full runtime state for running runtimes — the escape hatch when the `status` digest isn't enough. | `-r` · `--json` |
+| `status` | Raw runtime health digest for running runtimes: overall health, scanner summary (with a degraded-scanner count), DSL monitor liveness (running/stopped, tick-in-flight, next tick, last tick error), and — when risk is enabled — trade eligibility (OPEN/COOLDOWN/CLOSED) and the per-gate table. | `-r, --runtime <id>` · `--json` |
+| `state` | Full raw runtime state for running runtimes — the lowest-level escape hatch when the `status` digest isn't enough. | `-r` · `--json` |
 
 ## `senpi skills` — manage Senpi skills
 

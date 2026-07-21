@@ -6,7 +6,14 @@ the file, resolves environment variables, validates the schema, applies cross-se
 wires the scanners, actions, and DSL exit engine.
 
 For *how* the runtime behaves at runtime see [runtime-concepts.md](runtime-concepts.md). For the
-author-side `scan(inputs, ctx)` + signal shape see [scan-contract.md](scan-contract.md).
+`scan(inputs, ctx)` + signal shape see [scan-contract.md](scan-contract.md).
+
+> **This is a schema reference for reading/diagnosing an emitted unit, not a hand-authoring guide.**
+> The composer generates `runtime.yaml` for new work; nobody hand-writes one. Do **not** hand-edit an
+> emitted or installed `runtime.yaml` to change a live strategy — content-addressing rejects the edit
+> and the installed copy is frozen inline, so a disk edit is inert (a documented trap). Strategy
+> changes go through the composer record (`composer update`); the emitted `runtime.yaml` is
+> inspect-only.
 
 > **One wallet per `runtime.yaml`.** A strategy **package** (`strategy.yaml`) may bundle more than one
 > runtime — e.g. spider's `swing` + `scalp` legs are two `runtime.yaml` files under one `strategy.yaml`.

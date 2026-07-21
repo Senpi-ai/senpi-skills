@@ -12,6 +12,10 @@ For the `runtime.yaml` fields that feed this (`inputs`, `signal_data_schema`,
 `default_signal_validity_seconds`) see [runtime-yaml.md](runtime-yaml.md). For the lifecycle around
 `scan()` (supervision, dedup, reconcile) see [runtime-concepts.md](runtime-concepts.md).
 
+> **This documents the runtime's frozen contract for reading/diagnosing an emitted scanner — it is
+> not a hand-authoring guide.** The composer generates `scan.py`/`scoring.py` for new work; the
+> contract below is what an emitted scanner must satisfy, so you can understand or diagnose one.
+
 ---
 
 ## Skeleton

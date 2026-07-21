@@ -1,95 +1,84 @@
 ---
 name: senpi-trading-runtime
 description: >-
-  How a Senpi trading strategy interacts with the runtime engine (@senpi-ai/runtime)
-  on Hyperliquid: a strategy runs from a runtime.yaml pointing at a Python module that
-  exports scan(inputs, ctx), which the runtime supervises and calls each interval, then
-  owns execution, risk guard_rails, and two-phase DSL trailing-stop exits. Use when
-  working with runtime.yaml, the scan(inputs, ctx) contract, external_scanner, ctx, or
-  the DSL exit engine — including verifying open positions are protected by DSL (have a
-  working stop-loss). The shared runtime contract the lifecycle skills reference. NOT
-  for building, installing, or picking a strategy (→ senpi-strategy-composer).
+  Raw-plumbing REFERENCE for the Senpi runtime engine (@senpi-ai/runtime) on
+  Hyperliquid — the runtime.yaml schema, the scan(inputs, ctx) contract, the DSL
+  exit engine internals, and the raw `openclaw senpi state|scanner|dsl|action|risk`
+  command surface. This is NOT a first-stop skill: every strategy-scoped question
+  (build, deploy, install, status, protection, review, close) belongs to the
+  senpi-strategy-composer front door (the `senpi_strategy` tool / `composer
+  status|review`). You reach THIS skill only at rung 2 of the ladder — when
+  `composer status` flags trouble it cannot itself explain and you must read the
+  raw runtime state or understand a field's underlying semantics. Reference for
+  plumbing facts, not operating flows.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.0.3"
+  version: "4.0.0"
   platform: senpi
   exchange: hyperliquid
 ---
 
-# Senpi Trading Runtime — the runtime contract
+# Senpi Trading Runtime — raw-plumbing reference
 
-This skill is **infrastructure**: the canonical knowledge of how the Senpi runtime
-(**`@senpi-ai/runtime`**) behaves and how a strategy interacts with it. The lifecycle skills —
-author (build), ops (install/monitor), discover (recommend) — reference this one for the contract.
+This skill is the **plumbing reference** for the Senpi runtime engine
+(**`@senpi-ai/runtime`**): the `runtime.yaml` schema, the `scan(inputs, ctx)` contract, the DSL
+exit engine internals, and the raw `openclaw senpi …` command surface. It documents *facts about the
+plumbing*, not how to operate a strategy.
 
-## The runtime model
+## Boundary — this is rung 2, not the front door
 
-A strategy runs from a **`runtime.yaml`** that points at an in-repo Python module. The runtime **spawns and
-supervises** that module and calls a frozen **`scan(inputs, ctx)`** every `interval_seconds`. The
-division of labor is fixed:
+Every strategy-scoped question — build, discover, deploy, fund, install, update, **status,
+protection, review, close**, "what's my strategy doing?", "is it protected?", "why did(n't) it
+trade?" — belongs to the **`senpi-strategy-composer`** front door, driven by the model-visible
+**`senpi_strategy`** tool (or `openclaw senpi composer …`). The composer owns those operating flows
+and renders authoritative, relay-verbatim answers (`composer status` / `composer review`). Do **not**
+answer those from this skill.
 
-- **Your code produces signals — nothing else.** `scan(inputs, ctx)` *reads* market and account data
-  and *returns* a `list[dict]` of candidate signals. It does not open, close, size, schedule, or
-  execute anything.
-- **The runtime owns everything downstream:** scheduling (`interval_seconds`), spawning +
-  supervising + restarting the scanner, validating (`signal_data_schema`) + de-duplicating the
-  signals you return, **sizing & order execution** (`FEE_OPTIMIZED_LIMIT`), slot accounting,
-  `risk.guard_rails`, the two-phase **DSL** trailing-stop exits, and **crash-safe position reconcile**
-  on restart.
+**The 2-rung ladder (owned and taught by the composer skill):**
 
-## How your code talks to the runtime
+1. **Rung 1 — `composer status <target>` (or bare `composer status` for the portfolio view).**
+   This is the front door. It renders the lifecycle chain, per-scanner cadence/last-check/quiet-check
+   counts, every open position's protection in plain ROE, and the risk gates. Its output is relayed
+   verbatim.
+2. **Rung 2 — the raw plumbing, i.e. THIS skill.** You drop here **only when `composer status` flags
+   trouble it cannot explain** — a degraded scanner it can't diagnose, a protection anomaly, an
+   `UNAVAILABLE` live section, or a question about what an underlying field *means*. Then you read the
+   raw runtime state (`openclaw senpi state|scanner|dsl positions|dsl inspect --json`) and/or consult
+   the references below. Raw outputs are **also relayed verbatim, never re-derived** (a re-derivation
+   flipped a PnL sign on real money once).
 
-The interaction surface is small and one-directional — you read, you return signals, the runtime acts.
+You do **not** hand-write `scan.py` or `runtime.yaml` for new work, and you do **not** hand-edit an
+emitted/installed `runtime.yaml` to change a live strategy (content-addressing rejects the edit and
+the installed copy is frozen inline — a known trap). The composer emits and deploys those units; the
+schema and contract below are for **reading and diagnosing** what it emitted, not for authoring.
 
-- **`runtime.yaml`** declares the scanner(s), the action gate, the exit engine, and the risk
-  guard-rails, and passes author tunables down via `inputs:`. → `references/runtime-yaml.md`
-- **`scan(inputs, ctx)`** is the single entry point. `inputs` is the runtime's `inputs:` map; `ctx`
-  gives you:
-  - **`ctx.senpi_mcp.call_tool(name, args)`** — the Senpi MCP client, **read-only** (market,
-    account, leaderboard, discovery, `strategy_get*`, …). It is the only way to fetch data.
-  - **`ctx.state`** — transactional, runtime-persisted history (`last()` / `append()` / `len`) for
-    dedup, rotation, and first-seen ledgers; advances only on a clean tick.
-  - **`ctx.wallet`** — the strategy's wallet address.
-  - → `references/scan-contract.md`
-- **The return value** is a `list[dict]`, one per candidate signal (`asset`, `direction`,
-  `marginUsd`, `leverage`, `data{}`). The runtime validates each `data{}` against the runtime.yaml's
-  `signal_data_schema`, then sizes, executes, and manages exits.
+## The runtime model (orientation)
 
-Keep the thesis logic in a sibling pure **`scoring.py`** (no I/O, no MCP) so it is unit-testable;
-`scan.py` does the reads + state, `scoring.py` does the math.
+A strategy runs from a **`runtime.yaml`** that points at an in-repo Python module. The runtime
+**spawns and supervises** that module and calls a frozen **`scan(inputs, ctx)`** every
+`interval_seconds`. The division of labor is fixed:
 
-## Runtime commands (essentials)
+- **Scanner code produces signals — nothing else.** `scan(inputs, ctx)` *reads* market and account
+  data and *returns* a `list[dict]` of candidate signals. It never opens, closes, sizes, schedules,
+  or executes anything.
+- **The runtime owns everything downstream:** scheduling, spawning + supervising + restarting the
+  scanner, validating (`signal_data_schema`) + de-duplicating signals, **sizing & order execution**
+  (`FEE_OPTIMIZED_LIMIT`), slot accounting, `risk.guard_rails`, the two-phase **DSL** trailing-stop
+  exits, and **crash-safe position reconcile** on restart.
 
-The plugin registers a `senpi` command group on the gateway. Deploying a runtime and checking it:
-
-```bash
-openclaw plugins install @senpi-ai/runtime
-openclaw senpi runtime create -p runtime.yaml  # hot-loads; the runtime supervises the scanner
-openclaw senpi runtime list                     # id, source, status (running/stopped)
-```
-
-Beyond `runtime create/list/delete`, the CLI exposes the runtime's live state — `senpi dsl
-positions|inspect|closes` (the exit engine), `senpi action list|inspect|history|decisions` (the
-decision layer), `senpi risk` (am I allowed to trade, and why not), `senpi audit` (backend trade
-trail with AI reasoning), `senpi scanner` (per-scanner health, liveness, and barren detection),
-`senpi events`/`senpi explain <asset>` (the local domain-event log — the trade narrative, and one
-asset's stitched lifecycle), `senpi status`/`senpi state` (health), and `senpi guide …` (in-shell
-reference). Full surface with every option → `references/runtime-cli.md`.
-
-**To confirm open positions are actually stop-loss protected** (a position with no DSL shows up as an
-*absence* in `dsl positions`, so it's easy to miss) → the verdict procedure in
-`references/dsl-protection-check.md`.
+The interaction surface is small and one-directional — the scanner reads via `ctx`, returns signals,
+and the runtime acts. Field-level detail lives in the references.
 
 ## The reference set
 
 | Read this | For |
 |---|---|
 | `references/runtime-concepts.md` | How the runtime behaves end to end: the runtime pipeline, `position_tracker`, and the two-phase DSL exit engine |
-| `references/runtime-yaml.md` | The `runtime.yaml` schema — every section, the `external_scanner` fields, the risk guard-rails |
-| `references/scan-contract.md` | The author contract in depth: `scan(inputs, ctx)`, the `ctx` surface, the signal shape, and `scoring.py` |
-| `references/runtime-cli.md` | The full `openclaw senpi …` command surface — runtime, dsl, action, status/state, skills, guide |
-| `references/dsl-protection-check.md` | **Verify open positions are DSL-protected** — the PROTECTED / UNPROTECTED / STOP-NOT-ON-VENUE verdict + the open-vs-tracked reconciliation |
+| `references/runtime-yaml.md` | The `runtime.yaml` schema — every section, the `external_scanner` fields, the risk guard-rails (for reading/diagnosing an emitted unit) |
+| `references/scan-contract.md` | The runtime's frozen `scan(inputs, ctx)` contract: the `ctx` surface, the read-only MCP boundary, the signal shape |
+| `references/runtime-cli.md` | The full raw `openclaw senpi …` command surface — the rung-2 plumbing behind `composer status` |
+| `references/dsl-protection-check.md` | Rung-2 protection triage: reading the raw `dsl positions/inspect/closes` fields + the open-vs-tracked reconciliation, once `composer status` has flagged a protection anomaly |
 
 ## Package naming (load-bearing)
 
