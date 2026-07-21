@@ -65,6 +65,7 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   conviction_hold_hedged: { gloss: "Single-asset conviction hold paired with a basket hedge sleeve." }
   trend_continuation: { gloss: "Enters in the direction of an established, still-intact trend." }
   accumulation: { gloss: "Detects persistent institutional accumulation — relative-strength decoupling from the market on rising volume with shallow, bought dips — from the tape, no catalyst feed needed." }
+  indicator_crossover: { gloss: "Textbook technical setup: a MACD signal-line crossover triggers the entry, RSI confirms momentum, higher-timeframe trend adds context." }
   # contrarian_fade
   sm_crowding:   { gloss: "Fades the crowded smart-money side once price stops following." }
   funding_extreme: { gloss: "Fades extreme funding rates." }
