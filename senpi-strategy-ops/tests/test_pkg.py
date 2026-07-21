@@ -181,5 +181,38 @@ def test_full_validate_catches_unresolved_placeholder(tmp_path):
     assert any("UNBOUND_THING" in e for e in errs)
 
 
+# ─────────────────────── marginPct fraction-vs-percent guard ───────────────────────
+# marginPct is a PERCENT in (0,100]; the v2 FRACTION form (0.10 meant 10) sizes 100× too small and
+# every order is rejected below the ~$10 min notional. The scaffold doc used to teach the fraction —
+# these lock the deploy-time backstop that refuses it, and that legit percents never false-positive.
+
+def test_margin_offenders_flags_fraction_passes_percent():
+    off = _pkg.margin_fraction_offenders
+    assert off({"scanners": [{"inputs": {"marginPct": 0.10}}]}) == [("scanners[0].inputs.marginPct", 0.10)]
+    assert off({"strategy": {"margin_pct": 0.2}}) == [("strategy.margin_pct", 0.2)]
+    assert off({"inputs": {"marginPctBase": 0.15, "marginPctCap": 25}}) == [("inputs.marginPctBase", 0.15)]
+    assert off({"inputs": {"marginPct": 1}}) == [("inputs.marginPct", 1)]        # 1 == the (0,1] boundary
+    # legit percents and non-margin keys never flag
+    assert off({"strategy": {"margin_pct": 20}, "inputs": {"marginPctBase": 18, "marginPctCap": 25}}) == []
+    assert off({"inputs": {"minScore": 0.5, "leverage": 0.5, "volFloorPctOfMedian": 0.2}}) == []
+
+
+def test_validate_refuses_fraction_marginpct(tmp_path):
+    """A scanner-inputs marginPct: 0.1 (the doc-copy slip) is refused pre-funding, prescribing `Set 10`."""
+    d = make_flat(tmp_path, pkg_id="fracbug")
+    rt = d / "runtime.yaml"
+    rt.write_text(rt.read_text().replace("inputs: {}", "inputs:\n      marginPct: 0.1"))
+    errs = _pkg.validate(_pkg.load(str(d)))
+    assert any("looks like a FRACTION" in e and "Set 10" in e for e in errs)
+
+
+def test_validate_accepts_percent_marginpct(tmp_path):
+    """A percent marginPct (10) validates clean — the guard has no false positive on the correct form."""
+    d = make_flat(tmp_path, pkg_id="okmargin")
+    rt = d / "runtime.yaml"
+    rt.write_text(rt.read_text().replace("inputs: {}", "inputs:\n      marginPct: 10"))
+    assert _pkg.validate(_pkg.load(str(d))) == []
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

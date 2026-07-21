@@ -41,7 +41,7 @@ whether the package is deploy-ready.
 
 Two invariants fall out of this:
 1. **`scan()` is read-only + pure + single-pass.** On *any* error, `return []` — never crash.
-2. **You emit a sizing *intent* (`marginPct`/weight), not dollars.** The runtime computes `marginUsd` from the reconciled account value. Do **not** read the clearinghouse to size — that's the runtime's job in 3.0.
+2. **You emit a sizing *intent* (`marginPct`/weight), not dollars.** The runtime computes `marginUsd` from the reconciled account value. Do **not** read the clearinghouse to size — that's the runtime's job in 3.0. **`marginPct` is a PERCENT in (0,100], NOT a fraction:** `10` = 10%; the runtime sizes `(marginPct/100) × withdrawable`. A fraction like `0.10` means 0.1% → every order lands below Hyperliquid's ~$10 min notional and is silently rejected, so the strategy funds but never trades (the recurring 0.15/0.10/0.08 slip — it's the v2 convention; 3.0 is percent).
 
 ## 4. The design space — the 7 decisions that define *any* strategy
 
@@ -114,7 +114,7 @@ def scan(inputs, ctx):
     out = [{
         "asset": p["asset"],
         "direction": p["direction"],                 # REQUIRED: LONG | SHORT
-        "marginPct": inputs.get("marginPct", 0.10),  # SIZING INTENT — runtime makes it dollars
+        "marginPct": inputs.get("marginPct", 10),    # SIZING INTENT — PERCENT in (0,100], NOT a fraction: 10 = 10%; runtime sizes (marginPct/100)×acct
         "data": {                                    # must match signal_data_schema exactly
             "score": p["score"], "direction": p["direction"], "reasons": p["reasons"],
         },
@@ -294,7 +294,7 @@ scanners:
       universe: ["xyz:SP500","xyz:NASDAQ","xyz:NVDA","xyz:AMD","xyz:MSFT","xyz:JPM","xyz:CAT","BTC","ETH"]
       minScore: 5
       breadthMin: 4
-      marginPct: 0.10
+      marginPct: 10          # PERCENT of withdrawable in (0,100] — 10 = 10%, NOT 0.10 (a fraction sizes 100× too small → every order below the ~$10 min notional, silently rejected)
       rsiMaxLong: 72
       horizonEndIso: "2026-10-01T00:00:00Z"
     signal_data_schema:
@@ -352,7 +352,7 @@ def scan(inputs, ctx):
     universe    = inputs.get("universe", [])
     min_score   = int(inputs.get("minScore", 5))
     breadth_min = int(inputs.get("breadthMin", 4))
-    base_pct    = float(inputs.get("marginPct", 0.10))
+    base_pct    = float(inputs.get("marginPct", 10))    # PERCENT in (0,100] — 10 = 10%, NOT 0.10
 
     confirmers = []
     for asset in universe:
