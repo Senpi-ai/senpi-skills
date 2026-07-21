@@ -44,6 +44,24 @@ def margin_fraction_offenders(doc, path=""):
     return out
 
 
+# OHLC candle keys — `market_get_asset_data` returns candles keyed `o/h/l/c/v` (string values); the long
+# forms (open/high/low/close) don't exist, so `candle.get("close")` is always None → the scan silently
+# emits nothing. The working idiom keeps a short-key access (direct `c["c"]`, or the
+# `c.get("close", c.get("c", 0))` fallback); a file that reads a LONG key with NO short-form counterpart
+# anywhere is the bug (0 false positives fleet-wide). `volume`/`v` is deliberately EXCLUDED — scanners
+# legitimately read a `volume` field from leaderboard/market rows (not candles), so it isn't a clean signal.
+_OHLCV_LONG = {"open": "o", "high": "h", "low": "l", "close": "c"}
+_CANDLE_ACCESS = {k: re.compile(r"""(?:\.get\(|\[)\s*['"]%s['"]""" % k)
+                  for k in list(_OHLCV_LONG) + list(_OHLCV_LONG.values())}
+
+
+def candle_key_bug(text):
+    """Long-form OHLCV keys accessed on a dict with NO short-form counterpart in the file — the silent
+    candle-key bug (`candle.get("close")` where Senpi candles are keyed `c`). Returns [(long, short), ...]."""
+    return [(lng, sht) for lng, sht in _OHLCV_LONG.items()
+            if _CANDLE_ACCESS[lng].search(text) and not _CANDLE_ACCESS[sht].search(text)]
+
+
 def _flat_wallet_env(pkg: Path, sid) -> str:
     """Mirror the deployer's flat-instance synthesis: bind wallet_env to the ${...} the flat
     runtime.yaml already uses for its wallet, falling back to <ID>_WALLET."""
@@ -182,12 +200,17 @@ def validate(pkg: Path) -> list:
     if len(man.get("instances", [])) > 1 and len(seen_wallet_envs) < len(man["instances"]):
         errs.append("multi-instance strategy must declare a distinct wallet_env per instance")
 
-    # scanner present + parses; no '@senpi/runtime' without -ai anywhere
+    # scanner present + parses; candle-key sanity; no '@senpi/runtime' without -ai anywhere
     for py in pkg.rglob("*.py"):
+        src = py.read_text()
         try:
-            ast.parse(py.read_text())
+            ast.parse(src)
         except SyntaxError as e:
             errs.append(f"{py.name}: syntax error ({e})")
+        for lng, sht in candle_key_bug(src):
+            errs.append(f"{py.name}: reads candles by `{lng}` — Senpi candles (market_get_asset_data) are "
+                        f"keyed `o/h/l/c/v` (string values); use `float(candle['{sht}'])`. `{lng}` doesn't "
+                        f"exist → always None → the scan silently emits nothing.")
     for f in pkg.rglob("*"):
         if f.is_file() and f.suffix in (".py", ".yaml", ".md"):
             t = f.read_text(errors="ignore")

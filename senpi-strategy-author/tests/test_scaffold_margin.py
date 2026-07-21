@@ -40,6 +40,25 @@ def test_scaffold_doc_teaches_percent_not_fraction():
     assert not bad, f"fraction-form marginPct still in creating-a-strategy.md (must be a PERCENT): {bad}"
 
 
+def test_candle_key_bug_flags_long_without_short():
+    b = vs.candle_key_bug
+    # the reported bug: candle close read by the long key with no `c` access anywhere
+    assert b('[c.get("close", 0) for c in candles if c.get("close") is not None]') == [("close", "c")]
+    assert b('hi = row["high"]') == [("high", "h")]
+    # working idioms are NOT flagged
+    assert b('float(c.get("close", c.get("c", 0)) or 0)') == []   # fallback keeps a `c` access
+    assert b('float(candle["c"])') == []                          # direct short key
+    # volume is excluded — scanners read a `volume` field from market/leaderboard rows, not candles
+    assert b('vol = market["volume"]') == []
+    assert b('n = m.get("avg_volume_6h", 0)') == []
+
+
+def test_scaffold_doc_documents_candle_c_key():
+    """The scaffold must state the candle schema so agents don't guess `close` (the root cause)."""
+    text = open(_DOC, encoding="utf-8").read()
+    assert 'candle["c"]' in text
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-q"]))
