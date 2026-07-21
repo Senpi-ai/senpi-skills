@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "0.3.11"
+  version: "0.3.12"
   status: experimental
   platform: senpi
   exchange: hyperliquid
@@ -41,13 +41,15 @@ exist and how they wire is fetched from the composer at point of use — never r
 
 ## Invocation
 
-Real form inside a claw:
+**Primary form — the registered `senpi_strategy` tool:** one string param `args` = the CLI argv after
+`openclaw senpi` (e.g. `args: "composer status hype-btc-rv"`); it renders exactly what the CLI renders and
+is the always-present front door. The exec CLI is the equivalent and still works identically:
 ```
 openclaw senpi composer <verb> ...
 ```
 Verbs: `catalog`, `describe <node>`, `new`, `check <graph>`, `deploy <graph>`,
 `simulate <target> --from 30d`, `fund <target> --budget N`, `install <target> [--wallet 0x…]`,
-`update <target>`, `status <target|--group X>`, `close <target|--group X>`.
+`update <target>`, `status [<target>|--group X]` (bare = cross-strategy portfolio), `close <target|--group X>`.
 
 **Preview before funding:** `composer simulate <target> --from 30d` replays the compiled scanners
 over historical candles and prints the signal timeline ("would have entered/exited here"). Offer it
@@ -79,6 +81,9 @@ There is no separate discover or ops skill anymore; the composer owns the entire
 - **Anything with a supervised exit is composed here**, never stood up with a raw MCP
   `strategy_create*` call (that path carries no supervised exit and registers no named
   strategy — a confirmed silent failure).
+- **Wallet-only MANUAL trading (no graph, no runtime — the user places positions themselves)** →
+  `composer fund <name> --manual --budget N` creates a MANUAL-kind strategy; direct MCP position
+  writes are SANCTIONED on it, status/portfolio show its `kind`, and `composer close` does the reduced teardown.
 - **Situational awareness FIRST** — before proposing ANY new build or teardown, run `composer
   status` / `openclaw senpi runtime list` to learn what already exists. Never propose a fresh build
   while a related strategy is running; never propose teardown before diagnosis.
@@ -113,8 +118,12 @@ archetypes, then run the interview:
   `breakout`; a macro long/short pair ("long AI, short memecoins") → `thesis_fund`; "find them for
   me" off the live board → `classifier` (or `breakout` with `discover: true`).
 - a benchmark-relative / "X always beats Y" thesis (exit when the pair inverts) → `relative_value`
-  (pairwise), NOT `trend_momentum` — the exit is cross-asset, unobservable to the DSL, so it composes
-  a thesis-driven exit pair (routing test below; `describe relative_value` for the shape).
+  (pairwise, exactly 2 assets), NOT `trend_momentum` — the exit is cross-asset, unobservable to the DSL,
+  so it composes a thesis-driven exit pair (routing test below; `describe relative_value` for the shape).
+- rotation / relative strength across a basket / "long the strongest, short the weakest" → `relative_value`
+  cross_sectional member — rank a universe of ≥3 (or a discovered board) and rotate; exactly 2 = pairwise.
+- fade the crowd / overextension / mean-reversion ("everyone's long, fade it"; "it ran too far") →
+  `contrarian_fade` (members fade_crowd / fade_price inferred from the answers).
 - "copy good traders / follow whales / mirror the leaderboard" → `copy_trading` (addresses given →
   named_traders; "find the best" → leaderboard_follow; `describe copy_trading`). BEFORE creating
   anything, PRESENT BOTH paths and let the USER choose: (a) **backend raw mirror** (MCP
@@ -136,11 +145,13 @@ The composer needs the **7 decisions that are the type-signature of `scan()`**, 
 draw it out one question at a time, in plain language, mining the opening ask for anything already
 stated:
 
-1. **Archetype** (6) — `trend_momentum` (fixed universe → indicators → hard-gates + weighted
+1. **Archetype** (7) — `trend_momentum` (fixed universe → indicators → hard-gates + weighted
    scorer) · `breakout` (a directional range-break as the hard gate; fixed basket OR discovered
    universe) · `thesis_fund` (fixed long/short legs) · `classifier` (a pure_fn direction on a
-   discovered set) · `relative_value` (pairwise: a signed net-score entry PLUS a thesis-driven exit
-   the DSL can't observe — see Exit composition below) · `copy_trading` (follow traders: fixed
+   discovered set) · `relative_value` (pairwise = exactly 2, OR cross_sectional = rank a ≥3 /
+   discovered universe and rotate strongest/weakest; a signed net-score entry PLUS a thesis-driven
+   exit the DSL can't observe — see Exit composition below) · `contrarian_fade` (fade a
+   crowded/overextended move; members fade_crowd / fade_price) · `copy_trading` (follow traders: fixed
    addresses or the leaderboard; universe DERIVED from the cohort's holdings, no whitelist).
    Unknown → off-map skeleton.
 2. **Universe** — fixed `whitelist` (trend_momentum / breakout) · `long_basket`/`short_basket`
@@ -370,6 +381,10 @@ The composer owns the operational surface end to end — there is no separate op
   not paraphrase or infer. A quiet scanner reads "no signal emitted yet" — there is NO invented
   reason. If the live section reads `UNAVAILABLE [CMP259]`, the gateway is unreachable or the
   runtime is not running — report that; never guess protection state.
+- **Portfolio / all-my-strategies questions → bare `composer status`** (no target) = the single
+  cross-strategy PORTFOLIO view: managed/manual/unmanaged rows (`--json` carries `kind` per row),
+  protection quoted from the NAMED box engine, stranded/unmanaged runtimes listed WITH their recovery
+  text, any missing data rendered `unavailable (reason)`. Relay it VERBATIM.
 - **2-RUNG LADDER:** run `composer status` FIRST. Only when it flags trouble it cannot explain do
   you drop to the raw plumbing — `openclaw senpi state|scanner|dsl positions|dsl inspect --json` —
   and those outputs are ALSO relayed verbatim, never re-derived (a re-derivation flipped a PnL sign
@@ -379,6 +394,16 @@ The composer owns the operational surface end to end — there is no separate op
 - **Lifecycle claims are verbatim too** — NEVER assert runtime/deploy/protection status ("it's
   live", "it's protected", "it deployed") without quoting the surface that proves it (`composer
   status`, `runtime list`, `dsl inspect`). No status claim from memory.
+- **Name the surface you quote** — reporting protection/position state, say WHERE it came from ("box
+  engine via `composer status`"). If a divergence warning appears (two surfaces disagree), relay BOTH
+  sides verbatim — never silently pick one.
+- **Reads vs writes — where a change lands.** Reads are legitimate ANYWHERE (`composer status`, raw
+  plumbing, backend MCP). A WRITE scoped to a strategy passes through the RECORD: edit
+  `spec.protection` → `composer check` → `composer update`. A position-level MCP edit on a
+  composer-MANAGED wallet is a FLAGGED STOPGAP — it moves the live position only, the record keeps old
+  values, and today it RESETS backend high-water state; it is fully SANCTIONED only on MANUAL-kind
+  wallets. If a result carries the composer-managed annotation, RELAY it and offer the record path; if
+  it carries the teardown note, route to `composer close`.
 - **Teardown:** `openclaw senpi composer close <target>` is the ONLY sanctioned teardown. It STOPS
   the runtime first, CONFIRMS it is gone, and ONLY THEN closes the strategy (flattens all positions,
   returns funds). It is idempotent and submit-only — `strategy_close` is async, so re-run it to POLL
