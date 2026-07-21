@@ -22,6 +22,27 @@ except ImportError:
     import _yaml as yaml  # vendored stdlib-only fallback — agent hosts may lack PyYAML / pip
 
 _VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_MARGIN_PCT_RE = re.compile(r"margin_?pct", re.I)
+
+
+def margin_fraction_offenders(doc, path=""):
+    """Margin-percent keys whose value is a fraction (0,1] where a PERCENT (0,100] is required
+    (`marginPct: 0.10` meant 10 — 100× too small). Walks the whole runtime doc (scanners[].inputs,
+    strategy.margin_pct, or a top-level emit; any key: marginPct / marginPctBase / margin_pct). Mirrors
+    senpi-strategy-author validate_strategy so author-green == deploy-green. [(key, value), ...]."""
+    out = []
+    if isinstance(doc, dict):
+        for k, v in doc.items():
+            kp = f"{path}.{k}" if path else str(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) \
+                    and _MARGIN_PCT_RE.search(str(k)) and 0 < v <= 1:
+                out.append((kp, v))
+            else:
+                out.extend(margin_fraction_offenders(v, kp))
+    elif isinstance(doc, list):
+        for i, v in enumerate(doc):
+            out.extend(margin_fraction_offenders(v, f"{path}[{i}]"))
+    return out
 
 
 class BadPackage(Exception):
@@ -220,6 +241,10 @@ def validate(pkg: Package) -> list:
         expect_name = f"{pkg.id}-{inst.name}"
         if inst.runtime_name != expect_name:
             errs.append(f"{tag}: set runtime `name: {expect_name}` (found {inst.runtime_name!r})")
+        # marginPct is a PERCENT in (0,100]; a value <= 1 is the fraction slip (0.10 meant 10, 100x too
+        # small). Refuse to fund it (author's validate_strategy flags it too; ops re-checks fetched packages).
+        for kp, val in margin_fraction_offenders(inst.runtime_doc):
+            errs.append(f"{tag}: `{kp}` must be a PERCENT in (0,100] — set {val * 100:g} (not {val})")
         # wallet binding
         if not inst.wallet_env:
             errs.append(f"{tag}: missing wallet_env")

@@ -21,6 +21,27 @@ except ImportError:
 
 
 _VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_MARGIN_PCT_RE = re.compile(r"margin_?pct", re.I)
+
+
+def margin_fraction_offenders(doc, path=""):
+    """Margin-percent keys whose value is a fraction (0,1] where a PERCENT (0,100] is required
+    (`marginPct: 0.10` meant 10 — 100× too small). Walks the whole doc (scanners[].inputs,
+    strategy.margin_pct, or a top-level emit; any key: marginPct / marginPctBase / margin_pct).
+    Returns [(dotted_key, value), ...]."""
+    out = []
+    if isinstance(doc, dict):
+        for k, v in doc.items():
+            kp = f"{path}.{k}" if path else str(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) \
+                    and _MARGIN_PCT_RE.search(str(k)) and 0 < v <= 1:
+                out.append((kp, v))
+            else:
+                out.extend(margin_fraction_offenders(v, kp))
+    elif isinstance(doc, list):
+        for i, v in enumerate(doc):
+            out.extend(margin_fraction_offenders(v, f"{path}[{i}]"))
+    return out
 
 
 def _flat_wallet_env(pkg: Path, sid) -> str:
@@ -89,6 +110,11 @@ def validate(pkg: Path) -> list:
                 errs.append(f"instance {name}: set runtime `name: {expect}` (found {rt_doc.get('name')!r})")
             if rt_doc.get("group") != sid:
                 errs.append(f"instance {name}: set runtime `group: {sid}` (found {rt_doc.get('group')!r})")
+            # marginPct is a PERCENT in (0,100]; a value <= 1 is the fraction slip (0.10 meant 10, 100x
+            # too small). Flag it pre-deploy with the exact fix. (See scan-contract.md.)
+            for kp, val in margin_fraction_offenders(rt_doc):
+                errs.append(f"instance {name}: `{kp}` must be a PERCENT in (0,100] — set {val * 100:g} "
+                            f"(not {val})")
 
         # data_retention: Runtime 3.0 uses data_retention_seconds (integer 3600–604800);
         # the v2 data_retention_hours field is deprecated. (See senpi-trading-runtime/references/runtime-yaml.md.)
