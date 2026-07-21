@@ -10,7 +10,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.1.2"
+  version: "1.1.3"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -78,8 +78,8 @@ python3 scripts/pulse.py all  [--no-smart]    # one-shot fallback: the full comp
 A full market read is several MCP round-trips (both dexes' instruments, the capped mover deep-pull,
 **and** the leaderboard / Hyperfeed layer). Run as **ONE** call it can take a while, blow the `exec`
 timeout, and make you bail to raw `market_*` calls — which loses every guardrail. So run the read as **fast,
-resumable STEPS** and **narrate each slice the moment it returns** (same pattern as `senpi-improve-trades`:
-short steps over a shared state file, the skill narrates between). Each step is a **separate `exec` call**,
+resumable STEPS** and **narrate each slice the moment it returns** (short steps over a shared state file,
+the skill narrates between). Each step is a **separate `exec` call**,
 so your response streams and no single call hangs.
 
 ```sh
