@@ -56,11 +56,15 @@ def _extract_json(text):
 
 
 def cli_json(args, timeout=60):
-    """Run a CLI command expected to emit JSON on stdout; return the parsed object or None."""
-    rc, out, _err = run_cli(args, timeout)
-    if rc != 0 or not out.strip():
+    """Run a CLI command expected to emit JSON; return the parsed object or None. Parses STDOUT first
+    (the documented stream), then falls back to STDERR — some openclaw commands (observed on
+    `senpi state -r <id> --json`) print the JSON payload to stderr, and a stdout-only read silently
+    returns None, so a healthy runtime reads as 'no state' → a FALSE `scanner=broken` in verify.
+    stdout-first keeps the normal path unchanged; the stderr fallback only fires when stdout has no JSON."""
+    rc, out, err = run_cli(args, timeout)
+    if rc != 0:
         return None
-    return _extract_json(out)
+    return _extract_json(out) or _extract_json(err)
 
 
 # ---- tolerant extraction ----
