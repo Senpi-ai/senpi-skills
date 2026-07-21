@@ -81,6 +81,9 @@ grep `strategies/catalog.json` by its `archetype` field (a closed set; every pac
 
 ### `scoring.py` — pure math (the edge)
 No I/O, no MCP, no clock, no state — just functions over candles/numbers, so it unit-tests without mocks.
+
+> **Candle schema (`market_get_asset_data`):** each candle is keyed `t,o,h,l,c,v` (+ `T,s,i,n`) — short OHLCV, **string** values. Close is `c`; read fields as `float(candle["c"])`, not `candle["close"]` (no such key).
+
 ```python
 def score(asset, candles, extra, inputs):    # candles/numbers in, thesis dict out
     if not _qualifies(...): return None
