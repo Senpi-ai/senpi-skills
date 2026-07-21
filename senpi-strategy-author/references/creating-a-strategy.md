@@ -41,7 +41,7 @@ whether the package is deploy-ready.
 
 Two invariants fall out of this:
 1. **`scan()` is read-only + pure + single-pass.** On *any* error, `return []` — never crash.
-2. **You emit a sizing *intent* (`marginPct`/weight), not dollars.** The runtime computes `marginUsd` from the reconciled account value. Do **not** read the clearinghouse to size — that's the runtime's job in 3.0.
+2. **You emit a sizing *intent* (`marginPct`/weight), not dollars.** The runtime computes `marginUsd` from the reconciled account value. Do **not** read the clearinghouse to size — that's the runtime's job in 3.0. **`marginPct` is a PERCENT in (0,100]** — `10` = 10%, sized `(marginPct/100) × withdrawable` (not a fraction: `0.10` = 0.1%).
 
 ## 4. The design space — the 7 decisions that define *any* strategy
 
@@ -81,6 +81,9 @@ grep `strategies/catalog.json` by its `archetype` field (a closed set; every pac
 
 ### `scoring.py` — pure math (the edge)
 No I/O, no MCP, no clock, no state — just functions over candles/numbers, so it unit-tests without mocks.
+
+> **Candle schema (`market_get_asset_data`):** each candle is keyed `t,o,h,l,c,v` (+ `T,s,i,n`) — short OHLCV, **string** values. Close is `c`; read fields as `float(candle["c"])`, not `candle["close"]` (no such key).
+
 ```python
 def score(asset, candles, extra, inputs):    # candles/numbers in, thesis dict out
     if not _qualifies(...): return None
@@ -114,7 +117,7 @@ def scan(inputs, ctx):
     out = [{
         "asset": p["asset"],
         "direction": p["direction"],                 # REQUIRED: LONG | SHORT
-        "marginPct": inputs.get("marginPct", 0.10),  # SIZING INTENT — runtime makes it dollars
+        "marginPct": inputs.get("marginPct", 10),    # SIZING INTENT — PERCENT in (0,100]; 10 = 10%
         "data": {                                    # must match signal_data_schema exactly
             "score": p["score"], "direction": p["direction"], "reasons": p["reasons"],
         },
@@ -294,7 +297,7 @@ scanners:
       universe: ["xyz:SP500","xyz:NASDAQ","xyz:NVDA","xyz:AMD","xyz:MSFT","xyz:JPM","xyz:CAT","BTC","ETH"]
       minScore: 5
       breadthMin: 4
-      marginPct: 0.10
+      marginPct: 10          # PERCENT of withdrawable in (0,100]; 10 = 10%
       rsiMaxLong: 72
       horizonEndIso: "2026-10-01T00:00:00Z"
     signal_data_schema:
@@ -352,7 +355,7 @@ def scan(inputs, ctx):
     universe    = inputs.get("universe", [])
     min_score   = int(inputs.get("minScore", 5))
     breadth_min = int(inputs.get("breadthMin", 4))
-    base_pct    = float(inputs.get("marginPct", 0.10))
+    base_pct    = float(inputs.get("marginPct", 10))    # PERCENT in (0,100]; 10 = 10%
 
     confirmers = []
     for asset in universe:
