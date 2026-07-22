@@ -102,6 +102,15 @@ Hard-won invariants (each failed silently in production once):
   tradeable.
 - **Copy identifiers from their source, never from memory** — a plausible field name, enum, or
   unit compiles fine, ticks clean, and trades nothing.
+- **Coin symbols on every Senpi tool call: plain for main-dex crypto, dex-prefixed for HIP-3
+  assets — never mix the two up.** This applies to any tool taking a coin/asset param — market
+  data, trading limits, position details, ratchet stops, and all money-moving tools (where a
+  wrong symbol costs the most). Main-dex crypto stays bare (`BTC`, not `xyz:BTC`); HIP-3
+  builder-dex assets carry their dex prefix — today that's the XYZ dex (equities, metals,
+  indices, energy): `xyz:BRENTOIL`, not `BRENTOIL`. When unsure which side a symbol falls on,
+  check `market_list_instruments`. Unknown coins are rejected as `INVALID_ARGUMENT` — never
+  retry them. In `discovery_*` output, `coinDisplayName` (`"NVDA"`) is display-only — **always
+  copy the `coin` field into tool calls**, it holds the tradeable form.
 
 ---
 
