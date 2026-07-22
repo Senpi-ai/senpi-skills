@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.8.0"
+  version: "2.8.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -241,6 +241,15 @@ python3 scripts/close.py --all           # close EVERY open strategy (all packag
 Per strategy: **stop the runtime** (if live) → **trigger `strategy_close`** (flattens **all** positions
 + closes the strategy, funds returned). `strategy_close` is **async**, so the script **does not wait** —
 it returns `closing` and hands polling to you: **re-run `close.py spider`** until it reports `closed`.
+
+> **Give it time — stopping a live runtime is a synchronous teardown.** Deleting a *live* runtime tears
+> it down (stop scanner + DSL monitor) before the call returns — so a first `close.py <id>` on a running
+> strategy can take **~20-40s** (openclaw cold-start + teardown + a cold gateway). **Launch it in the
+> background and poll, or allow ≥ 60s** — do **not** run it with a ~30s timeout, or the first attempt gets
+> SIGTERM'd mid-teardown. It's safe to kill and re-run (idempotent), but a killed attempt just wastes a
+> round-trip; the confirm step already treats an unreadable `runtime list` as "still live → retry", never
+> as "gone".
+
 Re-runs are idempotent (runtime already gone → skip; already closing/closed → no re-submit). Strategies
 are discovered from `strategy_list` (`skillName==<id>`), so close also cleans up **orphaned** wallets
 that have no runtime. `--instance <name>` scopes an instance (needs its live runtime to map; else omit to close
