@@ -459,9 +459,13 @@ def cmd_runtime(pkg, a, log):
 # ---------- step 3: verify ticking ----------
 
 def _deep_find_scanner(obj, name):
+    # The real `openclaw senpi state --json` nests scanners at
+    # states[].components.scanners.state.scanners[], each keyed by `scannerId` (verified in prod:
+    # M408027's lion deploy) — NOT `name`. Match ANY of these id spellings so the deep search actually
+    # finds the scanner; without `scannerId` verify reports a healthy scanner as "not mounted".
     if isinstance(obj, dict):
-        if _cli.dig(obj, "name", "scanner", "scannerName") == name and any(
-                k.lower() in ("runcount", "lastrunfinishedat", "lastrunstartedat", "ticks") for k in obj):
+        if _cli.dig(obj, "name", "scanner", "scannerName", "scannerId", "id") == name and any(
+                k.lower() in ("runcount", "lastrunfinishedat", "lastrunstartedat", "ticks", "health") for k in obj):
             return obj
         for v in obj.values():
             r = _deep_find_scanner(v, name)
@@ -491,6 +495,11 @@ def _scanner_verdict(inst, state):
     cec = _cli.dig(sc, "consecutiveErrorCount", default=0) or 0
     if err or (isinstance(cec, (int, float)) and cec >= 1):
         return "broken", f"scanner erroring: {str(err)[:120] if err else f'{int(cec)} consecutive errors'}"
+    # real state carries a `health` string (not `enabled`/`lastError`) — fail only on an explicitly-bad
+    # value; unknown/transient states fall through to the runCount ticked/scheduled logic below.
+    health = str(_cli.dig(sc, "health", "status", default="") or "").lower()
+    if health in ("broken", "error", "errored", "unhealthy", "failed", "crashed", "disabled", "stopped"):
+        return "broken", f"scanner health={health}"
     runs = _cli.dig(sc, "runCount", "ticks", "runs", default=0) or 0
     if isinstance(runs, (int, float)) and runs > 0:
         return "ticked", f"{int(runs)} scan(s)"

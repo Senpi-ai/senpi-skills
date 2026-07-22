@@ -100,6 +100,26 @@ class ScannerVerdict(unittest.TestCase):
     def test_not_mounted_is_broken(self):
         self.assertEqual(deploy._scanner_verdict(_scan_inst(), {"scanners": []})[0], "broken")
 
+    # ── the REAL `openclaw senpi state --json` shape (verified in prod: M408027's lion deploy) ──
+    # nested states[].components.scanners.state.scanners[], keyed by `scannerId` + `health`, NOT `name`.
+    # Before the scannerId fix, verify reported a healthy deployed scanner as "not mounted" (false broken).
+    @staticmethod
+    def _prod_state(run_count, health="healthy"):
+        return {"states": [{"components": {"scanners": {"state": {"scanners": [
+            {"scannerId": "position_tracker", "runCount": 56, "health": "healthy"},
+            {"scannerId": "sc1", "runCount": run_count, "health": health},
+        ]}}}}]}
+
+    def test_prod_schema_ticked(self):
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), self._prod_state(3))[0], "ticked")
+
+    def test_prod_schema_scheduled(self):
+        # lion-short's case: healthy scanner, runCount 0 (slow first tick) = scheduled = LIVE, not broken
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), self._prod_state(0))[0], "scheduled")
+
+    def test_prod_schema_unhealthy_is_broken(self):
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), self._prod_state(0, "broken"))[0], "broken")
+
 
 class DslVerdict(unittest.TestCase):
     def test_config_missing(self):
