@@ -120,23 +120,23 @@ refuses and tells you to redeploy fresh (`close.py` any stale wallet, then `crea
 Run **Step 3 `verify`**. **Do NOT tell the user the strategy is live until `verify` returns `live`.**
 
 **Step 3 — `verify`** (the required gate): `python3 scripts/deploy.py verify spider` returns **`live`** only
-when every instance is runtime-running + scanner-active (ticked *or* scheduled, never erroring) + **DSL-wired**
-(`exit.dsl_preset` present and the monitor enabled) + **funded to what was requested**. Two failure outcomes,
-kept distinct on purpose:
+when every instance is runtime-running + scanner-active + **DSL-wired** (`exit.dsl_preset` present and the
+monitor enabled) + **funded to what was requested**; otherwise **`not-live`** (exit 2) with the failing
+component named (e.g. `scanner=broken`, `dsl=config-missing`, `budget=underfunded`). Fix it and re-run.
 
-- **`not-live`** (exit 2) — a component is **confirmed broken**, named in the row (e.g. `scanner=broken`,
-  `dsl=config-missing`, `budget=underfunded`). Fix the flagged component and re-run.
-- **`unverified`** (exit 3) — the runtime is registered, funded and DSL-protected, but its `status`/`state`
-  read was **temporarily unavailable**, so scanner liveness could **not be confirmed** (common in the first
-  minute after `runtime`, and **not** a sign the scanner is down — `getSystemState` throws for a few
-  minutes while scanner subprocesses launch). **This is not a green light** — re-run `verify` shortly. It
-  never brands a scanner broken just because a read failed.
-
-Liveness is judged from the runtime **CLI** (`senpi status` primary, `senpi state` to enrich) — never from
-on-disk state files. It's a **single fast check** — a scheduled/heartbeating scanner passes, so it does
-**not** wait for the first scan tick and you must **never `sleep` then verify**. **Do NOT tell the user the
-strategy is live unless `verify` returned `live`** (`unverified` and `not-live` both mean "not confirmed —
-do not claim live"). `deploy.py status <id>` shows deploy state any time.
+**How it judges liveness — reliable backbone, flaky reads only downgrade.** The gate rests on signals that
+are *reliably* readable right after deploy: **`openclaw senpi runtime list`** (authoritative inventory —
+is the runtime running?), the deployed **runtime.yaml** (does it declare the external scanner + a DSL
+preset?), and **MCP `strategy_list`** (funded?). It does **not** gate on `senpi status`/`senpi state` — that
+JSON is **flaky-empty/throws for a minute+ after start** (seen live: `verify` got nothing while a manual
+`status -r`/`state -r` seconds apart returned healthy). Those reads are used only to **downgrade** a scanner
+to `broken` on *positive* evidence (disabled / erroring / runtime-reported unhealthy). When they're
+unreadable, the scanner reads **`supervised`** = live: a running runtime **spawns and supervises** the
+declared scanner (restarting it on crash), so runtime-running + scanner-declared ⇒ it's being driven, and
+the DSL protects positions regardless. Never reads on-disk state files. It's a **single fast check** — a
+scheduled/supervised scanner passes, so it does **not** wait for the first scan tick and you must **never
+`sleep` then verify**. Still: **do not tell the user the strategy is live unless `verify` returned `live`.**
+`deploy.py status <id>` shows deploy state any time.
 
 > **Do NOT improvise.** A package strategy is a **runtime-supervised scanner** — deploy it **only** via
 > these steps. Never substitute a raw `strategy_create_custom_strategy` MCP call to "deploy" it: that
@@ -160,9 +160,8 @@ do not claim live"). `deploy.py status <id>` shows deploy state any time.
 ```
 Overall status across the steps: `create` → `creating` (re-run) | `closing-existing` (re-run once closed) |
 `wallets-ready` | **`underfunded`** (balance < requested — fund more / lower the ask); `runtime` →
-`registered`; `verify` → **`live`** | **`not-live`** (a component confirmed broken — fix it, re-run) |
-**`unverified`** (runtime read temporarily unavailable — re-run; neither `unverified` nor `not-live` means
-live). Per-instance
+`registered`; `verify` → **`live`** | **`not-live`** (a component confirmed broken — fix it, re-run).
+Per-instance
 status flows `pending → creating → active → registered → live`. **`registered` ≠ live — `verify` is the
 gate.** `create`/`runtime` take `--dry-run` (plan only; no side effects).
 

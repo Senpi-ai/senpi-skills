@@ -9,23 +9,23 @@ running` alone — that field reports process status only, not functional livene
 This is an **agent-side check**. Run the commands yourself; do not ask the user to confirm "is it working?"
 
 > **Supervised model:** the runtime **spawns and supervises** each `external_scanner`, calling
-> `scan(inputs, ctx)` every `interval_seconds` itself. There is **no separate producer daemon and no
-> `push_signal`** — so there is nothing to reconcile against. Scanner liveness is read from the runtime's
-> own **CLI commands** (`openclaw senpi status` / `state`) — **never from the on-disk state files**
-> (`/data/.openclaw/senpi-state/…`); those are internal, partially-written, and not a contract.
-> `deploy.py verify` already runs this check (the `live` / `not-live` / `unverified` verdict); use this
-> doc when triaging by hand.
+> `scan(inputs, ctx)` every `interval_seconds` itself (restarting it on crash). There is **no separate
+> producer daemon and no `push_signal`** — so there is nothing to reconcile against. **Never read the
+> on-disk state files** (`/data/.openclaw/senpi-state/…`); they're internal, partially-written, and not a
+> contract. `deploy.py verify` already runs this check (the `live` / `not-live` verdict); use this doc for
+> hand triage.
 >
-> **Two commands, and which to trust when they disagree:**
-> - **`openclaw senpi status -r <id> --json`** (getHealthStatus) — the runtime's own per-scanner
->   **health verdict** (`components.scanners.scanners[].health`). Light and **reliable immediately after
->   deploy.** This is the primary liveness source.
-> - **`openclaw senpi state -r <id> --json`** (getSystemState) — the rich per-scanner row (runCount,
->   `lastAliveAt`, `lastError`, `enabled`). Richer, but **`getSystemState` transiently THROWS for the
->   first several minutes after a runtime starts** (scanner subprocesses still launching) — the CLI then
->   prints nothing usable and exits non-zero. **A failed/empty `state` read is NOT evidence the scanner is
->   down** — fall back to `status` and re-check. (Confirmed live: a fully-healthy runtime whose `state`
->   threw for ~9 min while `status` reported `2/2 enabled and healthy` the whole time.)
+> **The reliable backbone vs. the flaky detail — which command to trust:**
+> - **`openclaw senpi runtime list`** — the **authoritative inventory** (id / wallet / source / status).
+>   Reliable immediately after deploy. It answers the load-bearing question: *is the runtime running?* If
+>   it is, the runtime is driving its declared scanner. This is the backbone the gate rests on. Its limit:
+>   it has **no component-level health** — it can't tell a healthy scanner from a crash-looping one.
+> - **`openclaw senpi status -r <id> --json`** (getHealthStatus) / **`state -r <id> --json`**
+>   (getSystemState) — per-scanner `health` / rich row (runCount, `lastAliveAt`, `lastError`). Precise
+>   *when they answer*, but **both are flaky-empty / throw for a minute+ after start** (seen live: `verify`
+>   got nothing while a manual `status -r`/`state -r` seconds apart returned healthy). Treat them as
+>   **enrichment that can only DOWNGRADE** a scanner to broken on *positive* unhealthy evidence — **never**
+>   as the gate. If they're unreadable but `runtime list` says running, the scanner is **live-but-unmeasured**.
 
 ---
 
@@ -127,10 +127,13 @@ Declare a strategy **live** only when, for **every** instance:
   scanning, just not trading this cycle;
 - each action is either "operating" or "dormant by design" — never "wiring problem" or "failing".
 
-If you **cannot read `status` or `state`** for an instance, the correct verdict is **"unverified," not
-"down"** — the strategy is registered, funded and DSL-protected; re-run `deploy.py verify <id>` shortly
-(that command reports this case distinctly). **Never report a strategy as live until `verify` returns
-`live`** — an unreadable state is not a green light.
+If you **cannot read `status` or `state`** for an instance (they're flaky-empty for a minute+ after start),
+fall back to the **reliable backbone**: is the runtime in **`openclaw senpi runtime list`** as `running`?
+If yes, the scanner is **live-but-unmeasured** (`supervised`) — the runtime spawns and supervises the
+declared scanner and restarts it on crash, and the DSL protects positions — **not** "down." `deploy.py
+verify` treats this as live for that reason. Only a runtime **missing/stopped** in `runtime list`, or a
+scanner the reads *positively* report unhealthy/erroring, is a real failure. Still: **never report a
+strategy as live until `verify` returns `live`.**
 
 Anything less: surface the specific failing field and the remediation, not a generic "looks fine." For
 deeper engine triage (position_tracker → DSL → actions), see

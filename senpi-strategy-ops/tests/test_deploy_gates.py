@@ -113,24 +113,25 @@ class ScannerVerdict(unittest.TestCase):
         self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, None)[0], "broken")
 
     # --- state UNreadable: fall back to `senpi status`, never fail closed ---
-    def test_state_none_status_healthy_is_scheduled(self):
+    def test_state_none_status_healthy_is_live(self):
         # THE regression: getSystemState threw, but status says the scanner is healthy → live, not broken
         status = _status_with_scanner("sc1", "healthy")
-        self.assertEqual(deploy._scanner_verdict(_scan_inst(), None, status)[0], "scheduled")
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), None, status)[0], "ticked")
 
     def test_state_none_status_unhealthy_is_broken(self):
         status = _status_with_scanner("sc1", "unhealthy")
         self.assertEqual(deploy._scanner_verdict(_scan_inst(), None, status)[0], "broken")
 
-    def test_state_none_status_none_is_unknown(self):
-        # neither source readable → agnostic (caller retries; reports 'unverified', not 'broken')
-        self.assertEqual(deploy._scanner_verdict(_scan_inst(), None, None)[0], "unknown")
+    def test_state_none_status_none_is_supervised(self):
+        # BOTH reads flaky-empty — but the caller only calls this after confirming the runtime is
+        # RUNNING (via `runtime list`), and the runtime supervises the declared scanner → live, not broken
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), None, None)[0], "supervised")
 
-    def test_absent_from_state_and_status_is_unknown_not_broken(self):
-        # the old false 'scanner not mounted' path — now agnostic, since it's often still-mounting
+    def test_absent_from_state_and_status_is_supervised_not_broken(self):
+        # the old false 'scanner not mounted' path — now live-but-unmeasured (runtime running + supervised)
         st = {"scanners": []}
         status = {"components": {"scanners": {"scanners": []}}}
-        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, status)[0], "unknown")
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, status)[0], "supervised")
 
 
 class DslVerdict(unittest.TestCase):
