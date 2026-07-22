@@ -568,12 +568,22 @@ def _check_live(pkg, st, mcp):
     rows = []
     for inst in pkg.instances:
         s = inst_state(st, inst.name)
-        rt = _cli.find_runtime(inst.runtime_name)
-        if not rt or not _cli.runtime_running(rt):
+        # `runtime_health_map` (getHealthStatus) lists ONLY running runtimes, so a hit already proves
+        # 'running' — skip the extra `runtime list` call (its default 60s timeout is verify's worst
+        # tail-latency) in the common path. Only when the map is flaky-empty for this runtime do we
+        # fall back to the authoritative text list to tell 'not running' from 'status hiccup'.
+        status = health.get(inst.runtime_name)
+        if status:
+            running = True
+        else:
+            rt = _cli.find_runtime(inst.runtime_name)
+            running = bool(rt) and _cli.runtime_running(rt)
+            if running:
+                status = _cli.runtime_status(inst.runtime_name, POLL_HTTP_TIMEOUT)
+        if not running:
             rows.append({"instance": inst.name, "live": False, "scanner": "no-runtime",
                          "dsl": "-", "budget": "-", "reason": "runtime not running"})
             continue
-        status = health.get(inst.runtime_name) or _cli.runtime_status(inst.runtime_name, POLL_HTTP_TIMEOUT)
         state = _cli.runtime_state(inst.runtime_name, POLL_HTTP_TIMEOUT)
         sc_st, sc_d = _scanner_verdict(inst, state, status)
         dsl_st, dsl_d = _dsl_verdict(inst, status)

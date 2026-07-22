@@ -203,35 +203,27 @@ def _deep_first(obj, keys):
     return None
 
 
-def runtime_status(name, timeout=15, retries=2):
+def runtime_status(name, timeout=15):
     """`openclaw senpi status -r <name> --json` — lightweight per-runtime health (or None).
 
-    Retries the read: like every openclaw gateway call it can come back empty/erroring transiently
-    (spawn hiccup, timeout, flaky-empty right after start). `getHealthStatus` is the more reliable of
-    the two reads, but 'more reliable' ≠ 'never fails', and this is the fallback source the scanner
-    verdict leans on when `state` is unreadable — so a single unlucky read must not decide liveness."""
-    for _ in range(max(1, retries)):
-        obj = cli_json(["openclaw", "senpi", "status", "-r", name, "--json"], timeout)
-        if obj:
-            return obj
-    return None
+    Single fast read, no in-call retry. `_check_live` prefers the batched `runtime_health_map` (which
+    already retries) and only falls here when a runtime is missing from that map; retry across reads is
+    the caller's job (re-run `verify`, or its `--max-wait` poll loop) — NOT per call. Each openclaw
+    invocation pays ~2-3s startup, so a per-call retry loop silently blows verify's fast-single-check
+    budget (regression seen live: 2× retries here + on `state` pushed one pass past the tool timeout)."""
+    return cli_json(["openclaw", "senpi", "status", "-r", name, "--json"], timeout)
 
 
-def runtime_state(name, timeout=15, retries=2):
-    """`openclaw senpi state -r <name> --json` → parsed state, retrying the flaky gateway.
+def runtime_state(name, timeout=15):
+    """`openclaw senpi state -r <name> --json` → parsed state, or None.
 
-    `senpi.getSystemState` TRANSIENTLY THROWS for minutes right after a runtime starts (while its
-    external-scanner subprocesses are still launching / their state files are mid-write). A throw
-    makes the CLI print the error to stderr and exit non-zero, so `cli_json` sees empty stdout and
-    returns None — indistinguishable from a real 'no such runtime'. Retry a couple times before
-    giving up so a single unlucky read doesn't get mistaken for a dead scanner. (Observed live: a
-    fully-healthy runtime whose `state` threw for ~9 min post-deploy while `status` answered fine —
-    which is why the scanner verdict must fall back to `status`, see deploy.py `_scanner_verdict`.)"""
-    for _ in range(max(1, retries)):
-        obj = cli_json(["openclaw", "senpi", "state", "-r", name, "--json"], timeout)
-        if obj:
-            return obj
-    return None
+    Single fast read — do NOT retry in-call. `senpi.getSystemState` transiently THROWS for minutes
+    after a runtime starts (external-scanner subprocesses still launching); a throw exits non-zero
+    with empty stdout so this returns None. That is EXPECTED and cheap to handle: the scanner verdict
+    falls straight through to `senpi status` (see deploy.py `_scanner_verdict`), which answers while
+    `state` is still throwing. Waiting/retrying on `state` here just burns the caller's budget for a
+    read we already know how to do without — retry belongs in the poll loop, not this call."""
+    return cli_json(["openclaw", "senpi", "state", "-r", name, "--json"], timeout)
 
 
 def scanner_health_in_status(status_entry, scanner_name):
