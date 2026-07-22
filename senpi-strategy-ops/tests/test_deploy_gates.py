@@ -165,5 +165,59 @@ class BudgetVerdict(unittest.TestCase):
         self.assertEqual(deploy._budget_verdict({"requested": 1000, "strategyId": "x"}, {})[0], "ok")
 
 
+import _cli    # noqa: E402
+import close   # noqa: E402
+
+
+class CloseRuntimeDeleteConfirm(unittest.TestCase):
+    """close_one must judge runtime-delete success by `runtime list` (reliable), NOT the delete's exit
+    code — which is non-zero both on a flaky gateway hiccup AND when the runtime is already gone
+    (NOT_FOUND). Trusting rc broke idempotent re-runs and false-aborted the money-critical strategy_close."""
+
+    def setUp(self):
+        self._orig = (_cli.run_cli, _cli.find_runtime, close.MCPClient)
+        self.deletes = []          # every `runtime delete` invocation
+        self.closed = []           # every strategy_close strategyId
+        _cli.run_cli = lambda args, timeout=60: (self.deletes.append(args) or (1, "", "[⚡HyperDX] banner…"))
+        outer = self
+
+        class _FakeMCP:
+            def mcp_call(self, name, timeout=None, **kw):
+                if name == "strategy_close":
+                    outer.closed.append(kw.get("strategyId"))
+                return {"success": True}
+        close.MCPClient = _FakeMCP
+
+    def tearDown(self):
+        _cli.run_cli, _cli.find_runtime, close.MCPClient = self._orig
+
+    _STRAT = {"strategyId": "s1", "strategyWalletAddress": "0xabc", "status": "ACTIVE"}
+    _RUNTIMES = [{"name": "pkg-main", "wallet": "0xabc"}]
+
+    def test_gone_after_delete_is_success_and_triggers_close(self):
+        # delete returns non-zero (banner noise), but the runtime is gone from `runtime list` → success
+        _cli.find_runtime = lambda name: None
+        rec = close.close_one("main", self._STRAT, self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(rec["status"], "closing")   # NOT 'failed' despite rc=1
+        self.assertEqual(self.closed, ["s1"])         # money-critical close DID fire
+        self.assertEqual(len(self.deletes), 1)        # gone on first try → no retry
+
+    def test_still_present_after_retry_fails_without_closing(self):
+        # runtime never leaves `runtime list` → genuine failure: report it, do NOT strategy_close
+        _cli.find_runtime = lambda name: {"name": name, "wallet": "0xabc"}
+        rec = close.close_one("main", self._STRAT, self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(rec["status"], "failed")
+        self.assertEqual(self.closed, [])             # never close while the runtime can re-enter
+        self.assertEqual(len(self.deletes), 2)        # one retry before giving up
+        self.assertNotIn("HyperDX", rec.get("error", ""))  # clean message, not banner spam
+
+    def test_already_closed_is_idempotent_noop(self):
+        _cli.find_runtime = lambda name: None
+        rec = close.close_one("main", dict(self._STRAT, status="CLOSED"), self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(rec["status"], "closed")
+        self.assertEqual(self.deletes, [])            # nothing to stop
+        self.assertEqual(self.closed, [])             # nothing to close
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

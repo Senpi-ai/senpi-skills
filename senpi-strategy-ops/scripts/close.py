@@ -64,15 +64,23 @@ def close_one(label, strat, runtimes, dry_run, log):
         rec["status"] = "closed"
         return rec
 
-    # 1. stop the runtime if one is live — FIRE only, no confirm poll (the re-run poll confirms via
-    #    strategy_list status; blocking here cost ~30s/instance). Idempotent across re-runs.
+    # 1. stop the runtime if one is live. Trust `runtime list` (the authoritative inventory), NOT the
+    #    delete's exit code: `runtime delete` rides the flaky gateway (its OTel/HyperDX banner leaks into
+    #    our captured output) AND returns NOT_FOUND / non-zero when the runtime is ALREADY gone — so a
+    #    non-zero is NOT proof of failure. Trusting it both broke idempotent re-runs (a poll re-run hit
+    #    NOT_FOUND → false 'failed') and false-aborted the money-critical strategy_close below, stranding
+    #    the strategy open (seen live). The delete succeeded iff the runtime is gone from `runtime list`.
     if rt:
         log(f"  [{label}] stopping runtime {rname!r}…")
-        rc, _o, err = _cli.run_cli(["openclaw", "senpi", "runtime", "delete", "--id", rname,
-                                    "--address", wallet or ""], timeout=60)
-        if rc != 0:
+        _cli.run_cli(["openclaw", "senpi", "runtime", "delete", "--id", rname,
+                      "--address", wallet or ""], timeout=60)
+        if _cli.find_runtime(rname) is not None:   # still listed → one retry, then believe it's stuck
+            _cli.run_cli(["openclaw", "senpi", "runtime", "delete", "--id", rname,
+                          "--address", wallet or ""], timeout=60)
+        if _cli.find_runtime(rname) is not None:
             rec["status"] = "failed"
-            rec["error"] = (err or "runtime delete failed").strip()[:300]
+            rec["error"] = (f"runtime {rname!r} still in `runtime list` after delete — it may re-enter "
+                            f"positions; delete it (`openclaw senpi runtime delete {rname}`) then re-run close")
             return rec
         rec["runtime"] = "stopped"
     else:
