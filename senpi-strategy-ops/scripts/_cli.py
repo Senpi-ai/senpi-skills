@@ -203,9 +203,64 @@ def _deep_first(obj, keys):
     return None
 
 
-def runtime_status(name, timeout=15):
-    """`openclaw senpi status -r <name> --json` — lightweight per-runtime health (or None)."""
-    return cli_json(["openclaw", "senpi", "status", "-r", name, "--json"], timeout)
+def runtime_status(name, timeout=15, retries=2):
+    """`openclaw senpi status -r <name> --json` — lightweight per-runtime health (or None).
+
+    Retries the read: like every openclaw gateway call it can come back empty/erroring transiently
+    (spawn hiccup, timeout, flaky-empty right after start). `getHealthStatus` is the more reliable of
+    the two reads, but 'more reliable' ≠ 'never fails', and this is the fallback source the scanner
+    verdict leans on when `state` is unreadable — so a single unlucky read must not decide liveness."""
+    for _ in range(max(1, retries)):
+        obj = cli_json(["openclaw", "senpi", "status", "-r", name, "--json"], timeout)
+        if obj:
+            return obj
+    return None
+
+
+def runtime_state(name, timeout=15, retries=2):
+    """`openclaw senpi state -r <name> --json` → parsed state, retrying the flaky gateway.
+
+    `senpi.getSystemState` TRANSIENTLY THROWS for minutes right after a runtime starts (while its
+    external-scanner subprocesses are still launching / their state files are mid-write). A throw
+    makes the CLI print the error to stderr and exit non-zero, so `cli_json` sees empty stdout and
+    returns None — indistinguishable from a real 'no such runtime'. Retry a couple times before
+    giving up so a single unlucky read doesn't get mistaken for a dead scanner. (Observed live: a
+    fully-healthy runtime whose `state` threw for ~9 min post-deploy while `status` answered fine —
+    which is why the scanner verdict must fall back to `status`, see deploy.py `_scanner_verdict`.)"""
+    for _ in range(max(1, retries)):
+        obj = cli_json(["openclaw", "senpi", "state", "-r", name, "--json"], timeout)
+        if obj:
+            return obj
+    return None
+
+
+def scanner_health_in_status(status_entry, scanner_name):
+    """Per-scanner health from a `senpi status` entry (getHealthStatus), by stable scanner name.
+
+    Returns (health_str_or_None, list_seen_bool). The scanners component is
+    `components.scanners.scanners[] = [{address, scannerId, health}]`. `list_seen` is True whenever a
+    real scanner list was present (so 'absent from a populated list' can be told apart from 'status
+    unreadable / no list at all' — the caller must NOT fail closed on the latter). This is the
+    RELIABLE liveness source: getHealthStatus keeps answering while getSystemState is still throwing
+    post-deploy, and the runtime has already computed each scanner's health verdict for us here."""
+    comp = None
+    comps = dig(status_entry, "components")
+    if isinstance(comps, dict):
+        comp = comps.get("scanners")
+    if not isinstance(comp, dict):
+        comp = _deep_first(status_entry, ["scanners"])  # tolerate a flatter/rewrapped shape
+    if isinstance(comp, dict):
+        rows = comp.get("scanners")
+    elif isinstance(comp, list):
+        rows = comp
+    else:
+        rows = None
+    if not isinstance(rows, list):
+        return None, False
+    for r in rows:
+        if dig(r, "scannerId", "name", "scanner") == scanner_name:
+            return (str(dig(r, "health") or "").lower() or None), True
+    return None, True
 
 
 def runtime_health_map(timeout=15):

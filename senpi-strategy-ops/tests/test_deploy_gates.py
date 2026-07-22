@@ -80,25 +80,57 @@ class HasDsl(unittest.TestCase):
         self.assertFalse(_dsl_inst({"exit": {"engine": "none"}}).has_dsl)
 
 
+def _status_with_scanner(name, health):
+    """A minimal `senpi status` (getHealthStatus) entry carrying one scanner's health verdict."""
+    return {"components": {"scanners": {"scanners": [{"scannerId": name, "health": health}]}}}
+
+
 class ScannerVerdict(unittest.TestCase):
+    # --- state readable: the rich per-scanner row drives the verdict ---
     def test_ticked(self):
         st = {"scanners": [{"name": "sc1", "runCount": 5, "enabled": True}]}
-        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st)[0], "ticked")
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, None)[0], "ticked")
 
     def test_scheduled(self):
         st = {"scanners": [{"name": "sc1", "runCount": 0, "enabled": True}]}
-        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st)[0], "scheduled")
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, None)[0], "scheduled")
+
+    def test_heartbeat_without_runcount_is_ticked(self):
+        # external scanner that has POSTed (barren, no-signal heartbeat) but runCount still 0
+        st = {"scanners": [{"name": "sc1", "runCount": 0, "enabled": True, "lastAliveAt": 1784740000000}]}
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, None)[0], "ticked")
 
     def test_disabled_is_broken(self):
         st = {"scanners": [{"name": "sc1", "runCount": 0, "enabled": False}]}
-        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st)[0], "broken")
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, None)[0], "broken")
 
     def test_erroring_is_broken(self):
         st = {"scanners": [{"name": "sc1", "runCount": 3, "lastError": "boom"}]}
-        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st)[0], "broken")
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, None)[0], "broken")
 
-    def test_not_mounted_is_broken(self):
-        self.assertEqual(deploy._scanner_verdict(_scan_inst(), {"scanners": []})[0], "broken")
+    def test_unhealthy_health_field_is_broken(self):
+        st = {"scanners": [{"name": "sc1", "runCount": 0, "enabled": True, "health": "unhealthy"}]}
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, None)[0], "broken")
+
+    # --- state UNreadable: fall back to `senpi status`, never fail closed ---
+    def test_state_none_status_healthy_is_scheduled(self):
+        # THE regression: getSystemState threw, but status says the scanner is healthy → live, not broken
+        status = _status_with_scanner("sc1", "healthy")
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), None, status)[0], "scheduled")
+
+    def test_state_none_status_unhealthy_is_broken(self):
+        status = _status_with_scanner("sc1", "unhealthy")
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), None, status)[0], "broken")
+
+    def test_state_none_status_none_is_unknown(self):
+        # neither source readable → agnostic (caller retries; reports 'unverified', not 'broken')
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), None, None)[0], "unknown")
+
+    def test_absent_from_state_and_status_is_unknown_not_broken(self):
+        # the old false 'scanner not mounted' path — now agnostic, since it's often still-mounting
+        st = {"scanners": []}
+        status = {"components": {"scanners": {"scanners": []}}}
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, status)[0], "unknown")
 
 
 class DslVerdict(unittest.TestCase):

@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.6.0"
+  version: "2.7.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -121,11 +121,22 @@ Run **Step 3 `verify`**. **Do NOT tell the user the strategy is live until `veri
 
 **Step 3 — `verify`** (the required gate): `python3 scripts/deploy.py verify spider` returns **`live`** only
 when every instance is runtime-running + scanner-active (ticked *or* scheduled, never erroring) + **DSL-wired**
-(`exit.dsl_preset` present and the monitor enabled) + **funded to what was requested**; otherwise **`not-live`**
-with the failing component named (e.g. `scanner=broken`, `dsl=config-missing`, `budget=underfunded`). Fix the
-flagged component and re-run. It's a **single fast check** — a scheduled scanner passes, so it does **not**
-wait for the first scan tick and you must **never `sleep` then verify**. `deploy.py status <id>` shows deploy
-state any time.
+(`exit.dsl_preset` present and the monitor enabled) + **funded to what was requested**. Two failure outcomes,
+kept distinct on purpose:
+
+- **`not-live`** (exit 2) — a component is **confirmed broken**, named in the row (e.g. `scanner=broken`,
+  `dsl=config-missing`, `budget=underfunded`). Fix the flagged component and re-run.
+- **`unverified`** (exit 3) — the runtime is registered, funded and DSL-protected, but its `status`/`state`
+  read was **temporarily unavailable**, so scanner liveness could **not be confirmed** (common in the first
+  minute after `runtime`, and **not** a sign the scanner is down — `getSystemState` throws for a few
+  minutes while scanner subprocesses launch). **This is not a green light** — re-run `verify` shortly. It
+  never brands a scanner broken just because a read failed.
+
+Liveness is judged from the runtime **CLI** (`senpi status` primary, `senpi state` to enrich) — never from
+on-disk state files. It's a **single fast check** — a scheduled/heartbeating scanner passes, so it does
+**not** wait for the first scan tick and you must **never `sleep` then verify**. **Do NOT tell the user the
+strategy is live unless `verify` returned `live`** (`unverified` and `not-live` both mean "not confirmed —
+do not claim live"). `deploy.py status <id>` shows deploy state any time.
 
 > **Do NOT improvise.** A package strategy is a **runtime-supervised scanner** — deploy it **only** via
 > these steps. Never substitute a raw `strategy_create_custom_strategy` MCP call to "deploy" it: that
@@ -149,7 +160,9 @@ state any time.
 ```
 Overall status across the steps: `create` → `creating` (re-run) | `closing-existing` (re-run once closed) |
 `wallets-ready` | **`underfunded`** (balance < requested — fund more / lower the ask); `runtime` →
-`registered`; `verify` → **`live`** | **`not-live`** (a component failed — fix it, re-run). Per-instance
+`registered`; `verify` → **`live`** | **`not-live`** (a component confirmed broken — fix it, re-run) |
+**`unverified`** (runtime read temporarily unavailable — re-run; neither `unverified` nor `not-live` means
+live). Per-instance
 status flows `pending → creating → active → registered → live`. **`registered` ≠ live — `verify` is the
 gate.** `create`/`runtime` take `--dry-run` (plan only; no side effects).
 
