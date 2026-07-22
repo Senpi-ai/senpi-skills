@@ -120,15 +120,11 @@ def wallet_match(a, b):
     return False
 
 
-def list_runtimes():
-    """All runtimes (running AND stopped) by parsing `runtime list` text. NOTE on runtime v3: `runtime
-    list` has no --json (human text only), and `status --json` is *flaky* — it transiently returns an
-    empty `statuses[]` even while runtimes are running — so it is NOT a reliable inventory. The text
-    table (id / wallet / source / status) is authoritative; use `status -r <id>` only for health."""
-    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])
-    if rc != 0:
-        return []
-    rows, seen_header = [], False
+def _parse_runtime_list(out):
+    """Parse `runtime list` text → (rows, valid). `valid` is True only when the output actually looked
+    like the runtime-list table (header row seen, or an explicit 'no runtimes' line) — so a garbled /
+    banner-only stdout that yields zero rows is reported as NOT valid rather than as an empty inventory."""
+    rows, seen_header, empty_marker = [], False, False
     for line in out.splitlines():
         line = _strip_ansi(line).strip()
         if not line:
@@ -139,12 +135,38 @@ def list_runtimes():
                 seen_header = True
             continue
         if "no runtimes" in low:
+            empty_marker = True
             break
         parts = [p for p in re.split(r"\s{2,}|\t+", line) if p]
         if len(parts) >= 2:
             rows.append({"name": parts[0], "wallet": parts[1],
                          "source": parts[2] if len(parts) > 2 else None, "status": parts[-1]})
+    return rows, (seen_header or empty_marker)
+
+
+def list_runtimes():
+    """All runtimes (running AND stopped) by parsing `runtime list` text. NOTE on runtime v3: `runtime
+    list` has no --json (human text only), and `status --json` is *flaky* — it transiently returns an
+    empty `statuses[]` even while runtimes are running — so it is NOT a reliable inventory. The text
+    table (id / wallet / source / status) is authoritative; use `status -r <id>` only for health.
+    Returns [] on a failed/garbled read; a caller that must NOT conflate 'none' with 'unreadable'
+    (teardown's money path) uses `list_runtimes_or_none` instead."""
+    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])
+    if rc != 0:
+        return []
+    rows, _valid = _parse_runtime_list(out)
     return rows
+
+
+def list_runtimes_or_none():
+    """Like `list_runtimes()` but returns None when the `runtime list` read FAILED (rc != 0) or produced
+    unparseable output — so callers can tell 'no runtimes' (→ []) from 'couldn't read the inventory'
+    (→ None). The teardown money path must never mistake an unreadable inventory for 'the runtime is gone'."""
+    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])
+    if rc != 0:
+        return None
+    rows, valid = _parse_runtime_list(out)
+    return rows if valid else None
 
 
 def runtime_name(rt):
@@ -227,14 +249,13 @@ def runtime_state(name, timeout=15):
 
 
 def scanner_health_in_status(status_entry, scanner_name):
-    """Per-scanner health from a `senpi status` entry (getHealthStatus), by stable scanner name.
-
-    Returns (health_str_or_None, list_seen_bool). The scanners component is
-    `components.scanners.scanners[] = [{address, scannerId, health}]`. `list_seen` is True whenever a
-    real scanner list was present (so 'absent from a populated list' can be told apart from 'status
-    unreadable / no list at all' — the caller must NOT fail closed on the latter). This is the
-    RELIABLE liveness source: getHealthStatus keeps answering while getSystemState is still throwing
-    post-deploy, and the runtime has already computed each scanner's health verdict for us here."""
+    """Per-scanner health string (or None) from a `senpi status` entry (getHealthStatus), by stable
+    scanner name. The scanners component is `components.scanners.scanners[] = [{address, scannerId,
+    health}]`. This is the RELIABLE liveness source: getHealthStatus keeps answering while
+    getSystemState is still throwing post-deploy, and the runtime has already computed each scanner's
+    health verdict for us here. Returns None both when status is unreadable and when the scanner isn't
+    (yet) in the list — the caller treats both the same (a running runtime supervises the scanner
+    regardless), so there is intentionally no 'was the list populated?' distinction to return."""
     comp = None
     comps = dig(status_entry, "components")
     if isinstance(comps, dict):
@@ -248,11 +269,11 @@ def scanner_health_in_status(status_entry, scanner_name):
     else:
         rows = None
     if not isinstance(rows, list):
-        return None, False
+        return None
     for r in rows:
         if dig(r, "scannerId", "name", "scanner") == scanner_name:
-            return (str(dig(r, "health") or "").lower() or None), True
-    return None, True
+            return str(dig(r, "health") or "").lower() or None
+    return None
 
 
 def runtime_health_map(timeout=15):

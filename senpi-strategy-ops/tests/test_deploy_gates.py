@@ -175,7 +175,7 @@ class CloseRuntimeDeleteConfirm(unittest.TestCase):
     (NOT_FOUND). Trusting rc broke idempotent re-runs and false-aborted the money-critical strategy_close."""
 
     def setUp(self):
-        self._orig = (_cli.run_cli, _cli.find_runtime, close.MCPClient)
+        self._orig = (_cli.run_cli, _cli.list_runtimes_or_none, close.MCPClient)
         self.deletes = []          # every `runtime delete` invocation
         self.closed = []           # every strategy_close strategyId
         _cli.run_cli = lambda args, timeout=60: (self.deletes.append(args) or (1, "", "[⚡HyperDX] banner…"))
@@ -189,14 +189,14 @@ class CloseRuntimeDeleteConfirm(unittest.TestCase):
         close.MCPClient = _FakeMCP
 
     def tearDown(self):
-        _cli.run_cli, _cli.find_runtime, close.MCPClient = self._orig
+        _cli.run_cli, _cli.list_runtimes_or_none, close.MCPClient = self._orig
 
     _STRAT = {"strategyId": "s1", "strategyWalletAddress": "0xabc", "status": "ACTIVE"}
     _RUNTIMES = [{"name": "pkg-main", "wallet": "0xabc"}]
 
     def test_gone_after_delete_is_success_and_triggers_close(self):
-        # delete returns non-zero (banner noise), but the runtime is gone from `runtime list` → success
-        _cli.find_runtime = lambda name: None
+        # delete returns non-zero (banner noise), but the inventory reads cleanly and the runtime is gone
+        _cli.list_runtimes_or_none = lambda: []
         rec = close.close_one("main", self._STRAT, self._RUNTIMES, False, lambda m: None)
         self.assertEqual(rec["status"], "closing")   # NOT 'failed' despite rc=1
         self.assertEqual(self.closed, ["s1"])         # money-critical close DID fire
@@ -204,15 +204,23 @@ class CloseRuntimeDeleteConfirm(unittest.TestCase):
 
     def test_still_present_after_retry_fails_without_closing(self):
         # runtime never leaves `runtime list` → genuine failure: report it, do NOT strategy_close
-        _cli.find_runtime = lambda name: {"name": name, "wallet": "0xabc"}
+        _cli.list_runtimes_or_none = lambda: [{"name": "pkg-main", "wallet": "0xabc"}]
         rec = close.close_one("main", self._STRAT, self._RUNTIMES, False, lambda m: None)
         self.assertEqual(rec["status"], "failed")
         self.assertEqual(self.closed, [])             # never close while the runtime can re-enter
         self.assertEqual(len(self.deletes), 2)        # one retry before giving up
         self.assertNotIn("HyperDX", rec.get("error", ""))  # clean message, not banner spam
 
+    def test_unreadable_inventory_fails_closed(self):
+        # THE money-path guard: `runtime list` unreadable (None) must NOT read as 'gone' → no strategy_close
+        _cli.list_runtimes_or_none = lambda: None
+        rec = close.close_one("main", self._STRAT, self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(rec["status"], "failed")
+        self.assertEqual(self.closed, [])             # unreadable inventory ⇒ never flatten a maybe-live strategy
+        self.assertEqual(len(self.deletes), 2)
+
     def test_already_closed_is_idempotent_noop(self):
-        _cli.find_runtime = lambda name: None
+        _cli.list_runtimes_or_none = lambda: []
         rec = close.close_one("main", dict(self._STRAT, status="CLOSED"), self._RUNTIMES, False, lambda m: None)
         self.assertEqual(rec["status"], "closed")
         self.assertEqual(self.deletes, [])            # nothing to stop

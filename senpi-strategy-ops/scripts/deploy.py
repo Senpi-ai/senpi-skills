@@ -517,7 +517,7 @@ def _scanner_verdict(inst, state, status):
             return "ticked", "external scanner heartbeat live"
         return "scheduled", f"awaiting first tick (~{inst.interval_seconds or '?'}s cadence)"
     # `state` unreadable → trust the runtime's own scanner-health from `senpi status`
-    sh, _list_seen = _cli.scanner_health_in_status(status, name)
+    sh = _cli.scanner_health_in_status(status, name)
     if sh == "unhealthy":
         return "broken", "scanner reported unhealthy by the runtime (per status)"
     if sh in ("healthy", "degraded"):

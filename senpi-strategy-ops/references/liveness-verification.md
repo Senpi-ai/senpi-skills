@@ -72,7 +72,11 @@ authoritative signals are `health` and the heartbeat, **not** the run counters:
   This is the primary signal; trust it.
 - **`lastAliveAt` is fresh** (`now − lastAliveAt ≤ 2 × interval_seconds`) — the scanner POSTed to intake
   this cycle. **A healthy scanner that finds no setup still POSTs an empty heartbeat every tick**, so a
-  live barren scanner has a fresh `lastAliveAt` even with **`runCount === 0` / no signals**.
+  live barren scanner has a fresh `lastAliveAt` even with **`runCount === 0` / no signals**. (For **hand
+  triage** of an already-running strategy, check this freshness. **`deploy.py verify` intentionally does
+  NOT** — it's a deploy-time gate where staleness can't have accrued yet, so it treats *any* `lastAliveAt`
+  as a tick and defers stall-detection to the runtime's own `health` verdict, which flips a silent
+  scanner to `unhealthy`/`degraded`.)
 - `enabled === true`, `consecutiveErrorCount === 0`, `lastError === null`.
 
 > **Do NOT require `runCount > 0`.** For an external scanner, `runCount` and `lastRunFinishedAt` lag or
