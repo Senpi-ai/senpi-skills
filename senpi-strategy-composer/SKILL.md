@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "0.3.12"
+  version: "0.3.13"
   status: experimental
   platform: senpi
   exchange: hyperliquid
@@ -49,7 +49,8 @@ openclaw senpi composer <verb> ...
 ```
 Verbs: `catalog`, `describe <node>`, `new`, `check <graph>`, `deploy <graph>`,
 `simulate <target> --from 30d`, `fund <target> --budget N`, `install <target> [--wallet 0x…]`,
-`update <target>`, `status [<target>|--group X]` (bare = cross-strategy portfolio), `close <target|--group X>`.
+`update <target>`, `status [<target>|--group X]` (bare = cross-strategy portfolio), `close <target|--group X>`,
+`ledger` (account money-flow).
 
 **Preview before funding:** `composer simulate <target> --from 30d` replays the compiled scanners
 over historical candles and prints the signal timeline ("would have entered/exited here"). Offer it
@@ -385,6 +386,15 @@ The composer owns the operational surface end to end — there is no separate op
   cross-strategy PORTFOLIO view: managed/manual/unmanaged rows (`--json` carries `kind` per row),
   protection quoted from the NAMED box engine, stranded/unmanaged runtimes listed WITH their recovery
   text, any missing data rendered `unavailable (reason)`. Relay it VERBATIM.
+- **Money-flow questions — "walk me through every dollar", funded-vs-withdrawn, "how much have I put
+  in / taken out", net capital, "what's my PnL across everything" → `composer ledger`.** It is the
+  SINGLE PRODUCER of the account money-flow table: per-strategy funded / withdrawn / net funding +
+  realized PnL, plus the free embedded-wallet balance, each figure quoted from a NAMED backend source
+  (`strategy_list` / trade history / account portfolio). QUOTE IT VERBATIM. NEVER hand-derive,
+  arithmetic, or reconstruct a PnL / capital table yourself (a confabulated ledger — rows matching no
+  tool output — was a real failure). If a figure reads `unavailable`, relay that reason; do NOT fill
+  it in with a guess or a zero. It is distinct from `status` (lifecycle/protection) and `review`
+  (trade quality) — this is capital in/out.
 - **2-RUNG LADDER:** run `composer status` FIRST. Only when it flags trouble it cannot explain do
   you drop to the raw plumbing — `openclaw senpi state|scanner|dsl positions|dsl inspect --json` —
   and those outputs are ALSO relayed verbatim, never re-derived (a re-derivation flipped a PnL sign
