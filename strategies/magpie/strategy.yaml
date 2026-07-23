@@ -7,8 +7,7 @@
 schema_version: 1
 
 id: magpie
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Magpie — IPO / New-Listing Event Fund"
   emoji: "🐦"

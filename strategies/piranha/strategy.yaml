@@ -8,8 +8,7 @@
 schema_version: 1
 
 id: piranha
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Piranha — Liquidation-Cascade / Forced-Flow Hunter"
   emoji: "🐟"
