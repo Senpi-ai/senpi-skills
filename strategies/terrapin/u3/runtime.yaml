@@ -1,0 +1,134 @@
+# ── TERRAPIN · unit 3 of 4 — the +1N rung ─────────────────────────────────────
+# Arms a full N above the breakout (unitIndex 2). Entered well into the move, less cushion,
+# so a tighter ladder that locks profit sooner — the trend has to keep paying to keep it.
+name: terrapin-u3
+group: terrapin
+version: 1.0.0
+description: >
+  TERRAPIN unit 3/4 — the +1N rung of the breakout pyramid. Adds only in a move that has
+  already run a full ATR past the breakout. Tight DSL: it locks profit early because it
+  entered high and has the least room of the lower three. One position; the DSL owns the exit.
+
+strategy:
+  wallet: "${TERRAPIN_U3_WALLET}"
+  slots: 1
+  margin_pct: 40                          # % of THIS unit's wallet (each unit funds 1/4 of the book)
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: terrapin_u3_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 1800                 # 30m — a daily breakout doesn't need faster; this catches
+                                           # the intraday breach of the daily level promptly enough
+    timeout_seconds: 120
+    default_signal_validity_seconds: 3600  # 2x tick
+    state_history_max_count: 100
+    inputs:
+      asset: "BTC"                         # the ONE market the whole pyramid stacks into
+      unitIndex: 2                         # BASE rung — arms at the breakout (offset 0 x N)
+      candleInterval: "1d"                 # Turtle is a daily-breakout system
+      breakoutLookback: 20                 # Turtle System 1: the 20-day channel
+      atrPeriod: 20                        # N = 20-day ATR
+      addStepN: 0.5                        # units ladder every ½N (u1=0, u2=½N, u3=1N, u4=1½N)
+      macdFast: 12
+      macdSlow: 26
+      macdSignal: 9
+      requireMacd: true                    # "turtle con MACD": a breakout MACD disagrees with is vetoed
+      macdStrongHistPct: 0.05
+      beyondRungN: 0.15
+      minScore: 6                          # breakout(4) + MACD agree(2)
+      marginPctBase: 40                    # PERCENT of this unit's wallet in (0,100]
+      leverageDefault: 3
+      leverageMin: 2
+      leverageMax: 5
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      unit: { type: number, required: false }
+      atr: { type: number, required: false }
+      rung: { type: number, required: false }
+      beyondN: { type: number, required: false }
+      channelHigh: { type: number, required: false }
+      channelLow: { type: number, required: false }
+      macdHist: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: terrapin_u3_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied the breakout + ladder + MACD gate
+    scanners: [terrapin_u3_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # a breakout is a fast move; a resting maker order misses it
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: terrapin_u3_signals
+
+# ── EXIT (DSL — the TWIST: third rung (+1N) = tighter ladder than the units below) ──
+# Each unit's DSL is calibrated to its rung; this is the third rung (+1N), so it locks sooner and
+# rides less than the base. On a reversal the higher units peel off first — the pyramid
+# unwinds top-down through these independent DSLs, our replacement for Turtle's unified stop.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+      interval_in_minutes: 1440
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 180
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 18.0
+      retrace_threshold: 9
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 18, lock_hw_pct: 32 }
+        - { trigger_pct: 32, lock_hw_pct: 55 }
+        - { trigger_pct: 52, lock_hw_pct: 70 }
+        - { trigger_pct: 78, lock_hw_pct: 80 }
+
+# ── RISK guard rails (moderate) ──
+risk:
+  data_retention_seconds: 604800           # 7d
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 3
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 3600
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400       # 4h — don't instantly re-arm the same rung after a shakeout
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

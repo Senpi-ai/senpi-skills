@@ -4091,6 +4091,57 @@
       "sort_order": 14
     },
     {
+      "id": "terrapin",
+      "name": "Terrapin — Turtle-Style Breakout Pyramid",
+      "emoji": "🐢",
+      "tagline": "The Turtle breakout, rebuilt with our DSL. It enters when price breaks its 20-day high (long) or low (short) and MACD agrees, then ADDS units as the move extends — a second at +½N, a third at +1N, a fourth at +1½N (N = 20-day ATR). Each unit is its own wallet with its own trailing stop, calibrated to its rung: the base breathes widest and carries the trend, the tip locks tightest and peels off first, so the pyramid unwinds top-down instead of all at once. One asset (BTC by default), long or short, four units.",
+      "belief_plain": "This is the classic Turtle trading system with a modern exit. It waits for a real breakout — price pushing past its highest level in 20 days — and only takes it if momentum (MACD) agrees, which filters out the false breaks that trap breakout buyers. Then, the Turtle move: as the trend keeps running in your favor, it adds more size in steps, building a bigger position into a winner. The twist is how it gets out. The original Turtles dumped the whole stack at one stop; Terrapin gives each added chunk its own trailing stop — the first, safest chunk rides the longest, while the chunks added late (which have the least cushion) protect their profit fastest and exit first if it turns. You fund it once and it splits across four sub-wallets, one per chunk.",
+      "version": "1.0.0",
+      "thesis": "The Turtle breakout is one of the most documented trend-following systems in existence, and the catalog had no expression of it — because a faithful pyramid needs to ADD to a winning position, and Hyperliquid nets positions per coin per wallet, so a single-wallet build can only ever hold the first unit. Terrapin solves that structurally: four units, four wallets, each arming off the same statelessly-computed frozen breakout anchor so the ½N ladder is consistent without any cross-wallet coordination. The deliberate modernization is the exit. Turtle's unified 2N / 10-day-low stop becomes four independent DSL ladders, progressively tighter up the pyramid — which is not just faithful-enough but arguably better: the position unwinds from the top on a reversal, banking the exposed upper units while the base rides, instead of giving the whole stack back at one level. The MACD filter is the user's requested addition ('turtle con MACD') and does real work — it vetoes the momentum-less breakout that is the system's classic whipsaw.",
+      "tags": [
+        "turtle",
+        "breakout",
+        "donchian",
+        "pyramid",
+        "add-to-winner",
+        "atr",
+        "macd",
+        "trend-following",
+        "multi-wallet",
+        "position-trading",
+        "long-short"
+      ],
+      "group": "single-asset",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "pyramid_breakout",
+      "sub_style_label": "Turtle-style: enters a Donchian breakout and ADDS units as it runs, each unit on its own wallet with its own trailing stop.",
+      "asset_classes": [
+        "btc_eth"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "BTC"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 1800,
+      "min_budget": 400,
+      "instance_count": 4,
+      "funding_split": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "max_slots": 4,
+      "branch": "main",
+      "sort_order": 15
+    },
+    {
       "id": "wolverine",
       "name": "Wolverine — HYPE Alpha Hunter",
       "emoji": "🦡",
@@ -4133,7 +4184,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 16
     },
     {
       "id": "hydra",

@@ -103,6 +103,7 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   breakout:      { gloss: "Enters on a clean breakout of structure." }
   confluence_sniper: { gloss: "Fires only when multiple timeframes/factors line up." }
   parabolic_runner: { gloss: "Rides parabolic runs with a very wide let-winners-run exit." }
+  pyramid_breakout: { gloss: "Turtle-style: enters a Donchian breakout and ADDS units as it runs, each unit on its own wallet with its own trailing stop." }
   sector_momentum: { gloss: "Rides a whole sector / supply chain only when its breadth confirms; won't chase a lone name." }
   # structural_neutral
   cross_asset_lag: { gloss: "Trades an alt that lags a BTC move." }

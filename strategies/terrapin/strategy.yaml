@@ -1,0 +1,56 @@
+# Terrapin — Turtle-Style Breakout Pyramid (DSL twist). A FOUR-instance PACKAGE: this manifest
+# + one runtime.yaml per unit + per-unit scanners/. The four units are the four rungs of a Turtle
+# pyramid, each on its own wallet (Hyperliquid nets positions per coin per wallet, so stacking
+# units into one directional position REQUIRES one wallet per unit). Install/teardown via
+# senpi-strategy-ops — funding one budget splits equally across the four unit wallets.
+schema_version: 1
+
+id: terrapin
+version: "1.0.0"
+
+catalog:
+  name: "Terrapin — Turtle-Style Breakout Pyramid"
+  emoji: "🐢"
+  tagline: "The Turtle breakout, rebuilt with our DSL. It enters when price breaks its 20-day high (long) or low (short) and MACD agrees, then ADDS units as the move extends — a second at +½N, a third at +1N, a fourth at +1½N (N = 20-day ATR). Each unit is its own wallet with its own trailing stop, calibrated to its rung: the base breathes widest and carries the trend, the tip locks tightest and peels off first, so the pyramid unwinds top-down instead of all at once. One asset (BTC by default), long or short, four units."
+  belief_plain: "This is the classic Turtle trading system with a modern exit. It waits for a real breakout — price pushing past its highest level in 20 days — and only takes it if momentum (MACD) agrees, which filters out the false breaks that trap breakout buyers. Then, the Turtle move: as the trend keeps running in your favor, it adds more size in steps, building a bigger position into a winner. The twist is how it gets out. The original Turtles dumped the whole stack at one stop; Terrapin gives each added chunk its own trailing stop — the first, safest chunk rides the longest, while the chunks added late (which have the least cushion) protect their profit fastest and exit first if it turns. You fund it once and it splits across four sub-wallets, one per chunk."
+  thesis: "The Turtle breakout is one of the most documented trend-following systems in existence, and the catalog had no expression of it — because a faithful pyramid needs to ADD to a winning position, and Hyperliquid nets positions per coin per wallet, so a single-wallet build can only ever hold the first unit. Terrapin solves that structurally: four units, four wallets, each arming off the same statelessly-computed frozen breakout anchor so the ½N ladder is consistent without any cross-wallet coordination. The deliberate modernization is the exit. Turtle's unified 2N / 10-day-low stop becomes four independent DSL ladders, progressively tighter up the pyramid — which is not just faithful-enough but arguably better: the position unwinds from the top on a reversal, banking the exposed upper units while the base rides, instead of giving the whole stack back at one level. The MACD filter is the user's requested addition ('turtle con MACD') and does real work — it vetoes the momentum-less breakout that is the system's classic whipsaw."
+  group: single-asset
+  archetype: breakout_momentum
+  sub_style: pyramid_breakout
+  asset_classes: [btc_eth]
+  asset_scope: single
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 4
+  min_budget: 400
+  assets: ["BTC"]
+  tags: [turtle, breakout, donchian, pyramid, add-to-winner, atr, macd, trend-following, multi-wallet, position-trading, long-short]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+# Four equal units — a faithful Turtle pyramid sizes every unit the same. Each wallet funds one
+# rung; the upper rungs sit as dry powder until a strong trend extends far enough to arm them.
+instances:
+  - name: u1
+    runtime: u1/runtime.yaml
+    wallet_env: TERRAPIN_U1_WALLET
+    funding_share: 0.25
+  - name: u2
+    runtime: u2/runtime.yaml
+    wallet_env: TERRAPIN_U2_WALLET
+    funding_share: 0.25
+  - name: u3
+    runtime: u3/runtime.yaml
+    wallet_env: TERRAPIN_U3_WALLET
+    funding_share: 0.25
+  - name: u4
+    runtime: u4/runtime.yaml
+    wallet_env: TERRAPIN_U4_WALLET
+    funding_share: 0.25
