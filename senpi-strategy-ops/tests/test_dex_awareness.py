@@ -78,6 +78,24 @@ class SmRowMatching(unittest.TestCase):
     def test_different_ticker_never_matches(self):
         self.assertFalse(self.mod._sm_row_matches(LEADERBOARD_ROWS[0], "NVDA", "xyz:TSLA"))
 
+    # The upstream row shape could not be re-confirmed live (leaderboard 401s from
+    # this session), so pin BOTH plausible shapes: the helper must be a strict
+    # superset of the old `token != coin` compare either way.
+    def test_prefixed_token_shape_also_matches(self):
+        """If leaderboard ever returns `xyz:NVDA` in `token` with no dex field."""
+        self.assertTrue(self.mod._sm_row_matches({"token": "xyz:NVDA"}, "XYZ:NVDA", "xyz:NVDA"))
+
+    def test_prefixed_token_shape_still_blocks_cross_dex(self):
+        self.assertFalse(self.mod._sm_row_matches({"token": "xyz:GOLD"}, "XYZ:GOLD", "GOLD"))
+
+    def test_never_regresses_a_plain_main_match(self):
+        """Everything the pre-fix compare matched must still match (superset property)."""
+        for row, tok, want in (({"token": "BTC"}, "BTC", "BTC"),
+                               ({"token": "BTC", "dex": ""}, "BTC", "BTC"),
+                               ({"token": "ETH", "dex": "main"}, "ETH", "ETH")):
+            with self.subTest(row=row):
+                self.assertTrue(self.mod._sm_row_matches(row, tok, want))
+
     def test_case_insensitive(self):
         self.assertTrue(self.mod._sm_row_matches({"token": "nvda", "dex": "xyz"}, "nvda", "XYZ:NVDA"))
 
