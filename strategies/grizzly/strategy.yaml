@@ -7,8 +7,7 @@
 schema_version: 1
 
 id: grizzly
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Grizzly — BTC Alpha Hunter"
   emoji: "🐻"

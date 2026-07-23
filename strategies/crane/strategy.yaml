@@ -5,8 +5,7 @@
 schema_version: 1
 
 id: crane
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Crane — Managed Pairs / Stat-Arb"
   emoji: "🕊️"

@@ -80,25 +80,58 @@ class HasDsl(unittest.TestCase):
         self.assertFalse(_dsl_inst({"exit": {"engine": "none"}}).has_dsl)
 
 
+def _status_with_scanner(name, health):
+    """A minimal `senpi status` (getHealthStatus) entry carrying one scanner's health verdict."""
+    return {"components": {"scanners": {"scanners": [{"scannerId": name, "health": health}]}}}
+
+
 class ScannerVerdict(unittest.TestCase):
+    # --- state readable: the rich per-scanner row drives the verdict ---
     def test_ticked(self):
         st = {"scanners": [{"name": "sc1", "runCount": 5, "enabled": True}]}
-        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st)[0], "ticked")
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, None)[0], "ticked")
 
     def test_scheduled(self):
         st = {"scanners": [{"name": "sc1", "runCount": 0, "enabled": True}]}
-        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st)[0], "scheduled")
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, None)[0], "scheduled")
+
+    def test_heartbeat_without_runcount_is_ticked(self):
+        # external scanner that has POSTed (barren, no-signal heartbeat) but runCount still 0
+        st = {"scanners": [{"name": "sc1", "runCount": 0, "enabled": True, "lastAliveAt": 1784740000000}]}
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, None)[0], "ticked")
 
     def test_disabled_is_broken(self):
         st = {"scanners": [{"name": "sc1", "runCount": 0, "enabled": False}]}
-        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st)[0], "broken")
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, None)[0], "broken")
 
     def test_erroring_is_broken(self):
         st = {"scanners": [{"name": "sc1", "runCount": 3, "lastError": "boom"}]}
-        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st)[0], "broken")
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, None)[0], "broken")
 
-    def test_not_mounted_is_broken(self):
-        self.assertEqual(deploy._scanner_verdict(_scan_inst(), {"scanners": []})[0], "broken")
+    def test_unhealthy_health_field_is_broken(self):
+        st = {"scanners": [{"name": "sc1", "runCount": 0, "enabled": True, "health": "unhealthy"}]}
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, None)[0], "broken")
+
+    # --- state UNreadable: fall back to `senpi status`, never fail closed ---
+    def test_state_none_status_healthy_is_live(self):
+        # THE regression: getSystemState threw, but status says the scanner is healthy → live, not broken
+        status = _status_with_scanner("sc1", "healthy")
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), None, status)[0], "ticked")
+
+    def test_state_none_status_unhealthy_is_broken(self):
+        status = _status_with_scanner("sc1", "unhealthy")
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), None, status)[0], "broken")
+
+    def test_state_none_status_none_is_supervised(self):
+        # BOTH reads flaky-empty — but the caller only calls this after confirming the runtime is
+        # RUNNING (via `runtime list`), and the runtime supervises the declared scanner → live, not broken
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), None, None)[0], "supervised")
+
+    def test_absent_from_state_and_status_is_supervised_not_broken(self):
+        # the old false 'scanner not mounted' path — now live-but-unmeasured (runtime running + supervised)
+        st = {"scanners": []}
+        status = {"components": {"scanners": {"scanners": []}}}
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, status)[0], "supervised")
 
 
 class DslVerdict(unittest.TestCase):
@@ -130,6 +163,68 @@ class BudgetVerdict(unittest.TestCase):
 
     def test_funded_unreadable_is_ok(self):
         self.assertEqual(deploy._budget_verdict({"requested": 1000, "strategyId": "x"}, {})[0], "ok")
+
+
+import _cli    # noqa: E402
+import close   # noqa: E402
+
+
+class CloseRuntimeDeleteConfirm(unittest.TestCase):
+    """close_one must judge runtime-delete success by `runtime list` (reliable), NOT the delete's exit
+    code — which is non-zero both on a flaky gateway hiccup AND when the runtime is already gone
+    (NOT_FOUND). Trusting rc broke idempotent re-runs and false-aborted the money-critical strategy_close."""
+
+    def setUp(self):
+        self._orig = (_cli.run_cli, _cli.list_runtimes_or_none, close.MCPClient)
+        self.deletes = []          # every `runtime delete` invocation
+        self.closed = []           # every strategy_close strategyId
+        _cli.run_cli = lambda args, timeout=60: (self.deletes.append(args) or (1, "", "[⚡HyperDX] banner…"))
+        outer = self
+
+        class _FakeMCP:
+            def mcp_call(self, name, timeout=None, **kw):
+                if name == "strategy_close":
+                    outer.closed.append(kw.get("strategyId"))
+                return {"success": True}
+        close.MCPClient = _FakeMCP
+
+    def tearDown(self):
+        _cli.run_cli, _cli.list_runtimes_or_none, close.MCPClient = self._orig
+
+    _STRAT = {"strategyId": "s1", "strategyWalletAddress": "0xabc", "status": "ACTIVE"}
+    _RUNTIMES = [{"name": "pkg-main", "wallet": "0xabc"}]
+
+    def test_gone_after_delete_is_success_and_triggers_close(self):
+        # delete returns non-zero (banner noise), but the inventory reads cleanly and the runtime is gone
+        _cli.list_runtimes_or_none = lambda: []
+        rec = close.close_one("main", self._STRAT, self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(rec["status"], "closing")   # NOT 'failed' despite rc=1
+        self.assertEqual(self.closed, ["s1"])         # money-critical close DID fire
+        self.assertEqual(len(self.deletes), 1)        # gone on first try → no retry
+
+    def test_still_present_after_retry_fails_without_closing(self):
+        # runtime never leaves `runtime list` → genuine failure: report it, do NOT strategy_close
+        _cli.list_runtimes_or_none = lambda: [{"name": "pkg-main", "wallet": "0xabc"}]
+        rec = close.close_one("main", self._STRAT, self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(rec["status"], "failed")
+        self.assertEqual(self.closed, [])             # never close while the runtime can re-enter
+        self.assertEqual(len(self.deletes), 2)        # one retry before giving up
+        self.assertNotIn("HyperDX", rec.get("error", ""))  # clean message, not banner spam
+
+    def test_unreadable_inventory_fails_closed(self):
+        # THE money-path guard: `runtime list` unreadable (None) must NOT read as 'gone' → no strategy_close
+        _cli.list_runtimes_or_none = lambda: None
+        rec = close.close_one("main", self._STRAT, self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(rec["status"], "failed")
+        self.assertEqual(self.closed, [])             # unreadable inventory ⇒ never flatten a maybe-live strategy
+        self.assertEqual(len(self.deletes), 2)
+
+    def test_already_closed_is_idempotent_noop(self):
+        _cli.list_runtimes_or_none = lambda: []
+        rec = close.close_one("main", dict(self._STRAT, status="CLOSED"), self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(rec["status"], "closed")
+        self.assertEqual(self.deletes, [])            # nothing to stop
+        self.assertEqual(self.closed, [])             # nothing to close
 
 
 if __name__ == "__main__":

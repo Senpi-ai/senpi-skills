@@ -475,26 +475,61 @@ def _deep_find_scanner(obj, name):
     return None
 
 
-def _scanner_verdict(inst, state):
-    """(status, detail) for the instance's external_scanner, from `openclaw senpi state` JSON.
-      ticked    — runCount>0 (it has actually scanned)
-      scheduled — mounted + enabled + no error, runCount==0 (first tick fires on interval_seconds)
-      broken    — not mounted / disabled / erroring
-    'scheduled' counts as live: everything is wired and will fire on cadence — we do NOT block the gate
-    waiting for a slow first tick, but we DO fail a scanner that threw on init."""
-    sc = _deep_find_scanner(state, inst.external_scanner.get("name")) if state else None
-    if not sc:
-        return "broken", "scanner not mounted in runtime state"
-    if _cli.dig(sc, "enabled", default=True) is False:
-        return "broken", "scanner disabled"
-    err = _cli.dig(sc, "lastError")
-    cec = _cli.dig(sc, "consecutiveErrorCount", default=0) or 0
-    if err or (isinstance(cec, (int, float)) and cec >= 1):
-        return "broken", f"scanner erroring: {str(err)[:120] if err else f'{int(cec)} consecutive errors'}"
-    runs = _cli.dig(sc, "runCount", "ticks", "runs", default=0) or 0
-    if isinstance(runs, (int, float)) and runs > 0:
-        return "ticked", f"{int(runs)} scan(s)"
-    return "scheduled", f"awaiting first tick (~{inst.interval_seconds or '?'}s cadence)"
+def _scanner_verdict(inst, state, status):
+    """(status, detail) for the instance's external_scanner — judged from what the RUNTIME reports,
+    and NEVER failing closed on a read it couldn't get. Called ONLY after the caller has confirmed the
+    runtime is RUNNING (via `runtime list`), so the reliable backbone is already established here.
+      ticked     — runCount>0 / heartbeat (lastAliveAt) / runtime-reported healthy — actually scanning
+      scheduled  — registered + enabled + healthy, no tick yet (first tick fires on interval_seconds)
+      supervised — reads unavailable this pass, but the runtime is running and supervising the declared
+                   scanner ⇒ live-but-unmeasured (the flaky status/state reads are enrichment, not a gate)
+      broken     — POSITIVE evidence of breakage: disabled / erroring / runtime-reported unhealthy
+
+    `ticked`/`scheduled`/`supervised` all count as LIVE. Two enrichment sources, keyed by the stable
+    scanner name (== the runtime's `scannerId`):
+      • `senpi state`  — the rich per-scanner row (runCount, lastAliveAt, lastError, enabled, health).
+        Best when available, but `getSystemState` THROWS for minutes after a fresh start, so `state`
+        is often None here (see `_cli.runtime_state`).
+      • `senpi status` — the runtime's own per-scanner health verdict. Lighter, and it keeps
+        answering while `state` is still throwing — so it's the fallback that keeps a live-but-not-
+        -yet-introspectable scanner from being branded dead.
+
+    IMPORTANT — external scanners: runCount/lastRun stay 0/null until the runtime hears the first
+    POST, and a healthy scanner that finds no setup still ticks (barren heartbeat). So absence of
+    runs is NEVER breakage on its own; `health`/`lastAliveAt` and the `status` verdict carry the
+    truth. (Live-confirmed: a runtime whose `state` threw for ~9 min while both scanners logged and
+    `status` said '2/2 enabled and healthy' — the old code called that 'scanner not mounted'.)"""
+    name = inst.external_scanner.get("name")
+    sc = _deep_find_scanner(state, name) if state else None
+    if sc:
+        if _cli.dig(sc, "enabled", default=True) is False:
+            return "broken", "scanner disabled"
+        err = _cli.dig(sc, "lastError")
+        cec = _cli.dig(sc, "consecutiveErrorCount", default=0) or 0
+        if err or (isinstance(cec, (int, float)) and cec >= 1):
+            return "broken", f"scanner erroring: {str(err)[:120] if err else f'{int(cec)} consecutive errors'}"
+        if str(_cli.dig(sc, "health") or "").lower() == "unhealthy":
+            return "broken", "scanner reported unhealthy by the runtime"
+        runs = _cli.dig(sc, "runCount", "ticks", "runs", default=0) or 0
+        if isinstance(runs, (int, float)) and runs > 0:
+            return "ticked", f"{int(runs)} scan(s)"
+        if _cli.dig(sc, "lastAliveAt"):
+            return "ticked", "external scanner heartbeat live"
+        return "scheduled", f"awaiting first tick (~{inst.interval_seconds or '?'}s cadence)"
+    # `state` unreadable → trust the runtime's own scanner-health from `senpi status`
+    sh = _cli.scanner_health_in_status(status, name)
+    if sh == "unhealthy":
+        return "broken", "scanner reported unhealthy by the runtime (per status)"
+    if sh in ("healthy", "degraded"):
+        return "ticked", f"healthy per runtime status ({sh})"
+    # Neither `state` nor `status` was readable this pass — but we only reach here AFTER the caller
+    # confirmed the runtime is RUNNING via `runtime list` (the authoritative inventory; `status`/`state`
+    # JSON are flaky-empty for a minute+ after start — seen live: verify got nothing while a manual
+    # `status -r`/`state -r` seconds apart returned healthy). A running runtime SPAWNS + SUPERVISES this
+    # external scanner (restarting it on crash), and the scanner is declared in the deployed runtime.yaml
+    # — so running runtime + declared scanner ⇒ it's being driven. Report LIVE-but-unmeasured, never
+    # `broken`. A genuinely broken scanner still trips the `broken` branches above whenever a read lands.
+    return "supervised", "runtime running + scanner supervised (live health read unavailable this pass)"
 
 
 def _dsl_verdict(inst, status_json):
@@ -540,21 +575,32 @@ def _check_live(pkg, st, mcp):
     rows = []
     for inst in pkg.instances:
         s = inst_state(st, inst.name)
-        rt = _cli.find_runtime(inst.runtime_name)
-        if not rt or not _cli.runtime_running(rt):
+        # `runtime_health_map` (getHealthStatus) lists ONLY running runtimes, so a hit already proves
+        # 'running' — skip the extra `runtime list` call (its default 60s timeout is verify's worst
+        # tail-latency) in the common path. Only when the map is flaky-empty for this runtime do we
+        # fall back to the authoritative text list to tell 'not running' from 'status hiccup'.
+        status = health.get(inst.runtime_name)
+        if status:
+            running = True
+        else:
+            rt = _cli.find_runtime(inst.runtime_name)
+            running = bool(rt) and _cli.runtime_running(rt)
+            if running:
+                status = _cli.runtime_status(inst.runtime_name, POLL_HTTP_TIMEOUT)
+        if not running:
             rows.append({"instance": inst.name, "live": False, "scanner": "no-runtime",
                          "dsl": "-", "budget": "-", "reason": "runtime not running"})
             continue
-        state = _cli.cli_json(["openclaw", "senpi", "state", "-r", inst.runtime_name, "--json"], POLL_HTTP_TIMEOUT)
-        status = health.get(inst.runtime_name) or _cli.runtime_status(inst.runtime_name, POLL_HTTP_TIMEOUT)
-        sc_st, sc_d = _scanner_verdict(inst, state)
+        state = _cli.runtime_state(inst.runtime_name, POLL_HTTP_TIMEOUT)
+        sc_st, sc_d = _scanner_verdict(inst, state, status)
         dsl_st, dsl_d = _dsl_verdict(inst, status)
         bud_st, bud_d = _budget_verdict(s, funded_by_id)
-        live = sc_st in ("ticked", "scheduled") and dsl_st == "wired" and bud_st == "ok"
+        sc_live = sc_st in ("ticked", "scheduled", "supervised")
+        live = sc_live and dsl_st == "wired" and bud_st == "ok"
         s["status"] = "live" if live else s.get("status", "registered")
         save_state(pkg, st)
         reason = "; ".join(d for ok, d in
-                           ((sc_st in ("ticked", "scheduled"), sc_d), (dsl_st == "wired", dsl_d),
+                           ((sc_live, sc_d), (dsl_st == "wired", dsl_d),
                             (bud_st == "ok", bud_d)) if not ok and d)
         rows.append({"instance": inst.name, "live": live, "scanner": sc_st, "dsl": dsl_st,
                      "budget": bud_st, "reason": reason})
@@ -563,9 +609,11 @@ def _check_live(pkg, st, mcp):
 
 def cmd_verify(pkg, a, log):
     # THE liveness gate: a strategy is `live` only when EVERY instance has a running runtime + an active
-    # scanner (ticked or scheduled) + a wired DSL + a funded budget. It does NOT wait for a slow first
-    # scan tick (a 'scheduled' scanner is live — it fires on interval_seconds); --max-wait re-checks only
-    # for a runtime/scanner that hasn't finished mounting yet.
+    # scanner (ticked / scheduled / supervised) + a wired DSL + a funded budget. The reliable backbone is
+    # `runtime list` (running) + the deployed runtime.yaml (scanner + DSL preset) + MCP budget — none of
+    # which depend on the flaky `status`/`state` JSON; those only DOWNGRADE a scanner to `broken` on
+    # positive evidence. It does NOT wait for a scan tick (a scheduled/supervised scanner is already
+    # live); --max-wait only re-checks a runtime that hasn't finished registering yet.
     mcp = MCPClient()
     st = load_state(pkg)
     deadline = time.time() + a.max_wait
@@ -573,12 +621,12 @@ def cmd_verify(pkg, a, log):
         rows = _check_live(pkg, st, mcp)
         live = bool(rows) and all(r["live"] for r in rows)
         if live or time.time() >= deadline:
-            out = {"strategy": pkg.id, "version": pkg.version,
-                   "status": "live" if live else "not-live", "instances": rows}
+            status = "live" if live else "not-live"
+            out = {"strategy": pkg.id, "version": pkg.version, "status": status, "instances": rows}
             if a.json:
                 print(json.dumps(out, indent=2))
             else:
-                print(f"\n{pkg.id} v{pkg.version}: {out['status']}")
+                print(f"\n{pkg.id} v{pkg.version}: {status}")
                 for r in rows:
                     print(f"  - {r['instance']}: scanner={r['scanner']}, dsl={r['dsl']}, "
                           f"budget={r['budget']}" + (f"  → {r['reason']}" if r["reason"] else ""))
