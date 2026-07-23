@@ -152,14 +152,17 @@ def scan(inputs, ctx):
             "direction": th["direction"],
             "marginPct": margin_pct,      # PERCENT in (0,100] — runtime sizes the dollars
             "leverage": leverage,
-            "data": {
+            # Runtime schema validation REJECTS a null for a field declared `type: number|string`,
+            # even when `required: false` — the whole candidate is dropped (`candidate_rejected`),
+            # silently. An optional field that does not apply must be OMITTED, never set to None.
+            "data": {k: v for k, v in {
                 "score": th["score"], "leverage": leverage, "direction": th["direction"],
                 "reasons": th["reasons"][:8], "driftPct": th["drift_pct"],
                 "volRatio": th["vol_ratio"], "rangePos": th["range_pos"],
                 "trend4h": th["trend_4h"], "minutesToOpen": th["minutes_to_open"],
                 "sessionOpenUtc": f"{open_minute // 60:02d}:{open_minute % 60:02d}",
                 "heldAssets": sorted(held),
-            },
+            }.items() if v is not None},
         })
 
     print(f"[rooster.scan] {'EMIT' if out else 'WAITING'} — {mins_to_open}m to the "

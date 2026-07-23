@@ -130,12 +130,15 @@ def scan(inputs, ctx):
             "direction": th["direction"],
             "marginPct": margin_pct,      # PERCENT of this unit's wallet — runtime sizes the dollars
             "leverage": leverage,
-            "data": {
+            # Runtime schema validation REJECTS a null for a field declared `type: number|string`,
+            # even when `required: false` — the whole candidate is dropped (`candidate_rejected`),
+            # silently. An optional field that does not apply must be OMITTED, never set to None.
+            "data": {k: v for k, v in {
                 "score": th["score"], "leverage": leverage, "direction": th["direction"],
                 "unit": unit, "atr": th["atr"], "rung": th["rung"], "beyondN": th["beyond_n"],
                 "channelHigh": th["channel_high"], "channelLow": th["channel_low"],
                 "macdHist": th["macd_hist"], "reasons": th["reasons"][:8],
-            },
+            }.items() if v is not None},
         })
 
     print(f"[terrapin.scan] u{unit} {'ARM ' + th['direction'] if armed else 'WAITING'} "

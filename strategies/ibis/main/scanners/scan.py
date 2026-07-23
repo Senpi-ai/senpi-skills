@@ -212,13 +212,16 @@ def scan(inputs, ctx):
             "direction": th["direction"],
             "marginPct": margin_pct,      # PERCENT in (0,100] — runtime sizes the dollars
             "leverage": leverage,
-            "data": {
+            # Runtime schema validation REJECTS a null for a field declared `type: number|string`,
+            # even when `required: false` — the whole candidate is dropped (`candidate_rejected`),
+            # silently. An optional field that does not apply must be OMITTED, never set to None.
+            "data": {k: v for k, v in {
                 "score": th["score"], "leverage": leverage, "direction": th["direction"],
                 "regime": th["regime"], "er": th["er"], "reasons": th["reasons"][:8],
                 "structure": th["structure"], "oiVelocityPct": th["oi_velocity_pct"],
                 "pullbackPct": th["pullback_pct"], "rangePos": th["range_pos"],
                 "fundingApr": th["funding_apr"], "heldAssets": sorted(held),
-            },
+            }.items() if v is not None},
         })
 
     baseline = "yes" if prev_oi else "NO (first tick — trend entries wait for it)"
