@@ -39,6 +39,24 @@ import time
 
 import scoring
 
+def _sm_row_matches(row, token, target):
+    """True if leaderboard row `row` is the market for `target`.
+
+    `leaderboard_get_markets` returns BARE tickers (`NVDA`) plus a separate `dex`
+    field, while our universe carries the qualified name (`xyz:NVDA`). A raw
+    `token != target` compare therefore NEVER matches an xyz name, so every xyz
+    instrument reads as "no smart-money data" and a hard SM gate blocks it
+    permanently. Compare bare tickers, and require the dex to agree so a main-DEX
+    name cannot cross-match its xyz twin (e.g. main `GOLD` vs `xyz:GOLD`)."""
+    tok = str(token or "").upper()
+    want = str(target or "").upper()
+    if tok.split(":", 1)[-1] != want.split(":", 1)[-1]:
+        return False
+    row_xyz = (str((row or {}).get("dex", "")).strip().lower() == "xyz"
+               or tok.startswith("XYZ:"))
+    return row_xyz == want.startswith("XYZ:")
+
+
 
 # v2 defaults (hedgehog-producer.py / hedgehog-config.json)
 _UNIVERSE_DEFAULT = ["BTC", "ETH", "SOL"]
@@ -131,7 +149,7 @@ def _get_sm_direction(ctx, coin):
         if not isinstance(m, dict):
             continue
         token = str(m.get("token", m.get("coin", m.get("asset", "")))).upper()
-        if token != coin.upper():
+        if not _sm_row_matches(m, token, coin):
             continue
         found = True
         d = str(m.get("direction", "")).upper()

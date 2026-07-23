@@ -60,6 +60,28 @@ def candle_key_bug(text):
             if _CANDLE_ACCESS[lng].search(text) and not _CANDLE_ACCESS[sht].search(text)]
 
 
+# ── dual-DEX (main / xyz) blindness — both failures are SILENT ───────────────
+_RAW_TOKEN_CMP = re.compile(r'^[ \t]*if token\s*(?:!=|==)\s*\w+(?:\.upper\(\))?:[ \t]*$', re.M)
+_TOP_ASSET_POS = re.compile(r'\.get\(\s*["\']assetPositions["\']')
+_DUAL_SECTIONS = re.compile(r'["\']main["\']\s*,\s*["\']xyz["\']')
+
+
+def dex_blind_offenders(text):
+    """Hyperliquid is two sub-DEXes behind one wallet. Two idioms are silently wrong
+    for every `xyz:` name; neither raises, so the strategy just never trades or
+    re-opens what it holds. Returns a list of message strings."""
+    out = []
+    if _RAW_TOKEN_CMP.search(text):
+        out.append("leaderboard rows carry a BARE ticker + a `dex` field, but the universe "
+                   "carries `xyz:NAME` — compare bare tickers and require the dex to agree "
+                   "(`token != coin` never matches an xyz name → no smart-money data → gated out).")
+    if _TOP_ASSET_POS.search(text) and not _DUAL_SECTIONS.search(text):
+        out.append("strategy_get_clearinghouse_state returns {'main': ..., 'xyz': ...} — read "
+                   "assetPositions from BOTH sections. Off the top level it is always empty, so "
+                   "the scanner re-opens names it already holds.")
+    return out
+
+
 def _flat_wallet_env(pkg: Path, sid) -> str:
     """Mirror the deployer's flat-instance synthesis: bind wallet_env to the ${...} the flat
     runtime.yaml already uses for its wallet, falling back to <ID>_WALLET."""
@@ -208,6 +230,8 @@ def validate(pkg: Path) -> list:
         for lng, sht in candle_key_bug(src):
             errs.append(f"{py.name}: candles are keyed `o/h/l/c/v` — use `candle['{sht}']`, not `{lng}` "
                         f"(no such key → always None → the scan emits nothing).")
+        for msg in dex_blind_offenders(src):
+            errs.append(f"{py.name}: {msg}")
     for f in pkg.rglob("*"):
         if f.is_file() and f.suffix in (".py", ".yaml", ".md"):
             t = f.read_text(errors="ignore")

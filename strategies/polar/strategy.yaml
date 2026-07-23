@@ -7,8 +7,7 @@
 schema_version: 1
 
 id: polar
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Polar — ETH Alpha Hunter"
   emoji: "🧊"

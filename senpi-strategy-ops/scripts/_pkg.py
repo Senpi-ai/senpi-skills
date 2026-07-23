@@ -25,6 +25,28 @@ _VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _MARGIN_PCT_RE = re.compile(r"margin_?pct", re.I)
 
 
+# ── dual-DEX (main / xyz) blindness — both failures are SILENT ───────────────
+_RAW_TOKEN_CMP = re.compile(r'^[ \t]*if token\s*(?:!=|==)\s*\w+(?:\.upper\(\))?:[ \t]*$', re.M)
+_TOP_ASSET_POS = re.compile(r'\.get\(\s*["\']assetPositions["\']')
+_DUAL_SECTIONS = re.compile(r'["\']main["\']\s*,\s*["\']xyz["\']')
+
+
+def dex_blind_offenders(text):
+    """Hyperliquid is two sub-DEXes behind one wallet. Two idioms are silently wrong
+    for every `xyz:` name; neither raises, so the strategy just never trades or
+    re-opens what it holds. Returns a list of message strings."""
+    out = []
+    if _RAW_TOKEN_CMP.search(text):
+        out.append("leaderboard rows carry a BARE ticker + a `dex` field, but the universe "
+                   "carries `xyz:NAME` — compare bare tickers and require the dex to agree "
+                   "(`token != coin` never matches an xyz name → no smart-money data → gated out).")
+    if _TOP_ASSET_POS.search(text) and not _DUAL_SECTIONS.search(text):
+        out.append("strategy_get_clearinghouse_state returns {'main': ..., 'xyz': ...} — read "
+                   "assetPositions from BOTH sections. Off the top level it is always empty, so "
+                   "the scanner re-opens names it already holds.")
+    return out
+
+
 def margin_fraction_offenders(doc, path=""):
     """Margin-percent keys whose value is a fraction (0,1] where a PERCENT (0,100] is required
     (`marginPct: 0.10` meant 10 — 100× too small). Walks the whole runtime doc (scanners[].inputs,
@@ -261,6 +283,11 @@ def validate(pkg: Package) -> list:
             ep = inst.runtime_path.parent / sub / es.get("entrypoint", "scan.py")
             if not ep.is_file():
                 errs.append(f"{tag}: scanner entrypoint {ep.name!r} not found at {ep.parent}")
+            else:
+                # dual-DEX blindness — silent for every `xyz:` name (bobcat/gibbon, 2026-07-23)
+                for _py in sorted(ep.parent.rglob("*.py")):
+                    for _msg in dex_blind_offenders(_py.read_text(errors="ignore")):
+                        errs.append(f"{tag}: {_py.name}: {_msg}")
             # the runtime engine requires a non-empty signal_data_schema MAP on the external_scanner,
             # as a sibling of `inputs` (not nested inside it) — the other bake-off tripwire. Surface it
             # here, pre-funding, instead of at runtime-create after the wallet is already funded.

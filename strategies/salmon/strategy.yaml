@@ -8,8 +8,7 @@
 schema_version: 1
 
 id: salmon
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Salmon — RSI Mean-Reversion"
   emoji: "🐟"

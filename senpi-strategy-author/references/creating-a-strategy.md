@@ -84,6 +84,16 @@ No I/O, no MCP, no clock, no state — just functions over candles/numbers, so i
 
 > **Candle schema (`market_get_asset_data`):** each candle is keyed `t,o,h,l,c,v` (+ `T,s,i,n`) — short OHLCV, **string** values. Close is `c`; read fields as `float(candle["c"])`, not `candle["close"]` (no such key).
 
+> **Two sub-DEXes, one wallet (`main` + `xyz`).** Hyperliquid lists ~230 crypto perps on the main DEX and ~100 equity/commodity/index perps on the **xyz** sub-DEX (a large share of volume). They are two views of ONE cross-margined wallet, and each API names them differently. Getting this wrong is **silent** — no exception, no log, the strategy just never trades:
+>
+> | Read | Shape | Consequence of getting it wrong |
+> |---|---|---|
+> | `market_list_instruments(dex="")` | returns **BOTH** DEXes; xyz names carry the `xyz:` prefix in `name`, main names are bare. There is no `dex` field. | xyz names leak into your "main" pool → duplicated universe + misclassified asset class. Route by prefix, or pass an explicit `dex`. |
+> | `leaderboard_get_markets` | **BARE** ticker in `token` (`NVDA`) + a separate **`dex`** field (`"xyz"`). | `if token != coin` never matches `xyz:NVDA` → every xyz name reads as "no smart-money data" → a hard SM gate blocks the whole universe. Compare bare tickers **and** require the dex to agree, so main `GOLD` can't cross-match `xyz:GOLD`. |
+> | `strategy_get_clearinghouse_state` | `{"main": {...}, "xyz": {...}}` — `assetPositions` + `marginSummary` live **inside each section**. | Reading `assetPositions` off the top level is always empty → the scanner thinks it holds nothing and re-opens names it already has. Enumerate both sections; take `accountValue` via `max()`, **never** sum (one wallet, two views — summing double-counts and sizes 2×). |
+>
+> Emit the **qualified** name (`xyz:NVDA`) as `signal.asset` — a bare xyz ticker fails at open. `strategies/bison` is the reference implementation for all three.
+
 ```python
 def score(asset, candles, extra, inputs):    # candles/numbers in, thesis dict out
     if not _qualifies(...): return None
