@@ -1107,6 +1107,193 @@ def group_strategies(strategies, meta):
 
 
 # ──────────────────────────────────────────────────────────────── orchestration
+# ── "why hasn't it traded?" — the idle diagnosis ─────────────────────────────
+# The #1 support complaint by volume (M192299 asked five times over three days; M192397, M298631, M3601,
+# M347101, M193436). It belongs HERE, not in improve-trades: it is a LIVE-STATE question about whether a
+# strategy is doing its job right now, and this skill already owns the mandate — "a strategy is doing its
+# job when its behavior matches its design, even if that design means idle right now."
+#
+# Liveness alone can't answer it: `senpi status` reports the runtime, and a runtime can be perfectly
+# healthy while every candidate its scanner produces is rejected downstream (that is exactly how `ibis`
+# shipped 100% dead while every surface said healthy). The verdict needs the EVENT RING, where
+# `signal.outcome` carries the runtime's own ruling on each candidate.
+#
+# The verdict must separate "correctly selective" from "actually broken" — getting that backwards makes
+# users tear down working strategies (the LION incidents). A strategy that is scanning and simply hasn't
+# found a setup reads `waiting`, never `broken`.
+EVENTS_FIXTURE_ENV = "SENPI_EVENTS_FIXTURE"   # offline test hook: JSON {"<runtime_id>": [entries…]}
+EVENTS_PULL = 500                             # recent ring depth per runtime
+EVENTS_CALL_TIMEOUT_S = 8                     # wraps a double CLI boot + the read
+_IDLE_SIGNAL_EVENT = "signal.outcome"
+_IDLE_OPENED_EVENT = "position.opened"
+_IDLE_FAILED_EVENT = "order.failed"
+_IDLE_REJECT_SAMPLE_CAP = 5
+_IDLE_CURRENT_STATUSES = ("ACTIVE", "PAUSED")
+
+
+def _idle_is_current(status):
+    """True when the strategy is part of the CURRENT book (active/paused). A missing status defaults to
+    current — an ACTIVE-by-default row that omitted the field."""
+    return str(status or "ACTIVE").strip().upper() in _IDLE_CURRENT_STATUSES
+
+
+def _event_attr(ev, *keys, default=None):
+    """Read a dotted `senpi.*` attribute off an event's `attrs` map (fail-soft)."""
+    attrs = ev.get("attrs") if isinstance(ev, dict) else None
+    if isinstance(attrs, dict):
+        for k in keys:
+            if k in attrs:
+                return attrs[k]
+    return default
+
+
+def _fetch_events(runtime_id, meta):
+    """Read a runtime's on-disk event ring -> [event dicts]. FAIL-OPEN in every branch (missing CLI /
+    non-zero exit / unknown method / bad JSON -> [] + a one-time note); NEVER raises. Mirrors the
+    liveness reader's conventions, including the `_telemetry_dead` short-circuit so a host without
+    `openclaw` doesn't spawn a process per strategy just to fail."""
+    if not runtime_id or meta.get("_telemetry_dead"):
+        return []
+    fixture = os.environ.get(EVENTS_FIXTURE_ENV)
+    if fixture:                                   # offline path — no subprocess
+        try:
+            with open(fixture) as fh:
+                data = json.load(fh)
+            entries = data.get(str(runtime_id), []) if isinstance(data, dict) else []
+            return [e for e in entries if isinstance(e, dict)]
+        except Exception as e:  # noqa — a bad fixture is fail-open too
+            _note_telemetry_unavailable(meta, f"events fixture unreadable ({e})")
+            return []
+    try:
+        proc = subprocess.run(["openclaw", "senpi", "events", "--runtime", str(runtime_id),
+                               "--json", "-l", str(EVENTS_PULL)],
+                              capture_output=True, text=True, timeout=EVENTS_CALL_TIMEOUT_S)
+    except FileNotFoundError:
+        meta["_telemetry_dead"] = True
+        _note_telemetry_unavailable(meta, "openclaw CLI not found — scanner activity unverified")
+        return []
+    except Exception as e:  # noqa — timeout / OS error
+        _note_telemetry_unavailable(meta, f"event-log read failed ({e})")
+        return []
+    if proc.returncode != 0:
+        err = (proc.stderr or "")[:200]
+        if "unknown method" in err.lower() or "getevents" in err.lower():
+            meta["_telemetry_dead"] = True
+            _note_telemetry_unavailable(meta, "runtime build predates the event log — scanner activity unverified")
+        else:
+            _note_telemetry_unavailable(meta, f"event-log read exit {proc.returncode} ({err.strip()})")
+        return []
+    try:
+        parsed = json.loads(proc.stdout or "{}")
+    except Exception as e:  # noqa
+        _note_telemetry_unavailable(meta, f"event-log JSON parse failed ({e})")
+        return []
+    if not isinstance(parsed, dict) or parsed.get("ok") is False:
+        return []
+    entries = parsed.get("entries") or parsed.get("events") or []
+    return [e for e in entries if isinstance(e, dict)]
+
+
+def idle_verdict(strat, events, telemetry_ok):
+    """One strategy's idle verdict from its event ring. PURE — takes already-fetched events, so it is
+    unit-testable with no MCP and no subprocess.
+
+      traded            opened positions in the window — the premise is wrong
+      blocked           candidates produced, runtime rejected them ALL -> reason_code is the answer
+      accepted_no_open  accepted but nothing opened (execution / order failure)
+      waiting           scanning normally, nothing cleared the bar — SELECTIVE BY DESIGN, not broken
+      silent            no events at all — cannot CONFIRM it is scanning
+      no_runtime        funded with no runtime bound — it cannot scan
+      unknown           event log unreadable (fail-open; NOT evidence of a fault)
+    """
+    label = strat.get("label") or strat.get("strategy_id") or "unknown"
+    tally = {"accepted": 0, "rejected": 0, "blocked": 0, "error": 0}
+    reasons, samples = {}, []
+    opened = failed = 0
+    last_ts = None
+    for ev in events or []:
+        name = str(ev.get("name") or "")
+        ts = _num(ev.get("ts"))
+        if ts is not None and (last_ts is None or ts > last_ts):
+            last_ts = ts
+        if name == _IDLE_OPENED_EVENT:
+            opened += 1
+        elif name == _IDLE_FAILED_EVENT:
+            failed += 1
+        elif name == _IDLE_SIGNAL_EVENT:
+            result = str(_event_attr(ev, "senpi.outcome.result") or "").lower()
+            if result in tally:
+                tally[result] += 1
+            code = str(_event_attr(ev, "senpi.outcome.reason_code") or "unknown")
+            if result in ("rejected", "blocked", "error"):
+                reasons[code] = reasons.get(code, 0) + 1
+                if len(samples) < _IDLE_REJECT_SAMPLE_CAP:
+                    samples.append({"asset": _event_attr(ev, "senpi.signal.asset", "senpi.asset"),
+                                    "direction": _event_attr(ev, "senpi.signal.direction"),
+                                    "score": _num(_event_attr(ev, "senpi.signal.score")),
+                                    "result": result, "reason_code": code, "ts": ts})
+    produced = sum(tally.values())
+
+    if not _idle_is_current(strat.get("status")):
+        verdict, detail = "not_current", f"status {strat.get('status')} — not part of the current book"
+    elif not strat.get("runtime_id"):
+        verdict, detail = "no_runtime", ("funded but no runtime is bound — it cannot scan at all "
+                                         "(redeploy via senpi-strategy-ops)")
+    elif not telemetry_ok:
+        verdict, detail = "unknown", ("event log unreadable from here — cannot diagnose "
+                                      "(this is NOT evidence of a fault)")
+    elif opened > 0:
+        verdict, detail = "traded", f"opened {opened} position(s) recently — it IS trading"
+    elif tally["accepted"] > 0:
+        verdict, detail = ("accepted_no_open",
+                           f"{tally['accepted']} signal(s) accepted but no position opened"
+                           + (f"; {failed} order(s) failed" if failed else ""))
+    elif tally["rejected"] or tally["blocked"] or tally["error"]:
+        top = max(reasons.items(), key=lambda kv: kv[1])[0] if reasons else "unknown"
+        verdict, detail = ("blocked",
+                           f"the scanner produced {produced} candidate(s) and the runtime rejected every "
+                           f"one — most common reason: {top}")
+    elif events:
+        verdict, detail = ("waiting", "scanning normally; no candidate cleared its entry bar "
+                                      "(selective by design, not broken)")
+    else:
+        verdict, detail = ("silent", "no runtime events recorded — cannot confirm it is scanning")
+
+    return {"label": label, "status": strat.get("status"), "verdict": verdict, "verdict_detail": detail,
+            "mandate": strat.get("mandate"), "signals": tally, "signals_produced": produced,
+            "reason_codes": reasons, "positions_opened": opened, "orders_failed": failed,
+            "events_seen": len(events or []), "last_event_ts": last_ts, "sample_rejections": samples}
+
+
+def idle_reads(strategies, meta):
+    """Per-strategy idle diagnosis across the current book. Never probes a closed strategy (its ring is
+    torn down with its runtime). Fail-open per strategy."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _worker(strat):
+        priv = {"_telemetry_dead": meta.get("_telemetry_dead", False), "warnings": []}
+        try:
+            events = (_fetch_events(strat.get("runtime_id"), priv)
+                      if _idle_is_current(strat.get("status")) else [])
+            ok = not priv.get("_telemetry_dead") and not priv.get("warnings")
+            return {"read": idle_verdict(strat, events, ok), "meta": priv}
+        except Exception as e:  # noqa — one strategy must not sink the diagnosis
+            priv["warnings"].append(f"idle read failed: {e}")
+            return {"read": idle_verdict(strat, [], False), "meta": priv}
+
+    reads = []
+    if strategies:
+        with ThreadPoolExecutor(max_workers=min(6, len(strategies))) as ex:
+            for res in ex.map(_worker, strategies):     # preserves input order
+                reads.append(res["read"])
+                if res["meta"].get("_telemetry_dead"):
+                    meta["_telemetry_dead"] = True
+                for w in res["meta"].get("warnings", []):
+                    if w not in meta.setdefault("warnings", []):
+                        meta["warnings"].append(w)
+    return reads
+
+
 def run(client, want_market=True):
     meta = {"warnings": [], "real_time": True, "force_fetch": True}
     embedded, portfolio_totals = fetch_embedded(client, meta)
@@ -1413,8 +1600,42 @@ def _dry(client):
     return out
 
 
-_STEPS = ("money", "strategies", "positions", "all")
-_STEP_FNS = {"money": step_money, "strategies": step_strategies, "positions": step_positions}
+def step_idle(client, want_market=True, state_path=None):
+    """STEP `idle` — "why hasn't it traded?" (the #1 support question by volume).
+
+    A LIVE-STATE question, which is why it lives here and not in the retrospective skill: it asks whether
+    a strategy is doing its job RIGHT NOW, and this engine already owns the mandate that defines what
+    "its job" is. Each current strategy comes back with a verdict + the evidence behind it.
+
+    Cheap by construction — the strategy read is already in state (self-heals if not), and the only new
+    work is one event-ring read per current runtime, fanned out and fail-open."""
+    if state_path is None:
+        state_path = _default_state_path()
+    state = _load_state(state_path)
+    meta = _fresh_meta()
+    _embedded, strategies, _totals = _ensure_full_strategies_in_state(client, state, want_market, meta)
+    for w in state.get("meta_warnings", []):
+        if w not in meta["warnings"]:
+            meta["warnings"].append(w)
+    reads = idle_reads(strategies, meta)
+    current = [r for r in reads if r["verdict"] != "not_current"]
+    by_verdict = {}
+    for r in current:
+        by_verdict[r["verdict"]] = by_verdict.get(r["verdict"], 0) + 1
+    meta["strategy_count"] = len(strategies)
+    meta["current_strategy_count"] = len(current)
+    meta.pop("_telemetry_dead", None)
+    meta.pop("_telemetry_warned", None)
+    if not strategies:
+        meta["degraded"] = "no strategies deployed yet — nothing to diagnose"
+    return {"idle_reads": current,
+            "idle_summary": {"by_verdict": by_verdict, "current_strategies": len(current)},
+            "meta": meta}
+
+
+_STEPS = ("money", "strategies", "positions", "idle", "all")
+_STEP_FNS = {"money": step_money, "strategies": step_strategies,
+             "positions": step_positions, "idle": step_idle}
 
 
 def _all_and_persist(client, want_market, state_path):

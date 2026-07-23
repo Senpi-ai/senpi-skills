@@ -1,0 +1,6 @@
+{
+  "s-main": [
+    {"name": "scan.tick", "ts": 1000, "attrs": {}},
+    {"name": "scan.tick", "ts": 2000, "attrs": {}}
+  ]
+}

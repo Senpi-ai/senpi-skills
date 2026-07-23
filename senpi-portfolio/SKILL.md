@@ -7,7 +7,7 @@ description: >-
   with positions as evidence. Use this skill FIRST for ANY portfolio / strategies / positions / balances
   / PnL / trade-history question, BEFORE any raw strategy_get_clearinghouse_state / account_get_portfolio
   / strategy_list MCP call. Use for "analyze my strategies", "how are my strategies doing", "analyze my
-  portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle", and
+  portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle", and "why hasn't it traded / why no trades today / it hasn't traded in 3 days / no new positions / is the scanner even running" (the `idle` step — separates selective-by-design from a runtime that is rejecting every candidate), and
   "are my open positions protected? / do they have a stop-loss?", and "tell me about my strategies and
   their DSL / what tier are my positions in?", and "what happened to my closed [asset] position / did my
   trade actually go through / do I still hold X" — the authority for position facts, OPEN and CLOSED, which
@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.9.0"
+  version: "1.10.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -188,6 +188,41 @@ it as the required next step (and its verdict, if you can run it), then close.py
 **"where am I leaking / did a stop fail / any halts / exit quality"**, hand to `senpi-improve-trades` (it
 reads the runtime event log for protection gaps, risk halts, failed orders, and exit quality). Reference the
 right tool to *confirm* — never re-derive its analysis here.
+
+## "Why hasn't it traded?" — the idle diagnosis
+
+The **#1 support complaint by volume** (one user asked five times over three days). It belongs here
+because it is a **live-state** question — *is this strategy doing its job right now* — and this skill
+already owns the mandate that defines the job. (`senpi-improve-trades` is the retrospective counterpart:
+*how did my CLOSED trades do*. It hands this question here.)
+
+**Liveness alone cannot answer it.** `senpi status` reports the *runtime*, and a runtime can be perfectly
+healthy while every candidate its scanner produces is rejected downstream. Run the step that reads the
+runtime's own ruling on each candidate:
+
+```sh
+python3 scripts/portfolio.py idle
+```
+
+| Verdict | Meaning | What to say — and the lever |
+|---|---|---|
+| `waiting` | Scanning normally; nothing cleared its entry bar. **Selective by design.** | *"It's being picky, not broken."* **Judge it against its mandate** (`profile.description`) — a strategy built to be selective, sitting out a quiet market, is doing its job. **Offer** to lower the entry bar; never imply a fault. |
+| `blocked` | Candidates produced and the runtime **rejected every one**. | **The `reason_code` is the answer** — `no_slots` (all slots held) · `no_margin` (fund it) · `risk_gate_*` (that gate) · `asset_banned` · a schema/validation code (a package bug → `senpi-strategy-author`). Give the count and the code. |
+| `accepted_no_open` | Signals accepted, nothing opened; often with `order.failed`. | An **execution** problem, not a signal problem → `senpi-strategy-ops`. |
+| `traded` | It HAS opened positions recently. | The premise is wrong — say so plainly, show what it opened, ask what they expected. |
+| `no_runtime` | Funded, but no runtime bound — it cannot scan. | The real fault → `senpi-strategy-ops` to redeploy. |
+| `silent` | No events recorded. | *Cannot confirm* it's scanning. Say exactly that — **do not** assert it's broken. |
+| `unknown` | Event log unreadable from here. | Absence of telemetry is **not** evidence of a fault. Say the read failed; don't diagnose. |
+
+**The one mistake that matters: never turn `waiting` into an alarm.** A selective strategy in a quiet
+market is working perfectly — that is the same rule as "judge against the mandate" below, applied to
+activity instead of PnL. Calling it broken is how users tear down strategies that were fine.
+
+> **Worked example.** `ibis` deployed with a $1,400 budget and never traded. Every surface said healthy —
+> liveness reports the runtime, and the runtime *was* running. The event ring said what nothing else did:
+> the scanner produced candidates every tick and the runtime rejected **all** of them (an optional signal
+> field was sent as `null`, which fails schema validation and drops the whole candidate silently). That is
+> verdict `blocked` — two hours of manual diagnosis, or one `idle` run.
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
