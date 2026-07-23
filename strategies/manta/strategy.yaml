@@ -1,0 +1,40 @@
+# Manta — Multi-Timeframe Structure (FX). A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. The catalog's first FX template: top-down
+# structure trading on Hyperliquid's xyz: currency pairs. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: manta
+version: "1.0.0"
+
+catalog:
+  name: "Manta — Multi-Timeframe Structure (FX)"
+  emoji: "🐟"
+  tagline: "Top-down structure trading on FX pairs (EUR / GBP / JPY), the way it's taught: the Daily, 4-hour and 1-hour charts must all agree on trend direction, the 4-hour marks the area price is expected to retest, and the 15-minute times the entry off a break of structure inside that zone. If the timeframes disagree, or price isn't at the level, or there's no 15-minute trigger, it does nothing. Long & short, low leverage scaled to how small FX moves are."
+  belief_plain: "This is how structure traders actually read a chart: start wide, then zoom in. First it checks that the Daily, 4-hour and 1-hour charts are all pointing the same way — if they disagree, there's no trade. Then on the 4-hour it marks the zone price is likely to pull back to. Then it waits, on the 15-minute chart, for price to actually reach that zone AND break in the trend direction before entering. Three things have to line up: direction, location, and timing. Miss any one and it stands aside. It trades the major currency pairs, which move in small percentages, so it uses the leverage that matches."
+  thesis: "Multi-timeframe / ICT-style structure trading is one of the largest retail methodologies and the catalog had no expression of it — nor any FX template at all, despite Hyperliquid listing EUR, GBP and JPY. Manta encodes the top-down cascade faithfully: each timeframe answers exactly one question (higher frames = bias, 4h = location, 15m = timing) and is not allowed to answer another, which is the discipline the method is really about. The confluence is mandatory, not additive — a signal requires all three, because a 15m break outside the zone is noise and a zone touch with no break is a falling knife. Thresholds are FX-scaled throughout: a 0.5% daily move is a big FX day, so a crypto-sized structure filter would call every currency chart neutral forever."
+  group: single-asset
+  archetype: breakout_momentum
+  sub_style: market_structure
+  asset_classes: [fx]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 8
+  max_slots: 2
+  min_budget: 200
+  assets: ["xyz:EUR", "xyz:GBP", "xyz:JPY"]
+  tags: [fx, forex, multi-timeframe, mtf, market-structure, ict, smc, top-down, break-of-structure, area-of-interest, eur, gbp, jpy, long-short]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: MANTA_WALLET
+    funding_share: 1.0

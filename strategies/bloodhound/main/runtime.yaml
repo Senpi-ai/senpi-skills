@@ -1,0 +1,152 @@
+# ── BLOODHOUND · single instance — Chart-Pattern Scanner ─────────────────────
+# Scans a dynamic universe for the patterns retail traders actually draw — double
+# bottoms, double tops, and intact higher-high / lower-low structure — and trades
+# whichever direction the pattern points. Direction is never a preference here.
+name: bloodhound-main
+group: bloodhound
+version: 1.0.0
+description: >
+  BLOODHOUND — Chart-Pattern Scanner. Derives a liquid universe from live instruments,
+  then hunts each name's 1h chart for a recognisable setup. Swing pivots are found with a
+  symmetric fractal window, and from those: a DOUBLE BOTTOM (two lows at the same level
+  with a peak between) goes LONG once price closes back above that peak; a DOUBLE TOP
+  goes SHORT on a close below the intervening trough; intact HIGHER-HIGH / HIGHER-LOW
+  structure is a long continuation and LOWER-LOW / LOWER-HIGH a short one. Every pattern
+  must clear a depth floor and a magnitude floor so noise cannot manufacture one, volume
+  expansion and 4h trend agreement add conviction, and each coin+pattern fires at most
+  once per TTL. Long & short, 2-5x, DSL-only exits.
+
+strategy:
+  wallet: "${BLOODHOUND_WALLET}"
+  slots: 3
+  margin_pct: 10                          # baseline %; scan emits the conviction-tier marginPct per signal
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: bloodhound_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 1800                 # 30m on a 1h primary. A pattern that is real at 12:00
+                                           # is still real at 12:30 — scanning faster buys nothing
+                                           # but fees.
+    timeout_seconds: 240                   # instruments + candles per universe name
+    default_signal_validity_seconds: 3600  # 2x tick
+    state_history_max_count: 150           # dedup ledger + per-tick scan-results history
+    inputs:
+      universeVolFloorUsd: 20000000        # $20M+ 24h notional
+      maxUniverseNames: 25
+      includeXyz: false                    # true also hunts patterns on xyz: equities/commodities
+      excludeAssets: ["USDC", "USDT"]
+      primaryInterval: "1h"                # the chart the patterns are drawn on
+      minScore: 6
+      marginPctBase: 10                    # PERCENT of withdrawable (0,100]; tiered x1.25 / x1.5
+      maxSlots: 3
+      leverageDefault: 3
+      leverageMin: 2
+      leverageMax: 5
+      signalTtlSeconds: 21600              # 6h — a pattern stays on the chart; fire it ONCE
+      # ── pattern geometry ──
+      pivotWindow: 2                       # k-bar fractal: a pivot needs k bars either side
+      minCandles: 40
+      levelTolerancePct: 1.8               # how close two lows must be to count as "the same level"
+      minPivotSeparation: 4                # bars between the two tests — closer is one event, not two
+      maxPatternAgeBars: 14                # older than this and the setup has moved on
+      minPatternDepthPct: 2.0              # shallower than this is noise, not a pattern
+      goodDepthPct: 4.0
+      minStructureMovePct: 1.5             # continuation structure must STEP by this much. Without
+                                           # it, random data produces "lower lows" about half the
+                                           # time (measured: 0/200 false positives with it on).
+      requireConfirmed: true               # only trade the neckline break, never the anticipation
+      minVolumeRatio: 1.15
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      pattern: { type: string }
+      confirmed: { type: boolean, required: false }
+      depthPct: { type: number, required: false }
+      neckline: { type: number, required: false }
+      volRatio: { type: number, required: false }
+      trend4h: { type: string, required: false }
+      reasons: { type: array, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: bloodhound_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already found, confirmed and deduped the pattern
+    scanners: [bloodhound_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # a neckline break is a fast move; a resting maker order
+                                           # misses exactly the fill the pattern predicted
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: bloodhound_main_signals
+
+# ── EXIT (DSL — pattern-target ladder) ───────────────────────────────────────
+# A completed pattern has a measured move, and most of it arrives early — so this locks
+# sooner than a trend-rider, then widens for the ones that keep going. Time-cuts off;
+# weak_peak_cut releases a "confirmed" break that immediately did nothing, which is the
+# most common way a pattern trade fails.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+      interval_in_minutes: 480
+    weak_peak_cut:
+      enabled: true                        # the break failed to follow through -> release it
+      interval_in_minutes: 90
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 16.0                   # a failed pattern invalidates fast — the neckline is right there
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 7, lock_hw_pct: 0 }
+        - { trigger_pct: 13, lock_hw_pct: 30 }
+        - { trigger_pct: 22, lock_hw_pct: 50 }
+        - { trigger_pct: 36, lock_hw_pct: 65 }
+        - { trigger_pct: 55, lock_hw_pct: 78 }
+
+# ── RISK guard rails (moderate) ──
+risk:
+  data_retention_seconds: 259200           # 72h
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 4                  # a scanner over 25 names must not open all day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 3600
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 21600       # 6h — matches the pattern dedup TTL
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

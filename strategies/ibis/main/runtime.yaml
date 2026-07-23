@@ -1,0 +1,159 @@
+# ── IBIS · single instance — Trend/Range Regime-Switcher ──────────────────────
+# Two strategies behind one gate. Classify the 4h regime first (Kaufman efficiency
+# ratio + structure), then apply the entry rule that belongs to THAT regime:
+# continuation when trending (confirmed by rising open interest), band-edge fade when
+# ranging (skipped outright when funding is extreme). Neither rule ever runs in the
+# other's regime — which is the whole point.
+name: ibis-main
+group: ibis
+version: 1.0.0
+description: >
+  IBIS — Trend/Range Regime-Switcher. Primary timeframe 4h. Each tick it derives a
+  liquid universe from live instruments, then for each name computes the Kaufman
+  EFFICIENCY RATIO (net move / path travelled): a high ratio means the market is
+  travelling, a low one means it is retracing itself. Above the trend threshold with
+  confirming higher-high/lower-low structure it takes a CONTINUATION entry — hard-gated
+  on OI VELOCITY so it only joins moves that new money is committing to, and preferring
+  a shallow pullback over the extreme. Below the range threshold it FADES the band edge
+  — hard-gated on funding, skipping the trade entirely when funding is extreme, because
+  crowded funding is the tell that a range is about to break. Between the two thresholds
+  is a deliberate NO-TRADE band. Long & short, 2-5x, DSL-only exits.
+
+strategy:
+  wallet: "${IBIS_WALLET}"
+  slots: 3
+  margin_pct: 10                          # baseline %; scan emits the conviction-tier marginPct per signal
+  default_leverage: 4                     # fallback; scan emits per-regime leverage (trend 4x / range 3x)
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: ibis_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 1800                 # 30m on a 4h primary timeframe. Deliberately slow: the
+                                           # regime is a slow variable, and a fast clock on a
+                                           # rotating universe is how a strategy pays its edge to fees.
+    timeout_seconds: 240                   # instruments + one 4h candle read per universe name
+    default_signal_validity_seconds: 3600  # 2x tick
+    state_history_max_count: 120           # OI snapshot (velocity baseline) + per-tick results
+    inputs:
+      universeVolFloorUsd: 25000000        # $25M+ 24h notional — deep enough to size into
+      maxUniverseNames: 18
+      includeXyz: false                    # crypto majors by default; true also scans xyz: names
+      excludeAssets: ["USDC", "USDT"]
+      minScore: 6
+      marginPctBase: 10                    # PERCENT of withdrawable (0,100]; tiered x1.25 / x1.5
+      maxSlots: 3
+      leverageTrend: 4                     # a confirmed trend earns more size than a fade
+      leverageRange: 3
+      leverageMin: 2
+      leverageMax: 5
+      # ── regime classification ──
+      erLookback: 20                       # 20 x 4h = ~3.3 days of path
+      trendErThreshold: 0.36               # >= this AND confirming structure -> TREND
+      rangeErThreshold: 0.20               # <= this -> RANGE. Between the two -> NO TRADE.
+      strongErThreshold: 0.55
+      # ── trend rule (OI-confirmed continuation) ──
+      minOiVelocityPct: 0.35               # OI must be RISING tick-over-tick: new money, not covering
+      strongOiVelocityPct: 1.5
+      idealPullbackPct: 1.2                # prefer a shallow retrace over buying the extreme
+      maxPullbackPct: 4.0                  # deeper than this is a reversal, not a continuation
+      # ── range rule (funding-gated fade) ──
+      rangeBars: 24                        # 24 x 4h = 4 days of range
+      rangeBuyBelowPct: 0.22               # long in the bottom 22% of the range
+      rangeSellAbovePct: 0.78              # short in the top 22%
+      minRangeWidthPct: 3.0                # a narrower range cannot clear fees on the round trip
+      extremeFundingApr: 35.0              # |APR| >= this -> SKIP the fade entirely
+      calmFundingApr: 12.0
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      regime: { type: string }
+      er: { type: number, required: false }
+      reasons: { type: array, required: false }
+      structure: { type: string, required: false }
+      oiVelocityPct: { type: number, required: false }
+      pullbackPct: { type: number, required: false }
+      rangePos: { type: number, required: false }
+      fundingApr: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: ibis_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already classified the regime and gated the entry
+    scanners: [ibis_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # maker-only rests and misses the fill on the move that
+                                           # triggered the signal (CREATE_ORDER_RESTING)
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: ibis_main_signals
+
+# ── EXIT (DSL — balanced, must serve BOTH regimes) ───────────────────────────
+# One ladder covers a continuation trade and a fade, so it is deliberately middle-of-the-road:
+# it locks earlier than a pure trend-rider (a fade's profit target is the middle of the range,
+# not a new high) while still letting a confirmed trend breathe past the first tiers.
+# Time-cuts off — exits are price action. weak_peak_cut stays as the thesis-validity check.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+      interval_in_minutes: 480
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 120             # 2h on a 4h timeframe — release a setup that never worked
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 18.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 7, lock_hw_pct: 0 }
+        - { trigger_pct: 14, lock_hw_pct: 28 }
+        - { trigger_pct: 24, lock_hw_pct: 48 }
+        - { trigger_pct: 38, lock_hw_pct: 62 }
+        - { trigger_pct: 58, lock_hw_pct: 76 }
+
+# ── RISK guard rails (moderate) ──
+risk:
+  data_retention_seconds: 259200           # 72h
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 4                  # a 4h timeframe should not be opening all day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 3600
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400       # 4h — one entry per name per primary-timeframe bar
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
