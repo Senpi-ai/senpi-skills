@@ -1012,6 +1012,64 @@
       "sort_order": 8
     },
     {
+      "id": "kingfisher",
+      "name": "Kingfisher — Classic Indicators (RSI + MACD)",
+      "emoji": "🐦",
+      "tagline": "The textbook RSI + MACD setup, supervised: a MACD signal-line crossover (12/26/9) on 1h candles triggers the entry, RSI(14) confirms (room above 50 for longs, below 50 for shorts) and vetoes it at the overbought/oversold extreme, 4h trend structure adds context. Trades a liquid-majors basket (BTC/ETH/SOL/BNB/XRP/AVAX/LINK/DOGE) long & short at 3-5x with a balanced DSL that locks profit from +8% ROE.",
+      "belief_plain": "The two indicators everyone knows, run for you the way the textbook says. It waits for MACD to cross its signal line, checks that RSI agrees and isn't already stretched, prefers trades that line up with the 4-hour trend, then trails a stop that starts protecting profit once you're up ~8%. Classic technical analysis on the big, liquid coins — no black box.",
+      "version": "1.0.0",
+      "thesis": "RSI and MACD are the single most-requested retail build ('a strategy based on RSI and MACD'), yet no template was positioned as one. Kingfisher is that on-ramp: a faithful, well-labelled crossover-plus-confirmation strategy on names deep enough to size into, with the runtime owning execution, sizing, slots, and a disciplined trailing exit — so a familiar chart setup becomes a supervised, always-on strategy instead of a manual watch.",
+      "tags": [
+        "rsi",
+        "macd",
+        "indicators",
+        "technical-analysis",
+        "crossover",
+        "oscillator",
+        "classic-ta",
+        "momentum",
+        "beginner",
+        "btc",
+        "eth",
+        "sol",
+        "multi-asset",
+        "long-short"
+      ],
+      "group": "momentum",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "indicator_crossover",
+      "sub_style_label": "Textbook technical setup: a MACD signal-line crossover triggers the entry, RSI confirms momentum, higher-timeframe trend adds context.",
+      "asset_classes": [
+        "major_alts"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "BNB",
+        "XRP",
+        "AVAX",
+        "LINK",
+        "DOGE"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "starter",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 900,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "branch": "main",
+      "sort_order": 9
+    },
+    {
       "id": "lemur",
       "name": "Lemur — Pre-IPO Perpetual Trend Follower",
       "emoji": "🦤",
@@ -1055,7 +1113,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 10
     },
     {
       "id": "lynx",
@@ -1106,7 +1164,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 11
     },
     {
       "id": "meerkat",
@@ -1150,7 +1208,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "orca",
@@ -1193,7 +1251,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "otter",
@@ -1237,7 +1295,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 14
     },
     {
       "id": "piranha",
@@ -1289,7 +1347,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 15
     },
     {
       "id": "python",
@@ -1333,7 +1391,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 16
     },
     {
       "id": "sailfish",
@@ -1383,7 +1441,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 17
     },
     {
       "id": "salamander",
@@ -1433,7 +1491,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 17
+      "sort_order": 18
     },
     {
       "id": "sheep",
@@ -1486,7 +1544,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 18
+      "sort_order": 19
     },
     {
       "id": "jaguar",
