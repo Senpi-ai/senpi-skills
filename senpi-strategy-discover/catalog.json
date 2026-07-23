@@ -758,6 +758,56 @@
       "sort_order": 3
     },
     {
+      "id": "bloodhound",
+      "name": "Bloodhound — Chart-Pattern Scanner",
+      "emoji": "🐕",
+      "tagline": "Scans the whole liquid market for the patterns traders actually draw and trades whichever way the pattern points. A double bottom goes long once price reclaims the peak between the two lows; a double top goes short on a break of the trough; intact higher-high or lower-low structure is traded as continuation. Every pattern must clear a depth and magnitude floor so noise can't manufacture one, and each coin+pattern fires at most once per 6 hours.",
+      "belief_plain": "Instead of watching one coin, this hunts the entire liquid market for recognisable chart setups — the double bottom (a W), the double top (an M), and clean staircase trends. It doesn't take the pattern on faith: the two lows have to be at genuinely the same level, the shape has to be deep enough to matter, and price has to actually break the confirmation line before it commits. It has no opinion on direction — if the chart says down, it shorts. And it won't keep re-entering the same setup, because a pattern that's on the chart today is still there tomorrow.",
+      "version": "1.0.0",
+      "thesis": "Pattern recognition is the most common way retail traders actually read a chart, and the catalog had no equivalent — the closest template reads market structure on a single name rather than hunting setups across a universe. The engineering that matters is not finding patterns but refusing bad ones: swing pivots come from a symmetric fractal window (so a pivot needs bars of hindsight on both sides and cannot be invented at the live edge), the two lows of a W must sit within a tolerance of each other and be separated by real time, the shape must clear a depth floor, and continuation structure must STEP by a minimum percent — without that last gate random data produces a clean 'lower low' about half the time. Direction is an output of the pattern, never an input.",
+      "tags": [
+        "pattern",
+        "chart-pattern",
+        "double-bottom",
+        "double-top",
+        "price-action",
+        "technical-analysis",
+        "structure",
+        "higher-high",
+        "scanner",
+        "dynamic-universe",
+        "dedup",
+        "multi-asset",
+        "long-short"
+      ],
+      "group": "momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "chart_pattern",
+      "sub_style_label": "Scans for classic chart patterns (double bottom/top, higher-high structure) and trades the direction the pattern points.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "starter",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 1800,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "branch": "main",
+      "sort_order": 4
+    },
+    {
       "id": "caracal",
       "name": "Caracal — Volatility Hedge Fund",
       "emoji": "🐱",
@@ -808,7 +858,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 4
+      "sort_order": 5
     },
     {
       "id": "condor",
@@ -850,7 +900,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 5
+      "sort_order": 6
     },
     {
       "id": "falcon",
@@ -893,7 +943,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 6
+      "sort_order": 7
     },
     {
       "id": "hedgehog",
@@ -942,7 +992,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 7
+      "sort_order": 8
     },
     {
       "id": "hornet",
@@ -1009,7 +1059,56 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 9
+    },
+    {
+      "id": "ibis",
+      "name": "Ibis — Trend/Range Regime-Switcher",
+      "emoji": "🦤",
+      "tagline": "Two strategies behind one gate. It first decides whether a market is TRENDING or RANGING on the 4-hour chart (Kaufman efficiency ratio + structure), then applies the entry rule that belongs to that regime: a continuation entry when trending — confirmed by RISING open interest, so it only joins moves new money is committing to — or a fade of the range edge when ranging, skipped outright when funding is extreme. In between the two is a deliberate no-trade band. Long & short, 2-5x.",
+      "belief_plain": "Most strategies only work in one kind of market: trend-followers get chopped to pieces in a sideways market, and mean-reverters get run over when a real trend starts. Ibis checks which kind of market it's in before deciding what to do. If price is genuinely travelling in one direction it joins the move — but only if open interest is rising, meaning new money is actually backing it. If price is just bouncing in a range it buys the bottom and sells the top instead — unless funding has gotten extreme, which usually means the range is about to break, in which case it stays out. When it can't tell which regime it's in, it does nothing.",
+      "version": "1.0.0",
+      "thesis": "The regime question comes before the entry question, and most retail strategies never ask it — which is why the same rule that prints in a trend bleeds in chop. The Kaufman efficiency ratio (net move divided by the path actually travelled) separates the two cleanly and cheaply: a directional market covers nearly all of its path, a choppy one retraces itself. Each regime then gets the confirmation that specifically protects it — OI velocity for trend entries, because a breakout on flat OI is short-covering rather than commitment; funding extremes for range fades, because crowded funding precedes the break that kills a fader. The gap between the thresholds is a no-trade band by design: an ambiguous regime gets no rule at all, rather than the closest one.",
+      "tags": [
+        "regime",
+        "regime-switching",
+        "adaptive",
+        "trend",
+        "range",
+        "mean-reversion",
+        "efficiency-ratio",
+        "open-interest",
+        "oi-velocity",
+        "funding",
+        "4h",
+        "multi-asset",
+        "long-short"
+      ],
+      "group": "momentum",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "adaptive",
+      "sub_style_label": "Self-tunes its thresholds from its own track record.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "starter",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 1800,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "branch": "main",
+      "sort_order": 10
     },
     {
       "id": "kingfisher",
@@ -1067,7 +1166,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 11
     },
     {
       "id": "lemur",
@@ -1113,7 +1212,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 12
     },
     {
       "id": "lynx",
@@ -1164,7 +1263,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 13
     },
     {
       "id": "meerkat",
@@ -1208,7 +1307,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 14
     },
     {
       "id": "orca",
@@ -1251,7 +1350,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 15
     },
     {
       "id": "otter",
@@ -1295,7 +1394,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 16
     },
     {
       "id": "piranha",
@@ -1347,7 +1446,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 17
     },
     {
       "id": "python",
@@ -1391,7 +1490,55 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 18
+    },
+    {
+      "id": "rooster",
+      "name": "Rooster — The Opener",
+      "emoji": "🐓",
+      "tagline": "Trades the clock, not the chart. In the window before a session opens (default 45 minutes, configurable — the knob that matters) it reads how price and volume are setting up: the drift across the window sets direction, expanding volume confirms real positioning, and a break of the prior session's range adds conviction. Carries the position INTO the open, one signal per session, BTC by default at 2-5x with a session-aware DSL ladder.",
+      "belief_plain": "Most of the day is noise. The move that matters often starts setting up in the 30-60 minutes BEFORE a session opens, and by the time the bell rings the direction is already showing. Rooster wakes up in that window, checks whether price is actually drifting one way on real volume (not just wandering on thin trade), and takes the position into the open. It fires at most once per session, banks profit early, and lets go if the open comes and goes with nothing happening.",
+      "version": "1.0.0",
+      "thesis": "Every other template in the catalog reads price; none reads the clock. Session opens are the most reliable recurring liquidity event in any market, and pre-open drift on expanding volume is a genuine directional tell — but only when it clears a noise floor and only when volume confirms it, which is what separates positioning from wandering. Rooster makes the window itself the strategy: outside it the scanner emits nothing and reads nothing (a cheap idle tick), inside it it scores once and commits. The pre-open window, the session times, and the noise floor are all inputs, because the right window is exactly what a user wants to tune.",
+      "tags": [
+        "session",
+        "market-open",
+        "time-of-day",
+        "opener",
+        "pre-open",
+        "clock",
+        "intraday",
+        "btc",
+        "single-asset",
+        "long-short",
+        "beginner"
+      ],
+      "group": "momentum",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "session_open",
+      "sub_style_label": "Positions into a session open on the clock — reads pre-open drift/volume and carries into the open, rather than reacting after.",
+      "asset_classes": [
+        "btc_eth"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "BTC"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "starter",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 19
     },
     {
       "id": "sailfish",
@@ -1441,7 +1588,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 17
+      "sort_order": 20
     },
     {
       "id": "salamander",
@@ -1491,7 +1638,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 18
+      "sort_order": 21
     },
     {
       "id": "sheep",
@@ -1544,7 +1691,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 19
+      "sort_order": 22
     },
     {
       "id": "jaguar",
@@ -3755,6 +3902,59 @@
       "sort_order": 10
     },
     {
+      "id": "manta",
+      "name": "Manta — Multi-Timeframe Structure (FX)",
+      "emoji": "🐟",
+      "tagline": "Top-down structure trading on FX pairs (EUR / GBP / JPY), the way it's taught: the Daily, 4-hour and 1-hour charts must all agree on trend direction, the 4-hour marks the area price is expected to retest, and the 15-minute times the entry off a break of structure inside that zone. If the timeframes disagree, or price isn't at the level, or there's no 15-minute trigger, it does nothing. Long & short, low leverage scaled to how small FX moves are.",
+      "belief_plain": "This is how structure traders actually read a chart: start wide, then zoom in. First it checks that the Daily, 4-hour and 1-hour charts are all pointing the same way — if they disagree, there's no trade. Then on the 4-hour it marks the zone price is likely to pull back to. Then it waits, on the 15-minute chart, for price to actually reach that zone AND break in the trend direction before entering. Three things have to line up: direction, location, and timing. Miss any one and it stands aside. It trades the major currency pairs, which move in small percentages, so it uses the leverage that matches.",
+      "version": "1.0.0",
+      "thesis": "Multi-timeframe / ICT-style structure trading is one of the largest retail methodologies and the catalog had no expression of it — nor any FX template at all, despite Hyperliquid listing EUR, GBP and JPY. Manta encodes the top-down cascade faithfully: each timeframe answers exactly one question (higher frames = bias, 4h = location, 15m = timing) and is not allowed to answer another, which is the discipline the method is really about. The confluence is mandatory, not additive — a signal requires all three, because a 15m break outside the zone is noise and a zone touch with no break is a falling knife. Thresholds are FX-scaled throughout: a 0.5% daily move is a big FX day, so a crypto-sized structure filter would call every currency chart neutral forever.",
+      "tags": [
+        "fx",
+        "forex",
+        "multi-timeframe",
+        "mtf",
+        "market-structure",
+        "ict",
+        "smc",
+        "top-down",
+        "break-of-structure",
+        "area-of-interest",
+        "eur",
+        "gbp",
+        "jpy",
+        "long-short"
+      ],
+      "group": "single-asset",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "market_structure",
+      "sub_style_label": "Trades SMC/ICT/Wyckoff structure: break-of-structure, liquidity sweeps, fair-value gaps.",
+      "asset_classes": [
+        "fx"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:EUR",
+        "xyz:GBP",
+        "xyz:JPY"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 8,
+      "time_horizon": "swing",
+      "cadence_seconds": 900,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "main",
+      "sort_order": 11
+    },
+    {
       "id": "polar",
       "name": "Polar — ETH Alpha Hunter",
       "emoji": "🧊",
@@ -3796,7 +3996,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "ram",
@@ -3840,7 +4040,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "stag",
@@ -3888,7 +4088,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 14
     },
     {
       "id": "terrapin",
@@ -3939,7 +4139,7 @@
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 15
     },
     {
       "id": "wolverine",
@@ -3984,7 +4184,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 16
     },
     {
       "id": "hydra",
