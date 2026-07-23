@@ -154,10 +154,8 @@ result means three completely different things and two of them need opposite ans
 
 ### `no_strategies` — pivot to market-pulse → strategy-discover
 
-**4 of 9 users** who reached this skill in a 48h telemetry sweep had never traded (M207311, M171299,
-M408087, M346694). They arrived via canned suggestion chips — *"Improve my last 10 trades. Did I sell too
-early or late?"*, *"Where am I leaking?"* — shown to people with an empty account. The honest answer is
-short, and then the useful thing is **the market**, not an apology.
+A user can land here with an empty account — the review prompts are offered before anyone has traded.
+The honest answer is short, and then the useful thing is **the market**, not an apology.
 
 **Say the truth in one line, then pivot — don't dwell.** *"Nothing to review yet — you haven't deployed a
 strategy."* Then:
@@ -171,9 +169,6 @@ strategy."* Then:
    experience than a generic top-N list.
 3. **Offer, never push.** Two or three named fits with risk level and minimum budget; let them choose. If
    they'd rather wait, that's a fine outcome — say so.
-
-This is the recovery M207311's session found *by accident* (empty review → market-pulse → strategy
-shortlist → deployed) and it converted well. **It should be the guaranteed path, not luck.**
 
 **Still forbidden here** (guardrail 9 binds): no manufactured critique of an account with nothing in it, no
 "your idle cash is a $0/day leak" framing, no DSL alarms. Idle cash is an **option**, never a loss.

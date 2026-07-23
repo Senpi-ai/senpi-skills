@@ -2134,11 +2134,8 @@ def _sample_trades(trades):
 
 
 # ── book_state — the deterministic "what should happen next" signal ──────────
-# 4 of 9 users who reached this skill in a 48h telemetry sweep had NOTHING to review (M207311, M171299,
-# M408087, M346694 — canned suggestion chips shown to people who had never traded). The engine used to
-# report that as `degraded: no strategies — check the token is USER-scoped`, which frames a brand-new
-# user's perfectly normal state as an auth fault. It is not a fault, and it is not the same situation as
-# a deployed strategy that hasn't fired — those need OPPOSITE answers:
+# A user can reach this skill with an empty account. That is not a fault, and it is not the same
+# situation as a deployed strategy that hasn't fired — those need OPPOSITE answers:
 #
 #   no_strategies         nothing deployed  -> market-pulse + strategy-discover (find a fit for THIS market)
 #   strategies_no_trades  deployed, idle    -> diagnose THAT strategy. NEVER pitch another one here.
