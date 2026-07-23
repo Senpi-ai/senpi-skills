@@ -8,8 +8,8 @@ strategy doing its job right now" — and this skill owns the mandate that defin
 is the retrospective counterpart ("how did my CLOSED trades do").
 
 The verdict that matters most is the one that ISN'T alarming: a strategy that is scanning and simply
-hasn't found a setup must read `waiting`, never `broken`. Getting that backwards is how users tear down
-working strategies (the LION incidents), so it has its own test.
+hasn't found a setup must read `waiting`, never `broken` — reporting a healthy selective strategy as
+broken leads users to tear down strategies that were working. It has its own test.
 
     python3 -m pytest senpi-portfolio/tests/test_idle.py
     python3 senpi-portfolio/tests/test_idle.py
@@ -43,10 +43,10 @@ def _strat(label="s", status="ACTIVE", runtime_id="s-main", mandate=None):
 
 class Verdicts(unittest.TestCase):
     def test_blocked_every_candidate_rejected(self):
-        """THE ibis case: the scanner produced candidates and the runtime rejected all of them.
-        Invisible on every other surface — liveness said healthy while it was 100% dead."""
+        """The scanner produced candidates and the runtime rejected all of them — invisible on every
+        other surface, because liveness reports the runtime as healthy throughout."""
         events = [_sig("rejected", "schema_invalid", a) for a in ("SOL", "BTC", "ETH")]
-        r = portfolio.idle_verdict(_strat("ibis"), events, True)
+        r = portfolio.idle_verdict(_strat("s"), events, True)
         self.assertEqual(r["verdict"], "blocked")
         self.assertEqual(r["signals"]["rejected"], 3)
         self.assertEqual(r["reason_codes"]["schema_invalid"], 3)

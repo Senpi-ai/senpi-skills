@@ -1108,19 +1108,16 @@ def group_strategies(strategies, meta):
 
 # ──────────────────────────────────────────────────────────────── orchestration
 # ── "why hasn't it traded?" — the idle diagnosis ─────────────────────────────
-# The #1 support complaint by volume (M192299 asked five times over three days; M192397, M298631, M3601,
-# M347101, M193436). It belongs HERE, not in improve-trades: it is a LIVE-STATE question about whether a
-# strategy is doing its job right now, and this skill already owns the mandate — "a strategy is doing its
-# job when its behavior matches its design, even if that design means idle right now."
+# A LIVE-STATE question — is this strategy doing its job right now — which is why it belongs to this
+# engine: it already owns the mandate that defines the job.
 #
-# Liveness alone can't answer it: `senpi status` reports the runtime, and a runtime can be perfectly
-# healthy while every candidate its scanner produces is rejected downstream (that is exactly how `ibis`
-# shipped 100% dead while every surface said healthy). The verdict needs the EVENT RING, where
-# `signal.outcome` carries the runtime's own ruling on each candidate.
+# Liveness alone cannot answer it. `senpi status` reports the RUNTIME, and a runtime can be perfectly
+# healthy while every candidate its scanner produces is rejected downstream. The verdict needs the EVENT
+# RING, where `signal.outcome` carries the runtime's own ruling on each candidate.
 #
-# The verdict must separate "correctly selective" from "actually broken" — getting that backwards makes
-# users tear down working strategies (the LION incidents). A strategy that is scanning and simply hasn't
-# found a setup reads `waiting`, never `broken`.
+# The verdict must separate "correctly selective" from "actually broken". A strategy that is scanning and
+# simply hasn't found a setup reads `waiting`, never `broken` — reporting a healthy selective strategy as
+# broken leads users to tear down strategies that were working.
 EVENTS_FIXTURE_ENV = "SENPI_EVENTS_FIXTURE"   # offline test hook: JSON {"<runtime_id>": [entries…]}
 EVENTS_PULL = 500                             # recent ring depth per runtime
 EVENTS_CALL_TIMEOUT_S = 8                     # wraps a double CLI boot + the read

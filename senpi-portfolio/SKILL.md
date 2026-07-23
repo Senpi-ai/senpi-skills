@@ -191,9 +191,8 @@ right tool to *confirm* — never re-derive its analysis here.
 
 ## "Why hasn't it traded?" — the idle diagnosis
 
-The **#1 support complaint by volume** (one user asked five times over three days). It belongs here
-because it is a **live-state** question — *is this strategy doing its job right now* — and this skill
-already owns the mandate that defines the job. (`senpi-improve-trades` is the retrospective counterpart:
+A **live-state** question — *is this strategy doing its job right now* — so it belongs to this skill,
+which owns the mandate that defines the job. (`senpi-improve-trades` is the retrospective counterpart:
 *how did my CLOSED trades do*. It hands this question here.)
 
 **Liveness alone cannot answer it.** `senpi status` reports the *runtime*, and a runtime can be perfectly
@@ -218,11 +217,11 @@ python3 scripts/portfolio.py idle
 market is working perfectly — that is the same rule as "judge against the mandate" below, applied to
 activity instead of PnL. Calling it broken is how users tear down strategies that were fine.
 
-> **Worked example.** `ibis` deployed with a $1,400 budget and never traded. Every surface said healthy —
-> liveness reports the runtime, and the runtime *was* running. The event ring said what nothing else did:
-> the scanner produced candidates every tick and the runtime rejected **all** of them (an optional signal
-> field was sent as `null`, which fails schema validation and drops the whole candidate silently). That is
-> verdict `blocked` — two hours of manual diagnosis, or one `idle` run.
+> **Why the event ring is required.** A funded strategy can scan every tick, produce candidates every
+> tick, and still open nothing — because the runtime rejects each one (a full slot table, a risk gate, or
+> a signal field that fails schema validation). Liveness reports the runtime as healthy throughout, and
+> the rejections are silent. `blocked` is the only verdict that surfaces this, and the reason code is the
+> fix.
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
