@@ -123,11 +123,22 @@ def derive_universe(main_rows, xyz_rows, inputs):
     max_xyz = int(_f(inputs.get("maxXyzNames"), 16))
     exclude = {str(x).upper() for x in (inputs.get("excludeAssets") or [])}
 
+    # `seen` is SHARED across both picks: scan.py sources main_rows from
+    # market_list_instruments(dex="") which returns BOTH sub-DEXes (232 main +
+    # 103 xyz today), so every xyz instrument otherwise lands in the main pool
+    # AND again in the xyz pool -> duplicated names, and the main copy is
+    # misclassified as crypto by classify().
+    seen = set()
+
     def _pick(rows, floor, cap, dex):
-        seen, out = set(), []
+        out = []
         for r in rows or []:
             name = str((r or {}).get("name", "")).strip()
             if not name:
+                continue
+            # route by prefix — an `xyz:` name belongs only to the xyz pick, a
+            # bare name only to the main pick.
+            if name.lower().startswith("xyz:") != (dex == "xyz"):
                 continue
             bare = name.split(":", 1)[-1].upper()
             if bare in seen or bare in exclude:
