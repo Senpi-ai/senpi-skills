@@ -1,38 +1,36 @@
-# Remora — autonomous smart-money whale mirror. A single-instance PACKAGE: this
-# manifest + one self-contained runtime.yaml + scanners/. Runtime 3.0. AUTONOMOUS
-# OUT OF THE BOX: with no config it auto-builds a cohort of proven top traders and
-# mirrors their highest-conviction positions; optionally name specific whales via
-# inputs.whales to mirror exactly those. Each tick it takes each whale's
-# highest-conviction (largest-notional) open position, aggregates across whales into
-# (asset, direction) candidates, scores by consensus + whale quality, and mirrors the
-# strongest 1-2. Let-winners-run DSL with a 120h staleness cap. No fixed universe —
-# the assets come from whatever the resolved whales hold. Mirror math verbatim from
-# the v2 Remora producer; cohort engine reused from WhaleHunter. Install/teardown via
-# senpi-strategy-ops.
+# Remora — Benchmark-Laggard Reversion. A three-instance PACKAGE templated from a
+# user-authored strategy ("buy HYPE when it lags BTC; the lag always closes"): one
+# instance per lookback (3d / 7d / 30d), EACH ON ITS OWN WALLET, so the three
+# conviction tranches hold independent positions with independent exits — Hyperliquid
+# nets positions per coin per wallet, so per-timeframe tranches REQUIRE per-timeframe
+# wallets (a single-wallet build can only ever hold the first tranche; the rest block
+# on position_already_exists). Asset + benchmark are configurable inputs (HYPE vs BTC
+# default). Install/teardown via senpi-strategy-ops.
 schema_version: 1
 
 id: remora
-version: "1.1.0"
+version: "1.0.0"
 
 catalog:
-  name: "Remora — Autonomous Smart-Money Whale Mirror"
-  emoji: "🐟"
-  tagline: "Autonomous smart-money whale mirror — auto-builds a top-trader cohort and mirrors their highest-conviction positions; optionally mirror specific whales you name via inputs.whales. Like a remora fish riding a shark, it leans hardest when several whales pile into the same trade (consensus) or when a whale is ELITE/RELIABLE tier."
-  belief_plain: "Out of the box, Remora finds the most proven traders on Hyperliquid, watches their open positions, and copies the strongest bets — betting bigger when several of them are in the same trade and one has an elite track record. Prefer to ride specific traders you trust? Name them and Remora mirrors exactly those instead. Either way it trails a wide stop so the trade can run."
-  thesis: "Riding the highest-conviction position of proven traders keeps your exposure tracking real smart money, and the consensus multiplier means it leans hardest exactly when those traders independently agree — one whale can be wrong, three agreeing is a much stronger signal. By default Remora is autonomous: it auto-builds a top-trader cohort (all-time realized PnL, refreshed daily) so it always has whales to mirror — no config required. Name your own whales to make it ride exactly the traders you choose. Whales hold winners, so the exit lets the mirror run and only caps staleness."
-  group: smart-money
-  archetype: copy_trading
-  sub_style: named_whales
-  asset_classes: [universe_crypto]
-  asset_scope: follows_traders
-  direction: long_short
+  name: "Remora — Benchmark-Laggard Reversion"
+  emoji: "🐠"
+  tagline: "Buys the laggard when its benchmark runs ahead — three conviction tranches (3d / 7d / 30d), each on its own wallet. When HYPE underperforms BTC over 3 days that's the first nibble; over 7 days a bigger bite; over 30 days the strong entry. Each tranche exits on its own clock via the mean-reversion DSL ladder that banks the snapback as the gap closes."
+  belief_plain: "Some assets are tied to a bigger one — HYPE to BTC — and when the big one runs ahead, the smaller one usually catches up. This strategy buys the laggard in three sizes: a small buy when it's lagged for 3 days, a medium buy at 7 days, and a big buy at 30 days. Each buy locks in profit automatically as the catch-up happens, and cuts fast if it doesn't."
+  thesis: "A satellite asset tethered to its benchmark (HYPE to BTC by default — any pair via inputs) mean-reverts on relative performance: the longer and deeper it lags, the stronger the catch-up. Express the conviction ladder structurally — one wallet per lookback (3d/7d/30d) sized 1x/2x/4x — so each tranche lives and dies on its own timeframe. Entries only when the benchmark has outperformed by a real margin (noise floor, not any tick of divergence); exits via the mean-reversion DSL that locks the snapback progressively and time-cuts a fade that refuses to resolve within 48h."
+  group: single-asset
+  archetype: contrarian_fade      # buys the laggard against the crowd's benchmark rotation
+  sub_style: relative_value       # entry/exit keyed to RELATIVE performance vs a benchmark, not absolute price
+  asset_classes: [major_alts, btc_eth]
+  asset_scope: single
+  direction: long_only
   risk_level: moderate
   tier: advanced
+  time_horizon: swing
   leverage_max: 10
-  max_slots: 2
-  min_budget: 100
-  assets: []
-  tags: [whale, mirror, copy-trading, named-whales, smart-money, autonomous, consensus, let-winners-run, follows-traders]
+  max_slots: 3                    # one position per lookback tranche (one per wallet)
+  min_budget: 300                 # 3 instances x $100 wallet minimum
+  assets: ["HYPE", "BTC"]         # traded asset + benchmark (benchmark is READ, never traded)
+  tags: [configurable, relative-value, reversion, benchmark, laggard, catch-up, hype, btc, tranches, dsl-only]
 
 requires:
   runtime: ">=3.0.0"
@@ -41,7 +39,15 @@ defaults:
   auth_token_env: SENPI_AUTH_TOKEN
 
 instances:
-  - name: main
-    runtime: main/runtime.yaml
-    wallet_env: REMORA_WALLET
-    funding_share: 1.0
+  - name: d3
+    runtime: d3/runtime.yaml
+    wallet_env: REMORA_D3_WALLET
+    funding_share: 0.3333          # equal wallets; conviction expressed via per-instance marginPct (15/30/60)
+  - name: d7
+    runtime: d7/runtime.yaml
+    wallet_env: REMORA_D7_WALLET
+    funding_share: 0.3333
+  - name: d30
+    runtime: d30/runtime.yaml
+    wallet_env: REMORA_D30_WALLET
+    funding_share: 0.3334

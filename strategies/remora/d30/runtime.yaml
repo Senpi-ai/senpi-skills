@@ -1,0 +1,119 @@
+# ── REMORA · d30 instance — the 30-day tranche of the benchmark-laggard reversion ──
+# LONG the traded asset (default HYPE) when the benchmark (default BTC, read-only)
+# has outperformed it by >= minGapPct over 180 4h bars (30 days). Smallest conviction
+# tranche: marginPct 60 of THIS wallet (the d3/d7/d30 ladder is 15/30/60 on equal
+# wallets ≈ the source spec's 5/10/20% of total budget). One position per wallet by
+# design — Hyperliquid nets per coin per wallet, so tranches need their own wallets.
+# Exit = mean_reversion DSL preset VERBATIM (locks the snapback progressively; 48h
+# hard timeout cuts an unresolved fade). Templated from a user-authored strategy.
+name: remora-d30
+group: remora
+version: 1.0.0
+description: >
+  REMORA d30 — the 30-day tranche of a benchmark-laggard reversion (default HYPE vs
+  BTC; both configurable). Hourly, it measures each side's % move over the last 180
+  4h bars: when the benchmark has outperformed the asset by at least minGapPct
+  (default 0.5%), the asset is a lagging satellite and this tranche buys it LONG at
+  7x, sized 60% of this wallet's withdrawable — the strongest rung of the 3d/7d/30d
+  conviction ladder. One position at a time on this wallet; the mean-reversion DSL
+  owns the exit (progressive profit locks bank the catch-up as the gap closes; hard
+  stop -15% ROE; 48h timeout and weak-peak cut clear a fade that refuses to resolve).
+
+strategy:
+  wallet: "${REMORA_D30_WALLET}"
+  slots: 1                                # one tranche = one position on this wallet
+  default_leverage: 7                     # the source spec's 7x (scan clamps <= maxLeverage)
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: remora_d30_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 3600                 # hourly (the source spec's cadence)
+    timeout_seconds: 120                   # 3 MCP reads/tick (clearinghouse + 2 candle pulls)
+    default_signal_validity_seconds: 3300
+    state_history_max_count: 100
+    inputs:
+      asset: "HYPE"                        # the traded laggard (configurable)
+      benchmark: "BTC"                     # the benchmark it reverts to (READ, never traded)
+      lookbackBars: 180                    # 30 days x 6 4h-bars/day — THIS tranche's pattern
+      minGapPct: 0.5                       # noise floor: benchmark must lead by at least this %
+      marginPct: 60                        # PERCENT of THIS wallet's withdrawable (d30 rung)
+      leverage: 7
+      maxLeverage: 10                      # HYPE cap on Hyperliquid
+      recentSignalTtlSeconds: 3000         # race-window dedup just under the hourly cadence
+    signal_data_schema:
+      gap_pct: { type: number }
+      asset_pct: { type: number }
+      bench_pct: { type: number }
+      benchmark: { type: string }
+      lookback_bars: { type: number }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: remora_d30_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied the full gate stack
+    scanners: [remora_d30_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false   # reversion: price is coming TO us — rest as maker;
+        execution_timeout_seconds: 30      # a miss just re-fires on the next hourly lag read
+    context:
+      - type: signal
+        scanner: remora_d30_signals
+
+# EXIT — mean_reversion DSL preset, copied VERBATIM from
+# senpi-strategy-author/references/dsl-presets.yaml (built for faders: banks the
+# bounded snapback fast, time-cuts a failed thesis). The profit ladder IS the
+# thesis exit in DSL form: the gap closing = the asset rallying = ROE climbing into
+# the locks. Exits ensure taker — an exit must fill.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 2880           # 48h — a reversion resolves quickly or the thesis failed
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 120
+      min_value: 2.0
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 6
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 30 }
+        - { trigger_pct: 10, lock_hw_pct: 50 }
+        - { trigger_pct: 15, lock_hw_pct: 65 }
+        - { trigger_pct: 25, lock_hw_pct: 80 }
+        - { trigger_pct: 40, lock_hw_pct: 90 }
+
+risk:
+  data_retention_seconds: 345600           # 96h
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 3                 # hourly cadence + dedup + cooldowns keep churn low
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 3600                 # one full scan cycle between entries
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 21600      # 6h — a stopped-out lag needs time before re-entry

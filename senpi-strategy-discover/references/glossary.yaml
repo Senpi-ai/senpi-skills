@@ -71,6 +71,7 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   xyz_overextended: { gloss: "Fades overextended stocks/commodities." }
   crowd_exhaustion: { gloss: "Fades a crowded one-sided move once it shows exhaustion." }
   risk_off_rotation: { gloss: "Shorts the crypto block when smart money rotates out and longs are crowded — a risk-off hedge." }
+  relative_value: { gloss: "Buys a lagging satellite asset when its benchmark runs ahead — trades the RELATIVE gap closing, not absolute direction." }
   # copy_trading
   arena_winners: { gloss: "Copies multi-week arena winners, not one-week wonders." }
   hot_streak:    { gloss: "Copies whoever is hot in the live window." }

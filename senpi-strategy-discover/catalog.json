@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-07-13",
+  "_updated": "2026-06-17",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -3785,6 +3785,57 @@
       "sort_order": 12
     },
     {
+      "id": "remora",
+      "name": "Remora — Benchmark-Laggard Reversion",
+      "emoji": "🐠",
+      "tagline": "Buys the laggard when its benchmark runs ahead — three conviction tranches (3d / 7d / 30d), each on its own wallet. When HYPE underperforms BTC over 3 days that's the first nibble; over 7 days a bigger bite; over 30 days the strong entry. Each tranche exits on its own clock via the mean-reversion DSL ladder that banks the snapback as the gap closes.",
+      "belief_plain": "Some assets are tied to a bigger one — HYPE to BTC — and when the big one runs ahead, the smaller one usually catches up. This strategy buys the laggard in three sizes: a small buy when it's lagged for 3 days, a medium buy at 7 days, and a big buy at 30 days. Each buy locks in profit automatically as the catch-up happens, and cuts fast if it doesn't.",
+      "version": "1.0.0",
+      "thesis": "A satellite asset tethered to its benchmark (HYPE to BTC by default — any pair via inputs) mean-reverts on relative performance: the longer and deeper it lags, the stronger the catch-up. Express the conviction ladder structurally — one wallet per lookback (3d/7d/30d) sized 1x/2x/4x — so each tranche lives and dies on its own timeframe. Entries only when the benchmark has outperformed by a real margin (noise floor, not any tick of divergence); exits via the mean-reversion DSL that locks the snapback progressively and time-cuts a fade that refuses to resolve within 48h.",
+      "tags": [
+        "configurable",
+        "relative-value",
+        "reversion",
+        "benchmark",
+        "laggard",
+        "catch-up",
+        "hype",
+        "btc",
+        "tranches",
+        "dsl-only"
+      ],
+      "group": "single-asset",
+      "archetype": "contrarian_fade",
+      "archetype_label": "Contrarian / Fade",
+      "sub_style": "relative_value",
+      "sub_style_label": "Buys a lagging satellite asset when its benchmark runs ahead — trades the RELATIVE gap closing, not absolute direction.",
+      "asset_classes": [
+        "major_alts",
+        "btc_eth"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "HYPE",
+        "BTC"
+      ],
+      "direction": "long_only",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 3600,
+      "min_budget": 300,
+      "instance_count": 3,
+      "funding_split": [
+        0.3333,
+        0.3333,
+        0.3334
+      ],
+      "max_slots": 3,
+      "branch": "main",
+      "sort_order": 13
+    },
+    {
       "id": "stag",
       "name": "Stag — Parabolic-Run Hunter",
       "emoji": "🦌",
@@ -3830,7 +3881,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 14
     },
     {
       "id": "wolverine",
@@ -3875,7 +3926,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 15
     },
     {
       "id": "hydra",
@@ -4324,50 +4375,6 @@
       "sort_order": 8
     },
     {
-      "id": "remora",
-      "name": "Remora — Autonomous Smart-Money Whale Mirror",
-      "emoji": "🐟",
-      "tagline": "Autonomous smart-money whale mirror — auto-builds a top-trader cohort and mirrors their highest-conviction positions; optionally mirror specific whales you name via inputs.whales. Like a remora fish riding a shark, it leans hardest when several whales pile into the same trade (consensus) or when a whale is ELITE/RELIABLE tier.",
-      "belief_plain": "Out of the box, Remora finds the most proven traders on Hyperliquid, watches their open positions, and copies the strongest bets — betting bigger when several of them are in the same trade and one has an elite track record. Prefer to ride specific traders you trust? Name them and Remora mirrors exactly those instead. Either way it trails a wide stop so the trade can run.",
-      "version": "1.1.0",
-      "thesis": "Riding the highest-conviction position of proven traders keeps your exposure tracking real smart money, and the consensus multiplier means it leans hardest exactly when those traders independently agree — one whale can be wrong, three agreeing is a much stronger signal. By default Remora is autonomous: it auto-builds a top-trader cohort (all-time realized PnL, refreshed daily) so it always has whales to mirror — no config required. Name your own whales to make it ride exactly the traders you choose. Whales hold winners, so the exit lets the mirror run and only caps staleness.",
-      "tags": [
-        "whale",
-        "mirror",
-        "copy-trading",
-        "named-whales",
-        "smart-money",
-        "autonomous",
-        "consensus",
-        "let-winners-run",
-        "follows-traders"
-      ],
-      "group": "smart-money",
-      "archetype": "copy_trading",
-      "archetype_label": "Copy-Trader",
-      "sub_style": "named_whales",
-      "sub_style_label": "Mirrors specific hand-picked whales.",
-      "asset_classes": [
-        "universe_crypto"
-      ],
-      "asset_scope": "follows_traders",
-      "assets": [],
-      "direction": "long_short",
-      "risk_level": "moderate",
-      "tier": "advanced",
-      "leverage_max": 10,
-      "time_horizon": "swing",
-      "cadence_seconds": 600,
-      "min_budget": 100,
-      "instance_count": 1,
-      "funding_split": [
-        1.0
-      ],
-      "max_slots": 2,
-      "branch": "main",
-      "sort_order": 9
-    },
-    {
       "id": "roach",
       "name": "Roach — Striker Rank-Jump Sniper",
       "emoji": "🪳",
@@ -4409,7 +4416,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 9
     },
     {
       "id": "stingray",
@@ -4456,7 +4463,7 @@
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 10
     },
     {
       "id": "whalehunter",
@@ -4499,7 +4506,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 11
     },
     {
       "id": "osprey",
