@@ -56,11 +56,20 @@ def _extract_json(text):
 
 
 def cli_json(args, timeout=60):
-    """Run a CLI command expected to emit JSON on stdout; return the parsed object or None."""
-    rc, out, _err = run_cli(args, timeout)
-    if rc != 0 or not out.strip():
+    """Run a CLI command expected to emit JSON; return the parsed object or None.
+
+    Reads STDOUT first, then falls back to STDERR. `openclaw senpi state --json` exits 0 but
+    writes its payload to stderr while stdout carries only banner/log noise (measured on a live
+    lion deploy: 823B of noise on stdout vs 28,735B of JSON on stderr). Parsing stdout alone
+    therefore returned None for a read that had in fact SUCCEEDED, which permanently hid the rich
+    per-scanner row (runCount / lastAliveAt / lastError / consecutiveErrorCount) that only `state`
+    carries — so `_scanner_verdict` could never reach its downgrade evidence and always fell
+    through to `status`. Fail-open is the right default for liveness, but it should be the
+    fallback, not the only reachable branch."""
+    rc, out, err = run_cli(args, timeout)
+    if rc != 0:
         return None
-    return _extract_json(out)
+    return _extract_json(out) or _extract_json(err)
 
 
 # ---- tolerant extraction ----
