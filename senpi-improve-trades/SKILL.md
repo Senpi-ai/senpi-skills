@@ -15,7 +15,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.0.0"
+  version: "2.1.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -51,6 +51,20 @@ quality, exit reasons, leaks, or PnL in prose.
 
    Same render, one strategy. **Relay verbatim** — never paraphrase or infer.
 
+   **Closed / torn-down strategy, OR the render says the event ring is `unavailable` / `UNDETERMINED`:**
+   the live ring is gone from the rim, but `runtime delete` (a `composer close` / `composer update`)
+   ARCHIVED it on-box. Read the archived ring — the exit trail SURVIVES teardown:
+
+   ```
+   senpi_strategy  args: "composer review <wallet|runtime> --archived"
+   ```
+
+   Resolves the NEWEST archived event ring for that wallet or runtime id and renders the same review,
+   banner-labelled ARCHIVED. If THAT yields nothing (an empty / absent archived ring, which it says
+   honestly), the server-side `ratchet_stop_events(strategyId, wallet)` still retains the DSL event
+   trail post-close — check it next. **Never conclude a closed strategy's exits are "unknowable" before
+   BOTH the archived ring (`--archived`) AND `ratchet_stop_events` have been tried.**
+
 3. **Live open-position / unrealized / protection state** — "what am I holding now", "are my winners
    running", "what tier / is it protected" → **senpi-portfolio** (`composer status`). Review covers
    *closed* trades only; unrealized/open state is portfolio's surface.
@@ -69,7 +83,9 @@ quality, exit reasons, leaks, or PnL in prose.
    openclaw senpi explain <ASSET> --runtime <id> --json
    ```
 
-   A closed strategy has no event ring → returns nothing; that's expected, say so, don't call it a bug.
+   A closed / torn-down strategy's LIVE ring is gone, so `explain` returns nothing — that's expected,
+   not a bug. To recover its exits, route to `composer review <wallet|runtime> --archived` (reads the
+   archived on-box ring), then `ratchet_stop_events` — do NOT call the exits "unknowable" first.
 
 ## Never do
 
@@ -83,8 +99,10 @@ quality, exit reasons, leaks, or PnL in prose.
   reimplementation shipped two field-proven defects — a zero-trades "telemetry unavailable" mislabel
   and a per-strategy CLI cold-boot timeout — and was retired. That is why this skill is narration only.)
 - **Never upgrade an unavailable input to an all-clear.** If the render says an input is
-  `unavailable`/`UNDETERMINED` (older build, closed strategy's event ring gone, unreadable telemetry),
-  relay that reason exactly — UNDETERMINED ≠ "no leaks / no gaps / all clear."
+  `unavailable`/`UNDETERMINED` (older build, live event ring gone because the strategy is closed,
+  unreadable telemetry), relay that reason exactly — UNDETERMINED ≠ "no leaks / no gaps / all clear."
+  For a CLOSED strategy specifically, the ring isn't lost: read the ARCHIVED ring with `composer
+  review <wallet|runtime> --archived`, then `ratchet_stop_events`, before saying the exits can't be known.
 - **Zero closed trades is a complete, correct result.** The render says "no closed trades yet — nothing
   to review"; relay it and stop. A fresh autonomous strategy is waiting for its first signal — do NOT
   pivot to setup/config nagging ("fund a position", "verify the DSL", generic slippage/leverage advice).
