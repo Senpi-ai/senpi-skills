@@ -1851,7 +1851,10 @@ def step_timing(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_marke
     meta.pop("_telemetry_warned", None)
     meta.pop("_telemetry_dead", None)
     if not strategies:
-        meta["degraded"] = "no strategies — check the token is USER-scoped"
+        meta["degraded"] = ("strategy list unreadable — check the token is USER-scoped"
+                            if any("strategy_list failed" in str(w)
+                                   for w in (meta.get("warnings") or []))
+                            else "no strategies deployed yet (not a fault — see meta.book_state)")
     elif not trades:
         meta["degraded"] = "no closed trades in the window (or trade history unavailable)"
     # persist the raw fetch for downstream steps (strategies carries mandate/dsl/runtime_id; trades carries
@@ -1893,7 +1896,10 @@ def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_m
     meta["closed_strategy_count"] = closed_count
     meta["trade_count"] = len(trades)
     if not strategies:
-        meta["degraded"] = "no strategies — check the token is USER-scoped"
+        meta["degraded"] = ("strategy list unreadable — check the token is USER-scoped"
+                            if any("strategy_list failed" in str(w)
+                                   for w in (meta.get("warnings") or []))
+                            else "no strategies deployed yet (not a fault — see meta.book_state)")
     state["strategies_read"] = strat_reads
     state["closed_strategies"] = closed_reads
     state["pnl_summary"] = pnl_summary
@@ -2024,7 +2030,10 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     meta["leak_counts"] = {k: v["count"] for k, v in leaks.items()}   # quick meta glance at the leak tallies
     meta.pop("_telemetry_warned", None)                        # internal flag — not part of the contract
     if not strategies:
-        meta["degraded"] = "no strategies — check the token is USER-scoped"
+        meta["degraded"] = ("strategy list unreadable — check the token is USER-scoped"
+                            if any("strategy_list failed" in str(w)
+                                   for w in (meta.get("warnings") or []))
+                            else "no strategies deployed yet (not a fault — see meta.book_state)")
     elif not trades:
         meta["degraded"] = "no closed trades in the window (or trade history unavailable)"
 
@@ -2124,11 +2133,56 @@ def _sample_trades(trades):
     return [_slim_trade(t) for t in picked[:STDOUT_TRADES_SAMPLE]]
 
 
+# ── book_state — the deterministic "what should happen next" signal ──────────
+# 4 of 9 users who reached this skill in a 48h telemetry sweep had NOTHING to review (M207311, M171299,
+# M408087, M346694 — canned suggestion chips shown to people who had never traded). The engine used to
+# report that as `degraded: no strategies — check the token is USER-scoped`, which frames a brand-new
+# user's perfectly normal state as an auth fault. It is not a fault, and it is not the same situation as
+# a deployed strategy that hasn't fired — those need OPPOSITE answers:
+#
+#   no_strategies         nothing deployed  -> market-pulse + strategy-discover (find a fit for THIS market)
+#   strategies_no_trades  deployed, idle    -> diagnose THAT strategy. NEVER pitch another one here.
+#   has_trades            normal review
+#
+# Telling someone whose funded strategy is silently blocked to "go find a strategy" is the worst possible
+# answer, so the two are separated in the engine rather than left to narration.
+_BOOK_STATES = ("no_strategies", "strategies_no_trades", "has_trades", "unknown")
+
+
+def _book_state(strategy_count, trade_count, list_failed):
+    """(state, next_action) — what the narrator should do next. `list_failed` distinguishes a genuine
+    empty book from an unreadable one (a token/scope problem), which must never read as 'no strategies'."""
+    if list_failed:
+        return "unknown", ("strategy list unreadable — this is a TOKEN/SCOPE problem, not an empty book; "
+                           "say the read failed, never 'you have no strategies'")
+    if not strategy_count:
+        return "no_strategies", ("nothing deployed yet — there is genuinely nothing to review. Pivot: read "
+                                 "the market (senpi-market-pulse), then shortlist strategies that fit it "
+                                 "(senpi-strategy-discover). Do NOT manufacture a review.")
+    if not trade_count:
+        return "strategies_no_trades", ("deployed but nothing has traded yet — diagnose the strategy they "
+                                        "ALREADY have. Do NOT pitch another strategy.")
+    return "has_trades", "normal review"
+
+
 def _slim_for_context(result, full=False):
     """Trim the STDOUT payload (what enters the model's context) — NEVER the on-disk state. Replaces the
     raw `trades` / `missed_signals` arrays with a top-N sample + explicit counts; every AGGREGATE is left
     untouched (the narration reads those). `full=True` returns the result unchanged."""
-    if full or not isinstance(result, dict):
+    if not isinstance(result, dict):
+        return result
+    # book_state on EVERY output path (one-shot and every step) — the narrator must never have to infer
+    # "is this an empty book, an idle book, or a real review?" from absent arrays.
+    meta = result.get("meta") if isinstance(result.get("meta"), dict) else None
+    if meta is not None and "book_state" not in meta:
+        warns = meta.get("warnings") or []
+        list_failed = any("strategy_list failed" in str(w) for w in warns)
+        n_strat = meta.get("strategy_count")
+        if n_strat is not None:
+            state, nxt = _book_state(n_strat, meta.get("trade_count") or 0, list_failed)
+            meta["book_state"] = state
+            meta["next_action"] = nxt
+    if full:
         return result
     out = dict(result)
     trades = out.get("trades")
