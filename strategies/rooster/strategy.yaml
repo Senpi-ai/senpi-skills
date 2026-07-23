@@ -1,0 +1,40 @@
+# Rooster — The Opener. A single-instance PACKAGE: this manifest + one self-contained
+# runtime.yaml + scanners/. The only fleet strategy whose signal is the CLOCK: it positions
+# into a session open rather than reacting after it. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: rooster
+version: "1.0.0"
+
+catalog:
+  name: "Rooster — The Opener"
+  emoji: "🐓"
+  tagline: "Trades the clock, not the chart. In the window before a session opens (default 45 minutes, configurable — the knob that matters) it reads how price and volume are setting up: the drift across the window sets direction, expanding volume confirms real positioning, and a break of the prior session's range adds conviction. Carries the position INTO the open, one signal per session, BTC by default at 2-5x with a session-aware DSL ladder."
+  belief_plain: "Most of the day is noise. The move that matters often starts setting up in the 30-60 minutes BEFORE a session opens, and by the time the bell rings the direction is already showing. Rooster wakes up in that window, checks whether price is actually drifting one way on real volume (not just wandering on thin trade), and takes the position into the open. It fires at most once per session, banks profit early, and lets go if the open comes and goes with nothing happening."
+  thesis: "Every other template in the catalog reads price; none reads the clock. Session opens are the most reliable recurring liquidity event in any market, and pre-open drift on expanding volume is a genuine directional tell — but only when it clears a noise floor and only when volume confirms it, which is what separates positioning from wandering. Rooster makes the window itself the strategy: outside it the scanner emits nothing and reads nothing (a cheap idle tick), inside it it scores once and commits. The pre-open window, the session times, and the noise floor are all inputs, because the right window is exactly what a user wants to tune."
+  group: momentum
+  archetype: single_market
+  sub_style: session_open
+  asset_classes: [btc_eth]
+  asset_scope: single
+  direction: long_short
+  risk_level: moderate
+  tier: starter
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 100
+  assets: ["BTC"]
+  tags: [session, market-open, time-of-day, opener, pre-open, clock, intraday, btc, single-asset, long-short, beginner]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: ROOSTER_WALLET
+    funding_share: 1.0

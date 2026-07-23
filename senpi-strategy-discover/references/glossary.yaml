@@ -94,6 +94,8 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   pullback:      { gloss: "Buys the dip within an uptrend." }
   mean_reversion: { gloss: "Buys oversold / sells overbought, betting price reverts to its mean (works in chop, not just trends)." }
   market_structure: { gloss: "Trades SMC/ICT/Wyckoff structure: break-of-structure, liquidity sweeps, fair-value gaps." }
+  chart_pattern: { gloss: "Scans for classic chart patterns (double bottom/top, higher-high structure) and trades the direction the pattern points." }
+  session_open: { gloss: "Positions into a session open on the clock — reads pre-open drift/volume and carries into the open, rather than reacting after." }
   rank_jump:     { gloss: "Catches leaderboard rank-jumps early." }
   momentum_event: { gloss: "Snipes fresh momentum events the instant they fire." }
   liquidation_cascade: { gloss: "Rides liquidation cascades / forced flow." }
