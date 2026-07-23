@@ -4,8 +4,7 @@
 schema_version: 1
 
 id: ibis
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Ibis — Trend/Range Regime-Switcher"
   emoji: "🦤"

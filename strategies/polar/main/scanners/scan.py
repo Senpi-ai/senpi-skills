@@ -240,7 +240,10 @@ def scan(inputs, ctx):
             "direction": th["direction"],
             "marginPct": margin_pct,          # SIZING INTENT — runtime sizes the dollars
             "leverage": leverage,             # conviction-tiered (5/7/10); runtime applies it
-            "data": {
+            # Runtime schema validation REJECTS a null for a field declared `type: number|string`,
+            # even when `required: false` — the whole candidate is dropped (`candidate_rejected`),
+            # silently. An optional field that does not apply must be OMITTED, never set to None.
+            "data": {k: v for k, v in {
                 "score": th["score"], "leverage": leverage, "direction": th["direction"], "tier": tier_label,
                 "trend4h": th["trend_4h"], "trendStrength4h": th["trend_strength_4h"], "trend1h": th["trend_1h"],
                 "mom5mPct": th["mom_5m"], "mom15mPct": th["mom_15m"], "mom1hPct": th["mom_1h"], "mom4hPct": th["mom_4h"],
@@ -249,7 +252,7 @@ def scan(inputs, ctx):
                 "smPct": th["sm_pct"], "smTraders": th["sm_traders"], "smCc15m": th["sm_cc15m"],
                 "smCc1h": th["sm_cc1h"], "smCc4h": th["sm_cc4h"],
                 "reasons": th["reasons"],
-            },
+            }.items() if v is not None},
         }]
 
     # ── persist dedup map + this tick's result EVERY tick; self-trims at

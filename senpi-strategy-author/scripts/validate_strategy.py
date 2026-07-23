@@ -60,6 +60,42 @@ def candle_key_bug(text):
             if _CANDLE_ACCESS[lng].search(text) and not _CANDLE_ACCESS[sht].search(text)]
 
 
+# A signal `data` field declared `type: number|string|...` in signal_data_schema is REJECTED by the
+# runtime when its value is null — even with `required: false`. The whole candidate is dropped
+# (`candidate_rejected`), silently, so the strategy funds and never trades. An optional field that
+# does not apply to this signal must be OMITTED, not set to None. (ibis shipped 100% dead on this.)
+_NONE_IN_DATA = re.compile(r'"(\w+)":\s*(?:th\[[^\]]+\]|None)\s*(?:,|\})')
+_STRIPS_NONE = re.compile(r'if\s+v\s+is\s+not\s+None')
+
+
+def null_signal_field_offenders(scan_src, scoring_src, schema):
+    """Fields emitted into a signal's `data` that can be None while declared as a typed schema
+    field. Returns [(field, declared_type), ...]. Empty when the scanner strips Nones at emit."""
+    if not schema or _STRIPS_NONE.search(scan_src):
+        return []
+    nullable = set(re.findall(r'"(\w+)":\s*None', scoring_src or ""))
+    out = []
+    for m in re.finditer(r'"(\w+)":\s*th\["(\w+)"\]', scan_src):
+        camel, snake = m.group(1), m.group(2)
+        ty = (schema.get(camel) or {}).get("type") if isinstance(schema.get(camel), dict) else None
+        if snake in nullable and ty in ("number", "string", "boolean", "array"):
+            out.append((camel, ty))
+    return sorted(set(out))
+
+
+def _runtime_docs(pkg: Path):
+    """Every parsed runtime.yaml in the package (flat or nested)."""
+    out = []
+    for rt in pkg.rglob("runtime.yaml"):
+        try:
+            d = yaml.safe_load(rt.read_text()) or {}
+        except Exception:  # noqa: BLE001
+            continue
+        if isinstance(d, dict):
+            out.append(d)
+    return out
+
+
 def _flat_wallet_env(pkg: Path, sid) -> str:
     """Mirror the deployer's flat-instance synthesis: bind wallet_env to the ${...} the flat
     runtime.yaml already uses for its wallet, falling back to <ID>_WALLET."""
@@ -208,6 +244,24 @@ def validate(pkg: Path) -> list:
         for lng, sht in candle_key_bug(src):
             errs.append(f"{py.name}: candles are keyed `o/h/l/c/v` — use `candle['{sht}']`, not `{lng}` "
                         f"(no such key → always None → the scan emits nothing).")
+
+    # null-in-typed-schema: an optional signal field set to None is REJECTED by the runtime
+    # (candidate_rejected, silently) — omit it instead. Checked per scanner dir so scan.py,
+    # its sibling scoring.py, and the runtime's signal_data_schema are compared together.
+    for scan_py in pkg.rglob("scanners/scan.py"):
+        scoring_py = scan_py.with_name("scoring.py")
+        scoring_src = scoring_py.read_text() if scoring_py.is_file() else ""
+        for rt_doc in _runtime_docs(pkg):
+            for sc in (rt_doc.get("scanners") or []):
+                if not isinstance(sc, dict) or sc.get("type") != "external_scanner":
+                    continue
+                for field, ty in null_signal_field_offenders(
+                        scan_py.read_text(), scoring_src, sc.get("signal_data_schema") or {}):
+                    errs.append(
+                        f"{scan_py.name}: signal field `{field}` is declared `type: {ty}` but can be "
+                        f"None — OMIT it when it doesn't apply (a null fails schema validation and the "
+                        f"runtime drops the whole candidate silently). Build data as "
+                        f"`{{k: v for k, v in {{...}}.items() if v is not None}}`.")
     for f in pkg.rglob("*"):
         if f.is_file() and f.suffix in (".py", ".yaml", ".md"):
             t = f.read_text(errors="ignore")
