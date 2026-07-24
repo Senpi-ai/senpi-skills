@@ -179,13 +179,22 @@ def asset_matches(named, assets):
     return False
 
 
+# Crypto majors the fleet trades by name — used only to infer a class for the named-asset broaden
+# fallback. A ticker not here (a stock like NVDA passed without the xyz: prefix, or an unknown coin)
+# broadens to NO class constraint rather than being wrongly forced into the crypto bucket.
+_CRYPTO_NAMED = {"BTC", "ETH", "SOL", "HYPE", "XRP", "DOGE", "AVAX", "LINK", "ADA",
+                 "LTC", "NEAR", "APT", "UNI", "AAVE", "SUI", "TON", "OP", "ARB"}
+
+
 def infer_class_for_named(named):
     n = named.upper().replace("XYZ:", "")
     if named.upper().startswith("XYZ:"):
-        return None  # xyz domain but sub-class unknown; broaden = no class constraint
+        return None  # xyz domain, sub-class unknown -> no class constraint
     if n in ("BTC", "ETH"):
         return "btc_eth"
-    return "major_alts"
+    if n in _CRYPTO_NAMED:
+        return "major_alts"
+    return None  # unknown ticker (often an equity passed without xyz:) -> don't force a crypto class
 
 
 # ---------------------------------------------------------------- matcher (pure: filter + return all)

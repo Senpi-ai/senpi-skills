@@ -221,10 +221,18 @@ def test_intent_echo():
     check("echo has no soft keys", not any(k in e for k in ("risk", "belief", "horizon")), e)
 
 
+def test_infer_class():
+    # the named-asset broaden fallback must not force a non-crypto ticker into the crypto bucket
+    check("infer BTC -> btc_eth", discover.infer_class_for_named("BTC") == "btc_eth")
+    check("infer SOL -> major_alts", discover.infer_class_for_named("SOL") == "major_alts")
+    check("infer NVDA -> None (not mis-bucketed as crypto)", discover.infer_class_for_named("NVDA") is None)
+    check("infer xyz:GOLD -> None (xyz, sub-class unknown)", discover.infer_class_for_named("xyz:GOLD") is None)
+
+
 if __name__ == "__main__":
     for fn in [test_normalizer, test_return_all, test_soft_surface, test_asset_class_crossdomain,
                test_named_asset, test_direction, test_exclude, test_ordering, test_caveats,
-               test_degrade, test_failopen, test_intent_echo]:
+               test_degrade, test_failopen, test_intent_echo, test_infer_class]:
         try:
             fn()
         except Exception as e:  # noqa
