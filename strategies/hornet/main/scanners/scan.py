@@ -30,7 +30,9 @@ daemon, no push_signal, no create_position.
 XYZ notes (xyz-equity DEX handling, matching bobcat):
   - every asset is xyz:NAME and EVERY market read passes dex="xyz" (the prefix is
     mandatory for the HIP-3 DEX),
-  - 23/5 trading; the 48h hard_timeout (runtime.yaml) caps holds across the weekend
+  - 24/7 trading — the PERP never closes; it is the UNDERLYING US market that is
+#    shut Fri 17:00 ET -> Sun 18:00 ET, when XYZ prices off a 30-min EWMA internal
+#    oracle and reconciles at Monday's open. The 48h hard_timeout (runtime.yaml) caps holds across the weekend
     pricing gap. No scan-level market-hours gate.
 """
 

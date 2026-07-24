@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-07-23",
+  "_updated": "2026-06-17",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -957,8 +957,8 @@
       "name": "Hornet — Semiconductor Supply-Chain Momentum",
       "emoji": "🐝",
       "tagline": "A semiconductor / AI-capex supply-chain momentum basket on Hyperliquid XYZ (equipment ASML/AMAT/MRVL, logic NVDA/AMD/AVGO/TSM/QCOM/ARM/INTC/SMH, memory MU/SNDK/SMSN/SKHX/WDC): it only trades when the whole chain confirms as a complex — a sector-breadth gate flips it long-only when most names trend up and short-only when the chain rolls over — then rides the strongest 1-2 names, with an extra edge when the equipment makers lead the move. Flat 18% margin / 4x, wide DSL ratchet capped at 48h so it never camps through the weekend pricing gap.",
-      "belief_plain": "Trades the semiconductor supply chain — the chip designers, the memory makers, and the equipment companies that build the factories — as perps on Hyperliquid XYZ, 23/5. AI spending bids the whole chain together, so Hornet refuses to trade single names in isolation: it first checks whether the sector as a whole is trending up or down, and only then takes the strongest 1-2 names in that direction. It pays special attention when the equipment makers move first, since that tends to lead the cycle. It trails a wide stop so a real move can run, but caps each hold at 48 hours so it never sits through the Friday-to-Sunday gap when these names have no external price.",
-      "version": "1.0.1",
+      "belief_plain": "Trades the semiconductor supply chain — the chip designers, the memory makers, and the equipment companies that build the factories — as perps on Hyperliquid XYZ, 24/7. AI spending bids the whole chain together, so Hornet refuses to trade single names in isolation: it first checks whether the sector as a whole is trending up or down, and only then takes the strongest 1-2 names in that direction. It pays special attention when the equipment makers move first, since that tends to lead the cycle. It trails a wide stop so a real move can run, but caps each hold at 48 hours so it never sits through the Friday-to-Sunday gap when these names have no external price.",
+      "version": "1.0.2",
       "thesis": "AI capex doesn't bid one chip name — it bids the entire semiconductor supply chain: equipment makers (ASML, AMAT, MRVL), logic/compute (NVDA, AMD, AVGO, TSM, QCOM, ARM, INTC, SMH), and memory (MU, SNDK, SMSN, SKHX, WDC). A per-name momentum agent can get chopped up taking a single semi that's moving on idiosyncratic news against a flat sector. Hornet's edge is that it requires the chain to confirm as a complex first — a sector-breadth gate (the fraction of the universe whose 4h trend is bullish) flips the agent long-only above 0.55 and short-only below 0.35, and emits nothing in the chop band between. Within an open gate it rides the strongest 1-2 names and adds conviction when the equipment sub-group leads (capex tools bid first, then logic and memory — the classic early-cycle gradient). The 48h hard_timeout is intentional: equity perps reconcile against an internal oracle over the weekend gap where drift accumulates without external price discovery.",
       "tags": [
         "semiconductors",
@@ -975,7 +975,7 @@
         "basket",
         "long-short",
         "advanced",
-        "23-5"
+        "24-7"
       ],
       "group": "momentum",
       "archetype": "breakout_momentum",
@@ -3448,9 +3448,9 @@
       "name": "Bobcat — Big Tech Trend Follower",
       "emoji": "🐈",
       "tagline": "A big-tech equity-perp trend follower on Hyperliquid XYZ (NVDA/TSLA/AAPL/META/MSFT/GOOGL/AMZN/AMD/MU/INTC/TSM/ORCL): enters the single strongest name when its 4h trend is non-neutral AND smart-money leans the same way (tilt >= 55%), sizes a flat 20% margin at 5x, and lets a wide DSL ratchet ride the move — with a 48h cap so positions don't camp through the weekend pricing gap.",
-      "belief_plain": "Trades the big tech stocks you already know — NVDA, TSLA, AAPL and nine more — as perps on Hyperliquid XYZ, 23/5. It only enters when a stock's 4-hour trend and the best traders are pointing the same way, holds the single strongest setup, and trails a stop so a real move can run — but caps each hold at 48 hours so it never sits through the Friday-to-Sunday gap when these names have no external price.",
-      "version": "1.0.1",
-      "thesis": "Big tech is the most-traded equity sector, and Hyperliquid XYZ surfaces these names as leveraged perps with 23/5 hours. A clean trend + smart-money confluence on the highest-liquidity XYZ equities catches directional moves without the small-cap noise of a broad scanner. The 48h hard_timeout is intentional: equity perps reconcile against an internal oracle over the weekend gap, where drift accumulates without external price discovery — so winners are let to run on the 4h timescale but never held through the full Fri-Sun window.",
+      "belief_plain": "Trades the big tech stocks you already know — NVDA, TSLA, AAPL and nine more — as perps on Hyperliquid XYZ, 24/7. It only enters when a stock's 4-hour trend and the best traders are pointing the same way, holds the single strongest setup, and trails a stop so a real move can run — but caps each hold at 48 hours so it never sits through the Friday-to-Sunday gap when these names have no external price.",
+      "version": "1.0.2",
+      "thesis": "Big tech is the most-traded equity sector, and Hyperliquid XYZ surfaces these names as leveraged perps that trade 24/7 — including the weekend, when the underlying market is shut and pricing runs on an internal oracle. A clean trend + smart-money confluence on the highest-liquidity XYZ equities catches directional moves without the small-cap noise of a broad scanner. The 48h hard_timeout is intentional: equity perps reconcile against an internal oracle over the weekend gap, where drift accumulates without external price discovery — so winners are let to run on the 4h timescale but never held through the full Fri-Sun window.",
       "tags": [
         "big-tech",
         "equities",
@@ -3462,7 +3462,7 @@
         "smart-money",
         "basket",
         "onboarding",
-        "23-5"
+        "24-7"
       ],
       "group": "single-asset",
       "archetype": "single_market",
