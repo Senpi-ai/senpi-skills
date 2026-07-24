@@ -6,7 +6,7 @@ description: >-
   to the best whales", "how could I make more gains", "suggest improvements", "review my trades", "am I
   getting shaken out too early / how are my exits firing", "what did my own limits block / what couldn't
   I take", "where am I leaking", "walk me through / explain my [asset] trade", "what am I paying in fees /
-  maker vs taker", "why is [strategy] losing". A hidden engine (scripts/review.py) reconstructs every
+  maker vs taker", "why is [strategy] losing". When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then shortlist a fit (senpi-strategy-discover); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reconstructs every
   CLOSED trade from discovery, enriches each exit reason + blocked signals from the runtime telemetry
   event log, computes the honest "if I'd held to now" counterfactual, and crosses the book against what
   the market did — you narrate it under strict guardrails: process over outcome (lead with the aggregate,
@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.6.0"
+  version: "1.7.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -135,6 +135,43 @@ It returns `{ok, asset, entries[]}` — the asset's events oldest-first (`positi
 (`installed_runtimes.json`, the same source the engine reads for mandates — each entry's `id`) or from
 `openclaw senpi runtime list`. A closed strategy has no ring → `explain` returns nothing; that's expected,
 say so, don't call it a bug.
+
+## Nothing to review? Read `meta.book_state` FIRST — it decides the whole answer
+
+Every engine output carries `meta.book_state`. **Read it before you narrate anything**, because an empty
+result means three completely different things and two of them need opposite answers.
+
+| `book_state` | Situation | What you do |
+|---|---|---|
+| `no_strategies` | Nothing deployed. Genuinely nothing to review. | **Pivot to the market** — see below. |
+| `strategies_no_trades` | Deployed, hasn't traded yet. | Diagnose **the strategy they already have**. **Never pitch another one.** |
+| `has_trades` | Normal. | Review as usual. |
+| `unknown` | The strategy list was **unreadable** (token/scope). | Say the read failed. **Never** say "you have no strategies." |
+
+> **The mistake to avoid:** telling someone whose funded strategy is silently blocked to "go find a
+> strategy that fits the market." They don't need another strategy — they need to know why the one they
+> already paid for is idle.
+
+### `no_strategies` — pivot to market-pulse → strategy-discover
+
+A user can land here with an empty account — the review prompts are offered before anyone has traded.
+The honest answer is short, and then the useful thing is **the market**, not an apology.
+
+**Say the truth in one line, then pivot — don't dwell.** *"Nothing to review yet — you haven't deployed a
+strategy."* Then:
+
+1. **Read the market first** — compose **`senpi-market-pulse`**. What's actually moving today, which asset
+   classes lead, risk-on or risk-off. This is the hook: genuinely useful on its own, and it's real current
+   information rather than a pitch.
+2. **Then shortlist against THAT read** — compose **`senpi-strategy-discover`**, and let today's market
+   drive the shortlist. *"Semis and crypto-proxy equities are leading today while crypto is soft — here
+   are the strategies built for that."* A strategy matched to the current regime is a far better first
+   experience than a generic top-N list.
+3. **Offer, never push.** Two or three named fits with risk level and minimum budget; let them choose. If
+   they'd rather wait, that's a fine outcome — say so.
+
+**Still forbidden here** (guardrail 9 binds): no manufactured critique of an account with nothing in it, no
+"your idle cash is a $0/day leak" framing, no DSL alarms. Idle cash is an **option**, never a loss.
 
 ## Run it in steps — narrate as you go
 
@@ -414,10 +451,14 @@ run on a just-deployed book):
   higher-slippage fills **raises fees** — the biggest killer of returns. `slippage: 0` is not a defect to
   "fix." If the user explicitly asks about execution, hand it to `senpi-strategy-author` / `senpi-strategy-ops`;
   don't free-style a number.
-- **What TO say instead:** there's nothing to review yet; the strategies will trade on their own signals
-  (idle-by-design for a fresh deploy); check back after they've traded. Offer real next moves as **options,
-  not obligations** — add a complementary strategy (`senpi-strategy-discover`), or top up / adjust via ops.
-  Idle embedded cash is an **opportunity to deploy more if they want**, never a "$0/day leak."
+- **What TO say instead — branch on `meta.book_state` (see "Nothing to review?" above):**
+  - **`strategies_no_trades`** (deployed, hasn't fired): there's nothing to review *yet*; the strategies
+    trade on their own signals — idle-by-design for a fresh deploy. If they ask **why**, diagnose the
+    strategy they have. **Do not pitch another strategy to someone whose strategy hasn't traded.**
+  - **`no_strategies`** (nothing deployed): say it in one line, then **pivot to `senpi-market-pulse` →
+    `senpi-strategy-discover`** — read today's market, then shortlist strategies that fit *it*.
+  - Either way, next moves are **options, not obligations**, and idle embedded cash is an **opportunity to
+    deploy if they want**, never a "$0/day leak."
 
 ## What the engine gives you
 
