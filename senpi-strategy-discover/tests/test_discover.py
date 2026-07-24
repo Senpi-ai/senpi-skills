@@ -188,10 +188,13 @@ def test_caveats():
 
 
 def test_degrade():
-    # named asset nobody trades -> broaden to class
+    # named crypto ticker with no fixed-asset specialist -> universe scanners cover it directly
+    # (a broad crypto scanner trades any crypto name, so the broaden fallback isn't needed)
     r = run(assets="DOGE")
-    check("DOGE broadened (widened named_asset)", "named_asset" in r["meta"].get("widened", []), r["meta"])
-    check("DOGE broaden -> alt strategies survive", "kodiak" in ids(r), ids(r))
+    check("DOGE -> non-empty (covered by universe scanners)", r["candidates"] != [], ids(r))
+    check("DOGE -> a universe-scope scanner is present",
+          any(c.get("asset_scope") == "universe" for c in r["candidates"]), ids(r))
+    check("DOGE -> no broaden needed", "named_asset" not in r["meta"].get("widened", []), r["meta"])
 
     # genuinely impossible (crypto user, exclude crypto AND copy) -> build-custom only
     r2 = run(assets="btc_eth", exclude="crypto,copy_trading")
