@@ -232,6 +232,19 @@ This is a guide/utility skill (it *recommends*; it does not itself create a stra
 no `references/skill-attribution.md`. Attribution happens when **senpi-strategy-ops** installs the
 chosen strategy (via the MCP tool's `skillName`/`skillVersion` from the package's `strategy.yaml`).
 
+## Running the engine
+
+The `exec` tool runs from the workspace (`/data/workspace`), **not** this skill directory, so a
+relative `python3 scripts/discover.py …` fails with `No such file or directory`. **Always invoke the
+script by its full path:**
+
+```
+python3 "$OPENCLAW_STATE_DIR/skills/senpi-strategy-discover/scripts/discover.py" [flags]
+```
+
+If `OPENCLAW_STATE_DIR` is unset, use the absolute path
+`python3 /data/.openclaw/skills/senpi-strategy-discover/scripts/discover.py [flags]`.
+
 ## Install — include the MCP helper
 
 The scripts in `scripts/` import a vendored MCP helper, `scripts/mcp_client.py`, at runtime.
