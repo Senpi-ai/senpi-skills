@@ -13,6 +13,7 @@ Render substitutes ONLY `${wallet_env}` (+ the decision-model env iff a runtime 
 `decision_mode: llm` action), then asserts zero `${...}` placeholders remain before deploy.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import ast
 import re
 from pathlib import Path
 
@@ -23,6 +24,171 @@ except ImportError:
 
 _VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _MARGIN_PCT_RE = re.compile(r"margin_?pct", re.I)
+
+
+# ── dual-DEX (main / xyz) blindness — both failures are SILENT ───────────────
+# Hyperliquid is two sub-DEXes behind ONE cross-margined wallet, and the two APIs disagree about how a
+# name is spelled. Neither mistake raises: the strategy just never sees an `xyz:` name, or never sees the
+# positions it already holds. Both checks below are POSITIVE-EVIDENCE: they ask "did this file do the
+# thing that makes it correct?", never "does it contain one particular wrong spelling" — an enumeration
+# of wrong spellings is defeated by any rewording of the same bug.
+_DEX_EVIDENCE = re.compile(
+    r'''["']dex["']|\bdex\s*=|\.dex\b'''            # consults the row's dex field
+    r'''|removeprefix\(\s*["']xyz:|startswith\(\s*["']xyz:'''   # …or normalises the xyz: prefix
+    r'''|split\(\s*["']:["']''')
+_LEADERBOARD_TOOL = "leaderboard_get_markets"
+
+
+def _calls_leaderboard(tree):
+    """True only when the tool is actually CALLED — the name appearing in a docstring or comment
+    (scoring modules routinely describe the row shape they are handed) is not a use."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            for arg in list(node.args) + [kw.value for kw in node.keywords]:
+                if isinstance(arg, ast.Constant) and arg.value == _LEADERBOARD_TOOL:
+                    return True
+    return False
+_ASSET_POS_KEY = "assetPositions"
+_CH_TOOL = "strategy_get_clearinghouse_state"
+
+
+# POSITIVE xyz exposure only. The mere word "xyz" is not exposure — several packages mention it solely
+# to BAN it ("XYZ banned", `xyzBanned: true`), and those can never receive a prefixed name, so the
+# leaderboard rule would be pure noise for them.
+_XYZ_EXPOSURE = re.compile(
+    r"[\"']?xyz:[A-Za-z0-9]"                                   # a prefixed asset literal (xyz:NVDA)
+    r"|xyz_equities|xyz_?commodit|xyz_?indic"                  # an xyz asset class
+    r"|includeXyz\s*:\s*true|maxXyzNames|xyzVolFloor|xyzAssets",  # an xyz universe/derivation input
+    re.I)
+_XYZ_BANNED = re.compile(r"xyz_?banned\s*:\s*true", re.I)
+
+
+def _pkg_is_main_only(ctx):
+    """True when the package declares no POSITIVE xyz exposure — no prefixed asset, no xyz asset class,
+    no xyz universe input — or bans xyz outright. Such a package can never receive a prefixed name, so
+    the leaderboard rule would only add noise. `ctx` is the merged strategy.yaml + runtime.yaml text;
+    absent -> False (never suppress on missing context)."""
+    if not ctx:
+        return False
+    s = str(ctx)
+    if _XYZ_BANNED.search(s):
+        return True
+    return not _XYZ_EXPOSURE.search(s)
+
+
+def _iter_is_dex_sections(node):
+    """True when a `for` iterates BOTH sub-DEX sections — in either order, or generically.
+
+    Accepts the literal ("main", "xyz") / ("xyz", "main") in any container, and any `.values()` /
+    `.items()` walk of the clearinghouse dict (which visits both sections by construction)."""
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        vals = {e.value for e in node.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+        return {"main", "xyz"} <= vals
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        return node.func.attr in ("values", "items")
+    return False
+
+
+def _clearinghouse_names(tree):
+    """Names bound to the RAW clearinghouse result — the call itself, and any `x.get("data", x)`
+    unwrap of one. These are the receivers on which `.get("assetPositions")` is the bug; a per-section
+    dict is a different receiver and is never collected here."""
+    names = set()
+    for _ in range(3):                       # settle chained unwraps (ch -> data -> d)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign) or not node.targets:
+                continue
+            tgt = node.targets[0]
+            if not isinstance(tgt, ast.Name):
+                continue
+            src = ast.dump(node.value)
+            if _CH_TOOL in src:
+                names.add(tgt.id)
+            elif '"data"' in src.replace("'", '"'):
+                for sub in ast.walk(node.value):
+                    if isinstance(sub, ast.Name) and sub.id in names:
+                        names.add(tgt.id)
+                        break
+    return names
+
+
+def _top_level_asset_position_reads(tree, ch_names):
+    """`<clearinghouse>.get("assetPositions")` (or `[...]`) reached OUTSIDE a both-sections loop.
+
+    Scoped to the read itself, not the file: a file that handles the sections correctly in one place
+    and grows a new top-level read elsewhere is still flagged — that is the likeliest regression."""
+    bad = []
+
+    def walk(node, in_dex_loop):
+        for child in ast.iter_child_nodes(node):
+            nxt = in_dex_loop or (isinstance(node, ast.For) and _iter_is_dex_sections(node.iter))
+            recv = key = None
+            if (isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute)
+                    and child.func.attr == "get" and child.args
+                    and isinstance(child.args[0], ast.Constant)):
+                recv, key = child.func.value, child.args[0].value
+            elif (isinstance(child, ast.Subscript) and isinstance(child.slice, ast.Constant)):
+                recv, key = child.value, child.slice.value
+            if key == _ASSET_POS_KEY and isinstance(recv, ast.Name) and recv.id in ch_names \
+                    and not nxt:
+                bad.append(getattr(child, "lineno", 0))
+            walk(child, nxt)
+
+    for fn in [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))] or [tree]:
+        # A function that ALREADY reads both sections has handled the shape; a top-level read beside it
+        # is a deliberate legacy-flat fallback, not the bug. Scoped to the FUNCTION, never the file — a
+        # new function that grows a top-level read has no such read of its own and is still flagged.
+        if any(_iter_is_dex_sections(n.iter) for n in ast.walk(fn) if isinstance(n, ast.For)):
+            continue
+        walk(fn, False)
+    return sorted(set(bad))
+
+
+def dex_blind_offenders(text, pkg_context=None):
+    """Silent dual-DEX bugs in one scanner file. `pkg_context` is the package's declared exposure
+    (strategy.yaml + runtime inputs, as text) — used only to suppress the leaderboard rule for a
+    package with no xyz exposure at all. Returns a list of message strings; [] on unparseable source
+    (the syntax check reports that separately)."""
+    out = []
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return out
+    if _calls_leaderboard(tree) and not _DEX_EVIDENCE.search(text) \
+            and not _pkg_is_main_only(pkg_context):
+        out.append("uses `leaderboard_get_markets` but never consults a `dex` field or normalises the "
+                   "`xyz:` prefix. Leaderboard rows carry a BARE ticker plus a separate `dex`; a universe "
+                   "carries `xyz:NAME`. Match bare tickers AND require the dex to agree — otherwise every "
+                   "xyz name reads as 'no smart-money data' and a hard gate blocks it silently.")
+
+    ch_names = _clearinghouse_names(tree)
+    for line in _top_level_asset_position_reads(tree, ch_names):
+        out.append(f"line {line}: reads `assetPositions` off the raw clearinghouse result. "
+                   f"`{_CH_TOOL}` returns {{'main': ..., 'xyz': ...}} and the positions live INSIDE each "
+                   f"section — off the top level it is ALWAYS empty, so the scanner re-opens names it "
+                   f"already holds. Enumerate both sections.")
+    return out
+
+
+def dex_scan_files(pkg):
+    """The .py files BOTH validators check for dual-DEX blindness — identical on the author and ops
+    sides so author-green == deploy-green. Package sources only: `tests/` is excluded because a
+    deliberate bug fixture there is not a defect."""
+    return sorted(p for p in pkg.rglob("*.py") if "tests" not in p.parts)
+
+
+def dex_pkg_context(pkg):
+    """The package's declared exposure (manifest + every runtime.yaml), as text. Used ONLY to suppress
+    the leaderboard rule for a package with no xyz exposure at all."""
+    parts = []
+    for name in ("strategy.yaml",):
+        f = pkg / name
+        if f.is_file():
+            parts.append(f.read_text(errors="ignore"))
+    for rt in pkg.rglob("runtime.yaml"):
+        parts.append(rt.read_text(errors="ignore"))
+    return "\n".join(parts)
 
 
 def margin_fraction_offenders(doc, path=""):
@@ -261,6 +427,11 @@ def validate(pkg: Package) -> list:
             ep = inst.runtime_path.parent / sub / es.get("entrypoint", "scan.py")
             if not ep.is_file():
                 errs.append(f"{tag}: scanner entrypoint {ep.name!r} not found at {ep.parent}")
+            else:
+                for _py in dex_scan_files(pkg.dir):
+                    for _msg in dex_blind_offenders(_py.read_text(errors="ignore"),
+                                                    dex_pkg_context(pkg.dir)):
+                        errs.append(f"{tag}: {_py.name}: {_msg}")
             # the runtime engine requires a non-empty signal_data_schema MAP on the external_scanner,
             # as a sibling of `inputs` (not nested inside it) — the other bake-off tripwire. Surface it
             # here, pre-funding, instead of at runtime-create after the wallet is already funded.
