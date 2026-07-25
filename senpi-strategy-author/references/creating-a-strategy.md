@@ -82,19 +82,22 @@ grep `strategies/catalog.json` by its `archetype` field (a closed set; every pac
 ### `scoring.py` — pure math (the edge)
 No I/O, no MCP, no clock, no state — just functions over candles/numbers, so it unit-tests without mocks.
 
-> **Candle schema (`market_get_asset_data`):** each candle is keyed `t,o,h,l,c,v` (+ `T,s,i,n`) — short OHLCV. Close is `c` — read `candle["c"]`, not `candle["close"]` (no such key). The runtime **numeric-casts** candle `o/h/l/c/v` and `market_get_prices` values at the `ctx.senpi_mcp` boundary (see `senpi-trading-runtime/references/scan-contract.md` → "Market data arrives numeric"), so arithmetic on them is safe as-is; originals live under a sibling `_raw` key. ⚠️ **Only those two market tools are cast** — every other tool's fields (balances, budgets, leaderboard rows) keep their API types, often strings, and Hyperliquid serves the raw strings on older runtimes. Keep the fleet-standard defensive read below — `float()` of a number is a no-op, so it costs nothing and works everywhere:
+> **Candle schema (`market_get_asset_data`):** each candle is keyed `t,o,h,l,c,v` (+ `T,s,i,n`) — short OHLCV. Close is `c` — read `candle["c"]`, not `candle["close"]` (no such key). Hyperliquid serves `o/h/l/c/v` as **strings**. Runtimes newer than 3.0.32 numeric-cast candles and `market_get_prices` values at the `ctx.senpi_mcp` boundary (originals kept under a single `_raw` key on the response container, at the same level as `candles`/`prices` — see `senpi-trading-runtime/references/scan-contract.md` → "Market data types"); older runtimes hand you the raw strings, and **every other tool's fields keep their API types either way** (balances, budgets, leaderboard rows — often strings). So always read numerics through the fleet-standard helper below — `float` of a number is a no-op, so it is correct on every runtime version and every data path:
 
 ```python
-def _f(x):
-    """Defensive numeric read — no-op on numbers, saves you on any string/None path."""
+def _f(v, d=0.0):
+    """Defensive numeric read (fleet standard): no-op on numbers, casts strings,
+    falls back to d on None/garbage. Shape tolerance — not a data-quality gate:
+    a fallback 0.0 in ratio math reads as a real price, so gate on presence first."""
     try:
-        return float(x or 0)
+        return float(v)
     except (TypeError, ValueError):
-        return 0.0
+        return d
 
 def score(asset, candles, extra, inputs):    # candles/numbers in, thesis dict out
-    close = _f(candles[-1]["c"]) if candles else 0.0
-    if not _qualifies(...): return None
+    if not candles: return None
+    close = _f(candles[-1]["c"])
+    if not _qualifies(close, ...): return None
     return {"score": s, "direction": "LONG"|"SHORT", "reasons": [...]}
 ```
 
