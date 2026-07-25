@@ -77,7 +77,7 @@ min_score = int(inputs.get("minScore", 4))
 
 | Member | What it is |
 |---|---|
-| `ctx.senpi_mcp.call_tool(name, args)` | Senpi MCP client, **read-only** (see boundary below). The only way to fetch data. |
+| `ctx.senpi_mcp.call_tool(name, args)` | Senpi MCP client, **read-only** (see boundary below). The only way to fetch data. Market-tool candle/price fields arrive **numeric** (see the market-data section below); all other tools' values keep their API types (often strings). |
 | `ctx.state` | Transactional history store (or `None` when history is disabled). API below. |
 | `ctx.wallet` | The runtime's wallet address (pass to `strategy_get_clearinghouse_state`, etc.) |
 | `ctx.scanner_name` | This scanner's name (from the recipe) |
@@ -133,6 +133,33 @@ knob. As an author: **assume you cannot mutate anything.** Produce signals; the 
 
 ---
 
+## Market data arrives numeric (everything else is strings)
+
+Hyperliquid's API returns candle `o/h/l/c/v` and price-map values as **strings**
+(`"HYPE": "58.3275"`). The runtime casts them to numbers at the `ctx.senpi_mcp` boundary before
+your `scan()` sees them, for exactly these two tools:
+
+- **`market_get_asset_data`** — candle `o/h/l/c/v` (+ `t`; `T`/`n` when valid), `asset_context`
+  numeric fields (`markPx`, `midPx`, `funding`, `openInterest`, …), `order_book` level `px`/`sz`,
+  `funding_history` `fundingRate`/`premium`.
+- **`market_get_prices`** — every value in the `prices` map.
+
+So `candles[-1]["c"] / 2` is safe as-is. Details:
+
+- Originals are preserved under a sibling **`_raw`** key at the same level as the cast sections
+  (exact API strings, if you ever need full precision).
+- A candle row whose `t/o/h/l/c/v` don't cast, or a price entry that doesn't cast, is **dropped**
+  and logged (`senpi_mcp_cast_dropped` scaffold event) — never passed through as a string.
+- **Every other tool's response is untouched.** A strategy's `budget`, clearinghouse balances,
+  leaderboard fields, etc. may still be strings — cast those yourself before arithmetic.
+- This guarantee ships with the runtime's boundary cast (runtime CHANGELOG: *"Scanner market data
+  is now numeric at the MCP boundary"*). On older runtimes these fields are still strings — a
+  defensive `float(...)` is harmless either way (`float` of a number is a no-op), so keeping the
+  fleet-standard cast helper in `scoring.py` costs nothing and makes your package
+  version-independent.
+
+---
+
 ## The signal dict (return value)
 
 Return a `list[dict]`, one per candidate. Keys:
@@ -163,7 +190,8 @@ default_signal_validity_seconds)`), the wire envelope, delivery, and dedup. **Do
 ## `scoring.py` — keep the logic pure
 
 Every example splits a sibling `scoring.py` with **no I/O, no MCP, no daemon** — just functions over
-candles/numbers. `scan.py` fetches via `ctx.senpi_mcp` and hands plain lists to `scoring`. This ports
+candles/numbers. `scan.py` fetches via `ctx.senpi_mcp` (candle/price fields already numeric — see
+the market-data section above) and hands the candle lists to `scoring`. This ports
 cleanly from older producers (the pure trend/scoring helpers were already unit-tested) and lets a
 reader follow the thesis without mocking MCP.
 
@@ -187,6 +215,8 @@ Both are valid — it's your thesis:
 - ✅ Pure scoring in `scoring.py`; MCP + state in `scan.py`.
 - ✅ Keep dedup / rotation / first-seen ledgers in `ctx.state` (`last()` → mutate → `append()`).
 - ✅ Declare every `data{}` key in `signal_data_schema`; set `default_signal_validity_seconds`.
+- ✅ Market-tool candles/prices arrive numeric; **any other tool's fields may be strings — cast
+  before arithmetic** (a defensive `float()` on market data is harmless too).
 - ✅ Put `marginPct` (fleet standard) or `marginUsd`, plus `leverage`, at the **top level**, not inside `data{}`.
 - ✅ On any failure, **return `[]`** (or a partial list) — don't crash.
 - ❌ Don't set `valid_until`/`produced_at` — the scaffold owns the envelope (`signal_id` optional).

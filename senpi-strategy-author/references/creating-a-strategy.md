@@ -82,10 +82,18 @@ grep `strategies/catalog.json` by its `archetype` field (a closed set; every pac
 ### `scoring.py` — pure math (the edge)
 No I/O, no MCP, no clock, no state — just functions over candles/numbers, so it unit-tests without mocks.
 
-> **Candle schema (`market_get_asset_data`):** each candle is keyed `t,o,h,l,c,v` (+ `T,s,i,n`) — short OHLCV, **string** values. Close is `c`; read fields as `float(candle["c"])`, not `candle["close"]` (no such key).
+> **Candle schema (`market_get_asset_data`):** each candle is keyed `t,o,h,l,c,v` (+ `T,s,i,n`) — short OHLCV. Close is `c` — read `candle["c"]`, not `candle["close"]` (no such key). The runtime **numeric-casts** candle `o/h/l/c/v` and `market_get_prices` values at the `ctx.senpi_mcp` boundary (see `senpi-trading-runtime/references/scan-contract.md` → "Market data arrives numeric"), so arithmetic on them is safe as-is; originals live under a sibling `_raw` key. ⚠️ **Only those two market tools are cast** — every other tool's fields (balances, budgets, leaderboard rows) keep their API types, often strings, and Hyperliquid serves the raw strings on older runtimes. Keep the fleet-standard defensive read below — `float()` of a number is a no-op, so it costs nothing and works everywhere:
 
 ```python
+def _f(x):
+    """Defensive numeric read — no-op on numbers, saves you on any string/None path."""
+    try:
+        return float(x or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
 def score(asset, candles, extra, inputs):    # candles/numbers in, thesis dict out
+    close = _f(candles[-1]["c"]) if candles else 0.0
     if not _qualifies(...): return None
     return {"score": s, "direction": "LONG"|"SHORT", "reasons": [...]}
 ```
