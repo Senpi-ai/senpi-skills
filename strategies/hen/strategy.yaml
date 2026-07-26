@@ -1,0 +1,39 @@
+# Hen — The Basket Opener. Rooster's companion: same clock-is-the-signal thesis, but it
+# positions a BASKET of equities into the US market open instead of one BTC leg. A single-instance
+# PACKAGE: this manifest + one self-contained runtime.yaml + scanners/. Install via senpi-strategy-ops.
+schema_version: 1
+
+id: hen
+version: "1.0.0"
+catalog:
+  name: "Hen — The Basket Opener"
+  emoji: "🐔"
+  tagline: "Rooster's companion, for stocks. In the 45 minutes before the US market opens (default 13:30 UTC, weekdays only) it reads the pre-open setup on a big-tech equity basket — NVDA, TSLA, AAPL and nine more — and positions into the open across the 3-4 strongest names at once, not just one. Per name: the pre-open drift sets direction, expanding volume confirms real positioning, a break of the prior session's range adds conviction. Ranks every qualifier by score and takes the best few, long or short, 2-5x, with a session-aware DSL ladder that banks the open move and is flat before the weekend."
+  belief_plain: "The move that matters often shows itself in the 30-60 minutes before the opening bell — and it rarely shows in just one stock. Hen wakes 45 minutes before the US market opens, checks the whole big-tech basket for names drifting one way on real volume, ranks them, and positions into the open across the 3-4 strongest at once. It only runs on trading days (no bell on weekends means nothing to position into), fires at most once per name per open, banks profit early, and a session timeout means nothing is still holding when the weekend arrives. Where Rooster is one BTC leg into the open, Hen is a small equity book into the same event."
+  thesis: "Rooster proved the clock is a signal on one asset; Hen runs the same engine as a breadth play across an equity basket. The US cash open (13:30 UTC in EDT, 14:30 in EST) is the most reliable recurring liquidity event of the day, and pre-open drift-on-volume is a directional tell — but on a basket the edge is picking WHICH names are setting up, so Hen scores every name in the window and commits to the top few by conviction rather than betting one. Two things make it equity-correct and not a naive Rooster clone: a TRADING-DAY gate (a weekend or overnight tick finds no open to position into and emits nothing), and a session hard_timeout that guarantees the book is flat before the Friday-to-Sunday XYZ oracle gap. Universe, session times, pre-open window, basket size and the noise floor are all inputs."
+  group: momentum
+  archetype: single_market
+  sub_style: session_open
+  asset_classes: [xyz_equities]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 4
+  min_budget: 400
+  assets: ["xyz:NVDA", "xyz:TSLA", "xyz:AAPL", "xyz:META", "xyz:MSFT", "xyz:GOOGL", "xyz:AMZN", "xyz:AMD", "xyz:MU", "xyz:INTC", "xyz:TSM", "xyz:ORCL"]
+  tags: [session, market-open, pre-open, clock, opener, equities, xyz, big-tech, basket, nvda, tsla, aapl, long-short, breadth, companion-rooster]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: HEN_WALLET
+    funding_share: 1.0
