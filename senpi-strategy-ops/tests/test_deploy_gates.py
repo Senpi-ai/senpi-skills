@@ -60,6 +60,38 @@ class PlanFunding(unittest.TestCase):
         self.assertIsNone(short)
 
 
+class UnderfundedNote(unittest.TestCase):
+    @staticmethod
+    def _short(requested, wallets, available, usable):
+        return {"requested": float(requested), "wallets": wallets,
+                "available": float(available), "usable": float(usable),
+                "short_by": float(requested) - float(usable)}
+
+    def test_zero_balance_never_suggests_lower_budget(self):
+        # the M381223 case: $0 accessible → the old note said "--budget ≤ $0"
+        note = deploy.underfunded_note(self._short(500, 1, 0, 0))
+        self.assertIn("[E_FUNDS_BELOW_FLOOR]", note)
+        self.assertNotIn("--budget ≤", note)
+        self.assertIn("deposit", note.lower())
+        self.assertIn("100", note)  # states the missing amount vs the $100 floor
+
+    def test_below_multiwallet_floor_is_below_floor(self):
+        # $180 usable cannot fund 2 wallets at $100/wallet — no valid budget exists
+        note = deploy.underfunded_note(self._short(400, 2, 190, 180))
+        self.assertIn("[E_FUNDS_BELOW_FLOOR]", note)
+        self.assertNotIn("--budget ≤", note)
+
+    def test_above_floor_offers_lower_budget(self):
+        note = deploy.underfunded_note(self._short(400, 2, 260, 250))
+        self.assertIn("[E_FUNDS_SHORT]", note)
+        self.assertIn("--budget ≤ $250", note)
+
+    def test_always_states_nothing_was_created(self):
+        for usable in (0, 250):
+            note = deploy.underfunded_note(self._short(400, 2, usable + 10, usable))
+            self.assertIn("no wallet was created", note)
+
+
 class HasDsl(unittest.TestCase):
     def test_full_preset(self):
         self.assertTrue(_dsl_inst({"exit": {"engine": "dsl", "dsl_preset": {"phase1": {}}}}).has_dsl)

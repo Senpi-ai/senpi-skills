@@ -157,6 +157,29 @@ def plan_funding(need, budget, available):
     return raw, shortfall
 
 
+def underfunded_note(shortfall):
+    """Agent-facing halt text for a funding shortfall. The lower-budget escape is only rendered
+    when the usable balance can still fund every wallet at the MIN_WALLET floor — below that NO
+    budget is valid, and suggesting one produces nonsense the agent follows ("--budget ≤ $0",
+    the M381223 churn). Codes: docs/error-code-taxonomy.md (workspace repo)."""
+    floor_needed = shortfall["wallets"] * MIN_WALLET
+    facts = (f"Requested ${shortfall['requested']:g} across {shortfall['wallets']} wallet(s) "
+             f"(min ${MIN_WALLET:g}/wallet), but only ${shortfall['available']:g} is accessible "
+             f"(${shortfall['usable']:g} after fees) — short by ${shortfall['short_by']:g}. "
+             f"NOT funding; no wallet was created. ")
+    if shortfall["usable"] < floor_needed:
+        missing = floor_needed - shortfall["usable"]
+        return ("[E_FUNDS_BELOW_FLOOR] " + facts +
+                f"No budget can fund {shortfall['wallets']} wallet(s) below the "
+                f"${MIN_WALLET:g}/wallet floor — at least ${missing:g} more USDC is needed. "
+                f"Next: help the user deposit (senpi-deposit-withdraw-transfer skill), then "
+                f"re-run `create`. Do NOT retry with a lower --budget: no lower budget is valid.")
+    return ("[E_FUNDS_SHORT] " + facts +
+            f"Either add USDC, or confirm a lower amount with the user and re-run `create` with "
+            f"--budget ≤ ${shortfall['usable']:g} (must stay ≥ ${floor_needed:g} so every wallet "
+            f"clears the floor).")
+
+
 def report(pkg, st, overall, note=None, as_json=False):
     insts = [{"instance": i, **st["instances"].get(i, {"status": "pending"})}
              for i in [x for x in st["instances"]]]
@@ -267,13 +290,7 @@ def cmd_create(pkg, a, log):
     # than silently funding the $100 floor. Nothing is created on this path.
     amounts, shortfall = plan_funding(need, a.budget, available_usd(mcp)) if need else ({}, None)
     if shortfall:
-        return report(pkg, st, "underfunded", note=(
-            f"Requested ${shortfall['requested']:g} across {shortfall['wallets']} wallet(s) "
-            f"(min ${MIN_WALLET:g}/wallet), but only ${shortfall['available']:g} is accessible "
-            f"(${shortfall['usable']:g} after fees) — short by ${shortfall['short_by']:g}. "
-            f"NOT funding; no wallet was created. Add USDC (or free some from another strategy), or "
-            f"confirm a lower amount with the user and re-run `create` with --budget ≤ ${shortfall['usable']:g}."),
-            as_json=a.json)
+        return report(pkg, st, "underfunded", note=underfunded_note(shortfall), as_json=a.json)
 
     # create any instance that has no strategyId yet — record the id IMMEDIATELY (before polling),
     # so an interrupted run resumes instead of re-creating.
