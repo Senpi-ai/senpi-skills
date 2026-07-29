@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-07-23",
+  "_updated": "2026-06-17",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -223,7 +223,7 @@
       "emoji": "🦉",
       "tagline": "Scans every liquid Hyperliquid crypto perp (OI > $3M) for one-sided crowding — extreme funding + lopsided smart money + concentrated OI — then waits for that crowding to persist 1h+ AND for exhaustion to fire (volume fading, price stalling, RSI divergence) before fading the crowd. Conviction-scaled leverage (7/8/10) at 25% margin, with a macro gate that stands down when BTC's 4h move is extreme.",
       "belief_plain": "The crowd is wrong at the extremes. When everyone piles onto one side of a coin — paying punishing funding, the best traders all leaning the same way, open interest stacking up — and the price then stops following through, the unwind is violent and predictable. Owl waits for both the crowded state AND the exhaustion trigger, then takes the other side. Most days it does nothing, because most days one or both is missing.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "Crowded trades unwind violently. Owl's edge is timing the unwind: it never fades on crowding alone (which can persist and grind), it waits for crowding to PERSIST 1h+ and for distinct exhaustion signals (declining volume under extreme funding, price stalling against the crowd, capitulation wicks, 4h RSI divergence) to confirm the move is dying. Mean reversion fails in trending macro, so a hard gate blocks all fades when |BTC 4h| > 3%. XYZ banned — the funding/smart-money scoring is calibrated on crypto data shape.",
       "tags": [
         "contrarian",
@@ -1316,7 +1316,7 @@
       "emoji": "🦦",
       "tagline": "Watches the rate of change of open interest across every liquid Hyperliquid crypto perp and fires at most a couple of positions — only when 1h OI jumps >=5% while price moves >=0.5% the same way (fresh leveraged money entering with conviction), 4h isn't unwinding, and the spread is tight. Sizes margin to conviction at 5/7/10x, then rides the flow 1-3h on a tight DSL.",
       "belief_plain": "Open interest only grows when new leveraged money enters a perp. When that money piles in fast (OI up 5%+ in an hour) AND price moves the same direction, that's real conviction — not just a wick. Otter rides that fresh flow for an hour or three, then trails a tight stop. It does nothing on the much more common days when no coin shows that burst, and it never trades unwinds.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "OI velocity — the delta of open interest over time — is a perp-native conviction signal nobody else in the fleet trades (others read OI only as a static size filter). Fresh OI growth aligned with price (the top two quadrants of the OI/price matrix) is new leveraged positioning with direction; unwinds (the bottom two) are exhaustion and get skipped. Confluence scoring (OI tier, 4h confirmation, price magnitude, smart-money lean, spread, time-of-day) at a high floor keeps it a sniper, and a tight DSL locks profit early because the flow edge is in the first 1-3 hours.",
       "tags": [
         "open-interest",
@@ -4249,7 +4249,7 @@
       "emoji": "🐦",
       "tagline": "Auto-discovers the platform's top-performing strategies, then trades the asset + direction they agree on most — performance-weighted, so a stronger strategy gets more say (capped so one outlier can't dominate).",
       "belief_plain": "Lets the best strategies on the platform do the work. Every few minutes it finds the top performers, looks at what they're holding right now, and copies whatever the most (and best) of them are piling into together — going long what they're long and short what they're short.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "Following one trader or one leaderboard is one layer; Cuckoo is a layer above it. The strategies it follows are themselves copy/algo/trader-following strategies, so it captures the consensus of the consensus. When the best strategies independently pile into the same asset+direction, that agreement is a strong, self-cleaning signal — underperformers fall out of the top-N automatically, so the pool refreshes toward whatever is working.",
       "tags": [
         "copy-trading",
@@ -4510,7 +4510,7 @@
       "emoji": "🐦",
       "tagline": "Maintains a daily-refreshed pool of the most consistent (ELITE/RELIABLE) Hyperliquid traders, reads each one's open book, and mirrors ONLY their single highest-conviction bet — and only when that one position dominates their whole book (e.g. ~98% of capital in one 3x position). Leans hardest when several elite traders independently pile into the same concentrated trade.",
       "belief_plain": "Looks past the leaderboard noise and keeps a shortlist of the steadiest, most-proven traders on Hyperliquid. Instead of copying everything they do, Oxpecker copies only the trade they're betting their whole book on — the one position that makes up most of their capital. When more than one of those proven traders is all-in on the same trade in the same direction, it bets harder, then trails a wide stop so the conviction can run.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "A proven trader's signal is loudest exactly when they concentrate. Cohort copiers average a pool and whale mirrors ride a fixed name list; Oxpecker does neither — it screens for the highest consistency tier (ELITE/RELIABLE) and then, within that elite set, only acts on positions that represent real conviction: where one bet is the overwhelming majority of the trader's book. A reliable trader with ~98% of their capital in one short is telling you something an opaque cohort average buries. Quality-tier x position-concentration is the whole edge — consensus across multiple elite traders on the same concentrated trade is the strongest signal there is, and the wide let-winners-run DSL respects that conviction rather than scalping it.",
       "tags": [
         "copy-trading",
@@ -4596,7 +4596,7 @@
       "emoji": "🐟",
       "tagline": "Autonomous smart-money whale mirror — auto-builds a top-trader cohort and mirrors their highest-conviction positions; optionally mirror specific whales you name via inputs.whales. Like a remora fish riding a shark, it leans hardest when several whales pile into the same trade (consensus) or when a whale is ELITE/RELIABLE tier.",
       "belief_plain": "Out of the box, Remora finds the most proven traders on Hyperliquid, watches their open positions, and copies the strongest bets — betting bigger when several of them are in the same trade and one has an elite track record. Prefer to ride specific traders you trust? Name them and Remora mirrors exactly those instead. Either way it trails a wide stop so the trade can run.",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "thesis": "Riding the highest-conviction position of proven traders keeps your exposure tracking real smart money, and the consensus multiplier means it leans hardest exactly when those traders independently agree — one whale can be wrong, three agreeing is a much stronger signal. By default Remora is autonomous: it auto-builds a top-trader cohort (all-time realized PnL, refreshed daily) so it always has whales to mirror — no config required. Name your own whales to make it ride exactly the traders you choose. Whales hold winners, so the exit lets the mirror run and only caps staleness.",
       "tags": [
         "whale",

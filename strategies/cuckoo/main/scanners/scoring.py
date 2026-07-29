@@ -59,20 +59,43 @@ def mirror_direction(pos):
 def position_asset(pos):
     """Asset symbol for a position (multi-key fallback). Verbatim from v2.
 
-    Preserves the symbol as returned by the upstream strategy's position
-    (e.g. an `xyz:` prefix survives). Case is uppercased, matching v2."""
+    Preserves the symbol EXACTLY as returned by the upstream strategy's
+    position — both the `xyz:` prefix and the original case. v2 upper-cased it,
+    which is wrong for a derived universe: the emitted symbol goes straight into
+    a Senpi tool call and Hyperliquid coin names are CASE-SENSITIVE (kPEPE /
+    kSHIB / kBONK are rejected as `KPEPE`; HIP-3 prefixes are lowercase
+    `xyz:`). Callers needing a case-insensitive COMPARISON upper-case at the
+    comparison site instead."""
     if not isinstance(pos, dict):
         return ""
-    return str(pos.get("coin", pos.get("market", pos.get("asset", pos.get("symbol", ""))))).upper()
+    return str(pos.get("coin", pos.get("market", pos.get("asset", pos.get("symbol", "")))))
 
 
 def position_notional(pos):
-    """USD notional for a position (size*entry, else marginUsed, else size).
-    Verbatim from v2."""
+    """USD notional for a position: notional_size, else size*entry, else
+    marginUsed, else size.
+
+    Handles BOTH position shapes: the Hyperliquid clearinghouse one
+    (szi/entryPx/marginUsed) and the leaderboard_get_trader_positions one
+    (market/size/entry_price/notional_size). Cuckoo feeds this the LEADERBOARD
+    shape (see scan._fetch_strategy_positions) — without these keys `entry`
+    resolved to 0 and the notional collapsed to the RAW TOKEN COUNT via the
+    final fallback. Because gather_entries filters on `< min_notional` (USD),
+    that silently inverted the filter: every memecoin cleared the $2k floor on
+    token count alone, while a $10M BTC position (~100 tokens) fell BELOW it and
+    was dropped — so the consensus vote structurally could not see BTC.
+
+    `notional_size` is the documented USD field (|size| x current price) per
+    senpi://guides/hyperfeed-trader-positions."""
     if not isinstance(pos, dict):
         return 0.0
+    # leaderboard shape: USD notional is returned directly — no math needed.
+    ns = abs(safe_float(pos.get("notional_size", pos.get("notionalSize", 0))))
+    if ns > 0:
+        return ns
     size = abs(safe_float(pos.get("szi", pos.get("size", 0))))
-    entry = safe_float(pos.get("entryPx", pos.get("entryPrice", pos.get("entry", 0))))
+    entry = safe_float(pos.get("entryPx", pos.get("entryPrice",
+                       pos.get("entry_price", pos.get("entry", 0)))))
     notional = size * entry
     if notional > 0:
         return notional
