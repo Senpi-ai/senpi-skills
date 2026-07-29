@@ -259,5 +259,53 @@ class CloseRuntimeDeleteConfirm(unittest.TestCase):
         self.assertEqual(self.closed, [])             # nothing to close
 
 
+class WalletsUnrecoverableNote(unittest.TestCase):
+    def test_no_wallets_names_create(self):
+        note = deploy.wallets_unrecoverable_note(
+            "spider", [("main", "none", "no ACTIVE spider wallet on the backend for instance 'main'")])
+        self.assertIn("[E_STATE_NO_WALLETS]", note)
+        self.assertIn("deploy.py create spider --budget", note)
+
+    def test_ambiguous_never_names_teardown(self):
+        note = deploy.wallets_unrecoverable_note(
+            "spider", [("main", "ambiguous", "2 ACTIVE spider wallets match instance 'main'")])
+        self.assertIn("[E_STATE_AMBIGUOUS_WALLETS]", note)
+        self.assertNotIn("close.py", note)           # a live funded wallet may be in the set
+        self.assertNotIn("deploy.py create", note)   # recreate is not a valid escape here either
+        self.assertIn("status.py spider", note)      # read-only triage is the named next step
+
+    def test_mixed_causes_use_the_conservative_ambiguous_text(self):
+        note = deploy.wallets_unrecoverable_note(
+            "spider", [("long", "none", "no ACTIVE wallet"),
+                       ("short", "ambiguous", "2 ACTIVE wallets match")])
+        self.assertIn("[E_STATE_AMBIGUOUS_WALLETS]", note)
+        self.assertNotIn("close.py", note)
+
+
+class RecoverWalletKinds(unittest.TestCase):
+    def _pkg(self, n_instances=1):
+        return types.SimpleNamespace(id="spider",
+                                     instances=[types.SimpleNamespace(name=f"i{k}") for k in range(n_instances)])
+
+    def test_no_candidates_is_kind_none(self):
+        w, kind, why = deploy._recover_wallet(self._pkg(), types.SimpleNamespace(name="main"), [])
+        self.assertIsNone(w)
+        self.assertEqual(kind, "none")
+        self.assertIn("no ACTIVE", why)
+
+    def test_multiple_wallets_is_kind_ambiguous(self):
+        active = [{"strategyWalletAddress": "0xaaa", "status": "ACTIVE"},
+                  {"strategyWalletAddress": "0xbbb", "status": "ACTIVE"}]
+        w, kind, why = deploy._recover_wallet(self._pkg(), types.SimpleNamespace(name="main"), active)
+        self.assertIsNone(w)
+        self.assertEqual(kind, "ambiguous")
+
+    def test_single_wallet_recovers(self):
+        active = [{"strategyWalletAddress": "0xaaa", "status": "ACTIVE"}]
+        w, kind, _ = deploy._recover_wallet(self._pkg(), types.SimpleNamespace(name="main"), active)
+        self.assertEqual(w, "0xaaa")
+        self.assertIsNone(kind)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

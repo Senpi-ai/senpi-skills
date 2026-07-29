@@ -371,21 +371,42 @@ def cmd_create(pkg, a, log):
 
 def _recover_wallet(pkg, inst, active):
     """Re-resolve one instance's FRESH wallet from the live ACTIVE <id> strategies when the deploy
-    state was lost (the sub-agent died before persisting it). Returns (wallet, error).
+    state was lost (the sub-agent died before persisting it). Returns (wallet, kind, why):
+    (addr, None, None) on success; (None, "none", why) when the backend has NO candidate — safe to
+    create fresh; (None, "ambiguous", why) when >1 candidate wallets match — one may be a funded
+    LIVE strategy, so the caller must refuse WITHOUT naming teardown.
 
-    NEVER guesses: if the backend is ambiguous (0, or >1 candidate wallets for the instance) it
-    returns an error so cmd_runtime refuses rather than binding a runtime to the wrong/old wallet —
-    the exact reuse trap (agent hand-registers onto a stale wallet from a leftover rendered yaml)."""
+    NEVER guesses: an ambiguous backend refuses rather than binding a runtime to the wrong/old
+    wallet — the exact reuse trap (agent hand-registers onto a stale wallet)."""
     if len(pkg.instances) > 1:  # multi-instance: match by the name create assigned each wallet
         cands = [s for s in active if _cli.strategy_name(s) == f"{pkg.id}-{inst.name}"]
     else:  # single-instance: the lone ACTIVE <id> strategy is this instance
         cands = list(active)
     wallets = {str(_cli.strategy_wallet(s)).lower() for s in cands if _cli.strategy_wallet(s)}
     if cands and len(wallets) == 1:
-        return _cli.strategy_wallet(cands[0]), None
+        return _cli.strategy_wallet(cands[0]), None, None
     if not cands:
-        return None, f"no ACTIVE {pkg.id} wallet on the backend for instance {inst.name!r}"
-    return None, f"{len(cands)} ACTIVE {pkg.id} wallets match instance {inst.name!r} — ambiguous, won't guess"
+        return None, "none", f"no ACTIVE {pkg.id} wallet on the backend for instance {inst.name!r}"
+    return None, "ambiguous", (f"{len(cands)} ACTIVE {pkg.id} wallets match instance {inst.name!r} "
+                               f"— ambiguous, won't guess")
+
+
+def wallets_unrecoverable_note(pkg_id, unresolved):
+    """Refusal text for wallets that could not be safely recovered, split by cause. The ambiguous
+    branch NEVER names close/recreate: >1 live candidate means a funded strategy may be in the set,
+    and naming teardown as the escape is what caused the caribou raw-recreate incident. Any mixed
+    batch uses the conservative ambiguous text. Codes: docs/error-code-taxonomy.md."""
+    lines = "\n".join(f"    - {n}: {why}" for n, _k, why in unresolved)
+    if all(k == "none" for _n, k, _w in unresolved):
+        return (f"[E_STATE_NO_WALLETS] error: no ACTIVE wallet(s) on the backend:\n{lines}\n"
+                f"Nothing to recover and nothing at risk — the create step has not produced wallets "
+                f"for these instance(s).\n"
+                f"Next: python3 deploy.py create {pkg_id} --budget <usd>")
+    return (f"[E_STATE_AMBIGUOUS_WALLETS] error: wallet state is ambiguous — refusing to guess:\n{lines}\n"
+            f"One of these wallets may be a funded LIVE strategy. Do NOT hand-register a runtime, and do "
+            f"NOT tear anything down to 'start clean'.\n"
+            f"Next (read-only): python3 status.py {pkg_id}   # map each wallet to its runtime/strategy\n"
+            f"Then resolve WITH THE USER which wallet is live before re-running `deploy.py runtime {pkg_id}`.")
 
 
 def cmd_runtime(pkg, a, log):
@@ -401,22 +422,17 @@ def cmd_runtime(pkg, a, log):
         active = _cli.strategies_for(MCPClient(), skill_name=pkg.id, statuses=["ACTIVE"])
         recovered, unresolved = [], []
         for inst in missing:
-            w, err = _recover_wallet(pkg, inst, active)
+            w, kind, why = _recover_wallet(pkg, inst, active)
             if w:
                 inst_state(st, inst.name).update(wallet=w, status="active")
                 recovered.append(inst.name)
             else:
-                unresolved.append((inst.name, err))
+                unresolved.append((inst.name, kind, why))
         if recovered:
             save_state(pkg, st)
             log(f"  deploy-state was lost — recovered fresh wallet(s) from the backend for: {', '.join(recovered)}")
         if unresolved:
-            lines = "\n".join(f"    - {n}: {why}" for n, why in unresolved)
-            raise SystemExit(
-                f"error: wallet(s) not ready and not safely recoverable:\n{lines}\n"
-                f"Do NOT hand-register a runtime on an old wallet. Redeploy on a fresh wallet:\n"
-                f"  python3 {Path(__file__).with_name('close.py')} {pkg.id}   # if a stale {pkg.id} wallet is lingering\n"
-                f"  python3 {Path(__file__).name} create {pkg.id} --budget <usd>")
+            raise SystemExit(wallets_unrecoverable_note(pkg.id, unresolved))
     if pkg.any_needs_model and not a.decision_model and not a.dry_run:
         raise SystemExit("error: a runtime has a decision_mode: llm action — pass --decision-model <bare-model>")
 
