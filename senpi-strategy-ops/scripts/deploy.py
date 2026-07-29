@@ -435,10 +435,11 @@ def cmd_runtime(pkg, a, log):
             _cli.run_cli(["openclaw", "senpi", "runtime", "delete", inst.runtime_name], timeout=60)
         build.write_text(text)
         log(f"  [{inst.name}] runtime create…")
-        rc, _o, err = _cli.run_cli(["openclaw", "senpi", "runtime", "create", "-p", str(build),
-                                    "--runtime-id", inst.runtime_name], timeout=120)
+        rc, o, err = _cli.run_cli(["openclaw", "senpi", "runtime", "create", "-p", str(build),
+                                   "--runtime-id", inst.runtime_name], timeout=120)
         if rc != 0:
-            s.update(error=(err or "runtime create failed").strip()[:300])
+            cause = _cli.error_tail(err, o) or "runtime create failed (no error output)"
+            s.update(error="[E_RUNTIME_REGISTER_FAILED] " + cause)
             save_state(pkg, st)
             continue  # keep the rendered yaml on failure for debugging
         s.update(status="registered", error=None)

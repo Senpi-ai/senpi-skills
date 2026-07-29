@@ -63,6 +63,26 @@ def cli_json(args, timeout=60):
     return _extract_json(out)
 
 
+# Stdout/stderr lines that are pure plugin/telemetry chatter — never the failure cause.
+_NOISE_PREFIXES = ("[plugins]",)
+
+
+def error_tail(err, out="", limit=600):
+    """Best-available error text from a failed CLI call: prefer stderr, fall back to stdout;
+    drop blank + known banner lines; return the LAST `limit` chars. CLI failures print the
+    real cause at the END of the stream — a head truncation (`text[:N]`) returns the banner
+    flood and destroys the cause (the M407593 register-error blackout). Filtering must never
+    turn a non-empty capture into an empty message: if everything filtered away, fall back
+    to the raw tail."""
+    text = (err or "").strip() or (out or "").strip()
+    if not text:
+        return ""
+    lines = [ln for ln in text.splitlines()
+             if ln.strip() and not ln.strip().startswith(_NOISE_PREFIXES)]
+    tail = "\n".join(lines).strip()[-limit:]
+    return tail or text[-limit:]
+
+
 # ---- tolerant extraction ----
 
 def dig(obj, *keys, default=None):
