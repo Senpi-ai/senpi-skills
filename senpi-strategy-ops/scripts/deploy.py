@@ -201,7 +201,7 @@ def underfunded_note(shortfall):
     """Agent-facing halt text for a funding shortfall. The lower-budget escape is only rendered
     when the usable balance can still fund every wallet at the MIN_WALLET floor — below that NO
     budget is valid, and suggesting one produces nonsense the agent follows ("--budget ≤ $0",
-    the M381223 churn). Codes: docs/error-code-taxonomy.md (workspace repo)."""
+    the M381223 churn). Codes: docs/error-code-taxonomy.md (repo root)."""
     floor_needed = shortfall["wallets"] * MIN_WALLET
     facts = (f"Requested {usd(shortfall['requested'])} across {shortfall['wallets']} wallet(s) "
              f"(min {usd(MIN_WALLET)}/wallet), but only {usd(shortfall['available'])} is accessible "
@@ -476,7 +476,7 @@ def wallets_unrecoverable_note(pkg_id, unresolved):
     isn't name-matched / is unreadable / is one of several) uses the conservative AMBIGUOUS text:
     a funded LIVE strategy may be in the set, so it NEVER names close/recreate (the caribou
     raw-recreate incident) and points only at read-only triage. Paths are absolute so the hinted
-    commands are copy-paste runnable from any cwd. Codes: docs/error-code-taxonomy.md."""
+    commands are copy-paste runnable from any cwd. Codes: docs/error-code-taxonomy.md (repo root)."""
     deploy_py = Path(__file__).with_name("deploy.py")
     status_py = Path(__file__).with_name("status.py")
     lines = "\n".join(f"    - {n}: {why}" for n, _k, why in unresolved)
