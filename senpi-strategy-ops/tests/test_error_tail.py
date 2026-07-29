@@ -48,6 +48,29 @@ class ErrorTail(unittest.TestCase):
     def test_empty_everything_returns_empty(self):
         self.assertEqual(_cli.error_tail("", ""), "")
 
+    def test_ansi_escapes_stripped_from_cause(self):
+        # a colorized error must not ship raw \x1b[…m sequences into the state file / report
+        tail = _cli.error_tail("\x1b[31mError: boom\x1b[0m")
+        self.assertEqual(tail, "Error: boom")
+        self.assertNotIn("\x1b", tail)
+
+    def test_ansi_colored_banner_is_still_dropped(self):
+        # a color-coded [plugins] banner evaded the plain startswith filter before ANSI stripping
+        err = "\x1b[90m[plugins] loading senpi-runtime\x1b[0m\nError: real cause here"
+        tail = _cli.error_tail(err)
+        self.assertIn("Error: real cause here", tail)
+        self.assertNotIn("[plugins]", tail)
+        self.assertNotIn("\x1b", tail)
+
+    def test_stderr_all_noise_falls_back_to_stdout_cause(self):
+        # Node CLI prints banners to stderr and the real error to stdout — surface the stdout cause,
+        # not the stderr banner (the old code committed to stderr the moment it was non-empty)
+        err = "[plugins] banner one\n[plugins] banner two"
+        out = "[plugins] boot line\nError: the real cause is on stdout"
+        tail = _cli.error_tail(err, out)
+        self.assertIn("the real cause is on stdout", tail)
+        self.assertNotIn("banner", tail)
+
 
 if __name__ == "__main__":
     unittest.main()

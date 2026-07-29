@@ -62,10 +62,11 @@ class PlanFunding(unittest.TestCase):
 
 class UnderfundedNote(unittest.TestCase):
     @staticmethod
-    def _short(requested, wallets, available, usable):
+    def _short(requested, wallets, available, usable, shares=None):
         return {"requested": float(requested), "wallets": wallets,
                 "available": float(available), "usable": float(usable),
-                "short_by": float(requested) - float(usable)}
+                "short_by": float(requested) - float(usable),
+                "shares": shares if shares is not None else [1.0 / wallets] * wallets}
 
     def test_zero_balance_never_suggests_lower_budget(self):
         # the M381223 case: $0 accessible → the old note said "--budget ≤ $0"
@@ -73,7 +74,7 @@ class UnderfundedNote(unittest.TestCase):
         self.assertIn("[E_FUNDS_BELOW_FLOOR]", note)
         self.assertNotIn("--budget ≤", note)
         self.assertIn("deposit", note.lower())
-        self.assertIn("100", note)  # states the missing amount vs the $100 floor
+        self.assertIn("$100 more USDC", note)  # the COMPUTED missing amount, not the $100/wallet boilerplate
 
     def test_below_multiwallet_floor_is_below_floor(self):
         # $180 usable cannot fund 2 wallets at $100/wallet — no valid budget exists
@@ -85,6 +86,44 @@ class UnderfundedNote(unittest.TestCase):
         note = deploy.underfunded_note(self._short(400, 2, 260, 250))
         self.assertIn("[E_FUNDS_SHORT]", note)
         self.assertIn("--budget ≤ $250", note)
+
+    def test_usable_equals_floor_is_short_with_bound_at_floor(self):
+        # boundary: usable == wallets × $100 → E_FUNDS_SHORT, and the only feasible budget is the floor
+        note = deploy.underfunded_note(self._short(400, 2, 200, 200))
+        self.assertIn("[E_FUNDS_SHORT]", note)
+        self.assertIn("--budget ≤ $200", note)
+
+    def test_uneven_shares_bound_is_below_usable(self):
+        # 2 wallets 0.6/0.4, usable $230: the small leg floors to $100 so the true max is $216.67,
+        # NOT the old bare-usable $230 (which re-shorts). The hint must name the feasible bound.
+        note = deploy.underfunded_note(self._short(238, 2, 233, 230, shares=[0.6, 0.4]))
+        self.assertIn("[E_FUNDS_SHORT]", note)
+        self.assertIn("--budget ≤ $216.67", note)
+        self.assertNotIn("$230", note.split("--budget")[1])  # the ceiling is never the bare usable
+
+    def test_hinted_bound_round_trips_no_shortfall(self):
+        # THE property F1 exists for: re-running plan_funding at the hinted bound must NOT re-short,
+        # for uneven shares AND cent-valued balances (incl. five-figure and $1M+ ranges).
+        insts = [_inst("a", 0.6), _inst("b", 0.4)]
+        for usable in (230.00, 217.33, 99999.99, 1000000.01):
+            available = usable + deploy.FEE_BUFFER * len(insts)
+            b_star = deploy.max_feasible_budget([0.6, 0.4], usable)
+            _amounts, short = deploy.plan_funding(insts, b_star, available)
+            self.assertIsNone(short, f"hinted bound ${b_star} re-shorted at usable ${usable}")
+
+    def test_money_is_never_scientific_notation(self):
+        # %g printed "$1e+06" at $1M and rounded "$99,999.99" up to "$100000"; usd() never does
+        note = deploy.underfunded_note(self._short(2_000_000, 1, 1_000_000.01, 1_000_000.01))
+        self.assertNotIn("e+0", note)
+        self.assertNotIn("e-0", note)
+        self.assertIn("$1,000,000.01", note)
+
+    def test_usd_formatter(self):
+        self.assertEqual(deploy.usd(100.0), "$100")
+        self.assertEqual(deploy.usd(99999.99), "$99,999.99")
+        self.assertEqual(deploy.usd(1_000_000), "$1,000,000")
+        self.assertEqual(deploy.usd(1234567.5), "$1,234,567.50")
+        self.assertEqual(deploy.usd(250.5), "$250.50")
 
     def test_always_states_nothing_was_created(self):
         for usable in (0, 250):
@@ -281,6 +320,30 @@ class WalletsUnrecoverableNote(unittest.TestCase):
         self.assertIn("[E_STATE_AMBIGUOUS_WALLETS]", note)
         self.assertNotIn("close.py", note)
 
+    def test_unnamed_uses_conservative_triage_not_nothing_exists(self):
+        # a wallet exists but isn't name-matched → must NOT claim "nothing exists"; conservative triage
+        note = deploy.wallets_unrecoverable_note(
+            "spider", [("long", "unnamed", "1 ACTIVE spider wallet(s) exist but none is named 'spider-long'")])
+        self.assertIn("[E_STATE_AMBIGUOUS_WALLETS]", note)
+        self.assertNotIn("[E_STATE_NO_WALLETS]", note)
+        self.assertNotIn("nothing", note.lower())     # never "nothing exists / nothing at risk"
+        self.assertNotIn("close.py", note)            # never steer to teardown
+        self.assertIn("status.py", note)              # read-only triage is the named next step
+
+    def test_unreadable_uses_conservative_triage(self):
+        note = deploy.wallets_unrecoverable_note(
+            "spider", [("main", "unreadable", "found 1 ACTIVE spider strategy ... wallet address is unreadable")])
+        self.assertIn("[E_STATE_AMBIGUOUS_WALLETS]", note)
+        self.assertNotIn("close.py", note)
+
+    def test_refusal_next_steps_are_absolute_runnable_paths(self):
+        # F7: the hinted commands must resolve from any cwd (Path(__file__)-anchored), not bare filenames
+        no_wallets = deploy.wallets_unrecoverable_note("spider", [("main", "none", "no ACTIVE wallet")])
+        self.assertIn("/deploy.py create spider --budget", no_wallets)
+        ambiguous = deploy.wallets_unrecoverable_note("spider", [("main", "ambiguous", "2 match")])
+        self.assertIn("/status.py spider", ambiguous)
+        self.assertIn("/deploy.py runtime spider", ambiguous)
+
 
 class RecoverWalletKinds(unittest.TestCase):
     def _pkg(self, n_instances=1):
@@ -305,6 +368,64 @@ class RecoverWalletKinds(unittest.TestCase):
         w, kind, _ = deploy._recover_wallet(self._pkg(), types.SimpleNamespace(name="main"), active)
         self.assertEqual(w, "0xaaa")
         self.assertIsNone(kind)
+
+    def test_single_candidate_unreadable_wallet_is_unreadable_not_ambiguous(self):
+        # F5: one ACTIVE candidate whose wallet address is unreadable (backend field drift) → "unreadable",
+        # NOT the "1 ... wallets ... ambiguous" self-contradiction
+        active = [{"strategyName": "spider", "status": "ACTIVE"}]  # no wallet field
+        w, kind, why = deploy._recover_wallet(self._pkg(), types.SimpleNamespace(name="main"), active)
+        self.assertIsNone(w)
+        self.assertEqual(kind, "unreadable")
+        self.assertIn("unreadable", why)
+
+    # --- multi-instance: match by the sanitized name create assigned each wallet ---
+    @staticmethod
+    def _multi(*names):
+        return types.SimpleNamespace(id="spider",
+                                     instances=[types.SimpleNamespace(name=n) for n in names])
+
+    def test_multi_instance_matches_by_name(self):
+        active = [{"strategyName": "spider-long", "strategyWalletAddress": "0xaaa", "status": "ACTIVE"},
+                  {"strategyName": "spider-short", "strategyWalletAddress": "0xbbb", "status": "ACTIVE"}]
+        w, kind, _ = deploy._recover_wallet(self._multi("long", "short"),
+                                            types.SimpleNamespace(name="long"), active)
+        self.assertEqual(w, "0xaaa")
+        self.assertIsNone(kind)
+
+    def test_multi_instance_matches_sanitized_name(self):
+        # create sanitizes "spider-a.b" → "spider-ab"; recovery must re-derive the same sanitized name
+        active = [{"strategyName": "spider-ab", "strategyWalletAddress": "0xaaa", "status": "ACTIVE"}]
+        w, kind, _ = deploy._recover_wallet(self._multi("a.b", "c"),
+                                            types.SimpleNamespace(name="a.b"), active)
+        self.assertEqual(w, "0xaaa")
+        self.assertIsNone(kind)
+
+    def test_multi_instance_unnamed_instance_matches_bare_id(self):
+        # an unnamed instance (name=None) is funded under the bare package id
+        active = [{"strategyName": "spider", "strategyWalletAddress": "0xaaa", "status": "ACTIVE"}]
+        w, kind, _ = deploy._recover_wallet(self._multi(None, "short"),
+                                            types.SimpleNamespace(name=None), active)
+        self.assertEqual(w, "0xaaa")
+        self.assertIsNone(kind)
+
+    def test_multi_instance_name_rejection_fallback_is_unnamed_not_none(self):
+        # create hit a name rejection and funded WITHOUT a custom name → the wallet exists but under
+        # the bare id, not "spider-long". Recovery must refuse ("unnamed"), NEVER claim "none" (which
+        # would steer to create → teardown of the funded wallet).
+        active = [{"strategyName": "spider", "strategyWalletAddress": "0xaaa", "status": "ACTIVE"}]
+        w, kind, why = deploy._recover_wallet(self._multi("long", "short"),
+                                              types.SimpleNamespace(name="long"), active)
+        self.assertIsNone(w)
+        self.assertEqual(kind, "unnamed")
+        self.assertNotEqual(kind, "none")
+        self.assertIn("spider", why)  # names the existing wallet(s), not "nothing exists"
+
+    def test_multi_instance_truly_absent_is_none(self):
+        # no <id> wallet anywhere on the backend → genuinely "none" (create is safe)
+        w, kind, _ = deploy._recover_wallet(self._multi("long", "short"),
+                                            types.SimpleNamespace(name="long"), [])
+        self.assertIsNone(w)
+        self.assertEqual(kind, "none")
 
 
 if __name__ == "__main__":

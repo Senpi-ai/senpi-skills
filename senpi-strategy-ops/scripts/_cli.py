@@ -71,16 +71,25 @@ def error_tail(err, out="", limit=600):
     """Best-available error text from a failed CLI call: prefer stderr, fall back to stdout;
     drop blank + known banner lines; return the LAST `limit` chars. CLI failures print the
     real cause at the END of the stream — a head truncation (`text[:N]`) returns the banner
-    flood and destroys the cause (the M407593 register-error blackout). Filtering must never
-    turn a non-empty capture into an empty message: if everything filtered away, fall back
-    to the raw tail."""
-    text = (err or "").strip() or (out or "").strip()
-    if not text:
-        return ""
-    lines = [ln for ln in text.splitlines()
-             if ln.strip() and not ln.strip().startswith(_NOISE_PREFIXES)]
-    tail = "\n".join(lines).strip()[-limit:]
-    return tail or text[-limit:]
+    flood and destroys the cause (the M407593 register-error blackout).
+
+    ANSI escapes are stripped FIRST (before filtering) so a color-coded `\\x1b[90m[plugins]…`
+    banner still matches the noise filter, and no raw escape sequences leak into
+    `.deploy-state.json` / the report. If a stream filters down to nothing (all banner noise),
+    we try the SAME filter on the other stream before the raw-tail fallback — a Node CLI that
+    prints banners to stderr and the real error to stdout must not surface the banner as the
+    cause. Filtering must never turn a non-empty capture into an empty message."""
+    err_s = _strip_ansi(err or "").strip()
+    out_s = _strip_ansi(out or "").strip()
+    for text in (err_s, out_s):
+        if not text:
+            continue
+        lines = [ln for ln in text.splitlines()
+                 if ln.strip() and not ln.strip().startswith(_NOISE_PREFIXES)]
+        cleaned = "\n".join(lines).strip()
+        if cleaned:
+            return cleaned[-limit:]
+    return (err_s or out_s)[-limit:]
 
 
 # ---- tolerant extraction ----
