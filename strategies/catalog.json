@@ -10,7 +10,7 @@
       "emoji": "🦅",
       "tagline": "An onboarding-grade breakout trader on the liquid majors (BTC/ETH/SOL): goes LONG when price breaks above its 7-day high AND smart-money is net long, SHORT when it breaks below the 7-day low AND smart-money is net short, then cuts failed breakouts fast (tight 8% Phase 1) while letting a real one run on a wide Phase 2 ratchet.",
       "belief_plain": "Watches BTC, ETH and SOL. When one of them breaks above its highest price of the last week and the best traders are also leaning long, it buys; when one breaks below its weekly low and the best traders are leaning short, it sells short. A fake breakout gets cut quickly, but a real one is given lots of room to run.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "thesis": "Most breakout strategies lose because they fight the trend, chase fake breakouts into stop-hunts, or hold failed breakouts too long. Hawk requires three things at once — a genuine break of the 7-day range, the 4h trend pointing the same way, and the smart-money leaderboard net in the breakout direction — so it only fires on confirmed breaks. Then the asymmetry does the work: an 8% Phase 1 floor cuts a breakout that fails immediately, while a wide Phase 2 ladder (first lock only at +10% ROE) keeps the rare breakout that runs, because that tail pays for the quiet weeks.",
       "tags": [
         "btc",
@@ -159,7 +159,7 @@
       "emoji": "🍋",
       "tagline": "Watches where the worst, most crowded traders are piling in across a fixed basket of 12 crypto majors and 4 commodity/index names — and once that one-sided crowd stops following through (its 15-minute momentum rolls over), takes the OTHER side at conviction-scaled leverage and lets a wide ratcheting stop ride the snap-back.",
       "belief_plain": "When a lot of low-quality traders crowd hard onto one side of a coin and the move starts running out of steam, that crowd usually gets unwound. Lemon waits for the crowding to actually start fading on the 15-minute clock, blocks the trade if it's really a genuine trend (big BTC move or the asset itself ripping), then bets the OPPOSITE direction and trails a wide stop while the over-stretched move mean-reverts.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "Hyperliquid is full of high-leverage retail that piles into exhausted moves. A crowded smart-money consensus is only a fade setup once it STOPS following through — so Lemon gates on 15m exhaustion, not just crowding, and refuses to fade a real run (crypto MACRO gate on |BTC 4h|>3%, per-asset gate on |4h|>5%) because fading genuine trend is how a contrarian dies. Concentration + velocity-fade + overextension + reversal compound into a score; it fires the single best fade at score >=9, sizes leverage to conviction, and lets a wide DSL ride the mean reversion since reversals take hours, not minutes.",
       "tags": [
         "degen-fader",
@@ -572,7 +572,7 @@
       "emoji": "🦡",
       "tagline": "Only takes the breakout the order flow confirms: enters a prior-24h range break on BTC/ETH/SOL/HYPE only when open interest is RISING (new money committing) AND smart money agrees with the break — then sizes 20% / 5x and lets a wide DSL ratchet ride the move for days.",
       "belief_plain": "Most price breakouts fail. The single best filter for whether a breakout will follow through is open interest: if price breaks its prior 24-hour high (or low) while open interest is rising, new money is committing and the move has conviction. If open interest is flat or falling, it's just stops and short-covering — a fakeout — and Badger skips it. It also checks that the best traders are leaning the same way before it commits.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "thesis": "Open interest is the fuel of a breakout. A price push beyond the recent range confirmed by rising OI = new positions opening in the breakout direction = real follow-through; a breakout on flat/declining OI is shorts covering or stops triggering, with no new money behind it. Gating breakouts on OI velocity (plus smart-money agreement) filters the fakeouts that kill a naive breakout buyer, and a wide let-winners-run exit ladder means the rare confirmed breakout that runs far pays for the ones that don't.",
       "tags": [
         "btc",
@@ -1336,7 +1336,7 @@
       "emoji": "🐋",
       "tagline": "A universe rank-jump sniper: watches the top-50 smart-money leaderboard every tick and fires only on a fresh FIRST_JUMP — a coin exploding 15+ ranks out of the deep field with 4h trend, 15m freshness, and a volume spike all confirming — then strikes ONE position at a fixed 7x and lets the DSL ride the breakout.",
       "belief_plain": "Watches which coins the best traders are suddenly piling into and only acts when a name rockets up the leaderboard from deep in the pack — a fresh jump, not an already-crowded top name. It wants the move to be young (climbing fast in the last 15 minutes), going the same way the price is, and backed by a real volume spike before it takes a single shot.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "The edge is in the FIRST jump, not the established leader. By the time a coin sits at the top of the smart-money board the move is priced in; the asymmetric entry is the moment a name explodes 15+ ranks out of the deep field (prev-rank >= 25) while its 4h trend, 15m contribution velocity, and 24h volume all confirm the same direction at once. That confluence is rare and decays fast, so the right move is to scan often (90s), strike once at a fixed 7x the instant it fires, skip the already-top names, and let a ratcheting DSL — not a fixed target — decide the exit so the occasional big breakout pays for the quiet weeks.",
       "tags": [
         "smart-money",
@@ -1423,7 +1423,7 @@
       "emoji": "🐟",
       "tagline": "Rides forced flow on crypto majors (BTC/ETH/SOL/HYPE): when open interest is unwinding fast (positions being force-closed) AND price is moving violently AND the 5-minute candle is still pushing the same way, it takes ONE position in the direction of the flow, sized 1-5x, and lets a wide DSL ratchet ride the squeeze with a 24h outer bound.",
       "belief_plain": "A liquidation cascade is the cleanest momentum in crypto — it's forced flow, not opinion. When lots of positions are being force-closed at once, price gets shoved hard in one direction and the move feeds on itself until the leverage is flushed. Piranha reads the order flow underneath price (open-interest velocity + order-book depth) to confirm the move is forced, then rides it: OI down + price up = shorts squeezed, go long; OI down + price down = longs liquidated, go short.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "thesis": "Most agents react to price; the edge is reading the forced flow beneath it. Open interest dropping fast means positions are closing under duress, and when that coincides with a violent move and a thinning book on the side price is running into, there is little resistance left and the cascade continues. That signature is short-horizon and self-resolving, so the right move is one conviction entry in the flow direction, a wide ratchet that lets a squeeze extend, and a 24h hard timeout because if the cascade hasn't paid in a day it's over.",
       "tags": [
         "btc",
@@ -1617,7 +1617,7 @@
       "emoji": "🦎",
       "tagline": "An onboarding-grade pullback trader on the liquid majors (BTC/ETH/SOL): buys a 3-7% dip inside an established bullish 4h trend (and shorts a 3-7% rally inside a bearish one) only when the smart-money leaderboard agrees with the trend direction, then gives the entry room on a wide Phase 1 while a wide Phase 2 ratchet lets the resumed trend run.",
       "belief_plain": "Watches BTC, ETH and SOL. When one is in a clear up-trend on the 4-hour chart and dips 3-7% on the 1-hour chart while the best traders are still leaning long, it buys the dip; in a down-trend it shorts a 3-7% bounce. It needs all three to line up — trend, dip-in-the-band, and smart money agreeing — then it gives the trade room to work and trails a wide stop so the trend can keep running.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "thesis": "Pullbacks inside an established trend are one of the highest-edge setups: the trend has already proved itself, the counter-move offers a better entry, and a smart-money agreement filter screens out trend-break risk. The 3-7% band is the sweet spot — shallower is noise, deeper means the trend may be breaking, so you don't catch a falling knife. Because a resolved pullback resumes a trend that can run far, the exit is asymmetric: a wide Phase 1 floor lets the dip develop without a premature cut, and a wide Phase 2 ratchet (first lock only at +10% ROE) keeps the continuation that pays for the quiet weeks.",
       "tags": [
         "btc",
@@ -1667,7 +1667,7 @@
       "emoji": "🐑",
       "tagline": "A long-only trend follower for beginners: buys a crypto major (BTC/ETH/SOL/HYPE) only when its fast EMA is above its slow EMA on all three timeframes (15m, 1h, 4h) at once, never shorts, and trails a balanced stop so a clean uptrend can run.",
       "belief_plain": "Only buys when a coin is clearly going up by any chart reader's standard — the fast moving average has to be above the slow one on the 15-minute, 1-hour, AND 4-hour chart simultaneously. It never shorts (so there's no 'what's a short?' to learn), bets a little bigger when the trend is wider and the best traders agree, and then trails a stop so a real uptrend can keep running.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "thesis": "Most trend agents pick a single timeframe; Sheep insists on agreement across three before firing. That is a stricter filter (fewer trades) but each entry is 'obviously up' to any chart reader, which is exactly the property a beginner needs to trust the agent. Long-only by design removes the cognitive load of shorting, making this the onboarding-grade entry point into the fleet.",
       "tags": [
         "btc",
@@ -4270,7 +4270,7 @@
       "emoji": "🐆",
       "tagline": "A patient universe sniper: scans the top-100 smart-money markets every tick and refuses to fire unless smart-money consensus, velocity, acceleration, dual-price confirmation, volume, quality-trader alignment, and rank-climb all line up — then takes ONE position, sized 3-8x by conviction, and lets the DSL ride the winner.",
       "belief_plain": "Watches where the best traders are crowding across the whole market, but waits for everything to agree at once — the smart money, the price, the volume, the speed of the move — before taking a single, high-conviction bet. Most of the time it does nothing; that patience is the point.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "Any one signal is noise. Real edge shows up only when smart-money consensus, momentum, acceleration, price, volume, and proven-trader alignment all confirm the same direction on the same coin at the same moment. That confluence is rare, so the right move is to sit on one slot, wait for it, strike once at conviction-scaled leverage, and let a ratcheting trailing stop — not a fixed target — decide the exit so the rare big trend pays for the quiet weeks.",
       "tags": [
         "smart-money",
@@ -4407,7 +4407,7 @@
       "emoji": "🐦",
       "tagline": "Fades an exhausted crowd: when 70%+ of top traders are piled onto one side of BTC/ETH/SOL/HYPE but price refuses to follow (it stalls or rolls over against the crowd), the crowded side is out of fuel — Egret takes the other side, sized flat at 15% / <=5x, and banks the bounded snapback with a tight ratchet.",
       "belief_plain": "When almost everyone good is leaning the same way on a coin but the price won't move with them, the trade is crowded and out of buyers (or sellers). Egret bets on the snap-back the other way, and because that bounce is small and quick, it locks in profit fast instead of holding for a big trend.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "thesis": "Smart-money concentration is usually a confirmation signal — but at an extreme, with price refusing to confirm, it flips contrarian: a maximally-crowded side with no one left to push has only one way to resolve, the unwind. The edge is the bounded snapback, so the right design is the inverse of a momentum holder: maker-only non-urgent entry, a tight ratchet that banks the bounce, and time-cuts that exit a fade that didn't resolve quickly.",
       "tags": [
         "btc",
@@ -4522,7 +4522,7 @@
       "emoji": "🐟",
       "tagline": "Reads the L2 order book on BTC/ETH/SOL/HYPE — when resting depth is lopsided (bids far heavier than asks, or the reverse) that's directional pressure, but it only fires when 15m momentum and smart money agree, then hands the position to a wide DSL and lets the move run (it does not scalp).",
       "belief_plain": "Looks at how much resting buy vs sell interest is stacked in the order book of the big, liquid coins. A heavily one-sided book signals pressure in that direction — but a lopsided book alone is noise, so it only acts when short-term price momentum and the best traders are pointing the same way. Then it holds the trade with a wide trailing stop instead of flipping in and out.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "thesis": "Order-book imbalance is a genuine microstructure edge, but trading it as a per-tick scalp just bleeds fees. Marlin uses the imbalance differently — as the entry-timing signal on a momentum thesis: the book says which side has pressure right now, momentum and smart money confirm the move is real, and then you hold it with a wide ratchet and let it work. Restricting the universe to four liquid majors keeps the imbalance reading reliable (thin books give garbage ratios), and a 24h hard timeout caps the short-horizon thesis without choking a real run.",
       "tags": [
         "btc",
@@ -4747,7 +4747,7 @@
       "emoji": "🐠",
       "tagline": "Reads the entire smart-money board every tick, ranks every asset by net smart-money conviction (tilt x notional x breadth), then rides the rotation — LONG the assets the best traders are crowding into and SHORT the ones they're fleeing, gated by price so it never fights a hard trend. Captures days like 'long semis/indices, short the crypto block'.",
       "belief_plain": "Most copy-trading bots ask 'are the best traders long this one coin?'. Stingray instead looks at the whole market at once and asks 'what are the best traders rotating INTO, and what are they rotating OUT OF?'. It buys the crowd's new favorites and sells the ones they're abandoning — but only when the price chart isn't already screaming the other way — then trails a wide stop so a real rotation can run for days.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "Smart money doesn't just pick coins, it rotates capital across the whole board — out of one asset class and into another. Per-asset copy-traders miss this because they evaluate each market in isolation; they can't see that the SAME flow leaving crypto is funding the bid in indices. Stingray ranks the entire board by net tilt (long_ratio - 50) weighted by notional and trader breadth, so a strong, deep, widely-held lean outranks a thin spike, then takes BOTH sides at once — long the inflows, short the outflows — for a market-neutral-ish rotation book. A price-confirmation gate (no longs into a hard 4h downtrend, no shorts into a hard uptrend) keeps it from fighting price, and a DSL ratchet lets the winning legs run while cutting the losers.",
       "tags": [
         "smart-money",

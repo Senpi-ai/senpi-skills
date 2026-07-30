@@ -144,7 +144,7 @@ def _fetch_markets(ctx, limit, top_n, xyz_banned):
     for i, m in enumerate(markets_raw):
         if not isinstance(m, dict):
             continue
-        token = str(m.get("token", m.get("asset", ""))).upper()
+        token = str(m.get("token", m.get("asset", "")))
         dex = m.get("dex", "")
         if xyz_banned and (dex == "xyz" or token.lower().startswith("xyz:")):
             continue
@@ -342,7 +342,7 @@ def scan(inputs, ctx):
             continue
 
         # held / per-asset emit-cooldown / signal-dedup filters (v2 main()).
-        if token in held_set:
+        if token.upper() in held_set:
             continue
         ec = emit_cooldowns.get(token, 0)
         if ec and (now - ec) < per_asset_cooldown:

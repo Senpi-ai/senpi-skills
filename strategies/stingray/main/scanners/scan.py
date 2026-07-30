@@ -152,7 +152,7 @@ def _board(ctx, limit, xyz_banned):
     for m in markets:
         if not isinstance(m, dict):
             continue
-        token = str(m.get("token", m.get("coin", m.get("asset", "")))).upper()
+        token = str(m.get("token", m.get("coin", m.get("asset", ""))))
         if not token:
             continue
         dex = str(m.get("dex", "")).lower()
