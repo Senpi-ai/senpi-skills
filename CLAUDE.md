@@ -114,6 +114,16 @@ Hard-won invariants (each failed silently in production once):
 
 ---
 
+## ▶ Editing skill text? Rules + snippets, not narration
+
+Skill hot paths (SKILL.md, build guides like `creating-a-strategy.md`) carry **rules and runnable
+snippets**; rationale lives in reference files and PR/commit history. Keep only the one
+justification clause that stops a future editor from "correcting" the rule (e.g. "`float` of a
+number is a no-op" is what keeps `_f()` from being stripped as redundant). A paragraph explaining
+*why* at length: move the why out, leave the rule.
+
+---
+
 ## Skill Attribution
 
 Strategies are attributed via the MCP wallet-creation call's **`skillName`/`skillVersion`**,

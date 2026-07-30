@@ -77,7 +77,7 @@ min_score = int(inputs.get("minScore", 4))
 
 | Member | What it is |
 |---|---|
-| `ctx.senpi_mcp.call_tool(name, args)` | Senpi MCP client, **read-only** (see boundary below). The only way to fetch data. |
+| `ctx.senpi_mcp.call_tool(name, args)` | Senpi MCP client, **read-only** (see boundary below). The only way to fetch data. Value types: see "Market data types" below. |
 | `ctx.state` | Transactional history store (or `None` when history is disabled). API below. |
 | `ctx.wallet` | The runtime's wallet address (pass to `strategy_get_clearinghouse_state`, etc.) |
 | `ctx.scanner_name` | This scanner's name (from the recipe) |
@@ -133,6 +133,29 @@ knob. As an author: **assume you cannot mutate anything.** Produce signals; the 
 
 ---
 
+## Market data types
+
+**Read every numeric field through the fleet-standard `_f()` helper** (author guide's scoring
+template) — `float` of a number is a no-op, so it is correct on every runtime version and every
+data path. Hyperliquid serves candle `o/h/l/c/v` and price-map values as strings; most other
+tools' numeric fields (budgets, balances, leaderboard rows) are strings too.
+
+Runtimes **newer than 3.0.32** numeric-cast the two market tools at the `ctx.senpi_mcp` boundary:
+
+| Section | Cast | Uncastable value |
+|---|---|---|
+| `market_get_asset_data` candles — `o/h/l/c/v` + `t` (`T`/`n` when valid) | strict | row **dropped** |
+| `market_get_prices` — every `prices` value (`count` kept in sync) | strict | entry **dropped** |
+| `asset_context`, `order_book` `px`/`sz`, `funding_history` rates | best-effort | left as-is |
+
+- Drops are never silent: a `senpi_mcp_cast_dropped` scaffold event + a `_cast_dropped` marker on
+  the payload. A series can come back **shorter / non-contiguous** — guard `len(candles)`, don't
+  assume fixed `t` spacing.
+- Originals: a single `_raw` key beside the cast sections.
+- Every other tool's response is untouched, on every runtime version.
+
+---
+
 ## The signal dict (return value)
 
 Return a `list[dict]`, one per candidate. Keys:
@@ -163,7 +186,8 @@ default_signal_validity_seconds)`), the wire envelope, delivery, and dedup. **Do
 ## `scoring.py` — keep the logic pure
 
 Every example splits a sibling `scoring.py` with **no I/O, no MCP, no daemon** — just functions over
-candles/numbers. `scan.py` fetches via `ctx.senpi_mcp` and hands plain lists to `scoring`. This ports
+candles/numbers. `scan.py` fetches via `ctx.senpi_mcp` (value types: "Market data types" above)
+and hands the candle lists to `scoring`. This ports
 cleanly from older producers (the pure trend/scoring helpers were already unit-tested) and lets a
 reader follow the thesis without mocking MCP.
 
@@ -187,6 +211,7 @@ Both are valid — it's your thesis:
 - ✅ Pure scoring in `scoring.py`; MCP + state in `scan.py`.
 - ✅ Keep dedup / rotation / first-seen ledgers in `ctx.state` (`last()` → mutate → `append()`).
 - ✅ Declare every `data{}` key in `signal_data_schema`; set `default_signal_validity_seconds`.
+- ✅ Read every numeric field through `_f()` — no-op on numbers, required on strings.
 - ✅ Put `marginPct` (fleet standard) or `marginUsd`, plus `leverage`, at the **top level**, not inside `data{}`.
 - ✅ On any failure, **return `[]`** (or a partial list) — don't crash.
 - ❌ Don't set `valid_until`/`produced_at` — the scaffold owns the envelope (`signal_id` optional).
