@@ -208,7 +208,10 @@ def underfunded_note(shortfall):
              f"({usd(shortfall['usable'])} after fees) — short by {usd(shortfall['short_by'])}. "
              f"NOT funding; no wallet was created. ")
     if shortfall["usable"] < floor_needed:
-        missing = floor_needed - shortfall["usable"]
+        # From `available`, not `usable`: usable is clamped to 0 when the balance doesn't even
+        # cover the fee reserve, and `floor - usable` would then understate the deposit by up to
+        # FEE_BUFFER × wallets — depositing the hinted amount must always clear the floor check.
+        missing = round(floor_needed + FEE_BUFFER * shortfall["wallets"] - shortfall["available"], 2)
         return ("[E_FUNDS_BELOW_FLOOR] " + facts +
                 f"No budget can fund {shortfall['wallets']} wallet(s) below the "
                 f"{usd(MIN_WALLET)}/wallet floor — at least {usd(missing)} more USDC is needed. "
@@ -447,12 +450,14 @@ def _recover_wallet(pkg, inst, active):
     if len(pkg.instances) > 1:  # multi-instance: match by the sanitized name create assigned each wallet
         want = _wallet_name(pkg, inst)
         cands = [s for s in active if _cli.strategy_name(s) == want]
-        if not cands:
-            others = [s for s in active if _cli.strategy_wallet(s)]
-            if others:
-                return None, "unnamed", (
-                    f"{len(others)} ACTIVE {pkg.id} wallet(s) exist but none is named {want!r} for "
-                    f"instance {inst.name!r} — can't safely match (may be a name-rejection fallback wallet)")
+        if not cands and active:
+            # ANY unmatched ACTIVE strategy blocks the "none" path — even one whose wallet address
+            # is unreadable. Filtering to readable addresses here let an all-unreadable backend fall
+            # through to "none" ("nothing at risk" → create), the exact teardown trap this refusal
+            # split exists to prevent.
+            return None, "unnamed", (
+                f"{len(active)} ACTIVE {pkg.id} wallet(s) exist but none is named {want!r} for "
+                f"instance {inst.name!r} — can't safely match (may be a name-rejection fallback wallet)")
     else:  # single-instance: the lone ACTIVE <id> strategy is this instance
         cands = list(active)
     addrs = [_cli.strategy_wallet(s) for s in cands if _cli.strategy_wallet(s)]

@@ -5,6 +5,7 @@ No MCP, no openclaw, no network — every input is a plain dict/stub. Run:
     python3 senpi-strategy-ops/tests/test_deploy_gates.py
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import re
 import sys
 import types
 import unittest
@@ -74,7 +75,23 @@ class UnderfundedNote(unittest.TestCase):
         self.assertIn("[E_FUNDS_BELOW_FLOOR]", note)
         self.assertNotIn("--budget ≤", note)
         self.assertIn("deposit", note.lower())
-        self.assertIn("$100 more USDC", note)  # the COMPUTED missing amount, not the $100/wallet boilerplate
+        # the COMPUTED missing amount — floor + fee reserve, so depositing it actually clears the gate
+        self.assertIn("$101.50 more USDC", note)
+
+    def test_below_floor_hinted_deposit_round_trips(self):
+        # Bugbot: `floor - usable` understated the deposit when the balance was below the fee
+        # reserve (usable clamps to 0) — "$100 more" at $0.75 accessible left usable at $99.25,
+        # re-halting E_FUNDS_BELOW_FLOOR. Depositing EXACTLY the hinted amount must clear the floor.
+        for wallets, available in ((1, 0.0), (1, 0.75), (1, 1.49), (2, 1.0), (2, 150.0)):
+            usable = max(0.0, round(available - deploy.FEE_BUFFER * wallets, 2))
+            note = deploy.underfunded_note(self._short(500, wallets, available, usable))
+            self.assertIn("[E_FUNDS_BELOW_FLOOR]", note)
+            m = re.search(r"at least \$([\d,]+(?:\.\d{2})?) more USDC", note)
+            self.assertIsNotNone(m, note)
+            hinted = float(m.group(1).replace(",", ""))
+            insts = [_inst(f"i{k}", 1.0 / wallets) for k in range(wallets)]
+            _amounts, short = deploy.plan_funding(insts, deploy.MIN_WALLET * wallets, available + hinted)
+            self.assertIsNone(short, f"deposited the hinted ${hinted} at ${available}/{wallets}w and still short")
 
     def test_below_multiwallet_floor_is_below_floor(self):
         # $180 usable cannot fund 2 wallets at $100/wallet — no valid budget exists
@@ -419,6 +436,18 @@ class RecoverWalletKinds(unittest.TestCase):
         self.assertEqual(kind, "unnamed")
         self.assertNotEqual(kind, "none")
         self.assertIn("spider", why)  # names the existing wallet(s), not "nothing exists"
+
+    def test_multi_instance_all_unreadable_unmatched_is_unnamed_not_none(self):
+        # Bugbot: ACTIVE strategies exist but none name-matches AND every wallet address is
+        # unreadable (backend field drift). The old readable-address filter dropped them all →
+        # kind "none" → "nothing at risk" → create, tearing down a possibly funded live strategy.
+        active = [{"strategyName": "spider", "status": "ACTIVE"},
+                  {"strategyName": "renamed-by-user", "status": "ACTIVE"}]  # no wallet fields
+        w, kind, why = deploy._recover_wallet(self._multi("long", "short"),
+                                              types.SimpleNamespace(name="long"), active)
+        self.assertIsNone(w)
+        self.assertEqual(kind, "unnamed")
+        self.assertIn("2 ACTIVE", why)
 
     def test_multi_instance_truly_absent_is_none(self):
         # no <id> wallet anywhere on the backend → genuinely "none" (create is safe)
