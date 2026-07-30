@@ -27,12 +27,23 @@ surfaces. Rules:
 | `E_RUNTIME_REGISTER_FAILED` | `deploy.py` (`runtime`) | `openclaw senpi runtime create` exited non-zero | Message carries the noise-filtered **tail** of the CLI error (the real cause). No canned hint — the cause steers |
 | `E_SCANNER_MOUNT_FAILED` | `senpi-trading-runtime` (`index.ts`, phases `mount` and `install_wire`) | `wireRuntime()` threw while mounting/wiring external scanners (boot or hot-install) | Body carries `cause:` (the exception message). Benign-race vs fatal split lands in later slices; the cause makes them distinguishable NOW |
 | `E_SCANNER_LAUNCH_FAILED` | `senpi-trading-runtime` (`index.ts`, phases `launch` and `install_launch`) | Supervised scanner launcher failed to start (boot or hot-install) | Same as mount |
+| `E_SCANNER_TICK_ERROR` | `senpi-trading-runtime` (external-scanner scaffold → runtime `/errors`) | A scanner's `scan()` tick threw; the scaffold caught it, set the tick status to `error`, and posted it to the runtime's `/errors` endpoint | `senpi status` for the failing scanner → read the tick error message → fix the scanner code. NEVER close/recreate the strategy for a scanner error |
+| `E_SCANNER_TICK_TIMEOUT` | same | A scanner tick exceeded its wall-clock budget | Same as `E_SCANNER_TICK_ERROR` |
+| `E_SCANNER_CRASH_LOOP` | `senpi-trading-runtime` (scanner process supervisor) | The supervisor degraded a scanner after repeated rapid exits; restarts CONTINUE at capped backoff — the scanner is degraded, not stopped (retry-at-cap decision, 2026-07-29) | Same as `E_SCANNER_TICK_ERROR` |
 
-Note on the `E_SCANNER_*` rows: these two codes are **logical identifiers**, not Body
-literals — the event Body prefixes are frozen (dashboards match them), so the code
-cannot lead the string as rule 3 prescribes. Decision (2026-07-29): carrying the code
-as a queryable event attribute is deferred to slice B1 (truthful-status
-instrumentation), where these events gain structured health fields anyway.
+Note on the `E_SCANNER_*` rows: all five codes are **logical identifiers**, not Body
+literals, and are queryable via the `senpi.error.code` **event attribute** (landed in
+slice B1, truthful-status instrumentation):
+
+- `E_SCANNER_MOUNT_FAILED` / `E_SCANNER_LAUNCH_FAILED` keep their **frozen** event Body
+  prefixes (dashboards match them, so the code cannot lead the string as rule 3
+  prescribes); B1 adds the `senpi.error.code` attribute alongside, leaving the body
+  prefix and their logical-identifier status unchanged.
+- `E_SCANNER_TICK_ERROR` / `E_SCANNER_TICK_TIMEOUT` / `E_SCANNER_CRASH_LOOP` surface
+  **purely** as the `senpi.error.code` event attribute — no Body prefix at all (event
+  bodies are frozen for dashboard compatibility). Per the 2026-07-29 retry-at-cap
+  decision a crash-looping scanner stays degraded-but-restarting, never stopped — so
+  the next step is always fix-the-scanner, never close/recreate.
 
 ## Reserved families (later slices — do not reuse for anything else)
 
