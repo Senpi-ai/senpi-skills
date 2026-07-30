@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.9.1"
+  version: "2.10.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -103,6 +103,29 @@ and ask — never paper over the gap with a plausible value.** This is not optio
 single most common way a strategy silently does nothing.
 
 ## ▶ DEFAULT behavior — the rules of this conversation (do this every time)
+
+### Funding heads-up — first tool call, never a gate
+
+Before the template offer / Decision 1, read the user's accessible balance ONCE:
+`account_get_portfolio` → `data.portfolio.total_in_hyperliquid` (fall back to
+`total_withdrawable`). Deploy needs a little **over $100 USDC per wallet (~$102, to cover
+the ~$1.50 creation fee)** — `deploy.py create` reserves the fee first, so a wallet funded
+to exactly $100 still refuses with `[E_FUNDS_BELOW_FLOOR]`.
+
+- **Balance ≥ $102, or unreadable** → say nothing about funding and move on. Unreadable
+  means move on too — no retry loop, no blocking; funding is re-checked at deploy anyway.
+- **Balance < $102** → tell the user NOW, in one line, then keep building:
+  > "Heads-up before we design: deploying needs a little over $100 USDC per wallet (a small
+  > creation fee sits on top of the $100 minimum), and your accessible balance is $<X>. We
+  > can build the whole strategy now and deploy the moment you've topped up — want me to
+  > pull up your deposit info when we're done?"
+  (deposit flow = the `senpi-deposit-withdraw-transfer` skill)
+- One heads-up total. NEVER hold the interview hostage on funding, never re-ask
+  mid-interview, and never refuse to build.
+
+Why this exists: users have completed the entire interview and build, then hit the
+funding wall at the last step and left. The wall is real and stays — this step only
+moves the news to the first minute, while the user's investment is still zero.
 
 1. **One question at a time. Never dump all 7 decisions, never paste the guide.** Ask → wait for the
    answer → reflect it back → ask the next. A wall of seven questions is the failure mode this skill

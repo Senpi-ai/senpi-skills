@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.8.0"
+  version: "2.9.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -112,8 +112,11 @@ runtime is always (re)built from scratch on the fresh wallet — if a same-name 
 same-wallet match is an idempotent skip. **Self-heals a lost deploy state:** if Step 1 succeeded but its
 `.deploy-state.json` was lost (a sub-agent died before persisting), `runtime` **re-resolves the fresh
 wallet from the live ACTIVE `<id>` strategy** instead of dead-ending — so you never hand-register a runtime
-onto an old wallet. It **won't guess**: if the backend is ambiguous (0 or >1 ACTIVE `<id>` wallets) it
-refuses and tells you to redeploy fresh (`close.py` any stale wallet, then `create`). Prints `registered`.
+onto an old wallet. It **won't guess** — it refuses **split by cause**: **`[E_STATE_NO_WALLETS]`** (backend
+has **zero** ACTIVE `<id>` wallets — nothing exists, so re-run `deploy.py create <id> --budget <usd>`, then
+`runtime`) vs **`[E_STATE_AMBIGUOUS_WALLETS]`** (**>1** candidate ACTIVE wallets, one may be a funded **live**
+strategy — triage read-only with `python3 status.py <id>`, resolve WITH THE USER which wallet is live, then
+re-run `runtime`; **never `close.py`/recreate to "start clean"**). Prints `registered`.
 `--decision-model` only for a `decision_mode: llm` action (rule-mode strategies need none).
 
 **Once Step 2 prints `registered`, the runtime is wired — but the strategy is NOT confirmed live yet.**
@@ -142,14 +145,22 @@ scheduled/supervised scanner passes, so it does **not** wait for the first scan 
 > these steps. Never substitute a raw `strategy_create_custom_strategy` MCP call to "deploy" it: that
 > makes an **empty** custom-position strategy, not the running scanner. Funding is **automatic**
 > (Hyperliquid perps → HL spot → EVM bridge). If `create` reports **`underfunded`** (or insufficient USDC /
-> `available: 0`), the balance can't cover the requested budget (often locked in other strategies) — have
-> the user fund/free USDC or confirm a lower amount, then **re-run `create`**. Do not switch tools. If
+> `available: 0`), the balance can't cover the requested budget (often locked in other strategies) — **do
+> what the note's code says**: **`[E_FUNDS_SHORT]`** = fund/free USDC OR confirm a lower amount with the
+> user (the note gives the exact `--budget ≤ X` ceiling it can fund), then **re-run `create`**;
+> **`[E_FUNDS_BELOW_FLOOR]`** = no budget is valid, so help the user **deposit** and re-run — **never**
+> suggest a lower budget below the floor. Do not switch tools. If
 > `create` reports **`closing-existing`**, it's closing a runtime-less `<id>` wallet to recover funds so it
 > can deploy fresh — re-run `create` once it's closed. If it **refuses** "already deployed AND running", a
-> live `<id>` strategy exists — `close.py <id>` first to redeploy on a fresh wallet. If **`runtime`** says
-> "wallet(s) not ready and not safely recoverable", **never hand-register a runtime onto an old wallet** (no
-> manual `runtime create`/`update` with a wallet from a leftover yaml) — `close.py <id>` any stale wallet,
-> then re-run `create` → `runtime`.
+> live `<id>` strategy exists — `close.py <id>` first to redeploy on a fresh wallet. If **`runtime`** lost its
+> deploy state and can't safely resolve the fresh wallet, it refuses **split by cause** — and in **both**
+> cases you **never hand-register a runtime onto an old wallet** (no manual `runtime create`/`update` with a
+> wallet from a leftover yaml). **`[E_STATE_NO_WALLETS]`**: the backend has **zero** ACTIVE `<id>` wallets, so
+> nothing exists and nothing is at risk — just re-run `deploy.py create <id> --budget <usd>`, then `runtime`.
+> **`[E_STATE_AMBIGUOUS_WALLETS]`**: there are **>1** candidate ACTIVE wallets and one may be a funded **live**
+> strategy — do **read-only** triage first (`python3 status.py <id>` maps each wallet to its runtime/strategy),
+> then resolve WITH THE USER which wallet is live before re-running `deploy.py runtime <id>`. **Never
+> `close.py`/recreate to "start clean"** here — that can tear down a funded live strategy.
 
 **Report** from the structured output, not raw logs (then always close with the **How it runs** block below):
 ```jsonc
@@ -159,7 +170,8 @@ scheduled/supervised scanner passes, so it does **not** wait for the first scan 
                 { "instance":"scalp","runtime_id":"spider-scalp","wallet":"0x…","status":"live" } ] }
 ```
 Overall status across the steps: `create` → `creating` (re-run) | `closing-existing` (re-run once closed) |
-`wallets-ready` | **`underfunded`** (balance < requested — fund more / lower the ask); `runtime` →
+`wallets-ready` | **`underfunded`** (balance < requested — `[E_FUNDS_SHORT]`: fund more / lower the ask;
+`[E_FUNDS_BELOW_FLOOR]`: deposit only, never lower); `runtime` →
 `registered`; `verify` → **`live`** | **`not-live`** (a component confirmed broken — fix it, re-run).
 Per-instance
 status flows `pending → creating → active → registered → live`. **`registered` ≠ live — `verify` is the
@@ -180,7 +192,8 @@ Keep it to ~3 short lines per strategy. Multi-instance packages whose legs diffe
 user: "deploy spider with $300"
 1. resolve → id = spider (two instances: swing 60% / scalp 40%; $300 → swing $180, scalp $120)
 2. create → python3 scripts/deploy.py create spider --budget 300
-            → wallets-ready  (if "creating", re-run until wallets-ready; if "underfunded", fund more / lower)
+            → wallets-ready  (if "creating", re-run until wallets-ready; if "underfunded", follow the note's
+                             code — [E_FUNDS_SHORT] fund more / lower to its --budget ≤ X; [E_FUNDS_BELOW_FLOOR] deposit only)
 3. runtime → python3 scripts/deploy.py runtime spider          → registered (spider-swing + spider-scalp)
 4. verify  → python3 scripts/deploy.py verify spider           → live  (runtime+scanner+DSL+budget all green)
 5. confirm → "🕷️ Spider is live (swing + scalp)." + the required How it runs block, e.g.:

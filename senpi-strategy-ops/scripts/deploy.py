@@ -146,15 +146,93 @@ def plan_funding(need, budget, available):
     LESS than asked. The old behaviour scaled every wallet down to fit `available`, which quietly turned
     a "$1,000 / $2,000" request into two $100 floor wallets; that silent under-funding is the bug this
     removes. (`available` unreadable → shortfall stays None → proceed; create would fail loudly anyway.)"""
-    raw = {i.name: max(MIN_WALLET, round((budget or 0) * (i.funding_share or (1.0 / len(need))), 2)) for i in need}
+    shares = [(i.funding_share or (1.0 / len(need))) for i in need]
+    raw = {i.name: max(MIN_WALLET, round((budget or 0) * s, 2)) for i, s in zip(need, shares)}
     total = round(sum(raw.values()), 2)
     shortfall = None
     if available is not None:
         usable = max(0.0, round(available - FEE_BUFFER * len(need), 2))
         if total > usable:
             shortfall = {"requested": total, "available": round(float(available), 2),
-                         "usable": usable, "short_by": round(total - usable, 2), "wallets": len(need)}
+                         "usable": usable, "short_by": round(total - usable, 2),
+                         "wallets": len(need), "shares": shares}
     return raw, shortfall
+
+
+def usd(v):
+    """Money for an agent-facing note: comma-grouped, two decimals, trailing `.00` trimmed,
+    NEVER scientific notation. `%g` (the old house style) rounds to 6 significant digits — it
+    printed `$1e+06` at $1M and rounded `$99,999.99` UP to `$100000`, so a hint could name a
+    ceiling ABOVE the live balance. `usd(1234567.5)` -> `$1,234,567.50`; `usd(100.0)` -> `$100`."""
+    s = f"{float(v):,.2f}"
+    if s.endswith(".00"):
+        s = s[:-3]
+    return f"${s}"
+
+
+def budget_arg(v):
+    """A dollar amount as the `--budget` flag accepts it (`type=float`): bare digits, no `$`,
+    no comma grouping — `usd()`'s commas fail argparse at ≥ $1,000, so a hinted command an agent
+    copies verbatim must render the flag value with this, and `usd()` only in prose."""
+    s = f"{float(v):.2f}"
+    return s[:-3] if s.endswith(".00") else s
+
+
+def max_feasible_budget(shares, usable):
+    """The largest budget `b` whose funding plan still fits within `usable` — i.e.
+    `b* = max { b : Σᵢ max(MIN_WALLET, round(b·shareᵢ, 2)) ≤ usable }`, floored to whole cents.
+
+    Computed with the SAME per-wallet rounding `plan_funding` uses, so re-running `create` at the
+    hinted `--budget ≤ $b*` round-trips with NO shortfall — even for uneven shares, where the old
+    `usable` ceiling was wrong (2 wallets 0.6/0.4, usable $230 → the small leg floors to $100, so
+    the true max is $216.67, not the hinted $230). Bisection in integer cents; exact to the cent."""
+    def total_cents(cents):
+        b = cents / 100.0
+        return int(round(sum(max(MIN_WALLET, round(b * s, 2)) for s in shares) * 100))
+
+    usable_cents = int(round(usable * 100))
+    if total_cents(0) > usable_cents:  # even the all-floor minimum can't fit → no feasible budget
+        return 0.0
+    lo, hi = 0, usable_cents + len(shares) * int(round(MIN_WALLET * 100)) + 100
+    while total_cents(hi) <= usable_cents:  # keep hi a true upper bound (defensive vs Σshare < 1)
+        hi *= 2
+    while lo < hi:  # largest cents with total_cents(mid) <= usable_cents
+        mid = (lo + hi + 1) // 2
+        if total_cents(mid) <= usable_cents:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo / 100.0
+
+
+def underfunded_note(shortfall):
+    """Agent-facing halt text for a funding shortfall. The lower-budget escape is only rendered
+    when the usable balance can still fund every wallet at the MIN_WALLET floor — below that NO
+    budget is valid, and suggesting one produces nonsense the agent follows ("--budget ≤ $0",
+    the M381223 churn). Codes: docs/error-code-taxonomy.md (repo root)."""
+    floor_needed = shortfall["wallets"] * MIN_WALLET
+    facts = (f"Requested {usd(shortfall['requested'])} across {shortfall['wallets']} wallet(s) "
+             f"(min {usd(MIN_WALLET)}/wallet), but only {usd(shortfall['available'])} is accessible "
+             f"({usd(shortfall['usable'])} after fees) — short by {usd(shortfall['short_by'])}. "
+             f"NOT funding; no wallet was created. ")
+    if shortfall["usable"] < floor_needed:
+        # From `available`, not `usable`: usable is clamped to 0 when the balance doesn't even
+        # cover the fee reserve, and `floor - usable` would then understate the deposit by up to
+        # FEE_BUFFER × wallets — depositing the hinted amount must always clear the floor check.
+        missing = round(floor_needed + FEE_BUFFER * shortfall["wallets"] - shortfall["available"], 2)
+        return ("[E_FUNDS_BELOW_FLOOR] " + facts +
+                f"No budget can fund {shortfall['wallets']} wallet(s) below the "
+                f"{usd(MIN_WALLET)}/wallet floor — at least {usd(missing)} more USDC is needed. "
+                f"Next: help the user deposit (senpi-deposit-withdraw-transfer skill), then "
+                f"re-run `create`. Do NOT retry with a lower --budget: no lower budget is valid.")
+    # The real max-feasible budget for THIS package's shares — never the bare `usable`, which
+    # over-hints for uneven shares (a floored small leg pushes the funded total above the budget).
+    b_star = max_feasible_budget(shortfall.get("shares") or [1.0 / shortfall["wallets"]] * shortfall["wallets"],
+                                 shortfall["usable"])
+    return ("[E_FUNDS_SHORT] " + facts +
+            f"Either add USDC, or confirm a lower amount with the user and re-run `create` with "
+            f"--budget ≤ {budget_arg(b_star)} (the largest budget your accessible balance can fully fund "
+            f"across these {shortfall['wallets']} wallet(s) at the {usd(MIN_WALLET)}/wallet floor).")
 
 
 def report(pkg, st, overall, note=None, as_json=False):
@@ -176,6 +254,23 @@ def report(pkg, st, overall, note=None, as_json=False):
 
 
 # ---------- step 1: create wallets ----------
+
+def _sanitize_strategy_name(raw, fallback):
+    """The backend strategyName sanitizer: whitespace → '-', keep only [A-Za-z0-9_-], trim
+    leading/trailing -/_, cap at 40 chars; an empty result falls back to the (truncated) package id.
+    Shared by create (naming a wallet) and `_recover_wallet` (matching it back) so the two never drift."""
+    s = re.sub(r"[^A-Za-z0-9_-]", "", re.sub(r"\s+", "-", str(raw).strip())).strip("-_")[:40]
+    return s or str(fallback)[:40]
+
+
+def _wallet_name(pkg, inst):
+    """The strategyName `create` assigns this instance's wallet: `<id>-<instance>` for a multi-instance
+    package, else the bare `<id>` — sanitized. Recovery re-derives the SAME name to match a wallet back
+    to its instance, so a lost-state redeploy binds to the right wallet instead of guessing."""
+    multi = len(pkg.instances) > 1
+    raw = f"{pkg.id}-{inst.name}" if (multi and inst.name) else str(pkg.id)
+    return _sanitize_strategy_name(raw, pkg.id)
+
 
 def cmd_create(pkg, a, log):
     st = load_state(pkg)
@@ -258,7 +353,7 @@ def cmd_create(pkg, a, log):
             f"Found {len(existing_open)} existing {pkg.id} strateg(y/ies) with NO running runtime — closing "
             f"them (recovering funds) so this deploys on a FRESH wallet, never reusing the runtime-less one. "
             f"strategy_close is async; re-run `python3 {Path(__file__).name} create {pkg.id} --budget "
-            f"{a.budget:g}` once they're CLOSED and the funds are back."), as_json=a.json)
+            f"{budget_arg(a.budget)}` once they're CLOSED and the funds are back."), as_json=a.json)
 
     need = [i for i in pkg.instances if not inst_state(st, i.name).get("strategyId")]
 
@@ -267,13 +362,7 @@ def cmd_create(pkg, a, log):
     # than silently funding the $100 floor. Nothing is created on this path.
     amounts, shortfall = plan_funding(need, a.budget, available_usd(mcp)) if need else ({}, None)
     if shortfall:
-        return report(pkg, st, "underfunded", note=(
-            f"Requested ${shortfall['requested']:g} across {shortfall['wallets']} wallet(s) "
-            f"(min ${MIN_WALLET:g}/wallet), but only ${shortfall['available']:g} is accessible "
-            f"(${shortfall['usable']:g} after fees) — short by ${shortfall['short_by']:g}. "
-            f"NOT funding; no wallet was created. Add USDC (or free some from another strategy), or "
-            f"confirm a lower amount with the user and re-run `create` with --budget ≤ ${shortfall['usable']:g}."),
-            as_json=a.json)
+        return report(pkg, st, "underfunded", note=underfunded_note(shortfall), as_json=a.json)
 
     # create any instance that has no strategyId yet — record the id IMMEDIATELY (before polling),
     # so an interrupted run resumes instead of re-creating.
@@ -285,11 +374,9 @@ def cmd_create(pkg, a, log):
         s["requested"] = amt  # remember what the user asked to fund → reconciled against actual at verify
         # Name each wallet for its role in the strategy (matches the pkg-instance runtime naming),
         # so wallets are legible in the app / balances / notifications instead of a bare 0x address.
-        # e.g. a WhaleHunter deploy → "whalehunter-long", "whalehunter-short". Sanitized to the
-        # strategyName rules: 3-40 chars, no whitespace (-> '-'), [A-Za-z0-9_-] only.
-        multi = len(pkg.instances) > 1
-        sname = f"{pkg.id}-{inst.name}" if (multi and inst.name) else str(pkg.id)
-        sname = re.sub(r"[^A-Za-z0-9_-]", "", re.sub(r"\s+", "-", sname.strip())).strip("-_")[:40] or str(pkg.id)[:40]
+        # e.g. a WhaleHunter deploy → "whalehunter-long", "whalehunter-short". `_wallet_name` applies
+        # the strategyName sanitizer; `_recover_wallet` re-derives the same name to match wallets back.
+        sname = _wallet_name(pkg, inst)
         log(f"  [{inst.name}] creating wallet {sname!r} (initialBudget=${amt:g})…")
 
         def _create(name=None):
@@ -354,21 +441,68 @@ def cmd_create(pkg, a, log):
 
 def _recover_wallet(pkg, inst, active):
     """Re-resolve one instance's FRESH wallet from the live ACTIVE <id> strategies when the deploy
-    state was lost (the sub-agent died before persisting it). Returns (wallet, error).
+    state was lost (the sub-agent died before persisting it). Returns (wallet, kind, why):
+    (addr, None, None) on success; and, on refusal, a kind the caller maps to a refusal code —
+      "none"       — the backend has NO <id> wallet at all → safe to create fresh (E_STATE_NO_WALLETS);
+      "unnamed"    — <id> wallet(s) EXIST but none carries this instance's name (the create-time
+                     name-rejection fallback funds with no custom name; a renamed wallet lands here too)
+                     → NOT "nothing exists": refuse conservatively so the caller never steers to create,
+                     which would tear the unmatched — possibly funded LIVE — wallet down (E_STATE_AMBIGUOUS);
+      "unreadable" — candidate(s) match but no readable wallet address (backend field drift) → won't guess;
+      "ambiguous"  — >1 distinct candidate wallets → one may be a funded LIVE strategy (E_STATE_AMBIGUOUS).
 
-    NEVER guesses: if the backend is ambiguous (0, or >1 candidate wallets for the instance) it
-    returns an error so cmd_runtime refuses rather than binding a runtime to the wrong/old wallet —
-    the exact reuse trap (agent hand-registers onto a stale wallet from a leftover rendered yaml)."""
-    if len(pkg.instances) > 1:  # multi-instance: match by the name create assigned each wallet
-        cands = [s for s in active if _cli.strategy_name(s) == f"{pkg.id}-{inst.name}"]
+    NEVER guesses: anything short of exactly one readable, name-matched wallet refuses rather than
+    binding a runtime to the wrong/old wallet — the exact reuse trap (agent hand-registers onto a
+    stale wallet). Names are matched via the shared `_wallet_name` sanitizer so recovery can't drift
+    from what `create` actually named the wallet."""
+    if len(pkg.instances) > 1:  # multi-instance: match by the sanitized name create assigned each wallet
+        want = _wallet_name(pkg, inst)
+        cands = [s for s in active if _cli.strategy_name(s) == want]
+        if not cands and active:
+            # ANY unmatched ACTIVE strategy blocks the "none" path — even one whose wallet address
+            # is unreadable. Filtering to readable addresses here let an all-unreadable backend fall
+            # through to "none" ("nothing at risk" → create), the exact teardown trap this refusal
+            # split exists to prevent.
+            return None, "unnamed", (
+                f"{len(active)} ACTIVE {pkg.id} wallet(s) exist but none is named {want!r} for "
+                f"instance {inst.name!r} — can't safely match (may be a name-rejection fallback wallet)")
     else:  # single-instance: the lone ACTIVE <id> strategy is this instance
         cands = list(active)
-    wallets = {str(_cli.strategy_wallet(s)).lower() for s in cands if _cli.strategy_wallet(s)}
-    if cands and len(wallets) == 1:
-        return _cli.strategy_wallet(cands[0]), None
+    addrs = [_cli.strategy_wallet(s) for s in cands if _cli.strategy_wallet(s)]
+    wallets = {str(a).lower() for a in addrs}
+    if len(wallets) == 1:
+        return addrs[0], None, None
     if not cands:
-        return None, f"no ACTIVE {pkg.id} wallet on the backend for instance {inst.name!r}"
-    return None, f"{len(cands)} ACTIVE {pkg.id} wallets match instance {inst.name!r} — ambiguous, won't guess"
+        return None, "none", f"no ACTIVE {pkg.id} wallet on the backend for instance {inst.name!r}"
+    if not wallets:
+        return None, "unreadable", (f"found {len(cands)} ACTIVE {pkg.id} "
+                                    f"strateg{'y' if len(cands) == 1 else 'ies'} for instance "
+                                    f"{inst.name!r} but the wallet address is unreadable — won't guess")
+    return None, "ambiguous", (f"{len(cands)} ACTIVE {pkg.id} wallets match instance {inst.name!r} "
+                               f"— ambiguous, won't guess")
+
+
+def wallets_unrecoverable_note(pkg_id, unresolved):
+    """Refusal text for wallets that could not be safely recovered, split by cause. Only an
+    ALL-`none` batch — every instance's wallet genuinely absent from the backend — gets the
+    "nothing exists" NO_WALLETS text that steers to `create`. Anything else (a wallet exists but
+    isn't name-matched / is unreadable / is one of several) uses the conservative AMBIGUOUS text:
+    a funded LIVE strategy may be in the set, so it NEVER names close/recreate (the caribou
+    raw-recreate incident) and points only at read-only triage. Paths are absolute so the hinted
+    commands are copy-paste runnable from any cwd. Codes: docs/error-code-taxonomy.md (repo root)."""
+    deploy_py = Path(__file__).with_name("deploy.py")
+    status_py = Path(__file__).with_name("status.py")
+    lines = "\n".join(f"    - {n}: {why}" for n, _k, why in unresolved)
+    if all(k == "none" for _n, k, _w in unresolved):
+        return (f"[E_STATE_NO_WALLETS] error: no ACTIVE wallet(s) on the backend:\n{lines}\n"
+                f"Nothing to recover and nothing at risk — the create step has not produced wallets "
+                f"for these instance(s).\n"
+                f"Next: python3 {deploy_py} create {pkg_id} --budget <usd>")
+    return (f"[E_STATE_AMBIGUOUS_WALLETS] error: wallet state is ambiguous — refusing to guess:\n{lines}\n"
+            f"One of these wallets may be a funded LIVE strategy. Do NOT hand-register a runtime, and do "
+            f"NOT tear anything down to 'start clean'.\n"
+            f"Next (read-only): python3 {status_py} {pkg_id}   # map each wallet to its runtime/strategy\n"
+            f"Then resolve WITH THE USER which wallet is live before re-running `python3 {deploy_py} runtime {pkg_id}`.")
 
 
 def cmd_runtime(pkg, a, log):
@@ -384,22 +518,17 @@ def cmd_runtime(pkg, a, log):
         active = _cli.strategies_for(MCPClient(), skill_name=pkg.id, statuses=["ACTIVE"])
         recovered, unresolved = [], []
         for inst in missing:
-            w, err = _recover_wallet(pkg, inst, active)
+            w, kind, why = _recover_wallet(pkg, inst, active)
             if w:
                 inst_state(st, inst.name).update(wallet=w, status="active")
                 recovered.append(inst.name)
             else:
-                unresolved.append((inst.name, err))
+                unresolved.append((inst.name, kind, why))
         if recovered:
             save_state(pkg, st)
             log(f"  deploy-state was lost — recovered fresh wallet(s) from the backend for: {', '.join(recovered)}")
         if unresolved:
-            lines = "\n".join(f"    - {n}: {why}" for n, why in unresolved)
-            raise SystemExit(
-                f"error: wallet(s) not ready and not safely recoverable:\n{lines}\n"
-                f"Do NOT hand-register a runtime on an old wallet. Redeploy on a fresh wallet:\n"
-                f"  python3 {Path(__file__).with_name('close.py')} {pkg.id}   # if a stale {pkg.id} wallet is lingering\n"
-                f"  python3 {Path(__file__).name} create {pkg.id} --budget <usd>")
+            raise SystemExit(wallets_unrecoverable_note(pkg.id, unresolved))
     if pkg.any_needs_model and not a.decision_model and not a.dry_run:
         raise SystemExit("error: a runtime has a decision_mode: llm action — pass --decision-model <bare-model>")
 
@@ -435,10 +564,11 @@ def cmd_runtime(pkg, a, log):
             _cli.run_cli(["openclaw", "senpi", "runtime", "delete", inst.runtime_name], timeout=60)
         build.write_text(text)
         log(f"  [{inst.name}] runtime create…")
-        rc, _o, err = _cli.run_cli(["openclaw", "senpi", "runtime", "create", "-p", str(build),
-                                    "--runtime-id", inst.runtime_name], timeout=120)
+        rc, o, err = _cli.run_cli(["openclaw", "senpi", "runtime", "create", "-p", str(build),
+                                   "--runtime-id", inst.runtime_name], timeout=120)
         if rc != 0:
-            s.update(error=(err or "runtime create failed").strip()[:300])
+            cause = _cli.error_tail(err, o) or "runtime create failed (no error output)"
+            s.update(error="[E_RUNTIME_REGISTER_FAILED] " + cause)
             save_state(pkg, st)
             continue  # keep the rendered yaml on failure for debugging
         s.update(status="registered", error=None)
