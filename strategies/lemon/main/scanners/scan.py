@@ -150,14 +150,15 @@ def _fetch_sm_map(ctx, limit, tracked, xyz_banned):
     for m in markets:
         if not isinstance(m, dict):
             continue
-        token = str(m.get("token", "")).upper()
+        raw = str(m.get("token", ""))
+        token = raw.upper()  # casing-ok: sm_map key + tracked-set compare only; emit uses raw (case-preserved)
         dex = str(m.get("dex", "")).lower()
         if xyz_banned and dex == "xyz":
             continue
         if token not in tracked_set:
             continue
         sm_map[token] = {
-            "asset": f"xyz:{token}" if dex == "xyz" else token,
+            "asset": f"xyz:{raw}" if dex == "xyz" else raw,
             "dex": dex,
             "is_xyz": dex == "xyz",
             "direction": str(m.get("direction", "")).upper(),

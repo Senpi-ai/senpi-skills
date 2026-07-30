@@ -228,7 +228,7 @@ def _prev_oi(oi_cache, coin):
 
 def scan(inputs, ctx):
     now = time.time()
-    universe = [a.upper() for a in inputs.get("universe", _DEFAULT_UNIVERSE)]
+    universe = [str(a) for a in inputs.get("universe", _DEFAULT_UNIVERSE) if a]
     min_score = int(inputs.get("minScore", _DEFAULT_MIN_SCORE))
     margin_pct = float(inputs.get("marginPct", 15))   # PERCENT in (0,100]
     # defensive: a pasted FRACTION (e.g. 0.15) means percent — convert x100 (dire/koala guard)

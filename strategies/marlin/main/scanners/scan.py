@@ -215,7 +215,7 @@ def _was_recently_signaled(signaled, coin, ttl, now):
 
 def scan(inputs, ctx):
     now = time.time()
-    universe = [str(a).upper() for a in inputs.get("universe", _UNIVERSE_DEFAULT)]
+    universe = [str(a) for a in inputs.get("universe", _UNIVERSE_DEFAULT)]
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
 
@@ -242,7 +242,7 @@ def scan(inputs, ctx):
     for coin in universe:
         if not coin:
             continue
-        if coin in held_set:
+        if coin.upper() in held_set:
             continue
         if _was_recently_signaled(signaled, coin, ttl, now):
             continue

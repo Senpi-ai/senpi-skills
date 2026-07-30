@@ -234,7 +234,7 @@ def _was_recently_signaled(signaled, coin, ttl, now):
 
 def scan(inputs, ctx):
     now = time.time()
-    universe = [str(a).upper() for a in inputs.get("universe", _UNIVERSE_DEFAULT)]
+    universe = [str(a) for a in inputs.get("universe", _UNIVERSE_DEFAULT)]
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
     base_margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))   # PERCENT in (0,100]
     # defensive: a config that still stores margin as a FRACTION (e.g. 0.20) -> x100

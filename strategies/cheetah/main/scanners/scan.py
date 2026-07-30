@@ -97,7 +97,11 @@ def _fetch_sm_markets(ctx, limit, xyz_banned):
     for i, m in enumerate(markets):
         if not isinstance(m, dict):
             continue
-        token = str(m.get("token", m.get("asset", ""))).upper()
+        # preserve case — HL coin names are CASE-SENSITIVE (1000x carry a lowercase k,
+        # e.g. kPEPE/kSHIB/kBONK). Keep the token's original case so the EMITTED asset
+        # (scan(): "asset": best["token"]) is valid; .upper() only at the compare/dict-key
+        # sites below (held / cooldowns / quality-join), never on the value we emit.
+        token = str(m.get("token", m.get("asset", "")))
         dex = str(m.get("dex", "")).lower()
         if xyz_banned and dex == "xyz":          # v2 XYZ_BANNED — drop xyz markets
             continue
@@ -326,12 +330,12 @@ def scan(inputs, ctx):
     all_scored = []
     for market in markets:
         token = market["token"]
-        if token in held_assets:                                  # dedup layer 1
+        if token.upper() in held_assets:                          # dedup layer 1 (held keys are upper)
             continue
-        lc = last_closed.get(token, 0)
+        lc = last_closed.get(token.upper(), 0)
         if lc and (now - lc) < post_close_cooldown:               # post-close cooldown
             continue
-        ec = emit_cooldowns.get(token, 0)
+        ec = emit_cooldowns.get(token.upper(), 0)
         if ec and (now - ec) < emit_cooldown:                     # emit (anti-spam) cooldown
             continue
 
@@ -341,7 +345,7 @@ def scan(inputs, ctx):
             continue
         all_scored.append({"token": token, "direction": market["direction"], "score": score})
         if score >= min_score:
-            key = f"{token}:{market['direction']}"
+            key = f"{token.upper()}:{market['direction']}"   # upper-key match vs quality_positions — keeps +3 quality bonus firing
             cand = dict(market)
             cand["score"] = score
             cand["reasons"] = reasons
@@ -388,8 +392,8 @@ def scan(inputs, ctx):
     }]
 
     # ── mark emit cooldown + signal-dedup for the emitted asset ──
-    emit_cooldowns[best["token"]] = now
-    recent[best["token"]] = now
+    emit_cooldowns[best["token"].upper()] = now   # cooldown keys are upper (compare at :334)
+    recent[best["token"].upper()] = now
     print(f"[cheetah.scan] EMIT {best['token']} {best['direction']} score={best['score']} "
           f"{leverage}x | {' | '.join(best['reasons'][:5])}", file=sys.stderr)
     _persist({"result": {"emitted": True, "asset": best["token"], "direction": best["direction"],

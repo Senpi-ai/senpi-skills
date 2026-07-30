@@ -257,7 +257,7 @@ def _was_recently_signaled(signaled, coin, ttl, now):
 
 def scan(inputs, ctx):
     now = time.time()
-    universe = [a.upper() for a in inputs.get("universe", _DEFAULT_UNIVERSE)]
+    universe = [str(a) for a in inputs.get("universe", _DEFAULT_UNIVERSE)]
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
     lookback = int(inputs.get("breakoutLookbackHours", _DEFAULT_BREAKOUT_LOOKBACK))
     oi_min = float(inputs.get("oiRisingMinPct", _DEFAULT_OI_RISING_MIN_PCT))

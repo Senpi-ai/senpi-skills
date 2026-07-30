@@ -223,7 +223,10 @@ def _was_recently_signaled(signaled, coin, ttl, now):
 
 def scan(inputs, ctx):
     now = time.time()
-    universe = [a.upper() for a in inputs.get("universe", _DEFAULT_UNIVERSE)]
+    # preserve case — HL coin names are CASE-SENSITIVE (1000x carry a lowercase k,
+    # e.g. kPEPE). The EMIT ("asset": best["coin"]) and market_get_asset_data must see
+    # the original case; `cu = coin.upper()` (below) is used ONLY for the held_set compare.
+    universe = list(inputs.get("universe", _DEFAULT_UNIVERSE))
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
     # defensive: a config that still stores the v2 FRACTION (0.15) -> x100 (15%).
@@ -254,17 +257,17 @@ def scan(inputs, ctx):
         if _was_recently_signaled(signaled, coin, ttl, now):
             continue
         scanned += 1
-        sm = _get_sm_direction(ctx, cu)
+        sm = _get_sm_direction(ctx, coin)
         # GATE 1 short-circuit (avoid the candle fetch when the crowd isn't crowded),
         # matching v2 build_thesis order (SM gate before market fetch).
         sm_dir, sm_pct = sm
         crowd_min = float(inputs.get("crowdingMinPct", scoring.DEFAULT_CROWDING_MIN_PCT))
         if sm_dir not in ("LONG", "SHORT") or sm_pct < crowd_min:
             continue
-        candles_1h = _asset_1h_candles(ctx, cu)
+        candles_1h = _asset_1h_candles(ctx, coin)
         if not candles_1h:
             continue
-        th = scoring.build_thesis(cu, candles_1h, sm, inputs)
+        th = scoring.build_thesis(coin, candles_1h, sm, inputs)
         if th and th["score"] >= min_score:
             candidates.append(th)
 

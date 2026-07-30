@@ -264,7 +264,7 @@ def scan(inputs, ctx):
         candles = md["candles"]
         sm = _get_sm_direction(ctx, coin)
         th = scoring.build_thesis(
-            cu,
+            coin,
             candles.get("15m", []), candles.get("1h", []), candles.get("4h", []),
             sm, inputs,
         )

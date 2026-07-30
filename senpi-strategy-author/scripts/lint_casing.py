@@ -53,6 +53,12 @@ SYMBOL_TOKENS = ("coin", "asset", "sym", "symbol", "ticker", "market",
                  "instrument", "token", "tok", "name")
 ASSIGN_RE = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*.*\.upper\(\)')
 RETURN_RE = re.compile(r'^\s*return\s+.*\.upper\(\)')
+# `universe = [a.upper() for a in inputs.get(...)]` — the config-universe idiom.
+# LHS isn't a symbol var so ASSIGN_RE misses it, but upper-casing a configurable
+# universe silently no-trades a configured k/xyz asset (fixed in wave 2:
+# piranha/salamander/badger/hawk/marlin/egret). Flag the list-comprehension form.
+UNIVERSE_RE = re.compile(
+    r'\b(universe|whitelist|allowed|assets|coins|tokens|symbols)\w*\s*=\s*\[[^\]]*\.upper\(\)[^\]]*\bfor\b')
 OK_MARK = "casing-ok"
 
 
@@ -84,6 +90,8 @@ def scan_tree(root):
                     kind = "assign"
                 elif RETURN_RE.match(line):
                     kind = "return"
+                elif UNIVERSE_RE.search(line):
+                    kind = "universe"
                 if kind:
                     stripped = line.strip()
                     hits[_key(rel, stripped)] = (rel, i, stripped, kind)
