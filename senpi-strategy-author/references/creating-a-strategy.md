@@ -82,13 +82,12 @@ grep `strategies/catalog.json` by its `archetype` field (a closed set; every pac
 ### `scoring.py` — pure math (the edge)
 No I/O, no MCP, no clock, no state — just functions over candles/numbers, so it unit-tests without mocks.
 
-> **Candle schema (`market_get_asset_data`):** each candle is keyed `t,o,h,l,c,v` (+ `T,s,i,n`) — short OHLCV. Close is `c` — read `candle["c"]`, not `candle["close"]` (no such key). Hyperliquid serves `o/h/l/c/v` as **strings**. Runtimes newer than 3.0.32 numeric-cast candles and `market_get_prices` values at the `ctx.senpi_mcp` boundary (originals kept under a single `_raw` key on the response container, at the same level as `candles`/`prices` — see `senpi-trading-runtime/references/scan-contract.md` → "Market data types"); older runtimes hand you the raw strings, and **every other tool's fields keep their API types either way** (balances, budgets, leaderboard rows — often strings). So always read numerics through the fleet-standard helper below — `float` of a number is a no-op, so it is correct on every runtime version and every data path:
+> **Candle schema (`market_get_asset_data`):** keys `t,o,h,l,c,v` (+ `T,s,i,n`). Close is `candle["c"]` — there is no `candle["close"]`. Values may arrive as **strings** — always read numerics through `_f()` below (`float` of a number is a no-op, so it's correct on every runtime version and every tool). Type contract: `senpi-trading-runtime/references/scan-contract.md` → "Market data types".
 
 ```python
 def _f(v, d=0.0):
-    """Defensive numeric read (fleet standard): no-op on numbers, casts strings,
-    falls back to d on None/garbage. Shape tolerance — not a data-quality gate:
-    a fallback 0.0 in ratio math reads as a real price, so gate on presence first."""
+    """Defensive numeric read: no-op on numbers, casts strings, d on None/garbage.
+    Gate on presence first — a fallback 0.0 reads as a real price."""
     try:
         return float(v)
     except (TypeError, ValueError):
