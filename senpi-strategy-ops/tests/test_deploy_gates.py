@@ -102,21 +102,30 @@ class UnderfundedNote(unittest.TestCase):
     def test_above_floor_offers_lower_budget(self):
         note = deploy.underfunded_note(self._short(400, 2, 260, 250))
         self.assertIn("[E_FUNDS_SHORT]", note)
-        self.assertIn("--budget ≤ $250", note)
+        self.assertIn("--budget ≤ 250", note)
 
     def test_usable_equals_floor_is_short_with_bound_at_floor(self):
         # boundary: usable == wallets × $100 → E_FUNDS_SHORT, and the only feasible budget is the floor
         note = deploy.underfunded_note(self._short(400, 2, 200, 200))
         self.assertIn("[E_FUNDS_SHORT]", note)
-        self.assertIn("--budget ≤ $200", note)
+        self.assertIn("--budget ≤ 200", note)
 
     def test_uneven_shares_bound_is_below_usable(self):
         # 2 wallets 0.6/0.4, usable $230: the small leg floors to $100 so the true max is $216.67,
         # NOT the old bare-usable $230 (which re-shorts). The hint must name the feasible bound.
         note = deploy.underfunded_note(self._short(238, 2, 233, 230, shares=[0.6, 0.4]))
         self.assertIn("[E_FUNDS_SHORT]", note)
-        self.assertIn("--budget ≤ $216.67", note)
-        self.assertNotIn("$230", note.split("--budget")[1])  # the ceiling is never the bare usable
+        self.assertIn("--budget ≤ 216.67", note)
+        self.assertNotIn("230", note.split("--budget")[1])  # the ceiling is never the bare usable
+
+    def test_budget_hint_flag_value_is_argparse_parseable(self):
+        # Bugbot: usd()'s comma grouping in the --budget clause fails `type=float` at ≥ $1,000.
+        # The flag value must round-trip through float() exactly as printed — no $, commas, or %g.
+        for usable in (250.0, 1000.0, 99999.99, 1_000_000.01):
+            note = deploy.underfunded_note(self._short(usable + 10, 1, usable + deploy.FEE_BUFFER, usable))
+            m = re.search(r"--budget ≤ (\S+)", note)
+            self.assertIsNotNone(m, note)
+            self.assertEqual(float(m.group(1)), deploy.max_feasible_budget([1.0], usable), note)
 
     def test_hinted_bound_round_trips_no_shortfall(self):
         # THE property F1 exists for: re-running plan_funding at the hinted bound must NOT re-short,

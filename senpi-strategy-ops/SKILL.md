@@ -147,7 +147,7 @@ scheduled/supervised scanner passes, so it does **not** wait for the first scan 
 > (Hyperliquid perps → HL spot → EVM bridge). If `create` reports **`underfunded`** (or insufficient USDC /
 > `available: 0`), the balance can't cover the requested budget (often locked in other strategies) — **do
 > what the note's code says**: **`[E_FUNDS_SHORT]`** = fund/free USDC OR confirm a lower amount with the
-> user (the note gives the exact `--budget ≤ $X` ceiling it can fund), then **re-run `create`**;
+> user (the note gives the exact `--budget ≤ X` ceiling it can fund), then **re-run `create`**;
 > **`[E_FUNDS_BELOW_FLOOR]`** = no budget is valid, so help the user **deposit** and re-run — **never**
 > suggest a lower budget below the floor. Do not switch tools. If
 > `create` reports **`closing-existing`**, it's closing a runtime-less `<id>` wallet to recover funds so it
@@ -193,7 +193,7 @@ user: "deploy spider with $300"
 1. resolve → id = spider (two instances: swing 60% / scalp 40%; $300 → swing $180, scalp $120)
 2. create → python3 scripts/deploy.py create spider --budget 300
             → wallets-ready  (if "creating", re-run until wallets-ready; if "underfunded", follow the note's
-                             code — [E_FUNDS_SHORT] fund more / lower to its --budget ≤ $X; [E_FUNDS_BELOW_FLOOR] deposit only)
+                             code — [E_FUNDS_SHORT] fund more / lower to its --budget ≤ X; [E_FUNDS_BELOW_FLOOR] deposit only)
 3. runtime → python3 scripts/deploy.py runtime spider          → registered (spider-swing + spider-scalp)
 4. verify  → python3 scripts/deploy.py verify spider           → live  (runtime+scanner+DSL+budget all green)
 5. confirm → "🕷️ Spider is live (swing + scalp)." + the required How it runs block, e.g.:

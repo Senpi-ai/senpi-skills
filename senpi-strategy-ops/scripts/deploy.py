@@ -170,6 +170,14 @@ def usd(v):
     return f"${s}"
 
 
+def budget_arg(v):
+    """A dollar amount as the `--budget` flag accepts it (`type=float`): bare digits, no `$`,
+    no comma grouping — `usd()`'s commas fail argparse at ≥ $1,000, so a hinted command an agent
+    copies verbatim must render the flag value with this, and `usd()` only in prose."""
+    s = f"{float(v):.2f}"
+    return s[:-3] if s.endswith(".00") else s
+
+
 def max_feasible_budget(shares, usable):
     """The largest budget `b` whose funding plan still fits within `usable` — i.e.
     `b* = max { b : Σᵢ max(MIN_WALLET, round(b·shareᵢ, 2)) ≤ usable }`, floored to whole cents.
@@ -223,7 +231,7 @@ def underfunded_note(shortfall):
                                  shortfall["usable"])
     return ("[E_FUNDS_SHORT] " + facts +
             f"Either add USDC, or confirm a lower amount with the user and re-run `create` with "
-            f"--budget ≤ {usd(b_star)} (the largest budget your accessible balance can fully fund "
+            f"--budget ≤ {budget_arg(b_star)} (the largest budget your accessible balance can fully fund "
             f"across these {shortfall['wallets']} wallet(s) at the {usd(MIN_WALLET)}/wallet floor).")
 
 
@@ -345,7 +353,7 @@ def cmd_create(pkg, a, log):
             f"Found {len(existing_open)} existing {pkg.id} strateg(y/ies) with NO running runtime — closing "
             f"them (recovering funds) so this deploys on a FRESH wallet, never reusing the runtime-less one. "
             f"strategy_close is async; re-run `python3 {Path(__file__).name} create {pkg.id} --budget "
-            f"{a.budget:g}` once they're CLOSED and the funds are back."), as_json=a.json)
+            f"{budget_arg(a.budget)}` once they're CLOSED and the funds are back."), as_json=a.json)
 
     need = [i for i in pkg.instances if not inst_state(st, i.name).get("strategyId")]
 
