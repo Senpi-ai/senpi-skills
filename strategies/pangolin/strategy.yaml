@@ -7,7 +7,7 @@
 schema_version: 1
 
 id: pangolin
-version: "1.0.0"
+version: "1.0.1"
 
 catalog:
   name: "Pangolin — Funding-Rate Fader"

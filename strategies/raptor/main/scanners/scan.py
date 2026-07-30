@@ -196,7 +196,7 @@ def build_candidate(ctx, trader, positions, sm_map, inputs):
     if not best_pos:
         return None
 
-    sm = sm_map.get(best_pos["asset"])
+    sm = sm_map.get(best_pos["asset"].upper())   # sm_map keys are upper — upper only at the join
     if not scoring.sm_gate(sm, best_pos, inputs):
         return None
 
@@ -259,7 +259,7 @@ def scan(inputs, ctx):
             continue
         if seen.get(_seen_key(t["address"], sig["asset"])) is not None:   # event-dedup
             continue
-        if sig["asset"] in held_upper:                                    # already holding
+        if sig["asset"].upper() in held_upper:                            # already holding (held set is upper)
             continue
         candidates.append(sig)
 

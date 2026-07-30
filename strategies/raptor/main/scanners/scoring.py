@@ -49,9 +49,12 @@ def select_best_position(positions, inputs):
     for pos in positions:
         if not isinstance(pos, dict):
             continue
+        # CASE-PRESERVED: the emitted symbol goes straight into a case-sensitive
+        # Senpi/HL tool call (kPEPE/kSHIB/kBONK are rejected as KPEPE). Compare/
+        # join sites (sm_map lookup, held-asset set in scan.py) upper() themselves.
         asset = str(
             pos.get("coin", pos.get("market", pos.get("asset", pos.get("symbol", ""))))
-        ).upper()
+        )
         if not asset:
             continue
         if xyz_banned and asset.lower().startswith("xyz:"):

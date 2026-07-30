@@ -155,19 +155,22 @@ def scan(inputs, ctx):
     candidates = []
     scanned = []
     for asset in whitelist:
-        a = str(asset).upper()
+        a = str(asset).upper()                 # compare/dedup key ONLY (held set + recent map are upper)
         if a in held or (recent.get(a) is not None and (now - recent[a]) < ttl):
-            scanned.append({"asset": a, "skipped": "held_or_recent"})
+            scanned.append({"asset": asset, "skipped": "held_or_recent"})
             continue
-        candles = _fetch_candles(ctx, a)
-        sm = _sm_direction(markets, a)
+        # CASE-PRESERVED at fetch + emit: HL coin names are case-sensitive (kPEPE
+        # rejected as KPEPE). _sm_row_matches() upper-cases both sides internally,
+        # so _sm_direction takes the raw asset.
+        candles = _fetch_candles(ctx, asset)
+        sm = _sm_direction(markets, asset)
         th = scoring.build_thesis(candles, sm, inputs)
         if th and th["score"] >= min_score:
-            th["coin"] = a
+            th["coin"] = asset
             candidates.append(th)
-            scanned.append({"asset": a, "gate": "pass", "score": th["score"], "trend_pct": th["trend_pct"]})
+            scanned.append({"asset": asset, "gate": "pass", "score": th["score"], "trend_pct": th["trend_pct"]})
         else:
-            scanned.append({"asset": a, "gate": "blocked", "candles": len(candles)})
+            scanned.append({"asset": asset, "gate": "blocked", "candles": len(candles)})
 
     out = []
     emitted = None
@@ -193,7 +196,7 @@ def scan(inputs, ctx):
                 "reasons": best["reasons"],
             },
         }]
-        recent[coin] = now
+        recent[coin.upper()] = now             # dedup key upper (symmetric with recent.get(a) above)
         emitted = {"coin": coin, "score": best["score"], "trend_pct": best["trend_pct"],
                    "leverage": leverage, "margin_pct": margin_pct, "reasons": best["reasons"][:6]}
         print(f"[stag.scan] EMIT {coin} LONG score={best['score']} {leverage}x "
