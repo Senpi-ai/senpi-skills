@@ -82,11 +82,21 @@ grep `strategies/catalog.json` by its `archetype` field (a closed set; every pac
 ### `scoring.py` — pure math (the edge)
 No I/O, no MCP, no clock, no state — just functions over candles/numbers, so it unit-tests without mocks.
 
-> **Candle schema (`market_get_asset_data`):** each candle is keyed `t,o,h,l,c,v` (+ `T,s,i,n`) — short OHLCV, **string** values. Close is `c`; read fields as `float(candle["c"])`, not `candle["close"]` (no such key).
+> **Candle schema (`market_get_asset_data`):** keys `t,o,h,l,c,v` (+ `T,s,i,n`). Close is `candle["c"]` — there is no `candle["close"]`. Values may arrive as **strings** — always read numerics through `_f()` below (`float` of a number is a no-op, so it's correct on every runtime version and every tool). Type contract: `senpi-trading-runtime/references/scan-contract.md` → "Market data types".
 
 ```python
+def _f(v, d=0.0):
+    """Defensive numeric read: no-op on numbers, casts strings, d on None/garbage.
+    Gate on presence first — a fallback 0.0 reads as a real price."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return d
+
 def score(asset, candles, extra, inputs):    # candles/numbers in, thesis dict out
-    if not _qualifies(...): return None
+    if not candles: return None
+    close = _f(candles[-1]["c"])
+    if not _qualifies(close, ...): return None
     return {"score": s, "direction": "LONG"|"SHORT", "reasons": [...]}
 ```
 

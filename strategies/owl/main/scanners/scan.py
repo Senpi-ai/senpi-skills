@@ -102,7 +102,13 @@ def fetch_all_assets(ctx, inputs):
         if not isinstance(inst, dict):
             continue
         coin = inst.get("coin") or inst.get("name", "")
-        coin = str(coin).upper() if coin else ""
+        # CASE-PRESERVED: market_list_instruments is the source of truth for exact
+        # coin-name casing, and HL names are CASE-SENSITIVE — the 1000x names carry
+        # a lowercase k (kPEPE/kSHIB/kBONK) and `KPEPE` is rejected as
+        # INVALID_ARGUMENT. This symbol is passed straight to market_get_asset_data
+        # and emitted as the signal asset, so upper-casing it here silently
+        # no-traded every k-denominated name. Comparisons upper-case at their site.
+        coin = str(coin) if coin else ""
         if not coin:
             continue
         if _is_xyz(coin):                          # XYZ ban (name-prefix; see module docstring)
@@ -344,7 +350,9 @@ def scan(inputs, ctx):
     crowding_results = []
     for asset in assets:
         coin = asset["coin"]
-        sm_long_pct, sm_count = sm_map.get(coin, (50, 0))
+        # sm_map is keyed upper-case (see the token parse above); `coin` is now
+        # case-preserved, so upper-case at the lookup to keep the join intact.
+        sm_long_pct, sm_count = sm_map.get(coin.upper(), (50, 0))
         crowd_score, crowd_direction, details = scoring.score_crowding(
             asset, sm_long_pct, sm_count, min_funding_ann)
 
