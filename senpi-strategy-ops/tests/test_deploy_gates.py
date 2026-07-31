@@ -466,5 +466,119 @@ class RecoverWalletKinds(unittest.TestCase):
         self.assertEqual(kind, "none")
 
 
+# USDC contracts per chain, only used to make the fixtures below look like the real payload.
+_USDC_ETH = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+_USDC_BASE = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+
+
+def _portfolio(**over):
+    """An `account_get_portfolio` response with the REAL field set (see the live payload in
+    references/funding-sources.md). `total_in_hyperliquid`, `total_spot_usd_in_hyperliquid` and
+    `token_balances` are DISJOINT components of `total_balance_usd`, so a funding preflight has to
+    add them up — reading one of them is reading a fraction of the fundable balance."""
+    port = {"total_balance_usd": 0.0, "total_allocated_in_strategy": 0.0, "total_withdrawable": 0.0,
+            "total_in_hyperliquid": 0.0, "total_token_balance_usd": 0.0,
+            "total_spot_usd_in_hyperliquid": 0.0, "token_balances": [], "spot_balances": [],
+            "positions": []}
+    port.update(over)
+    return {"success": True, "data": {"portfolio": port}}
+
+
+def _evm(sym, amount, chain_id, addr=_USDC_BASE):
+    return {"tokenSymbol": sym, "formattedBalance": amount, "balanceInUSD": amount,
+            "chainId": chain_id, "tokenAddress": addr, "decimals": 6}
+
+
+def _spot(sym, usd_value):
+    return {"tokenSymbol": sym, "tokenId": 0, "total": str(usd_value), "hold": "0.0",
+            "usdValue": str(usd_value)}
+
+
+class _StubMCP:
+    """Returns a canned `account_get_portfolio`; raises if `raise_with` is set."""
+
+    def __init__(self, payload=None, raise_with=None):
+        self.payload, self.raise_with = payload, raise_with
+
+    def mcp_call(self, tool, timeout=None, **kw):
+        if self.raise_with:
+            raise self.raise_with
+        assert tool == "account_get_portfolio", tool
+        return self.payload
+
+
+class AvailableUsd(unittest.TestCase):
+    """`available_usd` must report what `strategy_create_custom_strategy` can actually FUND FROM:
+    Hyperliquid perps → Hyperliquid spot USDC → EVM USDC bridged in (Base, Arbitrum, Optimism,
+    Ethereum, BNB, Polygon). Reading perps alone makes the hard `underfunded` halt fire on money
+    the create call would have pulled in by itself."""
+
+    def test_incident_starling_base_usdc_is_counted(self):
+        # THE incident: $440 Starling deploy refused with [E_FUNDS_SHORT] "only $198.42 is accessible"
+        # while ~$248 USDC sat on Base — which create auto-bridges. Nothing was actually short.
+        mcp = _StubMCP(_portfolio(total_in_hyperliquid=198.42, total_token_balance_usd=248.0,
+                                  token_balances=[_evm("USDC", 248.0, 8453)]))
+        avail = deploy.available_usd(mcp)
+        self.assertAlmostEqual(avail, 446.42, places=2)
+        # and the gate it feeds must not halt a $440 ask
+        _amounts, short = deploy.plan_funding([_inst("main", 1.0)], 440, avail)
+        self.assertIsNone(short)
+
+    def test_counts_hl_spot_usdc(self):
+        # create pulls perps FIRST, then spot USDC — both are fundable without touching a bridge
+        mcp = _StubMCP(_portfolio(total_in_hyperliquid=60.0, total_spot_usd_in_hyperliquid=45.0,
+                                  spot_balances=[_spot("USDC", 45.0)]))
+        self.assertAlmostEqual(deploy.available_usd(mcp), 105.0, places=2)
+
+    def test_counts_every_supported_chain(self):
+        mcp = _StubMCP(_portfolio(token_balances=[
+            _evm("USDC", 10.0, 1), _evm("USDC", 10.0, 10), _evm("USDC", 10.0, 56),
+            _evm("USDC", 10.0, 137), _evm("USDC", 10.0, 8453), _evm("USDC", 10.0, 42161)]))
+        self.assertAlmostEqual(deploy.available_usd(mcp), 60.0, places=2)
+
+    def test_ignores_usdc_on_unsupported_chain(self):
+        # a chain create can't bridge from is NOT fundable — counting it would pass the preflight
+        # and then fail on SERR037 after burning the $1 creation fee
+        mcp = _StubMCP(_portfolio(total_in_hyperliquid=100.0,
+                                  token_balances=[_evm("USDC", 5000.0, 999999)]))
+        self.assertAlmostEqual(deploy.available_usd(mcp), 100.0, places=2)
+
+    def test_ignores_non_usdc_holdings(self):
+        # only USDC is bridged/pulled; spot HYPE and EVM WETH are not fundable balance
+        mcp = _StubMCP(_portfolio(total_in_hyperliquid=100.0,
+                                  total_spot_usd_in_hyperliquid=900.0,
+                                  spot_balances=[_spot("HYPE", 900.0)],
+                                  token_balances=[_evm("WETH", 5000.0, 8453)]))
+        self.assertAlmostEqual(deploy.available_usd(mcp), 100.0, places=2)
+
+    def test_spot_scalar_used_when_rows_absent(self):
+        # no per-token spot rows to filter → fall back to the scalar rather than dropping spot to 0
+        mcp = _StubMCP(_portfolio(total_in_hyperliquid=10.0, total_spot_usd_in_hyperliquid=25.0))
+        self.assertAlmostEqual(deploy.available_usd(mcp), 35.0, places=2)
+
+    def test_null_usd_field_falls_through_to_balance(self):
+        # `balanceInUSD` present but null must fall through to `formattedBalance`, not zero the row —
+        # `dig` alone stops at the first key PRESENT, which would under-count into a false halt
+        row = _evm("USDC", 250.0, 8453)
+        row["balanceInUSD"] = None
+        mcp = _StubMCP(_portfolio(total_in_hyperliquid=100.0, token_balances=[row]))
+        self.assertAlmostEqual(deploy.available_usd(mcp), 350.0, places=2)
+
+    def test_garbage_row_does_not_poison_the_sum(self):
+        mcp = _StubMCP(_portfolio(total_in_hyperliquid=100.0, token_balances=[
+            {"tokenSymbol": "USDC", "balanceInUSD": "not-a-number", "chainId": 8453},
+            _evm("USDC", 40.0, 8453)]))
+        self.assertAlmostEqual(deploy.available_usd(mcp), 140.0, places=2)
+
+    def test_unreadable_returns_none_so_gate_never_halts(self):
+        mcp = _StubMCP(raise_with=deploy.MCPError("boom"))
+        self.assertIsNone(deploy.available_usd(mcp))
+        self.assertIsNone(deploy.plan_funding([_inst("a", 1.0)], 1000, None)[1])
+
+    def test_empty_portfolio_is_zero_not_none(self):
+        # a genuinely empty account must still HALT (0.0), not read as unknown and sail through
+        self.assertEqual(deploy.available_usd(_StubMCP(_portfolio())), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

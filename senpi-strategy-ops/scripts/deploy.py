@@ -42,6 +42,11 @@ VERIFY_BUFFER = 120
 POLL_EVERY = 10
 FEE_BUFFER = 1.5        # USDC reserved per wallet for the creation fee (observed ~$1)
 MIN_WALLET = 100.0      # platform minimum per strategy wallet
+# Chains `strategy_create_custom_strategy` auto-bridges EVM USDC in from, per its tool contract:
+# "Hyperliquid balance FIRST (perps, then spot; no bridging), then EVM USDC bridged in only if still
+# short (Base, Optimism, Arbitrum, BNB, Polygon, Ethereum)". USDC on any OTHER chain is not fundable.
+BRIDGEABLE_CHAIN_IDS = frozenset({1, 10, 56, 137, 8453, 42161})
+FUNDABLE_SYMBOLS = frozenset({"USDC", "USDC.E"})  # what the funding waterfall pulls; USDT is not bridged
 ORDER = ("pending", "creating", "active", "registered", "live")
 
 
@@ -137,16 +142,85 @@ def inst_state(st, name):
     return st["instances"].setdefault(name, {"status": "pending"})
 
 
+def _num(v):
+    """A money field as a float — the payload mixes numbers and numeric strings (`spot_balances`
+    rows carry `"5.46"`). Unparseable → 0.0, so one odd row never poisons the whole sum."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _num_of(obj, *keys):
+    """First of `keys` holding a PARSEABLE number. Not `dig` + `_num`: `dig` returns the first key
+    PRESENT, so a present-but-null `balanceInUSD` would zero the row instead of falling through to
+    `formattedBalance` — an under-count, which on this path means a false `underfunded` halt."""
+    for k in keys:
+        v = _cli.dig(obj, k)
+        if v is None:
+            continue
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def _is_usdc(sym):
+    return str(sym or "").strip().upper() in FUNDABLE_SYMBOLS
+
+
 def available_usd(mcp):
-    """Free USDC the create call funds from (Hyperliquid perps). None if unreadable → caller falls
-    back to the requested budget."""
+    """Total USDC the create call can FUND FROM, summed across every tier the platform actually
+    pulls, in its order: Hyperliquid perps → Hyperliquid spot USDC → EVM USDC bridged in from
+    BRIDGEABLE_CHAIN_IDS. None if unreadable → caller falls back to the requested budget.
+
+    All three tiers MUST be summed. `total_in_hyperliquid`, `total_spot_usd_in_hyperliquid` and
+    `token_balances` are DISJOINT components of `total_balance_usd` (they add up to it exactly), so
+    reading any one of them reads a FRACTION of the fundable balance. Because `plan_funding`'s
+    shortfall is a HARD halt that returns before any wallet is created, a missing tier doesn't
+    under-report — it REFUSES a deploy the create call would have funded by itself. That is the
+    Starling incident: a $440 deploy rejected as `[E_FUNDS_SHORT] only $198.42 is accessible` while
+    ~$248 USDC sat idle on Base, which create auto-bridges. Both other readers of this payload agree
+    (`senpi-portfolio` sums the same three; `senpi-deposit-withdraw-transfer` documents the
+    waterfall) — this preflight was the one place that didn't.
+
+    Deliberately does NOT read `total_withdrawable`: it is a fourth disjoint field, and the repo
+    convention (and the `account_get_portfolio` contract) treat `total_in_hyperliquid` as the idle-HL
+    number. The old `dig(port, "total_in_hyperliquid", "total_withdrawable")` never reached the
+    second key anyway — `dig` returns the first key PRESENT, and both always are.
+
+    Counts conservatively, only USDC and only on chains create can bridge from: an over-count clears
+    this gate and then burns the $1 creation fee on a SERR037, whereas an under-count is the bug
+    above. The create call remains the real authority on sufficiency — this is a cheap pre-check
+    whose only job is to avoid half-funding a multi-wallet package."""
     try:
         res = mcp.mcp_call("account_get_portfolio", timeout=POLL_HTTP_TIMEOUT)
     except MCPError:
         return None
     port = _cli.dig(_cli.dig(res, "data", default={}) or {}, "portfolio", default={}) or {}
-    avail = _cli.dig(port, "total_in_hyperliquid", "total_withdrawable")
-    return float(avail) if isinstance(avail, (int, float)) else None
+    # Unknown shape (none of the tier fields present) → None, never a false halt on a payload change.
+    if not any(_cli.dig(port, k) is not None for k in
+               ("total_in_hyperliquid", "total_spot_usd_in_hyperliquid", "spot_balances", "token_balances")):
+        return None
+
+    perps = _num(_cli.dig(port, "total_in_hyperliquid"))
+
+    # Spot: prefer the per-token rows so non-USDC spot (a spot HYPE bag) isn't counted as fundable;
+    # the `total_spot_usd_in_hyperliquid` scalar is every spot token's USD value, not just USDC.
+    rows = _cli.dig(port, "spot_balances")
+    if isinstance(rows, list) and rows:
+        spot = sum(_num_of(r, "usdValue", "total") for r in rows
+                   if isinstance(r, dict) and _is_usdc(_cli.dig(r, "tokenSymbol")))
+    else:
+        spot = _num(_cli.dig(port, "total_spot_usd_in_hyperliquid"))
+
+    evm = sum(_num_of(t, "balanceInUSD", "formattedBalance")
+              for t in (_cli.dig(port, "token_balances", default=[]) or [])
+              if isinstance(t, dict) and _is_usdc(_cli.dig(t, "tokenSymbol"))
+              and _num_of(t, "chainId") in BRIDGEABLE_CHAIN_IDS)
+
+    return round(perps + spot + evm, 2)
 
 
 def plan_funding(need, budget, available):
