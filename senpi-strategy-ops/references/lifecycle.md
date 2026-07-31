@@ -22,8 +22,11 @@ default 150s) and the agent **re-runs a step until it reports done**.
 **Package fetch.** Any step fetches `strategies/<id>/` from the remote if it isn't on disk (`_fetch.py`:
 GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default `Senpi-ai/senpi-skills`@`main`;
 `--ref` overrides). Fetches land in the **durable strategies root** — `SENPI_STRATEGIES_DIR` if set,
-else `/data/workspace/strategies` on agent hosts — never a CWD-relative path: a package written inside
-a managed skill dir is destroyed on the next skill update.
+else `<OPENCLAW_WORKSPACE_DIR>/strategies`, else `/data/workspace/strategies` on agent hosts (with a
+loud stderr warning on the last-resort CWD-relative dev fallback) — never inside a managed skill dir:
+a package written there is destroyed on the next skill update. Bare-id resolution prefers the durable
+root over CWD-relative `strategies/<id>` so a pristine checkout or stale skill-dir copy can't shadow
+the deployed package and its `.deploy-state.json`.
 
 **State file** `<pkg>/.deploy-state.json` — `{instances: {name: {strategyId, wallet, status}}}`, status
 flowing `pending → creating → active → registered → live`. Every sub-action persists, so a kill mid-step

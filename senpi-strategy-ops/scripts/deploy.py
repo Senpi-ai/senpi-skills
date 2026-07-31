@@ -65,8 +65,8 @@ def ensure_pkg(arg, ref, log):
     except (_fetch.FetchError, _pkg.BadPackage) as e:
         raise SystemExit(
             f"error: {e}\n"
-            f"  {arg!r} is not a package on disk (tried {arg!r} and 'strategies/{arg}' relative to "
-            f"the current directory, and {dest_root / str(arg)}) and could not be fetched as a "
+            f"  {arg!r} is not a package on disk (tried {arg!r}, {dest_root / sid}, and "
+            f"'strategies/{arg}' relative to the current directory) and could not be fetched as a "
             f"catalog id.\n"
             f"  Deploying a locally-authored package? Pass its DIRECTORY path instead of a bare id, "
             f"e.g.: deploy.py validate /data/workspace/strategies/{sid}")

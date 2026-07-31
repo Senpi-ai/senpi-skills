@@ -15,6 +15,7 @@ Render substitutes ONLY `${wallet_env}` (+ the decision-model env iff a runtime 
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import os
 import re
+import sys
 from pathlib import Path
 
 try:
@@ -156,30 +157,45 @@ def strategies_root():
     dirs on every SKILL.md version bump, destroying anything inside (the 2026-07-30 incident —
     a CWD-relative dest meant deploys run from a skill dir were wiped on the next bump).
 
-    Precedence: SENPI_STRATEGIES_DIR env > /data/workspace/strategies (agent hosts) >
-    CWD-relative strategies/ (dev hosts without /data/workspace — unchanged legacy behavior)."""
+    Precedence: SENPI_STRATEGIES_DIR env > <OPENCLAW_WORKSPACE_DIR>/strategies (the agent
+    workspace, relocatable) > /data/workspace/strategies (agent-host default) > CWD-relative
+    strategies/ (dev hosts with no workspace — legacy behavior, WARNED loudly because it
+    reintroduces the exact CWD-dependence this function exists to remove)."""
     env = os.environ.get("SENPI_STRATEGIES_DIR", "").strip()
     if env:
-        return Path(env)
+        root = Path(env)
+        if not root.is_absolute():
+            print(f"⚠ SENPI_STRATEGIES_DIR={env!r} is a RELATIVE path — packages there may not "
+                  f"survive skill updates; use an absolute path.", file=sys.stderr)
+        return root
+    workspace_env = os.environ.get("OPENCLAW_WORKSPACE_DIR", "").strip()
+    if workspace_env and Path(workspace_env).is_dir():
+        return Path(workspace_env) / "strategies"
     workspace = Path("/data/workspace")
     if workspace.is_dir():
         return workspace / "strategies"
+    print("⚠ no durable strategies root found (no SENPI_STRATEGIES_DIR, no workspace dir) — "
+          "falling back to CWD-relative strategies/. Packages here may not survive skill updates.",
+          file=sys.stderr)
     return Path("strategies")
 
 
 def resolve_pkg_dir(arg):
     """Accept a package PATH (strategies/spider) OR a bare strategy id (spider, as discover emits)
-    and return the directory that holds strategy.yaml. Tries the arg as-is, then strategies/<arg>
-    (CWD-relative, legacy), then <strategies_root()>/<arg> (where remote fetches land)."""
+    and return the directory that holds strategy.yaml. Tries the arg as-is, then
+    <strategies_root()>/<arg> (the durable root where remote fetches land — authoritative for bare
+    ids, since it holds the deploy state), then strategies/<arg> (CWD-relative, legacy fallback for
+    pre-durable-root deploys). Durable-before-CWD matters: a pristine repo checkout or a stale
+    skill-dir copy must not shadow the deployed package and its .deploy-state.json."""
     p = Path(arg)
     if (p / "strategy.yaml").is_file():
         return p
-    nested = Path("strategies") / arg
-    if (nested / "strategy.yaml").is_file():
-        return nested
     durable = strategies_root() / arg
     if (durable / "strategy.yaml").is_file():
         return durable
+    nested = Path("strategies") / arg
+    if (nested / "strategy.yaml").is_file():
+        return nested
     return p  # let load() raise the BadPackage with the original arg
 
 
@@ -214,8 +230,9 @@ def load(pkg_dir) -> Package:
     pkg = resolve_pkg_dir(pkg_dir).resolve()
     man_path = pkg / "strategy.yaml"
     if not man_path.is_file():
-        raise BadPackage(f"{pkg_dir!r}: no strategy.yaml found (looked at {pkg_dir} and "
-                         f"strategies/{pkg_dir}) — pass a strategy id or package directory")
+        raise BadPackage(f"{pkg_dir!r}: no strategy.yaml found (looked at {pkg_dir}, "
+                         f"{strategies_root() / str(pkg_dir)}, and strategies/{pkg_dir}) — "
+                         f"pass a strategy id or package directory")
     try:
         man = yaml.safe_load(man_path.read_text())
     except yaml.YAMLError as e:

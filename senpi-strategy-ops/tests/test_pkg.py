@@ -193,7 +193,28 @@ def test_strategies_root_env_override(monkeypatch, tmp_path):
     assert _pkg.strategies_root() == tmp_path / "durable"
 
 
-def test_resolve_pkg_dir_falls_back_to_durable_root(monkeypatch, tmp_path):
+def test_strategies_root_workspace_env_tier(monkeypatch, tmp_path):
+    """Without SENPI_STRATEGIES_DIR, the agent workspace (OPENCLAW_WORKSPACE_DIR) is the root —
+    the workspace is relocatable and /data/workspace must not be assumed."""
+    monkeypatch.delenv("SENPI_STRATEGIES_DIR", raising=False)
+    ws = tmp_path / "relocated-ws"
+    ws.mkdir()
+    monkeypatch.setenv("OPENCLAW_WORKSPACE_DIR", str(ws))
+    assert _pkg.strategies_root() == ws / "strategies"
+
+
+def test_strategies_root_cwd_fallback_warns(monkeypatch, tmp_path, capsys):
+    """The last-resort CWD-relative fallback (dev host, no workspace) must be LOUD — it silently
+    reintroduces the exact CWD-dependence the durable root exists to remove."""
+    monkeypatch.delenv("SENPI_STRATEGIES_DIR", raising=False)
+    monkeypatch.setenv("OPENCLAW_WORKSPACE_DIR", str(tmp_path / "nonexistent"))
+    if Path("/data/workspace").is_dir():
+        pytest.skip("host has /data/workspace — fallback tier unreachable")
+    assert _pkg.strategies_root() == Path("strategies")
+    assert "may not survive skill updates" in capsys.readouterr().err
+
+
+def test_resolve_pkg_dir_durable_root_from_any_cwd(monkeypatch, tmp_path):
     """A bare id resolves from the durable root when the CWD has no such package — so `deploy.py
     runtime <id>` finds a previously fetched package from ANY working directory."""
     monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
@@ -202,11 +223,21 @@ def test_resolve_pkg_dir_falls_back_to_durable_root(monkeypatch, tmp_path):
     assert _pkg.resolve_pkg_dir("spider") == tmp_path / "durable" / "spider"
 
 
-def test_resolve_pkg_dir_cwd_still_wins(monkeypatch, tmp_path):
-    """CWD-relative resolution is unchanged (and wins over the durable root) — an on-disk package
-    next to the caller stays authoritative."""
+def test_resolve_pkg_dir_durable_wins_over_cwd(monkeypatch, tmp_path):
+    """When BOTH exist, the durable copy wins: it holds the deploy state (.deploy-state.json), so a
+    pristine repo checkout or stale skill-dir copy in the CWD must not shadow it — resolving the
+    wrong copy can fund a wallet twice or register a runtime against a dead wallet."""
     monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
     make_flat(tmp_path / "durable", pkg_id="spider")
+    make_flat(tmp_path / "cwd" / "strategies", pkg_id="spider")
+    monkeypatch.chdir(tmp_path / "cwd")
+    assert _pkg.resolve_pkg_dir("spider") == tmp_path / "durable" / "spider"
+
+
+def test_resolve_pkg_dir_cwd_fallback_for_legacy_deploys(monkeypatch, tmp_path):
+    """A pre-durable-root deploy that only exists CWD-relative is still found (legacy fallback)."""
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))  # exists, but empty
+    (tmp_path / "durable").mkdir()
     make_flat(tmp_path / "cwd" / "strategies", pkg_id="spider")
     monkeypatch.chdir(tmp_path / "cwd")
     assert _pkg.resolve_pkg_dir("spider") == Path("strategies") / "spider"
