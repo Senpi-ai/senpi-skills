@@ -8,7 +8,10 @@ list the repo tree, then download every strategies/<id>/* file via raw.githubuse
 senpi-skills is public, so this works unauthenticated. Override repo/ref via env or pass ref=.
 GITHUB_TOKEN is used if present (private repos / higher rate limit).
 
-  fetch_package("spider", "strategies")   # -> writes strategies/spider/... , returns the dir
+  fetch_package("spider", _pkg.strategies_root())   # -> writes <root>/spider/... , returns the dir
+
+Callers pass the ABSOLUTE durable root (_pkg.strategies_root()), never a CWD-relative path — a
+package fetched into a managed skill dir is destroyed on the next skill update.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import http.client

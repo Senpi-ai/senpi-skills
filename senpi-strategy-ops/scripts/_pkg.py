@@ -13,6 +13,7 @@ Render substitutes ONLY `${wallet_env}` (+ the decision-model env iff a runtime 
 `decision_mode: llm` action), then asserts zero `${...}` placeholders remain before deploy.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import os
 import re
 from pathlib import Path
 
@@ -148,15 +149,37 @@ class Package:
         return any(i.needs_model for i in self.instances)
 
 
+def strategies_root():
+    """Absolute, CWD-independent root where fetched strategy packages live.
+
+    MUST stay outside any managed skill dir: the runtime's skills-manager swap-replaces those
+    dirs on every SKILL.md version bump, destroying anything inside (the 2026-07-30 incident —
+    a CWD-relative dest meant deploys run from a skill dir were wiped on the next bump).
+
+    Precedence: SENPI_STRATEGIES_DIR env > /data/workspace/strategies (agent hosts) >
+    CWD-relative strategies/ (dev hosts without /data/workspace — unchanged legacy behavior)."""
+    env = os.environ.get("SENPI_STRATEGIES_DIR", "").strip()
+    if env:
+        return Path(env)
+    workspace = Path("/data/workspace")
+    if workspace.is_dir():
+        return workspace / "strategies"
+    return Path("strategies")
+
+
 def resolve_pkg_dir(arg):
     """Accept a package PATH (strategies/spider) OR a bare strategy id (spider, as discover emits)
-    and return the directory that holds strategy.yaml. Tries the arg as-is, then strategies/<arg>."""
+    and return the directory that holds strategy.yaml. Tries the arg as-is, then strategies/<arg>
+    (CWD-relative, legacy), then <strategies_root()>/<arg> (where remote fetches land)."""
     p = Path(arg)
     if (p / "strategy.yaml").is_file():
         return p
     nested = Path("strategies") / arg
     if (nested / "strategy.yaml").is_file():
         return nested
+    durable = strategies_root() / arg
+    if (durable / "strategy.yaml").is_file():
+        return durable
     return p  # let load() raise the BadPackage with the original arg
 
 

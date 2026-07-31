@@ -8,6 +8,7 @@ bake-off (Samurai/Qwen, Gemini, GLM), where every model tripped on the same auth
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -179,6 +180,57 @@ def test_full_validate_catches_unresolved_placeholder(tmp_path):
     pkg = _pkg.load(str(d))
     errs = deploy.full_validate(pkg)
     assert any("UNBOUND_THING" in e for e in errs)
+
+
+# ─────────────────────── durable strategies root (the 2026-07-30 wipe fix) ───────────────────────
+# Remote fetches must land at an ABSOLUTE, CWD-independent root: a CWD-relative dest resolved inside
+# a managed skill dir gets destroyed on the next SKILL.md version bump (the skills-manager
+# swap-replace). These lock the env override, the resolution fallback, and the fetch destination.
+
+
+def test_strategies_root_env_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    assert _pkg.strategies_root() == tmp_path / "durable"
+
+
+def test_resolve_pkg_dir_falls_back_to_durable_root(monkeypatch, tmp_path):
+    """A bare id resolves from the durable root when the CWD has no such package — so `deploy.py
+    runtime <id>` finds a previously fetched package from ANY working directory."""
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    make_flat(tmp_path / "durable", pkg_id="spider")
+    monkeypatch.chdir(tmp_path)  # CWD has no strategies/spider
+    assert _pkg.resolve_pkg_dir("spider") == tmp_path / "durable" / "spider"
+
+
+def test_resolve_pkg_dir_cwd_still_wins(monkeypatch, tmp_path):
+    """CWD-relative resolution is unchanged (and wins over the durable root) — an on-disk package
+    next to the caller stays authoritative."""
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    make_flat(tmp_path / "durable", pkg_id="spider")
+    make_flat(tmp_path / "cwd" / "strategies", pkg_id="spider")
+    monkeypatch.chdir(tmp_path / "cwd")
+    assert _pkg.resolve_pkg_dir("spider") == Path("strategies") / "spider"
+
+
+def test_ensure_pkg_fetches_into_durable_root_regardless_of_cwd(monkeypatch, tmp_path):
+    """The incident fix itself: a remote fetch writes to the durable root even when the CWD is a
+    (managed, wipeable) skill dir — and the fetched package loads without CWD help."""
+    deploy = _import_deploy()
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    fetched = {}
+
+    def fake_fetch(sid, dest_root, ref=None, **kw):
+        fetched["dest_root"] = dest_root
+        make_flat(Path(dest_root), pkg_id=sid)
+
+    monkeypatch.setattr(deploy._fetch, "fetch_package", fake_fetch)
+    skill_dir = tmp_path / "skills" / "senpi-strategy-ops"
+    skill_dir.mkdir(parents=True)
+    monkeypatch.chdir(skill_dir)  # the CWD-lottery losing position
+    pkg = deploy.ensure_pkg("tech-breakout", None, lambda m: None)
+    assert fetched["dest_root"] == tmp_path / "durable"
+    assert pkg.dir == (tmp_path / "durable" / "tech-breakout").resolve()
+    assert not (skill_dir / "strategies").exists()  # nothing landed in the skill dir
 
 
 # ─────────────────────── marginPct fraction-vs-percent guard ───────────────────────
