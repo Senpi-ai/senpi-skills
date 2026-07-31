@@ -19,13 +19,19 @@ This is an **agent-side check**. Run the commands yourself; do not ask the user 
 > - **`openclaw senpi runtime list`** — the **authoritative inventory** (id / wallet / source / status).
 >   Reliable immediately after deploy. It answers the load-bearing question: *is the runtime running?* If
 >   it is, the runtime is driving its declared scanner. This is the backbone the gate rests on. Its limit:
->   it has **no component-level health** — it can't tell a healthy scanner from a crash-looping one.
+>   it has **no component-level health** — it can't tell a healthy scanner from a crash-looping one. One
+>   exception it CAN see: a runtime whose entry scanners never wired shows
+>   **`running — NO ENTRY SCANNERS`** — that is a wiring failure (the runtime is up but cannot produce
+>   entry signals), **not** live; `senpi status` names the failed phase, `senpi events` has the failure.
 > - **`openclaw senpi status -r <id> --json`** (getHealthStatus) / **`state -r <id> --json`**
 >   (getSystemState) — per-scanner `health` / rich row (runCount, `lastAliveAt`, `lastError`). Precise
 >   *when they answer*, but **both are flaky-empty / throw for a minute+ after start** (seen live: `verify`
 >   got nothing while a manual `status -r`/`state -r` seconds apart returned healthy). Treat them as
 >   **enrichment that can only DOWNGRADE** a scanner to broken on *positive* unhealthy evidence — **never**
->   as the gate. If they're unreadable but `runtime list` says running, the scanner is **live-but-unmeasured**.
+>   as the gate. Scanner health is **fail-closed**: an external scanner not yet proven by a tick reads
+>   **`unknown`** — never `healthy`. `unknown` is the honest rendering of *live-but-unmeasured* (common
+>   right after deploy), not breakage. If the reads are unreadable but `runtime list` says running, the
+>   scanner is likewise **live-but-unmeasured**.
 
 ---
 
@@ -69,7 +75,11 @@ A scanner is **operating** when the runtime says so — and for a **supervised e
 authoritative signals are `health` and the heartbeat, **not** the run counters:
 
 - **`health ∈ {"healthy", "degraded"}`** — the runtime's own verdict (in **both** `status` and `state`).
-  This is the primary signal; trust it.
+  This is the primary signal; trust it. It is **fail-closed** and self-downgrading: `healthy` is earned
+  (never painted on an unproven external scanner), **`unknown`** means "not yet proven by a tick" (wait /
+  verify — not breakage), and a scanner that goes silent beyond ~2× its cadence is downgraded to
+  `degraded` (≈4× → `unhealthy`) by the runtime itself, so staleness surfaces in `health` without you
+  computing it.
 - **`lastAliveAt` is fresh** (`now − lastAliveAt ≤ 2 × interval_seconds`) — the scanner POSTed to intake
   this cycle. **A healthy scanner that finds no setup still POSTs an empty heartbeat every tick**, so a
   live barren scanner has a fresh `lastAliveAt` even with **`runCount === 0` / no signals**. (For **hand
@@ -90,6 +100,7 @@ Failure signatures (**positive** evidence of breakage only — anything else is 
 | Symptom | Field signature | Likely cause |
 |---|---|---|
 | Runtime says it's broken | `health === "unhealthy"` (in `status` or `state`) | The runtime's own verdict — trust it; read `lastError` |
+| Crash-looping | `health === "unhealthy"` with a restart count + cause on the scanner's own line in `status` | The supervisor is restarting a rapidly-failing scanner (it keeps retrying at capped backoff — restarts never stop on their own); fix the scanner code. Events carry `senpi.error.code: E_SCANNER_CRASH_LOOP` (tick failures: `E_SCANNER_TICK_ERROR` / `E_SCANNER_TICK_TIMEOUT`) — see `docs/error-code-taxonomy.md` |
 | Repeatedly failing | `consecutiveErrorCount ≥ 1` or a persistent `lastError` | `scan()` is throwing — print `lastError`, `lastErrorAt` (usually an upstream MCP/RPC read in `scan()`) |
 | Disabled | `enabled === false` | Scanner is turned off — not wired to run |
 | Hung mid-tick | `inFlight === true` & `lastRunStartedAt` older than `timeout_seconds` | `scan()` exceeded its time box — the runtime kills + restarts it; persistent hangs point at a slow upstream read |
@@ -128,14 +139,18 @@ Declare a strategy **live** only when, for **every** instance:
 - its `external_scanner` is `health ∈ {healthy, degraded}` (per `status`, and per `state` when it loads),
   `enabled`, `consecutiveErrorCount === 0`, `lastError === null` — with a fresh `lastAliveAt` when `state`
   is readable. **A barren scanner (`runCount === 0`, healthy, heartbeating) counts as live** — it is
-  scanning, just not trading this cycle;
+  scanning, just not trading this cycle. A scanner reading **`unknown`** right after deploy is
+  *live-but-unmeasured* (supervised, not yet proven by a tick — the fallback below applies); `unknown`
+  persisting well past a couple of scan intervals means no tick has ever been proven — walk the `state`
+  fields before declaring anything;
 - each action is either "operating" or "dormant by design" — never "wiring problem" or "failing".
 
 If you **cannot read `status` or `state`** for an instance (they're flaky-empty for a minute+ after start),
 fall back to the **reliable backbone**: is the runtime in **`openclaw senpi runtime list`** as `running`?
 If yes, the scanner is **live-but-unmeasured** (`supervised`) — the runtime spawns and supervises the
 declared scanner and restarts it on crash, and the DSL protects positions — **not** "down." `deploy.py
-verify` treats this as live for that reason. Only a runtime **missing/stopped** in `runtime list`, or a
+verify` treats this as live for that reason. Only a runtime **missing/stopped** in `runtime list`, one
+showing **`running — NO ENTRY SCANNERS`** there (entry scanners never wired — check `senpi events`), or a
 scanner the reads *positively* report unhealthy/erroring, is a real failure. Still: **never report a
 strategy as live until `verify` returns `live`.**
 

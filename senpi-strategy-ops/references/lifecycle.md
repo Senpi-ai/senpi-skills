@@ -96,8 +96,9 @@ list` (never the ephemeral deploy state), matches strategies to runtimes **by wa
 running instance calls **`openclaw senpi status -r <id>`** to upgrade process-level "running" to the runtime's
 own verdict + active-position count. Classes:
 
-- **healthy / degraded / unhealthy** — ACTIVE strategy + live runtime, per the runtime's `status` health
-  (`healthy` ≠ a confirmed scanner tick — use `deploy.py verify <id>` for that; degraded prints a triage hint).
+- **healthy / degraded / unhealthy / unknown** — ACTIVE strategy + live runtime, per the runtime's `status`
+  health, which is fail-closed: `unknown` = scanner not yet proven by a tick (verify, don't assume);
+  `deploy.py verify <id>` remains the deploy-time liveness gate; degraded/unknown print a triage hint.
 - **runtime-stopped** — ACTIVE + runtime exists but not running.
 - **no-runtime** — autonomous *package* strategy (`skillName`, no `traderAddress`) with **no runtime** →
   the only no-runtime anomaly (funded but not running, likely an interrupted deploy); printed with the fix

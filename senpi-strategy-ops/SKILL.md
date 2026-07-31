@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.9.0"
+  version: "2.10.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -129,12 +129,14 @@ component named (e.g. `scanner=broken`, `dsl=config-missing`, `budget=underfunde
 
 **How it judges liveness — reliable backbone, flaky reads only downgrade.** The gate rests on signals that
 are *reliably* readable right after deploy: **`openclaw senpi runtime list`** (authoritative inventory —
-is the runtime running?), the deployed **runtime.yaml** (does it declare the external scanner + a DSL
-preset?), and **MCP `strategy_list`** (funded?). It does **not** gate on `senpi status`/`senpi state` — that
+is the runtime running? a `running — NO ENTRY SCANNERS` status there means the entry scanners never
+wired: NOT live), the deployed **runtime.yaml** (does it declare the external
+scanner + a DSL preset?), and **MCP `strategy_list`** (funded?). It does **not** gate on `senpi status`/`senpi state` — that
 JSON is **flaky-empty/throws for a minute+ after start** (seen live: `verify` got nothing while a manual
 `status -r`/`state -r` seconds apart returned healthy). Those reads are used only to **downgrade** a scanner
-to `broken` on *positive* evidence (disabled / erroring / runtime-reported unhealthy). When they're
-unreadable, the scanner reads **`supervised`** = live: a running runtime **spawns and supervises** the
+to `broken` on *positive* evidence (disabled / erroring / runtime-reported unhealthy). A runtime-reported
+**`unknown`** is NOT positive evidence — it is the fail-closed "not yet proven by a tick" verdict,
+equivalent to unreadable/unmeasured. When they're unreadable, the scanner reads **`supervised`** = live: a running runtime **spawns and supervises** the
 declared scanner (restarting it on crash), so runtime-running + scanner-declared ⇒ it's being driven, and
 the DSL protects positions regardless. Never reads on-disk state files. It's a **single fast check** — a
 scheduled/supervised scanner passes, so it does **not** wait for the first scan tick and you must **never
