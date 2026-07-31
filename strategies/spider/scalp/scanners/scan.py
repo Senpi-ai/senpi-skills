@@ -28,6 +28,9 @@ import scoring
 
 _DEFAULT_RECENT_TTL = 180
 
+# Per-signal margin as a PERCENT of equity in (0,100] (source marginPct 0.15 fraction).
+_DEFAULT_MARGIN_PCT = 15.0
+
 
 def _dex_for(asset):
     return "xyz" if asset.lower().startswith("xyz:") else ""
@@ -136,7 +139,11 @@ def _prune_signaled(signaled, ttl, now):
 def scan(inputs, ctx):
     now = time.time()
     min_score = inputs.get("minScore", 4)
-    margin_pct = float(inputs.get("marginPct", 0.15))
+    # margin PERCENT of equity in (0,100] (source fraction 0.15 -> 15). Defensive
+    # guard: a value <=1.0 is a pasted FRACTION -> x100.
+    margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
+    if margin_pct <= 1.0:
+        margin_pct *= 100
     leg_max_lev = inputs.get("maxLeverage", 5)
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
     venue_min_notional = float(inputs.get("venueMinNotionalUsd", 10))
@@ -149,7 +156,7 @@ def scan(inputs, ctx):
         return []
 
     min_notional = max(account_value * min_notional_pct, venue_min_notional)
-    margin_usd = round(account_value * margin_pct, 2)
+    margin_usd = round(account_value * margin_pct / 100.0, 2)
 
     signaled = _prune_signaled(_load_signaled(ctx), ttl, now)
 
@@ -192,10 +199,9 @@ def scan(inputs, ctx):
         if leverage <= 0 or notional < min_notional:
             continue
         # Runtime 3.0 sizes off a top-level marginPct (PERCENT of equity in (0,100]),
-        # NOT a top-level marginUsd (silently dropped). margin_usd was computed as
-        # account_value * marginPct, so marginPct-of-equity = margin_usd/account_value*100
-        # reproduces the intended fraction exactly. account_value > 0 here (guarded above).
-        margin_pct_emit = round(min(max(margin_usd / account_value * 100.0, 0.01), 100.0), 4)
+        # NOT a top-level marginUsd (silently dropped). Emit the configured PERCENT
+        # verbatim, clamped into the runtime's accepted range.
+        margin_pct_emit = round(min(max(margin_pct, 0.01), 100.0), 4)
         out.append({
             "asset": th["coin"],
             "direction": th["direction"],

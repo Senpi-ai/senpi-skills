@@ -55,15 +55,27 @@ def ensure_pkg(arg, ref, log):
     if (_pkg.resolve_pkg_dir(arg) / "strategy.yaml").is_file():
         return _pkg.load(arg)
     sid = Path(arg).name
-    log(f"package {sid!r} not on disk — fetching from remote…")
+    # Fetch to the DURABLE root (absolute, CWD-independent), never a CWD-relative path: a relative
+    # dest resolved inside a managed skill dir gets wiped on the next SKILL.md version bump.
+    dest_root = _pkg.strategies_root()
+    # A dest dir carrying deploy state but no loadable strategy.yaml is a partially-wiped DEPLOYED
+    # package — fetching would graft pristine catalog files onto live deploy state, and `runtime`
+    # would then render catalog defaults onto the live wallet. Refuse; this needs eyes, not a fetch.
+    if (dest_root / sid / ".deploy-state.json").is_file():
+        raise SystemExit(
+            f"error: {dest_root / sid} carries deploy state (.deploy-state.json) but no loadable "
+            f"strategy.yaml — refusing to fetch the catalog copy over a deployed package's remains.\n"
+            f"  Inspect the directory and restore its files (or move the state aside) first.")
+    log(f"package {sid!r} not on disk — fetching from remote into {dest_root}…")
     try:
-        _fetch.fetch_package(sid, "strategies", ref=ref)
-        return _pkg.load(sid)
+        _fetch.fetch_package(sid, dest_root, ref=ref)
+        return _pkg.load(dest_root / sid)
     except (_fetch.FetchError, _pkg.BadPackage) as e:
         raise SystemExit(
             f"error: {e}\n"
-            f"  {arg!r} is not a package on disk (tried {arg!r} and 'strategies/{arg}' relative to the "
-            f"current directory) and could not be fetched as a catalog id.\n"
+            f"  {arg!r} is not a package on disk (tried {arg!r}, {dest_root / sid}, and "
+            f"'strategies/{sid}' relative to the current directory) and could not be fetched as a "
+            f"catalog id.\n"
             f"  Deploying a locally-authored package? Pass its DIRECTORY path instead of a bare id, "
             f"e.g.: deploy.py validate /data/workspace/strategies/{sid}")
 

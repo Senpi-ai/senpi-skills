@@ -24,10 +24,10 @@ What was simplified vs the source (FLAGGED):
     qualifying candidates above minScore (held + recently-signaled filtered).
     The signal-GATING thresholds (minScore, held-set, recent-dedup, venue min
     notional) are preserved exactly; only the per-tick emission CAP moves to the
-    runtime. margin_usd is still computed (account_value * marginPct) for the
-    venue-min-notional check, then emitted as a top-level `marginPct` (PERCENT of
-    equity, = marginPct*100) so Runtime 3.0 sizes the dollars identically to the
-    source.
+    runtime. inputs.marginPct is a PERCENT of equity in (0,100] (source fraction
+    0.28 -> 28); margin_usd is still computed (account_value * marginPct/100) for
+    the venue-min-notional check, and the same PERCENT is emitted as a top-level
+    `marginPct` so Runtime 3.0 sizes the dollars identically to the source.
 """
 
 import sys
@@ -39,6 +39,9 @@ import scoring
 # How long after emitting a signal we treat the asset as "in-flight" and refuse
 # to re-emit (source RECENT_SIGNAL_TTL_SEC = 180). Overridable via inputs.
 _DEFAULT_RECENT_TTL = 180
+
+# Per-signal margin as a PERCENT of equity in (0,100] (source marginPct 0.28 fraction).
+_DEFAULT_MARGIN_PCT = 28.0
 
 
 # ── MCP data fetchers (route the producer's calls through ctx.senpi_mcp) ──
@@ -248,7 +251,11 @@ def _build_universe(inputs, meta_map, first_seen, now):
 def scan(inputs, ctx):
     now = time.time()
     min_score = inputs.get("minScore", 5)
-    margin_pct = float(inputs.get("marginPct", 0.28))
+    # margin PERCENT of equity in (0,100] (source fraction 0.28 -> 28). Defensive
+    # guard: a value <=1.0 is a pasted FRACTION -> x100.
+    margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
+    if margin_pct <= 1.0:
+        margin_pct *= 100
     leg_max_lev = inputs.get("maxLeverage", 10)
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
     venue_min_notional = float(inputs.get("venueMinNotionalUsd", 10))
@@ -261,7 +268,7 @@ def scan(inputs, ctx):
         return []
 
     min_notional = max(account_value * min_notional_pct, venue_min_notional)
-    margin_usd = round(account_value * margin_pct, 2)
+    margin_usd = round(account_value * margin_pct / 100.0, 2)
 
     signaled, first_seen = _load_state_maps(ctx)
     signaled = _prune_signaled(signaled, ttl, now)
@@ -308,10 +315,9 @@ def scan(inputs, ctx):
         if leverage <= 0 or notional < min_notional:
             continue
         # Runtime 3.0 sizes off a top-level marginPct (PERCENT of equity in (0,100]),
-        # NOT a top-level marginUsd (silently dropped). margin_usd was computed as
-        # account_value * marginPct, so marginPct-of-equity = margin_usd/account_value*100
-        # reproduces the intended fraction exactly. account_value > 0 here (guarded above).
-        margin_pct_emit = round(min(max(margin_usd / account_value * 100.0, 0.01), 100.0), 4)
+        # NOT a top-level marginUsd (silently dropped). Emit the configured PERCENT
+        # verbatim, clamped into the runtime's accepted range.
+        margin_pct_emit = round(min(max(margin_pct, 0.01), 100.0), 4)
         out.append({
             "asset": th["coin"],
             "direction": th["direction"],

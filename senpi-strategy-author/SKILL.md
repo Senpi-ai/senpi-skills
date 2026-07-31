@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.10.0"
+  version: "2.11.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -199,8 +199,12 @@ the catalog entry, then unit-test → validate → hand to smoke-test."* Then ti
 1. **Confirm the spec.** Replay name + thesis + all 7 + opening constraints → get a "yes." *("You said
    rotate the cohort every 3 days — that's in.")* Nothing is written before this yes.
 2. **Scaffold.** Match the idea to an archetype row in `references/creating-a-strategy.md`, create the
-   package dirs, and state the archetype + file plan. → *"Matched the cohort-rotation archetype; scaffolding
-   `strategies/<id>/…`."* This lets the user catch a wrong archetype/universe **before** you write code.
+   package dirs **under the durable strategies root** — `/data/workspace/strategies/<id>/`
+   (`SENPI_STRATEGIES_DIR` overrides), **NEVER inside a managed skill directory** (skill updates
+   replace those dirs; a package authored there is destroyed on the next version bump) — and state the
+   archetype + file plan. → *"Matched the cohort-rotation archetype; scaffolding
+   `/data/workspace/strategies/<id>/…`."* This lets the user catch a wrong archetype/universe
+   **before** you write code.
    **Layout: single-instance = FLAT** — `strategy.yaml` + `runtime.yaml` + `scanners/` at the package
    root, **no `instances:` list, no `main/` dir** (the deployer synthesizes the `main` instance).
    Multi-instance (e.g. a long book + a short book) = one `<instance>/` dir each + an explicit
@@ -217,12 +221,13 @@ the catalog entry, then unit-test → validate → hand to smoke-test."* Then ti
    `references/strategy-yaml-schema.md`; what each facet does for matching:
    `references/discovery-catalog-fields.md`). Write it → *"catalog entry in."*
 7. **Unit-test `scoring.py`** on sample candles (pure — no mocks). Run it → report pass/fail as its own beat.
-8. **Validate — three gates, all before any wallet exists:**
-   (a) **code-level** → `python3 senpi-strategy-author/scripts/validate_strategy.py strategies/<id>`
+8. **Validate — three gates, all before any wallet exists** (pass the package's absolute path,
+   `/data/workspace/strategies/<id>`, so the gates hit the authored copy from any CWD):
+   (a) **code-level** → `python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>`
    (0 errors — scan/scoring shape, DSL exit present, mandate description, retention/cooldown bounds);
-   (b) **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py strategies/<id>`
+   (b) **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>`
    — every hardcoded ticker must be a live HL instrument (derived-universe strategies pass trivially);
-   (c) **deploy contract** → `python3 senpi-strategy-ops/scripts/deploy.py validate strategies/<id>`
+   (c) **deploy contract** → `python3 senpi-strategy-ops/scripts/deploy.py validate /data/workspace/strategies/<id>`
    — the deployer's own one-pass preflight (structure, linkage, render; **no side effects**). Green
    here means `create` will not reject the package. (`deploy.py create` re-runs (b)+(c) itself and
    refuses to fund on failure.) Run each, report the result. **If validation fails, narrate the fix

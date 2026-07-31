@@ -145,8 +145,10 @@ def main(argv):
         except _pkg.BadPackage as e:
             sid = Path(a.package).name
             try:
-                _fetch.fetch_package(sid, "strategies", ref=a.ref)
-                pkg = _pkg.load(sid)
+                # Same durable, CWD-independent fetch root as deploy.py (see _pkg.strategies_root).
+                dest_root = _pkg.strategies_root()
+                _fetch.fetch_package(sid, dest_root, ref=a.ref)
+                pkg = _pkg.load(dest_root / sid)
             except (_fetch.FetchError, _pkg.BadPackage):
                 raise SystemExit(f"error: {e}")
         if a.instance and a.instance not in {i.name for i in pkg.instances}:

@@ -13,7 +13,7 @@ Your code is **one read-only, pure function**: it reads data and returns candida
 ## 2. The package
 
 ```
-strategies/<id>/
+/data/workspace/strategies/<id>/    # the DURABLE root — never author inside a managed skill dir
   strategy.yaml                 # identity, catalog facets, instances + funding
   <instance>/
     runtime.yaml                # the deterministic spec: inputs, entry action, DSL exit, risk
@@ -21,13 +21,17 @@ strategies/<id>/
       scan.py                   # scan(inputs, ctx) -> list[dict]   (reads + emits)
       scoring.py                # pure thesis math — no I/O, unit-testable
 ```
+
+**Location is load-bearing:** build under `/data/workspace/strategies/` (`SENPI_STRATEGIES_DIR`
+overrides). A package created inside a managed skill directory (`/data/.openclaw/skills/…`) is
+destroyed on that skill's next version bump — the skills-manager replaces the whole dir.
 One instance binds to one wallet. A long book + a short book, or a swing + a scalp leg, = **multiple instances**.
 
 **Single-instance? Build it FLAT** — `strategy.yaml` + `runtime.yaml` + `scanners/` at the package root,
 no `instances:` list and no `<instance>/` dir: the deployer (strategy-ops v2.4.0+) synthesizes the
 canonical `main` instance for you. The nested `<instance>/` layout above is only *required* for
-multi-instance strategies. Either way, `deploy.py validate strategies/<id>` tells you in one pass
-whether the package is deploy-ready.
+multi-instance strategies. Either way, `deploy.py validate /data/workspace/strategies/<id>` tells you
+in one pass whether the package is deploy-ready.
 
 ## 3. Division of labor — memorize this
 
@@ -228,7 +232,7 @@ Discovery matches your strategy to users by the `catalog:` block. **Validation o
 ## 9. Validate, smoke-test, deploy, confirm it *operates*
 
 ```
-python3 senpi-strategy-author/scripts/validate_strategy.py strategies/<id>      # 0 errors
+python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>   # 0 errors
 python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # wallet(s); $100/instance floor
 python3 senpi-strategy-ops/scripts/deploy.py runtime <id>
 python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                        # re-run after interval_seconds
@@ -251,7 +255,7 @@ If anything mismatches, fix the **contract** (the field name, the `signal_data_s
 
 - `scan()` single-pass + sync; read-only MCP only; `return []` on any error.
 - Pure scoring in `scoring.py`; MCP + state in `scan.py`.
-- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Gate it: `validate_universe.py strategies/<id>` (and `deploy.py create` runs it as a preflight). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`.
+- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Gate it: `validate_universe.py /data/workspace/strategies/<id>` (and `deploy.py create` runs it as a preflight). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`.
 - Emit a **`marginPct` intent**, not dollars; `marginPct`/`leverage` top-level, not in `data{}`.
 - Declare every `data{}` key in `signal_data_schema`.
 - **Anchor on the references:** MCP fields → I/O guide; exit → a named preset; catalog facets → the glossary.
