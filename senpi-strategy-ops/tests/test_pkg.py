@@ -303,6 +303,16 @@ def test_ensure_pkg_fetches_into_durable_root_regardless_of_cwd(monkeypatch, tmp
     assert not (skill_dir / "strategies").exists()  # nothing landed in the skill dir
 
 
+def test_fetch_out_path_refuses_traversal(tmp_path):
+    """Defense-in-depth: a remote tree entry with a `..` segment must never write outside the
+    dest root. git won't emit `..` in tree paths, but the repo/ref are env-overridable."""
+    import _fetch
+    assert _fetch._out_path(tmp_path, "strategies/spider/runtime.yaml") \
+        == tmp_path / "spider" / "runtime.yaml"
+    with pytest.raises(_fetch.FetchError):
+        _fetch._out_path(tmp_path, "strategies/../../evil.py")
+
+
 def test_validate_universe_all_lists_durable_root(monkeypatch, tmp_path):
     """`validate_universe.py --all` must enumerate the durable root, not CWD-relative strategies/ —
     the same bug class as the fetch dest (a CWD glob inside a skill dir sees nothing / the wrong

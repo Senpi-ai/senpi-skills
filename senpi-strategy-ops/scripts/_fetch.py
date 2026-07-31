@@ -45,6 +45,16 @@ def _get(host, path, accept, timeout):
             pass
 
 
+def _out_path(dest_root, tree_path):
+    """Local dest for a remote tree entry (strategies/<id>/...), refusing any path that escapes
+    dest_root. Defense-in-depth: git won't emit `..` in tree paths, but the repo/ref this fetches
+    from are env-overridable (SENPI_SKILLS_REPO/_REF)."""
+    out = Path(dest_root) / tree_path[len("strategies/"):]
+    if not out.resolve().is_relative_to(Path(dest_root).resolve()):
+        raise FetchError(f"remote tree entry {tree_path!r} escapes the dest root — refusing")
+    return out
+
+
 def fetch_package(strategy_id, dest_root, ref=None, repo=None, timeout=30):
     """Download strategies/<strategy_id>/ from the remote repo into <dest_root>/<strategy_id>.
 
@@ -72,7 +82,7 @@ def fetch_package(strategy_id, dest_root, ref=None, repo=None, timeout=30):
         status, content = _get("raw.githubusercontent.com", f"/{repo}/{ref}/{path}", "*/*", timeout)
         if status != 200:
             raise FetchError(f"raw fetch HTTP {status} for {path}")
-        out = Path(dest_root) / path[len("strategies/"):]
+        out = _out_path(dest_root, path)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(content)
     return dest
