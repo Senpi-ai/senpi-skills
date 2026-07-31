@@ -50,7 +50,9 @@ def _out_path(dest_root, tree_path):
     dest_root. Defense-in-depth: git won't emit `..` in tree paths, but the repo/ref this fetches
     from are env-overridable (SENPI_SKILLS_REPO/_REF)."""
     out = Path(dest_root) / tree_path[len("strategies/"):]
-    if not out.resolve().is_relative_to(Path(dest_root).resolve()):
+    try:  # relative_to+ValueError, not is_relative_to: hosts are documented Python 3.8+
+        out.resolve().relative_to(Path(dest_root).resolve())
+    except ValueError:
         raise FetchError(f"remote tree entry {tree_path!r} escapes the dest root — refusing")
     return out
 
