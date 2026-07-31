@@ -642,6 +642,15 @@ def _scanner_verdict(inst, state, status):
     truth. (Live-confirmed: a runtime whose `state` threw for ~9 min while both scanners logged and
     `status` said '2/2 enabled and healthy' — the old code called that 'scanner not mounted'.)"""
     name = inst.external_scanner.get("name")
+    # POSITIVE wiring-failure evidence first (B1): the health payload's scanners component carries
+    # `unwired: true` (+ the failed phase) when the runtime is up but its entry scanners never wired
+    # — `runtime list` shows it as "running — NO ENTRY SCANNERS". A running-but-blind runtime must
+    # never fall through to `supervised` = live on unreadable per-scanner rows (there are none).
+    if status:
+        scanners_comp = _cli._deep_first(status, ["scanners"])
+        if isinstance(scanners_comp, dict) and _cli.dig(scanners_comp, "unwired") is True:
+            phase = _cli.dig(scanners_comp, "unwiredPhase") or "wiring"
+            return "broken", f"entry scanners never wired ({phase} failed; see `senpi events`)"
     sc = _deep_find_scanner(state, name) if state else None
     if sc:
         if _cli.dig(sc, "enabled", default=True) is False:
@@ -722,11 +731,17 @@ def _check_live(pkg, st, mcp):
         # tail-latency) in the common path. Only when the map is flaky-empty for this runtime do we
         # fall back to the authoritative text list to tell 'not running' from 'status hiccup'.
         status = health.get(inst.runtime_name)
+        no_entry = False
         if status:
             running = True
         else:
             rt = _cli.find_runtime(inst.runtime_name)
             running = bool(rt) and _cli.runtime_running(rt)
+            # `runtime list` marking the runtime "running — NO ENTRY SCANNERS" is positive
+            # wiring-failure evidence from the authoritative inventory itself — it must brand the
+            # scanner broken even when the status/state JSON is unreadable this pass (otherwise the
+            # empty reads would fall through to `supervised` = live on a runtime that cannot scan).
+            no_entry = running and _cli.runtime_no_entry_scanners(rt)
             if running:
                 status = _cli.runtime_status(inst.runtime_name, POLL_HTTP_TIMEOUT)
         if not running:
@@ -734,7 +749,10 @@ def _check_live(pkg, st, mcp):
                          "dsl": "-", "budget": "-", "reason": "runtime not running"})
             continue
         state = _cli.runtime_state(inst.runtime_name, POLL_HTTP_TIMEOUT)
-        sc_st, sc_d = _scanner_verdict(inst, state, status)
+        if no_entry:
+            sc_st, sc_d = "broken", "entry scanners never wired (runtime list: NO ENTRY SCANNERS; see `senpi events`)"
+        else:
+            sc_st, sc_d = _scanner_verdict(inst, state, status)
         dsl_st, dsl_d = _dsl_verdict(inst, status)
         bud_st, bud_d = _budget_verdict(s, funded_by_id)
         sc_live = sc_st in ("ticked", "scheduled", "supervised")

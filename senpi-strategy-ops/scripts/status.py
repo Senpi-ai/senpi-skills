@@ -12,6 +12,8 @@ OPEN strategy it classifies the runtime:
                                count). `--fast` skips this per-runtime call and just reports `running`.
   unknown          — live runtime whose scanner has not yet PROVEN itself with a tick (the runtime's
                      fail-closed verdict). Not sickness, not health — verify rather than assume.
+  no-entry-scanners — runtime is UP but its entry scanners never wired ("running — NO ENTRY SCANNERS"
+                     in runtime list): it cannot produce entry signals — broken wiring, not stopped.
   runtime-stopped  — ACTIVE strategy + runtime exists but not running
   no-runtime       — autonomous PACKAGE strategy (skillName, no trader) with NO runtime → funded but not
                      running (likely an interrupted deploy); the only no-runtime case that's an anomaly
@@ -36,7 +38,8 @@ import _cli  # noqa: E402
 from mcp_client import MCPClient  # noqa: E402
 
 _ICON = {"healthy": "✅", "running": "✅", "degraded": "⚠", "unhealthy": "❌", "unknown": "❔",
-         "runtime-stopped": "⚠", "no-runtime": "⚠", "runtime-unknown": "·", "copy": "·", "manual": "·"}
+         "no-entry-scanners": "❌", "runtime-stopped": "⚠", "no-runtime": "⚠", "runtime-unknown": "·",
+         "copy": "·", "manual": "·"}
 _OK = ("healthy", "running")
 _OFF_RUNTIME = ("copy", "manual")  # managed outside the runtime — not autonomous, not flagged
 _MANAGED = {"copy": "copy-trading — followed by Senpi's copy engine (no runtime)",
@@ -88,6 +91,11 @@ def build(mcp, only_pkg=None, deep=True):
             if entry:  # upgrade process-level "running" to the runtime's own verdict (+ positions)
                 health = _cli.health_verdict(entry) or "running"
                 positions = _cli.active_positions(entry)
+            if _cli.runtime_no_entry_scanners(rt):
+                # positive wiring-failure evidence from the inventory itself ("running — NO ENTRY
+                # SCANNERS"): the runtime is up but cannot produce entry signals — own class, not
+                # "running" and not "runtime-stopped".
+                health = "no-entry-scanners"
         elif rt:
             health = "runtime-stopped"
         elif _cli.strategy_trader(s):
@@ -140,7 +148,7 @@ def main(argv):
     idle = [r for r in rows if r["health"] == "no-runtime"]
     unknown = [r for r in rows if r["health"] == "runtime-unknown"]
     unproven = [r for r in rows if r["health"] == "unknown"]
-    sick = [r for r in rows if r["health"] in ("degraded", "unhealthy", "runtime-stopped")]
+    sick = [r for r in rows if r["health"] in ("degraded", "unhealthy", "runtime-stopped", "no-entry-scanners")]
     off = [r for r in rows if r["health"] in _OFF_RUNTIME]
     bits = [f"{running} autonomous (on runtime)"]
     if sick:

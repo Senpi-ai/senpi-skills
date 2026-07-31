@@ -213,9 +213,21 @@ def runtime_running(rt):
     if isinstance(st, bool):
         return st
     s = str(st).lower()
-    if s in ("running", "active", "live", "ok", "true", "healthy", "degraded"):
+    # "running — NO ENTRY SCANNERS" (B1) is a RUNNING runtime whose entry scanners never wired —
+    # the process is up (and DSL may be protecting positions), so it must never read as stopped:
+    # deploy.py's create closes "open but not running" strategies, and that would flatten a live one.
+    if s.startswith("running"):
+        return True
+    if s in ("active", "live", "ok", "true", "healthy", "degraded"):
         return True
     return False
+
+
+def runtime_no_entry_scanners(rt):
+    """True when `runtime list` marks this running runtime as `running — NO ENTRY SCANNERS`
+    (entry scanners never wired — positive wiring-failure evidence; NOT live)."""
+    st = dig(rt, "status", "state")
+    return "no entry scanners" in str(st or "").lower()
 
 
 def find_runtime(name):
