@@ -55,15 +55,19 @@ def ensure_pkg(arg, ref, log):
     if (_pkg.resolve_pkg_dir(arg) / "strategy.yaml").is_file():
         return _pkg.load(arg)
     sid = Path(arg).name
-    log(f"package {sid!r} not on disk — fetching from remote…")
+    # Fetch to the DURABLE root (absolute, CWD-independent), never a CWD-relative path: a relative
+    # dest resolved inside a managed skill dir gets wiped on the next SKILL.md version bump.
+    dest_root = _pkg.strategies_root()
+    log(f"package {sid!r} not on disk — fetching from remote into {dest_root}…")
     try:
-        _fetch.fetch_package(sid, "strategies", ref=ref)
-        return _pkg.load(sid)
+        _fetch.fetch_package(sid, dest_root, ref=ref)
+        return _pkg.load(dest_root / sid)
     except (_fetch.FetchError, _pkg.BadPackage) as e:
         raise SystemExit(
             f"error: {e}\n"
-            f"  {arg!r} is not a package on disk (tried {arg!r} and 'strategies/{arg}' relative to the "
-            f"current directory) and could not be fetched as a catalog id.\n"
+            f"  {arg!r} is not a package on disk (tried {arg!r}, {dest_root / sid}, and "
+            f"'strategies/{arg}' relative to the current directory) and could not be fetched as a "
+            f"catalog id.\n"
             f"  Deploying a locally-authored package? Pass its DIRECTORY path instead of a bare id, "
             f"e.g.: deploy.py validate /data/workspace/strategies/{sid}")
 

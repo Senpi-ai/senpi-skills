@@ -8,6 +8,7 @@ bake-off (Samurai/Qwen, Gemini, GLM), where every model tripped on the same auth
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -179,6 +180,165 @@ def test_full_validate_catches_unresolved_placeholder(tmp_path):
     pkg = _pkg.load(str(d))
     errs = deploy.full_validate(pkg)
     assert any("UNBOUND_THING" in e for e in errs)
+
+
+# ─────────────────────── durable strategies root (the 2026-07-30 wipe fix) ───────────────────────
+# Remote fetches must land at an ABSOLUTE, CWD-independent root: a CWD-relative dest resolved inside
+# a managed skill dir gets destroyed on the next SKILL.md version bump (the skills-manager
+# swap-replace). These lock the env override, the resolution fallback, and the fetch destination.
+
+
+def test_strategies_root_env_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    assert _pkg.strategies_root() == tmp_path / "durable"
+
+
+def test_strategies_root_workspace_env_tier(monkeypatch, tmp_path):
+    """Without SENPI_STRATEGIES_DIR, the agent workspace (OPENCLAW_WORKSPACE_DIR) is the root —
+    the workspace is relocatable and /data/workspace must not be assumed."""
+    monkeypatch.delenv("SENPI_STRATEGIES_DIR", raising=False)
+    ws = tmp_path / "relocated-ws"
+    ws.mkdir()
+    monkeypatch.setenv("OPENCLAW_WORKSPACE_DIR", str(ws))
+    assert _pkg.strategies_root() == ws / "strategies"
+
+
+def test_strategies_root_workspace_env_honored_before_dir_exists(monkeypatch, tmp_path):
+    """A SET OPENCLAW_WORKSPACE_DIR is honored even when the dir hasn't materialized yet (fresh
+    volume, gateway not yet booted): the env var declares intent, and the fetch mkdir -p's on
+    write. Gating this tier on is_dir() would silently fall through to CWD-relative — the exact
+    incident behavior — on the boxes least likely to be watched."""
+    monkeypatch.delenv("SENPI_STRATEGIES_DIR", raising=False)
+    ws = tmp_path / "not-created-yet"
+    monkeypatch.setenv("OPENCLAW_WORKSPACE_DIR", str(ws))
+    assert _pkg.strategies_root() == ws / "strategies"
+
+
+def test_strategies_root_relative_workspace_env_warns(monkeypatch, capsys):
+    """A RELATIVE OPENCLAW_WORKSPACE_DIR is honored (platform sets it; overriding a set env would
+    surprise) but warned about, exactly like a relative SENPI_STRATEGIES_DIR: a relative root is
+    CWD-dependent, the wipe hole this module exists to close."""
+    monkeypatch.delenv("SENPI_STRATEGIES_DIR", raising=False)
+    monkeypatch.setenv("OPENCLAW_WORKSPACE_DIR", "relative-ws")
+    assert _pkg.strategies_root() == Path("relative-ws") / "strategies"
+    assert "RELATIVE" in capsys.readouterr().err
+
+
+def test_strategies_root_cwd_fallback_warns(monkeypatch, tmp_path, capsys):
+    """The last-resort CWD-relative fallback (dev host, no workspace) must be LOUD — it silently
+    reintroduces the exact CWD-dependence the durable root exists to remove."""
+    monkeypatch.delenv("SENPI_STRATEGIES_DIR", raising=False)
+    monkeypatch.delenv("OPENCLAW_WORKSPACE_DIR", raising=False)
+    if Path("/data/workspace").is_dir():
+        pytest.skip("host has /data/workspace — fallback tier unreachable")
+    assert _pkg.strategies_root() == Path("strategies")
+    assert "may not survive skill updates" in capsys.readouterr().err
+
+
+def test_resolve_pkg_dir_durable_root_from_any_cwd(monkeypatch, tmp_path):
+    """A bare id resolves from the durable root when the CWD has no such package — so `deploy.py
+    runtime <id>` finds a previously fetched package from ANY working directory."""
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    make_flat(tmp_path / "durable", pkg_id="spider")
+    monkeypatch.chdir(tmp_path)  # CWD has no strategies/spider
+    assert _pkg.resolve_pkg_dir("spider") == tmp_path / "durable" / "spider"
+
+
+def test_resolve_pkg_dir_durable_wins_over_cwd(monkeypatch, tmp_path):
+    """When BOTH exist, the durable copy wins: it holds the deploy state (.deploy-state.json), so a
+    pristine repo checkout or stale skill-dir copy in the CWD must not shadow it — resolving the
+    wrong copy can fund a wallet twice or register a runtime against a dead wallet."""
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    make_flat(tmp_path / "durable", pkg_id="spider")
+    make_flat(tmp_path / "cwd" / "strategies", pkg_id="spider")
+    monkeypatch.chdir(tmp_path / "cwd")
+    assert _pkg.resolve_pkg_dir("spider") == tmp_path / "durable" / "spider"
+
+
+def test_resolve_pkg_dir_deploy_state_beats_pristine_durable(monkeypatch, tmp_path):
+    """A legacy CWD-relative copy CARRYING deploy state must not be shadowed by a pristine durable
+    copy (e.g. one a bare-id command fetched from the catalog): .deploy-state.json is what
+    distinguishes 'the deployed package' from 'a checkout of the same id'. Without this, `runtime`
+    self-heals the live wallet from the backend and renders the pristine copy's catalog-default
+    runtime.yaml onto it — silently replacing the user's tuned parameters on live money."""
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    make_flat(tmp_path / "durable", pkg_id="spider")  # pristine fetch, no deploy state
+    legacy = make_flat(tmp_path / "cwd" / "strategies", pkg_id="spider")
+    (legacy / ".deploy-state.json").write_text("{}")
+    monkeypatch.chdir(tmp_path / "cwd")
+    assert _pkg.resolve_pkg_dir("spider") == Path("strategies") / "spider"
+
+
+def test_resolve_pkg_dir_both_have_state_durable_wins_loudly(monkeypatch, tmp_path, capsys):
+    """TWO copies with deploy state = two deploys of the same id — genuinely ambiguous. Durable wins
+    (unchanged precedence), but LOUDLY: the backend reconcile owns wallet truth, the warning makes
+    the ambiguity visible instead of silently picking."""
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    dur = make_flat(tmp_path / "durable", pkg_id="spider")
+    (dur / ".deploy-state.json").write_text("{}")
+    legacy = make_flat(tmp_path / "cwd" / "strategies", pkg_id="spider")
+    (legacy / ".deploy-state.json").write_text("{}")
+    monkeypatch.chdir(tmp_path / "cwd")
+    assert _pkg.resolve_pkg_dir("spider") == tmp_path / "durable" / "spider"
+    assert "deploy state" in capsys.readouterr().err
+
+
+def test_resolve_pkg_dir_cwd_fallback_for_legacy_deploys(monkeypatch, tmp_path):
+    """A pre-durable-root deploy that only exists CWD-relative is still found (legacy fallback)."""
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))  # exists, but empty
+    (tmp_path / "durable").mkdir()
+    make_flat(tmp_path / "cwd" / "strategies", pkg_id="spider")
+    monkeypatch.chdir(tmp_path / "cwd")
+    assert _pkg.resolve_pkg_dir("spider") == Path("strategies") / "spider"
+
+
+def test_ensure_pkg_fetches_into_durable_root_regardless_of_cwd(monkeypatch, tmp_path):
+    """The incident fix itself: a remote fetch writes to the durable root even when the CWD is a
+    (managed, wipeable) skill dir — and the fetched package loads without CWD help."""
+    deploy = _import_deploy()
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    fetched = {}
+
+    def fake_fetch(sid, dest_root, ref=None, **kw):
+        fetched["dest_root"] = dest_root
+        make_flat(Path(dest_root), pkg_id=sid)
+
+    monkeypatch.setattr(deploy._fetch, "fetch_package", fake_fetch)
+    skill_dir = tmp_path / "skills" / "senpi-strategy-ops"
+    skill_dir.mkdir(parents=True)
+    monkeypatch.chdir(skill_dir)  # the CWD-lottery losing position
+    pkg = deploy.ensure_pkg("tech-breakout", None, lambda m: None)
+    assert fetched["dest_root"] == tmp_path / "durable"
+    assert pkg.dir == (tmp_path / "durable" / "tech-breakout").resolve()
+    assert not (skill_dir / "strategies").exists()  # nothing landed in the skill dir
+
+
+def test_fetch_out_path_refuses_traversal(tmp_path):
+    """Defense-in-depth: a remote tree entry with a `..` segment must never write outside the
+    dest root. git won't emit `..` in tree paths, but the repo/ref are env-overridable."""
+    import _fetch
+    assert _fetch._out_path(tmp_path, "strategies/spider/runtime.yaml") \
+        == tmp_path / "spider" / "runtime.yaml"
+    with pytest.raises(_fetch.FetchError):
+        _fetch._out_path(tmp_path, "strategies/../../evil.py")
+
+
+def test_validate_universe_all_lists_durable_root(monkeypatch, tmp_path):
+    """`validate_universe.py --all` must enumerate the durable root, not CWD-relative strategies/ —
+    the same bug class as the fetch dest (a CWD glob inside a skill dir sees nothing / the wrong
+    packages). On a dev host with no durable root, strategies_root() itself falls back to
+    CWD-relative, so legacy behavior is preserved there."""
+    import validate_universe
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    make_flat(tmp_path / "durable", pkg_id="spider")
+    make_flat(tmp_path / "durable", pkg_id="tech-breakout")
+    (tmp_path / "durable" / "not-a-pkg").mkdir()  # no strategy.yaml — must be skipped
+    make_flat(tmp_path / "cwd" / "strategies", pkg_id="cwd-only")
+    monkeypatch.chdir(tmp_path / "cwd")
+    assert validate_universe.all_packages() == [
+        str(tmp_path / "durable" / "spider"),
+        str(tmp_path / "durable" / "tech-breakout"),
+    ]
 
 
 # ─────────────────────── marginPct fraction-vs-percent guard ───────────────────────

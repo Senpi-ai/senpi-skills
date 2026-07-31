@@ -6,7 +6,7 @@ name, and the strategy silently trades nothing (the `xyz:NASDAQ` incident — th
 `xyz:XYZ100`). This gate makes that failure loud, before money moves.
 
   python3 validate_universe.py strategies/<id> [strategies/<id2> …]   # exit 1 on any unknown ticker
-  python3 validate_universe.py --all                                  # every package under strategies/
+  python3 validate_universe.py --all                                  # every package under the durable root
   python3 validate_universe.py strategies/<id> --json                 # machine-readable report
 
 What counts as "hardcoded": ticker-shaped strings (BTC, xyz:AAPL) in `strategy.yaml` `catalog.assets`
@@ -30,6 +30,7 @@ try:
 except ImportError:  # agent hosts may lack PyYAML / pip
     import _yaml as yaml  # vendored stdlib-only fallback
 from mcp_client import MCPClient, MCPError  # noqa: E402
+import _pkg  # noqa: E402 — strategies_root(), the durable CWD-independent root
 
 
 def load_yaml(path):
@@ -92,16 +93,25 @@ def live_instruments():
     return names
 
 
+def all_packages():
+    """Every package dir under the durable strategies root (`--all`). CWD-relative globbing here was
+    the fetch-dest bug class again: run from a skill dir it scans the wrong root. On a dev host with
+    no durable root, strategies_root() itself falls back to CWD-relative strategies/."""
+    root = _pkg.strategies_root()
+    return sorted(str(d) for d in root.glob("*") if (d / "strategy.yaml").is_file())
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="verify hardcoded tickers against live HL instruments")
     ap.add_argument("packages", nargs="*", help="strategy package dirs (e.g. strategies/spider)")
-    ap.add_argument("--all", action="store_true", help="validate every package under strategies/")
+    ap.add_argument("--all", action="store_true",
+                    help="validate every package under the durable strategies root")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
 
     pkgs = a.packages
     if a.all:
-        pkgs = sorted(d for d in glob.glob("strategies/*") if os.path.isfile(os.path.join(d, "strategy.yaml")))
+        pkgs = all_packages()
     if not pkgs:
         ap.error("give package dir(s) or --all")
 

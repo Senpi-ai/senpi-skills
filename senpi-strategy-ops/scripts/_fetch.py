@@ -8,7 +8,10 @@ list the repo tree, then download every strategies/<id>/* file via raw.githubuse
 senpi-skills is public, so this works unauthenticated. Override repo/ref via env or pass ref=.
 GITHUB_TOKEN is used if present (private repos / higher rate limit).
 
-  fetch_package("spider", "strategies")   # -> writes strategies/spider/... , returns the dir
+  fetch_package("spider", _pkg.strategies_root())   # -> writes <root>/spider/... , returns the dir
+
+Callers pass the ABSOLUTE durable root (_pkg.strategies_root()), never a CWD-relative path — a
+package fetched into a managed skill dir is destroyed on the next skill update.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import http.client
@@ -42,6 +45,18 @@ def _get(host, path, accept, timeout):
             pass
 
 
+def _out_path(dest_root, tree_path):
+    """Local dest for a remote tree entry (strategies/<id>/...), refusing any path that escapes
+    dest_root. Defense-in-depth: git won't emit `..` in tree paths, but the repo/ref this fetches
+    from are env-overridable (SENPI_SKILLS_REPO/_REF)."""
+    out = Path(dest_root) / tree_path[len("strategies/"):]
+    try:  # relative_to+ValueError, not is_relative_to: hosts are documented Python 3.8+
+        out.resolve().relative_to(Path(dest_root).resolve())
+    except ValueError:
+        raise FetchError(f"remote tree entry {tree_path!r} escapes the dest root — refusing")
+    return out
+
+
 def fetch_package(strategy_id, dest_root, ref=None, repo=None, timeout=30):
     """Download strategies/<strategy_id>/ from the remote repo into <dest_root>/<strategy_id>.
 
@@ -69,7 +84,7 @@ def fetch_package(strategy_id, dest_root, ref=None, repo=None, timeout=30):
         status, content = _get("raw.githubusercontent.com", f"/{repo}/{ref}/{path}", "*/*", timeout)
         if status != 200:
             raise FetchError(f"raw fetch HTTP {status} for {path}")
-        out = Path(dest_root) / path[len("strategies/"):]
+        out = _out_path(dest_root, path)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(content)
     return dest

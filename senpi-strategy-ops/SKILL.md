@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.9.0"
+  version: "2.10.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -47,10 +47,14 @@ python3 senpi-strategy-ops/scripts/close.py          --all                 # tea
 strategy. A raw `strategy_close` MCP call closes the strategy but **leaves the runtime registered**, which
 collides on the next deploy. "close all strategies / return funds to main" → `close.py --all`.
 Pass the **strategy `id`** for a CATALOG strategy (what `senpi-strategy-discover` hands over, e.g.
-`spider`) — it's fetched from the remote if not on disk. For a **locally-authored package, pass its
-DIRECTORY path** (absolute is safest, e.g. `/data/workspace/strategies/<id>`): a bare id only resolves
-locally relative to your CWD, so from anywhere else it becomes a remote catalog fetch — never what you
-want for a package you just wrote. An on-disk package is authoritative; an invalid one surfaces its
+`spider`) — it's fetched from the remote if not on disk, always into the **durable strategies root**
+(`SENPI_STRATEGIES_DIR` if set, else the agent workspace `strategies/` dir — normally
+`/data/workspace/strategies`), never a CWD-relative path — a package written inside a managed skill
+dir is destroyed on the next skill update. A bare id resolves from the durable root first (that copy
+holds the deploy state and is authoritative), then CWD-relative `strategies/<id>` as a legacy
+fallback, so re-running a step works from any directory. For a **locally-authored package, pass its
+DIRECTORY path** (absolute is safest, e.g. `/data/workspace/strategies/<id>`): author into the
+durable root too, never into a skill directory. An on-disk package is authoritative; an invalid one surfaces its
 real errors and is never silently replaced by a remote fetch. The scripts call MCP directly
 (`scripts/mcp_client.py`, reads
 `SENPI_AUTH_TOKEN`) + drive `openclaw senpi runtime …`. Mechanics + state machine:
