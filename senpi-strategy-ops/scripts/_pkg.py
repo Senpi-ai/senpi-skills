@@ -200,8 +200,14 @@ def resolve_pkg_dir(arg):
     p = Path(arg)
     if (p / "strategy.yaml").is_file():
         return p
-    durable = strategies_root() / arg
-    nested = Path("strategies") / arg
+    # Bare-id tiers key on the BASENAME — the strategy id, and exactly what ensure_pkg would fetch.
+    # Keying on the raw arg doubled the prefix for the documented path form (strategies/<id> →
+    # <root>/strategies/<id>), so the deployed package looked missing from a foreign CWD and the
+    # fallback fetch overwrote its tuned files IN PLACE (deploy state intact, files pristine).
+    # Resolution must always try the exact location the fetch would write to.
+    sid = p.name
+    durable = strategies_root() / sid
+    nested = Path("strategies") / sid
     dur_ok = (durable / "strategy.yaml").is_file()
     nest_ok = (nested / "strategy.yaml").is_file()
     if dur_ok and nest_ok and durable.resolve() != nested.resolve():
@@ -210,7 +216,7 @@ def resolve_pkg_dir(arg):
         if nest_state and not dur_state:
             return nested
         if nest_state and dur_state:
-            print(f"⚠ two copies of {arg!r} BOTH carry deploy state ({durable} and {nested.resolve()}) "
+            print(f"⚠ two copies of {sid!r} BOTH carry deploy state ({durable} and {nested.resolve()}) "
                   f"— using the durable one. If that's wrong, pass the package path explicitly.",
                   file=sys.stderr)
         return durable
@@ -252,8 +258,9 @@ def load(pkg_dir) -> Package:
     pkg = resolve_pkg_dir(pkg_dir).resolve()
     man_path = pkg / "strategy.yaml"
     if not man_path.is_file():
+        sid = Path(str(pkg_dir)).name
         raise BadPackage(f"{pkg_dir!r}: no strategy.yaml found (looked at {pkg_dir}, "
-                         f"{strategies_root() / str(pkg_dir)}, and strategies/{pkg_dir}) — "
+                         f"{strategies_root() / sid}, and strategies/{sid}) — "
                          f"pass a strategy id or package directory")
     try:
         man = yaml.safe_load(man_path.read_text())

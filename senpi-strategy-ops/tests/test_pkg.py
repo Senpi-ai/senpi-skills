@@ -255,6 +255,37 @@ def test_resolve_pkg_dir_durable_wins_over_cwd(monkeypatch, tmp_path):
     assert _pkg.resolve_pkg_dir("spider") == tmp_path / "durable" / "spider"
 
 
+def test_resolve_pkg_dir_path_form_finds_durable_package(monkeypatch, tmp_path):
+    """The documented PATH form (strategies/<id>) must hit the durable copy too: the bare-id tiers
+    key on Path(arg).name, exactly the id ensure_pkg would fetch. Building them as <tier>/<arg>
+    doubled the prefix (<root>/strategies/<id>), so from a foreign CWD the deployed package looked
+    missing and the fallback fetch OVERWROTE its tuned files in place — deploy state intact, files
+    pristine — the worst variant of the catalog-defaults-onto-live-wallet failure."""
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    make_flat(tmp_path / "durable", pkg_id="spider")
+    monkeypatch.chdir(tmp_path)  # no strategies/spider here — tier 1 misses
+    assert _pkg.resolve_pkg_dir("strategies/spider") == tmp_path / "durable" / "spider"
+
+
+def test_ensure_pkg_never_fetches_over_deploy_state(monkeypatch, tmp_path):
+    """A dest dir carrying .deploy-state.json but no loadable strategy.yaml (partially wiped
+    deployed package) must REFUSE the catalog fetch, not overwrite in place: the fetch would
+    graft pristine files onto live deploy state."""
+    deploy = _import_deploy()
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    broken = tmp_path / "durable" / "spider"
+    broken.mkdir(parents=True)
+    (broken / ".deploy-state.json").write_text("{}")
+    called = []
+    monkeypatch.setattr(deploy._fetch, "fetch_package",
+                        lambda *a, **k: called.append(a))
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as e:
+        deploy.ensure_pkg("spider", None, lambda m: None)
+    assert "deploy state" in str(e.value)
+    assert not called  # the fetch must never have run
+
+
 def test_resolve_pkg_dir_deploy_state_beats_pristine_durable(monkeypatch, tmp_path):
     """A legacy CWD-relative copy CARRYING deploy state must not be shadowed by a pristine durable
     copy (e.g. one a bare-id command fetched from the catalog): .deploy-state.json is what
