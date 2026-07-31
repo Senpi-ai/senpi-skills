@@ -275,6 +275,24 @@ def test_ensure_pkg_fetches_into_durable_root_regardless_of_cwd(monkeypatch, tmp
     assert not (skill_dir / "strategies").exists()  # nothing landed in the skill dir
 
 
+def test_validate_universe_all_lists_durable_root(monkeypatch, tmp_path):
+    """`validate_universe.py --all` must enumerate the durable root, not CWD-relative strategies/ —
+    the same bug class as the fetch dest (a CWD glob inside a skill dir sees nothing / the wrong
+    packages). On a dev host with no durable root, strategies_root() itself falls back to
+    CWD-relative, so legacy behavior is preserved there."""
+    import validate_universe
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    make_flat(tmp_path / "durable", pkg_id="spider")
+    make_flat(tmp_path / "durable", pkg_id="tech-breakout")
+    (tmp_path / "durable" / "not-a-pkg").mkdir()  # no strategy.yaml — must be skipped
+    make_flat(tmp_path / "cwd" / "strategies", pkg_id="cwd-only")
+    monkeypatch.chdir(tmp_path / "cwd")
+    assert validate_universe.all_packages() == [
+        str(tmp_path / "durable" / "spider"),
+        str(tmp_path / "durable" / "tech-breakout"),
+    ]
+
+
 # ─────────────────────── marginPct fraction-vs-percent guard ───────────────────────
 # marginPct is a PERCENT in (0,100]; the v2 FRACTION form (0.10 meant 10) sizes 100× too small and
 # every order is rejected below the ~$10 min notional. The scaffold doc used to teach the fraction —
