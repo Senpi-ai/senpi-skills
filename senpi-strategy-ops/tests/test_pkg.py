@@ -203,11 +203,22 @@ def test_strategies_root_workspace_env_tier(monkeypatch, tmp_path):
     assert _pkg.strategies_root() == ws / "strategies"
 
 
+def test_strategies_root_workspace_env_honored_before_dir_exists(monkeypatch, tmp_path):
+    """A SET OPENCLAW_WORKSPACE_DIR is honored even when the dir hasn't materialized yet (fresh
+    volume, gateway not yet booted): the env var declares intent, and the fetch mkdir -p's on
+    write. Gating this tier on is_dir() would silently fall through to CWD-relative — the exact
+    incident behavior — on the boxes least likely to be watched."""
+    monkeypatch.delenv("SENPI_STRATEGIES_DIR", raising=False)
+    ws = tmp_path / "not-created-yet"
+    monkeypatch.setenv("OPENCLAW_WORKSPACE_DIR", str(ws))
+    assert _pkg.strategies_root() == ws / "strategies"
+
+
 def test_strategies_root_cwd_fallback_warns(monkeypatch, tmp_path, capsys):
     """The last-resort CWD-relative fallback (dev host, no workspace) must be LOUD — it silently
     reintroduces the exact CWD-dependence the durable root exists to remove."""
     monkeypatch.delenv("SENPI_STRATEGIES_DIR", raising=False)
-    monkeypatch.setenv("OPENCLAW_WORKSPACE_DIR", str(tmp_path / "nonexistent"))
+    monkeypatch.delenv("OPENCLAW_WORKSPACE_DIR", raising=False)
     if Path("/data/workspace").is_dir():
         pytest.skip("host has /data/workspace — fallback tier unreachable")
     assert _pkg.strategies_root() == Path("strategies")

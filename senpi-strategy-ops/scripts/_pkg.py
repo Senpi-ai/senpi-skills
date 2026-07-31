@@ -168,8 +168,12 @@ def strategies_root():
             print(f"⚠ SENPI_STRATEGIES_DIR={env!r} is a RELATIVE path — packages there may not "
                   f"survive skill updates; use an absolute path.", file=sys.stderr)
         return root
+    # A SET workspace env is honored even before the dir exists (fresh volume, gateway not yet
+    # booted — the gateway mkdir -p's it at boot, and fetch mkdir -p's on write): gating on
+    # is_dir() would fall through to CWD-relative, the exact incident behavior. Existence-gating
+    # is only legitimate on the hardcoded tier below, where it's host detection.
     workspace_env = os.environ.get("OPENCLAW_WORKSPACE_DIR", "").strip()
-    if workspace_env and Path(workspace_env).is_dir():
+    if workspace_env:
         return Path(workspace_env) / "strategies"
     workspace = Path("/data/workspace")
     if workspace.is_dir():
