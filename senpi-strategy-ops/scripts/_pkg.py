@@ -174,6 +174,9 @@ def strategies_root():
     # is only legitimate on the hardcoded tier below, where it's host detection.
     workspace_env = os.environ.get("OPENCLAW_WORKSPACE_DIR", "").strip()
     if workspace_env:
+        if not Path(workspace_env).is_absolute():
+            print(f"⚠ OPENCLAW_WORKSPACE_DIR={workspace_env!r} is a RELATIVE path — packages there "
+                  f"may not survive skill updates; use an absolute path.", file=sys.stderr)
         return Path(workspace_env) / "strategies"
     workspace = Path("/data/workspace")
     if workspace.is_dir():

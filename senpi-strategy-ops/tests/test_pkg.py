@@ -214,6 +214,16 @@ def test_strategies_root_workspace_env_honored_before_dir_exists(monkeypatch, tm
     assert _pkg.strategies_root() == ws / "strategies"
 
 
+def test_strategies_root_relative_workspace_env_warns(monkeypatch, capsys):
+    """A RELATIVE OPENCLAW_WORKSPACE_DIR is honored (platform sets it; overriding a set env would
+    surprise) but warned about, exactly like a relative SENPI_STRATEGIES_DIR: a relative root is
+    CWD-dependent, the wipe hole this module exists to close."""
+    monkeypatch.delenv("SENPI_STRATEGIES_DIR", raising=False)
+    monkeypatch.setenv("OPENCLAW_WORKSPACE_DIR", "relative-ws")
+    assert _pkg.strategies_root() == Path("relative-ws") / "strategies"
+    assert "RELATIVE" in capsys.readouterr().err
+
+
 def test_strategies_root_cwd_fallback_warns(monkeypatch, tmp_path, capsys):
     """The last-resort CWD-relative fallback (dev host, no workspace) must be LOUD — it silently
     reintroduces the exact CWD-dependence the durable root exists to remove."""
