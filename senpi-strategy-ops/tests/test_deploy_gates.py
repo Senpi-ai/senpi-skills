@@ -530,18 +530,20 @@ class AvailableUsd(unittest.TestCase):
                                   spot_balances=[_spot("USDC", 45.0)]))
         self.assertAlmostEqual(deploy.available_usd(mcp), 105.0, places=2)
 
-    def test_counts_every_supported_chain(self):
+    def test_counts_usdc_on_every_chain(self):
+        # Base, Optimism, BNB, Polygon, Ethereum, Arbitrum — and deliberately NO chain allowlist, so
+        # a chain added to the bridge later can't silently start failing this gate closed again
         mcp = _StubMCP(_portfolio(token_balances=[
             _evm("USDC", 10.0, 1), _evm("USDC", 10.0, 10), _evm("USDC", 10.0, 56),
             _evm("USDC", 10.0, 137), _evm("USDC", 10.0, 8453), _evm("USDC", 10.0, 42161)]))
         self.assertAlmostEqual(deploy.available_usd(mcp), 60.0, places=2)
 
-    def test_ignores_usdc_on_unsupported_chain(self):
-        # a chain create can't bridge from is NOT fundable — counting it would pass the preflight
-        # and then fail on SERR037 after burning the $1 creation fee
+    def test_counts_usdc_on_unrecognised_chain(self):
+        # an unknown chainId is counted, not dropped: over-counting is the safe direction (create
+        # auto-funds and reports a real shortfall as SERR037), under-counting is a false halt
         mcp = _StubMCP(_portfolio(total_in_hyperliquid=100.0,
-                                  token_balances=[_evm("USDC", 5000.0, 999999)]))
-        self.assertAlmostEqual(deploy.available_usd(mcp), 100.0, places=2)
+                                  token_balances=[_evm("USDC", 250.0, 999999)]))
+        self.assertAlmostEqual(deploy.available_usd(mcp), 350.0, places=2)
 
     def test_ignores_non_usdc_holdings(self):
         # only USDC is bridged/pulled; spot HYPE and EVM WETH are not fundable balance
