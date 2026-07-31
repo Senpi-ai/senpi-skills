@@ -245,6 +245,34 @@ def test_resolve_pkg_dir_durable_wins_over_cwd(monkeypatch, tmp_path):
     assert _pkg.resolve_pkg_dir("spider") == tmp_path / "durable" / "spider"
 
 
+def test_resolve_pkg_dir_deploy_state_beats_pristine_durable(monkeypatch, tmp_path):
+    """A legacy CWD-relative copy CARRYING deploy state must not be shadowed by a pristine durable
+    copy (e.g. one a bare-id command fetched from the catalog): .deploy-state.json is what
+    distinguishes 'the deployed package' from 'a checkout of the same id'. Without this, `runtime`
+    self-heals the live wallet from the backend and renders the pristine copy's catalog-default
+    runtime.yaml onto it — silently replacing the user's tuned parameters on live money."""
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    make_flat(tmp_path / "durable", pkg_id="spider")  # pristine fetch, no deploy state
+    legacy = make_flat(tmp_path / "cwd" / "strategies", pkg_id="spider")
+    (legacy / ".deploy-state.json").write_text("{}")
+    monkeypatch.chdir(tmp_path / "cwd")
+    assert _pkg.resolve_pkg_dir("spider") == Path("strategies") / "spider"
+
+
+def test_resolve_pkg_dir_both_have_state_durable_wins_loudly(monkeypatch, tmp_path, capsys):
+    """TWO copies with deploy state = two deploys of the same id — genuinely ambiguous. Durable wins
+    (unchanged precedence), but LOUDLY: the backend reconcile owns wallet truth, the warning makes
+    the ambiguity visible instead of silently picking."""
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    dur = make_flat(tmp_path / "durable", pkg_id="spider")
+    (dur / ".deploy-state.json").write_text("{}")
+    legacy = make_flat(tmp_path / "cwd" / "strategies", pkg_id="spider")
+    (legacy / ".deploy-state.json").write_text("{}")
+    monkeypatch.chdir(tmp_path / "cwd")
+    assert _pkg.resolve_pkg_dir("spider") == tmp_path / "durable" / "spider"
+    assert "deploy state" in capsys.readouterr().err
+
+
 def test_resolve_pkg_dir_cwd_fallback_for_legacy_deploys(monkeypatch, tmp_path):
     """A pre-durable-root deploy that only exists CWD-relative is still found (legacy fallback)."""
     monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))  # exists, but empty

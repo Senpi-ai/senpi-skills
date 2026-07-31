@@ -186,19 +186,34 @@ def strategies_root():
 
 def resolve_pkg_dir(arg):
     """Accept a package PATH (strategies/spider) OR a bare strategy id (spider, as discover emits)
-    and return the directory that holds strategy.yaml. Tries the arg as-is, then
-    <strategies_root()>/<arg> (the durable root where remote fetches land — authoritative for bare
-    ids, since it holds the deploy state), then strategies/<arg> (CWD-relative, legacy fallback for
-    pre-durable-root deploys). Durable-before-CWD matters: a pristine repo checkout or a stale
-    skill-dir copy must not shadow the deployed package and its .deploy-state.json."""
+    and return the directory that holds strategy.yaml. Tries the arg as-is (an explicit path is
+    explicit intent — never second-guessed), then <strategies_root()>/<arg> (the durable root where
+    remote fetches land), then strategies/<arg> (CWD-relative, legacy fallback for pre-durable-root
+    deploys). When BOTH the durable and CWD copies exist, the one carrying .deploy-state.json wins —
+    that file is what distinguishes THE DEPLOYED PACKAGE from a checkout of the same id. Either
+    direction of shadowing is money-adjacent: a pristine copy over the deployed one makes `runtime`
+    render catalog-default parameters onto a live recovered wallet; ties go durable (and two copies
+    BOTH carrying state is a real ambiguity — warned loudly, the backend reconcile owns wallet truth)."""
     p = Path(arg)
     if (p / "strategy.yaml").is_file():
         return p
     durable = strategies_root() / arg
-    if (durable / "strategy.yaml").is_file():
-        return durable
     nested = Path("strategies") / arg
-    if (nested / "strategy.yaml").is_file():
+    dur_ok = (durable / "strategy.yaml").is_file()
+    nest_ok = (nested / "strategy.yaml").is_file()
+    if dur_ok and nest_ok and durable.resolve() != nested.resolve():
+        dur_state = (durable / ".deploy-state.json").is_file()
+        nest_state = (nested / ".deploy-state.json").is_file()
+        if nest_state and not dur_state:
+            return nested
+        if nest_state and dur_state:
+            print(f"⚠ two copies of {arg!r} BOTH carry deploy state ({durable} and {nested.resolve()}) "
+                  f"— using the durable one. If that's wrong, pass the package path explicitly.",
+                  file=sys.stderr)
+        return durable
+    if dur_ok:
+        return durable
+    if nest_ok:
         return nested
     return p  # let load() raise the BadPackage with the original arg
 
