@@ -137,16 +137,65 @@ def inst_state(st, name):
     return st["instances"].setdefault(name, {"status": "pending"})
 
 
+def _num(*vals):
+    """First of `vals` that parses as a number, else 0.0. The payload mixes numbers, numeric strings
+    (`spot_balances` rows carry `"5.46"`) and nulls — a null must fall through to the next candidate
+    rather than zero the row, because on this path an under-count is a false `underfunded` halt."""
+    for v in vals:
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def _usdc_usd(rows, *keys):
+    """USD held as USDC in a balance list (`spot_balances` / `token_balances`). Filtered by symbol
+    because the funding waterfall pulls USDC, while the `total_*` scalars lump in every other token —
+    a spot HYPE bag or EVM WETH is not fundable balance. Chain-agnostic: create bridges from Base,
+    Optimism, Arbitrum, BNB, Polygon and Ethereum today, and hardcoding that list here is how this
+    gate would silently start refusing fundable deploys again the day a chain is added."""
+    return sum(_num(*(_cli.dig(r, k) for k in keys)) for r in (rows or [])
+               if isinstance(r, dict) and str(_cli.dig(r, "tokenSymbol") or "").strip().upper() == "USDC")
+
+
 def available_usd(mcp):
-    """Free USDC the create call funds from (Hyperliquid perps). None if unreadable → caller falls
-    back to the requested budget."""
+    """Total USDC `strategy_create_custom_strategy` can fund from — its whole waterfall, in order:
+    HL perps → HL spot USDC → EVM USDC (auto-bridged). None if unreadable → caller proceeds.
+
+    These are DISJOINT buckets of `total_balance_usd` (they sum to it exactly), so reading one reads
+    a FRACTION of the fundable balance — and because `plan_funding`'s shortfall is a HARD halt that
+    returns before any wallet exists, a missing bucket doesn't under-report, it REFUSES a deploy
+    create would have funded itself. That is the Starling incident: $440 rejected as
+    `[E_FUNDS_SHORT] only $198.42 is accessible` with ~$248 USDC idle on Base.
+
+    Excludes the 4th bucket, `total_withdrawable` — that is free margin sitting inside OTHER strategy
+    wallets, not spendable here (senpi-portfolio calls this the balance-bucket trap). The old
+    `dig(port, "total_in_hyperliquid", "total_withdrawable")` never reached that key anyway: `dig`
+    returns the first key PRESENT and both always are.
+
+    Over-counting is the SAFE direction — create auto-funds and surfaces a genuine shortfall as
+    SERR037, which is exactly what the `account_get_portfolio` contract asks for ("do not declare a
+    strategy unfundable from token_balances alone"). Under-counting is the bug above. So this stays a
+    cheap pre-check whose only job is avoiding a half-funded multi-wallet package; create remains the
+    authority on sufficiency."""
     try:
-        res = mcp.mcp_call("account_get_portfolio", timeout=POLL_HTTP_TIMEOUT)
+        # forceFetch: account_get_portfolio caches HL data for ~12h otherwise, so a deposit or a just
+        # closed strategy would read stale and halt a deploy the user has already funded.
+        res = mcp.mcp_call("account_get_portfolio", forceFetch=True, timeout=POLL_HTTP_TIMEOUT)
     except MCPError:
         return None
     port = _cli.dig(_cli.dig(res, "data", default={}) or {}, "portfolio", default={}) or {}
-    avail = _cli.dig(port, "total_in_hyperliquid", "total_withdrawable")
-    return float(avail) if isinstance(avail, (int, float)) else None
+    # Unknown shape (no bucket field at all) → None, never a false halt on a payload change.
+    if not any(_cli.dig(port, k) is not None for k in
+               ("total_in_hyperliquid", "total_spot_usd_in_hyperliquid", "spot_balances", "token_balances")):
+        return None
+    rows = _cli.dig(port, "spot_balances")
+    perps = _num(_cli.dig(port, "total_in_hyperliquid"))
+    spot = (_usdc_usd(rows, "usdValue", "total") if isinstance(rows, list) and rows
+            else _num(_cli.dig(port, "total_spot_usd_in_hyperliquid")))
+    evm = _usdc_usd(_cli.dig(port, "token_balances"), "balanceInUSD", "formattedBalance")
+    return round(perps + spot + evm, 2)
 
 
 def plan_funding(need, budget, available):
