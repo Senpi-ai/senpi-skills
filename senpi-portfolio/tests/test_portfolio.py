@@ -276,6 +276,40 @@ def test_registered_runtime_no_telemetry_is_unknown():
     assert strat["runtime_health"] == "unknown"
 
 
+def test_runtime_reported_unknown_is_not_live():
+    """The runtime's own overall health of `unknown` (never-heard scanner, just-restarted runtime) must NOT
+    be painted 'live' — it is UNPROVEN, not confirmed working. It also must not join the DEGRADED warning
+    list: unproven is not broken."""
+    res = _run_with_status({"kodiak-main": {"overallHealth": "unknown"}})
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["runtime_registered"] is True
+    assert strat["runtime_health"] == "unknown"
+    assert "degraded_runtimes" not in res["meta"]
+
+
+def test_unrecognised_health_verdict_is_not_live():
+    """Fail-closed on vocabulary drift: a top-level verdict in neither the healthy nor the broken family
+    (here the runtime's `disabled`) reads 'unknown', never 'live'."""
+    res = _run_with_status({"kodiak-main": {"overallHealth": "disabled"}})
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["runtime_health"] == "unknown"
+    assert "degraded_runtimes" not in res["meta"]
+
+
+def test_liveness_mapping_table():
+    """Pin the whole `_liveness_from_status` mapping in one place: healthy→live, degraded/unhealthy→
+    degraded, unknown→unknown, empty/non-dict→unknown, answered-with-no-verdict→live."""
+    assert portfolio._liveness_from_status({"overallHealth": "healthy"}) == "live"
+    assert portfolio._liveness_from_status({"health": "degraded"}) == "degraded"
+    assert portfolio._liveness_from_status({"health": "unhealthy"}) == "degraded"
+    assert portfolio._liveness_from_status({"overallHealth": "unknown"}) == "unknown"
+    assert portfolio._liveness_from_status({"data": {"health": "unknown"}}) == "unknown"
+    assert portfolio._liveness_from_status({}) == "unknown"
+    assert portfolio._liveness_from_status(None) == "unknown"
+    assert portfolio._liveness_from_status([{"health": "healthy"}]) == "unknown"
+    assert portfolio._liveness_from_status({"activePositions": 2}) == "live"
+
+
 def test_nested_component_status_does_not_falsely_degrade():
     """A healthy runtime whose telemetry carries NO top-level health verdict but DOES have a nested
     per-scanner `status:"error"` must read 'live', not 'degraded'. Deep-matching a bare `status` anywhere

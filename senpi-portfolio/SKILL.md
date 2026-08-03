@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.9.0"
+  version: "1.10.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -175,14 +175,18 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
   *running but not cleanly*: say **"⚠ runtime degraded — running but not healthy; check `openclaw senpi
   status`,"** not a clean all-clear. Flagged in `meta.warnings` too.
 - **`not_running`** — no runtime at all (above). ⛔ NOT RUNNING / UNPROTECTED.
-- **`unknown`** — telemetry unavailable from here (no `openclaw` on this host, or a build without the RPC).
-  Say **"runtime liveness unverified from here"** — never upgrade `unknown` to "healthy/protected" or
-  downgrade it to "broken." This is the honest bar: **only `live` means "confirmed working."**
+- **`unknown`** — **not proven live.** Either telemetry is unavailable from here (no `openclaw` on this
+  host, or a build without the RPC), **or the runtime itself reports its overall health as `unknown`** —
+  a scanner it has never heard from, a runtime just restarted, a scanner-only runtime with nothing yet
+  proven. Say **"runtime liveness unverified — not confirmed running"** — never upgrade `unknown` to
+  "healthy/protected" or downgrade it to "broken." This is the honest bar: **only `live` means "confirmed
+  working."** The runtime is deliberately fail-closed about `unknown` (it refuses to call an unproven
+  scanner healthy) — repeating that `unknown` back to the user is the whole point; do not smooth it over.
 
 This health check owns **liveness triage** (registered + running + healthy) via telemetry, and **references
 `diagnose.py` as the confirmation step** — it does not re-derive the deep checks. A thorough health check
 does not stop at the verdict: for **any** strategy that isn't cleanly `live` (`not_running` / `degraded` /
-`unknown`), running **`senpi-strategy-ops` `diagnose.py <id>`** (registered? ticked? BARREN? erroring?
+`unknown`), running **`senpi-strategy-ops` `diagnose.py <id>`** (registered? ticked? no signals yet? erroring?
 `--run-scan` for the literal scan output) is how you **confirm what's actually wrong and fix it** — surface
 it as the required next step (and its verdict, if you can run it), then close.py → redeploy as needed. For
 **"where am I leaking / did a stop fail / any halts / exit quality"**, hand to `senpi-improve-trades` (it

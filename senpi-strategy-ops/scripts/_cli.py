@@ -213,9 +213,21 @@ def runtime_running(rt):
     if isinstance(st, bool):
         return st
     s = str(st).lower()
-    if s in ("running", "active", "live", "ok", "true", "healthy", "degraded"):
+    # "running — NO ENTRY SCANNERS" (B1) is a RUNNING runtime whose entry scanners never wired —
+    # the process is up (and DSL may be protecting positions), so it must never read as stopped:
+    # deploy.py's create closes "open but not running" strategies, and that would flatten a live one.
+    if s.startswith("running"):
+        return True
+    if s in ("active", "live", "ok", "true", "healthy", "degraded"):
         return True
     return False
+
+
+def runtime_no_entry_scanners(rt):
+    """True when `runtime list` marks this running runtime as `running — NO ENTRY SCANNERS`
+    (entry scanners never wired — positive wiring-failure evidence; NOT live)."""
+    st = dig(rt, "status", "state")
+    return "no entry scanners" in str(st or "").lower()
 
 
 def find_runtime(name):
@@ -318,16 +330,24 @@ def runtime_health_map(timeout=15):
 
 
 def health_verdict(status_json):
-    """Map a `senpi status` payload to healthy | degraded | unhealthy | None (shape-tolerant)."""
+    """Map a `senpi status` payload to healthy | degraded | unhealthy | unknown | None (shape-tolerant).
+
+    Fail-closed: any verdict that is PRESENT but not a recognised healthy/broken value — the
+    runtime's `unknown` (scanner not yet proven by a tick), `disabled`, or future vocabulary —
+    maps to `unknown`, never to None: None triggers the caller's "running" fallback, which would
+    paint an unproven runtime ✅. None is reserved for payloads with no health field at all.
+    """
     h = _deep_first(status_json, ["overallHealth", "health", "overall", "status"])
-    h = str(h).lower() if h is not None else None
+    if h is None:
+        return None
+    h = str(h).lower()
     if h in ("healthy", "ok", "running", "live", "true"):
         return "healthy"
     if h in ("degraded", "warn", "warning"):
         return "degraded"
     if h in ("unhealthy", "failed", "error", "down", "false"):
         return "unhealthy"
-    return None
+    return "unknown"  # unknown / disabled / unrecognised verdict → not proven live
 
 
 def active_positions(status_json):

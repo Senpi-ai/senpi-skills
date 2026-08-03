@@ -30,7 +30,7 @@ Stored in `~/.openclaw/senpi-cli.json`; changes require a gateway restart to app
 | Command | What it does | Options |
 |---|---|---|
 | `runtime create` | Add a runtime from a YAML file (or pasted YAML); the gateway validates and runs it. Hot-loads — no gateway restart. | `-p, --path <path>` (path to the runtime.yaml) · `-c, --content <yaml>` (paste YAML directly) · `--runtime-id <id>` (name; default derived from the file name/content) |
-| `runtime list` | List all installed runtimes with their id, source, and status (running/stopped). | — |
+| `runtime list` | List all installed runtimes with their id, source, and status (running/stopped). A runtime whose entry scanners failed to wire shows `running — NO ENTRY SCANNERS`: the runtime is up but cannot produce entry signals — `senpi status` names the failed phase; check `senpi events` for the failure. | — |
 | `runtime delete [runtime_id]` | Remove a runtime by id or wallet address. | `--id <runtime_id>` (from `runtime list`) · `--address <wallet>` |
 
 ```bash
@@ -71,7 +71,7 @@ behind: **`references/dsl-protection-check.md`**.
 
 | Command | What it does | Options |
 |---|---|---|
-| `scanner` | Per-scanner health: schedule mode, run/error/consecutive-error counts, next-run time, in-flight, cumulative `signals` produced, and external-scanner `alive` (heartbeat from the intake liveness clock; `n/a` for interval scanners). Flags a `BARREN` scanner — alive and has run but produced no signals. Reuses the `state` RPC. | `-r, --runtime <id>` · `--json` |
+| `scanner` | Per-scanner health: schedule mode, run/error/consecutive-error counts, next-run time, in-flight, cumulative `signals` produced, and external-scanner `alive` (heartbeat from the intake liveness clock; `n/a` for interval scanners). A scanner that is alive and has run but produced no signals is flagged `(no signals yet)`. Reuses the `state` RPC. | `-r, --runtime <id>` · `--json` |
 
 ## `senpi audit` — backend trade-audit trail
 
@@ -92,7 +92,7 @@ The trade narrative (position/dsl/order/signal/runtime events) is persisted to a
 
 | Command | What it does | Options |
 |---|---|---|
-| `status` | Lightweight runtime health digest for running runtimes: overall health, scanner summary (with a degraded-scanner count), DSL monitor liveness (running/stopped, tick-in-flight, next tick, last tick error), and — when risk is enabled — trade eligibility (OPEN/COOLDOWN/CLOSED) and the per-gate table. | `-r, --runtime <id>` · `--json` |
+| `status` | Lightweight runtime health digest for running runtimes: overall health, scanner summary (with a degraded-scanner count) followed by one line per non-healthy scanner carrying its restart count and crash-loop cause, DSL monitor liveness (running/stopped, tick-in-flight, next tick, last tick error), and — when risk is enabled — trade eligibility (OPEN/COOLDOWN/CLOSED) and the per-gate table. Scanner health is fail-closed: an external scanner never proven by a recent tick reads `unknown`, not `healthy`; when entry scanners never wired the scanner line reads `running — NO ENTRY SCANNERS (<phase> failed; see events)`. | `-r, --runtime <id>` · `--json` |
 | `state` | Full runtime state for running runtimes — the escape hatch when the `status` digest isn't enough. | `-r` · `--json` |
 
 ## `senpi skills` — manage Senpi skills
