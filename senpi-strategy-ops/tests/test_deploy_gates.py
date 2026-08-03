@@ -230,6 +230,36 @@ class ScannerVerdict(unittest.TestCase):
         status = {"components": {"scanners": {"scanners": []}}}
         self.assertEqual(deploy._scanner_verdict(_scan_inst(), st, status)[0], "supervised")
 
+    # --- unwired detection against the CANONICAL RuntimeHealthStatus shape ---
+    # Pins that `_deep_first(status, ["scanners"])` lands on the scanners COMPONENT dict (which
+    # carries `unwired`), not the per-scanner LIST nested inside it — the shape-drift scenario
+    # where the isinstance(dict) guard would silently skip the check and an unwired (blind)
+    # runtime would fall through to `supervised` = live (PR #505 Bugbot finding).
+    @staticmethod
+    def _canonical_health_entry(**scanners_extra):
+        """A full getHealthStatus statuses[] entry, field order as the runtime emits it."""
+        return {
+            "runtimeId": "rt-1", "runtimeName": "demo-main", "startedAt": "2026-08-03T00:00:00Z",
+            "generatedAt": "2026-08-03T00:01:00Z", "health": "unknown", "logLevel": "info",
+            "components": {"scanners": {
+                "component": "scanners", "health": "unknown", "updatedAt": "2026-08-03T00:01:00Z",
+                "totals": {"registered": 0, "enabled": 0, "inFlight": 0, "degraded": 0, "unhealthy": 0},
+                "scanners": [],  # the nested per-scanner LIST that must NOT shadow the component dict
+                **scanners_extra,
+            }},
+        }
+
+    def test_unwired_in_canonical_health_payload_is_broken(self):
+        status = self._canonical_health_entry(unwired=True, unwiredPhase="launch")
+        verdict, detail = deploy._scanner_verdict(_scan_inst(), None, status)
+        self.assertEqual(verdict, "broken")
+        self.assertIn("launch", detail)
+
+    def test_wired_canonical_health_payload_is_not_flagged_unwired(self):
+        status = self._canonical_health_entry()
+        status["components"]["scanners"]["scanners"] = [{"scannerId": "sc1", "health": "healthy"}]
+        self.assertEqual(deploy._scanner_verdict(_scan_inst(), None, status)[0], "ticked")
+
 
 class DslVerdict(unittest.TestCase):
     def test_config_missing(self):
