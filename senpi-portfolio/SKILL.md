@@ -175,9 +175,13 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
   *running but not cleanly*: say **"⚠ runtime degraded — running but not healthy; check `openclaw senpi
   status`,"** not a clean all-clear. Flagged in `meta.warnings` too.
 - **`not_running`** — no runtime at all (above). ⛔ NOT RUNNING / UNPROTECTED.
-- **`unknown`** — telemetry unavailable from here (no `openclaw` on this host, or a build without the RPC).
-  Say **"runtime liveness unverified from here"** — never upgrade `unknown` to "healthy/protected" or
-  downgrade it to "broken." This is the honest bar: **only `live` means "confirmed working."**
+- **`unknown`** — **not proven live.** Either telemetry is unavailable from here (no `openclaw` on this
+  host, or a build without the RPC), **or the runtime itself reports its overall health as `unknown`** —
+  a scanner it has never heard from, a runtime just restarted, a scanner-only runtime with nothing yet
+  proven. Say **"runtime liveness unverified — not confirmed running"** — never upgrade `unknown` to
+  "healthy/protected" or downgrade it to "broken." This is the honest bar: **only `live` means "confirmed
+  working."** The runtime is deliberately fail-closed about `unknown` (it refuses to call an unproven
+  scanner healthy) — repeating that `unknown` back to the user is the whole point; do not smooth it over.
 
 This health check owns **liveness triage** (registered + running + healthy) via telemetry, and **references
 `diagnose.py` as the confirmation step** — it does not re-derive the deep checks. A thorough health check

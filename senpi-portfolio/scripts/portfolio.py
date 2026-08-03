@@ -333,10 +333,24 @@ def _fetch_runtime_status(runtime_id, meta):
         return None
 
 
+# The runtime's own overall-health vocabulary is healthy/degraded/unhealthy/disabled/unknown. Only the
+# HEALTHY family earns 'live'; the broken family earns 'degraded'; everything else (`unknown`, `disabled`,
+# and any verdict we don't recognise) is UNPROVEN, not confirmed working — see _liveness_from_status.
+_HEALTH_LIVE = ("healthy", "ok", "okay", "running", "live", "up", "active", "ready", "true")
+_HEALTH_BROKEN = ("degraded", "warn", "warning", "unhealthy", "failed", "error", "down", "false", "stopped")
+
+
 def _liveness_from_status(status):
     """Map a `senpi status` payload → runtime_health. The payload existing at all means the runtime is up
-    (the gateway answered for it); an explicit overall-health verdict refines healthy→'live' vs
-    degraded/unhealthy→'degraded'. None ⇒ 'unknown' (telemetry unavailable — never asserted as broken).
+    (the gateway answered for it); an explicit overall-health verdict then refines it: healthy→'live',
+    degraded/unhealthy→'degraded', and anything NOT in either family (the runtime's own `unknown` and
+    `disabled`, or a verdict we don't recognise)→'unknown'. None ⇒ 'unknown' too.
+
+    'unknown' is NOT PROVEN LIVE — telemetry unavailable, or the runtime itself says it can't vouch for
+    the runtime yet (never-heard scanners, right after a restart, a scanner-only runtime whose overall
+    verdict renders `unknown`). It is never asserted as broken and never upgraded to 'live': the runtime
+    is fail-closed about `unknown` (it refuses to paint an unproven scanner healthy), so painting that
+    `unknown` as 'live' here would re-open exactly the fail-open it closes.
 
     Reads the verdict ONLY from the top of the payload (or a well-known wrapper) — NOT via a deep search.
     A deep search would pick up a per-scanner / per-order `status:"error"` on an otherwise-healthy runtime
@@ -353,10 +367,14 @@ def _liveness_from_status(status):
                 break
         if h is not None:
             break
-    h = str(h).lower() if h is not None else None
-    if h in ("degraded", "warn", "warning", "unhealthy", "failed", "error", "down", "false", "stopped"):
+    if h is None:
+        return "live"   # answered with NO explicit health verdict at all → it's running
+    h = str(h).lower()
+    if h in _HEALTH_BROKEN:
         return "degraded"
-    return "live"   # healthy/ok/running/live, or answered with no explicit health field → it's running
+    if h in _HEALTH_LIVE:
+        return "live"
+    return "unknown"    # runtime-reported unknown/disabled, or an unrecognised verdict → not proven live
 
 
 # ──────────────────────────────────────────────────────────────── strategy profile (catalog enrichment)
@@ -689,8 +707,9 @@ def fetch_strategies(client, meta):
         strategies = [hydrate(s) for s in strategies]
     # TELEMETRY LIVENESS — for each strategy WITH a registered runtime, ask the runtime itself (senpi
     # status) whether it's actually healthy, not just registered. runtime_health: not_running (no registry)
-    # / degraded (registered but reports unhealthy) / live (healthy) / unknown (telemetry unavailable — do
-    # NOT assert broken). Fail-open + short-circuited by _telemetry_dead; sequential (few per user).
+    # / degraded (registered but reports unhealthy) / live (reports healthy) / unknown (NOT PROVEN LIVE —
+    # telemetry unavailable, or the runtime itself reports unknown; do NOT assert broken, do NOT call it
+    # live). Fail-open + short-circuited by _telemetry_dead; sequential (few per user).
     for s in strategies:
         if s.get("not_running"):
             s["runtime_health"] = "not_running"
