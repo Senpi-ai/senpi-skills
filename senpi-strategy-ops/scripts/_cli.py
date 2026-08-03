@@ -332,21 +332,22 @@ def runtime_health_map(timeout=15):
 def health_verdict(status_json):
     """Map a `senpi status` payload to healthy | degraded | unhealthy | unknown | None (shape-tolerant).
 
-    `unknown` is the runtime's fail-closed verdict — a scanner not yet proven by a tick. It must
-    pass through verbatim, never be coerced to healthy: dropping it (→ None → caller's "running"
-    fallback) would paint an unproven runtime ✅.
+    Fail-closed: any verdict that is PRESENT but not a recognised healthy/broken value — the
+    runtime's `unknown` (scanner not yet proven by a tick), `disabled`, or future vocabulary —
+    maps to `unknown`, never to None: None triggers the caller's "running" fallback, which would
+    paint an unproven runtime ✅. None is reserved for payloads with no health field at all.
     """
     h = _deep_first(status_json, ["overallHealth", "health", "overall", "status"])
-    h = str(h).lower() if h is not None else None
+    if h is None:
+        return None
+    h = str(h).lower()
     if h in ("healthy", "ok", "running", "live", "true"):
         return "healthy"
     if h in ("degraded", "warn", "warning"):
         return "degraded"
     if h in ("unhealthy", "failed", "error", "down", "false"):
         return "unhealthy"
-    if h == "unknown":
-        return "unknown"
-    return None
+    return "unknown"  # unknown / disabled / unrecognised verdict → not proven live
 
 
 def active_positions(status_json):

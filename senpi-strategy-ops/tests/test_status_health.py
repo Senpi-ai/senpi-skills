@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Hermetic tests for the status.py health taxonomy (no MCP, no openclaw).
 
-Pins the fail-closed contract: the runtime's `unknown` verdict (scanner not yet proven
-by a tick) must survive _cli.health_verdict verbatim — coercing it to None lets the
-caller's "running" fallback paint an unproven runtime ✅. Run:
+Pins the fail-closed contract: any PRESENT verdict _cli.health_verdict cannot classify as
+healthy/broken — the runtime's `unknown` (scanner not yet proven by a tick), `disabled`,
+future vocabulary — must map to "unknown", never None: None lets the caller's "running"
+fallback paint an unproven runtime ✅. None is only for payloads with no health field. Run:
     python3 senpi-strategy-ops/tests/test_status_health.py
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
@@ -31,9 +32,20 @@ class TestHealthVerdict(unittest.TestCase):
         self.assertEqual(_cli.health_verdict({"health": "degraded"}), "degraded")
         self.assertEqual(_cli.health_verdict({"health": "unhealthy"}), "unhealthy")
 
-    def test_unrecognized_is_none(self):
-        self.assertIsNone(_cli.health_verdict({"health": "something-new"}))
+    def test_disabled_is_not_coerced_to_none(self):
+        # `disabled` is real runtime vocabulary (ComponentHealth): every component disabled.
+        # None would trigger the `or "running"` fallback — a fully-disabled runtime painted ✅.
+        self.assertEqual(_cli.health_verdict({"overallHealth": "disabled"}), "unknown")
+
+    def test_unrecognized_present_verdict_is_unknown(self):
+        # Fail-closed against future vocabulary: a verdict we can't classify is unproven, not green.
+        self.assertEqual(_cli.health_verdict({"health": "something-new"}), "unknown")
+
+    def test_absent_health_field_is_none(self):
+        # None is reserved for payloads with NO health field — the caller's "running" fallback
+        # is only correct when the runtime said nothing at all.
         self.assertIsNone(_cli.health_verdict({}))
+        self.assertIsNone(_cli.health_verdict({"positions": 3}))
 
 
 class TestRuntimeRunning(unittest.TestCase):

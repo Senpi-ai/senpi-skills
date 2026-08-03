@@ -154,7 +154,7 @@ def main(argv):
     if sick:
         bits.append(f"{len(sick)} degraded")
     if unproven:
-        bits.append(f"{len(unproven)} unknown (scanner not yet proven)")
+        bits.append(f"{len(unproven)} unknown (not proven live)")
     if idle:
         bits.append(f"{len(idle)} funded-but-idle")
     if unknown:
@@ -175,7 +175,7 @@ def main(argv):
             print(f"  - {r['package']} {r['runtime'] or ''} → "
                   f"`openclaw senpi status -r {r['runtime']}` / `deploy.py verify {r['package']}` to triage")
     if unproven:
-        print("\n❔ Unknown (fail-closed — scanner not yet proven by a tick; verify, don't assume):")
+        print("\n❔ Unknown (fail-closed — not proven live: scanner not yet proven by a tick, or reporting disabled; verify, don't assume):")
         for r in unproven:
             print(f"  - {r['package']} {r['runtime'] or ''} → "
                   f"`openclaw senpi status -r {r['runtime']}` / `deploy.py verify {r['package']}` to check")
