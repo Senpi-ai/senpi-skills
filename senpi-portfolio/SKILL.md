@@ -182,7 +182,7 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
 This health check owns **liveness triage** (registered + running + healthy) via telemetry, and **references
 `diagnose.py` as the confirmation step** — it does not re-derive the deep checks. A thorough health check
 does not stop at the verdict: for **any** strategy that isn't cleanly `live` (`not_running` / `degraded` /
-`unknown`), running **`senpi-strategy-ops` `diagnose.py <id>`** (registered? ticked? BARREN? erroring?
+`unknown`), running **`senpi-strategy-ops` `diagnose.py <id>`** (registered? ticked? no signals yet? erroring?
 `--run-scan` for the literal scan output) is how you **confirm what's actually wrong and fix it** — surface
 it as the required next step (and its verdict, if you can run it), then close.py → redeploy as needed. For
 **"where am I leaking / did a stop fail / any halts / exit quality"**, hand to `senpi-improve-trades` (it

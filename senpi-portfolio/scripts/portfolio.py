@@ -725,7 +725,7 @@ def fetch_strategies(client, meta):
         meta.setdefault("warnings", []).append(
             f"{len(degraded)} strategy(ies) have a runtime that telemetry reports DEGRADED/unhealthy — "
             f"registered but not working cleanly. Confirm the cause with senpi-strategy-ops "
-            f"`diagnose.py <id>` (scanner registered? ticked? BARREN? erroring?): "
+            f"`diagnose.py <id>` (scanner registered? ticked? no signals yet? erroring?): "
             f"{', '.join(str(d) for d in degraded)}")
     return strategies
 
