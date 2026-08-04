@@ -133,8 +133,9 @@ resumes on its own — only a fresh deploy does, and it reconciles.
 
 **Re-running is always safe.** There is **no local deploy-state file**: the backend strategies and the
 runtime registry are the record, so re-running the same deploy command reconciles and adopts whatever
-already exists instead of duplicating it. A wallet that is still initializing is **waited for**, not
-adopted half-built and not duplicated.
+already exists instead of duplicating it. A wallet that is still **initializing** is **waited for**, not
+adopted half-built and not duplicated — but only the statuses that resolve on their own are waited on
+(see the PAUSED refusal below).
 
 > **Behaviour change from the old three-step flow.** `create` used to refuse when an `<id>` strategy
 > was already deployed and running, and to close a runtime-less one to force a fresh wallet. The verb
@@ -163,6 +164,10 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 >   resolve WITH THE USER which wallet is live, then re-run. **Never `close.py`/recreate to "start clean"** —
 >   that can tear down a funded live strategy.
 > - **`[E_DEPLOY_IN_PROGRESS]`** — another deploy is running. Watch it (`deploy status`) or cancel it.
+> - **A live `<id>` strategy that is PAUSED (or mid-teardown)** — the verb refuses immediately with the
+>   real status quoted; it does **not** wait, because a paused strategy never becomes ACTIVE on its own.
+>   Resume it and re-run, or `close.py <id>` first if you meant to start over. **Never fund a second
+>   wallet beside it.**
 > - **`[E_SCANNER_PATH_UNRESOLVED]`** — an install could not resolve a relative scanner path. The verb always
 >   passes the instance directory, so this means someone used `runtime create` by hand — use the verb.
 
