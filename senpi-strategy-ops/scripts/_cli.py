@@ -71,7 +71,7 @@ def error_tail(err, out="", limit=600):
     """Best-available error text from a failed CLI call: prefer stderr, fall back to stdout;
     drop blank + known banner lines; return the LAST `limit` chars. CLI failures print the
     real cause at the END of the stream — a head truncation (`text[:N]`) returns the banner
-    flood and destroys the cause (the M407593 register-error blackout).
+    flood and destroys the cause (a register-error banner-flood blackout).
 
     ANSI escapes are stripped FIRST (before filtering) so a color-coded `\\x1b[90m[plugins]…`
     banner still matches the noise filter, and no raw escape sequences leak into

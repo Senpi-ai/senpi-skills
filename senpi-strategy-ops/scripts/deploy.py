@@ -270,7 +270,7 @@ def underfunded_note(shortfall):
     """Agent-facing halt text for a funding shortfall. The lower-budget escape is only rendered
     when the usable balance can still fund every wallet at the MIN_WALLET floor — below that NO
     budget is valid, and suggesting one produces nonsense the agent follows ("--budget ≤ $0",
-    the M381223 churn). Codes: docs/error-code-taxonomy.md (repo root)."""
+    a $0-accessible-budget churn). Codes: docs/error-code-taxonomy.md (repo root)."""
     floor_needed = shortfall["wallets"] * MIN_WALLET
     facts = (f"Requested {usd(shortfall['requested'])} across {shortfall['wallets']} wallet(s) "
              f"(min {usd(MIN_WALLET)}/wallet), but only {usd(shortfall['available'])} is accessible "
