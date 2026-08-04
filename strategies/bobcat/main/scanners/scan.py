@@ -16,7 +16,9 @@ daemon, no push_signal, no create_position.
 
 XYZ notes (preserved from v2 — do NOT redesign):
   - every asset is xyz:NAME, dex = "xyz" — the prefix is mandatory for the HIP-3 DEX.
-  - 23/5 trading; the 48h hard_timeout (in runtime.yaml) caps holds across the
+  - 24/7 trading — the PERP never closes; it is the UNDERLYING US market that is
+#    shut Fri 17:00 ET -> Sun 18:00 ET, when XYZ prices off a 30-min EWMA internal
+#    oracle and reconciles at Monday's open. The 48h hard_timeout (in runtime.yaml) caps holds across the
     weekend pricing gap. There is NO scan-level market-hours gate (none in v2).
 
 FIDELITY NOTES vs the v2 producer (bobcat-producer.py v1.0.1):
