@@ -12,6 +12,7 @@ still generates.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
+import datetime
 import glob
 import json
 import os
@@ -272,7 +273,9 @@ def build(updated, branch):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--updated", default="2026-06-17")
+    ap.add_argument("--updated", default=datetime.date.today().isoformat(),
+                    help="catalog _updated date (YYYY-MM-DD); defaults to today so it is a real "
+                         "freshness signal, not a frozen string")
     ap.add_argument("--branch", default="main")
     a = ap.parse_args()
     catalog = build(a.updated, a.branch)
