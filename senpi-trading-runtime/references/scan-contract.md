@@ -163,7 +163,7 @@ Return a `list[dict]`, one per candidate. Keys:
 |---|---|---|
 | `asset` | ✅ | non-empty string |
 | `direction` | ✅ | normalized to `LONG` / `SHORT` (case-insensitive in) |
-| `marginPct` | — | **top-level**, PERCENT of withdrawable in (0,100] — **the fleet standard** (~97 of 102 scanners); the runtime sizes `(marginPct/100) × withdrawable`. Positive when present; a present-but-non-positive value is a **loud reject** |
+| `marginPct` | — | **top-level**, PERCENT of withdrawable in (0,100] — **the only per-signal sizing field**, used by every scanner in the fleet; the runtime sizes `(marginPct/100) × withdrawable`. Positive when present; a present-but-non-positive value is a **loud reject** |
 | `leverage` | — | **top-level**, positive number when present |
 | `data` | — | validated against the recipe's `signal_data_schema`: unknown key → reject, missing required key → reject, wrong type → reject (types `string`/`number`/`boolean`/`object`/`array`) |
 | `valid_for_seconds` | — | per-signal TTL (relative); a non-positive/non-int falls back to `default_signal_validity_seconds` |
