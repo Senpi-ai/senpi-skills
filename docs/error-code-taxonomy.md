@@ -32,8 +32,16 @@ surfaces. Rules:
 | `E_SCANNER_TICK_ERROR` | `senpi-trading-runtime` (external-scanner scaffold → runtime `/errors`) | A scanner's `scan()` tick threw; the scaffold caught it, set the tick status to `error`, and posted it to the runtime's `/errors` endpoint | `senpi status` for the failing scanner → read the tick error message → fix the scanner code. NEVER close/recreate the strategy for a scanner error |
 | `E_SCANNER_TICK_TIMEOUT` | same | A scanner tick exceeded its wall-clock budget | Same as `E_SCANNER_TICK_ERROR` |
 | `E_SCANNER_CRASH_LOOP` | `senpi-trading-runtime` (scanner process supervisor) | The supervisor degraded a scanner after repeated rapid exits; restarts CONTINUE at capped backoff — the scanner is degraded, not stopped (retry-at-cap decision, 2026-07-29) | Same as `E_SCANNER_TICK_ERROR` |
+| `E_SCANNER_PATH_UNRESOLVED` | `senpi-trading-runtime` (`senpi.installRuntime`) | A content-install's YAML names a relative scanner `path` and no source dir was provided — resolving against the gateway cwd would mount nothing (M226926/M279357 DOA class). Nothing installed | Install from the file (`-p <runtime.yaml>`) or pass `--runtime-yaml-dir <dir>`. `senpi deploy` always provides the dir — prefer it |
+| `E_DEPLOY_IN_PROGRESS` | `senpi-trading-runtime` (`senpi.deploy.start`) | A second deploy was started while one is running — deploys are single-flight because concurrent funding preflights read one shared balance and can jointly overdraw. Nothing was started | Watch the running job: `senpi deploy status`. To stop it at the next safe point: `senpi deploy cancel`, then re-run |
 
-Note on the `E_SCANNER_*` rows: all five codes are **logical identifiers**, not Body
+2026-08-04 (D1): `senpi deploy` (trading runtime) now also renders `E_FUNDS_SHORT` /
+`E_FUNDS_BELOW_FLOOR` / `E_STATE_AMBIGUOUS_WALLETS` under the same computed rules
+(surfaced via `senpi deploy status` — the verb runs detached). Owner columns move from
+`deploy.py` to the verb at Convergence, when `deploy.py` becomes a wrapper.
+
+Note on the `E_SCANNER_*` rows: `E_SCANNER_PATH_UNRESOLVED` is a real refusal string and
+leads its message per rule 3. The other five codes are **logical identifiers**, not Body
 literals, and are queryable via the `senpi.error.code` **event attribute** (landed in
 slice B1, truthful-status instrumentation):
 
