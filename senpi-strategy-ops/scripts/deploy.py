@@ -34,14 +34,17 @@ import _cli  # noqa: E402
 import _fetch  # noqa: E402
 import _pkg  # noqa: E402
 from mcp_client import MCPClient, MCPError  # noqa: E402
+# Vendored byte-identically with senpi-trading-runtime/scripts (gen_catalog). deploy computes the
+# minimum LOCALLY because custom-authored packages never pass through catalog generation.
+from min_budget import WALLET_FLOOR as MIN_WALLET, FEE_BUFFER, strategy_min_budget  # noqa: E402
 
 SUBMIT_TIMEOUT = 60     # HTTP timeout for the async create submit
 POLL_HTTP_TIMEOUT = 15  # HTTP timeout for fast read polls
 DEFAULT_MAX_WAIT = 150  # per-call poll budget (s) — stays under the ~180s tool timeout
 VERIFY_BUFFER = 120
 POLL_EVERY = 10
-FEE_BUFFER = 1.5        # USDC reserved per wallet for the creation fee (observed ~$1)
-MIN_WALLET = 100.0      # platform minimum per strategy wallet
+# MIN_WALLET (the $10 platform wallet floor) + FEE_BUFFER are imported from min_budget.py above —
+# one source of truth for the platform physics ($10 floor, $12 bumped notional, $1.50 fee buffer).
 ORDER = ("pending", "creating", "active", "registered", "live")
 
 
@@ -333,9 +336,35 @@ def _wallet_name(pkg, inst):
     return _sanitize_strategy_name(raw, pkg.id)
 
 
+def strategy_min(pkg):
+    """The package's CALCULATED minimum budget, computed locally (custom-authored packages never pass
+    through catalog generation, so deploy can't read it off catalog.json). Same function gen_catalog
+    bakes into the card, so 'what the card promised' == 'what deploy enforces'."""
+    manifest = {
+        "instances": [{"name": i.name, "funding_share": i.funding_share} for i in pkg.instances],
+        "catalog": getattr(pkg, "catalog", {}) or {},
+    }
+    runtimes = {i.name: (i.runtime_doc or {}) for i in pkg.instances}
+    return strategy_min_budget(manifest, runtimes)
+
+
 def cmd_create(pkg, a, log):
     st = load_state(pkg)
     st["budget"] = a.budget
+    # Two-tier enforcement. The HARD floor ($10 x wallets) is downstream: plan_funding floors each
+    # wallet at MIN_WALLET and underfunded_note halts with [E_FUNDS_BELOW_FLOOR]. Here we add the SOFT
+    # tier — at/above the floor but below the CALCULATED minimum the design runs degraded. Warn (naming
+    # the binding sleeve), record it, and PROCEED: users size their own budgets.
+    if a.budget is not None:
+        _mb = strategy_min(pkg)
+        st["min_budget"], st["min_wallet_count"] = _mb["min_budget"], _mb["wallet_count"]
+        if a.budget < _mb["min_budget"]:
+            st["below_min"] = True
+            log(f"  [E_BUDGET_BELOW_STRATEGY_MIN] ${a.budget:g} is below {pkg.id}'s calculated minimum "
+                f"${_mb['min_budget']:g} ({_mb['wallet_count']} wallet(s); binding sleeve "
+                f"'{_mb['binding_wallet']}'). It will DEPLOY but run DEGRADED — fewer slots than designed, "
+                f"each position a larger share of its wallet. Fund ${_mb['min_budget']:g}+ for the "
+                f"authored design.")
     if a.dry_run:
         for inst in pkg.instances:
             s = inst_state(st, inst.name)

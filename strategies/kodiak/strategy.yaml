@@ -23,7 +23,6 @@ catalog:
   tier: advanced
   leverage_max: 7
   max_slots: 1
-  min_budget: 200
   assets: ["SOL"]
   tags: [sol, single-asset, momentum, smart-money, conviction-leverage, alpha-hunter]
 

@@ -25,7 +25,6 @@ catalog:
   tier: starter
   leverage_max: 5
   max_slots: 2
-  min_budget: 200
   assets: ["xyz:SPCX"]
   tags: [pre-ipo, ipop, spacex, xyz, equities, trend-following, smart-money, auto-discovery, hyperliquid]
 

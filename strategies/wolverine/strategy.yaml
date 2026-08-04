@@ -24,7 +24,6 @@ catalog:
   tier: advanced
   leverage_max: 5
   max_slots: 1
-  min_budget: 200
   assets: ["HYPE"]
   tags: [hype, single-asset, momentum, smart-money, funding-regime, macro-gate, conviction-leverage, alpha-hunter]
 

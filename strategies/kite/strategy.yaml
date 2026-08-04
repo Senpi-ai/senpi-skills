@@ -23,7 +23,6 @@ catalog:
   tier: advanced
   leverage_max: 5
   max_slots: 4
-  min_budget: 300
   assets: ["BTC", "ETH", "SOL", "FARTCOIN"]
   tags: [smc, ict, market-structure, break-of-structure, fractal, fibonacci, retracement, divergence, rsi, defined-risk, long-short, structure]
 

@@ -31,7 +31,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 12           # long 5 + short 4 + preipo 3
-  min_budget: 600         # 3 wallets; ~90% across long+short / ~10% preipo — each needs working size
   assets: ["xyz:NVDA", "xyz:AMD", "xyz:MRVL", "xyz:ARM", "xyz:AVGO", "xyz:TSM", "xyz:ASML", "xyz:MU", "xyz:CRWV", "xyz:GOOGL", "xyz:MSFT", "xyz:META", "xyz:AMZN", "xyz:ORCL", "xyz:PLTR", "xyz:SPCX", "HYPE", "SOL", "xyz:SP500", "ETH", "XRP", "DOGE", "AVAX", "LINK"]
   tags: [k-shaped, two-speed, ai-complex, hedge-fund, long-short, dispersion, xyz, equities, crypto, pre-ipo, ipop, hype, sp500]
 

@@ -25,7 +25,6 @@ catalog:
   tier: advanced
   leverage_max: 5
   max_slots: 1
-  min_budget: 200
   assets: ["BTC", "ETH", "SOL", "HYPE"]
   tags: [parabolic, momentum, runner, smart-money, long-only, wide-dsl, regime-selective, large-cap]
 

@@ -24,7 +24,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 1
-  min_budget: 200
   assets: []
   tags: [xyz, pre-ipo, ipo-conversion, conversion-event, momentum, price-discovery, let-winners-run, universe-scanner]
 

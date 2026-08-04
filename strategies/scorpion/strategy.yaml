@@ -24,7 +24,6 @@ catalog:
   tier: advanced
   leverage_max: 5
   max_slots: 2
-  min_budget: 200
   assets: ["BTC", "ETH", "SOL", "HYPE", "ZEC", "LIT", "GRASS", "FARTCOIN", "TAO", "ONDO", "SUI", "ARB", "WLD", "DOGE", "AVAX", "xyz:CL", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SP500"]
   tags: [momentum, trend-following, smart-money, multi-asset, xyz, commodities, indices, maker-exit, long-short]
 

@@ -24,7 +24,6 @@ catalog:
   tier: advanced
   leverage_max: 1
   max_slots: 8
-  min_budget: 500
   assets: ["BTC", "ETH", "SOL", "HYPE", "xyz:SP500", "xyz:XYZ100", "xyz:NVDA", "xyz:AAPL", "xyz:GOLD", "xyz:SILVER", "xyz:BRENTOIL"]
   tags: [capital-preservation, no-leverage, diversified, rwa, blue-chip, fee-aware, position-caps, long-only, institutional, portfolio, low-risk, conservative]
 

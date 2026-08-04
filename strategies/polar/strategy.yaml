@@ -24,7 +24,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 1
-  min_budget: 200
   assets: ["ETH"]
   tags: [eth, single-asset, smart-money, hyperfeed, momentum, conviction-leverage, alpha-hunter]
 

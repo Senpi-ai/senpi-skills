@@ -112,7 +112,7 @@ Each candidate is a flat record. You rank on the soft fields; you narrate from t
 | `direction`, `funding_split` | direction match · whether it's already a multi-wallet fund (skip stacking) |
 | `market_facts` | the live "why now" for your lead |
 | `caveats` | honesty — surface **verbatim** |
-| `min_budget` | the **floor** to start (`max(declared, $100 × wallets)`) — NOT a recommendation. Size the actual budget from the user's funds (`meta.user_context.budget`); see Layer 3 |
+| `min_budget` | the **computed** minimum to run the design (`min_budget.py`; also carries `wallet_count`) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; NOT a recommendation. Size the actual budget from the user's funds (`meta.user_context.budget`); see Layer 3 |
 | `id`, `version` | the handoff to ops |
 
 ## Conversation flow
@@ -167,7 +167,7 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
 3. **Size & lock in (Layer 3)** — pick the DSL preset and size the budget. **`min_budget` on each card is
    the FLOOR to run it, not a recommended amount** — never just parrot it as "Suggested: $X". Size from
    the user's **available funds** (`meta.user_context.budget`, always attached):
-   - If the user named an amount, use it (must be ≥ `min_budget`; if below, surface the floor honestly).
+   - If the user named an amount, use it (if below `min_budget`, it still DEPLOYS but runs degraded (fewer slots than designed) — surface that honestly).
    - Otherwise **propose** an amount that scales with their free balance and how many strategies they're
      deploying — a sensible share of available funds per pick, each **≥ its `min_budget`**, leaving a cash
      buffer — then **confirm before install** ("you've got ~$X free; I'd put ~$Y in Rhino, ~$Z in Spider —
@@ -232,7 +232,7 @@ They lack the vocabulary; recommend *without* making them self-classify:
 ```
 {lead: top pick + why-now from market_facts}.
 🦏  Rhino — Tail-Risk / Crisis-Alpha   [{tier}]
-    {thesis}.   Min to start ~${min_budget}{ + funding_split if multi-instance}
+    {thesis}.   Minimum ~${min_budget}{ + funding_split if multi-instance}
 {2nd / 3rd card}.   {caveats, verbatim}.
 "You've got ~${user_context.budget} free — set up {top} with ~$Y, add a hedge alongside it, or build something custom?"
 ```

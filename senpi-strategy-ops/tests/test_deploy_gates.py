@@ -47,13 +47,14 @@ class PlanFunding(unittest.TestCase):
         self.assertGreater(short["short_by"], 800)
 
     def test_floor_covered_by_balance_is_not_short(self):
-        # $200 across 60/40 floors the small leg to $100 → $220 total; $300 available covers it, no halt
-        amounts, short = deploy.plan_funding([_inst("a", 0.6), _inst("b", 0.4)], 200, 300)
-        self.assertEqual(amounts, {"a": 120.0, "b": 100.0})
+        # $100 across 95/5 floors the tiny leg to the $10 wallet floor → $105 total; $200 covers it, no halt
+        amounts, short = deploy.plan_funding([_inst("a", 0.95), _inst("b", 0.05)], 100, 200)
+        self.assertEqual(amounts, {"a": 95.0, "b": 10.0})
         self.assertIsNone(short)
 
     def test_floor_over_balance_is_short(self):
-        _amounts, short = deploy.plan_funding([_inst("a", 0.6), _inst("b", 0.4)], 200, 200)
+        # 2 wallets at the $10 floor need $20 + a fee reserve; $21 available (usable ~$18) can't cover it
+        _amounts, short = deploy.plan_funding([_inst("a", 0.5), _inst("b", 0.5)], 20, 21)
         self.assertIsNotNone(short)
 
     def test_available_unknown_never_halts(self):
@@ -76,13 +77,13 @@ class UnderfundedNote(unittest.TestCase):
         self.assertNotIn("--budget ≤", note)
         self.assertIn("deposit", note.lower())
         # the COMPUTED missing amount — floor + fee reserve, so depositing it actually clears the gate
-        self.assertIn("$101.50 more USDC", note)
+        self.assertIn("$11.50 more USDC", note)   # $10 wallet floor + $1.50 fee reserve, 1 wallet
 
     def test_below_floor_hinted_deposit_round_trips(self):
         # Bugbot: `floor - usable` understated the deposit when the balance was below the fee
         # reserve (usable clamps to 0) — "$100 more" at $0.75 accessible left usable at $99.25,
         # re-halting E_FUNDS_BELOW_FLOOR. Depositing EXACTLY the hinted amount must clear the floor.
-        for wallets, available in ((1, 0.0), (1, 0.75), (1, 1.49), (2, 1.0), (2, 150.0)):
+        for wallets, available in ((1, 0.0), (1, 0.75), (1, 1.49), (2, 1.0), (2, 15.0)):
             usable = max(0.0, round(available - deploy.FEE_BUFFER * wallets, 2))
             note = deploy.underfunded_note(self._short(500, wallets, available, usable))
             self.assertIn("[E_FUNDS_BELOW_FLOOR]", note)
@@ -94,8 +95,8 @@ class UnderfundedNote(unittest.TestCase):
             self.assertIsNone(short, f"deposited the hinted ${hinted} at ${available}/{wallets}w and still short")
 
     def test_below_multiwallet_floor_is_below_floor(self):
-        # $180 usable cannot fund 2 wallets at $100/wallet — no valid budget exists
-        note = deploy.underfunded_note(self._short(400, 2, 190, 180))
+        # $15 usable cannot fund 2 wallets at the $10/wallet floor ($20) — no valid budget exists
+        note = deploy.underfunded_note(self._short(400, 2, 17, 15))
         self.assertIn("[E_FUNDS_BELOW_FLOOR]", note)
         self.assertNotIn("--budget ≤", note)
 
@@ -105,18 +106,19 @@ class UnderfundedNote(unittest.TestCase):
         self.assertIn("--budget ≤ 250", note)
 
     def test_usable_equals_floor_is_short_with_bound_at_floor(self):
-        # boundary: usable == wallets × $100 → E_FUNDS_SHORT, and the only feasible budget is the floor
+        # usable $200 across 2 even wallets is short of a $400 request but funds evenly, so the feasible
+        # bound is the bare usable $200 (the $10 floor never binds an even split this large)
         note = deploy.underfunded_note(self._short(400, 2, 200, 200))
         self.assertIn("[E_FUNDS_SHORT]", note)
         self.assertIn("--budget ≤ 200", note)
 
     def test_uneven_shares_bound_is_below_usable(self):
-        # 2 wallets 0.6/0.4, usable $230: the small leg floors to $100 so the true max is $216.67,
-        # NOT the old bare-usable $230 (which re-shorts). The hint must name the feasible bound.
-        note = deploy.underfunded_note(self._short(238, 2, 233, 230, shares=[0.6, 0.4]))
+        # 2 wallets 0.9/0.1, usable $30: the tiny 0.1 leg floors to the $10 wallet floor, so the true max
+        # is $22.22 (0.9·b + $10 = $30), NOT the bare usable $30 (which would re-short). Hint names the bound.
+        note = deploy.underfunded_note(self._short(50, 2, 33, 30, shares=[0.9, 0.1]))
         self.assertIn("[E_FUNDS_SHORT]", note)
-        self.assertIn("--budget ≤ 216.67", note)
-        self.assertNotIn("230", note.split("--budget")[1])  # the ceiling is never the bare usable
+        self.assertIn("--budget ≤ 22.22", note)
+        self.assertNotIn("30", note.split("--budget")[1])  # the ceiling is never the bare usable
 
     def test_budget_hint_flag_value_is_argparse_parseable(self):
         # Bugbot: usd()'s comma grouping in the --budget clause fails `type=float` at ≥ $1,000.

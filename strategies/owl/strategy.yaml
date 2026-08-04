@@ -25,7 +25,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 2
-  min_budget: 200
   assets: []
   tags: [contrarian, fade, crowding, funding-extreme, smart-money, exhaustion, mean-reversion, universe, macro-gate]
 

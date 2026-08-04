@@ -23,7 +23,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 3
-  min_budget: 200
   assets: ["BTC", "ETH", "SOL"]
   tags: [btc, eth, sol, multi-asset, momentum, conviction, smart-money, conviction-margin, let-winners-run]
 

@@ -24,7 +24,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 1
-  min_budget: 200
   assets: ["xyz:BRENTOIL"]
   tags: [oil, brentoil, xyz, commodities, single-asset, news-driven, 4tf, conviction-leverage, 24-7]
 

@@ -82,7 +82,7 @@ that exists **on disk is authoritative** — an invalid local package surfaces i
 never silently replaced by a stale remote fetch.
 
 **Step 1 — creating wallets & funding them** (`create`; one fresh wallet per instance; budget splits by
-`funding_share`, **min $100 each** — confirm with the user first). `create` runs the same full preflight
+`funding_share`, **min $10 each** — confirm with the user first). `create` runs the same full preflight
 first, so it refuses **before funding** if the package isn't deploy-ready:
 ```
 python3 scripts/deploy.py create spider --budget 200
@@ -101,9 +101,9 @@ wallet — every deploy gets a FRESH one.** If an existing `<id>` strategy is fo
 funds**, then a new wallet is created (prints **`closing-existing`**; re-run `create` once it's closed and
 funds are back); a **live, running** one is left untouched — `create` **refuses** so it can't silently
 flatten a real book (`close.py <id>` first to redeploy). The **`--budget` is a hard target**: create funds
-exactly what you ask (split by `funding_share`, $100/wallet floor); if your live balance can't cover it,
+exactly what you ask (split by `funding_share`, $10/wallet floor); if your live balance can't cover it,
 create **HALTS with `underfunded`** and the exact shortfall — it will **NEVER silently fund less** (the
-"$1,000 → $100" failure). Fund/free USDC or confirm a smaller amount, then re-run. **Never hand-edit
+"$1,000 → $10" failure). Fund/free USDC or confirm a smaller amount, then re-run. **Never hand-edit
 `.deploy-state.json` and never lower `--budget` to dodge a funding error** — just re-run `create`. When the
 user names a budget per strategy ("$1k on X, $2k on Y"), deploy each with its own `--budget` and **confirm
 the split before funding**.

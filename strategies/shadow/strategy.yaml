@@ -24,7 +24,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 5
-  min_budget: 200
   assets: []
   tags: [copy-trading, multi-trader, fresh-entry, mirror, entry-slippage-guard, smart-money, budget-relative]
 

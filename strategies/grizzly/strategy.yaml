@@ -24,7 +24,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 1
-  min_budget: 200
   assets: ["BTC"]
   tags: [btc, single-asset, momentum, smart-money, conviction-leverage, alpha-hunter, macro-gate]
 

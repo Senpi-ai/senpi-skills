@@ -26,7 +26,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 1
-  min_budget: 200
   assets: ["xyz:COIN", "xyz:MSTR"]
   tags: [xyz, coin, mstr, cross-venue-lag, cross-asset-lag, btc-proxy, crypto-equities, catch-up, let-winners-run]
 

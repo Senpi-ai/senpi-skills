@@ -89,7 +89,7 @@ def below_floor():
     r = m(assets="btc_eth", budget="$50")
     sp = next((c for c in r["candidates"] if c["id"] == "spider"), None)
     ck("below-floor surfaces a caveat (not blocked)",
-       sp is not None and any("Needs" in cv for cv in sp["caveats"]), sp["caveats"] if sp else None)
+       sp is not None and any("degraded" in cv for cv in sp["caveats"]), sp["caveats"] if sp else None)
     ck("below-floor still returns the strategy", "spider" in ids(r))
     if sp:
         print(f"  · $50 budget -> spider caveat: {sp['caveats']}")

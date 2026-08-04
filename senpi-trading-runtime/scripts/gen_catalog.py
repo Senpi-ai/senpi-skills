@@ -21,6 +21,8 @@ from collections import defaultdict
 
 import yaml
 
+import min_budget  # vendored (byte-identical with senpi-strategy-ops) — the canonical minimum calc
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 GLOSSARY_PATH = os.path.join(
     REPO_ROOT, "senpi-strategy-discover", "references", "glossary.yaml"
@@ -33,9 +35,12 @@ INSTRUCTIONS = (
     "risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED "
     "fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, "
     "max_slots) are computed from instances/params. Labels/glosses come from "
-    "senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor "
-    "(max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy "
-    "is a deployable package; install via senpi-strategy-ops."
+    "senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum "
+    "total budget at which the design functions (min_budget.py) — the smallest budget where every "
+    "wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + "
+    "'min_budget_binding_wallet' + 'min_budget_breakdown' explain it. It is NOT authored — deleting "
+    "an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget "
+    "above the min. A strategy is a deployable package; install via senpi-strategy-ops."
 )
 
 # Declared fields the author should set; missing ones warn.
@@ -161,13 +166,18 @@ def derive_funding_split(instances):
     return fs if fs else [1.0]
 
 
-def derive_min_budget(declared, instance_count, sid):
-    effective = 100 * max(instance_count, 1)
-    declared = declared if isinstance(declared, (int, float)) else None
-    if declared is not None and declared < effective:
-        warn(f"{sid}: declared min_budget {declared} is below the per-wallet floor "
-             f"(100 x {instance_count} = {effective}); using {effective}")
-    return max(declared or 0, effective)
+def load_runtimes(instances, pkg_dir):
+    """Parse each instance's runtime.yaml -> {instance_name: dict}, for min_budget.strategy_min_budget."""
+    out = {}
+    for inst in instances:
+        rel, name = inst.get("runtime"), inst.get("name")
+        if not rel or not name:
+            continue
+        try:
+            out[name] = yaml.safe_load(open(os.path.join(pkg_dir, rel))) or {}
+        except Exception as exc:  # noqa: BLE001
+            warn(f"{name}: runtime.yaml unreadable for min_budget ({exc})")
+    return out
 
 
 # ---- glossary label inlining + enum validation ----
@@ -216,7 +226,12 @@ def build(updated, branch):
         instance_count = len(instances)
 
         validate_declared(glossary, c, sid)
-        cadence = derive_cadence_seconds(instances, os.path.dirname(man_path))
+        pkg_dir = os.path.dirname(man_path)
+        cadence = derive_cadence_seconds(instances, pkg_dir)
+        mb = min_budget.strategy_min_budget(m, load_runtimes(instances, pkg_dir))
+        if isinstance(c.get("min_budget"), (int, float)):
+            warn(f"{sid}: strategy.yaml still declares min_budget:{c['min_budget']} — it is now "
+                 f"COMPUTED and the authored field is ignored; delete it (use min_budget_floor to raise)")
 
         skills.append({
             # identity
@@ -246,8 +261,11 @@ def build(updated, branch):
             "leverage_max": derive_leverage_max(instances, c, sid),
             "time_horizon": derive_time_horizon(cadence, c),
             "cadence_seconds": cadence,
-            # capital
-            "min_budget": derive_min_budget(c.get("min_budget"), instance_count, sid),
+            # capital — min_budget is COMPUTED (min_budget.py), never authored
+            "min_budget": mb["min_budget"],
+            "wallet_count": mb["wallet_count"],
+            "min_budget_binding_wallet": mb["binding_wallet"],
+            "min_budget_breakdown": mb["breakdown"],
             "instance_count": instance_count,
             "funding_split": derive_funding_split(instances),
             "max_slots": derive_max_slots(instances, c),
