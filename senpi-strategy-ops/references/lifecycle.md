@@ -12,62 +12,65 @@ time-boxed by `timeout_seconds`, restarting a crashed child itself. The old mode
 `nohup python3 … &` producer daemon that pushed signals over HTTP) is gone. Deploy = create a runtime;
 nothing else to keep alive.
 
-## `deploy.py {create|runtime|verify|status} <id> …`
+## Deploy — the runtime's `openclaw senpi deploy` verb
 
-Deploy is **three short, resumable steps**, not one blocking call — because wallet funding (CREATE →
-FUND → ACTIVE, incl. bridging) and the first scan tick (up to an instance's `interval_seconds`) are each
-multi-minute waits that blow the ~180s tool/session timeout. Each step is **bounded** (`--max-wait`,
-default 150s) and the agent **re-runs a step until it reports done**.
+Deploy is **one verb running as a detached job**, not a blocking call and not a chain of scripted steps:
+wallet funding (CREATE → FUND → ACTIVE, incl. bridging) and the first scan tick (up to an instance's
+`interval_seconds`) are each multi-minute waits that would blow the ~180s tool/session timeout. The verb
+returns in ~1s with a `deployId`; the agent polls `openclaw senpi deploy status` until the job is terminal.
 
-**Package fetch.** Any step fetches `strategies/<id>/` from the remote if it isn't on disk (`_fetch.py`:
-GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default `Senpi-ai/senpi-skills`@`main`;
-`--ref` overrides). Fetches land in the **durable strategies root** — `SENPI_STRATEGIES_DIR` if set,
-else `<OPENCLAW_WORKSPACE_DIR>/strategies`, else `/data/workspace/strategies` on agent hosts (with a
-loud stderr warning on the last-resort CWD-relative dev fallback) — never inside a managed skill dir:
-a package written there is destroyed on the next skill update. Bare-id resolution prefers the durable
-root over CWD-relative `strategies/<id>` so a pristine checkout or stale skill-dir copy can't shadow
-the deployed package and its `.deploy-state.json`.
+Per instance the job runs five steps, each recorded with its own outcome:
 
-**State file** `<pkg>/.deploy-state.json` — `{instances: {name: {strategyId, wallet, status}}}`, status
-flowing `pending → creating → active → registered → live`. Every sub-action persists, so a kill mid-step
-just means re-run that step.
+1. **reconcile** — read live backend strategies and match by `strategyName` (`<id>` for a single-instance
+   package, `<id>-<instance>` for a multi, sanitized). Exactly one live match → **adopt** its wallet
+   (create is skipped). More than one → refuse **`[E_STATE_AMBIGUOUS_WALLETS]`**: one may be a funded live
+   strategy, so it points at read-only triage and never at close/recreate. Zero → this instance needs a wallet.
+2. **preflight** — `account_get_portfolio` (forced fresh) → the accessible-USDC waterfall (HL perps + HL
+   spot USDC + EVM USDC; never `total_withdrawable`) → the funding plan (split by `funding_share`, floored
+   at $100/wallet, minus a per-wallet fee buffer). A shortfall **HALTS** with `[E_FUNDS_SHORT]` or
+   `[E_FUNDS_BELOW_FLOOR]` and **no create call is made**. The budget is a hard target — it is never
+   silently scaled down. An unreadable balance yields "unknown" and the deploy proceeds: the backend is the
+   funding authority and would fail loudly.
+3. **create** — one `strategy_create_custom_strategy(initialBudget, positions=[], strategyName,
+   skillName=<id>, skillVersion=<version>)` per needing instance, then poll `strategy_list` to **ACTIVE**
+   (bounded by `--max-wait`, default 150s). A name rejection retries **once** without `strategyName` —
+   naming is best-effort legibility and must never block a deploy. Deadline hit → `pending` (re-run resumes).
+4. **install** — render the instance's `runtime.yaml` (substitute `${wallet_env}` + the decision-model env
+   iff a `decision_mode: llm` action) and install it with the instance directory attached, so `path:
+   ./scanners` resolves against the YAML's own directory. An existing runtime already on this wallet is an
+   idempotent skip; one bound to a **different/old** wallet is **deleted and recreated** on the fresh wallet,
+   never updated in place.
+5. **observe** — poll the runtime's scanner rows for one `lastRunStatus: "ok"` within `--tick-wait`
+   (default 120s, `0` skips). Seen → `ok` with the row quoted verbatim. Not seen → **`unobserved`**, which
+   is truthful, not success: external scanners legitimately tick on long intervals. A row that only ever
+   errors → `failed`, quoting `lastError`.
 
-1. **`create <id> --budget N`** —
-   - **Reconcile first:** for each recorded `strategyId`, re-fetch its backend status; if **not `ACTIVE`**
-     (CLOSED / FAILED / gone) the entry is **discarded** so it gets recreated. This is the durable fix for
-     stale `.deploy-state.json` (reusing a CLOSED wallet, or getting stuck on a FAILED instance) — **no manual
-     state editing**.
-   - **Anti-duplicate guard:** if `strategy_list` shows **OPEN** `skillName==<id>` strategies not in the
-     state file (an interrupted run), refuse and point at `close.py <id>` (closed/failed history is ignored).
-   - **Fund to live balance:** sizes the to-create wallets from `account_get_portfolio`
-     (`total_in_hyperliquid`) minus a per-wallet fee buffer, split by `funding_share` and capped to
-     available — so sequential funding + creation fees can't leave an instance $1 short. **Never lower `--budget`
-     to dodge rounding; just re-run.**
-   - Per instance: `strategy_create_custom_strategy(skillName=<id>, skillVersion=<version>, initialBudget=…,
-     strategyName=<id>-<instance>)` — names the wallet for its role (e.g. `whalehunter-short`), never a bare
-     address; best-effort (falls back to unnamed if the name is rejected). Record `strategyId` **immediately**,
-     poll `strategy_list` to **ACTIVE** (bounded by `--max-wait`).
-     Not all ACTIVE → **`creating`** (re-run to resume); all ACTIVE → **`wallets-ready`**.
-2. **`runtime <id>`** — per instance: render the instance's `runtime.yaml` (substitute `${wallet_env}` + the
-   decision-model env iff a `decision_mode: llm` action) **beside the source** (so `path: ./scanners`
-   resolves) → `openclaw senpi runtime create … --runtime-id <id>-<instance>`. **Self-healing:** an existing
-   runtime on the right ACTIVE wallet is skipped; a stale one (different/CLOSED wallet — e.g. orphaned by an
-   earlier close) is **deleted and recreated** (fixes the "already exists" / "wallet CLOSED" collisions).
-   Requires wallets `active`. → `registered`. **After this, deployment is DONE** — the strategy is live and
-   trading autonomously; it scans on its own `interval_seconds` and opens positions when its signals fire.
-   Do **not** wait/poll for the first tick as part of deploy.
-3. **`verify <id>` — OPTIONAL** (only when the user asks "is it actually scanning yet?"). **Fast single
-   check** (`--max-wait 0` default) of `openclaw senpi state -r <id>-<instance>` for a completed tick. It
-   does **not** block: a scanner's first `scan()` only fires on its `interval_seconds`. Right after
-   `runtime` it reports `registered` (not ticked yet) — expected; re-run after the interval to see `live`.
-   `--max-wait S` opts into a bounded poll. `status <id>` prints the state file any time. Never `sleep`
-   then `verify` as a default step.
+**No local deploy state.** There is no `.deploy-state.json` any more — the backend strategies and the
+runtime registry ARE the record, which is what killed the whole `E_STATE_*` lost-state class. The job does
+keep an append-only JSONL journal under the runtime's state dir (`deploys/<deployId>.jsonl`), but it is
+**narration only**: nothing ever reads it to decide an action. It is read for exactly two things —
+rendering `deploy status` history, and the boot scan that stamps a journal left unterminated by a restart
+as `interrupted`. Nothing auto-resumes; only a fresh deploy does, and it reconciles.
 
-**Ephemeral state.** `.deploy-state.json` exists only to resume an in-progress deploy. `verify` **deletes
-it once all instances are `live`** (a partial `registered` keeps it). So a completed deploy leaves no
-state → the next deploy (e.g. after a close) starts clean and can't reuse stale wallets. `verify`/`status`
-work without it (runtime ids derive from the manifest). `create`'s reconcile is the safety net for partial
-state. There is **no `--reinstall`** and no wallet-reuse — redeploy = `close` then `create`/`runtime`/`verify`.
+**Single-flight.** One deploy job per agent. A second start refuses `[E_DEPLOY_IN_PROGRESS]`: concurrent
+deploys read one shared funding waterfall and two preflights could both pass while jointly overdrawing.
+`openclaw senpi deploy cancel` sets a flag honored at **step boundaries only** — an in-flight money-moving
+call always completes and is journaled, and nothing is rolled back.
+
+## `deploy.py {validate|create|runtime|verify|status} <id> …` — the compatibility wrapper
+
+`deploy.py` keeps its CLI contract but no longer deploys anything itself. It owns the **front half** —
+package resolution (a path, or a bare catalog id fetched from the remote) and the side-effect-free
+preflight — then starts the verb, polls `deploy status`, and relays the report **verbatim**. Its three
+action subcommands (`create` / `runtime` / `verify`) all drive the same idempotent verb; they remain
+distinct so existing docs and transcripts stay valid. Exit code 2 on a `refused`/`failed` report.
+
+**Package fetch.** Any subcommand fetches `strategies/<id>/` from the remote if it isn't on disk
+(`_fetch.py`: GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default
+`Senpi-ai/senpi-skills`@`main`; `--ref` overrides). Fetches land in the **durable strategies root** —
+`SENPI_STRATEGIES_DIR` if set, else `<OPENCLAW_WORKSPACE_DIR>/strategies`, else `/data/workspace/strategies`
+on agent hosts (with a loud stderr warning on the last-resort CWD-relative dev fallback) — never inside a
+managed skill dir: a package written there is destroyed on the next skill update.
 
 ## `close.py [<id>] [--all] [--instance name] [--dry-run] [--json]`
 
@@ -79,7 +82,6 @@ close also cleans up **orphaned** strategies (wallets a failed deploy created be
 runtime is used **only to stop** the strategy, found by wallet (`find_runtime_by_wallet`).
 **`--all`** closes **every** OPEN strategy across all packages (for "close all strategies / return funds")
 and deletes their runtimes. `--instance` needs the live runtime to identify an instance; if it's gone, omit it.
-After a real package close, the package's `.deploy-state.json` is deleted (state is ephemeral).
 
 Per strategy:
 

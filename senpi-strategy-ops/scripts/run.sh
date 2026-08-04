@@ -9,7 +9,8 @@
 #   ./run.sh asia-ai main '$500'
 #
 # Maps the tester request  "Run <strategy> on <url> using $<budget>"  to:
-#   checkout the branch -> deploy.py create (fund) -> runtime (start) -> verify (ticking).
+#   checkout the branch -> deploy.py create, which starts the runtime's `senpi deploy` verb
+#   (preflight -> create+fund -> install -> verified tick) and polls it to a terminal report.
 #
 # Host prerequisites: @senpi/runtime >= 3.0.6, SENPI_AUTH_TOKEN set, and a funding
 # source holding at least the strategy's min_budget (see its strategy.yaml).
@@ -35,7 +36,5 @@ git pull --ff-only origin "$BRANCH"
 [ -d "strategies/$ID" ] || { echo "error: strategies/$ID does not exist on branch '$BRANCH'" >&2; exit 1; }
 
 cd senpi-strategy-ops/scripts
-python3 deploy.py create  "$ID" --budget "$BUDGET"
-python3 deploy.py runtime "$ID"
-python3 deploy.py verify  "$ID" || true                # optional; first tick is gated by interval_seconds
+python3 deploy.py create "$ID" --budget "$BUDGET"   # one idempotent deploy; re-run it to resume
 echo ">> done — $ID deployed from '$BRANCH' with \$$BUDGET. It scans on its own cadence; flat != broken."
