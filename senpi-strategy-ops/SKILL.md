@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.12.1"
+  version: "2.13.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -35,7 +35,8 @@ sizing/execution, the two-phase DSL exit, risk guard-rails. **There is no separa
 tool call — wallet funding and the first scan tick are slow, so they must not block one long call):
 
 ```
-python3 senpi-strategy-ops/scripts/deploy.py validate <id>                 # 0. preflight — deploy-ready? (no side effects)
+openclaw senpi validate <package-dir>                                     # 0a. does it RUN? (no wallet, no funding)
+python3 senpi-strategy-ops/scripts/deploy.py validate <id>                 # 0b. preflight — deploy-ready? (no side effects)
 python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget <usd>   # 1. create wallets & fund them
 python3 senpi-strategy-ops/scripts/deploy.py runtime <id>                  # 2. register the runtime(s)
 python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                  # 3. GATE — confirm LIVE (runtime+scanner+DSL+budget)
@@ -73,8 +74,21 @@ exists, check the registry; no match → hand to **senpi-strategy-discover**:
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/strategies/catalog.json
 ```
 
-**Step 0.5 — preflight (recommended).** `deploy.py validate <id>` reports every structural + render
-issue in **one pass**, with **no side effects**, before you fund anything. The deployer **accepts the
+**Step 0.5 — preflight. Two questions, two commands.**
+
+`openclaw senpi validate <package-dir>` answers **does it run** — loads every scanner file, runs one
+real tick against live read-only data, counts what it read, and checks each emitted signal against
+the runtime's own wire schema. No wallet, no funding. `PASS` records a proof of runnability beside
+the recipe; **`UNPROVEN` (exit 2) is not a pass** — the tick ran and established nothing, usually a
+gate in `scan()` that should consult `ctx.dry_run`.
+
+`deploy.py validate <id>` answers **is the package well formed** — every structural + render
+issue in **one pass**, with **no side effects**, before you fund anything.
+
+`deploy.py create` runs the runnability check itself and **refuses to fund a package that has not
+passed**, so the proof exists by the time the deploy step looks for it. When it refuses, it prints
+the findings verbatim — each carries `what` / `why` / `fix` written for the agent that has to fix
+it; pass them through rather than summarising. The deployer **accepts the
 flat single-instance layout** agents naturally scaffold — one `runtime.yaml` + `scanners/` at the
 package root — by synthesizing the canonical `main` instance, so there's **no need to restructure into
 `main/`**. Any remaining fix is named prescriptively (e.g. `set runtime name: <id>-main`). A package
