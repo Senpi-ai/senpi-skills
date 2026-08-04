@@ -38,14 +38,14 @@ in one pass whether the package is deploy-ready.
 | **You own** | **Runtime 3.0 owns** |
 |---|---|
 | Universe, signal, score | Scheduling + supervising `scan()` (restarts a crashed child) |
-| Sizing **intent** (`marginPct` / weight) | Converting intent → **dollars** off the live (reconciled) account |
+| Sizing **intent** (`marginPct`) | Converting intent → **dollars** off the live (reconciled) account |
 | Exit shape (a named DSL preset) | Execution, slot caps, position dedup |
 | Risk limits (guard rails) | State durability (transactional), retries |
 | Catalog facets | **Read-only enforcement** — any mutating tool raises `PermissionError` |
 
 Two invariants fall out of this:
 1. **`scan()` is read-only + pure + single-pass.** On *any* error, `return []` — never crash.
-2. **You emit a sizing *intent* (`marginPct`/weight), not dollars.** The runtime computes `marginUsd` from the reconciled account value. Do **not** read the clearinghouse to size — that's the runtime's job in 3.0. **`marginPct` is a PERCENT in (0,100]** — `10` = 10%, sized `(marginPct/100) × withdrawable` (not a fraction: `0.10` = 0.1%).
+2. **You emit a sizing *intent* (`marginPct`), not dollars.** The runtime converts it to a dollar amount off the reconciled account value. Do **not** read the clearinghouse to size — that's the runtime's job in 3.0. **`marginPct` is a PERCENT in (0,100]** — `10` = 10%, sized `(marginPct/100) × withdrawable` (not a fraction: `0.10` = 0.1%). **`marginPct` and `leverage` are the only two per-signal sizing keys** — any other top-level key is dropped with a stderr warning and sizing falls back to the configured margin.
 
 ## 4. The design space — the 7 decisions that define *any* strategy
 

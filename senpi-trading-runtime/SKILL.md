@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.1.0"
+  version: "3.1.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -54,7 +54,7 @@ The interaction surface is small and one-directional — you read, you return si
   - **`ctx.wallet`** — the strategy's wallet address.
   - → `references/scan-contract.md`
 - **The return value** is a `list[dict]`, one per candidate signal (`asset`, `direction`,
-  `marginUsd`, `leverage`, `data{}`). The runtime validates each `data{}` against the runtime.yaml's
+  `marginPct`, `leverage`, `data{}`). The runtime validates each `data{}` against the runtime.yaml's
   `signal_data_schema`, then sizes, executes, and manages exits.
 
 Keep the thesis logic in a sibling pure **`scoring.py`** (no I/O, no MCP) so it is unit-testable;

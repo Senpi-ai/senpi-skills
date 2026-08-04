@@ -37,8 +37,7 @@ def scan(inputs, ctx):
     out = [{
         "asset": p["coin"],            # REQUIRED
         "direction": p["direction"],   # REQUIRED — "LONG" | "SHORT"
-        "marginPct": p["margin_pct"],  # top-level PERCENT of withdrawable — the fleet-standard sizing field
-        # (or "marginUsd": p["margin_usd"] for a fixed USD amount — pick one)
+        "marginPct": p["margin_pct"],  # top-level PERCENT of withdrawable
         "leverage": p["leverage"],     # top-level
         "data": {                      # validated against signal_data_schema
             "score": p["score"], "direction": p["direction"], "reasons": p["reasons"],
@@ -164,8 +163,7 @@ Return a `list[dict]`, one per candidate. Keys:
 |---|---|---|
 | `asset` | ✅ | non-empty string |
 | `direction` | ✅ | normalized to `LONG` / `SHORT` (case-insensitive in) |
-| `marginPct` | — | **top-level**, PERCENT of withdrawable in (0,100] — **the fleet standard** (~97 of 102 scanners); the runtime sizes `(marginPct/100) × withdrawable`. Positive when present; a present-but-non-positive value is a **loud reject** |
-| `marginUsd` | — | **top-level**, a fixed USD amount (not a percent) — the alternative to `marginPct`; positive when present, non-positive is a **loud reject** |
+| `marginPct` | — | **top-level**, PERCENT of withdrawable in (0,100]; the runtime sizes `(marginPct/100) × withdrawable`. Positive when present; a present-but-non-positive value is a **loud reject** |
 | `leverage` | — | **top-level**, positive number when present |
 | `data` | — | validated against the recipe's `signal_data_schema`: unknown key → reject, missing required key → reject, wrong type → reject (types `string`/`number`/`boolean`/`object`/`array`) |
 | `valid_for_seconds` | — | per-signal TTL (relative); a non-positive/non-int falls back to `default_signal_validity_seconds` |
@@ -177,9 +175,13 @@ default_signal_validity_seconds)`), the wire envelope, delivery, and dedup. **Do
 `valid_until`/`produced_at`.** You also don't normalize a `[0,1]` wire score — emit your raw score on
 `data{}`.
 
-`marginPct` (percent of withdrawable — the fleet standard) **or** `marginUsd` (fixed USD), plus
-`leverage`, are the canonical **top-level** sizing fields (the runtime reads
-`signal.marginPct`/`signal.marginUsd`/`signal.leverage` directly) — don't bury them inside `data{}`.
+`marginPct` (percent of withdrawable) and `leverage` are the canonical **top-level** sizing fields
+(the runtime reads `signal.marginPct`/`signal.leverage` directly) — don't bury them inside `data{}`.
+
+> **Per-signal sizing is exactly two top-level keys: `marginPct` and `leverage`.** Any other
+> top-level key is **dropped with only a stderr warning**, and sizing falls back to the recipe's
+> configured margin — so an invented sizing field does not fail loudly, it quietly sizes the
+> position differently than you intended.
 
 ---
 
@@ -212,7 +214,7 @@ Both are valid — it's your thesis:
 - ✅ Keep dedup / rotation / first-seen ledgers in `ctx.state` (`last()` → mutate → `append()`).
 - ✅ Declare every `data{}` key in `signal_data_schema`; set `default_signal_validity_seconds`.
 - ✅ Read every numeric field through `_f()` — no-op on numbers, required on strings.
-- ✅ Put `marginPct` (fleet standard) or `marginUsd`, plus `leverage`, at the **top level**, not inside `data{}`.
+- ✅ Put `marginPct` and `leverage` — the only two sizing keys — at the **top level**, not inside `data{}`.
 - ✅ On any failure, **return `[]`** (or a partial list) — don't crash.
 - ❌ Don't set `valid_until`/`produced_at` — the scaffold owns the envelope (`signal_id` optional).
 - ❌ Don't schedule the scanner yourself or POST signals — the runtime does it.
