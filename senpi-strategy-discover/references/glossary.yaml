@@ -80,6 +80,7 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   cohort_divergence: { gloss: "Acts when a smart-money cohort diverges from price." }
   sm_rotation: { gloss: "Follows where smart money is rotating across asset classes — long the crowded-into, short the fled." }
   elite_conviction: { gloss: "Mirrors only top-tier (elite/reliable) traders' concentrated, high-conviction positions." }
+  fresh_entry_mirror: { gloss: "Mirrors only the FRESHLY-opened positions of a small vetted cohort — never inherits an existing book — with an entry-slippage guard so you don't chase a fill that already ran." }
   # single_market
   pre_ipo:       { gloss: "Trades pre-IPO perpetuals (IPOPs) before the company lists." }
   ipo_moment:    { gloss: "Trades the IPO conversion moment." }
@@ -111,6 +112,9 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   market_making: { gloss: "Volume / market-making, not directional." }
   pairs_rv:      { gloss: "Trades a pair's ratio back to its mean (relative value)." }
   dca:           { gloss: "Dollar-cost-averages on a schedule; predicts nothing." }
+  capital_preservation: { gloss: "Diversified, NO-leverage, capped portfolio that preserves capital first — enters only high-quality multi-timeframe trends that clear a fee hurdle, with hard per-position and per-class limits; 'no trade is better than a poor trade'." }
+  # macro_thesis
+  conviction_rebalance: { gloss: "Re-underwrites a concentrated book on a fixed clock (e.g. every 3h) from a blended short-horizon score — cross-asset flows + funding regime + momentum events — holding only the 1-2 highest-conviction long/short ideas." }
   # tail_risk
   crisis_alpha:  { gloss: "Convex crisis hedge that pays off in tail / vol events." }
   # event_driven

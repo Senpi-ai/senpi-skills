@@ -1,0 +1,41 @@
+# Shadow — multi-trader fresh-entry mirror. A single-instance PACKAGE: this manifest +
+# one self-contained runtime.yaml + scanners/. Watches a small cohort of vetted Hyperliquid
+# traders and mirrors ONLY the positions they NEWLY open — it never inherits an existing
+# book mid-move — with a hard entry-slippage guard and budget-relative sizing that has a
+# min-notional floor. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: shadow
+version: "1.0.0"
+
+catalog:
+  name: "Shadow — Multi-Trader Fresh-Entry Mirror"
+  emoji: "🕶️"
+  tagline: "Watches a handful of vetted Hyperliquid traders and mirrors only the positions they NEWLY open — never inheriting a stale book mid-move — with a hard entry-slippage guard so you never chase a fill that already ran, plus budget-relative sizing with a min-notional floor."
+  belief_plain: "Instead of copying one trader's whole account — and inheriting trades already deep in profit or loss at a worse price than they got — Shadow watches two or three proven traders and only acts when one of them OPENS a brand-new position. It checks how far price has already moved from their entry and skips the trade if it is too late to get a comparable fill. It sizes each mirror to your budget with a floor so a position is never too small to matter, and it manages its own exit."
+  thesis: "The failure mode of naive mirroring is entry drift: you inherit a book at a 1-5% worse price than the trader got, so the same trade is a loss for you. Shadow fires ONLY on fresh opens (a snapshot-diff against a seeded book, so nothing pre-existing is ever inherited), rejects any entry whose price has already run past a slippage cap, and can require multi-trader confirmation before committing size. You follow proven money at their price, not yesterday's book at yours. Leverage is capped, so a trader's 40x book becomes something survivable."
+  group: smart-money
+  archetype: copy_trading
+  sub_style: fresh_entry_mirror
+  asset_classes: [universe_crypto]
+  asset_scope: follows_traders
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  leverage_max: 10
+  max_slots: 5
+  min_budget: 200
+  assets: []
+  tags: [copy-trading, multi-trader, fresh-entry, mirror, entry-slippage-guard, smart-money, budget-relative]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: SHADOW_WALLET
+    funding_share: 1.0

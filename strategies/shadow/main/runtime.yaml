@@ -1,0 +1,110 @@
+# ── SHADOW · multi-trader fresh-entry mirror (single wallet) ──
+name: shadow-main
+group: shadow
+version: 3.0.0
+description: >
+  SHADOW — mirrors ONLY the freshly-opened positions of a small cohort of vetted
+  Hyperliquid traders (explicit traderAddresses, else auto-selected top-N by all-time
+  realized PnL). Diffs each trader's live book against a seeded snapshot so an existing
+  book is NEVER inherited; rejects any entry whose price has already run past the slippage
+  cap; sizes budget-relative with a min-notional floor. Manages its own DSL exit — it
+  follows opens, not the trader's close. ~1 tick warmup per trader (first sight seeds the book).
+
+strategy:
+  wallet: "${SHADOW_WALLET}"
+  slots: 5
+  default_leverage: 5
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: shadow_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 120                   # tight enough to catch fresh opens near the trader's fill
+    timeout_seconds: 90
+    default_signal_validity_seconds: 600
+    state_history_max_count: 12             # seeded per-trader book + cohort cache + dedup
+    inputs:
+      traderAddresses: []                   # name your traders here; empty -> auto-select vetted top-N
+      autoSelectMinRealizedUsd: 1000000
+      autoSelectPool: 50
+      cohortRefreshHours: 24
+      maxWatched: 3
+      minConfirm: 1                         # 1 = mirror any watched trader's fresh open; 2 = require confirmation
+      maxEntrySlippagePct: 1.5             # skip if price already ran >1.5% past their entry
+      marginPct: 15                         # PERCENT of withdrawable (0,100]
+      minMarginPct: 8                       # min-notional floor — never 'too small to enter'
+      maxMarginPct: 30
+      convictionStepPct: 0.5                # +50% of base per extra confirming trader
+      stdLeverage: 5
+      maxLeverage: 10                       # caps a trader's 40x book to something survivable
+      recentSignalTtlSeconds: 3600
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      signalKind: { type: string, required: false }
+      confirmCount: { type: number, required: false }
+      entrySlippagePct: { type: number, required: false }
+      traderEntry: { type: number, required: false }
+      traders: { type: array, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: shadow_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied every filter
+    scanners: [shadow_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true     # a fresh mirror must fill near the trader's price
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: shadow_signals
+
+# EXIT — Shadow follows opens, not the trader's close, so it runs its OWN exit: a moderate
+# disaster stop, a ratchet that locks gains as they build, and a hard cap so a mirrored
+# position never bag-holds after the trader has likely moved on.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout: { enabled: true, interval_in_minutes: 2880 }      # 48h cap
+    weak_peak_cut: { enabled: true, interval_in_minutes: 720, min_value: 2.0 }
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 2
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,  lock_hw_pct: 30 }
+        - { trigger_pct: 18, lock_hw_pct: 50 }
+        - { trigger_pct: 40, lock_hw_pct: 68 }
+        - { trigger_pct: 90, lock_hw_pct: 82 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 12
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    max_consecutive_losses: 4
+    cooldown_seconds: 1800
+    per_asset_cooldown_seconds: 10800
+    max_entries_per_day: 8
+    bypass_max_entries_per_day_on_profit: false
