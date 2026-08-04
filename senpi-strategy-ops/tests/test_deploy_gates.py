@@ -70,7 +70,7 @@ class UnderfundedNote(unittest.TestCase):
                 "shares": shares if shares is not None else [1.0 / wallets] * wallets}
 
     def test_zero_balance_never_suggests_lower_budget(self):
-        # the M381223 case: $0 accessible → the old note said "--budget ≤ $0"
+        # the $0-accessible-budget case: $0 accessible → the old note said "--budget ≤ $0"
         note = deploy.underfunded_note(self._short(500, 1, 0, 0))
         self.assertIn("[E_FUNDS_BELOW_FLOOR]", note)
         self.assertNotIn("--budget ≤", note)

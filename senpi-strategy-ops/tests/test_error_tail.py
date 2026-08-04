@@ -17,7 +17,7 @@ import _cli  # noqa: E402
 
 class ErrorTail(unittest.TestCase):
     def test_real_error_survives_banner_flood(self):
-        # the M407593 shape: dozens of banner lines, real error on the last line —
+        # the banner-flood shape: dozens of banner lines, real error on the last line —
         # a head-truncating capture returns only banners
         err = "\n".join(["[plugins] [senpi-runtime] plugin registered …"] * 60) \
               + "\nError: exit block invalid: retrace_threshold must be > 0"
