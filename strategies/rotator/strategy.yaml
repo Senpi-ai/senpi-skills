@@ -1,0 +1,41 @@
+# Rotator — scheduled conviction rebalance. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. On a fixed clock (default 3h) it re-underwrites a
+# concentrated max-2 long/short book from a blend of three short-horizon reads (cross-asset
+# flows + funding regime + leaderboard momentum events). Rotates by attrition — the DSL is the
+# only exit. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: rotator
+version: "1.0.0"
+
+catalog:
+  name: "Rotator — Scheduled Conviction Rebalance"
+  emoji: "🔁"
+  tagline: "On a fixed clock (default every 3 hours) it re-reads the market and rebalances a deliberately concentrated book — never more than two positions, long OR short — ranking candidates on a blended score of cross-asset flows, the funding regime, and live leaderboard momentum events."
+  belief_plain: "Every few hours this strategy re-underwrites its whole book from scratch. It looks at which alts are lagging a big Bitcoin move and should catch up, whether the crowd is dangerously one-sided on funding (a contrarian warning), and which coins the best traders are piling into right now — then blends those into a single conviction score and holds only the one or two best long-or-short ideas. Weak positions retire on their stop and the next rebalance fills the freed slot."
+  thesis: "Concentration plus a fixed re-underwrite clock beats a sprawling always-on book: a small number of high-conviction positions, re-scored every few hours against the freshest short-horizon data, keeps the book aligned with current conditions instead of yesterday's. The three inputs are deliberately short-horizon (4h flows, live funding, 4h momentum events) — not a long-lookback cohort — so the reads match the timescale of the trades. It rotates by attrition rather than force-closing, so it never fights its own DSL."
+  group: multi-asset-universe
+  archetype: macro_thesis
+  sub_style: conviction_rebalance
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  leverage_max: 5
+  max_slots: 2
+  min_budget: 200
+  assets: []
+  tags: [rebalance, conviction, concentrated, cross-asset-flows, funding-regime, momentum-events, blended-score, long-short, rotate-by-attrition, three-hourly]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: ROTATOR_WALLET
+    funding_share: 1.0

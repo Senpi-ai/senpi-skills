@@ -1,0 +1,116 @@
+# ── ROTATOR · scheduled conviction rebalance (single wallet, concentrated <=2 book) ──
+name: rotator-main
+group: rotator
+version: 3.0.0
+description: >
+  ROTATOR — every ~3h re-underwrites a concentrated (max 2) long/short book from a blend
+  of three short-horizon reads: cross-asset flows (alts lagging BTC's move), the market
+  funding regime (crowding = contrarian), and leaderboard momentum events (winners
+  entering strong phases). Fills only FREE slots and rotates by attrition — the DSL is the
+  only exit; the next rebalance refills a freed slot with the current best. Aggressive size
+  on a deliberately small book.
+
+strategy:
+  wallet: "${ROTATOR_WALLET}"
+  slots: 2
+  default_leverage: 4
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: rotator_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 10800                 # 3h rebalance cadence (the originating brief)
+    timeout_seconds: 120
+    default_signal_validity_seconds: 5400
+    state_history_max_count: 48             # dedup + rebalance results
+    inputs:
+      maxSlots: 2
+      leaderAsset: "BTC"
+      leaderMinMovePct: 1.0
+      minFollowRate: 0.7                     # laggard must historically follow the leader
+      minConfidence: 0.5
+      minGapPct: 0.5
+      gapFullPct: 3.0                        # gap that saturates the flow component
+      minEventTier: 2                        # tier>=2 momentum events only (winners entering)
+      eventWindowMin: 240                    # 4h freshness on events
+      eventCoinWeight: 1.5
+      eventMarketWeight: 0.5
+      flowWeight: 4.0
+      fundingWeight: 1.5
+      minScore: 4.0
+      goodScore: 5.5
+      apexScore: 7.0
+      marginPctTiers: { apex: 42, good: 32, base: 22 }   # PERCENT of withdrawable — aggressive, concentrated
+      leverageTiers: { apex: 5, good: 5, base: 4 }
+      recentSignalTtlSeconds: 10800
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      band: { type: string, required: false }
+      regime: { type: string, required: false }
+      gapPct: { type: number, required: false }
+      followRate: { type: number, required: false }
+      confidence: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: rotator_open
+    action_type: OPEN_POSITION
+    decision_mode: rule                      # the blended score already filtered
+    scanners: [rotator_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: rotator_signals
+  # NO CLOSE_POSITION action — DSL is the only exit (rotate-by-attrition).
+
+# EXIT — DSL owns every exit. A concentrated rebalancer needs its slots to free up so the
+# next 3h read can refill: weak_peak_cut retires a stalled position in ~1 day, a 48h hard
+# cap guarantees full turnover, winners ride the ladder.
+exit:
+  engine: dsl
+  interval_seconds: 45
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout: { enabled: true, interval_in_minutes: 2880 }              # 48h — full turnover
+    weak_peak_cut: { enabled: true, interval_in_minutes: 1440, min_value: 2.5 }  # free a stalled slot in ~1d
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 6,  lock_hw_pct: 0 }
+        - { trigger_pct: 15, lock_hw_pct: 40 }
+        - { trigger_pct: 35, lock_hw_pct: 62 }
+        - { trigger_pct: 70, lock_hw_pct: 80 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 12
+    drawdown_halt_pct: 22
+    drawdown_reset_on_day_rollover: true
+    max_consecutive_losses: 4
+    cooldown_seconds: 1800
+    per_asset_cooldown_seconds: 10800
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
