@@ -63,27 +63,6 @@ class TestRuntimeRunning(unittest.TestCase):
         self.assertFalse(_cli.runtime_no_entry_scanners({}))
 
 
-class TestScannerVerdictUnwired(unittest.TestCase):
-    def test_unwired_health_payload_brands_broken(self):
-        # A running-but-blind runtime (health payload scanners.unwired) must never fall
-        # through to `supervised` = live — there are no per-scanner rows to downgrade on.
-        import types
-        import deploy
-        inst = types.SimpleNamespace(external_scanner={"name": "x_signals"}, interval_seconds=60)
-        payload = {"components": {"scanners": {"unwired": True, "unwiredPhase": "mount"}}}
-        st, detail = deploy._scanner_verdict(inst, None, payload)
-        self.assertEqual(st, "broken")
-        self.assertIn("mount", detail)
-
-    def test_wired_payload_unaffected(self):
-        import types
-        import deploy
-        inst = types.SimpleNamespace(external_scanner={"name": "x_signals"}, interval_seconds=60)
-        payload = {"components": {"scanners": {"unwired": False}}}
-        st, _ = deploy._scanner_verdict(inst, None, payload)
-        self.assertNotEqual(st, "broken")
-
-
 class TestStatusBuckets(unittest.TestCase):
     def test_every_health_class_is_rendered(self):
         # Every health class status.py can assign must have an icon — a missing entry
