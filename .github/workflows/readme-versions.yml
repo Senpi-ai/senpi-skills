@@ -1,0 +1,48 @@
+name: README versions
+
+# Keeps the README version table in sync with each skill's SKILL.md
+# metadata.version — the single source of truth. On a PR that bumps a skill
+# version, this regenerates the table and commits the fix back to the branch,
+# so the README is never edited by hand. On push to main it verifies sync.
+
+on:
+  pull_request:
+    paths:
+      - '**/SKILL.md'
+      - 'README.md'
+      - 'scripts/gen_readme_versions.py'
+      - '.github/workflows/readme-versions.yml'
+  push:
+    branches: [main]
+    paths:
+      - '**/SKILL.md'
+      - 'README.md'
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      # PRs from within the repo: auto-fix the README and push it back.
+      - name: Sync + auto-commit (same-repo PRs)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          python3 scripts/gen_readme_versions.py
+          if ! git diff --quiet -- README.md; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add README.md
+            git commit -m "docs: auto-sync README skill versions [skip ci]"
+            git push
+          fi
+
+      # Fork PRs (can't push) + push to main: verify only, fail if drifted.
+      - name: Verify in sync
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+        run: python3 scripts/gen_readme_versions.py --check

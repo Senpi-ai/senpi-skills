@@ -57,6 +57,8 @@ A Senpi agent's capabilities are **skills** — each one packages the right mult
 
 Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib-only `mcp_client.py` + a deterministic Python engine that emits structured JSON + a `SKILL.md` that narrates the result under hard guardrails (no fabricated forward numbers, honest data sourcing, process-over-outcome). The engine gathers and computes; the model judges and explains.
 
+<!-- The Ver column is auto-synced from each skill's SKILL.md metadata.version by
+     scripts/gen_readme_versions.py (enforced in CI). Do not hand-edit versions. -->
 | Skill | Ver | Role |
 |---|---|---|
 | **Analyze** | | |
