@@ -512,61 +512,6 @@
       "sort_order": 1
     },
     {
-      "id": "turbine",
-      "name": "Turbine — Volume / Market-Making Engine",
-      "emoji": "🌪️",
-      "tagline": "A two-wallet volume engine: it rotates funding-fade entries across a tight liquid universe to generate notional volume at minimum fee cost (builder-fee recycling), not to take a directional view — one wallet churns fast, the other lets the rare winner run.",
-      "belief_plain": "This isn't a bet on prices going up or down. It opens and closes a steady stream of small, balanced positions across a handful of the deepest, tightest-spread markets (BTC/ETH/SOL/HYPE plus oil, gold, and the S&P 500 on the XYZ DEX) to rack up trading volume as cheaply as possible. It leans against crowded funding (shorts the crowded-long side, longs the crowded-short side) so the average position is roughly neutral. One wallet force-cuts every position on a 10-minute clock for pure volume; the second wallet runs the exact same entries but gives the occasional real move room to ratchet up before exiting.",
-      "version": "3.2.2",
-      "thesis": "Volume itself is the product: high notional throughput on Hyperliquid recycles builder fees, and on a tight, deep universe the maker-rebate math can net out roughly breakeven-to-slightly-positive before the volume reward. Concentrating on the few markets with the tightest spreads (XYZ books weighted 80%) keeps the per-$1M cost low. Funding-fade direction selection keeps the book structurally neutral rather than exposed. Splitting into a fast-rotation wallet and a patient-DSL wallet captures the asymmetry that pure rotation gives up — most positions exit flat either way, but the ~5% that catch a real directional move ride to a much larger realized PnL on the runners wallet instead of being force-cut at 10 minutes.",
-      "tags": [
-        "volume",
-        "market-making",
-        "builder-fee",
-        "funding-fade",
-        "two-wallet",
-        "rotation",
-        "structural-neutral",
-        "maker"
-      ],
-      "group": "market-neutral",
-      "archetype": "structural_neutral",
-      "archetype_label": "Structural / Neutral",
-      "sub_style": "market_making",
-      "sub_style_label": "Volume / market-making, not directional.",
-      "asset_classes": [
-        "btc_eth",
-        "major_alts",
-        "commodities",
-        "indices"
-      ],
-      "asset_scope": "basket",
-      "assets": [
-        "BTC",
-        "ETH",
-        "SOL",
-        "HYPE",
-        "xyz:BRENTOIL",
-        "xyz:GOLD",
-        "xyz:SP500"
-      ],
-      "direction": "long_short",
-      "risk_level": "aggressive",
-      "tier": "advanced",
-      "leverage_max": 5,
-      "time_horizon": "scalp",
-      "cadence_seconds": 60,
-      "min_budget": 200,
-      "instance_count": 2,
-      "funding_split": [
-        0.675,
-        0.325
-      ],
-      "max_slots": 9,
-      "branch": "main",
-      "sort_order": 1
-    },
-    {
       "id": "badger",
       "name": "Badger — OI-Divergence Breakout Anticipator",
       "emoji": "🦡",

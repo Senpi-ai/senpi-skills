@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aggressive stress test of the matcher over the full origin/main fleet (75 strategies).
+"""Aggressive stress test of the matcher over the full origin/main fleet (74 strategies).
 Sweeps concrete-intent combinations; asserts no crashes, full reachability, correctness, latency.
 Run: python3 tests/test_fullfleet.py  (regenerate fixture first if main changed — see gen_fullfleet.py)
 
@@ -119,7 +119,7 @@ def correctness():
     ck("unknown named -> broaden or build-custom (no crash)", isinstance(run(assets="WIFFLEBALL")["candidates"], list))
 
     # return-ALL invariant
-    ck("empty intent returns all 75", run()["meta"]["eligible_count"] == len(ALL_IDS))
+    ck("empty intent returns all 74", run()["meta"]["eligible_count"] == len(ALL_IDS))
     ck("empty returned == eligible", run()["meta"]["returned_n"] == len(ALL_IDS))
 
     # WORLDVIEW / hedge-fund reachability (the whole point of thesis+tags)

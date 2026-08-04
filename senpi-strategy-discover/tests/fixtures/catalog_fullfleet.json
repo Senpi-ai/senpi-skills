@@ -2690,46 +2690,6 @@
       "branch": "main-synthetic"
     },
     {
-      "id": "turbine",
-      "name": "Turbine — Volume Engine + Runners",
-      "emoji": "🌪️",
-      "tagline": "Run the volume play. Let winners run.",
-      "belief_plain": "Run the volume play.",
-      "version": "3.3.0",
-      "group": "volume-engine",
-      "thesis": "You're not trading direction — you want to recycle builder fees and accrue volume credits.",
-      "tags": [
-        "volume-engine",
-        "two-wallet",
-        "builder-fee-recycle"
-      ],
-      "archetype": "structural_neutral",
-      "archetype_label": "Structural Neutral",
-      "sub_style": "market_making",
-      "sub_style_label": "Market Making",
-      "asset_classes": [
-        "btc_eth",
-        "major_alts",
-        "universe_crypto"
-      ],
-      "asset_scope": "universe",
-      "assets": [],
-      "direction": "long_short",
-      "risk_level": "aggressive",
-      "tier": "advanced",
-      "leverage_max": 10,
-      "time_horizon": "swing",
-      "cadence_seconds": 300,
-      "min_budget": 100,
-      "instance_count": 1,
-      "funding_split": [
-        1.0
-      ],
-      "max_slots": 3,
-      "sort_order": 34,
-      "branch": "main-synthetic"
-    },
-    {
       "id": "vulture",
       "name": "Vulture — Long-Tail Momentum Rider",
       "emoji": "🦅",
