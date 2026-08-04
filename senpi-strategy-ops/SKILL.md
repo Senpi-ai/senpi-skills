@@ -133,7 +133,19 @@ resumes on its own — only a fresh deploy does, and it reconciles.
 
 **Re-running is always safe.** There is **no local deploy-state file**: the backend strategies and the
 runtime registry are the record, so re-running the same deploy command reconciles and adopts whatever
-already exists instead of duplicating it.
+already exists instead of duplicating it. A wallet that is still initializing is **waited for**, not
+adopted half-built and not duplicated.
+
+> **Behaviour change from the old three-step flow.** `create` used to refuse when an `<id>` strategy
+> was already deployed and running, and to close a runtime-less one to force a fresh wallet. The verb
+> **adopts** instead — no close, no second wallet. Two consequences worth saying out loud to the user:
+> deploy **never adds funds to a wallet that already exists** (ask for $500 against a wallet holding
+> $100 and the report says the $500 was NOT added — top up separately, or `close.py` and redeploy),
+> and "re-run to get a fresh wallet" is no longer a thing (`close.py <id>` first).
+
+**Packages with no exit block are refused before anything is funded.** If an instance declares no
+`exit.dsl_preset` / `exit.engine: dsl`, the verb refuses: every position it opened would run with no
+stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.py validate <id>`.
 
 > **Do NOT improvise.** A package strategy is a **runtime-supervised scanner** — deploy it **only** via
 > the verb. Never substitute a raw `strategy_create_custom_strategy` MCP call to "deploy" it: that makes
@@ -168,9 +180,14 @@ scanner row's own fields. **Never re-derive a number in prose.**
 
 `deploy.py` no longer deploys anything itself. Each of its three action subcommands resolves the package
 (a bare catalog id is fetched), runs the structural preflight, then starts the **same** verb, polls it,
-and prints its report verbatim. They keep their flags (`--budget`, `--decision-model`, `--max-wait`,
-`--json`, `--dry-run`) and their exit codes (2 on a refused/failed report), so older transcripts and
-habits still work. `deploy.py status <id>` shows the last deploy job. Prefer the verb directly when you
+and prints its report verbatim. All three keep the same flags (`--budget`, `--decision-model`,
+`--max-wait`, `--tick-wait`, `--json`, `--dry-run`) and exit codes (2 on a refused/failed report), so
+older transcripts and habits still work — but note the behaviour change below.
+
+> **`verify` now runs a deploy.** It used to be a read-only check. It drives the same idempotent verb,
+> so on a package whose wallets already exist it just reconciles and observes — but given a `--budget`
+> and a missing wallet it **will create and fund one**. If you only want to look, use
+> `openclaw senpi deploy status` (or `deploy.py status`), which never starts anything. `deploy.py status <id>` shows the last deploy job. Prefer the verb directly when you
 already have the package directory — one surface, one report.
 
 ### Host prerequisites

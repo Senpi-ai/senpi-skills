@@ -230,6 +230,8 @@ def main(argv):
     pc.add_argument("--budget", type=float, default=None, help="Total USDC split across wallets by funding_share.")
     pc.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT, help="How long to wait for the job (s).")
     pc.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
+    pc.add_argument("--tick-wait", type=int, default=None,
+                    help="Seconds the job waits to observe one verified scanner tick (0 skips).")
     pc.add_argument("--dry-run", action="store_true")
 
     pr = sub.add_parser("runtime", help="Resume/complete the same deploy (installs the runtime(s)).")
@@ -237,6 +239,8 @@ def main(argv):
     pr.add_argument("--budget", type=float, default=None, help="Only needed if a wallet still has to be created.")
     pr.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT, help="How long to wait for the job (s).")
     pr.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
+    pr.add_argument("--tick-wait", type=int, default=None,
+                    help="Seconds the job waits to observe one verified scanner tick (0 skips).")
     pr.add_argument("--dry-run", action="store_true")
 
     pv = sub.add_parser("verify", help="Re-run the deploy: reconciles what exists, then observes a scanner tick.")
@@ -244,6 +248,9 @@ def main(argv):
     pv.add_argument("--budget", type=float, default=None, help="Only needed if a wallet still has to be created.")
     pv.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT, help="How long to wait for the job (s).")
     pv.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
+    pv.add_argument("--tick-wait", type=int, default=None,
+                    help="Seconds the job waits to observe one verified scanner tick (0 skips).")
+    pv.add_argument("--dry-run", action="store_true")
 
     ps = sub.add_parser("status", help="Show the last deploy job for this agent.")
     common(ps)
@@ -255,11 +262,22 @@ def main(argv):
     a = ap.parse_args(argv[1:])
     log = (lambda m: None) if a.json else (lambda m: print(m))
 
+    # `status` reports the agent's last deploy JOB, which has nothing to do with the package on
+    # disk — so it must not resolve (and possibly remote-fetch) a package just to print a snapshot.
+    if a.cmd == "status":
+        snap = status_snapshot(None)
+        if snap is None:
+            print("No deploy job recorded on this agent. Start one:\n"
+                  f"  python3 {Path(__file__).name} create <id> --budget <usd>", file=sys.stderr)
+            sys.exit(2)
+        print_status(None, a.json, snap)
+        sys.exit(2 if (snap.get("state") or {}).get("overall") in TERMINAL_BAD else 0)
+
     pkg = ensure_pkg(a.package, a.ref, log)
 
     # `validate` is the standalone, side-effect-free preflight; the action subcommands run the SAME
-    # full check before the verb touches money. `status` keeps the structural gate only.
-    gate = full_validate(pkg) if a.cmd in ("validate", "create", "runtime", "verify") else _pkg.validate(pkg)
+    # full check before the verb touches money.
+    gate = full_validate(pkg)
     if a.cmd == "validate":
         if a.json:
             print(json.dumps({"status": "valid" if not gate else "invalid", "id": pkg.id, "errors": gate}))
@@ -275,16 +293,6 @@ def main(argv):
         for e in gate:
             print(f"    - {e}", file=sys.stderr)
         sys.exit(1)
-
-    if a.cmd == "status":
-        snap = status_snapshot(None)
-        if snap is None:
-            print("No deploy job recorded on this agent. Start one:\n"
-                  f"  python3 {Path(__file__).name} create {pkg.id} --budget <usd>", file=sys.stderr)
-            sys.exit(2)
-        print_status(None, a.json, snap)
-        state = snap.get("state") or {}
-        sys.exit(2 if state.get("overall") in TERMINAL_BAD else 0)
 
     universe_preflight(pkg, log)
     sys.exit(run_deploy(pkg, a, log))

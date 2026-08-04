@@ -12,7 +12,7 @@
 #   checkout the branch -> deploy.py create, which starts the runtime's `senpi deploy` verb
 #   (preflight -> create+fund -> install -> verified tick) and polls it to a terminal report.
 #
-# Host prerequisites: @senpi/runtime >= 3.0.6, SENPI_AUTH_TOKEN set, and a funding
+# Host prerequisites: an @senpi-ai/runtime carrying the `senpi deploy` verb, SENPI_AUTH_TOKEN set, and a funding
 # source holding at least the strategy's min_budget (see its strategy.yaml).
 set -euo pipefail
 
