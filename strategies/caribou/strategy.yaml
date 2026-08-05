@@ -27,7 +27,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 8
-  min_budget: 400
   assets: []                     # dynamic universe — bucketed from the live instrument board
   tags: [managed-futures, cta, trend-following, cross-asset, vol-parity, equal-risk, crisis-alpha, long-short, diversified, hedge-fund]
 

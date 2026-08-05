@@ -24,7 +24,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 1
-  min_budget: 200
   assets: []
   tags: [momentum, trend-continuation, universe, smart-money, apex-sniper, one-trade-per-day, conviction-sizing]
 

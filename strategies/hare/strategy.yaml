@@ -24,7 +24,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 2
-  min_budget: 300
   assets: ["BTC", "ETH"]
   tags: [scalp, session, btc, eth, crypto-majors, maker-only, fee-guarded, sub-hourly, momentum, asia-london-us, long-short, cobra-guard]
 

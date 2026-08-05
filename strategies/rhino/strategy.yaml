@@ -25,7 +25,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 6
-  min_budget: 400
   assets: ["xyz:GOLD", "xyz:SILVER", "xyz:BRENTOIL", "xyz:CL", "xyz:NATGAS", "xyz:JPY", "BTC", "ETH", "SOL", "HYPE", "SUI", "xyz:XYZ100", "xyz:SP500"]
   tags: [tail-risk, crisis-alpha, convexity, hedge, gold, oil, stress-detector, long_short, two-book]
 

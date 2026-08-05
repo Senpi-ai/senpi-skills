@@ -25,7 +25,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 8
-  min_budget: 100
   assets: []                 # DERIVED live daily from both dexes (vol floor + top-N)
   tags: [regime, allocator, macro, pulse, smart-money, long-short, universe, daily, no-close, dsl-only]
 

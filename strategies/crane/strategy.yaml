@@ -23,7 +23,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 8
-  min_budget: 200
   assets: []                 # configured correlated pairs (identity baskets)
   status: blocked            # ⚠️ not deployable — see crane/DESIGN.md
   tags: [pairs, stat-arb, market-neutral, mean-reversion, spread, z-score, hedged, blocked, not-deployable]

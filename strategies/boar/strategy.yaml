@@ -27,7 +27,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 8
-  min_budget: 400
   assets: ["xyz:GOLD", "BTC", "xyz:SILVER", "xyz:PLATINUM", "xyz:PALLADIUM", "xyz:SP500", "xyz:RIVN", "xyz:DKNG", "xyz:HIMS"]
   tags: [debasement, hard-money, gold, btc, silver, metals, sp500, hedge-fund, long-short, thematic, trend-confirmed, conviction-sizing, xyz]
 

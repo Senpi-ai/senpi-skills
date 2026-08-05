@@ -2,7 +2,7 @@
   "_version": "2.1",
   "_updated": "2026-08-05",
   "_generated": true,
-  "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
+  "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
     {
       "id": "hawk",
@@ -44,7 +44,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -88,7 +90,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 30,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "harvest",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -144,7 +148,9 @@
       "leverage_max": 7,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -208,7 +214,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -252,7 +260,9 @@
       "leverage_max": 10,
       "time_horizon": "position",
       "cadence_seconds": 900,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -294,7 +304,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 20,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -337,7 +349,9 @@
       "leverage_max": 5,
       "time_horizon": "scalp",
       "cadence_seconds": 60,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -388,6 +402,8 @@
       "time_horizon": "position",
       "cadence_seconds": 1800,
       "min_budget": 100,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -433,7 +449,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 600,
-      "min_budget": 400,
+      "min_budget": 75,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "pre_listing",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -501,7 +519,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 50,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "fade",
       "instance_count": 2,
       "funding_split": [
         0.6,
@@ -552,7 +572,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -603,7 +625,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -651,7 +675,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -701,7 +727,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 1800,
-      "min_budget": 200,
+      "min_budget": 50,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -753,7 +781,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 30,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "breakout",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -796,7 +826,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -839,7 +871,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -889,7 +923,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 120,
-      "min_budget": 300,
+      "min_budget": 20,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -938,7 +974,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 30,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1001,7 +1039,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 40,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1068,7 +1108,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 20,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1117,7 +1159,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 1800,
-      "min_budget": 200,
+      "min_budget": 40,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1175,7 +1219,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 900,
-      "min_budget": 200,
+      "min_budget": 40,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1221,7 +1267,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 900,
-      "min_budget": 200,
+      "min_budget": 30,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1272,7 +1320,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1316,7 +1366,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 120,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1359,7 +1411,9 @@
       "leverage_max": 7,
       "time_horizon": "swing",
       "cadence_seconds": 90,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1403,7 +1457,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1455,7 +1511,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1499,7 +1557,9 @@
       "leverage_max": 7,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 200,
+      "min_budget": 20,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1547,7 +1607,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 40,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1597,7 +1659,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1647,7 +1711,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1700,7 +1766,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1741,7 +1809,9 @@
       "leverage_max": 10,
       "time_horizon": "intraday",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1817,7 +1887,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 600,
+      "min_budget": 200,
+      "wallet_count": 3,
+      "min_budget_binding_wallet": "preipo",
       "instance_count": 3,
       "funding_split": [
         0.55,
@@ -1866,7 +1938,9 @@
       "leverage_max": 4,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 125,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1910,7 +1984,9 @@
       "leverage_max": 2,
       "time_horizon": "swing",
       "cadence_seconds": 900,
-      "min_budget": 100,
+      "min_budget": 325,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1959,7 +2035,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 21600,
-      "min_budget": 100,
+      "min_budget": 60,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2007,7 +2085,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 21600,
-      "min_budget": 100,
+      "min_budget": 60,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2056,7 +2136,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 21600,
-      "min_budget": 100,
+      "min_budget": 60,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2102,7 +2184,9 @@
       "leverage_max": 8,
       "time_horizon": "swing",
       "cadence_seconds": 60,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2145,7 +2229,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 30,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "long",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -2194,7 +2280,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 21600,
-      "min_budget": 100,
+      "min_budget": 60,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2241,7 +2329,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 1800,
-      "min_budget": 100,
+      "min_budget": 60,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2286,7 +2376,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 10800,
-      "min_budget": 200,
+      "min_budget": 20,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2329,7 +2421,9 @@
       "leverage_max": 4,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 100,
+      "min_budget": 125,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2377,7 +2471,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 100,
+      "min_budget": 60,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2423,7 +2519,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 900,
-      "min_budget": 100,
+      "min_budget": 60,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2475,7 +2573,9 @@
       "leverage_max": 3,
       "time_horizon": "position",
       "cadence_seconds": 900,
-      "min_budget": 200,
+      "min_budget": 125,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "hedge",
       "instance_count": 2,
       "funding_split": [
         0.65,
@@ -2537,7 +2637,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 50,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "short",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -2586,7 +2688,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 20,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "long",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -2649,7 +2753,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 30,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "long",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -2697,7 +2803,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 40,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "hype",
       "instance_count": 2,
       "funding_split": [
         0.6,
@@ -2753,7 +2861,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 50,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "short",
       "instance_count": 2,
       "funding_split": [
         0.55,
@@ -2814,7 +2924,9 @@
       "leverage_max": 5,
       "time_horizon": "intraday",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2867,7 +2979,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 300,
+      "min_budget": 40,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2954,7 +3068,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 60,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "short",
       "instance_count": 2,
       "funding_split": [
         0.6,
@@ -3017,7 +3133,9 @@
       "leverage_max": 1,
       "time_horizon": "position",
       "cadence_seconds": 1800,
-      "min_budget": 500,
+      "min_budget": 250,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3073,7 +3191,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 75,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "short",
       "instance_count": 2,
       "funding_split": [
         0.65,
@@ -3132,7 +3252,9 @@
       "leverage_max": 3,
       "time_horizon": "position",
       "cadence_seconds": 600,
-      "min_budget": 200,
+      "min_budget": 275,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "ballast",
       "instance_count": 2,
       "funding_split": [
         0.7,
@@ -3194,7 +3316,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 60,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "hedge",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -3262,7 +3386,9 @@
       "leverage_max": 5,
       "time_horizon": "scalp",
       "cadence_seconds": 60,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3324,7 +3450,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 60,
-      "min_budget": 200,
+      "min_budget": 50,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "scalp",
       "instance_count": 2,
       "funding_split": [
         0.6,
@@ -3382,7 +3510,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3453,7 +3583,9 @@
       "leverage_max": 7,
       "time_horizon": "swing",
       "cadence_seconds": 60,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3512,7 +3644,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 30,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "risk_off",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -3559,7 +3693,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 900,
-      "min_budget": 200,
+      "min_budget": 20,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3608,7 +3744,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3652,7 +3790,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3711,7 +3851,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3757,7 +3899,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3802,7 +3946,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 100,
+      "min_budget": 50,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3846,7 +3992,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3889,7 +4037,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3932,7 +4082,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3980,7 +4132,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4025,7 +4179,9 @@
       "leverage_max": 3,
       "time_horizon": "position",
       "cadence_seconds": 1800,
-      "min_budget": 100,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4068,7 +4224,9 @@
       "leverage_max": 7,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4121,7 +4279,9 @@
       "leverage_max": 8,
       "time_horizon": "swing",
       "cadence_seconds": 900,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4165,7 +4325,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4209,7 +4371,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 50,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4257,7 +4421,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4305,7 +4471,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 1800,
-      "min_budget": 400,
+      "min_budget": 50,
+      "wallet_count": 4,
+      "min_budget_binding_wallet": "u1",
       "instance_count": 4,
       "funding_split": [
         0.25,
@@ -4353,7 +4521,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 20,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4408,7 +4578,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 600,
+      "min_budget": 100,
+      "wallet_count": 3,
+      "min_budget_binding_wallet": "dip",
       "instance_count": 3,
       "funding_split": [
         0.5,
@@ -4452,7 +4624,9 @@
       "leverage_max": 8,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4494,7 +4668,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4547,7 +4723,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4600,7 +4778,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4662,7 +4842,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4713,7 +4895,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 100,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4758,7 +4942,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 30,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4799,7 +4985,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4843,7 +5031,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 100,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4887,7 +5077,9 @@
       "leverage_max": 7,
       "time_horizon": "swing",
       "cadence_seconds": 90,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4929,7 +5121,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 120,
-      "min_budget": 200,
+      "min_budget": 40,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4976,7 +5170,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 30,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5018,7 +5214,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 75,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "long",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -5066,7 +5264,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5112,7 +5312,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 30,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0

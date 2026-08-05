@@ -25,7 +25,6 @@ catalog:
   tier: starter
   leverage_max: 3
   max_slots: 3
-  min_budget: 100
   assets: ["BTC", "ETH", "SOL"]
   tags: [btc, eth, sol, multi-asset, dca, dollar-cost-averaging, time-trigger, always-long, onboarding, let-winners-run]
 

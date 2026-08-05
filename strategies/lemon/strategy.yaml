@@ -25,7 +25,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 1
-  min_budget: 100
   assets: ["BTC", "ETH", "SOL", "HYPE", "AVAX", "DOGE", "LINK", "XRP", "ADA", "NEAR", "UNI", "AAVE", "xyz:BRENTOIL", "xyz:CL", "xyz:GOLD", "xyz:SP500"]
   tags: [degen-fader, contrarian, smart-money, crowd-exhaustion, mean-reversion, fade, basket, conviction-leverage, single-slot, xyz]
 

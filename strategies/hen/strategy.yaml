@@ -22,7 +22,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 4
-  min_budget: 400
   assets: ["xyz:NVDA", "xyz:TSLA", "xyz:AAPL", "xyz:META", "xyz:MSFT", "xyz:GOOGL", "xyz:AMZN", "xyz:AMD", "xyz:MU", "xyz:INTC", "xyz:TSM", "xyz:ORCL"]
   tags: [session, market-open, pre-open, clock, opener, equities, xyz, big-tech, basket, nvda, tsla, aapl, long-short, breadth, companion-rooster]
 

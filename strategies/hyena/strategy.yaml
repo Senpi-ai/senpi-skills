@@ -29,7 +29,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 2
-  min_budget: 200
   assets: ["BTC", "ETH", "SOL", "HYPE", "xyz:MSTR", "xyz:COIN", "xyz:CRCL"]
   tags: [short-only, hedge, risk-off, defense, funding-regime, smart-money, rotation, contrarian, crypto-proxy, btc, eth, sol, hype, mstr, coin, crcl, idles-when-uncertain]
 

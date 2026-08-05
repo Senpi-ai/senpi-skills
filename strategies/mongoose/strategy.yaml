@@ -27,7 +27,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 7                    # long book 5 + short book 2
-  min_budget: 400                 # two wallets, ~$200 floor each
   assets: ["HYPE", "xyz:CRCL", "xyz:COIN", "xyz:HOOD", "xyz:MSTR", "xyz:PURRDAT", "xyz:BX", "xyz:SP500"]
   tags: [on-chain-finance, hedge-fund, long-short, disruptor-vs-incumbent, hype, stablecoins, crypto-treasuries, conviction-sizing, xyz, thematic]
 

@@ -24,7 +24,6 @@ catalog:
   tier: advanced
   leverage_max: 5
   max_slots: 2
-  min_budget: 200
   assets: []
   tags: [rebalance, conviction, concentrated, cross-asset-flows, funding-regime, momentum-events, blended-score, long-short, rotate-by-attrition, three-hourly]
 

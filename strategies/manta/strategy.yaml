@@ -23,7 +23,6 @@ catalog:
   time_horizon: swing
   leverage_max: 8
   max_slots: 2
-  min_budget: 200
   assets: ["xyz:EUR", "xyz:GBP", "xyz:JPY"]
   tags: [fx, forex, multi-timeframe, mtf, market-structure, ict, smc, top-down, break-of-structure, area-of-interest, eur, gbp, jpy, long-short]
 

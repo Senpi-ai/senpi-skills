@@ -261,15 +261,18 @@ def _caveats(r, intent):
         split = "/".join(str(s) for s in (r.get("funding_split") or []))
         cav.append(f"Splits across {r['instance_count']} wallets ({split}); your assets may sit mainly in one leg.")
     if intent["budget"] is not None and intent["budget"] < (r.get("min_budget") or 0):
-        cav.append(f"Needs ~${int(r['min_budget'])} to start; you mentioned ${int(intent['budget'])}.")
+        wc = r.get("wallet_count") or (r.get("instance_count") or 1)
+        wtxt = f" ({wc} wallets)" if wc and wc > 1 else ""
+        cav.append(f"Minimum ${int(r['min_budget'])}{wtxt} for the full design; you mentioned "
+                   f"${int(intent['budget'])} — it still deploys but runs degraded (fewer slots than designed).")
     return cav
 
 
 def _min_budget(r):
-    """The FLOOR to run this strategy — max(declared, $100 x wallets). NOT a recommended amount.
-    Actual sizing scales with the user's available funds and is the LLM's job (see SKILL.md Layer 3);
-    the engine only reports the minimum so the card can say 'needs ~$X to start'."""
-    return int(r.get("min_budget") or 100)
+    """The COMPUTED minimum total budget to run this strategy as designed (min_budget.py, baked into
+    catalog.json by gen_catalog): the smallest budget where every wallet funds and its smallest slot
+    clears the $12 bumped notional. NOT a recommendation — users size their own budget above the min."""
+    return int(r.get("min_budget") or 10)
 
 
 def _intent_echo(intent):
@@ -311,9 +314,12 @@ def _candidate(r, intent):
         "time_horizon": r.get("time_horizon"), "asset_scope": r.get("asset_scope"),
         "direction": r.get("direction"), "asset_classes": r.get("asset_classes") or [],
         "assets": r.get("assets") or [], "tier": r.get("tier"),
-        # narration — min_budget is the FLOOR to start, not a recommendation. Size from the user's
-        # available funds (meta.user_context.budget); see SKILL.md Layer 3.
-        "min_budget": _min_budget(r), "caveats": _caveats(r, intent),
+        # narration — min_budget is the COMPUTED minimum where the design functions (not a recommendation;
+        # users size above it). wallet_count lets the card render "Minimum $200 (3 wallets)".
+        "min_budget": _min_budget(r),
+        "wallet_count": r.get("wallet_count") or (r.get("instance_count") or 1),
+        "min_budget_binding_wallet": r.get("min_budget_binding_wallet"),
+        "caveats": _caveats(r, intent),
         "market_facts": [],
     }
     if r.get("tag_labels"):

@@ -22,7 +22,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 3
-  min_budget: 200
   tags: [regime, regime-switching, adaptive, trend, range, mean-reversion, efficiency-ratio, open-interest, oi-velocity, funding, 4h, multi-asset, long-short]
 
 requires:

@@ -26,7 +26,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 2
-  min_budget: 200
   assets: []
   tags: [smart-money, copy-trading, hot-streak, quality-first, conviction-leverage, whale-discipline]
 

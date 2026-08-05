@@ -23,7 +23,6 @@ catalog:
   tier: starter
   leverage_max: 5
   max_slots: 3
-  min_budget: 200
   assets: ["BTC", "ETH", "SOL", "BNB", "XRP", "AVAX", "LINK", "DOGE"]
   tags: [rsi, macd, indicators, technical-analysis, crossover, oscillator, classic-ta, momentum, beginner, btc, eth, sol, multi-asset, long-short]
 

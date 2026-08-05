@@ -22,7 +22,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 1
-  min_budget: 100
   assets: ["BTC"]
   tags: [session, market-open, time-of-day, opener, pre-open, clock, intraday, btc, single-asset, long-short, beginner]
 

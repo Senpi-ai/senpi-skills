@@ -48,7 +48,7 @@ catalog:                    # discovery surface (read by senpi-strategy-discover
   time_horizon: swing
   leverage_max: 10               # explicit (gen_catalog reads these — no longer derived from params)
   max_slots: 7
-  min_budget: 200
+  # min_budget is COMPUTED (min_budget.py) — never author it; use min_budget_floor only to RAISE it
   assets: [ … ]                  # explicit asset list for named-asset matching
 
 requires:
