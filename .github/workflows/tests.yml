@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: install deps
-        run: pip install pyyaml
+        run: pip install pyyaml pytest
 
       - name: min_budget — vendor parity (byte-identical across the two skills)
         run: python3 senpi-strategy-ops/tests/test_min_budget_vendor_parity.py
@@ -25,14 +25,7 @@ jobs:
       - name: min_budget — golden minimums (a retune must update the golden in the same PR)
         run: python3 senpi-trading-runtime/tests/test_min_budget_golden.py
 
-      - name: strategy-ops suite
-        run: |
-          for t in senpi-strategy-ops/tests/test_*.py; do
-            echo "── $t"; python3 "$t" || exit 1
-          done
-
-      - name: strategy-discover suite
-        run: |
-          for t in senpi-strategy-discover/tests/test_*.py; do
-            echo "── $t"; python3 "$t" || exit 1
-          done
+      # pytest collects every test regardless of a __main__ runner — bare `python3 <file>` exits 0
+      # without running anything on a runner-less file (test_default_catalog.py), a silent green.
+      - name: full suites (ops + discover + trading-runtime)
+        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-trading-runtime/tests -q
