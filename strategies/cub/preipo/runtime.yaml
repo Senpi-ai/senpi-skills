@@ -9,7 +9,9 @@ description: >
   signature (venue max_leverage <= ipopMaxLeverageCap — fresh pre-IPO perps launch capped low) plus a
   budget-relative liquidity floor, and LONGS the ones with a confirming absolute 4h/1h uptrend, riding
   the pre-listing ramp (the SpaceX / Cerebras pattern). No static universe — discovered every tick,
-  so the next IPOP auto-joins on listing. Blow-off guard loosened (pre-IPO names run hot). LONG only.
+  so the next IPOP auto-joins on listing; a fresh listing is entered ~6h after launch on a 1h-confirmed
+  STARTER (half size), scaling to full size once 24h of 4h history exists. Blow-off guard loosened
+  (pre-IPO names run hot). LONG only.
   Episodic by design — most ticks may find 0-2 IPOPs. The IPOP liquidity floor is BUDGET-RELATIVE
   (no hardcoded $). Runs on its OWN wallet, funded with ~10% of Cub's combined pool (allocation =
   the operator's funding split across the three book wallets, NOT a runtime field). Pairs with the
@@ -52,6 +54,16 @@ scanners:
       rsThresholdPct: 3.0
       rsiOverbought: 88       # pre-IPO ramps run hot; loosen the blow-off guard
       recentSignalTtlSeconds: 180
+      # FRESH-LISTING FAST PATH — a just-listed IPOP has no 4h history for ~24h. When enabled, confirm the
+      # ramp on the 1h structure once it has >= minCandles1h 1h candles (~6h from launch, vs ~24h for 4h)
+      # and enter a de-risked STARTER (starterSizeFactor × normal margin); the full 4h engine sizes up once
+      # 24h of history exists. maxRunPct blocks chasing a name already up big since launch (RSI-14 is inert
+      # day-1). Set enabled:false to revert to 4h-only (~24h) entry.
+      freshListing:
+        enabled: true
+        minCandles1h: 6          # ~6h of 1h candles before a fresh IPOP is eligible for the starter
+        starterSizeFactor: 0.5   # starter enters at half the normal per-name margin
+        maxRunPct: 25            # skip the starter if already up >25% since launch (don't chase the spike)
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }
@@ -61,6 +73,8 @@ scanners:
       excess: { type: number, required: false }
       own24h: { type: number, required: false }
       weight: { type: number, required: false }
+      basis: { type: string, required: false }      # "4h" full engine | "1h" fresh-listing starter
+      sizeFactor: { type: number, required: false }
       heldAssets: { type: array, required: false }
 
 actions:
