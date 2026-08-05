@@ -430,6 +430,17 @@ and there is **no consolidation problem** — you're looking at redeploy history
 
 ### 9. No trades yet? Stop cleanly — do NOT pivot to setup / config nagging
 
+> **⚠️ EXCEPTION — when the user ASKS why it hasn't traded, hand off; don't dead-end.**
+>
+> *"why hasn't it traded"* · *"no trades today, is the scanner running?"* · *"it didn't trade in 3 days"* ·
+> *"i'm not seeing any new positions"* · *"our trades are almost zero"*
+>
+> That is a **live-state** question (is this strategy doing its job *right now*), not a retrospective one —
+> it belongs to **`senpi-portfolio`**, which owns the mandate and can run its `idle` step to say WHY
+> (selective-by-design vs. a runtime rejecting every candidate). **Route it there.** Saying "nothing to
+> review yet" and stopping is the #1 support complaint by volume — one user asked five times over three
+> days. Everything else in this guardrail still binds.
+
 **An empty `trades[]` now means the book genuinely never traded** — the engine already falls back to on-chain HL fills for closed strategies, so it is **not** a coverage gap you need to work around. Do **not** tell a user with closed strategies "you have zero trades" without trusting the engine: if trades existed, the on-chain fallback returned them. When trades were recovered that way (`meta.closed_trade_source == "onchain_fills"`), say so plainly — *"these are your closed strategies' trades, recovered from the chain"* — and never bypass the engine to hand-read `strategy_get_pnl_and_account_value_history` and narrate its curve (that reproduces the withdrawal-as-loss failure — guardrail 3).
 
 A trade review with **no closed trades** — especially **brand-new strategies deployed today with no
