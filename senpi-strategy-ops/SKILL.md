@@ -102,7 +102,9 @@ adopted, never duplicated) → **preflight** (accessible-balance check) → **cr
 `strategy_create_custom_strategy` call carrying `initialBudget`, `strategyName=<id>[-<instance>]` and the
 **`skillName`/`skillVersion` attribution** from `strategy.yaml`; the backend funds from its own waterfall)
 → **install** (renders the instance's runtime.yaml onto the fresh wallet and registers it) → **observe**
-(polls the scanner rows for one `lastRunStatus: ok`). **Every wallet is named for its role** (a
+(polls for one **fresh** tick — `ok` *or* `heartbeat` for interval scanners, a fresh `lastAliveAt` for
+external ones; "fresh" means at or after this install, so stale telemetry from a previous incarnation
+never certifies this one. See `references/lifecycle.md`). **Every wallet is named for its role** (a
 WhaleHunter deploy makes `whalehunter-long` / `whalehunter-short`), never a bare `0x…`; naming is
 best-effort — a rejected name creates the wallet unnamed rather than failing the deploy. **The verb never
 reuses an old wallet:** a same-id runtime bound to a different wallet is deleted and recreated on the

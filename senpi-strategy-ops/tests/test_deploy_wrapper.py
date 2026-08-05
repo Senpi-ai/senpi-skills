@@ -171,6 +171,12 @@ class RunDeployExitCodes(unittest.TestCase):
     def test_an_unknown_overall_exits_one_never_zero(self):
         self.assertEqual(self._run("something-new"), 1)
 
+    def test_a_snapshot_with_no_state_exits_one_not_pending(self):
+        # A broken gateway contract is an internal error, not "still running".
+        self.assertEqual(deploy.exit_code_for({}), 1)
+        self.assertEqual(deploy.exit_code_for({"state": {}}), 1)
+        self.assertEqual(deploy.exit_code_for(None), 1)
+
     def test_an_interrupted_job_exits_five(self):
         _cli.run_cli = FakeCli([
             _ok({"deployId": "dpl-a1b2c3d4", "phase": "reconcile"}),

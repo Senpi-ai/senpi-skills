@@ -220,6 +220,9 @@ def wait_for_terminal(deploy_id, max_wait, log):
 def exit_code_for(snap):
     """The D-12 code for a snapshot. Mirrors the verb's own `exitCodeForDeploy`, exactly."""
     state = (snap or {}).get("state") or {}
+    # A snapshot with no state is a broken gateway contract, not a running job.
+    if not state.get("status"):
+        return EXIT_INTERNAL
     # `interrupted` is a terminal STATE, not an overall: a gateway restart killed the job. Nothing
     # is running, so it must never read as pending.
     if state.get("status") == "interrupted":
