@@ -48,7 +48,10 @@ scanners:
       allowedAssets: ["xyz:NVDA", "xyz:AMD", "xyz:INTC", "xyz:MRVL", "xyz:MU", "xyz:TSM", "SUI", "ONDO", "HYPE", "NIL", "GRASS", "ZEC"]
       # ── scoring knobs ──
       minScore: 5
-      marginPct: 28                   # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      marginPct: 28                   # PERCENT (0,100]. Observed runtime sizing is (marginPct/100)*ACCOUNT
+                                      # VALUE — flat per name — NOT *withdrawable as this comment used to
+                                      # say (pending runtime-team confirmation). The scanner's open_slots/
+                                      # affordable cap keeps the batch within free margin; size unchanged.
       maxLeverage: 10
       maxSlots: 3
       rsiMaxLong: 78
