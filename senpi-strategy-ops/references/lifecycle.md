@@ -71,10 +71,13 @@ the decision. Nothing auto-resumes; only a fresh deploy does, and it reconciles.
 **Single-flight, and self-freeing.** One deploy job per agent. A second start refuses
 `[E_DEPLOY_IN_PROGRESS]`: concurrent deploys read one shared funding waterfall and two preflights could
 both pass while jointly overdrawing. **There is no cancel** — undeploying is closing the strategy
-(`close.py`), not stopping the job. Instead every MCP call the job makes is timeout-bounded, and the job
-carries a wall-clock deadline: past it the run is abandoned at its **next step boundary** (an in-flight
-money-moving call always completes and is journaled) and, after a short grace, the slot is freed even if
-the run is still wedged inside an await. An abandoned deploy reports `failed` with the resume command.
+(`close.py`), not stopping the job. Instead every MCP call the job makes is deadline-bounded — the job stops
+*waiting* on an overrunning call, which is what makes the step boundary reachable; the request may
+still be in flight server-side, so an overrun is reported as an unknown outcome, never as a failure —
+and the job carries a wall-clock deadline: past it the run is abandoned at its **next step boundary** (an in-flight
+money-moving call always completes and is journaled) and, after a grace longer than any single call's
+deadline (so no abandoned call can still be moving money when the slot comes back), the slot is freed
+even if the run is still wedged inside an await. An abandoned deploy reports `failed` with the resume command.
 
 **Rollback is exactly one case.** A wallet **this job created and funded** whose *install* then failed is
 closed and its funds returned (`strategy_close` returns them to the owner wallet on its own). Never an

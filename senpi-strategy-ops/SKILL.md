@@ -114,7 +114,9 @@ fresh one, never updated in place.
 running job — concurrent deploys share one funding waterfall and could jointly overdraw. Watch the
 running one. **There is no `cancel` verb:** undeploying a strategy is closing it (`close.py <id>`),
 not stopping the job. Every MCP call the job makes is timeout-bounded and the job itself has a
-wall-clock deadline, so a wedged deploy abandons itself at the next step boundary and frees the slot
+wall-clock deadline (the per-call bound stops the job *waiting*; the request may still be in flight
+server-side, so an overrun reports the outcome as unknown, never as "it failed"), so a wedged deploy
+abandons itself at the next step boundary and frees the slot
 — you never have to wait for a gateway restart.
 
 **Step 2 — poll `openclaw senpi deploy status` until it is terminal.** While running it prints the phase
