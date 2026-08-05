@@ -1,8 +1,8 @@
 {
   "_version": "2.1",
-  "_updated": "2026-08-04",
+  "_updated": "2026-08-05",
   "_generated": true,
-  "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' + 'min_budget_breakdown' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
+  "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
     {
       "id": "hawk",
@@ -47,15 +47,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 20.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 13.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -102,22 +93,6 @@
       "min_budget": 30,
       "wallet_count": 2,
       "min_budget_binding_wallet": "harvest",
-      "min_budget_breakdown": [
-        {
-          "wallet": "harvest",
-          "margin_pct": 18.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 14.83
-        },
-        {
-          "wallet": "payout",
-          "margin_pct": 18.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 14.83
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -176,15 +151,6 @@
       "min_budget": 10,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 40.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 10.0
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -251,15 +217,6 @@
       "min_budget": 10,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 30.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 10.0
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -306,15 +263,6 @@
       "min_budget": 10,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 7.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 10.0
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -359,15 +307,6 @@
       "min_budget": 20,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 17.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -413,15 +352,6 @@
       "min_budget": 10,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 30.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 10.0
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -474,15 +404,6 @@
       "min_budget": 100,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 8.0,
-          "min_leverage": 2.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 76.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -531,22 +452,6 @@
       "min_budget": 75,
       "wallet_count": 2,
       "min_budget_binding_wallet": "pre_listing",
-      "min_budget_breakdown": [
-        {
-          "wallet": "pre_listing",
-          "margin_pct": 12.0,
-          "min_leverage": 3.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 34.83
-        },
-        {
-          "wallet": "graduation",
-          "margin_pct": 15.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 17.5
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -617,22 +522,6 @@
       "min_budget": 50,
       "wallet_count": 2,
       "min_budget_binding_wallet": "fade",
-      "min_budget_breakdown": [
-        {
-          "wallet": "trend",
-          "margin_pct": 18.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.6,
-          "per_wallet_min": 14.83
-        },
-        {
-          "wallet": "fade",
-          "margin_pct": 15.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.4,
-          "per_wallet_min": 17.5
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.6,
@@ -686,15 +575,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 20.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 13.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -748,15 +628,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -807,15 +678,6 @@
       "min_budget": 10,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 10.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 10.0
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -868,15 +730,6 @@
       "min_budget": 50,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 10.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 41.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -931,22 +784,6 @@
       "min_budget": 30,
       "wallet_count": 2,
       "min_budget_binding_wallet": "breakout",
-      "min_budget_breakdown": [
-        {
-          "wallet": "breakout",
-          "margin_pct": 18.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 14.83
-        },
-        {
-          "wallet": "catalyst",
-          "margin_pct": 18.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 14.83
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -992,15 +829,6 @@
       "min_budget": 10,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 50.0,
-          "min_leverage": 50.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 10.0
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1046,15 +874,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1107,15 +926,6 @@
       "min_budget": 20,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 12.0,
-          "min_leverage": 6.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 18.17
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1167,15 +977,6 @@
       "min_budget": 30,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 10.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 25.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1241,15 +1042,6 @@
       "min_budget": 40,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 12.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 34.83
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1319,15 +1111,6 @@
       "min_budget": 20,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 18.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 18.17
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1379,15 +1162,6 @@
       "min_budget": 40,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 10.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 31.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1448,15 +1222,6 @@
       "min_budget": 40,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 10.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 31.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1505,15 +1270,6 @@
       "min_budget": 30,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 15.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 28.17
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1567,15 +1323,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 20.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1622,15 +1369,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1676,15 +1414,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 18.0,
-          "min_leverage": 7.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 11.02
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1731,15 +1460,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 11.1
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1794,15 +1514,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1849,15 +1560,6 @@
       "min_budget": 20,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 17.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1908,15 +1610,6 @@
       "min_budget": 40,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 12.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 34.83
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1969,15 +1662,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 20.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2030,15 +1714,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 20.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 13.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2094,15 +1769,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 20.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2146,15 +1812,6 @@
       "min_budget": 10,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 50.0,
-          "min_leverage": 7.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 10.0
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2233,29 +1890,6 @@
       "min_budget": 200,
       "wallet_count": 3,
       "min_budget_binding_wallet": "preipo",
-      "min_budget_breakdown": [
-        {
-          "wallet": "long",
-          "margin_pct": 18.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.55,
-          "per_wallet_min": 14.83
-        },
-        {
-          "wallet": "short",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 0.35,
-          "per_wallet_min": 21.5
-        },
-        {
-          "wallet": "preipo",
-          "margin_pct": 15.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.1,
-          "per_wallet_min": 17.5
-        }
-      ],
       "instance_count": 3,
       "funding_split": [
         0.55,
@@ -2304,18 +1938,9 @@
       "leverage_max": 4,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 125,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 8.0,
-          "min_leverage": 2.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 76.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2359,18 +1984,9 @@
       "leverage_max": 2,
       "time_horizon": "swing",
       "cadence_seconds": 900,
-      "min_budget": 250,
+      "min_budget": 325,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 6.0,
-          "min_leverage": 1.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 201.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2419,18 +2035,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 21600,
-      "min_budget": 50,
+      "min_budget": 60,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 10.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 41.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2478,18 +2085,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 21600,
-      "min_budget": 50,
+      "min_budget": 60,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 10.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 41.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2538,18 +2136,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 21600,
-      "min_budget": 40,
+      "min_budget": 60,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 12.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 34.83
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2598,15 +2187,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 11.1
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2652,22 +2232,6 @@
       "min_budget": 30,
       "wallet_count": 2,
       "min_budget_binding_wallet": "long",
-      "min_budget_breakdown": [
-        {
-          "wallet": "long",
-          "margin_pct": 20.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 13.5
-        },
-        {
-          "wallet": "short",
-          "margin_pct": 20.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 13.5
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -2716,18 +2280,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 21600,
-      "min_budget": 40,
+      "min_budget": 60,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 12.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 34.83
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2774,18 +2329,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 1800,
-      "min_budget": 50,
+      "min_budget": 60,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 10.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 41.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2833,15 +2379,6 @@
       "min_budget": 20,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 22.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 15.14
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2887,15 +2424,6 @@
       "min_budget": 125,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 6.0,
-          "min_leverage": 2.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 101.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2943,18 +2471,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 50,
+      "min_budget": 60,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 10.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 41.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3000,18 +2519,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 900,
-      "min_budget": 50,
+      "min_budget": 60,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 10.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 41.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3066,22 +2576,6 @@
       "min_budget": 125,
       "wallet_count": 2,
       "min_budget_binding_wallet": "hedge",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 12.0,
-          "min_leverage": 3.0,
-          "funding_share": 0.65,
-          "per_wallet_min": 34.83
-        },
-        {
-          "wallet": "hedge",
-          "margin_pct": 10.0,
-          "min_leverage": 3.0,
-          "funding_share": 0.35,
-          "per_wallet_min": 41.5
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.65,
@@ -3146,22 +2640,6 @@
       "min_budget": 50,
       "wallet_count": 2,
       "min_budget_binding_wallet": "short",
-      "min_budget_breakdown": [
-        {
-          "wallet": "long",
-          "margin_pct": 18.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 14.83
-        },
-        {
-          "wallet": "short",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -3213,22 +2691,6 @@
       "min_budget": 20,
       "wallet_count": 2,
       "min_budget_binding_wallet": "long",
-      "min_budget_breakdown": [
-        {
-          "wallet": "long",
-          "margin_pct": null,
-          "min_leverage": 3.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 10.0
-        },
-        {
-          "wallet": "short",
-          "margin_pct": null,
-          "min_leverage": 3.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 10.0
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -3294,22 +2756,6 @@
       "min_budget": 30,
       "wallet_count": 2,
       "min_budget_binding_wallet": "long",
-      "min_budget_breakdown": [
-        {
-          "wallet": "long",
-          "margin_pct": 20.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 13.5
-        },
-        {
-          "wallet": "short",
-          "margin_pct": 20.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 13.5
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -3360,22 +2806,6 @@
       "min_budget": 40,
       "wallet_count": 2,
       "min_budget_binding_wallet": "hype",
-      "min_budget_breakdown": [
-        {
-          "wallet": "btc",
-          "margin_pct": 20.0,
-          "min_leverage": 6.0,
-          "funding_share": 0.6,
-          "per_wallet_min": 11.5
-        },
-        {
-          "wallet": "hype",
-          "margin_pct": 18.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.4,
-          "per_wallet_min": 14.83
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.6,
@@ -3434,22 +2864,6 @@
       "min_budget": 50,
       "wallet_count": 2,
       "min_budget_binding_wallet": "short",
-      "min_budget_breakdown": [
-        {
-          "wallet": "long",
-          "margin_pct": 18.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.55,
-          "per_wallet_min": 14.83
-        },
-        {
-          "wallet": "short",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 0.45,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.55,
@@ -3513,15 +2927,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 30.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 14.83
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3577,15 +2982,6 @@
       "min_budget": 40,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 12.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 34.83
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3675,22 +3071,6 @@
       "min_budget": 60,
       "wallet_count": 2,
       "min_budget_binding_wallet": "short",
-      "min_budget_breakdown": [
-        {
-          "wallet": "long",
-          "margin_pct": 18.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.6,
-          "per_wallet_min": 14.83
-        },
-        {
-          "wallet": "short",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 0.4,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.6,
@@ -3756,15 +3136,6 @@
       "min_budget": 250,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 5.0,
-          "min_leverage": 1.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 241.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3823,22 +3194,6 @@
       "min_budget": 75,
       "wallet_count": 2,
       "min_budget_binding_wallet": "short",
-      "min_budget_breakdown": [
-        {
-          "wallet": "long",
-          "margin_pct": 18.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.65,
-          "per_wallet_min": 14.83
-        },
-        {
-          "wallet": "short",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 0.35,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.65,
@@ -3897,25 +3252,9 @@
       "leverage_max": 3,
       "time_horizon": "position",
       "cadence_seconds": 600,
-      "min_budget": 250,
+      "min_budget": 275,
       "wallet_count": 2,
       "min_budget_binding_wallet": "ballast",
-      "min_budget_breakdown": [
-        {
-          "wallet": "core",
-          "margin_pct": 6.0,
-          "min_leverage": 3.0,
-          "funding_share": 0.7,
-          "per_wallet_min": 68.17
-        },
-        {
-          "wallet": "ballast",
-          "margin_pct": 5.0,
-          "min_leverage": 3.0,
-          "funding_share": 0.3,
-          "per_wallet_min": 81.5
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.7,
@@ -3980,22 +3319,6 @@
       "min_budget": 60,
       "wallet_count": 2,
       "min_budget_binding_wallet": "hedge",
-      "min_budget_breakdown": [
-        {
-          "wallet": "hedge",
-          "margin_pct": 10.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 25.5
-        },
-        {
-          "wallet": "escalation",
-          "margin_pct": 22.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 12.41
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -4066,15 +3389,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 11.1
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4139,22 +3453,6 @@
       "min_budget": 50,
       "wallet_count": 2,
       "min_budget_binding_wallet": "scalp",
-      "min_budget_breakdown": [
-        {
-          "wallet": "swing",
-          "margin_pct": 28.0,
-          "min_leverage": 10.0,
-          "funding_share": 0.6,
-          "per_wallet_min": 10.0
-        },
-        {
-          "wallet": "scalp",
-          "margin_pct": 15.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.4,
-          "per_wallet_min": 17.5
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.6,
@@ -4215,15 +3513,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 12.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4297,15 +3586,6 @@
       "min_budget": 10,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 45.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 10.0
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4367,22 +3647,6 @@
       "min_budget": 30,
       "wallet_count": 2,
       "min_budget_binding_wallet": "risk_off",
-      "min_budget_breakdown": [
-        {
-          "wallet": "risk_on",
-          "margin_pct": 20.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 13.5
-        },
-        {
-          "wallet": "risk_off",
-          "margin_pct": 18.0,
-          "min_leverage": 5.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 14.83
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -4432,15 +3696,6 @@
       "min_budget": 20,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 17.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4492,15 +3747,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4547,15 +3793,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 11.1
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4617,15 +3854,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 20.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 13.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4674,15 +3902,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 11.1
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4730,15 +3949,6 @@
       "min_budget": 50,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 10.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 41.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4785,15 +3995,6 @@
       "min_budget": 10,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 50.0,
-          "min_leverage": 10.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 10.0
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4839,15 +4040,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 11.1
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4893,15 +4085,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 11.1
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4952,15 +4135,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 20.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5008,15 +4182,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 50.0,
-          "min_leverage": 2.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 13.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5062,15 +4227,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 20.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 13.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5126,15 +4282,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 12.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5181,15 +4328,6 @@
       "min_budget": 10,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 50.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 10.0
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5236,15 +4374,6 @@
       "min_budget": 50,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 10.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 41.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5295,15 +4424,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 13.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5354,36 +4474,6 @@
       "min_budget": 50,
       "wallet_count": 4,
       "min_budget_binding_wallet": "u1",
-      "min_budget_breakdown": [
-        {
-          "wallet": "u1",
-          "margin_pct": 40.0,
-          "min_leverage": 3.0,
-          "funding_share": 0.25,
-          "per_wallet_min": 11.5
-        },
-        {
-          "wallet": "u2",
-          "margin_pct": 40.0,
-          "min_leverage": 3.0,
-          "funding_share": 0.25,
-          "per_wallet_min": 11.5
-        },
-        {
-          "wallet": "u3",
-          "margin_pct": 40.0,
-          "min_leverage": 3.0,
-          "funding_share": 0.25,
-          "per_wallet_min": 11.5
-        },
-        {
-          "wallet": "u4",
-          "margin_pct": 40.0,
-          "min_leverage": 3.0,
-          "funding_share": 0.25,
-          "per_wallet_min": 11.5
-        }
-      ],
       "instance_count": 4,
       "funding_split": [
         0.25,
@@ -5434,15 +4524,6 @@
       "min_budget": 20,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 17.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5500,29 +4581,6 @@
       "min_budget": 100,
       "wallet_count": 3,
       "min_budget_binding_wallet": "dip",
-      "min_budget_breakdown": [
-        {
-          "wallet": "core",
-          "margin_pct": 20.0,
-          "min_leverage": 3.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 21.5
-        },
-        {
-          "wallet": "dip",
-          "margin_pct": 18.0,
-          "min_leverage": 3.0,
-          "funding_share": 0.25,
-          "per_wallet_min": 23.72
-        },
-        {
-          "wallet": "hedge",
-          "margin_pct": null,
-          "min_leverage": 3.0,
-          "funding_share": 0.25,
-          "per_wallet_min": 10.0
-        }
-      ],
       "instance_count": 3,
       "funding_split": [
         0.5,
@@ -5569,15 +4627,6 @@
       "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 30.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 14.83
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5622,15 +4671,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5686,15 +4726,6 @@
       "min_budget": 10,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 30.0,
-          "min_leverage": 7.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 10.0
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5750,15 +4781,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5823,15 +4845,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5885,15 +4898,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5941,15 +4945,6 @@
       "min_budget": 30,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 15.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 28.17
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -5993,15 +4988,6 @@
       "min_budget": 10,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 7.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 10.0
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -6048,15 +5034,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -6103,15 +5080,6 @@
       "min_budget": 10,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 25.0,
-          "min_leverage": 7.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 10.0
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -6153,18 +5121,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 120,
-      "min_budget": 20,
+      "min_budget": 40,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 15.0,
-          "min_leverage": 5.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 17.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -6214,15 +5173,6 @@
       "min_budget": 30,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 12.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 26.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -6267,22 +5217,6 @@
       "min_budget": 75,
       "wallet_count": 2,
       "min_budget_binding_wallet": "long",
-      "min_budget_breakdown": [
-        {
-          "wallet": "long",
-          "margin_pct": 12.0,
-          "min_leverage": 3.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 34.83
-        },
-        {
-          "wallet": "short",
-          "margin_pct": 12.0,
-          "min_leverage": 3.0,
-          "funding_share": 0.5,
-          "per_wallet_min": 34.83
-        }
-      ],
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -6333,15 +5267,6 @@
       "min_budget": 25,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 15.0,
-          "min_leverage": 4.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 21.5
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -6390,15 +5315,6 @@
       "min_budget": 30,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
-      "min_budget_breakdown": [
-        {
-          "wallet": "main",
-          "margin_pct": 15.0,
-          "min_leverage": 3.0,
-          "funding_share": 1.0,
-          "per_wallet_min": 28.17
-        }
-      ],
       "instance_count": 1,
       "funding_split": [
         1.0

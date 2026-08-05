@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.11.0"
+  version: "2.12.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -112,9 +112,9 @@ Before the template offer / Decision 1, read the user's accessible balance ONCE:
 the ~$1.50 creation fee)** — `deploy.py create` reserves the fee first, so a wallet funded
 to exactly $10 still refuses with `[E_FUNDS_BELOW_FLOOR]`.
 
-- **Balance ≥ $102, or unreadable** → say nothing about funding and move on. Unreadable
+- **Balance ≥ ~$11.50/wallet, or unreadable** → say nothing about funding and move on. Unreadable
   means move on too — no retry loop, no blocking; funding is re-checked at deploy anyway.
-- **Balance < $102** → tell the user NOW, in one line, then keep building:
+- **Balance < ~$11.50/wallet** → tell the user NOW, in one line, then keep building:
   > "Heads-up before we design: deploying needs a little over $10 USDC per wallet (a small
   > creation fee sits on top of the $10 minimum), and your accessible balance is $<X>. We
   > can build the whole strategy now and deploy the moment you've topped up — want me to

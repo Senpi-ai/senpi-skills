@@ -303,6 +303,9 @@ def report(pkg, st, overall, note=None, as_json=False):
     insts = [{"instance": i, **st["instances"].get(i, {"status": "pending"})}
              for i in [x for x in st["instances"]]]
     out = {"strategy": pkg.id, "version": pkg.version, "status": overall, "instances": insts}
+    for _k in ("min_budget", "below_min", "min_budget_note", "min_budget_unresolved"):
+        if st.get(_k) is not None:                       # the soft-warn tier must reach --json too
+            out[_k] = st[_k]
     if as_json:
         print(json.dumps(out, indent=2))
     else:
@@ -358,13 +361,22 @@ def cmd_create(pkg, a, log):
     if a.budget is not None:
         _mb = strategy_min(pkg)
         st["min_budget"], st["min_wallet_count"] = _mb["min_budget"], _mb["wallet_count"]
-        if a.budget < _mb["min_budget"]:
+        note = None
+        if _mb.get("unresolved_wallets"):
+            st["min_budget_unresolved"] = _mb["unresolved_wallets"]
+            note = (f"[E_BUDGET_UNRESOLVED] could not compute a reliable minimum for {pkg.id} — sleeve(s) "
+                    f"{_mb['unresolved_wallets']} exposed no resolvable marginPct, so the "
+                    f"${_mb['min_budget']:g} figure may be understated. Size conservatively.")
+        elif a.budget < _mb["min_budget"]:
             st["below_min"] = True
-            log(f"  [E_BUDGET_BELOW_STRATEGY_MIN] ${a.budget:g} is below {pkg.id}'s calculated minimum "
-                f"${_mb['min_budget']:g} ({_mb['wallet_count']} wallet(s); binding sleeve "
-                f"'{_mb['binding_wallet']}'). It will DEPLOY but run DEGRADED — fewer slots than designed, "
-                f"each position a larger share of its wallet. Fund ${_mb['min_budget']:g}+ for the "
-                f"authored design.")
+            note = (f"[E_BUDGET_BELOW_STRATEGY_MIN] ${a.budget:g} is below {pkg.id}'s calculated minimum "
+                    f"${_mb['min_budget']:g} ({_mb['wallet_count']} wallet(s); binding sleeve "
+                    f"'{_mb['binding_wallet']}'). It will DEPLOY but run DEGRADED — fewer slots than "
+                    f"designed, each position a larger share of its wallet. Fund ${_mb['min_budget']:g}+ "
+                    f"for the authored design.")
+        if note:
+            st["min_budget_note"] = note
+            log("  " + note)
     if a.dry_run:
         for inst in pkg.instances:
             s = inst_state(st, inst.name)

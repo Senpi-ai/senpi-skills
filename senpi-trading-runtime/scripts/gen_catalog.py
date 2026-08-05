@@ -38,7 +38,7 @@ INSTRUCTIONS = (
     "senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum "
     "total budget at which the design functions (min_budget.py) — the smallest budget where every "
     "wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + "
-    "'min_budget_binding_wallet' + 'min_budget_breakdown' explain it. It is NOT authored — deleting "
+    "'min_budget_binding_wallet' explain it. It is NOT authored — deleting "
     "an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget "
     "above the min. A strategy is a deployable package; install via senpi-strategy-ops."
 )
@@ -232,6 +232,11 @@ def build(updated, branch):
         if isinstance(c.get("min_budget"), (int, float)):
             warn(f"{sid}: strategy.yaml still declares min_budget:{c['min_budget']} — it is now "
                  f"COMPUTED and the authored field is ignored; delete it (use min_budget_floor to raise)")
+        if mb.get("unresolved_wallets"):
+            warn(f"{sid}: min_budget could NOT resolve marginPct for sleeve(s) "
+                 f"{mb['unresolved_wallets']} — they fell back to the $10 floor, so the minimum "
+                 f"is likely understated. Add the sizing key to min_budget._MARGIN_KEYS or declare "
+                 f"catalog.min_budget_floor.")
 
         skills.append({
             # identity
@@ -265,7 +270,6 @@ def build(updated, branch):
             "min_budget": mb["min_budget"],
             "wallet_count": mb["wallet_count"],
             "min_budget_binding_wallet": mb["binding_wallet"],
-            "min_budget_breakdown": mb["breakdown"],
             "instance_count": instance_count,
             "funding_split": derive_funding_split(instances),
             "max_slots": derive_max_slots(instances, c),
