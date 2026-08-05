@@ -151,6 +151,11 @@ Each entry needs a unique `name` and a `type`. Registered types: `position_track
 - **Built-in scanners** take `interval_seconds` (integer, **floored at 7s**), and may use `depends_on`
   (`scanner`, `required`, `max_age_seconds`, `on_missing`/`on_stale`), `blocked_assets`, `config`.
 - **`position_tracker`** — typical: `{ name: position_tracker, type: position_tracker, interval_seconds: 10 }`.
+- **No `enabled` key on a scanner entry.** It is not part of the scanner schema and the engine never
+  reads it — a scanner written `enabled: false` registers ENABLED and ticks. `senpi deploy` refuses a
+  package that carries it (at any value) rather than ship a strategy that trades while its author
+  believes it is off. A scanner runs because the entry exists: to stop one, remove the entry (or, on
+  a running runtime, disable it through the runtime API).
 
 ### `external_scanner` field set
 
@@ -178,6 +183,7 @@ delivers the returned signals — there is no push/ingest model.
 | `outputs` | removed — an external scanner emits one output (signals) |
 | `blocked_assets` | filter candidates inside `scan()` |
 | `depends_on` | not supported on `external_scanner` |
+| `enabled` | not a scanner field at all (never read); remove the entry to stop a scanner |
 
 ---
 

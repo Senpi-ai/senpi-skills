@@ -54,8 +54,12 @@ Per instance the job runs five steps, each recorded with its own outcome:
    disabled → `unobserved` with that said out loud, not a silent wait. `--tick-wait 0` skips the check
    entirely and reports `installed-unobserved`; it **can never report `live`**.
 
-   A package whose instances declare scanners but have **every one `enabled: false`** is refused up front,
-   before anything is created — it would install and then never tick.
+   A package whose scanner entries carry an **`enabled` key** is refused up front, before anything is
+   created — whatever the value. The engine never reads a scanner-level `enabled` (registration comes
+   from the strategy, not the scanner entry), so an `enabled: false` scanner would register and tick
+   anyway: the package would trade while its author believes it is switched off. The refusal names
+   every offending line — instance, scanner, file, value — so one edit pass fixes the package. A
+   scanner runs because the package declares it: to stop one, remove the scanner entry.
 
 **No local deploy state.** There is no `.deploy-state.json` any more — the backend strategies and the
 runtime registry ARE the record, which is what killed the whole `E_STATE_*` lost-state class. The job does
