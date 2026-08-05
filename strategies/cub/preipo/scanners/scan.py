@@ -1,9 +1,9 @@
 """CUB · PREIPO satellite — supervised scanner (Runtime 3.0 port of cub-producer.py CUB_LEG=preipo).
 
 The ~10% pre-IPO ramp sleeve (Lemur IPOP-discovery method). Each tick it auto-DISCOVERS pre-IPO
-perpetuals (IPOPs) from the live Hyperliquid XYZ board by their structural funding signature
-(|funding| <= ipopFundingMaxAbs AND venue max_leverage <= ipopMaxLeverageCap — the throttled
-pre-listing state), then LONGS the ones with a confirming absolute 4h/1h uptrend (rides the
+perpetuals (IPOPs) from the live Hyperliquid XYZ board by their structural leverage signature
+(venue max_leverage <= ipopMaxLeverageCap — fresh pre-IPO perps launch capped low) plus a
+budget-relative liquidity floor, then LONGS the ones with a confirming absolute 4h/1h uptrend (rides the
 pre-listing ramp; blow-off guard loosened since pre-IPO names run hot). There is NO static universe
 — it is discovered every tick, so a new IPOP (the next SpaceX/Cerebras) auto-joins the moment it
 lists. LONG-only. Episodic by design — most ticks may find 0-2 IPOPs. Read-only, single-pass.

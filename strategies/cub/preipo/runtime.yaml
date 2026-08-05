@@ -5,9 +5,9 @@ version: 3.0.0
 description: >
   CUB PREIPO (satellite) — the ~10% pre-IPO ramp sleeve of the Cub combined fund (~90% Lion
   two-speed AI long/short + ~10% pre-IPO). Runtime 3.0 port of v2 Cub v1.0.0, CUB_LEG=preipo. This
-  book auto-DISCOVERS pre-IPO perpetuals (IPOPs) on Hyperliquid XYZ by their structural funding
-  signature (|funding| <= ipopFundingMaxAbs AND venue max_leverage <= ipopMaxLeverageCap — the
-  throttled pre-listing state) and LONGS the ones with a confirming absolute 4h/1h uptrend, riding
+  book auto-DISCOVERS pre-IPO perpetuals (IPOPs) on Hyperliquid XYZ by their structural leverage
+  signature (venue max_leverage <= ipopMaxLeverageCap — fresh pre-IPO perps launch capped low) plus a
+  budget-relative liquidity floor, and LONGS the ones with a confirming absolute 4h/1h uptrend, riding
   the pre-listing ramp (the SpaceX / Cerebras pattern). No static universe — discovered every tick,
   so the next IPOP auto-joins on listing. Blow-off guard loosened (pre-IPO names run hot). LONG only.
   Episodic by design — most ticks may find 0-2 IPOPs. The IPOP liquidity floor is BUDGET-RELATIVE
@@ -36,7 +36,7 @@ scanners:
     default_signal_validity_seconds: 900
     state_history_max_count: 50
     inputs:
-      # NO static universe — IPOPs are DISCOVERED each tick by the funding+leverage signature below.
+      # NO static universe — IPOPs are DISCOVERED each tick by the leverage-cap + liquidity signature below.
       sizingWeights:
         _default: 1.0
       minScore: 4             # pre-IPO data is sparse — slightly lower bar
@@ -44,8 +44,10 @@ scanners:
       maxLeverage: 5          # IPOPs are venue-capped at 5x anyway; clamp then each name's HL venue max
       maxSlots: 3
       rankPoolSize: 16
-      ipopFundingMaxAbs: 1.0e-7   # IPOP funding signature (throttled pre-listing)
-      ipopMaxLeverageCap: 5       # IPOP leverage signature
+      ipopFundingMaxAbs: 0        # OFF (0) — funding does NOT identify an IPOP: live pre-IPO perps fund
+                                  # like ordinary equities, so the old 1.0e-7 gate matched NO live IPOP
+                                  # and left this wallet empty. Leverage cap + liquidity floor discriminate.
+      ipopMaxLeverageCap: 5       # IPOP leverage signature — the real discriminator (fresh perps launch capped low)
       ipopLiqVolMultiple: 30      # budget-relative IPOP liquidity floor (× position notional)
       rsThresholdPct: 3.0
       rsiOverbought: 88       # pre-IPO ramps run hot; loosen the blow-off guard

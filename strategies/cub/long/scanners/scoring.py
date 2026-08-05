@@ -1,9 +1,11 @@
 """CUB — pure thesis math (no I/O, no MCP, no clock). Shared verbatim by all three books
 (long "haves", short "have-nots", preipo pre-IPO ramp); the direction and the universe builder
 differ per book but the scoring is one function. A faithful Runtime 3.0 port of the v2
-cub-producer.py scoring (cub-producer.py v1.0.0) — the gates + point weights + the IPOP
-discovery filter are copied EXACTLY (marked `# v2-quirk` where the v2 behaviour is load-bearing
-and must not be redesigned). Unit-testable on plain candle lists + instrument dicts.
+cub-producer.py scoring (cub-producer.py v1.0.0) — the gates + point weights are copied EXACTLY
+(marked `# v2-quirk` where the v2 behaviour is load-bearing and must not be redesigned), EXCEPT the
+IPOP funding gate, which is CORRECTED: the v2 `|funding| <= 1e-7` "throttled pre-listing" signature
+matched no live IPOP (pre-IPO perps fund like ordinary equities), so it is now opt-in and OFF by
+default — see is_ipop. Unit-testable on plain candle lists + instrument dicts.
 
 KEY DISTINCTION FROM COUGAR (do not "simplify" toward cougar): in Cub the hard gate is
 ABSOLUTE TREND (long a have only while it actually trends up; short a have-not only while it
@@ -18,8 +20,14 @@ its peers ran harder. Cougar instead gates on excess (long requires excess>=0); 
 NORM_DIV = 9.0
 
 # v2 preipo defaults (cub-producer.py _DEFAULTS["preipo"] / cub-preipo-config.json)
-DEFAULT_IPOP_FUNDING_MAX = 1e-7    # IPOP funding signature (throttled pre-listing)
-DEFAULT_IPOP_LEV_CAP = 5           # IPOP leverage signature
+DEFAULT_IPOP_FUNDING_MAX = 0.0     # 0 = OFF. Funding does NOT identify an IPOP: live pre-IPO perps
+                                   # fund at the same ~1e-5..1e-4 magnitude as ordinary xyz equities
+                                   # (e.g. UNITREE -3.16e-5 sits inside the NVDA/MU/TSM pack). The only
+                                   # names with |funding| <= 1e-7 are DEAD zero-volume markets, which
+                                   # fail the liquidity floor anyway — so the v2 1e-7 gate was empty-set
+                                   # on EVERY tick and no live IPOP ever passed it. Leverage cap +
+                                   # liquidity floor + absolute-trend discriminate; funding is opt-in.
+DEFAULT_IPOP_LEV_CAP = 5           # IPOP leverage signature (fresh pre-IPO perps launch capped low)
 
 
 def _f(v, d=0.0):
@@ -240,15 +248,19 @@ def clamp_leverage(desired, venue_max):
     return max(1, min(int(desired), venue))
 
 
-# ── IPOP discovery filter (preipo leg only; ported verbatim from v2 ipop_universe) ──
+# ── IPOP discovery filter (preipo leg only) — funding gate CORRECTED vs v2 (see is_ipop + the
+#    DEFAULT_IPOP_FUNDING_MAX note): the v2 `|funding| <= 1e-7` "throttled pre-listing" signature
+#    matched NO live IPOP, so it is now opt-in/off; the leverage cap + liquidity floor identify a
+#    fresh IPOP, and the absolute-trend gate (score_thematic) confirms the ramp. ──
 
 def is_ipop(name, meta, max_funding=DEFAULT_IPOP_FUNDING_MAX, lev_cap=DEFAULT_IPOP_LEV_CAP,
             min_day_vol=0.0):
-    """True iff a live xyz: instrument matches the structural IPOP signature (verbatim v2):
+    """True iff a live xyz: instrument matches the structural IPOP signature:
         name.startswith("xyz:")
-        AND 0 < venue max_leverage <= lev_cap (the throttled pre-listing leverage cap)
-        AND abs(funding) <= max_funding (the throttled pre-listing funding signature)
-        AND 24h notional volume >= min_day_vol (budget-relative liquidity floor)."""
+        AND 0 < venue max_leverage <= lev_cap (fresh pre-IPO perps launch leverage-capped low)
+        AND 24h notional volume >= min_day_vol (budget-relative liquidity floor)
+        AND (opt-in) abs(funding) <= max_funding — OFF by default (max_funding <= 0); funding does
+            NOT discriminate IPOPs from ordinary equities, see the DEFAULT_IPOP_FUNDING_MAX note."""
     if not isinstance(name, str) or not name.lower().startswith("xyz:"):
         return False
     if not isinstance(meta, dict):
@@ -257,17 +269,18 @@ def is_ipop(name, meta, max_funding=DEFAULT_IPOP_FUNDING_MAX, lev_cap=DEFAULT_IP
         lev = int(meta.get("max_leverage"))
     except (TypeError, ValueError):
         return False
-    if lev <= 0 or lev > lev_cap:               # IPOP leverage signature
+    if lev <= 0 or lev > lev_cap:               # IPOP leverage signature (the real discriminator)
         return False
-    ctx = meta.get("ctx", {}) if isinstance(meta.get("ctx"), dict) else {}
-    try:
-        funding_abs = abs(_f(ctx.get("funding", 0)))
-    except (TypeError, ValueError):
+    if day_vol(meta) < min_day_vol:             # budget-relative liquidity floor
         return False
-    if funding_abs > max_funding:               # IPOP funding signature
-        return False
-    if day_vol(meta) < min_day_vol:             # budget-relative liquidity
-        return False
+    if max_funding and max_funding > 0:         # OPT-IN funding band — OFF by default (see note above)
+        ctx = meta.get("ctx", {}) if isinstance(meta.get("ctx"), dict) else {}
+        try:
+            funding_abs = abs(_f(ctx.get("funding", 0)))
+        except (TypeError, ValueError):
+            return False
+        if funding_abs > max_funding:
+            return False
     return True
 
 
