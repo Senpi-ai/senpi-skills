@@ -40,22 +40,50 @@ Per instance the job runs five steps, each recorded with its own outcome:
    ./scanners` resolves against the YAML's own directory. An existing runtime already on this wallet is an
    idempotent skip; one bound to a **different/old** wallet is **deleted and recreated** on the fresh wallet,
    never updated in place.
-5. **observe** — poll the runtime's scanner rows for one `lastRunStatus: "ok"` within `--tick-wait`
-   (default 120s, `0` skips). Seen → `ok` with the row quoted verbatim. Not seen → **`unobserved`**, which
-   is truthful, not success: external scanners legitimately tick on long intervals. A row that only ever
-   errors → `failed`, quoting `lastError`.
+5. **observe** — poll the runtime's scanner rows for one **fresh** tick within `--tick-wait` (default 120s).
+   What counts as a tick depends on the scanner: an interval (built-in) scanner proves it ran with
+   `lastRunStatus` of `ok` **or `heartbeat`** — `ok` literally means "found a signal", so a quiet scanner
+   records `heartbeat` and that is still a tick; an **external** (supervised push) scanner proves it with a
+   fresh `lastAliveAt`, because intake short-circuits an empty POST before any run telemetry and a
+   watch-only scanner therefore never records a run status at all. **Fresh** means at or after this
+   install: scanner telemetry is name-keyed and survives a re-mint, so a stale `ok` from a previous
+   incarnation never certifies this one. Seen → `ok` with the row quoted verbatim. Not seen →
+   **`unobserved`**, which is truthful, not success — and when the registry says the first tick is still
+   ahead of the window, the report names *when* it is due. A row that **errored since this install** →
+   `failed` immediately, quoting `lastError` (polling the rest of the budget adds nothing). Every scanner
+   disabled → `unobserved` with that said out loud, not a silent wait. `--tick-wait 0` skips the check
+   entirely and reports `installed-unobserved`; it **can never report `live`**.
+
+   A package whose instances declare scanners but have **every one `enabled: false`** is refused up front,
+   before anything is created — it would install and then never tick.
 
 **No local deploy state.** There is no `.deploy-state.json` any more — the backend strategies and the
 runtime registry ARE the record, which is what killed the whole `E_STATE_*` lost-state class. The job does
 keep an append-only JSONL journal under the runtime's state dir (`deploys/<deployId>.jsonl`), but it is
-**narration only**: nothing ever reads it to decide an action. It is read for exactly two things —
-rendering `deploy status` history, and the boot scan that stamps a journal left unterminated by a restart
-as `interrupted`. Nothing auto-resumes; only a fresh deploy does, and it reconciles.
+**narration only**: nothing ever reads it to decide an action. It is read for exactly three things —
+rendering `deploy status` history, the boot scan that stamps a journal left unterminated by a restart as
+`interrupted`, and one narrow carve-out: the **strategyId this box journaled at create time**, used only
+as a LOOKUP KEY when reconcile's name match finds nothing (a create whose custom name the backend rejected
+lands under a backend-assigned name that the name match can never find again). Every such id is re-read
+from the live backend before reconcile may act on it — the journal supplies the key, the backend supplies
+the decision. Nothing auto-resumes; only a fresh deploy does, and it reconciles.
 
-**Single-flight.** One deploy job per agent. A second start refuses `[E_DEPLOY_IN_PROGRESS]`: concurrent
-deploys read one shared funding waterfall and two preflights could both pass while jointly overdrawing.
-`openclaw senpi deploy cancel` sets a flag honored at **step boundaries only** — an in-flight money-moving
-call always completes and is journaled, and nothing is rolled back.
+**Single-flight, and self-freeing.** One deploy job per agent. A second start refuses
+`[E_DEPLOY_IN_PROGRESS]`: concurrent deploys read one shared funding waterfall and two preflights could
+both pass while jointly overdrawing. **There is no cancel** — undeploying is closing the strategy
+(`close.py`), not stopping the job. Instead every MCP call the job makes is timeout-bounded, and the job
+carries a wall-clock deadline: past it the run is abandoned at its **next step boundary** (an in-flight
+money-moving call always completes and is journaled) and, after a short grace, the slot is freed even if
+the run is still wedged inside an await. An abandoned deploy reports `failed` with the resume command.
+
+**Rollback is exactly one case.** A wallet **this job created and funded** whose *install* then failed is
+closed and its funds returned (`strategy_close` returns them to the owner wallet on its own). Never an
+adopted wallet — it predates this deploy; never on an observe failure — the runtime is installed and may
+open a position at any moment; never on a refusal — nothing was created. If that close cannot run (the
+wallet holds open positions) or fails, the report says **`[E_ROLLBACK_INCOMPLETE]`** and names the wallet,
+the amount and the manual `close.py`: a stranded funded wallet is never silent. The crash case does not
+unwind — the boot scan never moves money — so an `interrupted` status names both exits (re-run to adopt,
+or close to reclaim) along with the amount, read fresh from the backend.
 
 ## `deploy.py {validate|create|runtime|verify|status} <id> …` — the compatibility wrapper
 
@@ -63,7 +91,12 @@ call always completes and is journaled, and nothing is rolled back.
 package resolution (a path, or a bare catalog id fetched from the remote) and the side-effect-free
 preflight — then starts the verb, polls `deploy status`, and relays the report **verbatim**. Its three
 action subcommands (`create` / `runtime` / `verify`) all drive the same idempotent verb; they remain
-distinct so existing docs and transcripts stay valid. Exit code 2 on a `refused`/`failed` report.
+distinct so existing docs and transcripts stay valid.
+
+**Exit codes** (identical to the verb's): `0` live · `2` refused · `3` failed · `4`
+installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job still running) ·
+`1` internal/transport error — also the fallback for a status the wrapper does not recognise, so a new
+status can never read as success. Branch on the code; use `--json` for anything richer.
 
 **Package fetch.** Any subcommand fetches `strategies/<id>/` from the remote if it isn't on disk
 (`_fetch.py`: GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default

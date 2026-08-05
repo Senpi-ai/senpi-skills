@@ -17,6 +17,12 @@ The three action subcommands all drive the SAME idempotent verb; re-running any 
 (the verb reconciles against the backend + the runtime registry and adopts whatever exists). They
 are kept as distinct verbs so existing docs, habits and transcripts stay valid.
 
+Exit codes mirror the verb's own (D-12): 0 live · 2 refused · 3 failed · 4 installed-unobserved ·
+5 interrupted · 6 pending (a wallet still funding, or the job still running) · 1 internal/transport
+error, which is also the fallback for a status this wrapper does not recognise. There is no
+`cancel`: undeploying a strategy is closing it (`close.py`), and a wedged job frees its own slot at
+the deploy deadline.
+
 There is NO local deploy-state file any more. The backend strategies and the runtime registry ARE
 the record — the sidecar `.deploy-state.json` was the source of the whole `E_STATE_*` lost-state
 class, and it is gone. Package resolution (path or bare catalog id, with the remote fetch) and the
@@ -38,7 +44,22 @@ START_TIMEOUT = 60      # the verb detaches in ~1s; this is only the spawn budge
 STATUS_TIMEOUT = 30
 DEFAULT_MAX_WAIT = 600  # how long THIS script waits for the detached job to reach a terminal state
 POLL_EVERY = 5
-TERMINAL_BAD = ("refused", "failed")
+
+# D-12: the verb's exit-code contract, mirrored here so `deploy.py` and `openclaw senpi deploy
+# status` answer identically. 1 is reserved for internal/transport errors and is ALSO the
+# unknown-status fallback, so a status this wrapper has never heard of can never read as success.
+# Anything richer than the overall status: read the report (`--json`).
+EXIT_CODES = {
+    "live": 0,
+    "refused": 2,
+    "failed": 3,
+    "installed-unobserved": 4,
+    "interrupted": 5,
+    # A wallet still funding when the poll budget ran out — resumable, not an error.
+    "pending": 6,
+}
+EXIT_INTERNAL = 1
+EXIT_PENDING = 6
 
 
 # ---------- package resolution (unchanged — discovery stays in skills) ----------
@@ -196,21 +217,32 @@ def wait_for_terminal(deploy_id, max_wait, log):
         time.sleep(POLL_EVERY)
 
 
+def exit_code_for(snap):
+    """The D-12 code for a snapshot. Mirrors the verb's own `exitCodeForDeploy`, exactly."""
+    state = (snap or {}).get("state") or {}
+    # `interrupted` is a terminal STATE, not an overall: a gateway restart killed the job. Nothing
+    # is running, so it must never read as pending.
+    if state.get("status") == "interrupted":
+        return EXIT_CODES["interrupted"]
+    if state.get("status") != "done":
+        return EXIT_PENDING
+    return EXIT_CODES.get(state.get("overall"), EXIT_INTERNAL)
+
+
 def run_deploy(pkg, a, log):
-    """Start → poll → relay. Exit code: 2 when the verb's report is refused/failed, else 0."""
+    """Start → poll → relay. Exit code: the D-12 map (see EXIT_CODES)."""
     deploy_id = start_deploy(pkg, a, log)
     snap = wait_for_terminal(deploy_id, a.max_wait, log)
     if snap is None:
         print(f"Could not read the deploy job's status. Check it directly: "
               f"openclaw senpi deploy status {deploy_id}", file=sys.stderr)
-        return 2
+        return EXIT_INTERNAL
     print_status(deploy_id, a.json, snap)
     state = snap.get("state") or {}
     if state.get("status") == "running":
         print(f"\nStill running after {a.max_wait}s — the job continues in the background. "
               f"Watch it: openclaw senpi deploy status {deploy_id}")
-        return 0
-    return 2 if state.get("overall") in TERMINAL_BAD else 0
+    return exit_code_for(snap)
 
 
 # ---------- cli ----------
@@ -269,9 +301,9 @@ def main(argv):
         if snap is None:
             print("No deploy job recorded on this agent. Start one:\n"
                   f"  python3 {Path(__file__).name} create <id> --budget <usd>", file=sys.stderr)
-            sys.exit(2)
+            sys.exit(EXIT_INTERNAL)
         print_status(None, a.json, snap)
-        sys.exit(2 if (snap.get("state") or {}).get("overall") in TERMINAL_BAD else 0)
+        sys.exit(exit_code_for(snap))
 
     pkg = ensure_pkg(a.package, a.ref, log)
 

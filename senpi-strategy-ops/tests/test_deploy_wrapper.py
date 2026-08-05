@@ -149,17 +149,44 @@ class RunDeployExitCodes(unittest.TestCase):
         ])
         return deploy.run_deploy(_pkg(), _args(budget=500.0), lambda m: None)
 
+    # D-12: one exit code per terminal status, so a caller can branch without parsing the report.
+    # 1 stays reserved for internal/transport errors, which is also the unknown-status fallback —
+    # a status this wrapper has never heard of must never read as success.
+
     def test_live_exits_zero(self):
         self.assertEqual(self._run("live"), 0)
 
-    def test_installed_unobserved_exits_zero(self):
-        self.assertEqual(self._run("installed-unobserved"), 0)
+    def test_installed_unobserved_exits_four(self):
+        self.assertEqual(self._run("installed-unobserved"), 4)
 
     def test_refused_exits_two(self):
         self.assertEqual(self._run("refused"), 2)
 
-    def test_failed_exits_two(self):
-        self.assertEqual(self._run("failed"), 2)
+    def test_failed_exits_three(self):
+        self.assertEqual(self._run("failed"), 3)
+
+    def test_pending_exits_six(self):
+        self.assertEqual(self._run("pending"), 6)
+
+    def test_an_unknown_overall_exits_one_never_zero(self):
+        self.assertEqual(self._run("something-new"), 1)
+
+    def test_an_interrupted_job_exits_five(self):
+        _cli.run_cli = FakeCli([
+            _ok({"deployId": "dpl-a1b2c3d4", "phase": "reconcile"}),
+            _ok({"state": {"status": "interrupted"}}),
+            (0, "deploy dpl-a1b2c3d4 — interrupted by a gateway restart", ""),
+        ])
+        self.assertEqual(deploy.run_deploy(_pkg(), _args(budget=500.0), lambda m: None), 5)
+
+    def test_a_job_still_running_when_the_wrapper_gives_up_exits_six(self):
+        # The job continues in the background — "not finished" is the honest answer, not success.
+        _cli.run_cli = FakeCli([
+            _ok({"deployId": "dpl-a1b2c3d4", "phase": "reconcile"}),
+            _ok({"state": {"status": "running", "phase": "create"}}),
+            (0, "deploy dpl-a1b2c3d4 — running (phase: create)", ""),
+        ])
+        self.assertEqual(deploy.run_deploy(_pkg(), _args(budget=500.0, max_wait=0), lambda m: None), 6)
 
 
 class BudgetArg(unittest.TestCase):

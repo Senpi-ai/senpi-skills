@@ -39,7 +39,6 @@ path — funds preflight → wallet create+fund → runtime install → one obse
 python3 senpi-strategy-ops/scripts/deploy.py validate <id>    # 0. preflight — deploy-ready? (no side effects)
 openclaw senpi deploy -p <package-dir> --budget <usd>         # 1. start the deploy (detached; prints a deployId)
 openclaw senpi deploy status                                  # 2. poll until terminal; read the verified report
-openclaw senpi deploy cancel                                  # (if needed) stop at the next safe point
 python3 senpi-strategy-ops/scripts/status.py                  # what am I running? (+ health)
 python3 senpi-strategy-ops/scripts/close.py          <id>     # teardown one strategy
 python3 senpi-strategy-ops/scripts/close.py          --all    # teardown EVERY open strategy
@@ -93,7 +92,7 @@ platform wallet floor) — **confirm the amount with the user first**.
 ```
 openclaw senpi deploy -p /data/workspace/strategies/spider --budget 300
 ```
-It validates locally, starts the job, prints the `deployId` + the watch/cancel commands, and **returns**.
+It validates locally, starts the job, prints the `deployId` + the watch command, and **returns**.
 Flags: `--decision-model <model>` (required only for a `decision_mode: llm` action),
 `--tick-wait <s>` (how long the job waits to observe a tick; default 120, `0` skips),
 `--max-wait <s>` (wallet-ACTIVE poll budget; default 150), `--json`.
@@ -111,21 +110,29 @@ fresh one, never updated in place.
 
 **Only one deploy runs at a time.** Starting a second refuses **`[E_DEPLOY_IN_PROGRESS]`** naming the
 running job — concurrent deploys share one funding waterfall and could jointly overdraw. Watch the
-running one, or `openclaw senpi deploy cancel` and re-run.
+running one. **There is no `cancel` verb:** undeploying a strategy is closing it (`close.py <id>`),
+not stopping the job. Every MCP call the job makes is timeout-bounded and the job itself has a
+wall-clock deadline, so a wedged deploy abandons itself at the next step boundary and frees the slot
+— you never have to wait for a gateway restart.
 
 **Step 2 — poll `openclaw senpi deploy status` until it is terminal.** While running it prints the phase
 as an in-progress fact. Once terminal it prints the full per-instance report with the evidence quoted
-from the surfaces that prove it (`totalFunded`, the scanner row's `lastRunStatus`/`runCount`). It exits
-**2** on `refused`/`failed`. Terminal `overall` values:
+from the surfaces that prove it (`totalFunded`, the scanner row's `lastRunStatus`/`runCount`).
+
+**Exit codes** (both `openclaw senpi deploy status` and `deploy.py`): `0` live · `2` refused · `3`
+failed · `4` installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job
+still running) · `1` internal/transport error — which is also what an unrecognised status returns, so
+a new status can never read as success. Branch on the code; read `--json` for anything richer.
+
+Terminal `overall` values:
 
 | `overall` | Meaning | What to do |
 |---|---|---|
 | `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block |
-| `installed-unobserved` | installed, no tick seen inside `--tick-wait` | say exactly that; check `openclaw senpi scanner -r <runtimeId>` in a few minutes. External scanners legitimately tick on long intervals |
+| `installed-unobserved` | installed, no tick seen inside `--tick-wait` (or `--tick-wait 0` skipped the check) | say exactly that; check `openclaw senpi scanner -r <runtimeId>` in a few minutes. External scanners legitimately tick on long intervals. **`--tick-wait 0` can never report `live`** — nothing was verified |
 | `pending` | a wallet was still funding when the poll budget ran out | re-run the same deploy command — it resumes and adopts the wallet |
 | `refused` | a gate said no (`[E_FUNDS_*]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** (below); nothing was created past it |
 | `failed` | a step genuinely failed (backend rejection, install error, scanner erroring) | read the quoted cause, fix it, re-run |
-| `cancelled` | you cancelled; the in-flight step completed and was journaled | re-run to resume — nothing was rolled back |
 
 **A gateway restart** while a job was running renders it **`interrupted`** on the next `status`: you get
 the journal history **and** a fresh read of what actually exists, plus the resume command. Nothing
@@ -163,7 +170,12 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 >   strategy. Triage **read-only** (`python3 status.py <id>` maps each wallet to its runtime/strategy),
 >   resolve WITH THE USER which wallet is live, then re-run. **Never `close.py`/recreate to "start clean"** —
 >   that can tear down a funded live strategy.
-> - **`[E_DEPLOY_IN_PROGRESS]`** — another deploy is running. Watch it (`deploy status`) or cancel it.
+> - **`[E_DEPLOY_IN_PROGRESS]`** — another deploy is running. Watch it (`deploy status`). There is nothing
+>   to cancel; a wedged job times out and frees the slot on its own.
+> - **`[E_ROLLBACK_INCOMPLETE]`** — a wallet this deploy created and funded had its install fail, and the
+>   automatic close did not complete. **The wallet is live, funded and unwatched.** The refusal names the
+>   wallet and the amount: close it manually to reclaim the funds (`python3 senpi-strategy-ops/scripts/close.py <id>`)
+>   and tell the user. Never leave this one unreported.
 > - **A live `<id>` strategy that is PAUSED (or mid-teardown)** — the verb refuses immediately with the
 >   real status quoted; it does **not** wait, because a paused strategy never becomes ACTIVE on its own.
 >   Resume it and re-run, or `close.py <id>` first if you meant to start over. **Never fund a second
