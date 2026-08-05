@@ -76,8 +76,10 @@ both pass while jointly overdrawing. **There is no cancel** — undeploying is c
 still be in flight server-side, so an overrun is reported as an unknown outcome, never as a failure —
 and the job carries a wall-clock deadline: past it the run is abandoned at its **next step boundary** (an in-flight
 money-moving call always completes and is journaled) and, after a grace longer than any single call's
-deadline (so no abandoned call can still be moving money when the slot comes back), the slot is freed
-even if the run is still wedged inside an await. An abandoned deploy reports `failed` with the resume command.
+deadline (so the abandoned job is no longer *waiting* on a money-moving call when the slot comes back —
+a call it stopped waiting on may still land server-side, which the next deploy reconciles), the slot is
+freed even if the run is still wedged inside an await. An abandoned deploy reports `failed` with the
+resume command.
 
 **Rollback is exactly one case.** A wallet **this job created and funded** whose *install* then failed is
 closed and its funds returned (`strategy_close` returns them to the owner wallet on its own). Never an
