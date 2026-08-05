@@ -183,7 +183,13 @@ delivers the returned signals — there is no push/ingest model.
 | `outputs` | removed — an external scanner emits one output (signals) |
 | `blocked_assets` | filter candidates inside `scan()` |
 | `depends_on` | not supported on `external_scanner` |
-| `enabled` | not a scanner field at all (never read); remove the entry to stop a scanner |
+
+**Refused by `senpi deploy`, NOT by the schema** — the loader accepts it silently, which is exactly
+why deploy refuses it:
+
+| Field | Replacement |
+|---|---|
+| `enabled` | not a scanner field at all (the schema passes it through and the engine never reads it, so an `enabled: false` scanner ticks anyway). Remove the entry to stop a scanner |
 
 ---
 
