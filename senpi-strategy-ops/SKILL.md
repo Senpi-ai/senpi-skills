@@ -8,17 +8,23 @@ description: >-
   "are my positions protected? / do they have a stop-loss (DSL)?",
   "stop/close/uninstall polar" — and for teardown like "close all strategies",
   "return funds to main", "tear everything down" (→ close.py --all). ALWAYS tear
-  down via close.py, never a raw strategy_close (that strands the runtime). A
-  strategy is a PACKAGE (strategy.yaml + one runtime.yaml per instance + scanners/)
-  the runtime supervises in-process — no scanner daemon. deploy.py runs three
-  resumable steps (create→runtime→verify); close.py tears down (stop runtime +
+  down via close.py, never a raw strategy_close (that strands the runtime). Also
+  use to APPLY AN EDIT to a strategy that is already live — "re-score / re-tune /
+  change the scanner on my live strategy", "apply my new scoring", "make it buy
+  more aggressively" — via deploy.py upgrade (there is no in-place reload yet, so
+  it closes the arm and redeploys on a fresh wallet; consent-gated, per arm).
+  Authoring the edited files themselves is senpi-strategy-author; APPLYING them to
+  a running strategy is upgrade here. A strategy is a PACKAGE (strategy.yaml + one
+  runtime.yaml per instance + scanners/) the runtime supervises in-process — no
+  scanner daemon. deploy.py runs three resumable steps (create→runtime→verify),
+  plus upgrade (edit a live strategy); close.py tears down (stop runtime +
   strategy_close → flattens positions, returns funds). The id (spider, polar,
   kodiak) is the package folder. NOT for choosing WHICH strategy
   (senpi-strategy-discover) or building/editing one (senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.13.0"
+  version: "2.14.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -39,6 +45,7 @@ python3 senpi-strategy-ops/scripts/deploy.py validate <id>                 # 0. 
 python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget <usd>   # 1. create wallets & fund them
 python3 senpi-strategy-ops/scripts/deploy.py runtime <id>                  # 2. register the runtime(s)
 python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                  # 3. GATE — confirm LIVE (runtime+scanner+DSL+budget)
+python3 senpi-strategy-ops/scripts/deploy.py upgrade <id> --instance <arm> --budget <usd>  # apply an EDIT to a live strategy (close→redeploy fresh; resumable; consent-gated)
 python3 senpi-strategy-ops/scripts/status.py                               # what am I running? (+ health)
 python3 senpi-strategy-ops/scripts/close.py          <id>                  # teardown one strategy
 python3 senpi-strategy-ops/scripts/close.py          --all                 # teardown EVERY open strategy
@@ -263,7 +270,49 @@ it returns `closing` and hands polling to you: **re-run `close.py spider`** unti
 Re-runs are idempotent (runtime already gone → skip; already closing/closed → no re-submit). Strategies
 are discovered from `strategy_list` (`skillName==<id>`), so close also cleans up **orphaned** wallets
 that have no runtime. `--instance <name>` scopes an instance (needs its live runtime to map; else omit to close
-all). **Redeploy** = `close` then `create`/`runtime`/`verify`.
+all). **Redeploy / upgrade a deployed strategy — see the next section, never a bare `close`+`create`.**
+
+## Upgrade — apply an edited scan.py / scoring.py / runtime.yaml to a LIVE strategy
+
+The most common change request: the user asks to re-score / re-scan / re-tune a strategy, or you recommend
+it after analysis. **There is no in-place scanner reload yet** (a runtime-team `refresh` is coming). Until
+then, upgrading = **close the arm, then recreate it on a FRESH wallet with the edited files** — done **per
+arm**, so a multi-instance strategy's other sleeves keep running. **`deploy.py upgrade` does the whole
+thing** — it is the ONLY correct way to apply an edit to a live strategy. Do not hand-sequence it, and
+never hand-render a runtime.yaml (that's the `./scanners` "NO ENTRY SCANNERS" trap the verb exists to
+prevent).
+
+**Do this:**
+1. **Edit the on-disk package** in the durable root (`/data/workspace/strategies/<id>/[<instance>/]…`) —
+   `scoring.py` / `scan.py` / `runtime.yaml`. (`upgrade` re-runs the full `validate` preflight itself, so a
+   bad `./scanners` path is caught BEFORE anything closes.)
+2. **Run `upgrade` and re-run it to advance** — one guided step per call (close → fund fresh wallet →
+   register runtime → verify), exactly like `create` resumes. `--instance` is required for a multi-arm
+   package (upgrades one sleeve, siblings untouched); the budget funds the fresh wallet:
+   ```
+   python3 scripts/deploy.py upgrade <id> --instance <arm> --budget <usd>
+   ```
+   - **Flatten consent is built in.** If the arm holds an open position, the first call HALTS with
+     `needs-consent` — it will NOT silently market-exit a live book. Surface the flatten to the user
+     (positions close, funds return to main, redeploy on a NEW wallet), get an explicit yes, then re-run
+     with `--yes`.
+   - Each re-run reports where it is: `closing` (async flatten in flight — re-run) → `closed` → then the
+     normal `wallets-ready` → `registered` → `live`. A transient `underfunded` right after close just
+     means the old funds are still returning — wait and re-run.
+3. **Tell the user what changed:** the wallet is NEW (old → new); funds moved main → new; a custom
+   ratchet/stop ladder on the old positions does NOT carry over (they were closed) — re-apply it if wanted.
+
+**NEVER, during an upgrade:**
+- hand-render a `runtime.yaml` or run raw `openclaw senpi runtime create` on a hand-built file — the
+  `./scanners` trap. `upgrade` renders it INSIDE the instance dir for you.
+- raw `strategy_create_custom_strategy` — that's a naked wallet with no runtime.
+- `create` on top of a live strategy to "just re-fund it" — `create` refuses a running strategy; `upgrade`
+  is the path that closes-then-redeploys.
+- claim "upgraded / live" before `upgrade` reports `live`.
+
+*(Under the hood `upgrade` drives the same tested `close → create → runtime → verify` path on a fresh
+wallet. In-place `refresh` — reload the scanner with no close, no flatten, same wallet — is coming from the
+runtime team; the verb swaps to it when it lands, same command surface.)*
 
 ## Invariants
 

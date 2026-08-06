@@ -351,6 +351,22 @@ def strategy_min(pkg):
     return strategy_min_budget(manifest, runtimes)
 
 
+def _scope_pkg(pkg, instance_name):
+    """Narrow a multi-instance package to ONE instance for a single-arm op (redeploy/upgrade one sleeve,
+    leaving siblings running). Mutates pkg.instances in place — each command runs in a fresh process — so
+    every per-instance loop, plus the create live-guard, acts on this arm only; the siblings' deploy-state
+    entries are left untouched. Raises on an unknown instance name."""
+    names = [i.name for i in pkg.instances]
+    if instance_name not in names:
+        raise SystemExit(f"error: no instance {instance_name!r} in {pkg.id} (have: {', '.join(names)})")
+    kept = [i for i in pkg.instances if i.name == instance_name]
+    # Fund THIS arm with the full --budget: its fractional share of the whole package is irrelevant when
+    # it's the only arm being (re)deployed, and keeping it would scale the budget down (a 0.10-share sleeve
+    # funded at 10% of what the user asked). Treat the scoped arm as the whole.
+    kept[0].funding_share = 1.0
+    pkg.instances = kept
+
+
 def cmd_create(pkg, a, log):
     st = load_state(pkg)
     st["budget"] = a.budget
@@ -429,6 +445,14 @@ def cmd_create(pkg, a, log):
     #     creates a fresh wallet. strategy_close is async, so hand off and re-run `create` once it's closed.
     runtimes = _cli.list_runtimes()
     existing_open = [s for s in _cli.strategies_for(mcp, skill_name=pkg.id) if _cli.strategy_open(s)]
+    if getattr(a, "instance", None):
+        # single-arm: the live-guard + close-existing must consider ONLY this arm's strategy (the one on
+        # this arm's runtime wallet), never its siblings — else a one-arm redeploy refuses/closes a healthy
+        # sibling. Once this arm is closed, its runtime is gone → no match → create proceeds on a fresh wallet.
+        _arm_rt = _cli.find_runtime(f"{pkg.id}-{a.instance}")
+        _arm_wallet = _cli.runtime_wallet(_arm_rt) if _arm_rt else None
+        existing_open = [s for s in existing_open
+                         if _arm_wallet and _cli.wallet_match(_cli.strategy_wallet(s), _arm_wallet)]
 
     def _has_running_runtime(s):
         rt = _cli.find_runtime_by_wallet(_cli.strategy_wallet(s))
@@ -891,6 +915,105 @@ def cmd_verify(pkg, a, log):
         time.sleep(POLL_EVERY)
 
 
+# ---------- upgrade: apply an edited package to a LIVE strategy (close → redeploy fresh) ----------
+
+def cmd_upgrade(pkg, a, log):
+    """Resumable single-arm UPGRADE — apply an edited scan.py / scoring.py / runtime.yaml to a LIVE
+    strategy by closing it and redeploying on a FRESH wallet, one step per call (the way `create` resumes).
+    The supported way to re-score / re-scan / re-tune a deployed strategy until in-place scanner reload
+    lands, at which point the close/redeploy guts swap for it. Two invariants:
+      • routes through the tested `close → create → runtime → verify` path, so the runtime yaml is rendered
+        INSIDE the instance dir (`./scanners` resolves) on a FRESH wallet — never a hand-rendered root yaml
+        or a raw `strategy_create_custom_strategy` (the naked-wallet / "NO ENTRY SCANNERS" traps);
+      • consent-gated — closing a live arm market-exits its positions, so it refuses without `--yes`.
+    Per arm (`--instance <arm>`), siblings untouched. State: the deploy-state `_upgrade` block, phase
+    `closing` (async flatten in flight) → `redeploy`."""
+    # `upgrade` acts on ONE arm. main() already narrowed pkg to a single arm when --instance was given;
+    # a still-multi-instance pkg here means the caller didn't name which sleeve to upgrade.
+    if len(pkg.instances) != 1:
+        names = ", ".join(i.name for i in pkg.instances if i.name)
+        raise SystemExit(
+            f"error: `upgrade` acts on ONE arm at a time — pass --instance <arm> (have: {names}). "
+            f"Each arm is closed and redeployed on its own fresh wallet; siblings keep running.")
+    if a.budget is None and not a.dry_run:
+        raise SystemExit("error: --budget <usd> is required for `upgrade` — it funds the FRESH wallet the "
+                         "arm is redeployed onto (the old wallet is retired on close).")
+    inst = pkg.instances[0]
+    mcp = MCPClient()
+    st = load_state(pkg)
+    up = st.get("_upgrade") or {}
+    rerun = (f"python3 {Path(__file__).name} upgrade {pkg.id} --instance {inst.name}"
+             + (f" --budget {budget_arg(a.budget)}" if a.budget is not None else ""))
+
+    # ---------- PHASE A: close the currently-live arm (once), consent-gated ----------
+    # Skipped on --dry-run: the preview must be side-effect + network free, so it routes straight to the
+    # create dry-run without probing the backend for a live arm.
+    if not a.dry_run and up.get("phase") != "redeploy":
+        arm_rt = _cli.find_runtime(inst.runtime_name)
+        arm_wallet = _cli.runtime_wallet(arm_rt) if arm_rt else None
+        open_mine = ([s for s in _cli.strategies_for(mcp, skill_name=pkg.id)
+                      if _cli.strategy_open(s)
+                      and _cli.wallet_match(_cli.strategy_wallet(s), arm_wallet)]
+                     if arm_wallet else [])
+
+        if up.get("phase") == "closing":
+            # a close was triggered on a prior call — strategy_close is async, so wait for the flatten
+            # to finish (the arm's open strategy disappears) before minting the fresh wallet.
+            if open_mine:
+                out = {"strategy": pkg.id, "instance": inst.name, "status": "closing",
+                       "note": f"old {inst.runtime_name} still flattening — re-run `{rerun}` to continue."}
+                log("  " + out["note"]); return out
+            up["phase"] = "redeploy"; st["_upgrade"] = up; save_state(pkg, st)
+            out = {"strategy": pkg.id, "instance": inst.name, "status": "closed",
+                   "note": f"old arm closed, funds returning to main. Re-run `{rerun}` to redeploy on a "
+                           f"FRESH wallet. (If create reports `underfunded`, the funds are still returning "
+                           f"— wait a moment and re-run.)"}
+            log("  " + out["note"]); return out
+
+        if open_mine:
+            # START: the arm is LIVE. Closing it MARKET-EXITS its positions — never do that silently.
+            if not a.yes:
+                out = {"strategy": pkg.id, "instance": inst.name, "status": "needs-consent",
+                       "wallet": arm_wallet,
+                       "note": (f"UPGRADE will CLOSE the live `{inst.runtime_name}` on wallet {arm_wallet}: "
+                                f"it market-exits any open position (often NONE if the strategy isn't "
+                                f"entering — that's the usual re-tune case), returns funds to your main "
+                                f"wallet, and redeploys the edited arm on a FRESH wallet. The old wallet is "
+                                f"retired, and a custom ratchet/stop ladder on the old positions does NOT "
+                                f"carry over — re-apply it after if wanted. Confirm with the user, then "
+                                f"re-run with --yes:\n      {rerun} --yes")}
+                log("\n  " + out["note"]); return out
+            # consent given → close THIS arm via the tested close primitive (same in-process call
+            # cmd_create uses for the runtime-less trap), then hand off to redeploy on a fresh wallet.
+            import close as _close  # noqa: E402 — sibling module, lazy import
+            runtimes = _cli.list_runtimes()
+            for s in open_mine:
+                _close.close_one(pkg.id, s, runtimes, False, log)
+            st["instances"][inst.name] = {"status": "pending"}  # forget the old id → create makes a FRESH wallet
+            st["_upgrade"] = {"phase": "closing"}
+            save_state(pkg, st)
+            out = {"strategy": pkg.id, "instance": inst.name, "status": "closing",
+                   "note": (f"Closing `{inst.runtime_name}` (flatten positions + return funds; async). "
+                            f"Re-run `{rerun}` to redeploy once it's closed.")}
+            log("\n  " + out["note"]); return out
+
+        # nothing live to close (arm not deployed, or a runtime-less trap that `create` itself clears) →
+        # straight to redeploy.
+        up["phase"] = "redeploy"; st["_upgrade"] = up
+        save_state(pkg, st)
+
+    # ---------- PHASE B: redeploy the arm on a fresh wallet — one resumable step per call ----------
+    s = inst_state(st, inst.name)
+    status = s.get("status")
+    if a.dry_run or not s.get("strategyId") or status in (None, "pending", "creating"):
+        return cmd_create(pkg, a, log)
+    if status == "active":
+        return cmd_runtime(pkg, a, log)
+    # registered → a fast single check (max_wait=0); verify deletes state on `live`, clearing _upgrade too.
+    av = argparse.Namespace(**{**vars(a), "max_wait": 0})
+    return cmd_verify(pkg, av, log)
+
+
 # ---------- cli ----------
 
 def main(argv):
@@ -902,22 +1025,41 @@ def main(argv):
         p.add_argument("--ref", default=None, help="Branch/ref to fetch the package from if not on disk.")
         p.add_argument("--json", action="store_true")
 
+    # --instance scopes create/runtime/verify to ONE arm of a multi-instance package (single-arm
+    # redeploy / upgrade), leaving its siblings running. Same mapping as close.py --instance.
+    def _inst(p):
+        p.add_argument("--instance", default=None,
+                       help="Scope to ONE instance of a multi-arm package (siblings untouched).")
+
     pc = sub.add_parser("create", help="Step 1: create + fund the strategy wallet(s) (resumable).")
-    common(pc)
+    common(pc); _inst(pc)
     pc.add_argument("--budget", type=float, default=None, help="Total USDC split across wallets by funding_share.")
     pc.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT, help="Poll budget for this call (s).")
     pc.add_argument("--dry-run", action="store_true")
 
     pr = sub.add_parser("runtime", help="Step 2: render + create the runtime(s) on the ready wallet(s).")
-    common(pr)
+    common(pr); _inst(pr)
     pr.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
     pr.add_argument("--dry-run", action="store_true")
 
     pv = sub.add_parser("verify", help="Step 3: confirm each scanner is ticking (fast single check; re-run as needed).")
-    common(pv)
+    common(pv); _inst(pv)
     pv.add_argument("--max-wait", type=int, default=0,
                     help="Default 0 = one fast check (first tick is gated by interval_seconds; re-run later). "
                          ">0 keeps polling up to S seconds (useful for fast instances).")
+
+    pu = sub.add_parser("upgrade",
+                        help="Apply an edited scan.py/scoring.py/runtime.yaml to a LIVE strategy: close the "
+                             "arm + redeploy on a FRESH wallet (resumable; consent-gated). Per arm.")
+    common(pu); _inst(pu)
+    pu.add_argument("--budget", type=float, default=None,
+                    help="USDC to fund the fresh wallet the arm is redeployed onto (required).")
+    pu.add_argument("--yes", action="store_true",
+                    help="Consent to FLATTEN: closing the live arm market-exits its open positions. Required "
+                         "to proceed while the arm holds a book.")
+    pu.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
+    pu.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT, help="Poll budget for the create step (s).")
+    pu.add_argument("--dry-run", action="store_true", help="Show the plan (routes to the create dry-run) with no side effects.")
 
     ps = sub.add_parser("status", help="Show the deploy state.")
     common(ps)
@@ -931,9 +1073,16 @@ def main(argv):
 
     pkg = ensure_pkg(a.package, a.ref, log)
 
-    # `validate` is the standalone, side-effect-free preflight; `create` runs the SAME full check
-    # before funding any wallet; runtime/verify/status keep the structural gate.
-    gate = full_validate(pkg) if a.cmd in ("validate", "create") else _pkg.validate(pkg)
+    # single-arm scoping — narrow a multi-instance package to ONE arm so create/runtime/verify (and the
+    # create live-guard) act on it alone, leaving siblings running. Applied BEFORE validate so we gate
+    # only the arm being touched.
+    if getattr(a, "instance", None):
+        _scope_pkg(pkg, a.instance)
+
+    # `validate` is the standalone, side-effect-free preflight; `create` AND `upgrade` run the SAME full
+    # check before touching any wallet — this is what catches a bad `./scanners` path (the wrong-directory
+    # trap) BEFORE an upgrade closes a live book; runtime/verify/status keep the structural gate.
+    gate = full_validate(pkg) if a.cmd in ("validate", "create", "upgrade") else _pkg.validate(pkg)
     if a.cmd == "validate":
         if a.json:
             print(json.dumps({"status": "valid" if not gate else "invalid", "id": pkg.id, "errors": gate}))
@@ -956,10 +1105,14 @@ def main(argv):
         out = cmd_runtime(pkg, a, log)
     elif a.cmd == "verify":
         out = cmd_verify(pkg, a, log)
+    elif a.cmd == "upgrade":
+        out = cmd_upgrade(pkg, a, log)
     else:  # status
         out = report(pkg, load_state(pkg), "status", as_json=a.json)
 
-    sys.exit(2 if out.get("status") in ("failed", "underfunded", "not-live") else 0)
+    # `needs-consent` exits non-zero: the upgrade is BLOCKED on the operator confirming the flatten, not
+    # complete. `closing`/`closed`/`creating`/`wallets-ready` are in-progress (re-run) and exit 0.
+    sys.exit(2 if out.get("status") in ("failed", "underfunded", "not-live", "needs-consent") else 0)
 
 
 if __name__ == "__main__":

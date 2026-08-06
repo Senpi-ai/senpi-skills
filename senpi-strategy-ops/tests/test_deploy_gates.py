@@ -614,5 +614,111 @@ class AvailableUsd(unittest.TestCase):
         self.assertEqual(deploy.available_usd(_StubMCP(_portfolio())), 0.0)
 
 
+class ScopePkgSingleArm(unittest.TestCase):
+    """--instance scoping for a single-arm (re)deploy/upgrade: narrow to one sleeve, fund it fully,
+    leave siblings untouched, and reject an unknown name with a helpful list."""
+
+    def _pkg(self):
+        return types.SimpleNamespace(
+            id="cub",
+            instances=[_inst("long", 0.45), _inst("short", 0.45), _inst("preipo", 0.10)],
+        )
+
+    def test_narrows_to_the_named_arm(self):
+        pkg = self._pkg()
+        deploy._scope_pkg(pkg, "preipo")
+        self.assertEqual([i.name for i in pkg.instances], ["preipo"])
+
+    def test_scoped_arm_funds_fully_not_scaled_by_its_share(self):
+        # a 0.10-share sleeve deployed alone must take the WHOLE --budget, else $15 → ~$1.50 → floored.
+        pkg = self._pkg()
+        deploy._scope_pkg(pkg, "preipo")
+        self.assertEqual(pkg.instances[0].funding_share, 1.0)
+
+    def test_unknown_instance_raises_with_the_valid_names(self):
+        pkg = self._pkg()
+        with self.assertRaises(SystemExit) as ctx:
+            deploy._scope_pkg(pkg, "nope")
+        msg = str(ctx.exception)
+        self.assertIn("no instance 'nope'", msg)
+        self.assertIn("long", msg)  # lists what IS valid so the agent can self-correct
+        self.assertIn("preipo", msg)
+
+
+class UpgradeGates(unittest.TestCase):
+    """`upgrade` refuses the two ways it must before touching MCP: a multi-arm package with no --instance
+    (which arm?), and a missing --budget (the fresh wallet needs funding)."""
+
+    def _pkg(self, names):
+        return types.SimpleNamespace(id="cub", dir=Path("/nonexistent"),
+                                     version="1", instances=[_inst(n, 1.0) for n in names])
+
+    def _args(self, **kw):
+        base = dict(budget=None, dry_run=False, yes=False, instance=None, json=False,
+                    max_wait=0, decision_model=None, ref=None, package="cub")
+        base.update(kw)
+        return types.SimpleNamespace(**base)
+
+    def test_multiarm_without_instance_refuses(self):
+        with self.assertRaises(SystemExit) as e:
+            deploy.cmd_upgrade(self._pkg(["long", "short"]), self._args(budget=25), lambda m: None)
+        self.assertIn("ONE arm", str(e.exception))
+        self.assertIn("long", str(e.exception))  # names the valid arms
+
+    def test_budget_required_when_not_dry_run(self):
+        with self.assertRaises(SystemExit) as e:
+            deploy.cmd_upgrade(self._pkg(["preipo"]), self._args(budget=None), lambda m: None)
+        self.assertIn("--budget", str(e.exception))
+
+
+class UpgradeDispatch(unittest.TestCase):
+    """PHASE B advances ONE tested step per call, chosen by the arm's deploy-state status:
+    pending→create, active→runtime, registered→verify. Money-path calls are stubbed — this asserts the
+    routing, not the steps themselves (those have their own tests + live integration)."""
+
+    _PATCH = ("load_state", "save_state", "MCPClient", "cmd_create", "cmd_runtime", "cmd_verify")
+
+    def setUp(self):
+        self._saved = {k: getattr(deploy, k) for k in self._PATCH}
+        self.calls = []
+        deploy.MCPClient = lambda *a, **k: object()
+        deploy.save_state = lambda pkg, st: None
+        deploy.cmd_create = lambda pkg, a, log: (self.calls.append("create"), {"status": "wallets-ready"})[1]
+        deploy.cmd_runtime = lambda pkg, a, log: (self.calls.append("runtime"), {"status": "registered"})[1]
+        deploy.cmd_verify = lambda pkg, a, log: (self.calls.append("verify"), {"status": "live"})[1]
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            setattr(deploy, k, v)
+
+    def _pkg(self):
+        return types.SimpleNamespace(id="cub", dir=Path("/x"), version="1",
+                                     instances=[_inst("preipo", 1.0)])
+
+    def _args(self):
+        return types.SimpleNamespace(budget=25, dry_run=False, yes=True, instance="preipo",
+                                     json=False, max_wait=0, decision_model=None, ref=None, package="cub")
+
+    def _state(self, inst_status, **inst_extra):
+        arm = {"status": inst_status}
+        arm.update(inst_extra)
+        return {"id": "cub", "_upgrade": {"phase": "redeploy"}, "instances": {"preipo": arm}}
+
+    def test_redeploy_pending_routes_to_create(self):
+        deploy.load_state = lambda pkg: self._state("pending")
+        deploy.cmd_upgrade(self._pkg(), self._args(), lambda m: None)
+        self.assertEqual(self.calls, ["create"])
+
+    def test_redeploy_active_routes_to_runtime(self):
+        deploy.load_state = lambda pkg: self._state("active", strategyId="0xsid", wallet="0xw")
+        deploy.cmd_upgrade(self._pkg(), self._args(), lambda m: None)
+        self.assertEqual(self.calls, ["runtime"])
+
+    def test_redeploy_registered_routes_to_verify(self):
+        deploy.load_state = lambda pkg: self._state("registered", strategyId="0xsid", wallet="0xw")
+        deploy.cmd_upgrade(self._pkg(), self._args(), lambda m: None)
+        self.assertEqual(self.calls, ["verify"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
