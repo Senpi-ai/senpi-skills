@@ -34,10 +34,19 @@ Per instance the job runs five steps, each recorded with its own outcome:
    Once that hard floor passes, the step computes the package's **calculated minimum** locally (the verb's
    port of `min_budget.py`, parity-tested against it) and, below it, **warns and proceeds**:
    `[E_BUDGET_BELOW_STRATEGY_MIN]` naming the binding sleeve, or `[E_BUDGET_UNRESOLVED]` when a sleeve's
-   sizing could not be read and the figure is only a lower bound. Neither ever refuses — the floor is the
-   platform's rule, the calculated minimum is a design estimate and the user sizes their own budget. Both
-   land on the final report (`minBudget`, `minWalletCount`, `belowMin`, `minBudgetNote`,
-   `minBudgetUnresolved`) so they survive to a `live` render, not just the running narration.
+   sizing could not be read and the figure is only a lower bound (that note carries the shortfall too when
+   the budget is under even the lower bound). Neither ever refuses — the floor is the platform's rule, the
+   calculated minimum is a design estimate and the user sizes their own budget. Both land on the final
+   report (`minBudget`, `minWalletCount`, `belowMin`, `minBudgetNote`, `minBudgetUnresolved`) so they
+   survive to a `live` render, not just the running narration; `belowMin` tracks the budget rather than
+   the leading code, so it is set under either. The below-minimum note's escape is **close-then-redeploy**
+   — a re-run at a larger `--budget` would only adopt the wallet just created, since deploy never adds
+   funds to an existing one.
+   An instance that declares **no `funding_share`** is sized against `1/n` here, matching what
+   `planFunding` will actually hand it — not the whole book. (`min_budget.py` reads an absent share as
+   `1.0`, which is safe only because `_pkg.validate` forces catalog packages to declare shares summing to
+   1; the verb is a direct path with no such gate.) A **quoted** share (`"0.4"`) parses as the number,
+   the same way `gen_catalog.py` reads it, so the card's minimum and the verb's cannot disagree.
 3. **create** — one `strategy_create_custom_strategy(initialBudget, positions=[], strategyName,
    skillName=<id>, skillVersion=<version>)` per needing instance, then poll `strategy_list` to **ACTIVE**
    (bounded by `--max-wait`, default 150s). A name rejection retries **once** without `strategyName` —

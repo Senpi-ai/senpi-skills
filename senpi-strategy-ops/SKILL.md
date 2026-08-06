@@ -204,7 +204,10 @@ failed, and never close a wallet, because of one:**
   deploy never adds funds to an existing wallet.
 - **`[E_BUDGET_UNRESOLVED]`** — one or more sleeves publish risk weights rather than slot sizes, so the
   minimum could not be computed and the printed figure is a **lower bound**. The deploy ran. Say the
-  number **may be understated** and size conservatively; do not quote it as verified.
+  number **may be understated** and size conservatively; do not quote it as verified. If the budget is
+  under even that lower bound the warn says so as well, and `belowMin` is set — the two codes are **not
+  mutually exclusive**, so never read "no `[E_BUDGET_BELOW_STRATEGY_MIN]`" as "the budget was enough".
+  Read `belowMin`.
 
 **Report** from the structured output, not raw logs (then always close with the **How it runs** block below):
 ```jsonc
