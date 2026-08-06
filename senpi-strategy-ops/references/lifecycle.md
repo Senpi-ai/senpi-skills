@@ -33,7 +33,7 @@ Per instance the job runs five steps, each recorded with its own outcome:
    proceeds: the backend is the funding authority and would fail loudly.
    Once that hard floor passes, the step computes the package's **calculated minimum** locally (the verb's
    port of `min_budget.py`, parity-tested against it) and **warns, never refuses**, when a wallet comes up
-   short: `[E_BUDGET_BELOW_STRATEGY_MIN]`, or `[E_BUDGET_UNRESOLVED]` when a sleeve's sizing could not be
+   short: `[W_BUDGET_BELOW_STRATEGY_MIN]`, or `[W_BUDGET_UNRESOLVED]` when a sleeve's sizing could not be
    read and the figure is only a lower bound (that note carries the shortfall too, and the same escape).
    The floor is the platform's rule; the calculated minimum is a design estimate and the user sizes their
    own budget. Both land on the final report (`minBudget`, `minWalletCount`, `belowMin`, `minBudgetNote`,

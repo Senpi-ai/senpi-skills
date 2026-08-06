@@ -90,7 +90,7 @@ surfaces its real error and is never silently replaced by a stale remote fetch.
 **Step 1 — start the deploy.** Budget splits across instances by `funding_share`, **min $10 each** (the
 platform wallet floor) — **confirm the amount with the user first**. Two tiers, and only the first one
 stops anything: below the $10/wallet floor the deploy **refuses**; and when the split leaves any wallet
-with less than **its own** sizing needs, it **deploys and warns** (`[E_BUDGET_BELOW_STRATEGY_MIN]` — that
+with less than **its own** sizing needs, it **deploys and warns** (`[W_BUDGET_BELOW_STRATEGY_MIN]` — that
 sleeve runs degraded; see the budget warnings below). The second check is per wallet against what it is
 actually allocated, not the budget against the package total — those differ whenever a sleeve is adopted.
 ```
@@ -136,7 +136,7 @@ Terminal `overall` values:
 
 | `overall` | Meaning | What to do |
 |---|---|---|
-| `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block. A `warn:` line (`[E_BUDGET_*]`) may ride a `live` report — relay it; it did **not** stop the deploy (see the budget warnings below) |
+| `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block. A `warn:` line (`[W_BUDGET_*]`) may ride a `live` report — relay it; it did **not** stop the deploy (see the budget warnings below) |
 | `installed-unobserved` | installed, no tick seen inside `--tick-wait` (or `--tick-wait 0` skipped the check) | say exactly that; check `openclaw senpi scanner -r <runtimeId>` in a few minutes. External scanners legitimately tick on long intervals. **`--tick-wait 0` can never report `live`** — nothing was verified |
 | `pending` | a wallet was still funding when the poll budget ran out | re-run the same deploy command — it resumes and adopts the wallet |
 | `refused` | a gate said no (`[E_FUNDS_*]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** (below); nothing was created past it |
@@ -194,12 +194,12 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 > - **`[E_SCANNER_PATH_UNRESOLVED]`** — an install could not resolve a relative scanner path. The verb always
 >   passes the instance directory, so this means someone used `runtime create` by hand — use the verb.
 
-**Two budget codes are WARNINGS, not refusals — the deploy went through.** They carry the same `[E_…]`
-shape as everything above and they are the one place that shape does **not** mean "stopped". They ride a
+**The `W_` prefix means WARNING — the deploy went through.** Every code above stops something; a `W_`
+code never does. The two budget codes below are the `W_` ones. They ride a
 `live` report as `minBudget` / `minWalletCount` / `belowMin` / `minBudgetNote` / `minBudgetUnresolved`
 (printed as `calculated minimum:` and `warn:` lines by `deploy status`). **Never report a deploy as
 failed, and never close a wallet, because of one:**
-- **`[E_BUDGET_BELOW_STRATEGY_MIN]`** — one or more wallets **this deploy funded** got less than their
+- **`[W_BUDGET_BELOW_STRATEGY_MIN]`** — one or more wallets **this deploy funded** got less than their
   own sizing needs (the warn names each one and both numbers: `scalp $12.00 (needs $13.50)`). The
   strategy **deployed and is running**, just **degraded** — fewer slots than the author designed, each
   position a larger share of its wallet. Tell the user plainly, and offer the authored size as a
@@ -217,11 +217,11 @@ failed, and never close a wallet, because of one:**
   `[E_ROLLBACK_INCOMPLETE]` is on the report, it owns the cleanup; do that first.
   `minBudget` in the report is **context** ("the whole package fresh needs $30 across 2 wallets"), not
   the thing that was violated — a partially-adopted deploy splits the budget among fewer wallets.
-- **`[E_BUDGET_UNRESOLVED]`** — one or more sleeves publish risk weights rather than slot sizes, so the
+- **`[W_BUDGET_UNRESOLVED]`** — one or more sleeves publish risk weights rather than slot sizes, so the
   minimum could not be computed and the printed figure is a **lower bound**. The deploy ran. Say the
   number **may be understated** and size conservatively; do not quote it as verified. If a wallet is
   ALSO short the warn names it and `belowMin` is set — the two codes are **not mutually exclusive**, so
-  never read "no `[E_BUDGET_BELOW_STRATEGY_MIN]`" as "the budget was enough". Read `belowMin`. That case
+  never read "no `[W_BUDGET_BELOW_STRATEGY_MIN]`" as "the budget was enough". Read `belowMin`. That case
   carries the same scoped escape; follow it verbatim too.
 
 **Report** from the structured output, not raw logs (then always close with the **How it runs** block below):
