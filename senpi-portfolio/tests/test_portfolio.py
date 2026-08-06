@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
@@ -840,90 +841,99 @@ def test_unfunded_empty_strategy_reason():
     assert res["totals"]["idle_in_strategies"] == 0
 
 
-def test_stale_cached_strategy_set_is_refetched_not_served_as_ghost():
-    """The shared state file persists across runs (tempdir, no TTL). A `strategies_full` cached while a
-    strategy was ACTIVE must NOT be served after that strategy has CLOSED — the freshness gate re-fetches
-    against a live strategy_list(ACTIVE). Regression for the 'recommend closing a strategy that was already
-    closed' bug: `money` re-fetched fresh while `strategies` served the stale snapshot incl. a ghost."""
-    LIVE = "0xLIVE0000000000000000000000000000000live"
-    GHOST = "0xORANG000000000000000000000000000000rng"   # closed since the cache was written
-    fixture = {
+def _one_live_fixture(wallet, name="cub"):
+    """Fixture: embedded wallet + ONE ACTIVE strategy at `wallet` (empty positions, $1000)."""
+    return {
         "user_get_me": {"wallets": [
             {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
         "account_get_portfolio": {"total_balance_usd": 1000, "total_withdrawable": 1000,
                                   "total_usdc_in_hyperliquid": 0, "token_balances": []},
-        # LIVE strategy_list — the ghost is GONE (it closed); only the live wallet is ACTIVE now.
         "strategy_list": {"strategies": [
-            {"tradingStrategyName": "cub", "skillName": "cub", "status": "ACTIVE",
-             "id": "cub-1", "totalFunded": 1000, "strategyWalletAddress": LIVE}]},
-        f"strategy_get_clearinghouse_state::{LIVE.lower()}": {
+            {"tradingStrategyName": name, "skillName": name, "status": "ACTIVE",
+             "id": f"{name}-1", "totalFunded": 1000, "strategyWalletAddress": wallet}]},
+        f"strategy_get_clearinghouse_state::{wallet.lower()}": {
             "main": {"marginSummary": {"accountValue": "1000"}, "withdrawable": "1000", "assetPositions": []},
             "xyz": {"marginSummary": {"accountValue": "1000"}, "withdrawable": "1000", "assetPositions": []}},
     }
-    # STALE state: strategies_full still carries the now-closed GHOST with its old $1,950 + a SOL position.
-    stale_state = {
+
+
+def _ghost_state(ghost_wallet, acct=1950.0):
+    """A prior run's persisted state whose strategies_full carries a strategy that has since CLOSED."""
+    return {
         "embedded_wallet": {"address": "0xembed00000000000000000000000000000000ed", "idle_total": 0.0},
         "portfolio_totals": {"total_balance_usd": 1000, "total_withdrawable": 1000},
         "strategies_full": [
-            {"name": "orangutan", "wallet": GHOST, "strategy_id": "orang-1", "status": "ACTIVE",
-             "account_value": 1950.0, "idle_withdrawable": 1870.0, "deployed": 80.0,
-             "positions": [{"coin": "SOL", "margin": 80.0}], "empty": False},
-        ],
+            {"name": "orangutan", "wallet": ghost_wallet, "strategy_id": "orang-1", "status": "ACTIVE",
+             "account_value": acct, "idle_withdrawable": acct - 80, "deployed": 80.0,
+             "positions": [{"coin": "SOL", "margin": 80.0}], "empty": False}],
     }
+
+
+def test_stale_cross_run_state_is_dropped_not_served_as_ghost():
+    """The shared state file persists across runs (tempdir). A `strategies_full` cached in a PRIOR run —
+    older than STATE_TTL_S — must be discarded, not served: `_load_state` drops it and `strategies`
+    self-heals with a fresh fetch. Regression for 'recommend closing an already-closed strategy' (a closed
+    strategy served from a stale snapshot as a live ghost)."""
+    LIVE = "0xLIVE0000000000000000000000000000000live"
+    GHOST = "0xORANG000000000000000000000000000000rng"
     old = os.environ.get("SENPI_STATE_DIR")
     os.environ["SENPI_STATE_DIR"] = os.path.join(HERE, "fixtures", "does_not_exist")   # no registry visible
     try:
         with tempfile.TemporaryDirectory() as td:
             state_path = os.path.join(td, "state.json")
             with open(state_path, "w") as fh:
-                json.dump(stale_state, fh)
-            res = portfolio.step_strategies(portfolio._FixtureClient(fixture), want_market=False,
-                                            state_path=state_path)
+                json.dump(_ghost_state(GHOST), fh)
+            old_mtime = time.time() - (portfolio.STATE_TTL_S + 10)   # a cross-run file, past the TTL
+            os.utime(state_path, (old_mtime, old_mtime))
+            res = portfolio.step_strategies(portfolio._FixtureClient(_one_live_fixture(LIVE)),
+                                            want_market=False, state_path=state_path)
     finally:
         if old is None:
             os.environ.pop("SENPI_STATE_DIR", None)
         else:
             os.environ["SENPI_STATE_DIR"] = old
     names = {s["name"] for s in res["strategies"]}
-    assert "orangutan" not in names, "closed strategy served from stale cache (ghost)"
+    assert "orangutan" not in names, "closed strategy served from stale cross-run cache (ghost)"
     assert "cub" in names, "live strategy missing after the freshness re-fetch"
-    assert any("stale" in w.lower() for w in res["meta"].get("warnings", [])), "no staleness warning emitted"
 
 
-def test_matching_cached_set_is_reused_not_refetched():
-    """When the cached active set STILL matches strategy_list(ACTIVE), the expensive hydration is reused
-    (the fast path is preserved) — the freshness gate re-fetches only on a SET CHANGE, not every step. The
-    cache carries account_value=9999, impossible from the fixture's $1000 clearinghouse; seeing 9999 proves
-    reuse."""
+def test_step_money_starts_clean_and_wipes_prior_strategies_full():
+    """step_money (step 1) starts each turn from a CLEAN state, so a `strategies_full` cached in a prior
+    run cannot survive into this turn's `strategies` step — even within the TTL window. This is what makes
+    `money` and `strategies` agree by construction (the 9-vs-10 mismatch that started the bug)."""
+    LIVE = "0xLIVE0000000000000000000000000000000live"
+    GHOST = "0xORANG000000000000000000000000000000rng"
+    with tempfile.TemporaryDirectory() as td:
+        state_path = os.path.join(td, "state.json")
+        with open(state_path, "w") as fh:
+            json.dump(_ghost_state(GHOST), fh)          # fresh mtime → within TTL; only step_money's reset drops it
+        portfolio.step_money(portfolio._FixtureClient(_one_live_fixture(LIVE)),
+                             want_market=False, state_path=state_path)
+        with open(state_path) as fh:
+            after = json.load(fh)
+    assert "strategies_full" not in after, "step_money preserved a prior run's strategies_full into the turn"
+
+
+def test_within_ttl_cached_state_is_reused():
+    """A fresh (within-TTL) state file IS reused — the intra-turn fast path is preserved. The cache carries
+    account_value=9999, impossible from the fixture's $1000 clearinghouse; seeing 9999 proves reuse (no
+    re-fetch)."""
     W = "0xSAME0000000000000000000000000000000same"
-    fixture = {
-        "user_get_me": {"wallets": [
-            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
-        "account_get_portfolio": {"total_balance_usd": 1000, "total_withdrawable": 1000,
-                                  "total_usdc_in_hyperliquid": 0, "token_balances": []},
-        "strategy_list": {"strategies": [
-            {"tradingStrategyName": "cub", "status": "ACTIVE", "id": "cub-1",
-             "totalFunded": 1000, "strategyWalletAddress": W}]},
-        f"strategy_get_clearinghouse_state::{W.lower()}": {
-            "main": {"marginSummary": {"accountValue": "1000"}, "withdrawable": "1000", "assetPositions": []},
-            "xyz": {"marginSummary": {"accountValue": "1000"}, "withdrawable": "1000", "assetPositions": []}},
-    }
     cached_state = {
         "embedded_wallet": {"address": "0xembed00000000000000000000000000000000ed", "idle_total": 0.0},
         "portfolio_totals": {"total_balance_usd": 1000, "total_withdrawable": 1000},
         "strategies_full": [
             {"name": "cub", "wallet": W, "strategy_id": "cub-1", "status": "ACTIVE",
-             "account_value": 9999.0, "idle_withdrawable": 0.0, "deployed": 9999.0, "positions": []},
-        ],
+             "account_value": 9999.0, "idle_withdrawable": 0.0, "deployed": 9999.0, "positions": []}],
     }
     with tempfile.TemporaryDirectory() as td:
         state_path = os.path.join(td, "state.json")
         with open(state_path, "w") as fh:
-            json.dump(cached_state, fh)
-        res = portfolio.step_strategies(portfolio._FixtureClient(fixture), want_market=False,
-                                        state_path=state_path)
+            json.dump(cached_state, fh)                 # fresh mtime → within TTL → reused
+        res = portfolio.step_strategies(portfolio._FixtureClient(_one_live_fixture(W)),
+                                        want_market=False, state_path=state_path)
     s = {x["name"]: x for x in res["strategies"]}["cub"]
-    assert s["account_value"] == 9999.0, "cache was re-fetched despite an unchanged active set (fast path lost)"
+    assert s["account_value"] == 9999.0, "within-TTL cache was re-fetched (fast path lost)"
 
 
 if __name__ == "__main__":

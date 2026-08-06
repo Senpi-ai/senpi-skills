@@ -318,8 +318,8 @@ directly.)
   strategy can show a small balance because profits were withdrawn (`netFunded` can be negative). That
   is not a loss.
 - **"Current / my strategies" = ACTIVE only — never CLOSED.** The engine filters
-  `strategy_list(status=["ACTIVE"])` AND re-validates any cached strategy set against a fresh live
-  `strategy_list` before reusing it, so a strategy CLOSED since the last read can't linger as a ghost. If
+  `strategy_list(status=["ACTIVE"])`, starts each analysis turn from a clean state, and expires the shared
+  cache after a short window — so a strategy CLOSED since a prior run can't linger as a ghost. If
   you ever reach for `strategy_list` directly, pass `status: ["ACTIVE"]` — a bare call returns CLOSED/PAUSED
   too and they must not be presented as current. Mention PAUSED strategies only if relevant, clearly
   labeled "paused," never as active.

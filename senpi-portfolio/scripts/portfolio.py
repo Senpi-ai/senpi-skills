@@ -32,6 +32,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MARKET_ENRICH_CAP = 24      # cap the per-asset market pull
@@ -1170,16 +1171,25 @@ def _default_state_path():
     return os.path.join(tempfile.gettempdir(), STATE_SUBDIR, "state.json")
 
 
+STATE_TTL_S = 90   # a shared state file older than this is cross-run STALE (well beyond one narrated
+                   # money→strategies→positions turn) → recomputed, so nothing lingers across runs.
+
+
 def _load_state(path):
     """Read the shared state JSON. Never raises — a missing/corrupt/unreadable file → {} (fail-open: the
-    step then recomputes its prerequisites and self-heals)."""
+    step then recomputes its prerequisites and self-heals). Also drops a state file older than STATE_TTL_S
+    (see above): it persists across separate runs, so past that window any snapshot is treated as cross-run
+    STALE — the same fail-open self-heal as a corrupt file. This is what stops a strategy CLOSED since a
+    prior run from lingering as a ghost on a standalone `strategies`/`positions` call."""
     if not path or not os.path.isfile(path):
         return {}
     try:
+        if time.time() - os.path.getmtime(path) > STATE_TTL_S:
+            return {}
         with open(path) as fh:
             data = json.load(fh)
         return data if isinstance(data, dict) else {}
-    except Exception:  # noqa — corrupt/unreadable state is fail-open → recompute
+    except Exception:  # noqa — corrupt/unreadable/undatable state is fail-open → recompute
         return {}
 
 
@@ -1295,48 +1305,24 @@ def _money_totals(embedded, strategies, portfolio_totals):
 
 
 # ─────────────────────────────────────────────── self-heal: full strategies[] in state (for step 2 / 3)
-def _live_active_wallet_set(client, meta):
-    """Wallet set of the CURRENT ACTIVE strategy_list — a cheap freshness anchor (no per-wallet hydration).
-    Returns None on a read error, so a caller validating a cache treats it as unusable and re-fetches
-    rather than trusting possibly-stale state."""
-    try:
-        sl = _ok(client.mcp_call("strategy_list", status=["ACTIVE"], timeout=20))
-    except Exception as e:  # noqa
-        meta.setdefault("warnings", []).append(f"active-set freshness check failed, re-fetching live: {e}")
-        return None
-    rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
-    out = {(_field(s, "strategyWalletAddress", "strategy_wallet_address", "walletAddress") or "").lower()
-           for s in (rows or [])}
-    out.discard("")
-    return out
-
-
 def _ensure_full_strategies_in_state(client, state, want_market, meta):
-    """Return the FULLY-hydrated strategies[] (positions + DSL + closed + profile/mandate) — reusing the
-    state file when a prior step already built it, else recompute the full fetch here (so `strategies` and
-    `positions` each work STANDALONE). Also rehydrates the embedded wallet + portfolio totals from state
-    (or re-fetches). Merges its work back into state for the next step. Returns (embedded, strategies,
-    portfolio_totals).
+    """Return the FULLY-hydrated strategies[] (positions + DSL + closed + profile/mandate) — from the state
+    file when a prior step already built it, else recompute the full fetch right here (so the `strategies`
+    and `positions` steps each work STANDALONE). Also rehydrates the embedded wallet + portfolio totals
+    from state (or re-fetches). Merges its work back into state for the next step. Returns (embedded,
+    strategies, portfolio_totals).
 
-    FRESHNESS GATE (the ghost-strategy fix): `strategies_full` is a WHOLE snapshot in a shared state file
-    that PERSISTS ACROSS RUNS (tempdir, no TTL). Reusing it blindly serves a strategy CLOSED since it was
-    written as a live ghost — with its stale account value + positions — and omits one DEPLOYED since. So
-    the cached snapshot is reused ONLY when its wallet set still matches a fresh strategy_list(ACTIVE); any
-    change — or an unreadable check — forces a full re-fetch. "Which strategies are live" drives
-    close/rebalance advice and is too consequential to answer from unvalidated cache."""
+    Freshness is enforced UPSTREAM, not here: `step_money` (step 1) starts each turn from a clean state,
+    and `_load_state` discards a state file older than STATE_TTL_S. So any snapshot this reuses is from
+    the CURRENT turn — the cross-run ghost (a strategy CLOSED since a prior run, or one DEPLOYED since) is
+    killed at the source, with no per-step strategy_list round-trip."""
     embedded = state.get("embedded_wallet")
     portfolio_totals = state.get("portfolio_totals")
     strategies = state.get("strategies_full")
     if isinstance(embedded, dict) and isinstance(strategies, list) and isinstance(portfolio_totals, dict):
-        live = _live_active_wallet_set(client, meta)
-        cached = {(s.get("wallet") or "").lower() for s in strategies}
-        cached.discard("")
-        if live is not None and live == cached:
-            return embedded, strategies, portfolio_totals
-        meta.setdefault("warnings", []).append(
-            "portfolio state was stale — the active-strategy set changed since it was cached; re-fetched live")
-    # state absent / partial / STALE → recompute the full pull (embedded + fully-hydrated strategies). The
-    # market enrichment is the `positions` step's job — skip it here (want_market only gates step 3's fold).
+        return embedded, strategies, portfolio_totals
+    # state absent/partial → recompute the full pull (embedded + fully-hydrated strategies). The market
+    # enrichment is the `positions` step's job — skip it here (want_market only gates step 3's fold).
     embedded, portfolio_totals = fetch_embedded(client, meta)
     strategies = fetch_strategies(client, meta)
     state["embedded_wallet"] = embedded
@@ -1359,7 +1345,10 @@ def step_money(client, want_market=True, state_path=None):
     history, no market. `want_market` is accepted for a uniform step signature but unused here."""
     if state_path is None:
         state_path = _default_state_path()
-    state = _load_state(state_path)
+    # step 1 is by definition the START of a turn — derived snapshots from a PRIOR run (e.g. a
+    # `strategies_full` cached while a since-closed strategy was ACTIVE) must not survive it. Start clean;
+    # money re-fetches everything it needs. (_load_state's TTL covers a standalone `strategies`/`positions`.)
+    state = {}
     meta = _fresh_meta()
     embedded, portfolio_totals = fetch_embedded(client, meta)
     strategies = fetch_strategy_money(client, meta)
