@@ -67,7 +67,9 @@ just means re-run that step.
 it once all instances are `live`** (a partial `registered` keeps it). So a completed deploy leaves no
 state → the next deploy (e.g. after a close) starts clean and can't reuse stale wallets. `verify`/`status`
 work without it (runtime ids derive from the manifest). `create`'s reconcile is the safety net for partial
-state. There is **no `--reinstall`** and no wallet-reuse — redeploy = `close` then `create`/`runtime`/`verify`.
+state. There is **no `--reinstall`** and no wallet-reuse. To apply an edit to a live strategy, use
+**`deploy.py upgrade <id> [--instance <arm>] --budget <usd>`** (it drives close → create → runtime → verify
+on a fresh wallet, consent-gated, per arm) — never a bare `close`+`create` by hand.
 
 ## `close.py [<id>] [--all] [--instance name] [--dry-run] [--json]`
 

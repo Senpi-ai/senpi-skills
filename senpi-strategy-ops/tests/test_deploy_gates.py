@@ -5,6 +5,8 @@ No MCP, no openclaw, no network — every input is a plain dict/stub. Run:
     python3 senpi-strategy-ops/tests/test_deploy_gates.py
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import contextlib
+import io
 import re
 import sys
 import types
@@ -720,24 +722,52 @@ class UpgradeDispatch(unittest.TestCase):
         self.assertEqual(self.calls, ["verify"])
 
 
-class UpgradeConsentPhase(unittest.TestCase):
-    """PHASE A: detect a live arm — via its runtime, OR (if the runtime is gone) via the arm's stable
-    strategyName among ACTIVE strategies — and gate the flatten on --yes. The name fallback is the
-    regression guard for the runtime-gone-but-open double-funding bug."""
+class UpgradeArity(unittest.TestCase):
+    """`_scope_pkg` narrows pkg.instances to 1, but `_wallet_name` keys off arity — so the scoped arm's
+    name must be derived from the TRUE pre-scope arity, else a multi-arm arm's wallet collapses to the
+    bare `<id>` and every by-name lookup (upgrade fallback + scoped create's naming) misses."""
 
-    _PATCH = ("_cli", "MCPClient", "load_state", "save_state", "_wallet_name", "cmd_create")
+    def _multi(self):
+        arm = lambda n: types.SimpleNamespace(name=n, funding_share=1 / 3, runtime_name=f"cub-{n}")
+        return types.SimpleNamespace(id="cub", dir=Path("/x"), version="1",
+                                     instances=[arm("long"), arm("short"), arm("preipo")])
+
+    def test_scoped_multiarm_keeps_full_name(self):
+        pkg = self._multi()
+        deploy._scope_pkg(pkg, "preipo")
+        self.assertEqual(deploy._wallet_name(pkg, pkg.instances[0]), "cub-preipo")  # NOT the bare "cub"
+
+    def test_true_single_arm_is_bare_id(self):
+        pkg = types.SimpleNamespace(id="solo", dir=Path("/x"), version="1",
+                                    instances=[types.SimpleNamespace(name="main", funding_share=1.0)])
+        self.assertEqual(deploy._wallet_name(pkg, pkg.instances[0]), "solo")       # unscoped 1-arm unchanged
+
+
+class UpgradeConsentPhase(unittest.TestCase):
+    """PHASE A: detect a live arm — via its runtime, OR (runtime gone) via the arm's stable strategyName
+    among ACTIVE strategies — gate the flatten on --yes, surface a failed close, and emit under --json.
+
+    The fixture is a REAL 3-arm package narrowed by `_scope_pkg` (exactly what main() hands cmd_upgrade),
+    and `_wallet_name` is deliberately NOT stubbed — the name it derives after scoping IS the mechanism
+    under test. Stubbing it (as the first cut did) hid the arity bug that made the fallback search 'cub'."""
+
+    _PATCH = ("_cli", "MCPClient", "load_state", "save_state", "cmd_create")
 
     def setUp(self):
         self._saved = {k: getattr(deploy, k) for k in self._PATCH}
         self._closed = []
         self._created = []
+        self._close_result = {"status": "closed"}
         deploy.MCPClient = lambda *a, **k: object()
         deploy.load_state = lambda pkg: {"id": pkg.id, "instances": {}}
         deploy.save_state = lambda pkg, st: None
-        deploy._wallet_name = lambda pkg, inst: f"{pkg.id}-{inst.name}"
         deploy.cmd_create = lambda pkg, a, log: (self._created.append("create"), {"status": "wallets-ready"})[1]
         close_mod = types.ModuleType("close")
-        close_mod.close_one = lambda label, s, rts, dry, log: self._closed.append(s)
+
+        def close_one(label, s, rts, dry, log):
+            self._closed.append(s)
+            return self._close_result
+        close_mod.close_one = close_one
         sys.modules["close"] = close_mod
 
     def tearDown(self):
@@ -746,13 +776,17 @@ class UpgradeConsentPhase(unittest.TestCase):
         sys.modules.pop("close", None)
 
     def _pkg(self):
-        return types.SimpleNamespace(
-            id="cub", dir=Path("/x"), version="1",
-            instances=[types.SimpleNamespace(name="preipo", funding_share=1.0, runtime_name="cub-preipo")])
+        """A real 3-arm package narrowed to `preipo` by `_scope_pkg` — what main() hands cmd_upgrade for
+        `--instance preipo`. Multi-arm on purpose: scoping a 1-arm fixture would hide the arity trap."""
+        arm = lambda n: types.SimpleNamespace(name=n, funding_share=1 / 3, runtime_name=f"cub-{n}")
+        pkg = types.SimpleNamespace(id="cub", dir=Path("/x"), version="1",
+                                    instances=[arm("long"), arm("short"), arm("preipo")])
+        deploy._scope_pkg(pkg, "preipo")
+        return pkg
 
-    def _args(self, yes=False):
+    def _args(self, yes=False, json=False):
         return types.SimpleNamespace(budget=25, dry_run=False, yes=yes, instance="preipo",
-                                     json=False, max_wait=0, decision_model=None, ref=None, package="cub")
+                                     json=json, max_wait=0, decision_model=None, ref=None, package="cub")
 
     def _cli(self, runtime=None, strategies=()):
         s = types.SimpleNamespace()
@@ -788,8 +822,9 @@ class UpgradeConsentPhase(unittest.TestCase):
         self.assertEqual(len(self._closed), 1)
 
     def test_runtime_gone_but_strategy_open_still_gated(self):
-        # THE FIX: no runtime, but an ACTIVE strategy carries the arm's name → resolve the wallet by name
-        # and STILL gate consent, instead of treating the arm as undeployed and double-funding.
+        # THE FIX (regression guard): no runtime, but an ACTIVE strategy carries the arm's REAL name
+        # (cub-preipo, only correct once arity survives scoping) → resolve the wallet by name and STILL
+        # gate consent, instead of treating the arm as undeployed and double-funding.
         deploy._cli = self._cli(runtime=None,
                                 strategies=[{"wallet": "0xBBB", "name": "cub-preipo", "status": "ACTIVE"}])
         out = deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
@@ -797,7 +832,7 @@ class UpgradeConsentPhase(unittest.TestCase):
         self.assertEqual(self._created, [])           # must NOT have jumped to create
 
     def test_runtime_gone_sibling_active_not_mismatched(self):
-        # no runtime for preipo, and the only ACTIVE strategy is a SIBLING (different name) → no match →
+        # no runtime for preipo, and the only ACTIVE strategy is a SIBLING (cub-long) → no name match →
         # treat as not-deployed and redeploy; must never bind preipo to a sibling's wallet.
         deploy._cli = self._cli(runtime=None,
                                 strategies=[{"wallet": "0xLONG", "name": "cub-long", "status": "ACTIVE"}])
@@ -809,6 +844,26 @@ class UpgradeConsentPhase(unittest.TestCase):
         deploy._cli = self._cli(runtime=None, strategies=[])
         deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
         self.assertEqual(self._created, ["create"])
+
+    def test_failed_close_surfaces_and_does_not_advance(self):
+        # close_one can report failed (runtime still listed after delete → may re-enter). It must SURFACE
+        # as `failed`, not get swallowed and advance to a `closing` poll nothing will ever clear.
+        self._close_result = {"status": "failed", "error": "runtime still listed"}
+        deploy._cli = self._cli(runtime={"wallet": "0xAAA"},
+                                strategies=[{"wallet": "0xAAA", "name": "cub-preipo", "status": "ACTIVE"}])
+        out = deploy.cmd_upgrade(self._pkg(), self._args(yes=True), lambda m: None)
+        self.assertEqual(out["status"], "failed")
+        self.assertIn("runtime still listed", out["note"])
+
+    def test_json_emits_consent_to_stdout(self):
+        # under --json, `log` is a no-op; the PHASE-A verdict must still reach stdout as JSON, else the
+        # agent (which runs --json) gets exit code 2 and an empty stdout — losing the consent text.
+        deploy._cli = self._cli(runtime={"wallet": "0xAAA"},
+                                strategies=[{"wallet": "0xAAA", "name": "cub-preipo", "status": "ACTIVE"}])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            deploy.cmd_upgrade(self._pkg(), self._args(yes=False, json=True), lambda m: None)
+        self.assertIn("needs-consent", buf.getvalue())
 
 
 if __name__ == "__main__":

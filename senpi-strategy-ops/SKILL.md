@@ -9,18 +9,19 @@ description: >-
   "stop/close/uninstall polar" — and for teardown like "close all strategies",
   "return funds to main", "tear everything down" (→ close.py --all). ALWAYS tear
   down via close.py, never a raw strategy_close (that strands the runtime). Also
-  use to APPLY AN EDIT to a strategy that is already live — "re-score / re-tune /
-  change the scanner on my live strategy", "apply my new scoring", "make it buy
-  more aggressively" — via deploy.py upgrade (there is no in-place reload yet, so
-  it closes the arm and redeploys on a fresh wallet; consent-gated, per arm).
-  Authoring the edited files themselves is senpi-strategy-author; APPLYING them to
-  a running strategy is upgrade here. A strategy is a PACKAGE (strategy.yaml + one
+  the skill that APPLIES an edit to an already-live strategy: the edit itself is
+  authored in senpi-strategy-author (the only skill that knows the scanner / yaml /
+  DSL schema — "make my live strategy more aggressive", change leverage/sizing/DSL
+  starts THERE); ops then applies it with deploy.py upgrade — no in-place reload
+  yet, so it closes the arm and redeploys on a FRESH wallet (consent-gated, per
+  arm). ops deploys / closes / applies; it does NOT author or edit strategy files.
+  A strategy is a PACKAGE (strategy.yaml + one
   runtime.yaml per instance + scanners/) the runtime supervises in-process — no
   scanner daemon. deploy.py runs three resumable steps (create→runtime→verify),
   plus upgrade (edit a live strategy); close.py tears down (stop runtime +
   strategy_close → flattens positions, returns funds). The id (spider, polar,
   kodiak) is the package folder. NOT for choosing WHICH strategy
-  (senpi-strategy-discover) or building/editing one (senpi-strategy-author).
+  (senpi-strategy-discover) or authoring / editing the strategy files themselves (senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
@@ -107,7 +108,8 @@ wallet — every deploy gets a FRESH one.** If an existing `<id>` strategy is fo
 (funded but never got a runtime — the reuse trap an agent keeps landing back on) is **closed to recover its
 funds**, then a new wallet is created (prints **`closing-existing`**; re-run `create` once it's closed and
 funds are back); a **live, running** one is left untouched — `create` **refuses** so it can't silently
-flatten a real book (`close.py <id>` first to redeploy). The **`--budget` is a hard target**: create funds
+flatten a real book (to apply an edit to it, use **`deploy.py upgrade`** — see *Upgrade*; `close.py <id>`
+only to tear it down). The **`--budget` is a hard target**: create funds
 exactly what you ask (split by `funding_share`, $10/wallet floor); if your live balance can't cover it,
 create **HALTS with `underfunded`** and the exact shortfall — it will **NEVER silently fund less** (the
 "$1,000 → $10" failure). Fund/free USDC or confirm a smaller amount, then re-run. **Never hand-edit
@@ -165,7 +167,8 @@ scheduled/supervised scanner passes, so it does **not** wait for the first scan 
 > suggest a lower budget below the floor. Do not switch tools. If
 > `create` reports **`closing-existing`**, it's closing a runtime-less `<id>` wallet to recover funds so it
 > can deploy fresh — re-run `create` once it's closed. If it **refuses** "already deployed AND running", a
-> live `<id>` strategy exists — `close.py <id>` first to redeploy on a fresh wallet. If **`runtime`** lost its
+> live `<id>` strategy exists — to apply an edit use **`deploy.py upgrade <id> [--instance <arm>] --budget
+> <usd>`** (closes + redeploys fresh, consent-gated; see *Upgrade*), not a bare `close`+`create`. If **`runtime`** lost its
 > deploy state and can't safely resolve the fresh wallet, it refuses **split by cause** — and in **both**
 > cases you **never hand-register a runtime onto an old wallet** (no manual `runtime create`/`update` with a
 > wallet from a leftover yaml). **`[E_STATE_NO_WALLETS]`**: the backend has **zero** ACTIVE `<id>` wallets, so
@@ -274,18 +277,20 @@ all). **Redeploy / upgrade a deployed strategy — see the next section, never a
 
 ## Upgrade — apply an edited scan.py / scoring.py / runtime.yaml to a LIVE strategy
 
-The most common change request: the user asks to re-score / re-scan / re-tune a strategy, or you recommend
-it after analysis. **There is no in-place scanner reload yet** (a runtime-team `refresh` is coming). Until
-then, upgrading = **close the arm, then recreate it on a FRESH wallet with the edited files** — done **per
-arm**, so a multi-instance strategy's other sleeves keep running. **`deploy.py upgrade` does the whole
-thing** — it is the ONLY correct way to apply an edit to a live strategy. Do not hand-sequence it, and
-never hand-render a runtime.yaml (that's the `./scanners` "NO ENTRY SCANNERS" trap the verb exists to
-prevent).
+The most common change request: the user asks to re-score / re-scan / re-tune a strategy (e.g. "make my
+live strategy more aggressive"). **The edit itself — changing `scoring.py` / `scan.py` / `runtime.yaml`,
+leverage, sizing, DSL — is authored in `senpi-strategy-author`** (the only skill that knows the scanner /
+yaml / DSL schema). This skill's job is to **APPLY** that edited package to the live strategy. **There is no
+in-place scanner reload yet** (a runtime-team `refresh` is coming), so applying = **close the arm, then
+recreate it on a FRESH wallet with the edited files** — done **per arm**, so a multi-instance strategy's
+other sleeves keep running. **`deploy.py upgrade` does the whole apply** — the ONLY correct way. Do not
+hand-sequence it, and never hand-render a runtime.yaml (the `./scanners` "NO ENTRY SCANNERS" trap the verb
+exists to prevent).
 
 **Do this:**
-1. **Edit the on-disk package** in the durable root (`/data/workspace/strategies/<id>/[<instance>/]…`) —
-   `scoring.py` / `scan.py` / `runtime.yaml`. (`upgrade` re-runs the full `validate` preflight itself, so a
-   bad `./scanners` path is caught BEFORE anything closes.)
+1. **Confirm the edited package is on disk** in the durable root (`/data/workspace/strategies/<id>/[<instance>/]…`)
+   — authored via `senpi-strategy-author`, not hand-guessed here. (`upgrade` re-runs the full `validate`
+   preflight itself, so a bad `./scanners` path is caught BEFORE anything closes.)
 2. **Run `upgrade` and re-run it to advance** — one guided step per call (close → fund fresh wallet →
    register runtime → verify), exactly like `create` resumes. `--instance` is required for a multi-arm
    package (upgrades one sleeve, siblings untouched); the budget funds the fresh wallet:
