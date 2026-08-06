@@ -720,5 +720,96 @@ class UpgradeDispatch(unittest.TestCase):
         self.assertEqual(self.calls, ["verify"])
 
 
+class UpgradeConsentPhase(unittest.TestCase):
+    """PHASE A: detect a live arm — via its runtime, OR (if the runtime is gone) via the arm's stable
+    strategyName among ACTIVE strategies — and gate the flatten on --yes. The name fallback is the
+    regression guard for the runtime-gone-but-open double-funding bug."""
+
+    _PATCH = ("_cli", "MCPClient", "load_state", "save_state", "_wallet_name", "cmd_create")
+
+    def setUp(self):
+        self._saved = {k: getattr(deploy, k) for k in self._PATCH}
+        self._closed = []
+        self._created = []
+        deploy.MCPClient = lambda *a, **k: object()
+        deploy.load_state = lambda pkg: {"id": pkg.id, "instances": {}}
+        deploy.save_state = lambda pkg, st: None
+        deploy._wallet_name = lambda pkg, inst: f"{pkg.id}-{inst.name}"
+        deploy.cmd_create = lambda pkg, a, log: (self._created.append("create"), {"status": "wallets-ready"})[1]
+        close_mod = types.ModuleType("close")
+        close_mod.close_one = lambda label, s, rts, dry, log: self._closed.append(s)
+        sys.modules["close"] = close_mod
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            setattr(deploy, k, v)
+        sys.modules.pop("close", None)
+
+    def _pkg(self):
+        return types.SimpleNamespace(
+            id="cub", dir=Path("/x"), version="1",
+            instances=[types.SimpleNamespace(name="preipo", funding_share=1.0, runtime_name="cub-preipo")])
+
+    def _args(self, yes=False):
+        return types.SimpleNamespace(budget=25, dry_run=False, yes=yes, instance="preipo",
+                                     json=False, max_wait=0, decision_model=None, ref=None, package="cub")
+
+    def _cli(self, runtime=None, strategies=()):
+        s = types.SimpleNamespace()
+        s.find_runtime = lambda name: runtime
+        s.runtime_wallet = lambda rt: (rt or {}).get("wallet")
+        s.list_runtimes = lambda: []
+        s.strategy_open = lambda x: x.get("status", "ACTIVE") not in ("CLOSED", "FAILED", "TERMINATED")
+        s.strategy_wallet = lambda x: x.get("wallet")
+        s.strategy_name = lambda x: x.get("name")
+        s.wallet_match = lambda a, b: bool(a) and bool(b) and str(a).lower() == str(b).lower()
+
+        def strategies_for(mcp, skill_name=None, statuses=None, **kw):
+            rows = list(strategies)
+            if statuses:
+                rows = [x for x in rows if x.get("status", "ACTIVE") in statuses]
+            return rows
+        s.strategies_for = strategies_for
+        return s
+
+    def test_live_arm_without_yes_needs_consent(self):
+        deploy._cli = self._cli(runtime={"wallet": "0xAAA"},
+                                strategies=[{"wallet": "0xAAA", "name": "cub-preipo", "status": "ACTIVE"}])
+        out = deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
+        self.assertEqual(out["status"], "needs-consent")
+        self.assertEqual(self._closed, [])            # nothing flattened without consent
+        self.assertEqual(self._created, [])           # and it did NOT fall through to create
+
+    def test_live_arm_with_yes_closes_that_arm(self):
+        deploy._cli = self._cli(runtime={"wallet": "0xAAA"},
+                                strategies=[{"wallet": "0xAAA", "name": "cub-preipo", "status": "ACTIVE"}])
+        out = deploy.cmd_upgrade(self._pkg(), self._args(yes=True), lambda m: None)
+        self.assertEqual(out["status"], "closing")
+        self.assertEqual(len(self._closed), 1)
+
+    def test_runtime_gone_but_strategy_open_still_gated(self):
+        # THE FIX: no runtime, but an ACTIVE strategy carries the arm's name → resolve the wallet by name
+        # and STILL gate consent, instead of treating the arm as undeployed and double-funding.
+        deploy._cli = self._cli(runtime=None,
+                                strategies=[{"wallet": "0xBBB", "name": "cub-preipo", "status": "ACTIVE"}])
+        out = deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
+        self.assertEqual(out["status"], "needs-consent")
+        self.assertEqual(self._created, [])           # must NOT have jumped to create
+
+    def test_runtime_gone_sibling_active_not_mismatched(self):
+        # no runtime for preipo, and the only ACTIVE strategy is a SIBLING (different name) → no match →
+        # treat as not-deployed and redeploy; must never bind preipo to a sibling's wallet.
+        deploy._cli = self._cli(runtime=None,
+                                strategies=[{"wallet": "0xLONG", "name": "cub-long", "status": "ACTIVE"}])
+        deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
+        self.assertEqual(self._closed, [])
+        self.assertEqual(self._created, ["create"])   # genuinely undeployed arm → PHASE B
+
+    def test_truly_undeployed_proceeds_to_create(self):
+        deploy._cli = self._cli(runtime=None, strategies=[])
+        deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
+        self.assertEqual(self._created, ["create"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

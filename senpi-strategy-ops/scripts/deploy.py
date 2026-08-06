@@ -949,8 +949,21 @@ def cmd_upgrade(pkg, a, log):
     # Skipped on --dry-run: the preview must be side-effect + network free, so it routes straight to the
     # create dry-run without probing the backend for a live arm.
     if not a.dry_run and up.get("phase") != "redeploy":
+        # Resolve the arm's wallet. Prefer its live runtime; but if the runtime is GONE (crashed, or the
+        # funded-but-never-registered trap) the strategy can still be OPEN — so fall back to the arm's
+        # stable strategyName (== `_wallet_name(<id>-<instance>)`) among ACTIVE strategies. The backend
+        # keeps that name fixed while the strategy is active (confirmed), so this reliably re-finds the
+        # wallet — the same key `_recover_wallet` uses for lost-state recovery. Without the fallback a
+        # runtime-less-but-open arm looks "not deployed", so upgrade would skip consent + old-wallet
+        # cleanup and DOUBLE-FUND a fresh wallet next to the orphaned open one.
         arm_rt = _cli.find_runtime(inst.runtime_name)
         arm_wallet = _cli.runtime_wallet(arm_rt) if arm_rt else None
+        if not arm_wallet:
+            want = _wallet_name(pkg, inst)
+            cands = [s for s in _cli.strategies_for(mcp, skill_name=pkg.id, statuses=["ACTIVE"])
+                     if _cli.strategy_name(s) == want]
+            addrs = {str(_cli.strategy_wallet(s)).lower() for s in cands if _cli.strategy_wallet(s)}
+            arm_wallet = _cli.strategy_wallet(cands[0]) if len(addrs) == 1 else None  # unique match only
         open_mine = ([s for s in _cli.strategies_for(mcp, skill_name=pkg.id)
                       if _cli.strategy_open(s)
                       and _cli.wallet_match(_cli.strategy_wallet(s), arm_wallet)]
