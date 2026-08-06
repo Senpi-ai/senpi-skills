@@ -20,9 +20,10 @@ surfaces. Rules:
 
 | Code | Owner (today) | Condition | Next-step rule |
 |---|---|---|---|
-| `E_FUNDS_SHORT` | `senpi-strategy-ops/scripts/deploy.py` (`create`) → moves to MCP in slice B3 | Accessible balance covers the per-wallet floor for the requested wallet count, but not the requested budget | Offer BOTH: add USDC, or re-run with `--budget ≤ <b*>` (a bare number — the flag is `type=float`, so never `$`/comma-grouped) where b* is the computed maximum feasible budget (Σᵢ max($10, b·shareᵢ) ≤ usable — equal to usable only for even shares). The lower-budget clause may ONLY render when `usable ≥ wallets × $10` |
+| `E_FUNDS_SHORT` | `senpi-trading-runtime` (`senpi deploy`, preflight) → moves to MCP in slice B3 | Accessible balance covers the per-wallet floor for the requested wallet count, but not the requested budget | Offer BOTH: add USDC, or re-run with `--budget ≤ <b*>` (a bare number — the flag is `type=float`, so never `$`/comma-grouped) where b* is the computed maximum feasible budget (Σᵢ max($10, b·shareᵢ) ≤ usable — equal to usable only for even shares). The lower-budget clause may ONLY render when `usable ≥ wallets × $10` |
 | `E_FUNDS_BELOW_FLOOR` | same | Accessible balance cannot fund the wallet count at the $10/wallet floor — **no valid budget exists** | Deposit path ONLY (`senpi-deposit-withdraw-transfer` skill + amount still needed). NEVER suggest a lower budget |
-| `E_BUDGET_BELOW_STRATEGY_MIN` | `senpi-strategy-ops/scripts/deploy.py` (`create`) — advisory | Budget is at/above the $10×wallets floor but BELOW the template's COMPUTED minimum (`min_budget.py`) — the design runs degraded (fewer slots than authored) | SOFT warn naming the binding sleeve; DEPLOYS anyway (users size their own budget). Fund ≥ the computed minimum for the full design |
+| `E_BUDGET_BELOW_STRATEGY_MIN` | `senpi-trading-runtime` (`senpi deploy`, preflight) — **advisory, not a refusal** | Budget is at/above the $10×wallets floor but BELOW the package's COMPUTED minimum (`min_budget.py`, ported to the verb as `src/deploy/min-budget.ts` and parity-tested against it) — the design runs degraded (fewer slots than authored) | SOFT warn naming the binding sleeve; **DEPLOYS anyway** (users size their own budget) — never report it as a refusal or close a wallet over it. Fund ≥ the computed minimum for the full design |
+| `E_BUDGET_UNRESOLVED` | same — **advisory, not a refusal** | One or more sleeves expose no resolvable `marginPct` (a vol-parity sleeve publishes risk weights, not slot sizes), so their per-wallet minimum fell back to the bare $10 floor and the computed minimum is a LOWER bound | SOFT warn naming the unresolved sleeves; **DEPLOYS anyway**. Size conservatively — treat the printed minimum as possibly understated, never as verified |
 | `SERR037` (backend) | senpi-hyperliquid-mcp `strategy_create_custom_strategy` | Requested budget is below the platform floor ($10/wallet, env `MINIMUM_STRATEGY_BUDGET`) — the backend rejects the create | deploy.py catches this FIRST: `plan_funding` floors at $10 and halts with `[E_FUNDS_BELOW_FLOOR]` before the create call. If SERR037 still surfaces (a raw MCP path), treat it as `E_FUNDS_BELOW_FLOOR` — deposit path only, never a lower budget |
 | `E_STATE_NO_WALLETS` | `deploy.py` (`runtime`) | Deploy state lost AND backend has zero ACTIVE wallets for the instance | `deploy.py create <id> --budget <usd>` (nothing exists; create is safe) |
 | `E_STATE_AMBIGUOUS_WALLETS` | `deploy.py` (`runtime`) | Deploy state lost AND the backend wallet set cannot be safely resolved: >1 candidate ACTIVE wallets, a candidate whose address is unreadable, or ACTIVE wallets that exist but match no instance name — any of these may hide a funded live strategy | Read-only triage (`status.py <id>`), clear ambiguity with the user. NEVER close/recreate to "start clean" |
@@ -33,12 +34,17 @@ surfaces. Rules:
 | `E_SCANNER_TICK_TIMEOUT` | same | A scanner tick exceeded its wall-clock budget | Same as `E_SCANNER_TICK_ERROR` |
 | `E_SCANNER_CRASH_LOOP` | `senpi-trading-runtime` (scanner process supervisor) | The supervisor degraded a scanner after repeated rapid exits; restarts CONTINUE at capped backoff — the scanner is degraded, not stopped (retry-at-cap decision, 2026-07-29) | Same as `E_SCANNER_TICK_ERROR` |
 | `E_SCANNER_PATH_UNRESOLVED` | `senpi-trading-runtime` (`senpi.installRuntime`) | A content-install's YAML names a relative scanner `path` and no source dir was provided — resolving against the gateway cwd would mount nothing (M226926/M279357 DOA class). Nothing installed | Install from the file (`-p <runtime.yaml>`) or pass `--runtime-yaml-dir <dir>`. `senpi deploy` always provides the dir — prefer it |
-| `E_DEPLOY_IN_PROGRESS` | `senpi-trading-runtime` (`senpi.deploy.start`) | A second deploy was started while one is running — deploys are single-flight because concurrent funding preflights read one shared balance and can jointly overdraw. Nothing was started | Watch the running job: `senpi deploy status`. To stop it at the next safe point: `senpi deploy cancel`, then re-run |
+| `E_DEPLOY_IN_PROGRESS` | `senpi-trading-runtime` (`senpi.deploy.start`) | A second deploy was started while one is running — deploys are single-flight because concurrent funding preflights read one shared balance and can jointly overdraw. Nothing was started | Watch the running job: `senpi deploy status`. There is no cancel: a wedged job frees its own slot at the deploy deadline, and undeploying a strategy is closing it (`close.py <id>`) |
 
-2026-08-04 (D1): `senpi deploy` (trading runtime) now also renders `E_FUNDS_SHORT` /
-`E_FUNDS_BELOW_FLOOR` / `E_STATE_AMBIGUOUS_WALLETS` under the same computed rules
-(surfaced via `senpi deploy status` — the verb runs detached). Owner columns move from
-`deploy.py` to the verb at Convergence, when `deploy.py` becomes a wrapper.
+2026-08-05 (D1 Convergence): `deploy.py` is now a thin wrapper over `senpi deploy`, so the
+funding/state codes are **rendered by the verb** and relayed verbatim — the owner columns above
+move with them. `deploy.py` re-derives no message, no number and no code.
+
+The two `E_BUDGET_*` rows are the only **advisory** codes in this table: they carry the `[E_…]`
+prefix so they are greppable, but the deploy **proceeded**. An agent that reads them as a refusal —
+and closes a wallet, or reports the deploy failed — has misread them. They ride the report as
+`minBudget` / `minWalletCount` / `belowMin` / `minBudgetNote` / `minBudgetUnresolved` (and print as
+`calculated minimum:` / `warn:` lines under `senpi deploy status`), never as a `refused` step.
 
 Note on the `E_SCANNER_*` rows: `E_SCANNER_PATH_UNRESOLVED` is a real refusal string and
 leads its message per rule 3. The other five codes are **logical identifiers**, not Body

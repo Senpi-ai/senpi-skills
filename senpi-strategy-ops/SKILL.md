@@ -88,7 +88,10 @@ runtime name: <id>-main`). A package that exists **on disk is authoritative** �
 surfaces its real error and is never silently replaced by a stale remote fetch.
 
 **Step 1 — start the deploy.** Budget splits across instances by `funding_share`, **min $10 each** (the
-platform wallet floor) — **confirm the amount with the user first**.
+platform wallet floor) — **confirm the amount with the user first**. Two tiers, and only the first one
+stops anything: below the $10/wallet floor the deploy **refuses**; above the floor but below the
+package's **calculated minimum** it **deploys and warns** (`[E_BUDGET_BELOW_STRATEGY_MIN]` — the design
+runs degraded; see the budget warnings below).
 ```
 openclaw senpi deploy -p /data/workspace/strategies/spider --budget 300
 ```
@@ -132,7 +135,7 @@ Terminal `overall` values:
 
 | `overall` | Meaning | What to do |
 |---|---|---|
-| `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block |
+| `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block. A `warn:` line (`[E_BUDGET_*]`) may ride a `live` report — relay it; it did **not** stop the deploy (see the budget warnings below) |
 | `installed-unobserved` | installed, no tick seen inside `--tick-wait` (or `--tick-wait 0` skipped the check) | say exactly that; check `openclaw senpi scanner -r <runtimeId>` in a few minutes. External scanners legitimately tick on long intervals. **`--tick-wait 0` can never report `live`** — nothing was verified |
 | `pending` | a wallet was still funding when the poll budget ran out | re-run the same deploy command — it resumes and adopts the wallet |
 | `refused` | a gate said no (`[E_FUNDS_*]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** (below); nothing was created past it |
@@ -165,7 +168,7 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 > reach for `openclaw senpi runtime create` — it is internal and skips the funds preflight, the
 > attribution and the verified tick. Funding is **automatic** (Hyperliquid perps → HL spot → EVM bridge).
 > Follow the refusal's code, exactly:
-> - **`[E_FUNDS_SHORT]`** — the balance covers the $100/wallet floor but not the requested budget. Fund/free
+> - **`[E_FUNDS_SHORT]`** — the balance covers the $10/wallet floor but not the requested budget. Fund/free
 >   USDC **or** confirm a lower amount with the user (the refusal names the exact `--budget <X>` it can
 >   fund), then re-run. **Never lower the budget without asking.**
 > - **`[E_FUNDS_BELOW_FLOOR]`** — **no budget is valid.** Help the user deposit
@@ -186,6 +189,22 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 >   wallet beside it.**
 > - **`[E_SCANNER_PATH_UNRESOLVED]`** — an install could not resolve a relative scanner path. The verb always
 >   passes the instance directory, so this means someone used `runtime create` by hand — use the verb.
+
+**Two budget codes are WARNINGS, not refusals — the deploy went through.** They carry the same `[E_…]`
+shape as everything above and they are the one place that shape does **not** mean "stopped". They ride a
+`live` report as `minBudget` / `minWalletCount` / `belowMin` / `minBudgetNote` / `minBudgetUnresolved`
+(printed as `calculated minimum:` and `warn:` lines by `deploy status`). **Never report a deploy as
+failed, and never close a wallet, because of one:**
+- **`[E_BUDGET_BELOW_STRATEGY_MIN]`** — the budget clears the $10/wallet floor but is below the package's
+  **calculated minimum**: the smallest total at which every sleeve's smallest slot can still open. The
+  strategy **deployed and is running**, just **degraded** — fewer slots than the author designed, each
+  position a larger share of its wallet. The warn names the binding sleeve and the number. Tell the user
+  plainly, and offer the authored size (`--budget <the calculated minimum>`) as a *choice*: a smaller
+  book is legitimate, not a mistake to undo. Redeploying at the larger size means `close.py <id>` first —
+  deploy never adds funds to an existing wallet.
+- **`[E_BUDGET_UNRESOLVED]`** — one or more sleeves publish risk weights rather than slot sizes, so the
+  minimum could not be computed and the printed figure is a **lower bound**. The deploy ran. Say the
+  number **may be understated** and size conservatively; do not quote it as verified.
 
 **Report** from the structured output, not raw logs (then always close with the **How it runs** block below):
 ```jsonc
