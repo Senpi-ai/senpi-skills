@@ -24,10 +24,10 @@ surfaces. Rules:
 | `E_FUNDS_BELOW_FLOOR` | same | Accessible balance cannot fund the wallet count at the $10/wallet floor — **no valid budget exists** | Deposit path ONLY (`senpi-deposit-withdraw-transfer` skill + amount still needed). NEVER suggest a lower budget |
 | `E_BUDGET_BELOW_STRATEGY_MIN` | `senpi-trading-runtime` (`senpi deploy`, preflight) — **advisory, not a refusal** | Budget is at/above the $10×wallets floor but BELOW the package's COMPUTED minimum (`min_budget.py`, ported to the verb as `src/deploy/min-budget.ts` and parity-tested against it) — the design runs degraded (fewer slots than authored) | SOFT warn naming the binding sleeve; **DEPLOYS anyway** (users size their own budget) — never report it as a refusal or close a wallet over it. Fund ≥ the computed minimum for the full design |
 | `E_BUDGET_UNRESOLVED` | same — **advisory, not a refusal** | One or more sleeves expose no resolvable `marginPct` (a vol-parity sleeve publishes risk weights, not slot sizes), so their per-wallet minimum fell back to the bare $10 floor and the computed minimum is a LOWER bound | SOFT warn naming the unresolved sleeves; **DEPLOYS anyway**. Size conservatively — treat the printed minimum as possibly understated, never as verified |
-| `SERR037` (backend) | senpi-hyperliquid-mcp `strategy_create_custom_strategy` | Requested budget is below the platform floor ($10/wallet, env `MINIMUM_STRATEGY_BUDGET`) — the backend rejects the create | deploy.py catches this FIRST: `plan_funding` floors at $10 and halts with `[E_FUNDS_BELOW_FLOOR]` before the create call. If SERR037 still surfaces (a raw MCP path), treat it as `E_FUNDS_BELOW_FLOOR` — deposit path only, never a lower budget |
-| `E_STATE_NO_WALLETS` | `deploy.py` (`runtime`) | Deploy state lost AND backend has zero ACTIVE wallets for the instance | `deploy.py create <id> --budget <usd>` (nothing exists; create is safe) |
-| `E_STATE_AMBIGUOUS_WALLETS` | `deploy.py` (`runtime`) | Deploy state lost AND the backend wallet set cannot be safely resolved: >1 candidate ACTIVE wallets, a candidate whose address is unreadable, or ACTIVE wallets that exist but match no instance name — any of these may hide a funded live strategy | Read-only triage (`status.py <id>`), clear ambiguity with the user. NEVER close/recreate to "start clean" |
-| `E_RUNTIME_REGISTER_FAILED` | `deploy.py` (`runtime`) | `openclaw senpi runtime create` exited non-zero | Message carries the noise-filtered **tail** of the CLI error (the real cause). No canned hint — the cause steers |
+| `SERR037` (backend) | senpi-hyperliquid-mcp `strategy_create_custom_strategy` | Requested budget is below the platform floor ($10/wallet, env `MINIMUM_STRATEGY_BUDGET`) — the backend rejects the create | The verb's preflight catches this FIRST: the funding plan floors at $10 and halts with `[E_FUNDS_BELOW_FLOOR]` before the create call. If SERR037 still surfaces (a raw MCP path), treat it as `E_FUNDS_BELOW_FLOOR` — deposit path only, never a lower budget |
+| `E_STATE_NO_WALLETS` | *(retired — see the Convergence note)* | Deploy state lost AND backend has zero ACTIVE wallets for the instance | `deploy.py create <id> --budget <usd>` (nothing exists; create is safe) |
+| `E_STATE_AMBIGUOUS_WALLETS` | `senpi-trading-runtime` (`senpi deploy`, reconcile) | The backend wallet set cannot be safely resolved for an instance: >1 candidate live wallets, or a single candidate whose address is unreadable — either may hide a funded live strategy | Read-only triage (`status.py <id>`), clear ambiguity with the user. NEVER close/recreate to "start clean" |
+| `E_RUNTIME_REGISTER_FAILED` | *(retired — see the Convergence note)* | `openclaw senpi runtime create` exited non-zero | Message carries the noise-filtered **tail** of the CLI error (the real cause). No canned hint — the cause steers |
 | `E_SCANNER_MOUNT_FAILED` | `senpi-trading-runtime` (`index.ts`, phase `mount`) | `wireRuntime()` threw while mounting external scanners at the boot mount seam | Body carries `cause:` (the exception message). Benign-race vs fatal split lands in later slices; the cause makes them distinguishable NOW |
 | `E_SCANNER_LAUNCH_FAILED` | `senpi-trading-runtime` (`index.ts`, phases `launch`, `install_launch`, and `install_wire`) | Supervised scanner launcher (or its hot-install wiring) failed to start (boot or hot-install) | Same as mount |
 | `E_SCANNER_TICK_ERROR` | `senpi-trading-runtime` (external-scanner scaffold → runtime `/errors`) | A scanner's `scan()` tick threw; the scaffold caught it, set the tick status to `error`, and posted it to the runtime's `/errors` endpoint | `senpi status` for the failing scanner → read the tick error message → fix the scanner code. NEVER close/recreate the strategy for a scanner error |
@@ -37,8 +37,15 @@ surfaces. Rules:
 | `E_DEPLOY_IN_PROGRESS` | `senpi-trading-runtime` (`senpi.deploy.start`) | A second deploy was started while one is running — deploys are single-flight because concurrent funding preflights read one shared balance and can jointly overdraw. Nothing was started | Watch the running job: `senpi deploy status`. There is no cancel: a wedged job frees its own slot at the deploy deadline, and undeploying a strategy is closing it (`close.py <id>`) |
 
 2026-08-05 (D1 Convergence): `deploy.py` is now a thin wrapper over `senpi deploy`, so the
-funding/state codes are **rendered by the verb** and relayed verbatim — the owner columns above
-move with them. `deploy.py` re-derives no message, no number and no code.
+funding/state codes are **rendered by the verb** and relayed verbatim — the owner columns above move
+with them. `deploy.py` re-derives no message, no number and no code.
+
+Two codes have **no live producer** after Convergence and are marked *retired*: they belonged to the
+fat script's lost-state machinery, which went away with the `.deploy-state.json` sidecar
+(`E_STATE_NO_WALLETS` — there is no lost state to recover from; the verb reconciles against the
+backend and creates a wallet) and with its shell-out to `runtime create` (`E_RUNTIME_REGISTER_FAILED`
+— an install failure is now a `failed` install step carrying the runtime's own error). Per rule 2 the
+codes are **not reused for anything else**; the rows stay so an old transcript still resolves.
 
 The two `E_BUDGET_*` rows are the only **advisory** codes in this table: they carry the `[E_…]`
 prefix so they are greppable, but the deploy **proceeded**. An agent that reads them as a refusal —
