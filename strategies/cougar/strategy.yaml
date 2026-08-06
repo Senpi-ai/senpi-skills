@@ -25,7 +25,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 8
-  min_budget: 400
   assets: ["xyz:NVDA", "xyz:TSLA", "xyz:AAPL", "xyz:META", "xyz:MSFT", "xyz:GOOGL", "xyz:AMZN", "xyz:AMD", "xyz:MU", "xyz:INTC", "xyz:TSM", "xyz:ORCL", "xyz:NFLX", "xyz:AVGO", "xyz:COIN", "xyz:MSTR", "xyz:PLTR", "xyz:SPCX"]
   tags: [equities, us-stocks, hedge-fund, long-short, market-neutral, dispersion, relative-strength, xyz]
 

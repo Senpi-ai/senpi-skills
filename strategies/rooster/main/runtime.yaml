@@ -38,7 +38,7 @@ scanners:
     default_signal_validity_seconds: 900   # 3x tick — a pre-open read goes stale fast
     state_history_max_count: 120           # per-session fired map + per-tick scan-results history
     inputs:
-      assets: ["BTC"]                      # M192397: "on the opener — yes, only BTC". Add names to widen.
+      assets: ["BTC"]                      # only BTC on the opener by default. Add names to widen.
       sessionOpensUtc: ["13:30", "08:00"]  # UTC ALWAYS. US equity open is 13:30 UTC in EDT / 14:30 in EST
                                            # — set for the half-year you are in, or list both.
       preOpenMinutes: 45                   # "start scanning 30-60 minutes earlier" — the core knob

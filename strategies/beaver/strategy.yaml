@@ -23,7 +23,6 @@ catalog:
   tier: starter
   leverage_max: 5
   max_slots: 1
-  min_budget: 100
   assets: ["BTC"]
   tags: [btc, single-asset, trend-following, smart-money, onboarding, beginner]
 

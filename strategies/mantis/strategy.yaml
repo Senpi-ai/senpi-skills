@@ -27,7 +27,6 @@ catalog:
   time_horizon: swing
   leverage_max: 8
   max_slots: 2
-  min_budget: 200
   assets: ["BTC"]                 # BTC is the leader (signal source); the traded laggards are dynamic
   tags: [crypto, cross-asset, lag, catchup, slipstream, btc-leader, smart-money, conviction-margin, statistical-edge]
 

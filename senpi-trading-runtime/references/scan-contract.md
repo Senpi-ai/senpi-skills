@@ -227,7 +227,7 @@ Both are valid — it's your thesis:
 - **Emit ≤1 signal/tick** when the whole thesis is "one decision" (iguana picks the single strongest
   index trend; keep `slots: 1`).
 - **Emit all gated candidates** and let the runtime's `slots`/`maxSlots` apply the ceiling
-  (spider/turbine). The runtime owns slot accounting either way.
+  (spider). The runtime owns slot accounting either way.
 
 ---
 

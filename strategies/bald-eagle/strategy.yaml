@@ -26,7 +26,6 @@ catalog:
   tier: advanced
   leverage_max: 7
   max_slots: 2
-  min_budget: 200
   assets: ["xyz:CL", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SILVER", "xyz:SP500", "xyz:XYZ100"]
   tags: [xyz, commodities, indices, oil, gold, silver, sp500, contrarian, fade, smart-money, mean-reversion, 24-7]
 

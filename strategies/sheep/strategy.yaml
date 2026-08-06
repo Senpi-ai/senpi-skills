@@ -24,7 +24,6 @@ catalog:
   tier: starter
   leverage_max: 5
   max_slots: 1
-  min_budget: 100
   assets: ["BTC", "ETH", "SOL", "HYPE"]
   tags: [btc, eth, sol, hype, multi-asset, trend, ema-stack, triple-timeframe, long-only, onboarding, smart-money, let-winners-run]
 

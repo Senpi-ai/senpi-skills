@@ -184,7 +184,7 @@ def test_caveats():
     # below-floor budget caveat
     rb = run(assets="btc_eth", budget="50")
     sp2 = next((c for c in rb["candidates"] if c["id"] == "spider"), None)
-    check("below-floor budget caveat", sp2 and any("needs" in c.lower() for c in sp2["caveats"]), sp2["caveats"] if sp2 else None)
+    check("below-floor budget caveat", sp2 and any("degraded" in c.lower() for c in sp2["caveats"]), sp2["caveats"] if sp2 else None)
 
 
 def test_degrade():

@@ -24,7 +24,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 3
-  min_budget: 200
   tags: [pattern, chart-pattern, double-bottom, double-top, price-action, technical-analysis, structure, higher-high, scanner, dynamic-universe, dedup, multi-asset, long-short]
 
 requires:

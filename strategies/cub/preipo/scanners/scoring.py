@@ -1,9 +1,14 @@
 """CUB — pure thesis math (no I/O, no MCP, no clock). Shared verbatim by all three books
 (long "haves", short "have-nots", preipo pre-IPO ramp); the direction and the universe builder
 differ per book but the scoring is one function. A faithful Runtime 3.0 port of the v2
-cub-producer.py scoring (cub-producer.py v1.0.0) — the gates + point weights + the IPOP
-discovery filter are copied EXACTLY (marked `# v2-quirk` where the v2 behaviour is load-bearing
-and must not be redesigned). Unit-testable on plain candle lists + instrument dicts.
+cub-producer.py scoring (cub-producer.py v1.0.0) — the gates + point weights are copied EXACTLY
+(marked `# v2-quirk` where the v2 behaviour is load-bearing and must not be redesigned), EXCEPT the
+IPOP funding gate, which is CORRECTED: the v2 `|funding| <= 1e-7` "throttled pre-listing" signature
+matched no live IPOP (pre-IPO perps fund like ordinary equities), so it is now opt-in and OFF by
+default — see is_ipop. A fresh-listing 1h starter path is ALSO added for the preipo leg (off unless
+inputs['freshListing']['enabled']) so a just-listed IPOP can be entered ~6h after launch at reduced
+size instead of waiting ~24h for 4h history — see score_thematic. Unit-testable on plain candle lists
++ instrument dicts.
 
 KEY DISTINCTION FROM COUGAR (do not "simplify" toward cougar): in Cub the hard gate is
 ABSOLUTE TREND (long a have only while it actually trends up; short a have-not only while it
@@ -18,8 +23,14 @@ its peers ran harder. Cougar instead gates on excess (long requires excess>=0); 
 NORM_DIV = 9.0
 
 # v2 preipo defaults (cub-producer.py _DEFAULTS["preipo"] / cub-preipo-config.json)
-DEFAULT_IPOP_FUNDING_MAX = 1e-7    # IPOP funding signature (throttled pre-listing)
-DEFAULT_IPOP_LEV_CAP = 5           # IPOP leverage signature
+DEFAULT_IPOP_FUNDING_MAX = 0.0     # 0 = OFF. Funding does NOT identify an IPOP: live pre-IPO perps
+                                   # fund at the same ~1e-5..1e-4 magnitude as ordinary xyz equities
+                                   # (e.g. UNITREE -3.16e-5 sits inside the NVDA/MU/TSM pack). The only
+                                   # names with |funding| <= 1e-7 are DEAD zero-volume markets, which
+                                   # fail the liquidity floor anyway — so the v2 1e-7 gate was empty-set
+                                   # on EVERY tick and no live IPOP ever passed it. Leverage cap +
+                                   # liquidity floor + absolute-trend discriminate; funding is opt-in.
+DEFAULT_IPOP_LEV_CAP = 5           # IPOP leverage signature (fresh pre-IPO perps launch capped low)
 
 
 def _f(v, d=0.0):
@@ -107,14 +118,28 @@ def score_thematic(asset, candles_1h, candles_4h, excess, own24h, direction, inp
     `excess` = the asset's 24h return minus the leg-universe mean (cross-sectional).
     `own24h`  = the asset's own 24h return (sign is an absolute-momentum component).
 
-    None is returned ONLY when: insufficient candle history (len(c1h) < 8 or len(c4h) < 6),
-    OR the ABSOLUTE-trend hard gate fails (long: 4h BEARISH; short: 4h BULLISH).
+    None is returned ONLY when: insufficient candle history for the chosen confirmation basis,
+    OR the ABSOLUTE-trend hard gate fails (long: primary-TF BEARISH; short: 4h BULLISH).
     minScore is applied by the CALLER (scan.py), not here.
+
+    FRESH-LISTING FAST PATH (LONG only; OFF unless inputs['freshListing']['enabled']): a just-listed
+    IPOP has no 4h history for ~24h. When enabled and a name has >= minCandles1h 1h candles but not yet
+    the full 4h history, confirm the ramp on the 1h structure instead and return a REDUCED starter size
+    (size_factor = starterSizeFactor). The normal 4h engine takes over — at full size — once 24h of 4h
+    history exists. long/short never set freshListing, so their behaviour is byte-for-byte unchanged.
 
     v2-quirk: excess is a SCORE MODIFIER (bonus only), NOT a gate — never disqualifies a
     genuinely-trending name. Do NOT add cougar's `excess < 0 -> return None` here.
     """
-    if len(candles_1h) < 8 or len(candles_4h) < 6:
+    # Confirmation basis: 4h normally (full size); 1h on the fresh-listing starter path (reduced size).
+    fresh = inputs.get("freshListing") or {}
+    fresh_on = bool(fresh.get("enabled")) and direction == "LONG"
+    fresh_min_1h = int(fresh.get("minCandles1h", 6))
+    if len(candles_1h) >= 8 and len(candles_4h) >= 6:
+        basis, size_factor = "4h", 1.0
+    elif fresh_on and len(candles_1h) >= fresh_min_1h:
+        basis, size_factor = "1h", float(fresh.get("starterSizeFactor", 0.5))
+    else:
         return None
     closes1 = [_close(c) for c in candles_1h]
     price = closes1[-1]
@@ -122,6 +147,8 @@ def score_thematic(asset, candles_1h, candles_4h, excess, own24h, direction, inp
 
     trend4, s4 = trend_structure(candles_4h)
     trend1, s1 = trend_structure(candles_1h)
+    # primary structure = the confirmation-basis TF (4h normally; 1h on the fresh-listing starter path)
+    prim, s_prim = (trend4, s4) if basis == "4h" else (trend1, s1)
     rsi = calc_rsi(closes1)
     rs_thresh = float(inputs.get("rsThresholdPct", 3.0))
 
@@ -129,21 +156,22 @@ def score_thematic(asset, candles_1h, candles_4h, excess, own24h, direction, inp
     reasons = []
 
     if direction == "LONG":     # haves (curated) + preipo (discovered IPOPs)
-        # ── HARD GATE: never long a confirmed downtrend ──
-        if trend4 == "BEARISH":
+        # ── HARD GATE: never long a confirmed downtrend (on the confirmation-basis TF) ──
+        if prim == "BEARISH":
             return None
-        if trend4 == "BULLISH":
+        if prim == "BULLISH":
             score += 3
-            reasons.append(f"4h_bullish_{s4:.0%}")
+            reasons.append(f"{basis}_bullish_{s_prim:.0%}")
         else:
             score += 1
-            reasons.append("4h_neutral")
-        if trend1 == "BULLISH":
-            score += 1
-            reasons.append(f"1h_bullish_{s1:.0%}")
-        elif trend1 == "BEARISH":
-            score -= 1
-            reasons.append("1h_bearish")
+            reasons.append(f"{basis}_neutral")
+        if basis == "4h":               # 1h is the SECONDARY confirmation only when 4h is the primary
+            if trend1 == "BULLISH":
+                score += 1
+                reasons.append(f"1h_bullish_{s1:.0%}")
+            elif trend1 == "BEARISH":
+                score -= 1
+                reasons.append("1h_bearish")
         # absolute momentum
         if own >= 0:
             score += 1
@@ -164,6 +192,11 @@ def score_thematic(asset, candles_1h, candles_4h, excess, own24h, direction, inp
         if rsi > rsi_ob:
             score -= 2
             reasons.append(f"rsi_blowoff_{rsi:.0f}")
+        # fresh-listing starter: RSI-14 needs ~15h of 1h history (inert on a day-1 name), so guard the
+        # blow-off with return-since-launch instead — never CHASE a fresh IPOP that already ran vertical.
+        if basis == "1h" and own > float(fresh.get("maxRunPct", 25.0)):
+            score -= 2
+            reasons.append(f"fresh_chase_{own:+.1f}%")
     else:  # SHORT — have-nots
         # ── HARD GATE: never short a confirmed uptrend ──
         if trend4 == "BULLISH":
@@ -210,6 +243,8 @@ def score_thematic(asset, candles_1h, candles_4h, excess, own24h, direction, inp
         "trend1h": trend1,
         "excess": excess,
         "own24h": own,
+        "size_factor": size_factor,   # 1.0 normal (4h-confirmed) ; starterSizeFactor on the 1h fresh path
+        "basis": basis,               # "4h" (full engine) or "1h" (fresh-listing starter)
     }
 
 
@@ -240,15 +275,19 @@ def clamp_leverage(desired, venue_max):
     return max(1, min(int(desired), venue))
 
 
-# ── IPOP discovery filter (preipo leg only; ported verbatim from v2 ipop_universe) ──
+# ── IPOP discovery filter (preipo leg only) — funding gate CORRECTED vs v2 (see is_ipop + the
+#    DEFAULT_IPOP_FUNDING_MAX note): the v2 `|funding| <= 1e-7` "throttled pre-listing" signature
+#    matched NO live IPOP, so it is now opt-in/off; the leverage cap + liquidity floor identify a
+#    fresh IPOP, and the absolute-trend gate (score_thematic) confirms the ramp. ──
 
 def is_ipop(name, meta, max_funding=DEFAULT_IPOP_FUNDING_MAX, lev_cap=DEFAULT_IPOP_LEV_CAP,
             min_day_vol=0.0):
-    """True iff a live xyz: instrument matches the structural IPOP signature (verbatim v2):
+    """True iff a live xyz: instrument matches the structural IPOP signature:
         name.startswith("xyz:")
-        AND 0 < venue max_leverage <= lev_cap (the throttled pre-listing leverage cap)
-        AND abs(funding) <= max_funding (the throttled pre-listing funding signature)
-        AND 24h notional volume >= min_day_vol (budget-relative liquidity floor)."""
+        AND 0 < venue max_leverage <= lev_cap (fresh pre-IPO perps launch leverage-capped low)
+        AND 24h notional volume >= min_day_vol (budget-relative liquidity floor)
+        AND (opt-in) abs(funding) <= max_funding — OFF by default (max_funding <= 0); funding does
+            NOT discriminate IPOPs from ordinary equities, see the DEFAULT_IPOP_FUNDING_MAX note."""
     if not isinstance(name, str) or not name.lower().startswith("xyz:"):
         return False
     if not isinstance(meta, dict):
@@ -257,17 +296,18 @@ def is_ipop(name, meta, max_funding=DEFAULT_IPOP_FUNDING_MAX, lev_cap=DEFAULT_IP
         lev = int(meta.get("max_leverage"))
     except (TypeError, ValueError):
         return False
-    if lev <= 0 or lev > lev_cap:               # IPOP leverage signature
+    if lev <= 0 or lev > lev_cap:               # IPOP leverage signature (the real discriminator)
         return False
-    ctx = meta.get("ctx", {}) if isinstance(meta.get("ctx"), dict) else {}
-    try:
-        funding_abs = abs(_f(ctx.get("funding", 0)))
-    except (TypeError, ValueError):
+    if day_vol(meta) < min_day_vol:             # budget-relative liquidity floor
         return False
-    if funding_abs > max_funding:               # IPOP funding signature
-        return False
-    if day_vol(meta) < min_day_vol:             # budget-relative liquidity
-        return False
+    if max_funding and max_funding > 0:         # OPT-IN funding band — OFF by default (see note above)
+        ctx = meta.get("ctx", {}) if isinstance(meta.get("ctx"), dict) else {}
+        try:
+            funding_abs = abs(_f(ctx.get("funding", 0)))
+        except (TypeError, ValueError):
+            return False
+        if funding_abs > max_funding:
+            return False
     return True
 
 

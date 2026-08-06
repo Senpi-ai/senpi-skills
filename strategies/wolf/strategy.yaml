@@ -28,7 +28,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 6
-  min_budget: 400
   assets: ["BTC", "ETH", "SOL", "HYPE", "SUI", "xyz:XYZ100", "xyz:SP500", "xyz:GOLD", "xyz:SILVER", "xyz:BRENTOIL", "xyz:JPY"]
   tags: [regime, rotation, macro, hedge-fund, cross-asset, risk-on, risk-off, long_short, defensives]
 

@@ -33,7 +33,7 @@ strategies/<id>/                   # a strategy package (e.g. strategies/spider/
   deposit-withdraw-transfer, why) are analysis/guidance utilities.
 - **Install/teardown is `senpi-strategy-ops`**, always: `deploy.py create <id> --budget <usd>`
   (one named wallet per instance via `strategy_create_custom_strategy`, budget split by
-  `funding_share`, min $100/wallet, resumable) → `deploy.py runtime <id>` (renders each
+  `funding_share`, min $10/wallet, resumable) → `deploy.py runtime <id>` (renders each
   runtime.yaml onto its wallet, `openclaw senpi runtime create`) → optional `verify`. Teardown is
   `close.py <id>` (or `--all`) — **never a raw `strategy_close`** (it strands the runtime).
   Attribution is automatic: `deploy.py` passes **`skillName`/`skillVersion` from `strategy.yaml`

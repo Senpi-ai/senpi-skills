@@ -1,0 +1,39 @@
+# Kite — market structure & divergence (ICT/SMC). A single-instance PACKAGE: this manifest +
+# one self-contained runtime.yaml + scanners/. Trades a small crypto whitelist on the ICT/SMC
+# playbook: 3-bar fractal swings -> break of structure -> 0.618 fib entry -> 0.786 invalidation
+# -> RSI-divergence confirm, with a step-up profit ladder. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: kite
+version: "1.0.0"
+
+catalog:
+  name: "Kite — Market Structure & Divergence (SMC)"
+  emoji: "🪁"
+  tagline: "Trades the ICT/SMC playbook on BTC, ETH, SOL and FARTCOIN: it maps 3-bar fractal swings, waits for a break of structure, then enters on the 0.618 fibonacci retracement of that move with invalidation behind 0.786 — only when an RSI divergence confirms. Every entry carries its stop and 1R/2R/3R targets."
+  belief_plain: "This speaks the language of smart-money-concept traders. It watches for the market to break its own structure — taking out a prior swing high or low — which signals a real shift. Then, instead of chasing, it waits for price to pull back to the 0.618 fibonacci level of that move, checks that momentum (RSI) is diverging in its favour, and enters there with a clear invalidation just beyond the 0.786 level. It works out its 1x, 2x and 3x reward targets up front and manages the trade with a ladder that locks in gains in thirds as each target is reached."
+  thesis: "A break of structure marks where order flow shifted; the 0.618 retracement is where that move offers the best risk-reward to rejoin, and the 0.786 is where the idea is simply wrong. Requiring an RSI divergence at the retracement filters the continuations that have already exhausted. The result is a defined-risk, defined-target structure trade — the exact methodology a whole trader subculture uses by hand — automated across a few liquid names. The step-up profit ladder approximates a 33/33/33 scale-out; true partial take-profit lands with the native DSL scale-out capability."
+  group: multi-asset-whitelist
+  archetype: breakout_momentum
+  sub_style: market_structure
+  asset_classes: [btc_eth, major_alts]
+  asset_scope: basket
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  leverage_max: 5
+  max_slots: 4
+  assets: ["BTC", "ETH", "SOL", "FARTCOIN"]
+  tags: [smc, ict, market-structure, break-of-structure, fractal, fibonacci, retracement, divergence, rsi, defined-risk, long-short, structure]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: KITE_WALLET
+    funding_share: 1.0

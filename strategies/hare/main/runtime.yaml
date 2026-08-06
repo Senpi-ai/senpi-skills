@@ -1,0 +1,114 @@
+# ── HARE · crypto-majors session scalper (BTC/ETH, maker-only, fee-guarded) ──
+name: hare-main
+group: hare
+version: 3.0.0
+description: >
+  HARE — a BTC/ETH sub-hourly scalper that only trades DURING the Asia / London / US
+  high-volume windows. It scores a 30m momentum burst backed by real volume expansion and
+  emits a 5-10x intent, targeting a ~1:3 risk-reward via a tight DSL stop and a profit-lock
+  ladder that arms at ~3x the risk. The fee guard is structural and non-negotiable: entries
+  are MAKER-ONLY (post for the rebate, never chase), and a hard frequency cap (per-asset
+  cooldown + max entries/day + session gating) stops it churning into fees.
+
+strategy:
+  wallet: "${HARE_WALLET}"
+  slots: 2                                 # BTC + ETH — a two-name scalp book
+  margin_pct: 12
+  default_leverage: 6
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: hare_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 120                   # 2m: fine enough to catch a session burst; ZERO reads when idle
+    timeout_seconds: 60
+    default_signal_validity_seconds: 300    # a scalp read goes stale fast
+    state_history_max_count: 120
+    inputs:
+      assets: ["BTC", "ETH"]
+      sessionWindows:                       # UTC high-volume windows — only trades inside these
+        - { name: "asia",   start: "00:00", end: "04:00" }
+        - { name: "london", start: "07:00", end: "11:00" }
+        - { name: "us",     start: "13:30", end: "17:00" }
+      maxSlots: 2
+      burstBars: 2                          # 2 x 15m = the 30m momentum window
+      baselineBars: 12                      # 3h of 15m bars as the volume baseline
+      minBurstPct: 0.4                      # noise floor — below this there is no burst
+      strongBurstPct: 0.9
+      minVolumeRatio: 1.3                   # burst MUST beat baseline volume by 30% (fee-bait guard)
+      minScore: 4
+      marginPct: 12                         # PERCENT of withdrawable (0,100]; tiered x1.2 / x1.4
+      maxMarginPct: 22
+      stdLeverage: 6
+      maxLeverage: 10
+      cooldownMinutes: 45                   # HARD frequency cap — no re-entry on a name for 45m
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      session: { type: string, required: false }
+      driftPct: { type: number, required: false }
+      volRatio: { type: number, required: false }
+      trend1h: { type: string, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: hare_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [hare_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false    # MAKER-ONLY — post for the rebate, never chase (the fee guard)
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: hare_signals
+
+# EXIT — scalp DSL tuned to ~1:3 R:R: a tight Phase-1 stop is the "1"; the first Phase-2 lock
+# arms at ~3x the risk (the "3") and trails from there. Short time cuts — a session scalp that
+# is not working is out within the hour, and never held past ~3h.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: false        # maker on the way out too, where it can
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout: { enabled: true, interval_in_minutes: 180 }               # scalp: flat within ~3h
+    weak_peak_cut: { enabled: true, interval_in_minutes: 45, min_value: 1.5 }  # not working in 45m -> release
+    phase1:
+      enabled: true
+      max_loss_pct: 8.0                      # tight stop — the "1" in 1:3
+      retrace_threshold: 5
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10, lock_hw_pct: 0 }    # arm
+        - { trigger_pct: 24, lock_hw_pct: 50 }   # ~3x the risk — lock half (the "3" in 1:3)
+        - { trigger_pct: 40, lock_hw_pct: 70 }
+        - { trigger_pct: 65, lock_hw_pct: 82 }
+
+risk:
+  data_retention_seconds: 172800
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 6                   # 2 names x 3 sessions ceiling — the hard frequency cap
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3                # scalping into losses halts fast
+    cooldown_seconds: 2700                   # 45m global cooldown after a close
+    drawdown_halt_pct: 15
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 2700         # 45m — never churn the same name (matches cooldownMinutes)

@@ -26,7 +26,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 1
-  min_budget: 200
   assets: ["BTC", "ETH", "SOL", "HYPE"]
   tags: [btc, eth, sol, hype, multi-asset, momentum, liquidation-cascade, forced-flow, open-interest, order-flow, microstructure, single-slot]
 

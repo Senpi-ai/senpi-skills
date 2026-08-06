@@ -1,0 +1,115 @@
+# ── KITE · market structure & divergence (ICT/SMC) — BTC/ETH/SOL/FARTCOIN ──
+name: kite-main
+group: kite
+version: 3.0.0
+description: >
+  KITE — an ICT/SMC market-structure engine. For each name it reads the 4h for a break of
+  structure (3-bar fractal swings) and the 15m for the retracement, enters at the 0.618 fib of
+  the impulse leg with invalidation behind 0.786, and requires an RSI divergence to confirm.
+  The 0.786 stop and 1R/2R/3R targets are computed and carried on the signal. The DSL exit is a
+  step-up profit-lock ladder that APPROXIMATES the requested 33/33/33 scale-out — true partial
+  take-profit awaits the native DSL scale-out capability.
+
+strategy:
+  wallet: "${KITE_WALLET}"
+  slots: 4                                 # one structure setup per name
+  margin_pct: 12
+  default_leverage: 3
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: kite_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                   # 5m: fine enough to catch a retracement into the 0.618 zone
+    timeout_seconds: 150
+    default_signal_validity_seconds: 900
+    state_history_max_count: 60
+    inputs:
+      assets: ["BTC", "ETH", "SOL", "FARTCOIN"]   # the desk's tickers — must match live HL casing
+      maxSlots: 4
+      fractalWing: 1                        # 3-bar fractal ("look at three candles, not five")
+      entryFib: 0.618                       # enter at the 0.618 retracement of the BOS impulse leg
+      stopFib: 0.786                        # invalidation behind 0.786
+      entryBandPct: 0.3                     # tolerance around the 0.618 level to count as "in the zone"
+      rsiPeriod: 14
+      divLookback: 20
+      requireDivergence: true               # confirm with a regular RSI divergence before entry
+      strongRiskPct: 1.0
+      minScore: 4
+      marginPct: 12                         # PERCENT of withdrawable (0,100]; tiered x1.2 / x1.4
+      maxMarginPct: 22
+      stdLeverage: 3
+      maxLeverage: 5
+      recentSignalTtlSeconds: 14400         # 4h anti-re-fire per name
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      entry: { type: number, required: false }
+      stop786: { type: number, required: false }
+      targets: { type: array, required: false }
+      riskPct: { type: number, required: false }
+      divergence: { type: boolean, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: kite_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the SMC engine already applied every filter
+    scanners: [kite_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false    # entry is a level (0.618) — post it, take the rebate
+        execution_timeout_seconds: 120
+    context:
+      - type: signal
+        scanner: kite_signals
+
+# EXIT — DSL. Phase-1 is the structural invalidation (a break beyond 0.786 area, expressed as a
+# generous ROE stop); the Phase-2 ladder is a STEP-UP profit lock that banks progressively at ~1R
+# / ~2R / ~3R — the closest the current DSL gets to the requested 33/33/33 scale-out. A structure
+# trade is given room (weak-peak retires dead setups at 2d; a 5d hard cap backstops).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout: { enabled: true, interval_in_minutes: 7200 }               # 5d backstop
+    weak_peak_cut: { enabled: true, interval_in_minutes: 2880, min_value: 2.0 }  # retire a dead setup ~2d
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0                     # structural invalidation (0.786 area) as an ROE stop
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                                 # step-up ladder ~ the 33/33/33 intent (locks, not partials)
+        - { trigger_pct: 9,  lock_hw_pct: 33 }   # ~1R — lock the first third
+        - { trigger_pct: 18, lock_hw_pct: 60 }   # ~2R — lock through two thirds
+        - { trigger_pct: 30, lock_hw_pct: 78 }   # ~3R — trail the runner
+        - { trigger_pct: 55, lock_hw_pct: 88 }
+
+risk:
+  data_retention_seconds: 345600
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 4                   # one setup per name; structure is not high-frequency
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 3600
+    drawdown_halt_pct: 18
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 14400        # 4h — matches the anti-re-fire TTL

@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.12.0"
+  version: "2.13.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -113,15 +113,15 @@ the end.
 
 Before the template offer / Decision 1, read the user's accessible balance ONCE:
 `account_get_portfolio` → `data.portfolio.total_in_hyperliquid` (fall back to
-`total_withdrawable`). Deploy needs a little **over $100 USDC per wallet (~$102, to cover
+`total_withdrawable`). Deploy needs a little **over $10 USDC per wallet (~$11.50, to cover
 the ~$1.50 creation fee)** — `deploy.py create` reserves the fee first, so a wallet funded
-to exactly $100 still refuses with `[E_FUNDS_BELOW_FLOOR]`.
+to exactly $10 still refuses with `[E_FUNDS_BELOW_FLOOR]`.
 
-- **Balance ≥ $102, or unreadable** → say nothing about funding and move on. Unreadable
+- **Balance ≥ ~$11.50/wallet, or unreadable** → say nothing about funding and move on. Unreadable
   means move on too — no retry loop, no blocking; funding is re-checked at deploy anyway.
-- **Balance < $102** → tell the user NOW, in one line, then keep building:
-  > "Heads-up before we design: deploying needs a little over $100 USDC per wallet (a small
-  > creation fee sits on top of the $100 minimum), and your accessible balance is $<X>. We
+- **Balance < ~$11.50/wallet** → tell the user NOW, in one line, then keep building:
+  > "Heads-up before we design: deploying needs a little over $10 USDC per wallet (a small
+  > creation fee sits on top of the $10 minimum), and your accessible balance is $<X>. We
   > can build the whole strategy now and deploy the moment you've topped up — want me to
   > pull up your deposit info when we're done?"
   (deposit flow = the `senpi-deposit-withdraw-transfer` skill)
@@ -273,7 +273,7 @@ or shut down anything the user is already running. So:
   hedge, a swing leg beside a scalp leg, several theses in parallel. Each is fully isolated (its own
   wallet, slots, risk gates); they don't share margin or interfere. A "fund" that is one long
   strategy + one short hedge is just **two instances / two wallets**, deployed and running together.
-- **Funding the new wallet** ($100/instance floor) comes from the embedded wallet at deploy. If the
+- **Funding the new wallet** ($10/wallet floor) comes from the embedded wallet at deploy. If the
   embedded wallet is short on USDC because funds are in other strategies, **offer options** — deposit
   more, or `strategy_withdraw_funds` from an existing strategy (it keeps running) and fund the new
   one. Present these; never frame it as "shut down X first."

@@ -135,30 +135,33 @@ def _fetch_candles(ctx, asset, intervals):
 
 
 def _get_account(ctx):
-    """(account_value, [position_dicts]) from strategy_get_clearinghouse_state.
+    """(account_value, [position_dicts], free_margin) from strategy_get_clearinghouse_state.
 
     Dual-DEX equity collapse: account_value is taken via max() across the
     main/xyz sections — they are TWO VIEWS of ONE cross-margined wallet, never
     summed (summing would double every position size). assetPositions ARE
-    per-sub-DEX, so those are enumerated across both sections.
+    per-sub-DEX, so those are enumerated across both sections. Free margin =
+    equity - committed margin (sum of per-position marginUsed).
     """
     try:
         ch = ctx.senpi_mcp.call_tool("strategy_get_clearinghouse_state",
                                      {"strategy_wallet": ctx.wallet})
     except Exception:
-        return 0.0, []
+        return 0.0, [], 0.0
     if not ch:
-        return 0.0, []
+        return 0.0, [], 0.0
     data = ch.get("data", ch) if isinstance(ch, dict) else ch
     if not isinstance(data, dict):
-        return 0.0, []
-    positions, account_value = [], 0.0
+        return 0.0, [], 0.0
+    positions, account_value, used = [], 0.0, 0.0
     for section in ("main", "xyz"):
         s = data.get(section, {})
         if not isinstance(s, dict):
             continue
         ms = s.get("marginSummary", {})
         account_value = max(account_value, float(ms.get("accountValue", 0) or 0))
+        used = max(used, float(ms.get("totalMarginUsed", 0) or 0),
+                   abs(float(ms.get("totalNtlPos", 0) or 0)))
         for ap in s.get("assetPositions", []):
             pos = ap.get("position", ap)
             szi = float(pos.get("szi", 0) or 0)
@@ -166,7 +169,15 @@ def _get_account(ctx):
                 continue
             positions.append({"coin": pos.get("coin", ""),
                               "margin": float(pos.get("marginUsed", 0) or 0)})
-    return account_value, positions
+    # Read-sanity guard (ported from camel): margin/notional IN USE but an EMPTY
+    # positions list is a corrupt read — sizing or held-dedup off that re-enters
+    # held names (pyramiding) and mis-sizes. Skip the tick.
+    if used > 1.0 and not positions:
+        print("[spider.swing.scan] read-sanity guard: margin in use but empty "
+              "positions — skipping tick", file=sys.stderr)
+        return 0.0, [], 0.0
+    free_margin = max(0.0, account_value - sum(p["margin"] for p in positions))
+    return account_value, positions, free_margin
 
 
 # ── ctx.state: recent-signal dedup + xyz first-seen ledger ──
@@ -261,10 +272,20 @@ def scan(inputs, ctx):
     venue_min_notional = float(inputs.get("venueMinNotionalUsd", 10))
     min_notional_pct = float(inputs.get("minNotionalPctOfEquity", 0.01))
 
-    account_value, positions = _get_account(ctx)
+    account_value, positions, free_margin = _get_account(ctx)
     held_assets = [p["coin"] for p in positions if p.get("coin")]
     held_set = {h.upper() for h in held_assets}
     if account_value <= 0:
+        return []
+
+    # Book full → emit nothing (and skip the universe scan). The runtime also caps via
+    # strategy.slots, but emitting INTO a full book is what generated the insufficient-funds
+    # spam — camel guards the same way (open_slots return before building the universe).
+    max_slots = max(1, int(inputs.get("maxSlots", 3)))
+    open_slots = max_slots - len(held_assets)
+    if open_slots <= 0:
+        print(f"[spider.swing.scan] WAITING — slots full ({len(held_assets)}/{max_slots})",
+              file=sys.stderr)
         return []
 
     min_notional = max(account_value * min_notional_pct, venue_min_notional)
@@ -306,6 +327,13 @@ def scan(inputs, ctx):
     # and the runtime drops the ENTIRE batch (max_items_exceeded → silently missed entries). Emit only the
     # top-scoring maxEmit (default maxSlots); the runtime picks its slots from these. Overridable via inputs.maxEmit.
     emit_cap = max(1, int(inputs.get("maxEmit") or inputs.get("maxSlots") or 3))
+    # ...and by the FREE slots and what FREE margin can actually pay for. margin_usd is already
+    # (marginPct/100)*account_value (= camel's per_name_margin); ×1.1 leaves fee/slippage headroom on
+    # a FEE_OPTIMIZED_LIMIT taker fill. Without this the batch tail asks for margin already in use →
+    # CREATE_INSUFFICIENT_FUNDS spam once the book is partly filled (3 slots × 28% = 84% of equity).
+    # Ports camel's open_slots/affordable cap; PER-NAME SIZE IS UNCHANGED — only the emitted count.
+    affordable = int(free_margin / (margin_usd * 1.1)) if margin_usd > 0 else 0
+    emit_cap = max(0, min(emit_cap, open_slots, affordable))
     out = []
     for th in candidates:
         if len(out) >= emit_cap:

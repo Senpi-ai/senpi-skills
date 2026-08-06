@@ -28,7 +28,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 6
-  min_budget: 200
   # Default preset = risk_off. The full basket vocabulary across all presets
   # (any of these can appear in inputs depending on the chosen view).
   assets: ["xyz:GOLD", "xyz:SILVER", "xyz:SP500", "xyz:XYZ100", "BTC", "xyz:BRENTOIL", "xyz:CL", "HYPE", "ETH", "SOL"]

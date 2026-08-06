@@ -27,7 +27,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 6
-  min_budget: 400
   assets: []
   tags: [volatility, breakout, compression-expansion, coiled-spring, atr-squeeze, range-break, crypto, xyz, equities, commodities, indices, long-short, two-book, market-neutral-vol]
 

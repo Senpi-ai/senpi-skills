@@ -27,7 +27,6 @@ catalog:
   time_horizon: intraday
   leverage_max: 5
   max_slots: 2
-  min_budget: 200
   assets: ["xyz:CL", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SP500", "xyz:XYZ100", "xyz:AAPL", "xyz:NVDA", "xyz:GOOGL", "xyz:TSLA", "xyz:AMZN", "xyz:META", "xyz:MSFT"]
   tags: [xyz, macro, breakout, oil, gold, indices, equities, multi-asset, 24-7, conviction-leverage]
 

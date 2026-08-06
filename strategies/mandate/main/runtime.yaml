@@ -1,0 +1,114 @@
+# ── MANDATE · capital-preservation portfolio (single wallet, NO leverage) ──
+name: mandate-main
+group: mandate
+version: 3.0.0
+description: >
+  MANDATE — a diversified, LONG-ONLY, NO-LEVERAGE basket across curated classes (crypto
+  blue chips + equity indices/blue-chip names + metals + energy). Capital preservation
+  first: enters only high-quality multi-timeframe trends that clear a fee hurdle (expected
+  move must beat round-trip cost), caps every position at the mandate ceiling (default 10%
+  of equity), and diversifies with a per-class cap. Held and rebalanced, never force-closed
+  (DSL is the only exit). Being inactive is a valid outcome.
+
+strategy:
+  wallet: "${MANDATE_WALLET}"
+  slots: 8
+  margin_pct: 5                          # fallback; scan emits per-signal capped allocation
+  default_leverage: 1                    # NO leverage — the mandate's defining constraint
+  trading_risk: conservative
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: mandate_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 1800                # low turnover — a preservation book rebalances slowly
+    timeout_seconds: 240
+    default_signal_validity_seconds: 3600
+    state_history_max_count: 60
+    inputs:
+      maxSlots: 8
+      maxPerClass: 2                      # diversification: no class dominates the book
+      classes:
+        crypto:  ["BTC", "ETH", "SOL", "HYPE"]
+        equity:  ["xyz:SP500", "xyz:XYZ100", "xyz:NVDA", "xyz:AAPL"]
+        metals:  ["xyz:GOLD", "xyz:SILVER"]
+        energy:  ["xyz:BRENTOIL"]
+      trendLookback: 6
+      dailyLookback: 6
+      minTrendStrength: 0.6              # only high-quality 4h uptrends
+      atrBars: 14
+      roundTripCostPct: 0.2             # ~2x taker fee + slippage estimate
+      costBufferMult: 6.0               # expected move must be >= 6x the round-trip cost (fee-aware)
+      minAllocationPct: 3.0
+      baseAllocationPct: 5.0            # the mandate's default 5% position size
+      maxAllocationPct: 10.0            # the mandate's hard 10% ceiling — never exceeded
+      goodScore: 7.0
+      recentSignalTtlSeconds: 43200     # 12h anti-re-add per name
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      assetClass: { type: string, required: false }
+      edgePct: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: mandate_add
+    action_type: OPEN_POSITION
+    decision_mode: rule                  # the quality + fee gate already filtered
+    scanners: [mandate_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false # patient: prefer the maker rebate, don't chase (cost-aware)
+        execution_timeout_seconds: 120
+    context:
+      - type: signal
+        scanner: mandate_signals
+  # NO CLOSE_POSITION — a preservation book is held & rebalanced; DSL is the only exit.
+
+# EXIT — capital preservation: cut a real breakdown before it compounds (10% Phase 1, no
+# leverage so that is a 10% notional loss ~= <1% of a diversified book), lock gains early,
+# retire dead weight at 4 days, 14d staleness backstop.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: false
+    execution_timeout_seconds: 120
+  dsl_preset:
+    hard_timeout: { enabled: true, interval_in_minutes: 20160 }        # 14d staleness cap
+    weak_peak_cut: { enabled: true, interval_in_minutes: 5760, min_value: 2.0 }  # retire dead weight ~4d
+    phase1:
+      enabled: true
+      max_loss_pct: 10.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 2
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 30 }   # lock gains early — preserve, don't give it back
+        - { trigger_pct: 12, lock_hw_pct: 55 }
+        - { trigger_pct: 25, lock_hw_pct: 70 }
+        - { trigger_pct: 50, lock_hw_pct: 82 }
+
+risk:
+  data_retention_seconds: 604800
+  guard_rails:
+    daily_loss_limit_pct: 5
+    max_entries_per_day: 8               # builds the basket on deploy, then rebalances slowly
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 3600
+    drawdown_halt_pct: 12                # preservation: halt well before a deep hole
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 43200

@@ -1,0 +1,40 @@
+# Mandate — capital-preservation portfolio (crypto + RWA). A single-instance PACKAGE: this
+# manifest + one self-contained runtime.yaml + scanners/. A diversified, LONG-ONLY, NO-LEVERAGE
+# basket across curated classes with a fee hurdle and hard per-position caps. Capital
+# preservation first — 'no trade is better than a poor trade'. Install/teardown via
+# senpi-strategy-ops.
+schema_version: 1
+
+id: mandate
+version: "1.0.0"
+
+catalog:
+  name: "Mandate — Capital-Preservation Portfolio (Crypto + RWA)"
+  emoji: "🏛️"
+  tagline: "A diversified, long-only, NO-LEVERAGE basket across crypto blue chips, equity indices and blue-chip names, metals, and energy — sized to a hard per-position cap, gated by a fee hurdle so it only trades when the expected move beats the cost, and diversified with a per-class limit. Capital preservation first."
+  belief_plain: "This is a conservative, institution-style portfolio, not a punt. It holds a diversified spread of blue-chip crypto and real-world assets (stock indices, big-cap names, gold, silver, oil), never uses leverage, and never puts more than a small capped slice into any one position. It only opens a position when the trend is genuinely there on both the 4-hour and daily view AND the expected move is large enough to be worth the trading cost — otherwise it does nothing. Doing nothing is a valid decision."
+  thesis: "For capital preservation, what you DON'T do matters more than what you do. No leverage means a bad position can't wipe the book; hard per-position and per-class caps mean no single name or theme can sink it; a fee hurdle means small, cost-eroding edges are declined rather than churned. The result is a low-volatility diversified compounder across crypto and RWA that trades rarely and holds patiently, cutting a real breakdown early and locking gains before giving them back."
+  group: multi-asset-whitelist
+  archetype: risk_parity
+  sub_style: capital_preservation
+  asset_classes: [btc_eth, major_alts, indices, commodities]
+  asset_scope: basket
+  direction: long_only
+  risk_level: conservative
+  tier: advanced
+  leverage_max: 1
+  max_slots: 8
+  assets: ["BTC", "ETH", "SOL", "HYPE", "xyz:SP500", "xyz:XYZ100", "xyz:NVDA", "xyz:AAPL", "xyz:GOLD", "xyz:SILVER", "xyz:BRENTOIL"]
+  tags: [capital-preservation, no-leverage, diversified, rwa, blue-chip, fee-aware, position-caps, long-only, institutional, portfolio, low-risk, conservative]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: MANDATE_WALLET
+    funding_share: 1.0

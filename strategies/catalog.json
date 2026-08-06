@@ -1,8 +1,8 @@
 {
   "_version": "2.1",
-  "_updated": "2026-06-17",
+  "_updated": "2026-08-05",
   "_generated": true,
-  "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
+  "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
     {
       "id": "hawk",
@@ -44,7 +44,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -88,7 +90,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 30,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "harvest",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -144,7 +148,9 @@
       "leverage_max": 7,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -208,7 +214,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -252,7 +260,9 @@
       "leverage_max": 10,
       "time_horizon": "position",
       "cadence_seconds": 900,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -294,7 +304,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 20,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -337,7 +349,9 @@
       "leverage_max": 5,
       "time_horizon": "scalp",
       "cadence_seconds": 60,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -388,6 +402,8 @@
       "time_horizon": "position",
       "cadence_seconds": 1800,
       "min_budget": 100,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -433,7 +449,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 600,
-      "min_budget": 400,
+      "min_budget": 75,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "pre_listing",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -501,68 +519,15 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 50,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "fade",
       "instance_count": 2,
       "funding_split": [
         0.6,
         0.4
       ],
       "max_slots": 3,
-      "branch": "main",
-      "sort_order": 1
-    },
-    {
-      "id": "turbine",
-      "name": "Turbine — Volume / Market-Making Engine",
-      "emoji": "🌪️",
-      "tagline": "A two-wallet volume engine: it rotates funding-fade entries across a tight liquid universe to generate notional volume at minimum fee cost (builder-fee recycling), not to take a directional view — one wallet churns fast, the other lets the rare winner run.",
-      "belief_plain": "This isn't a bet on prices going up or down. It opens and closes a steady stream of small, balanced positions across a handful of the deepest, tightest-spread markets (BTC/ETH/SOL/HYPE plus oil, gold, and the S&P 500 on the XYZ DEX) to rack up trading volume as cheaply as possible. It leans against crowded funding (shorts the crowded-long side, longs the crowded-short side) so the average position is roughly neutral. One wallet force-cuts every position on a 10-minute clock for pure volume; the second wallet runs the exact same entries but gives the occasional real move room to ratchet up before exiting.",
-      "version": "3.2.2",
-      "thesis": "Volume itself is the product: high notional throughput on Hyperliquid recycles builder fees, and on a tight, deep universe the maker-rebate math can net out roughly breakeven-to-slightly-positive before the volume reward. Concentrating on the few markets with the tightest spreads (XYZ books weighted 80%) keeps the per-$1M cost low. Funding-fade direction selection keeps the book structurally neutral rather than exposed. Splitting into a fast-rotation wallet and a patient-DSL wallet captures the asymmetry that pure rotation gives up — most positions exit flat either way, but the ~5% that catch a real directional move ride to a much larger realized PnL on the runners wallet instead of being force-cut at 10 minutes.",
-      "tags": [
-        "volume",
-        "market-making",
-        "builder-fee",
-        "funding-fade",
-        "two-wallet",
-        "rotation",
-        "structural-neutral",
-        "maker"
-      ],
-      "group": "market-neutral",
-      "archetype": "structural_neutral",
-      "archetype_label": "Structural / Neutral",
-      "sub_style": "market_making",
-      "sub_style_label": "Volume / market-making, not directional.",
-      "asset_classes": [
-        "btc_eth",
-        "major_alts",
-        "commodities",
-        "indices"
-      ],
-      "asset_scope": "basket",
-      "assets": [
-        "BTC",
-        "ETH",
-        "SOL",
-        "HYPE",
-        "xyz:BRENTOIL",
-        "xyz:GOLD",
-        "xyz:SP500"
-      ],
-      "direction": "long_short",
-      "risk_level": "aggressive",
-      "tier": "advanced",
-      "leverage_max": 5,
-      "time_horizon": "scalp",
-      "cadence_seconds": 60,
-      "min_budget": 200,
-      "instance_count": 2,
-      "funding_split": [
-        0.675,
-        0.325
-      ],
-      "max_slots": 9,
       "branch": "main",
       "sort_order": 1
     },
@@ -607,7 +572,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -658,7 +625,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -706,7 +675,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -756,7 +727,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 1800,
-      "min_budget": 200,
+      "min_budget": 50,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -808,7 +781,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 30,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "breakout",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -851,7 +826,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -894,7 +871,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -902,6 +881,58 @@
       "max_slots": 1,
       "branch": "main",
       "sort_order": 7
+    },
+    {
+      "id": "hare",
+      "name": "Hare — Crypto Majors Session Scalper",
+      "emoji": "🐇",
+      "tagline": "A fast BTC/ETH scalper that only trades inside the Asia, London, and US high-volume windows — scoring a 30-minute momentum burst backed by real volume, targeting roughly 1:3 risk-reward at 5-10x. Maker-only entries and a hard per-name cooldown keep it from churning into fees.",
+      "belief_plain": "This trades only the two most liquid coins, Bitcoin and Ethereum, and only during the hours when the market is actually busy — the Asia, London, and US sessions. It waits for a quick burst of momentum backed by a real jump in volume, takes a leveraged position aiming to make about three times what it risks, and gets out fast if it's wrong. Crucially, it posts its orders to earn the maker rebate instead of paying to chase, and it refuses to re-enter the same coin for 45 minutes — because at this speed, fees are what kill a scalper.",
+      "version": "1.0.0",
+      "thesis": "A sub-hourly scalper lives or dies on cost. The edge — a volume-backed momentum burst at a session open — is real but small, so the whole design is built to protect it: session gating means it only trades when moves are large enough to matter, a volume floor rejects fee-bait bursts on thin tape, maker-only entries turn the fee from a cost into a rebate, and a hard per-name cooldown plus a daily entry cap make churning structurally impossible. The DSL is tuned for asymmetry — a tight stop, a profit-lock that arms at ~3x the risk — so the winners pay for the losers.",
+      "tags": [
+        "scalp",
+        "session",
+        "btc",
+        "eth",
+        "crypto-majors",
+        "maker-only",
+        "fee-guarded",
+        "sub-hourly",
+        "momentum",
+        "asia-london-us",
+        "long-short",
+        "cobra-guard"
+      ],
+      "group": "momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "session_open",
+      "sub_style_label": "Positions into a session open on the clock — reads pre-open drift/volume and carries into the open, rather than reacting after.",
+      "asset_classes": [
+        "btc_eth"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 120,
+      "min_budget": 20,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "main",
+      "sort_order": 8
     },
     {
       "id": "hedgehog",
@@ -943,14 +974,16 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 30,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 9
     },
     {
       "id": "hen",
@@ -1006,14 +1039,16 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 40,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 10
     },
     {
       "id": "hornet",
@@ -1073,14 +1108,16 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 20,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 11
     },
     {
       "id": "ibis",
@@ -1122,14 +1159,16 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 1800,
-      "min_budget": 200,
+      "min_budget": 40,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "kingfisher",
@@ -1180,14 +1219,16 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 900,
-      "min_budget": 200,
+      "min_budget": 40,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "lemur",
@@ -1226,14 +1267,16 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 900,
-      "min_budget": 200,
+      "min_budget": 30,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 14
     },
     {
       "id": "lynx",
@@ -1277,14 +1320,16 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 15
     },
     {
       "id": "meerkat",
@@ -1321,14 +1366,16 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 120,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 16
     },
     {
       "id": "orca",
@@ -1364,14 +1411,16 @@
       "leverage_max": 7,
       "time_horizon": "swing",
       "cadence_seconds": 90,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 17
     },
     {
       "id": "otter",
@@ -1408,14 +1457,16 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 17
+      "sort_order": 18
     },
     {
       "id": "piranha",
@@ -1460,14 +1511,16 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 18
+      "sort_order": 19
     },
     {
       "id": "python",
@@ -1504,14 +1557,16 @@
       "leverage_max": 7,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 200,
+      "min_budget": 20,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 19
+      "sort_order": 20
     },
     {
       "id": "rooster",
@@ -1552,14 +1607,16 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 40,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 20
+      "sort_order": 21
     },
     {
       "id": "sailfish",
@@ -1602,14 +1659,16 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 21
+      "sort_order": 22
     },
     {
       "id": "salamander",
@@ -1652,14 +1711,16 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 22
+      "sort_order": 23
     },
     {
       "id": "sheep",
@@ -1705,14 +1766,16 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 23
+      "sort_order": 24
     },
     {
       "id": "jaguar",
@@ -1746,7 +1809,9 @@
       "leverage_max": 10,
       "time_horizon": "intraday",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1761,8 +1826,8 @@
       "emoji": "🐅",
       "tagline": "Longs the structural winners of a K-shaped world (the AI complex on Hyperliquid XYZ + crypto winners HYPE/SOL) and shorts the laggards (the broad U.S. market via SP500 + a gated basket of laggard alts) — both trend-confirmed on separate wallets — plus a ~10% pre-IPO ramp satellite that auto-discovers pre-IPO perpetuals (IPOPs) and rides them into their listing.",
       "belief_plain": "The world is splitting into haves and have-nots: AI companies and crypto's winners keep booming while the broad economy and the rest of crypto struggle. Cub buys the booming side and shorts the struggling side at the same time on separate wallets, so it makes money on the GAP between the two — and keeps a small slice aimed at the next SpaceX before it goes public.",
-      "version": "1.0.0",
-      "thesis": "The edge is K-shaped DISPERSION, not market direction. Long the AI complex + HYPE/SOL only while they're actually trending up; short SP500 + laggard alts only while they're actually rolling over; the P&L is the spread between the two speeds. A ~10% pre-IPO sleeve adds optionality — it discovers IPOPs by their funding signature and longs the ones ramping into their listing. Tokenized equities trade 24/7 on Hyperliquid, so the book never waits for a market open.",
+      "version": "1.1.0",
+      "thesis": "The edge is K-shaped DISPERSION, not market direction. Long the AI complex + HYPE/SOL only while they're actually trending up; short SP500 + laggard alts only while they're actually rolling over; the P&L is the spread between the two speeds. A ~10% pre-IPO sleeve adds optionality — it discovers IPOPs by their leverage signature (fresh perps launch capped low) and longs the ones ramping into their listing. Tokenized equities trade 24/7 on Hyperliquid, so the book never waits for a market open.",
       "tags": [
         "k-shaped",
         "two-speed",
@@ -1822,7 +1887,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 600,
+      "min_budget": 200,
+      "wallet_count": 3,
+      "min_budget_binding_wallet": "preipo",
       "instance_count": 3,
       "funding_split": [
         0.55,
@@ -1871,7 +1938,9 @@
       "leverage_max": 4,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 125,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1915,7 +1984,9 @@
       "leverage_max": 2,
       "time_horizon": "swing",
       "cadence_seconds": 900,
-      "min_budget": 100,
+      "min_budget": 325,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -1964,7 +2035,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 21600,
-      "min_budget": 100,
+      "min_budget": 60,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2012,7 +2085,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 21600,
-      "min_budget": 100,
+      "min_budget": 60,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2061,7 +2136,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 21600,
-      "min_budget": 100,
+      "min_budget": 60,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2107,7 +2184,9 @@
       "leverage_max": 8,
       "time_horizon": "swing",
       "cadence_seconds": 60,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2150,7 +2229,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 30,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "long",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -2199,7 +2280,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 21600,
-      "min_budget": 100,
+      "min_budget": 60,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2246,7 +2329,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 1800,
-      "min_budget": 100,
+      "min_budget": 60,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2254,6 +2339,53 @@
       "max_slots": 6,
       "branch": "main",
       "sort_order": 9
+    },
+    {
+      "id": "rotator",
+      "name": "Rotator — Scheduled Conviction Rebalance",
+      "emoji": "🔁",
+      "tagline": "On a fixed clock (default every 3 hours) it re-reads the market and rebalances a deliberately concentrated book — never more than two positions, long OR short — ranking candidates on a blended score of cross-asset flows, the funding regime, and live leaderboard momentum events.",
+      "belief_plain": "Every few hours this strategy re-underwrites its whole book from scratch. It looks at which alts are lagging a big Bitcoin move and should catch up, whether the crowd is dangerously one-sided on funding (a contrarian warning), and which coins the best traders are piling into right now — then blends those into a single conviction score and holds only the one or two best long-or-short ideas. Weak positions retire on their stop and the next rebalance fills the freed slot.",
+      "version": "1.0.0",
+      "thesis": "Concentration plus a fixed re-underwrite clock beats a sprawling always-on book: a small number of high-conviction positions, re-scored every few hours against the freshest short-horizon data, keeps the book aligned with current conditions instead of yesterday's. The three inputs are deliberately short-horizon (4h flows, live funding, 4h momentum events) — not a long-lookback cohort — so the reads match the timescale of the trades. It rotates by attrition rather than force-closing, so it never fights its own DSL.",
+      "tags": [
+        "rebalance",
+        "conviction",
+        "concentrated",
+        "cross-asset-flows",
+        "funding-regime",
+        "momentum-events",
+        "blended-score",
+        "long-short",
+        "rotate-by-attrition",
+        "three-hourly"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "macro_thesis",
+      "archetype_label": "Macro Thesis",
+      "sub_style": "conviction_rebalance",
+      "sub_style_label": "Re-underwrites a concentrated book on a fixed clock (e.g. every 3h) from a blended short-horizon score — cross-asset flows + funding regime + momentum events — holding only the 1-2 highest-conviction long/short ideas.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 10800,
+      "min_budget": 20,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "main",
+      "sort_order": 10
     },
     {
       "id": "salmon",
@@ -2289,14 +2421,16 @@
       "leverage_max": 4,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 100,
+      "min_budget": 125,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 5,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 11
     },
     {
       "id": "starling",
@@ -2337,14 +2471,16 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 100,
+      "min_budget": 60,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "viper",
@@ -2383,14 +2519,16 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 900,
-      "min_budget": 100,
+      "min_budget": 60,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "asia-ai",
@@ -2435,7 +2573,9 @@
       "leverage_max": 3,
       "time_horizon": "position",
       "cadence_seconds": 900,
-      "min_budget": 200,
+      "min_budget": 125,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "hedge",
       "instance_count": 2,
       "funding_split": [
         0.65,
@@ -2497,7 +2637,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 50,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "short",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -2546,7 +2688,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 20,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "long",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -2609,7 +2753,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 30,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "long",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -2657,7 +2803,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 40,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "hype",
       "instance_count": 2,
       "funding_split": [
         0.6,
@@ -2713,7 +2861,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 50,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "short",
       "instance_count": 2,
       "funding_split": [
         0.55,
@@ -2774,7 +2924,9 @@
       "leverage_max": 5,
       "time_horizon": "intraday",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -2782,6 +2934,61 @@
       "max_slots": 2,
       "branch": "main",
       "sort_order": 7
+    },
+    {
+      "id": "kite",
+      "name": "Kite — Market Structure & Divergence (SMC)",
+      "emoji": "🪁",
+      "tagline": "Trades the ICT/SMC playbook on BTC, ETH, SOL and FARTCOIN: it maps 3-bar fractal swings, waits for a break of structure, then enters on the 0.618 fibonacci retracement of that move with invalidation behind 0.786 — only when an RSI divergence confirms. Every entry carries its stop and 1R/2R/3R targets.",
+      "belief_plain": "This speaks the language of smart-money-concept traders. It watches for the market to break its own structure — taking out a prior swing high or low — which signals a real shift. Then, instead of chasing, it waits for price to pull back to the 0.618 fibonacci level of that move, checks that momentum (RSI) is diverging in its favour, and enters there with a clear invalidation just beyond the 0.786 level. It works out its 1x, 2x and 3x reward targets up front and manages the trade with a ladder that locks in gains in thirds as each target is reached.",
+      "version": "1.0.0",
+      "thesis": "A break of structure marks where order flow shifted; the 0.618 retracement is where that move offers the best risk-reward to rejoin, and the 0.786 is where the idea is simply wrong. Requiring an RSI divergence at the retracement filters the continuations that have already exhausted. The result is a defined-risk, defined-target structure trade — the exact methodology a whole trader subculture uses by hand — automated across a few liquid names. The step-up profit ladder approximates a 33/33/33 scale-out; true partial take-profit lands with the native DSL scale-out capability.",
+      "tags": [
+        "smc",
+        "ict",
+        "market-structure",
+        "break-of-structure",
+        "fractal",
+        "fibonacci",
+        "retracement",
+        "divergence",
+        "rsi",
+        "defined-risk",
+        "long-short",
+        "structure"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "market_structure",
+      "sub_style_label": "Trades SMC/ICT/Wyckoff structure: break-of-structure, liquidity sweeps, fair-value gaps.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "FARTCOIN"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 40,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 4,
+      "branch": "main",
+      "sort_order": 8
     },
     {
       "id": "lion",
@@ -2861,7 +3068,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 60,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "short",
       "instance_count": 2,
       "funding_split": [
         0.6,
@@ -2869,7 +3078,71 @@
       ],
       "max_slots": 9,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 9
+    },
+    {
+      "id": "mandate",
+      "name": "Mandate — Capital-Preservation Portfolio (Crypto + RWA)",
+      "emoji": "🏛️",
+      "tagline": "A diversified, long-only, NO-LEVERAGE basket across crypto blue chips, equity indices and blue-chip names, metals, and energy — sized to a hard per-position cap, gated by a fee hurdle so it only trades when the expected move beats the cost, and diversified with a per-class limit. Capital preservation first.",
+      "belief_plain": "This is a conservative, institution-style portfolio, not a punt. It holds a diversified spread of blue-chip crypto and real-world assets (stock indices, big-cap names, gold, silver, oil), never uses leverage, and never puts more than a small capped slice into any one position. It only opens a position when the trend is genuinely there on both the 4-hour and daily view AND the expected move is large enough to be worth the trading cost — otherwise it does nothing. Doing nothing is a valid decision.",
+      "version": "1.0.0",
+      "thesis": "For capital preservation, what you DON'T do matters more than what you do. No leverage means a bad position can't wipe the book; hard per-position and per-class caps mean no single name or theme can sink it; a fee hurdle means small, cost-eroding edges are declined rather than churned. The result is a low-volatility diversified compounder across crypto and RWA that trades rarely and holds patiently, cutting a real breakdown early and locking gains before giving them back.",
+      "tags": [
+        "capital-preservation",
+        "no-leverage",
+        "diversified",
+        "rwa",
+        "blue-chip",
+        "fee-aware",
+        "position-caps",
+        "long-only",
+        "institutional",
+        "portfolio",
+        "low-risk",
+        "conservative"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "risk_parity",
+      "archetype_label": "Risk-Parity / All-Weather",
+      "sub_style": "capital_preservation",
+      "sub_style_label": "Diversified, NO-leverage, capped portfolio that preserves capital first — enters only high-quality multi-timeframe trends that clear a fee hurdle, with hard per-position and per-class limits; 'no trade is better than a poor trade'.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "indices",
+        "commodities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "HYPE",
+        "xyz:SP500",
+        "xyz:XYZ100",
+        "xyz:NVDA",
+        "xyz:AAPL",
+        "xyz:GOLD",
+        "xyz:SILVER",
+        "xyz:BRENTOIL"
+      ],
+      "direction": "long_only",
+      "risk_level": "conservative",
+      "tier": "advanced",
+      "leverage_max": 1,
+      "time_horizon": "position",
+      "cadence_seconds": 1800,
+      "min_budget": 250,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 8,
+      "branch": "main",
+      "sort_order": 10
     },
     {
       "id": "mongoose",
@@ -2918,7 +3191,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 75,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "short",
       "instance_count": 2,
       "funding_split": [
         0.65,
@@ -2926,7 +3201,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 11
     },
     {
       "id": "ox",
@@ -2977,7 +3252,9 @@
       "leverage_max": 3,
       "time_horizon": "position",
       "cadence_seconds": 600,
-      "min_budget": 200,
+      "min_budget": 275,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "ballast",
       "instance_count": 2,
       "funding_split": [
         0.7,
@@ -2985,7 +3262,7 @@
       ],
       "max_slots": 14,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 12
     },
     {
       "id": "rhino",
@@ -3039,7 +3316,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 60,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "hedge",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -3047,7 +3326,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 13
     },
     {
       "id": "scorpion",
@@ -3107,14 +3386,16 @@
       "leverage_max": 5,
       "time_horizon": "scalp",
       "cadence_seconds": 60,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 14
     },
     {
       "id": "spider",
@@ -3122,7 +3403,7 @@
       "emoji": "🕷️",
       "tagline": "An AI/Tech momentum long book plus a macro/majors mean-reversion book — two legs, two wallets, one package.",
       "belief_plain": "AI/tech equities and crypto majors trend over days, while majors and energy snap back from short-term extremes — run both books side by side.",
-      "version": "6.0.2",
+      "version": "6.0.3",
       "thesis": null,
       "tags": [
         "ai",
@@ -3169,7 +3450,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 60,
-      "min_budget": 200,
+      "min_budget": 50,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "scalp",
       "instance_count": 2,
       "funding_split": [
         0.6,
@@ -3177,7 +3460,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 15
     },
     {
       "id": "thesis-fund",
@@ -3227,14 +3510,16 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 16
     },
     {
       "id": "vulture",
@@ -3298,14 +3583,16 @@
       "leverage_max": 7,
       "time_horizon": "swing",
       "cadence_seconds": 60,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 17
     },
     {
       "id": "wolf",
@@ -3357,7 +3644,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 30,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "risk_off",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -3365,7 +3654,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 18
     },
     {
       "id": "coyote",
@@ -3404,7 +3693,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 900,
-      "min_budget": 200,
+      "min_budget": 20,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3453,7 +3744,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3497,7 +3790,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3556,7 +3851,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3602,7 +3899,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3647,7 +3946,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 100,
+      "min_budget": 50,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3691,7 +3992,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3734,7 +4037,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3777,7 +4082,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3825,7 +4132,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3870,7 +4179,9 @@
       "leverage_max": 3,
       "time_horizon": "position",
       "cadence_seconds": 1800,
-      "min_budget": 100,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3913,7 +4224,9 @@
       "leverage_max": 7,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -3966,7 +4279,9 @@
       "leverage_max": 8,
       "time_horizon": "swing",
       "cadence_seconds": 900,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4010,7 +4325,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4054,7 +4371,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 50,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4102,7 +4421,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4150,7 +4471,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 1800,
-      "min_budget": 400,
+      "min_budget": 50,
+      "wallet_count": 4,
+      "min_budget_binding_wallet": "u1",
       "instance_count": 4,
       "funding_split": [
         0.25,
@@ -4198,7 +4521,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 20,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4253,7 +4578,9 @@
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 600,
+      "min_budget": 100,
+      "wallet_count": 3,
+      "min_budget_binding_wallet": "dip",
       "instance_count": 3,
       "funding_split": [
         0.5,
@@ -4297,7 +4624,9 @@
       "leverage_max": 8,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4339,7 +4668,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4392,7 +4723,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4445,7 +4778,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4507,7 +4842,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4558,7 +4895,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 100,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4603,7 +4942,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 30,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4644,7 +4985,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 180,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4688,7 +5031,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 100,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4732,7 +5077,9 @@
       "leverage_max": 7,
       "time_horizon": "swing",
       "cadence_seconds": 90,
-      "min_budget": 200,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4740,6 +5087,50 @@
       "max_slots": 2,
       "branch": "main",
       "sort_order": 10
+    },
+    {
+      "id": "shadow",
+      "name": "Shadow — Multi-Trader Fresh-Entry Mirror",
+      "emoji": "🕶️",
+      "tagline": "Watches a handful of vetted Hyperliquid traders and mirrors only the positions they NEWLY open — never inheriting a stale book mid-move — with a hard entry-slippage guard so you never chase a fill that already ran, plus budget-relative sizing with a min-notional floor.",
+      "belief_plain": "Instead of copying one trader's whole account — and inheriting trades already deep in profit or loss at a worse price than they got — Shadow watches two or three proven traders and only acts when one of them OPENS a brand-new position. It checks how far price has already moved from their entry and skips the trade if it is too late to get a comparable fill. It sizes each mirror to your budget with a floor so a position is never too small to matter, and it manages its own exit.",
+      "version": "1.0.0",
+      "thesis": "The failure mode of naive mirroring is entry drift: you inherit a book at a 1-5% worse price than the trader got, so the same trade is a loss for you. Shadow fires ONLY on fresh opens (a snapshot-diff against a seeded book, so nothing pre-existing is ever inherited), rejects any entry whose price has already run past a slippage cap, and can require multi-trader confirmation before committing size. You follow proven money at their price, not yesterday's book at yours. Leverage is capped, so a trader's 40x book becomes something survivable.",
+      "tags": [
+        "copy-trading",
+        "multi-trader",
+        "fresh-entry",
+        "mirror",
+        "entry-slippage-guard",
+        "smart-money",
+        "budget-relative"
+      ],
+      "group": "smart-money",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "fresh_entry_mirror",
+      "sub_style_label": "Mirrors only the FRESHLY-opened positions of a small vetted cohort — never inherits an existing book — with an entry-slippage guard so you don't chase a fill that already ran.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "follows_traders",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 120,
+      "min_budget": 40,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 5,
+      "branch": "main",
+      "sort_order": 11
     },
     {
       "id": "stingray",
@@ -4779,14 +5170,16 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 30,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "whalehunter",
@@ -4821,7 +5214,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 400,
+      "min_budget": 75,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "long",
       "instance_count": 2,
       "funding_split": [
         0.5,
@@ -4829,7 +5224,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "osprey",
@@ -4869,7 +5264,9 @@
       "leverage_max": 10,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
@@ -4915,7 +5312,9 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 200,
+      "min_budget": 30,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0

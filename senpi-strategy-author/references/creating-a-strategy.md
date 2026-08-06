@@ -227,14 +227,14 @@ Discovery matches your strategy to users by the `catalog:` block. **Validation o
   - `belief_plain` — *what it does*, plain-language.
   - `thesis` — *when/who it's for* — **the only worldview hook** (how "I think the US rebounds" / "run me a hedge fund" finds you). For any thesis/macro/fund-style strategy this field is the whole point.
   - `tags` — free keywords.
-- **Derived by `gen_catalog.py` (don't duplicate):** `assets`, `leverage_max`, `funding_split`, `cadence_seconds`/`time_horizon` (from cadence), `instance_count`, `max_slots`, `min_budget` (= `max(declared, 100 × instance_count)`).
+- **Derived by `gen_catalog.py` (don't duplicate):** `assets`, `leverage_max`, `funding_split`, `cadence_seconds`/`time_horizon` (from cadence), `instance_count`, `max_slots`, `min_budget` (**computed** by `min_budget.py`), `wallet_count`, `min_budget_breakdown`.
 
 ## 9. Prove it runs, then deploy, then confirm it *operates*
 
 ```
 python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>   # advisory lint
 openclaw senpi validate /data/workspace/strategies/<id>                          # THE GATE — must be PASS
-python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # wallet(s); $100/instance floor
+python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # wallet(s); $10/wallet floor
 python3 senpi-strategy-ops/scripts/deploy.py runtime <id>
 python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                        # re-run after interval_seconds
 # teardown / redeploy:  close.py <id>  (flattens positions, returns funds)

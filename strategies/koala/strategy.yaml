@@ -25,7 +25,6 @@ catalog:
   tier: starter
   leverage_max: 3
   max_slots: 1
-  min_budget: 100
   assets: ["BTC"]
   tags: [btc, single-asset, hodl, buy-and-hold, set-and-forget, wide-dsl, onboarding, long-only]
 

@@ -26,7 +26,6 @@ catalog:                     # discovery surface. `group` here is the discovery 
   time_horizon: swing
   leverage_max: 7
   max_slots: 2
-  min_budget: 200
   assets:
     ["HYPE", "HEMI", "WLD", "MON", "XPL", "AIXBT", "ARB", "ASTER",
      "POLYX", "LDO", "APT", "DYDX", "ONDO", "SUI", "kBONK", "kPEPE",

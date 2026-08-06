@@ -26,7 +26,6 @@ catalog:
   time_horizon: swing
   leverage_max: 2
   max_slots: 4
-  min_budget: 100
   assets: []                 # DERIVED live from the main DEX (high vol floor + top-N)
   tags: [conservative, capital-preservation, low-risk, low-leverage, defensive, majors, sleep-at-night, dsl-only]
 

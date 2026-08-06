@@ -26,7 +26,6 @@ catalog:
   time_horizon: swing
   leverage_max: 4
   max_slots: 5
-  min_budget: 100
   assets: []                 # DERIVED live from the main DEX (vol floor + top-N liquid majors)
   tags: [mean-reversion, rsi, oversold, dip-buy, contrarian, reversion, dsl-only]
 
