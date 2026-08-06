@@ -32,21 +32,32 @@ Per instance the job runs five steps, each recorded with its own outcome:
    a hard target — it is never silently scaled down. An unreadable balance yields "unknown" and the deploy
    proceeds: the backend is the funding authority and would fail loudly.
    Once that hard floor passes, the step computes the package's **calculated minimum** locally (the verb's
-   port of `min_budget.py`, parity-tested against it) and, below it, **warns and proceeds**:
-   `[E_BUDGET_BELOW_STRATEGY_MIN]` naming the binding sleeve, or `[E_BUDGET_UNRESOLVED]` when a sleeve's
-   sizing could not be read and the figure is only a lower bound (that note carries the shortfall too when
-   the budget is under even the lower bound). Neither ever refuses — the floor is the platform's rule, the
-   calculated minimum is a design estimate and the user sizes their own budget. Both land on the final
-   report (`minBudget`, `minWalletCount`, `belowMin`, `minBudgetNote`, `minBudgetUnresolved`) so they
-   survive to a `live` render, not just the running narration; `belowMin` tracks the budget rather than
-   the leading code, so it is set under either. The below-minimum note's escape is **close-then-redeploy**
-   — a re-run at a larger `--budget` would only adopt the wallet just created, since deploy never adds
-   funds to an existing one.
-   An instance that declares **no `funding_share`** is sized against `1/n` here, matching what
-   `planFunding` will actually hand it — not the whole book. (`min_budget.py` reads an absent share as
-   `1.0`, which is safe only because `_pkg.validate` forces catalog packages to declare shares summing to
-   1; the verb is a direct path with no such gate.) A **quoted** share (`"0.4"`) parses as the number,
-   the same way `gen_catalog.py` reads it, so the card's minimum and the verb's cannot disagree.
+   port of `min_budget.py`, parity-tested against it) and **warns, never refuses**, when a wallet comes up
+   short: `[E_BUDGET_BELOW_STRATEGY_MIN]`, or `[E_BUDGET_UNRESOLVED]` when a sleeve's sizing could not be
+   read and the figure is only a lower bound (that note carries the shortfall too, and the same escape).
+   The floor is the platform's rule; the calculated minimum is a design estimate and the user sizes their
+   own budget. Both land on the final report (`minBudget`, `minWalletCount`, `belowMin`, `minBudgetNote`,
+   `minBudgetUnresolved`) so they survive to a `live` render, not just the running narration; `belowMin`
+   is set under either code.
+   **The shortfall claim is PER WALLET, against what each one is actually allocated** — not the whole
+   budget against the whole-package minimum. Those two differ the moment anything is adopted:
+   `planFunding` splits the budget among the instances still NEEDING a wallet, while `minBudget` is
+   computed across every instance. Comparing the totals once announced a shortfall on a re-run that was
+   handing a single $13.50 sleeve the entire $20 — money that was not short, on a deploy that was not
+   even touching the other sleeve. `minBudget`/`minWalletCount` therefore ride the report as
+   **context** ("deploying the whole package fresh needs $30 across 2 wallets"), never as the claim.
+   The escape is **close-then-redeploy** — a re-run at a larger `--budget` would only adopt what is
+   already there — and it is **scoped to the underfunded sleeves** (`close.py <id> --instance <name>`),
+   because `close.py <id>` would tear down adopted, live, funded sleeves this warn is not about. It is
+   omitted entirely when the deploy created no wallet: there is nothing to close.
+   An instance that declares **no `funding_share`** is sized against `1/n` — the split a FRESH deploy of
+   the package would apply — rather than `min_budget.py`'s whole-book `1.0`, which understates the total
+   by the wallet count. (The Python is safe with `1.0` because it only runs at catalog-generation time, on
+   packages `_pkg.validate` has already forced to declare shares summing to 1; the verb is a direct path
+   with no such gate.) A **quoted** share (`"0.4"`) parses as a number here, matching `min_budget._f` so
+   the card's `min_budget` and the verb's agree — note this does NOT make the whole card agree: `_pkg.py`
+   reads the field raw (a quoted share raises in `_pkg.validate`) and `gen_catalog.derive_funding_split`
+   drops non-numeric values, so a quoted share is a packaging bug `deploy.py validate` catches loudly.
 3. **create** — one `strategy_create_custom_strategy(initialBudget, positions=[], strategyName,
    skillName=<id>, skillVersion=<version>)` per needing instance, then poll `strategy_list` to **ACTIVE**
    (bounded by `--max-wait`, default 150s). A name rejection retries **once** without `strategyName` —

@@ -195,19 +195,23 @@ shape as everything above and they are the one place that shape does **not** mea
 `live` report as `minBudget` / `minWalletCount` / `belowMin` / `minBudgetNote` / `minBudgetUnresolved`
 (printed as `calculated minimum:` and `warn:` lines by `deploy status`). **Never report a deploy as
 failed, and never close a wallet, because of one:**
-- **`[E_BUDGET_BELOW_STRATEGY_MIN]`** — the budget clears the $10/wallet floor but is below the package's
-  **calculated minimum**: the smallest total at which every sleeve's smallest slot can still open. The
+- **`[E_BUDGET_BELOW_STRATEGY_MIN]`** — one or more wallets **this deploy funded** got less than their
+  own sizing needs (the warn names each one and both numbers: `scalp $12.00 (needs $13.50)`). The
   strategy **deployed and is running**, just **degraded** — fewer slots than the author designed, each
-  position a larger share of its wallet. The warn names the binding sleeve and the number. Tell the user
-  plainly, and offer the authored size (`--budget <the calculated minimum>`) as a *choice*: a smaller
-  book is legitimate, not a mistake to undo. Redeploying at the larger size means `close.py <id>` first —
-  deploy never adds funds to an existing wallet.
+  position a larger share of its wallet. Tell the user plainly, and offer the authored size as a
+  *choice*: a smaller book is legitimate, not a mistake to undo.
+  **Follow the warn's own escape verbatim — do not improvise one.** It is close-then-redeploy (deploy
+  never adds funds to an existing wallet, so a re-run only adopts it) and it is **scoped**: it will say
+  `close.py <id> --instance <name>` when only some sleeves are short. Never widen that to
+  `close.py <id>` — the other sleeves may be adopted, live and funded, and this warn is not about them.
+  `minBudget` in the report is **context** ("the whole package fresh needs $30 across 2 wallets"), not
+  the thing that was violated — a partially-adopted deploy splits the budget among fewer wallets.
 - **`[E_BUDGET_UNRESOLVED]`** — one or more sleeves publish risk weights rather than slot sizes, so the
   minimum could not be computed and the printed figure is a **lower bound**. The deploy ran. Say the
-  number **may be understated** and size conservatively; do not quote it as verified. If the budget is
-  under even that lower bound the warn says so as well, and `belowMin` is set — the two codes are **not
-  mutually exclusive**, so never read "no `[E_BUDGET_BELOW_STRATEGY_MIN]`" as "the budget was enough".
-  Read `belowMin`.
+  number **may be understated** and size conservatively; do not quote it as verified. If a wallet is
+  ALSO short the warn names it and `belowMin` is set — the two codes are **not mutually exclusive**, so
+  never read "no `[E_BUDGET_BELOW_STRATEGY_MIN]`" as "the budget was enough". Read `belowMin`. That case
+  carries the same scoped escape; follow it verbatim too.
 
 **Report** from the structured output, not raw logs (then always close with the **How it runs** block below):
 ```jsonc
