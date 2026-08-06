@@ -210,7 +210,10 @@ failed, and never close a wallet, because of one:**
   that to `close.py <id>` — the other sleeves may be adopted, live and funded, and this warn is not
   about them. Some reports deliberately carry **no** command: a funded wallet with no runtime cannot
   be closed by instance at all, so the warn points at read-only `status.py <id>` triage instead —
-  that is the correct answer there, not a gap for you to fill with a package-wide close. And where
+  that is the correct answer there, not a gap for you to fill with a package-wide close. A
+  `funding_share: 0` sleeve gets no command either: NO budget can lift it above the $10 floor, so
+  closing and re-deploying would only reproduce the identical warn — the warn names the real fix (a
+  share in strategy.yaml); relay that, never close the sleeve over it. And where
   `[E_ROLLBACK_INCOMPLETE]` is on the report, it owns the cleanup; do that first.
   `minBudget` in the report is **context** ("the whole package fresh needs $30 across 2 wallets"), not
   the thing that was violated — a partially-adopted deploy splits the budget among fewer wallets.
