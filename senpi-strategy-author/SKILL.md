@@ -249,12 +249,27 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
      is NOT a pass.** Usually a gate inside `scan()` (a session/time-of-day check) that returned
      early — have it consult `ctx.dry_run` so validation can see a real read. The finding names the
      line it returned from.
+     **If it stays UNPROVEN after that**, the reads still are not happening, and the finding says
+     which of two things it is: reads were attempted and failed (an auth or service problem —
+     confirm the token actually reaches that service before blaming the scanner), or no read was
+     attempted at all (the `dry_run` bypass is not on the path that fetches). "No setups right now"
+     is **not** one of the possibilities — a tick that reads and finds nothing to trade returns
+     PASS with a no-signals warning.
    - **FAIL** (exit 1) — every finding carries `what` / `why` / `fix`, computed against your actual
      package. Apply the fix, re-run. Don't go silent while you debug — narrate the fix and re-run.
 
+   **Fix → re-run is a loop, and it has a stop.** Re-running is not optional after an edit: the
+   proof a PASS writes is tied to the exact bytes it validated, so any change invalidates it.
+   But if the **same code comes back after two attempts at it**, stop. A finding that survives two
+   fixes means you are not addressing its cause, and further edits are guesswork on a package that
+   is already unproven. Report what is blocking, in the finding's own words, and let the user
+   decide — do not deploy, and do not keep editing.
+
    **Never tell the user a strategy is ready, and never hand it to ops, unless `senpi validate`
-   returned PASS.** A tiny deploy to "smoke-test" is no longer the way to find out whether it runs —
-   that spends real money to learn what this command tells you for free.
+   returned PASS.** Nothing downstream re-checks this today — `deploy.py create` funds a wallet on
+   structure alone, and `verify` reports `live` for a scanner that reads nothing. **You are the last
+   check before real money.** A tiny deploy to "smoke-test" is no longer the way to find out whether
+   it runs — that spends that money to learn what this command tells you for free.
 
 Report each numbered stage as it lands — a short line is enough. The point is the user sees forward motion
 the whole way and can catch a wrong turn early, instead of after the entire package is already built.
@@ -318,8 +333,9 @@ only once **`senpi-strategy-ops` deploys it AND `deploy.py verify` passes**. Wal
 
 1. **Confirm with the user** — budget + "ready to deploy?" Funding a wallet is real money and one-way, so
    this is an explicit yes, not an assumption.
-2. **Preflight** — you already proved it runs at stage 9 (`senpi validate` → PASS); `deploy.py create`
-   re-runs that itself and refuses to fund an unproven package. `deploy.py validate <path-to-package>`
+2. **Preflight** — you proved it runs at stage 9 (`senpi validate` → PASS). Nothing in `deploy.py`
+   re-checks that today: it funds on structure alone, so stage 9 is the only thing between a broken
+   scanner and a funded wallet. `deploy.py validate <path-to-package>`
    is the structural half — every fix in **one pass**, no side effects. The
    deployer **accepts the flat package you built** (it synthesizes the `main` instance), so you do **not**
    restructure into `main/` or hand-write `.deploy-state.json`. **Pass the package DIRECTORY** (absolute is

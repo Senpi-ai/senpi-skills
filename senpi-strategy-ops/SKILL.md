@@ -85,11 +85,17 @@ gate in `scan()` that should consult `ctx.dry_run`.
 `deploy.py validate <id>` answers **is the package well formed** — every structural + render
 issue in **one pass**, with **no side effects**, before you fund anything.
 
-`deploy.py create` runs the runnability check itself and **refuses to fund a package that has not
-passed**, so the proof exists by the time the deploy step looks for it. When it refuses, it prints
-the findings verbatim — each carries `what` / `why` / `fix` written for the agent that has to fix
-it; pass them through rather than summarising. The deployer **accepts the
-flat single-instance layout** agents naturally scaffold — one `runtime.yaml` + `scanners/` at the
+**Today nothing downstream re-checks runnability.** `deploy.py create` funds a wallet on the
+strength of the package alone — it verifies structure, not that the scanner reads anything. So if
+`senpi validate` was skipped, or returned `UNPROVEN` and was waved through, `create` will fund it
+and `verify` will report `live`: a running strategy, real money, trading nothing. Run
+`senpi validate` yourself, and do not deploy a package that has not returned `PASS`.
+
+*(Coming: the deploy verb becomes a hard gate — it verifies the proof `senpi validate` writes and
+refuses to fund without one. Validating now costs nothing then, because a package that already
+passed carries its proof.)*
+
+The deployer **accepts the flat single-instance layout** agents naturally scaffold — one `runtime.yaml` + `scanners/` at the
 package root — by synthesizing the canonical `main` instance, so there's **no need to restructure into
 `main/`**. Any remaining fix is named prescriptively (e.g. `set runtime name: <id>-main`). A package
 that exists **on disk is authoritative** — an invalid local package surfaces its real error and is
