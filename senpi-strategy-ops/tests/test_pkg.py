@@ -405,5 +405,33 @@ def test_validate_accepts_percent_marginpct(tmp_path):
     assert _pkg.validate(_pkg.load(str(d))) == []
 
 
+# ───────────────────────────── the DSL exit-block predicate ─────────────────────────────
+# `Instance.has_dsl` gates `_pkg.validate`'s funded-but-no-DSL refusal: a package whose positions
+# run naked (no hard stop, no trailing floor) is never funded. Its branch coverage used to live in
+# `test_deploy_gates.py::HasDsl`, which went away with the fat deploy.py — the predicate did not,
+# so the coverage moved here rather than being lost with the script it used to be tested beside.
+
+def _dsl_inst(runtime_doc):
+    """A bare `_pkg.Instance` with only `runtime_doc` set — all `exit_block`/`has_dsl` need."""
+    i = _pkg.Instance.__new__(_pkg.Instance)
+    i.runtime_doc = runtime_doc
+    return i
+
+
+@pytest.mark.parametrize(
+    "runtime_doc, protected",
+    [
+        ({"exit": {"engine": "dsl", "dsl_preset": {"phase1": {}}}}, True),   # engine + preset
+        ({"exit": {"engine": "dsl"}}, True),                                 # engine alone
+        ({"exit": {"dsl_preset": {"phase1": {}}}}, True),                    # preset alone
+        ({"exit": {}}, False),                                               # an empty exit is naked
+        ({}, False),                                                         # no exit at all
+        ({"exit": {"engine": "none"}}, False),                               # a non-DSL engine is naked
+    ],
+)
+def test_has_dsl_only_a_real_dsl_exit_counts_as_protected(runtime_doc, protected):
+    assert _dsl_inst(runtime_doc).has_dsl is protected
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
