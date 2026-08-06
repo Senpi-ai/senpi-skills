@@ -9,7 +9,8 @@ in order and re-runs a step until it reports done.
   python3 deploy.py status   <id> [--json]
 
 Step 1 `create`  — creating wallets & funding them: per instance strategy_create_custom_strategy (records
-                   strategyId IMMEDIATELY), then poll strategy_list until ACTIVE, BOUNDED by --max-wait.
+                   strategyId IMMEDIATELY), then poll strategy_list until ACTIVE before submitting the
+                   NEXT instance — one wallet funds at a time — all BOUNDED by one --max-wait budget.
                    Not all ACTIVE yet → exits `creating`; re-run `create` to RESUME (never re-creates).
                    Refuses if it finds skillName==<id> strategies not in the state file (close first).
 Step 2 `runtime` — setting up the autonomous trading strategy: render each runtime.yaml with its wallet →
@@ -299,6 +300,47 @@ def underfunded_note(shortfall):
             f"across these {shortfall['wallets']} wallet(s) at the {usd(MIN_WALLET)}/wallet floor).")
 
 
+def is_name_rejection(err):
+    """True when the backend is refusing the wallet NAME, not the deploy — so retrying unnamed works.
+
+    SERR083 belongs here despite its generic text ("Custom strategy creation failed unexpectedly.
+    Retry with the same payload."): a strategy stuck in PENDING_FUNDING keeps holding its
+    strategyName, and every create reusing that name 500s until the record expires ~15 min later.
+    Retrying the SAME payload — what the error itself advises — can never clear it; dropping the
+    name clears it instantly. Observed on a real deploy, two calls 3.6s apart, same $693 budget:
+        {initialBudget: 693, strategyName: "vanguard-long"}  → SERR083
+        {initialBudget: 693}                                 → success
+    It also failed at $100 with the name, ruling out any funding cause.
+    """
+    s = str(err)
+    return any(c in s for c in ("SERR055", "SERR056", "SERR058", "SERR083")) or "name" in s.lower()
+
+
+def await_funded(mcp, pkg, st, insts, deadline, log=lambda m: None):
+    """Poll `insts` until each is ACTIVE with a wallet, or `deadline` passes.
+
+    Returns the still-pending ["name=STATUS", …] list — empty means every leg settled.
+    """
+    while True:
+        pending = []
+        for inst in insts:
+            s = inst_state(st, inst.name)
+            if s.get("status") in ("active", "registered", "live"):
+                continue
+            m = _cli.strategies_for(mcp, strategy_id=s["strategyId"], timeout=POLL_HTTP_TIMEOUT)
+            status = str(_cli.strategy_status(m[0]) if m else "").upper()
+            addr = _cli.strategy_wallet(m[0]) if m else None
+            if status == "ACTIVE" and addr:
+                s.update(wallet=addr, status="active")
+                save_state(pkg, st)
+            else:
+                pending.append(f"{inst.name}={status or '…'}")
+        if not pending or time.time() >= deadline:
+            return pending
+        log(f"  waiting on {', '.join(pending)}…")
+        time.sleep(POLL_EVERY)
+
+
 def report(pkg, st, overall, note=None, as_json=False):
     insts = [{"instance": i, **st["instances"].get(i, {"status": "pending"})}
              for i in [x for x in st["instances"]]]
@@ -466,6 +508,10 @@ def cmd_create(pkg, a, log):
     if shortfall:
         return report(pkg, st, "underfunded", note=underfunded_note(shortfall), as_json=a.json)
 
+    # ONE SHARED poll budget across every leg — a per-leg budget would let an N-wallet package
+    # run for N × max_wait and blow past the tool timeout.
+    deadline = time.time() + a.max_wait
+
     # create any instance that has no strategyId yet — record the id IMMEDIATELY (before polling),
     # so an interrupted run resumes instead of re-creating.
     for inst in pkg.instances:
@@ -491,7 +537,7 @@ def cmd_create(pkg, a, log):
             res = _create(sname)
         except MCPError as e:
             # Naming is best-effort — a name conflict/format rejection must never block the deploy.
-            if any(c in str(e) for c in ("SERR055", "SERR056", "SERR058")) or "name" in str(e).lower():
+            if is_name_rejection(e):
                 log(f"  [{inst.name}] name {sname!r} rejected ({e}); creating without a custom name")
                 try:
                     res = _create()
@@ -513,30 +559,24 @@ def cmd_create(pkg, a, log):
         s.update(strategyId=sid, status="creating", error=None)
         save_state(pkg, st)  # ← persist before any polling
 
-    # poll to ACTIVE, bounded by --max-wait (resume on re-run)
-    deadline = time.time() + a.max_wait
-    while True:
-        pending = []
-        for inst in pkg.instances:
-            s = inst_state(st, inst.name)
-            if s.get("status") in ("active", "registered", "live"):
-                continue
-            m = _cli.strategies_for(mcp, strategy_id=s["strategyId"], timeout=POLL_HTTP_TIMEOUT)
-            status = str(_cli.strategy_status(m[0]) if m else "").upper()
-            addr = _cli.strategy_wallet(m[0]) if m else None
-            if status == "ACTIVE" and addr:
-                s.update(wallet=addr, status="active")
-                save_state(pkg, st)
-            else:
-                pending.append(f"{inst.name}={status or '…'}")
-        if not pending:
-            return report(pkg, st, "wallets-ready", note="Next: deploy.py runtime " + pkg.id, as_json=a.json)
-        if time.time() >= deadline:
+        # Fund ONE WALLET AT A TIME. `create` returns at CREATE_WALLET and funding settles
+        # asynchronously afterwards, so submitting the next leg straight away puts two funding
+        # jobs on the SAME embedded wallet concurrently — one reads a balance the other has
+        # already claimed, funds $0, and sticks in PENDING_FUNDING. Waiting here is what makes
+        # the balance check in plan_funding actually mean something.
+        if await_funded(mcp, pkg, st, [inst], deadline, log):
+            # Not settled inside the budget — do NOT submit the next leg, that is the race.
+            # State is saved, so a re-run picks up exactly here.
             return report(pkg, st, "creating",
-                          note="Wallets still funding. Re-run `deploy.py create " + pkg.id + "` to resume.",
-                          as_json=a.json)
-        log(f"  waiting on {', '.join(pending)}…")
-        time.sleep(POLL_EVERY)
+                          note=("Wallet still funding. Re-run `deploy.py create " + pkg.id +
+                                "` to resume — wallets are funded one at a time."), as_json=a.json)
+
+    # everything submitted; wait out any leg that was already in flight from a previous run
+    if await_funded(mcp, pkg, st, pkg.instances, deadline, log):
+        return report(pkg, st, "creating",
+                      note="Wallets still funding. Re-run `deploy.py create " + pkg.id + "` to resume.",
+                      as_json=a.json)
+    return report(pkg, st, "wallets-ready", note="Next: deploy.py runtime " + pkg.id, as_json=a.json)
 
 
 # ---------- step 2: deploy runtimes ----------
