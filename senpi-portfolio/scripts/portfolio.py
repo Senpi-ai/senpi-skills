@@ -1295,19 +1295,48 @@ def _money_totals(embedded, strategies, portfolio_totals):
 
 
 # ─────────────────────────────────────────────── self-heal: full strategies[] in state (for step 2 / 3)
+def _live_active_wallet_set(client, meta):
+    """Wallet set of the CURRENT ACTIVE strategy_list — a cheap freshness anchor (no per-wallet hydration).
+    Returns None on a read error, so a caller validating a cache treats it as unusable and re-fetches
+    rather than trusting possibly-stale state."""
+    try:
+        sl = _ok(client.mcp_call("strategy_list", status=["ACTIVE"], timeout=20))
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"active-set freshness check failed, re-fetching live: {e}")
+        return None
+    rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
+    out = {(_field(s, "strategyWalletAddress", "strategy_wallet_address", "walletAddress") or "").lower()
+           for s in (rows or [])}
+    out.discard("")
+    return out
+
+
 def _ensure_full_strategies_in_state(client, state, want_market, meta):
-    """Return the FULLY-hydrated strategies[] (positions + DSL + closed + profile/mandate) — from the state
-    file when the `strategies` step already ran, else recompute the full fetch right here (so the
-    `strategies` and `positions` steps each work STANDALONE). Also rehydrates the embedded wallet +
-    portfolio totals from state (or re-fetches). Merges its work back into state for the next step.
-    Returns (embedded, strategies, portfolio_totals)."""
+    """Return the FULLY-hydrated strategies[] (positions + DSL + closed + profile/mandate) — reusing the
+    state file when a prior step already built it, else recompute the full fetch here (so `strategies` and
+    `positions` each work STANDALONE). Also rehydrates the embedded wallet + portfolio totals from state
+    (or re-fetches). Merges its work back into state for the next step. Returns (embedded, strategies,
+    portfolio_totals).
+
+    FRESHNESS GATE (the ghost-strategy fix): `strategies_full` is a WHOLE snapshot in a shared state file
+    that PERSISTS ACROSS RUNS (tempdir, no TTL). Reusing it blindly serves a strategy CLOSED since it was
+    written as a live ghost — with its stale account value + positions — and omits one DEPLOYED since. So
+    the cached snapshot is reused ONLY when its wallet set still matches a fresh strategy_list(ACTIVE); any
+    change — or an unreadable check — forces a full re-fetch. "Which strategies are live" drives
+    close/rebalance advice and is too consequential to answer from unvalidated cache."""
     embedded = state.get("embedded_wallet")
     portfolio_totals = state.get("portfolio_totals")
     strategies = state.get("strategies_full")
     if isinstance(embedded, dict) and isinstance(strategies, list) and isinstance(portfolio_totals, dict):
-        return embedded, strategies, portfolio_totals
-    # state absent/partial → recompute the full pull (embedded + fully-hydrated strategies). The market
-    # enrichment is the `positions` step's job — skip it here (want_market only gates step 3's fold).
+        live = _live_active_wallet_set(client, meta)
+        cached = {(s.get("wallet") or "").lower() for s in strategies}
+        cached.discard("")
+        if live is not None and live == cached:
+            return embedded, strategies, portfolio_totals
+        meta.setdefault("warnings", []).append(
+            "portfolio state was stale — the active-strategy set changed since it was cached; re-fetched live")
+    # state absent / partial / STALE → recompute the full pull (embedded + fully-hydrated strategies). The
+    # market enrichment is the `positions` step's job — skip it here (want_market only gates step 3's fold).
     embedded, portfolio_totals = fetch_embedded(client, meta)
     strategies = fetch_strategies(client, meta)
     state["embedded_wallet"] = embedded
