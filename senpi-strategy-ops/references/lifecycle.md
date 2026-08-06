@@ -27,10 +27,17 @@ Per instance the job runs five steps, each recorded with its own outcome:
    strategy, so it points at read-only triage and never at close/recreate. Zero → this instance needs a wallet.
 2. **preflight** — `account_get_portfolio` (forced fresh) → the accessible-USDC waterfall (HL perps + HL
    spot USDC + EVM USDC; never `total_withdrawable`) → the funding plan (split by `funding_share`, floored
-   at $100/wallet, minus a per-wallet fee buffer). A shortfall **HALTS** with `[E_FUNDS_SHORT]` or
-   `[E_FUNDS_BELOW_FLOOR]` and **no create call is made**. The budget is a hard target — it is never
-   silently scaled down. An unreadable balance yields "unknown" and the deploy proceeds: the backend is the
-   funding authority and would fail loudly.
+   at **$10/wallet** — the platform floor `min_budget.py` owns — minus a per-wallet fee buffer). A shortfall
+   **HALTS** with `[E_FUNDS_SHORT]` or `[E_FUNDS_BELOW_FLOOR]` and **no create call is made**. The budget is
+   a hard target — it is never silently scaled down. An unreadable balance yields "unknown" and the deploy
+   proceeds: the backend is the funding authority and would fail loudly.
+   Once that hard floor passes, the step computes the package's **calculated minimum** locally (the verb's
+   port of `min_budget.py`, parity-tested against it) and, below it, **warns and proceeds**:
+   `[E_BUDGET_BELOW_STRATEGY_MIN]` naming the binding sleeve, or `[E_BUDGET_UNRESOLVED]` when a sleeve's
+   sizing could not be read and the figure is only a lower bound. Neither ever refuses — the floor is the
+   platform's rule, the calculated minimum is a design estimate and the user sizes their own budget. Both
+   land on the final report (`minBudget`, `minWalletCount`, `belowMin`, `minBudgetNote`,
+   `minBudgetUnresolved`) so they survive to a `live` render, not just the running narration.
 3. **create** — one `strategy_create_custom_strategy(initialBudget, positions=[], strategyName,
    skillName=<id>, skillVersion=<version>)` per needing instance, then poll `strategy_list` to **ACTIVE**
    (bounded by `--max-wait`, default 150s). A name rejection retries **once** without `strategyName` —
