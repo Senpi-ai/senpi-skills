@@ -48,8 +48,17 @@ Per instance the job runs five steps, each recorded with its own outcome:
    **context** ("deploying the whole package fresh needs $30 across 2 wallets"), never as the claim.
    The escape is **close-then-redeploy** — a re-run at a larger `--budget` would only adopt what is
    already there — and it is **scoped to the underfunded sleeves** (`close.py <id> --instance <name>`),
-   because `close.py <id>` would tear down adopted, live, funded sleeves this warn is not about. It is
-   omitted entirely when the deploy created no wallet: there is nothing to close.
+   because `close.py <id>` would tear down adopted, live, funded sleeves this warn is not about.
+   **No emitted command may need a precondition the report lacks**, so the scoped form appears only
+   when those sleeves have a live RUNTIME: `--instance` resolves a sleeve through its runtime and
+   hard-exits without one, and its error text then tells the reader to omit `--instance` and close
+   the whole package — the exact widening the scoping exists to prevent. The other states get what
+   they can actually support: a funded wallet with no runtime (deadline-abandoned after create, or a
+   failed rollback) gets a read-only `status.py <id>` triage pointer and NO teardown command; a
+   deploy that created nothing gets no escape at all; and where `[E_ROLLBACK_INCOMPLETE]` is present
+   it owns the cleanup, so the budget warn defers to it by name instead of emitting a second,
+   differently-scoped close. The redeploy figure is sized for every wallet the re-run will fund —
+   the closed sleeves plus any that never got a wallet — not just the ones being closed.
    An instance that declares **no `funding_share`** is sized against `1/n` — the split a FRESH deploy of
    the package would apply — rather than `min_budget.py`'s whole-book `1.0`, which understates the total
    by the wallet count. (The Python is safe with `1.0` because it only runs at catalog-generation time, on

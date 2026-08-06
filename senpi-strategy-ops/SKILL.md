@@ -89,9 +89,10 @@ surfaces its real error and is never silently replaced by a stale remote fetch.
 
 **Step 1 — start the deploy.** Budget splits across instances by `funding_share`, **min $10 each** (the
 platform wallet floor) — **confirm the amount with the user first**. Two tiers, and only the first one
-stops anything: below the $10/wallet floor the deploy **refuses**; above the floor but below the
-package's **calculated minimum** it **deploys and warns** (`[E_BUDGET_BELOW_STRATEGY_MIN]` — the design
-runs degraded; see the budget warnings below).
+stops anything: below the $10/wallet floor the deploy **refuses**; and when the split leaves any wallet
+with less than **its own** sizing needs, it **deploys and warns** (`[E_BUDGET_BELOW_STRATEGY_MIN]` — that
+sleeve runs degraded; see the budget warnings below). The second check is per wallet against what it is
+actually allocated, not the budget against the package total — those differ whenever a sleeve is adopted.
 ```
 openclaw senpi deploy -p /data/workspace/strategies/spider --budget 300
 ```
@@ -181,8 +182,11 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 >   to cancel; a wedged job times out and frees the slot on its own.
 > - **`[E_ROLLBACK_INCOMPLETE]`** — a wallet this deploy created and funded had its install fail, and the
 >   automatic close did not complete. **The wallet is live, funded and unwatched.** The refusal names the
->   wallet and the amount: close it manually to reclaim the funds (`python3 senpi-strategy-ops/scripts/close.py <id>`)
->   and tell the user. Never leave this one unreported.
+>   wallet, the amount and the command to reclaim it — **follow that command, do not substitute one**.
+>   It is a direct MCP `strategy_close` on that address, because a wallet with no runtime cannot be
+>   reached by `close.py --instance`; the refusal offers the package-wide `close.py <id>` only when
+>   nothing else in the package is live, and otherwise names the live sleeves that command would take
+>   down with it. Tell the user either way. Never leave this one unreported.
 > - **A live `<id>` strategy that is PAUSED (or mid-teardown)** — the verb refuses immediately with the
 >   real status quoted; it does **not** wait, because a paused strategy never becomes ACTIVE on its own.
 >   Resume it and re-run, or `close.py <id>` first if you meant to start over. **Never fund a second
@@ -200,10 +204,14 @@ failed, and never close a wallet, because of one:**
   strategy **deployed and is running**, just **degraded** — fewer slots than the author designed, each
   position a larger share of its wallet. Tell the user plainly, and offer the authored size as a
   *choice*: a smaller book is legitimate, not a mistake to undo.
-  **Follow the warn's own escape verbatim — do not improvise one.** It is close-then-redeploy (deploy
-  never adds funds to an existing wallet, so a re-run only adopts it) and it is **scoped**: it will say
-  `close.py <id> --instance <name>` when only some sleeves are short. Never widen that to
-  `close.py <id>` — the other sleeves may be adopted, live and funded, and this warn is not about them.
+  **Follow the warn's own escape verbatim — do not improvise one, and do not widen it.** It is
+  close-then-redeploy (deploy never adds funds to an existing wallet, so a re-run only adopts it) and
+  it is **scoped**: `close.py <id> --instance <name>` when only some sleeves are short. Never widen
+  that to `close.py <id>` — the other sleeves may be adopted, live and funded, and this warn is not
+  about them. Some reports deliberately carry **no** command: a funded wallet with no runtime cannot
+  be closed by instance at all, so the warn points at read-only `status.py <id>` triage instead —
+  that is the correct answer there, not a gap for you to fill with a package-wide close. And where
+  `[E_ROLLBACK_INCOMPLETE]` is on the report, it owns the cleanup; do that first.
   `minBudget` in the report is **context** ("the whole package fresh needs $30 across 2 wallets"), not
   the thing that was violated — a partially-adopted deploy splits the budget among fewer wallets.
 - **`[E_BUDGET_UNRESOLVED]`** — one or more sleeves publish risk weights rather than slot sizes, so the
