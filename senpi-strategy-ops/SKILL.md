@@ -249,8 +249,10 @@ scanner row's own fields. **Never re-derive a number in prose.**
 (a bare catalog id is fetched), runs the structural preflight **and the live-universe ticker gate the
 verb does not have**, then starts the **same** verb, polls it, and prints its report verbatim. All three
 keep the same flags (`--budget`, `--decision-model`,
-`--max-wait`, `--tick-wait`, `--json`, `--dry-run`) and exit codes (2 on a refused/failed report), so
-older transcripts and habits still work — but note the behaviour change below.
+`--max-wait`, `--tick-wait`, `--json`, `--dry-run`) and the verb's exit codes — **`2` refused / `3`
+failed** (full map above). **The old `== 2` habit no longer catches a failure**: the pre-verb script
+exited 2 on failure, this one exits 3, so anything branching on `== 2` alone silently treats every
+failed deploy as a success. Branch on the whole map — and note the behaviour change below.
 
 > **`verify` now runs a deploy — it can move money.** It used to be a read-only check. It drives the same
 > idempotent verb, so on a package whose wallets already exist it just reconciles and observes — but given
