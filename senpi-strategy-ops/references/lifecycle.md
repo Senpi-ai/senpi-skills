@@ -126,7 +126,11 @@ closed and its funds returned (`strategy_close` returns them to the owner wallet
 adopted wallet — it predates this deploy; never on an observe failure — the runtime is installed and may
 open a position at any moment; never on a refusal — nothing was created. If that close cannot run (the
 wallet holds open positions) or fails, the report says **`[E_ROLLBACK_INCOMPLETE]`** and names the wallet,
-the amount and the manual `close.py`: a stranded funded wallet is never silent. The crash case does not
+the amount and the command to reclaim it: a stranded funded wallet is never silent. That command is an MCP
+**`strategy_close` on that wallet address** — a funded wallet with no runtime cannot be reached by
+`close.py --instance`. The package-wide `close.py <id>` is offered **only** when nothing else in the
+package is live; otherwise the caveat names the live sleeves it would take down and says not to reach for
+it. Run the command the report prints, never a wider one. The crash case does not
 unwind — the boot scan never moves money — so an `interrupted` status names both exits (re-run to adopt,
 or close to reclaim) along with the amount, read fresh from the backend.
 
