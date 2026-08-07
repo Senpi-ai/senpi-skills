@@ -454,9 +454,15 @@ class ValidateUniverseHook(unittest.TestCase):
         else:
             sys.modules["validate_universe"] = self._saved_vu
 
-    def _install_vu(self, *, unknown=(), raises=None):
+    def _install_vu(self, *, unknown=(), raises=None, scan_raises=None):
         module = types.ModuleType("validate_universe")
-        module.package_tickers = lambda pkg_dir: {"BTC", "xyz:NASDAQ"}
+
+        def package_tickers(pkg_dir):
+            if scan_raises is not None:
+                raise scan_raises
+            return {"BTC", "xyz:NASDAQ"}
+
+        module.package_tickers = package_tickers
         module.unknown_tickers = lambda tickers, live: list(unknown)
 
         def live_instruments():
@@ -488,9 +494,22 @@ class ValidateUniverseHook(unittest.TestCase):
         code, out, err = self._run_validate()
         self.assertEqual(code, 0)          # it never blocks: the verb owns the money-path gate
         self.assertIn("no SENPI_AUTH_TOKEN", err)
+        self.assertIn("instrument list", err)          # names WHAT could not be read
         self.assertIn("nothing about the universe", err.lower())
         self.assertIn("senpi deploy", err)  # …and says who does enforce it
         self.assertIn("deploy-ready", out)  # the structural verdict still stands, with the note beside it
+
+    def test_a_package_scan_failure_reads_as_a_package_problem_not_a_network_one(self):
+        # The try used to wrap the package read too, so malformed YAML in the user's own package was
+        # reported as "the live list could not be read" — pointing at the network and at the verb for
+        # a problem sitting in a file they own.
+        self._install_vu(scan_raises=ValueError("while scanning runtime.yaml: bad indent"))
+        code, out, err = self._run_validate()
+        self.assertEqual(code, 0)
+        self.assertIn("bad indent", err)
+        self.assertIn("scan this package", err)
+        self.assertNotIn("instrument list", err)
+        self.assertIn("deploy-ready", out)
 
     def test_a_live_universe_leaves_the_clean_output_unchanged(self):
         self._install_vu(unknown=[])

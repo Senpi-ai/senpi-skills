@@ -88,7 +88,9 @@ issue in **one pass**, with **no side effects**, before you fund anything — an
 catalog id to a package directory on disk (fetching it if needed). It also **reports** the live universe
 (dead hardcoded instruments are listed as validate errors; an unreachable instrument list is a loud note,
 never a silent pass) — the deploy verb enforces that same gate before money moves, so `validate` is the
-cheap early read of it, not the thing holding it. The deployer **accepts the flat single-instance layout** agents naturally scaffold — one
+cheap early read of it, not the thing holding it. That one read is a **network call**
+(`market_list_instruments`): `validate` needs `SENPI_AUTH_TOKEN` and can take a few seconds — up to
+~25s on a slow or token-less host, which ends in the loud note, never in a failed validate. The deployer **accepts the flat single-instance layout** agents naturally scaffold — one
 `runtime.yaml` + `scanners/` at the package root — by synthesizing the canonical `main` instance, so
 there's **no need to restructure into `main/`**. Any remaining fix is named prescriptively (e.g. `set
 runtime name: <id>-main`). A package that exists **on disk is authoritative** — an invalid local package

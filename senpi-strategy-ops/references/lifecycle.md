@@ -148,7 +148,9 @@ or close to reclaim) along with the amount, read fresh from the backend.
 
 `deploy.py` keeps its CLI contract but no longer deploys anything itself. It owns the **front half** —
 package resolution (a path, or a bare catalog id fetched from the remote) and the side-effect-free
-preflight — then starts the verb, polls `deploy status`, and relays the report **verbatim**. Its three
+preflight (`validate` also makes one read-only `market_list_instruments` call to report the universe,
+so it needs `SENPI_AUTH_TOKEN` and can take a few seconds — an unreachable list is a note, never a
+failed validate) — then starts the verb, polls `deploy status`, and relays the report **verbatim**. Its three
 action subcommands (`create` / `runtime` / `verify`) all drive the same idempotent verb; they remain
 distinct so existing docs and transcripts stay valid. `status` is the exception: it reads the agent's
 **last deploy job** — one record, not package-addressed — so it resolves no package and fetches nothing.

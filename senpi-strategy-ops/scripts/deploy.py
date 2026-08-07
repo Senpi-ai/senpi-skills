@@ -122,7 +122,7 @@ def full_validate(pkg):
     `validate` and the pre-deploy gate report everything BEFORE a wallet is funded. (Runtime-engine
     schema errors still surface from the verb's install step, but everything modellable here is caught
     first; `validate` additionally reports the live universe beside this pass — see
-    {@link universe_report} — which needs the network and so is not part of "every error deploy.py
+    `universe_report` — which needs the network and so is not part of "every error deploy.py
     can see" locally.)"""
     errs = list(_pkg.validate(pkg))
     for inst in pkg.instances:
@@ -144,13 +144,26 @@ def universe_report(pkg):
     This runs the SAME `validate_universe` predicates the runtime ports, so the two cannot disagree
     on one live list, and it exists only so the taught step-0 preflight can report a dead universe
     before a whole deploy round-trip. Returns `(errors, note)`: an unreachable list is a LOUD note,
-    never a silent pass and never a blocked deploy."""
+    never a silent pass and never a blocked deploy.
+
+    The two failure modes are kept apart on purpose. Reading the live list is a NETWORK/token
+    problem; reading the package's own YAML is a problem in a file the author owns, and reporting
+    the second as the first points them at the MCP server for a broken indent. (Declared files are
+    already covered by `full_validate`, so a scan failure here means a stray YAML in the package
+    dir — worth saying out loud, not worth failing an otherwise valid package over.)"""
     try:
         import validate_universe as _vu
-        unknown = _vu.unknown_tickers(_vu.package_tickers(str(pkg.dir)), _vu.live_instruments())
+        live = _vu.live_instruments()
     except Exception as e:  # noqa: BLE001 — loud note, never a silent pass
-        return [], (f"live-universe check could not run here ({e}) — nothing about the universe is "
-                    f"verified; `senpi deploy` still enforces it before money moves")
+        return [], (f"live-universe check could not run here: the live instrument list could not be "
+                    f"read ({e}) — nothing about the universe is verified; `senpi deploy` still "
+                    f"enforces it before money moves")
+    try:
+        unknown = _vu.unknown_tickers(_vu.package_tickers(str(pkg.dir)), live)
+    except Exception as e:  # noqa: BLE001 — a package problem, said as one
+        return [], (f"could not scan this package for hardcoded instruments ({e}) — nothing about "
+                    f"the universe is verified here; fix the file it names and re-run validate. "
+                    f"`senpi deploy` enforces the universe before money moves either way")
     if unknown:
         return ([f"hardcodes instrument(s) not live on Hyperliquid: {', '.join(unknown)} "
                  f"(the deploy verb will refuse this pre-money: [E_UNIVERSE_NOT_LIVE])"], None)
