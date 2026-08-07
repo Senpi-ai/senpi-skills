@@ -295,6 +295,42 @@ class WaitForTerminal(unittest.TestCase):
         self.assertEqual(snap["state"]["overall"], "live")
 
 
+class JsonModeStdout(unittest.TestCase):
+    """In `--json` mode stdout is a MACHINE surface: exactly one parseable JSON document, on every
+    path. The still-running trailer was printed to the same stdout right after the snapshot, so
+    `json.loads` broke on precisely the outcome an agent has to parse to decide whether to keep
+    watching. Prose belongs on stderr there."""
+
+    def setUp(self):
+        self._real_cli, self._real_sleep = _cli.run_cli, deploy.time.sleep
+        deploy.time.sleep = lambda _s: None
+
+    def tearDown(self):
+        _cli.run_cli, deploy.time.sleep = self._real_cli, self._real_sleep
+
+    def _run_json(self, snap):
+        self.addCleanup(setattr, deploy, "POLL_BUDGET", deploy.POLL_BUDGET)
+        deploy.POLL_BUDGET = 0          # one poll, then report whatever the job is doing
+        _cli.run_cli = FakeCli([_ok({"deployId": "dpl-a1b2c3d4"}), _status(snap)])
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = deploy.run_deploy(_pkg(), _args(budget=500.0, max_wait=0, json=True),
+                                     lambda m: None)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_a_still_running_job_leaves_stdout_parseable(self):
+        code, out, err = self._run_json({"state": {"status": "running", "phase": "create"}})
+        self.assertEqual(code, 6)
+        self.assertEqual(json.loads(out)["state"]["status"], "running")   # ONE document, nothing after
+        self.assertIn("Still running", err)                                # the steer is still said
+        self.assertIn("openclaw senpi deploy status", err)
+
+    def test_a_terminal_job_leaves_stdout_parseable(self):
+        code, out, _err = self._run_json({"state": {"status": "done", "overall": "live"}})
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["state"]["overall"], "live")
+
+
 class StatusIsAVerdictNotATransport(unittest.TestCase):
     """`deploy status` exits with the JOB's D-12 code while printing the snapshot. Reading that code
     as a health signal made `status_snapshot` discard every non-live snapshot: a refused deploy then

@@ -421,8 +421,13 @@ def run_deploy(pkg, a, log):
     print_status(deploy_id, a.json, snap)
     state = snap.get("state") or {}
     if state.get("status") == "running":
+        # In `--json` mode stdout is the machine surface — the snapshot document and nothing else.
+        # This trailer used to land on the same stdout right after it, so `json.loads` broke on
+        # exactly the pending outcome an agent must parse to decide whether to keep watching. The
+        # steer is not dropped, it moves to stderr (where the human still reads it).
         print(f"\nStill running after {poll_budget}s — the job continues in the background. "
-              f"Watch it: openclaw senpi deploy status {deploy_id}")
+              f"Watch it: openclaw senpi deploy status {deploy_id}",
+              file=sys.stderr if a.json else sys.stdout)
     return exit_code_for(snap)
 
 

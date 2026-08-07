@@ -111,7 +111,8 @@ Flags: `--decision-model <model>` (required only for a `decision_mode: llm` acti
 `--tick-wait <s>` (how long the job waits to observe a tick; default 120, `0` skips),
 `--max-wait <s>` (how long the JOB waits for a wallet to reach ACTIVE — default 150, and the wrapper
 forwards the same number; pass it and it also becomes how long `deploy.py` polls, in either direction),
-`--json`.
+`--json` (stdout is the snapshot document and **nothing else** — every note and trailer goes to stderr,
+so it parses on every outcome, pending included).
 
 `deploy.py` polls for ~150s by default and then **returns**, staying inside the ~180s tool timeout — a
 longer foreground wait would just get the call killed, losing the report and the exit code while the
