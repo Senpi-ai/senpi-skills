@@ -74,11 +74,26 @@ def cli_json(args, timeout=60):
 _NOISE_PREFIXES = ("[plugins]",)
 
 
+def _head_and_tail(text, limit):
+    """Both ends of an over-limit error, with the omission said out loud. A refusal opens with
+    the `[CODE]` line agents branch on and closes with the cause detail — a tail-only cut
+    decapitates the code line (the scanner-`enabled` refusal did exactly this), a head-only cut
+    loses the cause. The tail gets the larger share: the code line is short, causes ramble."""
+    if len(text) <= limit:
+        return text
+    head_n = limit // 3
+    tail_n = limit - head_n
+    marker = f"\n… [{len(text) - head_n - tail_n} chars omitted] …\n"
+    return text[:head_n].rstrip() + marker + text[-tail_n:].lstrip()
+
+
 def error_tail(err, out="", limit=600):
     """Best-available error text from a failed CLI call: prefer stderr, fall back to stdout;
-    drop blank + known banner lines; return the LAST `limit` chars. CLI failures print the
-    real cause at the END of the stream — a head truncation (`text[:N]`) returns the banner
-    flood and destroys the cause (a register-error banner-flood blackout).
+    drop blank + known banner lines; over `limit` chars keep BOTH ends (head + tail, loud
+    omission marker) — the head carries the `[CODE]` line agents branch on, the END carries
+    the cause CLI failures print last. The raw fallback (nothing survived the noise filter)
+    stays a plain LAST-`limit` cut: its text is unfiltered, so its head is exactly the banner
+    flood that destroyed a cause once before (the register-error banner-flood blackout).
 
     ANSI escapes are stripped FIRST (before filtering) so a color-coded `\\x1b[90m[plugins]…`
     banner still matches the noise filter, and no raw escape sequences leak into
@@ -95,7 +110,7 @@ def error_tail(err, out="", limit=600):
                  if ln.strip() and not ln.strip().startswith(_NOISE_PREFIXES)]
         cleaned = "\n".join(lines).strip()
         if cleaned:
-            return cleaned[-limit:]
+            return _head_and_tail(cleaned, limit)
     return (err_s or out_s)[-limit:]
 
 
