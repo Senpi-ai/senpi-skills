@@ -936,6 +936,32 @@ def test_within_ttl_cached_state_is_reused():
     assert s["account_value"] == 9999.0, "within-TTL cache was re-fetched (fast path lost)"
 
 
+def test_state_dir_resolves_from_install_path_not_home():
+    """Liveness must find installed_runtimes.json on an agent host where $HOME=/root but OpenClaw lives
+    under /data. The resolver derives the state dir from the skill's install path (the `.openclaw` sibling),
+    never from ~/. Regression for the 'registry unreadable → runtime health unverified' misread."""
+    saved_home = os.environ.get("HOME")
+    saved_env = os.environ.pop(portfolio.STATE_DIR_ENV, None)
+    saved_file = portfolio.__file__
+    try:
+        root = tempfile.mkdtemp()
+        inst = os.path.join(root, ".openclaw", "skills", "senpi-portfolio", "scripts")
+        state = os.path.join(root, ".openclaw", "senpi-state")
+        os.makedirs(inst)
+        os.makedirs(state)
+        with open(os.path.join(state, portfolio.REGISTRY_FILENAME), "w") as fh:
+            fh.write("{}")
+        portfolio.__file__ = os.path.join(inst, "portfolio.py")
+        os.environ["HOME"] = "/root"            # the exact mismatch that caused the misread
+        assert portfolio._resolve_state_dir() == state, "resolver fell back to $HOME, not the install-path sibling"
+    finally:
+        portfolio.__file__ = saved_file
+        if saved_home is not None:
+            os.environ["HOME"] = saved_home
+        if saved_env is not None:
+            os.environ[portfolio.STATE_DIR_ENV] = saved_env
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

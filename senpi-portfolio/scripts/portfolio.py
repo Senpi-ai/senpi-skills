@@ -50,8 +50,36 @@ CLOSED_HISTORY_PULL = 50    # closed positions to pull for the realized-PnL tota
 
 # The runtime registers every deployed strategy in installed_runtimes.json in the state dir.
 STATE_DIR_ENV = "SENPI_STATE_DIR"
-DEFAULT_STATE_DIR = os.path.expanduser("~/.openclaw/senpi-state")
 REGISTRY_FILENAME = "installed_runtimes.json"
+
+
+def _resolve_state_dir():
+    """Locate the OpenClaw runtime state dir holding installed_runtimes.json — robustly, WITHOUT relying
+    on $HOME. On agent hosts $HOME is /root while OpenClaw lives under /data, so `~/.openclaw/senpi-state`
+    resolves to a directory that does not exist and liveness reads 'registry unreadable' for every strategy
+    (falsely — the runtimes are up). The skill installs at `<root>/.openclaw/skills/<skill>/scripts/` and the
+    state dir is a sibling: `<root>/.openclaw/senpi-state`. Order: (1) $SENPI_STATE_DIR; (2) derive from THIS
+    file's install path — the enclosing `.openclaw` dir → its `senpi-state` (or any ancestor that actually
+    holds the registry); (3) common host locations; (4) ~/.openclaw/senpi-state as last resort. Mirrors
+    senpi-improve-trades/scripts/review.py so the two can't drift."""
+    env = os.environ.get(STATE_DIR_ENV)
+    if env:
+        return env
+    d = os.path.abspath(__file__)
+    for _ in range(8):
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+        if os.path.basename(d) == ".openclaw":
+            return os.path.join(d, "senpi-state")
+        if os.path.isfile(os.path.join(d, "senpi-state", REGISTRY_FILENAME)):
+            return os.path.join(d, "senpi-state")
+    for base in ("~/.openclaw/senpi-state", "/data/.openclaw/senpi-state", "/root/.openclaw/senpi-state"):
+        p = os.path.expanduser(base)
+        if os.path.isdir(p):
+            return p
+    return os.path.expanduser("~/.openclaw/senpi-state")
 # Telemetry liveness (health check): `openclaw senpi status -r <runtime_id> --json` says whether a
 # REGISTERED runtime is actually WORKING (healthy vs degraded), not just present in the registry. Same
 # fail-open + fixture pattern as senpi-improve-trades' event-log read. Offline test hook: a JSON file at
@@ -231,7 +259,7 @@ def load_runtime_registry(meta):
     meta.warnings note is added ONLY for a real parse error, not for a simply-absent registry file.
     Also returns a wallet_lower → runtime_id map (the `senpi status --runtime <id>` address, for the
     telemetry liveness read). Returns (profiles_map, id_map, registered_wallets, source)."""
-    state_dir = os.environ.get(STATE_DIR_ENV) or DEFAULT_STATE_DIR
+    state_dir = _resolve_state_dir()
     path = os.path.join(state_dir, REGISTRY_FILENAME)
     if not os.path.isfile(path):          # absent registry is normal, not an error
         return {}, {}, set(), None
