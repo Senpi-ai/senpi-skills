@@ -38,21 +38,20 @@ path — funds preflight → wallet create+fund → runtime install → one obse
 
 ```
 python3 senpi-strategy-ops/scripts/deploy.py validate <id>              # 0. preflight — deploy-ready? (no side effects)
-python3 senpi-strategy-ops/scripts/deploy.py create <id> --budget <usd> # 1. THE FUNDED PATH: gates, then starts the deploy
+python3 senpi-strategy-ops/scripts/deploy.py create <id> --budget <usd> # 1. THE FUNDED PATH: validates, then starts the deploy
 openclaw senpi deploy status                                            # 2. poll until terminal; read the verified report
 python3 senpi-strategy-ops/scripts/status.py                            # what am I running? (+ health)
 python3 senpi-strategy-ops/scripts/close.py          <id>               # teardown one strategy
 python3 senpi-strategy-ops/scripts/close.py          --all              # teardown EVERY open strategy
 ```
 **Fund through `deploy.py create|runtime|verify <id>`, not through the bare verb.** All three resolve the
-package (a bare catalog `id` is fetched from the remote), run the structural preflight **and the
-live-universe ticker gate** (`validate_universe.py`: every hardcoded instrument must be live on
-Hyperliquid), and only then start the runtime's `senpi deploy` job, poll it, and relay its report
-**verbatim**. `openclaw senpi deploy -p <dir> --budget <usd>` runs the same job **without that ticker
-gate** — the runtime has no live-instrument check today, so a package hardcoding a delisted name funds a
-wallet, installs, ticks clean and never trades. `deploy.py validate` does **not** cover it either (it is
-structural + render only), so "validate then run the verb" is exactly the hole. Use the bare verb for the
-**read-only** `openclaw senpi deploy status`, and for a resume of a package this wrapper already gated.
+package (a bare catalog `id` is fetched from the remote), run the structural preflight, and only then
+start the runtime's `senpi deploy` job, poll it, and relay its report **verbatim**. The wrapper's value
+is resolution, that structural pass, and the verbatim relay — **not** a gate the verb lacks:
+`openclaw senpi deploy` itself now refuses a dead universe **pre-money**
+(`[E_UNIVERSE_NOT_LIVE]` — every hardcoded instrument must be live on Hyperliquid, checked before
+anything is created and fail-closed when the live list cannot be read). Use the bare verb for the
+**read-only** `openclaw senpi deploy status`, and whenever package resolution is not needed.
 **Always tear down through `close.py`** (one `<id>` or `--all`) — it deletes the runtime *and* closes the
 strategy. A raw `strategy_close` MCP call closes the strategy but **leaves the runtime registered**, which
 collides on the next deploy. "close all strategies / return funds to main" → `close.py --all`.
@@ -86,9 +85,10 @@ curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/
 
 **Step 0.5 — preflight (recommended).** `deploy.py validate <id>` reports every structural + render
 issue in **one pass**, with **no side effects**, before you fund anything — and it resolves a bare
-catalog id to a package directory on disk (fetching it if needed). It is **not** the whole gate: the
-live-universe ticker check runs in `deploy.py create|runtime|verify`, just before the deploy starts, so
-`validate` alone never clears a package to be funded. The deployer **accepts the flat single-instance layout** agents naturally scaffold — one
+catalog id to a package directory on disk (fetching it if needed). It also **reports** the live universe
+(dead hardcoded instruments are listed as validate errors; an unreachable instrument list is a loud note,
+never a silent pass) — the deploy verb enforces that same gate before money moves, so `validate` is the
+cheap early read of it, not the thing holding it. The deployer **accepts the flat single-instance layout** agents naturally scaffold — one
 `runtime.yaml` + `scanners/` at the package root — by synthesizing the canonical `main` instance, so
 there's **no need to restructure into `main/`**. Any remaining fix is named prescriptively (e.g. `set
 runtime name: <id>-main`). A package that exists **on disk is authoritative** — an invalid local package
@@ -103,8 +103,8 @@ actually allocated, not the budget against the package total — those differ wh
 ```
 python3 senpi-strategy-ops/scripts/deploy.py create spider --budget 300
 ```
-It validates locally, runs the live-universe ticker gate, starts the job, and then polls
-`deploy status` for you, printing the verb's report verbatim.
+It validates locally, starts the job — which itself refuses pre-money on a dead universe — and then
+polls `deploy status` for you, printing the verb's report verbatim.
 Flags: `--decision-model <model>` (required only for a `decision_mode: llm` action),
 `--tick-wait <s>` (how long the job waits to observe a tick; default 120, `0` skips),
 `--max-wait <s>` (how long the JOB waits for a wallet to reach ACTIVE — default 150, and the wrapper
@@ -153,7 +153,7 @@ Terminal `overall` values:
 | `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block. A `warn:` line (`[W_BUDGET_*]`) may ride a `live` report — relay it; it did **not** stop the deploy (see the budget warnings below) |
 | `installed-unobserved` | installed, no tick seen inside `--tick-wait` (or `--tick-wait 0` skipped the check) | say exactly that; check `openclaw senpi scanner -r <runtimeId>` in a few minutes. External scanners legitimately tick on long intervals. **`--tick-wait 0` can never report `live`** — nothing was verified |
 | `pending` | a wallet was still funding when the poll budget ran out | re-run the same deploy command — it resumes and adopts the wallet |
-| `refused` | a gate said no (`[E_FUNDS_*]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** (below); nothing was created past it |
+| `refused` | a gate said no (`[E_FUNDS_*]`, `[E_UNIVERSE_NOT_LIVE]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** (below); nothing was created past it |
 | `failed` | a step genuinely failed (backend rejection, install error, scanner erroring) | read the quoted cause, fix it, re-run |
 
 **A gateway restart** while a job was running renders it **`interrupted`** on the next `status`: you get
@@ -207,6 +207,14 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 >   wallet beside it.**
 > - **`[E_SCANNER_PATH_UNRESOLVED]`** — an install could not resolve a relative scanner path. The verb always
 >   passes the instance directory, so this means someone used `runtime create` by hand — use the verb.
+> - **`[E_UNIVERSE_NOT_LIVE]`** — the package hardcodes instrument(s) that are not live on Hyperliquid.
+>   **Nothing was created.** The one refusal names every dead instrument, both forms it checked
+>   (`T` and `xyz:T`), and the exact file + key path each appears in. Fix each named instrument in the
+>   package (the **senpi-strategy-author** edit path), re-check read-only with
+>   `python3 senpi-strategy-ops/scripts/validate_universe.py <dir>`, then re-run. A dead name never
+>   errors at runtime — the scan skips it and the strategy silently trades nothing — so **never
+>   "deploy anyway"**. If the step instead reports that the live instrument list **could not be read**,
+>   nothing is claimed dead and nothing was created: retry once the MCP server is reachable.
 
 **The `W_` prefix means WARNING — the deploy went through.** Every code above stops something; a `W_`
 code never does. The two budget codes below are the `W_` ones. They ride a
@@ -251,8 +259,8 @@ scanner row's own fields. **Never re-derive a number in prose.**
 ### The funded path — `deploy.py create|runtime|verify`
 
 `deploy.py` no longer deploys anything itself. Each of its three action subcommands resolves the package
-(a bare catalog id is fetched), runs the structural preflight **and the live-universe ticker gate the
-verb does not have**, then starts the **same** verb, polls it, and prints its report verbatim. All three
+(a bare catalog id is fetched), runs the structural preflight, then starts the **same** verb — which
+holds the live-universe gate itself, pre-money — polls it, and prints its report verbatim. All three
 keep the same flags (`--budget`, `--decision-model`,
 `--max-wait`, `--tick-wait`, `--json`, `--dry-run`) and the verb's exit codes — **`2` refused / `3`
 failed** (full map above). **The old `== 2` habit no longer catches a failure**: the pre-verb script
@@ -292,7 +300,7 @@ user: "deploy spider with $300"
               confirm the split with the user BEFORE funding
 2. preflight→ python3 scripts/deploy.py validate spider        → deploy-ready (2 instances)
 3. start    → python3 scripts/deploy.py create spider --budget 300
-              (gates the universe, then starts the job: dpl-a1b2c3d4 — phase: reconcile)
+              (starts the job, which refuses pre-money on a dead universe: dpl-a1b2c3d4 — phase: reconcile)
 4. watch    → it polls for you; or openclaw senpi deploy status  (repeat until it is terminal)
               running (phase: create) → running (phase: install) → done — live
               (if it ends `installed-unobserved`, say the tick was not observed yet and check

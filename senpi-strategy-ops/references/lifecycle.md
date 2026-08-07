@@ -19,6 +19,15 @@ wallet funding (CREATE → FUND → ACTIVE, incl. bridging) and the first scan t
 `interval_seconds`) are each multi-minute waits that would blow the ~180s tool/session timeout. The verb
 returns in ~1s with a `deployId`; the agent polls `openclaw senpi deploy status` until the job is terminal.
 
+Before any of them, **package-level gates run once, pre-money** — recorded at the reconcile step, so a
+refusal there means nothing was created: no exit block on an instance (a strategy that cannot stop itself
+out is never funded), an unsupported scanner-level `enabled` key (`[INVALID_REQUEST]`), and the
+**live-universe gate** — every hardcoded instrument checked against the live HL instrument list,
+refusing **`[E_UNIVERSE_NOT_LIVE]`** on any dead name (one refusal, every offender, each with its file
+and key path; a bare `T` counts as live if `xyz:T` is) and **failing closed with no code** when that list
+cannot be read, because unknown is never "not live". A package with no hardcoded instruments (a derived
+universe) never reads the list at all.
+
 Per instance the job runs five steps, each recorded with its own outcome:
 
 1. **reconcile** — read live backend strategies and match by `strategyName` (`<id>` for a single-instance
@@ -147,13 +156,17 @@ An id is optional there and acts as an assertion: if the job ran a different pac
 (naming both, and pointing at `status.py <id>` for what that package is actually doing) rather than
 printing the other package's report and exit code under the id you asked about.
 
-**The live-universe ticker gate lives HERE, and only here.** `universe_preflight` (`validate_universe.py`
-against the live HL instrument list) runs in the three action subcommands, immediately before the verb is
-started — not in `validate` (which exits after the structural + render pass) and not in the runtime,
-which has no live-instrument check of its own. So `openclaw senpi deploy -p <dir> --budget <usd>` will
-fund and install a package whose hardcoded tickers are dead (the `xyz:NASDAQ` shape: registers, ticks,
-never trades). Fund through the wrapper; use the bare verb for read-only `deploy status` and for resuming
-a package the wrapper already gated.
+**The live-universe ticker gate lives in the RUNTIME.** `runDeploy` checks every hardcoded instrument in
+the package (`strategy.yaml` `catalog.assets` + each instance's `scanners[].inputs`) against the live HL
+instrument list **pre-money** — before it reads the backend, and on an adopt-only run too, since
+installing a blind runtime on an existing wallet is the same zombie. A dead name refuses
+**`[E_UNIVERSE_NOT_LIVE]`** (one refusal, every dead instrument, each with the file and key path it
+appears in); when the instrument list **cannot be read** the step **fails closed** with no code and names
+nothing dead — unknown is never "not live" — and nothing is created either way. `deploy.py` therefore
+carries no universe gate of its own: it relays the verb's refusal verbatim, exactly like every other
+`[E_*]`. `validate_universe.py` remains the standalone **read-only** check (`deploy.py validate` runs the
+same predicates and reports them beside its structural verdict), and it is what the refusal points at for
+the fix → re-check → deploy loop.
 
 **Exit codes** (identical to the verb's): `0` live · `2` refused · `3` failed · `4`
 installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job still running) ·
