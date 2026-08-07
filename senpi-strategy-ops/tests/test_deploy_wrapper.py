@@ -9,6 +9,8 @@ would make every wrapper-driven deploy exit within seconds of starting. Run:
     python3 senpi-strategy-ops/tests/test_deploy_wrapper.py
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import contextlib
+import io
 import json
 import sys
 import types
@@ -84,10 +86,38 @@ class StartDeploy(unittest.TestCase):
         self.assertEqual(argv[argv.index("--max-wait") + 1], "900")
 
     def test_a_refused_start_relays_the_verbs_own_text_and_exits_nonzero(self):
-        _cli.run_cli = FakeCli([(1, "", "[E_FUNDS_BELOW_FLOOR] Requested $500.00 …")])
-        with self.assertRaises(SystemExit) as ctx:
+        _cli.run_cli = FakeCli([(2, "", "[E_FUNDS_BELOW_FLOOR] Requested $500.00 …")])
+        err = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
             deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
-        self.assertNotEqual(ctx.exception.code, 0)
+        # The verb's own exit code is relayed as-is; only OUR transport failures become 1.
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn("[E_FUNDS_BELOW_FLOOR]", err.getvalue())
+
+    def test_a_spawn_failure_or_start_timeout_exits_one_not_refused(self):
+        # `run_cli` returns rc=-1 for a spawn failure and for the 60s START_TIMEOUT. Neither is a gate
+        # saying no: mapping them to 2 tells the agent "refused, nothing created" while a dispatched
+        # job may be funding a wallet. Transport breakage is 1, per this wrapper's own contract.
+        for rc, text in ((-1, "command not found: openclaw"), (-1, "timed out after 60s: openclaw …")):
+            _cli.run_cli = FakeCli([(rc, "", text)])
+            with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(io.StringIO()):
+                deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
+            self.assertEqual(ctx.exception.code, 1)
+
+    def test_a_start_with_no_deploy_id_exits_one_and_says_the_job_may_be_running(self):
+        # The verb exited 0 — it accepted the deploy — but no deployId came back, so this wrapper
+        # cannot follow the job. reconcile/create/fund may be in flight RIGHT NOW.
+        _cli.run_cli = FakeCli([(0, "started, watching…", "")])
+        err = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
+            deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
+        self.assertEqual(ctx.exception.code, 1)
+        msg = err.getvalue()
+        self.assertIn("openclaw senpi deploy status", msg)
+        self.assertIn("may be running", msg.lower())
+        self.assertIn("unknown", msg.lower())
+        self.assertNotIn("refused", msg.lower())          # never "a gate said no"
+        self.assertNotIn("nothing was created", msg.lower())
 
     def test_dry_run_prints_the_command_and_never_calls_the_cli(self):
         fake = FakeCli([])

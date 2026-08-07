@@ -19,7 +19,9 @@ are kept as distinct verbs so existing docs, habits and transcripts stay valid.
 
 Exit codes mirror the verb's own (D-12): 0 live · 2 refused · 3 failed · 4 installed-unobserved ·
 5 interrupted · 6 pending (a wallet still funding, or the job still running) · 1 internal/transport
-error, which is also the fallback for a status this wrapper does not recognise. There is no
+error, which is also the fallback for a status this wrapper does not recognise AND for a start we
+could not follow (spawn failure, start timeout, or a 0-exit start that printed no deployId — in
+those last two the job may well be running: read `openclaw senpi deploy status`). There is no
 `cancel`: undeploying a strategy is closing it (`close.py`), and a wedged job frees its own slot at
 the deploy deadline.
 
@@ -144,11 +146,17 @@ def budget_arg(v):
 
 
 def _relay(rc, out, err):
-    """Print a failed CLI call's own words, unedited. The verb's refusals already carry their code,
-    their facts and their next step — anything added here would be a second, drifting producer."""
+    """Print a failed CLI call's own words, unedited, and hand back the code to exit with. The verb's
+    refusals already carry their code, their facts and their next step — anything added here would be a
+    second, drifting producer, so the verb's OWN exit code (2 refused, 3 failed, …) passes through.
+
+    A non-positive rc is `run_cli`'s own signal — a spawn failure or the START_TIMEOUT — i.e. we never
+    heard the verb answer. That is transport breakage: **1**, per this script's header contract. It must
+    never read as `2`/refused, which tells the agent a gate said no and nothing was created, while a
+    dispatched job may be funding a wallet right now."""
     text = _cli.error_tail(err, out) or "openclaw senpi deploy failed (no error output)"
     print(text, file=sys.stderr)
-    return rc if rc and rc > 0 else 2
+    return rc if rc and rc > 0 else EXIT_INTERNAL
 
 
 def start_deploy(pkg, a, log):
@@ -175,7 +183,20 @@ def start_deploy(pkg, a, log):
     started = _cli._extract_json(out) or {}
     deploy_id = started.get("deployId")
     if not deploy_id:
-        raise SystemExit(_relay(2, out, err))
+        # The verb exited 0 — it ACCEPTED the deploy — but printed no deployId, so this script cannot
+        # follow the job. The job is very likely running (reconcile → preflight → create+fund may be in
+        # flight this second). Say that, and never call it a refusal.
+        tail = _cli.error_tail(err, out)
+        if tail:
+            print(tail, file=sys.stderr)
+        print("openclaw senpi deploy exited 0 but printed no deployId, so this script cannot follow the "
+              "job.\n"
+              "  The outcome is UNKNOWN, and no gate said no: the deploy MAY BE RUNNING right now — "
+              "reconcile → preflight → create+fund can be in flight, and a wallet may already be "
+              "funded.\n"
+              "  Read what actually happened, and report THAT:  openclaw senpi deploy status",
+              file=sys.stderr)
+        raise SystemExit(EXIT_INTERNAL)
     return deploy_id
 
 
