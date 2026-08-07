@@ -150,7 +150,11 @@ or close to reclaim) along with the amount, read fresh from the backend.
 package resolution (a path, or a bare catalog id fetched from the remote) and the side-effect-free
 preflight (`validate` also makes one read-only `market_list_instruments` call to report the universe,
 so it needs `SENPI_AUTH_TOKEN` and can take a few seconds — an unreachable list is a note, never a
-failed validate) — then starts the verb, polls `deploy status`, and relays the report **verbatim**. Its three
+failed validate) — then starts the verb, polls `deploy status`, and relays the report **verbatim**.
+It polls for **~150s** by default and then returns, which keeps the call inside the ~180s tool/session
+timeout the detached job exists to escape; a job still running at the lapse is reported as **pending
+(exit 6)** with the snapshot and the `openclaw senpi deploy status` command to watch it — the honest
+outcome, not a failure. An explicit `--max-wait` replaces that budget in either direction. Its three
 action subcommands (`create` / `runtime` / `verify`) all drive the same idempotent verb; they remain
 distinct so existing docs and transcripts stay valid. `status` is the exception: it reads the agent's
 **last deploy job** — one record, not package-addressed — so it resolves no package and fetches nothing.

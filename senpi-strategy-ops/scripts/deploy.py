@@ -60,11 +60,14 @@ STATUS_TIMEOUT = 30
 # multiply how long a wedged deploy holds the single-flight slot on a multi-instance package.
 DEFAULT_MAX_WAIT = 150
 # How long THIS script polls the detached job for a terminal state when the caller says nothing — a
-# different clock, and a longer one: the job's worst case is create + install + observe, not the
-# ACTIVE wait alone. An EXPLICIT --max-wait replaces it in BOTH directions: a larger one so the
-# wrapper never gives up on a job it just told the verb to wait longer for, a smaller one because
-# a caller asking for a fast return must actually get one.
-POLL_BUDGET = 600
+# different clock from the forwarded one, and a BOUNDED one. An agent's tool harness kills an exec at
+# ~180s: a longer foreground poll (this was 600) loses the report AND the exit code while the detached
+# job runs on, which is the whole failure the detached design exists to avoid. Lapsing is not a
+# failure — a job still running is the pending path (exit 6, the snapshot printed, `deploy status` to
+# watch it), which is why a budget that RETURNS beats one that waits. An EXPLICIT --max-wait replaces
+# it in BOTH directions: a larger one so the wrapper never gives up on a job it just told the verb to
+# wait longer for, a smaller one because a caller asking for a fast return must actually get one.
+POLL_BUDGET = 150
 POLL_EVERY = 5
 
 # D-12: the verb's exit-code contract, mirrored here so `deploy.py` and `openclaw senpi deploy
@@ -509,8 +512,9 @@ def main(argv):
         sys.exit(1)
 
     # An EXPLICIT --max-wait is the caller's answer to BOTH clocks: it is forwarded to the verb and
-    # it is how long this script polls — a shorter one has to return sooner, not meet a 600s floor.
-    # Unset: the verb's own default is forwarded, and polling keeps its own, longer budget.
+    # it is how long this script polls — a shorter one has to return sooner, a larger one is honoured
+    # even past the ~180s tool timeout, because the caller asked for it by name. Unset: the verb's own
+    # default is forwarded, and polling keeps its own budget, sized to return inside that timeout.
     a.poll_budget = POLL_BUDGET if a.max_wait is None else a.max_wait
     if a.max_wait is None:
         a.max_wait = DEFAULT_MAX_WAIT

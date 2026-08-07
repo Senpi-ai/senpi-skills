@@ -110,8 +110,14 @@ polls `deploy status` for you, printing the verb's report verbatim.
 Flags: `--decision-model <model>` (required only for a `decision_mode: llm` action),
 `--tick-wait <s>` (how long the job waits to observe a tick; default 120, `0` skips),
 `--max-wait <s>` (how long the JOB waits for a wallet to reach ACTIVE — default 150, and the wrapper
-forwards the same number; pass it and it also becomes how long `deploy.py` polls, so a smaller value
-returns sooner — unset, polling keeps its own longer budget), `--json`.
+forwards the same number; pass it and it also becomes how long `deploy.py` polls, in either direction),
+`--json`.
+
+`deploy.py` polls for ~150s by default and then **returns**, staying inside the ~180s tool timeout — a
+longer foreground wait would just get the call killed, losing the report and the exit code while the
+job runs on. A job still running at that point is **exit `6` / pending**, printed with the snapshot and
+`openclaw senpi deploy status` to watch it: that is a normal outcome on a slow funding leg or a long
+scanner interval, **not** a failure and not a reason to re-run `create`.
 
 Inside the job, per instance: **reconcile** (match live strategies by name — an existing live wallet is
 adopted, never duplicated) → **preflight** (accessible-balance check) → **create** (one

@@ -162,7 +162,11 @@ class ForwardedMaxWaitDefault(unittest.TestCase):
     """One flag, one meaning, one clock each: the number we FORWARD is the verb's wallet-ACTIVE budget
     (and it also sizes the job's wall-clock watchdog), while how long this script polls is its own
     budget. Defaulting the forwarded flag to 600 silently tripled the job cap on a multi-instance
-    package; defaulting the poll loop to 150 would give up on a job that is legitimately still funding."""
+    package. The poll budget has its own ceiling: an agent's tool harness kills the exec at ~180s, so
+    a 600s foreground poll lost the report AND the exit code while the detached job ran on."""
+
+    # The agent tool/session timeout the whole detached design exists to stay under (~180s).
+    TOOL_TIMEOUT = 180
 
     def setUp(self):
         self._cli_real = _cli.run_cli
@@ -195,10 +199,13 @@ class ForwardedMaxWaitDefault(unittest.TestCase):
         argv, _code = self._create("--max-wait", "900")
         self.assertEqual(argv[argv.index("--max-wait") + 1], "900")
 
-    def test_the_poll_budget_is_not_cut_to_the_verbs_default(self):
+    def test_the_default_poll_budget_returns_inside_the_tool_timeout(self):
+        # A job still running at the lapse is the PENDING path — exit 6, snapshot printed, "watch it
+        # with deploy status" — which is the honest outcome. A budget past the harness timeout is
+        # not: the exec is killed, so the agent gets neither the report nor a code.
+        self.assertLess(deploy.POLL_BUDGET, self.TOOL_TIMEOUT)
         self._create()
         self.assertEqual(self.waited, [deploy.POLL_BUDGET])
-        self.assertGreater(deploy.POLL_BUDGET, deploy.DEFAULT_MAX_WAIT)
 
     def test_a_longer_explicit_max_wait_widens_the_poll_budget_too(self):
         self._create("--max-wait", "900")
