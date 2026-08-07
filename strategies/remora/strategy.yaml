@@ -30,7 +30,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 2
-  min_budget: 100
   assets: []
   tags: [whale, mirror, copy-trading, named-whales, smart-money, autonomous, consensus, let-winners-run, follows-traders]
 

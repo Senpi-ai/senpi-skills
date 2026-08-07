@@ -28,7 +28,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 3
-  min_budget: 400
   assets: ["BTC", "xyz:SP500", "xyz:XYZ100", "xyz:JP225", "xyz:KR200", "xyz:GOLD", "xyz:SILVER", "xyz:PLATINUM", "xyz:COPPER", "xyz:BRENTOIL", "xyz:CL", "xyz:NATGAS", "xyz:EUR", "xyz:JPY", "xyz:GBP"]
   tags: [macro, global-macro, cross-asset, indices, metals, energy, fx, btc, xyz, trend, mean-reversion, contrarian-fade, two-book, long-short]
 

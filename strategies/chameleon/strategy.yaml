@@ -26,7 +26,6 @@ catalog:
   tier: advanced
   leverage_max: 5
   max_slots: 1
-  min_budget: 200
   assets: ["ETH", "SOL"]
   tags: [eth, sol, btc, pairs, relative-value, ratio, z-score, mean-reversion, market-neutral-leg, structural]
 

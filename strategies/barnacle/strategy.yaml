@@ -29,7 +29,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 3
-  min_budget: 200
   assets: []
   tags: [accumulation, decoupler, relative-strength, excess-return, smart-money, volume-persistence, xyz, equities, commodities, indices, trend-following, long-short, autonomous, universe]
 

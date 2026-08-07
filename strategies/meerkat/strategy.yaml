@@ -26,7 +26,6 @@ catalog:
   time_horizon: swing
   leverage_max: 10
   max_slots: 1
-  min_budget: 200
   assets: []                # derived universe — coins come from the momentum-event feed each tick, not a fixed list
   tags: [momentum, momentum-event, sniper, freshness, tier, smart-money, universe-scanner, single-slot, let-winners-run]
 

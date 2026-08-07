@@ -26,7 +26,6 @@ catalog:
   tier: advanced
   leverage_max: 5
   max_slots: 1
-  min_budget: 200
   assets: ["BTC"]
   tags: [btc, single-asset, regime, macro, trend, realized-vol, dispersion, balanced-dsl, let-winners-run]
 

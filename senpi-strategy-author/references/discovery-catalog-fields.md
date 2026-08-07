@@ -53,7 +53,7 @@ catalog:
 | `funding_split` | `instances[].funding_share` (single-instance → `[1.0]`) |
 | `cadence_seconds`, `time_horizon` | `instances[].tick_seconds` (≤60s→scalp, ≤600s→swing, else position) |
 | `instance_count`, `max_slots` | `len(instances)`, `params.maxSlots` |
-| `min_budget` | `max(declared, 100 × instance_count)` — the per-wallet floor |
+| `min_budget` | **computed** by `min_budget.py` (baked here + carried as `wallet_count` + `min_budget_breakdown`) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; NOT authored |
 
 If your params don't carry the asset/leverage (e.g. it's hardcoded in the scanner), declare a fallback
 in the `catalog:` block (`assets: [ETH]`, `leverage_max: 10`) and `gen_catalog` will use it.

@@ -26,7 +26,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 6
-  min_budget: 400
   assets: ["xyz:URNM", "xyz:NATGAS", "xyz:COPPER", "xyz:BE", "xyz:USAR", "xyz:BRENTOIL", "xyz:CL"]
   tags: [energy, power, uranium, natgas, copper, crude-oil, ai-datacenter, long-short, market-neutral, dispersion, xyz, commodities]
 

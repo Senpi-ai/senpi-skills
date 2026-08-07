@@ -5,7 +5,7 @@
 schema_version: 1
 
 id: spider                  # == package dir name; == every leg's runtime.yaml `group`
-version: "6.0.2"            # single source for catalog + MCP attribution (skillName/skillVersion)
+version: "6.0.3"            # single source for catalog + MCP attribution (skillName/skillVersion)
 
 catalog:                    # discovery surface. `group` here is the discovery TAXONOMY bucket —
                             # distinct from each runtime.yaml's `group: spider` linkage key.
@@ -24,7 +24,6 @@ catalog:                    # discovery surface. `group` here is the discovery T
   time_horizon: swing
   leverage_max: 10
   max_slots: 7              # total concurrent across the book (swing 3 + scalp 4)
-  min_budget: 200           # two wallets, $100 floor each
   assets: ["xyz:NVDA", "xyz:AMD", "xyz:INTC", "xyz:MRVL", "xyz:MU", "xyz:TSM", SUI, ONDO, HYPE, NIL, GRASS, ZEC, BTC, ETH, SOL, "xyz:BRENTOIL", "xyz:CL"]
   tags: [ai, tech, equities, mean_reversion, momentum, two_leg]
 

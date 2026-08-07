@@ -34,14 +34,17 @@ import _cli  # noqa: E402
 import _fetch  # noqa: E402
 import _pkg  # noqa: E402
 from mcp_client import MCPClient, MCPError  # noqa: E402
+# Vendored byte-identically with senpi-trading-runtime/scripts (gen_catalog). deploy computes the
+# minimum LOCALLY because custom-authored packages never pass through catalog generation.
+from min_budget import WALLET_FLOOR as MIN_WALLET, FEE_BUFFER, strategy_min_budget  # noqa: E402
 
 SUBMIT_TIMEOUT = 60     # HTTP timeout for the async create submit
 POLL_HTTP_TIMEOUT = 15  # HTTP timeout for fast read polls
 DEFAULT_MAX_WAIT = 150  # per-call poll budget (s) — stays under the ~180s tool timeout
 VERIFY_BUFFER = 120
 POLL_EVERY = 10
-FEE_BUFFER = 1.5        # USDC reserved per wallet for the creation fee (observed ~$1)
-MIN_WALLET = 100.0      # platform minimum per strategy wallet
+# MIN_WALLET (the $10 platform wallet floor) + FEE_BUFFER are imported from min_budget.py above —
+# one source of truth for the platform physics ($10 floor, $12 bumped notional, $1.50 fee buffer).
 ORDER = ("pending", "creating", "active", "registered", "live")
 
 
@@ -270,7 +273,7 @@ def underfunded_note(shortfall):
     """Agent-facing halt text for a funding shortfall. The lower-budget escape is only rendered
     when the usable balance can still fund every wallet at the MIN_WALLET floor — below that NO
     budget is valid, and suggesting one produces nonsense the agent follows ("--budget ≤ $0",
-    the M381223 churn). Codes: docs/error-code-taxonomy.md (repo root)."""
+    a $0-accessible-budget churn). Codes: docs/error-code-taxonomy.md (repo root)."""
     floor_needed = shortfall["wallets"] * MIN_WALLET
     facts = (f"Requested {usd(shortfall['requested'])} across {shortfall['wallets']} wallet(s) "
              f"(min {usd(MIN_WALLET)}/wallet), but only {usd(shortfall['available'])} is accessible "
@@ -300,6 +303,9 @@ def report(pkg, st, overall, note=None, as_json=False):
     insts = [{"instance": i, **st["instances"].get(i, {"status": "pending"})}
              for i in [x for x in st["instances"]]]
     out = {"strategy": pkg.id, "version": pkg.version, "status": overall, "instances": insts}
+    for _k in ("min_budget", "below_min", "min_budget_note", "min_budget_unresolved"):
+        if st.get(_k) is not None:                       # the soft-warn tier must reach --json too
+            out[_k] = st[_k]
     if as_json:
         print(json.dumps(out, indent=2))
     else:
@@ -333,9 +339,44 @@ def _wallet_name(pkg, inst):
     return _sanitize_strategy_name(raw, pkg.id)
 
 
+def strategy_min(pkg):
+    """The package's CALCULATED minimum budget, computed locally (custom-authored packages never pass
+    through catalog generation, so deploy can't read it off catalog.json). Same function gen_catalog
+    bakes into the card, so 'what the card promised' == 'what deploy enforces'."""
+    manifest = {
+        "instances": [{"name": i.name, "funding_share": i.funding_share} for i in pkg.instances],
+        "catalog": getattr(pkg, "catalog", {}) or {},
+    }
+    runtimes = {i.name: (i.runtime_doc or {}) for i in pkg.instances}
+    return strategy_min_budget(manifest, runtimes)
+
+
 def cmd_create(pkg, a, log):
     st = load_state(pkg)
     st["budget"] = a.budget
+    # Two-tier enforcement. The HARD floor ($10 x wallets) is downstream: plan_funding floors each
+    # wallet at MIN_WALLET and underfunded_note halts with [E_FUNDS_BELOW_FLOOR]. Here we add the SOFT
+    # tier — at/above the floor but below the CALCULATED minimum the design runs degraded. Warn (naming
+    # the binding sleeve), record it, and PROCEED: users size their own budgets.
+    if a.budget is not None:
+        _mb = strategy_min(pkg)
+        st["min_budget"], st["min_wallet_count"] = _mb["min_budget"], _mb["wallet_count"]
+        note = None
+        if _mb.get("unresolved_wallets"):
+            st["min_budget_unresolved"] = _mb["unresolved_wallets"]
+            note = (f"[E_BUDGET_UNRESOLVED] could not compute a reliable minimum for {pkg.id} — sleeve(s) "
+                    f"{_mb['unresolved_wallets']} exposed no resolvable marginPct, so the "
+                    f"${_mb['min_budget']:g} figure may be understated. Size conservatively.")
+        elif a.budget < _mb["min_budget"]:
+            st["below_min"] = True
+            note = (f"[E_BUDGET_BELOW_STRATEGY_MIN] ${a.budget:g} is below {pkg.id}'s calculated minimum "
+                    f"${_mb['min_budget']:g} ({_mb['wallet_count']} wallet(s); binding sleeve "
+                    f"'{_mb['binding_wallet']}'). It will DEPLOY but run DEGRADED — fewer slots than "
+                    f"designed, each position a larger share of its wallet. Fund ${_mb['min_budget']:g}+ "
+                    f"for the authored design.")
+        if note:
+            st["min_budget_note"] = note
+            log("  " + note)
     if a.dry_run:
         for inst in pkg.instances:
             s = inst_state(st, inst.name)

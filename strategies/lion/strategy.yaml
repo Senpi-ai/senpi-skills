@@ -27,7 +27,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 9                   # 5 long + 4 short across the two books
-  min_budget: 400
   assets: ["xyz:NVDA", "xyz:AMD", "xyz:MRVL", "xyz:ARM", "xyz:AVGO", "xyz:INTC", "xyz:TSM", "xyz:ASML", "xyz:CBRS", "xyz:MU", "xyz:SMSN", "xyz:SKHX", "xyz:SNDK", "xyz:CRWV", "xyz:NBIS", "xyz:DELL", "xyz:LITE", "xyz:GOOGL", "xyz:MSFT", "xyz:META", "xyz:AMZN", "xyz:ORCL", "xyz:PLTR", "xyz:NOW", "xyz:IBM", "xyz:SPCX", "xyz:QNT", "HYPE", "SOL", "xyz:SP500", "ETH", "XRP", "DOGE", "AVAX", "LINK", "ADA", "LTC", "NEAR", "APT"]
   tags: [k-shaped, two-speed, ai-complex, long-short, cross-asset, dispersion, conviction-sizing, hedge-fund, xyz, hype]
 

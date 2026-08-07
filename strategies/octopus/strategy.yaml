@@ -26,7 +26,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 8
-  min_budget: 400
   tags: [crypto, hedge-fund, long-short, market-neutral, dispersion, relative-strength, universe, cross-sectional]
 
 requires:

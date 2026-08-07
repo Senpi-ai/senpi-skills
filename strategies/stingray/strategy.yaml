@@ -27,7 +27,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 4
-  min_budget: 200
   assets: []                # derived universe — assets come from the smart-money board each tick, not a fixed list
   tags: [smart-money, rotation, cross-asset, copy-trading, long-short, universe-scanner, net-tilt, conviction-weight, let-winners-run]
 

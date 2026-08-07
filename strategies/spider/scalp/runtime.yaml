@@ -40,7 +40,10 @@ scanners:
     inputs:
       allowedAssets: ["BTC", "ETH", "SOL", "HYPE", "xyz:BRENTOIL", "xyz:CL"]
       minScore: 4
-      marginPct: 15                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      marginPct: 15                        # PERCENT (0,100]. Observed runtime sizing is (marginPct/100)*
+                                           # ACCOUNT VALUE — flat per name — NOT *withdrawable as this used
+                                           # to say (pending runtime-team confirmation). The scanner's
+                                           # open_slots/affordable cap keeps the batch within free margin.
       maxLeverage: 5
       maxSlots: 4
       rsiOversold: 30

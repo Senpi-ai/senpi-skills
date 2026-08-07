@@ -1,0 +1,40 @@
+# Hare — crypto-majors session scalper. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. BTC/ETH only, sub-hourly momentum bursts traded
+# ONLY inside the Asia/London/US high-volume windows, ~1:3 R:R. The fee guard is structural
+# and non-negotiable: maker-only entries + a hard frequency cap. Install/teardown via
+# senpi-strategy-ops.
+schema_version: 1
+
+id: hare
+version: "1.0.0"
+
+catalog:
+  name: "Hare — Crypto Majors Session Scalper"
+  emoji: "🐇"
+  tagline: "A fast BTC/ETH scalper that only trades inside the Asia, London, and US high-volume windows — scoring a 30-minute momentum burst backed by real volume, targeting roughly 1:3 risk-reward at 5-10x. Maker-only entries and a hard per-name cooldown keep it from churning into fees."
+  belief_plain: "This trades only the two most liquid coins, Bitcoin and Ethereum, and only during the hours when the market is actually busy — the Asia, London, and US sessions. It waits for a quick burst of momentum backed by a real jump in volume, takes a leveraged position aiming to make about three times what it risks, and gets out fast if it's wrong. Crucially, it posts its orders to earn the maker rebate instead of paying to chase, and it refuses to re-enter the same coin for 45 minutes — because at this speed, fees are what kill a scalper."
+  thesis: "A sub-hourly scalper lives or dies on cost. The edge — a volume-backed momentum burst at a session open — is real but small, so the whole design is built to protect it: session gating means it only trades when moves are large enough to matter, a volume floor rejects fee-bait bursts on thin tape, maker-only entries turn the fee from a cost into a rebate, and a hard per-name cooldown plus a daily entry cap make churning structurally impossible. The DSL is tuned for asymmetry — a tight stop, a profit-lock that arms at ~3x the risk — so the winners pay for the losers."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: session_open
+  asset_classes: [btc_eth]
+  asset_scope: basket
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  leverage_max: 10
+  max_slots: 2
+  assets: ["BTC", "ETH"]
+  tags: [scalp, session, btc, eth, crypto-majors, maker-only, fee-guarded, sub-hourly, momentum, asia-london-us, long-short, cobra-guard]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: HARE_WALLET
+    funding_share: 1.0

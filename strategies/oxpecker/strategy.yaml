@@ -29,7 +29,6 @@ catalog:
   tier: advanced
   leverage_max: 5
   max_slots: 2
-  min_budget: 200
   assets: []
   tags: [copy-trading, smart-money, elite, conviction, concentration, consensus, quality-tier, follows-traders, let-winners-run, long-short]
 

@@ -34,7 +34,6 @@ catalog:
   time_horizon: position
   leverage_max: 3
   max_slots: 14            # core 10 + ballast 4 — the whole all-weather + defensive book
-  min_budget: 200          # two wallets, $100 floor each
   assets: ["BTC", "ETH", "SOL", "xyz:SP500", "xyz:XYZ100", "xyz:GOLD", "xyz:COPPER", "xyz:BRENTOIL", "xyz:JPY", "xyz:SILVER"]
   tags: [risk_parity, all_weather, inverse_volatility, diversified, defensive, two_book, hedge_fund, low_turnover]
 

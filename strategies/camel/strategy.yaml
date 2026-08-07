@@ -27,7 +27,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 8                    # 4 per book × 2 books
-  min_budget: 400
   assets: []                      # dynamic universe — the live liquid main-DEX crypto board, ranked by funding
   tags: [funding, carry, basis, market-neutral, hedge-fund, contrarian, exhaustion, universe-crypto, two-book]
 

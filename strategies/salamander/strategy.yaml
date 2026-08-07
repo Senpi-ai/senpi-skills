@@ -28,7 +28,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 1
-  min_budget: 200
   assets: ["BTC", "ETH", "SOL"]
   tags: [btc, eth, sol, multi-asset, pullback, buy-the-dip, short-the-rally, smart-money, trend-continuation, onboarding, let-winners-run]
 

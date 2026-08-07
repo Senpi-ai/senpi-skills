@@ -24,7 +24,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 4
-  min_budget: 400
   assets: ["BTC"]
   tags: [turtle, breakout, donchian, pyramid, add-to-winner, atr, macd, trend-following, multi-wallet, position-trading, long-short]
 

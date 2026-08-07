@@ -29,7 +29,6 @@ catalog:                    # discovery surface
   time_horizon: swing
   leverage_max: 10
   max_slots: 2              # one position per leg
-  min_budget: 200           # two wallets, $100 floor each
   assets: [BTC, HYPE]
   tags: [composite, multi_factor, momentum, funding, smart_money, cross_asset, btc, hype]
 

@@ -28,7 +28,6 @@ catalog:
   time_horizon: swing
   leverage_max: 7
   max_slots: 2
-  min_budget: 200
   assets: []                # derived universe — coins come from the top-50 SM leaderboard each tick, not a fixed list
   tags: [smart-money, breakout, rank-jump, first-jump, immediate-mover, universe-scanner, striker, volume-confirmed, patient]
 

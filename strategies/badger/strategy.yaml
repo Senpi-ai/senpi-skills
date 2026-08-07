@@ -25,7 +25,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 1
-  min_budget: 200
   assets: ["BTC", "ETH", "SOL", "HYPE"]
   tags: [btc, eth, sol, hype, breakout, open-interest, oi-confirmed, smart-money, momentum, let-winners-run]
 

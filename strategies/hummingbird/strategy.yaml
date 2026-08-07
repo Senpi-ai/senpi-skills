@@ -23,7 +23,6 @@ catalog:
   tier: starter
   leverage_max: 5
   max_slots: 1
-  min_budget: 200
   assets: ["HYPE"]
   tags: [hype, single-asset, trend-follower, smart-money, onboarding, beginner]
 

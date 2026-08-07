@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.10.0"
+  version: "1.11.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -317,11 +317,17 @@ directly.)
 - **Don't infer "wiped out" from a low balance.** Check `total_funded` / `total_withdrawn` — a
   strategy can show a small balance because profits were withdrawn (`netFunded` can be negative). That
   is not a loss.
-- **"Current / my strategies" = ACTIVE only — never CLOSED.** The engine already filters
-  `strategy_list(status=["ACTIVE"])`, so closed strategies are excluded by construction. If you ever
-  reach for `strategy_list` directly, pass `status: ["ACTIVE"]` — a bare call returns CLOSED/PAUSED too
-  and they must not be presented as current. Mention PAUSED strategies only if relevant, clearly
+- **"Current / my strategies" = ACTIVE only — never CLOSED.** The engine filters
+  `strategy_list(status=["ACTIVE"])`, starts each analysis turn from a clean state, and expires the shared
+  cache after a short window — so a strategy CLOSED since a prior run can't linger as a ghost. If
+  you ever reach for `strategy_list` directly, pass `status: ["ACTIVE"]` — a bare call returns CLOSED/PAUSED
+  too and they must not be presented as current. Mention PAUSED strategies only if relevant, clearly
   labeled "paused," never as active.
+- **If the engine's own signals disagree, STOP and re-run — do NOT narrate through it.** A `reconciles:
+  false` in `totals`, or the `money` and `strategies` steps reporting a different strategy count/set, means
+  the numbers didn't tie out. Re-run the step fresh and reconcile BEFORE you say a word — above all before
+  any close / rebalance recommendation. Recommending action on a strategy that turns out to be already
+  closed is exactly the failure this guards against.
 - **The live clearinghouse is the source of truth for whether a strategy holds capital — over the `status`
   field AND over what anyone asserts about the wallet.** The engine reconciles this: a strategy whose live
   wallet holds **$0 account value, no positions, no idle** is flagged **`empty: true`** (`empty_reason`:

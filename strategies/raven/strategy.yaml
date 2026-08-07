@@ -24,7 +24,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 6
-  min_budget: 100
   assets: []                 # DERIVED live from both dexes (vol floor + top-N)
   tags: [momentum, adaptive, self-tuning, self-calibrating, feedback, universe, long-short, dsl-only, no-close]
 

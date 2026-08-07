@@ -27,7 +27,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 3
-  min_budget: 200
   assets: []
   # ⚠️ PAUSED 2026-07-23: The Arena is paused, so the arena_* feed Albatross mirrors is
   # unavailable — the strategy would fund but never find a trader to copy. Blocked from the

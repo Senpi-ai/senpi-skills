@@ -334,7 +334,7 @@ def test_fails_open_when_ratchet_source_missing():
     assert all(t["exit_reason"]["terminal"] == "UNKNOWN" for t in res["trades"])
     # timing still works — SOL still beat holding
     assert {t["asset"]: t["exit_vs_hold"] for t in res["trades"]}["SOL"] == "exit_ahead"
-    # WS3: telemetry down AND zero exits attributed → the M404726 case → status UNDETERMINED, not all-clear
+    # WS3: telemetry down AND zero exits attributed → the telemetry-down case → status UNDETERMINED, not all-clear
     ta = res["telemetry_availability"]
     assert ta["status"] == "undetermined"
     assert ta["streams_computed"] is False
@@ -863,7 +863,7 @@ def test_no_trades_when_both_sources_empty():
     assert "closed_trade_source" not in meta
 
 
-# ────────────────────────────── scope + fast-fail (the "telemetry unavailable" live-run fix, M404726) ──
+# ────────────────────────────── scope + fast-fail (the "telemetry unavailable" live-run fix) ──
 # The failure: "improve my last 10 trades" fanned the event-log shell-out across a churned book of dozens of
 # CLOSED runtimes. A closed runtime's on-disk ring is torn down, so each `openclaw senpi events` hung to its
 # timeout; N hangs → the whole review reported "telemetry unavailable" (every exit_reason UNKNOWN) — even for
