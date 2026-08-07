@@ -50,7 +50,7 @@ NOT_TICKERS = {"WEEK", "MONTH", "DAY", "ALL", "ALL_TIME", "LONG", "SHORT", "BUY"
 
 
 def _collect(node, key_path, out):
-    """Collect ticker-shaped strings from values under asset-suggesting keys.
+    r"""Collect ticker-shaped strings from values under asset-suggesting keys.
 
     TRAILING-NEWLINE RULE (LOCKSTEP with senpi-trading-runtime's `src/deploy/universe.ts` `collect` —
     change neither side alone): a YAML block scalar (`- |`) clip-chomps to `"BTC\n"`, so exactly ONE
