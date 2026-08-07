@@ -442,17 +442,41 @@ def strategy_open(s):
     return str(strategy_status(s) or "").upper() not in DEAD_STATUSES
 
 
+def list_strategies_or_none(mcp, timeout=15, statuses=None):
+    """Like `list_strategies()` but returns None when the `strategy_list` read FAILED (transport error) —
+    so a money path can tell 'no strategies' (→ []) from 'couldn't read the list' (→ None) and REFUSE
+    rather than fund a second wallet next to an unread live one. Mirrors `list_runtimes_or_none`."""
+    args = {"status": statuses} if statuses else {}
+    try:
+        res = mcp.mcp_call("strategy_list", timeout=timeout, **args)
+    except Exception:  # noqa: BLE001 — the WHOLE point: surface the failure instead of swallowing to []
+        return None
+    return find_list(res, "strategies")
+
+
+def _match_strategy(s, skill_name, strategy_id, wallet):
+    if strategy_id is not None and strategy_id_of(s) != strategy_id:
+        return False
+    if skill_name is not None and strategy_skill(s) != skill_name:
+        return False
+    if wallet is not None and str(strategy_wallet(s) or "").lower() != str(wallet).lower():
+        return False
+    return True
+
+
 def strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15, statuses=None):
     """Return strategies matching any provided filter (skill_name / strategyId / wallet). Pass `statuses`
     to filter server-side (faster; e.g. close only needs live ones). Leave None when you must also see
-    CLOSED/FAILED (e.g. create's reconcile checks a recorded id's terminal state)."""
-    out = []
-    for s in list_strategies(mcp, timeout, statuses=statuses):
-        if strategy_id is not None and strategy_id_of(s) != strategy_id:
-            continue
-        if skill_name is not None and strategy_skill(s) != skill_name:
-            continue
-        if wallet is not None and str(strategy_wallet(s) or "").lower() != str(wallet).lower():
-            continue
-        out.append(s)
-    return out
+    CLOSED/FAILED (e.g. create's reconcile checks a recorded id's terminal state). Fail-OPEN ([] on read
+    error) — fine for reads that only ADD work; use `strategies_for_or_none` on a money path."""
+    return [s for s in list_strategies(mcp, timeout, statuses=statuses)
+            if _match_strategy(s, skill_name, strategy_id, wallet)]
+
+
+def strategies_for_or_none(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15, statuses=None):
+    """Fail-CLOSED `strategies_for`: returns None when the `strategy_list` read failed, so a money path
+    can refuse rather than mistake 'unreadable' for 'none' (the double-fund / un-consented-flatten trap)."""
+    rows = list_strategies_or_none(mcp, timeout, statuses=statuses)
+    if rows is None:
+        return None
+    return [s for s in rows if _match_strategy(s, skill_name, strategy_id, wallet)]

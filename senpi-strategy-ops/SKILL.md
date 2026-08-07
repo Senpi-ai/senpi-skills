@@ -277,6 +277,11 @@ all). **Redeploy / upgrade a deployed strategy — see the next section, never a
 
 ## Upgrade — apply an edited scan.py / scoring.py / runtime.yaml to a LIVE strategy
 
+> **STOPGAP.** The close→redeploy-on-a-fresh-wallet mechanics below exist only until the runtime engine
+> ships in-place scanner reload (`update`/`refresh`). When it lands, this whole section and the `upgrade`
+> verb collapse to a thin call to it — the command surface stays, the wallet-swap semantics go away. Treat
+> the wallet-swap as scheduled for deletion, not durable doctrine.
+
 The most common change request: the user asks to re-score / re-scan / re-tune a strategy (e.g. "make my
 live strategy more aggressive"). **The edit itself — changing `scoring.py` / `scan.py` / `runtime.yaml`,
 leverage, sizing, DSL — is authored in `senpi-strategy-author`** (the only skill that knows the scanner /

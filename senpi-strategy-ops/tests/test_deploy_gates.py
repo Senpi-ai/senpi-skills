@@ -788,7 +788,7 @@ class UpgradeConsentPhase(unittest.TestCase):
         return types.SimpleNamespace(budget=25, dry_run=False, yes=yes, instance="preipo",
                                      json=json, max_wait=0, decision_model=None, ref=None, package="cub")
 
-    def _cli(self, runtime=None, strategies=()):
+    def _cli(self, runtime=None, strategies=(), read_ok=True):
         s = types.SimpleNamespace()
         s.find_runtime = lambda name: runtime
         s.runtime_wallet = lambda rt: (rt or {}).get("wallet")
@@ -796,14 +796,19 @@ class UpgradeConsentPhase(unittest.TestCase):
         s.strategy_open = lambda x: x.get("status", "ACTIVE") not in ("CLOSED", "FAILED", "TERMINATED")
         s.strategy_wallet = lambda x: x.get("wallet")
         s.strategy_name = lambda x: x.get("name")
+        s.strategy_id_of = lambda x: x.get("id")
         s.wallet_match = lambda a, b: bool(a) and bool(b) and str(a).lower() == str(b).lower()
 
-        def strategies_for(mcp, skill_name=None, statuses=None, **kw):
-            rows = list(strategies)
+        def _filter(rows, statuses, wallet):
+            out = list(rows)
             if statuses:
-                rows = [x for x in rows if x.get("status", "ACTIVE") in statuses]
-            return rows
-        s.strategies_for = strategies_for
+                out = [x for x in out if x.get("status", "ACTIVE") in statuses]
+            if wallet is not None:
+                out = [x for x in out if str(x.get("wallet") or "").lower() == str(wallet).lower()]
+            return out
+        s.strategies_for = lambda mcp, skill_name=None, statuses=None, wallet=None, **kw: _filter(strategies, statuses, wallet)
+        s.strategies_for_or_none = (
+            lambda mcp, skill_name=None, statuses=None, wallet=None, **kw: (_filter(strategies, statuses, wallet) if read_ok else None))
         return s
 
     def test_live_arm_without_yes_needs_consent(self):
@@ -822,28 +827,58 @@ class UpgradeConsentPhase(unittest.TestCase):
         self.assertEqual(len(self._closed), 1)
 
     def test_runtime_gone_but_strategy_open_still_gated(self):
-        # THE FIX (regression guard): no runtime, but an ACTIVE strategy carries the arm's REAL name
-        # (cub-preipo, only correct once arity survives scoping) → resolve the wallet by name and STILL
-        # gate consent, instead of treating the arm as undeployed and double-funding.
+        # regression guard: no runtime, but an ACTIVE strategy carries the arm's REAL name (cub-preipo,
+        # only correct once arity survives scoping) → resolve by name and STILL gate consent, instead of
+        # treating the arm as undeployed and double-funding.
         deploy._cli = self._cli(runtime=None,
                                 strategies=[{"wallet": "0xBBB", "name": "cub-preipo", "status": "ACTIVE"}])
         out = deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
         self.assertEqual(out["status"], "needs-consent")
         self.assertEqual(self._created, [])           # must NOT have jumped to create
 
-    def test_runtime_gone_sibling_active_not_mismatched(self):
-        # no runtime for preipo, and the only ACTIVE strategy is a SIBLING (cub-long) → no name match →
-        # treat as not-deployed and redeploy; must never bind preipo to a sibling's wallet.
+    def test_unreadable_backend_refuses_not_funds(self):
+        # strategy_list read FAILS (→ None) → must NOT read as "arm absent" and fund fresh. Refuse.
+        deploy._cli = self._cli(runtime=None, strategies=[], read_ok=False)
+        out = deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
+        self.assertEqual(out["status"], "blocked")
+        self.assertEqual(self._created, [])
+        self.assertEqual(self._closed, [])
+
+    def test_ambiguous_two_same_name_refuses(self):
+        # a prior double-fund left TWO ACTIVE strategies with the arm's name on different wallets → can't
+        # uniquely resolve → refuse, never fund a third next to them.
+        deploy._cli = self._cli(runtime=None, strategies=[
+            {"wallet": "0xB1", "name": "cub-preipo", "status": "ACTIVE"},
+            {"wallet": "0xB2", "name": "cub-preipo", "status": "ACTIVE"}])
+        out = deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
+        self.assertEqual(out["status"], "blocked")
+        self.assertEqual(self._created, [])
+
+    def test_runtime_gone_only_sibling_active_refuses(self):
+        # no runtime for preipo, and the only ACTIVE strategy is a SIBLING (cub-long): ambiguous — could be
+        # a name-rejection fallback wallet for preipo itself → refuse, never bind to the sibling or fund blind.
         deploy._cli = self._cli(runtime=None,
                                 strategies=[{"wallet": "0xLONG", "name": "cub-long", "status": "ACTIVE"}])
-        deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
+        out = deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
+        self.assertEqual(out["status"], "blocked")
         self.assertEqual(self._closed, [])
-        self.assertEqual(self._created, ["create"])   # genuinely undeployed arm → PHASE B
+        self.assertEqual(self._created, [])
 
     def test_truly_undeployed_proceeds_to_create(self):
+        # verified-absent (read OK, NO active cub strategies at all) → clean "none" → redeploy (create).
         deploy._cli = self._cli(runtime=None, strategies=[])
         deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
         self.assertEqual(self._created, ["create"])
+
+    def test_closing_wait_polls_ids_directly(self):
+        # phase=closing: still-open strategy with a closing id → keep waiting; gone → advance to `closed`.
+        pkg = self._pkg()
+        deploy.load_state = lambda p: {"id": "cub", "instances": {},
+                                       "_upgrade": {"phase": "closing", "closing_ids": ["sid1"]}}
+        deploy._cli = self._cli(strategies=[{"wallet": "0xAAA", "name": "cub-preipo", "id": "sid1", "status": "ACTIVE"}])
+        self.assertEqual(deploy.cmd_upgrade(pkg, self._args(yes=True), lambda m: None)["status"], "closing")
+        deploy._cli = self._cli(strategies=[{"wallet": "0xAAA", "name": "cub-preipo", "id": "sid1", "status": "CLOSED"}])
+        self.assertEqual(deploy.cmd_upgrade(pkg, self._args(yes=True), lambda m: None)["status"], "closed")
 
     def test_failed_close_surfaces_and_does_not_advance(self):
         # close_one can report failed (runtime still listed after delete → may re-enter). It must SURFACE
