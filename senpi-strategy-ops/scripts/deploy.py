@@ -376,6 +376,10 @@ def main(argv):
     ps.add_argument("package", nargs="?", default=None,
                     help="Optional: the package you expect this job to be. A mismatch is refused.")
     ps.add_argument("--json", action="store_true")
+    # Accepted but never advertised: `status` fetches nothing, so --ref selects nothing. Taking it here
+    # buys the refusal below — argparse's own "unrecognized arguments" exits 2, which this wrapper's map
+    # reads as "the deploy was refused, nothing created".
+    ps.add_argument("--ref", default=None, help=argparse.SUPPRESS)
 
     pval = sub.add_parser("validate",
                           help="Preflight: is the package deploy-ready? (structural + render — no side effects)")
@@ -387,6 +391,11 @@ def main(argv):
     # `status` reports the agent's last deploy JOB, which has nothing to do with the package on
     # disk — so it must not resolve (and possibly remote-fetch) a package just to print a snapshot.
     if a.cmd == "status":
+        if a.ref:
+            print(f"error: `status` reads this agent's deploy-job record — it resolves and fetches no "
+                  f"package, so --ref selects nothing. Nothing was read; re-run without it:\n"
+                  f"  python3 {Path(__file__).name} status [<id>]", file=sys.stderr)
+            sys.exit(EXIT_INTERNAL)
         snap = status_snapshot(None)
         if snap is None:
             print("No deploy job recorded on this agent. Start one:\n"

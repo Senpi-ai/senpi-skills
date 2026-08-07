@@ -362,6 +362,18 @@ class StatusSubcommand(unittest.TestCase):
             [_ok(self._snap("polar")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
         self.assertEqual(code, 0)
 
+    def test_ref_on_status_is_a_legible_refusal_not_an_argparse_usage_error(self):
+        # argparse's own usage error exits 2 — "the deploy was refused" in the taught map. `status`
+        # resolves no package, so --ref is meaningless here and must say so at exit 1 instead.
+        fake = FakeCli([])
+        _cli.run_cli = fake
+        err = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
+            deploy.main(["deploy.py", "status", "spider", "--ref", "some-branch"])
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("--ref", err.getvalue())
+        self.assertEqual(fake.calls, [])
+
     def test_a_snapshot_that_names_no_package_is_flagged_never_silently_bound(self):
         snap = {"meta": {"deployId": "dpl-a1b2c3d4"}, "state": {"status": "done", "overall": "live"}}
         code, _out, err = self._run(
