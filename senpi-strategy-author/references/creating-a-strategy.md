@@ -254,7 +254,7 @@ If anything mismatches, fix the **contract** (the field name, the `signal_data_s
 
 - `scan()` single-pass + sync; read-only MCP only; `return []` on any error.
 - Pure scoring in `scoring.py`; MCP + state in `scan.py`.
-- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Gate it: `validate_universe.py /data/workspace/strategies/<id>` (and `deploy.py create` runs it as a preflight). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`.
+- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Check it: `validate_universe.py /data/workspace/strategies/<id>` (read-only; `deploy.py validate` reports the same thing, and `openclaw senpi deploy` REFUSES a dead name pre-money with `[E_UNIVERSE_NOT_LIVE]` — so a package with one never funds a wallet, but you find out faster here). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`.
 - Emit a **`marginPct` intent**, not dollars; `marginPct`/`leverage` top-level, not in `data{}`.
 - Declare every `data{}` key in `signal_data_schema`.
 - **Anchor on the references:** MCP fields → I/O guide; exit → a named preset; catalog facets → the glossary.

@@ -225,12 +225,14 @@ the catalog entry, then unit-test → validate → hand to smoke-test."* Then ti
    `/data/workspace/strategies/<id>`, so the gates hit the authored copy from any CWD):
    (a) **code-level** → `python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>`
    (0 errors — scan/scoring shape, DSL exit present, mandate description, retention/cooldown bounds);
-   (b) **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>`
+   (b) **universe check** → `python3 senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>`
    — every hardcoded ticker must be a live HL instrument (derived-universe strategies pass trivially);
    (c) **deploy contract** → `python3 senpi-strategy-ops/scripts/deploy.py validate /data/workspace/strategies/<id>`
-   — the deployer's own one-pass preflight (structure, linkage, render; **no side effects**). Green
-   here means `create` will not reject the package. (`deploy.py create` re-runs (b)+(c) itself and
-   refuses to fund on failure.) Run each, report the result. **If validation fails, narrate the fix
+   — the deployer's own one-pass preflight (structure, linkage, render; **no side effects**, but it
+   reads the live instrument list to report (b) too, so it needs `SENPI_AUTH_TOKEN` and can take a
+   few seconds). Green here means `create` will not reject the package. (`deploy.py create` re-runs
+   (c) itself; the universe is enforced by the deploy verb ITSELF, pre-money — a dead ticker refuses
+   `[E_UNIVERSE_NOT_LIVE]` and no wallet is funded.) Run each, report the result. **If validation fails, narrate the fix
    and re-run — don't go silent while you debug.**
 9. **Smoke-test (hand to `senpi-strategy-ops`):** dry-run → run `scan()` once on live read-only MCP →
    tiny deploy → confirm the runtime **accepted** a signal (`openclaw senpi state -r <id>-<inst>
