@@ -161,9 +161,14 @@ def universe_report(pkg):
     try:
         unknown = _vu.unknown_tickers(_vu.package_tickers(str(pkg.dir)), live)
     except Exception as e:  # noqa: BLE001 — a package problem, said as one
+        # The scan globs the package dir itself, and a PyYAML error raised from a STRING carries no
+        # path — so the note promises only what it can produce: the directory it scanned, plus
+        # whatever the error itself says. Never "the file it names".
         return [], (f"could not scan this package for hardcoded instruments ({e}) — nothing about "
-                    f"the universe is verified here; fix the file it names and re-run validate. "
-                    f"`senpi deploy` enforces the universe before money moves either way")
+                    f"the universe is verified here; the failure came from parsing a YAML file "
+                    f"under {pkg.dir} (the error above may not name which one — check the "
+                    f"runtime*.yaml files there), then re-run validate. `senpi deploy` enforces "
+                    f"the universe before money moves either way")
     if unknown:
         return ([f"hardcodes instrument(s) not live on Hyperliquid: {', '.join(unknown)} "
                  f"(the deploy verb will refuse this pre-money: [E_UNIVERSE_NOT_LIVE])"], None)

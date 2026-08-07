@@ -509,6 +509,10 @@ class ValidateUniverseHook(unittest.TestCase):
         self.assertIn("bad indent", err)
         self.assertIn("scan this package", err)
         self.assertNotIn("instrument list", err)
+        # A PyYAML error raised from a string carries no path, so the note must not promise a
+        # filename it cannot produce — it points at the directory it DOES know instead.
+        self.assertNotIn("the file it names", err)
+        self.assertIn("/pkg/spider", err)
         self.assertIn("deploy-ready", out)
 
     def test_a_live_universe_leaves_the_clean_output_unchanged(self):
