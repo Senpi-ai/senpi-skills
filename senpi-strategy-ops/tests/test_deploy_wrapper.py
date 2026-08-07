@@ -149,6 +149,36 @@ class StartDeploy(unittest.TestCase):
         self.assertNotIn("refused", msg.lower())          # never "a gate said no"
         self.assertNotIn("nothing was created", msg.lower())
 
+    def test_a_runtime_without_the_deploy_verb_teaches_the_plugin_update(self):
+        # A box whose plugin predates `senpi deploy` (a wedged self-update — a real fleet class)
+        # answers the START call with its CLI parser's unknown-command error. Relayed bare, that read
+        # as transport breakage: an unsteered exit 1 whose taught handling is "the job may be running,
+        # read deploy status" — over a box where nothing was dispatched and where that command does
+        # not exist either.
+        for rc, text in ((1, "error: unknown command 'deploy'"),
+                         (1, "Unknown argument: deploy"),
+                         (2, "Unknown arguments: deploy, budget")):
+            _cli.run_cli = FakeCli([(rc, "", text)])
+            err = io.StringIO()
+            with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
+                deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
+            msg = err.getvalue()
+            # 1, never the parser's own 2: "the question could not be answered", not "a gate said no".
+            self.assertEqual(ctx.exception.code, 1, text)
+            self.assertIn(text, msg)                            # the CLI's own words, still relayed
+            self.assertIn("openclaw plugins install @senpi-ai/runtime", msg)  # the taught update path
+            self.assertIn("nothing was dispatched", msg.lower())
+            self.assertNotIn("may be running", msg.lower())     # nothing is
+
+    def test_a_verb_refusal_is_never_read_as_a_missing_verb(self):
+        # A message carrying a bracketed [CODE] is the VERB answering, whatever words follow it.
+        _cli.run_cli = FakeCli([(2, "", "[INVALID_REQUEST] unknown argument for deploy: --bogus")])
+        err = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
+            deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertNotIn("plugins install", err.getvalue())
+
     def test_dry_run_prints_the_command_and_never_calls_the_cli(self):
         fake = FakeCli([])
         _cli.run_cli = fake

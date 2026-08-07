@@ -290,7 +290,11 @@ failed deploy as a success. Branch on the whole map — and note the behaviour c
 > refuses again) instead of printing another package's verdict under your package's name.
 
 ### Host prerequisites
-`openclaw` + the `@senpi-ai/runtime` plugin running; `SENPI_AUTH_TOKEN` exported (the same token the
+`openclaw` + the `@senpi-ai/runtime` plugin running — and a plugin **new enough to carry the `senpi
+deploy` verb**. On a box whose plugin predates it (a wedged self-update), the start fails at exit `1`
+saying so: **nothing was dispatched** — no job, no wallet, no funds, and `deploy status` has nothing to
+report there. Update it (`openclaw plugins install @senpi-ai/runtime`, or wait for the box's own
+self-update) and re-run the same command. Also: `SENPI_AUTH_TOKEN` exported (the same token the
 MCP session uses); **Python 3 only — no PyYAML/pip needed** (the scripts use PyYAML if present, else a
 vendored stdlib YAML loader). The package itself is fetched, not pre-placed. Smoke with
 `deploy.py validate <id>` first.

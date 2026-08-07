@@ -21,7 +21,9 @@ Exit codes mirror the verb's own (D-12): 0 live · 2 refused · 3 failed · 4 in
 5 interrupted · 6 pending (a wallet still funding, or the job still running) · 1 internal/transport
 error, which is also the fallback for a status this wrapper does not recognise AND for a start we
 could not follow (spawn failure, start timeout, or a 0-exit start that printed no deployId — in
-those last two the job may well be running: read `openclaw senpi deploy status`) AND for a
+those last two the job may well be running: read `openclaw senpi deploy status`; a runtime plugin
+that PREDATES the verb is the opposite case — the CLI never parsed the command, so nothing was
+dispatched and the message says to update the plugin instead) AND for a
 `status <id>` whose id is not the recorded job's package, a `status` given `--ref` (it fetches
 nothing), or a `status` whose read produced NO SNAPSHOT at all (the verb's own `[NOT_FOUND]`, or a
 failed read — relayed in the verb's words, never restated here as an absence) — the question could
@@ -43,6 +45,7 @@ the verdict, never the invariant.
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -205,6 +208,25 @@ def _relay(rc, out, err):
     return rc if rc and rc > 0 else EXIT_INTERNAL
 
 
+# A runtime plugin that PREDATES the `senpi deploy` verb (a wedged self-update — a real fleet class)
+# answers the start call with its CLI parser's unknown-command error, not the verb's. That is neither
+# transport breakage nor a refusal: the command never reached a gateway, so nothing was dispatched,
+# and the "read `openclaw senpi deploy status`" next step names a verb this box does not have either.
+_UNKNOWN_CMD = ("unknown command", "unknown argument", "unrecognized command", "unrecognised command")
+# A bracketed [CODE] means the VERB is speaking (a refusal, or an error it raised), whatever words
+# follow — so a refusal that happens to contain "unknown argument" is never read as a missing verb.
+_REFUSAL_CODE = re.compile(r"\[[A-Z][A-Z_]{2,}\]")
+
+
+def _predates_the_verb(text):
+    """True when a failed start reads as "this CLI has no `deploy` command", not as a verb answer."""
+    s = str(text or "")
+    if _REFUSAL_CODE.search(s):
+        return False
+    low = s.lower()
+    return "deploy" in low and any(m in low for m in _UNKNOWN_CMD)
+
+
 def start_deploy(pkg, a, log):
     """Start the detached job. Returns the deployId, or exits with the verb's own refusal text."""
     args = ["openclaw", "senpi", "deploy", "-p", str(pkg.dir), "--json"]
@@ -225,6 +247,21 @@ def start_deploy(pkg, a, log):
     log("  starting the deploy job…")
     rc, out, err = _cli.run_cli(args, timeout=START_TIMEOUT)
     if rc != 0:
+        if _predates_the_verb(_cli.error_tail(err, out)):
+            # Exit 1 (the question could not be answered) — never the parser's own code, which may be
+            # 2 and would read as "a gate refused the deploy, nothing created past it". Nothing was
+            # created, but nothing was gated either: the box cannot run this command at all.
+            print(_cli.error_tail(err, out), file=sys.stderr)
+            print("This box's runtime plugin has no `senpi deploy` verb — it predates it (usually a "
+                  "wedged self-update).\n"
+                  "  NOTHING WAS DISPATCHED: no job started, no wallet created, no funds moved, and "
+                  "`openclaw senpi deploy status` has nothing to report here — there is nothing to "
+                  "read and nothing to clean up.\n"
+                  "  Update the runtime plugin, then re-run this exact command:\n"
+                  "    openclaw plugins install @senpi-ai/runtime\n"
+                  "  Agent boxes also self-update on their own schedule, so retrying in a few minutes "
+                  "is the other way out.", file=sys.stderr)
+            raise SystemExit(EXIT_INTERNAL)
         code = _relay(rc, out, err)
         # A START_TIMEOUT is the no-deployId case wearing a different hat: the gateway was reached and
         # may have dispatched the job, we just stopped waiting for the answer. Say so HERE — at the
