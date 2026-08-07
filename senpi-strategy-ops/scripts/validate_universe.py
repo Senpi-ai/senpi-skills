@@ -37,7 +37,11 @@ def load_yaml(path):
     with open(path) as fh:
         return yaml.safe_load(fh.read())
 
-TICKER = re.compile(r"^(xyz:)?[A-Z][A-Z0-9]{0,11}$")
+# `\Z`, not `$`: python's `$` also matches just before a trailing newline, so `TICKER.match("BTC\n")`
+# used to succeed and the UNTRIMMED string was compared against the live names — a live ticker
+# written as a YAML block scalar was reported NOT LIVE. `_collect` strips the one tolerated newline
+# instead (see the rule there).
+TICKER = re.compile(r"^(xyz:)?[A-Z][A-Z0-9]{0,11}\Z")
 KEY_HINT = re.compile(r"(asset|universe|basket|coin|symbol|market|whitelist|sleeve|defensiv|equit|"
                       r"probe|allowed|watch|class|volume|metal|energ|indice|long|short)", re.I)
 # uppercase enum-ish values that are never tickers — never flag these
@@ -46,7 +50,15 @@ NOT_TICKERS = {"WEEK", "MONTH", "DAY", "ALL", "ALL_TIME", "LONG", "SHORT", "BUY"
 
 
 def _collect(node, key_path, out):
-    """Collect ticker-shaped strings from values under asset-suggesting keys."""
+    """Collect ticker-shaped strings from values under asset-suggesting keys.
+
+    TRAILING-NEWLINE RULE (LOCKSTEP with senpi-trading-runtime's `src/deploy/universe.ts` `collect` —
+    change neither side alone): a YAML block scalar (`- |`) clip-chomps to `"BTC\n"`, so exactly ONE
+    trailing newline is tolerated and the ticker is collected TRIMMED; two or more (`- |+` with a
+    blank line) are not a ticker at all. This is a convergence, not either side's original: this tool
+    used to collect the untrimmed `"BTC\n"` and then compare it against the live names (a LIVE name
+    reported NOT LIVE), while the runtime ignored the value outright (a DEAD name written that way
+    slipped past the money gate)."""
     if isinstance(node, dict):
         for k, v in node.items():
             _collect(v, f"{key_path}.{k}", out)
@@ -55,8 +67,9 @@ def _collect(node, key_path, out):
             _collect(v, key_path, out)
     elif isinstance(node, str):
         leaf = key_path.rsplit(".", 1)[-1]
-        if TICKER.match(node) and node not in NOT_TICKERS and KEY_HINT.search(leaf):
-            out.add(node)
+        ticker = node[:-1] if node.endswith("\n") else node
+        if TICKER.match(ticker) and ticker not in NOT_TICKERS and KEY_HINT.search(leaf):
+            out.add(ticker)
 
 
 def package_tickers(pkg_dir):

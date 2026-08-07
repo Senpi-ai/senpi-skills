@@ -354,6 +354,48 @@ def test_fetch_out_path_refuses_traversal(tmp_path):
         _fetch._out_path(tmp_path, "strategies/../../evil.py")
 
 
+def _universe_pkg(tmp_path, block):
+    """A flat package whose scanner hardcodes `block` as its asset universe."""
+    d = make_flat(tmp_path, pkg_id="spider", wallet_env="SPIDER_WALLET")
+    (d / "runtime.yaml").write_text(
+        (d / "runtime.yaml").read_text() + f"    inputs:\n      asset_universe:\n{block}")
+    return d
+
+
+# ─────────── the block-scalar trailing-newline rule (LOCKSTEP with senpi-trading-runtime) ──────────
+# A YAML block scalar (`- |`) clip-chomps to "BTC\n". Python's `$` matched that, so this tool used to
+# COLLECT the untrimmed string and compare it against the live names — a LIVE ticker reported NOT
+# LIVE. The runtime port's `$` did not match at all, so a DEAD ticker written that way slipped past
+# the money gate. Both sides now tolerate exactly ONE trailing newline and check the TRIMMED ticker.
+# Change neither side alone.
+
+def test_a_block_scalar_ticker_is_collected_trimmed(tmp_path):
+    import validate_universe
+    d = _universe_pkg(tmp_path, "        - |\n          BTC\n")
+    assert validate_universe.package_tickers(str(d)) == {"BTC"}
+
+
+def test_a_live_block_scalar_ticker_is_not_reported_unknown(tmp_path):
+    import validate_universe
+    d = _universe_pkg(tmp_path, "        - |\n          BTC\n")
+    tickers = validate_universe.package_tickers(str(d))
+    assert validate_universe.unknown_tickers(tickers, {"BTC", "ETH"}) == []
+
+
+def test_a_dead_block_scalar_ticker_is_still_reported_unknown_without_its_newline(tmp_path):
+    import validate_universe
+    d = _universe_pkg(tmp_path, "        - |\n          XYZDEAD\n")
+    tickers = validate_universe.package_tickers(str(d))
+    assert validate_universe.unknown_tickers(tickers, {"BTC", "ETH"}) == ["XYZDEAD"]
+
+
+def test_more_than_one_trailing_newline_is_not_a_ticker_at_all(tmp_path):
+    import validate_universe
+    # `- |+` keeps the blank line: "BTC\n\n" — not a ticker on either side.
+    d = _universe_pkg(tmp_path, "        - |+\n          BTC\n\n")
+    assert validate_universe.package_tickers(str(d)) == set()
+
+
 def test_validate_universe_all_lists_durable_root(monkeypatch, tmp_path):
     """`validate_universe.py --all` must enumerate the durable root, not CWD-relative strategies/ —
     the same bug class as the fetch dest (a CWD glob inside a skill dir sees nothing / the wrong
