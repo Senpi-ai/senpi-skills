@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.1.2"
+  version: "3.2.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -62,15 +62,22 @@ Keep the thesis logic in a sibling pure **`scoring.py`** (no I/O, no MCP) so it 
 
 ## Runtime commands (essentials)
 
-The plugin registers a `senpi` command group on the gateway. Deploying a runtime and checking it:
+The plugin registers a `senpi` command group on the gateway. Deploying a strategy and checking it:
 
 ```bash
 openclaw plugins install @senpi-ai/runtime
-openclaw senpi runtime create -p runtime.yaml  # hot-loads; the runtime supervises the scanner
-openclaw senpi runtime list                     # id, source, status ("running — NO ENTRY SCANNERS" = scanners never wired)
+openclaw senpi deploy -p <package-dir> --budget <usd>  # ONE verb, detached: funds preflight → wallet create+fund → install → one observed tick
+openclaw senpi deploy status                            # poll until terminal; the verified report (read-only)
+openclaw senpi runtime list                             # id, source, status ("running — NO ENTRY SCANNERS" = scanners never wired)
 ```
 
-Beyond `runtime create/list/delete`, the CLI exposes the runtime's live state — `senpi dsl
+**Deploy a package through `senpi-strategy-ops`' `deploy.py create <id> --budget <usd>`**, which
+resolves the package, runs the structural preflight and drives that same verb. The verb owns the
+gates — the live-universe check (`[E_UNIVERSE_NOT_LIVE]`, pre-money), the funds preflight, the
+`skillName`/`skillVersion` attribution and the verified tick. **`runtime create` is internal**: it
+installs a runtime and skips every one of those, so it is not the deploy path.
+
+Beyond `deploy`/`deploy status` and `runtime list/delete`, the CLI exposes the runtime's live state — `senpi dsl
 positions|inspect|closes` (the exit engine), `senpi action list|inspect|history|decisions` (the
 decision layer), `senpi risk` (am I allowed to trade, and why not), `senpi audit` (backend trade
 trail with AI reasoning), `senpi scanner` (per-scanner health, liveness, and a `(no signals yet)` flag for scanners that run but produce nothing),

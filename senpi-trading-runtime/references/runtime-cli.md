@@ -25,18 +25,39 @@ Stored in `~/.openclaw/senpi-cli.json`; changes require a gateway restart to app
 | `config unset <key>` | Remove a key |
 | `config reset` | Clear all preferences |
 
+## `senpi deploy` — take a strategy package live (the deploy path)
+
+One verb, run as a **detached job**: reconcile → funds preflight → wallet create+fund (carrying the
+package's `skillName`/`skillVersion` attribution) → install → one **observed** scanner tick. It
+returns in ~1s with a `deployId`; you poll `deploy status` until the job is terminal. Package-level
+gates run **pre-money** — no DSL exit on an instance, an unsupported scanner-level `enabled` key, and
+the live-universe check (`[E_UNIVERSE_NOT_LIVE]`, fail-closed when the instrument list is unreadable).
+
+| Command | What it does | Options |
+|---|---|---|
+| `deploy -p <package-dir>` | Start the deploy job for a strategy package. One job per agent (a second refuses `[E_DEPLOY_IN_PROGRESS]`); re-running reconciles and adopts what exists, it never duplicates. There is no `cancel` — undeploying is closing the strategy. | `--budget <usd>` (split across instances by `funding_share`, min $10/wallet) · `--max-wait <s>` (wallet-ACTIVE budget, default 150) · `--tick-wait <s>` (observe budget, default 120; `0` skips and can never report `live`) · `--decision-model <model>` · `--json` |
+| `deploy status [deployId]` | The job's phase while running, the full verified report once terminal. **Read-only** — it starts nothing. | `--json` |
+
+Exit codes (`deploy status` and `deploy.py` alike): `0` live · `2` refused · `3` failed · `4`
+installed-unobserved · `5` interrupted · `6` pending/still running · `1` internal/transport error.
+`deploy status` sets the JOB's code and then prints the snapshot, on `--json` too — a non-zero code
+there is a verdict about the deploy, not a failed read.
+
+**Deploy through `senpi-strategy-ops/scripts/deploy.py create <id> --budget <usd>`**, which resolves
+the package (a bare catalog id is fetched), runs the structural preflight and drives this verb.
+
 ## `senpi runtime` — manage runtimes
 
 | Command | What it does | Options |
 |---|---|---|
-| `runtime create` | Add a runtime from a YAML file (or pasted YAML); the gateway validates and runs it. Hot-loads — no gateway restart. | `-p, --path <path>` (path to the runtime.yaml) · `-c, --content <yaml>` (paste YAML directly) · `--runtime-id <id>` (name; default derived from the file name/content) |
+| `runtime create` | **Internal — not the deploy path.** Adds a runtime from a YAML file (or pasted YAML) and hot-loads it, skipping the funds preflight, the attribution and the verified tick that `senpi deploy` performs. Run by hand it also breaks relative scanner paths (`[E_SCANNER_PATH_UNRESOLVED]` is its fingerprint). | `-p, --path <path>` (path to the runtime.yaml) · `-c, --content <yaml>` (paste YAML directly) · `--runtime-id <id>` (name; default derived from the file name/content) |
 | `runtime list` | List all installed runtimes with their id, source, and status (running/stopped). A runtime whose entry scanners failed to wire shows `running — NO ENTRY SCANNERS`: the runtime is up but cannot produce entry signals — `senpi status` names the failed phase; check `senpi events` for the failure. | — |
 | `runtime delete [runtime_id]` | Remove a runtime by id or wallet address. | `--id <runtime_id>` (from `runtime list`) · `--address <wallet>` |
 
 ```bash
-openclaw senpi runtime create -p runtime.yaml     # deploy / hot-load
-openclaw senpi runtime list                        # verify it is running
-openclaw senpi runtime delete --id iguana-tracker  # tear down
+openclaw senpi deploy -p strategies/spider --budget 300   # the deploy path (detached; then: deploy status)
+openclaw senpi runtime list                               # verify it is running
+openclaw senpi runtime delete --id iguana-tracker         # tear down (packages: close.py <id>, which also closes the strategy)
 ```
 
 ## `senpi dsl` — inspect the DSL exit engine
