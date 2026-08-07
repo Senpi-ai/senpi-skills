@@ -148,7 +148,9 @@ from the surfaces that prove it (`totalFunded`, the scanner row's `lastRunStatus
 **Exit codes** (both `openclaw senpi deploy status` and `deploy.py`): `0` live · `2` refused · `3`
 failed · `4` installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job
 still running) · `1` internal/transport error — which is also what an unrecognised status returns, so
-a new status can never read as success. `1` covers two more wrapper-side "could not answer" cases: a
+a new status can never read as success. **`2` is any gate saying no with nothing created past it** —
+the verb's refusals, and `deploy.py`'s own structural preflight when `create`/`runtime`/`verify` fail
+it (nothing is started; fix the named issues and re-run — a bare retry refuses identically). `1` covers two more wrapper-side "could not answer" cases: a
 start it could not follow (read `openclaw senpi deploy status` — the job may be running), and a
 `deploy.py status` that could not be answered as asked — an id that is not the recorded job's package,
 a `--ref` (which `status` never uses, since it fetches nothing), or a read that came back with **no

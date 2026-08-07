@@ -19,20 +19,22 @@ are kept as distinct verbs so existing docs, habits and transcripts stay valid.
 
 Exit codes mirror the verb's own (D-12): 0 live · 2 refused · 3 failed · 4 installed-unobserved ·
 5 interrupted · 6 pending (a wallet still funding, or the job still running) · 1 internal/transport
-error, which is also the fallback for a status this wrapper does not recognise AND for a start we
-could not follow (spawn failure, start timeout, or a 0-exit start that printed no deployId — in
-those last two the job may well be running: read `openclaw senpi deploy status`; a runtime plugin
-that PREDATES the verb is the opposite case — the CLI never parsed the command, so nothing was
-dispatched and the message says to update the plugin instead) AND for a
-`status <id>` whose id is not the recorded job's package, a `status` given `--ref` (it fetches
-nothing), or a `status` whose read produced NO SNAPSHOT at all (the verb's own `[NOT_FOUND]`, or a
-failed read — relayed in the verb's words, never restated here as an absence) — the question could
-not be answered, no deploy outcome is being reported, and re-running
-it refuses identically. A `status` that DOES get a snapshot always answers with that job's own D-12
-code, however the `deploy status` call exited: its exit code is the job's verdict, not a health
-signal about the call. There is no
-`cancel`: undeploying a strategy is closing it (`close.py`), and a wedged job frees its own slot at
-the deploy deadline.
+error. **2 is any gate saying no with nothing created past it** — the verb's refusals, and this
+wrapper's own structural preflight (`validate`, and the same pass the action subcommands run before
+the verb is started); both are deterministic and refuse identically on a re-run.
+
+1 is also the fallback for a status this wrapper does not recognise, AND for a start we could not
+follow (spawn failure, start timeout, or a 0-exit start that printed no deployId — in those last two
+the job may well be running: read `openclaw senpi deploy status`; a runtime plugin that PREDATES the
+verb is the opposite case — the CLI never parsed the command, so nothing was dispatched and the
+message says to update the plugin instead), AND for a `status <id>` whose id is not the recorded
+job's package, a `status` given `--ref` (it fetches nothing), or a `status` whose read produced NO
+SNAPSHOT at all (the verb's own `[NOT_FOUND]`, or a failed read — relayed in the verb's words, never
+restated here as an absence). In all of those the question could not be answered, no deploy outcome
+is being reported, and re-running refuses identically. A `status` that DOES get a snapshot always
+answers with that job's own D-12 code, however the `deploy status` call exited: its exit code is the
+job's verdict, not a health signal about the call. There is no `cancel`: undeploying a strategy is
+closing it (`close.py`), and a wedged job frees its own slot at the deploy deadline.
 
 There is NO local deploy-state file any more. The backend strategies and the runtime registry ARE
 the record — the sidecar `.deploy-state.json` was the source of the whole `E_STATE_*` lost-state
@@ -541,12 +543,17 @@ def main(argv):
                     print(f"    - {e}", file=sys.stderr)
             else:
                 print(f"✓ {pkg.id}: deploy-ready ({len(pkg.instances)} instance(s))")
-        sys.exit(2 if errors else 0)
+        sys.exit(EXIT_CODES["refused"] if errors else 0)
     if gate:
-        print(f"✗ {pkg.id}: {len(gate)} issue(s) to fix before deploy:", file=sys.stderr)
+        # A gate said no and nothing was created past it — D-12's 2, the same code the verb's own
+        # refusals carry. It exited 1, which is this wrapper's "the question could not be answered"
+        # class: an agent reading that is taught the job may well be running (go read `deploy
+        # status`) and that a retry is worth a try. Neither is true of a deterministic package error.
+        print(f"✗ {pkg.id}: {len(gate)} issue(s) to fix before deploy — nothing was started:",
+              file=sys.stderr)
         for e in gate:
             print(f"    - {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_CODES["refused"])
 
     # An EXPLICIT --max-wait is the caller's answer to BOTH clocks: it is forwarded to the verb and
     # it is how long this script polls — a shorter one has to return sooner, a larger one is honoured

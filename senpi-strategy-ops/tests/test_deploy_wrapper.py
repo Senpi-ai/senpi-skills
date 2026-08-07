@@ -406,6 +406,44 @@ class RunDeployExitCodes(unittest.TestCase):
         self.assertEqual(deploy.run_deploy(_pkg(), _args(budget=500.0, max_wait=0), lambda m: None), 6)
 
 
+class StructuralGateRefusal(unittest.TestCase):
+    """The wrapper's own pre-deploy pass is a GATE: a `full_validate` failure on create/runtime/verify
+    is deterministic, nothing was created, and re-running refuses identically — D-12's `2`. It exited
+    `1`, whose taught meaning is the opposite ("the question could not be answered; the job may well
+    be running: read `deploy status`"), which invites a blind retry of a refusal."""
+
+    def setUp(self):
+        self._cli_real = _cli.run_cli
+        self._ensure, self._validate = deploy.ensure_pkg, deploy.full_validate
+        self._universe = deploy.universe_report        # hermetic: `validate` would hit the network
+        deploy.ensure_pkg = lambda arg, ref, log: _pkg()
+        deploy.full_validate = lambda pkg: ["instance main: set runtime name: spider-main"]
+        deploy.universe_report = lambda pkg: ([], None)
+
+    def tearDown(self):
+        _cli.run_cli = self._cli_real
+        deploy.ensure_pkg, deploy.full_validate = self._ensure, self._validate
+        deploy.universe_report = self._universe
+
+    def test_a_structural_refusal_exits_two_and_starts_nothing(self):
+        for cmd in ("create", "runtime", "verify"):
+            fake = FakeCli([])
+            _cli.run_cli = fake
+            err = io.StringIO()
+            with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
+                deploy.main(["deploy.py", cmd, "spider", "--budget", "300"])
+            self.assertEqual(ctx.exception.code, 2, cmd)
+            self.assertIn("to fix before deploy", err.getvalue())
+            self.assertEqual(fake.calls, [], cmd)   # nothing dispatched, so nothing to go read
+
+    def test_validate_keeps_the_same_refusal_code(self):
+        # One gate, one code: the standalone preflight and the pre-deploy pass are the same check.
+        _cli.run_cli = FakeCli([])
+        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(io.StringIO()):
+            deploy.main(["deploy.py", "validate", "spider"])
+        self.assertEqual(ctx.exception.code, 2)
+
+
 class StatusSubcommand(unittest.TestCase):
     """`status` reads the agent's LAST deploy job — there is one record per agent and it is not
     package-addressed. So a named package must be held against the snapshot, never decorated with it."""

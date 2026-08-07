@@ -176,7 +176,10 @@ the fix → re-check → deploy loop.
 
 **Exit codes** (identical to the verb's): `0` live · `2` refused · `3` failed · `4`
 installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job still running) ·
-`1` internal/transport error — also the fallback for a status the wrapper does not recognise, so a new
+`1` internal/transport error. `2` is **any gate saying no with nothing created past it**: the verb's
+refusals, and the wrapper's own structural preflight failing on `create`/`runtime`/`verify` — the same
+check `validate` runs, deterministic, so a bare retry refuses identically. `1` is also the fallback
+for a status the wrapper does not recognise, so a new
 status can never read as success, and for the wrapper's own "could not answer" cases: a start it could
 not follow, and a `status` it could not answer as asked — an id that does not match the recorded job,
 a `--ref` it has no use for, or a read that produced no snapshot at all (the verb's `[NOT_FOUND]`,
