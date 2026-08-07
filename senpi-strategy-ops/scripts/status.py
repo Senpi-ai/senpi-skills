@@ -23,8 +23,10 @@ OPEN strategy it classifies the runtime:
   manual           — manual / app-managed strategy — you manage it in the app, no runtime
 and separately flags orphan runtimes (a runtime with no open strategy). A strategy off the runtime is NOT
 broken — it's just not autonomous; status.py says how it's managed. Scanner health is fail-closed: an
-external scanner never proven by a tick reads `unknown`, not `healthy` — `deploy.py verify <id>` remains
-the deploy-time liveness gate.
+external scanner never proven by a tick reads `unknown`, not `healthy` — prove it on a READ-ONLY surface
+(`openclaw senpi scanner -r <rt>`, `openclaw senpi status|state -r <rt>`, `openclaw senpi deploy status`
+for the last deploy's verdict). Everything this script prints is read-only: `deploy.py verify` is NOT a
+check any more — it runs the deploy verb and can install, start trading, and fund a wallet.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -169,21 +171,31 @@ def main(argv):
             pos = f"  {r['positions']} pos" if isinstance(r.get("positions"), int) else ""
             print(f"  {_ICON.get(r['health'], ' ')} {r['health']:<15} {rt:<16} "
                   f"{r['wallet'][:10]}…  {r['funded']:>8}  [{(r['strategyId'] or '')[:8]}]{pos}")
+    # Every command emitted below is READ-ONLY. This is the surface agents are sent to for monitoring,
+    # so a per-row `deploy.py verify <pkg>` here is a copy-pasteable money path: on a funded wallet with
+    # no runtime it installs and starts trading. The resume escape is named once, with what it does.
     if sick:
         print("\n⚠ Degraded (runtime up but not operating cleanly):")
         for r in sick:
             print(f"  - {r['package']} {r['runtime'] or ''} → "
-                  f"`openclaw senpi status -r {r['runtime']}` / `deploy.py verify {r['package']}` to triage")
+                  f"`openclaw senpi status -r {r['runtime']} --json` / "
+                  f"`openclaw senpi scanner -r {r['runtime']}` to triage (read-only)")
+        print("  Deliberately resuming/reinstalling one? That is `deploy.py verify <id>` — it runs the "
+              "deploy verb and can move money (install + start trading; create+fund with --budget). "
+              "Triage first.")
     if unproven:
         print("\n❔ Unknown (fail-closed — not proven live: scanner not yet proven by a tick, or reporting disabled; verify, don't assume):")
         for r in unproven:
             print(f"  - {r['package']} {r['runtime'] or ''} → "
-                  f"`openclaw senpi status -r {r['runtime']}` / `deploy.py verify {r['package']}` to check")
+                  f"`openclaw senpi scanner -r {r['runtime']}` / "
+                  f"`openclaw senpi status -r {r['runtime']} --json` to check (read-only); "
+                  f"`openclaw senpi deploy status` for the last deploy's verdict")
     if idle:
         print("\n⚠ Autonomous strategy with NO runtime (funded but not running — likely an interrupted deploy):")
         for r in idle:
             print(f"  - {r['package']} {r['wallet'][:10]}… ({r['funded']}) → "
-                  f"`deploy.py runtime {r['package']}` to start it, or `close.py {r['package']}` to recover funds")
+                  f"`deploy.py runtime {r['package']}` to start it (runs the deploy verb: it installs and "
+                  f"starts trading this funded wallet), or `close.py {r['package']}` to recover funds")
     if off:
         print("\nℹ Not on a runtime — managed outside autonomous trading (this is normal):")
         for r in off:

@@ -8,6 +8,8 @@ fallback paint an unproven runtime ✅. None is only for payloads with no health
     python3 senpi-strategy-ops/tests/test_status_health.py
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import contextlib
+import io
 import sys
 import unittest
 from pathlib import Path
@@ -74,3 +76,43 @@ class TestStatusBuckets(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TriageCommandsAreReadOnly(unittest.TestCase):
+    """status.py is where SKILL.md now sends an agent to MONITOR, so nothing it prints per row may be a
+    command that funds, installs or starts trading. `deploy.py verify <pkg>` is exactly that command."""
+
+    def setUp(self):
+        self._build, self._mcp = status.build, status.MCPClient
+
+    def tearDown(self):
+        status.build, status.MCPClient = self._build, self._mcp
+
+    @staticmethod
+    def _row(health):
+        return {"package": "spider", "is_pkg": True, "strategyId": "str-1234abcd",
+                "wallet": "0x1234567890abcdef", "status": "ACTIVE", "funded": "$300.00",
+                "positions": 0, "runtime": "spider-main", "health": health}
+
+    def _render(self, health):
+        status.MCPClient = lambda *a, **k: None
+        status.build = lambda *a, **k: ([self._row(health)], [], True)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            status.main(["status.py"])
+        return out.getvalue()
+
+    def test_a_degraded_row_emits_read_only_triage_only(self):
+        text = self._render("degraded")
+        self.assertNotIn("deploy.py verify spider", text)   # would install + start trading
+        self.assertIn("openclaw senpi scanner -r spider-main", text)
+
+    def test_an_unknown_row_emits_read_only_checks_only(self):
+        text = self._render("unknown")
+        self.assertNotIn("deploy.py verify spider", text)
+        self.assertIn("openclaw senpi scanner -r spider-main", text)
+
+    def test_the_resume_escape_is_named_once_and_says_it_moves_money(self):
+        text = self._render("degraded")
+        self.assertIn("deploy.py verify <id>", text)        # named as the escape, not per row
+        self.assertIn("can move money", text)
