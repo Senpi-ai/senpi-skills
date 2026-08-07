@@ -362,6 +362,17 @@ class StatusSubcommand(unittest.TestCase):
             [_ok(self._snap("polar")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
         self.assertEqual(code, 0)
 
+    def test_an_argument_that_names_no_package_id_never_refuses_against_an_empty_name(self):
+        # `Path(".").name` is "" — comparing that to the job's packageId refused naming '' as the
+        # package the caller asked for, which is a refusal built out of nothing.
+        for arg in (".", "/", "./"):
+            code, _out, err = self._run(
+                ["deploy.py", "status", arg],
+                [_ok(self._snap("polar")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
+            self.assertEqual(code, 0, f"{arg!r} must not refuse")
+            self.assertNotIn("refusing", err.lower())
+            self.assertIn("names no package", err.lower())   # said out loud, not silently accepted
+
     def test_ref_on_status_is_a_legible_refusal_not_an_argparse_usage_error(self):
         # argparse's own usage error exits 2 — "the deploy was refused" in the taught map. `status`
         # resolves no package, so --ref is meaningless here and must say so at exit 1 instead.

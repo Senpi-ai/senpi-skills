@@ -245,6 +245,13 @@ def check_status_package(arg, snap):
     if not arg:
         return
     want = Path(arg).name
+    if not want:
+        # `.`, `/`, `./` — a path that names no package id. There is nothing to hold the job to, so
+        # refusing here would build a refusal out of an empty string ("is not 'spider'" with no
+        # spider). Say the argument asserted nothing and print the job.
+        print(f"note: {arg!r} names no package id, so this job was not checked against it. Read the "
+              f"package off the report below.", file=sys.stderr)
+        return
     got = ((snap or {}).get("meta") or {}).get("packageId")
     if not got:
         print(f"note: this deploy job does not name its package, so it could NOT be confirmed as "
