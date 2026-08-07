@@ -15,9 +15,14 @@ nothing else to keep alive.
 ## `deploy.py {create|runtime|verify|status} <id> …`
 
 Deploy is **three short, resumable steps**, not one blocking call — because wallet funding (CREATE →
-FUND → ACTIVE, incl. bridging) and the first scan tick (up to an instance's `interval_seconds`) are each
-multi-minute waits that blow the ~180s tool/session timeout. Each step is **bounded** (`--max-wait`,
-default 150s) and the agent **re-runs a step until it reports done**.
+FUND → ACTIVE, incl. bridging) is a multi-minute wait that blows the ~180s tool/session timeout. Each
+step is **bounded** (`--max-wait`, default 150s) and the agent **re-runs a step until it reports done**.
+The first scan tick is *not* one of those waits: `verify` does not need one (see step 3).
+
+**Before any of this, the package must have been proven runnable** — `openclaw senpi validate
+<package-dir>` returning `PASS`. That is a separate gate answering a different question ("does the
+scanner actually run and read?") from the three below ("did the deploy land?"). Nothing here re-checks
+it today, so a package that skipped it can be funded and reported live while trading nothing.
 
 **Package fetch.** Any step fetches `strategies/<id>/` from the remote if it isn't on disk (`_fetch.py`:
 GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default `Senpi-ai/senpi-skills`@`main`;
@@ -53,15 +58,26 @@ just means re-run that step.
    resolves) → `openclaw senpi runtime create … --runtime-id <id>-<instance>`. **Self-healing:** an existing
    runtime on the right ACTIVE wallet is skipped; a stale one (different/CLOSED wallet — e.g. orphaned by an
    earlier close) is **deleted and recreated** (fixes the "already exists" / "wallet CLOSED" collisions).
-   Requires wallets `active`. → `registered`. **After this, deployment is DONE** — the strategy is live and
-   trading autonomously; it scans on its own `interval_seconds` and opens positions when its signals fire.
-   Do **not** wait/poll for the first tick as part of deploy.
-3. **`verify <id>` — OPTIONAL** (only when the user asks "is it actually scanning yet?"). **Fast single
-   check** (`--max-wait 0` default) of `openclaw senpi state -r <id>-<instance>` for a completed tick. It
-   does **not** block: a scanner's first `scan()` only fires on its `interval_seconds`. Right after
-   `runtime` it reports `registered` (not ticked yet) — expected; re-run after the interval to see `live`.
-   `--max-wait S` opts into a bounded poll. `status <id>` prints the state file any time. Never `sleep`
-   then `verify` as a default step.
+   Requires wallets `active`. → `registered`. **`registered` is not `live`** — the runtime is wired, and
+   whether its scanner is actually active, its DSL wired, and its budget funded is what step 3 answers.
+   Do **not** wait or poll for the first tick: a supervised scanner is already scheduled, and `verify`
+   does not need a tick to have happened.
+3. **`verify <id>` — THE GATE, not optional.** A strategy is live only when every instance is
+   **runtime-running + scanner-active + DSL-wired + funded to what was requested**; `verify` returns
+   `live` or `not-live` (exit 2) naming the failing component. **Never report a strategy live off
+   `registered` alone.**
+
+   **How it judges** — on signals that are reliably readable right after deploy: `openclaw senpi runtime
+   list` (is the runtime running), the deployed `runtime.yaml` (does it declare the external scanner and
+   a DSL preset), and MCP `strategy_list` (funded). It deliberately does **not** gate on
+   `senpi status` / `senpi state`, whose JSON is flaky-empty for a minute or more after start; those are
+   used only to **downgrade** a scanner to `broken` on positive evidence of breakage. When they are
+   unreadable the scanner reads `supervised` = live, because a running runtime spawns and supervises its
+   declared scanner.
+
+   **It is a single fast check and does not wait for a tick** — a scheduled scanner passes without one.
+   So never `sleep` then `verify`. `--max-wait S` opts into a bounded poll for the wallet side;
+   `status <id>` prints the deploy state any time.
 
 **Ephemeral state.** `.deploy-state.json` exists only to resume an in-progress deploy. `verify` **deletes
 it once all instances are `live`** (a partial `registered` keeps it). So a completed deploy leaves no

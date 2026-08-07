@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.12.0"
+  version: "2.13.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -101,6 +101,17 @@ ticker, field name, enum value, unit, MCP tool/arg, or output key compiles fine,
 **The rule: source beats memory. When they conflict, source wins. When you can't find the source, STOP
 and ask — never paper over the gap with a plausible value.** This is not optional polish; it is the
 single most common way a strategy silently does nothing.
+
+**And when you cannot check a source, run the code.** `openclaw senpi validate <pkg> --stage import`
+loads every scanner file in about a second, with no credentials and no wallet — the fastest way to
+find out that a name you were confident about does not resolve. Use it while you write, not only at
+the end.
+
+**`--stage import` is NOT the gate — never report it as validation passing.** It stops before
+anything runs, so it cannot see a tick fail; its own output says so (`does not prove: that a tick
+executes`). Observed in testing: a scanner whose every tick raised `AttributeError: 'ScanContext'
+object has no attribute 'call_tool'` was reported to the user as "Validation passed" on the strength
+of an import-stage run. The gate is stage 9, and it takes no `--stage` flag.
 
 ## ▶ DEFAULT behavior — the rules of this conversation (do this every time)
 
@@ -194,7 +205,7 @@ is a *beat*, not a new turn — keep moving; you don't need the user to reply be
 
 **First, lay out the plan** in one short beat, so the user knows what's coming: *"Here's what I'll build
 for `<id>`, in order: the scoring math → the scanner → the runtime config (thesis + DSL + risk gates) →
-the catalog entry, then unit-test → validate → hand to smoke-test."* Then tick through it, reporting each:
+the catalog entry, then unit-test → lint → `senpi validate` → hand to ops."* Then tick through it, reporting each:
 
 1. **Confirm the spec.** Replay name + thesis + all 7 + opening constraints → get a "yes." *("You said
    rotate the cohort every 3 days — that's in.")* Nothing is written before this yes.
@@ -221,20 +232,69 @@ the catalog entry, then unit-test → validate → hand to smoke-test."* Then ti
    `references/strategy-yaml-schema.md`; what each facet does for matching:
    `references/discovery-catalog-fields.md`). Write it → *"catalog entry in."*
 7. **Unit-test `scoring.py`** on sample candles (pure — no mocks). Run it → report pass/fail as its own beat.
-8. **Validate — three gates, all before any wallet exists** (pass the package's absolute path,
-   `/data/workspace/strategies/<id>`, so the gates hit the authored copy from any CWD):
-   (a) **code-level** → `python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>`
-   (0 errors — scan/scoring shape, DSL exit present, mandate description, retention/cooldown bounds);
+8. **Lint — advisory, instant, no credentials** (pass the package's absolute path,
+   `/data/workspace/strategies/<id>`, so they hit the authored copy from any CWD):
+   (a) **authoring lint** → `python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>`
+   (candle keys, null-in-schema, mandate description, retention/cooldown bounds);
    (b) **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>`
    — every hardcoded ticker must be a live HL instrument (derived-universe strategies pass trivially);
    (c) **deploy contract** → `python3 senpi-strategy-ops/scripts/deploy.py validate /data/workspace/strategies/<id>`
-   — the deployer's own one-pass preflight (structure, linkage, render; **no side effects**). Green
-   here means `create` will not reject the package. (`deploy.py create` re-runs (b)+(c) itself and
-   refuses to fund on failure.) Run each, report the result. **If validation fails, narrate the fix
-   and re-run — don't go silent while you debug.**
-9. **Smoke-test (hand to `senpi-strategy-ops`):** dry-run → run `scan()` once on live read-only MCP →
-   tiny deploy → confirm the runtime **accepted** a signal (`openclaw senpi state -r <id>-<inst>
-   --json`), not just that it ticked. **Green = `scan` → signal → runtime-accepted, end to end.**
+   — the deployer's structural preflight (structure, linkage, render; **no side effects**).
+   These are **fast feedback, not a verdict** — they read the package, they never run it. Fix what
+   they report, then go to stage 9. **A clean lint does not mean the strategy works.**
+9. **THE GATE — `senpi validate`. Authoring is not done until this is green.**
+   ```
+   openclaw senpi validate /data/workspace/strategies/<id>            # multi-instance: one per <instance> dir
+   ```
+   **No `--stage` flag** — the default is `live`, and only `live` runs a tick.
+
+   It loads every scanner file, runs `scan()` once against live read-only data, counts what it read,
+   and checks each emitted signal against the runtime's own wire schema — **no wallet, no funding, no
+   deploy.** Three outcomes:
+   - **PASS** (exit 0) — the code loads, a real tick ran, it read live data, and its signals would be
+     accepted. *Now* you may hand to ops.
+   - **UNPROVEN** (exit 2) — it ran cleanly and **established nothing**: zero successful reads. **This
+     is NOT a pass.** Usually a gate inside `scan()` (a session/time-of-day check) that returned
+     early — have it consult `ctx.dry_run` so validation can see a real read. The finding names the
+     line it returned from.
+     **If it stays UNPROVEN after that**, the reads still are not happening, and the finding says
+     which of two things it is: reads were attempted and failed (an auth or service problem —
+     confirm the token actually reaches that service before blaming the scanner), or no read was
+     attempted at all (the `dry_run` bypass is not on the path that fetches). "No setups right now"
+     is **not** one of the possibilities — a tick that reads and finds nothing to trade returns
+     PASS with a no-signals warning.
+   - **FAIL** (exit 1) — every finding carries `what` / `why` / `fix`, computed against your actual
+     package. Apply the fix, re-run. Don't go silent while you debug — narrate the fix and re-run.
+
+   **Quote the three stage lines back verbatim** — `✓ static`, `✓ import`, `✓ live` — plus the
+   verdict. If `live` is not in what you are about to paste, you did not run the gate and you have
+   nothing to report. This is the one claim in the whole flow that must carry its own evidence,
+   because nothing downstream re-checks it.
+
+   **`E_VALIDATE_NO_RECIPE` (exit 3) means your layout is wrong, not your code.** The recipe must be
+   `runtime.yaml` at the package root — see the FLAT layout rule in step 2. Observed in testing: a
+   package written as `runtime/recipe.yaml` could not be loaded by anything, and was still offered to
+   the user as "ready to deploy".
+
+   **Fix → re-run is a loop, and it has a stop.** Re-running is not optional after an edit: the
+   proof a PASS writes is tied to the exact bytes it validated, so any change invalidates it.
+   But if the **same code comes back after two attempts at it**, stop. A finding that survives two
+   fixes means you are not addressing its cause, and further edits are guesswork on a package that
+   is already unproven. Report what is blocking, in the finding's own words, and let the user
+   decide — do not deploy, and do not keep editing.
+
+   **What PASS does not mean.** It proves the strategy *runs*, never that its logic is *right* — the
+   command says as much in its own output. Two examples from testing, both of which passed cleanly:
+   a Supertrend that returned the same direction for every input, so the strategy could never open a
+   long; and a cooldown keyed on `ctx.now_utc`, which does not exist on the ctx surface, so it never
+   fired. Read your own indicator math against a known trend before you call it done — a green gate
+   is a floor, not a finish line.
+
+   **Never tell the user a strategy is ready, and never hand it to ops, unless `senpi validate`
+   returned PASS.** Nothing downstream re-checks this today — `deploy.py create` funds a wallet on
+   structure alone, and `verify` reports `live` for a scanner that reads nothing. **You are the last
+   check before real money.** A tiny deploy to "smoke-test" is no longer the way to find out whether
+   it runs — that spends that money to learn what this command tells you for free.
 
 Report each numbered stage as it lands — a short line is enough. The point is the user sees forward motion
 the whole way and can catch a wrong turn early, instead of after the entire package is already built.
@@ -265,6 +325,10 @@ makes one new wallet per instance). Authoring just designs the package; **concur
 
 - **`scan(inputs, ctx)` is read-only, pure, single-pass.** Return `[]` on any error. No daemon, no
   `push_signal`, no `sleep`, no file writes, no wallet hardcoding.
+- **A gate in `scan()` must honour `ctx.dry_run`.** If the scanner returns early outside its trading
+  session (or any similar condition), consult `ctx.dry_run` and read anyway when it is set —
+  otherwise validation sees a tick that read nothing, which is reported as **UNPROVEN** and is not a
+  pass. Returning `[]` is fine; returning `[]` *without having read* proves nothing about the scanner.
 - **Emit a `marginPct` *intent*, not dollars** — top-level, not inside `data{}`. The runtime sizes the
   dollars off the live account; don't read the clearinghouse to size.
 - **Pure thesis math in `scoring.py`** (no I/O, no MCP, no clock) so it unit-tests.
@@ -294,7 +358,10 @@ only once **`senpi-strategy-ops` deploys it AND `deploy.py verify` passes**. Wal
 
 1. **Confirm with the user** — budget + "ready to deploy?" Funding a wallet is real money and one-way, so
    this is an explicit yes, not an assumption.
-2. **Preflight** — `deploy.py validate <path-to-package>` — every fix in **one pass**, no side effects. The
+2. **Preflight** — you proved it runs at stage 9 (`senpi validate` → PASS). Nothing in `deploy.py`
+   re-checks that today: it funds on structure alone, so stage 9 is the only thing between a broken
+   scanner and a funded wallet. `deploy.py validate <path-to-package>`
+   is the structural half — every fix in **one pass**, no side effects. The
    deployer **accepts the flat package you built** (it synthesizes the `main` instance), so you do **not**
    restructure into `main/` or hand-write `.deploy-state.json`. **Pass the package DIRECTORY** (absolute is
    safest, e.g. `/data/workspace/strategies/<id>`) — a bare id resolves CWD-relative and otherwise becomes a
