@@ -145,8 +145,12 @@ still running) · `1` internal/transport error — which is also what an unrecog
 a new status can never read as success. `1` covers two more wrapper-side "could not answer" cases: a
 start it could not follow (read `openclaw senpi deploy status` — the job may be running), and a
 `deploy.py status` that could not be answered as asked — an id that is not the recorded job's package,
-or a `--ref` (which `status` never uses, since it fetches nothing). Nothing about any deploy is
-reported in those, and re-running them refuses identically. Branch on the code; read `--json` for anything richer.
+a `--ref` (which `status` never uses, since it fetches nothing), or a read that came back with **no
+snapshot at all** (the verb's `[NOT_FOUND]` when no deploy has ever run on this agent, relayed in its
+own words). Nothing about any deploy is
+reported in those, and re-running them refuses identically. A `status` that DOES read a snapshot
+reports that job's own code — `refused`/`failed`/still-running jobs report `2`/`3`/`6`, never "no job".
+Branch on the code; read `--json` for anything richer.
 
 Terminal `overall` values:
 

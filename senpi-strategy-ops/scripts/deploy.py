@@ -22,9 +22,13 @@ Exit codes mirror the verb's own (D-12): 0 live · 2 refused · 3 failed · 4 in
 error, which is also the fallback for a status this wrapper does not recognise AND for a start we
 could not follow (spawn failure, start timeout, or a 0-exit start that printed no deployId — in
 those last two the job may well be running: read `openclaw senpi deploy status`) AND for a
-`status <id>` whose id is not the recorded job's package, or a `status` given `--ref` (it fetches
-nothing) — the question could not be answered, no deploy outcome is being reported, and re-running
-it refuses identically. There is no
+`status <id>` whose id is not the recorded job's package, a `status` given `--ref` (it fetches
+nothing), or a `status` whose read produced NO SNAPSHOT at all (the verb's own `[NOT_FOUND]`, or a
+failed read — relayed in the verb's words, never restated here as an absence) — the question could
+not be answered, no deploy outcome is being reported, and re-running
+it refuses identically. A `status` that DOES get a snapshot always answers with that job's own D-12
+code, however the `deploy status` call exited: its exit code is the job's verdict, not a health
+signal about the call. There is no
 `cancel`: undeploying a strategy is closing it (`close.py`), and a wedged job frees its own slot at
 the deploy deadline.
 
@@ -249,17 +253,33 @@ def start_deploy(pkg, a, log):
     return deploy_id
 
 
-def status_snapshot(deploy_id):
-    """The job snapshot as JSON, or None if the status call did not return one this pass."""
+def read_status(deploy_id):
+    """`deploy status --json` → `(snapshot | None, the call's own words when there is no snapshot)`.
+
+    **`deploy status` exits with the JOB's D-12 code** — 2 refused, 3 failed, 5 interrupted, 6 still
+    running — and sets it BEFORE printing the snapshot, on the `--json` path too. Its exit code is a
+    verdict about the deploy, not a health signal about the call, so treating a non-zero rc as
+    unreadable discarded every non-live snapshot: a refused deploy then polled as unreadable for the
+    whole budget and reported a transport error, and `status` claimed no job existed while one was
+    running. The snapshot on stdout IS the answer, whatever the code beside it.
+
+    Unreadable is only "no snapshot came back": a spawn failure, the STATUS_TIMEOUT, or the verb's
+    own `ok:false` error (`[NOT_FOUND]` when no deploy has ever run on this agent). Those hand back
+    the verb's text so a caller can relay it instead of composing an absence it never read."""
     args = ["openclaw", "senpi", "deploy", "status"]
     if deploy_id:
         args.append(deploy_id)
     args.append("--json")
-    rc, out, _err = _cli.run_cli(args, timeout=STATUS_TIMEOUT)
-    if rc != 0:
-        return None
+    _rc, out, err = _cli.run_cli(args, timeout=STATUS_TIMEOUT)
     snap = _cli._extract_json(out)
-    return snap if isinstance(snap, dict) else None
+    if isinstance(snap, dict):
+        return snap, None
+    return None, _cli.error_tail(err, out)
+
+
+def status_snapshot(deploy_id):
+    """The job snapshot as JSON, or None when the call produced none (see `read_status`)."""
+    return read_status(deploy_id)[0]
 
 
 def check_status_package(arg, snap):
@@ -439,10 +459,18 @@ def main(argv):
                   f"package, so --ref selects nothing. Nothing was read; re-run without it:\n"
                   f"  python3 {Path(__file__).name} status [<id>]", file=sys.stderr)
             sys.exit(EXIT_INTERNAL)
-        snap = status_snapshot(None)
+        snap, tail = read_status(None)
         if snap is None:
-            print("No deploy job recorded on this agent. Start one:\n"
-                  f"  python3 {Path(__file__).name} create <id> --budget <usd>", file=sys.stderr)
+            # No snapshot came back at all. That is the verb's `[NOT_FOUND]` (no deploy has ever run
+            # here — and that refusal carries its own start command) or a status read that failed;
+            # this wrapper cannot tell them apart, so it relays the verb's words rather than
+            # asserting an absence. It used to compose "No deploy job recorded … Start one: create
+            # <id> --budget <usd>" for every non-live job, steering at a FUNDED deploy while a job
+            # was running or had just been refused.
+            print(tail or "openclaw senpi deploy status returned no snapshot and no error text.",
+                  file=sys.stderr)
+            print("  No deploy state was read here, so nothing about any deploy is reported. Read it "
+                  "directly:  openclaw senpi deploy status", file=sys.stderr)
             sys.exit(EXIT_INTERNAL)
         check_status_package(a.package, snap)
         print_status(None, a.json, snap)

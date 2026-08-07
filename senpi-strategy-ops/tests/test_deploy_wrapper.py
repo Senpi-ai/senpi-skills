@@ -54,6 +54,15 @@ def _ok(payload):
     return (0, json.dumps(payload), "")
 
 
+def _status(snap):
+    """A `deploy status` response as the verb REALLY answers it: the snapshot on stdout, and the
+    JOB's D-12 code as the process exit code (`process.exitCode = exitCodeForDeploy(snap)`, set
+    before the payload is printed, on the --json path too). `status` is a verdict surface, not a
+    transport one — a stub that answers every status with rc=0 hides the entire refused/failed/
+    pending class from these tests."""
+    return (deploy.exit_code_for(snap), json.dumps(snap), "")
+
+
 class StartDeploy(unittest.TestCase):
     def setUp(self):
         self._real = _cli.run_cli
@@ -215,9 +224,9 @@ class WaitForTerminal(unittest.TestCase):
 
     def test_polls_with_the_explicit_id_until_the_job_is_terminal(self):
         fake = FakeCli([
-            _ok({"state": {"status": "running", "phase": "create"}}),
-            _ok({"state": {"status": "running", "phase": "install"}}),
-            _ok({"state": {"status": "done", "overall": "live"}}),
+            _status({"state": {"status": "running", "phase": "create"}}),
+            _status({"state": {"status": "running", "phase": "install"}}),
+            _status({"state": {"status": "done", "overall": "live"}}),
         ])
         _cli.run_cli = fake
         snap = deploy.wait_for_terminal("dpl-a1b2c3d4", 600, lambda m: None)
@@ -232,20 +241,67 @@ class WaitForTerminal(unittest.TestCase):
     def test_a_running_job_is_never_treated_as_terminal(self):
         # If the gateway answered an id-addressed running job with `interrupted`, this loop would
         # return on the first poll and the wrapper would report a finished deploy seconds in.
-        fake = FakeCli([_ok({"state": {"status": "running", "phase": "create"}})] * 40)
+        fake = FakeCli([_status({"state": {"status": "running", "phase": "create"}})] * 40)
         _cli.run_cli = fake
         snap = deploy.wait_for_terminal("dpl-a1b2c3d4", 0, lambda m: None)
         self.assertEqual(snap["state"]["status"], "running")
 
     def test_an_interrupted_snapshot_is_terminal(self):
-        _cli.run_cli = FakeCli([_ok({"state": {"status": "interrupted"}})])
+        _cli.run_cli = FakeCli([_status({"state": {"status": "interrupted"}})])
         snap = deploy.wait_for_terminal("dpl-a1b2c3d4", 600, lambda m: None)
         self.assertEqual(snap["state"], {"status": "interrupted"})
 
     def test_unreadable_status_never_crashes_the_loop(self):
-        _cli.run_cli = FakeCli([(1, "", "gateway down"), _ok({"state": {"status": "done", "overall": "live"}})])
+        _cli.run_cli = FakeCli([(1, "", "gateway down"),
+                                _status({"state": {"status": "done", "overall": "live"}})])
         snap = deploy.wait_for_terminal("dpl-a1b2c3d4", 600, lambda m: None)
         self.assertEqual(snap["state"]["overall"], "live")
+
+
+class StatusIsAVerdictNotATransport(unittest.TestCase):
+    """`deploy status` exits with the JOB's D-12 code while printing the snapshot. Reading that code
+    as a health signal made `status_snapshot` discard every non-live snapshot: a refused deploy then
+    polled as unreadable for the whole budget and reported a transport error (exit 1) instead of the
+    refusal, and `deploy.py status` after one printed "No deploy job recorded — start one: create
+    <id> --budget <usd>", steering at a FUNDED deploy over a job that had just been refused."""
+
+    def setUp(self):
+        self._real_cli, self._real_sleep = _cli.run_cli, deploy.time.sleep
+        deploy.time.sleep = lambda _s: None
+
+    def tearDown(self):
+        _cli.run_cli, deploy.time.sleep = self._real_cli, self._real_sleep
+
+    def test_a_snapshot_is_read_whatever_exit_code_status_carries(self):
+        for snap in ({"state": {"status": "done", "overall": "refused"}},
+                     {"state": {"status": "done", "overall": "failed"}},
+                     {"state": {"status": "interrupted"}},
+                     {"state": {"status": "running", "phase": "create"}}):
+            _cli.run_cli = FakeCli([_status(snap)])
+            self.assertEqual(deploy.status_snapshot("dpl-a1b2c3d4"), snap)
+
+    def test_only_a_call_that_produced_no_snapshot_is_unreadable(self):
+        for response in ((-1, "", _cli.SPAWN_FAILED_PREFIX + "openclaw"),
+                         (-1, "", "timed out after 30s: openclaw senpi deploy status"),
+                         (1, "", "[NOT_FOUND] No deploy has been started on this agent.")):
+            _cli.run_cli = FakeCli([response])
+            self.assertIsNone(deploy.status_snapshot(None))
+
+    def test_a_refused_job_is_relayed_with_its_own_exit_code_not_polled_to_a_transport_error(self):
+        rendered = ("deploy dpl-a1b2c3d4 — done — refused\n"
+                    "  preflight: [E_FUNDS_BELOW_FLOOR] no budget is valid — nothing was created")
+        refused = {"state": {"status": "done", "overall": "refused"}}
+        fake = FakeCli([_ok({"deployId": "dpl-a1b2c3d4"}), _status(refused), (2, rendered, "")])
+        _cli.run_cli = fake
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = deploy.run_deploy(_pkg(), _args(budget=500.0), lambda m: None)
+        self.assertEqual(code, 2)
+        self.assertIn(rendered, out.getvalue())
+        self.assertNotIn("could not read", (out.getvalue() + err.getvalue()).lower())
+        # One poll: the job was terminal on the first read, not re-read for the whole budget.
+        polls = [c for c in fake.calls if "status" in c and "--json" in c]
+        self.assertEqual(len(polls), 1)
 
 
 class RunDeployExitCodes(unittest.TestCase):
@@ -257,10 +313,11 @@ class RunDeployExitCodes(unittest.TestCase):
         _cli.run_cli, deploy.time.sleep = self._real_cli, self._real_sleep
 
     def _run(self, overall):
+        snap = {"state": {"status": "done", "overall": overall}}
         _cli.run_cli = FakeCli([
             _ok({"deployId": "dpl-a1b2c3d4", "phase": "reconcile"}),
-            _ok({"state": {"status": "done", "overall": overall}}),
-            (0, f"deploy dpl-a1b2c3d4 — done — {overall}", ""),
+            _status(snap),
+            (deploy.exit_code_for(snap), f"deploy dpl-a1b2c3d4 — done — {overall}", ""),
         ])
         return deploy.run_deploy(_pkg(), _args(budget=500.0), lambda m: None)
 
@@ -295,8 +352,8 @@ class RunDeployExitCodes(unittest.TestCase):
     def test_an_interrupted_job_exits_five(self):
         _cli.run_cli = FakeCli([
             _ok({"deployId": "dpl-a1b2c3d4", "phase": "reconcile"}),
-            _ok({"state": {"status": "interrupted"}}),
-            (0, "deploy dpl-a1b2c3d4 — interrupted by a gateway restart", ""),
+            _status({"state": {"status": "interrupted"}}),
+            (5, "deploy dpl-a1b2c3d4 — interrupted by a gateway restart", ""),
         ])
         self.assertEqual(deploy.run_deploy(_pkg(), _args(budget=500.0), lambda m: None), 5)
 
@@ -306,8 +363,8 @@ class RunDeployExitCodes(unittest.TestCase):
         deploy.POLL_BUDGET = 0
         _cli.run_cli = FakeCli([
             _ok({"deployId": "dpl-a1b2c3d4", "phase": "reconcile"}),
-            _ok({"state": {"status": "running", "phase": "create"}}),
-            (0, "deploy dpl-a1b2c3d4 — running (phase: create)", ""),
+            _status({"state": {"status": "running", "phase": "create"}}),
+            (6, "deploy dpl-a1b2c3d4 — running (phase: create)", ""),
         ])
         self.assertEqual(deploy.run_deploy(_pkg(), _args(budget=500.0, max_wait=0), lambda m: None), 6)
 
@@ -338,7 +395,7 @@ class StatusSubcommand(unittest.TestCase):
     def test_a_package_that_is_not_the_last_jobs_package_is_refused(self):
         # `deploy.py status spider` right after a polar deploy used to print polar's report and polar's
         # exit code under a spider prompt — an invitation to bind the wrong package's verdict.
-        code, out, err = self._run(["deploy.py", "status", "spider"], [_ok(self._snap("polar"))])
+        code, out, err = self._run(["deploy.py", "status", "spider"], [_status(self._snap("polar"))])
         # 1, not 2: 2 is "the deploy was refused, nothing created", which is false here — polar's
         # deploy may be live. This is "could not answer the question you asked".
         self.assertEqual(code, 1)
@@ -353,19 +410,19 @@ class StatusSubcommand(unittest.TestCase):
     def test_the_named_package_matching_the_job_reports_the_jobs_code(self):
         code, _out, _err = self._run(
             ["deploy.py", "status", "spider"],
-            [_ok(self._snap("spider")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
+            [_status(self._snap("spider")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
         self.assertEqual(code, 0)
 
     def test_a_package_dir_path_matches_on_its_basename(self):
         code, _out, _err = self._run(
             ["deploy.py", "status", "/data/workspace/strategies/spider"],
-            [_ok(self._snap("spider")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
+            [_status(self._snap("spider")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
         self.assertEqual(code, 0)
 
     def test_status_takes_no_package_at_all(self):
         code, _out, _err = self._run(
             ["deploy.py", "status"],
-            [_ok(self._snap("polar")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
+            [_status(self._snap("polar")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
         self.assertEqual(code, 0)
 
     def test_an_argument_that_names_no_package_id_never_refuses_against_an_empty_name(self):
@@ -374,7 +431,7 @@ class StatusSubcommand(unittest.TestCase):
         for arg in (".", "/", "./"):
             code, _out, err = self._run(
                 ["deploy.py", "status", arg],
-                [_ok(self._snap("polar")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
+                [_status(self._snap("polar")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
             self.assertEqual(code, 0, f"{arg!r} must not refuse")
             self.assertNotIn("refusing", err.lower())
             self.assertIn("names no package", err.lower())   # said out loud, not silently accepted
@@ -394,9 +451,48 @@ class StatusSubcommand(unittest.TestCase):
     def test_a_snapshot_that_names_no_package_is_flagged_never_silently_bound(self):
         snap = {"meta": {"deployId": "dpl-a1b2c3d4"}, "state": {"status": "done", "overall": "live"}}
         code, _out, err = self._run(
-            ["deploy.py", "status", "spider"], [_ok(snap), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
+            ["deploy.py", "status", "spider"], [_status(snap), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
         self.assertEqual(code, 0)
         self.assertIn("spider", err)  # says out loud that it could not be confirmed
+
+    def test_a_non_live_job_is_reported_never_read_as_no_job_recorded(self):
+        # `status` after a refused (or failed, or still-running) job used to print "No deploy job
+        # recorded on this agent. Start one: create <id> --budget <usd>" — a fabricated absence, and
+        # a steer at a FUNDED deploy over a job that had just been refused.
+        for overall, want_code in (("refused", 2), ("failed", 3)):
+            rendered = f"deploy dpl-a1b2c3d4 — done — {overall}"
+            code, out, err = self._run(
+                ["deploy.py", "status"],
+                [_status(self._snap("polar", overall)), (want_code, rendered, "")])
+            self.assertEqual(code, want_code)
+            self.assertIn(rendered, out)
+            self.assertNotIn("no deploy job", err.lower())
+
+    def test_a_still_running_job_reports_pending_not_an_absent_job(self):
+        snap = {"meta": {"deployId": "dpl-a1b2c3d4", "packageId": "polar"},
+                "state": {"status": "running", "phase": "create"}}
+        code, out, err = self._run(
+            ["deploy.py", "status"], [_status(snap), (6, "deploy dpl-a1b2c3d4 — running (phase: create)", "")])
+        self.assertEqual(code, 6)
+        self.assertIn("running", out)
+        self.assertNotIn("no deploy job", err.lower())
+
+    def test_a_status_call_that_produced_no_snapshot_relays_the_verbs_own_words(self):
+        # The one real absence: the verb answers `[NOT_FOUND]` (carrying its own start command) and
+        # prints no snapshot. Relay THAT — never a locally-composed absence, and never a `create
+        # <id> --budget <usd>` this wrapper invented on top of it.
+        not_found = "[NOT_FOUND] No deploy has been started on this agent. Start one: senpi deploy -p <dir> --budget <usd>"
+        code, _out, err = self._run(["deploy.py", "status"], [(1, "", not_found)])
+        self.assertEqual(code, 1)
+        self.assertIn("[NOT_FOUND]", err)
+        self.assertIn("openclaw senpi deploy status", err)
+
+    def test_an_unreadable_status_call_never_claims_there_is_no_job(self):
+        code, _out, err = self._run(
+            ["deploy.py", "status"], [(-1, "", _cli.SPAWN_FAILED_PREFIX + "openclaw")])
+        self.assertEqual(code, 1)
+        self.assertIn("command not found", err)
+        self.assertNotIn("no deploy job recorded", err.lower())
 
 
 class UniverseGateOwnership(unittest.TestCase):
@@ -423,8 +519,8 @@ class UniverseGateOwnership(unittest.TestCase):
                     "are not live on Hyperliquid. Nothing was created — \"xyz:NASDAQ\"")
         _cli.run_cli = FakeCli([
             _ok({"deployId": "dpl-a1b2c3d4", "phase": "reconcile"}),
-            _ok({"state": {"status": "done", "overall": "refused"}}),
-            (0, rendered, ""),
+            _status({"state": {"status": "done", "overall": "refused"}}),
+            (2, rendered, ""),
         ])
         out = io.StringIO()
         with contextlib.redirect_stdout(out):

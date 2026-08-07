@@ -174,8 +174,12 @@ the fix → re-check → deploy loop.
 installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job still running) ·
 `1` internal/transport error — also the fallback for a status the wrapper does not recognise, so a new
 status can never read as success, and for the wrapper's own "could not answer" cases: a start it could
-not follow, and a `status` it could not answer as asked — an id that does not match the recorded job, or
-a `--ref` it has no use for (no deploy state is reported in either, and a re-run refuses identically). Branch on the code; use `--json` for anything richer.
+not follow, and a `status` it could not answer as asked — an id that does not match the recorded job,
+a `--ref` it has no use for, or a read that produced no snapshot at all (the verb's `[NOT_FOUND]`,
+relayed verbatim; no deploy state is reported in any of them, and a re-run refuses identically).
+`deploy status` sets the JOB's code before printing its snapshot, so the wrapper reads the snapshot
+whatever code rides beside it — a refused or still-running job is relayed with `2`/`6`, never
+discarded as an unreadable status. Branch on the code; use `--json` for anything richer.
 
 **Package fetch.** Any subcommand fetches `strategies/<id>/` from the remote if it isn't on disk
 (`_fetch.py`: GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default
