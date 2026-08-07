@@ -190,7 +190,17 @@ def start_deploy(pkg, a, log):
     log("  starting the deploy job…")
     rc, out, err = _cli.run_cli(args, timeout=START_TIMEOUT)
     if rc != 0:
-        raise SystemExit(_relay(rc, out, err))
+        code = _relay(rc, out, err)
+        # A START_TIMEOUT is the no-deployId case wearing a different hat: the gateway was reached and
+        # may have dispatched the job, we just stopped waiting for the answer. Say so HERE — at the
+        # moment of failure, in the stderr an agent actually reads. (A spawn failure is different:
+        # `openclaw` never ran, so nothing was dispatched and there is nothing to go read.)
+        if rc == -1 and not str(err or "").startswith(_cli.SPAWN_FAILED_PREFIX):
+            print("  That is a timeout waiting for the START call, not a verdict: the gateway may have "
+                  "taken the deploy, so a job MAY BE RUNNING (a wallet may already be funded).\n"
+                  "  Read what actually happened, and report THAT:  openclaw senpi deploy status",
+                  file=sys.stderr)
+        raise SystemExit(code)
     started = _cli._extract_json(out) or {}
     deploy_id = started.get("deployId")
     if not deploy_id:

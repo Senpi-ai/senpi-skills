@@ -98,11 +98,32 @@ class StartDeploy(unittest.TestCase):
         # `run_cli` returns rc=-1 for a spawn failure and for the 60s START_TIMEOUT. Neither is a gate
         # saying no: mapping them to 2 tells the agent "refused, nothing created" while a dispatched
         # job may be funding a wallet. Transport breakage is 1, per this wrapper's own contract.
-        for rc, text in ((-1, "command not found: openclaw"), (-1, "timed out after 60s: openclaw …")):
+        for rc, text in ((-1, _cli.SPAWN_FAILED_PREFIX + "openclaw"), (-1, "timed out after 60s: openclaw …")):
             _cli.run_cli = FakeCli([(rc, "", text)])
             with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(io.StringIO()):
                 deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
             self.assertEqual(ctx.exception.code, 1)
+
+    def test_a_start_timeout_points_at_deploy_status_because_the_job_may_be_running(self):
+        # The START call timed out AFTER the gateway was reached: same shape as the no-deployId case.
+        # The exit code alone doesn't tell the agent that; the stderr it reads at failure time must.
+        _cli.run_cli = FakeCli([(-1, "", "timed out after 60s: openclaw senpi deploy -p /pkg/spider")])
+        err = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
+            deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("openclaw senpi deploy status", err.getvalue())
+        self.assertIn("may be running", err.getvalue().lower())
+
+    def test_a_spawn_failure_does_not_claim_a_job_may_be_running(self):
+        # `openclaw` was never executed, so nothing was dispatched — pointing at `deploy status` here
+        # would be a hedge over a known-false state (and the command it names cannot run either).
+        _cli.run_cli = FakeCli([(-1, "", _cli.SPAWN_FAILED_PREFIX + "openclaw")])
+        err = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
+            deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertNotIn("may be running", err.getvalue().lower())
 
     def test_a_start_with_no_deploy_id_exits_one_and_says_the_job_may_be_running(self):
         # The verb exited 0 — it accepted the deploy — but no deployId came back, so this wrapper

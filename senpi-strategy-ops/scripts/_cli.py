@@ -14,8 +14,15 @@ import subprocess
 
 # ---- openclaw CLI ----
 
+# The two rc=-1 causes are not the same event: a spawn failure means the command NEVER RAN, a timeout
+# means it ran and we stopped waiting (so whatever it dispatched may still be in flight). Callers on the
+# money path have to tell them apart, so the spawn message carries a stable prefix instead of prose.
+SPAWN_FAILED_PREFIX = "command not found: "
+
+
 def run_cli(args, timeout=60):
-    """Run a CLI command; return (returncode, stdout, stderr). rc=-1 on spawn failure/timeout.
+    """Run a CLI command; return (returncode, stdout, stderr). rc=-1 on spawn failure/timeout —
+    `SPAWN_FAILED_PREFIX` on stderr distinguishes the never-ran case from the stopped-waiting one.
 
     Suppresses the senpi plugin's info logs (which it prints to STDOUT and which otherwise corrupt
     `--json` output) by forcing SENPI_LOG_LEVEL=error in the child env."""
@@ -24,7 +31,7 @@ def run_cli(args, timeout=60):
         p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
         return p.returncode, p.stdout, p.stderr
     except FileNotFoundError:
-        return -1, "", f"command not found: {args[0]}"
+        return -1, "", f"{SPAWN_FAILED_PREFIX}{args[0]}"
     except subprocess.TimeoutExpired:
         return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
 
