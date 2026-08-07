@@ -69,7 +69,7 @@ Per instance the job runs five steps, each recorded with its own outcome:
    drops non-numeric values, so a quoted share is a packaging bug `deploy.py validate` catches loudly.
 3. **create** — one `strategy_create_custom_strategy(initialBudget, positions=[], strategyName,
    skillName=<id>, skillVersion=<version>)` per needing instance, then poll `strategy_list` to **ACTIVE**
-   (bounded by `--max-wait`, default 150s — `deploy.py` forwards its own, default 600s). A name rejection retries **once** without `strategyName` —
+   (bounded by `--max-wait`, default 150s — `deploy.py` forwards the same flag and defaults it identically). A name rejection retries **once** without `strategyName` —
    naming is best-effort legibility and must never block a deploy. Deadline hit → `pending` (re-run resumes).
 4. **install** — render the instance's `runtime.yaml` (substitute `${wallet_env}` + the decision-model env
    iff a `decision_mode: llm` action) and install it with the instance directory attached, so `path:

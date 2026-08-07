@@ -128,6 +128,54 @@ class StartDeploy(unittest.TestCase):
         self.assertEqual(fake.calls, [])
 
 
+class ForwardedMaxWaitDefault(unittest.TestCase):
+    """One flag, one meaning, one clock each: the number we FORWARD is the verb's wallet-ACTIVE budget
+    (and it also sizes the job's wall-clock watchdog), while how long this script polls is its own
+    budget. Defaulting the forwarded flag to 600 silently tripled the job cap on a multi-instance
+    package; defaulting the poll loop to 150 would give up on a job that is legitimately still funding."""
+
+    def setUp(self):
+        self._cli_real = _cli.run_cli
+        self._ensure, self._validate, self._universe, self._wait = (
+            deploy.ensure_pkg, deploy.full_validate, deploy.universe_preflight, deploy.wait_for_terminal)
+        deploy.ensure_pkg = lambda arg, ref, log: _pkg()
+        deploy.full_validate = lambda pkg: []
+        deploy.universe_preflight = lambda pkg, log: None
+        self.waited = []
+        deploy.wait_for_terminal = lambda did, budget, log: (
+            self.waited.append(budget) or {"state": {"status": "done", "overall": "live"}})
+
+    def tearDown(self):
+        _cli.run_cli = self._cli_real
+        (deploy.ensure_pkg, deploy.full_validate, deploy.universe_preflight,
+         deploy.wait_for_terminal) = (self._ensure, self._validate, self._universe, self._wait)
+
+    def _create(self, *extra):
+        fake = FakeCli([_ok({"deployId": "dpl-a1b2c3d4"}), (0, "done — live", "")])
+        _cli.run_cli = fake
+        with self.assertRaises(SystemExit) as ctx:
+            deploy.main(["deploy.py", "create", "spider", "--budget", "300", *extra])
+        return fake.calls[0], ctx.exception.code
+
+    def test_the_forwarded_default_is_the_verbs_own_150(self):
+        argv, code = self._create()
+        self.assertEqual(argv[argv.index("--max-wait") + 1], "150")
+        self.assertEqual(code, 0)
+
+    def test_an_explicit_value_is_forwarded_verbatim(self):
+        argv, _code = self._create("--max-wait", "900")
+        self.assertEqual(argv[argv.index("--max-wait") + 1], "900")
+
+    def test_the_poll_budget_is_not_cut_to_the_verbs_default(self):
+        self._create()
+        self.assertEqual(self.waited, [deploy.POLL_BUDGET])
+        self.assertGreater(deploy.POLL_BUDGET, deploy.DEFAULT_MAX_WAIT)
+
+    def test_a_longer_explicit_max_wait_widens_the_poll_budget_too(self):
+        self._create("--max-wait", "900")
+        self.assertEqual(self.waited, [900])
+
+
 class WaitForTerminal(unittest.TestCase):
     """The poll loop always passes the explicit deployId — the shape the C1/C2 bug broke."""
 
@@ -227,6 +275,8 @@ class RunDeployExitCodes(unittest.TestCase):
 
     def test_a_job_still_running_when_the_wrapper_gives_up_exits_six(self):
         # The job continues in the background — "not finished" is the honest answer, not success.
+        self.addCleanup(setattr, deploy, "POLL_BUDGET", deploy.POLL_BUDGET)
+        deploy.POLL_BUDGET = 0
         _cli.run_cli = FakeCli([
             _ok({"deployId": "dpl-a1b2c3d4", "phase": "reconcile"}),
             _ok({"state": {"status": "running", "phase": "create"}}),

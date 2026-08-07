@@ -44,7 +44,16 @@ import _pkg  # noqa: E402
 
 START_TIMEOUT = 60      # the verb detaches in ~1s; this is only the spawn budget
 STATUS_TIMEOUT = 30
-DEFAULT_MAX_WAIT = 600  # forwarded as the JOB's wallet-ACTIVE budget, and this script's poll budget
+# The JOB's wallet-ACTIVE budget, forwarded verbatim to the verb — so this default MIRRORS the verb's
+# own (`--max-wait <seconds>`, default 150). It is not just a wait: the verb sizes its wall-clock
+# watchdog from it (`(maxWait + tickWait) * instances + slack`), so raising it here would silently
+# multiply how long a wedged deploy holds the single-flight slot on a multi-instance package.
+DEFAULT_MAX_WAIT = 150
+# How long THIS script polls the detached job for a terminal state — a different clock, and a
+# longer one: the job's worst case is create + install + observe, not the ACTIVE wait alone. An
+# explicit --max-wait above this widens it, so the wrapper never gives up on a job it just told
+# the verb to wait longer for.
+POLL_BUDGET = 600
 POLL_EVERY = 5
 
 # D-12: the verb's exit-code contract, mirrored here so `deploy.py` and `openclaw senpi deploy
@@ -289,7 +298,8 @@ def exit_code_for(snap):
 def run_deploy(pkg, a, log):
     """Start → poll → relay. Exit code: the D-12 map (see EXIT_CODES)."""
     deploy_id = start_deploy(pkg, a, log)
-    snap = wait_for_terminal(deploy_id, a.max_wait, log)
+    poll_budget = max(POLL_BUDGET, a.max_wait)
+    snap = wait_for_terminal(deploy_id, poll_budget, log)
     if snap is None:
         print(f"Could not read the deploy job's status. Check it directly: "
               f"openclaw senpi deploy status {deploy_id}", file=sys.stderr)
@@ -297,7 +307,7 @@ def run_deploy(pkg, a, log):
     print_status(deploy_id, a.json, snap)
     state = snap.get("state") or {}
     if state.get("status") == "running":
-        print(f"\nStill running after {a.max_wait}s — the job continues in the background. "
+        print(f"\nStill running after {poll_budget}s — the job continues in the background. "
               f"Watch it: openclaw senpi deploy status {deploy_id}")
     return exit_code_for(snap)
 
@@ -318,7 +328,7 @@ def main(argv):
     common(pc)
     pc.add_argument("--budget", type=float, default=None, help="Total USDC split across wallets by funding_share.")
     pc.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT,
-                    help="Seconds the JOB waits for wallets to reach ACTIVE (forwarded to the verb); this script polls for the same budget.")
+                    help="Seconds the JOB waits for wallets to reach ACTIVE (forwarded to the verb; default matches the verb's own).")
     pc.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
     pc.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
@@ -328,7 +338,7 @@ def main(argv):
     common(pr)
     pr.add_argument("--budget", type=float, default=None, help="Only needed if a wallet still has to be created.")
     pr.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT,
-                    help="Seconds the JOB waits for wallets to reach ACTIVE (forwarded to the verb); this script polls for the same budget.")
+                    help="Seconds the JOB waits for wallets to reach ACTIVE (forwarded to the verb; default matches the verb's own).")
     pr.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
     pr.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
@@ -338,7 +348,7 @@ def main(argv):
     common(pv)
     pv.add_argument("--budget", type=float, default=None, help="Only needed if a wallet still has to be created.")
     pv.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT,
-                    help="Seconds the JOB waits for wallets to reach ACTIVE (forwarded to the verb); this script polls for the same budget.")
+                    help="Seconds the JOB waits for wallets to reach ACTIVE (forwarded to the verb; default matches the verb's own).")
     pv.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
     pv.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
