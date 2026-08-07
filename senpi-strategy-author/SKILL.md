@@ -107,6 +107,12 @@ loads every scanner file in about a second, with no credentials and no wallet �
 find out that a name you were confident about does not resolve. Use it while you write, not only at
 the end.
 
+**`--stage import` is NOT the gate — never report it as validation passing.** It stops before
+anything runs, so it cannot see a tick fail; its own output says so (`does not prove: that a tick
+executes`). Observed in testing: a scanner whose every tick raised `AttributeError: 'ScanContext'
+object has no attribute 'call_tool'` was reported to the user as "Validation passed" on the strength
+of an import-stage run. The gate is stage 9, and it takes no `--stage` flag.
+
 ## ▶ DEFAULT behavior — the rules of this conversation (do this every time)
 
 ### Funding heads-up — first tool call, never a gate
@@ -240,6 +246,8 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
    ```
    openclaw senpi validate /data/workspace/strategies/<id>            # multi-instance: one per <instance> dir
    ```
+   **No `--stage` flag** — the default is `live`, and only `live` runs a tick.
+
    It loads every scanner file, runs `scan()` once against live read-only data, counts what it read,
    and checks each emitted signal against the runtime's own wire schema — **no wallet, no funding, no
    deploy.** Three outcomes:
@@ -258,12 +266,29 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
    - **FAIL** (exit 1) — every finding carries `what` / `why` / `fix`, computed against your actual
      package. Apply the fix, re-run. Don't go silent while you debug — narrate the fix and re-run.
 
+   **Quote the three stage lines back verbatim** — `✓ static`, `✓ import`, `✓ live` — plus the
+   verdict. If `live` is not in what you are about to paste, you did not run the gate and you have
+   nothing to report. This is the one claim in the whole flow that must carry its own evidence,
+   because nothing downstream re-checks it.
+
+   **`E_VALIDATE_NO_RECIPE` (exit 3) means your layout is wrong, not your code.** The recipe must be
+   `runtime.yaml` at the package root — see the FLAT layout rule in step 2. Observed in testing: a
+   package written as `runtime/recipe.yaml` could not be loaded by anything, and was still offered to
+   the user as "ready to deploy".
+
    **Fix → re-run is a loop, and it has a stop.** Re-running is not optional after an edit: the
    proof a PASS writes is tied to the exact bytes it validated, so any change invalidates it.
    But if the **same code comes back after two attempts at it**, stop. A finding that survives two
    fixes means you are not addressing its cause, and further edits are guesswork on a package that
    is already unproven. Report what is blocking, in the finding's own words, and let the user
    decide — do not deploy, and do not keep editing.
+
+   **What PASS does not mean.** It proves the strategy *runs*, never that its logic is *right* — the
+   command says as much in its own output. Two examples from testing, both of which passed cleanly:
+   a Supertrend that returned the same direction for every input, so the strategy could never open a
+   long; and a cooldown keyed on `ctx.now_utc`, which does not exist on the ctx surface, so it never
+   fired. Read your own indicator math against a known trend before you call it done — a green gate
+   is a floor, not a finish line.
 
    **Never tell the user a strategy is ready, and never hand it to ops, unless `senpi validate`
    returned PASS.** Nothing downstream re-checks this today — `deploy.py create` funds a wallet on
