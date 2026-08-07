@@ -108,7 +108,8 @@ It validates locally, runs the live-universe ticker gate, starts the job, and th
 Flags: `--decision-model <model>` (required only for a `decision_mode: llm` action),
 `--tick-wait <s>` (how long the job waits to observe a tick; default 120, `0` skips),
 `--max-wait <s>` (how long the JOB waits for a wallet to reach ACTIVE — default 150, and the wrapper
-forwards the same number; the wrapper's own poll budget is separate and longer), `--json`.
+forwards the same number; pass it and it also becomes how long `deploy.py` polls, so a smaller value
+returns sooner — unset, polling keeps its own longer budget), `--json`.
 
 Inside the job, per instance: **reconcile** (match live strategies by name — an existing live wallet is
 adopted, never duplicated) → **preflight** (accessible-balance check) → **create** (one
@@ -141,8 +142,9 @@ failed · `4` installed-unobserved · `5` interrupted · `6` pending (a wallet s
 still running) · `1` internal/transport error — which is also what an unrecognised status returns, so
 a new status can never read as success. `1` covers two more wrapper-side "could not answer" cases: a
 start it could not follow (read `openclaw senpi deploy status` — the job may be running), and a
-`deploy.py status <id>` whose id is not the recorded job's package (nothing about any deploy is
-reported, and re-running it refuses identically). Branch on the code; read `--json` for anything richer.
+`deploy.py status` that could not be answered as asked — an id that is not the recorded job's package,
+or a `--ref` (which `status` never uses, since it fetches nothing). Nothing about any deploy is
+reported in those, and re-running them refuses identically. Branch on the code; read `--json` for anything richer.
 
 Terminal `overall` values:
 

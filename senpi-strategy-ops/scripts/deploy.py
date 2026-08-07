@@ -22,8 +22,9 @@ Exit codes mirror the verb's own (D-12): 0 live · 2 refused · 3 failed · 4 in
 error, which is also the fallback for a status this wrapper does not recognise AND for a start we
 could not follow (spawn failure, start timeout, or a 0-exit start that printed no deployId — in
 those last two the job may well be running: read `openclaw senpi deploy status`) AND for a
-`status <id>` whose id is not the recorded job's package (the question could not be answered — no
-deploy outcome is being reported; re-running it refuses identically). There is no
+`status <id>` whose id is not the recorded job's package, or a `status` given `--ref` (it fetches
+nothing) — the question could not be answered, no deploy outcome is being reported, and re-running
+it refuses identically. There is no
 `cancel`: undeploying a strategy is closing it (`close.py`), and a wedged job frees its own slot at
 the deploy deadline.
 
@@ -51,10 +52,11 @@ STATUS_TIMEOUT = 30
 # watchdog from it (`(maxWait + tickWait) * instances + slack`), so raising it here would silently
 # multiply how long a wedged deploy holds the single-flight slot on a multi-instance package.
 DEFAULT_MAX_WAIT = 150
-# How long THIS script polls the detached job for a terminal state — a different clock, and a
-# longer one: the job's worst case is create + install + observe, not the ACTIVE wait alone. An
-# explicit --max-wait above this widens it, so the wrapper never gives up on a job it just told
-# the verb to wait longer for.
+# How long THIS script polls the detached job for a terminal state when the caller says nothing — a
+# different clock, and a longer one: the job's worst case is create + install + observe, not the
+# ACTIVE wait alone. An EXPLICIT --max-wait replaces it in BOTH directions: a larger one so the
+# wrapper never gives up on a job it just told the verb to wait longer for, a smaller one because
+# a caller asking for a fast return must actually get one.
 POLL_BUDGET = 600
 POLL_EVERY = 5
 
@@ -320,7 +322,9 @@ def exit_code_for(snap):
 def run_deploy(pkg, a, log):
     """Start → poll → relay. Exit code: the D-12 map (see EXIT_CODES)."""
     deploy_id = start_deploy(pkg, a, log)
-    poll_budget = max(POLL_BUDGET, a.max_wait)
+    poll_budget = getattr(a, "poll_budget", None)
+    if poll_budget is None:
+        poll_budget = POLL_BUDGET
     snap = wait_for_terminal(deploy_id, poll_budget, log)
     if snap is None:
         print(f"Could not read the deploy job's status. Check it directly: "
@@ -349,8 +353,10 @@ def main(argv):
     pc = sub.add_parser("create", help="Run the deploy: create + fund the wallet(s), install, observe a tick.")
     common(pc)
     pc.add_argument("--budget", type=float, default=None, help="Total USDC split across wallets by funding_share.")
-    pc.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT,
-                    help="Seconds the JOB waits for wallets to reach ACTIVE (forwarded to the verb; default matches the verb's own).")
+    pc.add_argument("--max-wait", type=int, default=None,
+                    help=f"Seconds the JOB waits for wallets to reach ACTIVE, forwarded to the "
+                         f"verb (default {DEFAULT_MAX_WAIT} — the verb's own). An explicit value "
+                         f"is also how long this script polls.")
     pc.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
     pc.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
@@ -359,8 +365,10 @@ def main(argv):
     pr = sub.add_parser("runtime", help="Resume/complete the same deploy (installs the runtime(s)).")
     common(pr)
     pr.add_argument("--budget", type=float, default=None, help="Only needed if a wallet still has to be created.")
-    pr.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT,
-                    help="Seconds the JOB waits for wallets to reach ACTIVE (forwarded to the verb; default matches the verb's own).")
+    pr.add_argument("--max-wait", type=int, default=None,
+                    help=f"Seconds the JOB waits for wallets to reach ACTIVE, forwarded to the "
+                         f"verb (default {DEFAULT_MAX_WAIT} — the verb's own). An explicit value "
+                         f"is also how long this script polls.")
     pr.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
     pr.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
@@ -369,8 +377,10 @@ def main(argv):
     pv = sub.add_parser("verify", help="Re-run the deploy: reconciles what exists, then observes a scanner tick.")
     common(pv)
     pv.add_argument("--budget", type=float, default=None, help="Only needed if a wallet still has to be created.")
-    pv.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT,
-                    help="Seconds the JOB waits for wallets to reach ACTIVE (forwarded to the verb; default matches the verb's own).")
+    pv.add_argument("--max-wait", type=int, default=None,
+                    help=f"Seconds the JOB waits for wallets to reach ACTIVE, forwarded to the "
+                         f"verb (default {DEFAULT_MAX_WAIT} — the verb's own). An explicit value "
+                         f"is also how long this script polls.")
     pv.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
     pv.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
@@ -432,6 +442,13 @@ def main(argv):
         for e in gate:
             print(f"    - {e}", file=sys.stderr)
         sys.exit(1)
+
+    # An EXPLICIT --max-wait is the caller's answer to BOTH clocks: it is forwarded to the verb and
+    # it is how long this script polls — a shorter one has to return sooner, not meet a 600s floor.
+    # Unset: the verb's own default is forwarded, and polling keeps its own, longer budget.
+    a.poll_budget = POLL_BUDGET if a.max_wait is None else a.max_wait
+    if a.max_wait is None:
+        a.max_wait = DEFAULT_MAX_WAIT
 
     universe_preflight(pkg, log)
     sys.exit(run_deploy(pkg, a, log))

@@ -196,6 +196,13 @@ class ForwardedMaxWaitDefault(unittest.TestCase):
         self._create("--max-wait", "900")
         self.assertEqual(self.waited, [900])
 
+    def test_a_shorter_explicit_max_wait_shortens_the_poll_budget_too(self):
+        # Explicit wins in BOTH directions: a caller asking for a fast return must get one, not a
+        # 600s floor they have no flag to lower.
+        argv, _code = self._create("--max-wait", "30")
+        self.assertEqual(argv[argv.index("--max-wait") + 1], "30")
+        self.assertEqual(self.waited, [30])
+
 
 class WaitForTerminal(unittest.TestCase):
     """The poll loop always passes the explicit deployId — the shape the C1/C2 bug broke."""

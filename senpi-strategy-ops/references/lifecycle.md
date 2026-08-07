@@ -69,7 +69,8 @@ Per instance the job runs five steps, each recorded with its own outcome:
    drops non-numeric values, so a quoted share is a packaging bug `deploy.py validate` catches loudly.
 3. **create** — one `strategy_create_custom_strategy(initialBudget, positions=[], strategyName,
    skillName=<id>, skillVersion=<version>)` per needing instance, then poll `strategy_list` to **ACTIVE**
-   (bounded by `--max-wait`, default 150s — `deploy.py` forwards the same flag and defaults it identically). A name rejection retries **once** without `strategyName` —
+   (bounded by `--max-wait`, default 150s — `deploy.py` forwards the same flag and defaults it identically;
+   an explicit value also becomes `deploy.py`'s own poll budget, in either direction). A name rejection retries **once** without `strategyName` —
    naming is best-effort legibility and must never block a deploy. Deadline hit → `pending` (re-run resumes).
 4. **install** — render the instance's `runtime.yaml` (substitute `${wallet_env}` + the decision-model env
    iff a `decision_mode: llm` action) and install it with the instance directory attached, so `path:
@@ -158,8 +159,8 @@ a package the wrapper already gated.
 installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job still running) ·
 `1` internal/transport error — also the fallback for a status the wrapper does not recognise, so a new
 status can never read as success, and for the wrapper's own "could not answer" cases: a start it could
-not follow, and a `status <id>` that does not match the recorded job (no deploy state is reported there,
-and a re-run refuses identically). Branch on the code; use `--json` for anything richer.
+not follow, and a `status` it could not answer as asked — an id that does not match the recorded job, or
+a `--ref` it has no use for (no deploy state is reported in either, and a re-run refuses identically). Branch on the code; use `--json` for anything richer.
 
 **Package fetch.** Any subcommand fetches `strategies/<id>/` from the remote if it isn't on disk
 (`_fetch.py`: GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default
