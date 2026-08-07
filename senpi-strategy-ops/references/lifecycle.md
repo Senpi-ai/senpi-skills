@@ -6,8 +6,8 @@ Both scripts live in `senpi-strategy-ops/scripts/`, share `_pkg.py` (package mod
 
 ## Why there is no scanner daemon anymore
 
-Runtime 2.x **supervises** the scanner. `openclaw senpi runtime create -p <runtime.yaml>` hot-loads the
-runtime, which spawns the Python scaffold child and calls `scan(inputs, ctx)` every `interval_seconds`,
+Runtime 2.x **supervises** the scanner. Installing a runtime (the deploy verb's install step) hot-loads
+it: the runtime spawns the Python scaffold child and calls `scan(inputs, ctx)` every `interval_seconds`,
 time-boxed by `timeout_seconds`, restarting a crashed child itself. The old model (a separate
 `nohup python3 … &` producer daemon that pushed signals over HTTP) is gone. Deploy = create a runtime;
 nothing else to keep alive.
@@ -190,7 +190,7 @@ Like deploy, close **does not block** on the async flatten — it stops + trigge
 hands polling to the agent (re-run). Discovery is ledger-free and **strategy-driven**: MCP `strategy_list`
 filtered by `skillName == <id>` (resolved from `strategyMetadata.skillName`) gives the package's OPEN
 strategies; **`strategyId` + wallet come straight from each strategy record** — NOT via the runtime, so
-close also cleans up **orphaned** strategies (wallets a failed deploy created before `runtime create`). The
+close also cleans up **orphaned** strategies (wallets a failed deploy created before its install step). The
 runtime is used **only to stop** the strategy, found by wallet (`find_runtime_by_wallet`).
 **`--all`** closes **every** OPEN strategy across all packages (for "close all strategies / return funds")
 and deletes their runtimes. `--instance` needs the live runtime to identify an instance; if it's gone, omit it.
@@ -240,11 +240,15 @@ not by hand-composing `strategy_list`.
 
 | Command | Used for |
 |---|---|
-| `openclaw senpi runtime create -p <yaml> --runtime-id <id>` | deploy step 3 |
-| `openclaw senpi runtime list [--json]` | idempotency check, verify, reverse lookup, close discovery |
-| `openclaw senpi runtime delete --id <id> --address <wallet>` | reinstall, close step 1 |
-| `openclaw senpi status -r <id> [--json]` / `state -r <id> [--json]` | verify + Monitor (scanner ticked) |
+| `openclaw senpi deploy -p <dir> …` / `deploy status [--json]` | the deploy verb + its read-only report — started via `deploy.py` (the funded path) |
+| `openclaw senpi runtime list` — text output only, it takes no `--json` | reverse lookup, close discovery, `status.py` fleet view |
+| `openclaw senpi runtime delete --id <id> --address <wallet>` | close step 1, orphan-runtime cleanup |
+| `openclaw senpi status -r <id> [--json]` / `state -r <id> [--json]` | Monitor (scanner ticked) |
 | `openclaw senpi dsl positions\|inspect\|closes` · `action list\|history\|decisions` | troubleshooting |
+
+There is deliberately **no `runtime create` row**: install is the deploy verb's own step 4, done
+in-process — the verb never shells out to it, and running it by hand skips the funds preflight, the
+attribution and the observed tick (`[E_SCANNER_PATH_UNRESOLVED]` is usually its fingerprint).
 
 ## MCP tools used (via `mcp_client.py`)
 
