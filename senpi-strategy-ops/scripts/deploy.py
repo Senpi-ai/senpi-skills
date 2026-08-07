@@ -11,7 +11,7 @@ lifecycle claim, or a refusal string — the `[E_*]` codes pass straight through
   python3 deploy.py create   <id> --budget <usd> [--max-wait S]    # run the deploy (create+fund+install+tick)
   python3 deploy.py runtime  <id> [--decision-model M]             # resume/complete the same deploy
   python3 deploy.py verify   <id> [--max-wait S]                   # re-run: reconciles, then observes a tick
-  python3 deploy.py status   <id>                                  # the last deploy job's status
+  python3 deploy.py status   [<id>]                                # the last deploy job's status
 
 The three action subcommands all drive the SAME idempotent verb; re-running any of them resumes
 (the verb reconciles against the backend + the runtime registry and adopts whatever exists). They
@@ -213,6 +213,34 @@ def status_snapshot(deploy_id):
     return snap if isinstance(snap, dict) else None
 
 
+def check_status_package(arg, snap):
+    """Hold a `status <id>` to the snapshot it is about to print, or refuse.
+
+    There is ONE deploy-job record per agent and it is not package-addressed: `status_snapshot(None)`
+    answers with the LAST job whatever package it ran. Printing polar's report and polar's exit code
+    under a `status spider` prompt invites an agent to bind the wrong package's verdict, so a named
+    package that the job does not match is a refusal, not a decoration. A snapshot that names no
+    package at all can't be confirmed either way — say so rather than let the id ride along silently."""
+    if not arg:
+        return
+    want = Path(arg).name
+    got = ((snap or {}).get("meta") or {}).get("packageId")
+    if not got:
+        print(f"note: this deploy job does not name its package, so it could NOT be confirmed as "
+              f"{want!r}. Read the package off the report below before binding this verdict to {want}.",
+              file=sys.stderr)
+        return
+    if str(got) != want:
+        print(f"error: the last deploy job on this agent is {str(got)!r}, not {want!r} — refusing to "
+              f"print it under a {want!r} prompt.\n"
+              f"  There is one deploy-job record per agent; `status` is not package-addressed.\n"
+              f"  What {want} is doing right now:  python3 "
+              f"{Path(__file__).with_name('status.py').name} {want}\n"
+              f"  The {got} job's report:          python3 {Path(__file__).name} status {got}",
+              file=sys.stderr)
+        raise SystemExit(EXIT_INTERNAL)
+
+
 def print_status(deploy_id, as_json, snap):
     """Relay the verb's own rendering — the human table comes from `deploy status`, unedited."""
     if as_json:
@@ -316,8 +344,13 @@ def main(argv):
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
     pv.add_argument("--dry-run", action="store_true")
 
+    # `status` reports the agent's LAST deploy job — one record, not package-addressed — so it needs
+    # no package and never resolves (or fetches) one. An id may still be given: it is checked against
+    # the job, so a mismatch refuses instead of printing another package's verdict under it.
     ps = sub.add_parser("status", help="Show the last deploy job for this agent.")
-    common(ps)
+    ps.add_argument("package", nargs="?", default=None,
+                    help="Optional: the package you expect this job to be. A mismatch is refused.")
+    ps.add_argument("--json", action="store_true")
 
     pval = sub.add_parser("validate",
                           help="Preflight: is the package deploy-ready? (structural + render — no side effects)")
@@ -334,6 +367,7 @@ def main(argv):
             print("No deploy job recorded on this agent. Start one:\n"
                   f"  python3 {Path(__file__).name} create <id> --budget <usd>", file=sys.stderr)
             sys.exit(EXIT_INTERNAL)
+        check_status_package(a.package, snap)
         print_status(None, a.json, snap)
         sys.exit(exit_code_for(snap))
 

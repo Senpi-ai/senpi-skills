@@ -260,7 +260,9 @@ failed deploy as a success. Branch on the whole map — and note the behaviour c
 > it **installs and starts trading**. **Reserve it for an intentional resume/reconcile**, never for
 > "is it still ticking?" — monitoring runs on the read-only surfaces (`status.py`, `openclaw senpi deploy
 > status`, `senpi scanner`, `senpi status`, `senpi state`; see **Monitor** below). `deploy.py status
-> <id>` shows the last deploy job and starts nothing.
+> [<id>]` shows the last deploy job and starts nothing — there is **one job record per agent**, so an id
+> you pass is checked against it and a mismatch **refuses** instead of printing another package's verdict
+> under your package's name.
 
 ### Host prerequisites
 `openclaw` + the `@senpi-ai/runtime` plugin running; `SENPI_AUTH_TOKEN` exported (the same token the

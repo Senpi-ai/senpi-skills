@@ -134,13 +134,17 @@ it. Run the command the report prints, never a wider one. The crash case does no
 unwind — the boot scan never moves money — so an `interrupted` status names both exits (re-run to adopt,
 or close to reclaim) along with the amount, read fresh from the backend.
 
-## `deploy.py {validate|create|runtime|verify|status} <id> …` — the funded path
+## `deploy.py {validate|create|runtime|verify} <id> | status [<id>] …` — the funded path
 
 `deploy.py` keeps its CLI contract but no longer deploys anything itself. It owns the **front half** —
 package resolution (a path, or a bare catalog id fetched from the remote) and the side-effect-free
 preflight — then starts the verb, polls `deploy status`, and relays the report **verbatim**. Its three
 action subcommands (`create` / `runtime` / `verify`) all drive the same idempotent verb; they remain
-distinct so existing docs and transcripts stay valid.
+distinct so existing docs and transcripts stay valid. `status` is the exception: it reads the agent's
+**last deploy job** — one record, not package-addressed — so it resolves no package and fetches nothing.
+An id is optional there and acts as an assertion: if the job ran a different package, `status` refuses
+(naming both, and pointing at `status.py <id>` for what that package is actually doing) rather than
+printing the other package's report and exit code under the id you asked about.
 
 **The live-universe ticker gate lives HERE, and only here.** `universe_preflight` (`validate_universe.py`
 against the live HL instrument list) runs in the three action subcommands, immediately before the verb is

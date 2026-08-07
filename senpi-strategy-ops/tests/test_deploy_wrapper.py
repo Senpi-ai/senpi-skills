@@ -235,6 +235,64 @@ class RunDeployExitCodes(unittest.TestCase):
         self.assertEqual(deploy.run_deploy(_pkg(), _args(budget=500.0, max_wait=0), lambda m: None), 6)
 
 
+class StatusSubcommand(unittest.TestCase):
+    """`status` reads the agent's LAST deploy job — there is one record per agent and it is not
+    package-addressed. So a named package must be held against the snapshot, never decorated with it."""
+
+    def setUp(self):
+        self._real = _cli.run_cli
+
+    def tearDown(self):
+        _cli.run_cli = self._real
+
+    @staticmethod
+    def _snap(package_id="polar", overall="live"):
+        return {"meta": {"deployId": "dpl-a1b2c3d4", "packageId": package_id},
+                "state": {"status": "done", "overall": overall}}
+
+    def _run(self, argv, responses):
+        _cli.run_cli = FakeCli(responses)
+        err, out = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, \
+                contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+            deploy.main(argv)
+        return ctx.exception.code, out.getvalue(), err.getvalue()
+
+    def test_a_package_that_is_not_the_last_jobs_package_is_refused(self):
+        # `deploy.py status spider` right after a polar deploy used to print polar's report and polar's
+        # exit code under a spider prompt — an invitation to bind the wrong package's verdict.
+        code, out, err = self._run(["deploy.py", "status", "spider"], [_ok(self._snap("polar"))])
+        self.assertEqual(code, 1)
+        self.assertIn("polar", err)
+        self.assertIn("spider", err)
+        self.assertNotIn("live", out)
+
+    def test_the_named_package_matching_the_job_reports_the_jobs_code(self):
+        code, _out, _err = self._run(
+            ["deploy.py", "status", "spider"],
+            [_ok(self._snap("spider")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
+        self.assertEqual(code, 0)
+
+    def test_a_package_dir_path_matches_on_its_basename(self):
+        code, _out, _err = self._run(
+            ["deploy.py", "status", "/data/workspace/strategies/spider"],
+            [_ok(self._snap("spider")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
+        self.assertEqual(code, 0)
+
+    def test_status_takes_no_package_at_all(self):
+        code, _out, _err = self._run(
+            ["deploy.py", "status"],
+            [_ok(self._snap("polar")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
+        self.assertEqual(code, 0)
+
+    def test_a_snapshot_that_names_no_package_is_flagged_never_silently_bound(self):
+        snap = {"meta": {"deployId": "dpl-a1b2c3d4"}, "state": {"status": "done", "overall": "live"}}
+        code, _out, err = self._run(
+            ["deploy.py", "status", "spider"], [_ok(snap), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
+        self.assertEqual(code, 0)
+        self.assertIn("spider", err)  # says out loud that it could not be confirmed
+
+
 class BudgetArg(unittest.TestCase):
     def test_renders_a_bare_parseable_number(self):
         self.assertEqual(deploy.budget_arg(500.0), "500")
