@@ -312,10 +312,16 @@ class StatusSubcommand(unittest.TestCase):
         # `deploy.py status spider` right after a polar deploy used to print polar's report and polar's
         # exit code under a spider prompt — an invitation to bind the wrong package's verdict.
         code, out, err = self._run(["deploy.py", "status", "spider"], [_ok(self._snap("polar"))])
+        # 1, not 2: 2 is "the deploy was refused, nothing created", which is false here — polar's
+        # deploy may be live. This is "could not answer the question you asked".
         self.assertEqual(code, 1)
         self.assertIn("polar", err)
         self.assertIn("spider", err)
         self.assertNotIn("live", out)
+        # 1 is also the retry class, so the refusal must say retrying is pointless and that it is
+        # reporting no deploy state at all.
+        self.assertIn("no deploy state", err.lower())
+        self.assertIn("will refuse again", err.lower())
 
     def test_the_named_package_matching_the_job_reports_the_jobs_code(self):
         code, _out, _err = self._run(

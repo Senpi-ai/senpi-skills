@@ -139,7 +139,10 @@ from the surfaces that prove it (`totalFunded`, the scanner row's `lastRunStatus
 **Exit codes** (both `openclaw senpi deploy status` and `deploy.py`): `0` live · `2` refused · `3`
 failed · `4` installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job
 still running) · `1` internal/transport error — which is also what an unrecognised status returns, so
-a new status can never read as success. Branch on the code; read `--json` for anything richer.
+a new status can never read as success. `1` covers two more wrapper-side "could not answer" cases: a
+start it could not follow (read `openclaw senpi deploy status` — the job may be running), and a
+`deploy.py status <id>` whose id is not the recorded job's package (nothing about any deploy is
+reported, and re-running it refuses identically). Branch on the code; read `--json` for anything richer.
 
 Terminal `overall` values:
 
@@ -261,8 +264,8 @@ failed deploy as a success. Branch on the whole map — and note the behaviour c
 > "is it still ticking?" — monitoring runs on the read-only surfaces (`status.py`, `openclaw senpi deploy
 > status`, `senpi scanner`, `senpi status`, `senpi state`; see **Monitor** below). `deploy.py status
 > [<id>]` shows the last deploy job and starts nothing — there is **one job record per agent**, so an id
-> you pass is checked against it and a mismatch **refuses** instead of printing another package's verdict
-> under your package's name.
+> you pass is checked against it and a mismatch **refuses** (exit `1`, no deploy state reported, re-running
+> refuses again) instead of printing another package's verdict under your package's name.
 
 ### Host prerequisites
 `openclaw` + the `@senpi-ai/runtime` plugin running; `SENPI_AUTH_TOKEN` exported (the same token the

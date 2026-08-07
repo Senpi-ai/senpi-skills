@@ -21,7 +21,9 @@ Exit codes mirror the verb's own (D-12): 0 live · 2 refused · 3 failed · 4 in
 5 interrupted · 6 pending (a wallet still funding, or the job still running) · 1 internal/transport
 error, which is also the fallback for a status this wrapper does not recognise AND for a start we
 could not follow (spawn failure, start timeout, or a 0-exit start that printed no deployId — in
-those last two the job may well be running: read `openclaw senpi deploy status`). There is no
+those last two the job may well be running: read `openclaw senpi deploy status`) AND for a
+`status <id>` whose id is not the recorded job's package (the question could not be answered — no
+deploy outcome is being reported; re-running it refuses identically). There is no
 `cancel`: undeploying a strategy is closing it (`close.py`), and a wedged job frees its own slot at
 the deploy deadline.
 
@@ -243,6 +245,9 @@ def check_status_package(arg, snap):
         print(f"error: the last deploy job on this agent is {str(got)!r}, not {want!r} — refusing to "
               f"print it under a {want!r} prompt.\n"
               f"  There is one deploy-job record per agent; `status` is not package-addressed.\n"
+              f"  NO DEPLOY STATE IS REPORTED HERE — this says nothing about {want}'s deploy, and "
+              f"nothing about {got}'s beyond its name. Re-running this exact command will refuse "
+              f"again (exit 1 here means the question could not be answered, not a transport blip).\n"
               f"  What {want} is doing right now:  python3 "
               f"{Path(__file__).with_name('status.py').name} {want}\n"
               f"  The {got} job's report:          python3 {Path(__file__).name} status {got}",

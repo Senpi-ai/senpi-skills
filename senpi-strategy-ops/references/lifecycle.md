@@ -157,7 +157,9 @@ a package the wrapper already gated.
 **Exit codes** (identical to the verb's): `0` live · `2` refused · `3` failed · `4`
 installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job still running) ·
 `1` internal/transport error — also the fallback for a status the wrapper does not recognise, so a new
-status can never read as success. Branch on the code; use `--json` for anything richer.
+status can never read as success, and for the wrapper's own "could not answer" cases: a start it could
+not follow, and a `status <id>` that does not match the recorded job (no deploy state is reported there,
+and a re-run refuses identically). Branch on the code; use `--json` for anything richer.
 
 **Package fetch.** Any subcommand fetches `strategies/<id>/` from the remote if it isn't on disk
 (`_fetch.py`: GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default
