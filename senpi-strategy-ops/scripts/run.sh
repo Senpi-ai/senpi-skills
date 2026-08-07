@@ -36,5 +36,8 @@ git pull --ff-only origin "$BRANCH"
 [ -d "strategies/$ID" ] || { echo "error: strategies/$ID does not exist on branch '$BRANCH'" >&2; exit 1; }
 
 cd senpi-strategy-ops/scripts
-python3 deploy.py create "$ID" --budget "$BUDGET"   # one idempotent deploy; re-run it to resume
-echo ">> done — $ID deployed from '$BRANCH' with \$$BUDGET. It scans on its own cadence; flat != broken."
+# Deploy the package we JUST checked out, BY PATH. A bare id would resolve through the durable
+# strategies root (a stale copy from an earlier run) or a remote fetch of the default ref — so the
+# tester would fund main's, or last week's, package while believing they tested "$BRANCH".
+python3 deploy.py create "$ROOT/strategies/$ID" --budget "$BUDGET"   # idempotent; re-run to resume
+echo ">> done — $ID deployed from $ROOT/strategies/$ID (branch '$BRANCH') with \$$BUDGET. It scans on its own cadence; flat != broken."
