@@ -107,7 +107,8 @@ It validates locally, runs the live-universe ticker gate, starts the job, and th
 `deploy status` for you, printing the verb's report verbatim.
 Flags: `--decision-model <model>` (required only for a `decision_mode: llm` action),
 `--tick-wait <s>` (how long the job waits to observe a tick; default 120, `0` skips),
-`--max-wait <s>` (wallet-ACTIVE poll budget; default 150), `--json`.
+`--max-wait <s>` (how long the JOB waits for a wallet to reach ACTIVE — the wrapper forwards it and
+polls for the same budget; verb default 150, `deploy.py` default 600), `--json`.
 
 Inside the job, per instance: **reconcile** (match live strategies by name — an existing live wallet is
 adopted, never duplicated) → **preflight** (accessible-balance check) → **create** (one

@@ -42,7 +42,7 @@ import _pkg  # noqa: E402
 
 START_TIMEOUT = 60      # the verb detaches in ~1s; this is only the spawn budget
 STATUS_TIMEOUT = 30
-DEFAULT_MAX_WAIT = 600  # how long THIS script waits for the detached job to reach a terminal state
+DEFAULT_MAX_WAIT = 600  # forwarded as the JOB's wallet-ACTIVE budget, and this script's poll budget
 POLL_EVERY = 5
 
 # D-12: the verb's exit-code contract, mirrored here so `deploy.py` and `openclaw senpi deploy
@@ -160,6 +160,11 @@ def start_deploy(pkg, a, log):
         args += ["--decision-model", a.decision_model]
     if getattr(a, "tick_wait", None) is not None:
         args += ["--tick-wait", str(a.tick_wait)]
+    # `--max-wait` is the JOB's wallet-ACTIVE budget, not just this script's poll budget. Forward it:
+    # a wrapper that only polled longer would let a caller who raised it believe they gave the funding
+    # step more room while the job still ran on the verb's default.
+    if getattr(a, "max_wait", None) is not None:
+        args += ["--max-wait", str(a.max_wait)]
     if getattr(a, "dry_run", False):
         print("planned: " + " ".join(args))
         raise SystemExit(0)
@@ -263,7 +268,8 @@ def main(argv):
     pc = sub.add_parser("create", help="Run the deploy: create + fund the wallet(s), install, observe a tick.")
     common(pc)
     pc.add_argument("--budget", type=float, default=None, help="Total USDC split across wallets by funding_share.")
-    pc.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT, help="How long to wait for the job (s).")
+    pc.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT,
+                    help="Seconds the JOB waits for wallets to reach ACTIVE (forwarded to the verb); this script polls for the same budget.")
     pc.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
     pc.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
@@ -272,7 +278,8 @@ def main(argv):
     pr = sub.add_parser("runtime", help="Resume/complete the same deploy (installs the runtime(s)).")
     common(pr)
     pr.add_argument("--budget", type=float, default=None, help="Only needed if a wallet still has to be created.")
-    pr.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT, help="How long to wait for the job (s).")
+    pr.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT,
+                    help="Seconds the JOB waits for wallets to reach ACTIVE (forwarded to the verb); this script polls for the same budget.")
     pr.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
     pr.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
@@ -281,7 +288,8 @@ def main(argv):
     pv = sub.add_parser("verify", help="Re-run the deploy: reconciles what exists, then observes a scanner tick.")
     common(pv)
     pv.add_argument("--budget", type=float, default=None, help="Only needed if a wallet still has to be created.")
-    pv.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT, help="How long to wait for the job (s).")
+    pv.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT,
+                    help="Seconds the JOB waits for wallets to reach ACTIVE (forwarded to the verb); this script polls for the same budget.")
     pv.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
     pv.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")

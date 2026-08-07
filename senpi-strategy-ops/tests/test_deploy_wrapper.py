@@ -72,6 +72,16 @@ class StartDeploy(unittest.TestCase):
         self.assertEqual(argv[argv.index("--budget") + 1], "500")
         self.assertEqual(argv[argv.index("--decision-model") + 1], "samurai-light")
         self.assertEqual(argv[argv.index("--tick-wait") + 1], "0")
+        # `--max-wait` is the JOB's wallet-ACTIVE budget as well as this script's poll budget: a
+        # wrapper that only polls longer leaves the caller believing they raised a budget they didn't.
+        self.assertEqual(argv[argv.index("--max-wait") + 1], "60")
+
+    def test_max_wait_reaches_the_verb_not_just_the_poll_loop(self):
+        fake = FakeCli([_ok({"deployId": "dpl-a1b2c3d4"})])
+        _cli.run_cli = fake
+        deploy.start_deploy(_pkg(), _args(budget=500.0, max_wait=900), lambda m: None)
+        argv = fake.calls[0]
+        self.assertEqual(argv[argv.index("--max-wait") + 1], "900")
 
     def test_a_refused_start_relays_the_verbs_own_text_and_exits_nonzero(self):
         _cli.run_cli = FakeCli([(1, "", "[E_FUNDS_BELOW_FLOOR] Requested $500.00 …")])
