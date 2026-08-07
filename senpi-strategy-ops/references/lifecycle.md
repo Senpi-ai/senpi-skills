@@ -191,7 +191,9 @@ own verdict + active-position count. Classes:
 
 - **healthy / degraded / unhealthy / unknown** — ACTIVE strategy + live runtime, per the runtime's `status`
   health, which is fail-closed: `unknown` = scanner not yet proven by a tick (verify, don't assume);
-  `deploy.py verify <id>` remains the deploy-time liveness gate; degraded/unknown print a triage hint.
+  the deploy report's `overall: live` is the deploy-time liveness gate — re-read it read-only with
+  `openclaw senpi deploy status`, never by re-running `deploy.py verify` (that starts the deploy verb
+  and can fund/install); degraded/unknown print a triage hint.
 - **runtime-stopped** — ACTIVE + runtime exists but not running.
 - **no-runtime** — autonomous *package* strategy (`skillName`, no `traderAddress`) with **no runtime** →
   the only no-runtime anomaly (funded but not running, likely an interrupted deploy); printed with the fix

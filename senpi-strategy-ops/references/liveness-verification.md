@@ -12,8 +12,9 @@ This is an **agent-side check**. Run the commands yourself; do not ask the user 
 > `scan(inputs, ctx)` every `interval_seconds` itself (restarting it on crash). There is **no separate
 > producer daemon and no `push_signal`** — so there is nothing to reconcile against. **Never read the
 > on-disk state files** (`/data/.openclaw/senpi-state/…`); they're internal, partially-written, and not a
-> contract. `deploy.py verify` already runs this check (the `live` / `not-live` verdict); use this doc for
-> hand triage.
+> contract. The deploy report's `overall` carries this verdict at deploy time — re-read it read-only with
+> `openclaw senpi deploy status`; use this doc for hand triage. **Do not re-run `deploy.py verify` to
+> monitor**: it runs the deploy verb and can create, fund and install.
 >
 > **The reliable backbone vs. the flaky detail — which command to trust:**
 > - **`openclaw senpi runtime list`** — the **authoritative inventory** (id / wallet / source / status).
@@ -83,10 +84,10 @@ authoritative signals are `health` and the heartbeat, **not** the run counters:
 - **`lastAliveAt` is fresh** (`now − lastAliveAt ≤ 2 × interval_seconds`) — the scanner POSTed to intake
   this cycle. **A healthy scanner that finds no setup still POSTs an empty heartbeat every tick**, so a
   live barren scanner has a fresh `lastAliveAt` even with **`runCount === 0` / no signals**. (For **hand
-  triage** of an already-running strategy, check this freshness. **`deploy.py verify` intentionally does
-  NOT** — it's a deploy-time gate where staleness can't have accrued yet, so it treats *any* `lastAliveAt`
-  as a tick and defers stall-detection to the runtime's own `health` verdict, which flips a silent
-  scanner to `unhealthy`/`degraded`.)
+  triage** of an already-running strategy, check this freshness. The deploy-time gate — the verb's
+  **observe** step — intentionally does **not** apply this 2×-cadence rule: staleness can't have accrued
+  yet, so it asks only for a tick at or after *this* install and defers stall-detection to the runtime's
+  own `health` verdict, which flips a silent scanner to `unhealthy`/`degraded`.)
 - `enabled === true`, `consecutiveErrorCount === 0`, `lastError === null`.
 
 > **Do NOT require `runCount > 0`.** For an external scanner, `runCount` and `lastRunFinishedAt` lag or
@@ -148,11 +149,12 @@ Declare a strategy **live** only when, for **every** instance:
 If you **cannot read `status` or `state`** for an instance (they're flaky-empty for a minute+ after start),
 fall back to the **reliable backbone**: is the runtime in **`openclaw senpi runtime list`** as `running`?
 If yes, the scanner is **live-but-unmeasured** (`supervised`) — the runtime spawns and supervises the
-declared scanner and restarts it on crash, and the DSL protects positions — **not** "down." `deploy.py
-verify` treats this as live for that reason. Only a runtime **missing/stopped** in `runtime list`, one
+declared scanner and restarts it on crash, and the DSL protects positions — **not** "down." The deploy
+verb's observe step treats this as live for that reason. Only a runtime **missing/stopped** in `runtime list`, one
 showing **`running — NO ENTRY SCANNERS`** there (entry scanners never wired — check `senpi events`), or a
 scanner the reads *positively* report unhealthy/erroring, is a real failure. Still: **never report a
-strategy as live until `verify` returns `live`.**
+strategy as live until a deploy report says `overall: live`** — read it with `openclaw senpi deploy
+status`, which starts nothing.
 
 Anything less: surface the specific failing field and the remediation, not a generic "looks fine." For
 deeper engine triage (position_tracker → DSL → actions), see

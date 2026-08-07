@@ -252,11 +252,13 @@ keep the same flags (`--budget`, `--decision-model`,
 `--max-wait`, `--tick-wait`, `--json`, `--dry-run`) and exit codes (2 on a refused/failed report), so
 older transcripts and habits still work — but note the behaviour change below.
 
-> **`verify` now runs a deploy.** It used to be a read-only check. It drives the same idempotent verb,
-> so on a package whose wallets already exist it just reconciles and observes — but given a `--budget`
-> and a missing wallet it **will create and fund one**. If you only want to look, use
-> `openclaw senpi deploy status` (or `deploy.py status`), which never starts anything. `deploy.py status
-> <id>` shows the last deploy job.
+> **`verify` now runs a deploy — it can move money.** It used to be a read-only check. It drives the same
+> idempotent verb, so on a package whose wallets already exist it just reconciles and observes — but given
+> a `--budget` and a missing wallet it **will create and fund one**, and on a funded wallet with no runtime
+> it **installs and starts trading**. **Reserve it for an intentional resume/reconcile**, never for
+> "is it still ticking?" — monitoring runs on the read-only surfaces (`status.py`, `openclaw senpi deploy
+> status`, `senpi scanner`, `senpi status`, `senpi state`; see **Monitor** below). `deploy.py status
+> <id>` shows the last deploy job and starts nothing.
 
 ### Host prerequisites
 `openclaw` + the `@senpi-ai/runtime` plugin running; `SENPI_AUTH_TOKEN` exported (the same token the
@@ -317,8 +319,12 @@ user the management mode for off-runtime strategies — do not call them idle.**
 procedure in [`senpi-trading-runtime/references/dsl-protection-check.md`](../senpi-trading-runtime/references/dsl-protection-check.md).
 
 Do **not** trust "runtime: running" alone. A strategy is **live** only when its runtime is running AND
-each instance's `external_scanner` has a recent successful tick (`status.py` reports `running`; confirm a
-tick with `deploy.py verify <id>`). Verify with the runtime CLI:
+each instance's `external_scanner` has a recent successful tick (`status.py` reports `running`). Confirm
+the tick on a **read-only** surface — never with `deploy.py verify`, which now runs the deploy verb and
+can create, fund and install (see the funded path above):
+- `python3 scripts/status.py <id>` — the fleet view + each runtime's own health verdict
+- `openclaw senpi deploy status` — the last deploy job's report (starts nothing)
+- `openclaw senpi scanner -r <runtime_id>` — the scanner rows (`lastRunStatus`, `runCount`), the tick itself
 - `openclaw senpi status -r <runtime_id> --json` / `openclaw senpi state -r <runtime_id> --json`
 - field-level liveness decision tree → [`references/liveness-verification.md`](references/liveness-verification.md)
 - DSL / action / position troubleshooting → `openclaw senpi dsl|action …` (see lifecycle.md) and the
