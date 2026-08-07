@@ -31,7 +31,10 @@ the deploy deadline.
 There is NO local deploy-state file any more. The backend strategies and the runtime registry ARE
 the record — the sidecar `.deploy-state.json` was the source of the whole `E_STATE_*` lost-state
 class, and it is gone. Package resolution (path or bare catalog id, with the remote fetch) and the
-structural/universe preflight stay here; everything after them lives in the runtime.
+structural preflight stay here; the live-universe gate and everything after them live in the
+runtime (`[E_UNIVERSE_NOT_LIVE]`, pre-money, relayed verbatim like every other refusal). `validate`
+still REPORTS the universe locally, from the same predicates the runtime ports — a report beside
+the verdict, never the invariant.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -118,7 +121,9 @@ def full_validate(pkg):
     plus a render dry-run per instance (unresolved `${...}`, a `decision_mode: llm` with no model). Lets
     `validate` and the pre-deploy gate report everything BEFORE a wallet is funded. (Runtime-engine
     schema errors still surface from the verb's install step, but everything modellable here is caught
-    first.)"""
+    first; `validate` additionally reports the live universe beside this pass — see
+    {@link universe_report} — which needs the network and so is not part of "every error deploy.py
+    can see" locally.)"""
     errs = list(_pkg.validate(pkg))
     for inst in pkg.instances:
         if inst.runtime_doc is None:
@@ -131,22 +136,25 @@ def full_validate(pkg):
     return errs
 
 
-def universe_preflight(pkg, log):
-    """Refuse to deploy a package whose hardcoded tickers aren't live HL instruments (a dead name
-    silently no-trades; the xyz:NASDAQ incident). Stays on this side because it is a PACKAGE check,
-    not a deploy step. Best-effort: if the live instrument list is unreachable we proceed."""
+def universe_report(pkg):
+    """The live-universe check as a REPORT for `validate` — never a gate.
+
+    The invariant itself is the verb's: `openclaw senpi deploy` refuses a dead hardcoded name
+    pre-money (`[E_UNIVERSE_NOT_LIVE]`) and fails closed when the instrument list is unreadable.
+    This runs the SAME `validate_universe` predicates the runtime ports, so the two cannot disagree
+    on one live list, and it exists only so the taught step-0 preflight can report a dead universe
+    before a whole deploy round-trip. Returns `(errors, note)`: an unreachable list is a LOUD note,
+    never a silent pass and never a blocked deploy."""
     try:
         import validate_universe as _vu
         unknown = _vu.unknown_tickers(_vu.package_tickers(str(pkg.dir)), _vu.live_instruments())
-        if unknown:
-            raise SystemExit(
-                f"error: {pkg.id} hardcodes instrument(s) not live on Hyperliquid: {', '.join(unknown)}\n"
-                f"Fix the package universe first (senpi-strategy-author edit path); details:\n"
-                f"  python3 {Path(__file__).with_name('validate_universe.py')} {pkg.dir}")
-    except SystemExit:
-        raise
-    except Exception as e:  # noqa: BLE001 — enrichment, never a gate on its own
-        log(f"  (universe preflight skipped: {e})")
+    except Exception as e:  # noqa: BLE001 — loud note, never a silent pass
+        return [], (f"live-universe check could not run here ({e}) — nothing about the universe is "
+                    f"verified; `senpi deploy` still enforces it before money moves")
+    if unknown:
+        return ([f"hardcodes instrument(s) not live on Hyperliquid: {', '.join(unknown)} "
+                 f"(the deploy verb will refuse this pre-money: [E_UNIVERSE_NOT_LIVE])"], None)
+    return [], None
 
 
 # ---------- the verb ----------
@@ -428,15 +436,26 @@ def main(argv):
     # full check before the verb touches money.
     gate = full_validate(pkg)
     if a.cmd == "validate":
+        # `validate` also REPORTS the live universe (the verb enforces it; this saves a deploy
+        # round-trip). A dead name is an error like any other; an unreadable instrument list is a
+        # note that never changes the exit code — it is not this command's invariant to hold.
+        u_errors, u_note = universe_report(pkg)
+        errors = gate + u_errors
         if a.json:
-            print(json.dumps({"status": "valid" if not gate else "invalid", "id": pkg.id, "errors": gate}))
-        elif gate:
-            print(f"✗ {pkg.id}: {len(gate)} issue(s) to fix before deploy:", file=sys.stderr)
-            for e in gate:
-                print(f"    - {e}", file=sys.stderr)
+            print(json.dumps({"status": "valid" if not errors else "invalid", "id": pkg.id,
+                              "errors": errors, **({"note": u_note} if u_note else {})}))
         else:
-            print(f"✓ {pkg.id}: deploy-ready ({len(pkg.instances)} instance(s))")
-        sys.exit(2 if gate else 0)
+            # The note rides EVERY verdict, not just the clean one: it says a check did not run,
+            # which is as true of an otherwise-invalid package as of a green one.
+            if u_note:
+                print(f"note: {u_note}", file=sys.stderr)
+            if errors:
+                print(f"✗ {pkg.id}: {len(errors)} issue(s) to fix before deploy:", file=sys.stderr)
+                for e in errors:
+                    print(f"    - {e}", file=sys.stderr)
+            else:
+                print(f"✓ {pkg.id}: deploy-ready ({len(pkg.instances)} instance(s))")
+        sys.exit(2 if errors else 0)
     if gate:
         print(f"✗ {pkg.id}: {len(gate)} issue(s) to fix before deploy:", file=sys.stderr)
         for e in gate:
@@ -450,7 +469,6 @@ def main(argv):
     if a.max_wait is None:
         a.max_wait = DEFAULT_MAX_WAIT
 
-    universe_preflight(pkg, log)
     sys.exit(run_deploy(pkg, a, log))
 
 

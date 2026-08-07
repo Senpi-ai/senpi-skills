@@ -157,19 +157,18 @@ class ForwardedMaxWaitDefault(unittest.TestCase):
 
     def setUp(self):
         self._cli_real = _cli.run_cli
-        self._ensure, self._validate, self._universe, self._wait = (
-            deploy.ensure_pkg, deploy.full_validate, deploy.universe_preflight, deploy.wait_for_terminal)
+        self._ensure, self._validate, self._wait = (
+            deploy.ensure_pkg, deploy.full_validate, deploy.wait_for_terminal)
         deploy.ensure_pkg = lambda arg, ref, log: _pkg()
         deploy.full_validate = lambda pkg: []
-        deploy.universe_preflight = lambda pkg, log: None
         self.waited = []
         deploy.wait_for_terminal = lambda did, budget, log: (
             self.waited.append(budget) or {"state": {"status": "done", "overall": "live"}})
 
     def tearDown(self):
         _cli.run_cli = self._cli_real
-        (deploy.ensure_pkg, deploy.full_validate, deploy.universe_preflight,
-         deploy.wait_for_terminal) = (self._ensure, self._validate, self._universe, self._wait)
+        (deploy.ensure_pkg, deploy.full_validate,
+         deploy.wait_for_terminal) = (self._ensure, self._validate, self._wait)
 
     def _create(self, *extra):
         fake = FakeCli([_ok({"deployId": "dpl-a1b2c3d4"}), (0, "done — live", "")])
@@ -398,6 +397,122 @@ class StatusSubcommand(unittest.TestCase):
             ["deploy.py", "status", "spider"], [_ok(snap), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
         self.assertEqual(code, 0)
         self.assertIn("spider", err)  # says out loud that it could not be confirmed
+
+
+class UniverseGateOwnership(unittest.TestCase):
+    """The live-universe invariant belongs to the VERB now (`[E_UNIVERSE_NOT_LIVE]`, pre-money,
+    fail-closed on an unreadable instrument list). This wrapper's own fail-open preflight is gone:
+    keeping a gate that proceeds when the list is unreachable in FRONT of one that refuses is the
+    two-producer drift the move exists to end."""
+
+    def setUp(self):
+        self._real_cli, self._real_sleep = _cli.run_cli, deploy.time.sleep
+        deploy.time.sleep = lambda _s: None
+
+    def tearDown(self):
+        _cli.run_cli, deploy.time.sleep = self._real_cli, self._real_sleep
+
+    def test_action_subcommands_have_no_local_universe_gate(self):
+        self.assertFalse(hasattr(deploy, "universe_preflight"))
+
+    def test_universe_refusal_relays_verbatim_with_exit_2(self):
+        # The verb's refusal reaches the wrapper through the ordinary status relay: no local
+        # re-derivation, no second wording — the report is printed exactly as the verb rendered it.
+        rendered = ("deploy dpl-a1b2c3d4 — done — refused\n"
+                    "  reconcile: [E_UNIVERSE_NOT_LIVE] 1 hardcoded instrument(s) in this package "
+                    "are not live on Hyperliquid. Nothing was created — \"xyz:NASDAQ\"")
+        _cli.run_cli = FakeCli([
+            _ok({"deployId": "dpl-a1b2c3d4", "phase": "reconcile"}),
+            _ok({"state": {"status": "done", "overall": "refused"}}),
+            (0, rendered, ""),
+        ])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = deploy.run_deploy(_pkg(), _args(budget=500.0), lambda m: None)
+        self.assertEqual(code, 2)
+        self.assertIn(rendered, out.getvalue())
+
+
+class ValidateUniverseHook(unittest.TestCase):
+    """`validate` is the taught step-0 preflight, so it reports a dead universe locally — using the
+    SAME `validate_universe` predicates the verb ports, so the two cannot disagree on one live list.
+    It is a report, never the invariant: the verb enforces before money moves, so an unreachable
+    instrument list here is a LOUD note, never a silent pass and never a blocked deploy."""
+
+    def setUp(self):
+        self._real_cli = _cli.run_cli
+        self._ensure, self._full_validate = deploy.ensure_pkg, deploy.full_validate
+        deploy.ensure_pkg = lambda arg, ref, log: _pkg()
+        deploy.full_validate = lambda pkg: []
+        self._saved_vu = sys.modules.get("validate_universe")
+
+    def tearDown(self):
+        _cli.run_cli = self._real_cli
+        deploy.ensure_pkg, deploy.full_validate = self._ensure, self._full_validate
+        if self._saved_vu is None:
+            sys.modules.pop("validate_universe", None)
+        else:
+            sys.modules["validate_universe"] = self._saved_vu
+
+    def _install_vu(self, *, unknown=(), raises=None):
+        module = types.ModuleType("validate_universe")
+        module.package_tickers = lambda pkg_dir: {"BTC", "xyz:NASDAQ"}
+        module.unknown_tickers = lambda tickers, live: list(unknown)
+
+        def live_instruments():
+            if raises is not None:
+                raise raises
+            return {"BTC"}
+
+        module.live_instruments = live_instruments
+        sys.modules["validate_universe"] = module
+
+    def _run_validate(self, *extra):
+        _cli.run_cli = FakeCli([])
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            deploy.main(["deploy.py", "validate", "spider", *extra])
+        return ctx.exception.code, out.getvalue(), err.getvalue()
+
+    def test_a_dead_name_is_a_validate_error_at_exit_2(self):
+        self._install_vu(unknown=["xyz:NASDAQ"])
+        code, out, err = self._run_validate()
+        self.assertEqual(code, 2)
+        self.assertIn("xyz:NASDAQ", err)
+        self.assertIn("E_UNIVERSE_NOT_LIVE", err)   # names the refusal the deploy verb will raise
+        self.assertNotIn("deploy-ready", out)
+
+    def test_an_unreachable_instrument_list_is_a_loud_note_never_a_silent_pass(self):
+        self._install_vu(raises=RuntimeError("no SENPI_AUTH_TOKEN"))
+        code, out, err = self._run_validate()
+        self.assertEqual(code, 0)          # it never blocks: the verb owns the money-path gate
+        self.assertIn("no SENPI_AUTH_TOKEN", err)
+        self.assertIn("nothing about the universe", err.lower())
+        self.assertIn("senpi deploy", err)  # …and says who does enforce it
+        self.assertIn("deploy-ready", out)  # the structural verdict still stands, with the note beside it
+
+    def test_a_live_universe_leaves_the_clean_output_unchanged(self):
+        self._install_vu(unknown=[])
+        code, out, err = self._run_validate()
+        self.assertEqual(code, 0)
+        self.assertIn("deploy-ready", out)
+        self.assertEqual(err, "")
+
+    def test_json_carries_the_universe_error_and_the_note(self):
+        self._install_vu(unknown=["xyz:NASDAQ"])
+        code, out, _err = self._run_validate("--json")
+        payload = json.loads(out)
+        self.assertEqual(code, 2)
+        self.assertEqual(payload["status"], "invalid")
+        self.assertTrue(any("xyz:NASDAQ" in e for e in payload["errors"]))
+
+        self._install_vu(raises=RuntimeError("no SENPI_AUTH_TOKEN"))
+        code, out, _err = self._run_validate("--json")
+        payload = json.loads(out)
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["status"], "valid")
+        self.assertIn("no SENPI_AUTH_TOKEN", payload["note"])
 
 
 class BudgetArg(unittest.TestCase):
