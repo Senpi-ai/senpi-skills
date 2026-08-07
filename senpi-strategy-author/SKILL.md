@@ -290,7 +290,8 @@ re-smoke-test if you touched `scan.py`/`runtime.yaml`.
 ## Handoff & the live gate — deploy is `senpi-strategy-ops` (NEVER raw MCP); "done" means verified LIVE
 
 Authoring produces the **package** only; going live is a **separate, gated loop**, and a strategy is live
-only once **`senpi-strategy-ops` deploys it AND `deploy.py verify` passes**. Walk the full loop every time:
+only once **`senpi-strategy-ops` deploys it AND that deploy's report says `overall: live`**. Walk the full
+loop every time:
 
 1. **Confirm with the user** — budget + "ready to deploy?" Funding a wallet is real money and one-way, so
    this is an explicit yes, not an assumption.
@@ -299,15 +300,21 @@ only once **`senpi-strategy-ops` deploys it AND `deploy.py verify` passes**. Wal
    restructure into `main/` or hand-write `.deploy-state.json`. **Pass the package DIRECTORY** (absolute is
    safest, e.g. `/data/workspace/strategies/<id>`) — a bare id resolves CWD-relative and otherwise becomes a
    remote catalog fetch, never what you want for a package you just wrote.
-3. **Deploy** — `deploy.py create <path> --budget <the user's exact amount>` → `deploy.py runtime <path>`.
-   The budget is a **hard target** — if the live balance can't cover it, `create` halts `underfunded`;
-   fund/confirm a lower amount, **never silently fund less**. `create` deploys on a **FRESH wallet every
-   time** (it never reuses — a leftover smoke-test/runtime-less wallet is closed and its funds recovered
-   first, so do NOT try to top it up or reuse it).
-4. **GATE — `deploy.py verify <id>`**: the strategy is **live** only when *every* instance is
-   **runtime-running + scanner-active + DSL-wired + funded**. If verify returns `not-live` (e.g.
-   `scanner=broken`, `dsl=config-missing`, `budget=underfunded`), it is **NOT live** — fix the flagged
-   component and re-run. **Never tell the user it's live until `verify` returns `live`.**
+3. **Deploy** — `deploy.py create <path> --budget <the user's exact amount>`. That ONE command runs the
+   whole path (wallet create+fund → runtime install → one observed scanner tick) as a detached job and
+   relays the job's report; there is no separate `runtime` step to chase. The budget is a **hard target** —
+   if the accessible balance can't cover it the deploy **refuses** (`[E_FUNDS_SHORT]` /
+   `[E_FUNDS_BELOW_FLOOR]`); fund, or confirm a lower amount with the user, **never silently fund less**.
+   A wallet that already exists for this package is **adopted, not replaced, and never topped up** — if
+   you need a fresh one, `close.py <id>` first.
+4. **GATE — the deploy report's `overall`**: `live` (every instance installed **and** a scanner tick
+   observed) is the only value you may call live. `installed-unobserved` means the tick was not seen in
+   the window — say exactly that and re-read `openclaw senpi scanner -r <runtime_id>` in a few minutes;
+   `refused` / `failed` name their cause — fix it and re-run. Re-read the verdict **read-only** with
+   `openclaw senpi deploy status` (or `status.py <id>` for the running fleet). `deploy.py verify <id>` is
+   NOT a read-only check: it re-runs the deploy verb and can install, start trading, and with `--budget`
+   create+fund a wallet — reach for it only when you mean to resume. **Never tell the user it's live
+   until a report says `overall: live`.**
 
 **NEVER deploy an authored strategy with `strategy_create_custom_strategy` / `create_position`.** Those raw
 MCP tools fund a wallet with **no runtime** — a naked funded wallet: no scanner, no DSL, no guard-rails (the
