@@ -130,13 +130,21 @@ the amount and the manual `close.py`: a stranded funded wallet is never silent. 
 unwind — the boot scan never moves money — so an `interrupted` status names both exits (re-run to adopt,
 or close to reclaim) along with the amount, read fresh from the backend.
 
-## `deploy.py {validate|create|runtime|verify|status} <id> …` — the compatibility wrapper
+## `deploy.py {validate|create|runtime|verify|status} <id> …` — the funded path
 
 `deploy.py` keeps its CLI contract but no longer deploys anything itself. It owns the **front half** —
 package resolution (a path, or a bare catalog id fetched from the remote) and the side-effect-free
 preflight — then starts the verb, polls `deploy status`, and relays the report **verbatim**. Its three
 action subcommands (`create` / `runtime` / `verify`) all drive the same idempotent verb; they remain
 distinct so existing docs and transcripts stay valid.
+
+**The live-universe ticker gate lives HERE, and only here.** `universe_preflight` (`validate_universe.py`
+against the live HL instrument list) runs in the three action subcommands, immediately before the verb is
+started — not in `validate` (which exits after the structural + render pass) and not in the runtime,
+which has no live-instrument check of its own. So `openclaw senpi deploy -p <dir> --budget <usd>` will
+fund and install a package whose hardcoded tickers are dead (the `xyz:NASDAQ` shape: registers, ticks,
+never trades). Fund through the wrapper; use the bare verb for read-only `deploy status` and for resuming
+a package the wrapper already gated.
 
 **Exit codes** (identical to the verb's): `0` live · `2` refused · `3` failed · `4`
 installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job still running) ·
