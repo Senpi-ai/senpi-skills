@@ -82,16 +82,25 @@ Per instance the job runs five steps, each recorded with its own outcome:
    an explicit value also becomes `deploy.py`'s own poll budget, in either direction). A name rejection retries **once** without `strategyName` —
    naming is best-effort legibility and must never block a deploy. Deadline hit → `pending` (re-run resumes).
    That ACTIVE read's `totalFunded` is also the **outcome** check on the budget: the final report compares
-   it against what `planFunding` asked for and warns `[W_BUDGET_PARTIAL_FUND]` below 90%, naming both
-   numbers (`main (0x…) funded $60.00 of requested $500.00 (12%)`). The successor to the old three-step
+   it against what `planFunding` asked for and warns `[W_BUDGET_PARTIAL_FUND]` below 90%, naming each
+   wallet once (`main (0x…) funded $60.00 of requested $500.00 (12%, short $440.00)`). The successor to the old three-step
    verify gate's deleted `_budget_verdict` — but a `W_`, not its not-live verdict: the wallet is funded and the runtime
    ticks, so `overall` and the exit code do not move, and closing a live strategy over a shortfall a
-   top-up fixes is the teardown this repo keeps having to prevent. Non-destructive route first (top up
-   the wallet); close-and-redeploy is named as the alternative with no command attached, because
-   `[E_ROLLBACK_INCOMPLETE]` and the below-min escape are the report's only close-command producers.
-   It stays silent where there is nothing to compare: an adopted wallet (nothing was requested for it),
-   a create that never reached ACTIVE (no funded figure was read), a rolled-back wallet (closed, funds
-   returned). Exactly 90% does not fire.
+   top-up fixes is the teardown this repo keeps having to prevent. The figures are **as at deploy
+   time** and the note re-renders on every later `deploy status`, so the route is: re-read the current
+   funding (`status.py <id>`) FIRST, then add the remaining difference through the
+   `senpi-deposit-withdraw-transfer` skill. Close-and-redeploy is named as the alternative with no
+   command attached, because `[E_ROLLBACK_INCOMPLETE]` and the below-min escape are the report's only
+   close-command producers — and where that rollback line is present this warn is silent for that
+   wallet entirely, so one report never carries two opposite money moves on one address. The
+   "nothing is broken, the strategy is LIVE" line only appears when the report supports it.
+   It stays silent where there is nothing to compare: a wallet nobody planned to fund (an adopted one
+   whose ask a PRIOR run of the package journaled IS compared, though — against a fresh read, so a
+   crash between a partial fund and the report does not resume as a clean `live`), a create that never
+   reached ACTIVE (no funded figure was read), a rolled-back wallet. Exactly 90% does not fire.
+   When the backend reports no readable `totalFunded` at all, the wallet gets
+   `[W_BUDGET_FUNDED_UNREADABLE]` instead — the ask, no percentage, no shortfall, no top-up, and the
+   user asked to verify what actually landed. An unread amount is never reported as `$0.00`.
 4. **install** — render the instance's `runtime.yaml` (substitute `${wallet_env}` + the decision-model env
    iff a `decision_mode: llm` action) and install it with the instance directory attached, so `path:
    ./scanners` resolves against the YAML's own directory. An existing runtime already on this wallet is an

@@ -19,7 +19,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.1.0"
+  version: "3.2.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -263,15 +263,28 @@ funding **plan**, the third judges what the backend actually **landed**; a repor
   ALSO short the warn names it and `belowMin` is set — the two codes are **not mutually exclusive**, so
   never read "no `[W_BUDGET_BELOW_STRATEGY_MIN]`" as "the budget was enough". Read `belowMin`. That case
   carries the same scoped escape; follow it verbatim too.
-- **`[W_BUDGET_PARTIAL_FUND]`** — the backend funded a wallet **this deploy created** for less than 90%
-  of what the create asked for (a partial bridge leg). The warn names both numbers per wallet
-  (`main (0x…) funded $60.00 of requested $500.00 (12%)`) and the exact shortfall. The strategy **is
-  live and trading** — at the size that landed. **Quote the `funded` figure, never the requested one**;
-  saying "$500 deployed" over a $60 book is the failure this code exists to stop. **Do not close it.**
-  Non-destructive fix FIRST: top the wallet up (deploy never adds funds to an existing wallet, so
-  re-running at the same `--budget` only adopts it). Close-and-redeploy is the destructive alternative
-  and this warn carries **no** close command on purpose — read-only `status.py <id>` first, agree the
-  scope with the user.
+- **`[W_BUDGET_PARTIAL_FUND]`** — the backend funded a wallet for materially less than 90% of what the
+  create asked for (a partial bridge leg). The warn names each wallet once with both numbers, the
+  percentage and the shortfall (`main (0x…) funded $60.00 of requested $500.00 (12%, short $440.00)`).
+  The strategy **is live and trading** — at the size that landed. **Quote the `funded` figure, never
+  the requested one**; saying "$500 deployed" over a $60 book is the failure this code exists to stop.
+  **Do not close the strategy over the shortfall** (that is a rule about this code; it never overrides
+  a close another line on the report instructs — see `[E_ROLLBACK_INCOMPLETE]` below). Those figures
+  are **as at deploy time** and the note re-renders on every later `deploy status`, so **re-read the
+  current funding first**: `status.py <id>`, then add whatever difference it still shows via the
+  `senpi-deposit-withdraw-transfer` skill (deploy never adds funds to an existing wallet, so
+  re-running at the same `--budget` only adopts it). Acting on the stale figure tops up twice.
+  Close-and-redeploy is the destructive alternative and this warn carries **no** close command on
+  purpose — agree the scope with the user off that same read. On a `failed`/`pending` report the warn
+  drops its "nothing is broken" line: read the failed step first, it says what state the deploy left.
+  Where `[E_ROLLBACK_INCOMPLETE]` is on the report this warn is **silent for that wallet** — the
+  rollback line owns it, and its reclaim is what you do.
+- **`[W_BUDGET_FUNDED_UNREADABLE]`** — the backend reported **no readable funded amount** for a wallet
+  this deploy created. Not the same as a $0 wallet, and never to be reported as one: the amount that
+  landed is **UNKNOWN**. No percentage, no shortfall, **no top-up** — the wallet may already hold the
+  full ask, and adding the requested amount would double the deployment. Tell the user the figure is
+  unreadable, name what was requested, and ask **them** to verify what actually landed (`status.py
+  <id>`, or inspecting the wallet) before any money action.
 
 **Report** from the structured output, not raw logs (then always close with the **How it runs** block below):
 ```jsonc
