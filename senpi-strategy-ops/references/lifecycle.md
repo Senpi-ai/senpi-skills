@@ -185,13 +185,40 @@ runtime registered on this instance's wallet?) and `openclaw senpi status --json
 health verdict, quoted verbatim), then relays the last deploy job's `[W_*]` warn lines **iff that job
 ran this package** (no snapshot is not a failure — a package deployed before the verb has none). It
 takes no `--budget`, no `--max-wait`, no `--dry-run`: there is no job to size, wait for or plan. Its
-exit codes are its own — **`0`** verified (live wallet + registered runtime + healthy, per instance) ·
+exit codes are its own — **`0`** verified (an **ACTIVE** wallet + registered runtime + healthy, per
+instance) ·
 **`3`** not verified (each instance names what is missing/unhealthy plus the one non-destructive next
 step: `deploy.py create <id> --budget <usd>` where nothing is funded, `deploy.py runtime <id>` on a
 funded runtime-less wallet — each named **with the fact that it installs and starts trading** — and
 `status.py <id>` for degraded/unknown/ambiguous states) · **`1`** could-not-check, fail-closed: if
 `strategy_list`, `runtime list` or `status --json` cannot be read, NO verdict is rendered at all, the
 failed read is named, and nothing steers at the money path. It never emits a close command.
+
+Four rules keep `verify` from steering at a state it did not read:
+
+- **It resolves the package LOCALLY.** A bare catalog id that isn't on disk is `could-not-check` (1)
+  naming the absence — a check that promises "nothing was changed" must not download and write a
+  package under the durable strategies root. `create`/`runtime` are what fetch.
+- **Only `ACTIVE` is resumable.** A `PAUSED`/`CLOSING_POSITIONS` wallet (exactly the window the
+  doctrine teardown opens: positions closing, runtime already removed — and the verb ADOPTS
+  `CLOSING_POSITIONS`, only `CLOSING_DONE` is dead) or a deploy still mid-flight
+  (`CREATE_WALLET`/`FUND_WALLET`/`INITIALIZE_POSITIONS`) gets `status.py <id>` triage, never the resume
+  verb — and is never verified, even with a healthy runtime still registered against it.
+- **A deploy job RUNNING for this package replaces every money steer** with `openclaw senpi deploy
+  status`, and the report says the picture is mid-flight. The resume already is that job; re-checking
+  during your own `create` must not dispatch a second one.
+- **Attribution only widens the match.** Instances are matched by the name the verb derives, across
+  every live strategy; `strategyMetadata.skillName` adds candidates and never removes them (its
+  fallback is `tradingStrategyName`, which on a multi-instance package can never equal the package
+  id — an attribution-gated match reported live funded wallets as "nothing is funded here"). The
+  derived name comes from the verb's own sanitizer (`sanitizeStrategyName` in the runtime's
+  `src/deploy/package.ts`): whitespace→`-`, `[A-Za-z0-9_-]` only, trim leading/trailing **`-` only**,
+  40 chars.
+
+An **unreadable** surface is never an empty one: `strategy_list` answering with a payload that carries
+no strategies list at all is `could-not-check` (1), not "nothing is funded here". And a funded figure
+the record does not carry prints **UNKNOWN** — `totalFunded`/`netFunded` or nothing; the requested
+`initialBudget` is never printed as funded (the `[W_BUDGET_FUNDED_UNREADABLE]` rule, in the check).
 
 `status` is the other read-only one: it reads the agent's
 **last deploy job** — one record, not package-addressed — so it resolves no package and fetches nothing.
@@ -226,7 +253,8 @@ relayed verbatim; no deploy state is reported in any of them, and a re-run refus
 whatever code rides beside it — a refused or still-running job is relayed with `2`/`6`, never
 discarded as an unreadable status. Branch on the code; use `--json` for anything richer.
 
-**Package fetch.** Any subcommand fetches `strategies/<id>/` from the remote if it isn't on disk
+**Package fetch.** Any subcommand **except `verify`** (read-only: it resolves on disk or reports
+could-not-check) and `status` (which resolves no package at all) fetches `strategies/<id>/` from the remote if it isn't on disk
 (`_fetch.py`: GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default
 `Senpi-ai/senpi-skills`@`main`; `--ref` overrides). Fetches land in the **durable strategies root** —
 `SENPI_STRATEGIES_DIR` if set, else `<OPENCLAW_WORKSPACE_DIR>/strategies`, else `/data/workspace/strategies`

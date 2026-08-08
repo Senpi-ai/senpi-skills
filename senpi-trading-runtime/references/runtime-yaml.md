@@ -12,8 +12,11 @@ author-side `scan(inputs, ctx)` + signal shape see [scan-contract.md](scan-contr
 > runtime — e.g. spider's `swing` + `scalp` legs are two `runtime.yaml` files under one `strategy.yaml`.
 > See [Multi-runtime packages](#multi-runtime-packages).
 >
-> The runtime engine accepts any YAML path (`runtime create -p <path>`); the engine's own examples name
-> the file `recipe.yaml`. `runtime.yaml` is the Senpi package convention and is fully compatible.
+> The engine loads a runtime spec from any YAML path — the file does not have to be called
+> `runtime.yaml`, and the engine's own examples name it `recipe.yaml`. `runtime.yaml` is the Senpi
+> package convention and is fully compatible: `openclaw senpi deploy -p <package dir>` installs each
+> instance's file itself, whatever it is named. (`runtime create -p <path>` is the engine's internal,
+> hidden install command — never the deploy path; see [runtime-cli.md](runtime-cli.md).)
 
 ---
 

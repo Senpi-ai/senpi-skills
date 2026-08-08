@@ -15,7 +15,9 @@ This is an **agent-side check**. Run the commands yourself; do not ask the user 
 > contract. The deploy report's `overall` carries this verdict at deploy time — re-read it read-only with
 > `openclaw senpi deploy status`; use this doc for hand triage. `deploy.py verify <id>` is **read-only**
 > too — it composes the surfaces below into a per-instance verdict (`0` verified / `3` not verified /
-> `1` could not check) and deploys nothing. **The money path is the RESUME, `deploy.py runtime <id>`**
+> `1` could not check), deploys nothing, and fetches nothing (a package not on disk is
+> could-not-check, never a download). It confirms an instance live only on an **ACTIVE** wallet: a
+> `PAUSED`/`CLOSING_POSITIONS` one, or a deploy still in flight, is triage — never the resume. **The money path is the RESUME, `deploy.py runtime <id>`**
 > (or `create <id> --budget <usd>`): that runs the deploy verb and can create, fund and install — never
 > reach for it to monitor.
 >
