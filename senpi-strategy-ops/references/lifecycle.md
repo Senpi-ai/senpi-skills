@@ -224,10 +224,15 @@ Four rules keep `verify` from steering at a state it did not read:
   during your own `create` must not dispatch a second one. That bit is read fail-closed, and the read
   lands in exactly one of three classes. A **job snapshot** (the shape the verb emits — a
   `state.status`): its `meta.packageId` decides whether it is this package's. A **positive no-job
-  answer**: the verb's own `[NOT_FOUND]` (no deploy has ever run here), or a runtime whose CLI has no
-  `deploy` verb at all — it cannot be running a verb job, so a box whose plugin predates the verb
-  (fleet skew: skills update hourly, the runtime self-updates on its own cadence) still gets a
-  verdict instead of a permanent could-not-check. **Anything else** — spawn failure, timeout, an
+  answer**: the verb's own `[NOT_FOUND]` (no deploy has ever run here), or a CLI that **rejected the
+  command line** — a plugin predating the verb never reached a gateway, so it cannot be running a
+  verb job, and a box mid-rollout (fleet skew: skills update hourly, the runtime self-updates on its
+  own cadence) gets a verdict instead of a permanent could-not-check. That rejection is matched on
+  Commander's parse-error grammar, taken from what the runtime's own CLI prints: since `senpi` grew
+  its root `--cheatsheet` action (2026-03-27) it answers `senpi deploy status --json` with
+  `error: unknown option '--json'`, **not** "unknown command" — a detector looking for the latter
+  matched nothing in the fleet. Both streams are read for that answer: a stray JSON log line on
+  stdout must not bury a `[NOT_FOUND]` on stderr. **Anything else** — spawn failure, timeout, an
   `{"ok": false, …}` envelope or any other JSON that is not a snapshot, and a RUNNING job whose
   snapshot names no package — is could-not-check (1), never "no job". The `[NOT_FOUND]` match is
   anchored to the code at the start of its line, where the verb's refusal puts it: a failed read that
@@ -249,12 +254,16 @@ Four rules keep `verify` from steering at a state it did not read:
   that stamp and stops there — it never claims the other package CREATED the wallet, because a
   `skillName` is whatever the creating call wrote (raw-MCP creates stamp anything; script guards are
   advisory), so the user's own wallet stamped with an older or differently-cased id renders here too.
-  Triage is read-only and asks by the **stamp** — `status.py <stamp>` for the wallet itself, bare
-  `status.py` for every open strategy on the agent; `status.py <id>` filters on that same field, so
-  it is the one read guaranteed not to show the colliding wallet. There is **no re-stamping route**:
-  no tool on this path rewrites `strategyMetadata.skillName` (`strategy_update` carries slippage,
-  mirror multiplier and SL/TP only), so if the wallet turns out to be the user's own the honest
-  answer is that this package cannot adopt it under that name and it keeps running as it is. The derived name comes from the verb's own sanitizer
+  Triage is read-only and asks by the **stamp** — one `status.py <stamp>` per stamp named (never a
+  joined list: `status.py` takes a single id and a joined line exits 2 on the read the reader was
+  just told to make), plus bare `status.py` for every open strategy on the agent; `status.py <id>`
+  filters on that same field, so it is the one read guaranteed not to show the colliding wallet. Two
+  outcomes, both named: if a stamp is a package you have, **that** package is where the wallet is
+  checked and operated (`deploy.py verify <stamp>`, read-only). And there is **no re-stamping
+  route** — no tool on this path rewrites `strategyMetadata.skillName` (`strategy_update` carries
+  slippage, mirror multiplier and SL/TP only) — so if the wallet turns out to be the user's own
+  under a stamp nothing owns, the honest answer is that this package cannot adopt it under that name
+  and it keeps running as it is. The derived name comes from the verb's own sanitizer
   (`sanitizeStrategyName` in the runtime's `src/deploy/package.ts`): whitespace→`-`,
   `[A-Za-z0-9_-]` only, trim leading/trailing **`-` only**, 40 chars.
 

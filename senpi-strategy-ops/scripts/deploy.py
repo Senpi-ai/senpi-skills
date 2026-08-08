@@ -242,22 +242,46 @@ def _relay(rc, out, err):
 
 
 # A runtime plugin that PREDATES the `senpi deploy` verb (a wedged self-update — a real fleet class)
-# answers the start call with its CLI parser's unknown-command error, not the verb's. That is neither
-# transport breakage nor a refusal: the command never reached a gateway, so nothing was dispatched,
-# and the "read `openclaw senpi deploy status`" next step names a verb this box does not have either.
-_UNKNOWN_CMD = ("unknown command", "unknown argument", "unrecognized command", "unrecognised command")
+# answers with its CLI PARSER's error, not the verb's. That is neither transport breakage nor a
+# refusal: the command line never reached a gateway, so nothing was dispatched, no job of the verb's
+# can exist, and the "read `openclaw senpi deploy status`" next step names a verb this box does not
+# have either.
+#
+# WHAT SUCH A BOX ACTUALLY PRINTS — reproduced against Commander 14.0.3 (the runtime's own) with a
+# program shaped like `registerSenpiCli` (senpi-trading-runtime `src/cli/senpi-commands.ts`);
+# `CommanderRejectionShapes` in tests/test_deploy_wrapper.py regenerates these and holds this list
+# to them:
+#
+#   `senpi` WITH its root `.action()` — the `--cheatsheet` handler, every runtime since 2026-03-27:
+#     senpi deploy status --json  ->  error: unknown option '--json'
+#     senpi deploy status         ->  error: too many arguments for 'senpi'. Expected 0 arguments but got 2.
+#     senpi deploy -p <dir> …     ->  error: unknown option '-p'
+#   `senpi` with no root action — runtimes older than that:
+#     all three                   ->  error: unknown command 'deploy'
+#
+# The root action is why: Commander dispatches `deploy status` INTO it instead of raising
+# unknownCommand, so neither "unknown command" nor even the word "deploy" appears on any box in the
+# fleet. Matching those (what this did) detected only pre-2026-03-27 runtimes — nothing that exists.
+# So the match is on the PARSE-ERROR grammar, anchored to the line Commander writes, and it never
+# scans the payload for "deploy": the answer text legitimately contains that word in cases that are
+# not this one.
+_CLI_PARSE_ERROR = re.compile(r"^\s*error: (?:unknown command|unknown option|too many arguments)\b",
+                              re.M)
 # A bracketed [CODE] means the VERB is speaking (a refusal, or an error it raised), whatever words
-# follow — so a refusal that happens to contain "unknown argument" is never read as a missing verb.
+# follow — so a refusal that happens to quote a parser error is never read as a missing verb.
 _REFUSAL_CODE = re.compile(r"\[[A-Z][A-Z_]{2,}\]")
 
 
-def _predates_the_verb(text):
-    """True when a failed start reads as "this CLI has no `deploy` command", not as a verb answer."""
+def _cli_rejected_the_command(text):
+    """True when the CLI's PARSER answered instead of the verb — i.e. this box cannot run the
+    command at all, so nothing was dispatched and no verb job of ours can be running.
+
+    Usually a plugin that predates the `senpi deploy` verb; the same shape covers a plugin that
+    predates one of its FLAGS, and the answer to both is the same update."""
     s = str(text or "")
     if _REFUSAL_CODE.search(s):
         return False
-    low = s.lower()
-    return "deploy" in low and any(m in low for m in _UNKNOWN_CMD)
+    return bool(_CLI_PARSE_ERROR.search(s))
 
 
 def start_deploy(pkg, a, log):
@@ -280,13 +304,14 @@ def start_deploy(pkg, a, log):
     log("  starting the deploy job…")
     rc, out, err = _cli.run_cli(args, timeout=START_TIMEOUT)
     if rc != 0:
-        if _predates_the_verb(_cli.error_tail(err, out)):
+        if _cli_rejected_the_command(_cli.error_tail(err, out)):
             # Exit 1 (the question could not be answered) — never the parser's own code, which may be
             # 2 and would read as "a gate refused the deploy, nothing created past it". Nothing was
             # created, but nothing was gated either: the box cannot run this command at all.
             print(_cli.error_tail(err, out), file=sys.stderr)
-            print("This box's runtime plugin has no `senpi deploy` verb — it predates it (usually a "
-                  "wedged self-update).\n"
+            print("This box's CLI rejected the command above before anything was dispatched — its "
+                  "runtime plugin has no `senpi deploy` verb (or not this flag of it): it predates "
+                  "the verb, usually a wedged self-update.\n"
                   "  NOTHING WAS DISPATCHED: no job started, no wallet created, no funds moved, and "
                   "`openclaw senpi deploy status` has nothing to report here — there is nothing to "
                   "read and nothing to clean up.\n"
@@ -338,7 +363,13 @@ def read_status(deploy_id):
 
     Unreadable is only "no snapshot came back": a spawn failure, the STATUS_TIMEOUT, or the verb's
     own `ok:false` error (`[NOT_FOUND]` when no deploy has ever run on this agent). Those hand back
-    the verb's text so a caller can relay it instead of composing an absence it never read."""
+    the verb's text so a caller can relay it instead of composing an absence it never read.
+
+    The call's own words come back even when stdout DID parse: the two streams answer different
+    questions, and a JSON object on stdout is not proof that stderr said nothing (one stray JSON log
+    line is enough to make `_extract_json` produce a dict while the verb's real `[NOT_FOUND]` — or a
+    parser's rejection — sits on stderr). Callers that must classify the answer, not just print it,
+    need both; a caller that only prints uses the text when there is no snapshot, as before."""
     args = ["openclaw", "senpi", "deploy", "status"]
     if deploy_id:
         args.append(deploy_id)
@@ -346,7 +377,9 @@ def read_status(deploy_id):
     _rc, out, err = _cli.run_cli(args, timeout=STATUS_TIMEOUT)
     snap = _cli._extract_json(out)
     if isinstance(snap, dict):
-        return snap, None
+        # stderr ONLY here: stdout is the payload, and feeding it back as "the call's words" would
+        # hand a classifier the document it already rejected.
+        return snap, _cli.error_tail(err)
     return None, _cli.error_tail(err, out)
 
 
@@ -533,29 +566,35 @@ _NO_DEPLOY_JOB = re.compile(r"^\s*\[NOT_FOUND\]", re.M)
 
 
 def _no_deploy_job_answer(text):
-    """True when a read that produced NO snapshot still POSITIVELY answers "no deploy job exists".
+    """True when the CALL'S OWN WORDS positively answer "no deploy job exists here".
 
     Two answers say it, and nothing else does. The verb's own `[NOT_FOUND]` refusal — no deploy has
-    ever been started on this agent. And a runtime plugin that has **no `deploy` verb at all**: a
-    CLI that cannot parse the command cannot be running a verb job either, so its unknown-command
-    answer is evidence of no-job, not an unreadable read. That second one is fleet reality, not
-    theory — skills update hourly from `main` while the runtime self-updates from npm on its own
-    cadence, so during a rollout window a box legitimately has new skills and a pre-verb runtime.
-    Reading it as unreadable made `verify` print COULD NOT CHECK (1) over a perfectly live strategy
-    on every run, with a "re-reading is the answer" steer that can never come true there.
+    ever been started on this agent. And a CLI that REJECTED the command line (`_cli_rejected_the
+    _command`): it never reached a gateway, so it is not running a verb job either. That second one
+    is fleet reality, not theory — skills update hourly from `main` while the runtime self-updates
+    from npm on its own cadence, so during a rollout window a box legitimately has new skills and a
+    pre-verb runtime. Reading it as unreadable made `verify` print COULD NOT CHECK (1) over a
+    perfectly live strategy on every run, with a "re-reading is the answer" steer that can never
+    come true there.
 
-    Everything else that yields no snapshot (a spawn failure, the STATUS_TIMEOUT, any other error)
-    is a read that did not happen and stays could-not-check."""
+    Only ever given text the CLI produced — never a string this script composed about the answer:
+    a synthesised description is not evidence, and scanning one for these shapes is how a detector
+    starts matching its own prose.
+
+    Everything else (a spawn failure, the STATUS_TIMEOUT, any other error) is a read that did not
+    happen and stays could-not-check."""
     s = str(text or "")
-    return bool(_NO_DEPLOY_JOB.search(s)) or _predates_the_verb(s)
+    return bool(_NO_DEPLOY_JOB.search(s)) or _cli_rejected_the_command(s)
 
 
 def _job_snapshot(snap):
     """The deploy-job snapshot, or None when what came back is not one.
 
-    Every snapshot the verb emits carries `meta` and a `state.status` of `running`/`done`/
-    `interrupted` (source of truth: the runtime's `DeploySnapshotLike` in
-    `src/cli/deploy-render.ts`). `_extract_json` recovers ANY JSON object it can find in stdout, so
+    Every snapshot the verb emits carries a `state.status` of `running`/`done`/`interrupted` — the
+    field checked here (source of truth: the runtime's `DeploySnapshotLike` in
+    `src/cli/deploy-render.ts`, where `meta` rides along and is read separately by the caller,
+    which has its own answer for a snapshot that names no package).
+    `_extract_json` recovers ANY JSON object it can find in stdout, so
     without this shape check an `{"ok": false, "error": {…}}` envelope — or one complete JSON log
     line in a timed-out call's partial stdout — was accepted as a snapshot, missed the packageId
     comparison and returned "no job running": fail-open on the single bit every money steer in this
@@ -696,8 +735,12 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False):
         # The name is TAKEN by another package's wallet, and nothing here belongs to this instance.
         # Not "nothing is funded" either: steering at `create --budget` would fund a second wallet
         # under a name already in use, on top of a wallet this package must not touch.
+        # ONE producer for the stamps: the list, its rendering and every command built from it come
+        # from here, so the row cannot name a stamp its command does not pass.
         owners = sorted({str(_cli.strategy_skill_declared(s)) for s in foreign})
+        many = len(owners) > 1
         stamps = ", ".join(repr(o) for o in owners)
+        status_py = Path(__file__).with_name('status.py').name
         row["collision"] = {"name": want, "attributed_to": owners}
         # QUOTE the stamp; do not assert who created the wallet. All this read is a `skillName`
         # field, and anything that calls the wallet-creation tool can write any value into it —
@@ -705,25 +748,49 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False):
         # differently-cased id, produces exactly this row. "It was created by that package" is a
         # fact the check does not have, and stated as one over the user's OWN mis-stamped wallet it
         # is a false certainty attached to a do-not-deploy warning.
-        row["issue"] = (f"the live strategy named {want!r} carries the skillName stamp {stamps}, not "
-                        f"{pkg.id!r} — and {pkg.id!r} instance {inst.name!r} derives that same wallet "
-                        f"name. The stamp is what the record says, not proof of who created it (any "
-                        f"caller of the wallet-creation tool can write any skillName), but it is not "
+        #
+        # The MATCH is what is asserted, not the record's name field: this row is reached because
+        # `strategy_name` answered `want`, and that reader takes the first of
+        # strategyName/tradingStrategyName/name the payload carries — so "the live strategy NAMED x"
+        # would state which field was read, which it does not know.
+        n = len(foreign)
+        row["issue"] = (f"{'a live strategy matches' if n == 1 else f'{n} live strategies match'} the "
+                        f"name this instance derives ({want!r}) but "
+                        f"{'carries' if n == 1 else 'carry'} the skillName "
+                        f"stamp{'s' if many else ''} {stamps}, not {pkg.id!r}. "
+                        f"{'That stamp is' if not many else 'Those stamps are'} what the "
+                        f"record{'' if n == 1 else 's'} say{'s' if n == 1 else ''}, not proof of who "
+                        f"created {'it' if n == 1 else 'them'} (any caller of the wallet-creation "
+                        f"tool can write any skillName), but {'it is not' if not many else 'none is'} "
                         f"this package's, so nothing here says this instance is deployed — and the "
                         f"name it would deploy under is taken")
         # The package-filtered triage would hide the very wallet in question: `status.py <id>` filters
         # on the same stamp, so a wallet stamped otherwise is not in that answer. Ask for it by the
-        # stamp it carries, and for the whole agent.
-        by_stamp = " / ".join(sorted({repr(o) for o in owners}))
-        row["next"] = (f"python3 {Path(__file__).with_name('status.py').name} {by_stamp}   # read-only: "
-                       f"the wallet(s) carrying that stamp — what it is, and whether it is yours\n"
-                       f"        python3 {Path(__file__).with_name('status.py').name}   # read-only: "
-                       f"every open strategy on this agent, whatever it is named\n"
-                       f"        Do NOT deploy {pkg.id!r} until you know whose wallet that is — it "
-                       f"would fund a SECOND wallet under a name already in use. If it turns out to "
-                       f"be your own, nothing here can re-stamp it: no tool on this path rewrites a "
-                       f"strategy's skillName, so {pkg.id!r} cannot adopt that wallet under this "
-                       f"name, and the wallet goes on running exactly as it is.")
+        # stamp it carries — ONE COMMAND PER STAMP, because `status.py` takes a single id and a
+        # joined list is a line that exits 2 on the read the reader was just told to make.
+        reads = "\n        ".join(
+            f"python3 {status_py} {o!r}   # read-only: what carries that stamp, and whether it is "
+            f"yours" for o in owners)
+        # One stamp: the route is a command. Several: a template naming the argument, never one
+        # stamp picked arbitrarily and never a joined list — both would be commands that answer for
+        # a wallet the reader did not ask about.
+        verify_step = (f"python3 {Path(__file__).name} verify "
+                       f"{'<that stamp>' if many else repr(owners[0])}")
+        it, them, keeps = (("them", "they are", "the wallets go on running exactly as they are")
+                           if many else
+                           ("it", "it is", "the wallet goes on running exactly as it is"))
+        row["next"] = (f"{reads}\n"
+                       f"        python3 {status_py}   # read-only: every open strategy on this "
+                       f"agent, whatever it is named\n"
+                       f"        Do NOT deploy {pkg.id!r} until you know whose "
+                       f"{'wallets those are' if many else 'wallet that is'} — it would fund a "
+                       f"SECOND wallet under a name already in use.\n"
+                       f"        If {'a stamp names' if many else f'{owners[0]!r} is'} a package you "
+                       f"have, that package is where the wallet is checked and operated: "
+                       f"{verify_step} (read-only).\n"
+                       f"        If {them} your own under a stamp nothing owns, no tool on this path "
+                       f"rewrites a strategy's skillName: {pkg.id!r} cannot adopt {it} under this "
+                       f"name, and {keeps}.")
         return row
     if not cands:
         if pkg_live:
@@ -885,12 +952,14 @@ def deploy_job_facts(pkg_id):
     raw, tail = read_status(None)
     snap = _job_snapshot(raw)
     if snap is None:
-        # `read_status` only hands back error text when stdout carried no JSON at all; a dict that is
-        # not a snapshot is quoted here instead, so the reason names what actually came back.
-        why = tail if raw is None else (f"the answer carried no deploy-job state: "
-                                        f"{json.dumps(raw)[:200]}")
-        if _no_deploy_job_answer(why):
+        # The CLI's own words decide, wherever they landed: `read_status` returns stderr even when
+        # stdout parsed, because one stray JSON log line on stdout must not bury a `[NOT_FOUND]` (or
+        # a parser rejection) on stderr — that buried it into a permanent could-not-check.
+        if _no_deploy_job_answer(tail):
             return [], False
+        # Only for the human/ReadFailed text — never fed back to the classifier above.
+        why = tail or (f"the answer carried no deploy-job state: {json.dumps(raw)[:200]}"
+                       if raw is not None else "")
         raise ReadFailed(f"`openclaw senpi deploy status` could not be read, so whether a deploy job "
                          f"is running right now is unknown — and every next step here depends on it: "
                          f"{why or 'no snapshot and no error text came back'}")

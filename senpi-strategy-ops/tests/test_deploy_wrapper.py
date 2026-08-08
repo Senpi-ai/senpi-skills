@@ -12,7 +12,10 @@ would make every wrapper-driven deploy exit within seconds of starting. Run:
 import contextlib
 import io
 import json
+import os
+import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 import types
@@ -40,6 +43,106 @@ def _pkg(dir_="/pkg/spider", pid="spider", instances=()):
 def _inst(name="main", runtime_name=None, pid="spider"):
     """A package instance as `verify` reads it: its name, and the runtime id its runtime.yaml declares."""
     return types.SimpleNamespace(name=name, runtime_name=runtime_name or f"{pid}-{name}")
+
+
+# What a box that cannot run `senpi deploy …` ACTUALLY prints on stderr, keyed by the invocation
+# that produces it. NOT hand-written: reproduced against Commander 14.0.3 — the version the runtime
+# runs — with a program shaped like `registerSenpiCli` (senpi-trading-runtime
+# `src/cli/senpi-commands.ts`: `program.command("senpi")` + `--cheatsheet` option + a root
+# `.action()` + the pre-verb subcommands). `CommanderRejectionShapes` below regenerates them
+# whenever node and a commander install are available, and holds this table to what it gets.
+#
+# The root `.action()` (the `--cheatsheet` handler, e8e9661e, every runtime since 2026-03-27) is why
+# the first three look nothing like "unknown command": Commander dispatches `deploy status` INTO the
+# root action instead of raising unknownCommand.
+COMMANDER_REJECTIONS = {
+    # `deploy status --json` — the read `verify` makes on every run.
+    ("senpi", "deploy", "status", "--json"): "error: unknown option '--json'",
+    # `deploy status` — the same read without --json (what `print_status` runs).
+    ("senpi", "deploy", "status"):
+        "error: too many arguments for 'senpi'. Expected 0 arguments but got 2.",
+    # `deploy -p <dir> --budget …` — the START call.
+    ("senpi", "deploy", "-p", "/pkg/spider", "--budget", "300", "--json"):
+        "error: unknown option '-p'",
+}
+# The same program WITHOUT a root action — runtimes older than 2026-03-27 — answers all three with
+# this, and it is the only shape the pre-round detector could see.
+COMMANDER_REJECTION_NO_ROOT_ACTION = "error: unknown command 'deploy'"
+
+
+_COMMANDER_PROBE = r"""
+// A program shaped like registerSenpiCli (senpi-trading-runtime src/cli/senpi-commands.ts) with no
+// `deploy` command: `senpi` carries --cheatsheet, a root .action(), and the pre-verb subcommands.
+const { Command } = require("commander");
+const [, , mode, ...args] = process.argv;
+const program = new Command();
+program.name("openclaw");
+const senpi = program.command("senpi");
+senpi.description("Senpi runtime");
+senpi.option("--cheatsheet", "Print plugin commands cheatsheet");
+if (mode === "with-action") senpi.action(() => {});
+senpi.command("status").option("-r, --runtime-id <id>").option("--json").action(() => {});
+senpi.command("runtime").command("list").action(() => {});
+senpi.command("scanner").option("-r, --runtime-id <id>").action(() => {});
+// Commander writes the parse error to stderr and exits 1 — read it off the process, exactly as
+// `run_cli` does on a real box.
+program.parse(["node", "openclaw", ...args]);
+"""
+
+
+def _commander_node_modules():
+    """A node_modules carrying commander, or None. The runtime's own install is preferred — these
+    strings are only evidence if they come from the version the fleet runs."""
+    here = Path(__file__).resolve()
+    for cand in (here.parents[3] / "senpi-trading-runtime" / "node_modules",
+                 here.parents[2] / "node_modules"):
+        if (cand / "commander" / "package.json").is_file():
+            return cand
+    return None
+
+
+class CommanderRejectionShapes(unittest.TestCase):
+    """The strings a pre-verb box really prints, and the detector that has to recognise them.
+
+    The regression: the detector keyed on `unknown command` + the word "deploy", which the fleet
+    stopped emitting on 2026-03-27 when `senpi` grew a root `.action()`. Every current box answers
+    the deploy-status read with `error: unknown option '--json'` instead — no "deploy" in it at all —
+    so the no-verb path was dead code and `verify` rendered COULD NOT CHECK over live packages. The
+    test that "covered" it fed a hand-written string no runtime produces, which is why it passed."""
+
+    def test_every_real_rejection_reads_as_the_cli_refusing_the_command(self):
+        for argv, text in COMMANDER_REJECTIONS.items():
+            self.assertTrue(deploy._cli_rejected_the_command(text), f"{argv}: {text}")
+        self.assertTrue(deploy._cli_rejected_the_command(COMMANDER_REJECTION_NO_ROOT_ACTION))
+
+    def test_it_never_swallows_an_answer_that_is_not_a_parser_rejection(self):
+        for text in ("[NOT_FOUND] No deploy has been started on this agent.",
+                     "[INVALID_REQUEST] unknown option --bogus for deploy",  # the VERB speaking
+                     "timed out after 30s: openclaw senpi deploy status",
+                     _cli.SPAWN_FAILED_PREFIX + "openclaw",
+                     "senpi deploy status: the gateway answered but its response could not be read",
+                     '{"deploy": "unknown command in a log payload"}'):   # payload text, not a verdict
+            self.assertFalse(deploy._cli_rejected_the_command(text), text)
+
+    @unittest.skipUnless(shutil.which("node") and _commander_node_modules(),
+                         "needs node + a commander install to regenerate")
+    def test_the_pinned_strings_are_what_commander_still_prints(self):
+        # Regenerates COMMANDER_REJECTIONS from the real library rather than trusting a comment.
+        node_modules = _commander_node_modules()
+        root = Path(tempfile.mkdtemp(prefix="commander-probe-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        (root / "probe.cjs").write_text(_COMMANDER_PROBE)
+        env = dict(os.environ, NODE_PATH=str(node_modules))
+
+        def run(mode, argv):
+            r = subprocess.run(["node", str(root / "probe.cjs"), mode, *argv],
+                               capture_output=True, text=True, env=env, timeout=60)
+            return r.stderr.strip()
+
+        for argv, pinned in COMMANDER_REJECTIONS.items():
+            self.assertEqual(run("with-action", argv), pinned, argv)
+        for argv in COMMANDER_REJECTIONS:
+            self.assertEqual(run("no-action", argv), COMMANDER_REJECTION_NO_ROOT_ACTION, argv)
 
 
 class FakeCli:
@@ -158,14 +261,13 @@ class StartDeploy(unittest.TestCase):
 
     def test_a_runtime_without_the_deploy_verb_teaches_the_plugin_update(self):
         # A box whose plugin predates `senpi deploy` (a wedged self-update — a real fleet class)
-        # answers the START call with its CLI parser's unknown-command error. Relayed bare, that read
-        # as transport breakage: an unsteered exit 1 whose taught handling is "the job may be running,
-        # read deploy status" — over a box where nothing was dispatched and where that command does
-        # not exist either.
-        for rc, text in ((1, "error: unknown command 'deploy'"),
-                         (1, "Unknown argument: deploy"),
-                         (2, "Unknown arguments: deploy, budget")):
-            _cli.run_cli = FakeCli([(rc, "", text)])
+        # answers the START call with its CLI PARSER's error. Relayed bare, that read as transport
+        # breakage: an unsteered exit 1 whose taught handling is "the job may be running, read deploy
+        # status" — over a box where nothing was dispatched and where that command does not exist
+        # either. Every input here is a string Commander really prints (see COMMANDER_REJECTIONS);
+        # this test used to feed hand-written yargs-shaped guesses no runtime has ever emitted.
+        for text in (*COMMANDER_REJECTIONS.values(), COMMANDER_REJECTION_NO_ROOT_ACTION):
+            _cli.run_cli = FakeCli([(1, "", text)])
             err = io.StringIO()
             with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
                 deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
@@ -1047,15 +1149,32 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
     def test_a_runtime_with_no_deploy_verb_is_a_no_job_answer_not_an_unreadable_read(self):
         # Fleet version skew, not theory: skills update hourly from main, the runtime self-updates
         # from npm on its own cadence, so a rollout window leaves boxes with new skills and a pre-verb
-        # runtime. Its CLI answers the status read with an unknown-command error and no [NOT_FOUND] —
-        # read as unreadable, verify printed COULD NOT CHECK (1) over a live, healthy package on
-        # every run, steering at a re-read that can never succeed there. A CLI that cannot parse the
-        # command is not running a verb job: that is positive no-job evidence.
+        # runtime. Its CLI answers the status read with a PARSER error and no [NOT_FOUND] — read as
+        # unreadable, verify printed COULD NOT CHECK (1) over a live, healthy package on every run,
+        # steering at a re-read that can never succeed there. A CLI that cannot parse the command is
+        # not running a verb job: that is positive no-job evidence.
+        #
+        # The first string is what the CURRENT fleet prints for this exact read (`senpi` has a root
+        # .action() since 2026-03-27, so Commander never says "unknown command"); the second is the
+        # older shape. A detector that only knew the second one was dead code fleet-wide.
+        for text in (COMMANDER_REJECTIONS[("senpi", "deploy", "status", "--json")],
+                     COMMANDER_REJECTION_NO_ROOT_ACTION):
+            code, out, err, router = self._verify(deploy_status=(1, "", text))
+            self.assertEqual(code, 0, text + "\n" + out + err)
+            self.assertIn("VERIFIED", out)
+            self.assertNotIn("COULD NOT CHECK", out + err)
+            self.assertEqual(router.deploy_dispatches, [])
+
+    def test_the_verbs_no_job_answer_on_stderr_survives_a_json_log_line_on_stdout(self):
+        # `read_status` used to hand back the call's own words ONLY when stdout carried no JSON at
+        # all. One stray JSON log line on stdout was enough to bury the verb's real `[NOT_FOUND]` on
+        # stderr, and the read then classified as unreadable — permanent could-not-check, the same
+        # failure by another door.
         code, out, err, router = self._verify(
-            deploy_status=(1, "", "error: unknown command 'deploy'"))
+            deploy_status=(1, '{"level":"info","msg":"gateway ready"}',
+                           "[NOT_FOUND] No deploy has been started on this agent."))
         self.assertEqual(code, 0, out + err)
         self.assertIn("VERIFIED", out)
-        self.assertNotIn("COULD NOT CHECK", out + err)
         self.assertEqual(router.deploy_dispatches, [])
 
     def test_a_quoted_not_found_in_a_failed_read_is_never_read_as_no_job(self):
@@ -1432,8 +1551,10 @@ class VerifyAttributionDisambiguatesButNeverShrinks(VerifyHarness, unittest.Test
         self.assertIn("status.py   # read-only", swing)      # the unfiltered fleet read
         self.assertNotIn("--budget", text)
         self.assertNotIn("close.py", text)
-        # No reconciliation route is invented: nothing on this path re-stamps a strategy's skillName.
-        self.assertIn("re-stamp", swing)
+        # The route that DOES exist is named (operate the wallet under its own stamp's package,
+        # read-only), and the one that does not is stated as absent rather than invented.
+        self.assertIn(f"deploy.py verify {FOREIGN_PKG!r}", swing)
+        self.assertIn("rewrites a strategy's skillName", swing)
         self.assertEqual(router.deploy_dispatches, [])
 
     def test_a_single_instance_packages_taken_name_is_a_collision_too(self):
@@ -1457,6 +1578,46 @@ class VerifyAttributionDisambiguatesButNeverShrinks(VerifyHarness, unittest.Test
         self.assertEqual(code, 0, out + err)
         self.assertIn("VERIFIED", out)
         self.assertEqual(router.deploy_dispatches, [])
+
+    def test_every_command_the_collision_row_emits_is_runnable(self):
+        # Two colliding stamps used to render as ONE line — `status.py 'arctic' / 'spider-swing'` —
+        # which argparse answers with exit 2, `unrecognized arguments`. An emitted command that
+        # cannot run is a mis-steer at the exact moment the reader is told not to deploy.
+        code, out, _err, _router = self._verify(
+            "--json",
+            strategies=(_strategy(name="spider-swing", skill=FOREIGN_PKG, wallet=WALLET),
+                        _strategy(name="spider-swing", skill="arctic", wallet=self.THIRD_WALLET),
+                        self._scalp()),
+            **self._running(("spider-scalp", OTHER_WALLET)))
+        swing = self._swing_row(json.loads(out))
+        self.assertEqual(code, 3)
+        self.assertEqual(swing["collision"]["attributed_to"], sorted(["arctic", FOREIGN_PKG]))
+        emitted = [shlex.split(ln.split("#")[0].strip())
+                   for ln in swing["next"].splitlines() if "status.py" in ln]
+        self.assertEqual(len(emitted), 3)                    # one per stamp + the fleet read
+        for argv in emitted:
+            # `status.py` takes at most ONE positional (the package filter) — see the ground-truth
+            # test below for what a second one does.
+            self.assertLessEqual(len(argv[2:]), 1, argv)
+        self.assertIn(["python3", "status.py", "arctic"], emitted)
+        self.assertIn(["python3", "status.py", FOREIGN_PKG], emitted)
+        # Both stamps are named in the prose too, and the plural reads as a plural.
+        self.assertIn("stamps", swing["issue"])
+        self.assertIn("2 live strategies match", swing["issue"])
+        self.assertIn("wallets those are", swing["next"])
+        self.assertIn("wallets go on running", swing["next"])
+        # The other route is a TEMPLATE when several stamps collide — never one of them picked
+        # arbitrarily, which would answer for a wallet the reader did not ask about.
+        self.assertIn("verify <that stamp>", swing["next"])
+        self.assertNotIn(f"verify {FOREIGN_PKG!r}", swing["next"])
+
+    def test_status_py_really_rejects_a_second_positional(self):
+        # The ground truth the assertion above encodes: argparse exits 2 before any MCP call, so a
+        # joined-stamp line answers the reader with a usage error instead of the wallet.
+        r = subprocess.run([sys.executable, str(SCRIPTS / "status.py"), "arctic", "spider-swing"],
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("unrecognized arguments", r.stderr)
 
     def test_an_empty_stamp_is_silence_and_the_wallet_is_still_adopted(self):
         # `skillName: ""` is effectively-silent attribution. Read verbatim it is not `spider`, so the

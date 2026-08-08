@@ -566,8 +566,10 @@ def strategy_skill_declared(s):
     wallet belongs to SOMEONE ELSE, because an unattributed wallet named `spider-swing` and a wallet
     a package called `spider-swing` really created read identically through it. Only an attribution
     that was WRITTEN can rule a candidate out — silence must never be read as a foreign owner, and
-    an EMPTY stamp is silence: read verbatim, a `skillName: ""` on the user's own live funded wallet
-    made `verify` call it another package's and refuse to touch its own strategy."""
+    an EMPTY stamp is silence by the same rule: `''` is not a package id, so returning it verbatim
+    would make every caller comparing against a package id read a blank field as a DIFFERENT owner.
+    (No sanctioned path writes one — the MCP's create schema is `z.string().trim().min(1)` — so this
+    is the invariant held at the reader, not a field sighting.)"""
     return _declared_skill(strategy_obj(s))
 
 

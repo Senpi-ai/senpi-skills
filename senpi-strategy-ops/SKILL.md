@@ -328,11 +328,12 @@ names** — either one resumes, adopting whatever already exists.
 > `status.py <id>` triage) · **`1` COULD NOT CHECK** (a read it needs failed — no verdict is
 > rendered at all; that is not "not live", and re-reading is the answer). EVERY read is in that set,
 > including the **deploy-job read** (an unreadable `deploy status` leaves "is a job running right
-> now?" unknown, and every money steer here depends on that bit). Exactly two answers mean *no job*
-> there: the verb's own `[NOT_FOUND]`, and a runtime with **no `deploy` verb at all** — a CLI that
-> cannot parse the command is not running one, so a box mid-rollout still gets a verdict. Anything
-> else that came back without a job snapshot is `1`. And the **package itself** (on disk but unparseable is could-not-check naming the
-> file, never a traceback). Positive broken evidence goes the other way: a `status --json` entry with
+> now?" unknown, and every money steer here depends on that bit) and the **package itself** (on disk
+> but unparseable is could-not-check naming the file, never a traceback). Exactly two answers mean
+> *no job* on the deploy-job read: the verb's own `[NOT_FOUND]`, and a **CLI that rejected the
+> command line** — a runtime whose plugin predates the verb cannot be running one, so a box
+> mid-rollout still gets a verdict instead of a permanent COULD NOT CHECK. Anything else that came
+> back without a job snapshot is `1`. Positive broken evidence goes the other way: a `status --json` entry with
 > no health field but a run state reading `failed` is **`3`** quoting it — only an entry with nothing
 > classifiable at all is `1`. `--json` prints the verdict object on clean stdout — the same keys on
 > all three verdicts, `deploy_job_running` included (`null` when the job state was never read) and
@@ -354,11 +355,13 @@ names** — either one resumes, adopting whatever already exists.
 > collision is named — not a `create` on a name already taken. The stamp is **quoted, never read as
 > proof of who created the wallet**: any caller of the wallet-creation tool can write any
 > `skillName` (script guards are advisory), so a raw-MCP create or an older/differently-cased id of
-> your own produces the same row. Triage is by the **stamp** (`status.py <that stamp>`, plus bare
-> `status.py` for the whole agent) — `status.py <id>` filters on that same field and is the one read
-> that cannot contain the wallet in question. If it turns out to be the user's own, say so plainly:
-> **no tool on this path re-stamps a strategy's `skillName`**, so this package cannot adopt that
-> wallet under that name and the wallet keeps running as it is — do not invent a fix-up command.
+> your own produces the same row. Triage is by the **stamp** — one `status.py <that stamp>` per stamp
+> named, plus bare `status.py` for the whole agent; `status.py <id>` filters on that same field and
+> is the one read that cannot contain the wallet in question. If a stamp is a package you have, that
+> package is where the wallet is checked and operated (`deploy.py verify <stamp>`, read-only). If it
+> is the user's own wallet under a stamp nothing owns, say so plainly: **no tool on this path
+> re-stamps a strategy's `skillName`**, so this package cannot adopt that wallet under that name and
+> the wallet keeps running as it is — do not invent a fix-up command.
 > A wallet with **no** attribution at all still matches by name (it is usually yours).
 >
 > `deploy.py status [<id>]` shows the last deploy job and starts nothing either — there is **one job
