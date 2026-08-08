@@ -50,6 +50,13 @@ _MANAGED = {"copy": "copy-trading — followed by Senpi's copy engine (no runtim
             "manual": "manual — positions you manage in the app (no runtime)"}
 
 
+def _funded(r):
+    """The funded cell. `_cli.strategy_funded` is None when the strategy record carried no
+    `totalFunded`/`netFunded` — an amount nobody read is `unknown`, never the requested budget
+    (which is what `initialBudget` holds) dressed up as money that landed."""
+    return r["funded"] or "unknown"
+
+
 def _openclaw_available():
     rc, _o, _e = _cli.run_cli(["openclaw", "--version"], timeout=15)
     return rc == 0
@@ -163,7 +170,11 @@ def main(argv):
             rt = r["runtime"] or "(none)"
             pos = f"  {r['positions']} pos" if isinstance(r.get("positions"), int) else ""
             print(f"  {_ICON.get(r['health'], ' ')} {r['health']:<15} {rt:<16} "
-                  f"{r['wallet'][:10]}…  {r['funded']:>8}  [{(r['strategyId'] or '')[:8]}]{pos}")
+                  f"{r['wallet'][:10]}…  {_funded(r):>8}  [{(r['strategyId'] or '')[:8]}]{pos}")
+    if any(r["funded"] is None for r in rows):
+        print("\nℹ `unknown` in the funded column means the strategy record carried no funded amount "
+              "(totalFunded/netFunded) — NOT $0, and never the budget that was requested. Read what "
+              "actually landed on the wallet in the app before acting on the number.")
     # Every command emitted below is READ-ONLY. This is the surface agents are sent to for monitoring,
     # so a per-row `deploy.py runtime <pkg>` here would be a copy-pasteable money path: on a funded
     # wallet with no runtime it installs and starts trading. The resume escape is named once, with
@@ -187,13 +198,13 @@ def main(argv):
     if idle:
         print("\n⚠ Autonomous strategy with NO runtime (funded but not running — likely an interrupted deploy):")
         for r in idle:
-            print(f"  - {r['package']} {r['wallet'][:10]}… ({r['funded']}) → "
+            print(f"  - {r['package']} {r['wallet'][:10]}… ({_funded(r)}) → "
                   f"`deploy.py runtime {r['package']}` to start it (runs the deploy verb: it installs and "
                   f"starts trading this funded wallet), or `close.py {r['package']}` to recover funds")
     if off:
         print("\nℹ Not on a runtime — managed outside autonomous trading (this is normal):")
         for r in off:
-            print(f"  - {r['package']} {r['wallet'][:10]}… ({r['funded']}): {_MANAGED.get(r['health'], r['health'])}")
+            print(f"  - {r['package']} {r['wallet'][:10]}… ({_funded(r)}): {_MANAGED.get(r['health'], r['health'])}")
     if orphans:
         print("\n⚠ Orphan runtimes (no active strategy — safe to delete):")
         for o in orphans:

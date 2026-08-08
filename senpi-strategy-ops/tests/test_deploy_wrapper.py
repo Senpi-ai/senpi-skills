@@ -755,10 +755,22 @@ WALLET = "0x1234567890abcdef1234567890abcdef12345678"
 OTHER_WALLET = "0xfeedfacefeedfacefeedfacefeedfacefeedface"
 
 
-def _strategy(name="spider-main", wallet=WALLET, status="ACTIVE", skill="spider", funded=300):
-    return {"strategyId": "str-1234abcd", "strategyName": name, "status": status,
-            "strategyWalletAddress": wallet, "totalFunded": funded,
-            "strategyMetadata": {"skillName": skill}}
+def _strategy(name="spider-main", wallet=WALLET, status="ACTIVE", skill="spider", funded=300,
+              initial_budget=None):
+    """One `strategy_list` record.
+
+    `skill=None` drops `strategyMetadata` entirely — the real shape of a wallet the backend never
+    attributed, where `strategy_skill` falls back to the strategy NAME. `funded=None` drops
+    `totalFunded`, so only `initialBudget` (the REQUESTED figure) is left to read."""
+    s = {"strategyId": "str-1234abcd", "strategyName": name, "status": status,
+         "strategyWalletAddress": wallet}
+    if funded is not None:
+        s["totalFunded"] = funded
+    if initial_budget is not None:
+        s["initialBudget"] = initial_budget
+    if skill is not None:
+        s["strategyMetadata"] = {"skillName": skill}
+    return s
 
 
 def _runtime_table(*rows):
@@ -800,14 +812,19 @@ class RouterCli:
         return [c for c in self.calls if c[:3] == ["openclaw", "senpi", "deploy"] and "-p" in c]
 
 
+_UNSET = object()
+
+
 class FakeMCP:
-    def __init__(self, strategies=(), raises=None):
-        self.strategies, self.raises = list(strategies), raises
+    def __init__(self, strategies=(), raises=None, payload=_UNSET):
+        self.strategies, self.raises, self.payload = list(strategies), raises, payload
 
     def mcp_call(self, tool, timeout=15, **kw):
         if self.raises is not None:
             raise self.raises
         assert tool == "strategy_list", tool
+        if self.payload is not _UNSET:
+            return self.payload          # a shape the extractor may not recognise
         return {"strategies": self.strategies}
 
 
@@ -824,19 +841,25 @@ class VerifyIsAReadOnlyCheck(unittest.TestCase):
 
     def setUp(self):
         self._cli_real, self._ensure = _cli.run_cli, deploy.ensure_pkg
+        self._local = deploy.local_pkg
         self._mcp = getattr(deploy, "MCPClient", None)
-        deploy.ensure_pkg = lambda arg, ref, log: self.pkg
+        # `verify` resolves LOCALLY (it fetches nothing) — `ensure_pkg` stays stubbed to a raiser so a
+        # regression that routes verify back through the fetching resolver fails here, loudly.
+        deploy.ensure_pkg = lambda arg, ref, log: self.fail("verify resolved through the FETCH path")
+        deploy.local_pkg = lambda arg: self.pkg
         self.pkg = _pkg(instances=[_inst("main")])
 
     def tearDown(self):
         _cli.run_cli, deploy.ensure_pkg = self._cli_real, self._ensure
+        deploy.local_pkg = self._local
         if self._mcp is not None:
             deploy.MCPClient = self._mcp
 
-    def _verify(self, *extra, strategies=(_strategy(),), mcp_raises=None, **router_kw):
+    def _verify(self, *extra, strategies=(_strategy(),), mcp_raises=None, mcp_payload=_UNSET,
+                **router_kw):
         router = RouterCli(**router_kw)
         _cli.run_cli = router
-        deploy.MCPClient = lambda *a, **k: FakeMCP(strategies, mcp_raises)
+        deploy.MCPClient = lambda *a, **k: FakeMCP(strategies, mcp_raises, mcp_payload)
         out, err = io.StringIO(), io.StringIO()
         with self.assertRaises(SystemExit) as ctx, \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -1022,6 +1045,238 @@ class VerifyIsAReadOnlyCheck(unittest.TestCase):
         self.assertEqual(code, 3)
         self.assertIn("scalp", text)
         self.assertEqual(router.deploy_dispatches, [])
+
+    # ---- (h) the steer is chosen against the STATUS actually read ----
+
+    def test_a_closing_wallet_with_no_runtime_never_steers_at_the_resume(self):
+        # The exact window close.py's doctrine path opens: positions closing, runtime already gone.
+        # The verb adopts CLOSING_POSITIONS as live (only CLOSING_DONE is dead), so an obedient agent
+        # following a `runtime <id>` steer here reinstalls a runtime on a strategy being torn down.
+        for status in ("CLOSING_POSITIONS", "PAUSED"):
+            code, out, err, router = self._verify(
+                strategies=(_strategy(status=status),),
+                runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
+            text = out + err
+            self.assertEqual(code, 3, status)
+            self.assertNotIn("deploy.py runtime spider", text)
+            self.assertIn(status, text)                     # the status is QUOTED, not paraphrased
+            self.assertIn("status.py spider", text)         # read-only triage
+            self.assertEqual(router.deploy_dispatches, [])
+
+    def test_a_closing_wallet_with_a_healthy_runtime_is_never_live_and_healthy(self):
+        # Same root: a teardown-state strategy whose runtime is still registered and healthy used to
+        # exit 0 "VERIFIED — live and healthy".
+        code, out, err, router = self._verify(strategies=(_strategy(status="CLOSING_POSITIONS"),))
+        text = out + err
+        self.assertEqual(code, 3)
+        self.assertNotIn("live and healthy", text)
+        self.assertIn("CLOSING_POSITIONS", text)
+
+    def test_an_active_wallet_still_verifies(self):
+        # The guard above must not swallow the happy path.
+        code, out, _err, _router = self._verify(strategies=(_strategy(status="ACTIVE"),))
+        self.assertEqual(code, 0)
+
+    # ---- (i) a deploy job already running is never answered with a second dispatch ----
+
+    @staticmethod
+    def _running_job():
+        snap = {"meta": {"packageId": "spider"}, "state": {"status": "running", "phase": "fund"}}
+        return (deploy.EXIT_PENDING, json.dumps(snap), "")
+
+    def test_a_running_job_replaces_the_create_steer_with_deploy_status(self):
+        code, out, err, router = self._verify(
+            strategies=(), runtime_list=(0, _runtime_table(), ""),
+            status_json=_ok({"statuses": []}), deploy_status=self._running_job())
+        text = out + err
+        self.assertEqual(code, 3)
+        self.assertNotIn("deploy.py create spider --budget", text)
+        self.assertIn("openclaw senpi deploy status", text)
+        self.assertIn("RUNNING", text)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_a_running_job_replaces_the_resume_steer_with_deploy_status(self):
+        code, out, err, router = self._verify(
+            runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}),
+            deploy_status=self._running_job())
+        text = out + err
+        self.assertEqual(code, 3)
+        self.assertNotIn("deploy.py runtime spider", text)
+        self.assertIn("openclaw senpi deploy status", text)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_a_running_job_is_reported_in_json_too(self):
+        code, out, _err, _router = self._verify(
+            "--json", strategies=(), runtime_list=(0, _runtime_table(), ""),
+            status_json=_ok({"statuses": []}), deploy_status=self._running_job())
+        payload = json.loads(out)
+        self.assertEqual(code, 3)
+        self.assertTrue(payload["deploy_job_running"])
+
+    def test_another_packages_running_job_never_changes_this_packages_steer(self):
+        snap = {"meta": {"packageId": "polar"}, "state": {"status": "running", "phase": "fund"}}
+        code, out, err, _router = self._verify(
+            strategies=(), runtime_list=(0, _runtime_table(), ""),
+            status_json=_ok({"statuses": []}),
+            deploy_status=(deploy.EXIT_PENDING, json.dumps(snap), ""))
+        self.assertEqual(code, 3)
+        self.assertIn("deploy.py create spider --budget", out + err)
+
+    # ---- (j) attribution WIDENS the candidate set; it never shrinks it ----
+
+    def test_an_unattributed_wallet_is_matched_by_its_derived_name(self):
+        # `strategy_skill` falls back to tradingStrategyName, which for a multi-instance package can
+        # never equal the package id ("spider-swing" != "spider") — so an attribution-GATED match
+        # dropped a live funded wallet out of the check and reported "nothing is funded here".
+        self.pkg = _pkg(instances=[_inst("swing"), _inst("scalp")])
+        code, out, err, _router = self._verify(
+            strategies=(_strategy(name="spider-swing", skill=None),
+                        _strategy(name="spider-scalp", skill=None, wallet=OTHER_WALLET)),
+            runtime_list=(0, _runtime_table(("spider-swing", WALLET, "running"),
+                                            ("spider-scalp", OTHER_WALLET, "running")), ""),
+            status_json=_ok({"statuses": [{"name": "spider-swing", "overallHealth": "healthy"},
+                                          {"name": "spider-scalp", "overallHealth": "healthy"}]}))
+        text = out + err
+        self.assertEqual(code, 0)
+        self.assertNotIn("nothing is funded here", text)
+
+    def test_an_unattributed_funded_wallet_is_never_reported_as_nothing_funded(self):
+        # swing IS funded, just unattributed. Reporting it as "nothing is funded here" is a false
+        # quoted fact — and the steer that follows it (`create --budget`) funds a SECOND wallet
+        # beside the live one.
+        self.pkg = _pkg(instances=[_inst("swing"), _inst("scalp")])
+        code, out, err, router = self._verify(
+            strategies=(_strategy(name="spider-swing", skill=None),),
+            runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
+        text = out + err
+        self.assertEqual(code, 3)
+        self.assertNotIn("no live strategy named 'spider-swing'", text)
+        self.assertIn("funded and not trading", text)        # swing was matched to its wallet
+        self.assertEqual(router.deploy_dispatches, [])
+
+    # ---- (k) an unreadable strategy_list SHAPE is not an empty backend ----
+
+    def test_a_strategy_list_shape_it_cannot_navigate_is_could_not_check(self):
+        code, out, err, router = self._verify(
+            mcp_payload={"ok": True, "records": {"count": 0}},
+            runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
+        text = out + err
+        self.assertEqual(code, 1)
+        self.assertIn("COULD NOT CHECK", text)
+        self.assertIn("strategy_list", text)
+        self.assertNotIn("nothing is funded here", text)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_a_genuinely_empty_strategy_list_is_still_a_verdict(self):
+        # [] is an ANSWER — only an unnavigable shape is a failed read.
+        code, out, err, _router = self._verify(
+            mcp_payload={"strategies": []},
+            runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
+        text = out + err
+        self.assertEqual(code, 3)
+        self.assertIn("nothing is funded here", text)
+
+    # ---- (l) health is only what the runtime published AS health ----
+
+    def test_a_bare_run_state_entry_is_not_proof_of_health(self):
+        # A `status --json` entry carrying {name, status: "running"} and no health field used to
+        # render VERIFIED for a runtime no tick has ever proven.
+        code, out, err, router = self._verify(
+            status_json=_ok({"statuses": [{"name": "spider-main", "status": "running"}]}))
+        text = out + err
+        self.assertEqual(code, 1)
+        self.assertIn("COULD NOT CHECK", text)
+        self.assertNotIn("VERIFIED", text)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    # ---- (m) the funded figure is the BACKEND's, or it is UNKNOWN ----
+
+    def test_a_requested_budget_is_never_printed_as_funded(self):
+        code, out, err, _router = self._verify(
+            strategies=(_strategy(funded=None, initial_budget=500),),
+            runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
+        text = out + err
+        self.assertEqual(code, 3)
+        self.assertNotIn("$500", text)                       # the REQUESTED figure
+        self.assertIn("UNKNOWN", text)
+        self.assertIn("status.py spider", text)              # how to read the real one
+
+
+class VerifyResolvesTheLocalPackageOnly(unittest.TestCase):
+    """`verify` promises "read-only / nothing was changed", so it must not download and WRITE a
+    package under the durable strategies root just to have an instance list to check."""
+
+    def setUp(self):
+        self._resolve, self._fetch = deploy._pkg.resolve_pkg_dir, deploy._fetch.fetch_package
+        self._cli_real = _cli.run_cli
+
+    def tearDown(self):
+        deploy._pkg.resolve_pkg_dir, deploy._fetch.fetch_package = self._resolve, self._fetch
+        _cli.run_cli = self._cli_real
+
+    def test_a_missing_local_package_fetches_nothing_and_renders_no_verdict(self):
+        fetched = []
+        deploy._pkg.resolve_pkg_dir = lambda arg: Path("/nonexistent-root") / str(arg)
+        deploy._fetch.fetch_package = lambda *a, **k: fetched.append(a)
+        fake = FakeCli([])
+        _cli.run_cli = fake
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            deploy.main(["deploy.py", "verify", "spider"])
+        text = out.getvalue() + err.getvalue()
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertEqual(fetched, [])                        # the core pin: no network, no disk write
+        self.assertEqual(fake.calls, [])
+        self.assertIn("COULD NOT CHECK", text)
+        self.assertIn("not on disk", text)
+
+
+class DryRunHasNoJsonRendering(unittest.TestCase):
+    """`--dry-run --json` printed the prose plan and no JSON at all, so a JSON caller parsed
+    nothing. Refuse the combination instead of emitting a document that isn't the plan."""
+
+    def setUp(self):
+        self._cli_real, self._ensure = _cli.run_cli, deploy.ensure_pkg
+        deploy.ensure_pkg = lambda arg, ref, log: self.fail("the package was resolved (or FETCHED)")
+
+    def tearDown(self):
+        _cli.run_cli, deploy.ensure_pkg = self._cli_real, self._ensure
+
+    def test_the_combination_is_refused_before_anything_is_resolved(self):
+        for cmd in ("create", "runtime"):
+            fake = FakeCli([])
+            _cli.run_cli = fake
+            out, err = io.StringIO(), io.StringIO()
+            with self.assertRaises(SystemExit) as ctx, \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                deploy.main(["deploy.py", cmd, "spider", "--budget", "300", "--dry-run", "--json"])
+            self.assertEqual(ctx.exception.code, 1, cmd)
+            self.assertEqual(fake.calls, [], cmd)
+            self.assertEqual(out.getvalue(), "", cmd)        # never a fake/empty JSON document
+            self.assertIn("--dry-run", err.getvalue())
+            self.assertIn("JSON", err.getvalue())
+
+
+class WalletNameMatchesTheVerbsSanitizer(unittest.TestCase):
+    """`_sanitize_strategy_name` must be the verb's `sanitizeStrategyName`
+    (senpi-trading-runtime `src/deploy/package.ts`) in Python. A name verify derives differently
+    from the one the deploy CREATED reports a live deploy as NOT VERIFIED."""
+
+    def test_edge_underscores_survive_exactly_as_the_verb_keeps_them(self):
+        # The verb trims `/^-+|-+$/` — hyphens ONLY. This used to `.strip("-_")`.
+        self.assertEqual(deploy._sanitize_strategy_name("_spider_"), "_spider_")
+        self.assertEqual(deploy._sanitize_strategy_name("__spider__main"), "__spider__main")
+
+    def test_edge_hyphens_are_trimmed(self):
+        self.assertEqual(deploy._sanitize_strategy_name("--spider--"), "spider")
+        self.assertEqual(deploy._sanitize_strategy_name("-_spider_-"), "_spider_")
+
+    def test_whitespace_becomes_hyphens_and_junk_is_dropped(self):
+        self.assertEqual(deploy._sanitize_strategy_name("my spider  v2!"), "my-spider-v2")
+
+    def test_the_cap_is_forty_chars_applied_last(self):
+        self.assertEqual(deploy._sanitize_strategy_name("a" * 50), "a" * 40)
 
 
 class BudgetArg(unittest.TestCase):

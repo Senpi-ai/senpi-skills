@@ -49,6 +49,26 @@ class TestHealthVerdict(unittest.TestCase):
         self.assertIsNone(_cli.health_verdict({}))
         self.assertIsNone(_cli.health_verdict({"positions": 3}))
 
+    def test_a_bare_run_state_is_never_healthy(self):
+        # A RUN state is not a health verdict. The runtime's own vocabulary (ComponentHealth in
+        # senpi-trading-runtime `src/health/types.ts`) is healthy|degraded|unhealthy|disabled|unknown
+        # — "running"/"live"/"true" are not in it, and a real `senpi status --json` entry always
+        # carries `health`. So an entry whose only signal is a run state is UNPROVEN, not green.
+        for entry in ({"name": "spider-main", "status": "running"}, {"status": "live"},
+                      {"overall": "live"}, {"status": "true"}):
+            self.assertEqual(_cli.health_verdict(entry), "unknown", entry)
+
+    def test_a_run_state_key_can_still_downgrade(self):
+        # Fail-closed cuts one way: positive BROKEN evidence is believed wherever it is found.
+        self.assertEqual(_cli.health_verdict({"status": "unhealthy"}), "unhealthy")
+        self.assertEqual(_cli.health_verdict({"status": "degraded"}), "degraded")
+
+    def test_a_real_health_field_still_reads_healthy(self):
+        # The happy path must not go blind: every RuntimeHealthStatus carries `health`.
+        self.assertEqual(_cli.health_verdict({"runtimeName": "spider-main", "health": "healthy",
+                                              "components": {}}), "healthy")
+        self.assertEqual(_cli.health_verdict({"overallHealth": "healthy"}), "healthy")
+
 
 class TestRuntimeRunning(unittest.TestCase):
     def test_no_entry_scanners_is_running(self):

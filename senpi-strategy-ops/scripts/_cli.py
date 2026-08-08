@@ -129,8 +129,13 @@ def dig(obj, *keys, default=None):
     return default
 
 
-def find_list(obj, *wrapper_keys):
-    """Locate a list payload: a bare list, or nested under a common wrapper key."""
+def find_list_or_none(obj, *wrapper_keys):
+    """Locate a list payload: a bare list, or nested under a common wrapper key. Returns **None**
+    when the payload carries no list at all — which is NOT the same fact as an empty list.
+
+    `find_list`'s `[]` answers both questions with one value, so a response whose shape drifted (a
+    renamed wrapper, an error envelope) reads as "there is nothing" at every call site that trusts
+    it. Callers that must fail closed on an unreadable surface use this one."""
     if isinstance(obj, list):
         return obj
     if isinstance(obj, dict):
@@ -141,8 +146,14 @@ def find_list(obj, *wrapper_keys):
         # single nested dict that itself wraps a list
         d = obj.get("data") if isinstance(obj.get("data"), dict) else None
         if d:
-            return find_list(d, *wrapper_keys)
-    return []
+            return find_list_or_none(d, *wrapper_keys)
+    return None
+
+
+def find_list(obj, *wrapper_keys):
+    """Locate a list payload (see `find_list_or_none`), degrading an unrecognised shape to `[]`."""
+    found = find_list_or_none(obj, *wrapper_keys)
+    return [] if found is None else found
 
 
 # ---- runtime lookups (openclaw senpi runtime ...) ----
@@ -351,25 +362,48 @@ def runtime_health_map(timeout=15):
     return {}
 
 
-def health_verdict(status_json):
-    """Map a `senpi status` payload to healthy | degraded | unhealthy | unknown | None (shape-tolerant).
+# The keys that carry a HEALTH verdict the runtime itself computed. `RuntimeHealthStatus.health` and
+# each `components.scanners.scanners[].health` are the real ones (senpi-trading-runtime
+# `src/health/types.ts`); `overallHealth` is the older spelling this repo has always accepted.
+HEALTH_KEYS = ("overallHealth", "health")
+# Keys that carry a RUN or JOB state, not health: `runtime list`'s `status`, and a deploy snapshot's
+# `state.overall`. They prove a process (or a job) exists — never that it is working.
+_RUN_STATE_KEYS = ("overall", "status")
 
-    Fail-closed: any verdict that is PRESENT but not a recognised healthy/broken value — the
-    runtime's `unknown` (scanner not yet proven by a tick), `disabled`, or future vocabulary —
-    maps to `unknown`, never to None: None triggers the caller's "running" fallback, which would
-    paint an unproven runtime ✅. None is reserved for payloads with no health field at all.
-    """
-    h = _deep_first(status_json, ["overallHealth", "health", "overall", "status"])
-    if h is None:
-        return None
-    h = str(h).lower()
-    if h in ("healthy", "ok", "running", "live", "true"):
-        return "healthy"
+
+def _classify_health(raw, allow_healthy):
+    h = str(raw).lower()
     if h in ("degraded", "warn", "warning"):
         return "degraded"
     if h in ("unhealthy", "failed", "error", "down", "false"):
         return "unhealthy"
-    return "unknown"  # unknown / disabled / unrecognised verdict → not proven live
+    if allow_healthy and h in ("healthy", "ok"):
+        return "healthy"
+    return "unknown"  # unknown / disabled / a run state / unrecognised verdict → not proven live
+
+
+def health_verdict(status_json):
+    """Map a `senpi status` payload to healthy | degraded | unhealthy | unknown | None (shape-tolerant).
+
+    Fail-closed twice over:
+
+    * Any verdict that is PRESENT but not a recognised healthy/broken value — the runtime's
+      `unknown` (scanner not yet proven by a tick), `disabled`, or future vocabulary — maps to
+      `unknown`, never to None: None triggers the caller's "running" fallback, which would paint an
+      unproven runtime ✅. None is reserved for payloads with no health field at all.
+    * **Only a real health field may render `healthy`.** The runtime's health vocabulary is
+      `healthy|degraded|unhealthy|disabled|unknown` — "running"/"live"/"true" are not in it, they are
+      RUN states. Reading one as healthy turned a `{name, status: "running"}` entry into a ✅ for a
+      runtime no tick had ever proven. A run-state key can still DOWNGRADE (positive broken evidence
+      is believed wherever it is found); it can never promote.
+    """
+    h = _deep_first(status_json, list(HEALTH_KEYS))
+    if h is not None:
+        return _classify_health(h, allow_healthy=True)
+    h = _deep_first(status_json, list(_RUN_STATE_KEYS))
+    if h is None:
+        return None
+    return _classify_health(h, allow_healthy=False)
 
 
 def active_positions(status_json):
@@ -389,15 +423,46 @@ def active_positions(status_json):
 
 # ---- strategy lookups (MCP strategy_list) ----
 
+class ReadFailed(Exception):
+    """A surface a caller needs came back unusable — a transport failure, or a payload whose shape
+    carries no answer. Raised only by the strict readers (`list_strategies_strict`,
+    `list_runtimes_or_none`'s callers): a caller that catches this must render NO verdict."""
+
+
 def list_strategies(mcp, timeout=15, statuses=None):
-    """strategy_list. Pass `statuses` to filter server-side (much smaller payload than fetching a long
-    closed/failed history — strategy_list with no filter can return many dozens of records)."""
+    """strategy_list, degrading to `[]` on a transport error or an unrecognised payload. Pass
+    `statuses` to filter server-side (much smaller payload than fetching a long closed/failed
+    history — strategy_list with no filter can return many dozens of records).
+
+    A CHECK must not use this: "no strategies" and "I could not read the strategies" come back as
+    the same empty list. `list_strategies_strict` is that caller's reader."""
     args = {"status": statuses} if statuses else {}
     try:
         res = mcp.mcp_call("strategy_list", timeout=timeout, **args)
     except Exception:  # noqa: BLE001 — degrade to empty on transport error
         return []
     return find_list(res, "strategies")
+
+
+def list_strategies_strict(mcp, timeout=15, statuses=None):
+    """`strategy_list` for callers that must fail CLOSED: raises `ReadFailed` when the call failed
+    OR when the payload carries no recognisable strategies list. A genuinely empty list is still
+    `[]` — that is an answer.
+
+    The second half is the one that hid: `find_list` navigating nothing looks exactly like a backend
+    with nothing live, so a response-shape drift renders as "no live strategy — nothing is funded
+    here" and steers at the money path over wallets that may be perfectly live."""
+    args = {"status": statuses} if statuses else {}
+    try:
+        res = mcp.mcp_call("strategy_list", timeout=timeout, **args)
+    except Exception as e:  # noqa: BLE001 — any transport/tool failure is "we could not read it"
+        raise ReadFailed(f"MCP `strategy_list` could not be read ({e})")
+    found = find_list_or_none(res, "strategies")
+    if found is None:
+        raise ReadFailed("MCP `strategy_list` answered, but with no recognisable strategies list in "
+                         "it — the live-strategy inventory is not readable from here (an empty list "
+                         "would have read as an answer; this payload carries none)")
+    return found
 
 
 def strategy_obj(x):
@@ -457,11 +522,17 @@ LIVE_STATUSES = ["ACTIVE", "PAUSED", "CREATE_WALLET", "FUND_WALLET", "INITIALIZE
 
 
 def strategy_funded(s):
-    """The backend's own funded figure for a strategy, rendered for display (`$300`), or `?` when the
-    record carries none. ONE producer: `status.py` and `deploy.py verify` must print the same number
-    for the same wallet — and it is always the backend's `totalFunded`, never a requested amount."""
-    v = dig(strategy_obj(s), "totalFunded", "netFunded", "initialBudget")
-    return f"${float(v):g}" if isinstance(v, (int, float)) else "?"
+    """The backend's own funded figure for a strategy, rendered for display (`$300`), or **None**
+    when the record carries none. ONE producer: `status.py` and `deploy.py verify` must print the
+    same number for the same wallet — and it is always what the backend says LANDED (`totalFunded`,
+    else `netFunded`), never a requested amount.
+
+    `initialBudget` used to close the chain, and it is the REQUESTED figure: a $500 request that
+    partially funded $60 printed as "funded $500". Same rule as the deploy verb's
+    `[W_BUDGET_FUNDED_UNREADABLE]` — an unread amount is reported as unknown and the reader is sent
+    to a surface that can prove it, never rendered as a number nobody read."""
+    v = dig(strategy_obj(s), "totalFunded", "netFunded")
+    return f"${float(v):g}" if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
 def strategy_trader(s):
@@ -476,6 +547,17 @@ def strategy_type(s):
 
 def strategy_open(s):
     return str(strategy_status(s) or "").upper() not in DEAD_STATUSES
+
+
+def strategy_active(s):
+    """True only for `ACTIVE` — the one status that means this wallet is TRADING.
+
+    Everything else `strategy_open` admits is a transition: `CREATE_WALLET`/`FUND_WALLET`/
+    `INITIALIZE_POSITIONS`/`SUBSCRIBE_TRADER` is a deploy still in flight, `PAUSED`/
+    `CLOSING_POSITIONS` is a wallet being wound down (`close.py`'s own doctrine path leaves exactly
+    that window open, runtime already removed). Open and active are different questions: reading
+    open as active is how a teardown-in-progress gets a "start trading this funded wallet" steer."""
+    return str(strategy_status(s) or "").upper() == "ACTIVE"
 
 
 def strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15, statuses=None):
