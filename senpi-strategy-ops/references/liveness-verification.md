@@ -95,16 +95,19 @@ authoritative signals are `health` and the heartbeat, **not** the run counters:
 > cycle," which is normal. Judge liveness by `health` + `lastAliveAt`; `runCount > 0` is a bonus, not a
 > requirement.
 
-Failure signatures (**positive** evidence of breakage only — anything else is "not yet confirmed," retry):
+Failure signatures (**positive** evidence of breakage only — anything else is "not yet confirmed," retry).
+Note what this table structurally cannot tell you: a scanner that runs perfectly and *reads nothing*
+emits no failure signature at all. That is what `senpi validate` is for, before the wallet exists.
 
 | Symptom | Field signature | Likely cause |
 |---|---|---|
 | Runtime says it's broken | `health === "unhealthy"` (in `status` or `state`) | The runtime's own verdict — trust it; read `lastError` |
-| Crash-looping | `health === "unhealthy"` with a restart count + cause on the scanner's own line in `status` | The supervisor is restarting a rapidly-failing scanner (it keeps retrying at capped backoff — restarts never stop on their own); fix the scanner code. Events carry `senpi.error.code: E_SCANNER_CRASH_LOOP` (tick failures: `E_SCANNER_TICK_ERROR` / `E_SCANNER_TICK_TIMEOUT`) — see `docs/error-code-taxonomy.md` |
+| Crash-looping | `health === "unhealthy"` with a restart count + cause on the scanner's own line in `status` | The supervisor is restarting a rapidly-failing scanner (it keeps retrying at capped backoff — restarts never stop on their own); fix the scanner code. Events carry `senpi.error.code: E_SCANNER_CRASH_LOOP` (tick failures: `E_SCANNER_TICK_ERROR` / `E_SCANNER_TICK_TIMEOUT`) — see [`docs/error-code-taxonomy.md`](../../docs/error-code-taxonomy.md) |
 | Repeatedly failing | `consecutiveErrorCount ≥ 1` or a persistent `lastError` | `scan()` is throwing — print `lastError`, `lastErrorAt` (usually an upstream MCP/RPC read in `scan()`) |
 | Disabled | `enabled === false` | Scanner is turned off — not wired to run |
 | Hung mid-tick | `inFlight === true` & `lastRunStartedAt` older than `timeout_seconds` | `scan()` exceeded its time box — the runtime kills + restarts it; persistent hangs point at a slow upstream read |
 | Can't read either command | `state` throws AND `status` unreadable | **Not a scanner fault** — the gateway read is transiently unavailable (common right after deploy). Re-check; do not declare the scanner down. |
+| **Healthy and doing nothing** | `health === "healthy"`, ticks land, `runCount` climbing — and **no signal ever accepted** | The hardest one to see from here: a scanner whose reads all fail, or that returns before reading, looks *identical* to one with no setups. Nothing in this table catches it, because there is no positive evidence to find. **Catch it before deploy** — `openclaw senpi validate <package-dir>` counts successful reads and reports **UNPROVEN** (exit 2) for a tick that established nothing. |
 
 **When `status` and `state` disagree, `status` wins for the health verdict.** `status` (getHealthStatus)
 keeps answering while `state` (getSystemState) is still throwing post-deploy — so a scanner that `status`

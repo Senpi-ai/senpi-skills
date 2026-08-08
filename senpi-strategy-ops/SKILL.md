@@ -25,7 +25,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.14.0"
+  version: "2.16.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -42,7 +42,8 @@ sizing/execution, the two-phase DSL exit, risk guard-rails. **There is no separa
 tool call — wallet funding and the first scan tick are slow, so they must not block one long call):
 
 ```
-python3 senpi-strategy-ops/scripts/deploy.py validate <id>                 # 0. preflight — deploy-ready? (no side effects)
+openclaw senpi validate <package-dir>                                     # 0a. does it RUN? (no wallet, no funding)
+python3 senpi-strategy-ops/scripts/deploy.py validate <id>                 # 0b. preflight — deploy-ready? (no side effects)
 python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget <usd>   # 1. create wallets & fund them
 python3 senpi-strategy-ops/scripts/deploy.py runtime <id>                  # 2. register the runtime(s)
 python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                  # 3. GATE — confirm LIVE (runtime+scanner+DSL+budget)
@@ -81,9 +82,28 @@ exists, check the registry; no match → hand to **senpi-strategy-discover**:
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/strategies/catalog.json
 ```
 
-**Step 0.5 — preflight (recommended).** `deploy.py validate <id>` reports every structural + render
-issue in **one pass**, with **no side effects**, before you fund anything. The deployer **accepts the
-flat single-instance layout** agents naturally scaffold — one `runtime.yaml` + `scanners/` at the
+**Step 0.5 — preflight. Two questions, two commands.**
+
+`openclaw senpi validate <package-dir>` answers **does it run** — loads every scanner file, runs one
+real tick against live read-only data, counts what it read, and checks each emitted signal against
+the runtime's own wire schema. No wallet, no funding. `PASS` records a proof of runnability beside
+the recipe; **`UNPROVEN` (exit 2) is not a pass** — the tick ran and established nothing, usually a
+gate in `scan()` that should consult `ctx.dry_run`.
+
+`deploy.py validate <id>` answers **is the package well formed** — every structural + render
+issue in **one pass**, with **no side effects**, before you fund anything.
+
+**Today nothing downstream re-checks runnability.** `deploy.py create` funds a wallet on the
+strength of the package alone — it verifies structure, not that the scanner reads anything. So if
+`senpi validate` was skipped, or returned `UNPROVEN` and was waved through, `create` will fund it
+and `verify` will report `live`: a running strategy, real money, trading nothing. Run
+`senpi validate` yourself, and do not deploy a package that has not returned `PASS`.
+
+*(Coming: the deploy verb becomes a hard gate — it verifies the proof `senpi validate` writes and
+refuses to fund without one. Validating now costs nothing then, because a package that already
+passed carries its proof.)*
+
+The deployer **accepts the flat single-instance layout** agents naturally scaffold — one `runtime.yaml` + `scanners/` at the
 package root — by synthesizing the canonical `main` instance, so there's **no need to restructure into
 `main/`**. Any remaining fix is named prescriptively (e.g. `set runtime name: <id>-main`). A package
 that exists **on disk is authoritative** — an invalid local package surfaces its real error and is
@@ -294,8 +314,11 @@ exists to prevent).
 
 **Do this:**
 1. **Confirm the edited package is on disk** in the durable root (`/data/workspace/strategies/<id>/[<instance>/]…`)
-   — authored via `senpi-strategy-author`, not hand-guessed here. (`upgrade` re-runs the full `validate`
-   preflight itself, so a bad `./scanners` path is caught BEFORE anything closes.)
+   — authored via `senpi-strategy-author`, not hand-guessed here. **Prove the edit still RUNS before you
+   close anything**: `openclaw senpi validate <package-dir>` must return `PASS` — an edit is exactly when a
+   scanner breaks, and `upgrade` flattens a live book. (`upgrade` also re-runs the structural `validate`
+   preflight itself, so a bad `./scanners` path is caught BEFORE anything closes — but that checks shape,
+   not runnability.)
 2. **Run `upgrade` and re-run it to advance** — one guided step per call (close → fund fresh wallet →
    register runtime → verify), exactly like `create` resumes. `--instance` is required for a multi-arm
    package (upgrades one sleeve, siblings untouched); the budget funds the fresh wallet:
