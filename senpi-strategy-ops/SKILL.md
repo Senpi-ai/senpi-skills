@@ -328,8 +328,10 @@ names** — either one resumes, adopting whatever already exists.
 > `status.py <id>` triage) · **`1` COULD NOT CHECK** (a read it needs failed — no verdict is
 > rendered at all; that is not "not live", and re-reading is the answer). EVERY read is in that set,
 > including the **deploy-job read** (an unreadable `deploy status` leaves "is a job running right
-> now?" unknown, and every money steer here depends on that bit — only the verb's own `[NOT_FOUND]`
-> means *no job*) and the **package itself** (on disk but unparseable is could-not-check naming the
+> now?" unknown, and every money steer here depends on that bit). Exactly two answers mean *no job*
+> there: the verb's own `[NOT_FOUND]`, and a runtime with **no `deploy` verb at all** — a CLI that
+> cannot parse the command is not running one, so a box mid-rollout still gets a verdict. Anything
+> else that came back without a job snapshot is `1`. And the **package itself** (on disk but unparseable is could-not-check naming the
 > file, never a traceback). Positive broken evidence goes the other way: a `status --json` entry with
 > no health field but a run state reading `failed` is **`3`** quoting it — only an entry with nothing
 > classifiable at all is `1`. `--json` prints the verdict object on clean stdout — the same keys on

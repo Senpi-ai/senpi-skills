@@ -217,9 +217,17 @@ Four rules keep `verify` from steering at a state it did not read:
   verb — and is never verified, even with a healthy runtime still registered against it.
 - **A deploy job RUNNING for this package replaces every money steer** with `openclaw senpi deploy
   status`, and the report says the picture is mid-flight. The resume already is that job; re-checking
-  during your own `create` must not dispatch a second one. That bit is read fail-closed: only the
-  verb's own `[NOT_FOUND]` means *no deploy has ever run here*; a `deploy status` that did not answer
-  (spawn failure, timeout, any other error) is could-not-check (1), never "no job".
+  during your own `create` must not dispatch a second one. That bit is read fail-closed, and the read
+  lands in exactly one of three classes. A **job snapshot** (the shape the verb emits — a
+  `state.status`): its `meta.packageId` decides whether it is this package's. A **positive no-job
+  answer**: the verb's own `[NOT_FOUND]` (no deploy has ever run here), or a runtime whose CLI has no
+  `deploy` verb at all — it cannot be running a verb job, so a box whose plugin predates the verb
+  (fleet skew: skills update hourly, the runtime self-updates on its own cadence) still gets a
+  verdict instead of a permanent could-not-check. **Anything else** — spawn failure, timeout, an
+  `{"ok": false, …}` envelope or any other JSON that is not a snapshot, and a RUNNING job whose
+  snapshot names no package — is could-not-check (1), never "no job". The `[NOT_FOUND]` match is
+  anchored to the code at the start of its line, where the verb's refusal puts it: a failed read that
+  merely quotes `[NOT_FOUND]` somewhere in its log tail is not an answer about this agent's job.
 - **Attribution DISAMBIGUATES the match; it never shrinks it to nothing.** Instances are matched by
   the name the verb derives, across every live strategy. A candidate is dropped only when the record
   carries a WRITTEN `strategyMetadata.skillName` naming a **different** package; a record with no

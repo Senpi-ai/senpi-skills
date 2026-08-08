@@ -1044,6 +1044,72 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("VERIFIED", out)
 
+    def test_a_runtime_with_no_deploy_verb_is_a_no_job_answer_not_an_unreadable_read(self):
+        # Fleet version skew, not theory: skills update hourly from main, the runtime self-updates
+        # from npm on its own cadence, so a rollout window leaves boxes with new skills and a pre-verb
+        # runtime. Its CLI answers the status read with an unknown-command error and no [NOT_FOUND] —
+        # read as unreadable, verify printed COULD NOT CHECK (1) over a live, healthy package on
+        # every run, steering at a re-read that can never succeed there. A CLI that cannot parse the
+        # command is not running a verb job: that is positive no-job evidence.
+        code, out, err, router = self._verify(
+            deploy_status=(1, "", "error: unknown command 'deploy'"))
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("VERIFIED", out)
+        self.assertNotIn("COULD NOT CHECK", out + err)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_a_quoted_not_found_in_a_failed_read_is_never_read_as_no_job(self):
+        # The no-job answer is the verb's own refusal, which OPENS its line with the code. A failed
+        # read whose text merely CONTAINS `[NOT_FOUND]` — a gateway wrapper, an interleaved log line,
+        # and `error_tail` merges stderr+stdout — said "no job ever ran" while a job could be funding
+        # a wallet, and the row below would then name the money steer.
+        code, out, err, router = self._verify(
+            deploy_status=(1, "", "gateway proxy: upstream answered [NOT_FOUND] for trace 7f3a"),
+            runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
+        text = out + err
+        self.assertEqual(code, 1)
+        self.assertIn("COULD NOT CHECK", text)
+        self.assertNotIn("deploy.py runtime spider", text)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_a_dict_that_is_not_a_job_snapshot_is_could_not_check(self):
+        # `_extract_json` recovers ANY JSON object from stdout, so an error envelope (or one complete
+        # JSON log line in a timed-out call's partial output) used to reach the packageId comparison,
+        # fail it, and report "no job running" — fail-open on the one bit the money steers hang off.
+        envelope = {"ok": False, "error": {"code": "UPSTREAM", "message": "gateway unavailable"}}
+        code, out, err, router = self._verify(
+            deploy_status=(1, json.dumps(envelope), ""),
+            runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
+        text = out + err
+        self.assertEqual(code, 1)
+        self.assertIn("COULD NOT CHECK", text)
+        self.assertIn("UPSTREAM", text)                     # quotes what it actually read
+        self.assertNotIn("deploy.py runtime spider", text)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_a_running_job_whose_snapshot_names_no_package_is_could_not_check(self):
+        # Running, and unattributable: whether it is spider's job cannot be told from here, and that
+        # is exactly the bit that decides whether this row may name a second dispatch.
+        snap = {"state": {"status": "running", "phase": "create"}}
+        code, out, err, router = self._verify(
+            deploy_status=(6, json.dumps(snap), ""),
+            runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
+        text = out + err
+        self.assertEqual(code, 1)
+        self.assertIn("COULD NOT CHECK", text)
+        self.assertNotIn("deploy.py runtime spider", text)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_a_finished_job_that_names_no_package_is_not_a_failed_read(self):
+        # Nothing is running, so no steer depends on whose job it was — and its warns stay unrelayed
+        # (they cannot be attributed to this package).
+        snap = {"state": {"status": "done", "overall": "live"},
+                "partialFundNote": "[W_BUDGET_PARTIAL_FUND] main (0x…) funded $60.00 of $500.00"}
+        code, out, err, _router = self._verify(deploy_status=(0, json.dumps(snap), ""))
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("VERIFIED", out)
+        self.assertNotIn("W_BUDGET_PARTIAL_FUND", out + err)
+
     def test_another_packages_deploy_job_is_never_relayed_under_this_package(self):
         # One deploy-job record per agent, not package-addressed: polar's warn under a `verify spider`
         # prompt invites binding the wrong package's facts.

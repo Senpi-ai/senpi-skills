@@ -522,11 +522,50 @@ def warn_obsolete_verify_flags(a):
 
 _WARN_CODE = re.compile(r"\[W_[A-Z][A-Z_]*\]")
 
-# The verb's own "no deploy has ever run on this agent" refusal. It is the ONLY no-snapshot answer
-# that means "no job" — everything else that produces no snapshot (a spawn failure, the
-# STATUS_TIMEOUT, any other `ok:false`) is a read that did not happen, and must not read as an
-# absence. Matched on the taxonomy code, not on prose.
-_NO_DEPLOY_JOB = re.compile(r"\[NOT_FOUND\]")
+# The verb's own "no deploy has ever run on this agent" refusal, matched on the taxonomy code (not on
+# prose) and ANCHORED to the start of a line — that is where the code actually sits, because the CLI
+# prints the refusal's own message and every refusal message OPENS with its code (runtime
+# `src/deploy/register.ts`: "[NOT_FOUND] No deploy has been started on this agent. …"). Unanchored,
+# any line that merely QUOTES a backend `[NOT_FOUND]` — a gateway wrapper, an interleaved log line —
+# read as "no job ever ran" while a job could be funding a wallet. `error_tail` merges both streams,
+# so that text is not this script's to trust beyond its shape.
+_NO_DEPLOY_JOB = re.compile(r"^\s*\[NOT_FOUND\]", re.M)
+
+
+def _no_deploy_job_answer(text):
+    """True when a read that produced NO snapshot still POSITIVELY answers "no deploy job exists".
+
+    Two answers say it, and nothing else does. The verb's own `[NOT_FOUND]` refusal — no deploy has
+    ever been started on this agent. And a runtime plugin that has **no `deploy` verb at all**: a
+    CLI that cannot parse the command cannot be running a verb job either, so its unknown-command
+    answer is evidence of no-job, not an unreadable read. That second one is fleet reality, not
+    theory — skills update hourly from `main` while the runtime self-updates from npm on its own
+    cadence, so during a rollout window a box legitimately has new skills and a pre-verb runtime.
+    Reading it as unreadable made `verify` print COULD NOT CHECK (1) over a perfectly live strategy
+    on every run, with a "re-reading is the answer" steer that can never come true there.
+
+    Everything else that yields no snapshot (a spawn failure, the STATUS_TIMEOUT, any other error)
+    is a read that did not happen and stays could-not-check."""
+    s = str(text or "")
+    return bool(_NO_DEPLOY_JOB.search(s)) or _predates_the_verb(s)
+
+
+def _job_snapshot(snap):
+    """The deploy-job snapshot, or None when what came back is not one.
+
+    Every snapshot the verb emits carries `meta` and a `state.status` of `running`/`done`/
+    `interrupted` (source of truth: the runtime's `DeploySnapshotLike` in
+    `src/cli/deploy-render.ts`). `_extract_json` recovers ANY JSON object it can find in stdout, so
+    without this shape check an `{"ok": false, "error": {…}}` envelope — or one complete JSON log
+    line in a timed-out call's partial stdout — was accepted as a snapshot, missed the packageId
+    comparison and returned "no job running": fail-open on the single bit every money steer in this
+    check hangs off."""
+    if not isinstance(snap, dict):
+        return None
+    state = snap.get("state")
+    if not isinstance(state, dict) or not state.get("status"):
+        return None
+    return snap
 
 
 # The read-failure signal lives in `_cli`, beside the strict readers that raise it — verify is only
@@ -805,29 +844,48 @@ def deploy_job_facts(pkg_id):
     """`(warn lines, is a job for THIS package running right now)` from the agent's LAST deploy job,
     or `ReadFailed` when the job state could not be read at all.
 
-    NO JOB is an answer; an unreadable job read is not. `read_status` hands back `None` for three
-    different things — a spawn failure, the STATUS_TIMEOUT, and the verb's own `[NOT_FOUND]` (no
-    deploy has ever run on this agent) — and only the last one says anything about the box. Mapping
-    all three to "no job" failed OPEN: every money steer this check emits is conditioned on the
-    `running` bit, so a `deploy status` that simply did not answer let verify name `create`/`runtime`
-    while a job may have been funding the wallet at that moment. Fail closed instead — the row-level
-    reads already do — and let the caller render could-not-check.
+    Three classifications, and the read is only ever one of them:
 
-    A package deployed before the verb legitimately has no job, so the `[NOT_FOUND]` answer stays
-    silent. There is one job record per agent and it is not package-addressed, so another package's
-    job is skipped entirely: relaying polar's shortfall under a `verify spider` prompt is an
-    invitation to bind the wrong package's numbers, and polar's running job says nothing about what
-    spider's next step should be."""
-    snap, tail = read_status(None)
-    if not isinstance(snap, dict):
-        if _NO_DEPLOY_JOB.search(tail or ""):
+      * a **valid snapshot** (`_job_snapshot` — `state.status` present, the shape the verb emits),
+      * a **positive no-job answer** (`_no_deploy_job_answer` — the verb's own `[NOT_FOUND]`, or a
+        runtime with no `deploy` verb at all, which therefore has no verb job either),
+      * anything else: the read did not happen. `ReadFailed` — never "no job".
+
+    That last one is fail-closed on purpose. Every money steer this check emits is conditioned on the
+    `running` bit, so a `deploy status` that simply did not answer must not let verify name
+    `create`/`runtime` while a job may be funding the wallet at that moment. And the middle one is
+    just as load-bearing in the other direction: mapping a no-verb box's unknown-command answer into
+    could-not-check rendered a live, healthy package as uncheckable on every run.
+
+    A package deployed before the verb legitimately has no job, so a no-job answer stays silent.
+    There is one job record per agent and it is not package-addressed, so another package's job is
+    skipped entirely: relaying polar's shortfall under a `verify spider` prompt is an invitation to
+    bind the wrong package's numbers, and polar's running job says nothing about what spider's next
+    step should be. A snapshot that names NO package cannot be sorted that way — so it is only safe
+    while nothing is running; a RUNNING job whose package cannot be read leaves this check's whole
+    question open, and says so."""
+    raw, tail = read_status(None)
+    snap = _job_snapshot(raw)
+    if snap is None:
+        # `read_status` only hands back error text when stdout carried no JSON at all; a dict that is
+        # not a snapshot is quoted here instead, so the reason names what actually came back.
+        why = tail if raw is None else (f"the answer carried no deploy-job state: "
+                                        f"{json.dumps(raw)[:200]}")
+        if _no_deploy_job_answer(why):
             return [], False
         raise ReadFailed(f"`openclaw senpi deploy status` could not be read, so whether a deploy job "
                          f"is running right now is unknown — and every next step here depends on it: "
-                         f"{tail or 'no snapshot and no error text came back'}")
-    if str(((snap.get("meta") or {}).get("packageId") or "")) != str(pkg_id):
-        return [], False
+                         f"{why or 'no snapshot and no error text came back'}")
     running = ((snap.get("state") or {}).get("status") == "running")
+    job_pkg = str(((snap.get("meta") or {}).get("packageId") or ""))
+    if not job_pkg:
+        if running:
+            raise ReadFailed(f"a deploy job is RUNNING on this agent but its snapshot names no "
+                             f"package, so whether it is {pkg_id}'s job cannot be told from here — "
+                             f"and every next step here depends on that: openclaw senpi deploy status")
+        return [], False
+    if job_pkg != str(pkg_id):
+        return [], False
     return _warn_lines(snap), running
 
 
