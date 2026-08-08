@@ -901,5 +901,22 @@ class UpgradeConsentPhase(unittest.TestCase):
         self.assertIn("needs-consent", buf.getvalue())
 
 
+class ExitCodeContract(unittest.TestCase):
+    """0 = done/info, 2 = refused/failed, 3 = resumable-re-run. `closed`/`closing` MUST be 3, not 0 — a
+    `$?`/`&&` caller that reads `closed` (old arm gone, nothing deployed) as success strands the user."""
+
+    def test_done_and_informational_exit_zero(self):
+        for s in ("live", "wallets-ready", "registered", "creating", "closing-existing", "planned", "status", None):
+            self.assertEqual(deploy._exit_code(s), 0, s)
+
+    def test_refused_or_failed_exit_two(self):
+        for s in ("failed", "underfunded", "not-live", "needs-consent", "blocked"):
+            self.assertEqual(deploy._exit_code(s), 2, s)
+
+    def test_upgrade_inflight_exit_three_not_zero(self):
+        for s in ("closing", "closed"):
+            self.assertEqual(deploy._exit_code(s), 3, s)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

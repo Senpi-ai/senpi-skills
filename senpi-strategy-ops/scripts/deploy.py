@@ -1111,8 +1111,9 @@ def cmd_upgrade(pkg, a, log):
                                   "note": (f"Closing `{inst.runtime_name}` (flatten positions + return funds; "
                                            f"async). Re-run `{rerun}` to redeploy once it's closed.")})
 
-        # arm_kind == "none" (verified absent) — genuinely not deployed, or a runtime-less trap `create`
-        # itself clears → straight to redeploy.
+        # Nothing live to close, reached two ways: arm_kind == "none" (verified absent — genuinely not
+        # deployed), OR a wallet resolved but its strategy is already closed so `open_mine` is empty (a
+        # runtime-less trap `create`'s own live-guard then backstops). Either way → straight to redeploy.
         up["phase"] = "redeploy"; st["_upgrade"] = up
         save_state(pkg, st)
 
@@ -1142,6 +1143,20 @@ def cmd_upgrade(pkg, a, log):
 
 
 # ---------- cli ----------
+
+def _exit_code(status):
+    """Process exit code for a command result. **0** = done / informational; **2** = refused or failed
+    (action required — `failed`/`underfunded`/`not-live`/`needs-consent`/`blocked`); **3** = RESUMABLE,
+    re-run (in-flight). `closing`/`closed` exit 3 — NOT 0 — so a `$?`/`&&` caller can't misread upgrade's
+    most dangerous in-flight state (`closed`: the old arm is gone, funds are back in main, and NOTHING is
+    deployed yet) as "done" and stop, stranding the user's capital. These two statuses are emitted only by
+    `upgrade`; the standalone deploy steps keep their existing exit-0 done-for-this-step semantics."""
+    if status in ("failed", "underfunded", "not-live", "needs-consent", "blocked"):
+        return 2
+    if status in ("closing", "closed"):
+        return 3
+    return 0
+
 
 def main(argv):
     ap = argparse.ArgumentParser(description="Deploy a strategy package in resumable steps.")
@@ -1237,10 +1252,7 @@ def main(argv):
     else:  # status
         out = report(pkg, load_state(pkg), "status", as_json=a.json)
 
-    # `needs-consent` (blocked on operator confirming the flatten) and `blocked` (unreadable/ambiguous
-    # backend — refused rather than fund blind) exit non-zero: not complete, action required.
-    # `closing`/`closed`/`creating`/`wallets-ready` are in-progress (re-run) and exit 0.
-    sys.exit(2 if out.get("status") in ("failed", "underfunded", "not-live", "needs-consent", "blocked") else 0)
+    sys.exit(_exit_code(out.get("status")))
 
 
 if __name__ == "__main__":

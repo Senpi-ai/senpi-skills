@@ -308,9 +308,16 @@ exists to prevent).
      with `--yes`.
    - Each re-run reports where it is: `closing` (async flatten in flight — re-run) → `closed` → then the
      normal `wallets-ready` → `registered` → `live`. A transient `underfunded` right after close just
-     means the old funds are still returning — wait and re-run.
-3. **Tell the user what changed:** the wallet is NEW (old → new); funds moved main → new; a custom
-   ratchet/stop ladder on the old positions does NOT carry over (they were closed) — re-apply it if wanted.
+     means the old funds are still returning — wait and re-run. **Exit codes:** `0` = done (`live`), `2` =
+     refused / action-required (`needs-consent`, `blocked`, `failed`), **`3` = resumable, re-run**
+     (`closing`/`closed`). Don't treat `closed` as done — the old arm is gone and nothing is deployed yet;
+     keep re-running until `live`.
+   - **Budget continuity:** the fresh wallet is funded with `--budget` from the main wallet. If the old arm
+     held **more** than `--budget`, the surplus does NOT follow it across — it returns to main and stays
+     there. To carry the whole balance over, set `--budget` to the old arm's size (or higher).
+3. **Tell the user what changed:** the wallet is NEW (old → new); funds moved main → new (up to `--budget`
+   — any surplus stays in main); a custom ratchet/stop ladder on the old positions does NOT carry over
+   (they were closed) — re-apply it if wanted.
 
 **NEVER, during an upgrade:**
 - hand-render a `runtime.yaml` or run raw `openclaw senpi runtime create` on a hand-built file — the
