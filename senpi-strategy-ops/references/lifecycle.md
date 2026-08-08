@@ -83,8 +83,8 @@ Per instance the job runs five steps, each recorded with its own outcome:
    naming is best-effort legibility and must never block a deploy. Deadline hit → `pending` (re-run resumes).
    That ACTIVE read's `totalFunded` is also the **outcome** check on the budget: the final report compares
    it against what `planFunding` asked for and warns `[W_BUDGET_PARTIAL_FUND]` below 90%, naming both
-   numbers (`main (0x…) funded $60.00 of requested $500.00 (12%)`). The successor to the deleted verify
-   gate's `_budget_verdict` — but a `W_`, not its not-live verdict: the wallet is funded and the runtime
+   numbers (`main (0x…) funded $60.00 of requested $500.00 (12%)`). The successor to the old three-step
+   verify gate's deleted `_budget_verdict` — but a `W_`, not its not-live verdict: the wallet is funded and the runtime
    ticks, so `overall` and the exit code do not move, and closing a live strategy over a shortfall a
    top-up fixes is the teardown this repo keeps having to prevent. Non-destructive route first (top up
    the wallet); close-and-redeploy is named as the alternative with no command attached, because
@@ -155,7 +155,7 @@ it. Run the command the report prints, never a wider one. The crash case does no
 unwind — the boot scan never moves money — so an `interrupted` status names both exits (re-run to adopt,
 or close to reclaim) along with the amount, read fresh from the backend.
 
-## `deploy.py {validate|create|runtime|verify} <id> | status [<id>] …` — the funded path
+## `deploy.py {validate|create|runtime} <id> | verify <id> | status [<id>] …` — the funded path
 
 `deploy.py` keeps its CLI contract but no longer deploys anything itself. It owns the **front half** —
 package resolution (a path, or a bare catalog id fetched from the remote) and the side-effect-free
@@ -165,9 +165,26 @@ failed validate) — then starts the verb, polls `deploy status`, and relays the
 It polls for **~150s** by default and then returns, which keeps the call inside the ~180s tool/session
 timeout the detached job exists to escape; a job still running at the lapse is reported as **pending
 (exit 6)** with the snapshot and the `openclaw senpi deploy status` command to watch it — the honest
-outcome, not a failure. An explicit `--max-wait` replaces that budget in either direction. Its three
-action subcommands (`create` / `runtime` / `verify`) all drive the same idempotent verb; they remain
-distinct so existing docs and transcripts stay valid. `status` is the exception: it reads the agent's
+outcome, not a failure. An explicit `--max-wait` replaces that budget in either direction. Its two
+money-moving subcommands (`create` / `runtime`) drive the same idempotent verb — one path under two
+names, either of which resumes and adopts what exists.
+
+**`verify` drives nothing.** It is the READ-ONLY check: per instance it composes MCP `strategy_list`
+(a live, non-dead strategy under the name the verb assigns — `<id>`, or `<id>-<instance>` on a
+multi-instance package — with its status and `totalFunded`), `openclaw senpi runtime list` (is a
+runtime registered on this instance's wallet?) and `openclaw senpi status --json` (the runtime's own
+health verdict, quoted verbatim), then relays the last deploy job's `[W_*]` warn lines **iff that job
+ran this package** (no snapshot is not a failure — a package deployed before the verb has none). It
+takes no `--budget`, no `--max-wait`, no `--dry-run`: there is no job to size, wait for or plan. Its
+exit codes are its own — **`0`** verified (live wallet + registered runtime + healthy, per instance) ·
+**`3`** not verified (each instance names what is missing/unhealthy plus the one non-destructive next
+step: `deploy.py create <id> --budget <usd>` where nothing is funded, `deploy.py runtime <id>` on a
+funded runtime-less wallet — each named **with the fact that it installs and starts trading** — and
+`status.py <id>` for degraded/unknown/ambiguous states) · **`1`** could-not-check, fail-closed: if
+`strategy_list`, `runtime list` or `status --json` cannot be read, NO verdict is rendered at all, the
+failed read is named, and nothing steers at the money path. It never emits a close command.
+
+`status` is the other read-only one: it reads the agent's
 **last deploy job** — one record, not package-addressed — so it resolves no package and fetches nothing.
 An id is optional there and acts as an assertion: if the job ran a different package, `status` refuses
 (naming both, and pointing at `status.py <id>` for what that package is actually doing) rather than
@@ -185,10 +202,11 @@ carries no universe gate of its own: it relays the verb's refusal verbatim, exac
 same predicates and reports them beside its structural verdict), and it is what the refusal points at for
 the fix → re-check → deploy loop.
 
-**Exit codes** (identical to the verb's): `0` live · `2` refused · `3` failed · `4`
+**Exit codes** for `validate`/`create`/`runtime`/`status` (identical to the verb's; `verify` has its
+own 0/3/1 above): `0` live · `2` refused · `3` failed · `4`
 installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job still running) ·
 `1` internal/transport error. `2` is **any gate saying no with nothing created past it**: the verb's
-refusals, and the wrapper's own structural preflight failing on `create`/`runtime`/`verify` — the same
+refusals, and the wrapper's own structural preflight failing on `create`/`runtime` — the same
 check `validate` runs, deterministic, so a bare retry refuses identically. `1` is also the fallback
 for a status the wrapper does not recognise, so a new
 status can never read as success, and for the wrapper's own "could not answer" cases: a start it could
@@ -238,10 +256,11 @@ running instance calls **`openclaw senpi status -r <id>`** to upgrade process-le
 own verdict + active-position count. Classes:
 
 - **healthy / degraded / unhealthy / unknown** — ACTIVE strategy + live runtime, per the runtime's `status`
-  health, which is fail-closed: `unknown` = scanner not yet proven by a tick (verify, don't assume);
+  health, which is fail-closed: `unknown` = scanner not yet proven by a tick (check, don't assume);
   the deploy report's `overall: live` is the deploy-time liveness gate — re-read it read-only with
-  `openclaw senpi deploy status`, never by re-running `deploy.py verify` (that starts the deploy verb
-  and can fund/install); degraded/unknown print a triage hint.
+  `openclaw senpi deploy status` (or `deploy.py verify <id>`, also read-only, for the per-instance
+  verdict). The money path near this surface is the RESUME, `deploy.py runtime <id>` — that one starts
+  the deploy verb and can fund/install; degraded/unknown print a read-only triage hint.
 - **runtime-stopped** — ACTIVE + runtime exists but not running.
 - **no-runtime** — autonomous *package* strategy (`skillName`, no `traderAddress`) with **no runtime** →
   the only no-runtime anomaly (funded but not running, likely an interrupted deploy); printed with the fix

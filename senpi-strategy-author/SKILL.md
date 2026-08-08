@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.12.0"
+  version: "2.12.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -313,10 +313,11 @@ loop every time:
    observed) is the only value you may call live. `installed-unobserved` means the tick was not seen in
    the window — say exactly that and re-read `openclaw senpi scanner -r <runtime_id>` in a few minutes;
    `refused` / `failed` name their cause — fix it and re-run. Re-read the verdict **read-only** with
-   `openclaw senpi deploy status` (or `status.py <id>` for the running fleet). `deploy.py verify <id>` is
-   NOT a read-only check: it re-runs the deploy verb and can install, start trading, and with `--budget`
-   create+fund a wallet — reach for it only when you mean to resume. **Never tell the user it's live
-   until a report says `overall: live`.**
+   `openclaw senpi deploy status` (or `status.py <id>` / `deploy.py verify <id>` for the running fleet —
+   both read-only; `verify` deploys nothing and exits `0` verified / `3` not verified / `1` could not
+   check). The command that RESUMES a deploy is `deploy.py runtime <id>` (or `create <id> --budget
+   <usd>`): that one installs, starts trading, and can create+fund a wallet — reach for it only when you
+   mean to resume. **Never tell the user it's live until a report says `overall: live`.**
 
 **NEVER deploy an authored strategy with `strategy_create_custom_strategy` / `create_position`.** Those raw
 MCP tools fund a wallet with **no runtime** — a naked funded wallet: no scanner, no DSL, no guard-rails (the

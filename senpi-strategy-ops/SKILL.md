@@ -19,7 +19,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.0.0"
+  version: "3.1.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -44,9 +44,10 @@ python3 senpi-strategy-ops/scripts/status.py                            # what a
 python3 senpi-strategy-ops/scripts/close.py          <id>               # teardown one strategy
 python3 senpi-strategy-ops/scripts/close.py          --all              # teardown EVERY open strategy
 ```
-**Fund through `deploy.py create|runtime|verify <id>`, not through the bare verb.** All three resolve the
+**Fund through `deploy.py create|runtime <id>`, not through the bare verb.** Both resolve the
 package (a bare catalog `id` is fetched from the remote), run the structural preflight, and only then
-start the runtime's `senpi deploy` job, poll it, and relay its report **verbatim**. The wrapper's value
+start the runtime's `senpi deploy` job, poll it, and relay its report **verbatim**. (`deploy.py verify
+<id>` is the **read-only** check — it deploys nothing; see below.) The wrapper's value
 is resolution, that structural pass, and the verbatim relay — **not** a gate the verb lacks:
 `openclaw senpi deploy` itself now refuses a dead universe **pre-money**
 (`[E_UNIVERSE_NOT_LIVE]` — every hardcoded instrument must be live on Hyperliquid, checked before
@@ -150,7 +151,7 @@ from the surfaces that prove it (`totalFunded`, the scanner row's `lastRunStatus
 failed · `4` installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job
 still running) · `1` internal/transport error — which is also what an unrecognised status returns, so
 a new status can never read as success. **`2` is any gate saying no with nothing created past it** —
-the verb's refusals, and `deploy.py`'s own structural preflight when `create`/`runtime`/`verify` fail
+the verb's refusals, and `deploy.py`'s own structural preflight when `create`/`runtime` fail
 it (nothing is started; fix the named issues and re-run — a bare retry refuses identically). `1` covers two more wrapper-side "could not answer" cases: a
 start it could not follow (read `openclaw senpi deploy status` — the job may be running), and a
 `deploy.py status` that could not be answered as asked — an id that is not the recorded job's package,
@@ -193,7 +194,7 @@ adopted half-built and not duplicated — but only the statuses that resolve on 
 stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.py validate <id>`.
 
 > **Do NOT improvise.** A package strategy is a **runtime-supervised scanner** — deploy it **only** via
-> `deploy.py create|runtime|verify`. Never substitute a raw `strategy_create_custom_strategy` MCP call to "deploy" it: that makes
+> `deploy.py create|runtime`. Never substitute a raw `strategy_create_custom_strategy` MCP call to "deploy" it: that makes
 > an **empty** custom-position strategy, not the running scanner, and it carries no attribution. Never
 > reach for `openclaw senpi runtime create` — it is internal and skips the funds preflight, the
 > attribution and the verified tick. Funding is **automatic** (Hyperliquid perps → HL spot → EVM bridge).
@@ -282,26 +283,36 @@ funding **plan**, the third judges what the backend actually **landed**; a repor
 Quote the report's numbers verbatim — `funded` is the backend's `totalFunded`, and the tick line is the
 scanner row's own fields. **Never re-derive a number in prose.**
 
-### The funded path — `deploy.py create|runtime|verify`
+### The funded path — `deploy.py create|runtime`
 
-`deploy.py` no longer deploys anything itself. Each of its three action subcommands resolves the package
-(a bare catalog id is fetched), runs the structural preflight, then starts the **same** verb — which
-holds the live-universe gate itself, pre-money — polls it, and prints its report verbatim. All three
+`deploy.py` no longer deploys anything itself. Each of its **two** money-moving subcommands resolves the
+package (a bare catalog id is fetched), runs the structural preflight, then starts the **same** verb —
+which holds the live-universe gate itself, pre-money — polls it, and prints its report verbatim. Both
 keep the same flags (`--budget`, `--decision-model`,
 `--max-wait`, `--tick-wait`, `--json`, `--dry-run`) and the verb's exit codes — **`2` refused / `3`
 failed** (full map above). **The old `== 2` habit no longer catches a failure**: the pre-verb script
 exited 2 on failure, this one exits 3, so anything branching on `== 2` alone silently treats every
-failed deploy as a success. Branch on the whole map — and note the behaviour change below.
+failed deploy as a success. Branch on the whole map. **`create` and `runtime` are one path under two
+names** — either one resumes, adopting whatever already exists.
 
-> **`verify` now runs a deploy — it can move money.** It used to be a read-only check. It drives the same
-> idempotent verb, so on a package whose wallets already exist it just reconciles and observes — but given
-> a `--budget` and a missing wallet it **will create and fund one**, and on a funded wallet with no runtime
-> it **installs and starts trading**. **Reserve it for an intentional resume/reconcile**, never for
-> "is it still ticking?" — monitoring runs on the read-only surfaces (`status.py`, `openclaw senpi deploy
-> status`, `senpi scanner`, `senpi status`, `senpi state`; see **Monitor** below). `deploy.py status
-> [<id>]` shows the last deploy job and starts nothing — there is **one job record per agent**, so an id
-> you pass is checked against it and a mismatch **refuses** (exit `1`, no deploy state reported, re-running
-> refuses again) instead of printing another package's verdict under your package's name.
+> **`deploy.py verify <id>` is READ-ONLY — it deploys nothing.** It is a composite of the same
+> read-only surfaces you would check by hand: MCP `strategy_list` (is there a live, funded wallet per
+> instance?) + `openclaw senpi runtime list` (is a runtime registered for it?) + `openclaw senpi status
+> --json` (the runtime's own health verdict), plus a **verbatim** relay of the last deploy job's `[W_*]`
+> warns when that job was this package's. It quotes; it never re-derives a status or a number, and it
+> takes **no `--budget`** (a check that can fund a wallet is not a check). Exit codes are its own:
+> **`0` verified** (every instance: live wallet + registered runtime + health reads healthy) ·
+> **`3` NOT verified** (it names, per instance, exactly what is missing or unhealthy and the one
+> non-destructive next step for that state — the resume `deploy.py runtime <id>` / `create <id>
+> --budget <usd>` is **named, with what it does**, never run; degraded/unknown health points at
+> `status.py <id>` triage) · **`1` COULD NOT CHECK** (a read failed — no verdict is rendered at all;
+> that is not "not live", and re-reading is the answer). `--json` prints the verdict object on clean
+> stdout. **The resume is `create`/`runtime`, never `verify`.**
+>
+> `deploy.py status [<id>]` shows the last deploy job and starts nothing either — there is **one job
+> record per agent**, so an id you pass is checked against it and a mismatch **refuses** (exit `1`, no
+> deploy state reported, re-running refuses again) instead of printing another package's verdict under
+> your package's name.
 
 ### Host prerequisites
 `openclaw` + the `@senpi-ai/runtime` plugin running — and a plugin **new enough to carry the `senpi
@@ -367,8 +378,10 @@ procedure in [`senpi-trading-runtime/references/dsl-protection-check.md`](../sen
 
 Do **not** trust "runtime: running" alone. A strategy is **live** only when its runtime is running AND
 each instance's `external_scanner` has a recent successful tick (`status.py` reports `running`). Confirm
-the tick on a **read-only** surface — never with `deploy.py verify`, which now runs the deploy verb and
-can create, fund and install (see the funded path above):
+the tick on a **read-only** surface — all of these are read-only; the money path is `deploy.py
+create|runtime` (see the funded path above) and nothing here is it:
+- `python3 scripts/deploy.py verify <id>` — the per-instance verdict over the surfaces below
+  (`0` verified / `3` not verified / `1` could not check); deploys nothing
 - `python3 scripts/status.py <id>` — the fleet view + each runtime's own health verdict
 - `openclaw senpi deploy status` — the last deploy job's report (starts nothing)
 - `openclaw senpi scanner -r <runtime_id>` — the scanner rows (`lastRunStatus`, `runCount`), the tick itself
@@ -394,7 +407,7 @@ it returns `closing` and hands polling to you: **re-run `close.py spider`** unti
 Re-runs are idempotent (runtime already gone → skip; already closing/closed → no re-submit). Strategies
 are discovered from `strategy_list` (`skillName==<id>`), so close also cleans up **orphaned** wallets
 that have no runtime. `--instance <name>` scopes an instance (needs its live runtime to map; else omit to close
-all). **Redeploy** = `close` then `create`/`runtime`/`verify`.
+all). **Redeploy** = `close` then `create`/`runtime`.
 
 ## Invariants
 

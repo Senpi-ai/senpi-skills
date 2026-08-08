@@ -10,18 +10,33 @@ lifecycle claim, or a refusal string — the `[E_*]` codes pass straight through
   python3 deploy.py validate <id>                                  # preflight (no side effects)
   python3 deploy.py create   <id> --budget <usd> [--max-wait S]    # run the deploy (create+fund+install+tick)
   python3 deploy.py runtime  <id> [--decision-model M]             # resume/complete the same deploy
-  python3 deploy.py verify   <id> [--max-wait S]                   # re-run: reconciles, then observes a tick
+  python3 deploy.py verify   <id>                                  # READ-ONLY: is it live? (deploys nothing)
   python3 deploy.py status   [<id>]                                # the last deploy job's status
 
-The three action subcommands all drive the SAME idempotent verb; re-running any of them resumes
-(the verb reconciles against the backend + the runtime registry and adopts whatever exists). They
-are kept as distinct verbs so existing docs, habits and transcripts stay valid.
+TWO subcommands move money — `create` and `runtime` — and they drive the SAME idempotent verb:
+re-running either resumes (the verb reconciles against the backend + the runtime registry and adopts
+whatever exists), so they are one path under two names, not two steps. **`verify` is not one of
+them.** It is the read-only check its name has always promised: a composite of `strategy_list` +
+`openclaw senpi runtime list` + `openclaw senpi status --json` (plus a verbatim relay of the last
+deploy job's `[W_*]` warns) that only QUOTES what it read. It starts no job, funds nothing, installs
+nothing — so an agent following an old transcript ("just re-check it: deploy.py verify spider")
+against a package whose funded wallet was deliberately left runtime-less cannot start it trading.
+When something IS missing, verify NAMES the resume (`create`/`runtime`) and says what it will do; it
+never runs it, and it never emits a teardown command.
 
-Exit codes mirror the verb's own (D-12): 0 live · 2 refused · 3 failed · 4 installed-unobserved ·
-5 interrupted · 6 pending (a wallet still funding, or the job still running) · 1 internal/transport
-error. **2 is any gate saying no with nothing created past it** — the verb's refusals, and this
-wrapper's own structural preflight (`validate`, and the same pass the action subcommands run before
-the verb is started); both are deterministic and refuse identically on a re-run.
+Exit codes for `validate`/`create`/`runtime`/`status` mirror the verb's own (D-12): 0 live · 2
+refused · 3 failed · 4 installed-unobserved · 5 interrupted · 6 pending (a wallet still funding, or
+the job still running) · 1 internal/transport error. **2 is any gate saying no with nothing created
+past it** — the verb's refusals, and this wrapper's own structural preflight (`validate`, and the
+same pass the action subcommands run before the verb is started); both are deterministic and refuse
+identically on a re-run.
+
+**`verify` runs no job, so it returns none of that range beyond 0/3/1**: `0` verified (every instance
+has a live wallet AND a registered runtime AND its health read healthy) · `3` NOT verified (something
+is missing or unhealthy — each instance says what, quoted, with the one non-destructive next step for
+that actual state) · `1` COULD NOT CHECK (a read it needs failed). 1 is fail-closed and load-bearing:
+an unreadable surface must never render as verified, and must never steer at the money path over a
+package that may be perfectly live.
 
 1 is also the fallback for a status this wrapper does not recognise, AND for a start we could not
 follow (spawn failure, start timeout, or a 0-exit start that printed no deployId — in those last two
@@ -56,6 +71,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _cli  # noqa: E402
 import _fetch  # noqa: E402
 import _pkg  # noqa: E402
+from mcp_client import MCPClient  # noqa: E402
 
 START_TIMEOUT = 60      # the verb detaches in ~1s; this is only the spawn budget
 STATUS_TIMEOUT = 30
@@ -431,6 +447,258 @@ def run_deploy(pkg, a, log):
     return exit_code_for(snap)
 
 
+# ---------- verify: a READ-ONLY composite (it never starts the verb) ----------
+
+# `verify`'s own exit codes. It runs no job, so it returns none of the job's D-12 range beyond these:
+#   0 verified · 3 not verified · 1 could not check (a read failed — no verdict is rendered).
+VERIFY_OK, VERIFY_NOT, VERIFY_UNREADABLE = 0, 3, EXIT_INTERNAL
+
+_WARN_CODE = re.compile(r"\[W_[A-Z][A-Z_]*\]")
+
+
+class ReadFailed(Exception):
+    """A surface `verify` needs came back unusable. Fail CLOSED: no verdict is rendered at all."""
+
+
+def _sanitize_strategy_name(raw, fallback):
+    """The backend strategyName sanitizer: whitespace → '-', keep only [A-Za-z0-9_-], trim
+    leading/trailing -/_, cap at 40 chars; an empty result falls back to the (truncated) package id."""
+    s = re.sub(r"[^A-Za-z0-9_-]", "", re.sub(r"\s+", "-", str(raw).strip())).strip("-_")[:40]
+    return s or str(fallback)[:40]
+
+
+def _wallet_name(pkg, inst):
+    """The strategyName the deploy verb gives this instance's wallet: `<id>-<instance>` for a
+    multi-instance package, else the bare `<id>` — sanitized the way the backend sanitizes it.
+    `verify` re-derives the SAME name to match a live strategy back to its instance, so the check and
+    the deploy cannot disagree about which wallet belongs to which sleeve."""
+    multi = len(pkg.instances) > 1
+    raw = f"{pkg.id}-{inst.name}" if (multi and inst.name) else str(pkg.id)
+    return _sanitize_strategy_name(raw, pkg.id)
+
+
+def verify_reads(pkg):
+    """The three read-only surfaces `verify` composes, or `ReadFailed` naming the one that failed.
+
+    Every one of them is a READ: MCP `strategy_list` (what the backend says is live), `openclaw senpi
+    runtime list` (what is registered on this box — the authoritative inventory; `status --json` is
+    transiently empty and is NOT one), and `openclaw senpi status --json` (the runtime's OWN health
+    verdict per runtime, the reliable liveness source). Nothing here creates, funds, installs or
+    starts anything."""
+    try:
+        res = MCPClient().mcp_call("strategy_list", timeout=STATUS_TIMEOUT, status=_cli.LIVE_STATUSES)
+    except Exception as e:  # noqa: BLE001 — any transport/tool failure is "we could not read it"
+        raise ReadFailed(f"MCP `strategy_list` could not be read ({e})")
+    strategies = [s for s in _cli.find_list(res, "strategies") if _cli.strategy_open(s)]
+    # `or_none` is the whole point: [] means "no runtimes", None means "the inventory is unreadable",
+    # and a check that reads the second as the first reports every strategy on the box as runtime-less.
+    runtimes = _cli.list_runtimes_or_none()
+    if runtimes is None:
+        raise ReadFailed("`openclaw senpi runtime list` could not be read — the runtime inventory is "
+                         "not visible from here")
+    args = ["openclaw", "senpi", "status", "--json"]
+    health = _cli.cli_json(args, STATUS_TIMEOUT)
+    if health is None:
+        raise ReadFailed("`openclaw senpi status --json` could not be read — no runtime health verdict "
+                         "is available")
+    entries = _cli.find_list(health, "statuses")
+    if not entries and any(_cli.runtime_running(r) for r in runtimes):
+        # The gateway transiently answers with an empty `statuses[]` even while runtimes are running
+        # (why `runtime list` is the inventory and this call is only health). One retry, as
+        # `runtime_health_map` does — otherwise a flaky read turns every instance into could-not-check.
+        retry = _cli.cli_json(args, STATUS_TIMEOUT)
+        entries = _cli.find_list(retry, "statuses") if retry is not None else entries
+    return strategies, runtimes, {_cli.runtime_name(e): e for e in entries}
+
+
+def _raw_health(entry):
+    """The health string the runtime itself published, for QUOTING. `health_verdict` classifies it;
+    this is what gets printed, so the report never invents a word the runtime did not say."""
+    h = _cli._deep_first(entry, ["overallHealth", "health", "overall", "status"])
+    return None if h is None else str(h)
+
+
+def verify_instance(pkg, inst, strategies, runtimes, hmap):
+    """One instance's row: what exists, quoted — plus the ONE non-destructive next step for what does
+    not. Never a close/teardown command, and never a step that is wrong for the state actually read."""
+    want = _wallet_name(pkg, inst)
+    rt_name = getattr(inst, "runtime_name", None) or f"{pkg.id}-{inst.name}"
+    row = {"instance": inst.name, "strategy_name": want, "runtime": None, "wallet": None,
+           "status": None, "funded": None, "health": None, "ok": False, "issue": None,
+           "next": None, "unreadable": None}
+    # The one next step for every state this check cannot resolve on its own: read-only, and never a
+    # close — a check that emits a teardown command is a check that can lose someone's money.
+    triage = (f"python3 {Path(__file__).with_name('status.py').name} {pkg.id}   # read-only: map each "
+              f"wallet to its runtime/strategy")
+
+    pkg_live = [s for s in strategies if _cli.strategy_skill(s) == pkg.id]
+    cands = [s for s in pkg_live if _cli.strategy_name(s) == want]
+    if not cands and len(pkg.instances) == 1:
+        cands = list(pkg_live)          # single instance: the package's lone live strategy is it
+    if not cands:
+        if pkg_live:
+            # Wallets for this package exist but none carries this instance's name (a create-time
+            # name-rejection fallback, or a renamed wallet). NOT "nothing exists": steering at
+            # `create --budget` here funds a SECOND wallet beside a possibly live, funded one.
+            row["issue"] = (f"{len(pkg_live)} live {pkg.id} wallet(s) exist but none is named {want!r} "
+                            f"— this instance could not be matched to one")
+            row["next"] = triage
+        else:
+            row["issue"] = f"no live strategy named {want!r} on the backend — nothing is funded here"
+            row["next"] = (f"python3 {Path(__file__).name} create {pkg.id} --budget <usd>   # RUNS THE "
+                           f"DEPLOY VERB: creates and funds a wallet, installs the runtime and starts "
+                           f"trading")
+        return row
+    wallets = {str(_cli.strategy_wallet(s)).lower() for s in cands if _cli.strategy_wallet(s)}
+    if len(cands) > 1 or len(wallets) > 1:
+        row["issue"] = (f"{len(cands)} live strategies match instance {inst.name!r} — which one is this "
+                        f"instance cannot be told from here")
+        row["next"] = triage
+        return row
+
+    strat = cands[0]
+    wallet = _cli.strategy_wallet(strat)
+    row.update({"wallet": str(wallet) if wallet else None, "status": _cli.strategy_status(strat),
+                "funded": _cli.strategy_funded(strat)})
+    if not wallet:
+        row["issue"] = ("the live strategy record carries no readable wallet address, so its runtime "
+                        "could not be matched")
+        row["next"] = triage
+        return row
+
+    rt = next((r for r in runtimes if _cli.wallet_match(_cli.runtime_wallet(r), wallet)), None)
+    if rt is None:
+        named = next((r for r in runtimes if _cli.runtime_name(r) == rt_name), None)
+        if named:
+            row["issue"] = (f"runtime {rt_name!r} is registered but bound to wallet "
+                            f"{str(_cli.runtime_wallet(named) or '?')} — not this strategy's "
+                            f"{str(wallet)[:10]}…")
+            row["next"] = triage
+            return row
+        row["issue"] = (f"the wallet {str(wallet)[:10]}… is live and funded ({row['funded']}) but NO "
+                        f"runtime is registered for it — funded and not trading")
+        row["next"] = (f"python3 {Path(__file__).name} runtime {pkg.id}   # RUNS THE DEPLOY VERB: it "
+                       f"installs the runtime and STARTS TRADING this funded wallet")
+        return row
+
+    row["runtime"] = _cli.runtime_name(rt)
+    listed = str(_cli.dig(rt, "status", "state") or "?")
+    if not _cli.runtime_running(rt) or _cli.runtime_no_entry_scanners(rt):
+        row["issue"] = f"runtime {row['runtime']!r} is registered but `runtime list` reads {listed!r}"
+        row["next"] = triage
+        return row
+    entry = hmap.get(row["runtime"])
+    if entry is None:
+        row["unreadable"] = (f"`openclaw senpi status --json` reported no health for running runtime "
+                             f"{row['runtime']!r}")
+        return row
+    row["health"] = _raw_health(entry)
+    if row["health"] is None:
+        row["unreadable"] = (f"`openclaw senpi status --json` carries no health field for runtime "
+                             f"{row['runtime']!r}")
+        return row
+    if _cli.health_verdict(entry) != "healthy":
+        # Quoted, never re-derived: degraded / unhealthy / the runtime's fail-closed `unknown` (no tick
+        # has proven the scanner yet) are all "not confirmed live", and each is triage, not a redeploy.
+        row["issue"] = (f"runtime {row['runtime']!r} is running but its health reads "
+                        f"{row['health']!r} (`openclaw senpi status --json`)")
+        row["next"] = triage
+        return row
+    row["ok"] = True
+    return row
+
+
+def _warn_lines(obj):
+    """Every `[W_*]` line the deploy snapshot carries, verbatim, in the order found. Walks the whole
+    document so a warn added to a new field still reaches the reader — this relays, it never composes."""
+    found, seen = [], set()
+    stack = [obj]
+    while stack:
+        cur = stack.pop(0)
+        if isinstance(cur, dict):
+            stack.extend(cur.values())
+        elif isinstance(cur, list):
+            stack.extend(cur)
+        elif isinstance(cur, str) and _WARN_CODE.search(cur) and cur not in seen:
+            seen.add(cur)
+            found.append(cur)
+    return found
+
+
+def deploy_warns(pkg_id):
+    """Warn lines from the agent's LAST deploy job, iff that job ran THIS package.
+
+    No snapshot is not a failure — a package deployed before the verb legitimately has none, so a
+    missing job is skipped silently. There is one job record per agent and it is not
+    package-addressed, so another package's warns are skipped too: relaying polar's shortfall under a
+    `verify spider` prompt is an invitation to bind the wrong package's numbers."""
+    snap, _tail = read_status(None)
+    if not isinstance(snap, dict):
+        return []
+    if str(((snap.get("meta") or {}).get("packageId") or "")) != str(pkg_id):
+        return []
+    return _warn_lines(snap)
+
+
+def cmd_verify(pkg, a):
+    """Is `<id>` live? A READ-ONLY composite — it starts no deploy, moves no money, and installs
+    nothing. Exit: 0 verified · 3 not verified · 1 could not check."""
+    if not pkg.instances:
+        return _verify_unreadable(pkg, [f"{pkg.id} declares no instances, so there is nothing to "
+                                        f"check against"], a.json)
+    try:
+        strategies, runtimes, hmap = verify_reads(pkg)
+    except ReadFailed as e:
+        return _verify_unreadable(pkg, [str(e)], a.json)
+    rows = [verify_instance(pkg, inst, strategies, runtimes, hmap) for inst in pkg.instances]
+    unreadable = [r["unreadable"] for r in rows if r["unreadable"]]
+    if unreadable:
+        return _verify_unreadable(pkg, unreadable, a.json)
+    warns = deploy_warns(pkg.id)
+    verdict = "verified" if (rows and all(r["ok"] for r in rows)) else "not-verified"
+    if a.json:
+        print(json.dumps({"verdict": verdict, "id": pkg.id, "instances": rows,
+                          "warnings": warns, "unreadable": []}, indent=2))
+        return VERIFY_OK if verdict == "verified" else VERIFY_NOT
+    if verdict == "verified":
+        print(f"✓ {pkg.id}: VERIFIED — {len(rows)} instance(s) live and healthy. Read-only check: "
+              f"nothing was deployed, funded or installed.")
+        for r in rows:
+            print(f"    - {r['instance']}: {r['runtime']} {r['health']}  {str(r['wallet'])[:10]}…  "
+                  f"funded {r['funded']}  [{r['status']}]")
+    else:
+        bad = [r for r in rows if not r["ok"]]
+        print(f"✗ {pkg.id}: NOT VERIFIED — {len(bad)} of {len(rows)} instance(s) are not confirmed "
+              f"live. This check read only; nothing was changed.", file=sys.stderr)
+        for r in rows:
+            if r["ok"]:
+                print(f"    - {r['instance']}: OK — {r['runtime']} {r['health']}, funded {r['funded']}",
+                      file=sys.stderr)
+                continue
+            print(f"    - {r['instance']}: {r['issue']}\n        Next: {r['next']}", file=sys.stderr)
+    for w in warns:
+        # The last deploy job's own words about THIS package — relayed, never restated.
+        print(f"warn (from the last deploy job): {w}", file=sys.stderr)
+    return VERIFY_OK if verdict == "verified" else VERIFY_NOT
+
+
+def _verify_unreadable(pkg, reasons, as_json):
+    """A read failed, so there IS no verdict. Say only that — a "couldn't check" that renders as
+    verified is a lie, and one that renders as not-verified steers at the money path over a package
+    that may be perfectly live."""
+    if as_json:
+        print(json.dumps({"verdict": "could-not-check", "id": pkg.id, "instances": [],
+                          "warnings": [], "unreadable": reasons}, indent=2))
+        return VERIFY_UNREADABLE
+    print(f"? {pkg.id}: COULD NOT CHECK — a read this check needs failed, so NOTHING about {pkg.id} "
+          f"is verified here (this says nothing about whether it is live):", file=sys.stderr)
+    for r in reasons:
+        print(f"    - {r}", file=sys.stderr)
+    print(f"  Nothing was changed. Retry, or triage read-only: python3 "
+          f"{Path(__file__).with_name('status.py').name} {pkg.id}", file=sys.stderr)
+    return VERIFY_UNREADABLE
+
+
 # ---------- cli ----------
 
 def main(argv):
@@ -467,17 +735,12 @@ def main(argv):
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
     pr.add_argument("--dry-run", action="store_true")
 
-    pv = sub.add_parser("verify", help="Re-run the deploy: reconciles what exists, then observes a scanner tick.")
+    # `verify` is the READ-ONLY check. It takes NONE of the deploy flags — a check that accepts
+    # `--budget` is a check that can fund a wallet, which is exactly the trap this command is not.
+    # `--max-wait`/`--tick-wait`/`--dry-run` are meaningless with no job to run or plan.
+    pv = sub.add_parser("verify",
+                        help="READ-ONLY check: is <id> live? (strategy + runtime + health; deploys nothing)")
     common(pv)
-    pv.add_argument("--budget", type=float, default=None, help="Only needed if a wallet still has to be created.")
-    pv.add_argument("--max-wait", type=int, default=None,
-                    help=f"Seconds the JOB waits for wallets to reach ACTIVE, forwarded to the "
-                         f"verb (default {DEFAULT_MAX_WAIT} — the verb's own). An explicit value "
-                         f"is also how long this script polls.")
-    pv.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
-    pv.add_argument("--tick-wait", type=int, default=None,
-                    help="Seconds the job waits to observe one verified scanner tick (0 skips).")
-    pv.add_argument("--dry-run", action="store_true")
 
     # `status` reports the agent's LAST deploy job — one record, not package-addressed — so it needs
     # no package and never resolves (or fetches) one. An id may still be given: it is checked against
@@ -524,6 +787,12 @@ def main(argv):
         sys.exit(exit_code_for(snap))
 
     pkg = ensure_pkg(a.package, a.ref, log)
+
+    # `verify` reads the package only for its instance list — it deploys nothing, so the pre-deploy
+    # structural gate (whose whole job is to refuse BEFORE money moves) has nothing to protect here,
+    # and refusing a read-only check over a render error would just hide the live state being asked about.
+    if a.cmd == "verify":
+        sys.exit(cmd_verify(pkg, a))
 
     # `validate` is the standalone, side-effect-free preflight; the action subcommands run the SAME
     # full check before the verb touches money.

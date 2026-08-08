@@ -25,8 +25,10 @@ and separately flags orphan runtimes (a runtime with no open strategy). A strate
 broken — it's just not autonomous; status.py says how it's managed. Scanner health is fail-closed: an
 external scanner never proven by a tick reads `unknown`, not `healthy` — prove it on a READ-ONLY surface
 (`openclaw senpi scanner -r <rt>`, `openclaw senpi status|state -r <rt>`, `openclaw senpi deploy status`
-for the last deploy's verdict). Everything this script prints is read-only: `deploy.py verify` is NOT a
-check any more — it runs the deploy verb and can install, start trading, and fund a wallet.
+for the last deploy's verdict, `deploy.py verify <id>` for the per-instance verdict over the same
+surfaces). Everything this script prints is read-only. The RESUME — `deploy.py runtime <id>` — is the
+one money path near this surface: it runs the deploy verb and can install, start trading, and fund a
+wallet. It is named once, with what it does, never per row.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -48,23 +50,13 @@ _MANAGED = {"copy": "copy-trading — followed by Senpi's copy engine (no runtim
             "manual": "manual — positions you manage in the app (no runtime)"}
 
 
-def _funded(strat):
-    v = _cli.dig(_cli.strategy_obj(strat), "totalFunded", "netFunded", "initialBudget")
-    return f"${float(v):g}" if isinstance(v, (int, float)) else "?"
-
-
-# Live (non-terminal) statuses — filtered server-side so we don't pull a long closed/failed history.
-_LIVE_STATUSES = ["ACTIVE", "PAUSED", "CREATE_WALLET", "FUND_WALLET", "INITIALIZE_POSITIONS",
-                  "SUBSCRIBE_TRADER", "CLOSING_POSITIONS"]
-
-
 def _openclaw_available():
     rc, _o, _e = _cli.run_cli(["openclaw", "--version"], timeout=15)
     return rc == 0
 
 
 def build(mcp, only_pkg=None, deep=True):
-    opens = [s for s in _cli.list_strategies(mcp, statuses=_LIVE_STATUSES) if _cli.strategy_open(s)]
+    opens = [s for s in _cli.list_strategies(mcp, statuses=_cli.LIVE_STATUSES) if _cli.strategy_open(s)]
     # If openclaw isn't on THIS host, the runtime registry is simply not visible from here —
     # an empty list must NOT read as "no runtimes" (that turns a healthy remote-hosted fleet
     # into false 'interrupted deploy' alarms). Degrade to runtime-unknown instead.
@@ -110,7 +102,8 @@ def build(mcp, only_pkg=None, deep=True):
             health = "manual"         # manual / app-managed position, no runtime expected
         rows.append({"package": skill or "(not on runtime)", "is_pkg": bool(skill),
                      "strategyId": _cli.strategy_id_of(s), "wallet": wallet,
-                     "status": _cli.strategy_status(s), "funded": _funded(s), "positions": positions,
+                     "status": _cli.strategy_status(s), "funded": _cli.strategy_funded(s),
+                     "positions": positions,
                      "runtime": _cli.runtime_name(rt) if rt else None, "health": health})
     # runtimes with no matching OPEN strategy (orphans — trading nothing / on a gone wallet)
     orphans = [{"runtime": _cli.runtime_name(r), "wallet": _cli.runtime_wallet(r),
@@ -172,15 +165,16 @@ def main(argv):
             print(f"  {_ICON.get(r['health'], ' ')} {r['health']:<15} {rt:<16} "
                   f"{r['wallet'][:10]}…  {r['funded']:>8}  [{(r['strategyId'] or '')[:8]}]{pos}")
     # Every command emitted below is READ-ONLY. This is the surface agents are sent to for monitoring,
-    # so a per-row `deploy.py verify <pkg>` here is a copy-pasteable money path: on a funded wallet with
-    # no runtime it installs and starts trading. The resume escape is named once, with what it does.
+    # so a per-row `deploy.py runtime <pkg>` here would be a copy-pasteable money path: on a funded
+    # wallet with no runtime it installs and starts trading. The resume escape is named once, with
+    # what it does. (`deploy.py verify <id>` is read-only and safe to name anywhere — it is the check.)
     if sick:
         print("\n⚠ Degraded (runtime up but not operating cleanly):")
         for r in sick:
             print(f"  - {r['package']} {r['runtime'] or ''} → "
                   f"`openclaw senpi status -r {r['runtime']} --json` / "
                   f"`openclaw senpi scanner -r {r['runtime']}` to triage (read-only)")
-        print("  Deliberately resuming/reinstalling one? That is `deploy.py verify <id>` — it runs the "
+        print("  Deliberately resuming/reinstalling one? That is `deploy.py runtime <id>` — it runs the "
               "deploy verb and can move money (install + start trading; create+fund with --budget). "
               "Triage first.")
     if unproven:

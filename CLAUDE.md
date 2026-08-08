@@ -36,8 +36,12 @@ strategies/<id>/                   # a strategy package (e.g. strategies/spider/
   one named wallet per instance via `strategy_create_custom_strategy` (budget split by
   `funding_share`, min $10/wallet) → install → one observed scanner tick — then polls
   `openclaw senpi deploy status` until it is terminal and relays that report verbatim.
-  `deploy.py runtime|verify <id>` drive the **same idempotent verb**: re-running resumes and adopts
-  whatever exists, so they are not separate steps. **Install is the verb's own in-process step** —
+  `deploy.py create|runtime <id>` drive the **same idempotent verb**: re-running either resumes and
+  adopts whatever exists, so they are not separate steps. **`deploy.py verify <id>` is NOT one of
+  them** — it is the **read-only** check (`strategy_list` + `runtime list` + `senpi status --json`,
+  quoting what it read; exits `0` verified / `3` not verified / `1` could-not-check) and it never
+  starts a deploy, funds a wallet or installs a runtime. It NAMES the resume when one is needed; the
+  resume itself is always `create`/`runtime`. **Install is the verb's own in-process step** —
   never hand-run `openclaw senpi runtime create` (it skips the funds preflight, the attribution and
   the verified tick). Teardown is `close.py <id>` (or `--all`) — **never a raw `strategy_close`**
   (it strands the runtime). Attribution is automatic: the deploy path stamps

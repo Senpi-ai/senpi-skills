@@ -32,8 +32,7 @@ from mcp_client import MCPClient, MCPError  # noqa: E402
 SUBMIT_TIMEOUT = 60        # HTTP timeout for the strategy_close submit
 _CLOSED = ("CLOSED", "INACTIVE", "CLOSING_DONE", "TERMINATED")
 # Live (non-terminal) statuses — filter server-side so discovery doesn't pull a long closed history.
-LIVE_STATUSES = ["ACTIVE", "PAUSED", "CREATE_WALLET", "FUND_WALLET", "INITIALIZE_POSITIONS",
-                 "SUBSCRIBE_TRADER", "CLOSING_POSITIONS"]
+LIVE_STATUSES = _cli.LIVE_STATUSES
 
 
 def _runtime_gone(name):

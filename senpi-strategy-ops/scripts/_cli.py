@@ -449,6 +449,20 @@ def strategy_skill(s):
 # strategies in these states are done — never close them again, and they must NOT block a new deploy.
 DEAD_STATUSES = ("CLOSED", "FAILED", "INACTIVE", "TERMINATED", "CLOSING_DONE")
 
+# Live (non-terminal) statuses — pass to `strategy_list` to filter SERVER-side (much smaller payload
+# than a long closed/failed history). One list, shared by every caller: three copies of it drifted
+# apart is three different answers to "what is still live".
+LIVE_STATUSES = ["ACTIVE", "PAUSED", "CREATE_WALLET", "FUND_WALLET", "INITIALIZE_POSITIONS",
+                 "SUBSCRIBE_TRADER", "CLOSING_POSITIONS"]
+
+
+def strategy_funded(s):
+    """The backend's own funded figure for a strategy, rendered for display (`$300`), or `?` when the
+    record carries none. ONE producer: `status.py` and `deploy.py verify` must print the same number
+    for the same wallet — and it is always the backend's `totalFunded`, never a requested amount."""
+    v = dig(strategy_obj(s), "totalFunded", "netFunded", "initialBudget")
+    return f"${float(v):g}" if isinstance(v, (int, float)) else "?"
+
 
 def strategy_trader(s):
     """The trader a COPY strategy follows (None for custom/manual). Distinguishes copy-trading

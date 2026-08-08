@@ -13,8 +13,11 @@ This is an **agent-side check**. Run the commands yourself; do not ask the user 
 > producer daemon and no `push_signal`** — so there is nothing to reconcile against. **Never read the
 > on-disk state files** (`/data/.openclaw/senpi-state/…`); they're internal, partially-written, and not a
 > contract. The deploy report's `overall` carries this verdict at deploy time — re-read it read-only with
-> `openclaw senpi deploy status`; use this doc for hand triage. **Do not re-run `deploy.py verify` to
-> monitor**: it runs the deploy verb and can create, fund and install.
+> `openclaw senpi deploy status`; use this doc for hand triage. `deploy.py verify <id>` is **read-only**
+> too — it composes the surfaces below into a per-instance verdict (`0` verified / `3` not verified /
+> `1` could not check) and deploys nothing. **The money path is the RESUME, `deploy.py runtime <id>`**
+> (or `create <id> --budget <usd>`): that runs the deploy verb and can create, fund and install — never
+> reach for it to monitor.
 >
 > **The reliable backbone vs. the flaky detail — which command to trust:**
 > - **`openclaw senpi runtime list`** — the **authoritative inventory** (id / wallet / source / status).

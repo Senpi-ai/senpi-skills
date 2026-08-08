@@ -31,8 +31,13 @@ def _args(**kw):
     return types.SimpleNamespace(**base)
 
 
-def _pkg(dir_="/pkg/spider", pid="spider"):
-    return types.SimpleNamespace(dir=dir_, id=pid, version="1.0.0", instances=[])
+def _pkg(dir_="/pkg/spider", pid="spider", instances=()):
+    return types.SimpleNamespace(dir=dir_, id=pid, version="1.0.0", instances=list(instances))
+
+
+def _inst(name="main", runtime_name=None, pid="spider"):
+    """A package instance as `verify` reads it: its name, and the runtime id its runtime.yaml declares."""
+    return types.SimpleNamespace(name=name, runtime_name=runtime_name or f"{pid}-{name}")
 
 
 class FakeCli:
@@ -443,10 +448,11 @@ class RunDeployExitCodes(unittest.TestCase):
 
 
 class StructuralGateRefusal(unittest.TestCase):
-    """The wrapper's own pre-deploy pass is a GATE: a `full_validate` failure on create/runtime/verify
-    is deterministic, nothing was created, and re-running refuses identically — D-12's `2`. It exited
+    """The wrapper's own pre-deploy pass is a GATE: a `full_validate` failure on create/runtime is
+    deterministic, nothing was created, and re-running refuses identically — D-12's `2`. It exited
     `1`, whose taught meaning is the opposite ("the question could not be answered; the job may well
-    be running: read `deploy status`"), which invites a blind retry of a refusal."""
+    be running: read `deploy status`"), which invites a blind retry of a refusal. (`verify` is not in
+    this set: it deploys nothing, so there is no money for a pre-deploy gate to stand in front of.)"""
 
     def setUp(self):
         self._cli_real = _cli.run_cli
@@ -462,7 +468,7 @@ class StructuralGateRefusal(unittest.TestCase):
         deploy.universe_report = self._universe
 
     def test_a_structural_refusal_exits_two_and_starts_nothing(self):
-        for cmd in ("create", "runtime", "verify"):
+        for cmd in ("create", "runtime"):
             fake = FakeCli([])
             _cli.run_cli = fake
             err = io.StringIO()
@@ -743,6 +749,279 @@ class ValidateUniverseHook(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(payload["status"], "valid")
         self.assertIn("no SENPI_AUTH_TOKEN", payload["note"])
+
+
+WALLET = "0x1234567890abcdef1234567890abcdef12345678"
+OTHER_WALLET = "0xfeedfacefeedfacefeedfacefeedfacefeedface"
+
+
+def _strategy(name="spider-main", wallet=WALLET, status="ACTIVE", skill="spider", funded=300):
+    return {"strategyId": "str-1234abcd", "strategyName": name, "status": status,
+            "strategyWalletAddress": wallet, "totalFunded": funded,
+            "strategyMetadata": {"skillName": skill}}
+
+
+def _runtime_table(*rows):
+    """`runtime list` as the CLI really prints it: header, then id / wallet / source / status."""
+    text = "ID            WALLET                                      SOURCE   STATUS\n"
+    for name, wallet, status in rows:
+        text += f"{name}   {wallet}   package   {status}\n"
+    return text
+
+
+class RouterCli:
+    """Routes a stubbed `run_cli` by argv shape rather than a queue: `verify` composes several
+    different read-only surfaces and their ORDER is an implementation detail — what is never an
+    implementation detail is that none of them is `openclaw senpi deploy -p …`."""
+
+    NO_DEPLOY_JOB = (1, "", "[NOT_FOUND] No deploy has been started on this agent.")
+
+    def __init__(self, runtime_list=None, status_json=None, deploy_status=None):
+        self.calls = []
+        self.runtime_list = runtime_list if runtime_list is not None else (
+            0, _runtime_table(("spider-main", WALLET, "running")), "")
+        self.status_json = status_json if status_json is not None else _ok(
+            {"statuses": [{"name": "spider-main", "overallHealth": "healthy"}]})
+        self.deploy_status = deploy_status if deploy_status is not None else self.NO_DEPLOY_JOB
+
+    def __call__(self, args, timeout=60):
+        self.calls.append(list(args))
+        if args[:4] == ["openclaw", "senpi", "runtime", "list"]:
+            return self.runtime_list
+        if args[:4] == ["openclaw", "senpi", "deploy", "status"]:
+            return self.deploy_status
+        if args[:3] == ["openclaw", "senpi", "status"]:
+            return self.status_json
+        raise AssertionError(f"verify made an unexpected CLI call: {args}")
+
+    @property
+    def deploy_dispatches(self):
+        """Every call that STARTS the deploy verb (`senpi deploy -p <pkg>`) — must always be empty."""
+        return [c for c in self.calls if c[:3] == ["openclaw", "senpi", "deploy"] and "-p" in c]
+
+
+class FakeMCP:
+    def __init__(self, strategies=(), raises=None):
+        self.strategies, self.raises = list(strategies), raises
+
+    def mcp_call(self, tool, timeout=15, **kw):
+        if self.raises is not None:
+            raise self.raises
+        assert tool == "strategy_list", tool
+        return {"strategies": self.strategies}
+
+
+class VerifyIsAReadOnlyCheck(unittest.TestCase):
+    """`deploy.py verify <id>` NEVER starts the deploy verb.
+
+    The regression this pins: verify was converged onto the money-moving verb, so an agent following
+    an older transcript or habit ("just re-check it: deploy.py verify spider") against a package whose
+    funded wallet was deliberately left runtime-less mid-triage got the runtime installed and the
+    wallet opening real positions — from a command documented for years as a pure check. Verify is a
+    composite of read-only surfaces (`strategy_list` + `runtime list` + `senpi status --json`, plus a
+    verbatim relay of the last deploy job's warns) that only ever QUOTES what it read, and it fails
+    CLOSED: a read it could not make is `could-not-check` (1), never a verdict."""
+
+    def setUp(self):
+        self._cli_real, self._ensure = _cli.run_cli, deploy.ensure_pkg
+        self._mcp = getattr(deploy, "MCPClient", None)
+        deploy.ensure_pkg = lambda arg, ref, log: self.pkg
+        self.pkg = _pkg(instances=[_inst("main")])
+
+    def tearDown(self):
+        _cli.run_cli, deploy.ensure_pkg = self._cli_real, self._ensure
+        if self._mcp is not None:
+            deploy.MCPClient = self._mcp
+
+    def _verify(self, *extra, strategies=(_strategy(),), mcp_raises=None, **router_kw):
+        router = RouterCli(**router_kw)
+        _cli.run_cli = router
+        deploy.MCPClient = lambda *a, **k: FakeMCP(strategies, mcp_raises)
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            deploy.main(["deploy.py", "verify", "spider", *extra])
+        return ctx.exception.code, out.getvalue(), err.getvalue(), router
+
+    # ---- (a) the clean case: verified, and NOTHING was dispatched ----
+
+    def test_a_live_healthy_package_verifies_and_starts_no_deploy(self):
+        code, out, _err, router = self._verify()
+        self.assertEqual(code, 0)
+        self.assertIn("VERIFIED", out)
+        self.assertEqual(router.deploy_dispatches, [])      # the core pin
+
+    def test_the_json_verdict_is_one_parseable_document_on_stdout(self):
+        code, out, _err, router = self._verify("--json")
+        payload = json.loads(out)
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["verdict"], "verified")
+        self.assertEqual(payload["id"], "spider")
+        self.assertEqual(router.deploy_dispatches, [])
+
+    # ---- (b) funded wallet, no runtime: the resume is NAMED, never RUN ----
+
+    def test_a_funded_wallet_with_no_runtime_is_not_verified_and_names_the_resume(self):
+        code, out, err, router = self._verify(
+            runtime_list=(0, _runtime_table(), ""),
+            status_json=_ok({"statuses": []}))
+        text = out + err
+        self.assertEqual(code, 3)
+        self.assertIn("NOT VERIFIED", text)
+        self.assertIn("deploy.py runtime spider", text)
+        # The step it names moves money — say so where it is named, not in a doc the agent never reads.
+        self.assertIn("installs", text.lower())
+        self.assertIn("starts trading", text.lower())
+        self.assertEqual(router.deploy_dispatches, [])      # named, not run
+        self.assertNotIn("close.py", text)                  # never a teardown command
+
+    # ---- (c) no wallet at all: create is named (with a budget), still nothing dispatched ----
+
+    def test_no_live_wallet_is_not_verified_and_names_create(self):
+        code, out, err, router = self._verify(
+            strategies=(), runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
+        text = out + err
+        self.assertEqual(code, 3)
+        self.assertIn("NOT VERIFIED", text)
+        self.assertIn("deploy.py create spider --budget", text)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_an_unnamed_package_wallet_never_steers_at_create(self):
+        # Wallets for this package EXIST but none carries this instance's name (a create-time
+        # name-rejection fallback). Steering at `create` there funds a SECOND wallet beside a
+        # possibly-live funded one — the refusal `_recover_wallet` existed to make. (A
+        # single-instance package has no such ambiguity: its lone live wallet IS the instance.)
+        self.pkg = _pkg(instances=[_inst("swing"), _inst("scalp")])
+        code, out, err, router = self._verify(
+            strategies=(_strategy(name="unnamed-fallback"),),
+            runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
+        text = out + err
+        self.assertEqual(code, 3)
+        self.assertNotIn("--budget", text)
+        self.assertIn("status.py spider", text)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    # ---- (d) a read that failed is COULD NOT CHECK, never a verdict ----
+
+    def test_an_unreadable_status_call_is_could_not_check_not_a_verdict(self):
+        code, out, err, router = self._verify(status_json=(1, "", "gateway error"))
+        text = out + err
+        self.assertEqual(code, 1)
+        self.assertIn("COULD NOT CHECK", text)
+        self.assertNotIn("NOT VERIFIED", text)
+        self.assertNotIn("✓", text)
+        self.assertIn("openclaw senpi status", text)        # names the read that failed
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_an_unreadable_runtime_list_is_could_not_check(self):
+        code, out, err, router = self._verify(runtime_list=(1, "", "openclaw: gateway not reachable"))
+        self.assertEqual(code, 1)
+        self.assertIn("COULD NOT CHECK", out + err)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_an_unreadable_strategy_list_is_could_not_check(self):
+        code, out, err, router = self._verify(mcp_raises=RuntimeError("no SENPI_AUTH_TOKEN"))
+        text = out + err
+        self.assertEqual(code, 1)
+        self.assertIn("COULD NOT CHECK", text)
+        self.assertIn("strategy_list", text)
+        self.assertIn("no SENPI_AUTH_TOKEN", text)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_could_not_check_says_so_in_json_too(self):
+        code, out, _err, _router = self._verify("--json", status_json=(1, "", "gateway error"))
+        payload = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual(payload["verdict"], "could-not-check")
+        self.assertTrue(payload["unreadable"])
+
+    # ---- (e) health is QUOTED, never re-derived ----
+
+    def test_a_degraded_runtime_is_not_verified_and_quotes_the_health_string(self):
+        code, out, err, router = self._verify(
+            status_json=_ok({"statuses": [{"name": "spider-main", "overallHealth": "degraded"}]}))
+        text = out + err
+        self.assertEqual(code, 3)
+        self.assertIn("NOT VERIFIED", text)
+        self.assertIn("degraded", text)
+        self.assertIn("status.py spider", text)             # triage, not a resume
+        self.assertNotIn("deploy.py runtime spider", text)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_an_unproven_runtime_is_not_verified(self):
+        # The runtime's own fail-closed `unknown` (no tick has proven the scanner yet) is not health.
+        code, out, err, _router = self._verify(
+            status_json=_ok({"statuses": [{"name": "spider-main", "overallHealth": "unknown"}]}))
+        self.assertEqual(code, 3)
+        self.assertIn("unknown", (out + err))
+
+    def test_a_stopped_runtime_is_not_verified_and_quotes_its_listed_status(self):
+        code, out, err, router = self._verify(
+            runtime_list=(0, _runtime_table(("spider-main", WALLET, "stopped")), ""),
+            status_json=_ok({"statuses": []}))
+        text = out + err
+        self.assertEqual(code, 3)
+        self.assertIn("stopped", text)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    # ---- (f) the last deploy job's warns are relayed verbatim; no job is not a failure ----
+
+    def test_a_deploy_snapshot_warn_is_relayed_verbatim(self):
+        warn = ("[W_BUDGET_PARTIAL_FUND] main (0x1234…5678) funded $60.00 of requested $500.00 (12%)")
+        snap = {"meta": {"deployId": "dpl-a1b2c3d4", "packageId": "spider"},
+                "state": {"status": "done", "overall": "live"}, "partialFundNote": warn}
+        code, out, err, _router = self._verify(deploy_status=(0, json.dumps(snap), ""))
+        self.assertEqual(code, 0)
+        self.assertIn(warn, out + err)
+
+    def test_a_warn_is_read_off_a_snapshot_however_deploy_status_exited(self):
+        # `deploy status` sets the JOB's D-12 code before printing the snapshot, on --json too.
+        warn = "[W_BUDGET_BELOW_STRATEGY_MIN] scalp $12.00 (needs $13.50)"
+        snap = {"meta": {"packageId": "spider"}, "state": {"status": "done", "overall": "failed"},
+                "minBudgetNote": warn}
+        code, out, err, _router = self._verify(deploy_status=(3, json.dumps(snap), ""))
+        self.assertEqual(code, 0)          # the JOB's verdict is not this check's verdict
+        self.assertIn(warn, out + err)
+
+    def test_no_deploy_snapshot_is_not_a_failure(self):
+        code, out, _err, _router = self._verify(deploy_status=RouterCli.NO_DEPLOY_JOB)
+        self.assertEqual(code, 0)
+        self.assertIn("VERIFIED", out)
+
+    def test_another_packages_deploy_job_is_never_relayed_under_this_package(self):
+        # One deploy-job record per agent, not package-addressed: polar's warn under a `verify spider`
+        # prompt invites binding the wrong package's facts.
+        warn = "[W_BUDGET_PARTIAL_FUND] main (0x…) funded $60.00 of requested $500.00 (12%)"
+        snap = {"meta": {"packageId": "polar"}, "state": {"status": "done", "overall": "live"},
+                "partialFundNote": warn}
+        code, out, err, _router = self._verify(deploy_status=(0, json.dumps(snap), ""))
+        self.assertEqual(code, 0)
+        self.assertNotIn("W_BUDGET_PARTIAL_FUND", out + err)
+
+    # ---- (g) the argument surface: a read-only check takes no money flags ----
+
+    def test_verify_rejects_the_money_flags(self):
+        for flag in (["--budget", "300"], ["--max-wait", "300"], ["--dry-run"],
+                     ["--tick-wait", "0"], ["--decision-model", "samurai-light"]):
+            fake = FakeCli([])
+            _cli.run_cli = fake
+            with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(io.StringIO()):
+                deploy.main(["deploy.py", "verify", "spider", *flag])
+            self.assertEqual(ctx.exception.code, 2, flag)   # argparse's own usage error
+            self.assertEqual(fake.calls, [], flag)
+
+    # ---- multi-instance: every instance must be live, and each names its own next step ----
+
+    def test_a_multi_instance_package_names_the_instance_that_is_missing(self):
+        self.pkg = _pkg(instances=[_inst("swing"), _inst("scalp")])
+        code, out, err, router = self._verify(
+            strategies=(_strategy(name="spider-swing"),),
+            runtime_list=(0, _runtime_table(("spider-swing", WALLET, "running")), ""),
+            status_json=_ok({"statuses": [{"name": "spider-swing", "overallHealth": "healthy"}]}))
+        text = out + err
+        self.assertEqual(code, 3)
+        self.assertIn("scalp", text)
+        self.assertEqual(router.deploy_dispatches, [])
 
 
 class BudgetArg(unittest.TestCase):

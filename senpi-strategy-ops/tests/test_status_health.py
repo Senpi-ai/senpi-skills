@@ -79,8 +79,10 @@ if __name__ == "__main__":
 
 
 class TriageCommandsAreReadOnly(unittest.TestCase):
-    """status.py is where SKILL.md now sends an agent to MONITOR, so nothing it prints per row may be a
-    command that funds, installs or starts trading. `deploy.py verify <pkg>` is exactly that command."""
+    """status.py is where SKILL.md sends an agent to MONITOR, so nothing it prints per row may be a
+    command that funds, installs or starts trading. That command is `deploy.py runtime <pkg>` (and
+    `create` with a budget) — the resume path. `deploy.py verify` is NOT one: it is the read-only
+    check again, so status.py must not describe it as money-moving either."""
 
     def setUp(self):
         self._build, self._mcp = status.build, status.MCPClient
@@ -104,15 +106,21 @@ class TriageCommandsAreReadOnly(unittest.TestCase):
 
     def test_a_degraded_row_emits_read_only_triage_only(self):
         text = self._render("degraded")
-        self.assertNotIn("deploy.py verify spider", text)   # would install + start trading
+        self.assertNotIn("deploy.py runtime spider", text)  # would install + start trading
         self.assertIn("openclaw senpi scanner -r spider-main", text)
 
     def test_an_unknown_row_emits_read_only_checks_only(self):
         text = self._render("unknown")
-        self.assertNotIn("deploy.py verify spider", text)
+        self.assertNotIn("deploy.py runtime spider", text)
         self.assertIn("openclaw senpi scanner -r spider-main", text)
 
     def test_the_resume_escape_is_named_once_and_says_it_moves_money(self):
         text = self._render("degraded")
-        self.assertIn("deploy.py verify <id>", text)        # named as the escape, not per row
+        self.assertIn("deploy.py runtime <id>", text)       # named as the escape, not per row
         self.assertIn("can move money", text)
+
+    def test_verify_is_offered_as_a_read_only_check_never_as_the_money_path(self):
+        # The escape and the check are different commands now. A monitoring surface that still calls
+        # `verify` the money path teaches the opposite of what the command does.
+        text = self._render("degraded")
+        self.assertNotIn("verify` — it runs the deploy verb", text)

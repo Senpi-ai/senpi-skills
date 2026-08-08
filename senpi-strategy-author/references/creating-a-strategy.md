@@ -237,7 +237,7 @@ python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            
 openclaw senpi deploy status                                                    # read-only: the report; `overall: live` is the gate
 # teardown / redeploy:  close.py <id>  (flattens positions, returns funds)
 ```
-**"running" ≠ "operating."** Don't trust `status: running`. Confirm the scanner has a **positive run count + a fresh `lastRunFinishedAt`** (`openclaw senpi state -r <id>-<instance> --json`, or `openclaw senpi scanner -r <id>-<instance>`), and that it **emits a non-empty set on a tick where it should** — a `live` report proves it *ticked*, not that it produced a signal. Those reads are read-only; `deploy.py verify` is not (it re-runs the deploy verb and can move money). This is an **agent-side check** — run it yourself; never ask the user "is it working?".
+**"running" ≠ "operating."** Don't trust `status: running`. Confirm the scanner has a **positive run count + a fresh `lastRunFinishedAt`** (`openclaw senpi state -r <id>-<instance> --json`, or `openclaw senpi scanner -r <id>-<instance>`), and that it **emits a non-empty set on a tick where it should** — a `live` report proves it *ticked*, not that it produced a signal. Those reads are read-only, and so is `deploy.py verify <id>` (it composes them into a per-instance verdict and deploys nothing); the command that moves money is the resume, `deploy.py runtime <id>` / `create <id> --budget <usd>`. This is an **agent-side check** — run it yourself; never ask the user "is it working?".
 
 ### The first smoke test — run it yourself, once, before you scale
 
