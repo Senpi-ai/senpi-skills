@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.13.1"
+  version: "2.14.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -355,6 +355,12 @@ re-smoke-test if you touched `scan.py`/`runtime.yaml`.
 
 Authoring produces the **package** only; going live is a **separate, gated loop**, and a strategy is live
 only once **`senpi-strategy-ops` deploys it AND `deploy.py verify` passes**. Walk the full loop every time:
+
+> **Was this an edit to a strategy that is ALREADY LIVE?** (you changed the scoring / scanner / DSL of a
+> deployed package — "make my live strategy more aggressive", re-tune, re-score) — then the apply is
+> **`senpi-strategy-ops` `deploy.py upgrade <id> [--instance <arm>] --budget <usd>`**, NOT the fresh-deploy
+> loop below. `create` will refuse a running strategy; `upgrade` closes the arm and redeploys your edited
+> package on a fresh wallet, consent-gated, per arm. The steps below are for a strategy that is not yet live.
 
 1. **Confirm with the user** — budget + "ready to deploy?" Funding a wallet is real money and one-way, so
    this is an explicit yes, not an assumption.
