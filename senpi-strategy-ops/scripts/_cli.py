@@ -382,6 +382,15 @@ def _classify_health(raw, allow_healthy):
     return "unknown"  # unknown / disabled / a run state / unrecognised verdict → not proven live
 
 
+def run_state(status_json):
+    """The RUN/JOB state string an entry published (`status`/`overall`), or None — for QUOTING.
+
+    Not health, and never rendered as health: it is the evidence a caller quotes when
+    `health_verdict` reached its verdict off a run state because no health field was published."""
+    h = _deep_first(status_json, list(_RUN_STATE_KEYS))
+    return None if h is None else str(h)
+
+
 def health_verdict(status_json):
     """Map a `senpi status` payload to healthy | degraded | unhealthy | unknown | None (shape-tolerant).
 

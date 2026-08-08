@@ -12,7 +12,9 @@ would make every wrapper-driven deploy exit within seconds of starting. Run:
 import contextlib
 import io
 import json
+import shutil
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -1015,6 +1017,33 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("VERIFIED", out)
 
+    def test_an_unreadable_job_read_is_could_not_check_never_a_money_steer(self):
+        # `read_status(None)` answers None for a spawn failure, the STATUS_TIMEOUT AND the verb's own
+        # `[NOT_FOUND]`, and `deploy_job_facts` mapped all three to "no job". Every money steer this
+        # check emits is conditioned on that bit, so an unreadable read let verify name `runtime
+        # spider` — a SECOND deploy — while a job may have been funding the wallet right then.
+        code, out, err, router = self._verify(
+            deploy_status=(-1, "", _cli.SPAWN_FAILED_PREFIX + "openclaw"),
+            runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
+        text = out + err
+        self.assertEqual(code, 1)
+        self.assertIn("COULD NOT CHECK", text)
+        self.assertNotIn("NOT VERIFIED", text)
+        self.assertIn("deploy status", text)                # names the read that failed
+        self.assertNotIn("deploy.py runtime spider", text)  # the money steer it used to reach
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_a_status_timeout_on_the_job_read_is_could_not_check_too(self):
+        code, out, err, _router = self._verify(deploy_status=(-1, "", "timed out after 60s: openclaw …"))
+        self.assertEqual(code, 1)
+        self.assertIn("COULD NOT CHECK", out + err)
+
+    def test_the_verbs_own_no_job_answer_still_verifies(self):
+        # The one no-snapshot case that IS an answer: `[NOT_FOUND]`, no deploy has ever run here.
+        code, out, _err, _router = self._verify(deploy_status=RouterCli.NO_DEPLOY_JOB)
+        self.assertEqual(code, 0)
+        self.assertIn("VERIFIED", out)
+
     def test_another_packages_deploy_job_is_never_relayed_under_this_package(self):
         # One deploy-job record per agent, not package-addressed: polar's warn under a `verify spider`
         # prompt invites binding the wrong package's facts.
@@ -1187,6 +1216,49 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         self.assertIn("COULD NOT CHECK", text)
         self.assertNotIn("VERIFIED", text)
         self.assertEqual(router.deploy_dispatches, [])
+
+    def test_a_broken_run_state_downgrades_even_when_no_health_field_was_published(self):
+        # The other side of the same rule: a run state can never PROMOTE, but positive broken
+        # evidence is believed wherever it is found. `_raw_health` declared the row unreadable before
+        # `health_verdict` ever ran, so `{name, status: "failed"}` — a runtime the box says is
+        # broken — rendered "COULD NOT CHECK — retry" instead of NOT VERIFIED with the evidence.
+        code, out, err, router = self._verify(
+            status_json=_ok({"statuses": [{"name": "spider-main", "status": "failed"}]}))
+        text = out + err
+        self.assertEqual(code, 3)
+        self.assertIn("NOT VERIFIED", text)
+        self.assertNotIn("COULD NOT CHECK", text)
+        self.assertIn("failed", text)                        # the evidence, quoted
+        self.assertIn("status.py spider", text)              # triage, never a redeploy
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_an_entry_with_neither_health_nor_classifiable_evidence_stays_unreadable(self):
+        code, out, err, _router = self._verify(
+            status_json=_ok({"statuses": [{"name": "spider-main"}]}))
+        text = out + err
+        self.assertEqual(code, 1)
+        self.assertIn("COULD NOT CHECK", text)
+
+    # ---- (m1) the could-not-check document is the same schema as the other two ----
+
+    def test_the_could_not_check_document_carries_deploy_job_running(self):
+        # exit 0 / 3 / 1 must be ONE total schema — a key that appears only on the happy paths makes
+        # a caller's `payload["deploy_job_running"]` a KeyError exactly when the answer is "unknown".
+        code, out, _err, _router = self._verify("--json", status_json=(1, "", "gateway error"))
+        payload = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertIn("deploy_job_running", payload)
+        self.assertIsNone(payload["deploy_job_running"])     # the job state was never read
+
+    def test_a_could_not_check_after_the_job_read_reports_what_it_read(self):
+        snap = {"meta": {"packageId": "spider"}, "state": {"status": "running"}}
+        code, out, _err, _router = self._verify(
+            "--json", deploy_status=(6, json.dumps(snap), ""),
+            status_json=_ok({"statuses": [{"name": "spider-main"}]}))
+        payload = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertEqual(payload["verdict"], "could-not-check")
+        self.assertTrue(payload["deploy_job_running"])
 
     # ---- (m) the funded figure is the BACKEND's, or it is UNKNOWN ----
 
@@ -1458,6 +1530,59 @@ class VerifyResolvesTheLocalPackageOnly(unittest.TestCase):
         self.assertEqual(fake.calls, [])
         self.assertIn("COULD NOT CHECK", text)
         self.assertIn("not on disk", text)
+
+    def _malformed_pkg(self):
+        """A package dir that EXISTS with a strategy.yaml `_pkg.load` cannot model."""
+        root = Path(tempfile.mkdtemp(prefix="verify-badpkg-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        (root / "spider").mkdir()
+        (root / "spider" / "strategy.yaml").write_text("id: spider\ninstances: [\n")  # unclosed flow seq
+        deploy._pkg.resolve_pkg_dir = lambda arg: root / Path(str(arg)).name
+        return root / "spider"
+
+    def _run_verify(self, *extra):
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            deploy.main(["deploy.py", "verify", "spider", *extra])
+        return ctx.exception.code, out.getvalue(), err.getvalue()
+
+    def test_a_malformed_package_is_could_not_check_not_a_traceback(self):
+        # Reproduced in review: `local_pkg` -> `_pkg.load` raises BadPackage straight through
+        # `main`, so `verify <dir>` on a broken strategy.yaml exited 1 with a raw traceback and an
+        # EMPTY stdout — no verdict, no teaching, and nothing a caller could parse.
+        pkg_dir = self._malformed_pkg()
+        _cli.run_cli = FakeCli([])
+        code, out, err = self._run_verify()
+        text = out + err
+        self.assertEqual(code, 1)
+        self.assertIn("COULD NOT CHECK", text)
+        self.assertIn("strategy.yaml", text)                 # names the file
+        self.assertIn(str(pkg_dir), text)                    # …and where it is
+        self.assertNotIn("Traceback", text)
+
+    def test_a_malformed_package_still_emits_the_json_document(self):
+        self._malformed_pkg()
+        _cli.run_cli = FakeCli([])
+        code, out, _err = self._run_verify("--json")
+        payload = json.loads(out)                            # stdout used to be empty
+        self.assertEqual(code, 1)
+        self.assertEqual(payload["verdict"], "could-not-check")
+        self.assertEqual(payload["id"], "spider")
+        self.assertTrue(payload["unreadable"])
+        self.assertIn("deploy_job_running", payload)
+
+    def test_the_package_dir_argument_form_shares_the_same_handling(self):
+        pkg_dir = self._malformed_pkg()
+        _cli.run_cli = FakeCli([])
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            deploy.main(["deploy.py", "verify", str(pkg_dir)])
+        text = out.getvalue() + err.getvalue()
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("COULD NOT CHECK", text)
+        self.assertNotIn("Traceback", text)
 
 
 class DryRunHasNoJsonRendering(unittest.TestCase):

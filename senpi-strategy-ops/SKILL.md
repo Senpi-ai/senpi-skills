@@ -19,7 +19,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.3.1"
+  version: "3.4.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -325,9 +325,16 @@ names** — either one resumes, adopting whatever already exists.
 > **`3` NOT verified** (it names, per instance, exactly what is missing or unhealthy and the one
 > non-destructive next step for that state — the resume `deploy.py runtime <id>` / `create <id>
 > --budget <usd>` is **named, with what it does**, never run; degraded/unknown health points at
-> `status.py <id>` triage) · **`1` COULD NOT CHECK** (a read failed — no verdict is rendered at all;
-> that is not "not live", and re-reading is the answer). `--json` prints the verdict object on clean
-> stdout. **The resume is `create`/`runtime`, never `verify`.**
+> `status.py <id>` triage) · **`1` COULD NOT CHECK** (a read it needs failed — no verdict is
+> rendered at all; that is not "not live", and re-reading is the answer). EVERY read is in that set,
+> including the **deploy-job read** (an unreadable `deploy status` leaves "is a job running right
+> now?" unknown, and every money steer here depends on that bit — only the verb's own `[NOT_FOUND]`
+> means *no job*) and the **package itself** (on disk but unparseable is could-not-check naming the
+> file, never a traceback). Positive broken evidence goes the other way: a `status --json` entry with
+> no health field but a run state reading `failed` is **`3`** quoting it — only an entry with nothing
+> classifiable at all is `1`. `--json` prints the verdict object on clean stdout — the same keys on
+> all three verdicts, `deploy_job_running` included (`null` when the job state was never read).
+> **The resume is `create`/`runtime`, never `verify`.**
 >
 > **The step it names is chosen against the state it read.** Only `ACTIVE` is resumable: a `PAUSED` or
 > `CLOSING_POSITIONS` wallet (the window `close.py` opens — positions closing, runtime already gone) and

@@ -522,6 +522,12 @@ def warn_obsolete_verify_flags(a):
 
 _WARN_CODE = re.compile(r"\[W_[A-Z][A-Z_]*\]")
 
+# The verb's own "no deploy has ever run on this agent" refusal. It is the ONLY no-snapshot answer
+# that means "no job" — everything else that produces no snapshot (a spawn failure, the
+# STATUS_TIMEOUT, any other `ok:false`) is a read that did not happen, and must not read as an
+# absence. Matched on the taxonomy code, not on prose.
+_NO_DEPLOY_JOB = re.compile(r"\[NOT_FOUND\]")
+
 
 # The read-failure signal lives in `_cli`, beside the strict readers that raise it — verify is only
 # its first consumer. Aliased here because every `except ReadFailed` in this file reads better bare.
@@ -748,11 +754,26 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False):
                              f"{row['runtime']!r}")
         return row
     row["health"] = _raw_health(entry)
+    verdict = _cli.health_verdict(entry)
     if row["health"] is None:
+        if verdict in ("degraded", "unhealthy"):
+            # No health field, but the entry says outright that it is broken. `health_verdict`
+            # downgrades on positive broken evidence wherever it finds it (it only refuses to
+            # PROMOTE off a run state), and declaring the row unreadable before it ran turned a
+            # `{name, status: "failed"}` runtime into "COULD NOT CHECK — retry" instead of NOT
+            # VERIFIED with the box's own word for it. The state is quoted as a run state, never
+            # under the word "health".
+            row["issue"] = (f"runtime {row['runtime']!r} published no health, and its run state reads "
+                            f"{str(_cli.run_state(entry))!r} (`openclaw senpi status --json`) — that "
+                            f"is broken evidence, not a missing read")
+            row["next"] = triage
+            return row
+        # Nothing classifiable either way — including a bare `status: "running"`, which is a run
+        # state and can never promote to healthy. Unreadable, not a verdict.
         row["unreadable"] = (f"`openclaw senpi status --json` carries no health field for runtime "
                              f"{row['runtime']!r}")
         return row
-    if _cli.health_verdict(entry) != "healthy":
+    if verdict != "healthy":
         # Quoted, never re-derived: degraded / unhealthy / the runtime's fail-closed `unknown` (no tick
         # has proven the scanner yet) are all "not confirmed live", and each is triage, not a redeploy.
         row["issue"] = (f"runtime {row['runtime']!r} is running but its health reads "
@@ -781,21 +802,29 @@ def _warn_lines(obj):
 
 
 def deploy_job_facts(pkg_id):
-    """`(warn lines, is a job for THIS package running right now)` from the agent's LAST deploy job.
+    """`(warn lines, is a job for THIS package running right now)` from the agent's LAST deploy job,
+    or `ReadFailed` when the job state could not be read at all.
 
-    No snapshot is not a failure — a package deployed before the verb legitimately has none, so a
-    missing job is skipped silently. There is one job record per agent and it is not
-    package-addressed, so another package's job is skipped entirely: relaying polar's shortfall under
-    a `verify spider` prompt is an invitation to bind the wrong package's numbers, and polar's
-    running job says nothing about what spider's next step should be.
+    NO JOB is an answer; an unreadable job read is not. `read_status` hands back `None` for three
+    different things — a spawn failure, the STATUS_TIMEOUT, and the verb's own `[NOT_FOUND]` (no
+    deploy has ever run on this agent) — and only the last one says anything about the box. Mapping
+    all three to "no job" failed OPEN: every money steer this check emits is conditioned on the
+    `running` bit, so a `deploy status` that simply did not answer let verify name `create`/`runtime`
+    while a job may have been funding the wallet at that moment. Fail closed instead — the row-level
+    reads already do — and let the caller render could-not-check.
 
-    The `running` bit is load-bearing, not decoration: mid-deploy, this check legitimately sees no
-    wallet (or a wallet with no runtime yet) and would otherwise name the resume verb — so an agent
-    re-checking during its own `create` dispatches a SECOND concurrent deploy at the job already
-    funding the wallet."""
-    snap, _tail = read_status(None)
+    A package deployed before the verb legitimately has no job, so the `[NOT_FOUND]` answer stays
+    silent. There is one job record per agent and it is not package-addressed, so another package's
+    job is skipped entirely: relaying polar's shortfall under a `verify spider` prompt is an
+    invitation to bind the wrong package's numbers, and polar's running job says nothing about what
+    spider's next step should be."""
+    snap, tail = read_status(None)
     if not isinstance(snap, dict):
-        return [], False
+        if _NO_DEPLOY_JOB.search(tail or ""):
+            return [], False
+        raise ReadFailed(f"`openclaw senpi deploy status` could not be read, so whether a deploy job "
+                         f"is running right now is unknown — and every next step here depends on it: "
+                         f"{tail or 'no snapshot and no error text came back'}")
     if str(((snap.get("meta") or {}).get("packageId") or "")) != str(pkg_id):
         return [], False
     running = ((snap.get("state") or {}).get("status") == "running")
@@ -810,16 +839,16 @@ def cmd_verify(pkg, a):
                                            f"check against"], a.json)
     try:
         strategies, runtimes, hmap = verify_reads(pkg)
+        # Read the job BEFORE the rows: whether a deploy is running right now decides which next step
+        # each row is allowed to name — so an unreadable job read is could-not-check like any other.
+        warns, job_running = deploy_job_facts(pkg.id)
     except ReadFailed as e:
         return _verify_unreadable(pkg.id, [str(e)], a.json)
-    # Read the job BEFORE the rows: whether a deploy is running right now decides which next step each
-    # row is allowed to name.
-    warns, job_running = deploy_job_facts(pkg.id)
     rows = [verify_instance(pkg, inst, strategies, runtimes, hmap, job_running)
             for inst in pkg.instances]
     unreadable = [r["unreadable"] for r in rows if r["unreadable"]]
     if unreadable:
-        return _verify_unreadable(pkg.id, unreadable, a.json)
+        return _verify_unreadable(pkg.id, unreadable, a.json, job_running=job_running)
     verdict = "verified" if (rows and all(r["ok"] for r in rows)) else "not-verified"
     if a.json:
         print(json.dumps({"verdict": verdict, "id": pkg.id, "instances": rows,
@@ -853,15 +882,21 @@ def cmd_verify(pkg, a):
     return VERIFY_OK if verdict == "verified" else VERIFY_NOT
 
 
-def _verify_unreadable(pkg_id, reasons, as_json, tail=None):
+def _verify_unreadable(pkg_id, reasons, as_json, tail=None, job_running=None):
     """A read failed, so there IS no verdict. Say only that — a "couldn't check" that renders as
     verified is a lie, and one that renders as not-verified steers at the money path over a package
     that may be perfectly live. Takes the ID, not the package: the package itself is one of the
     things that may not have been readable, and `tail` is how that case names its own next step
-    (retrying a package that is not on disk answers nothing)."""
+    (retrying a package that is not on disk answers nothing).
+
+    `job_running` keeps all three verdict shapes ONE schema: `None` when the job state was never
+    read (most could-not-check paths fail before it), the read value when it was. A key that exists
+    only on exit 0/3 makes a caller's `payload["deploy_job_running"]` a KeyError exactly on the
+    answer that says "unknown"."""
     if as_json:
         print(json.dumps({"verdict": "could-not-check", "id": pkg_id, "instances": [],
-                          "warnings": [], "unreadable": reasons}, indent=2))
+                          "warnings": [], "deploy_job_running": job_running,
+                          "unreadable": reasons}, indent=2))
         return VERIFY_UNREADABLE
     print(f"? {pkg_id}: COULD NOT CHECK — a read this check needs failed, so NOTHING about {pkg_id} "
           f"is verified here (this says nothing about whether it is live):", file=sys.stderr)
@@ -994,7 +1029,21 @@ def main(argv):
         if a.ref:
             print(f"note: `verify` resolves the package on disk and fetches nothing, so --ref selected "
                   f"nothing.", file=sys.stderr)
-        pkg = local_pkg(a.package)
+        try:
+            pkg = local_pkg(a.package)
+        except _pkg.BadPackage as e:
+            # The package is HERE but unmodellable (bad YAML, no id, no instances). That is an
+            # unreadable surface like any other — and the one surface whose failure used to escape
+            # as a raw traceback with an EMPTY stdout, so a `--json` caller parsed nothing at all.
+            sid = Path(a.package).name
+            sys.exit(_verify_unreadable(sid, [
+                f"{_pkg.resolve_pkg_dir(a.package) / 'strategy.yaml'} could not be read as a "
+                f"package, so this check has no instance list to check against: {e}"], a.json,
+                tail=(f"  Nothing was read or changed, and this says nothing about whether {sid} is "
+                      f"live. Retrying answers nothing — the file has to parse:\n"
+                      f"    Fix the strategy.yaml named above, then re-run this check.\n"
+                      f"    python3 {Path(__file__).with_name('status.py').name}   # read-only: "
+                      f"everything actually live on this agent, whatever it is named")))
         if pkg is None:
             sid = Path(a.package).name
             status_py = Path(__file__).with_name('status.py').name

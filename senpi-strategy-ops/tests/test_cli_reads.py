@@ -126,5 +126,27 @@ class StrategySkillDeclared(unittest.TestCase):
         self.assertIsNone(_cli.strategy_skill_declared({"strategyMetadata": {}}))
 
 
+class RunState(unittest.TestCase):
+    """The run/job state, for QUOTING beside a verdict `health_verdict` reached without a health
+    field. It is evidence, never health — a caller that prints it under the word "health" is how an
+    unproven runtime reads as a healthy one."""
+
+    def test_reads_either_run_state_key(self):
+        self.assertEqual(_cli.run_state({"name": "spider-main", "status": "failed"}), "failed")
+        self.assertEqual(_cli.run_state({"state": {"overall": "live"}}), "live")
+
+    def test_no_run_state_at_all_is_none(self):
+        self.assertIsNone(_cli.run_state({"name": "spider-main"}))
+        self.assertIsNone(_cli.run_state({}))
+
+    def test_it_is_not_health_and_never_promotes(self):
+        # The pair the verify row depends on: a bare "running" carries no verdict beyond `unknown`,
+        # while a broken run state downgrades — that asymmetry is what makes quoting it safe.
+        self.assertEqual(_cli.run_state({"status": "running"}), "running")
+        self.assertEqual(_cli.health_verdict({"status": "running"}), "unknown")
+        self.assertEqual(_cli.health_verdict({"status": "failed"}), "unhealthy")
+        self.assertEqual(_cli.health_verdict({"status": "degraded"}), "degraded")
+
+
 if __name__ == "__main__":
     unittest.main()

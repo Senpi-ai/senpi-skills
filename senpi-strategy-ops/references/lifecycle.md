@@ -197,14 +197,19 @@ instance) ·
 step: `deploy.py create <id> --budget <usd>` where nothing is funded, `deploy.py runtime <id>` on a
 funded runtime-less wallet — each named **with the fact that it installs and starts trading** — and
 `status.py <id>` for degraded/unknown/ambiguous states) · **`1`** could-not-check, fail-closed: if
-`strategy_list`, `runtime list` or `status --json` cannot be read, NO verdict is rendered at all, the
-failed read is named, and nothing steers at the money path. It never emits a close command.
+`strategy_list`, `runtime list`, `status --json`, **the deploy-job read** or **the package itself**
+cannot be read, NO verdict is rendered at all, the failed read is named, and nothing steers at the
+money path. It never emits a close command. All three verdicts print the SAME `--json` keys —
+`deploy_job_running` is `null` on a could-not-check that never got as far as reading the job.
 
 Four rules keep `verify` from steering at a state it did not read:
 
 - **It resolves the package LOCALLY.** A bare catalog id that isn't on disk is `could-not-check` (1)
   naming the absence — a check that promises "nothing was changed" must not download and write a
-  package under the durable strategies root. `create`/`runtime` are what fetch.
+  package under the durable strategies root. `create`/`runtime` are what fetch. A package that IS on
+  disk but cannot be modelled (bad YAML, no `id`, no instances) is could-not-check too, naming the
+  strategy.yaml and the parse failure — never a raw traceback, and `--json` still prints the
+  document.
 - **Only `ACTIVE` is resumable.** A `PAUSED`/`CLOSING_POSITIONS` wallet (exactly the window the
   doctrine teardown opens: positions closing, runtime already removed — and the verb ADOPTS
   `CLOSING_POSITIONS`, only `CLOSING_DONE` is dead) or a deploy still mid-flight
@@ -212,7 +217,9 @@ Four rules keep `verify` from steering at a state it did not read:
   verb — and is never verified, even with a healthy runtime still registered against it.
 - **A deploy job RUNNING for this package replaces every money steer** with `openclaw senpi deploy
   status`, and the report says the picture is mid-flight. The resume already is that job; re-checking
-  during your own `create` must not dispatch a second one.
+  during your own `create` must not dispatch a second one. That bit is read fail-closed: only the
+  verb's own `[NOT_FOUND]` means *no deploy has ever run here*; a `deploy status` that did not answer
+  (spawn failure, timeout, any other error) is could-not-check (1), never "no job".
 - **Attribution DISAMBIGUATES the match; it never shrinks it to nothing.** Instances are matched by
   the name the verb derives, across every live strategy. A candidate is dropped only when the record
   carries a WRITTEN `strategyMetadata.skillName` naming a **different** package; a record with no
@@ -228,7 +235,12 @@ Four rules keep `verify` from steering at a state it did not read:
   `[A-Za-z0-9_-]` only, trim leading/trailing **`-` only**, 40 chars.
 
 An **unreadable** surface is never an empty one: `strategy_list` answering with a payload that carries
-no strategies list at all is `could-not-check` (1), not "nothing is funded here". And a funded figure
+no strategies list at all is `could-not-check` (1), not "nothing is funded here". The converse holds
+too — an unreadable surface is not the same as a BROKEN one: a `status --json` entry with no health
+field whose run state reads `failed`/`degraded` is **not verified (3)** with that state quoted as a
+run state, because positive broken evidence is believed wherever it is found. Only an entry carrying
+neither health nor any classifiable evidence (a bare `status: "running"` among them — a run state can
+never promote to healthy) stays could-not-check. And a funded figure
 the record does not carry prints **UNKNOWN** — `totalFunded`/`netFunded` or nothing; the requested
 `initialBudget` is never printed as funded (the `[W_BUDGET_FUNDED_UNREADABLE]` rule, in the check).
 
