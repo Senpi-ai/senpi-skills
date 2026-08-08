@@ -1435,6 +1435,36 @@ class VerifyAttributionDisambiguatesButNeverShrinks(VerifyHarness, unittest.Test
         self.assertIn("VERIFIED", out)
         self.assertEqual(router.deploy_dispatches, [])
 
+    def test_an_empty_stamp_is_silence_and_the_wallet_is_still_adopted(self):
+        # `skillName: ""` is effectively-silent attribution. Read verbatim it is not `spider`, so the
+        # user's OWN live funded wallet was dropped from the match and rendered as a collision
+        # "attributed to ''" — told they must not deploy their own live strategy. The metadata leg
+        # already guarded falsy; the TOP-LEVEL fallback returned the empty stamp verbatim.
+        strat = _strategy(name="spider-swing", skill=None, wallet=WALLET)
+        strat["skillName"] = ""
+        code, out, err, router = self._verify(
+            strategies=(strat, self._scalp()),
+            **self._running(("spider-swing", WALLET), ("spider-scalp", OTHER_WALLET)))
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("VERIFIED", out)
+        self.assertNotIn("attributed", out + err)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_a_json_encoded_metadata_payload_still_names_the_foreign_owner(self):
+        # Same collision as (a), with strategyMetadata arriving as a JSON string. Skipped rather than
+        # parsed, the foreign wallet reads as unattributed → adopted, and this sleeve renders "OK —
+        # live and healthy" against another package's wallet and money.
+        strat = _strategy(name="spider-swing", skill=None, wallet=WALLET)
+        strat["strategyMetadata"] = json.dumps({"skillName": FOREIGN_PKG, "skillVersion": "1.0.0"})
+        code, out, err, router = self._verify(
+            strategies=(strat, self._scalp()),
+            **self._running(("spider-swing", WALLET), ("spider-scalp", OTHER_WALLET)))
+        text = out + err
+        self.assertEqual(code, 3)
+        self.assertIn(FOREIGN_PKG, _row_text(text, "swing"))
+        self.assertNotIn("swing: OK", text)
+        self.assertEqual(router.deploy_dispatches, [])
+
     # ---- (c) a wallet attributed to THIS package is adopted ----
 
     def test_a_same_attributed_wallet_is_adopted(self):

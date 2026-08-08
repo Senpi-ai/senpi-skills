@@ -231,7 +231,11 @@ Four rules keep `verify` from steering at a state it did not read:
 - **Attribution DISAMBIGUATES the match; it never shrinks it to nothing.** Instances are matched by
   the name the verb derives, across every live strategy. A candidate is dropped only when the record
   carries a WRITTEN `strategyMetadata.skillName` naming a **different** package; a record with no
-  attribution at all stays a candidate (gating on attribution reported live funded wallets as
+  attribution at all stays a candidate — and an **empty** stamp (`skillName: ""`, at either the
+  metadata or the top level) is no attribution, not a package called `''`. The read parses a
+  `strategyMetadata` that arrives JSON-**string**-shaped too: the MCP passes the backend's scalar
+  through verbatim, and a payload skipped for its shape would make a foreign wallet read as
+  unattributed and be adopted (gating on attribution reported live funded wallets as
   "nothing is funded here" — its `strategy_skill` fallback is `tradingStrategyName`, which on a
   multi-instance package can never equal the package id). When every name-match is another package's
   — single-instance package `spider-swing` is live and `spider`'s `swing` sleeve derives the same

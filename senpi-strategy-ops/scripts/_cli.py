@@ -508,16 +508,53 @@ def strategy_name(s):
     return dig(strategy_obj(s), "strategyName", "tradingStrategyName", "name")
 
 
+def _strategy_metadata(o):
+    """`strategyMetadata` as a dict, or None when the record carries none this reader can navigate.
+
+    A JSON-encoded STRING is parsed rather than skipped. The MCP declares the field
+    `Record<string, unknown> | null` but only passes the backend's GraphQL scalar straight through
+    (`strategy_list` spreads it verbatim), so the shape is the backend's promise, not the MCP's —
+    and read as "no metadata", a serializer drift would make a genuinely FOREIGN-attributed wallet
+    read as unattributed, which is exactly the adoption `strategy_skill_declared` exists to stop."""
+    meta = dig(o, "strategyMetadata", "metadata")
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except ValueError:
+            return None
+    return meta if isinstance(meta, dict) else None
+
+
+def _first_written(o, *keys):
+    """The first key of `o` carrying a value someone actually WROTE — a present-but-empty field
+    (`skillName: ""`) is silence, not a value.
+
+    `dig` stops at the first key that EXISTS, so it hands back `''` verbatim; a caller comparing
+    that against a package id ("is this someone else's wallet?") then reads effectively-silent
+    attribution as a foreign owner and drops the user's own live wallet out of the match."""
+    for k in keys:
+        v = dig(o, k)
+        if v:
+            return v
+    return None
+
+
+def _declared_skill(o):
+    """The WRITTEN attribution on a strategy object: `strategyMetadata.skillName`, else a top-level
+    one. None when every leg is absent or empty — silence, at every leg, is never an owner."""
+    meta = _strategy_metadata(o)
+    if meta:
+        sk = _first_written(meta, "skillName", "skill_name")
+        if sk:
+            return sk
+    return _first_written(o, "skillName", "skill_name", "skill")
+
+
 def strategy_skill(s):
     """The package id a strategy was created under. Lives in strategyMetadata.skillName (set by
     strategy_create_custom_strategy's skillName arg); falls back to tradingStrategyName."""
     o = strategy_obj(s)
-    meta = dig(o, "strategyMetadata", "metadata")
-    if isinstance(meta, dict):
-        sk = dig(meta, "skillName", "skill_name")
-        if sk:
-            return sk
-    return dig(o, "skillName", "skill_name", "skill") or dig(o, "tradingStrategyName", "name")
+    return _declared_skill(o) or _first_written(o, "tradingStrategyName", "name")
 
 
 def strategy_skill_declared(s):
@@ -528,14 +565,10 @@ def strategy_skill_declared(s):
     under" and guesses from the name when nobody said; that guess is unusable for deciding whether a
     wallet belongs to SOMEONE ELSE, because an unattributed wallet named `spider-swing` and a wallet
     a package called `spider-swing` really created read identically through it. Only an attribution
-    that was WRITTEN can rule a candidate out — silence must never be read as a foreign owner."""
-    o = strategy_obj(s)
-    meta = dig(o, "strategyMetadata", "metadata")
-    if isinstance(meta, dict):
-        sk = dig(meta, "skillName", "skill_name")
-        if sk:
-            return sk
-    return dig(o, "skillName", "skill_name", "skill")
+    that was WRITTEN can rule a candidate out — silence must never be read as a foreign owner, and
+    an EMPTY stamp is silence: read verbatim, a `skillName: ""` on the user's own live funded wallet
+    made `verify` call it another package's and refuse to touch its own strategy."""
+    return _declared_skill(strategy_obj(s))
 
 
 # strategies in these states are done — never close them again, and they must NOT block a new deploy.

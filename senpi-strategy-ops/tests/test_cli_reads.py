@@ -125,6 +125,37 @@ class StrategySkillDeclared(unittest.TestCase):
         self.assertIsNone(_cli.strategy_skill_declared(record))
         self.assertIsNone(_cli.strategy_skill_declared({"strategyMetadata": {}}))
 
+    def test_an_empty_stamp_is_silence_at_every_leg(self):
+        # An effectively-silent attribution read verbatim is a FOREIGN owner to every caller that
+        # compares it against a package id — so the user's own live funded wallet drops out of the
+        # match and the check reports the name as "attributed to" ''.
+        for record in ({"strategyName": "spider", "skillName": ""},
+                       {"strategyName": "spider", "strategyMetadata": {"skillName": ""}},
+                       {"strategyName": "spider", "strategyMetadata": {"skillName": ""},
+                        "skillName": ""}):
+            self.assertIsNone(_cli.strategy_skill_declared(record), record)
+        # The metadata leg being empty must not hide a top-level stamp that WAS written.
+        self.assertEqual(_cli.strategy_skill_declared(
+            {"strategyMetadata": {"skillName": ""}, "skillName": "polar"}), "polar")
+        # And `strategy_skill`'s filing answer still falls through to the name.
+        self.assertEqual(_cli.strategy_skill({"strategyName": "spider", "skillName": "",
+                                              "tradingStrategyName": "spider"}), "spider")
+
+    def test_a_json_encoded_metadata_payload_is_parsed_not_skipped(self):
+        # The MCP passes the backend's strategyMetadata scalar through verbatim, so a string-shaped
+        # payload is the backend's shape, not the MCP's contract. Skipped, a genuinely foreign wallet
+        # reads as unattributed → not foreign → ADOPTED: the cross-package adoption 40df6a2b fixed,
+        # resurfacing on a response-shape drift.
+        self.assertEqual(_cli.strategy_skill_declared(
+            {"strategyName": "spider-swing",
+             "strategyMetadata": '{"skillName": "spider-swing", "skillVersion": "1.0.0"}'}),
+            "spider-swing")
+        # Unparseable or non-object stays None — a shape nobody can read is not an owner.
+        self.assertIsNone(_cli.strategy_skill_declared(
+            {"strategyName": "spider", "strategyMetadata": "{not json"}))
+        self.assertIsNone(_cli.strategy_skill_declared(
+            {"strategyName": "spider", "strategyMetadata": '"spider"'}))
+
 
 class RunState(unittest.TestCase):
     """The run/job state, for QUOTING beside a verdict `health_verdict` reached without a health
