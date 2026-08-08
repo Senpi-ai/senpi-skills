@@ -909,9 +909,12 @@ def cmd_verify(pkg, a):
         return _verify_unreadable(pkg.id, unreadable, a.json, job_running=job_running)
     verdict = "verified" if (rows and all(r["ok"] for r in rows)) else "not-verified"
     if a.json:
+        # `next` is null here on purpose: a rendered verdict's next steps are per-instance (each
+        # row's own `next`), so there is no package-level one to state. The key exists on all three
+        # verdicts so a caller can read it unconditionally — see `_verify_unreadable`.
         print(json.dumps({"verdict": verdict, "id": pkg.id, "instances": rows,
                           "warnings": warns, "deploy_job_running": job_running,
-                          "unreadable": []}, indent=2))
+                          "unreadable": [], "next": None}, indent=2))
         return VERIFY_OK if verdict == "verified" else VERIFY_NOT
     if verdict == "verified":
         print(f"✓ {pkg.id}: VERIFIED — {len(rows)} instance(s) live and healthy. Read-only check: "
@@ -950,18 +953,27 @@ def _verify_unreadable(pkg_id, reasons, as_json, tail=None, job_running=None):
     `job_running` keeps all three verdict shapes ONE schema: `None` when the job state was never
     read (most could-not-check paths fail before it), the read value when it was. A key that exists
     only on exit 0/3 makes a caller's `payload["deploy_job_running"]` a KeyError exactly on the
-    answer that says "unknown"."""
+    answer that says "unknown".
+
+    `tail` rides the JSON document as `next` for the same reason. The taught exit-1 doctrine is
+    "re-read", and these two paths are the ONE could-not-check subclass where re-reading can never
+    succeed — a package that does not parse, a package that is not here. Printed only on the human
+    path, that steer was silently dropped for `--json` callers, who then loop re-running the check
+    against a file that will never parse. It goes in the document rather than beside it: stdout
+    carries the snapshot and nothing else (93ade5c7). ONE producer for that step, so the two callers
+    cannot render different next steps for the same failed read."""
+    step = tail or (f"  Nothing was changed. Retry, or triage read-only: python3 "
+                    f"{Path(__file__).with_name('status.py').name} {pkg_id}")
     if as_json:
         print(json.dumps({"verdict": "could-not-check", "id": pkg_id, "instances": [],
                           "warnings": [], "deploy_job_running": job_running,
-                          "unreadable": reasons}, indent=2))
+                          "unreadable": reasons, "next": step.strip()}, indent=2))
         return VERIFY_UNREADABLE
     print(f"? {pkg_id}: COULD NOT CHECK — a read this check needs failed, so NOTHING about {pkg_id} "
           f"is verified here (this says nothing about whether it is live):", file=sys.stderr)
     for r in reasons:
         print(f"    - {r}", file=sys.stderr)
-    print(tail or (f"  Nothing was changed. Retry, or triage read-only: python3 "
-                   f"{Path(__file__).with_name('status.py').name} {pkg_id}"), file=sys.stderr)
+    print(step, file=sys.stderr)
     return VERIFY_UNREADABLE
 
 

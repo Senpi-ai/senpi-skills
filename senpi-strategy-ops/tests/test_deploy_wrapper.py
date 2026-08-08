@@ -1316,6 +1316,20 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         self.assertIn("deploy_job_running", payload)
         self.assertIsNone(payload["deploy_job_running"])     # the job state was never read
 
+    def test_every_verdict_carries_the_same_keys_next_included(self):
+        # One schema across 0 / 3 / 1, so a caller reads `next` unconditionally: null on a rendered
+        # verdict (its next steps are per-instance), the failed read's own step on could-not-check.
+        keys = None
+        for kw in ({}, {"strategies": ()}, {"status_json": (1, "", "gateway error")}):
+            _code, out, _err, _router = self._verify("--json", **kw)
+            payload = json.loads(out)
+            self.assertIn("next", payload)
+            keys = keys or sorted(payload)
+            self.assertEqual(sorted(payload), keys)
+        # …and a rendered verdict states no package-level step of its own.
+        _code, out, _err, _router = self._verify("--json")
+        self.assertIsNone(json.loads(out)["next"])
+
     def test_a_could_not_check_after_the_job_read_reports_what_it_read(self):
         snap = {"meta": {"packageId": "spider"}, "state": {"status": "running"}}
         code, out, _err, _router = self._verify(
@@ -1667,6 +1681,28 @@ class VerifyResolvesTheLocalPackageOnly(unittest.TestCase):
         self.assertEqual(payload["id"], "spider")
         self.assertTrue(payload["unreadable"])
         self.assertIn("deploy_job_running", payload)
+
+    def test_the_json_document_carries_the_retrying_answers_nothing_steer(self):
+        # The exit-1 doctrine is "re-read" — and a package that does not parse is the ONE
+        # could-not-check subclass where re-reading can never succeed. That teaching printed only on
+        # the human path, so a --json caller looped re-running verify against a file that will never
+        # parse. stdout still carries exactly one document: the steer rides IN it.
+        self._malformed_pkg()
+        _cli.run_cli = FakeCli([])
+        code, out, _err = self._run_verify("--json")
+        payload = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertIn("Retrying answers nothing", payload["next"])
+        self.assertIn("strategy.yaml", payload["next"])
+
+    def test_the_missing_package_json_document_says_retrying_answers_nothing_too(self):
+        deploy._pkg.resolve_pkg_dir = lambda arg: Path("/nonexistent-root") / str(arg)
+        deploy._fetch.fetch_package = lambda *a, **k: self.fail("a read-only check fetched a package")
+        _cli.run_cli = FakeCli([])
+        code, out, _err = self._run_verify("--json")
+        payload = json.loads(out)
+        self.assertEqual(code, 1)
+        self.assertIn("Retrying answers nothing", payload["next"])
 
     def test_the_package_dir_argument_form_shares_the_same_handling(self):
         pkg_dir = self._malformed_pkg()

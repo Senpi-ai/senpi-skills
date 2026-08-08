@@ -200,7 +200,11 @@ funded runtime-less wallet — each named **with the fact that it installs and s
 `strategy_list`, `runtime list`, `status --json`, **the deploy-job read** or **the package itself**
 cannot be read, NO verdict is rendered at all, the failed read is named, and nothing steers at the
 money path. It never emits a close command. All three verdicts print the SAME `--json` keys —
-`deploy_job_running` is `null` on a could-not-check that never got as far as reading the job.
+`deploy_job_running` is `null` on a could-not-check that never got as far as reading the job, and
+`next` carries that verdict's own step (`null` on a rendered verdict, where the steps are the
+per-instance ones). `next` is what a `--json` caller reads on the two could-not-check subclasses
+where the taught "re-read" cannot work — a package that does not parse, a package that is not here:
+both say retrying answers nothing and what to fix instead.
 
 Four rules keep `verify` from steering at a state it did not read:
 

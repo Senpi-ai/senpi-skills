@@ -335,7 +335,10 @@ names** — either one resumes, adopting whatever already exists.
 > file, never a traceback). Positive broken evidence goes the other way: a `status --json` entry with
 > no health field but a run state reading `failed` is **`3`** quoting it — only an entry with nothing
 > classifiable at all is `1`. `--json` prints the verdict object on clean stdout — the same keys on
-> all three verdicts, `deploy_job_running` included (`null` when the job state was never read).
+> all three verdicts, `deploy_job_running` included (`null` when the job state was never read) and
+> `next` (the could-not-check step, so a `--json` caller gets the "retrying answers nothing — the
+> file has to parse" steer instead of looping; `null` on a rendered verdict, whose steps are the
+> per-instance ones).
 > **The resume is `create`/`runtime`, never `verify`.**
 >
 > **The step it names is chosen against the state it read.** Only `ACTIVE` is resumable: a `PAUSED` or
