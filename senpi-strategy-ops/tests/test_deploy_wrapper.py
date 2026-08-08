@@ -828,16 +828,8 @@ class FakeMCP:
         return {"strategies": self.strategies}
 
 
-class VerifyIsAReadOnlyCheck(unittest.TestCase):
-    """`deploy.py verify <id>` NEVER starts the deploy verb.
-
-    The regression this pins: verify was converged onto the money-moving verb, so an agent following
-    an older transcript or habit ("just re-check it: deploy.py verify spider") against a package whose
-    funded wallet was deliberately left runtime-less mid-triage got the runtime installed and the
-    wallet opening real positions — from a command documented for years as a pure check. Verify is a
-    composite of read-only surfaces (`strategy_list` + `runtime list` + `senpi status --json`, plus a
-    verbatim relay of the last deploy job's warns) that only ever QUOTES what it read, and it fails
-    CLOSED: a read it could not make is `could-not-check` (1), never a verdict."""
+class VerifyHarness:
+    """Drives `deploy.py verify spider` against stubbed read-only surfaces (mixed into a TestCase)."""
 
     def setUp(self):
         self._cli_real, self._ensure = _cli.run_cli, deploy.ensure_pkg
@@ -865,6 +857,18 @@ class VerifyIsAReadOnlyCheck(unittest.TestCase):
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             deploy.main(["deploy.py", "verify", "spider", *extra])
         return ctx.exception.code, out.getvalue(), err.getvalue(), router
+
+
+class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
+    """`deploy.py verify <id>` NEVER starts the deploy verb.
+
+    The regression this pins: verify was converged onto the money-moving verb, so an agent following
+    an older transcript or habit ("just re-check it: deploy.py verify spider") against a package whose
+    funded wallet was deliberately left runtime-less mid-triage got the runtime installed and the
+    wallet opening real positions — from a command documented for years as a pure check. Verify is a
+    composite of read-only surfaces (`strategy_list` + `runtime list` + `senpi status --json`, plus a
+    verbatim relay of the last deploy job's warns) that only ever QUOTES what it read, and it fails
+    CLOSED: a read it could not make is `could-not-check` (1), never a verdict."""
 
     # ---- (a) the clean case: verified, and NOTHING was dispatched ----
 
@@ -1021,17 +1025,12 @@ class VerifyIsAReadOnlyCheck(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("W_BUDGET_PARTIAL_FUND", out + err)
 
-    # ---- (g) the argument surface: a read-only check takes no money flags ----
-
-    def test_verify_rejects_the_money_flags(self):
-        for flag in (["--budget", "300"], ["--max-wait", "300"], ["--dry-run"],
-                     ["--tick-wait", "0"], ["--decision-model", "samurai-light"]):
-            fake = FakeCli([])
-            _cli.run_cli = fake
-            with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(io.StringIO()):
-                deploy.main(["deploy.py", "verify", "spider", *flag])
-            self.assertEqual(ctx.exception.code, 2, flag)   # argparse's own usage error
-            self.assertEqual(fake.calls, [], flag)
+    # ---- (g) the argument surface: a read-only check HONOURS no money flag ----
+    #
+    # It used to REJECT them, and that rejection is what `VerifyIgnoresTheFlagsItNoLongerHas` below
+    # replaced: argparse's usage error exits 2, the code D-12 teaches as "refused". The invariant the
+    # rejection was protecting — a `--budget` on a check never funds anything — is pinned there by the
+    # same `deploy_dispatches == []` assertion every case in this class makes.
 
     # ---- multi-instance: every instance must be live, and each names its own next step ----
 
@@ -1200,6 +1199,93 @@ class VerifyIsAReadOnlyCheck(unittest.TestCase):
         self.assertNotIn("$500", text)                       # the REQUESTED figure
         self.assertIn("UNKNOWN", text)
         self.assertIn("status.py spider", text)              # how to read the real one
+
+
+class VerifyIgnoresTheFlagsItNoLongerHas(VerifyHarness, unittest.TestCase):
+    """A stale-transcript invocation (`verify spider --max-wait 300`) still gets the CHECK.
+
+    The regression this pins: when `verify` stopped taking the deploy flags, argparse answered every
+    pre-3.1.0 transcript with `unrecognized arguments` and exit **2** — the one code D-12 defines as
+    "refused: a gate said no, nothing was created, retrying refuses identically". An agent branching
+    on that map reports "the deploy was refused" about a package that may be perfectly live, and
+    never re-runs without the stale flag — on exactly the stale-transcript path this rewrite exists
+    to protect. So the five removed flags are ACCEPTED and IGNORED: the verdict, the reads and the
+    exit code are the ones the flagless command renders, and stderr says which flag was dropped and
+    where the current contract is written down."""
+
+    STALE = (("--budget", "500"), ("--max-wait", "300"), ("--tick-wait", "0"),
+             ("--decision-model", "samurai-light"), ("--dry-run",))
+
+    def _clean(self):
+        return self._verify()
+
+    def test_every_removed_flag_is_accepted_and_changes_nothing(self):
+        base_code, base_out, _base_err, base_router = self._clean()
+        for stale in self.STALE:
+            code, out, err, router = self._verify(*stale)
+            self.assertEqual(code, base_code, stale)            # never argparse's 2
+            self.assertEqual(out, base_out, stale)              # same verdict, verbatim
+            self.assertEqual(router.calls, base_router.calls, stale)   # the same reads, no more
+            self.assertEqual(router.deploy_dispatches, [], stale)
+            self.assertIn(stale[0], err, stale)                 # the flag is NAMED
+            self.assertIn("ignored", err.lower(), stale)
+
+    def test_the_warning_points_at_where_the_current_contract_lives(self):
+        _code, _out, err, _router = self._verify("--max-wait", "300")
+        self.assertIn("verify --help", err)
+        self.assertIn("SKILL.md", err)
+        self.assertIn("lifecycle.md", err)
+
+    def test_a_clean_invocation_warns_about_nothing(self):
+        _code, _out, err, _router = self._clean()
+        self.assertNotIn("obsolete", err.lower())
+        self.assertNotIn("ignored", err.lower())
+
+    def test_a_valued_flag_consumes_its_value_and_leaves_the_package_intact(self):
+        # `--budget 500` must not leave `500` to be read as the package (or as a second positional).
+        seen = []
+        deploy.local_pkg = lambda arg: seen.append(arg) or self.pkg
+        for argv in (("--budget", "500"), ("--max-wait", "300")):
+            seen.clear()
+            code, out, _err, _router = self._verify(*argv)
+            self.assertEqual(code, 0, argv)
+            self.assertEqual(seen, ["spider"], argv)
+            self.assertIn("VERIFIED", out, argv)
+
+    def test_all_five_together_are_ignored_in_one_warning(self):
+        flat = [tok for stale in self.STALE for tok in stale]
+        code, out, err, router = self._verify(*flat)
+        self.assertEqual(code, 0)
+        self.assertIn("VERIFIED", out)
+        self.assertEqual(router.deploy_dispatches, [])
+        for flag, *_ in self.STALE:
+            self.assertIn(flag, err)
+
+    def test_json_stdout_is_still_exactly_one_document(self):
+        code, out, err, _router = self._verify("--json", "--budget", "500")
+        payload = json.loads(out)                               # the pin: stdout stays clean
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["verdict"], "verified")
+        self.assertIn("--budget", err)                          # the warning went to stderr
+
+    def test_dry_run_with_json_renders_the_verdict_instead_of_refusing_the_pair(self):
+        # `--dry-run --json` is refused on the money path (there is no JSON rendering of a plan).
+        # On `verify` both are ignorable/real: there is no plan, so the read-only verdict is the
+        # honest answer — and the refusal must not fire off a flag this command already dropped.
+        code, out, err, _router = self._verify("--dry-run", "--json")
+        payload = json.loads(out)
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["verdict"], "verified")
+        self.assertIn("--dry-run", err)
+
+    def test_a_typo_is_still_an_error_and_never_a_verdict(self):
+        # Only the five NAMED flags are accepted-and-ignored. A mistyped one is a command that does
+        # not mean what its author thought — swallowing it would render a verdict over a typo.
+        code, out, err, router = self._verify("--bugdet", "500")
+        self.assertNotEqual(code, 0)
+        self.assertNotIn("VERIFIED", out + err)
+        self.assertEqual(router.calls, [])                      # nothing was read
+        self.assertIn("--bugdet", err)
 
 
 class VerifyResolvesTheLocalPackageOnly(unittest.TestCase):

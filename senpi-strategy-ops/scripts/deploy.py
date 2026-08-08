@@ -468,6 +468,58 @@ def run_deploy(pkg, a, log):
 #   0 verified · 3 not verified · 1 could not check (a read failed — no verdict is rendered).
 VERIFY_OK, VERIFY_NOT, VERIFY_UNREADABLE = 0, 3, EXIT_INTERNAL
 
+# Flags `verify` carried while it was a wrapper around the deploy verb. They are ACCEPTED and
+# IGNORED, never rejected: argparse answers an unknown flag with exit **2**, and 2 is D-12's
+# "refused — a gate said no, nothing was created, retrying refuses identically". An agent replaying
+# a pre-3.1.0 transcript (`deploy.py verify spider --max-wait 300`) would read that as "the deploy
+# was refused" about a package that may be perfectly live, and would never re-run without the stale
+# flag — the exact stale-transcript path the read-only rewrite exists to protect. So the check runs,
+# unchanged, and stderr says which flag was dropped and where the current contract is written down.
+# Only these five: a typo (`--bugdet`) still errors, because it is not the command its author meant.
+OBSOLETE_VERIFY_FLAGS = {
+    "--budget": "verify is the READ-ONLY check — it funds no wallet, so there is nothing to size",
+    "--max-wait": "verify starts no job, so there is nothing to wait for",
+    "--tick-wait": "verify observes no tick — it reads the health the runtime already published",
+    "--decision-model": "verify installs nothing, so no action's model is chosen here",
+    "--dry-run": "verify has no plan mode — being read-only, the check itself IS the whole effect",
+}
+
+
+def _obsolete_dest(flag):
+    """A dest of its own per obsolete flag, so nothing downstream can read one as a live option —
+    `--dry-run` in particular must not reach the `--dry-run --json` refusal, which is the money
+    path's (there is no JSON rendering of a plan; a read-only verdict renders fine)."""
+    return "_obsolete_" + flag.lstrip("-").replace("-", "_")
+
+
+def warn_obsolete_verify_flags(a):
+    """Name every obsolete flag this invocation carried, and where the current contract lives.
+
+    stderr only, and before the verdict: stdout stays exactly one document (`--json` callers parse
+    it), and the verdict below is byte-for-byte the one the flagless command renders."""
+    used = [(flag, getattr(a, _obsolete_dest(flag), None)) for flag in OBSOLETE_VERIFY_FLAGS]
+    used = [(flag, val) for flag, val in used if val not in (None, False)]
+    if not used:
+        return
+    skill = Path(__file__).resolve().parents[1]
+    n = len(used)
+    print(f"warning: `verify` IGNORED {n} flag{'' if n == 1 else 's'} it no longer has — "
+          f"{'it' if n == 1 else 'they'} changed NOTHING about the check below, and nothing was "
+          f"deployed, funded, installed or planned:", file=sys.stderr)
+    for flag, val in used:
+        shown = flag if val is True else f"{flag} {val}"
+        print(f"    - {shown} — obsolete: {OBSOLETE_VERIFY_FLAGS[flag]}.", file=sys.stderr)
+    print(f"  The verdict below is exactly the one this command renders without "
+          f"{'it' if n == 1 else 'them'}. If you are replaying an older transcript, that transcript "
+          f"is out of date — the CURRENT contract is:\n"
+          f"    python3 {Path(__file__).name} verify --help   # verify's flags and exit codes "
+          f"(0 verified / 3 not verified / 1 could not check)\n"
+          f"    {skill / 'SKILL.md'}   # what verify checks and how to read its verdict\n"
+          f"    {skill / 'references' / 'lifecycle.md'}   # the full deploy.py reference\n"
+          f"  (These flags live on `create`/`runtime` — the MONEY path, which this check is not. "
+          f"What to do next is the verdict below, not these flags.)", file=sys.stderr)
+
+
 _WARN_CODE = re.compile(r"\[W_[A-Z][A-Z_]*\]")
 
 
@@ -830,12 +882,21 @@ def main(argv):
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
     pr.add_argument("--dry-run", action="store_true")
 
-    # `verify` is the READ-ONLY check. It takes NONE of the deploy flags — a check that accepts
-    # `--budget` is a check that can fund a wallet, which is exactly the trap this command is not.
-    # `--max-wait`/`--tick-wait`/`--dry-run` are meaningless with no job to run or plan.
+    # `verify` is the READ-ONLY check. NONE of the deploy flags does anything here — a check that
+    # honours `--budget` is a check that can fund a wallet, which is exactly the trap this command is
+    # not, and `--max-wait`/`--tick-wait`/`--dry-run` are meaningless with no job to run or plan. They
+    # are still ACCEPTED, and ignored with a warning: rejecting them exits 2, which the taught D-12
+    # map reads as "refused" (see OBSOLETE_VERIFY_FLAGS). Hidden from `--help` — the help text is the
+    # CURRENT contract, and an accepted-but-dead flag advertised there would read as a live one.
     pv = sub.add_parser("verify",
                         help="READ-ONLY check: is <id> live? (strategy + runtime + health; deploys nothing)")
     common(pv)
+    for flag in OBSOLETE_VERIFY_FLAGS:
+        kw = ({"action": "store_true"} if flag == "--dry-run"
+              # Untyped and unvalidated: the value is consumed only so it can never be read as the
+              # package positional, and then dropped. `--budget nonsense` is ignored like any other.
+              else {"default": None, "metavar": "IGNORED"})
+        pv.add_argument(flag, dest=_obsolete_dest(flag), help=argparse.SUPPRESS, **kw)
 
     # `status` reports the agent's LAST deploy job — one record, not package-addressed — so it needs
     # no package and never resolves (or fetches) one. An id may still be given: it is checked against
@@ -903,6 +964,7 @@ def main(argv):
     # WRITE it under the durable strategies root — a network+disk side effect from a command that
     # promises nothing was changed.
     if a.cmd == "verify":
+        warn_obsolete_verify_flags(a)
         if a.ref:
             print(f"note: `verify` resolves the package on disk and fetches nothing, so --ref selected "
                   f"nothing.", file=sys.stderr)

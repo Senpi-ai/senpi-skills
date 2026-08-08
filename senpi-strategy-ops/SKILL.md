@@ -19,7 +19,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.3.0"
+  version: "3.3.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -314,7 +314,11 @@ names** — either one resumes, adopting whatever already exists.
 > wallet per instance?) + `openclaw senpi runtime list` (is a runtime registered for it?) + `openclaw
 > senpi status --json` (the runtime's own health verdict), plus a **verbatim** relay of the last deploy
 > job's `[W_*]` warns when that job was this package's. It quotes; it never re-derives a status or a
-> number, and it takes **no `--budget`** (a check that can fund a wallet is not a check). It resolves
+> number, and **no `--budget` handed to it funds anything** (a check that can fund a wallet is not a
+> check): the five deploy flags it used to carry (`--budget`, `--max-wait`, `--tick-wait`,
+> `--decision-model`, `--dry-run`) are still accepted — for the older transcripts that pass them — and
+> **ignored with a stderr warning** naming each one; the verdict, the reads and the exit code are the
+> flagless ones. (Rejecting them exited `2`, which this map teaches as *refused*.) It resolves
 > the package **on disk only** — a bare catalog id that is not here is `could-not-check`, never a
 > download (`create`/`runtime` are what fetch). Exit codes are its own:
 > **`0` verified** (every instance: an **ACTIVE** wallet + registered runtime + health reads healthy) ·

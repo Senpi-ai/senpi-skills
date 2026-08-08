@@ -184,7 +184,13 @@ multi-instance package — with its status and `totalFunded`), `openclaw senpi r
 runtime registered on this instance's wallet?) and `openclaw senpi status --json` (the runtime's own
 health verdict, quoted verbatim), then relays the last deploy job's `[W_*]` warn lines **iff that job
 ran this package** (no snapshot is not a failure — a package deployed before the verb has none). It
-takes no `--budget`, no `--max-wait`, no `--dry-run`: there is no job to size, wait for or plan. Its
+**honours** no deploy flag — there is no job to size, wait for or plan — but it still **accepts** the
+five it used to carry (`--budget`, `--max-wait`, `--tick-wait`, `--decision-model`, `--dry-run`) and
+ignores each with a stderr warning naming it and pointing at `verify --help`, `SKILL.md` and this
+file; the verdict, the reads and the exit code are the flagless ones. Rejecting them was argparse's
+exit **2** — the code D-12 teaches as *refused, nothing created, a retry refuses identically* — so a
+stale-transcript re-check (`verify spider --max-wait 300`) read as "the deploy was refused" over a
+package that may be perfectly live. A flag it never had (a typo like `--bugdet`) still errors. Its
 exit codes are its own — **`0`** verified (an **ACTIVE** wallet + registered runtime + healthy, per
 instance) ·
 **`3`** not verified (each instance names what is missing/unhealthy plus the one non-destructive next
