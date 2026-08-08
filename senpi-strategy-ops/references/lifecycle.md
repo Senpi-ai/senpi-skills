@@ -244,9 +244,17 @@ Four rules keep `verify` from steering at a state it did not read:
   multi-instance package can never equal the package id). When every name-match is another package's
   — single-instance package `spider-swing` is live and `spider`'s `swing` sleeve derives the same
   name — the instance is **NOT VERIFIED (3)** with the collision named (the wanted name and the
-  `skillName` that owns it) and read-only `status.py <id>` triage: neither the other package's
-  wallet/runtime/health rendered as this sleeve's, nor a `create --budget` that would fund a second
-  wallet on a taken name. The derived name comes from the verb's own sanitizer
+  `skillName` stamp on the record): neither the other wallet's runtime/health rendered as this
+  sleeve's, nor a `create --budget` that would fund a second wallet on a taken name. The row quotes
+  that stamp and stops there — it never claims the other package CREATED the wallet, because a
+  `skillName` is whatever the creating call wrote (raw-MCP creates stamp anything; script guards are
+  advisory), so the user's own wallet stamped with an older or differently-cased id renders here too.
+  Triage is read-only and asks by the **stamp** — `status.py <stamp>` for the wallet itself, bare
+  `status.py` for every open strategy on the agent; `status.py <id>` filters on that same field, so
+  it is the one read guaranteed not to show the colliding wallet. There is **no re-stamping route**:
+  no tool on this path rewrites `strategyMetadata.skillName` (`strategy_update` carries slippage,
+  mirror multiplier and SL/TP only), so if the wallet turns out to be the user's own the honest
+  answer is that this package cannot adopt it under that name and it keeps running as it is. The derived name comes from the verb's own sanitizer
   (`sanitizeStrategyName` in the runtime's `src/deploy/package.ts`): whitespace→`-`,
   `[A-Za-z0-9_-]` only, trim leading/trailing **`-` only**, 40 chars.
 

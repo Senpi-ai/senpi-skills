@@ -1413,18 +1413,27 @@ class VerifyAttributionDisambiguatesButNeverShrinks(VerifyHarness, unittest.Test
         self.assertIn("NOT VERIFIED", text)
         swing = _row_text(text, "swing")
         self.assertIn(repr("spider-swing"), swing)           # the name this sleeve wanted…
-        self.assertIn(FOREIGN_PKG, swing)                    # …and who the backend says owns it
+        self.assertIn(FOREIGN_PKG, swing)                    # …and the stamp the record carries
         self.assertIn("spider", swing)
+        # The stamp is QUOTED, never asserted as who created the wallet: all this read is a
+        # skillName field, and any caller of the wallet-creation tool can write any value into it.
+        self.assertIn("not proof of who created it", swing)
+        self.assertNotIn("it was created by", swing.lower())
         # Nothing of the foreign wallet's is rendered as this sleeve's.
         self.assertNotIn("swing: OK", text)
         self.assertNotIn("live and healthy", text)
         self.assertNotIn("healthy", swing)
         self.assertNotIn(WALLET[:10], swing)
         self.assertNotIn("$300", swing)
-        # Read-only triage — never a create on a taken name, never a teardown.
-        self.assertIn("status.py spider", swing)
+        # Read-only triage — never a create on a taken name, never a teardown. And it asks by the
+        # STAMP: `status.py <id>` filters on that same field, so the package-filtered read is the one
+        # answer guaranteed NOT to contain the wallet being triaged.
+        self.assertIn(f"status.py {FOREIGN_PKG!r}", swing)
+        self.assertIn("status.py   # read-only", swing)      # the unfiltered fleet read
         self.assertNotIn("--budget", text)
         self.assertNotIn("close.py", text)
+        # No reconciliation route is invented: nothing on this path re-stamps a strategy's skillName.
+        self.assertIn("re-stamp", swing)
         self.assertEqual(router.deploy_dispatches, [])
 
     def test_a_single_instance_packages_taken_name_is_a_collision_too(self):
@@ -1435,7 +1444,7 @@ class VerifyAttributionDisambiguatesButNeverShrinks(VerifyHarness, unittest.Test
         text = out + err
         self.assertEqual(code, 3)
         self.assertIn("polar", text)
-        self.assertIn("status.py spider", text)
+        self.assertIn("status.py 'polar'", text)             # triage by the stamp that holds the name
         self.assertNotIn("--budget", text)
         self.assertEqual(router.deploy_dispatches, [])
 

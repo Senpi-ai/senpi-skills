@@ -697,15 +697,33 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False):
         # Not "nothing is funded" either: steering at `create --budget` would fund a second wallet
         # under a name already in use, on top of a wallet this package must not touch.
         owners = sorted({str(_cli.strategy_skill_declared(s)) for s in foreign})
+        stamps = ", ".join(repr(o) for o in owners)
         row["collision"] = {"name": want, "attributed_to": owners}
-        row["issue"] = (f"the live strategy named {want!r} carries skillName "
-                        f"{', '.join(repr(o) for o in owners)}, not {pkg.id!r} — it was created by "
-                        f"{'that' if len(owners) == 1 else 'another'} package, and {pkg.id!r} "
-                        f"instance {inst.name!r} derives the same wallet name. Nothing here says "
-                        f"this instance is deployed, and the name it would deploy under is taken")
-        row["next"] = (f"{triage}\n        Do NOT deploy {pkg.id!r} until this name collision is "
-                       f"resolved — it would fund a SECOND wallet under a name another package "
-                       f"already uses.")
+        # QUOTE the stamp; do not assert who created the wallet. All this read is a `skillName`
+        # field, and anything that calls the wallet-creation tool can write any value into it —
+        # skill-script guards are advisory, so a raw MCP create, or this package under an older or
+        # differently-cased id, produces exactly this row. "It was created by that package" is a
+        # fact the check does not have, and stated as one over the user's OWN mis-stamped wallet it
+        # is a false certainty attached to a do-not-deploy warning.
+        row["issue"] = (f"the live strategy named {want!r} carries the skillName stamp {stamps}, not "
+                        f"{pkg.id!r} — and {pkg.id!r} instance {inst.name!r} derives that same wallet "
+                        f"name. The stamp is what the record says, not proof of who created it (any "
+                        f"caller of the wallet-creation tool can write any skillName), but it is not "
+                        f"this package's, so nothing here says this instance is deployed — and the "
+                        f"name it would deploy under is taken")
+        # The package-filtered triage would hide the very wallet in question: `status.py <id>` filters
+        # on the same stamp, so a wallet stamped otherwise is not in that answer. Ask for it by the
+        # stamp it carries, and for the whole agent.
+        by_stamp = " / ".join(sorted({repr(o) for o in owners}))
+        row["next"] = (f"python3 {Path(__file__).with_name('status.py').name} {by_stamp}   # read-only: "
+                       f"the wallet(s) carrying that stamp — what it is, and whether it is yours\n"
+                       f"        python3 {Path(__file__).with_name('status.py').name}   # read-only: "
+                       f"every open strategy on this agent, whatever it is named\n"
+                       f"        Do NOT deploy {pkg.id!r} until you know whose wallet that is — it "
+                       f"would fund a SECOND wallet under a name already in use. If it turns out to "
+                       f"be your own, nothing here can re-stamp it: no tool on this path rewrites a "
+                       f"strategy's skillName, so {pkg.id!r} cannot adopt that wallet under this "
+                       f"name, and the wallet goes on running exactly as it is.")
         return row
     if not cands:
         if pkg_live:

@@ -348,11 +348,18 @@ names** — either one resumes, adopting whatever already exists.
 > for this package is **RUNNING right now**, every steer becomes `openclaw senpi deploy status` — the
 > resume already IS that job, and a second dispatch races the one funding the wallet. A funded amount
 > the strategy record does not carry prints **UNKNOWN** (same rule as `[W_BUDGET_FUNDED_UNREADABLE]`),
-> never the requested budget. And a live wallet that carries **another package's `skillName`** is
+> never the requested budget. And a live wallet carrying a **different package's `skillName` stamp** is
 > never adopted as this package's sleeve just because the names collide (a single-instance
-> `spider-swing` package vs `spider`'s `swing` instance): that instance is **NOT verified**, the
-> collision is named, and the step is `status.py <id>` triage — not a `create` on a name already
-> taken. A wallet with **no** attribution at all still matches by name (it is usually yours).
+> `spider-swing` package vs `spider`'s `swing` instance): that instance is **NOT verified** and the
+> collision is named — not a `create` on a name already taken. The stamp is **quoted, never read as
+> proof of who created the wallet**: any caller of the wallet-creation tool can write any
+> `skillName` (script guards are advisory), so a raw-MCP create or an older/differently-cased id of
+> your own produces the same row. Triage is by the **stamp** (`status.py <that stamp>`, plus bare
+> `status.py` for the whole agent) — `status.py <id>` filters on that same field and is the one read
+> that cannot contain the wallet in question. If it turns out to be the user's own, say so plainly:
+> **no tool on this path re-stamps a strategy's `skillName`**, so this package cannot adopt that
+> wallet under that name and the wallet keeps running as it is — do not invent a fix-up command.
+> A wallet with **no** attribution at all still matches by name (it is usually yours).
 >
 > `deploy.py status [<id>]` shows the last deploy job and starts nothing either — there is **one job
 > record per agent**, so an id you pass is checked against it and a mismatch **refuses** (exit `1`, no
