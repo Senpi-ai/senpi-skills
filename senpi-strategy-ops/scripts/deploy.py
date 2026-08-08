@@ -618,7 +618,7 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False):
     rt_name = getattr(inst, "runtime_name", None) or f"{pkg.id}-{inst.name}"
     row = {"instance": inst.name, "strategy_name": want, "runtime": None, "wallet": None,
            "status": None, "funded": None, "health": None, "ok": False, "issue": None,
-           "next": None, "unreadable": None}
+           "next": None, "unreadable": None, "collision": None}
     # The one next step for every state this check cannot resolve on its own: read-only, and never a
     # close — a check that emits a teardown command is a check that can lose someone's money.
     triage = (f"python3 {Path(__file__).with_name('status.py').name} {pkg.id}   # read-only: map each "
@@ -627,15 +627,41 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False):
     # the resume: the resume IS that job, and a second dispatch races the one already funding a wallet.
     watch = "openclaw senpi deploy status   # read-only: the report of the job already running"
 
-    # Match by the name the verb DERIVES, across every live strategy — then let attribution WIDEN the
-    # set, never shrink it. `strategy_skill` falls back to tradingStrategyName, which on a
-    # multi-instance package can never equal the package id ("spider-swing" != "spider"), so an
-    # attribution-GATED match drops a live funded wallet out of the check entirely and prints "nothing
-    # is funded here" over it — a false quoted fact, steered at `create --budget`.
+    # Match by the name the verb DERIVES, across every live strategy — then let attribution
+    # DISAMBIGUATE between same-named candidates, never SHRINK the set to nothing.
+    #
+    # Both halves are regressions this has already had. Gating the match behind attribution dropped a
+    # live funded wallet out of the check entirely and printed "nothing is funded here" over it —
+    # `strategy_skill` falls back to tradingStrategyName, which on a multi-instance package can never
+    # equal the package id ("spider-swing" != "spider") — a false quoted fact, steered at `create
+    # --budget`. Matching on the name ALONE then adopted another package's wallet: single-instance
+    # package `spider-swing` and `spider`'s `swing` sleeve derive the same name, so a never-deployed
+    # sleeve rendered OK against someone else's wallet, runtime and health.
+    #
+    # So: a candidate is ruled out only by an attribution that was WRITTEN and names a DIFFERENT
+    # package (`strategy_skill_declared`, no name fallback — silence is not a foreign owner).
     pkg_live = [s for s in strategies if _cli.strategy_skill(s) == pkg.id]
-    cands = [s for s in strategies if _cli.strategy_name(s) == want]
+    named = [s for s in strategies if _cli.strategy_name(s) == want]
+    is_foreign = [_cli.strategy_skill_declared(s) not in (None, pkg.id) for s in named]
+    foreign = [s for s, bad in zip(named, is_foreign) if bad]
+    cands = [s for s, bad in zip(named, is_foreign) if not bad]
     if not cands and len(pkg.instances) == 1:
         cands = list(pkg_live)          # single instance: the package's lone live strategy is it
+    if not cands and foreign:
+        # The name is TAKEN by another package's wallet, and nothing here belongs to this instance.
+        # Not "nothing is funded" either: steering at `create --budget` would fund a second wallet
+        # under a name already in use, on top of a wallet this package must not touch.
+        owners = sorted({str(_cli.strategy_skill_declared(s)) for s in foreign})
+        row["collision"] = {"name": want, "attributed_to": owners}
+        row["issue"] = (f"the live strategy named {want!r} carries skillName "
+                        f"{', '.join(repr(o) for o in owners)}, not {pkg.id!r} — it was created by "
+                        f"{'that' if len(owners) == 1 else 'another'} package, and {pkg.id!r} "
+                        f"instance {inst.name!r} derives the same wallet name. Nothing here says "
+                        f"this instance is deployed, and the name it would deploy under is taken")
+        row["next"] = (f"{triage}\n        Do NOT deploy {pkg.id!r} until this name collision is "
+                       f"resolved — it would fund a SECOND wallet under a name another package "
+                       f"already uses.")
+        return row
     if not cands:
         if pkg_live:
             # Wallets for this package exist but none carries this instance's name (a create-time

@@ -107,5 +107,24 @@ class StrategyActive(unittest.TestCase):
             self.assertTrue(_cli.strategy_open({"status": status}), status)
 
 
+class StrategySkillDeclared(unittest.TestCase):
+    """The reader that decides whether a wallet belongs to SOMEONE ELSE. It must never guess."""
+
+    def test_a_written_attribution_is_read_from_either_shape(self):
+        self.assertEqual(_cli.strategy_skill_declared(
+            {"strategyName": "spider-swing", "strategyMetadata": {"skillName": "spider"}}), "spider")
+        self.assertEqual(_cli.strategy_skill_declared(
+            {"strategyName": "spider-swing", "skillName": "spider"}), "spider")
+
+    def test_silence_is_none_and_never_the_strategy_name(self):
+        # `strategy_skill` guesses the NAME when nobody attributed — usable for filing, fatal for
+        # exclusion: an unattributed wallet named `spider-swing` would read as owned by a package
+        # called `spider-swing` and be dropped out of `verify spider`'s match.
+        record = {"strategyName": "spider-swing", "tradingStrategyName": "spider-swing"}
+        self.assertEqual(_cli.strategy_skill(record), "spider-swing")
+        self.assertIsNone(_cli.strategy_skill_declared(record))
+        self.assertIsNone(_cli.strategy_skill_declared({"strategyMetadata": {}}))
+
+
 if __name__ == "__main__":
     unittest.main()

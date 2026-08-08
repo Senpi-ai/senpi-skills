@@ -213,13 +213,19 @@ Four rules keep `verify` from steering at a state it did not read:
 - **A deploy job RUNNING for this package replaces every money steer** with `openclaw senpi deploy
   status`, and the report says the picture is mid-flight. The resume already is that job; re-checking
   during your own `create` must not dispatch a second one.
-- **Attribution only widens the match.** Instances are matched by the name the verb derives, across
-  every live strategy; `strategyMetadata.skillName` adds candidates and never removes them (its
-  fallback is `tradingStrategyName`, which on a multi-instance package can never equal the package
-  id — an attribution-gated match reported live funded wallets as "nothing is funded here"). The
-  derived name comes from the verb's own sanitizer (`sanitizeStrategyName` in the runtime's
-  `src/deploy/package.ts`): whitespace→`-`, `[A-Za-z0-9_-]` only, trim leading/trailing **`-` only**,
-  40 chars.
+- **Attribution DISAMBIGUATES the match; it never shrinks it to nothing.** Instances are matched by
+  the name the verb derives, across every live strategy. A candidate is dropped only when the record
+  carries a WRITTEN `strategyMetadata.skillName` naming a **different** package; a record with no
+  attribution at all stays a candidate (gating on attribution reported live funded wallets as
+  "nothing is funded here" — its `strategy_skill` fallback is `tradingStrategyName`, which on a
+  multi-instance package can never equal the package id). When every name-match is another package's
+  — single-instance package `spider-swing` is live and `spider`'s `swing` sleeve derives the same
+  name — the instance is **NOT VERIFIED (3)** with the collision named (the wanted name and the
+  `skillName` that owns it) and read-only `status.py <id>` triage: neither the other package's
+  wallet/runtime/health rendered as this sleeve's, nor a `create --budget` that would fund a second
+  wallet on a taken name. The derived name comes from the verb's own sanitizer
+  (`sanitizeStrategyName` in the runtime's `src/deploy/package.ts`): whitespace→`-`,
+  `[A-Za-z0-9_-]` only, trim leading/trailing **`-` only**, 40 chars.
 
 An **unreadable** surface is never an empty one: `strategy_list` answering with a payload that carries
 no strategies list at all is `could-not-check` (1), not "nothing is funded here". And a funded figure

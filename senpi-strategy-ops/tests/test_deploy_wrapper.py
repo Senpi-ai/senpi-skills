@@ -1201,6 +1201,148 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         self.assertIn("status.py spider", text)              # how to read the real one
 
 
+def _row_text(text, instance):
+    """One instance's block of verify's prose report: its `- <name>:` line plus its `Next:` line."""
+    lines = text.splitlines()
+    start = next(i for i, ln in enumerate(lines) if ln.strip().startswith(f"- {instance}:"))
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].strip().startswith("- ")),
+               len(lines))
+    return "\n".join(lines[start:end])
+
+
+# A DIFFERENT package, single-instance, whose own id is exactly the name `spider`'s `swing` sleeve
+# derives — the collision this class is about.
+FOREIGN_PKG = "spider-swing"
+
+
+class VerifyAttributionDisambiguatesButNeverShrinks(VerifyHarness, unittest.TestCase):
+    """Attribution decides BETWEEN same-named candidates; it never removes the only one.
+
+    Two opposite regressions meet here. Gating the match BEHIND attribution dropped an unattributed
+    funded wallet out of the check entirely and printed "nothing is funded here" over it, steered at
+    `create --budget` (a double-fund). Removing the gate adopted ANOTHER package's identically-named
+    wallet: single-instance package `spider-swing` is live and healthy, `spider` (never deployed
+    here) declares an instance `swing` and derives the SAME wallet name — and verify rendered
+    `swing: OK — live and healthy` against that package's wallet, runtime and health, double-booking
+    one pot of money as two packages' sleeve."""
+
+    # A third wallet, so the disambiguation case can tell WHICH candidate was adopted.
+    THIRD_WALLET = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+
+    def setUp(self):
+        super().setUp()
+        # Two instances: only a multi-instance package derives `<id>-<instance>` names at all.
+        self.pkg = _pkg(instances=[_inst("swing"), _inst("scalp")])
+
+    @staticmethod
+    def _scalp():
+        """scalp is genuinely deployed in every case here, so the row under test is always swing."""
+        return _strategy(name="spider-scalp", wallet=OTHER_WALLET)
+
+    @staticmethod
+    def _running(*rows):
+        """`runtime list` + `status --json` for the given (runtime name, wallet) pairs, all healthy."""
+        return {"runtime_list": (0, _runtime_table(*[(n, w, "running") for n, w in rows]), ""),
+                "status_json": _ok({"statuses": [{"name": n, "overallHealth": "healthy"}
+                                                 for n, _w in rows]})}
+
+    def _swing_row(self, payload):
+        return next(r for r in payload["instances"] if r["instance"] == "swing")
+
+    # ---- (a) a foreign-attributed same-named wallet is NOT this instance's ----
+
+    def test_another_packages_identically_named_wallet_is_never_adopted(self):
+        code, out, err, router = self._verify(
+            strategies=(_strategy(name="spider-swing", skill=FOREIGN_PKG, wallet=WALLET),
+                        self._scalp()),
+            **self._running(("spider-swing", WALLET), ("spider-scalp", OTHER_WALLET)))
+        text = out + err
+        self.assertEqual(code, 3)                            # not verified — and not could-not-check
+        self.assertIn("NOT VERIFIED", text)
+        swing = _row_text(text, "swing")
+        self.assertIn(repr("spider-swing"), swing)           # the name this sleeve wanted…
+        self.assertIn(FOREIGN_PKG, swing)                    # …and who the backend says owns it
+        self.assertIn("spider", swing)
+        # Nothing of the foreign wallet's is rendered as this sleeve's.
+        self.assertNotIn("swing: OK", text)
+        self.assertNotIn("live and healthy", text)
+        self.assertNotIn("healthy", swing)
+        self.assertNotIn(WALLET[:10], swing)
+        self.assertNotIn("$300", swing)
+        # Read-only triage — never a create on a taken name, never a teardown.
+        self.assertIn("status.py spider", swing)
+        self.assertNotIn("--budget", text)
+        self.assertNotIn("close.py", text)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    def test_a_single_instance_packages_taken_name_is_a_collision_too(self):
+        # want == the bare package id here, and no wallet is attributed to `spider` at all.
+        self.pkg = _pkg(instances=[_inst("main")])
+        code, out, err, router = self._verify(
+            strategies=(_strategy(name="spider", skill="polar"),))
+        text = out + err
+        self.assertEqual(code, 3)
+        self.assertIn("polar", text)
+        self.assertIn("status.py spider", text)
+        self.assertNotIn("--budget", text)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    # ---- (b) an unattributed same-named wallet is STILL this instance's (round-1, pinned) ----
+
+    def test_an_unattributed_same_named_wallet_is_still_adopted(self):
+        code, out, err, router = self._verify(
+            strategies=(_strategy(name="spider-swing", skill=None, wallet=WALLET), self._scalp()),
+            **self._running(("spider-swing", WALLET), ("spider-scalp", OTHER_WALLET)))
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("VERIFIED", out)
+        self.assertEqual(router.deploy_dispatches, [])
+
+    # ---- (c) a wallet attributed to THIS package is adopted ----
+
+    def test_a_same_attributed_wallet_is_adopted(self):
+        code, out, err, _router = self._verify(
+            strategies=(_strategy(name="spider-swing", skill="spider", wallet=WALLET),
+                        self._scalp()),
+            **self._running(("spider-swing", WALLET), ("spider-scalp", OTHER_WALLET)))
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("VERIFIED", out)
+
+    # ---- (d) the disambiguation payoff: the foreign one is excluded, the other one is adopted ----
+
+    def test_a_foreign_candidate_beside_an_unattributed_one_leaves_the_unattributed_one(self):
+        code, out, _err, _router = self._verify(
+            "--json",
+            strategies=(_strategy(name="spider-swing", skill=FOREIGN_PKG, wallet=WALLET),
+                        _strategy(name="spider-swing", skill=None, wallet=self.THIRD_WALLET),
+                        self._scalp()),
+            **self._running(("spider-swing", self.THIRD_WALLET), ("spider-scalp", OTHER_WALLET)))
+        payload = json.loads(out)
+        swing = self._swing_row(payload)
+        self.assertEqual(code, 0)                            # not the "2 live strategies match" tie
+        self.assertTrue(swing["ok"])
+        self.assertEqual(swing["wallet"], self.THIRD_WALLET)  # the one that could be this sleeve's
+        self.assertIsNone(swing["collision"])
+
+    # ---- (e) --json says the same thing, and borrows nothing from the foreign record ----
+
+    def test_the_json_document_carries_the_collision_and_borrows_nothing(self):
+        code, out, _err, _router = self._verify(
+            "--json",
+            strategies=(_strategy(name="spider-swing", skill=FOREIGN_PKG, wallet=WALLET),
+                        self._scalp()),
+            **self._running(("spider-swing", WALLET), ("spider-scalp", OTHER_WALLET)))
+        payload = json.loads(out)
+        swing = self._swing_row(payload)
+        self.assertEqual(code, 3)
+        self.assertEqual(payload["verdict"], "not-verified")
+        self.assertFalse(swing["ok"])
+        self.assertEqual(swing["collision"],
+                         {"name": "spider-swing", "attributed_to": [FOREIGN_PKG]})
+        for borrowed in ("wallet", "status", "funded", "health", "runtime"):
+            self.assertIsNone(swing[borrowed], borrowed)
+        self.assertIsNone(swing["unreadable"])               # a collision is a VERDICT, not a failed read
+
+
 class VerifyIgnoresTheFlagsItNoLongerHas(VerifyHarness, unittest.TestCase):
     """A stale-transcript invocation (`verify spider --max-wait 300`) still gets the CHECK.
 

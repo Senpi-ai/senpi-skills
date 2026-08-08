@@ -511,6 +511,24 @@ def strategy_skill(s):
     return dig(o, "skillName", "skill_name", "skill") or dig(o, "tradingStrategyName", "name")
 
 
+def strategy_skill_declared(s):
+    """The package id a strategy was actually ATTRIBUTED to, or **None** when the record carries no
+    attribution at all — the same fields as `strategy_skill` minus its tradingStrategyName fallback.
+
+    Two different questions, so two readers. `strategy_skill` answers "which package do we file this
+    under" and guesses from the name when nobody said; that guess is unusable for deciding whether a
+    wallet belongs to SOMEONE ELSE, because an unattributed wallet named `spider-swing` and a wallet
+    a package called `spider-swing` really created read identically through it. Only an attribution
+    that was WRITTEN can rule a candidate out — silence must never be read as a foreign owner."""
+    o = strategy_obj(s)
+    meta = dig(o, "strategyMetadata", "metadata")
+    if isinstance(meta, dict):
+        sk = dig(meta, "skillName", "skill_name")
+        if sk:
+            return sk
+    return dig(o, "skillName", "skill_name", "skill")
+
+
 # strategies in these states are done — never close them again, and they must NOT block a new deploy.
 DEAD_STATUSES = ("CLOSED", "FAILED", "INACTIVE", "TERMINATED", "CLOSING_DONE")
 

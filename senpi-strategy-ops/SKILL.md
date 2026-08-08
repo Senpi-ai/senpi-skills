@@ -336,7 +336,11 @@ names** — either one resumes, adopting whatever already exists.
 > for this package is **RUNNING right now**, every steer becomes `openclaw senpi deploy status` — the
 > resume already IS that job, and a second dispatch races the one funding the wallet. A funded amount
 > the strategy record does not carry prints **UNKNOWN** (same rule as `[W_BUDGET_FUNDED_UNREADABLE]`),
-> never the requested budget.
+> never the requested budget. And a live wallet that carries **another package's `skillName`** is
+> never adopted as this package's sleeve just because the names collide (a single-instance
+> `spider-swing` package vs `spider`'s `swing` instance): that instance is **NOT verified**, the
+> collision is named, and the step is `status.py <id>` triage — not a `create` on a name already
+> taken. A wallet with **no** attribution at all still matches by name (it is usually yours).
 >
 > `deploy.py status [<id>]` shows the last deploy job and starts nothing either — there is **one job
 > record per agent**, so an id you pass is checked against it and a mismatch **refuses** (exit `1`, no
