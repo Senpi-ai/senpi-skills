@@ -232,10 +232,12 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 >   nothing is claimed dead and nothing was created: retry once the MCP server is reachable.
 
 **The `W_` prefix means WARNING — the deploy went through.** Every code above stops something; a `W_`
-code never does. The two budget codes below are the `W_` ones. They ride a
+code never does. The three budget codes below are the `W_` ones. They ride a
 `live` report as `minBudget` / `minWalletCount` / `belowMin` / `minBudgetNote` / `minBudgetUnresolved`
-(printed as `calculated minimum:` and `warn:` lines by `deploy status`). **Never report a deploy as
-failed, and never close a wallet, because of one:**
+/ `partialFundNote` (printed as `calculated minimum:` and `warn:` lines by `deploy status`), and they
+persist on the snapshot — a later `deploy status` re-renders the same warn. The first two judge the
+funding **plan**, the third judges what the backend actually **landed**; a report can carry both.
+**Never report a deploy as failed, and never close a wallet, because of one:**
 - **`[W_BUDGET_BELOW_STRATEGY_MIN]`** — one or more wallets **this deploy funded** got less than their
   own sizing needs (the warn names each one and both numbers: `scalp $12.00 (needs $13.50)`). The
   strategy **deployed and is running**, just **degraded** — fewer slots than the author designed, each
@@ -260,6 +262,15 @@ failed, and never close a wallet, because of one:**
   ALSO short the warn names it and `belowMin` is set — the two codes are **not mutually exclusive**, so
   never read "no `[W_BUDGET_BELOW_STRATEGY_MIN]`" as "the budget was enough". Read `belowMin`. That case
   carries the same scoped escape; follow it verbatim too.
+- **`[W_BUDGET_PARTIAL_FUND]`** — the backend funded a wallet **this deploy created** for less than 90%
+  of what the create asked for (a partial bridge leg). The warn names both numbers per wallet
+  (`main (0x…) funded $60.00 of requested $500.00 (12%)`) and the exact shortfall. The strategy **is
+  live and trading** — at the size that landed. **Quote the `funded` figure, never the requested one**;
+  saying "$500 deployed" over a $60 book is the failure this code exists to stop. **Do not close it.**
+  Non-destructive fix FIRST: top the wallet up (deploy never adds funds to an existing wallet, so
+  re-running at the same `--budget` only adopts it). Close-and-redeploy is the destructive alternative
+  and this warn carries **no** close command on purpose — read-only `status.py <id>` first, agree the
+  scope with the user.
 
 **Report** from the structured output, not raw logs (then always close with the **How it runs** block below):
 ```jsonc
