@@ -510,7 +510,13 @@ def strategy_name(s):
     row and the column is NULLABLE (null on 21 of 23 rows in a live sample). `dig` answers with the
     first key that exists — null included — so a present-null would answer for the whole chain and
     switch off the `tradingStrategyName` fallback that is the only name most rows carry today. That
-    is the exact shape of an upstream fix turning a working reader OFF."""
+    is the exact shape of an upstream fix turning a working reader OFF.
+
+    Fixed HERE and not in `dig` because `dig`'s present-but-falsy answer is load-bearing for other
+    callers — `find_list_or_none` (`[]` is an answer, not an unreadable shape), `runtime_running`
+    (`running: False` must not fall through to a health string) and `strategy_funded` (`totalFunded:
+    0` is what LANDED) all flip the wrong way if it skips falsy. This reader has exactly ONE
+    production consumer (`deploy.py`'s `verify_instance`), so the narrow fix is also the small one."""
     return _first_written(strategy_obj(s), "strategyName", "tradingStrategyName", "name")
 
 

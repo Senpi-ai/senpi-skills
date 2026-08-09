@@ -211,12 +211,12 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 > - **`[E_INSTANCE_BINDING_UNKNOWN]`** — live wallets carry this package's `skillName` stamp and **none of
 >   them answers for the instance being deployed**. Refused **pre-money — nothing was created, no money
 >   moved.** The refusal lists every such wallet (address, funded amount, status, creation date, the name
->   the record carries). **Read them before deciding anything** — `python3 status.py '<id>'` — and note what
+>   the record carries). **Read them before deciding anything** — `python3 status.py <id>` — and note what
 >   the refusal says it did **not** read: whether those wallets hold open positions, and whether any runtime
 >   still watches them. **Which wallet is which, and whether it is still wanted, is the USER's call** —
 >   relay the list and ask; deploy will not pick one for them. **Re-running changes nothing** (it binds by
 >   the same two routes that just failed), and this is **not** a funding problem — **never re-run with a
->   bigger `--budget`**. Only once the user confirms the wallets are unwanted, `close.py '<id>'` returns
+>   bigger `--budget`**. Only once the user confirms the wallets are unwanted, `close.py <id>` returns
 >   their funds — and it tears down the **WHOLE** package, every sleeve and runtime in it — then re-run.
 > - **`[E_DEPLOY_IN_PROGRESS]`** — another deploy is running. Watch it (`deploy status`). There is nothing
 >   to cancel; a wedged job times out and frees the slot on its own.

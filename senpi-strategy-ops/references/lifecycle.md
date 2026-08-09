@@ -47,11 +47,26 @@ Per instance the job runs five steps, each recorded with its own outcome:
    **That refusal is a refusal to RE-READ, never a reason to re-run with a bigger budget** — nothing about
    it is a funding shortfall, and a re-run binds by the same two routes (the derived name, and a create key
    journaled on this box) that just failed, so it changes nothing until the user says what those wallets
-   are. The steer is `status.py '<id>'` first; `close.py '<id>'` is named last and only on the user's
+   are. The steer is `status.py <id>` first; `close.py <id>` is named last and only on the user's
    confirmation, because it tears down the whole package.
    The gate survives a starved NAME route (an older MCP build, a backend that renames) but not a starved
    STAMP: an MCP that stops returning `strategyMetadata` empties its candidate filter, which is why the
    verb logs a stampless non-empty strategy list rather than passing over it in silence.
+
+   **The NAME is case-folded; the `skillName` STAMP is compared EXACTLY. That asymmetry is deliberate —
+   do not "fix" it.** Folding the name WIDENS the candidate set, and the exact stamp is what then
+   disambiguates within it: `verify` matches on the derived name and rules a candidate out only on a
+   written attribution naming a DIFFERENT package. Fold both and a single-instance package `spider-swing`
+   and `spider`'s `swing` sleeve stop being distinguishable, which is the cross-package
+   wallet-adoption regression recorded at `deploy.py`'s `verify_instance` comment. Separately,
+   `strategies_for` compares the same stamp for `status.py` and `close.py`, so folding it there widens
+   what a package-wide teardown takes down. **This diverges from the runtime**, which folds the stamp too
+   (`src/deploy/orchestrator.ts`, `gateOrCreate`) — correctly, because folding there only ever ADDS
+   candidates to a gate that refuses, so it fails closed, while here it removes a distinction and would
+   fail open. The measured cost of the divergence: a package id with a capital whose wallets are stamped
+   lowercase gets a false foreign-owner collision row from `verify` — read-only, already hedged text, on
+   the do-not-deploy path, and latent while every shipped package id is lowercase and the stamp is
+   written from `pkg.id`.
 2. **preflight** — `account_get_portfolio` (forced fresh) → the accessible-USDC waterfall (HL perps + HL
    spot USDC + EVM USDC; never `total_withdrawable`) → the funding plan (split by `funding_share`, floored
    at **$10/wallet** — the platform floor `min_budget.py` owns — minus a per-wallet fee buffer). A shortfall
