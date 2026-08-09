@@ -31,9 +31,27 @@ universe) never reads the list at all.
 Per instance the job runs five steps, each recorded with its own outcome:
 
 1. **reconcile** — read live backend strategies and match by `strategyName` (`<id>` for a single-instance
-   package, `<id>-<instance>` for a multi, sanitized). Exactly one live match → **adopt** its wallet
+   package, `<id>-<instance>` for a multi, sanitized), **compared case-insensitively** because the backend
+   case-normalizes what it stores ("WARPATH" in, "warpath" back) while the sanitizer deliberately keeps
+   capitals. An empty name on either side is never a match — two absences are not an identity.
+   Exactly one live match → **adopt** its wallet
    (create is skipped). More than one → refuse **`[E_STATE_AMBIGUOUS_WALLETS]`**: one may be a funded live
-   strategy, so it points at read-only triage and never at close/recreate. Zero → this instance needs a wallet.
+   strategy, so it points at read-only triage and never at close/recreate. Zero → this instance needs a wallet
+   — **unless live wallets carry this package's `skillName` stamp and nothing in this run accounted for
+   them**, which refuses **`[E_INSTANCE_BINDING_UNKNOWN]`** instead. **Deploy refuses rather than funding a
+   second wallet when it cannot account for a package's live wallets**: "I could not tell which of these is
+   this instance" is never "there are none", and creating there funds a new wallet beside a live one and
+   rebinds the instance's runtime id onto it. The gate is decided once the WHOLE package has been matched,
+   so a wallet a sibling sleeve just adopted is accounted for and a partial multi-sleeve deploy still
+   proceeds; it cannot fire on a first deploy, where nothing carries the stamp yet.
+   **That refusal is a refusal to RE-READ, never a reason to re-run with a bigger budget** — nothing about
+   it is a funding shortfall, and a re-run binds by the same two routes (the derived name, and a create key
+   journaled on this box) that just failed, so it changes nothing until the user says what those wallets
+   are. The steer is `status.py '<id>'` first; `close.py '<id>'` is named last and only on the user's
+   confirmation, because it tears down the whole package.
+   The gate survives a starved NAME route (an older MCP build, a backend that renames) but not a starved
+   STAMP: an MCP that stops returning `strategyMetadata` empties its candidate filter, which is why the
+   verb logs a stampless non-empty strategy list rather than passing over it in silence.
 2. **preflight** — `account_get_portfolio` (forced fresh) → the accessible-USDC waterfall (HL perps + HL
    spot USDC + EVM USDC; never `total_withdrawable`) → the funding plan (split by `funding_share`, floored
    at **$10/wallet** — the platform floor `min_budget.py` owns — minus a per-wallet fee buffer). A shortfall

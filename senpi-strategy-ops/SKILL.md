@@ -19,7 +19,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.4.0"
+  version: "3.5.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -169,7 +169,7 @@ Terminal `overall` values:
 | `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block. A `warn:` line (`[W_BUDGET_*]`) may ride a `live` report — relay it; it did **not** stop the deploy (see the budget warnings below) |
 | `installed-unobserved` | installed, no tick seen inside `--tick-wait` (or `--tick-wait 0` skipped the check) | say exactly that; check `openclaw senpi scanner -r <runtimeId>` in a few minutes. External scanners legitimately tick on long intervals. **`--tick-wait 0` can never report `live`** — nothing was verified |
 | `pending` | a wallet was still funding when the poll budget ran out | re-run the same deploy command — it resumes and adopts the wallet |
-| `refused` | a gate said no (`[E_FUNDS_*]`, `[E_UNIVERSE_NOT_LIVE]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** (below); nothing was created past it |
+| `refused` | a gate said no (`[E_FUNDS_*]`, `[E_UNIVERSE_NOT_LIVE]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[E_INSTANCE_BINDING_UNKNOWN]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** (below); nothing was created past it |
 | `failed` | a step genuinely failed (backend rejection, install error, scanner erroring) | read the quoted cause, fix it, re-run |
 
 **A gateway restart** while a job was running renders it **`interrupted`** on the next `status`: you get
@@ -208,6 +208,16 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 >   strategy. Triage **read-only** (`python3 status.py <id>` maps each wallet to its runtime/strategy),
 >   resolve WITH THE USER which wallet is live, then re-run. **Never `close.py`/recreate to "start clean"** —
 >   that can tear down a funded live strategy.
+> - **`[E_INSTANCE_BINDING_UNKNOWN]`** — live wallets carry this package's `skillName` stamp and **none of
+>   them answers for the instance being deployed**. Refused **pre-money — nothing was created, no money
+>   moved.** The refusal lists every such wallet (address, funded amount, status, creation date, the name
+>   the record carries). **Read them before deciding anything** — `python3 status.py '<id>'` — and note what
+>   the refusal says it did **not** read: whether those wallets hold open positions, and whether any runtime
+>   still watches them. **Which wallet is which, and whether it is still wanted, is the USER's call** —
+>   relay the list and ask; deploy will not pick one for them. **Re-running changes nothing** (it binds by
+>   the same two routes that just failed), and this is **not** a funding problem — **never re-run with a
+>   bigger `--budget`**. Only once the user confirms the wallets are unwanted, `close.py '<id>'` returns
+>   their funds — and it tears down the **WHOLE** package, every sleeve and runtime in it — then re-run.
 > - **`[E_DEPLOY_IN_PROGRESS]`** — another deploy is running. Watch it (`deploy status`). There is nothing
 >   to cancel; a wedged job times out and frees the slot on its own.
 > - **`[E_ROLLBACK_INCOMPLETE]`** — a wallet this deploy created and funded had its install fail, and the
