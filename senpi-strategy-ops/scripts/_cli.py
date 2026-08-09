@@ -504,8 +504,14 @@ def strategy_wallet(s):
 
 def strategy_name(s):
     """The strategyName a strategy was created under (create sets it to <id> or <id>-<instance>).
-    Lets a lost-state redeploy match a backend strategy back to its package instance."""
-    return dig(strategy_obj(s), "strategyName", "tradingStrategyName", "name")
+    Lets a lost-state redeploy match a backend strategy back to its package instance.
+
+    `_first_written`, not `dig`: the MCP now SELECTS `strategyName`, so the key is PRESENT on every
+    row and the column is NULLABLE (null on 21 of 23 rows in a live sample). `dig` answers with the
+    first key that exists — null included — so a present-null would answer for the whole chain and
+    switch off the `tradingStrategyName` fallback that is the only name most rows carry today. That
+    is the exact shape of an upstream fix turning a working reader OFF."""
+    return _first_written(strategy_obj(s), "strategyName", "tradingStrategyName", "name")
 
 
 def _strategy_metadata(o):

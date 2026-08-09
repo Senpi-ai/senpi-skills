@@ -107,6 +107,30 @@ class StrategyActive(unittest.TestCase):
             self.assertTrue(_cli.strategy_open({"status": status}), status)
 
 
+class StrategyName(unittest.TestCase):
+    """The name a strategy was created under — what `verify` matches an instance back to its wallet by."""
+
+    def test_a_present_but_null_name_falls_through_to_the_next_key(self):
+        # The MCP now SELECTS `strategyName`, so the key is present on every row — and the column is
+        # NULLABLE (null on 21 of 23 rows in a live sample). `dig` answers with the first key that
+        # EXISTS, null included, so a present-null would answer for the whole chain and switch off
+        # the `tradingStrategyName` fallback that is the only name most rows carry. Silence at one
+        # leg must not be an answer for the legs behind it.
+        self.assertEqual(_cli.strategy_name(
+            {"strategyName": None, "tradingStrategyName": "spider"}), "spider")
+        self.assertEqual(_cli.strategy_name(
+            {"strategyName": "", "tradingStrategyName": "spider"}), "spider")
+
+    def test_a_name_that_was_written_still_wins_over_the_fallbacks(self):
+        self.assertEqual(_cli.strategy_name(
+            {"strategyName": "spider-swing", "tradingStrategyName": "spider"}), "spider-swing")
+
+    def test_silence_at_every_leg_is_none(self):
+        self.assertIsNone(_cli.strategy_name({"strategyName": None, "tradingStrategyName": None}))
+        self.assertIsNone(_cli.strategy_name({"strategyName": "", "name": ""}))
+        self.assertIsNone(_cli.strategy_name({}))
+
+
 class StrategySkillDeclared(unittest.TestCase):
     """The reader that decides whether a wallet belongs to SOMEONE ELSE. It must never guess."""
 
