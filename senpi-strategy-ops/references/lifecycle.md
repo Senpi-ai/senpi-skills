@@ -232,7 +232,13 @@ Four rules keep `verify` from steering at a state it did not read:
   its root `--cheatsheet` action (2026-03-27) it answers `senpi deploy status --json` with
   `error: unknown option '--json'`, **not** "unknown command" — a detector looking for the latter
   matched nothing in the fleet. Both streams are read for that answer: a stray JSON log line on
-  stdout must not bury a `[NOT_FOUND]` on stderr. **Anything else** — spawn failure, timeout, an
+  stdout must not bury a `[NOT_FOUND]` on stderr. **Whose** parser spoke is part of the answer too:
+  the verb shells every gateway round-trip out to an inner `openclaw gateway call … --params …` with
+  stderr **inherited**, so an openclaw older than the plugin rejects a flag the plugin passed and
+  prints the identical grammar on the identical stream — while the verb exists and a job may be
+  funding a wallet. So only a parse error naming a token this script itself sent counts, and any
+  answer mentioning the `gateway call` round-trip is transport breakage (a box without the verb
+  never gets that far). **Anything else** — spawn failure, timeout, an
   `{"ok": false, …}` envelope or any other JSON that is not a snapshot, and a RUNNING job whose
   snapshot names no package — is could-not-check (1), never "no job". The `[NOT_FOUND]` match is
   anchored to the code at the start of its line, where the verb's refusal puts it: a failed read that

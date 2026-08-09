@@ -69,6 +69,17 @@ COMMANDER_REJECTIONS = {
 # this, and it is the only shape the pre-round detector could see.
 COMMANDER_REJECTION_NO_ROOT_ACTION = "error: unknown command 'deploy'"
 
+# What a plugin-newer-than-openclaw box answers the same read with: the verb RAN, shelled out to
+# `openclaw gateway call … --params …` with stderr inherited, and THAT parser rejected a flag the
+# plugin passed. Same grammar, same stream, different parser — and here the verb exists, so a job
+# may be running. Shape taken from the runtime's `callGatewayJson` + `reportUnreadableGateway`
+# (senpi-trading-runtime `src/cli/senpi-commands.ts`).
+INNER_GATEWAY_PARSE_ERROR = (
+    "error: unknown option '--params'\n"
+    "senpi deploy status: the `gateway call` subprocess failed, so nothing was read back — exit 1 "
+    "(transport/internal). This says nothing about the deploy itself — if the gateway is up, ask "
+    "`senpi deploy status` for the job's real state.")
+
 
 _COMMANDER_PROBE = r"""
 // A program shaped like registerSenpiCli (senpi-trading-runtime src/cli/senpi-commands.ts) with no
@@ -92,12 +103,17 @@ program.parse(["node", "openclaw", ...args]);
 
 def _commander_node_modules():
     """A node_modules carrying commander, or None. The runtime's own install is preferred — these
-    strings are only evidence if they come from the version the fleet runs."""
+    strings are only evidence if they come from the version the fleet runs.
+
+    `SENPI_COMMANDER_NODE_MODULES` is how CI points at a fixture it installed itself
+    (`npm i commander@14` into any directory, then name that directory's node_modules)."""
     here = Path(__file__).resolve()
-    for cand in (here.parents[3] / "senpi-trading-runtime" / "node_modules",
-                 here.parents[2] / "node_modules"):
-        if (cand / "commander" / "package.json").is_file():
-            return cand
+    env = os.environ.get("SENPI_COMMANDER_NODE_MODULES")
+    for cand in ((Path(env),) if env else ()) + (
+            here.parents[3] / "senpi-trading-runtime" / "node_modules",
+            here.parents[2] / "node_modules"):
+        if (Path(cand) / "commander" / "package.json").is_file():
+            return Path(cand)
     return None
 
 
@@ -115,6 +131,34 @@ class CommanderRejectionShapes(unittest.TestCase):
             self.assertTrue(deploy._cli_rejected_the_command(text), f"{argv}: {text}")
         self.assertTrue(deploy._cli_rejected_the_command(COMMANDER_REJECTION_NO_ROOT_ACTION))
 
+    def test_the_inner_gateway_calls_parse_error_is_not_our_parser_speaking(self):
+        # The verb runs every gateway round-trip as an INNER `openclaw gateway call … --params …`
+        # with stderr INHERITED (runtime `callGatewayJson`: stdio ["inherit","pipe","inherit"]), so
+        # an openclaw that rejects a flag the PLUGIN passes writes the same grammar onto the same
+        # stream — while the verb is present and a job may be funding a wallet. Live configuration:
+        # plugin-newer-than-openclaw (the image pins a prebuilt tree, the runtime self-updates).
+        for text in (INNER_GATEWAY_PARSE_ERROR,
+                     "error: unknown option '--params'",          # the parse error on its own
+                     "error: unknown command 'gateway'"):         # openclaw without the subcommand
+            self.assertFalse(deploy._no_deploy_job_answer(text), text)
+        # …while every token WE sent still reads as ours.
+        self.assertTrue(deploy._no_deploy_job_answer("error: unknown option '--json'"))
+        # The start path asks a different question — "was anything dispatched?" — and the answer is
+        # NO whichever parser raised it, so it stays broad on purpose.
+        self.assertTrue(deploy._cli_rejected_the_command(INNER_GATEWAY_PARSE_ERROR))
+
+    def test_a_gateway_round_trip_in_the_answer_is_transport_never_a_missing_verb(self):
+        # A box with no verb never reaches the gateway, so this text can only come from a verb that
+        # RAN — belt to the token check's braces, and the one that survives the `--json` overlap
+        # (both we and `gateway call` pass that flag).
+        for text in ("senpi deploy status: the `gateway call` subprocess failed, so nothing was read "
+                     "back — exit 1 (transport/internal).",
+                     "senpi deploy status: the gateway answered but its response could not be read — "
+                     "exit 1 (transport/internal).",
+                     "error: unknown option '--json'\nsenpi deploy status: the `gateway call` "
+                     "subprocess failed, so nothing was read back — exit 1 (transport/internal)."):
+            self.assertFalse(deploy._no_deploy_job_answer(text), text)
+
     def test_it_never_swallows_an_answer_that_is_not_a_parser_rejection(self):
         for text in ("[NOT_FOUND] No deploy has been started on this agent.",
                      "[INVALID_REQUEST] unknown option --bogus for deploy",  # the VERB speaking
@@ -124,11 +168,27 @@ class CommanderRejectionShapes(unittest.TestCase):
                      '{"deploy": "unknown command in a log payload"}'):   # payload text, not a verdict
             self.assertFalse(deploy._cli_rejected_the_command(text), text)
 
-    @unittest.skipUnless(shutil.which("node") and _commander_node_modules(),
-                         "needs node + a commander install to regenerate")
     def test_the_pinned_strings_are_what_commander_still_prints(self):
-        # Regenerates COMMANDER_REJECTIONS from the real library rather than trusting a comment.
+        """Regenerates COMMANDER_REJECTIONS from the real library rather than trusting a comment.
+
+        What it pins is COMMANDER's grammar for a `registerSenpiCli`-shaped program — not openclaw's
+        actual program configuration, which is not observable from this repo (`showHelpAfterError`,
+        `exitOverride` and friends could add lines around the error). The classifier's match is
+        line-anchored (`re.M`), so extra lines around it are tolerated; the residual is that these
+        are "what such a program prints", not "what openclaw prints".
+
+        The skip is the rot risk: pins that nobody regenerates are how the yargs strings survived.
+        Set SENPI_REQUIRE_COMMANDER_PROBE=1 (CI) and a missing toolchain FAILS instead."""
         node_modules = _commander_node_modules()
+        if not (shutil.which("node") and node_modules):
+            missing = ("the pinned Commander strings were NOT regenerated here: this needs `node` "
+                       "and a commander install (a sibling senpi-trading-runtime/node_modules, a "
+                       "repo-root one, or SENPI_COMMANDER_NODE_MODULES=<dir>/node_modules after "
+                       "`npm i commander@14`). Until then they rest on a comment — which is exactly "
+                       "how the previous, fabricated pins survived.")
+            if os.environ.get("SENPI_REQUIRE_COMMANDER_PROBE") == "1":
+                self.fail(missing)
+            self.skipTest(missing)
         root = Path(tempfile.mkdtemp(prefix="commander-probe-"))
         self.addCleanup(shutil.rmtree, root, True)
         (root / "probe.cjs").write_text(_COMMANDER_PROBE)
@@ -1164,6 +1224,25 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
             self.assertIn("VERIFIED", out)
             self.assertNotIn("COULD NOT CHECK", out + err)
             self.assertEqual(router.deploy_dispatches, [])
+
+    def test_the_inner_gateway_calls_rejected_flag_is_could_not_check_not_no_job(self):
+        # plugin-newer-than-openclaw: `senpi deploy status` EXISTS and ran; its inner `gateway call`
+        # was rejected by an older openclaw, onto the inherited stderr, in the parse-error grammar.
+        # Classified as "no deploy job ever ran", verify emits the money steer for whatever the row
+        # is missing — while a job may be funding a wallet this second. Both steers are checked,
+        # because which one appears depends only on what the backend read found.
+        for label, kw, steer in (
+                ("nothing funded", {"strategies": ()}, "deploy.py create spider --budget"),
+                ("funded, no runtime",
+                 {"runtime_list": (0, _runtime_table(), ""), "status_json": _ok({"statuses": []})},
+                 "deploy.py runtime spider")):
+            code, out, err, router = self._verify(
+                deploy_status=(1, "", INNER_GATEWAY_PARSE_ERROR), **kw)
+            text = out + err
+            self.assertEqual(code, 1, f"{label}: {text}")
+            self.assertIn("COULD NOT CHECK", text, label)
+            self.assertNotIn(steer, text, label)
+            self.assertEqual(router.deploy_dispatches, [], label)
 
     def test_the_verbs_no_job_answer_on_stderr_survives_a_json_log_line_on_stdout(self):
         # `read_status` used to hand back the call's own words ONLY when stdout carried no JSON at

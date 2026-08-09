@@ -267,20 +267,41 @@ def _relay(rc, out, err):
 # not this one.
 _CLI_PARSE_ERROR = re.compile(r"^\s*error: (?:unknown command|unknown option|too many arguments)\b",
                               re.M)
+# The same three shapes WITH the token they name — Commander quotes exactly one right after the
+# phrase (`unknown option '--json'`, `unknown command 'deploy'`, `too many arguments for 'senpi'`).
+# The token is the only thing that says WHOSE parser spoke; see `_cli_rejected_the_command`.
+_CLI_PARSE_ERROR_TOKEN = re.compile(
+    r"^\s*error: (?:unknown command|unknown option|too many arguments for)\s+'([^']*)'", re.M)
 # A bracketed [CODE] means the VERB is speaking (a refusal, or an error it raised), whatever words
 # follow — so a refusal that happens to quote a parser error is never read as a missing verb.
 _REFUSAL_CODE = re.compile(r"\[[A-Z][A-Z_]{2,}\]")
 
 
-def _cli_rejected_the_command(text):
-    """True when the CLI's PARSER answered instead of the verb — i.e. this box cannot run the
-    command at all, so nothing was dispatched and no verb job of ours can be running.
+def _cli_rejected_the_command(text, ours=None):
+    """True when a CLI PARSER answered instead of the verb — i.e. the command line never ran.
 
     Usually a plugin that predates the `senpi deploy` verb; the same shape covers a plugin that
-    predates one of its FLAGS, and the answer to both is the same update."""
+    predates one of its FLAGS, and the answer to both is the same update.
+
+    `ours` — the argv this script actually ran — makes it answer "whose parser?", which the grammar
+    alone cannot. The verb runs every gateway round-trip as an INNER `openclaw gateway call …
+    --params …` with **stderr inherited** (runtime `src/cli/senpi-commands.ts`, `callGatewayJson`:
+    `stdio: ["inherit", "pipe", "inherit"]`), so an openclaw that rejects a flag the PLUGIN passes
+    — plugin-newer-than-openclaw, a live configuration: the image pins a prebuilt OpenClaw tree
+    while the runtime self-updates from npm — writes `error: unknown option '--params'` onto exactly
+    the same stderr, in exactly the same grammar. Read as ours, that says "this box has no deploy
+    verb" about a box that HAS it and may be running a job right now. Passing `ours` requires every
+    token the error quotes to be one WE sent; `--params` never is.
+
+    Callers that only need "was anything dispatched?" leave `ours` unset: nothing ran either way."""
     s = str(text or "")
     if _REFUSAL_CODE.search(s):
         return False
+    if ours is not None:
+        quoted = _CLI_PARSE_ERROR_TOKEN.findall(s)
+        # No tokenisable parse error, or one naming a token we never sent: not our parser's answer.
+        # `all` over an empty list would say True, which is the fail-open direction.
+        return bool(quoted) and all(tok in ours for tok in quoted)
     return bool(_CLI_PARSE_ERROR.search(s))
 
 
@@ -305,6 +326,11 @@ def start_deploy(pkg, a, log):
     rc, out, err = _cli.run_cli(args, timeout=START_TIMEOUT)
     if rc != 0:
         if _cli_rejected_the_command(_cli.error_tail(err, out)):
+            # No `ours=` here, deliberately: on the START path the question is only "was anything
+            # dispatched?", and a parse error answers NO whichever parser raised it — the outer
+            # `senpi deploy` or the inner `gateway call` it shells out to. (The job READ has to tell
+            # them apart, because its answer decides whether a money steer is printed; see
+            # `_no_deploy_job_answer`.)
             # Exit 1 (the question could not be answered) — never the parser's own code, which may be
             # 2 and would read as "a gate refused the deploy, nothing created past it". Nothing was
             # created, but nothing was gated either: the box cannot run this command at all.
@@ -351,6 +377,17 @@ def start_deploy(pkg, a, log):
     return deploy_id
 
 
+def _status_argv(deploy_id=None):
+    """The exact `deploy status` command this script runs. ONE producer, because a classifier that
+    has to answer "was that OUR parser?" compares the error's quoted token against these tokens —
+    an argv built twice is a classifier keyed to a command nobody sent."""
+    args = ["openclaw", "senpi", "deploy", "status"]
+    if deploy_id:
+        args.append(deploy_id)
+    args.append("--json")
+    return args
+
+
 def read_status(deploy_id):
     """`deploy status --json` → `(snapshot | None, the call's own words when there is no snapshot)`.
 
@@ -370,11 +407,7 @@ def read_status(deploy_id):
     line is enough to make `_extract_json` produce a dict while the verb's real `[NOT_FOUND]` — or a
     parser's rejection — sits on stderr). Callers that must classify the answer, not just print it,
     need both; a caller that only prints uses the text when there is no snapshot, as before."""
-    args = ["openclaw", "senpi", "deploy", "status"]
-    if deploy_id:
-        args.append(deploy_id)
-    args.append("--json")
-    _rc, out, err = _cli.run_cli(args, timeout=STATUS_TIMEOUT)
+    _rc, out, err = _cli.run_cli(_status_argv(deploy_id), timeout=STATUS_TIMEOUT)
     snap = _cli._extract_json(out)
     if isinstance(snap, dict):
         # stderr ONLY here: stdout is the payload, and feeding it back as "the call's words" would
@@ -564,6 +597,14 @@ _WARN_CODE = re.compile(r"\[W_[A-Z][A-Z_]*\]")
 # so that text is not this script's to trust beyond its shape.
 _NO_DEPLOY_JOB = re.compile(r"^\s*\[NOT_FOUND\]", re.M)
 
+# Evidence that the VERB ran and reached its gateway round-trip — which a box without the verb never
+# does. Both phrasings come from the runtime's `reportUnreadableGateway` (`src/cli/senpi-commands.ts`),
+# which only fires after the verb's action is executing: "the `gateway call` subprocess failed …
+# exit 1 (transport/internal)" and "the gateway answered but its response could not be read — exit 1
+# (transport/internal)". Where this appears, the answer is transport breakage, never a missing verb —
+# whatever parse error rode along with it from the inner call's inherited stderr.
+_GATEWAY_ROUND_TRIP = re.compile(r"`?gateway call`?|\(transport/internal\)", re.I)
+
 
 def _no_deploy_job_answer(text):
     """True when the CALL'S OWN WORDS positively answer "no deploy job exists here".
@@ -582,9 +623,30 @@ def _no_deploy_job_answer(text):
     starts matching its own prose.
 
     Everything else (a spawn failure, the STATUS_TIMEOUT, any other error) is a read that did not
-    happen and stays could-not-check."""
+    happen and stays could-not-check.
+
+    Two guards keep the parse-error leg on the safe side of the money question, because here —
+    unlike the start path, where nothing was dispatched whoever's parser spoke — a wrong "no job"
+    lets the row name `create --budget` while a job may be funding a wallet:
+
+      * the tokens must be OURS (`_status_argv`), so the verb's inner `gateway call` being rejected
+        by an older openclaw is not read as our verb missing, and
+      * an answer that mentions the `gateway call` round-trip at all is transport breakage by
+        definition: the verb RAN, far enough to try the gateway. A box that has no verb never gets
+        there.
+
+    LATENT, and unreachable only by luck: `error: unknown option '--json'` cannot distinguish "no
+    verb" from "verb present, this flag unknown". It is safe today because `deploy status` and its
+    `--json` shipped as one unit, so no released verb rejects it. The day a flag is ADDED to this
+    read, a slightly-older verb answers `error: unknown option '--<new-flag>'` — ours by token, no
+    gateway text — and a RUNNING job classifies as no-job. Adding a flag here means bringing a
+    different discriminator with it (probe the verb, not the flag)."""
     s = str(text or "")
-    return bool(_NO_DEPLOY_JOB.search(s)) or _cli_rejected_the_command(s)
+    if _NO_DEPLOY_JOB.search(s):
+        return True
+    if _GATEWAY_ROUND_TRIP.search(s):
+        return False
+    return _cli_rejected_the_command(s, ours=_status_argv())
 
 
 def _job_snapshot(snap):
