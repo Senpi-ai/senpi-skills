@@ -339,6 +339,25 @@ class StartDeploy(unittest.TestCase):
             self.assertIn("nothing was dispatched", msg.lower())
             self.assertNotIn("may be running", msg.lower())     # nothing is
 
+    def test_an_openclaw_older_than_the_plugin_is_not_told_to_update_the_plugin(self):
+        # Same exit and the same NOTHING WAS DISPATCHED — but the opposite side is stale. The verb
+        # RAN (only a verb that runs reaches `gateway call`), so "your plugin has no deploy verb,
+        # install the plugin" is false AND counterproductive: the plugin is already the newer side,
+        # and a newer one widens the gap. The discriminator is the one the job read uses.
+        _cli.run_cli = FakeCli([(1, "", INNER_GATEWAY_PARSE_ERROR)])
+        err = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
+            deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
+        msg = err.getvalue()
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn(INNER_GATEWAY_PARSE_ERROR, msg)           # the CLI's own words, still relayed
+        self.assertIn("nothing was dispatched", msg.lower())    # still true, and still said
+        self.assertIn("verb IS present", msg)
+        self.assertIn("openclaw --version", msg)                # read-only, and a real command
+        # The cure for the OTHER cause is not prescribed here, in either direction.
+        self.assertNotIn("openclaw plugins install", msg)
+        self.assertNotIn("self-update", msg)
+
     def test_a_verb_refusal_is_never_read_as_a_missing_verb(self):
         # A message carrying a bracketed [CODE] is the VERB answering, whatever words follow it.
         _cli.run_cli = FakeCli([(2, "", "[INVALID_REQUEST] unknown argument for deploy: --bogus")])

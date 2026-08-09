@@ -270,6 +270,9 @@ _CLI_PARSE_ERROR = re.compile(r"^\s*error: (?:unknown command|unknown option|too
 # The same three shapes WITH the token they name — Commander quotes exactly one right after the
 # phrase (`unknown option '--json'`, `unknown command 'deploy'`, `too many arguments for 'senpi'`).
 # The token is the only thing that says WHOSE parser spoke; see `_cli_rejected_the_command`.
+# Quoting style is Commander ≥ v7's. Commander ≤ v6 wrote a mixed pair (``unknown option `--json'``)
+# which this pattern does not match, so such a box would fall to could-not-check rather than
+# no-job — the safe direction, and unreachable anyway: openclaw runs Commander 14.
 _CLI_PARSE_ERROR_TOKEN = re.compile(
     r"^\s*error: (?:unknown command|unknown option|too many arguments for)\s+'([^']*)'", re.M)
 # A bracketed [CODE] means the VERB is speaking (a refusal, or an error it raised), whatever words
@@ -325,7 +328,8 @@ def start_deploy(pkg, a, log):
     log("  starting the deploy job…")
     rc, out, err = _cli.run_cli(args, timeout=START_TIMEOUT)
     if rc != 0:
-        if _cli_rejected_the_command(_cli.error_tail(err, out)):
+        tail = _cli.error_tail(err, out)
+        if _cli_rejected_the_command(tail):
             # No `ours=` here, deliberately: on the START path the question is only "was anything
             # dispatched?", and a parse error answers NO whichever parser raised it — the outer
             # `senpi deploy` or the inner `gateway call` it shells out to. (The job READ has to tell
@@ -334,17 +338,38 @@ def start_deploy(pkg, a, log):
             # Exit 1 (the question could not be answered) — never the parser's own code, which may be
             # 2 and would read as "a gate refused the deploy, nothing created past it". Nothing was
             # created, but nothing was gated either: the box cannot run this command at all.
-            print(_cli.error_tail(err, out), file=sys.stderr)
-            print("This box's CLI rejected the command above before anything was dispatched — its "
-                  "runtime plugin has no `senpi deploy` verb (or not this flag of it): it predates "
-                  "the verb, usually a wedged self-update.\n"
-                  "  NOTHING WAS DISPATCHED: no job started, no wallet created, no funds moved, and "
-                  "`openclaw senpi deploy status` has nothing to report here — there is nothing to "
-                  "read and nothing to clean up.\n"
-                  "  Update the runtime plugin, then re-run this exact command:\n"
-                  "    openclaw plugins install @senpi-ai/runtime\n"
-                  "  Agent boxes also self-update on their own schedule, so retrying in a few minutes "
-                  "is the other way out.", file=sys.stderr)
+            print(tail, file=sys.stderr)
+            # WHICH side is stale changes the cure, and the same discriminator the job read uses
+            # answers it here: text naming the `gateway call` round-trip can only come from a verb
+            # that RAN, so the plugin has the verb and it is this box's openclaw that is behind.
+            # Prescribing a plugin install there is worse than useless — the plugin is already the
+            # newer side, and installing a newer one widens the gap it is being blamed for.
+            if _GATEWAY_ROUND_TRIP.search(tail):
+                cause = ("The verb IS present on this box: it ran, and shelled out to `openclaw "
+                         "gateway call`, and THAT call was rejected. The runtime plugin and this "
+                         "box's openclaw binary disagree about the gateway-call arguments — the "
+                         "plugin is newer than the openclaw it is running on.")
+                cure = ("  Updating the plugin will NOT fix this — it is already the newer side. "
+                        "What is behind is the openclaw binary, which ships in the agent image, so "
+                        "no plugin install moves it.\n"
+                        "  Report the skew with the rejected argument named above and this "
+                        "(read-only):\n"
+                        "    openclaw --version\n"
+                        "  Re-running this exact command reproduces it identically until the box's "
+                        "openclaw is updated.")
+            else:
+                cause = ("Its runtime plugin has no `senpi deploy` verb (or not this flag of it): "
+                         "it predates the verb, usually a wedged self-update.")
+                cure = ("  Update the runtime plugin, then re-run this exact command:\n"
+                        "    openclaw plugins install @senpi-ai/runtime\n"
+                        "  Agent boxes also self-update on their own schedule, so retrying in a few "
+                        "minutes is the other way out.")
+            print(f"This box's CLI rejected the command above before anything was dispatched. "
+                  f"{cause}\n"
+                  f"  NOTHING WAS DISPATCHED: no job started, no wallet created, no funds moved, and "
+                  f"`openclaw senpi deploy status` has nothing to report here — there is nothing to "
+                  f"read and nothing to clean up.\n"
+                  f"{cure}", file=sys.stderr)
             raise SystemExit(EXIT_INTERNAL)
         code = _relay(rc, out, err)
         # A START_TIMEOUT is the no-deployId case wearing a different hat: the gateway was reached and
@@ -611,8 +636,18 @@ def _no_deploy_job_answer(text):
 
     Two answers say it, and nothing else does. The verb's own `[NOT_FOUND]` refusal — no deploy has
     ever been started on this agent. And a CLI that REJECTED the command line (`_cli_rejected_the
-    _command`): it never reached a gateway, so it is not running a verb job either. That second one
-    is fleet reality, not theory — skills update hourly from `main` while the runtime self-updates
+    _command`): it never reached a gateway, so it is not running a verb job either. Precisely: the
+    CLI PROCESS is not running one. The long-lived GATEWAY owns the job, and the two can disagree —
+    if the whole plugin were missing from the CLI (`error: unknown command 'senpi'`, a token that IS
+    ours) while the gateway still held it loaded with a job in flight, this would answer no-job
+    wrongly. It cannot arrive here: `verify_reads` runs `openclaw senpi runtime list` and `senpi
+    status --json` FIRST and a CLI with no `senpi` command fails both the same way, so verify has
+    already returned could-not-check on the runtime-inventory read. That containment lives in the
+    composite's read order, not in this function — anything that reorders those reads, or calls this
+    without them, has to bring its own answer for the whole-plugin case. The narrower shapes this
+    function is really for (verb absent, flag unknown) leave the rest of the CLI working, so they
+    reach here with the inventory reads already answered. That second answer is fleet reality, not
+    theory — skills update hourly from `main` while the runtime self-updates
     from npm on its own cadence, so during a rollout window a box legitimately has new skills and a
     pre-verb runtime. Reading it as unreadable made `verify` print COULD NOT CHECK (1) over a
     perfectly live strategy on every run, with a "re-reading is the answer" steer that can never
@@ -635,12 +670,13 @@ def _no_deploy_job_answer(text):
         definition: the verb RAN, far enough to try the gateway. A box that has no verb never gets
         there.
 
-    LATENT, and unreachable only by luck: `error: unknown option '--json'` cannot distinguish "no
-    verb" from "verb present, this flag unknown". It is safe today because `deploy status` and its
-    `--json` shipped as one unit, so no released verb rejects it. The day a flag is ADDED to this
-    read, a slightly-older verb answers `error: unknown option '--<new-flag>'` — ours by token, no
-    gateway text — and a RUNNING job classifies as no-job. Adding a flag here means bringing a
-    different discriminator with it (probe the verb, not the flag)."""
+    LATENT, and unreachable only by luck: a parse error naming a token of OURS cannot distinguish
+    "no verb" from "verb present, that token unknown". It is safe today because `deploy status` and
+    its `--json` shipped as one unit, so no released verb rejects either. The day ANY token is added
+    to this read, a slightly-older verb answers with it — ours by token, no gateway text — and a
+    RUNNING job classifies as no-job. A flag is only the obvious half: an added POSITIONAL produces
+    `error: too many arguments for 'status'`, and `'status'` is ours too. Adding anything to this
+    read means bringing a different discriminator with it (probe the verb, not the token)."""
     s = str(text or "")
     if _NO_DEPLOY_JOB.search(s):
         return True

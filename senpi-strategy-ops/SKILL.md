@@ -374,7 +374,10 @@ names** — either one resumes, adopting whatever already exists.
 deploy` verb**. On a box whose plugin predates it (a wedged self-update), the start fails at exit `1`
 saying so: **nothing was dispatched** — no job, no wallet, no funds, and `deploy status` has nothing to
 report there. Update it (`openclaw plugins install @senpi-ai/runtime`, or wait for the box's own
-self-update) and re-run the same command. Also: `SENPI_AUTH_TOKEN` exported (the same token the
+self-update) and re-run the same command. The **opposite** skew lands on the same exit `1` and the
+same "nothing was dispatched", and the message says which side is behind: a plugin NEWER than the
+box's openclaw runs the verb, has its inner `gateway call` rejected, and is not fixed by installing
+the plugin — that one is reported, not retried. Also: `SENPI_AUTH_TOKEN` exported (the same token the
 MCP session uses); **Python 3 only — no PyYAML/pip needed** (the scripts use PyYAML if present, else a
 vendored stdlib YAML loader). The package itself is fetched, not pre-placed. Smoke with
 `deploy.py validate <id>` first.
