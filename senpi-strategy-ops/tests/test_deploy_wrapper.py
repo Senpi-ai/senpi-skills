@@ -1451,6 +1451,27 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("nothing is funded here", text)
 
+    def test_a_name_the_backend_lowercased_still_matches_its_instance(self):
+        # The backend case-normalizes what it stores ("WARPATH" in, "warpath" back) while
+        # `_sanitize_strategy_name` deliberately preserves capitals — so for a package id with a
+        # capital in it, a case-SENSITIVE compare misses exactly the wallets the backend stored for
+        # us, and verify reports a live funded package as nothing-deployed and steers at
+        # `create --budget`, which funds a SECOND wallet beside each live one. Latent today (all
+        # shipped package ids are lowercase); the runtime's deploy verb already folds case here, and
+        # two consumers of one field disagreeing about casing is the drift this pins shut.
+        self.pkg = _pkg(pid="Spider",
+                        instances=[_inst("swing", pid="Spider"), _inst("scalp", pid="Spider")])
+        code, out, err, router = self._verify(
+            strategies=(_strategy(name="spider-swing", skill=None),
+                        _strategy(name="spider-scalp", skill=None, wallet=OTHER_WALLET)),
+            runtime_list=(0, _runtime_table(("Spider-swing", WALLET, "running"),
+                                            ("Spider-scalp", OTHER_WALLET, "running")), ""),
+            status_json=_ok({"statuses": [{"name": "Spider-swing", "overallHealth": "healthy"},
+                                          {"name": "Spider-scalp", "overallHealth": "healthy"}]}))
+        self.assertEqual(code, 0, out + err)
+        self.assertNotIn("nothing is funded here", out + err)
+        self.assertEqual(router.deploy_dispatches, [])
+
     def test_an_unattributed_funded_wallet_is_never_reported_as_nothing_funded(self):
         # swing IS funded, just unattributed. Reporting it as "nothing is funded here" is a false
         # quoted fact — and the steer that follows it (`create --budget`) funds a SECOND wallet

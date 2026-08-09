@@ -131,6 +131,28 @@ class StrategyName(unittest.TestCase):
         self.assertIsNone(_cli.strategy_name({}))
 
 
+class StrategyNameMatch(unittest.TestCase):
+    """Is this live strategy the one this instance derives a name for?
+
+    ONE producer for the comparison, because the runtime's deploy verb asks the same question of the
+    same field and the two answering differently is how a wallet gets funded twice."""
+
+    def test_the_compare_is_case_insensitive(self):
+        # The backend case-normalizes what it stores ("WARPATH" in, "warpath" back) while
+        # `_sanitize_strategy_name` deliberately preserves capitals — so a mixed-case package id
+        # derives a name a case-SENSITIVE compare could never match.
+        self.assertTrue(_cli.strategy_name_match("Spider-Swing", "spider-swing"))
+        self.assertTrue(_cli.strategy_name_match("  spider  ", "SPIDER"))
+
+    def test_two_absences_are_not_an_identity(self):
+        # An unnamed strategy would otherwise bind to the first instance that asked.
+        for a, b in ((None, None), ("", ""), ("spider", None), (None, "spider"), ("spider", "  ")):
+            self.assertFalse(_cli.strategy_name_match(a, b), (a, b))
+
+    def test_different_names_still_do_not_match(self):
+        self.assertFalse(_cli.strategy_name_match("spider-swing", "spider-scalp"))
+
+
 class StrategySkillDeclared(unittest.TestCase):
     """The reader that decides whether a wallet belongs to SOMEONE ELSE. It must never guess."""
 

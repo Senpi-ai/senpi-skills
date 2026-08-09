@@ -823,7 +823,7 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False):
     # So: a candidate is ruled out only by an attribution that was WRITTEN and names a DIFFERENT
     # package (`strategy_skill_declared`, no name fallback — silence is not a foreign owner).
     pkg_live = [s for s in strategies if _cli.strategy_skill(s) == pkg.id]
-    named = [s for s in strategies if _cli.strategy_name(s) == want]
+    named = [s for s in strategies if _cli.strategy_name_match(_cli.strategy_name(s), want)]
     is_foreign = [_cli.strategy_skill_declared(s) not in (None, pkg.id) for s in named]
     foreign = [s for s, bad in zip(named, is_foreign) if bad]
     cands = [s for s, bad in zip(named, is_foreign) if not bad]
@@ -848,7 +848,8 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False):
         # is a false certainty attached to a do-not-deploy warning.
         #
         # The MATCH is what is asserted, not the record's name field: this row is reached because
-        # `strategy_name` answered `want`, and that reader takes the first of
+        # `strategy_name` answered a name that MATCHES `want` (case-folded — the backend
+        # case-normalizes what it stores), and that reader takes the first WRITTEN of
         # strategyName/tradingStrategyName/name the payload carries — so "the live strategy NAMED x"
         # would state which field was read, which it does not know.
         n = len(foreign)

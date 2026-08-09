@@ -514,6 +514,24 @@ def strategy_name(s):
     return _first_written(strategy_obj(s), "strategyName", "tradingStrategyName", "name")
 
 
+def strategy_name_match(a, b):
+    """Do these two strategy names name the same strategy? Case- and whitespace-insensitive; an
+    empty/absent name on EITHER side is never a match.
+
+    Case-folded because the backend case-normalizes what it stores (observed in production create
+    calls: `"WARPATH"` in, `"warpath"` back) while `deploy.py`'s `_sanitize_strategy_name`
+    deliberately preserves `[A-Za-z0-9_-]` capitals — so a mixed-case package id derives a name a
+    case-SENSITIVE compare could never match, and the check reads its own live funded wallets as
+    "nothing is funded here" and steers at a deploy that funds a second one beside each.
+
+    Two absences are not an identity: an unnamed strategy matched on `"" == ""` binds to the first
+    instance that asks. ONE producer, because the runtime's deploy verb asks this same question of
+    this same field (`src/deploy/orchestrator.ts`, the `byName` filter) — the two consumers
+    answering differently is how a wallet gets funded twice."""
+    a, b = str(a or "").strip().lower(), str(b or "").strip().lower()
+    return bool(a) and a == b
+
+
 def _strategy_metadata(o):
     """`strategyMetadata` as a dict, or None when the record carries none this reader can navigate.
 
