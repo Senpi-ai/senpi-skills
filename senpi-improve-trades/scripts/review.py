@@ -163,6 +163,34 @@ def _field(d, *names, default=None):
     return default
 
 
+def _first_written(d, *names, default=None):
+    """The first key carrying a value someone actually WROTE. `_field` skips a present-but-NULL key but
+    hands a present-but-BLANK one (`""`, `"  "`) straight back — silence at one leg would then answer
+    for every leg behind it. Strings come back stripped."""
+    if isinstance(d, dict):
+        for n in names:
+            v = d.get(n)
+            if isinstance(v, str):
+                v = v.strip()
+            if v:
+                return v
+    return default
+
+
+def _strategy_label(s):
+    """What to CALL a strategy — the label every trade, event and rollup is attributed by.
+
+    `strategyName` first: it is the strategy's own name (`<id>-<instance>` for a package deploy), so it is
+    the only field that tells the `long` sleeve from the `short` one. `tradingStrategyName` is NOT a second
+    name — the backend reads it off `strategyMetadata.skillName`, so it is the PACKAGE id, identical across
+    every instance of a package; labelling by it is what renders two sleeves as one ambiguous "cougar ×2".
+    It stays as the fallback because `strategyName` is nullable by mechanism (no name input on
+    `strategy_create`, optional on `strategy_create_custom_strategy`), and for an unnamed strategy the
+    package id is the most informative thing on the record. Same chain as senpi-portfolio's `name` and
+    senpi-strategy-ops' `strategy_name` — one question, one answer across the three skills."""
+    return _first_written(s, "strategyName", "tradingStrategyName", "name", default="strategy")
+
+
 # ──────────────────────────────────────────────────────────────── vendored YAML (runtime.yaml parse)
 def _yaml_loads(text):
     """Parse runtime.yaml text via the vendored stdlib loader (scripts/_yaml.py — no cross-skill
@@ -365,7 +393,7 @@ def fetch_strategies(client, meta):
             skill_name = _field(s, "skillName", "skill_name", "skill")
         prof = registry.get(str(wallet).lower()) or {}
         strategies.append({
-            "label": _field(s, "tradingStrategyName", "name", default="strategy"),
+            "label": _strategy_label(s),
             "wallet": wallet,
             "strategy_id": _field(s, "id", "strategyId", "strategy_id"),
             "skill_name": skill_name,

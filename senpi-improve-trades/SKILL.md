@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.7.0"
+  version: "1.8.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -352,9 +352,12 @@ otherwise it's just an asset the strategy was never designed to trade.
   same-label wallets.** Two live wallets under one label (e.g. "cougar ×2", "lion ×2") are almost always the
   **`long` + `short` sleeves** (or `core` + `ballast`) of ONE multi-wallet strategy — **not** duplicate
   redeployments. Merging them collapses a market-neutral / two-speed book into a **naked directional bet** —
-  the exact opposite of the design. You usually **can't tell sleeves from redeployments when `mandate` is
-  null** (registry unreadable) — so when in doubt, **do not recommend consolidating**; say "these two wallets
-  are likely the long/short sleeves of one strategy — check the package before treating them as duplicates."
+  the exact opposite of the design. `label` is the strategy's own name, so sleeves created with one
+  (`cougar-long` + `cougar-short`) already read apart; **two live wallets under the SAME label** are either
+  sleeves of an unnamed strategy (the label fell back to the package id) or a redeployment, and you usually
+  **can't tell which when `mandate` is null** (registry unreadable) — so when in doubt, **do not recommend
+  consolidating**; say "these two wallets are likely the long/short sleeves of one strategy — check the
+  package before treating them as duplicates."
   (Genuine *closed* redeployments live in `closed_strategies[]`, not `strategies[]`; the live book size is
   `meta.current_strategy_count`, never `meta.strategy_count`. See rule 8.)
 - **A flat / idle / no-trades-this-window strategy is often by design** — the other sleeve waiting for its

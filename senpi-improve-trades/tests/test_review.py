@@ -999,6 +999,38 @@ def test_stdout_slim_small_book_not_falsely_sampled():
     assert "trades_sample" not in slim                                        # NOT flagged as truncated
 
 
+# ──────────────────────────────────────────── the strategy LABEL (strategyName, MCP #190)
+def test_label_prefers_the_strategys_own_name_over_the_package_id():
+    """`strategyName` is the strategy's OWN name; `tradingStrategyName` is the PACKAGE id the backend
+    reads off `strategyMetadata.skillName`. Labelling by the package id is what renders the long and
+    short sleeves of one strategy as an ambiguous "cougar ×2"."""
+    assert review._strategy_label(
+        {"strategyName": "cougar-long", "tradingStrategyName": "cougar"}) == "cougar-long"
+
+
+def test_a_present_but_empty_label_falls_through_to_the_package_id():
+    """`strategyName` is nullable BY MECHANISM — `strategy_create` has no name input and it is optional
+    on `strategy_create_custom_strategy` — and the MCP now selects it, so the key is present on EVERY
+    row. Silence at that leg must not answer for the legs behind it."""
+    for empty in (None, "", "  "):
+        assert review._strategy_label(
+            {"strategyName": empty, "tradingStrategyName": "kodiak"}) == "kodiak", repr(empty)
+    assert review._strategy_label({}) == "strategy"
+
+
+def test_sleeves_of_one_package_get_distinct_labels_end_to_end():
+    """Every trade, event and rollup is attributed BY LABEL, so two sleeves sharing one label make the
+    per-strategy verdict unreadable. With the name selected they separate."""
+    with open(FIXTURE) as f:
+        raw = json.load(f)
+    for row in raw["strategy_list"]["strategies"]:
+        row["strategyName"] = "kodiak-core"          # what deploy.py creates: <id>-<instance>
+        row["tradingStrategyName"] = "kodiak"        # the package id, shared by every instance
+    res = _run_with_registry(review._FixtureClient(raw), want_market=False)
+    assert [s["label"] for s in res["strategies"]] == ["kodiak-core"]
+    assert all(t["strategy_label"] == "kodiak-core" for t in res["trades"])
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
