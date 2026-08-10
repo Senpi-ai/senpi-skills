@@ -99,37 +99,62 @@ def _field(d, *names, default=None):
     return default
 
 
+# ── VENDORED, byte-identical in senpi-portfolio/scripts/portfolio.py and
+# ── senpi-improve-trades/scripts/review.py — skills install standalone, so neither may import the other.
+# ── senpi-portfolio/tests/test_name_reader_parity.py fails the moment the two copies drift.
 def _first_written(d, *names, default=None):
-    """The first key carrying a value someone actually WROTE. `_field` skips a present-but-NULL key but
-    hands a present-but-BLANK one (`""`, `"  "`) straight back — silence at one leg would then answer
-    for every leg behind it. Strings come back stripped."""
+    """The first of `names` whose value someone actually WROTE, as a stripped string.
+
+    A boundary reader, so it coerces: `_field` hands back whatever the payload held, and a dict or a
+    number landing in a name field renders as one. A container is never a name; a scalar is stringified.
+
+    The strip is the load-bearing part. `_field` already skips a present-but-NULL key, so the null case
+    survives on its own — this exists so that silence at one leg can never answer for the legs behind it
+    NO MATTER the shape it arrives in, and so the two vendored copies answer identically."""
     if isinstance(d, dict):
         for n in names:
             v = d.get(n)
-            if isinstance(v, str):
-                v = v.strip()
+            if v is None or isinstance(v, (dict, list, tuple, set, bool)):
+                continue                      # a container or a flag never names anything
+            v = str(v).strip()
             if v:
                 return v
     return default
+# ── end vendored block
 
 
-def _strategy_display_name(s):
-    """What to CALL a strategy. ONE reader, because the full read and the fast money map both build a
-    row per wallet and must never name the same wallet two different things.
+def _strategy_name_and_source(s):
+    """What to CALL a strategy, and WHICH FIELD said so — `(name, name_source)`.
 
-    `strategyName` first: it is the strategy's own name, and `deploy.py` creates it as
-    `<id>-<instance>`, so it is also the only field that tells one sleeve of a multi-wallet strategy
-    from another. `tradingStrategyName` is NOT a second name — the backend reads it off
-    `strategyMetadata.skillName`, so it is the PACKAGE id, identical across every instance of a package
-    (three cub sleeves all render as "cub" through it) and already surfaced as `skill_name`.
+    ONE reader: the full read and the fast money map both build a row per wallet and must never name the
+    same wallet two different things.
+
+    `strategyName` first: it is the strategy's own name, and `deploy.py` creates it as `<id>-<instance>`,
+    so it is the only field that tells one sleeve of a multi-wallet strategy from another.
+    `tradingStrategyName` is NOT a second name — `strategy_list` sets it to `strategyMetadata.skillName`
+    verbatim, so it is the PACKAGE id, identical across every instance of a package (three cub sleeves all
+    render as "cub" through it) and already surfaced as `skill_name`.
 
     It stays in the chain as the fallback because `strategyName` is nullable BY MECHANISM: `strategy_create`
-    takes no name at all and it is optional on `strategy_create_custom_strategy`. For an unnamed strategy
-    the package id is at least informative; `"strategy"` is the last resort, and SKILL.md already tells the
-    agent to identify a nameless strategy by `strategy_id` + wallet rather than trust a display label.
-    (No `shortTraderAddress` leg — the MCP's fallback chain names it, but it is not on a `strategy_list`
-    record, and the row already carries `wallet`/`wallet_short`.)"""
-    return _first_written(s, "strategyName", "tradingStrategyName", "name", default="strategy")
+    takes no name at all and it is optional on `strategy_create_custom_strategy` (null on 21 of 23 rows in a
+    live sample — the fallback is the COMMON path, not the edge case). For an unnamed strategy the package
+    id is the most informative thing on the record; `"strategy"` is the last resort.
+
+    Which is exactly why `name_source` is returned beside the name and rendered on every row: the name
+    alone cannot tell "this strategy is called cub" from "this strategy is unnamed and cub is its package",
+    and a surface that presents the second as the first is claiming a name it cannot prove. The source is
+    the FIELD that answered, not a category, so it stays checkable against the payload. It also disambiguates
+    the collision the fallback creates: a user-named `cub` and an unnamed strategy from package `cub` both
+    render `name: "cub"`, and only `name_source` separates them.
+
+    No `shortTraderAddress` leg. `strategy_list` DOES carry the field — the MCP maps every row through
+    `withShortTraderAddress` — but it is the masked OG *trader* address (a copy-trade lineage), empty for
+    the custom strategies this skill reads, and the row already carries `wallet`/`wallet_short`."""
+    for key in ("strategyName", "tradingStrategyName", "name"):
+        got = _first_written(s, key)
+        if got:
+            return got, key
+    return "strategy", None
 
 
 def _pct(mark, prev):
@@ -639,8 +664,12 @@ def fetch_strategies(client, meta):
         # still RUNNING (just undescribed) — keying off registry_prof would falsely call it "not running".
         runtime_registered = (str(wallet).lower() in registered_wallets) if registry_src == "registry" else None
         not_running = bool(skill_name) and runtime_registered is False
+        name, name_source = _strategy_name_and_source(s)
         strategies.append({
-            "name": _strategy_display_name(s),
+            "name": name,
+            # WHICH field named it: "strategyName" = its own name; "tradingStrategyName"/"name" = the
+            # package id standing in; None = unnamed, `name` is the "strategy" placeholder.
+            "name_source": name_source,
             "wallet": wallet,
             # strategyId — needed for the live per-position DSL/ratchet lookup (ratchet_stop_list keys
             # on strategyId + wallet). Kept off the presentation surface; used only by hydrate().
@@ -1286,8 +1315,10 @@ def fetch_strategy_money(client, meta):
         wallet = _field(s, "strategyWalletAddress", "strategy_wallet_address", "walletAddress")
         if not wallet:
             continue
+        name, name_source = _strategy_name_and_source(s)
         strategies.append({
-            "name": _strategy_display_name(s),
+            "name": name,
+            "name_source": name_source,     # see fetch_strategies — same reader, same contract
             "wallet": wallet,
             "strategy_id": _field(s, "id", "strategyId", "strategy_id"),
             "status": _field(s, "status", default="ACTIVE"),

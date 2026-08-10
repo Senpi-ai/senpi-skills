@@ -65,6 +65,22 @@ def test_shared_dex_collateral_not_double_counted():
     assert 3050 <= t["grand_total_usd"] <= 3150
 
 
+def test_canonical_fixture_sleeves_group_by_attribution_not_by_name():
+    """The canonical fixture is a 3-sleeve cub deploy, so it must exercise the multi-wallet path: three
+    distinct instance names, ONE group re-uniting them, keyed off the `strategyMetadata.skillName` stamp
+    `deploy.py` writes. (It previously carried a distinct `tradingStrategyName` per row and no stamp —
+    a shape the backend cannot produce, since that field IS the stamp — so the three sleeves fell into
+    three wallet-keyed groups of one and the grouping this skill leads with was never exercised here.)"""
+    res = _result()
+    assert [s["name"] for s in res["strategies"]] == ["cub-long", "cub-short", "cub-preipo"]
+    assert all(s["name_source"] == "strategyName" for s in res["strategies"])
+    assert all(s["skill_name"] == "cub" for s in res["strategies"])
+    groups = res["strategy_groups"]
+    assert len(groups) == 1 and groups[0]["label"] == "cub"
+    assert groups[0]["is_multi_wallet"] is True
+    assert len(groups[0]["instances"]) == 3
+
+
 def test_embedded_address_resolved():
     e = _result()["embedded_wallet"]
     assert e["address"] == "0xembed00000000000000000000000000000000ed"
@@ -388,8 +404,10 @@ def test_multi_wallet_strategy_groups_into_one():
             "total_balance_usd": 2000, "total_withdrawable": 1200,
             "total_in_hyperliquid": 0, "token_balances": []}},
         "strategy_list": {"strategies": [
-            {"tradingStrategyName": "cougar-long", "strategyWalletAddress": COUGAR_LONG_WALLET, "status": "ACTIVE"},
-            {"tradingStrategyName": "cougar-short", "strategyWalletAddress": COUGAR_SHORT_WALLET, "status": "ACTIVE"}]},
+            {"strategyName": "cougar-long", "tradingStrategyName": "cougar",
+             "strategyWalletAddress": COUGAR_LONG_WALLET, "status": "ACTIVE"},
+            {"strategyName": "cougar-short", "tradingStrategyName": "cougar",
+             "strategyWalletAddress": COUGAR_SHORT_WALLET, "status": "ACTIVE"}]},
         # long sleeve: flat, all idle (its other-sleeve-waiting-for-signal case)
         f"strategy_get_clearinghouse_state::{COUGAR_LONG_WALLET.lower()}": {
             "main": {"marginSummary": {"accountValue": "1000"}, "withdrawable": "1000", "assetPositions": []},
@@ -843,42 +861,72 @@ def test_unfunded_empty_strategy_reason():
 # ──────────────────────────────────────────────── the strategy's DISPLAY NAME (strategyName, #190)
 def test_display_name_prefers_the_strategys_own_name():
     """`strategyName` is the strategy's OWN name; `tradingStrategyName` is the PACKAGE id it was created
-    under (the backend reads it off `strategyMetadata.skillName`). Prefer the name over the package id —
-    strategy-ops already answers this question that way, and the two skills naming the same object
-    differently is the divergence."""
-    assert portfolio._strategy_display_name(
-        {"strategyName": "warpath", "tradingStrategyName": "spider"}) == "warpath"
+    under (`strategy_list` sets it to `strategyMetadata.skillName` verbatim). Prefer the name over the
+    package id — strategy-ops already answers this question that way, and the two skills naming the same
+    object differently is the divergence."""
+    assert portfolio._strategy_name_and_source(
+        {"strategyName": "warpath", "tradingStrategyName": "spider"}) == ("warpath", "strategyName")
 
 
 def test_a_present_but_empty_display_name_falls_through_to_the_package_id():
     """`strategyName` is NULLABLE by mechanism, not by accident: `strategy_create` takes no name at all
     and it is optional on `strategy_create_custom_strategy`. The key is now present on EVERY row, so
-    silence at that leg must not answer for the legs behind it — a null/blank name that swallowed the
-    chain would turn a working reader OFF for every unnamed strategy."""
+    silence at that leg must not answer for the legs behind it. (`""`/`"  "` are unreachable through the
+    MCP's create schema — `.trim().min(3).regex(/^\\S+$/)` — this pins the READER, which must not depend
+    on that schema holding.)"""
     for empty in (None, "", "   "):
-        assert portfolio._strategy_display_name(
-            {"strategyName": empty, "tradingStrategyName": "spider"}) == "spider", repr(empty)
+        assert portfolio._strategy_name_and_source(
+            {"strategyName": empty, "tradingStrategyName": "spider"}) == ("spider",
+                                                                         "tradingStrategyName"), repr(empty)
 
 
 def test_display_name_falls_back_to_the_placeholder_only_when_every_leg_is_silent():
-    assert portfolio._strategy_display_name({}) == "strategy"
-    assert portfolio._strategy_display_name(
-        {"strategyName": None, "tradingStrategyName": None, "name": ""}) == "strategy"
+    assert portfolio._strategy_name_and_source({}) == ("strategy", None)
+    assert portfolio._strategy_name_and_source(
+        {"strategyName": None, "tradingStrategyName": None, "name": ""}) == ("strategy", None)
+
+
+def test_a_container_or_flag_in_a_name_field_is_not_a_name():
+    """Boundary reader: `_field` hands back whatever the payload held, so a shape drift renders a dict
+    as the strategy's name. A container is never a name; a scalar is stringified."""
+    assert portfolio._strategy_name_and_source(
+        {"strategyName": {"oops": 1}, "tradingStrategyName": "cub"}) == ("cub", "tradingStrategyName")
+    assert portfolio._strategy_name_and_source(
+        {"strategyName": True, "tradingStrategyName": "cub"}) == ("cub", "tradingStrategyName")
+    assert portfolio._strategy_name_and_source({"strategyName": 42}) == ("42", "strategyName")
+
+
+def test_name_source_separates_a_real_name_from_a_package_id_standing_in():
+    """`name` alone cannot tell "this strategy is called cub" from "this strategy is unnamed and cub is
+    its package" — and the fallback is the COMMON path (null on 21 of 23 rows in a live sample). The row
+    must carry which field answered, or the surface is claiming a name it cannot prove."""
+    res = portfolio.run(portfolio._FixtureClient(_multi_instance_fixture()), want_market=False)
+    src = {s["name"]: s["name_source"] for s in res["strategies"]}
+    assert src["cub-long"] == "strategyName"          # its own name
+    assert src["gibbon"] == "tradingStrategyName"     # unnamed — this is the PACKAGE id standing in
+    # and the collision the fallback creates is separable: same rendered name, different provenance
+    named, unnamed = (portfolio._strategy_name_and_source({"strategyName": "cub"}),
+                      portfolio._strategy_name_and_source({"tradingStrategyName": "cub"}))
+    assert named[0] == unnamed[0] == "cub" and named[1] != unnamed[1]
 
 
 def _multi_instance_fixture():
     """Three instances of ONE package as the backend really returns them post-#190: a distinct
-    `strategyName` per instance (`deploy.py` creates them as `<id>-<instance>`) and the SAME
-    `tradingStrategyName` on all three, because that field is the package id — plus a fourth,
-    unnamed strategy whose `strategyName` is null."""
+    `strategyName` per instance (`deploy.py` creates them as `<id>-<instance>`), the SAME
+    `tradingStrategyName` on all three because that field is the package id, and the
+    `strategyMetadata.skillName` stamp `deploy.py` writes and `tradingStrategyName` is derived FROM —
+    plus a fourth, unnamed strategy from a different package whose `strategyName` is null."""
     wallets = {"cub-long": "0xlong0000000000000000000000000000000long",
                "cub-short": "0xshort000000000000000000000000000000shrt",
                "cub-preipo": "0xpreipo00000000000000000000000000000prei",
                "unnamed": "0xnoname00000000000000000000000000000none"}
-    rows = [{"strategyName": n, "tradingStrategyName": "cub", "strategyWalletAddress": w,
-             "status": "ACTIVE", "id": f"s-{n}", "totalFunded": 100, "totalWithdrawn": 0}
+    rows = [{"strategyName": n, "tradingStrategyName": "cub",
+             "strategyMetadata": {"skillName": "cub", "skillVersion": "1.0.0"},
+             "strategyWalletAddress": w, "status": "ACTIVE", "id": f"s-{n}",
+             "totalFunded": 100, "totalWithdrawn": 0}
             for n, w in wallets.items() if n != "unnamed"]
     rows.append({"strategyName": None, "tradingStrategyName": "gibbon",
+                 "strategyMetadata": {"skillName": "gibbon", "skillVersion": "1.0.0"},
                  "strategyWalletAddress": wallets["unnamed"], "status": "ACTIVE",
                  "id": "s-unnamed", "totalFunded": 100, "totalWithdrawn": 0})
     fixture = {
@@ -900,20 +948,27 @@ def _multi_instance_fixture():
 def test_instances_of_one_package_are_named_apart_not_collapsed():
     """The user-visible consequence: every instance of a multi-wallet strategy carries the SAME package
     id, so naming rows by `tradingStrategyName` renders three sleeves as three rows all called "cub".
-    The instance's own name is what tells the long book from the short book."""
+    The instance's own name is what tells the long book from the short book — while the ATTRIBUTION, not
+    the name, is what still re-unites them into one strategy."""
     res = portfolio.run(portfolio._FixtureClient(_multi_instance_fixture()), want_market=False)
     names = [s["name"] for s in res["strategies"]]
     assert names == ["cub-long", "cub-short", "cub-preipo", "gibbon"]
-    # the package id still groups them — grouping keys off attribution/profile, never off the name
-    assert len(res["strategy_groups"]) >= 1
+    # grouping keys off profile.group → skill_name → wallet, NEVER off the name: the three renamed
+    # sleeves still land in ONE cub group, and the unnamed strategy in its own.
+    groups = {g["label"]: g for g in res["strategy_groups"]}
+    assert set(groups) == {"cub", "gibbon"}
+    assert {i["name"] for i in groups["cub"]["instances"]} == {"cub-long", "cub-short", "cub-preipo"}
 
 
 def test_the_money_map_names_strategies_the_same_way():
     """`fetch_strategy_money` re-derives the row skeleton for the fast money step; ONE reader, so the
-    money map and the per-strategy detail can never name the same wallet two different things."""
+    money map and the per-strategy detail can never name the same wallet two different things — nor
+    disagree about whether that name was proven."""
     out = portfolio.step_money(portfolio._FixtureClient(_multi_instance_fixture()),
                                want_market=False, state_path=_tmp_state())
     assert [s["name"] for s in out["strategies"]] == ["cub-long", "cub-short", "cub-preipo", "gibbon"]
+    assert [s["name_source"] for s in out["strategies"]] == (
+        ["strategyName"] * 3 + ["tradingStrategyName"])
 
 
 if __name__ == "__main__":
