@@ -5,6 +5,8 @@ No MCP, no openclaw, no network — every input is a plain dict/stub. Run:
     python3 senpi-strategy-ops/tests/test_deploy_gates.py
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import contextlib
+import io
 import re
 import sys
 import types
@@ -612,6 +614,308 @@ class AvailableUsd(unittest.TestCase):
     def test_empty_portfolio_is_zero_not_none(self):
         # a genuinely empty account must still HALT (0.0), not read as unknown and sail through
         self.assertEqual(deploy.available_usd(_StubMCP(_portfolio())), 0.0)
+
+
+class ScopePkgSingleArm(unittest.TestCase):
+    """--instance scoping for a single-arm (re)deploy/upgrade: narrow to one sleeve, fund it fully,
+    leave siblings untouched, and reject an unknown name with a helpful list."""
+
+    def _pkg(self):
+        return types.SimpleNamespace(
+            id="cub",
+            instances=[_inst("long", 0.45), _inst("short", 0.45), _inst("preipo", 0.10)],
+        )
+
+    def test_narrows_to_the_named_arm(self):
+        pkg = self._pkg()
+        deploy._scope_pkg(pkg, "preipo")
+        self.assertEqual([i.name for i in pkg.instances], ["preipo"])
+
+    def test_scoped_arm_funds_fully_not_scaled_by_its_share(self):
+        # a 0.10-share sleeve deployed alone must take the WHOLE --budget, else $15 → ~$1.50 → floored.
+        pkg = self._pkg()
+        deploy._scope_pkg(pkg, "preipo")
+        self.assertEqual(pkg.instances[0].funding_share, 1.0)
+
+    def test_unknown_instance_raises_with_the_valid_names(self):
+        pkg = self._pkg()
+        with self.assertRaises(SystemExit) as ctx:
+            deploy._scope_pkg(pkg, "nope")
+        msg = str(ctx.exception)
+        self.assertIn("no instance 'nope'", msg)
+        self.assertIn("long", msg)  # lists what IS valid so the agent can self-correct
+        self.assertIn("preipo", msg)
+
+
+class UpgradeGates(unittest.TestCase):
+    """`upgrade` refuses the two ways it must before touching MCP: a multi-arm package with no --instance
+    (which arm?), and a missing --budget (the fresh wallet needs funding)."""
+
+    def _pkg(self, names):
+        return types.SimpleNamespace(id="cub", dir=Path("/nonexistent"),
+                                     version="1", instances=[_inst(n, 1.0) for n in names])
+
+    def _args(self, **kw):
+        base = dict(budget=None, dry_run=False, yes=False, instance=None, json=False,
+                    max_wait=0, decision_model=None, ref=None, package="cub")
+        base.update(kw)
+        return types.SimpleNamespace(**base)
+
+    def test_multiarm_without_instance_refuses(self):
+        with self.assertRaises(SystemExit) as e:
+            deploy.cmd_upgrade(self._pkg(["long", "short"]), self._args(budget=25), lambda m: None)
+        self.assertIn("ONE arm", str(e.exception))
+        self.assertIn("long", str(e.exception))  # names the valid arms
+
+    def test_budget_required_when_not_dry_run(self):
+        with self.assertRaises(SystemExit) as e:
+            deploy.cmd_upgrade(self._pkg(["preipo"]), self._args(budget=None), lambda m: None)
+        self.assertIn("--budget", str(e.exception))
+
+
+class UpgradeDispatch(unittest.TestCase):
+    """PHASE B advances ONE tested step per call, chosen by the arm's deploy-state status:
+    pending→create, active→runtime, registered→verify. Money-path calls are stubbed — this asserts the
+    routing, not the steps themselves (those have their own tests + live integration)."""
+
+    _PATCH = ("load_state", "save_state", "MCPClient", "cmd_create", "cmd_runtime", "cmd_verify")
+
+    def setUp(self):
+        self._saved = {k: getattr(deploy, k) for k in self._PATCH}
+        self.calls = []
+        deploy.MCPClient = lambda *a, **k: object()
+        deploy.save_state = lambda pkg, st: None
+        deploy.cmd_create = lambda pkg, a, log: (self.calls.append("create"), {"status": "wallets-ready"})[1]
+        deploy.cmd_runtime = lambda pkg, a, log: (self.calls.append("runtime"), {"status": "registered"})[1]
+        deploy.cmd_verify = lambda pkg, a, log: (self.calls.append("verify"), {"status": "live"})[1]
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            setattr(deploy, k, v)
+
+    def _pkg(self):
+        return types.SimpleNamespace(id="cub", dir=Path("/x"), version="1",
+                                     instances=[_inst("preipo", 1.0)])
+
+    def _args(self):
+        return types.SimpleNamespace(budget=25, dry_run=False, yes=True, instance="preipo",
+                                     json=False, max_wait=0, decision_model=None, ref=None, package="cub")
+
+    def _state(self, inst_status, **inst_extra):
+        arm = {"status": inst_status}
+        arm.update(inst_extra)
+        return {"id": "cub", "_upgrade": {"phase": "redeploy"}, "instances": {"preipo": arm}}
+
+    def test_redeploy_pending_routes_to_create(self):
+        deploy.load_state = lambda pkg: self._state("pending")
+        deploy.cmd_upgrade(self._pkg(), self._args(), lambda m: None)
+        self.assertEqual(self.calls, ["create"])
+
+    def test_redeploy_active_routes_to_runtime(self):
+        deploy.load_state = lambda pkg: self._state("active", strategyId="0xsid", wallet="0xw")
+        deploy.cmd_upgrade(self._pkg(), self._args(), lambda m: None)
+        self.assertEqual(self.calls, ["runtime"])
+
+    def test_redeploy_registered_routes_to_verify(self):
+        deploy.load_state = lambda pkg: self._state("registered", strategyId="0xsid", wallet="0xw")
+        deploy.cmd_upgrade(self._pkg(), self._args(), lambda m: None)
+        self.assertEqual(self.calls, ["verify"])
+
+
+class UpgradeArity(unittest.TestCase):
+    """`_scope_pkg` narrows pkg.instances to 1, but `_wallet_name` keys off arity — so the scoped arm's
+    name must be derived from the TRUE pre-scope arity, else a multi-arm arm's wallet collapses to the
+    bare `<id>` and every by-name lookup (upgrade fallback + scoped create's naming) misses."""
+
+    def _multi(self):
+        arm = lambda n: types.SimpleNamespace(name=n, funding_share=1 / 3, runtime_name=f"cub-{n}")
+        return types.SimpleNamespace(id="cub", dir=Path("/x"), version="1",
+                                     instances=[arm("long"), arm("short"), arm("preipo")])
+
+    def test_scoped_multiarm_keeps_full_name(self):
+        pkg = self._multi()
+        deploy._scope_pkg(pkg, "preipo")
+        self.assertEqual(deploy._wallet_name(pkg, pkg.instances[0]), "cub-preipo")  # NOT the bare "cub"
+
+    def test_true_single_arm_is_bare_id(self):
+        pkg = types.SimpleNamespace(id="solo", dir=Path("/x"), version="1",
+                                    instances=[types.SimpleNamespace(name="main", funding_share=1.0)])
+        self.assertEqual(deploy._wallet_name(pkg, pkg.instances[0]), "solo")       # unscoped 1-arm unchanged
+
+
+class UpgradeConsentPhase(unittest.TestCase):
+    """PHASE A: detect a live arm — via its runtime, OR (runtime gone) via the arm's stable strategyName
+    among ACTIVE strategies — gate the flatten on --yes, surface a failed close, and emit under --json.
+
+    The fixture is a REAL 3-arm package narrowed by `_scope_pkg` (exactly what main() hands cmd_upgrade),
+    and `_wallet_name` is deliberately NOT stubbed — the name it derives after scoping IS the mechanism
+    under test. Stubbing it (as the first cut did) hid the arity bug that made the fallback search 'cub'."""
+
+    _PATCH = ("_cli", "MCPClient", "load_state", "save_state", "cmd_create")
+
+    def setUp(self):
+        self._saved = {k: getattr(deploy, k) for k in self._PATCH}
+        self._closed = []
+        self._created = []
+        self._close_result = {"status": "closed"}
+        deploy.MCPClient = lambda *a, **k: object()
+        deploy.load_state = lambda pkg: {"id": pkg.id, "instances": {}}
+        deploy.save_state = lambda pkg, st: None
+        deploy.cmd_create = lambda pkg, a, log: (self._created.append("create"), {"status": "wallets-ready"})[1]
+        close_mod = types.ModuleType("close")
+
+        def close_one(label, s, rts, dry, log):
+            self._closed.append(s)
+            return self._close_result
+        close_mod.close_one = close_one
+        sys.modules["close"] = close_mod
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            setattr(deploy, k, v)
+        sys.modules.pop("close", None)
+
+    def _pkg(self):
+        """A real 3-arm package narrowed to `preipo` by `_scope_pkg` — what main() hands cmd_upgrade for
+        `--instance preipo`. Multi-arm on purpose: scoping a 1-arm fixture would hide the arity trap."""
+        arm = lambda n: types.SimpleNamespace(name=n, funding_share=1 / 3, runtime_name=f"cub-{n}")
+        pkg = types.SimpleNamespace(id="cub", dir=Path("/x"), version="1",
+                                    instances=[arm("long"), arm("short"), arm("preipo")])
+        deploy._scope_pkg(pkg, "preipo")
+        return pkg
+
+    def _args(self, yes=False, json=False):
+        return types.SimpleNamespace(budget=25, dry_run=False, yes=yes, instance="preipo",
+                                     json=json, max_wait=0, decision_model=None, ref=None, package="cub")
+
+    def _cli(self, runtime=None, strategies=(), read_ok=True):
+        s = types.SimpleNamespace()
+        s.find_runtime = lambda name: runtime
+        s.runtime_wallet = lambda rt: (rt or {}).get("wallet")
+        s.list_runtimes = lambda: []
+        s.strategy_open = lambda x: x.get("status", "ACTIVE") not in ("CLOSED", "FAILED", "TERMINATED")
+        s.strategy_wallet = lambda x: x.get("wallet")
+        s.strategy_name = lambda x: x.get("name")
+        s.strategy_id_of = lambda x: x.get("id")
+        s.wallet_match = lambda a, b: bool(a) and bool(b) and str(a).lower() == str(b).lower()
+
+        def _filter(rows, statuses, wallet):
+            out = list(rows)
+            if statuses:
+                out = [x for x in out if x.get("status", "ACTIVE") in statuses]
+            if wallet is not None:
+                out = [x for x in out if str(x.get("wallet") or "").lower() == str(wallet).lower()]
+            return out
+        s.strategies_for = lambda mcp, skill_name=None, statuses=None, wallet=None, **kw: _filter(strategies, statuses, wallet)
+        s.strategies_for_or_none = (
+            lambda mcp, skill_name=None, statuses=None, wallet=None, **kw: (_filter(strategies, statuses, wallet) if read_ok else None))
+        return s
+
+    def test_live_arm_without_yes_needs_consent(self):
+        deploy._cli = self._cli(runtime={"wallet": "0xAAA"},
+                                strategies=[{"wallet": "0xAAA", "name": "cub-preipo", "status": "ACTIVE"}])
+        out = deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
+        self.assertEqual(out["status"], "needs-consent")
+        self.assertEqual(self._closed, [])            # nothing flattened without consent
+        self.assertEqual(self._created, [])           # and it did NOT fall through to create
+
+    def test_live_arm_with_yes_closes_that_arm(self):
+        deploy._cli = self._cli(runtime={"wallet": "0xAAA"},
+                                strategies=[{"wallet": "0xAAA", "name": "cub-preipo", "status": "ACTIVE"}])
+        out = deploy.cmd_upgrade(self._pkg(), self._args(yes=True), lambda m: None)
+        self.assertEqual(out["status"], "closing")
+        self.assertEqual(len(self._closed), 1)
+
+    def test_runtime_gone_but_strategy_open_still_gated(self):
+        # regression guard: no runtime, but an ACTIVE strategy carries the arm's REAL name (cub-preipo,
+        # only correct once arity survives scoping) → resolve by name and STILL gate consent, instead of
+        # treating the arm as undeployed and double-funding.
+        deploy._cli = self._cli(runtime=None,
+                                strategies=[{"wallet": "0xBBB", "name": "cub-preipo", "status": "ACTIVE"}])
+        out = deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
+        self.assertEqual(out["status"], "needs-consent")
+        self.assertEqual(self._created, [])           # must NOT have jumped to create
+
+    def test_unreadable_backend_refuses_not_funds(self):
+        # strategy_list read FAILS (→ None) → must NOT read as "arm absent" and fund fresh. Refuse.
+        deploy._cli = self._cli(runtime=None, strategies=[], read_ok=False)
+        out = deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
+        self.assertEqual(out["status"], "blocked")
+        self.assertEqual(self._created, [])
+        self.assertEqual(self._closed, [])
+
+    def test_ambiguous_two_same_name_refuses(self):
+        # a prior double-fund left TWO ACTIVE strategies with the arm's name on different wallets → can't
+        # uniquely resolve → refuse, never fund a third next to them.
+        deploy._cli = self._cli(runtime=None, strategies=[
+            {"wallet": "0xB1", "name": "cub-preipo", "status": "ACTIVE"},
+            {"wallet": "0xB2", "name": "cub-preipo", "status": "ACTIVE"}])
+        out = deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
+        self.assertEqual(out["status"], "blocked")
+        self.assertEqual(self._created, [])
+
+    def test_runtime_gone_only_sibling_active_refuses(self):
+        # no runtime for preipo, and the only ACTIVE strategy is a SIBLING (cub-long): ambiguous — could be
+        # a name-rejection fallback wallet for preipo itself → refuse, never bind to the sibling or fund blind.
+        deploy._cli = self._cli(runtime=None,
+                                strategies=[{"wallet": "0xLONG", "name": "cub-long", "status": "ACTIVE"}])
+        out = deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
+        self.assertEqual(out["status"], "blocked")
+        self.assertEqual(self._closed, [])
+        self.assertEqual(self._created, [])
+
+    def test_truly_undeployed_proceeds_to_create(self):
+        # verified-absent (read OK, NO active cub strategies at all) → clean "none" → redeploy (create).
+        deploy._cli = self._cli(runtime=None, strategies=[])
+        deploy.cmd_upgrade(self._pkg(), self._args(yes=False), lambda m: None)
+        self.assertEqual(self._created, ["create"])
+
+    def test_closing_wait_polls_ids_directly(self):
+        # phase=closing: still-open strategy with a closing id → keep waiting; gone → advance to `closed`.
+        pkg = self._pkg()
+        deploy.load_state = lambda p: {"id": "cub", "instances": {},
+                                       "_upgrade": {"phase": "closing", "closing_ids": ["sid1"]}}
+        deploy._cli = self._cli(strategies=[{"wallet": "0xAAA", "name": "cub-preipo", "id": "sid1", "status": "ACTIVE"}])
+        self.assertEqual(deploy.cmd_upgrade(pkg, self._args(yes=True), lambda m: None)["status"], "closing")
+        deploy._cli = self._cli(strategies=[{"wallet": "0xAAA", "name": "cub-preipo", "id": "sid1", "status": "CLOSED"}])
+        self.assertEqual(deploy.cmd_upgrade(pkg, self._args(yes=True), lambda m: None)["status"], "closed")
+
+    def test_failed_close_surfaces_and_does_not_advance(self):
+        # close_one can report failed (runtime still listed after delete → may re-enter). It must SURFACE
+        # as `failed`, not get swallowed and advance to a `closing` poll nothing will ever clear.
+        self._close_result = {"status": "failed", "error": "runtime still listed"}
+        deploy._cli = self._cli(runtime={"wallet": "0xAAA"},
+                                strategies=[{"wallet": "0xAAA", "name": "cub-preipo", "status": "ACTIVE"}])
+        out = deploy.cmd_upgrade(self._pkg(), self._args(yes=True), lambda m: None)
+        self.assertEqual(out["status"], "failed")
+        self.assertIn("runtime still listed", out["note"])
+
+    def test_json_emits_consent_to_stdout(self):
+        # under --json, `log` is a no-op; the PHASE-A verdict must still reach stdout as JSON, else the
+        # agent (which runs --json) gets exit code 2 and an empty stdout — losing the consent text.
+        deploy._cli = self._cli(runtime={"wallet": "0xAAA"},
+                                strategies=[{"wallet": "0xAAA", "name": "cub-preipo", "status": "ACTIVE"}])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            deploy.cmd_upgrade(self._pkg(), self._args(yes=False, json=True), lambda m: None)
+        self.assertIn("needs-consent", buf.getvalue())
+
+
+class ExitCodeContract(unittest.TestCase):
+    """0 = done/info, 2 = refused/failed, 3 = resumable-re-run. `closed`/`closing` MUST be 3, not 0 — a
+    `$?`/`&&` caller that reads `closed` (old arm gone, nothing deployed) as success strands the user."""
+
+    def test_done_and_informational_exit_zero(self):
+        for s in ("live", "wallets-ready", "registered", "creating", "closing-existing", "planned", "status", None):
+            self.assertEqual(deploy._exit_code(s), 0, s)
+
+    def test_refused_or_failed_exit_two(self):
+        for s in ("failed", "underfunded", "not-live", "needs-consent", "blocked"):
+            self.assertEqual(deploy._exit_code(s), 2, s)
+
+    def test_upgrade_inflight_exit_three_not_zero(self):
+        for s in ("closing", "closed"):
+            self.assertEqual(deploy._exit_code(s), 3, s)
 
 
 if __name__ == "__main__":

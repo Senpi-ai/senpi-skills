@@ -81,6 +81,7 @@ min_score = int(inputs.get("minScore", 4))
 | `ctx.wallet` | The runtime's wallet address (pass to `strategy_get_clearinghouse_state`, etc.) |
 | `ctx.scanner_name` | This scanner's name (from the recipe) |
 | `ctx.interval_seconds` | This scanner's tick cadence |
+| `ctx.dry_run` | `True` when this tick is a validation run (`senpi validate`), `False` in production. See "Gates and `ctx.dry_run`" below — a gate that ignores it makes the scanner unprovable. |
 
 > There is no `ctx.inputs` (inputs is the first arg) and no logging handle — use `print(..., file=sys.stderr)`; the supervisor captures the child's stderr.
 
@@ -110,6 +111,30 @@ if ctx.state is not None:
 ```
 
 ---
+
+## Gates and `ctx.dry_run`
+
+A scanner that returns early — outside its trading session, before a warm-up window, on a
+day-of-week check — is doing the right thing in production. But a tick that returns **without having
+read anything** proves nothing: from the outside it is indistinguishable from a healthy scanner with
+no setups, which is exactly how a fatal bug behind a session gate stayed invisible for eighteen hours
+and then lost most of a funded strategy on the first window that opened.
+
+`senpi validate` reports that case as **UNPROVEN** rather than as a pass. To let validation see a real
+read, consult `ctx.dry_run` in the gate:
+
+```python
+def scan(inputs, ctx):
+    if not in_session() and not ctx.dry_run:
+        return []                      # production: nothing to do outside the session
+    candles = ctx.senpi_mcp.call_tool("market_get_asset_data", {...})
+    ...
+```
+
+Returning `[]` is always fine — no setups is a legitimate answer. What matters is that the tick
+*read* something first, so the fetch path is proven. Ignoring `ctx.dry_run` is safe: the scanner
+still behaves correctly in production, it simply cannot be proven, and validation says so rather
+than passing it.
 
 ## Read-only MCP boundary
 
@@ -180,6 +205,11 @@ default_signal_validity_seconds)`), the wire envelope, delivery, and dedup. **Do
 don't bury them inside `data{}`. There is no per-signal USD sizing field — a fixed dollar size is
 expressed as a percent of withdrawable via `marginPct`.
 
+> **Per-signal sizing is exactly two top-level keys: `marginPct` and `leverage`.** Any other
+> top-level key is **dropped with only a stderr warning**, and sizing falls back to the recipe's
+> configured margin — so an invented sizing field does not fail loudly, it quietly sizes the
+> position differently than you intended.
+
 ---
 
 ## `scoring.py` — keep the logic pure
@@ -213,6 +243,9 @@ Both are valid — it's your thesis:
 - ✅ Read every numeric field through `_f()` — no-op on numbers, required on strings.
 - ✅ Put `marginPct` (fleet standard) and `leverage` at the **top level**, not inside `data{}`.
 - ✅ On any failure, **return `[]`** (or a partial list) — don't crash.
+- ✅ If a gate can make `scan()` return **before it reads anything**, let `ctx.dry_run` bypass it — a
+  tick that reads nothing validates as **UNPROVEN**, not as a pass.
+- ✅ Prove it before you hand it over: `openclaw senpi validate <package-dir>` must return **PASS**.
 - ❌ Don't set `valid_until`/`produced_at` — the scaffold owns the envelope (`signal_id` optional).
 - ❌ Don't schedule the scanner yourself or POST signals — the runtime does it.
 - ❌ Don't try to mutate `ctx` (it's frozen) or `append` a non-dict to `ctx.state`.
