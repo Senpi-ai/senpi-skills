@@ -51,8 +51,13 @@ just means re-run that step.
    - Per instance: `strategy_create_custom_strategy(skillName=<id>, skillVersion=<version>, initialBudget=…,
      strategyName=<id>-<instance>)` — names the wallet for its role (e.g. `whalehunter-short`), never a bare
      address; best-effort (falls back to unnamed if the name is rejected). Record `strategyId` **immediately**,
-     poll `strategy_list` to **ACTIVE** (bounded by `--max-wait`).
-     Not all ACTIVE → **`creating`** (re-run to resume); all ACTIVE → **`wallets-ready`**.
+     poll `strategy_list` to **ACTIVE before the next instance is submitted** — one wallet funds at a
+     time, all bounded by ONE shared `--max-wait`. `strategy_create_custom_strategy` returns at
+     `CREATE_WALLET` and funds asynchronously, so concurrent legs draw on the same embedded wallet: the
+     loser reads a balance the winner already claimed, funds $0 and parks in `PENDING_FUNDING`.
+     Not all ACTIVE → **`creating`** (re-run to resume — it ADOPTS the wallets it already created; only
+     an open runtime-less strategy this deploy never created is closed); all ACTIVE →
+     **`wallets-ready`**.
 2. **`runtime <id>`** — per instance: render the instance's `runtime.yaml` (substitute `${wallet_env}` + the
    decision-model env iff a `decision_mode: llm` action) **beside the source** (so `path: ./scanners`
    resolves) → `openclaw senpi runtime create … --runtime-id <id>-<instance>`. **Self-healing:** an existing

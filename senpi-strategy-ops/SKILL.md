@@ -25,7 +25,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.16.0"
+  version: "2.16.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -120,14 +120,17 @@ strategyName=<id>-<instance>)` — **every wallet is named for its role in the s
 WhaleHunter deploy with two sub-wallets creates `whalehunter-long` and `whalehunter-short`), **never
 left as a bare `0x…` address**, so the user can tell a strategy's wallets apart in the app, balances,
 and notifications. Naming is best-effort: if the backend rejects a name (conflict/format), that wallet
-is still created (unnamed) rather than failing the deploy. It records the `strategyId`, and polls
-`strategy_list` to **ACTIVE** — **bounded** (~150s). If it prints
-**`creating`** (wallets still funding), just **re-run the same `create` command** — it resumes and
-**never re-creates** a wallet. It prints **`wallets-ready`** when done. **`create` never reuses an existing
-wallet — every deploy gets a FRESH one.** If an existing `<id>` strategy is found: a **runtime-less** one
-(funded but never got a runtime — the reuse trap an agent keeps landing back on) is **closed to recover its
-funds**, then a new wallet is created (prints **`closing-existing`**; re-run `create` once it's closed and
-funds are back); a **live, running** one is left untouched — `create` **refuses** so it can't silently
+is still created (unnamed) rather than failing the deploy. It records the `strategyId`, then polls
+`strategy_list` to **ACTIVE before submitting the next instance** — **one wallet funds at a time**,
+all **bounded** by one shared `--max-wait` (~150s). Two funding jobs on one embedded wallet race, and
+the loser reads a balance the winner already claimed, funds **$0.00** and parks in `PENDING_FUNDING`.
+If it prints **`creating`** (a wallet still funding), just **re-run the same `create` command** — it
+resumes, **adopting the wallets it already created** and never re-creating or closing them. It prints
+**`wallets-ready`** when done. If an existing `<id>` strategy is found **that this deploy did not
+create**: a **runtime-less** one (funded but never got a runtime — the reuse trap an agent keeps landing
+back on) is **closed to recover its funds**, then a new wallet is created (prints **`closing-existing`**;
+re-run `create` once it's closed and funds are back); a **live, running** one is left untouched —
+`create` **refuses** so it can't silently
 flatten a real book (to apply an edit to it, use **`deploy.py upgrade`** — see *Upgrade*; `close.py <id>`
 only to tear it down). The **`--budget` is a hard target**: create funds
 exactly what you ask (split by `funding_share`, $10/wallet floor); if your live balance can't cover it,
@@ -185,8 +188,9 @@ scheduled/supervised scanner passes, so it does **not** wait for the first scan 
 > user (the note gives the exact `--budget ≤ X` ceiling it can fund), then **re-run `create`**;
 > **`[E_FUNDS_BELOW_FLOOR]`** = no budget is valid, so help the user **deposit** and re-run — **never**
 > suggest a lower budget below the floor. Do not switch tools. If
-> `create` reports **`closing-existing`**, it's closing a runtime-less `<id>` wallet to recover funds so it
-> can deploy fresh — re-run `create` once it's closed. If it **refuses** "already deployed AND running", a
+> `create` reports **`closing-existing`**, it's closing a runtime-less `<id>` wallet **this deploy never
+> created** to recover funds so it can deploy fresh — re-run `create` once it's closed. A wallet this
+> deploy DID create is adopted on a re-run, never closed. If it **refuses** "already deployed AND running", a
 > live `<id>` strategy exists — to apply an edit use **`deploy.py upgrade <id> [--instance <arm>] --budget
 > <usd>`** (closes + redeploys fresh, consent-gated; see *Upgrade*), not a bare `close`+`create`. If **`runtime`** lost its
 > deploy state and can't safely resolve the fresh wallet, it refuses **split by cause** — and in **both**

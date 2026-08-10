@@ -9,9 +9,12 @@ in order and re-runs a step until it reports done.
   python3 deploy.py status   <id> [--json]
 
 Step 1 `create`  — creating wallets & funding them: per instance strategy_create_custom_strategy (records
-                   strategyId IMMEDIATELY), then poll strategy_list until ACTIVE, BOUNDED by --max-wait.
-                   Not all ACTIVE yet → exits `creating`; re-run `create` to RESUME (never re-creates).
-                   Refuses if it finds skillName==<id> strategies not in the state file (close first).
+                   strategyId IMMEDIATELY), then poll strategy_list until ACTIVE before submitting the
+                   NEXT instance — one wallet funds at a time — all BOUNDED by one --max-wait budget.
+                   Not all ACTIVE yet → exits `creating`; re-run `create` to RESUME — it ADOPTS the
+                   wallets it already created, never re-creating or closing them. REFUSES on a
+                   skillName==<id> strategy whose runtime is running; CLOSES one that is runtime-less
+                   AND absent from the state file (an orphan).
 Step 2 `runtime` — setting up the autonomous trading strategy: render each runtime.yaml with its wallet →
                    openclaw senpi runtime create. Fast, self-healing. AFTER THIS, DEPLOY IS DONE — the
                    strategy trades autonomously (scans on its own interval). Do NOT wait for the first tick.
@@ -160,6 +163,26 @@ def delete_state(pkg):
 
 def inst_state(st, name):
     return st["instances"].setdefault(name, {"status": "pending"})
+
+
+def recorded_strategy_ids(pkg, st):
+    """Every strategyId this package's state file knows about. Read it BEFORE `create`'s reconcile
+    drops the non-ACTIVE ones — the close sweep asks "did THIS deploy create it", not "is it still
+    healthy", and a leg stuck in PENDING_FUNDING is both ours and not-ACTIVE."""
+    return {sid for sid in (inst_state(st, i.name).get("strategyId") for i in pkg.instances) if sid}
+
+
+def orphan_strategies(existing_open, recorded_ids):
+    """The open <id> strategies the close sweep may touch: the ones this deploy never created.
+
+    A RECORDED wallet is not the runtime-less trap — it is this deploy mid-flight, and closing it is
+    how a multi-leg package destroys a fully-funded sleeve to recover from its sibling. Each leg costs
+    a flat ~$1 to fund and the fee is NOT returned on close, so create → close → recreate is pure loss
+    that lands back in the same state; M415566 burned 38 wallets and $39 that way, until the
+    accumulated fees made the user's own budget unaffordable. An id we cannot read is treated as an
+    orphan (`None not in recorded_ids`), which keeps the pre-existing protection: an unidentifiable
+    open wallet still blocks a fresh fund beside it."""
+    return [s for s in existing_open if _cli.strategy_id_of(s) not in recorded_ids]
 
 
 def _num(*vals):
@@ -319,6 +342,47 @@ def underfunded_note(shortfall):
             f"Either add USDC, or confirm a lower amount with the user and re-run `create` with "
             f"--budget ≤ {budget_arg(b_star)} (the largest budget your accessible balance can fully fund "
             f"across these {shortfall['wallets']} wallet(s) at the {usd(MIN_WALLET)}/wallet floor).")
+
+
+def is_name_rejection(err):
+    """True when the backend is refusing the wallet NAME, not the deploy — so retrying unnamed works.
+
+    SERR083 belongs here despite its generic text ("Custom strategy creation failed unexpectedly.
+    Retry with the same payload."): a strategy stuck in PENDING_FUNDING keeps holding its
+    strategyName, and every create reusing that name 500s until the record expires ~15 min later.
+    Retrying the SAME payload — what the error itself advises — can never clear it; dropping the
+    name clears it instantly. Observed on a real deploy, two calls 3.6s apart, same $693 budget:
+        {initialBudget: 693, strategyName: "vanguard-long"}  → SERR083
+        {initialBudget: 693}                                 → success
+    It also failed at $100 with the name, ruling out any funding cause.
+    """
+    s = str(err)
+    return any(c in s for c in ("SERR055", "SERR056", "SERR058", "SERR083")) or "name" in s.lower()
+
+
+def await_funded(mcp, pkg, st, insts, deadline, log=lambda m: None):
+    """Poll `insts` until each is ACTIVE with a wallet, or `deadline` passes.
+
+    Returns the still-pending ["name=STATUS", …] list — empty means every leg settled.
+    """
+    while True:
+        pending = []
+        for inst in insts:
+            s = inst_state(st, inst.name)
+            if s.get("status") in ("active", "registered", "live"):
+                continue
+            m = _cli.strategies_for(mcp, strategy_id=s["strategyId"], timeout=POLL_HTTP_TIMEOUT)
+            status = str(_cli.strategy_status(m[0]) if m else "").upper()
+            addr = _cli.strategy_wallet(m[0]) if m else None
+            if status == "ACTIVE" and addr:
+                s.update(wallet=addr, status="active")
+                save_state(pkg, st)
+            else:
+                pending.append(f"{inst.name}={status or '…'}")
+        if not pending or time.time() >= deadline:
+            return pending
+        log(f"  waiting on {', '.join(pending)}…")
+        time.sleep(POLL_EVERY)
 
 
 def report(pkg, st, overall, note=None, as_json=False):
@@ -481,6 +545,8 @@ def cmd_create(pkg, a, log):
     except Exception as e:  # noqa
         log(f"  (universe preflight skipped: {e})")
 
+    recorded_ids = recorded_strategy_ids(pkg, st)  # BEFORE the reconcile below discards any of them
+
     # Reconcile recorded strategies against the backend — drop any that aren't ACTIVE so we never
     # reuse a CLOSED wallet or get stuck on a FAILED one. Self-heals stale state; no manual editing.
     for inst in pkg.instances:
@@ -495,14 +561,16 @@ def cmd_create(pkg, a, log):
             st["instances"][inst.name] = {"status": "pending"}
     save_state(pkg, st)
 
-    # NEVER reuse an existing strategy's wallet. Re-using a funded, runtime-less wallet is the trap an
-    # agent keeps falling into (creates <id>, never deploys the runtime, keeps landing back on the same
-    # dead wallet); creating a second alongside it double-funds. So every `create` deploys on a FRESH
-    # wallet, resolving any existing OPEN <id> strategy first:
+    # Resolve every existing OPEN <id> strategy before funding anything:
     #   • RUNNING runtime → a live, working deploy: REFUSE to silently flatten it; redeploy is explicit
     #     (close.py first). Protects a real book from an accidental `create`.
-    #   • no running runtime → the funded-but-stuck trap: CLOSE it (recovers its funds), then this deploy
-    #     creates a fresh wallet. strategy_close is async, so hand off and re-run `create` once it's closed.
+    #   • no running runtime, NOT recorded here → an ORPHAN (an abandoned run, a raw-MCP create, a
+    #     deleted state file): the funded-but-stuck trap an agent keeps falling into — creates <id>,
+    #     never deploys the runtime, keeps landing back on the same dead wallet, and creating a second
+    #     alongside it double-funds. CLOSE it (recovers its funds), then this deploy creates a FRESH
+    #     wallet. strategy_close is async, so hand off and re-run `create` once it's closed.
+    #   • no running runtime, RECORDED here → not a trap: this deploy's own wallet, mid-flight. It is
+    #     adopted, never closed. See the orphan filter below for why that distinction is load-bearing.
     runtimes = _cli.list_runtimes()
     existing_open = [s for s in _cli.strategies_for(mcp, skill_name=pkg.id) if _cli.strategy_open(s)]
     if getattr(a, "instance", None):
@@ -544,20 +612,21 @@ def cmd_create(pkg, a, log):
             f"To tear it down instead:  python3 {Path(__file__).with_name('close.py')} {pkg.id}\n"
             f"Or just re-check it:  python3 {Path(__file__).name} verify {pkg.id}")
 
-    if existing_open:  # open but NOT running → the runtime-less trap: close (recover funds) → fresh wallet
+    # ORPHANS ONLY (see `orphan_strategies` for why closing our own wallet is the expensive mistake).
+    # Recorded wallets fall through instead — an ACTIVE one is adopted by the poll below (→
+    # `wallets-ready`, next step `runtime`), and one the reconcile above just discarded is recreated
+    # on a fresh wallet.
+    orphans = orphan_strategies(existing_open, recorded_ids)
+    if orphans:
         import close as _close  # noqa: E402 — sibling module, lazy import
-        for s in existing_open:
+        for s in orphans:
             _close.close_one(pkg.id, s, runtimes, False, log)
-        for inst in pkg.instances:  # forget the old ids so the re-run makes NEW wallets, never resumes them
-            prev = inst_state(st, inst.name)
-            st["instances"][inst.name] = ({"status": "pending", "requested": prev["requested"]}
-                                          if prev.get("requested") else {"status": "pending"})
-        save_state(pkg, st)
         return report(pkg, st, "closing-existing", note=(
-            f"Found {len(existing_open)} existing {pkg.id} strateg(y/ies) with NO running runtime — closing "
-            f"them (recovering funds) so this deploys on a FRESH wallet, never reusing the runtime-less one. "
-            f"strategy_close is async; re-run `python3 {Path(__file__).name} create {pkg.id}{_scope_flag(a)} --budget "
-            f"{budget_arg(a.budget)}` once they're CLOSED and the funds are back."), as_json=a.json)
+            f"Found {len(orphans)} existing {pkg.id} strateg(y/ies) with NO running runtime that this deploy "
+            f"never created — closing them (recovering funds) so this deploys on a FRESH wallet, never reusing "
+            f"the runtime-less one. strategy_close is async; re-run `python3 {Path(__file__).name} create "
+            f"{pkg.id}{_scope_flag(a)} --budget {budget_arg(a.budget)}` once they're CLOSED and the funds are "
+            f"back."), as_json=a.json)
 
     need = [i for i in pkg.instances if not inst_state(st, i.name).get("strategyId")]
 
@@ -567,6 +636,10 @@ def cmd_create(pkg, a, log):
     amounts, shortfall = plan_funding(need, a.budget, available_usd(mcp)) if need else ({}, None)
     if shortfall:
         return report(pkg, st, "underfunded", note=underfunded_note(shortfall), as_json=a.json)
+
+    # ONE SHARED poll budget across every leg — a per-leg budget would let an N-wallet package
+    # run for N × max_wait and blow past the tool timeout.
+    deadline = time.time() + a.max_wait
 
     # create any instance that has no strategyId yet — record the id IMMEDIATELY (before polling),
     # so an interrupted run resumes instead of re-creating.
@@ -593,7 +666,7 @@ def cmd_create(pkg, a, log):
             res = _create(sname)
         except MCPError as e:
             # Naming is best-effort — a name conflict/format rejection must never block the deploy.
-            if any(c in str(e) for c in ("SERR055", "SERR056", "SERR058")) or "name" in str(e).lower():
+            if is_name_rejection(e):
                 log(f"  [{inst.name}] name {sname!r} rejected ({e}); creating without a custom name")
                 try:
                     res = _create()
@@ -615,30 +688,24 @@ def cmd_create(pkg, a, log):
         s.update(strategyId=sid, status="creating", error=None)
         save_state(pkg, st)  # ← persist before any polling
 
-    # poll to ACTIVE, bounded by --max-wait (resume on re-run)
-    deadline = time.time() + a.max_wait
-    while True:
-        pending = []
-        for inst in pkg.instances:
-            s = inst_state(st, inst.name)
-            if s.get("status") in ("active", "registered", "live"):
-                continue
-            m = _cli.strategies_for(mcp, strategy_id=s["strategyId"], timeout=POLL_HTTP_TIMEOUT)
-            status = str(_cli.strategy_status(m[0]) if m else "").upper()
-            addr = _cli.strategy_wallet(m[0]) if m else None
-            if status == "ACTIVE" and addr:
-                s.update(wallet=addr, status="active")
-                save_state(pkg, st)
-            else:
-                pending.append(f"{inst.name}={status or '…'}")
-        if not pending:
-            return report(pkg, st, "wallets-ready", note="Next: deploy.py runtime " + pkg.id + _scope_flag(a), as_json=a.json)
-        if time.time() >= deadline:
+        # Fund ONE WALLET AT A TIME. `create` returns at CREATE_WALLET and funding settles
+        # asynchronously afterwards, so submitting the next leg straight away puts two funding
+        # jobs on the SAME embedded wallet concurrently — one reads a balance the other has
+        # already claimed, funds $0, and sticks in PENDING_FUNDING. Waiting here is what makes
+        # the balance check in plan_funding actually mean something.
+        if await_funded(mcp, pkg, st, [inst], deadline, log):
+            # Not settled inside the budget — do NOT submit the next leg, that is the race.
+            # State is saved, so a re-run picks up exactly here.
             return report(pkg, st, "creating",
-                          note="Wallets still funding. Re-run `deploy.py create " + pkg.id + _scope_flag(a) + "` to resume.",
-                          as_json=a.json)
-        log(f"  waiting on {', '.join(pending)}…")
-        time.sleep(POLL_EVERY)
+                          note=("Wallet still funding. Re-run `deploy.py create " + pkg.id + _scope_flag(a) +
+                                "` to resume — wallets are funded one at a time."), as_json=a.json)
+
+    # everything submitted; wait out any leg that was already in flight from a previous run
+    if await_funded(mcp, pkg, st, pkg.instances, deadline, log):
+        return report(pkg, st, "creating",
+                      note="Wallets still funding. Re-run `deploy.py create " + pkg.id + _scope_flag(a) + "` to resume.",
+                      as_json=a.json)
+    return report(pkg, st, "wallets-ready", note="Next: deploy.py runtime " + pkg.id + _scope_flag(a), as_json=a.json)
 
 
 # ---------- step 2: deploy runtimes ----------
