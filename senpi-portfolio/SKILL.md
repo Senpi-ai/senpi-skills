@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.10.0"
+  version: "1.11.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -401,10 +401,15 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
   fails open here (config framing stands alone, plus a `meta.warnings` note); a by-hand call has no such
   fallback, which is why hand-rolling produces false "unprotected" verdicts. Never turn a failed read into
   a risk finding.
-- **A strategy with `tradingStrategyName: null` is still a real strategy.** Custom strategies created via
-  `strategy_create_custom_strategy` can come back with a null/blank name — identify and analyze them by
-  `strategyId` + wallet, never skip, mislabel ("Unnamed"), or double-count them for lacking a display name.
-  (If you *created* it this session, you already know its name — don't re-derive it as "unknown.")
+- **A strategy with a null name is still a real strategy.** `strategyName` is optional on
+  `strategy_create_custom_strategy` and absent entirely from `strategy_create`, so it comes back null for
+  many strategies — identify and analyze them by `strategyId` + wallet, never skip, mislabel ("Unnamed"),
+  or double-count them for lacking a display name. (If you *created* it this session, you already know its
+  name — don't re-derive it as "unknown.")
+- **`tradingStrategyName` is the PACKAGE id, not a name.** The backend reads it off
+  `strategyMetadata.skillName`, so it is identical on every instance of a package (all three cub sleeves
+  read `cub`) — never present it as the strategy's name, and never tell one sleeve from another by it.
+  The engine already names each row `strategyName` → `tradingStrategyName` → `"strategy"`; use `name`.
 - **Config-level `protected` ≠ live per-position tier.** `strategy.protected` / `group.protected` (bool)
   is the **config posture** — the strategy ships an `exit:` block (always true for template strategies).
   It says "this strategy has a DSL exit," not which tier a given position sits in. The per-position tier
@@ -507,6 +512,9 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
   the level you *present* from). Per wallet: `name`, `wallet`, `account_value`, `idle_withdrawable` (bucket 2 for
   *this* strategy), `deployed` (equity tied up in positions = account_value − withdrawable),
   `position_margin` (initial margin detail), `total_funded`/`total_withdrawn`, and:
+  - `name` — the strategy's OWN name (`strategyName`, `<id>-<instance>` for a package deploy), falling
+    back to the package id and then `"strategy"` when it was created without one. This is the instance
+    label; `skill_name` is the package.
   - `skill_name` / `skill_version` — the strategy's package attribution (e.g. `ox`, `cougar`, `lion`),
     from its `strategy_list` record. `null` for a hand-rolled/custom strategy with no package.
   - `profile` — **the strategy's declared job, universal across ours + user-authored strategies.** Its

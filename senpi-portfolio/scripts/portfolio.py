@@ -99,6 +99,39 @@ def _field(d, *names, default=None):
     return default
 
 
+def _first_written(d, *names, default=None):
+    """The first key carrying a value someone actually WROTE. `_field` skips a present-but-NULL key but
+    hands a present-but-BLANK one (`""`, `"  "`) straight back — silence at one leg would then answer
+    for every leg behind it. Strings come back stripped."""
+    if isinstance(d, dict):
+        for n in names:
+            v = d.get(n)
+            if isinstance(v, str):
+                v = v.strip()
+            if v:
+                return v
+    return default
+
+
+def _strategy_display_name(s):
+    """What to CALL a strategy. ONE reader, because the full read and the fast money map both build a
+    row per wallet and must never name the same wallet two different things.
+
+    `strategyName` first: it is the strategy's own name, and `deploy.py` creates it as
+    `<id>-<instance>`, so it is also the only field that tells one sleeve of a multi-wallet strategy
+    from another. `tradingStrategyName` is NOT a second name — the backend reads it off
+    `strategyMetadata.skillName`, so it is the PACKAGE id, identical across every instance of a package
+    (three cub sleeves all render as "cub" through it) and already surfaced as `skill_name`.
+
+    It stays in the chain as the fallback because `strategyName` is nullable BY MECHANISM: `strategy_create`
+    takes no name at all and it is optional on `strategy_create_custom_strategy`. For an unnamed strategy
+    the package id is at least informative; `"strategy"` is the last resort, and SKILL.md already tells the
+    agent to identify a nameless strategy by `strategy_id` + wallet rather than trust a display label.
+    (No `shortTraderAddress` leg — the MCP's fallback chain names it, but it is not on a `strategy_list`
+    record, and the row already carries `wallet`/`wallet_short`.)"""
+    return _first_written(s, "strategyName", "tradingStrategyName", "name", default="strategy")
+
+
 def _pct(mark, prev):
     m, p = _num(mark), _num(prev)
     if m is None or p is None or p == 0:
@@ -607,7 +640,7 @@ def fetch_strategies(client, meta):
         runtime_registered = (str(wallet).lower() in registered_wallets) if registry_src == "registry" else None
         not_running = bool(skill_name) and runtime_registered is False
         strategies.append({
-            "name": _field(s, "tradingStrategyName", "name", default="strategy"),
+            "name": _strategy_display_name(s),
             "wallet": wallet,
             # strategyId — needed for the live per-position DSL/ratchet lookup (ratchet_stop_list keys
             # on strategyId + wallet). Kept off the presentation surface; used only by hydrate().
@@ -1254,7 +1287,7 @@ def fetch_strategy_money(client, meta):
         if not wallet:
             continue
         strategies.append({
-            "name": _field(s, "tradingStrategyName", "name", default="strategy"),
+            "name": _strategy_display_name(s),
             "wallet": wallet,
             "strategy_id": _field(s, "id", "strategyId", "strategy_id"),
             "status": _field(s, "status", default="ACTIVE"),
