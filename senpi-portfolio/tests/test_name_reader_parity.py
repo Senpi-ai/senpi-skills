@@ -4,6 +4,10 @@ install standalone, so neither may import the other). This test fails the moment
 the two skills disagreeing about what counts as a written name is the divergence the reader exists to
 close, and a copy edited in one home only reintroduces it silently.
 
+TWO checks, guarding different things: the sha pins the shared HELPER, the chain table pins the ANSWER.
+The sha alone can pass while behaviour diverges (a shadowing redefinition after the end marker, or a
+reordered chain in one skill), so the second check is the load-bearing one — see its docstring.
+
 senpi-strategy-ops' `_first_written` is deliberately NOT held to this parity: it dispatches through a
 case-insensitive `dig()`, takes no `default=`, and does not strip. Converging it would either make ops
 case-SENSITIVE (its docstring calls out the backend's case-normalization as load-bearing) or make these
@@ -14,10 +18,19 @@ readers share a CHAIN, not an implementation; only these two share bytes.
 import hashlib
 import os
 import re
+import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 COPIES = (os.path.join(HERE, "..", "scripts", "portfolio.py"),
           os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts", "review.py"))
+
+for _d in (os.path.join(HERE, "..", "scripts"),
+           os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts")):
+    if _d not in sys.path:
+        sys.path.insert(0, _d)
+
+import portfolio  # noqa: E402
+import review  # noqa: E402
 
 _BLOCK = re.compile(r"^# ── VENDORED,.*?^# ── end vendored block$", re.S | re.M)
 
@@ -38,17 +51,37 @@ def test_first_written_vendor_parity():
         "byte-identically (the two skills must answer 'is this a written name?' the same way)")
 
 
-def test_both_copies_answer_the_divergence_case_identically():
-    """The behavioural half of the parity: an unstripped copy is exactly what drift looks like."""
-    ns = [{}, {}]
-    for block, env in zip((_vendored_block(p) for p in COPIES), ns):
-        exec(compile(block, "<vendored>", "exec"), env)     # noqa: S102 — the block under test
-    row = {"strategyName": "   ", "tradingStrategyName": "cub"}
-    got = [env["_first_written"](row, "strategyName", "tradingStrategyName") for env in ns]
-    assert got == ["cub", "cub"], got
+# Rows spanning every leg of the chain plus the shapes the two readers exist to agree on: a written
+# name, silence at the first leg (null / empty / whitespace), a shape that is not a name at all, the
+# flat-payload alias, a scalar, and total silence.
+_CHAIN_ROWS = (
+    {"strategyName": "cougar-long", "tradingStrategyName": "cougar"},
+    {"strategyName": None, "tradingStrategyName": "cougar"},
+    {"strategyName": "", "tradingStrategyName": "cougar"},
+    {"strategyName": "   ", "tradingStrategyName": "cougar"},
+    {"strategyName": {"oops": 1}, "tradingStrategyName": "cougar"},
+    {"strategyName": True, "tradingStrategyName": "cougar"},
+    {"strategyName": 42},
+    {"name": "flat-payload-alias"},
+    {"strategyName": None, "tradingStrategyName": None, "name": ""},
+    {},
+)
+
+
+def test_the_two_skills_answer_the_same_chain_the_same_way():
+    """THE guard. The sha above pins the shared helper; this pins the ANSWER, which is what users see.
+
+    Byte-parity alone is not enough and demonstrably passes while behaviour diverges: a copy can define
+    a second `_first_written` AFTER the end marker (shadowing the vendored one), or a skill can reorder
+    the legs of its own chain — the block hashes identically in both cases. Each skill's own tests catch
+    a chain edit only if the editor updates that skill's tests too, and then the OTHER skill diverges
+    silently. That is precisely the split-brain this slice exists to remove, so the two chains are
+    compared against each other directly, not each against its own expectations."""
+    for row in _CHAIN_ROWS:
+        assert review._strategy_label(row) == portfolio._strategy_name_and_source(row)[0], row
 
 
 if __name__ == "__main__":
     test_first_written_vendor_parity()
-    test_both_copies_answer_the_divergence_case_identically()
+    test_the_two_skills_answer_the_same_chain_the_same_way()
     print("NAME READER PARITY OK")

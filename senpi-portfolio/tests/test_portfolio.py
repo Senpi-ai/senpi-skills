@@ -79,6 +79,11 @@ def test_canonical_fixture_sleeves_group_by_attribution_not_by_name():
     assert len(groups) == 1 and groups[0]["label"] == "cub"
     assert groups[0]["is_multi_wallet"] is True
     assert len(groups[0]["instances"]) == 3
+    # `protected` follows the stamp: a package deploy carries a validator-guaranteed DSL exit, so an
+    # attributed row is protected even with no registry on this host. It read False here only because
+    # the fixture's missing stamp made every row look hand-rolled — pinned so it can never drift back
+    # unpinned, this being the field the skill carries a whole hard-rule section about.
+    assert all(s["protected"] is True for s in res["strategies"])
 
 
 def test_embedded_address_resolved():
@@ -405,8 +410,10 @@ def test_multi_wallet_strategy_groups_into_one():
             "total_in_hyperliquid": 0, "token_balances": []}},
         "strategy_list": {"strategies": [
             {"strategyName": "cougar-long", "tradingStrategyName": "cougar",
+             "strategyMetadata": {"skillName": "cougar", "skillVersion": "1.0.0"},
              "strategyWalletAddress": COUGAR_LONG_WALLET, "status": "ACTIVE"},
             {"strategyName": "cougar-short", "tradingStrategyName": "cougar",
+             "strategyMetadata": {"skillName": "cougar", "skillVersion": "1.0.0"},
              "strategyWalletAddress": COUGAR_SHORT_WALLET, "status": "ACTIVE"}]},
         # long sleeve: flat, all idle (its other-sleeve-waiting-for-signal case)
         f"strategy_get_clearinghouse_state::{COUGAR_LONG_WALLET.lower()}": {

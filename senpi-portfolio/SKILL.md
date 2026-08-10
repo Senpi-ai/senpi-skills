@@ -407,8 +407,9 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
   or double-count them for lacking a display name. (If you *created* it this session, you already know its
   name — don't re-derive it as "unknown.")
 - **Only `name_source: "strategyName"` means `name` is really its name.** Anything else is a stand-in the
-  engine substituted: `"tradingStrategyName"`/`"name"` is the **package id** (identical on every sleeve of
-  a package — all three cub sleeves read `cub`), and `null` means it has no name at all. When
+  engine substituted: `"tradingStrategyName"` is the **package id** (identical on every sleeve of a
+  package — all three cub sleeves read `cub`), `"name"` is a defensive flat-payload alias, and `null`
+  means it has no name at all. When
   `name_source != "strategyName"`, call it by `strategy_id` + wallet and say which package it came from —
   never "the cub strategy", and never tell one sleeve from another by that string.
 - **Config-level `protected` ≠ live per-position tier.** `strategy.protected` / `group.protected` (bool)
