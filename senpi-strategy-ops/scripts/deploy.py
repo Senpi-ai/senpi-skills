@@ -7,6 +7,12 @@ job DETACHED, so this script starts it and then polls `openclaw senpi deploy sta
 job is terminal, relaying the verb's report VERBATIM. Nothing here re-derives a number, a
 lifecycle claim, or a refusal string — the `[E_*]` codes pass straight through.
 
+ONE refusal is repaired instead of relayed, and only one: a deploy refused because the package's
+proof was recorded under a different runtime BUILD (`STALE_PROOF_REASON`). The runtime self-updates
+in place, so every update invalidates every proof on the box at once, and relaying that would make
+our own release cadence a fleet-wide deploy outage. The repair is `senpi validate` + ONE re-run —
+see `stale_proof_dirs`, which keys on the gate's structured evidence, never on its wording.
+
   python3 deploy.py validate <id>                                  # preflight (no side effects)
   python3 deploy.py create   <id> --budget <usd> [--max-wait S]    # run the deploy (create+fund+install+tick)
   python3 deploy.py runtime  <id> [--decision-model M]             # resume/complete the same deploy
@@ -529,17 +535,157 @@ def exit_code_for(snap):
     return EXIT_CODES.get(state.get("overall"), EXIT_INTERNAL)
 
 
-def run_deploy(pkg, a, log):
-    """Start → poll → relay. Exit code: the D-12 map (see EXIT_CODES)."""
+# ---------- the one repair: a proof the runtime moved out from under ----------
+
+# The single proof state this wrapper repairs instead of relaying. `openclaw senpi deploy` refuses,
+# pre-money, any package whose `.senpi-proof.json` was recorded under a different runtime build —
+# and the fleet updates the runtime IN PLACE, hourly, which invalidates every proof on the box at
+# once. Relayed, that turns our own release cadence into a deploy outage for every agent whose
+# package was proven before the update.
+#
+# The other two reasons are deliberately NOT repaired. `no_proof` and `content_changed` both mean a
+# human or an agent changed something (or never proved it at all), and re-proving on their behalf
+# would record a PASS over an edit nobody has looked at — which is the exact fund-what-nobody-
+# watched-run failure the gate exists to prevent.
+STALE_PROOF_REASON = "runtime_version_changed"
+
+# How long ONE `openclaw senpi validate` gets. The runtime's own default per-scanner tick budget is
+# 120s (`DEFAULT_TICK_BUDGET_SECONDS`, src/validate/run.ts) and validate spawns Python and imports
+# the scanner around it, so this is that plus headroom. A validate that outruns it comes back rc=-1
+# and is reported as a FAILED re-validation — never as a repair, because no proof was written.
+VALIDATE_TIMEOUT = 180
+
+
+def _refused_steps(snap):
+    """Every `refused` step row in a terminal report — the rows a gate wrote."""
+    for inst in ((snap or {}).get("report") or {}).get("instances") or []:
+        for outcome in ((inst or {}).get("steps") or {}).values():
+            if isinstance(outcome, dict) and outcome.get("status") == "refused":
+                yield outcome
+
+
+def _instance_dirs(pkg):
+    """Every distinct directory holding an instance's runtime.yaml, package root as the floor.
+
+    The verb's own fallback, mirrored: when `verifyProof` reports no instance identity,
+    `failingTarget` (runtime `src/deploy/proof-gate.ts`) targets every instance dir — which on a
+    flat package IS the package root."""
+    dirs = []
+    for inst in getattr(pkg, "instances", None) or ():
+        path = getattr(inst, "runtime_path", None)
+        d = str(Path(path).parent) if path else None
+        if d and d not in dirs:
+            dirs.append(d)
+    return dirs or [str(pkg.dir)]
+
+
+def stale_proof_dirs(snap, pkg):
+    """The directories to re-prove when this deploy was refused ONLY because its proof predates the
+    running runtime — otherwise `[]`.
+
+    Read off the gate's STRUCTURED evidence (`evidence.reason`), never off its prose. The three
+    proof states are one refusal family whose wording the runtime owns and rewords, and two of them
+    must reach a human; a wrapper keyed on words repairs the wrong one the day the sentence changes.
+    `reason` is the field that distinguishes them — the bracketed code does too, but it is derived
+    from the same verdict and only the reason is documented as the discriminator.
+
+    Fail-closed in every direction: a non-refused job, a snapshot with no report (a runtime older
+    than the gate), a refusal with no evidence, an unrecognised reason, ANY other refused step
+    riding along, or an `instance_dir` that is not a plain relative subpath — all of them return
+    `[]`, and the verb's refusal is relayed exactly as it was written."""
+    state = (snap or {}).get("state") or {}
+    if state.get("status") != "done" or state.get("overall") != "refused":
+        return []
+    refusals = list(_refused_steps(snap))
+    if not refusals:
+        return []
+    # EVERY refused row must be this one reason. A stale proof beside another gate's refusal is not
+    # ours to repair: re-running would only be refused again, by the gate we did not answer.
+    if any(((r.get("evidence") or {}).get("reason")) != STALE_PROOF_REASON for r in refusals):
+        return []
+    dirs = []
+    for r in refusals:
+        rel = (r.get("evidence") or {}).get("instance_dir")
+        if not rel or not isinstance(rel, str):
+            continue
+        # `instance_dir` is documented as relative to the package root (`relative(pkg.dir,
+        # inst.runtimeYamlDir)`). Anything else — absolute, or climbing out with `..` — is a shape
+        # this wrapper does not recognise, and it would point a live validation at a directory
+        # outside the package. Relay instead; never act on a path we cannot place.
+        p = Path(rel)
+        if p.is_absolute() or ".." in p.parts:
+            return []
+        d = str(Path(pkg.dir) / p)
+        if d not in dirs:
+            dirs.append(d)
+    return dirs or _instance_dirs(pkg)
+
+
+def revalidate(dirs, log):
+    """Re-record each directory's proof. Returns `(ok, the failing call's own words)`.
+
+    `openclaw senpi validate <dir>` is the ONLY command that writes a `.senpi-proof.json` — a full,
+    unscoped run at live depth that PASSES — which is why the python validator is not an option
+    here. Its exit codes are validate's own: `0` PASS · `1` FAIL · `2` UNPROVEN · `3` invocation
+    error. Only `0` records a proof, so only `0` is a repair; everything else hands back validate's
+    text for the caller to surface unedited."""
+    for d in dirs:
+        log(f"  re-proving {d} (openclaw senpi validate)…")
+        rc, out, err = _cli.run_cli(["openclaw", "senpi", "validate", str(d)], timeout=VALIDATE_TIMEOUT)
+        if rc != 0:
+            return False, (_cli.error_tail(err, out, limit=2000)
+                           or f"openclaw senpi validate {d} exited {rc} and printed nothing.")
+    return True, ""
+
+
+def _poll_deploy(pkg, a, log):
+    """One start → poll pass: `(deployId, snapshot | None, the poll budget it used)`."""
     deploy_id = start_deploy(pkg, a, log)
     poll_budget = getattr(a, "poll_budget", None)
     if poll_budget is None:
         poll_budget = POLL_BUDGET
-    snap = wait_for_terminal(deploy_id, poll_budget, log)
+    return deploy_id, wait_for_terminal(deploy_id, poll_budget, log), poll_budget
+
+
+def _unreadable_job(deploy_id):
+    print(f"Could not read the deploy job's status. Check it directly: "
+          f"openclaw senpi deploy status {deploy_id}", file=sys.stderr)
+    return EXIT_INTERNAL
+
+
+def run_deploy(pkg, a, log):
+    """Start → poll → relay. Exit code: the D-12 map (see EXIT_CODES).
+
+    ONE repair rides this path and only one: a deploy refused because the package's proof was
+    recorded under a different runtime build is re-proven and re-run ONCE (`STALE_PROOF_REASON`).
+    Everything else — every other gate, and the other two proof states — is relayed verbatim, and a
+    re-validation that does not PASS carries validate's own findings out without re-running the
+    deploy."""
+    deploy_id, snap, poll_budget = _poll_deploy(pkg, a, log)
     if snap is None:
-        print(f"Could not read the deploy job's status. Check it directly: "
-              f"openclaw senpi deploy status {deploy_id}", file=sys.stderr)
-        return EXIT_INTERNAL
+        return _unreadable_job(deploy_id)
+    dirs = stale_proof_dirs(snap, pkg)
+    if dirs:
+        # stderr, always: in `--json` mode stdout is the snapshot document and nothing else.
+        print(f"note: the deploy was REFUSED before anything was created — the proof for "
+              f"{', '.join(dirs)} was recorded under a different runtime build than the one running "
+              f"here (the runtime updates itself in place, so this happens to a package nobody "
+              f"touched). Re-proving it now with `openclaw senpi validate`; if that PASSES the "
+              f"deploy is re-run ONCE, and if it does not, its findings are printed here and the "
+              f"deploy is not re-run. Nothing was created, funded or installed by the refused run.",
+              file=sys.stderr)
+        ok, text = revalidate(dirs, log)
+        if ok:
+            deploy_id, fresh, poll_budget = _poll_deploy(pkg, a, log)
+            if fresh is None:
+                return _unreadable_job(deploy_id)
+            snap = fresh
+        else:
+            print(text, file=sys.stderr)
+            print(f"`openclaw senpi validate` did not PASS, so no proof was recorded and the deploy "
+                  f"was NOT re-run — its refusal is reported below, unchanged. Nothing was created, "
+                  f"funded or installed by either call. Fix what validate reported above, then "
+                  f"re-run this command.", file=sys.stderr)
     print_status(deploy_id, a.json, snap)
     state = snap.get("state") or {}
     if state.get("status") == "running":

@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.5.3"
+  version: "3.6.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -40,7 +40,7 @@ path — funds preflight → wallet create+fund → runtime install → one obse
 **detached job** you then watch. It returns in ~1s; you poll until it is terminal.
 
 ```
-openclaw senpi validate <package-dir>                                   # 0a. does it RUN? (no wallet, no funding)
+openclaw senpi validate <package-dir>                                   # 0a. does it RUN? records the proof create needs
 python3 senpi-strategy-ops/scripts/deploy.py validate <id>              # 0b. preflight — deploy-ready? (no side effects)
 python3 senpi-strategy-ops/scripts/deploy.py create <id> --budget <usd> # 1. THE FUNDED PATH: validates, then starts the deploy
 openclaw senpi deploy status                                            # 2. poll until terminal; read the verified report
@@ -104,7 +104,13 @@ surfaces its real error and is never silently replaced by a stale remote fetch.
 **Preflight is two questions, two commands.** `openclaw senpi validate <package-dir>` answers **does
 it run** — it loads every scanner file, runs one real tick against live read-only data, counts what
 it read, and checks each emitted signal against the runtime's own wire schema. No wallet, no
-funding. **Multi-instance: one run per `<instance>` dir** — validation runs against one runtime, so
+funding. **A `PASS` is also what RECORDS the proof `create` refuses without**: a `.senpi-proof.json`
+beside that instance's recipe, naming the exact file bytes it passed over and the runtime version it
+passed under. **Only a full, unscoped run at live depth writes one** — `--scanner <name>`,
+`--no-attest` and `--stage static|import` deliberately record nothing, and `deploy.py validate`
+records nothing either. So the flow is **validate → deploy, per instance**, and a package whose
+files were edited needs a fresh `validate` before the next `create`.
+**Multi-instance: one run per `<instance>` dir** — validation runs against one runtime, so
 a package root grouping several refuses `[E_VALIDATE_NO_RECIPE]` and lists the instances to pick
 from. **`UNPROVEN` (exit 2) is not a pass** — the tick ran and established nothing, usually a
 gate in `scan()` that should consult `ctx.dry_run`. `deploy.py validate <id>` answers the other
@@ -204,7 +210,7 @@ Terminal `overall` values:
 | `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block. A `warn:` line (`[W_BUDGET_*]`) may ride a `live` report — relay it; it did **not** stop the deploy (see the budget warnings below) |
 | `installed-unobserved` | installed, no tick seen inside `--tick-wait` (or `--tick-wait 0` skipped the check) | say exactly that; check `openclaw senpi scanner -r <runtimeId>` in a few minutes. External scanners legitimately tick on long intervals. **`--tick-wait 0` can never report `live`** — nothing was verified |
 | `pending` | a wallet was still funding when the poll budget ran out | re-run the same deploy command — it resumes and adopts the wallet |
-| `refused` | a gate said no (`[E_FUNDS_*]`, `[E_UNIVERSE_NOT_LIVE]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[E_INSTANCE_BINDING_UNKNOWN]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** (below); nothing was created past it |
+| `refused` | a gate said no (`[E_FUNDS_*]`, `[E_VALIDATE_*]`, `[E_UNIVERSE_NOT_LIVE]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[E_INSTANCE_BINDING_UNKNOWN]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** (below); nothing was created past it |
 | `failed` | a step genuinely failed (backend rejection, install error, scanner erroring) | read the quoted cause, fix it, re-run |
 
 **A gateway restart** while a job was running renders it **`interrupted`** on the next `status`: you get
@@ -276,6 +282,21 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 >   errors at runtime — the scan skips it and the strategy silently trades nothing — so **never
 >   "deploy anyway"**. If the step instead reports that the live instrument list **could not be read**,
 >   nothing is claimed dead and nothing was created: retry once the MCP server is reachable.
+> - **`[E_VALIDATE_NO_PROOF]` / `[E_VALIDATE_CONTENT_CHANGED]` / `[E_VALIDATE_RUNTIME_VERSION_CHANGED]`** —
+>   deploy will not fund a package it cannot prove ever ran. **Refused pre-money: nothing was created.**
+>   The proof is the `.senpi-proof.json` a passing `openclaw senpi validate <instance-dir>` writes
+>   (see preflight above). **Which of the three it is decides the answer — read the code, not the
+>   prose:**
+>   `NO_PROOF` = nothing here has been observed to run; validate the directory the refusal names.
+>   `CONTENT_CHANGED` = the files differ from the ones that passed, and it names them; **look at the
+>   edit before re-proving it** — either restore the proven content or validate what is there now.
+>   `RUNTIME_VERSION_CHANGED` = the package is untouched and only the engine under it moved (the
+>   runtime self-updates in place, so this hits packages nobody has touched). **`deploy.py
+>   create|runtime` repairs that one for you**: it re-runs `senpi validate` once, re-runs the deploy,
+>   and does this for this reason only. If that re-validation does not PASS it prints validate's own
+>   findings and does **not** re-run the deploy — fix those, then re-run. Deploy needs **every**
+>   instance proven and stops at the first that is not, so on a multi-instance package expect to be
+>   sent back for the next sleeve; validating every instance dir up front avoids the round trip.
 
 **The `W_` prefix means WARNING — the deploy went through.** Every code above stops something; a `W_`
 code never does. The three budget codes below are the `W_` ones. They ride a
@@ -546,8 +567,10 @@ wallet** — which market-exits its open positions and returns the funds to main
    declared share`, so redeploying a `funding_share: 0.3` arm with `--budget 300` funds it **$90**, not
    $300. Size it as *the amount you want in that arm ÷ that arm's share* (300 ÷ 0.3 → `--budget 1000`),
    and **say the resulting wallet figure to the user, not the `--budget` number**, when you take consent
-   for the redeploy. If a budget warn already computed a re-run figure for the scoped sleeve, use that —
-   it does this division for you.
+   for the redeploy. **A budget warn's own re-run figure is a FLOOR, not that number**: it is sized to
+   the smallest budget that clears the sleeve's *minimum* need, so using it as the consented amount
+   redeploys at the floor instead of at the size the user agreed to. Size from `want ÷ share`, and if
+   the warn's figure is larger, use the larger one.
 
 **NEVER, when applying an edit:**
 - hand-render a `runtime.yaml` or run raw `openclaw senpi runtime create` on a hand-built file — the

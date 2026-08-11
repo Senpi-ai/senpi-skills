@@ -829,6 +829,307 @@ class UniverseGateOwnership(unittest.TestCase):
         self.assertIn(rendered, out.getvalue())
 
 
+def _proof_refused(reason, instance_dir=None, detail=None, instances=("main",), other=None):
+    """A terminal snapshot for a deploy the PROOF GATE refused, shaped as the verb really writes it.
+
+    The gate records the same package-wide refusal on every instance not already recorded, with a
+    small machine-readable bag beside the prose: `reason` (which of the three proof states this is),
+    `instance_dir` (the failing instance's directory RELATIVE to the package root — the key is not
+    `instance`, which the emitted event already uses for the MANIFEST name), and `code`. Runtime:
+    `src/deploy/orchestrator.ts` (the `deploy.proof` span) + `src/deploy/proof-gate.ts`.
+    """
+    codes = {"runtime_version_changed": "E_VALIDATE_RUNTIME_VERSION_CHANGED",
+             "content_changed": "E_VALIDATE_CONTENT_CHANGED",
+             "no_proof": "E_VALIDATE_NO_PROOF"}
+    evidence = {"reason": reason, "code": codes.get(reason, "E_VALIDATE_NO_PROOF")}
+    if instance_dir is not None:
+        evidence["instance_dir"] = instance_dir
+    rows = []
+    for name in instances:
+        rows.append({"instance": name,
+                     "steps": {"reconcile": {"status": "refused",
+                                             "detail": detail if detail is not None else
+                                             f"[{evidence['code']}] the proof for {name} …",
+                                             "evidence": evidence},
+                               "preflight": {"status": "pending", "detail": "not reached"},
+                               "create": {"status": "pending", "detail": "not reached"},
+                               "install": {"status": "pending", "detail": "not reached"},
+                               "observe": {"status": "pending", "detail": "not reached"}}})
+    if other is not None:
+        rows.append(other)
+    return {"meta": {"deployId": "dpl-a1b2c3d4", "packageId": "spider"},
+            "state": {"status": "done", "overall": "refused"},
+            "report": {"packageId": "spider", "version": "1.0.0", "overall": "refused",
+                       "instances": rows}}
+
+
+def _verbs(fake):
+    """Every call as the verb it ran: `senpi deploy` · `senpi deploy status` · `senpi validate`."""
+    out = []
+    for c in fake.calls:
+        if c[:3] == ["openclaw", "senpi", "deploy"]:
+            out.append("senpi deploy status" if "status" in c else "senpi deploy")
+        else:
+            out.append(" ".join(c[1:3]))
+    return out
+
+
+class StaleProofRepair(unittest.TestCase):
+    """The fleet updates the runtime IN PLACE, hourly, and every update invalidates every
+    `.senpi-proof.json` on the box by the `runtime_version_changed` reason. Relaying that refusal
+    would turn our own release cadence into a fleet-wide deploy outage, so this wrapper re-proves
+    the package and re-runs the deploy ONCE for that reason — and for no other.
+
+    `no_proof` and `content_changed` are NOT repaired: both mean a human or an agent changed
+    something (or never proved it), and that has to reach them."""
+
+    def setUp(self):
+        self._real_cli, self._real_sleep = _cli.run_cli, deploy.time.sleep
+        deploy.time.sleep = lambda _s: None
+
+    def tearDown(self):
+        _cli.run_cli, deploy.time.sleep = self._real_cli, self._real_sleep
+
+    def _run(self, responses, pkg=None, **kw):
+        # `poll_budget=0`: every snapshot here is terminal on the first read, so the loop must not
+        # spend a real 150s re-reading a fake CLI that has run out of answers.
+        kw.setdefault("poll_budget", 0)
+        fake = FakeCli(responses)
+        _cli.run_cli = fake
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = deploy.run_deploy(pkg or _pkg(), _args(budget=100.0, **kw), lambda m: None)
+        return code, fake, out.getvalue(), err.getvalue()
+
+    @staticmethod
+    def _repaired(reason="runtime_version_changed", instance_dir=None, validate=(0, "PASS", "")):
+        live = {"state": {"status": "done", "overall": "live"}}
+        return [_ok({"deployId": "dpl-a1b2c3d4"}),
+                _status(_proof_refused(reason, instance_dir)),
+                validate,
+                _ok({"deployId": "dpl-e5f6a7b8"}),
+                _status(live),
+                (0, "deploy dpl-e5f6a7b8 — done — live", "")]
+
+    def test_a_proof_that_predates_the_runtime_is_re_proven_and_the_deploy_re_run_once(self):
+        code, fake, out, _err = self._run(self._repaired())
+        self.assertEqual(code, 0)
+        self.assertEqual(_verbs(fake), ["senpi deploy", "senpi deploy status", "senpi validate",
+                                        "senpi deploy", "senpi deploy status", "senpi deploy status"])
+        # The re-proof targets the DIRECTORY the gate names — never the manifest instance name.
+        self.assertEqual(fake.argv_for("validate")[0], ["openclaw", "senpi", "validate", "/pkg/spider"])
+        self.assertIn("live", out)
+
+    def test_the_reason_is_read_from_the_structured_evidence_not_the_refusal_prose(self):
+        # The three proof reasons are ONE code family whose wording the runtime owns and rewords.
+        # A wrapper keyed on the words repairs the wrong one the day the sentence changes: here the
+        # prose says "predates the running runtime" while the evidence says the CONTENT moved.
+        code, fake, _out, _err = self._run([
+            _ok({"deployId": "dpl-a1b2c3d4"}),
+            _status(_proof_refused("content_changed",
+                                   detail="[E_VALIDATE_CONTENT_CHANGED] the proof predates the "
+                                          "running runtime")),
+            (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+        self.assertEqual(code, 2)
+        self.assertEqual(fake.argv_for("validate"), [])
+
+    def test_a_version_reason_with_no_such_words_in_the_prose_is_still_repaired(self):
+        # The converse: the structured field alone decides, so a reworded (or empty) detail repairs.
+        code, fake, _out, _err = self._run([
+            _ok({"deployId": "dpl-a1b2c3d4"}),
+            _status(_proof_refused("runtime_version_changed", detail="[E_VALIDATE_RUNTIME_VERSION_CHANGED] .")),
+            (0, "PASS", ""),
+            _ok({"deployId": "dpl-e5f6a7b8"}),
+            _status({"state": {"status": "done", "overall": "live"}}),
+            (0, "deploy dpl-e5f6a7b8 — done — live", "")])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(fake.argv_for("validate")), 1)
+
+    def test_the_failing_instances_own_directory_is_what_gets_re_proven(self):
+        # A proof lives beside the recipe it is about, so a multi-instance package is re-proven per
+        # INSTANCE dir. `instance_dir` is relative to the package root (the verb computes it as
+        # `relative(pkg.dir, inst.runtimeYamlDir)`), and validate takes a path, never a name.
+        code, fake, _out, _err = self._run(self._repaired(instance_dir="swing"))
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.argv_for("validate")[0],
+                         ["openclaw", "senpi", "validate", "/pkg/spider/swing"])
+
+    def test_a_failed_re_validation_surfaces_its_findings_and_never_re_runs_the_deploy(self):
+        findings = "FAIL  1 error\n  [E_VALIDATE_SCANNER_CRASHED] scan.py raised ZeroDivisionError"
+        code, fake, out, err = self._run(
+            [_ok({"deployId": "dpl-a1b2c3d4"}),
+             _status(_proof_refused("runtime_version_changed")),
+             (1, "", findings),
+             (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+        # The deploy's own refusal code, not validate's: the deploy WAS refused, and nothing past
+        # that gate ran either time.
+        self.assertEqual(code, 2)
+        self.assertEqual(_verbs(fake), ["senpi deploy", "senpi deploy status", "senpi validate",
+                                        "senpi deploy status"])
+        self.assertIn("[E_VALIDATE_SCANNER_CRASHED]", err)      # validate's own words, relayed
+        self.assertIn("refused", out)                           # …and the deploy's report below it
+
+    def test_an_unproven_or_uninvocable_validate_is_a_failed_re_validation_too(self):
+        # validate's codes: 0 PASS · 1 FAIL · 2 UNPROVEN · 3 invocation error. ONLY 0 records a
+        # proof, so only 0 is a repair — an UNPROVEN re-run that re-triggered the deploy would fund
+        # a package whose proof was never written, and be refused identically for its trouble.
+        for rc in (1, 2, 3, -1):
+            code, fake, _out, _err = self._run(
+                [_ok({"deployId": "dpl-a1b2c3d4"}),
+                 _status(_proof_refused("runtime_version_changed")),
+                 (rc, "", "UNPROVEN"),
+                 (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+            self.assertEqual(code, 2, rc)
+            self.assertEqual(len([c for c in _verbs(fake) if c == "senpi deploy"]), 1, rc)
+
+    def test_no_proof_and_content_changed_are_relayed_never_repaired(self):
+        # Both mean an author changed something (or never proved it). Repairing them would record a
+        # proof over an edit nobody has looked at, which is the whole point of the gate.
+        for reason in ("no_proof", "content_changed"):
+            code, fake, out, _err = self._run(
+                [_ok({"deployId": "dpl-a1b2c3d4"}),
+                 _status(_proof_refused(reason)),
+                 (2, f"deploy dpl-a1b2c3d4 — done — refused ({reason})", "")])
+            self.assertEqual(code, 2, reason)
+            self.assertEqual(fake.argv_for("validate"), [], reason)
+            self.assertIn(reason, out)
+
+    def test_a_refusal_from_any_other_gate_is_never_repaired(self):
+        # The universe gate, the install gate, the funds preflight: none of them is a proof state,
+        # and re-proving the package answers none of them.
+        snap = {"meta": {"deployId": "dpl-a1b2c3d4", "packageId": "spider"},
+                "state": {"status": "done", "overall": "refused"},
+                "report": {"packageId": "spider", "overall": "refused", "instances": [
+                    {"instance": "main", "steps": {
+                        "reconcile": {"status": "refused",
+                                      "detail": "[E_UNIVERSE_NOT_LIVE] xyz:NASDAQ is not live",
+                                      "evidence": {"dead": ["xyz:NASDAQ"], "liveCount": 412}},
+                        "preflight": {"status": "pending", "detail": "not reached"}}}]}}
+        code, fake, _out, _err = self._run(
+            [_ok({"deployId": "dpl-a1b2c3d4"}), _status(snap),
+             (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+        self.assertEqual(code, 2)
+        self.assertEqual(fake.argv_for("validate"), [])
+
+    def test_a_stale_proof_beside_another_gates_refusal_is_surfaced_not_repaired(self):
+        # Fail-closed: if anything else refused in the same job, the repair is not the whole answer,
+        # and re-running the deploy would just be refused again by that other gate.
+        other = {"instance": "scalp", "steps": {
+            "reconcile": {"status": "refused",
+                          "detail": "[INVALID_REQUEST] instances share a runtime directory",
+                          "evidence": {"shared_dirs": ["/pkg/spider"]}}}}
+        code, fake, _out, _err = self._run(
+            [_ok({"deployId": "dpl-a1b2c3d4"}),
+             _status(_proof_refused("runtime_version_changed", other=other)),
+             (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+        self.assertEqual(code, 2)
+        self.assertEqual(fake.argv_for("validate"), [])
+
+    def test_a_report_the_wrapper_cannot_read_is_relayed_untouched(self):
+        # An older runtime whose snapshot carries no report, or a refusal with no evidence at all:
+        # nothing here is a proof verdict this wrapper may act on.
+        for snap in ({"state": {"status": "done", "overall": "refused"}},
+                     {"state": {"status": "done", "overall": "refused"}, "report": {"instances": []}},
+                     {"state": {"status": "done", "overall": "refused"}, "report": {"instances": [
+                         {"instance": "main",
+                          "steps": {"reconcile": {"status": "refused", "detail": "[E_FUNDS] no"}}}]}}):
+            code, fake, _out, _err = self._run(
+                [_ok({"deployId": "dpl-a1b2c3d4"}), _status(snap),
+                 (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+            self.assertEqual(code, 2)
+            self.assertEqual(fake.argv_for("validate"), [])
+
+    def test_a_deploy_that_was_not_refused_is_never_re_proven(self):
+        # Only a REFUSED terminal job can be a proof refusal. A live/failed/pending job carrying a
+        # stray evidence bag must not trigger a second, unasked-for deploy.
+        for state in ({"status": "done", "overall": "live"},
+                      {"status": "done", "overall": "failed"},
+                      {"status": "running", "phase": "create"}):
+            snap = _proof_refused("runtime_version_changed")
+            snap["state"] = state
+            code, fake, _out, _err = self._run(
+                [_ok({"deployId": "dpl-a1b2c3d4"}), _status(snap),
+                 (deploy.exit_code_for(snap), "deploy dpl-a1b2c3d4 — reported", "")],
+                max_wait=0)
+            self.assertEqual(fake.argv_for("validate"), [], state)
+            self.assertEqual(code, deploy.exit_code_for(snap), state)
+
+    def test_the_repair_is_once_a_second_stale_refusal_is_relayed(self):
+        # Bounded by construction: one re-proof, one re-run. A package still refusing afterwards is
+        # reported with its own refusal, which names the next instance and its validate command.
+        code, fake, out, _err = self._run(
+            [_ok({"deployId": "dpl-a1b2c3d4"}),
+             _status(_proof_refused("runtime_version_changed", instance_dir="swing")),
+             (0, "PASS", ""),
+             _ok({"deployId": "dpl-e5f6a7b8"}),
+             _status(_proof_refused("runtime_version_changed", instance_dir="scalp")),
+             (2, "deploy dpl-e5f6a7b8 — done — refused", "")])
+        self.assertEqual(code, 2)
+        self.assertEqual(len(fake.argv_for("validate")), 1)
+        self.assertEqual(len([c for c in _verbs(fake) if c == "senpi deploy"]), 2)
+        self.assertIn("refused", out)
+
+    def test_the_repaired_run_reports_the_second_report_not_the_stale_refusal(self):
+        # An agent relays what this prints. Printing the refused report beside the live one would
+        # have it tell the user the deploy was refused when it is funded and running.
+        code, _fake, out, err = self._run(self._repaired())
+        self.assertEqual(code, 0)
+        self.assertNotIn("refused", out)
+        # …and the repair itself is said out loud, on stderr, where it cannot corrupt --json stdout.
+        self.assertIn("runtime", err.lower())
+        self.assertIn("nothing was created", err.lower())
+
+    def test_json_stdout_is_still_exactly_one_document_after_a_repair(self):
+        live = {"state": {"status": "done", "overall": "live"}}
+        code, _fake, out, _err = self._run(
+            [_ok({"deployId": "dpl-a1b2c3d4"}),
+             _status(_proof_refused("runtime_version_changed")),
+             (0, "PASS", ""),
+             _ok({"deployId": "dpl-e5f6a7b8"}),
+             _status(live)],
+            json=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["state"]["overall"], "live")
+
+    def test_the_instance_dirs_come_from_the_package_when_the_refusal_names_none(self):
+        # The verb's own fallback (`failingTarget`): no instance identity → every instance dir,
+        # which on a flat package IS the package root. Mirrored here so the two cannot disagree.
+        inst = types.SimpleNamespace(name="swing", runtime_path=Path("/pkg/spider/swing/runtime.yaml"))
+        pkg = _pkg(instances=[inst])
+        code, fake, _out, _err = self._run(self._repaired(), pkg=pkg)
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.argv_for("validate")[0],
+                         ["openclaw", "senpi", "validate", "/pkg/spider/swing"])
+
+    def test_an_instance_dir_that_escapes_the_package_is_never_validated(self):
+        # The path is joined onto the package root, so an absolute or `..` value would send a live
+        # validation at a directory outside the package. Unrecognised shape → relay, never act.
+        for escape in ("/etc", "../elsewhere", "swing/../../elsewhere"):
+            code, fake, _out, _err = self._run(
+                [_ok({"deployId": "dpl-a1b2c3d4"}),
+                 _status(_proof_refused("runtime_version_changed", instance_dir=escape)),
+                 (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+            self.assertEqual(code, 2, escape)
+            self.assertEqual(fake.argv_for("validate"), [], escape)
+
+    def test_the_money_path_repairs_end_to_end_through_main(self):
+        # The repair has to ride the real `create` path, not just `run_deploy` — that is where the
+        # fleet meets it.
+        self.addCleanup(setattr, deploy, "ensure_pkg", deploy.ensure_pkg)
+        self.addCleanup(setattr, deploy, "full_validate", deploy.full_validate)
+        deploy.ensure_pkg = lambda arg, ref, log: _pkg()
+        deploy.full_validate = lambda pkg: []
+        fake = FakeCli(self._repaired())
+        _cli.run_cli = fake
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            deploy.main(["deploy.py", "create", "spider", "--budget", "100"])
+        self.assertEqual(ctx.exception.code, 0)
+        self.assertEqual(len(fake.argv_for("validate")), 1)
+        self.assertEqual(len([c for c in _verbs(fake) if c == "senpi deploy"]), 2)
+
+
 class ValidateUniverseHook(unittest.TestCase):
     """`validate` is the taught step-0 preflight, so it reports a dead universe locally — using the
     SAME `validate_universe` predicates the verb ports, so the two cannot disagree on one live list.

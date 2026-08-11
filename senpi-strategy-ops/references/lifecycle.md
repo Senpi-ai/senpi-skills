@@ -20,8 +20,21 @@ wallet funding (CREATE → FUND → ACTIVE, incl. bridging) and the first scan t
 returns in ~1s with a `deployId`; the agent polls `openclaw senpi deploy status` until the job is terminal.
 
 **Before any of this, the package must have been proven runnable** — `openclaw senpi validate
-<package-dir>` returning `PASS`. That is a separate gate answering a different question ("does the
-scanner actually run and read?") from the one below ("did the deploy land?").
+<instance-dir>` returning `PASS`. That answers a different question ("does the scanner actually run
+and read?") from the one below ("did the deploy land?"), and it is **not optional**: a passing,
+unscoped live-depth run writes the `.senpi-proof.json` beside that instance's recipe, and the deploy
+verb refuses pre-money without one (`[E_VALIDATE_NO_PROOF]` / `[E_VALIDATE_CONTENT_CHANGED]` /
+`[E_VALIDATE_RUNTIME_VERSION_CHANGED]`, distinguished by the `reason` on the refused step's
+`evidence`).
+
+**`deploy.py` repairs exactly one of those three, once.** A proof recorded under a different runtime
+build (`runtime_version_changed`) says the package is untouched and only the engine under it moved —
+and the runtime self-updates in place on the fleet, so every update invalidates every proof on the
+box. `run_deploy` re-runs `openclaw senpi validate` for the directories the refusal names and
+re-invokes the deploy **once** for that reason only, keyed on the structured `evidence.reason`
+rather than the refusal text. `no_proof` and `content_changed` are relayed untouched — both mean
+someone changed something — and a re-validation that does not `PASS` prints validate's own findings
+and does not re-run the deploy.
 
 Before any of them, **package-level gates run once, pre-money** — recorded at the reconcile step, so a
 refusal there means nothing was created: no exit block on an instance (a strategy that cannot stop itself
