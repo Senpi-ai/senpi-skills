@@ -289,6 +289,22 @@ def validate(pkg: Package) -> list:
     errs = []
     if pkg.id != pkg.dir.name:
         errs.append(f"id {pkg.id!r} != package dir {pkg.dir.name!r}")
+    # The id is the attribution stamp: `deploy` writes it into `skillName` VERBATIM while the backend
+    # stores it case-normalized, so a mixed-case id is stamped under one spelling and looked up under
+    # another. Every reader then has to case-fold to find the wallet its own package created; one
+    # canonical spelling is what makes that lookup trivial instead of a convention each consumer must
+    # remember.
+    #
+    # Deliberately a VALIDATE error and not a `load` refusal: `close.py` loads a package to tear it
+    # down, and a load that rejects mixed case would lock a package ALREADY deployed under one out of
+    # the only command that returns its funds — the exact exposure the case-folded stamp match exists
+    # to close. Refusing at validate stops the class where the stamp is minted (deploy, pre-money) and
+    # leaves teardown reachable.
+    if pkg.id and str(pkg.id) != str(pkg.id).lower():
+        errs.append(f"id {str(pkg.id)!r} must be lowercase — set `id: {str(pkg.id).lower()}` in "
+                    f"strategy.yaml and rename the package directory to match. The id is written "
+                    f"into the wallet's `skillName` stamp verbatim and read back case-normalized, so "
+                    f"a mixed-case id is stamped under one spelling and looked up under another")
     if not pkg.version:
         errs.append("missing version (single source for catalog + attribution)")
 

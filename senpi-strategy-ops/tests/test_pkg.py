@@ -139,6 +139,26 @@ def test_validate_requires_signal_data_schema(tmp_path):
     assert any("signal_data_schema" in e and "sibling of `inputs`" in e for e in errs)
 
 
+def test_validate_refuses_a_mixed_case_package_id(tmp_path):
+    """The id becomes the wallet's `skillName` stamp VERBATIM while the backend stores it
+    case-normalized — so a mixed-case id is stamped under one spelling and looked up under another.
+    Refused at validate (deploy's pre-money gate), not at load: `close.py` loads a package to tear it
+    down, and a load-time refusal would lock an already-deployed mixed-case package out of the only
+    command that returns its funds."""
+    pkg = _pkg.load(str(make_flat(tmp_path, pkg_id="Warpath", wallet_env="WARPATH_WALLET")))
+    errs = _pkg.validate(pkg)
+    assert any("must be lowercase" in e and "id: warpath" in e for e in errs)
+    # …and the package still LOADS, so teardown of one already deployed stays reachable.
+    assert pkg.id == "Warpath" and len(pkg.instances) == 1
+
+
+def test_validate_accepts_the_lowercase_form(tmp_path):
+    """The same package spelled lowercase is clean — the rule adds no error to any of the 103
+    packages already under `strategies/`."""
+    pkg = _pkg.load(str(make_flat(tmp_path, pkg_id="warpath", wallet_env="WARPATH_WALLET")))
+    assert _pkg.validate(pkg) == []
+
+
 def test_validate_flags_missing_version(tmp_path):
     """Sanity: an existing invariant still fires (version required)."""
     pkg = _pkg.load(str(make_flat(tmp_path, version=None)))

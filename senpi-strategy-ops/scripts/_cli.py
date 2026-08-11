@@ -518,6 +518,25 @@ def strategy_name_match(a, b):
     return bool(a) and a == b
 
 
+def strategy_skill_match(a, b):
+    """Do these two attribution stamps name the same PACKAGE? Same normalisation as
+    `strategy_name_match` — `.strip().lower()` on both sides — and an empty/absent stamp on either
+    side is never a match.
+
+    Case-folded for the same reason and against the same consumer: the runtime's deploy verb reads
+    this field as `(s.skillName ?? "").trim().toLowerCase()` (`src/deploy/orchestrator.ts`, both the
+    name route's stamp partition and `gateOrCreate`'s), while the verb STAMPS `pkg.id` verbatim and
+    nothing forces a package id lowercase. An exact compare here therefore diverges from the layer
+    that wrote the stamp: for a package id with a capital in it the runtime's own gates match and
+    `close.py <id>` matches NOTHING, printing "no OPEN strategies to close." over a live, funded,
+    trading wallet — a false all-clear on the one command a user runs to get their money back.
+
+    Two absences are not an identity, for a sharper reason than names: an unattributed strategy that
+    matched an empty filter would be handed to a teardown that was asked about one package."""
+    a, b = str(a or "").strip().lower(), str(b or "").strip().lower()
+    return bool(a) and a == b
+
+
 def _strategy_metadata(o):
     """`strategyMetadata` as a dict, or None when the record carries none this reader can navigate.
 
@@ -672,7 +691,11 @@ def list_strategies_or_none(mcp, timeout=15, statuses=None, why=None):
 def _match_strategy(s, skill_name, strategy_id, wallet):
     if strategy_id is not None and strategy_id_of(s) != strategy_id:
         return False
-    if skill_name is not None and strategy_skill(s) != skill_name:
+    # The stamp compare goes through `strategy_skill_match`, not `!=`: the runtime case-folds this
+    # field (it stamps `pkg.id` verbatim and reads it back lowercased) and an exact compare here
+    # made `close.py <MixedCaseId>` match nothing and report "no OPEN strategies to close." over a
+    # live funded wallet. One producer for the comparison, so the two layers cannot disagree.
+    if skill_name is not None and not strategy_skill_match(strategy_skill(s), skill_name):
         return False
     if wallet is not None and str(strategy_wallet(s) or "").lower() != str(wallet).lower():
         return False

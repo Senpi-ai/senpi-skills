@@ -112,6 +112,24 @@ class StrategiesForOrNone(unittest.TestCase):
         # `strategies_for` is the fail-OPEN reader for reads that only ADD work. Unchanged.
         self.assertEqual(_cli.strategies_for(FakeMCP(raises=RuntimeError("boom")), skill_name="spider"), [])
 
+    def test_a_mixed_case_package_id_still_finds_its_own_stamped_wallet(self):
+        # The teardown that reported a false all-clear. The verb stamps `pkg.id` VERBATIM and the
+        # backend stores it case-normalized, so a package id `Warpath` funds a wallet that reads back
+        # stamped "warpath". Under an exact compare `close.py Warpath` matched nothing and printed
+        # "no OPEN strategies to close." while the wallet stayed live, funded and trading.
+        live = {"id": "sid-1", "status": "ACTIVE", "strategyMetadata": {"skillName": "warpath"}}
+        mcp = FakeMCP(payload={"strategies": [live]})
+        self.assertEqual(_cli.strategies_for_or_none(mcp, skill_name="Warpath"), [live])
+        # …and the other direction, for a record the backend handed back with capitals intact.
+        loud = {"id": "sid-2", "status": "ACTIVE", "strategyMetadata": {"skillName": "  WARPATH  "}}
+        mcp = FakeMCP(payload={"strategies": [loud]})
+        self.assertEqual(_cli.strategies_for(mcp, skill_name="warpath"), [loud])
+
+    def test_another_packages_wallet_is_still_not_this_packages(self):
+        # Case-folding widened the match; it must not have widened it past the package boundary.
+        mcp = FakeMCP(payload={"strategies": [{"strategyMetadata": {"skillName": "Polar"}}]})
+        self.assertEqual(_cli.strategies_for_or_none(mcp, skill_name="warpath"), [])
+
 
 class StrategyFunded(unittest.TestCase):
     def test_the_backends_own_figure_is_rendered(self):
@@ -185,6 +203,25 @@ class StrategyNameMatch(unittest.TestCase):
 
     def test_different_names_still_do_not_match(self):
         self.assertFalse(_cli.strategy_name_match("spider-swing", "spider-scalp"))
+
+
+class StrategySkillMatch(unittest.TestCase):
+    """Does this wallet's attribution stamp name this package? Same normalisation as the name
+    compare, and for the same reason: the runtime reads the stamp as `.trim().toLowerCase()` while
+    stamping `pkg.id` verbatim, so an exact compare here diverges from the layer that wrote it."""
+
+    def test_the_compare_is_case_and_whitespace_insensitive(self):
+        self.assertTrue(_cli.strategy_skill_match("warpath", "Warpath"))
+        self.assertTrue(_cli.strategy_skill_match("  WARPATH ", "warpath"))
+
+    def test_two_absences_are_not_an_identity(self):
+        # An unattributed strategy must never be handed to a teardown that asked about one package.
+        for a, b in ((None, None), ("", ""), ("spider", None), (None, "spider"), ("spider", "  ")):
+            self.assertFalse(_cli.strategy_skill_match(a, b), (a, b))
+
+    def test_a_different_package_is_still_a_different_package(self):
+        self.assertFalse(_cli.strategy_skill_match("spider", "spider-swing"))
+        self.assertFalse(_cli.strategy_skill_match("Polar", "warpath"))
 
 
 class StrategySkillDeclared(unittest.TestCase):

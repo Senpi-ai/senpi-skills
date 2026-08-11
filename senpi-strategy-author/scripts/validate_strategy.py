@@ -122,6 +122,14 @@ def validate(pkg: Path) -> list:
     sid = man.get("id")
     if sid != pkg.name:
         errs.append(f"id {sid!r} != package dir {pkg.name!r}")
+    # Same rule, same wording as strategy-ops `_pkg.validate`, so author-green == deploy-green: the id
+    # becomes the wallet's `skillName` stamp verbatim while the backend stores it case-normalized, so
+    # a mixed-case id is stamped under one spelling and looked up under another.
+    if sid and str(sid) != str(sid).lower():
+        errs.append(f"id {str(sid)!r} must be lowercase — set `id: {str(sid).lower()}` in "
+                    f"strategy.yaml and rename the package directory to match. The id is written "
+                    f"into the wallet's `skillName` stamp verbatim and read back case-normalized, so "
+                    f"a mixed-case id is stamped under one spelling and looked up under another")
     if not man.get("version"):
         errs.append("missing version (single source for catalog + attribution)")
     if not man.get("instances"):
