@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.15.1"
+  version: "2.15.2"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -242,17 +242,24 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
    — the deployer's structural preflight (structure, linkage, render; **no side effects**). It also
    REPORTS the universe from the same predicates as (b), so it reads the live instrument list and
    needs `SENPI_AUTH_TOKEN`. Reporting is all it does: the universe is **enforced by the deploy verb
-   itself, pre-money** — a dead ticker refuses `[E_UNIVERSE_NOT_LIVE]` and no wallet is funded.
+   itself, pre-money** — a dead ticker refuses `[E_UNIVERSE_NOT_LIVE]`, and that run funds no wallet
+   (the refusal is scoped to itself: on a redeploy the package may already own a funded one, which
+   this gate stops before reading — never relay it as "no wallet exists").
    These are **fast feedback, not a verdict** — they read the package, they never run it. Fix what
    they report, then go to stage 9. **A clean lint does not mean the strategy works.**
 9. **THE GATE — `senpi validate`. Authoring is not done until this is green.**
    ```
-   openclaw senpi validate /data/workspace/strategies/<id>/<instance>   # e.g. .../<id>/main — one run per instance
+   # FLAT (stage 2's default: no `instances:` list) — the recipe is at the root, so the root is the target:
+   openclaw senpi validate /data/workspace/strategies/<id>
+   # `instances:` LISTED — one run per instance, each pointed at its own dir:
+   openclaw senpi validate /data/workspace/strategies/<id>/<instance>
    ```
-   **The INSTANCE dir — the one holding that instance's `runtime.yaml` — never the package root.**
-   Validation runs against one runtime, so the root refuses `[E_VALIDATE_NO_RECIPE]` and lists the
-   instances to pick from. That includes a **single-sleeve** package: the layout this skill teaches
-   puts its one recipe in `<id>/main/`, so `validate <id>` refuses there too.
+   **Point it at the directory holding that instance's `runtime.yaml`.** It resolves ONE recipe, so
+   the target is whichever directory holds one: the package **root** for the flat layout you built at
+   stage 2 (the deployer synthesizes `main` there), the **instance subdir** once `strategy.yaml` lists
+   instances. Pointing at a root that lists instances and holds no recipe of its own refuses
+   `[E_VALIDATE_NO_RECIPE]` and lists the instances to pick from. Every package in `strategies/` is
+   that second kind.
    **Do not narrow it.** `--stage` defaults to `live` and only `live` runs a tick, so leave it
    alone; `--scanner` and `--no-attest` both run the checks but deliberately record nothing.
 

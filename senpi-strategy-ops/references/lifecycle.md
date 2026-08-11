@@ -358,7 +358,9 @@ instrument list **pre-money** — before it reads the backend, and on an adopt-o
 installing a blind runtime on an existing wallet is the same zombie. A dead name refuses
 **`[E_UNIVERSE_NOT_LIVE]`** (one refusal, every dead instrument, each with the file and key path it
 appears in); when the instrument list **cannot be read** the step **fails closed** with no code and names
-nothing dead — unknown is never "not live" — and nothing is created either way. `deploy.py` therefore
+nothing dead — unknown is never "not live". Both branches say nothing was created **by that run**, and
+that whatever the package already had is untouched (the gate stops before reading it) — relay them that
+scoped way, per the rule above. `deploy.py` therefore
 carries no universe gate of its own: it relays the verb's refusal verbatim, exactly like every other
 `[E_*]`. `validate_universe.py` remains the standalone **read-only** check (`deploy.py validate` runs the
 same predicates and reports them beside its structural verdict), and it is what the refusal points at for

@@ -233,7 +233,7 @@ Discovery matches your strategy to users by the `catalog:` block. **Validation o
 
 ```
 python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>   # advisory lint
-openclaw senpi validate /data/workspace/strategies/<id>/<instance>               # THE GATE — must be PASS. The INSTANCE dir (main), one run each
+openclaw senpi validate <the dir holding that instance's runtime.yaml>          # THE GATE — must be PASS. Flat: .../strategies/<id> · instances listed: .../<id>/<instance>, one run each
 python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # the whole path: wallet(s) ($10/wallet floor) → install → observed tick
 openclaw senpi deploy status                                                    # read-only: the report; `overall: live` is the gate
 # teardown / redeploy:  close.py <id>  (flattens positions, returns funds)
@@ -247,12 +247,17 @@ The desk checks above catch *your* bugs. A different and higher-value class only
 Finding them used to require a tiny deploy. It doesn't any more:
 
 ```
-openclaw senpi validate /data/workspace/strategies/<id>/<instance>      # e.g. .../<id>/main — one run per instance
+# FLAT (§2's default: no `instances:` list) — the recipe is at the root, so the root is the target:
+openclaw senpi validate /data/workspace/strategies/<id>
+# `instances:` LISTED — one run per instance, each pointed at its own dir:
+openclaw senpi validate /data/workspace/strategies/<id>/<instance>
 ```
-**Point it at the INSTANCE dir — the one holding that instance's `runtime.yaml` — never the package
-root.** Validation runs against one runtime, so the root refuses `[E_VALIDATE_NO_RECIPE]` and lists the
-instances to pick from. This is not a multi-instance-only rule: the layout this guide teaches puts even
-a single sleeve in `<id>/main/`, so `validate <id>` refuses for a one-sleeve package too.
+**Point it at the directory holding that instance's `runtime.yaml`.** It resolves ONE recipe, so the
+target is whichever directory holds one: the package **root** for the flat layout §2 tells you to build
+(the deployer synthesizes `main` there), the **instance subdir** once `strategy.yaml` lists instances.
+A root that lists instances holds no recipe of its own, so pointing there refuses
+`[E_VALIDATE_NO_RECIPE]` and lists the instances to pick from — every package in `strategies/` is that
+kind, including the worked example below.
 
 It runs the **real loop** — same code path production uses — imports every scanner file, executes `scan()` once against live read-only data, counts what it actually read, and builds each returned candidate into the exact wire shape intake would receive, checking it against intake's own schema. **No wallet, no funding, no deploy.**
 
@@ -268,7 +273,7 @@ Two things it deliberately does *not* prove, so don't over-claim on its behalf: 
 
 - `scan()` single-pass + sync; read-only MCP only; `return []` on any error.
 - Pure scoring in `scoring.py`; MCP + state in `scan.py`.
-- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Check it: `validate_universe.py /data/workspace/strategies/<id>` (read-only; `deploy.py validate` reports the same thing, and `openclaw senpi deploy` REFUSES a dead name pre-money with `[E_UNIVERSE_NOT_LIVE]` — so a package with one never funds a wallet, but you find out faster here). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`.
+- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Check it: `validate_universe.py /data/workspace/strategies/<id>` (read-only; `deploy.py validate` reports the same thing, and `openclaw senpi deploy` REFUSES a dead name pre-money with `[E_UNIVERSE_NOT_LIVE]` — so that deploy funds no wallet, though on a redeploy it says nothing about a wallet the package already has; you find out faster here). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`.
 - Emit a **`marginPct` intent**, not dollars; `marginPct`/`leverage` top-level, not in `data{}`.
 - Declare every `data{}` key in `signal_data_schema`.
 - **Anchor on the references:** MCP fields → I/O guide; exit → a named preset; catalog facets → the glossary.

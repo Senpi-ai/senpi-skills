@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.6.3"
+  version: "3.6.4"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -110,9 +110,10 @@ passed under. **Only a full, unscoped run at live depth writes one** — `--scan
 `--no-attest` and `--stage static|import` deliberately record nothing, and `deploy.py validate`
 records nothing either. So the flow is **validate → deploy, per instance**, and a package whose
 files were edited needs a fresh `validate` before the next `create`.
-**Multi-instance: one run per `<instance>` dir** — validation runs against one runtime, so
-a package root grouping several refuses `[E_VALIDATE_NO_RECIPE]` and lists the instances to pick
-from. **`UNPROVEN` (exit 2) is not a pass** — the tick ran and established nothing, usually a
+**One run per instance, each pointed at the dir holding its `runtime.yaml`** — the package root for a
+flat package (no `instances:` list), the instance's own dir once `strategy.yaml` lists them, which
+every catalog package does. Validation runs against one runtime, so a root that lists instances and
+holds no recipe of its own refuses `[E_VALIDATE_NO_RECIPE]` and lists the instances to pick from. **`UNPROVEN` (exit 2) is not a pass** — the tick ran and established nothing, usually a
 gate in `scan()` that should consult `ctx.dry_run`. `deploy.py validate <id>` answers the other
 question, **is the package well formed**, and is the one described above. Do not deploy a package
 that has not returned `PASS`.
@@ -558,10 +559,12 @@ wallet** — which market-exits its open positions and returns the funds to main
    authored via `senpi-strategy-author`, not hand-guessed here.
 2. **Prove the edit still RUNS before you close anything** — `openclaw senpi validate <instance-dir>` must
    return `PASS`. An edit is exactly when a scanner breaks, and you are about to flatten a live book to
-   install it. **On a multi-instance package, point it at the INSTANCE dir, not the package root**
-   (`openclaw senpi validate <package-dir>/<arm>`): validation runs against one runtime, so a package
-   root that groups several refuses `[E_VALIDATE_NO_RECIPE]` and lists the instances to pick from. That
-   is also the only way the edited arm gets its own proof — without one the `create` below refuses.
+   install it. **Point it at the dir holding that instance's `runtime.yaml`** — the package root for a
+   flat package (no `instances:` list), the arm's own dir (`<package-dir>/<arm>`) once `strategy.yaml`
+   lists instances, which every catalog package does. Validation runs against one runtime, so a root
+   that lists instances and holds no recipe of its own refuses `[E_VALIDATE_NO_RECIPE]` and lists the
+   instances to pick from. That is also the only way the edited arm gets its own proof — without one
+   the `create` below refuses.
 3. **Get explicit consent, in these words**: closing market-exits any open position, funds return to the
    main wallet, the strategy redeploys on a NEW wallet, and a custom ratchet/stop ladder on the old
    positions does **not** carry over — re-apply it afterwards if wanted. Never present this as a re-tune.
