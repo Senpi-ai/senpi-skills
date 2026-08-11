@@ -5,7 +5,9 @@
   python3 status.py <id>       # only the <id> package
   python3 status.py --json
 
-Reads live truth (MCP strategy_list ∪ openclaw runtime list) — NOT the ephemeral deploy state. For each
+Reads live truth (MCP strategy_list ∪ openclaw runtime list) — NOT the ephemeral deploy state. If that
+strategy read cannot be made, this REFUSES (non-zero) instead of printing "No open strategies." — an
+unread list is not an empty one, and this is the surface money decisions are checked against. For each
 OPEN strategy it classifies the runtime:
   healthy/degraded/unhealthy — ACTIVE strategy + live runtime, upgraded from process-level "running" to
                                the runtime's OWN verdict via `openclaw senpi status -r <id>` (+ position
@@ -62,8 +64,32 @@ def _openclaw_available():
     return rc == 0
 
 
+def _read_or_refuse(rows, why):
+    """The strategy inventory, or a refusal — never an empty list standing in for an unread one.
+
+    The same line `close.py`'s `_read_or_refuse` draws, on the surface every money decision now
+    routes through: `deploy.py verify`'s collision and ambiguous/PAUSED/no-runtime triage, the
+    budget warns and the taxonomy all send the reader HERE before they decide whether to fund
+    anything. The fail-OPEN reader degrades a transport error — or a renamed key in the payload —
+    to `[]`, which this script prints as "No open strategies." and exits **0**: a positive
+    all-clear over wallets that may be live and funded, read immediately before someone funds
+    another beside them. A genuinely empty list is an ANSWER and still exits 0; only `None`
+    refuses."""
+    if rows is not None:
+        return rows
+    raise SystemExit(
+        "error: could not read the strategy list, so NOTHING was read here and nothing about what "
+        "you are running is known — this is not 'no open strategies'.\n"
+        f"  Cause: {why[0] if why else 'no cause reported'}\n"
+        "  Your strategies may be live and funded — do not fund, deploy or close anything off this "
+        "run. Fix the cause and re-run:  python3 status.py")
+
+
 def build(mcp, only_pkg=None, deep=True):
-    opens = [s for s in _cli.list_strategies(mcp, statuses=_cli.LIVE_STATUSES) if _cli.strategy_open(s)]
+    why = []
+    strategies = _read_or_refuse(
+        _cli.list_strategies_or_none(mcp, statuses=_cli.LIVE_STATUSES, why=why), why)
+    opens = [s for s in strategies if _cli.strategy_open(s)]
     # If openclaw isn't on THIS host, the runtime registry is simply not visible from here —
     # an empty list must NOT read as "no runtimes" (that turns a healthy remote-hosted fleet
     # into false 'interrupted deploy' alarms). Degrade to runtime-unknown instead.

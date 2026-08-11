@@ -94,8 +94,75 @@ class TestStatusBuckets(unittest.TestCase):
             self.assertIn(cls, status._ICON, f"no icon for health class {cls!r}")
 
 
-if __name__ == "__main__":
-    unittest.main()
+class UnreadableStrategyListRefuses(unittest.TestCase):
+    """`status.py` is where every money decision is checked — the collision row, the ambiguous /
+    PAUSED / no-runtime triage and every budget warn send the reader here before they decide
+    whether to fund anything. So an unreadable `strategy_list` (transport error, or a payload whose
+    shape carries no list) must never render as "No open strategies." + exit 0. A genuinely empty
+    list is an answer and still exits 0 — the same line `close.py`'s `_read_or_refuse` draws."""
+
+    CAUSE = "the MCP `strategy_list` call failed (no SENPI_AUTH_TOKEN)"
+
+    def setUp(self):
+        self._or_none, self._runtimes = _cli.list_strategies_or_none, _cli.list_runtimes
+        self._avail = status._openclaw_available
+        status._openclaw_available = lambda: False   # no openclaw here: the runtime read is skipped
+        _cli.list_runtimes = lambda *a, **k: []
+
+    def tearDown(self):
+        _cli.list_strategies_or_none, _cli.list_runtimes = self._or_none, self._runtimes
+        status._openclaw_available = self._avail
+
+    @staticmethod
+    def _unreadable(mcp, timeout=15, statuses=None, why=None):
+        if why is not None:
+            why.append(UnreadableStrategyListRefuses.CAUSE)
+        return None
+
+    def _run(self, *argv):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = status.main(["status.py", *argv])
+        return code, out.getvalue()
+
+    def test_a_genuinely_empty_list_is_an_answer_and_exits_zero(self):
+        _cli.list_strategies_or_none = lambda *a, **k: []
+        code, text = self._run()
+        self.assertEqual(code, 0)
+        self.assertIn("No open strategies.", text)
+
+    def test_an_unreadable_list_refuses_instead_of_reporting_no_open_strategies(self):
+        _cli.list_strategies_or_none = self._unreadable
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as ctx:
+            status.main(["status.py"])
+        msg = str(ctx.exception)
+        self.assertIn("could not read the strategy list", msg)
+        self.assertIn("no SENPI_AUTH_TOKEN", msg)          # the cause reaches the operator
+        self.assertNotIn("No open strategies", msg)
+        self.assertNotIn("No open strategies", out.getvalue())
+
+    def test_the_refusal_is_not_exit_zero(self):
+        _cli.list_strategies_or_none = self._unreadable
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as ctx:
+            status.main(["status.py"])
+        # SystemExit carrying a string exits 1 — the point is only that it is never 0.
+        self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_json_mode_refuses_too_rather_than_emitting_an_empty_document(self):
+        # `--json` is the machine-read path: `{"strategies": []}` is the same false all-clear,
+        # and a parser cannot tell it from a real empty fleet.
+        _cli.list_strategies_or_none = self._unreadable
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+            status.main(["status.py", "--json"])
+        self.assertNotIn("strategies", out.getvalue())
+
+    def test_a_package_filter_does_not_soften_the_refusal(self):
+        _cli.list_strategies_or_none = self._unreadable
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as ctx:
+            status.main(["status.py", "spider"])
+        self.assertIn("could not read the strategy list", str(ctx.exception))
 
 
 class TriageCommandsAreReadOnly(unittest.TestCase):
@@ -144,3 +211,9 @@ class TriageCommandsAreReadOnly(unittest.TestCase):
         # `verify` the money path teaches the opposite of what the command does.
         text = self._render("degraded")
         self.assertNotIn("verify` — it runs the deploy verb", text)
+
+
+# At the END of the file, not the middle: `unittest.main()` only runs the classes already defined
+# above it, so a mid-file call silently skipped every class declared after it.
+if __name__ == "__main__":
+    unittest.main()
