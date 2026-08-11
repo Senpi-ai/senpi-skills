@@ -164,6 +164,26 @@ class UnreadableStrategyListRefuses(unittest.TestCase):
             status.main(["status.py", "spider"])
         self.assertIn("could not read the strategy list", str(ctx.exception))
 
+    def test_a_package_filter_reads_the_stamp_case_folded(self):
+        # The stamp is written from `pkg.id` VERBATIM and stored case-normalized, so an exact
+        # compare renders NO rows for a package whose wallets are live — and this is the read every
+        # refusal names first ("`status.py <id>` before you decide anything").
+        live = {"id": "sid-1", "status": "ACTIVE", "strategyWalletAddress": "0xabc",
+                "totalFunded": 300, "strategyMetadata": {"skillName": "warpath"}}
+        _cli.list_strategies_or_none = lambda *a, **k: [live]
+        code, text = self._run("Warpath")
+        self.assertEqual(code, 0)
+        self.assertNotIn("No open strategies", text)
+        self.assertIn("0xabc", text)
+
+    def test_a_package_filter_still_excludes_another_package(self):
+        live = {"id": "sid-1", "status": "ACTIVE", "strategyWalletAddress": "0xabc",
+                "strategyMetadata": {"skillName": "polar"}}
+        _cli.list_strategies_or_none = lambda *a, **k: [live]
+        code, text = self._run("warpath")
+        self.assertEqual(code, 0)
+        self.assertNotIn("0xabc", text)
+
 
 class TriageCommandsAreReadOnly(unittest.TestCase):
     """status.py is where SKILL.md sends an agent to MONITOR, so nothing it prints per row may be a

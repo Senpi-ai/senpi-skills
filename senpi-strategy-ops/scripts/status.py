@@ -101,7 +101,10 @@ def build(mcp, only_pkg=None, deep=True):
     rows = []
     for s in opens:
         skill = _cli.strategy_skill(s)
-        if only_pkg and skill != only_pkg:
+        # Same producer as the teardown filter (`_cli.strategies_for`): the stamp is written from
+        # `pkg.id` verbatim and read back case-normalized, so an exact compare renders NO rows for a
+        # package whose wallets are live — and this read is the first triage step every refusal names.
+        if only_pkg and not _cli.strategy_skill_match(skill, only_pkg):
             continue
         wallet = str(_cli.strategy_wallet(s) or "")
         rt = next((r for r in runtimes if _cli.wallet_match(_cli.runtime_wallet(r), wallet)), None)
