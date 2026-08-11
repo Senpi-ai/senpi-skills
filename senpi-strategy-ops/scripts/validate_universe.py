@@ -52,13 +52,13 @@ NOT_TICKERS = {"WEEK", "MONTH", "DAY", "ALL", "ALL_TIME", "LONG", "SHORT", "BUY"
 def _collect(node, key_path, out):
     r"""Collect ticker-shaped strings from values under asset-suggesting keys.
 
-    TRAILING-NEWLINE RULE (LOCKSTEP with senpi-trading-runtime's `src/deploy/universe.ts` `collect` —
-    change neither side alone): a YAML block scalar (`- |`) clip-chomps to `"BTC\n"`, so exactly ONE
-    trailing newline is tolerated and the ticker is collected TRIMMED; two or more (`- |+` with a
-    blank line) are not a ticker at all. This is a convergence, not either side's original: this tool
-    used to collect the untrimmed `"BTC\n"` and then compare it against the live names (a LIVE name
-    reported NOT LIVE), while the runtime ignored the value outright (a DEAD name written that way
-    slipped past the money gate)."""
+    TRAILING-NEWLINE RULE (LOCKSTEP with senpi-trading-runtime's `src/universe/package-universe.ts`
+    `collect` — change neither side alone): a YAML block scalar (`- |`) clip-chomps to `"BTC\n"`, so
+    exactly ONE trailing newline is tolerated and the ticker is collected TRIMMED; two or more
+    (`- |+` with a blank line) are not a ticker at all. This is a convergence, not either side's
+    original: this tool used to collect the untrimmed `"BTC\n"` and then compare it against the live
+    names (a LIVE name reported NOT LIVE), while the runtime ignored the value outright (a DEAD name
+    written that way slipped past the money gate)."""
     if isinstance(node, dict):
         for k, v in node.items():
             _collect(v, f"{key_path}.{k}", out)

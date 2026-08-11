@@ -159,8 +159,11 @@ Declare a strategy **live** only when, for **every** instance:
 If you **cannot read `status` or `state`** for an instance (they're flaky-empty for a minute+ after start),
 fall back to the **reliable backbone**: is the runtime in **`openclaw senpi runtime list`** as `running`?
 If yes, the scanner is **live-but-unmeasured** (`supervised`) — the runtime spawns and supervises the
-declared scanner and restarts it on crash, and the DSL protects positions — **not** "down." The deploy
-verb's observe step treats this as live for that reason. Only a runtime **missing/stopped** in `runtime list`, one
+declared scanner and restarts it on crash, and the DSL protects positions — **not** "down." That is
+hand-triage advice, not a verdict the tooling shares: the deploy verb's observe step reads an
+unreadable scanner list as no tick and records `unobserved` → `overall: installed-unobserved`
+(skipping observation must never read as verified), and `deploy.py verify` renders a running runtime
+with no health entry as COULD NOT CHECK. Only a runtime **missing/stopped** in `runtime list`, one
 showing **`running — NO ENTRY SCANNERS`** there (entry scanners never wired — check `senpi events`), or a
 scanner the reads *positively* report unhealthy/erroring, is a real failure. Still: **never report a
 strategy as live until a deploy report says `overall: live`** — read it with `openclaw senpi deploy

@@ -1006,8 +1006,12 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False):
         cands = list(pkg_live)          # single instance: the package's lone live strategy is it
     if not cands and foreign:
         # The name is TAKEN by another package's wallet, and nothing here belongs to this instance.
-        # Not "nothing is funded" either: steering at `create --budget` would fund a second wallet
-        # under a name already in use, on top of a wallet this package must not touch.
+        # Not "nothing is funded" either — and NOT a second wallet: the verb's name route
+        # (`resolveInstanceBinding`'s `byName` filter, orchestrator.ts) carries no stamp filter at
+        # all, so a single live ACTIVE match is ADOPTED. The stamp is only consulted in
+        # `gateOrCreate`, which the name route never reaches. Steering at `create --budget` here
+        # installs this package's runtime onto another package's funded wallet — two packages'
+        # runtimes on one address, which is worse than a duplicate and harder to unpick.
         # ONE producer for the stamps: the list, its rendering and every command built from it come
         # from here, so the row cannot name a stamp its command does not pass.
         owners = sorted({str(_cli.strategy_skill_declared(s)) for s in foreign})
@@ -1057,8 +1061,11 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False):
                        f"        python3 {status_py}   # read-only: every open strategy on this "
                        f"agent, whatever it is named\n"
                        f"        Do NOT deploy {pkg.id!r} until you know whose "
-                       f"{'wallets those are' if many else 'wallet that is'} — it would fund a "
-                       f"SECOND wallet under a name already in use.\n"
+                       f"{'wallets those are' if many else 'wallet that is'} — the deploy verb "
+                       f"matches by NAME with no attribution filter, so it would not create a fresh "
+                       f"wallet here: a single live ACTIVE match is ADOPTED and {pkg.id!r}'s runtime "
+                       f"installed onto it, leaving two packages' runtimes trading one funded "
+                       f"address.\n"
                        f"        If {'a stamp names' if many else f'{owners[0]!r} is'} a package you "
                        f"have, that package is where the wallet is checked and operated: "
                        f"{verify_step} (read-only).\n"

@@ -310,11 +310,14 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 >   sent back for the next sleeve; validating every instance dir up front avoids the round trip.
 
 **The `W_` prefix means WARNING — the deploy went through.** Every code above stops something; a `W_`
-code never does. The three budget codes below are the `W_` ones. They ride a
+code never does. The four budget codes below are the `W_` ones. They ride a
 `live` report as `minBudget` / `minWalletCount` / `belowMin` / `minBudgetNote` / `minBudgetUnresolved`
 / `partialFundNote` (printed as `calculated minimum:` and `warn:` lines by `deploy status`), and they
 persist on the snapshot — a later `deploy status` re-renders the same warn. The first two judge the
-funding **plan**, the third judges what the backend actually **landed**; a report can carry both.
+funding **plan**; the last two judge what the backend actually **landed** (`[W_BUDGET_PARTIAL_FUND]`
+when the figure read short, `[W_BUDGET_FUNDED_UNREADABLE]` when no figure could be read at all — the
+whole point of the second is that it is never conflated with the first). A report can carry both
+kinds.
 **Never report a deploy as failed, and never close a wallet, because of one:**
 - **`[W_BUDGET_BELOW_STRATEGY_MIN]`** — one or more wallets **this deploy funded** got less than their
   own sizing needs (the warn names each one and both numbers: `scalp $12.00 (needs $13.50)`). The
@@ -427,12 +430,16 @@ names** — either one resumes, adopting whatever already exists.
 > resume already IS that job, and a second dispatch races the one funding the wallet. A funded amount
 > the strategy record does not carry prints **UNKNOWN** (same rule as `[W_BUDGET_FUNDED_UNREADABLE]`),
 > never the requested budget. And a live wallet carrying a **different package's `skillName` stamp** is
-> never adopted as this package's sleeve just because the names collide (a single-instance
+> never rendered as this package's sleeve just because the names collide (a single-instance
 > `spider-swing` package vs `spider`'s `swing` instance): that instance is **NOT verified** and the
-> collision is named — not a `create` on a name already taken. The stamp is **quoted, never read as
-> proof of who created the wallet**: any caller of the wallet-creation tool can write any
-> `skillName` (script guards are advisory), so a raw-MCP create or an older/differently-cased id of
-> your own produces the same row. Triage is by the **stamp** — one `status.py <that stamp>` per stamp
+> collision is named — not a `create` on a name already taken. **The deploy verb draws that line
+> nowhere**: its name match carries no stamp filter, so deploying would not fund a second wallet — it
+> would **adopt** a colliding ACTIVE wallet and install this package's runtime onto it, leaving two
+> packages' runtimes on one funded address. That is what "do not deploy" is protecting against.
+> The stamp is **quoted, never read as proof of who created the wallet**: any caller of the
+> wallet-creation tool can write any `skillName` (script guards are advisory), so a raw-MCP create
+> or an older/differently-cased id of your own produces the same row.
+> Triage is by the **stamp** — one `status.py <that stamp>` per stamp
 > named, plus bare `status.py` for the whole agent; `status.py <id>` filters on that same field and
 > is the one read that cannot contain the wallet in question. If a stamp is a package you have, that
 > package is where the wallet is checked and operated (`deploy.py verify <stamp>`, read-only). If it

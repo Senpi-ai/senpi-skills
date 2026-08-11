@@ -319,7 +319,10 @@ Four rules keep `verify` from steering at a state it did not read:
   — single-instance package `spider-swing` is live and `spider`'s `swing` sleeve derives the same
   name — the instance is **NOT VERIFIED (3)** with the collision named (the wanted name and the
   `skillName` stamp on the record): neither the other wallet's runtime/health rendered as this
-  sleeve's, nor a `create --budget` that would fund a second wallet on a taken name. The row quotes
+  sleeve's, nor a `create --budget` on a taken name. That steer does not fund a second wallet —
+  the verb's name route matches on `strategyName` with **no stamp filter** (the stamp is consulted
+  only in the create gate the name route never reaches), so a single live ACTIVE match is **adopted**
+  and this package's runtime installed onto another package's funded address. The row quotes
   that stamp and stops there — it never claims the other package CREATED the wallet, because a
   `skillName` is whatever the creating call wrote (raw-MCP creates stamp anything; script guards are
   advisory), so the user's own wallet stamped with an older or differently-cased id renders here too.

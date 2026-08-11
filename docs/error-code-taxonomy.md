@@ -51,7 +51,7 @@ backend and creates a wallet) and with its shell-out to `runtime create` (`E_RUN
 — an install failure is now a `failed` install step carrying the runtime's own error). Per rule 2 the
 codes are **not reused for anything else**; the rows stay so an old transcript still resolves.
 
-The three `W_BUDGET_*` rows are the only **advisory** codes in this table, and the `W_` prefix is how
+The four `W_BUDGET_*` rows are the only **advisory** codes in this table, and the `W_` prefix is how
 you know: they lead the string like any other code, but the deploy **proceeded**. An agent that
 reads them as a refusal — and closes a wallet, or reports the deploy failed — has misread them.
 They ride the report as `minBudget` / `minWalletCount` / `belowMin` / `minBudgetNote` /
