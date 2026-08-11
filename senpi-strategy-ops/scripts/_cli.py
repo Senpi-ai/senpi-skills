@@ -688,10 +688,13 @@ def strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=
             if _match_strategy(s, skill_name, strategy_id, wallet)]
 
 
-def strategies_for_or_none(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15, statuses=None):
-    """Fail-CLOSED `strategies_for`: returns None when the `strategy_list` read failed, so a money path
-    can refuse rather than mistake 'unreadable' for 'none' (the double-fund / un-consented-flatten trap)."""
-    rows = list_strategies_or_none(mcp, timeout, statuses=statuses)
+def strategies_for_or_none(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15,
+                           statuses=None, why=None):
+    """Fail-CLOSED `strategies_for`: returns None when the `strategy_list` read produced no answer —
+    either it failed or its payload carried no list — so a money path can refuse rather than mistake
+    'unreadable' for 'none' (the double-fund / un-consented-flatten trap). `why` carries the cause
+    out for callers that render it; see `list_strategies_or_none`."""
+    rows = list_strategies_or_none(mcp, timeout, statuses=statuses, why=why)
     if rows is None:
         return None
     return [s for s in rows if _match_strategy(s, skill_name, strategy_id, wallet)]

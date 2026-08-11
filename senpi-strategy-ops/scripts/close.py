@@ -35,6 +35,25 @@ _CLOSED = ("CLOSED", "INACTIVE", "CLOSING_DONE", "TERMINATED")
 LIVE_STATUSES = _cli.LIVE_STATUSES
 
 
+def _read_or_refuse(rows, why, what):
+    """The strategy inventory, or a refusal — never an empty list standing in for an unread one.
+
+    `strategy_list` degrading to `[]` on an unreadable read is not a silent no-op here: teardown then
+    finds no targets, prints "no OPEN strategies to close" and exits **0**. That is a positive
+    all-clear the surface never earned, answering the one question where being wrong is worst — the
+    user asked to close everything and return their funds, and got told there was nothing to close
+    while their wallets may be live and funded. Same rule `_runtime_gone` holds one call later: on the
+    teardown money path, "couldn't read it" must never render as "there is nothing there"."""
+    if rows is not None:
+        return rows
+    raise SystemExit(
+        f"error: could not read the strategy list, so NOTHING was closed and nothing about {what} is "
+        f"known here — this is not 'there is nothing to close'.\n"
+        f"  Cause: {why[0] if why else 'no cause reported'}\n"
+        f"  Your strategies may be live and funded. Re-run this command, or read what is actually "
+        f"open first (read-only):  python3 status.py")
+
+
 def _runtime_gone(name):
     """True ONLY when `runtime list` was read successfully AND `name` is absent from it. An UNREADABLE
     inventory (rc!=0 / garbled → None) returns False: on teardown's money path we must never mistake
@@ -129,12 +148,15 @@ def main(argv):
     log = (lambda m: msgs.append(m)) if a.json else (lambda m: print(m))
     mcp = MCPClient()
     pkg = None
+    why = []
 
     if a.all:
         # Close every OPEN strategy across all packages — for "close all strategies / return funds".
         # sid + wallet come from each strategy record; close_one stops the matching runtime (by wallet)
         # and triggers strategy_close, so package runtimes are never stranded.
-        opens = [s for s in _cli.list_strategies(mcp, statuses=LIVE_STATUSES) if _cli.strategy_open(s)]
+        rows = _read_or_refuse(_cli.list_strategies_or_none(mcp, statuses=LIVE_STATUSES, why=why),
+                               why, "every open strategy")
+        opens = [s for s in rows if _cli.strategy_open(s)]
         targets = [((_cli.strategy_skill(s) or "strategy") + ":" + str(_cli.strategy_id_of(s))[:8], s)
                    for s in opens]
         hdr = "all open strategies"
@@ -152,8 +174,10 @@ def main(argv):
                 raise SystemExit(f"error: {e}")
         if a.instance and a.instance not in {i.name for i in pkg.instances}:
             raise SystemExit(f"error: no instance {a.instance!r} in {pkg.id} (have: {', '.join(i.name for i in pkg.instances)})")
-        opens = [s for s in _cli.strategies_for(mcp, skill_name=pkg.id, statuses=LIVE_STATUSES)
-                 if _cli.strategy_open(s)]
+        rows = _read_or_refuse(_cli.strategies_for_or_none(mcp, skill_name=pkg.id,
+                                                           statuses=LIVE_STATUSES, why=why),
+                               why, pkg.id)
+        opens = [s for s in rows if _cli.strategy_open(s)]
         if a.instance:
             rt = _cli.find_runtime(f"{pkg.id}-{a.instance}")
             w = _cli.runtime_wallet(rt) if rt else None

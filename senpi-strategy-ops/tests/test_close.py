@@ -81,5 +81,28 @@ class CloseRuntimeDeleteConfirm(unittest.TestCase):
         self.assertEqual(self.closed, [])             # nothing to close
 
 
+class ReadOrRefuse(unittest.TestCase):
+    """An unreadable `strategy_list` must not become "no OPEN strategies to close." + exit 0 — a
+    positive all-clear on the one path where being wrong strands live, funded wallets."""
+
+    def test_a_readable_answer_passes_through(self):
+        self.assertEqual(close._read_or_refuse([], [], "spider"), [])
+        self.assertEqual(close._read_or_refuse([{"id": "s1"}], [], "spider"), [{"id": "s1"}])
+
+    def test_an_unreadable_list_refuses_instead_of_reporting_nothing_to_close(self):
+        with self.assertRaises(SystemExit) as ctx:
+            close._read_or_refuse(None, ["the MCP `strategy_list` call failed (no token)"], "spider")
+        msg = str(ctx.exception)
+        self.assertIn("NOTHING was closed", msg)
+        self.assertIn("no token", msg)          # the cause reaches the operator
+        self.assertNotIn("no OPEN strategies", msg)
+
+    def test_the_refusal_is_not_exit_zero(self):
+        with self.assertRaises(SystemExit) as ctx:
+            close._read_or_refuse(None, [], "all open strategies")
+        # SystemExit carrying a string exits 1 — the point is only that it is never 0.
+        self.assertNotEqual(ctx.exception.code, 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
