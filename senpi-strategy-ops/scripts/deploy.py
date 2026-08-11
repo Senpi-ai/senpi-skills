@@ -1006,12 +1006,19 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False):
         cands = list(pkg_live)          # single instance: the package's lone live strategy is it
     if not cands and foreign:
         # The name is TAKEN by another package's wallet, and nothing here belongs to this instance.
-        # Not "nothing is funded" either — and NOT a second wallet: the verb's name route
-        # (`resolveInstanceBinding`'s `byName` filter, orchestrator.ts) carries no stamp filter at
-        # all, so a single live ACTIVE match is ADOPTED. The stamp is only consulted in
-        # `gateOrCreate`, which the name route never reaches. Steering at `create --budget` here
-        # installs this package's runtime onto another package's funded wallet — two packages'
-        # runtimes on one address, which is worse than a duplicate and harder to unpick.
+        # Not "nothing is funded" either, and not a second wallet: the verb's name route
+        # (`resolveInstanceBinding`, orchestrator.ts) partitions its name-matches BY STAMP — ours or
+        # absent binds, and when every match names another package it refuses
+        # `[E_WALLET_OWNED_BY_OTHER_PACKAGE]` pre-money. Every candidate that lands here carries a
+        # written foreign stamp (`strategy_skill_declared`, no name fallback), so `create --budget`
+        # would hit exactly that refusal. A refusal is not a next step, though, and the verb's is the
+        # only thing the user would see: this row is the layer that can name what the collision IS
+        # and hand them a read. (Adoption of a STAMPLESS name-match is still live behaviour on both
+        # sides — it just never reaches this branch, because an absent stamp keeps the candidate.)
+        # One compare still differs from the runtime's: `is_foreign` above is exact where the verb
+        # case-folds, so a wallet stamped for THIS package under a differently-cased id renders here
+        # as foreign. The stamps are quoted, never asserted as authorship, which is what keeps that
+        # row honest — and `strategy.yaml` now refuses a mixed-case id, so it cannot be reintroduced.
         # ONE producer for the stamps: the list, its rendering and every command built from it come
         # from here, so the row cannot name a stamp its command does not pass.
         owners = sorted({str(_cli.strategy_skill_declared(s)) for s in foreign})

@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.6.6"
+  version: "3.6.7"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -211,7 +211,7 @@ Terminal `overall` values:
 | `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block. A `warn:` line (`[W_BUDGET_*]`) may ride a `live` report — relay it; it did **not** stop the deploy (see the budget warnings below) |
 | `installed-unobserved` | installed, no tick seen inside `--tick-wait` (or `--tick-wait 0` skipped the check) | say exactly that; check `openclaw senpi scanner -r <runtimeId>` in a few minutes. External scanners legitimately tick on long intervals. **`--tick-wait 0` can never report `live`** — nothing was verified |
 | `pending` | a wallet was still funding when the poll budget ran out | re-run the same deploy command — it resumes and adopts the wallet |
-| `refused` | a gate said no (`[E_FUNDS_*]`, `[E_VALIDATE_*]`, `[E_UNIVERSE_NOT_LIVE]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[E_INSTANCE_BINDING_UNKNOWN]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** (below); nothing was created past it |
+| `refused` | a gate said no (`[E_FUNDS_*]`, `[E_VALIDATE_*]`, `[E_UNIVERSE_NOT_LIVE]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[E_INSTANCE_BINDING_UNKNOWN]`, `[E_WALLET_OWNED_BY_OTHER_PACKAGE]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** (below); nothing was created past it |
 | `failed` | a step genuinely failed (backend rejection, install error, scanner erroring) | read the quoted cause, fix it, re-run |
 
 **A gateway restart** while a job was running renders it **`interrupted`** on the next `status`: you get
@@ -260,6 +260,18 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 >   the same two routes that just failed), and this is **not** a funding problem — **never re-run with a
 >   bigger `--budget`**. Only once the user confirms the wallets are unwanted, `close.py <id>` returns
 >   their funds — and it tears down the **WHOLE** package, every sleeve and runtime in it — then re-run.
+> - **`[E_WALLET_OWNED_BY_OTHER_PACKAGE]`** — every live strategy answering to the name this instance
+>   derives carries **another package's** `skillName` stamp. Refused **pre-money — nothing was created, no
+>   money moved**; deploy binds by name, so adopting one would have put this package's runtime on another
+>   package's funded wallet and open positions (and a second exit engine on one margin account). **Not a
+>   retry, ever** — the name is derived from the package id (+ instance name), so it comes out identical
+>   every time. Two routes, neither a money move, both named by the refusal: **rename** — give this package
+>   a name of its own by editing `id:` (or the instance's `name:`) in `strategy.yaml`, then re-run, and
+>   deploy creates its own wallet; or, if one of those wallets **is** this package under an id it no longer
+>   has, set `id:` back to the stamp the wallet carries and re-run. Read them first — `python3 status.py
+>   '<stamp>'`, per stamp the refusal names. The refusal read metadata only: what those wallets hold, and
+>   whether anything is watching them, was **not** read. **Never `close.py` a wallet stamped for another
+>   package** to clear the collision — that is a different strategy's funds. Whose they are is the USER's call.
 > - **`[E_DEPLOY_IN_PROGRESS]`** — another deploy is running. Watch it (`deploy status`). There is nothing
 >   to cancel; a wedged job times out and frees the slot on its own.
 > - **`[E_ROLLBACK_INCOMPLETE]`** — a wallet this deploy created and funded had its install fail, and the
@@ -432,10 +444,12 @@ names** — either one resumes, adopting whatever already exists.
 > never the requested budget. And a live wallet carrying a **different package's `skillName` stamp** is
 > never rendered as this package's sleeve just because the names collide (a single-instance
 > `spider-swing` package vs `spider`'s `swing` instance): that instance is **NOT verified** and the
-> collision is named — not a `create` on a name already taken. **The deploy verb draws that line
-> nowhere**: its name match carries no stamp filter, so deploying would not fund a second wallet — it
-> would **adopt** a colliding ACTIVE wallet and install this package's runtime onto it, leaving two
-> packages' runtimes on one funded address. That is what "do not deploy" is protecting against.
+> collision is named — not a `create` on a name already taken. **The deploy verb draws the same line**:
+> its name match partitions candidates by stamp and refuses `[E_WALLET_OWNED_BY_OTHER_PACKAGE]` pre-money
+> when every match names another package — so a `create` here would not fund a second wallet, and no
+> longer adopts one either; it would simply be **refused**, which is a worse thing to hand the user than
+> the row naming the collision and a read. (An **unstamped** name-match is not foreign to either layer —
+> it is still adopted, which is why this row never treats silence as a foreign owner.)
 > The stamp is **quoted, never read as proof of who created the wallet**: any caller of the
 > wallet-creation tool can write any `skillName` (script guards are advisory), so a raw-MCP create
 > or an older/differently-cased id of your own produces the same row.

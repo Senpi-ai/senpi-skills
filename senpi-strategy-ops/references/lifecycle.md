@@ -60,7 +60,18 @@ Per instance the job runs five steps, each recorded with its own outcome:
    package, `<id>-<instance>` for a multi, sanitized), **compared case-insensitively** because the backend
    case-normalizes what it stores ("WARPATH" in, "warpath" back) while the sanitizer deliberately keeps
    capitals. An empty name on either side is never a match — two absences are not an identity.
-   Exactly one live match → **adopt** its wallet
+   **The name-matched set is then partitioned by the `skillName` stamp**, because a name is not an
+   identity: `<id>-<instance>` and a flat package whose id IS `<id>-<instance>` derive the same name, so
+   two different packages can answer to one. A candidate is **ours** when its stamp is this package's
+   (case-folded, same reason as the name) **or absent**; it is **foreign** only when a stamp is present and
+   names someone else. Absent stays bindable on purpose — an MCP that stops returning `strategyMetadata`
+   would otherwise stop every package recognising its own wallet and fund a second one beside it on each
+   re-run. Wallets predating attribution, and wallets created by hand through the MCP, are stampless for
+   the same reason. When every name-match is foreign → refuse **`[E_WALLET_OWNED_BY_OTHER_PACKAGE]`**
+   (pre-money, nothing created): adopting one would install this package's runtime onto another package's
+   funded wallet and its open positions. A name shared by one of ours and one of theirs is not an
+   ambiguity — the stamp says which is which — so the foreign one is neither bound nor refused over.
+   Among the candidates that ARE ours: exactly one live match → **adopt** its wallet
    (create is skipped). More than one → refuse **`[E_STATE_AMBIGUOUS_WALLETS]`**: one may be a funded live
    strategy, so it points at read-only triage and never at close/recreate. Zero → this instance needs a wallet
    — **unless live wallets carry this package's `skillName` stamp and nothing in this run accounted for
@@ -79,20 +90,24 @@ Per instance the job runs five steps, each recorded with its own outcome:
    STAMP: an MCP that stops returning `strategyMetadata` empties its candidate filter, which is why the
    verb logs a stampless non-empty strategy list rather than passing over it in silence.
 
-   **The NAME is case-folded; the `skillName` STAMP is compared EXACTLY. That asymmetry is deliberate —
-   do not "fix" it.** Folding the name WIDENS the candidate set, and the exact stamp is what then
-   disambiguates within it: `verify` matches on the derived name and rules a candidate out only on a
-   written attribution naming a DIFFERENT package. Fold both and a single-instance package `spider-swing`
-   and `spider`'s `swing` sleeve stop being distinguishable, which is the cross-package
-   wallet-adoption regression recorded at `deploy.py`'s `verify_instance` comment. Separately,
-   `strategies_for` compares the same stamp for `status.py` and `close.py`, so folding it there widens
-   what a package-wide teardown takes down. **This diverges from the runtime**, which folds the stamp too
-   (`src/deploy/orchestrator.ts`, `gateOrCreate`) — correctly, because folding there only ever ADDS
-   candidates to a gate that refuses, so it fails closed, while here it removes a distinction and would
-   fail open. The measured cost of the divergence: a package id with a capital whose wallets are stamped
-   lowercase gets a false foreign-owner collision row from `verify` — read-only, already hedged text, on
-   the do-not-deploy path, and latent while every shipped package id is lowercase and the stamp is
-   written from `pkg.id`.
+   **The NAME and the `skillName` STAMP are both compared CASE-FOLDED** — `.strip().lower()` on both
+   sides, in both layers (`_cli.strategy_name_match` / `strategy_skill_match` here; `.trim().toLowerCase()`
+   in `src/deploy/orchestrator.ts`). The verb stamps `pkg.id` **verbatim** at create while the backend
+   case-normalizes what it stores, so an exact compare asks a different question than the layer that wrote
+   the field: for a package id `Warpath` the runtime's own gates matched and `close.py Warpath` matched
+   **nothing**, printing "no OPEN strategies to close." over a live, funded, trading wallet. Folding widens
+   nothing across packages — two different ids stay different, so `spider` and `spider-swing` are as
+   distinguishable folded as unfolded; what rules a candidate out is the stamp's VALUE. `strategy.yaml`
+   now refuses a mixed-case `id` at validate (pre-money, in both the ops and the author validator), so
+   there is one canonical stamp going forward and the fold is what covers wallets already stamped under
+   one.
+
+   **One compare is still exact, and it is a known gap, not a doctrine:** `deploy.py`'s `verify_instance`
+   rules a name-matched candidate foreign on `strategy_skill_declared(s) not in (None, pkg.id)`. A package
+   already deployed under a mixed-case id therefore gets a **false** foreign-owner collision row from
+   `verify` — read-only, already-hedged text (it quotes the stamp and never claims who created the
+   wallet), on the do-not-deploy path. `status.py` and `close.py` read through the folded matcher and are
+   unaffected.
 2. **preflight** — `account_get_portfolio` (forced fresh) → the accessible-USDC waterfall (HL perps + HL
    spot USDC + EVM USDC; never `total_withdrawable`) → the funding plan (split by `funding_share`, floored
    at **$10/wallet** — the platform floor `min_budget.py` owns — minus a per-wallet fee buffer). A shortfall
@@ -319,10 +334,12 @@ Four rules keep `verify` from steering at a state it did not read:
   — single-instance package `spider-swing` is live and `spider`'s `swing` sleeve derives the same
   name — the instance is **NOT VERIFIED (3)** with the collision named (the wanted name and the
   `skillName` stamp on the record): neither the other wallet's runtime/health rendered as this
-  sleeve's, nor a `create --budget` on a taken name. That steer does not fund a second wallet —
-  the verb's name route matches on `strategyName` with **no stamp filter** (the stamp is consulted
-  only in the create gate the name route never reaches), so a single live ACTIVE match is **adopted**
-  and this package's runtime installed onto another package's funded address. The row quotes
+  sleeve's, nor a `create --budget` on a taken name. What that steer would actually hit is a **refusal**:
+  the verb's name route partitions its matches by stamp, and every match here carries a written stamp
+  naming another package, so deploy refuses **`[E_WALLET_OWNED_BY_OTHER_PACKAGE]`** pre-money instead of
+  adopting. It is still the wrong thing to emit — a refusal is not a next step, and the row is the layer
+  that can say what the collision IS. (A name-match with **no** stamp is not foreign to either layer: it
+  stays a candidate here and is adopted there.) The row quotes
   that stamp and stops there — it never claims the other package CREATED the wallet, because a
   `skillName` is whatever the creating call wrote (raw-MCP creates stamp anything; script guards are
   advisory), so the user's own wallet stamped with an older or differently-cased id renders here too.
