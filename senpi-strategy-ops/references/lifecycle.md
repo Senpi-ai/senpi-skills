@@ -19,6 +19,10 @@ wallet funding (CREATE → FUND → ACTIVE, incl. bridging) and the first scan t
 `interval_seconds`) are each multi-minute waits that would blow the ~180s tool/session timeout. The verb
 returns in ~1s with a `deployId`; the agent polls `openclaw senpi deploy status` until the job is terminal.
 
+**Before any of this, the package must have been proven runnable** — `openclaw senpi validate
+<package-dir>` returning `PASS`. That is a separate gate answering a different question ("does the
+scanner actually run and read?") from the one below ("did the deploy land?").
+
 Before any of them, **package-level gates run once, pre-money** — recorded at the reconcile step, so a
 refusal there means nothing was created: no exit block on an instance (a strategy that cannot stop itself
 out is never funded), an unsupported scanner-level `enabled` key (`[INVALID_REQUEST]`), and the
@@ -112,7 +116,11 @@ Per instance the job runs five steps, each recorded with its own outcome:
 3. **create** — one `strategy_create_custom_strategy(initialBudget, positions=[], strategyName,
    skillName=<id>, skillVersion=<version>)` per needing instance, then poll `strategy_list` to **ACTIVE**
    (bounded by `--max-wait`, default 150s — `deploy.py` forwards the same flag and defaults it identically;
-   an explicit value also becomes `deploy.py`'s own poll budget, in either direction). A name rejection retries **once** without `strategyName` —
+   an explicit value also becomes `deploy.py`'s own poll budget, in either direction). **One wallet at a
+   time**: each instance is polled to ACTIVE before the next is submitted, all under that one shared
+   budget. `strategy_create_custom_strategy` returns at `CREATE_WALLET` and funds asynchronously, so
+   concurrent legs would draw on the same embedded wallet — the loser reads a balance the winner already
+   claimed, funds $0 and parks in `PENDING_FUNDING`. A name rejection retries **once** without `strategyName` —
    naming is best-effort legibility and must never block a deploy. Deadline hit → `pending` (re-run resumes).
    That ACTIVE read's `totalFunded` is also the **outcome** check on the budget: the final report compares
    it against what `planFunding` asked for and warns `[W_BUDGET_PARTIAL_FUND]` below 90%, naming each

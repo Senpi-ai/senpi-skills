@@ -744,15 +744,24 @@ def verify_reads(pkg):
     verdict per runtime, the reliable liveness source). Nothing here creates, funds, installs or
     starts anything.
 
-    All three are read STRICTLY: an unreadable surface raises rather than degrading to "empty", which
-    would render as "nothing is deployed" — the one answer a check must never invent."""
+    All three are read STRICTLY, through the same `*_or_none` idiom: an unreadable surface answers
+    None and is turned into a `ReadFailed` here, rather than degrading to "empty" — which would
+    render as "nothing is deployed", the one answer a check must never invent."""
     try:
         mcp = MCPClient()
     except Exception as e:  # noqa: BLE001 — a client we cannot even build is an unreadable surface
         raise ReadFailed(f"MCP `strategy_list` could not be read ({e})")
-    strategies = [s for s in _cli.list_strategies_strict(mcp, timeout=STATUS_TIMEOUT,
-                                                         statuses=_cli.LIVE_STATUSES)
-                  if _cli.strategy_open(s)]
+    # None covers BOTH no-answer shapes — the call failed, or it answered with no recognisable
+    # strategies list. The verdict is the same either way (render nothing), but the CAUSE is what an
+    # operator acts on, so `why` carries it into the refusal instead of leaving them a bare "could
+    # not read". A genuinely empty [] is an answer and falls through.
+    why = []
+    rows = _cli.list_strategies_or_none(mcp, timeout=STATUS_TIMEOUT, statuses=_cli.LIVE_STATUSES,
+                                        why=why)
+    if rows is None:
+        raise ReadFailed(f"MCP `strategy_list` could not be read — the live-strategy inventory is "
+                         f"not visible from here: {why[0] if why else 'no cause reported'}")
+    strategies = [s for s in rows if _cli.strategy_open(s)]
     # `or_none` is the whole point: [] means "no runtimes", None means "the inventory is unreadable",
     # and a check that reads the second as the first reports every strategy on the box as runtime-less.
     runtimes = _cli.list_runtimes_or_none()

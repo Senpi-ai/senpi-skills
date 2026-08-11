@@ -434,8 +434,9 @@ def active_positions(status_json):
 
 class ReadFailed(Exception):
     """A surface a caller needs came back unusable — a transport failure, or a payload whose shape
-    carries no answer. Raised only by the strict readers (`list_strategies_strict`,
-    `list_runtimes_or_none`'s callers): a caller that catches this must render NO verdict."""
+    carries no answer. Raised by CALLERS of the fail-closed `*_or_none` readers
+    (`list_strategies_or_none`, `list_runtimes_or_none`, `cli_json`) once they have turned that
+    sentinel into a refusal: a caller that catches this must render NO verdict."""
 
 
 def list_strategies(mcp, timeout=15, statuses=None):
@@ -444,34 +445,13 @@ def list_strategies(mcp, timeout=15, statuses=None):
     history — strategy_list with no filter can return many dozens of records).
 
     A CHECK must not use this: "no strategies" and "I could not read the strategies" come back as
-    the same empty list. `list_strategies_strict` is that caller's reader."""
+    the same empty list. `list_strategies_or_none` is that caller's reader."""
     args = {"status": statuses} if statuses else {}
     try:
         res = mcp.mcp_call("strategy_list", timeout=timeout, **args)
     except Exception:  # noqa: BLE001 — degrade to empty on transport error
         return []
     return find_list(res, "strategies")
-
-
-def list_strategies_strict(mcp, timeout=15, statuses=None):
-    """`strategy_list` for callers that must fail CLOSED: raises `ReadFailed` when the call failed
-    OR when the payload carries no recognisable strategies list. A genuinely empty list is still
-    `[]` — that is an answer.
-
-    The second half is the one that hid: `find_list` navigating nothing looks exactly like a backend
-    with nothing live, so a response-shape drift renders as "no live strategy — nothing is funded
-    here" and steers at the money path over wallets that may be perfectly live."""
-    args = {"status": statuses} if statuses else {}
-    try:
-        res = mcp.mcp_call("strategy_list", timeout=timeout, **args)
-    except Exception as e:  # noqa: BLE001 — any transport/tool failure is "we could not read it"
-        raise ReadFailed(f"MCP `strategy_list` could not be read ({e})")
-    found = find_list_or_none(res, "strategies")
-    if found is None:
-        raise ReadFailed("MCP `strategy_list` answered, but with no recognisable strategies list in "
-                         "it — the live-strategy inventory is not readable from here (an empty list "
-                         "would have read as an answer; this payload carries none)")
-    return found
 
 
 def strategy_obj(x):
@@ -652,17 +632,66 @@ def strategy_active(s):
     return str(strategy_status(s) or "").upper() == "ACTIVE"
 
 
+def list_strategies_or_none(mcp, timeout=15, statuses=None, why=None):
+    """`strategy_list` for callers that must fail CLOSED: returns **None** when the read did not
+    produce an answer — so a money path can tell 'no strategies' (→ `[]`, an answer) from 'couldn't
+    read the list' (→ None) and REFUSE rather than fund a second wallet next to an unread live one.
+    Mirrors `list_runtimes_or_none`.
+
+    **Two ways a read produces no answer, and both return None:**
+
+    * the call FAILED — a transport/tool error;
+    * the call ANSWERED, but with a payload carrying no recognisable strategies list — a renamed
+      wrapper key, an error envelope, any response-shape drift.
+
+    The second is the one that hid, which is why this routes through `find_list_or_none` and not
+    `find_list`: `find_list` navigating nothing returns `[]`, which looks exactly like a backend
+    with nothing live, so a shape drift renders as "no live strategy — nothing is funded here" and
+    steers at the money path over wallets that may be perfectly live. A genuinely empty list is
+    still `[]` — that IS an answer, and the only one of the three this function reports as one.
+
+    The **verdict** is the same for both, deliberately — render NOTHING, say the surface was
+    unreadable — so there is one sentinel and no caller can treat either mode as benign. The
+    **cause** is still worth printing, so pass `why`: a list the reason is appended to, for callers
+    that render a "could not check" line an operator has to act on ("no SENPI_AUTH_TOKEN" and "the
+    payload carried no list" send them to different places). Callers that only branch omit it."""
+    args = {"status": statuses} if statuses else {}
+    try:
+        res = mcp.mcp_call("strategy_list", timeout=timeout, **args)
+    except Exception as e:  # noqa: BLE001 — the WHOLE point: surface the failure instead of swallowing to []
+        if why is not None:
+            why.append(f"the MCP `strategy_list` call failed ({e})")
+        return None
+    found = find_list_or_none(res, "strategies")
+    if found is None and why is not None:
+        why.append("MCP `strategy_list` answered, but with no recognisable strategies list in it "
+                   "(an empty list would have read as an answer; this payload carries none)")
+    return found
+
+
+def _match_strategy(s, skill_name, strategy_id, wallet):
+    if strategy_id is not None and strategy_id_of(s) != strategy_id:
+        return False
+    if skill_name is not None and strategy_skill(s) != skill_name:
+        return False
+    if wallet is not None and str(strategy_wallet(s) or "").lower() != str(wallet).lower():
+        return False
+    return True
+
+
 def strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15, statuses=None):
     """Return strategies matching any provided filter (skill_name / strategyId / wallet). Pass `statuses`
     to filter server-side (faster; e.g. close only needs live ones). Leave None when you must also see
-    CLOSED/FAILED (e.g. create's reconcile checks a recorded id's terminal state)."""
-    out = []
-    for s in list_strategies(mcp, timeout, statuses=statuses):
-        if strategy_id is not None and strategy_id_of(s) != strategy_id:
-            continue
-        if skill_name is not None and strategy_skill(s) != skill_name:
-            continue
-        if wallet is not None and str(strategy_wallet(s) or "").lower() != str(wallet).lower():
-            continue
-        out.append(s)
-    return out
+    CLOSED/FAILED (e.g. create's reconcile checks a recorded id's terminal state). Fail-OPEN ([] on read
+    error) — fine for reads that only ADD work; use `strategies_for_or_none` on a money path."""
+    return [s for s in list_strategies(mcp, timeout, statuses=statuses)
+            if _match_strategy(s, skill_name, strategy_id, wallet)]
+
+
+def strategies_for_or_none(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15, statuses=None):
+    """Fail-CLOSED `strategies_for`: returns None when the `strategy_list` read failed, so a money path
+    can refuse rather than mistake 'unreadable' for 'none' (the double-fund / un-consented-flatten trap)."""
+    rows = list_strategies_or_none(mcp, timeout, statuses=statuses)
+    if rows is None:
+        return None
+    return [s for s in rows if _match_strategy(s, skill_name, strategy_id, wallet)]

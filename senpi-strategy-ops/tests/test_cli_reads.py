@@ -4,8 +4,8 @@
 Two contracts live here, both of them about not answering a question the surface never answered:
 
   * **unreadable != empty.** `find_list`/`list_strategies` degrade to `[]` on a payload they cannot
-    navigate, which reads as "nothing is deployed" at every call site that trusts them. The strict
-    pair (`find_list_or_none` / `list_strategies_strict`) keeps the two apart.
+    navigate, which reads as "nothing is deployed" at every call site that trusts them. The
+    fail-closed pair (`find_list_or_none` / `list_strategies_or_none`) keeps the two apart.
   * **a requested amount is never a funded one.** `strategy_funded` reports the backend's own
     figure or nothing at all.
 
@@ -53,30 +53,64 @@ class FindListOrNone(unittest.TestCase):
         self.assertEqual(_cli.find_list({"strategies": [1]}, "strategies"), [1])
 
 
-class ListStrategiesStrict(unittest.TestCase):
-    def test_a_transport_failure_raises_instead_of_reading_as_empty(self):
-        mcp = FakeMCP(raises=RuntimeError("no SENPI_AUTH_TOKEN"))
-        with self.assertRaises(_cli.ReadFailed) as ctx:
-            _cli.list_strategies_strict(mcp)
-        self.assertIn("strategy_list", str(ctx.exception))
-        self.assertIn("no SENPI_AUTH_TOKEN", str(ctx.exception))
+class ListStrategiesOrNone(unittest.TestCase):
+    """The fail-CLOSED strategy read. Both no-answer shapes return the SAME sentinel, because the
+    caller's verdict is the same for both: render nothing, say the surface was unreadable."""
 
-    def test_an_unnavigable_payload_raises(self):
-        with self.assertRaises(_cli.ReadFailed) as ctx:
-            _cli.list_strategies_strict(FakeMCP(payload={"ok": True, "records": {"count": 0}}))
-        self.assertIn("strategy_list", str(ctx.exception))
+    def test_a_transport_failure_is_none_instead_of_reading_as_empty(self):
+        self.assertIsNone(_cli.list_strategies_or_none(FakeMCP(raises=RuntimeError("no SENPI_AUTH_TOKEN"))))
 
-    def test_a_genuinely_empty_list_is_returned(self):
-        self.assertEqual(_cli.list_strategies_strict(FakeMCP(payload={"strategies": []})), [])
+    def test_an_unnavigable_payload_is_none(self):
+        # The half that main's version missed: it routed through `find_list`, so a drifted shape
+        # came back `[]` and read as "nothing is funded here" on a money path.
+        self.assertIsNone(_cli.list_strategies_or_none(FakeMCP(payload={"ok": True, "records": {"count": 0}})))
+
+    def test_a_genuinely_empty_list_is_an_answer_not_a_failure(self):
+        self.assertEqual(_cli.list_strategies_or_none(FakeMCP(payload={"strategies": []})), [])
 
     def test_the_status_filter_is_forwarded_server_side(self):
         mcp = FakeMCP(payload={"strategies": []})
-        _cli.list_strategies_strict(mcp, statuses=_cli.LIVE_STATUSES)
+        _cli.list_strategies_or_none(mcp, statuses=_cli.LIVE_STATUSES)
         self.assertEqual(mcp.calls[0][1]["status"], _cli.LIVE_STATUSES)
 
     def test_the_lenient_lister_still_degrades(self):
         # `list_strategies` is unchanged: status.py / close.py keep their current behaviour.
         self.assertEqual(_cli.list_strategies(FakeMCP(raises=RuntimeError("boom"))), [])
+
+    def test_why_carries_the_transport_cause_for_a_caller_that_renders_it(self):
+        # One sentinel for both modes, but "could not check" is an operator-facing line: the cause
+        # is what tells them whether to fix a token or report a payload drift.
+        why = []
+        _cli.list_strategies_or_none(FakeMCP(raises=RuntimeError("no SENPI_AUTH_TOKEN")), why=why)
+        self.assertIn("no SENPI_AUTH_TOKEN", why[0])
+
+    def test_why_distinguishes_the_unnavigable_payload(self):
+        why = []
+        _cli.list_strategies_or_none(FakeMCP(payload={"ok": True}), why=why)
+        self.assertIn("no recognisable strategies list", why[0])
+
+    def test_why_stays_empty_when_the_read_answered(self):
+        why = []
+        _cli.list_strategies_or_none(FakeMCP(payload={"strategies": []}), why=why)
+        self.assertEqual(why, [])
+
+
+class StrategiesForOrNone(unittest.TestCase):
+    """The filtered read inherits the sentinel — a money path must never see `[]` for an unread list."""
+
+    def test_a_transport_failure_is_none(self):
+        self.assertIsNone(_cli.strategies_for_or_none(FakeMCP(raises=RuntimeError("boom")), skill_name="spider"))
+
+    def test_an_unnavigable_payload_is_none(self):
+        self.assertIsNone(_cli.strategies_for_or_none(FakeMCP(payload={"ok": True}), skill_name="spider"))
+
+    def test_no_match_in_a_readable_list_is_an_empty_answer(self):
+        mcp = FakeMCP(payload={"strategies": [{"strategyMetadata": {"skillName": "polar"}}]})
+        self.assertEqual(_cli.strategies_for_or_none(mcp, skill_name="spider"), [])
+
+    def test_the_fail_open_twin_still_degrades_to_empty(self):
+        # `strategies_for` is the fail-OPEN reader for reads that only ADD work. Unchanged.
+        self.assertEqual(_cli.strategies_for(FakeMCP(raises=RuntimeError("boom")), skill_name="spider"), [])
 
 
 class StrategyFunded(unittest.TestCase):
