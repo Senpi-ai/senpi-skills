@@ -38,7 +38,7 @@ needs one `<instance>/` dir per leg (each with its own `runtime.yaml` + `scanner
 `instances:` list in `strategy.yaml`. Schema and the instance-entry fields:
 `references/strategy-yaml-schema.md`. **Unless decision 4 says multi-instance, build flat.**
 
-If you do take the exception, **exactly two things in this guide change**, and nothing else:
+Beyond the layout itself, taking the exception changes **two things about the commands and ids** below:
 
 | | flat (this guide) | multi-instance |
 |---|---|---|
@@ -51,6 +51,10 @@ If you do take the exception, **exactly two things in this guide change**, and n
 `runtime*.yaml` under whatever dir you give it, so the root covers all legs in one run.
 `deploy.py create <id>` takes the bare id and funds every instance by `funding_share`. Only
 `senpi validate` is per-instance, because it resolves ONE recipe and a multi-instance root holds none.
+
+Two §10 checklist items are layout-specific too: `funding_share` has to sum to 1.0 once `instances:`
+is declared, and the strict whole-value uppercase `strategy.wallet` rule binds only on the flat
+synthesis — a multi-instance package names each `wallet_env` in the manifest instead.
 
 ## 3. Division of labor — memorize this
 

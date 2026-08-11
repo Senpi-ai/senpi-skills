@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.3.1"
+  version: "3.3.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -66,9 +66,10 @@ The plugin registers a `senpi` command group on the gateway. Deploying a strateg
 
 ```bash
 openclaw plugins install @senpi-ai/runtime
+openclaw senpi validate <dir-with-runtime.yaml>        # THE GATE, pre-money: one real tick, no wallet; a PASS records the proof deploy requires
 openclaw senpi deploy -p <package-dir> --budget <usd>  # ONE verb, detached: funds preflight → wallet create+fund → install → one observed tick
-openclaw senpi deploy status                            # poll until terminal; the verified report (read-only)
-openclaw senpi runtime list                             # id, source, status ("running — NO ENTRY SCANNERS" = scanners never wired)
+openclaw senpi deploy status                           # poll until terminal; the verified report (read-only)
+openclaw senpi runtime list                            # id, source, status ("running — NO ENTRY SCANNERS" = scanners never wired)
 ```
 
 **Deploy a package through `senpi-strategy-ops`' `deploy.py create <id> --budget <usd>`**, which

@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.16.1"
+  version: "2.16.2"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -259,8 +259,8 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
    the target is whichever directory holds one: the package **root** for the flat layout you built at
    stage 2 (the deployer synthesizes `main` there), the **instance subdir** once `strategy.yaml` lists
    instances. Pointing at a root that lists instances and holds no recipe of its own refuses
-   `[E_VALIDATE_NO_RECIPE]` and lists the instances to pick from. Every package in `strategies/` is
-   that second kind.
+   `[E_VALIDATE_NO_RECIPE]` and lists the instances to pick from. Every package in the repo's
+   `strategies/` catalog is that second kind — the flat package stage 2 has you scaffold is not.
    **Do not narrow it.** `--stage` defaults to `live` and only `live` runs a tick, so leave it
    alone; `--scanner` and `--no-attest` both run the checks but deliberately record nothing.
 
