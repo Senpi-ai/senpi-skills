@@ -233,7 +233,7 @@ Discovery matches your strategy to users by the `catalog:` block. **Validation o
 
 ```
 python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>   # advisory lint
-openclaw senpi validate /data/workspace/strategies/<id>                          # THE GATE — must be PASS
+openclaw senpi validate /data/workspace/strategies/<id>                          # THE GATE — must be PASS (multi-instance: one run per <instance> dir)
 python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # the whole path: wallet(s) ($10/wallet floor) → install → observed tick
 openclaw senpi deploy status                                                    # read-only: the report; `overall: live` is the gate
 # teardown / redeploy:  close.py <id>  (flattens positions, returns funds)
@@ -247,7 +247,7 @@ The desk checks above catch *your* bugs. A different and higher-value class only
 Finding them used to require a tiny deploy. It doesn't any more:
 
 ```
-openclaw senpi validate /data/workspace/strategies/<id>
+openclaw senpi validate /data/workspace/strategies/<id>      # multi-instance: one run per <instance> dir
 ```
 
 It runs the **real loop** — same code path production uses — imports every scanner file, executes `scan()` once against live read-only data, counts what it actually read, and builds each returned candidate into the exact wire shape intake would receive, checking it against intake's own schema. **No wallet, no funding, no deploy.**
@@ -269,7 +269,7 @@ Two things it deliberately does *not* prove, so don't over-claim on its behalf: 
 - Declare every `data{}` key in `signal_data_schema`.
 - **Anchor on the references:** MCP fields → I/O guide; exit → a named preset; catalog facets → the glossary.
 - Linkage: `group: <id>`, `name: <id>-<instance>`, `wallet_env` bound, `funding_share` sums to 1.0, package is `@senpi-ai/runtime`.
-- Lint (advisory) → **`openclaw senpi validate <pkg>` = PASS (the gate)** → deploy → **confirm it emits/operates**, not just "ticked."
+- Lint (advisory) → **`openclaw senpi validate <instance-dir>` = PASS (the gate)** → deploy → **confirm it emits/operates**, not just "ticked."
 - **A gate in `scan()` must honour `ctx.dry_run`** — otherwise the tick reads nothing and validates as UNPROVEN, which is not a pass.
 - **Never hand a strategy to ops on a clean lint alone.** The lint reads your package; only `senpi validate` runs it. That is what catches the authoring-agent↔runtime language mismatches — and it now costs nothing to find out.
 
