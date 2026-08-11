@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.15.0"
+  version: "2.15.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -247,8 +247,12 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
    they report, then go to stage 9. **A clean lint does not mean the strategy works.**
 9. **THE GATE — `senpi validate`. Authoring is not done until this is green.**
    ```
-   openclaw senpi validate /data/workspace/strategies/<id>            # multi-instance: one per <instance> dir
+   openclaw senpi validate /data/workspace/strategies/<id>/<instance>   # e.g. .../<id>/main — one run per instance
    ```
+   **The INSTANCE dir — the one holding that instance's `runtime.yaml` — never the package root.**
+   Validation runs against one runtime, so the root refuses `[E_VALIDATE_NO_RECIPE]` and lists the
+   instances to pick from. That includes a **single-sleeve** package: the layout this skill teaches
+   puts its one recipe in `<id>/main/`, so `validate <id>` refuses there too.
    **Do not narrow it.** `--stage` defaults to `live` and only `live` runs a tick, so leave it
    alone; `--scanner` and `--no-attest` both run the checks but deliberately record nothing.
 

@@ -37,13 +37,22 @@ someone changed something — and a re-validation that does not `PASS` prints va
 and does not re-run the deploy.
 
 Before any of them, **package-level gates run once, pre-money** — recorded at the reconcile step, so a
-refusal there means nothing was created: no exit block on an instance (a strategy that cannot stop itself
-out is never funded), an unsupported scanner-level `enabled` key (`[INVALID_REQUEST]`), and the
+refusal there means nothing was created **by that run**: no exit block on an instance (a strategy that
+cannot stop itself out is never funded), an unsupported scanner-level `enabled` key (`[INVALID_REQUEST]`), and the
 **live-universe gate** — every hardcoded instrument checked against the live HL instrument list,
 refusing **`[E_UNIVERSE_NOT_LIVE]`** on any dead name (one refusal, every offender, each with its file
 and key path; a bare `T` counts as live if `xyz:T` is) and **failing closed with no code** when that list
 cannot be read, because unknown is never "not live". A package with no hardcoded instruments (a derived
 universe) never reads the list at all.
+
+**Relay each refusal as scoped as its own producer writes it — do not normalise them to one sentence.**
+The universe gate and the proof gate above both say "nothing was created **by this run** … and whatever
+this package already had is untouched (this gate cannot see it)", because they stop before reading the
+package's live state: on a resume there may be a funded, live wallet the refusal cannot see, and the
+unscoped version is what funds a second one beside it. The exit-block and `enabled` refusals state it
+flat — that is their producers' wording, not a discrepancy to correct. (Scoping is not a property of
+"pre-money": `[E_INSTANCE_BINDING_UNKNOWN]` is flat *and* correct, because it has already read the live
+wallets and lists them.)
 
 Per instance the job runs five steps, each recorded with its own outcome:
 

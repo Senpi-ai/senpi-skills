@@ -233,7 +233,7 @@ Discovery matches your strategy to users by the `catalog:` block. **Validation o
 
 ```
 python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>   # advisory lint
-openclaw senpi validate /data/workspace/strategies/<id>                          # THE GATE — must be PASS (multi-instance: one run per <instance> dir)
+openclaw senpi validate /data/workspace/strategies/<id>/<instance>               # THE GATE — must be PASS. The INSTANCE dir (main), one run each
 python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # the whole path: wallet(s) ($10/wallet floor) → install → observed tick
 openclaw senpi deploy status                                                    # read-only: the report; `overall: live` is the gate
 # teardown / redeploy:  close.py <id>  (flattens positions, returns funds)
@@ -247,8 +247,12 @@ The desk checks above catch *your* bugs. A different and higher-value class only
 Finding them used to require a tiny deploy. It doesn't any more:
 
 ```
-openclaw senpi validate /data/workspace/strategies/<id>      # multi-instance: one run per <instance> dir
+openclaw senpi validate /data/workspace/strategies/<id>/<instance>      # e.g. .../<id>/main — one run per instance
 ```
+**Point it at the INSTANCE dir — the one holding that instance's `runtime.yaml` — never the package
+root.** Validation runs against one runtime, so the root refuses `[E_VALIDATE_NO_RECIPE]` and lists the
+instances to pick from. This is not a multi-instance-only rule: the layout this guide teaches puts even
+a single sleeve in `<id>/main/`, so `validate <id>` refuses for a one-sleeve package too.
 
 It runs the **real loop** — same code path production uses — imports every scanner file, executes `scan()` once against live read-only data, counts what it actually read, and builds each returned candidate into the exact wire shape intake would receive, checking it against intake's own schema. **No wallet, no funding, no deploy.**
 
@@ -406,8 +410,8 @@ def scan(inputs, ctx):
 
 **Ship it:**
 ```
-validate_strategy.py strategies/us-rebound          # advisory lint
-openclaw senpi validate strategies/us-rebound      # THE GATE — PASS before ops
+validate_strategy.py strategies/us-rebound          # advisory lint (this one DOES take the package dir)
+openclaw senpi validate strategies/us-rebound/main # THE GATE — PASS before ops. The instance dir, per the manifest above
 deploy.py create us-rebound --budget 200 ; openclaw senpi deploy status   # `overall: live` is the gate
 ```
 …then confirm it **emits** on a tick where ≥4 names confirm — not just that it ticked.
