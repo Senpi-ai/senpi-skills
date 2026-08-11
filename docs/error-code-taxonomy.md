@@ -37,7 +37,7 @@ failed; `W_` = an advisory warning, and the operation PROCEEDED. Rules:
 | `E_SCANNER_TICK_ERROR` | `senpi-trading-runtime` (external-scanner scaffold → runtime `/errors`) | A scanner's `scan()` tick threw; the scaffold caught it, set the tick status to `error`, and posted it to the runtime's `/errors` endpoint | `senpi status` for the failing scanner → read the tick error message → fix the scanner code. NEVER close/recreate the strategy for a scanner error |
 | `E_SCANNER_TICK_TIMEOUT` | same | A scanner tick exceeded its wall-clock budget | Same as `E_SCANNER_TICK_ERROR` |
 | `E_SCANNER_CRASH_LOOP` | `senpi-trading-runtime` (scanner process supervisor) | The supervisor degraded a scanner after repeated rapid exits; restarts CONTINUE at capped backoff — the scanner is degraded, not stopped (retry-at-cap decision, 2026-07-29) | Same as `E_SCANNER_TICK_ERROR` |
-| `E_SCANNER_PATH_UNRESOLVED` | `senpi-trading-runtime` (`senpi.installRuntime`) | A content-install's YAML names a relative scanner `path` and no source dir was provided — resolving against the gateway cwd would mount nothing (M226926/M279357 DOA class). Nothing installed | Install from the file (`-p <runtime.yaml>`) or pass `--runtime-yaml-dir <dir>`. `senpi deploy` always provides the dir — prefer it |
+| `E_VALIDATE_UNRESOLVABLE_SCANNER_PATH` | `senpi-trading-runtime` (the install gate on `senpi.installRuntime`; also reported by `senpi validate`) | A content-install's YAML names a relative scanner `path` and no source dir was provided — resolving against the gateway cwd would mount nothing (M226926/M279357 DOA class). Nothing installed. It absorbed the deploy-side `E_SCANNER_PATH_UNRESOLVED`, deleted in the runtime because two codes for one condition on one boundary meant the message depended on which check ran first | Install from the file (`-p <runtime.yaml>`, which derives the dir) or pass `--runtime-yaml-dir <dir>`. `senpi deploy` always provides the dir — prefer it |
 | `E_DEPLOY_IN_PROGRESS` | `senpi-trading-runtime` (`senpi.deploy.start`) | A second deploy was started while one is running — deploys are single-flight because concurrent funding preflights read one shared balance and can jointly overdraw. Nothing was started | Watch the running job: `senpi deploy status`. There is no cancel: a wedged job frees its own slot at the deploy deadline, and undeploying a strategy is closing it (`close.py <id>`) |
 
 2026-08-05 (D1 Convergence): `deploy.py` is now a thin wrapper over `senpi deploy`, so the
@@ -92,10 +92,12 @@ stranded address (that wallet has no runtime, so `--instance` cannot reach it); 
 package-wide `close.py <id>` only when nothing else in the package is live, and otherwise names the
 live sleeves that command would take down with it.
 
-Note on the `E_SCANNER_*` rows: `E_SCANNER_PATH_UNRESOLVED` is a real refusal string and
-leads its message per rule 3. The other five codes are **logical identifiers**, not Body
-literals, and are queryable via the `senpi.error.code` **event attribute** (landed in
-slice B1, truthful-status instrumentation):
+Note on the `E_SCANNER_*` rows: all five are **logical identifiers**, not Body literals,
+and are queryable via the `senpi.error.code` **event attribute** (landed in slice B1,
+truthful-status instrumentation). The scanner-path refusal is the one that is a real
+refusal string leading its message per rule 3 — and it is no longer an `E_SCANNER_*` code
+at all: the runtime deleted `E_SCANNER_PATH_UNRESOLVED` and the install gate now renders
+`[E_VALIDATE_UNRESOLVABLE_SCANNER_PATH] This recipe cannot be installed …`:
 
 - `E_SCANNER_MOUNT_FAILED` / `E_SCANNER_LAUNCH_FAILED` keep their **frozen** event Body
   prefixes (dashboards match them, so the code cannot lead the string as rule 3

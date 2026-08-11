@@ -454,7 +454,10 @@ not by hand-composing `strategy_list`.
 
 There is deliberately **no `runtime create` row**: install is the deploy verb's own step 4, done
 in-process — the verb never shells out to it, and running it by hand skips the funds preflight, the
-attribution and the observed tick (`[E_SCANNER_PATH_UNRESOLVED]` is usually its fingerprint).
+attribution and the observed tick. Pasted as content (`-c`, no `--runtime-yaml-dir`) it also leaves a
+relative scanner path nothing to resolve against and the install gate refuses
+`[E_VALIDATE_UNRESOLVABLE_SCANNER_PATH]`; `-p <file>` derives that directory from the file, so it is
+the content form specifically that breaks.
 
 ## MCP tools used (via `mcp_client.py`)
 

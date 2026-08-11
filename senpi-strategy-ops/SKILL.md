@@ -273,8 +273,10 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 >   real status quoted; it does **not** wait, because a paused strategy never becomes ACTIVE on its own.
 >   Resume it and re-run, or `close.py <id>` first if you meant to start over. **Never fund a second
 >   wallet beside it.**
-> - **`[E_SCANNER_PATH_UNRESOLVED]`** — an install could not resolve a relative scanner path. The verb always
->   passes the instance directory, so this means someone used `runtime create` by hand — use the verb.
+> - **`[E_VALIDATE_UNRESOLVABLE_SCANNER_PATH]`** — an install could not resolve a relative scanner path.
+>   The verb always passes the instance directory — and so does a hand-run `runtime create -p <file>`,
+>   which derives it from the file. Only a **content** install (`runtime create -c <yaml>` with no
+>   `--runtime-yaml-dir`) has nothing to resolve against. Install from the file, or use the verb.
 > - **`[E_UNIVERSE_NOT_LIVE]`** — the package hardcodes instrument(s) that are not live on Hyperliquid.
 >   **Nothing was created BY THAT RUN** — the gate read the instrument list and stopped before reading
 >   this package's own live state, so whatever the package already had is untouched and this gate
