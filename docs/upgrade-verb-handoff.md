@@ -330,8 +330,9 @@ falls through to the fresh-deploy loop.
 ## 5. Its test coverage, also removed
 
 `senpi-strategy-ops/tests/test_deploy_gates.py` was deleted in this merge (its deploy gates moved
-into the runtime verb). Four of its classes were `upgrade`'s and are worth restoring with it —
-recover them from `origin/main:senpi-strategy-ops/tests/test_deploy_gates.py`:
+into the runtime verb). It had 16 `unittest.TestCase` classes; **six** of them were `upgrade`'s and
+are worth restoring with it — recover them from
+`origin/main:senpi-strategy-ops/tests/test_deploy_gates.py`:
 
 | Class | Lines | Covers |
 |---|---|---|
@@ -340,6 +341,7 @@ recover them from `origin/main:senpi-strategy-ops/tests/test_deploy_gates.py`:
 | `UpgradeDispatch` | 676-723 | PHASE B routing — one tested step per call |
 | `UpgradeArity` | 725-744 | A scoped multi-arm keeps its full `<id>-<arm>` wallet name; a true single-arm stays bare |
 | `UpgradeConsentPhase` | 746-889 | PHASE A: the consent gate, the fail-CLOSED backend reads, the ambiguous/unreadable refusals, the closing-wait polling ids directly, and a failed close surfacing instead of advancing |
+| `ExitCodeContract` | 904-918 | `_exit_code`'s three bands, and specifically that `closing`/`closed` are **3, not 0** — a `$?`/`&&` caller reading `closed` (old arm gone, nothing deployed yet) as success strands the user's capital |
 
 `UpgradeDispatch` and `UpgradeArity` will need the most rework, since PHASE B collapses to a single
 `run_deploy` call. `UpgradeConsentPhase` should survive nearly intact — it is PHASE A, which is the

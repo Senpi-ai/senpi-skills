@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.5.1"
+  version: "3.5.2"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -88,7 +88,7 @@ exists, check the registry; no match → hand to **senpi-strategy-discover**:
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/strategies/catalog.json
 ```
 
-**Step 0.5 — preflight (recommended).** `deploy.py validate <id>` reports every structural + render
+**Step 0.5 — preflight (required).** `deploy.py validate <id>` reports every structural + render
 issue in **one pass**, with **no side effects**, before you fund anything — and it resolves a bare
 catalog id to a package directory on disk (fetching it if needed). It also **reports** the live universe
 (dead hardcoded instruments are listed as validate errors; an unreachable instrument list is a loud note,
@@ -104,7 +104,9 @@ surfaces its real error and is never silently replaced by a stale remote fetch.
 **Preflight is two questions, two commands.** `openclaw senpi validate <package-dir>` answers **does
 it run** — it loads every scanner file, runs one real tick against live read-only data, counts what
 it read, and checks each emitted signal against the runtime's own wire schema. No wallet, no
-funding. **`UNPROVEN` (exit 2) is not a pass** — the tick ran and established nothing, usually a
+funding. **Multi-instance: one run per `<instance>` dir** — validation runs against one runtime, so
+a package root grouping several refuses `[E_VALIDATE_NO_RECIPE]` and lists the instances to pick
+from. **`UNPROVEN` (exit 2) is not a pass** — the tick ran and established nothing, usually a
 gate in `scan()` that should consult `ctx.dry_run`. `deploy.py validate <id>` answers the other
 question, **is the package well formed**, and is the one described above. Do not deploy a package
 that has not returned `PASS`.
@@ -527,7 +529,10 @@ wallet** — which market-exits its open positions and returns the funds to main
    authored via `senpi-strategy-author`, not hand-guessed here.
 2. **Prove the edit still RUNS before you close anything** — `openclaw senpi validate <package-dir>` must
    return `PASS`. An edit is exactly when a scanner breaks, and you are about to flatten a live book to
-   install it.
+   install it. **On a multi-instance package, point it at the INSTANCE dir, not the package root**
+   (`openclaw senpi validate <package-dir>/<arm>`): validation runs against one runtime, so a package
+   root that groups several refuses `[E_VALIDATE_NO_RECIPE]` and lists the instances to pick from. That
+   is also the only way the edited arm gets its own proof — without one the `create` below refuses.
 3. **Get explicit consent, in these words**: closing market-exits any open position, funds return to the
    main wallet, the strategy redeploys on a NEW wallet, and a custom ratchet/stop ladder on the old
    positions does **not** carry over — re-apply it afterwards if wanted. Never present this as a re-tune.
@@ -535,9 +540,14 @@ wallet** — which market-exits its open positions and returns the funds to main
    confirmed. Any balance above that budget stays in main rather than following the strategy across.
    **On a multi-instance package, do it one sleeve at a time**: `close.py <id> --instance <arm>` closes
    only that arm, and the following `create` **adopts the siblings that are still live** and creates a
-   fresh wallet for the closed one alone — so the others keep running and keep their positions. The
-   budget is split only across the instances that still NEED a wallet, so `--budget` here sizes the one
-   arm being replaced, not the package.
+   fresh wallet for the closed one alone — so the others keep running and keep their positions.
+   **`--budget` is still the WHOLE package's budget, split by `funding_share` — it is not the arm's
+   amount.** Only the instances needing a wallet are funded, but each still gets `--budget × its own
+   declared share`, so redeploying a `funding_share: 0.3` arm with `--budget 300` funds it **$90**, not
+   $300. Size it as *the amount you want in that arm ÷ that arm's share* (300 ÷ 0.3 → `--budget 1000`),
+   and **say the resulting wallet figure to the user, not the `--budget` number**, when you take consent
+   for the redeploy. If a budget warn already computed a re-run figure for the scoped sleeve, use that —
+   it does this division for you.
 
 **NEVER, when applying an edit:**
 - hand-render a `runtime.yaml` or run raw `openclaw senpi runtime create` on a hand-built file — the
