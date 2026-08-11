@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.16.0"
+  version: "2.16.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -105,7 +105,8 @@ single most common way a strategy silently does nothing.
 **And when you cannot check a source, run the code.** `openclaw senpi validate <recipe-dir> --stage import`
 loads every scanner file in about a second, with no credentials and no wallet — the fastest way to
 find out that a name you were confident about does not resolve. Use it while you write, not only at
-the end.
+the end. **`<recipe-dir>` is the directory holding the `runtime.yaml`** — the package root for the
+flat layout step 2 has you scaffold, an instance's own dir once `strategy.yaml` lists instances.
 
 **`--stage import` is NOT the gate — never report it as validation passing.** It stops before
 anything runs, so it cannot see a tick fail; its own output says so (`does not prove: that a tick

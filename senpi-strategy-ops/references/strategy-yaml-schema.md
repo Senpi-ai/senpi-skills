@@ -7,34 +7,57 @@ each self-contained `runtime.yaml` (the runtime's own concept) — the manifest 
 
 ## Package layout
 
+**The rule: a package always RESOLVES to a non-empty `instances[]` — that is not the same as the
+manifest having to declare one.** The two layouts differ only in where that list comes from.
+
+**FLAT** — single-instance, and what `senpi-strategy-author` scaffolds. **No `instances:` list at
+all**; every loader synthesizes the canonical `main` instance from the root recipe:
+
 ```
-strategies/<id>/                # all strategy packages live under strategies/
-  strategy.yaml                 # this manifest
+strategies/<id>/
+  strategy.yaml                 # this manifest — no `instances:`
+  runtime.yaml                  # the runtime's self-contained spec; `main` is synthesized from it
+  scanners/
+    scan.py                     # exports scan(inputs, ctx) -> list[dict]
+    scoring.py                  # (optional) pure helpers
+```
+
+**NESTED** — required for multi-instance, and what every package in this repo's `strategies/`
+catalog uses. One `<instance>/` dir per runtime, **each on its own wallet** (a runtime binds to
+exactly one wallet), declared in `instances:`:
+
+```
+strategies/<id>/
+  strategy.yaml                 # this manifest — with `instances:`
   <instance>/
-    runtime.yaml                # the runtime's self-contained spec for this instance
-    scanners/                   # the supervised scanner module(s)
-      scan.py                   # exports scan(inputs, ctx) -> list[dict]
-      scoring.py                # (optional) pure helpers
-  <instance2>/ …                # one subdir per instance (multi-runtime, e.g. spider swing + scalp)
+    runtime.yaml                # this instance's spec
+    scanners/{scan,scoring}.py
+  <instance2>/ …                # e.g. spider swing + scalp
 ```
 
-A single-instance strategy may use the **FLAT layout** instead — `runtime.yaml` + `scanners/` at the
-package root with **no `instances:` list at all**: every loader synthesizes the canonical `main`
-instance, binding `wallet_env` to the `${...}` the runtime already uses. A multi-instance strategy
-(spider) has one `<instance>/` dir per runtime, **each on its own wallet** (a runtime binds to exactly
-one wallet), and declares them in `instances:`. `deploy.py validate <id>` confirms either form is
-deploy-ready.
+Same rule on both sides: `_pkg.load` (synthesizing via `_flat_instance`) raises only when there is
+neither an `instances:` list nor a root `runtime.yaml`; the author lint (`validate_strategy.py`) and
+the runtime's own `loadDeployPackage` (via `synthesizeFlatInstance`) do the same.
+`deploy.py validate <id>` confirms either form is deploy-ready.
 
-**The instance list is what every loader ends up with, not what the manifest must declare.** A
-package always resolves to `instances[]`; the two layouts differ only in where that list comes from —
-declared in the manifest (nested), or synthesized from the root `runtime.yaml` (flat). Both sides
-implement the same rule: `_pkg.load` (`senpi-strategy-ops/scripts/_pkg.py:273-282`, synthesizing via
-`_flat_instance`, `:233-252`), the author lint
-(`senpi-strategy-author/scripts/validate_strategy.py:135-145`), and the runtime's own loader
-(`senpi-trading-runtime/src/deploy/package.ts:269-275`, `synthesizeFlatInstance` `:225-240`). One
-divergence worth knowing on the flat path: when the root `runtime.yaml`'s `strategy.wallet` is not a
-bare `${TOKEN}`, the python loaders fall back to `<ID>_WALLET` and let validate report the missing
-binding, while the runtime refuses to load the package at all (`package.ts:233-238`).
+### The flat wallet binding is stricter in the runtime than in the python loaders
+
+**A flat package's `strategy.wallet` must be the WHOLE value and UPPERCASE — `"${WALLET_ENV}"`,
+`[A-Z0-9_]` only.** The python loaders accept far more than that, and they do not warn:
+
+| `strategy.wallet` | `deploy.py validate` | the runtime |
+|---|---|---|
+| `"${MY_WALLET}"` | green, binds `MY_WALLET` | loads |
+| `"${my_wallet}"` (lowercase) | **green**, binds `my_wallet` | **refuses the package** |
+| `"pre${FOO}"` (embedded) | **green**, binds `FOO` | **refuses the package** |
+| `"0xabc…"` (no `${…}`) | reports `wallet_env … not bound` | refuses the package |
+
+`_flat_instance` finds the token with a `.search()` over `\$\{([A-Za-z_][A-Za-z0-9_]*)\}`, so it
+matches a lowercase name and one embedded mid-string, and only falls back to `<ID>_WALLET` — the case
+`validate` then reports — when there is **no** `${…}` anywhere. `synthesizeFlatInstance` anchors and
+uppercases (`/^\$\{([A-Z0-9_]+)\}$/`) and throws otherwise. So rows 2 and 3 pass every python check,
+including `deploy.py validate`, and are refused at load by `senpi validate` and `senpi deploy`.
+(Verified by running both loaders over all four spellings, not by reading them.)
 
 ## Schema
 

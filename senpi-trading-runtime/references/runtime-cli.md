@@ -27,8 +27,8 @@ Stored in `~/.openclaw/senpi-cli.json`; changes require a gateway restart to app
 
 ## `senpi validate` — prove a strategy runs, before it is funded (the gate)
 
-The one `senpi` subcommand that does **not** forward to the gateway — it runs locally, so CI can run
-the offline depths with no gateway present and a validation can never touch a live runtime. It loads
+Runs **locally** rather than forwarding to the gateway (as `config` and `guide` also do), so CI can
+run the offline depths with no gateway present and a validation can never touch a live runtime. It loads
 every scanner file, runs one real `scan()` tick against live read-only data, counts what it read, and
 checks each emitted signal against intake's own wire schema. **No wallet, no funding, no deploy.**
 
@@ -172,5 +172,6 @@ Printed reference for `@senpi-ai/runtime`, available on the host without leaving
 
 `openclaw senpi --cheatsheet` prints the whole command cheatsheet.
 
-> Each CLI command wraps a gateway RPC (`openclaw gateway call senpi.<method>`). The CLI is the
+> Every CLI command that reaches a running runtime wraps a gateway RPC (`openclaw gateway call
+> senpi.<method>`); `validate`, `config` and `guide` run locally and wrap none. The CLI is the
 > supported human-facing surface; reach for the raw RPCs only for programmatic automation.

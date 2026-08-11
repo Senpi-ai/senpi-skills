@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.3.0"
+  version: "3.3.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -77,7 +77,12 @@ gates — the live-universe check (`[E_UNIVERSE_NOT_LIVE]`, pre-money), the fund
 `skillName`/`skillVersion` attribution and the verified tick. **`runtime create` is internal**: it
 installs a runtime and skips every one of those, so it is not the deploy path.
 
-Beyond `deploy`/`deploy status` and `runtime list/delete`, the CLI exposes the runtime's live state — `senpi dsl
+**`senpi validate` is the gate every deploy runs through** — it loads the scanners and runs one
+real tick with no wallet and no funding, and a full unscoped PASS at live depth is what writes the
+`.senpi-proof.json` `senpi deploy` refuses to fund a package without. Run it before `deploy`, once per
+instance, pointed at the directory holding that instance's `runtime.yaml`.
+
+Beyond `validate`, `deploy`/`deploy status` and `runtime list/delete`, the CLI exposes the runtime's live state — `senpi dsl
 positions|inspect|closes` (the exit engine), `senpi action list|inspect|history|decisions` (the
 decision layer), `senpi risk` (am I allowed to trade, and why not), `senpi audit` (backend trade
 trail with AI reasoning), `senpi scanner` (per-scanner health, liveness, and a `(no signals yet)` flag for scanners that run but produce nothing),
@@ -98,7 +103,7 @@ restart count and cause), and `senpi guide …` (in-shell reference). Full surfa
 | `references/runtime-concepts.md` | How the runtime behaves end to end: the runtime pipeline, `position_tracker`, and the two-phase DSL exit engine |
 | `references/runtime-yaml.md` | The `runtime.yaml` schema — every section, the `external_scanner` fields, the risk guard-rails |
 | `references/scan-contract.md` | The author contract in depth: `scan(inputs, ctx)`, the `ctx` surface, the signal shape, and `scoring.py` |
-| `references/runtime-cli.md` | The full `openclaw senpi …` command surface — runtime, dsl, action, status/state, skills, guide |
+| `references/runtime-cli.md` | The full `openclaw senpi …` command surface — **validate** (the pre-deploy gate: flags, depths, exit codes, the proof it records), deploy, runtime, dsl, action, status/state, skills, guide |
 | `references/dsl-protection-check.md` | **Verify open positions are DSL-protected** — the PROTECTED / UNPROTECTED / STOP-NOT-ON-VENUE verdict + the open-vs-tracked reconciliation |
 
 ## Package naming (load-bearing)
