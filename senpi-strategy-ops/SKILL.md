@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.6.0"
+  version: "3.6.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -40,7 +40,7 @@ path — funds preflight → wallet create+fund → runtime install → one obse
 **detached job** you then watch. It returns in ~1s; you poll until it is terminal.
 
 ```
-openclaw senpi validate <package-dir>                                   # 0a. does it RUN? records the proof create needs
+openclaw senpi validate <instance-dir>                                  # 0a. does it RUN? records the proof create needs
 python3 senpi-strategy-ops/scripts/deploy.py validate <id>              # 0b. preflight — deploy-ready? (no side effects)
 python3 senpi-strategy-ops/scripts/deploy.py create <id> --budget <usd> # 1. THE FUNDED PATH: validates, then starts the deploy
 openclaw senpi deploy status                                            # 2. poll until terminal; read the verified report
@@ -101,7 +101,7 @@ there's **no need to restructure into `main/`**. Any remaining fix is named pres
 runtime name: <id>-main`). A package that exists **on disk is authoritative** — an invalid local package
 surfaces its real error and is never silently replaced by a stale remote fetch.
 
-**Preflight is two questions, two commands.** `openclaw senpi validate <package-dir>` answers **does
+**Preflight is two questions, two commands.** `openclaw senpi validate <instance-dir>` answers **does
 it run** — it loads every scanner file, runs one real tick against live read-only data, counts what
 it read, and checks each emitted signal against the runtime's own wire schema. No wallet, no
 funding. **A `PASS` is also what RECORDS the proof `create` refuses without**: a `.senpi-proof.json`
@@ -283,7 +283,10 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 >   "deploy anyway"**. If the step instead reports that the live instrument list **could not be read**,
 >   nothing is claimed dead and nothing was created: retry once the MCP server is reachable.
 > - **`[E_VALIDATE_NO_PROOF]` / `[E_VALIDATE_CONTENT_CHANGED]` / `[E_VALIDATE_RUNTIME_VERSION_CHANGED]`** —
->   deploy will not fund a package it cannot prove ever ran. **Refused pre-money: nothing was created.**
+>   deploy will not fund a package it cannot prove ever ran. **Refused pre-money — nothing was created
+>   BY THAT RUN.** Say it exactly that scoped way: this gate reads the package's own files and stops
+>   before any live read, so on a resume the package may already own a funded wallet the gate cannot
+>   see. "Nothing exists" is the sentence that gets a second wallet funded beside a live one.
 >   The proof is the `.senpi-proof.json` a passing `openclaw senpi validate <instance-dir>` writes
 >   (see preflight above). **Which of the three it is decides the answer — read the code, not the
 >   prose:**
@@ -548,7 +551,7 @@ wallet** — which market-exits its open positions and returns the funds to main
 **So this is a money conversation before it is a command:**
 1. **Confirm the edited package is on disk** in the durable root (`/data/workspace/strategies/<id>/…`),
    authored via `senpi-strategy-author`, not hand-guessed here.
-2. **Prove the edit still RUNS before you close anything** — `openclaw senpi validate <package-dir>` must
+2. **Prove the edit still RUNS before you close anything** — `openclaw senpi validate <instance-dir>` must
    return `PASS`. An edit is exactly when a scanner breaks, and you are about to flatten a live book to
    install it. **On a multi-instance package, point it at the INSTANCE dir, not the package root**
    (`openclaw senpi validate <package-dir>/<arm>`): validation runs against one runtime, so a package

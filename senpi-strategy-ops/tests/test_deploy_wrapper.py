@@ -917,8 +917,22 @@ class StaleProofRepair(unittest.TestCase):
         self.assertEqual(_verbs(fake), ["senpi deploy", "senpi deploy status", "senpi validate",
                                         "senpi deploy", "senpi deploy status", "senpi deploy status"])
         # The re-proof targets the DIRECTORY the gate names — never the manifest instance name.
-        self.assertEqual(fake.argv_for("validate")[0], ["openclaw", "senpi", "validate", "/pkg/spider"])
+        self.assertEqual(fake.argv_for("validate")[0],
+                         ["openclaw", "senpi", "validate", "/pkg/spider", "--stage", "live"])
         self.assertIn("live", out)
+
+    def test_the_re_proof_asks_for_the_depth_that_records_a_proof_rather_than_defaulting_to_it(self):
+        # A proof is written only when the run is proof-ELIGIBLE: PASS **and** `depth === "live"`
+        # **and** unscoped **and** not `--no-attest` (runtime `src/validate/run.ts`,
+        # `proof_eligible`). Two of those arrive from CLI DEFAULTS, and a default that moves would
+        # leave this re-running the deploy after a validation that recorded nothing. The one we can
+        # state, we state — the flag is `--stage`, not `--depth`.
+        _code, fake, _out, _err = self._run(self._repaired())
+        argv = fake.argv_for("validate")[0]
+        self.assertEqual(argv[argv.index("--stage") + 1], "live")
+        # …and never the two flags that make a passing run record nothing.
+        self.assertNotIn("--scanner", argv)
+        self.assertNotIn("--no-attest", argv)
 
     def test_the_reason_is_read_from_the_structured_evidence_not_the_refusal_prose(self):
         # The three proof reasons are ONE code family whose wording the runtime owns and rewords.
@@ -952,7 +966,7 @@ class StaleProofRepair(unittest.TestCase):
         code, fake, _out, _err = self._run(self._repaired(instance_dir="swing"))
         self.assertEqual(code, 0)
         self.assertEqual(fake.argv_for("validate")[0],
-                         ["openclaw", "senpi", "validate", "/pkg/spider/swing"])
+                         ["openclaw", "senpi", "validate", "/pkg/spider/swing", "--stage", "live"])
 
     def test_a_failed_re_validation_surfaces_its_findings_and_never_re_runs_the_deploy(self):
         findings = "FAIL  1 error\n  [E_VALIDATE_SCANNER_CRASHED] scan.py raised ZeroDivisionError"
@@ -1114,7 +1128,7 @@ class StaleProofRepair(unittest.TestCase):
         code, fake, _out, _err = self._run(self._repaired(), pkg=pkg)
         self.assertEqual(code, 0)
         self.assertEqual(fake.argv_for("validate")[0],
-                         ["openclaw", "senpi", "validate", "/pkg/spider/swing"])
+                         ["openclaw", "senpi", "validate", "/pkg/spider/swing", "--stage", "live"])
 
     def test_an_instance_dir_that_escapes_the_package_is_never_validated(self):
         # The path is joined onto the package root, so an absolute or `..` value would send a live

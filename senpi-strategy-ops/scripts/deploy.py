@@ -635,14 +635,23 @@ def stale_proof_dirs(snap, pkg):
 def revalidate(dirs, log):
     """Re-record each directory's proof. Returns `(ok, the failing call's own words)`.
 
-    `openclaw senpi validate <dir>` is the ONLY command that writes a `.senpi-proof.json` — a full,
-    unscoped run at live depth that PASSES — which is why the python validator is not an option
-    here. Its exit codes are validate's own: `0` PASS · `1` FAIL · `2` UNPROVEN · `3` invocation
-    error. Only `0` records a proof, so only `0` is a repair; everything else hands back validate's
-    text for the caller to surface unedited."""
+    `openclaw senpi validate` is the ONLY command that writes a `.senpi-proof.json`, and it writes
+    one only when the run is proof-ELIGIBLE: `verdict === "PASS"` AND `depth === "live"` AND no
+    `--scanner` scope AND `noAttest !== true` (runtime `src/validate/run.ts`, `proof_eligible`).
+    That is why the python validator is not an option here — and why **`--stage live` is passed
+    explicitly** (the flag is `--stage`, not `--depth`) rather than left to the CLI's default: a
+    default that moved would leave this re-running the deploy after a validation that recorded
+    nothing, and the deploy would refuse again with nothing here explaining why. The other two
+    conditions cannot be stated positively — there is no affirmative flag for either — so they are
+    held by never passing `--scanner` or `--no-attest`.
+
+    Exit codes are validate's own: `0` PASS · `1` FAIL · `2` UNPROVEN · `3` invocation error. Only
+    `0` records a proof, so only `0` is a repair; everything else hands back validate's text for the
+    caller to surface unedited."""
     for d in dirs:
-        log(f"  re-proving {d} (openclaw senpi validate)…")
-        rc, out, err = _cli.run_cli(["openclaw", "senpi", "validate", str(d)], timeout=VALIDATE_TIMEOUT)
+        log(f"  re-proving {d} (openclaw senpi validate --stage live)…")
+        rc, out, err = _cli.run_cli(["openclaw", "senpi", "validate", str(d), "--stage", "live"],
+                                    timeout=VALIDATE_TIMEOUT)
         if rc != 0:
             return False, (_cli.error_tail(err, out, limit=2000)
                            or f"openclaw senpi validate {d} exited {rc} and printed nothing.")
@@ -1525,6 +1534,14 @@ def main(argv):
     # it is how long this script polls — a shorter one has to return sooner, a larger one is honoured
     # even past the ~180s tool timeout, because the caller asked for it by name. Unset: the verb's own
     # default is forwarded, and polling keeps its own budget, sized to return inside that timeout.
+    #
+    # ONE path can exceed that budget, and it is bounded: the stale-proof repair spends
+    # `poll₁ + VALIDATE_TIMEOUT + poll₂` (see `run_deploy`). It is not sized down to fit, because the
+    # only alternative is not repairing at all — and the typical case is nowhere near it: the proof
+    # gate is a local hash compare that refuses on the first poll, and a live validation of a healthy
+    # scanner is seconds. If the harness does kill the call, the repair note is already on stderr
+    # BEFORE validate runs, so a killed wrapper still says what it was doing and that nothing was
+    # created; the detached job, as ever, is read back with `openclaw senpi deploy status`.
     a.poll_budget = POLL_BUDGET if a.max_wait is None else a.max_wait
     if a.max_wait is None:
         a.max_wait = DEFAULT_MAX_WAIT
