@@ -557,9 +557,16 @@ VALIDATE_TIMEOUT = 180
 
 
 def _refused_steps(snap):
-    """Every `refused` step row in a terminal report — the rows a gate wrote."""
-    for inst in ((snap or {}).get("report") or {}).get("instances") or []:
-        for outcome in ((inst or {}).get("steps") or {}).values():
+    """Every `refused` step row in a terminal report — the rows a gate wrote.
+
+    Tolerant of every shape but the one it expects, like the rest of this wrapper's JSON digging:
+    this runs on the MONEY path, and a snapshot that is not shaped as documented must degrade to
+    "nothing to repair here" (the refusal is then relayed) rather than escape as a traceback."""
+    report = (snap or {}).get("report")
+    instances = report.get("instances") if isinstance(report, dict) else None
+    for inst in instances if isinstance(instances, list) else []:
+        steps = inst.get("steps") if isinstance(inst, dict) else None
+        for outcome in (steps.values() if isinstance(steps, dict) else ()):
             if isinstance(outcome, dict) and outcome.get("status") == "refused":
                 yield outcome
 
@@ -601,11 +608,15 @@ def stale_proof_dirs(snap, pkg):
         return []
     # EVERY refused row must be this one reason. A stale proof beside another gate's refusal is not
     # ours to repair: re-running would only be refused again, by the gate we did not answer.
-    if any(((r.get("evidence") or {}).get("reason")) != STALE_PROOF_REASON for r in refusals):
+    def evidence(row):
+        got = row.get("evidence")
+        return got if isinstance(got, dict) else {}
+
+    if any(evidence(r).get("reason") != STALE_PROOF_REASON for r in refusals):
         return []
     dirs = []
     for r in refusals:
-        rel = (r.get("evidence") or {}).get("instance_dir")
+        rel = evidence(r).get("instance_dir")
         if not rel or not isinstance(rel, str):
             continue
         # `instance_dir` is documented as relative to the package root (`relative(pkg.dir,

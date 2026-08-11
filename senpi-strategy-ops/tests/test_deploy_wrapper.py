@@ -1039,6 +1039,21 @@ class StaleProofRepair(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertEqual(fake.argv_for("validate"), [])
 
+    def test_a_report_shaped_unlike_the_contract_degrades_instead_of_crashing(self):
+        # This runs on the MONEY path: a snapshot that is not shaped as documented must read as
+        # "nothing to repair" (and be relayed) rather than escape as a traceback.
+        for report in ([], "refused", {"instances": {"main": "refused"}},
+                       {"instances": ["main"]},
+                       {"instances": [{"steps": [{"status": "refused"}]}]},
+                       {"instances": [{"steps": {"reconcile": {"status": "refused",
+                                                               "evidence": "runtime_version_changed"}}}]}):
+            snap = {"state": {"status": "done", "overall": "refused"}, "report": report}
+            code, fake, _out, _err = self._run(
+                [_ok({"deployId": "dpl-a1b2c3d4"}), _status(snap),
+                 (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+            self.assertEqual(code, 2, report)
+            self.assertEqual(fake.argv_for("validate"), [], report)
+
     def test_a_deploy_that_was_not_refused_is_never_re_proven(self):
         # Only a REFUSED terminal job can be a proof refusal. A live/failed/pending job carrying a
         # stray evidence bag must not trigger a second, unasked-for deploy.
