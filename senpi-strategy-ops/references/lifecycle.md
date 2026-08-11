@@ -20,7 +20,7 @@ wallet funding (CREATE → FUND → ACTIVE, incl. bridging) and the first scan t
 returns in ~1s with a `deployId`; the agent polls `openclaw senpi deploy status` until the job is terminal.
 
 **Before any of this, the package must have been proven runnable** — `openclaw senpi validate
-<instance-dir>` returning `PASS`. That answers a different question ("does the scanner actually run
+<recipe-dir>` returning `PASS`. That answers a different question ("does the scanner actually run
 and read?") from the one below ("did the deploy land?"), and it is **not optional**: a passing,
 unscoped live-depth run writes the `.senpi-proof.json` beside that instance's recipe, and the deploy
 verb refuses pre-money without one (`[E_VALIDATE_NO_PROOF]` / `[E_VALIDATE_CONTENT_CHANGED]` /

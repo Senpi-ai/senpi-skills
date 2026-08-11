@@ -102,7 +102,7 @@ ticker, field name, enum value, unit, MCP tool/arg, or output key compiles fine,
 and ask — never paper over the gap with a plausible value.** This is not optional polish; it is the
 single most common way a strategy silently does nothing.
 
-**And when you cannot check a source, run the code.** `openclaw senpi validate <instance-dir> --stage import`
+**And when you cannot check a source, run the code.** `openclaw senpi validate <recipe-dir> --stage import`
 loads every scanner file in about a second, with no credentials and no wallet — the fastest way to
 find out that a name you were confident about does not resolve. Use it while you write, not only at
 the end.
