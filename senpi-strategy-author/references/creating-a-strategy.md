@@ -45,11 +45,12 @@ If you do take the exception, **exactly two things in this guide change**, and n
 | `openclaw senpi validate` | `<pkg-root>`, once | `<pkg-root>/<instance>`, **one run per instance** |
 | the runtime id (`-r`, and the recipe's `name:`) | `<id>-main` | `<id>-<instance>`, one per leg |
 
-**Every other command still takes the package root or the bare id** — `validate_strategy.py`,
-`validate_universe.py` and `deploy.py validate` read `strategy.yaml`, so they need the root (pointed
-at an instance dir, `validate_strategy.py` fails `missing strategy.yaml`), and `deploy.py create <id>`
-funds every instance in one go by `funding_share`. Only `senpi validate` is per-instance, because it
-resolves ONE recipe and a multi-instance root holds none of its own.
+**Every other command still takes the package root or the bare id.** `validate_strategy.py` and
+`deploy.py validate` read `strategy.yaml`, so they need the **root** — pointed at an instance dir,
+`validate_strategy.py` fails `missing strategy.yaml`. `validate_universe.py` walks every
+`runtime*.yaml` under whatever dir you give it, so the root covers all legs in one run.
+`deploy.py create <id>` takes the bare id and funds every instance by `funding_share`. Only
+`senpi validate` is per-instance, because it resolves ONE recipe and a multi-instance root holds none.
 
 ## 3. Division of labor — memorize this
 
