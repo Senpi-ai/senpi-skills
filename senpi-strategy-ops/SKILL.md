@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.6.1"
+  version: "3.6.2"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -275,13 +275,18 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 > - **`[E_SCANNER_PATH_UNRESOLVED]`** — an install could not resolve a relative scanner path. The verb always
 >   passes the instance directory, so this means someone used `runtime create` by hand — use the verb.
 > - **`[E_UNIVERSE_NOT_LIVE]`** — the package hardcodes instrument(s) that are not live on Hyperliquid.
->   **Nothing was created.** The one refusal names every dead instrument, both forms it checked
+>   **Nothing was created BY THAT RUN** — the gate read the instrument list and stopped before reading
+>   this package's own live state, so whatever the package already had is untouched and this gate
+>   cannot see it. Relay it that scoped way (never "there is no wallet"): on a resume the package may
+>   already own a funded, live wallet, and the unscoped sentence is what funds a second one beside it.
+>   The one refusal names every dead instrument, both forms it checked
 >   (`T` and `xyz:T`), and the exact file + key path each appears in. Fix each named instrument in the
 >   package (the **senpi-strategy-author** edit path), re-check read-only with
 >   `python3 senpi-strategy-ops/scripts/validate_universe.py <dir>`, then re-run. A dead name never
 >   errors at runtime — the scan skips it and the strategy silently trades nothing — so **never
 >   "deploy anyway"**. If the step instead reports that the live instrument list **could not be read**,
->   nothing is claimed dead and nothing was created: retry once the MCP server is reachable.
+>   nothing is claimed dead, nothing was created by that run and nothing the package already had was
+>   touched: retry once the MCP server is reachable.
 > - **`[E_VALIDATE_NO_PROOF]` / `[E_VALIDATE_CONTENT_CHANGED]` / `[E_VALIDATE_RUNTIME_VERSION_CHANGED]`** —
 >   deploy will not fund a package it cannot prove ever ran. **Refused pre-money — nothing was created
 >   BY THAT RUN.** Say it exactly that scoped way: this gate reads the package's own files and stops
