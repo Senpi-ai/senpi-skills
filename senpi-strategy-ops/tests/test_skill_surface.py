@@ -36,5 +36,46 @@ class TaxonomyCoversWhatTheSkillsTeach(unittest.TestCase):
         self.assertEqual(missing, [], f"codes taught with no taxonomy row: {missing}")
 
 
+RELAY_HEADING = "### Refusals and warns — the relay contract"
+
+
+def _section(body, heading):
+    """The lines under `heading`, up to the next heading at the same or shallower depth."""
+    lines = body.splitlines()
+    start = next(i for i, ln in enumerate(lines) if ln.strip() == heading)
+    depth = len(heading) - len(heading.lstrip("#"))
+    for j in range(start + 1, len(lines)):
+        ln = lines[j]
+        if ln.startswith("#") and (len(ln) - len(ln.lstrip("#"))) <= depth:
+            return "\n".join(lines[start:j])
+    return "\n".join(lines[start:])
+
+
+class RelayContractNamesNoComputedCommand(unittest.TestCase):
+    """`buildBudgetEscape` (runtime orchestrator.ts:810) decides AT RUNTIME whether to emit a scoped
+    `close.py --instance`, a read-only `status.py` pointer, or nothing at all — the stranded-wallet
+    and zero-share branches deliberately emit no teardown. A static copy in the skill contradicts
+    whichever branch actually fired, and the failure mode is an agent closing a funded wallet."""
+
+    def test_relay_section_hardcodes_no_teardown_command(self):
+        section = _section(_skill_body(OPS), RELAY_HEADING)
+        for forbidden in ("close.py", "strategy_close"):
+            self.assertNotIn(forbidden, section,
+                             f"the relay contract names {forbidden!r}; the runtime computes it")
+
+
+class ReferencePointersResolve(unittest.TestCase):
+    """A bucket-4 move is only safe if the pointer lands. A dead relative link silently turns
+    'depth is one read away' into 'depth is gone'."""
+
+    def test_every_relative_md_link_exists(self):
+        for skill in ("senpi-strategy-ops", "senpi-strategy-author"):
+            path = REPO / skill / "SKILL.md"
+            for target in re.findall(r"\]\((?!https?:)([^)#]+\.md)\)", _skill_body(path)):
+                with self.subTest(skill=skill, target=target):
+                    self.assertTrue((path.parent / target).resolve().is_file(),
+                                    f"{skill}/SKILL.md links to missing {target}")
+
+
 if __name__ == "__main__":
     unittest.main()
