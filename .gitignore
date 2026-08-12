@@ -11,5 +11,6 @@ __pycache__/
 
 # local tool state
 .codex/
+.claude/
 .DS_Store
 .pytest_cache/
