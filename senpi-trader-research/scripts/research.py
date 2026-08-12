@@ -2,14 +2,18 @@
 """senpi-trader-research engine — find copy candidates + vet a single trader (hidden, deterministic).
 
 The agent (LLM) runs this via the OpenClaw `exec` tool, reads the JSON on stdout, and NARRATES a
-trader read (see SKILL.md). The script does the data work — pull the historical track-record ranking,
-or build a due-diligence dossier on one trader (track record + current positions + 4h momentum) — and
-the LLM does the analyst prose + the CTAs.
+trader read (see SKILL.md). The script does the data work — and the LLM does the analyst prose + CTAs.
 
-  python3 research.py                          # top traders (find copy candidates)
+Track record only says whether a trader is GOOD; it never says whether you can COPY them right now.
+So FIND is mirror-aware by default: it enriches the top candidates with their live book, the PRICE
+distance of each position from the trader's entry (what a mirror's slippage gates on), and 4h
+momentum — and returns a `mirror_shortlist` ranked by copyability, not ROI.
+
+  python3 research.py                          # find copy candidates — mirror-aware (top + mirror_shortlist)
   python3 research.py --trader 0xabc…          # due-diligence dossier on one trader
   python3 research.py --strategies             # top copy-trading strategies (mirror leaderboard)
   python3 research.py --time-frame ALL_TIME --sort-by WIN_RATE --limit 15
+  python3 research.py --no-mirror              # track record only (skip the live-book enrichment)
   python3 research.py --fixture f.json          # offline (tests)   |   --dry  (raw dump)
 
 Modeled on senpi-strategy-discover's hidden-engine pattern: guarded I/O, fails open, valid JSON.
@@ -25,6 +29,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # Senpi Discovery reliability floor (per the overview): a track record needs enough trades + days.
 MIN_TRADES_FOR_TRUST = 5
 MIN_ACTIVE_DAYS_FOR_TRUST = 7
+# A copy decision needs more than a track record. These gate the mirror layer:
+CATASTROPHIC_DD = -60.0        # a max drawdown at/below this can't read "solid" — near-liquidation history
+BLOWUP_DD = -80.0             # …and at/below this caps the verdict at "choppy" outright
+HIGH_TURNOVER_PER_DAY = 8.0   # above this, a proportional copy bleeds fees (fees are the biggest killer)
+NEAR_ENTRY_BAND_PCT = 5.0     # a position within this PRICE distance of the trader's entry is a fresh mirror entry
+ENRICH_TOP_DEFAULT = 5        # how many top find-candidates to mirror-enrich (positions + distance + momentum)
 
 
 # ──────────────────────────────────────────────────────────────── guarded helpers
@@ -114,6 +124,7 @@ def _candidate(t):
         "consistency": _field(t, "tcsLabel", "consistency", "consistencyLabel", "tcs"),
         "risk": _field(t, "risk", "riskLabel"),
         "activity": _field(t, "activity", "activityLabel", "tas"),
+        "trades_per_day": _f(t, "averageTradesPerDay"),
     }
     # live payload carries age as traderAgeSeconds and activity as averageTradesPerDay —
     # derive the human units the ranker/reliability gate need
@@ -125,22 +136,167 @@ def _candidate(t):
         tpd = _f(t, "averageTradesPerDay")
         if tpd is not None and c["active_days"] is not None:
             c["trades"] = round(tpd * c["active_days"])
+    if c["trades_per_day"] is None and c["trades"] and c["active_days"]:
+        c["trades_per_day"] = round(c["trades"] / c["active_days"], 2)
     return c
 
 
 def _reliability(c):
     trades, days = c.get("trades"), c.get("active_days")
+    dd = c.get("max_drawdown_pct")
     if (trades is not None and trades < MIN_TRADES_FOR_TRUST) or \
        (days is not None and days < MIN_ACTIVE_DAYS_FOR_TRUST):
         return "thin"            # too few trades/days to trust the record
     if c.get("consistency") == "CHOPPY":
         return "choppy"          # erratic — high variance
-    if c.get("consistency") in ("ELITE", "RELIABLE"):
-        return "solid"
-    return "ok"
+    verdict = "solid" if c.get("consistency") in ("ELITE", "RELIABLE") else "ok"
+    # A catastrophic drawdown can't read as "solid": the record may be real, but a trader who was
+    # once near-liquidated is not a safe copy. The record stands; the risk caps the verdict.
+    if dd is not None:
+        if dd <= BLOWUP_DD:
+            return "choppy"
+        if dd <= CATASTROPHIC_DD and verdict == "solid":
+            return "ok"
+    return verdict
 
 
-def find_top_traders(client, meta, time_frame, sort_by, limit):
+# ──────────────────────────────────────────────────────── the mirror-decision layer
+# Track record says whether a trader is GOOD. None of it says whether you can COPY them right now.
+# That takes their current book (can you open near their entries?) + 4h momentum (are they hot?).
+def _positions_from_state(trec):
+    """Open positions + account aggregates from a discovery_get_trader_state record. Each position
+    carries `moved_from_entry_pct` — the PRICE distance from the trader's entry, which is exactly what
+    a mirror's slippage tolerance gates on. (ROE is leveraged and overstates that distance.)"""
+    positions, net_notional, upnl, margin_pct = [], 0.0, 0.0, None
+    if isinstance(trec, dict):
+        cms = _field(trec, "crossMarginSummary", "cross_margin_summary", default={}) or {}
+        margin_pct = _f(trec, "marginPercentage", "margin_percentage") or _f(cms, "marginPercentage")
+        for p in (_field(trec, "openPositions", "open_positions", "positions", default=[]) or []):
+            if not isinstance(p, dict):
+                continue
+            szi = _f(p, "szi", "size", default=0.0) or 0.0
+            val = _f(p, "positionValue", "position_value", "notional", default=0.0) or 0.0
+            pu = _f(p, "unrealizedPnl", "unrealized_pnl", default=0.0) or 0.0
+            entry = _f(p, "entryPx", "entry_px")
+            mark = (abs(val) / abs(szi)) if szi else None
+            moved = round((mark - entry) / entry * 100, 2) if (entry and mark) else None
+            upnl += pu
+            net_notional += (val if szi > 0 else -val)
+            positions.append({
+                "asset": _field(p, "coin", "asset"),
+                "direction": "long" if szi > 0 else "short",
+                "notional": round(abs(val), 2),
+                "upnl": round(pu, 2),
+                "roe_pct": round((_f(p, "returnOnEquity", "return_on_equity", default=0.0) or 0.0) * 100, 2),
+                "entry_px": entry,
+                "mark_px": round(mark, 6) if mark else None,
+                "moved_from_entry_pct": moved,      # signed price move since entry; |·| is the slippage distance
+            })
+    return positions, round(net_notional, 2), round(upnl, 2), (round(margin_pct, 1) if margin_pct is not None else None)
+
+
+def _mirrorability(positions):
+    """How copyable this book is RIGHT NOW: the share of notional still within slippage range of the
+    trader's entry. A mirror opens those near-entry positions; the ones that already ran it either
+    skips (tight slippage) or chases into a bad price (loose slippage). This is the go/no-go."""
+    total = sum(p["notional"] for p in positions) if positions else 0.0
+    scored = [p for p in (positions or []) if p.get("moved_from_entry_pct") is not None]
+    if not scored or total <= 0:
+        return {"fresh_entry_surface_pct": None, "mirror_fit": "unknown",
+                "positions_scored": 0, "near_entry_band_pct": NEAR_ENTRY_BAND_PCT}
+    near = sum(p["notional"] for p in scored if abs(p["moved_from_entry_pct"]) <= NEAR_ENTRY_BAND_PCT)
+    surface = round(near / total * 100, 1)
+    fit = "good" if surface >= 60 else "partial" if surface >= 20 else "poor"
+    return {"fresh_entry_surface_pct": surface, "mirror_fit": fit,
+            "positions_scored": len(scored), "near_entry_band_pct": NEAR_ENTRY_BAND_PCT}
+
+
+def _flags(c, positions=None, net_upnl=None, margin_pct=None):
+    """The analyst's anchor list — surfaced verbatim by the skill. Track-record + book risks together."""
+    flags = []
+    if c.get("reliability") == "thin":
+        flags.append("thin_track_record")     # < 5 trades or < 7 active days — not yet trustworthy
+    if c.get("consistency") == "CHOPPY":
+        flags.append("choppy_consistency")
+    dd = c.get("max_drawdown_pct")
+    if dd is not None and dd <= CATASTROPHIC_DD:
+        flags.append("blowup_risk")            # ≤ -60% max drawdown — near-liquidation history
+    tpd = c.get("trades_per_day")
+    if tpd is not None and tpd > HIGH_TURNOVER_PER_DAY:
+        flags.append("high_turnover")          # a proportional copy will bleed fees
+    if margin_pct is not None and margin_pct > 90:
+        flags.append("critical_margin_usage")
+    elif margin_pct is not None and margin_pct > 80:
+        flags.append("high_margin_usage")
+    if net_upnl is not None and net_upnl < 0:
+        flags.append("currently_in_drawdown")
+    if positions:
+        tot = sum(p["notional"] for p in positions) or 1
+        if max(p["notional"] for p in positions) > 0.6 * tot:
+            flags.append("concentrated_book")
+        if len(positions) == 1:
+            flags.append("single_position")    # one bet — un-diversifiable and often already run
+    return flags
+
+
+def _momentum_from_leaderboard(lm):
+    if not isinstance(lm, dict):
+        return None
+    t = lm.get("trader") if isinstance(lm.get("trader"), dict) else lm
+    pnl = t.get("pnl") if isinstance(t.get("pnl"), dict) else {}
+    return {"rank": _f(t, "rank"),
+            "delta_pnl_4h_usd": _f(t, "deltaPnl", "delta_pnl") or _f(pnl, "unrealized"),
+            "active_positions": _f(t, "position_count", "activePositions", "active_positions")}
+
+
+def _momentum_label(m):
+    if not m or m.get("delta_pnl_4h_usd") is None:
+        return "unknown"
+    d = m["delta_pnl_4h_usd"]
+    return "hot" if d > 0 else "cold" if d < 0 else "flat"
+
+
+def _enrich_for_mirror(client, meta, c):
+    """Attach the copy-decision layer to a find candidate — current book, price-distance mirrorability,
+    4h momentum, full flags. Best-effort per trader; fails open so one bad lookup can't sink the find."""
+    addr = c.get("address")
+    positions, net_upnl, margin_pct, momentum = [], None, None, None
+    try:
+        st = _ok(client.mcp_call("discovery_get_trader_state", trader_addresses=[addr], timeout=15))
+        trec = next((t for t in _rows(st, "traders") if isinstance(t, dict)), st if isinstance(st, dict) else {})
+        positions, _net, net_upnl, margin_pct = _positions_from_state(trec)
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"state {c.get('short')}: {e}")
+    try:
+        lm = _ok(client.mcp_call("leaderboard_get_trader", trader_id=addr, timeout=12))
+        momentum = _momentum_from_leaderboard(lm)
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"momentum {c.get('short')}: {e}")
+    c["current_positions"] = positions
+    c["mirrorability"] = _mirrorability(positions)
+    c["recent_momentum"] = momentum
+    c["momentum"] = _momentum_label(momentum)
+    c["net_exposure"] = {"unrealized_pnl_usd": net_upnl, "margin_pct": margin_pct}
+    c["flags"] = _flags(c, positions=positions, net_upnl=net_upnl, margin_pct=margin_pct)
+    return c
+
+
+_FIT_RANK = {"good": 0, "partial": 1, "poor": 2, "unknown": 3}
+_REL_RANK = {"solid": 0, "ok": 1, "choppy": 2, "thin": 3, "unknown": 4}
+
+
+def _mirror_sort_key(c):
+    """Order the shortlist by COPYABILITY, not ROI: no blowup history, then mirror-fit, then a trusted
+    record, then how much of the book is still near entry. This is what 'smart from the get-go' means."""
+    m = c.get("mirrorability") or {}
+    flags = c.get("flags") or []
+    return (1 if "blowup_risk" in flags else 0,
+            _FIT_RANK.get(m.get("mirror_fit"), 3),
+            _REL_RANK.get(c.get("reliability"), 4),
+            -(m.get("fresh_entry_surface_pct") or 0))
+
+
+def find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=ENRICH_TOP_DEFAULT):
     try:
         resp = client.mcp_call("discovery_get_top_traders", time_frame=time_frame, sort_by=sort_by,
                                limit=limit, timeout=20)
@@ -154,6 +310,11 @@ def find_top_traders(client, meta, time_frame, sort_by, limit):
         c = _candidate(t)
         c["reliability"] = _reliability(c)
         out.append(c)
+    # Mirror-aware by default: the FIRST answer must be able to lead with whether you can actually
+    # copy these traders now, not just their track record. Enrich the top few we'd realistically
+    # recommend with their live book + distance-from-entry + momentum. `enrich_top=0` opts out.
+    for c in out[:min(enrich_top, len(out))] if enrich_top else []:
+        _enrich_for_mirror(client, meta, c)
     return out
 
 
@@ -207,39 +368,27 @@ def vet_trader(client, meta, addr):
         meta.setdefault("warnings", []).append(f"labels lookup failed: {e}")
         row = {}
     c = _candidate(row) if row else {}
+    c["reliability"] = _reliability(c) if c else "unknown"
     dossier["track_record"] = {k: c.get(k) for k in
-                               ("roi_pct", "pnl_usd", "win_rate_pct", "max_drawdown_pct", "trades", "active_days")}
+                               ("roi_pct", "pnl_usd", "win_rate_pct", "max_drawdown_pct",
+                                "trades", "active_days", "trades_per_day")}
     dossier["labels"] = {"consistency": c.get("consistency"), "risk": c.get("risk"), "activity": c.get("activity")}
-    dossier["reliability"] = _reliability(c) if c else "unknown"
+    dossier["reliability"] = c.get("reliability", "unknown")
 
-    # 2) current state — open positions + account risk
+    # 2) current book — positions + PRICE-distance-from-entry mirrorability + account risk
     try:
         st = _ok(client.mcp_call("discovery_get_trader_state", trader_addresses=[addr], timeout=20))
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"trader_state failed: {e}")
         st = None
-    positions, net_notional, upnl, margin_pct = [], 0.0, 0.0, None
     trec = next((t for t in _rows(st, "traders") if isinstance(t, dict)), st if isinstance(st, dict) else {})
-    if isinstance(trec, dict):
-        cms = _field(trec, "crossMarginSummary", "cross_margin_summary", default={}) or {}
-        margin_pct = _f(trec, "marginPercentage", "margin_percentage") or _f(cms, "marginPercentage")
-        for p in (_field(trec, "openPositions", "open_positions", "positions", default=[]) or []):
-            if not isinstance(p, dict):
-                continue
-            szi = _f(p, "szi", "size", default=0.0)
-            val = _f(p, "positionValue", "position_value", "notional", default=0.0) or 0.0
-            pu = _f(p, "unrealizedPnl", "unrealized_pnl", default=0.0) or 0.0
-            upnl += pu
-            net_notional += (val if szi > 0 else -val)
-            positions.append({"asset": _field(p, "coin", "asset"),
-                              "direction": "long" if szi > 0 else "short",
-                              "notional": round(abs(val), 2), "upnl": round(pu, 2),
-                              "roe_pct": round((_f(p, "returnOnEquity", "return_on_equity", default=0.0) or 0.0) * 100, 2)})
+    positions, net_notional, upnl, margin_pct = _positions_from_state(trec)
     dossier["current_positions"] = positions
-    dossier["net_exposure"] = {"net_notional_usd": round(net_notional, 2),
+    dossier["mirrorability"] = _mirrorability(positions)
+    dossier["net_exposure"] = {"net_notional_usd": net_notional,
                                "bias": "long" if net_notional > 0 else "short" if net_notional < 0 else "flat",
-                               "unrealized_pnl_usd": round(upnl, 2),
-                               "margin_pct": round(margin_pct, 1) if margin_pct is not None else None}
+                               "unrealized_pnl_usd": upnl,
+                               "margin_pct": margin_pct}
 
     # 3) recent 4h momentum
     try:
@@ -247,36 +396,17 @@ def vet_trader(client, meta, addr):
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"leaderboard_get_trader failed: {e}")
         lm = None
-    if isinstance(lm, dict):
-        # live shape nests the record under `trader`: {rank, pnl:{unrealized,...}, position_count}
-        t = lm.get("trader") if isinstance(lm.get("trader"), dict) else lm
-        pnl = t.get("pnl") if isinstance(t.get("pnl"), dict) else {}
-        dossier["recent_momentum"] = {"rank": _f(t, "rank"),
-                                      "delta_pnl_4h_usd": _f(t, "deltaPnl", "delta_pnl") or _f(pnl, "unrealized"),
-                                      "active_positions": _f(t, "position_count", "activePositions", "active_positions")}
-    else:
-        dossier["recent_momentum"] = None
+    dossier["recent_momentum"] = _momentum_from_leaderboard(lm)
+    dossier["momentum"] = _momentum_label(dossier["recent_momentum"])
 
     # 4) flags + caveats (analyst anchors; the LLM narrates)
-    flags = []
-    if dossier["reliability"] == "thin":
-        flags.append("thin_track_record")     # < 5 trades or < 7 active days — record not yet trustworthy
-    if dossier["labels"].get("consistency") == "CHOPPY":
-        flags.append("choppy_consistency")
-    if margin_pct is not None and margin_pct > 90:
-        flags.append("critical_margin_usage")
-    elif margin_pct is not None and margin_pct > 80:
-        flags.append("high_margin_usage")
-    if upnl < 0:
-        flags.append("currently_in_drawdown")
-    if positions and max(p["notional"] for p in positions) > 0.6 * (sum(p["notional"] for p in positions) or 1):
-        flags.append("concentrated_book")
-    dossier["flags"] = flags
+    dossier["flags"] = _flags(c, positions=positions, net_upnl=upnl, margin_pct=margin_pct)
     return dossier
 
 
 # ──────────────────────────────────────────────────────────────── orchestration
-def run(client, mode, addr=None, time_frame="MONTHLY", sort_by="RETURN_ON_INVESTMENT", limit=20):
+def run(client, mode, addr=None, time_frame="MONTHLY", sort_by="RETURN_ON_INVESTMENT", limit=20,
+        enrich_top=ENRICH_TOP_DEFAULT):
     meta = {"warnings": []}
     out = {"as_of": "live", "mode": mode, "meta": meta}
     if mode == "vet":
@@ -284,8 +414,13 @@ def run(client, mode, addr=None, time_frame="MONTHLY", sort_by="RETURN_ON_INVEST
     elif mode == "strategies":
         out["strategies"] = find_top_strategies(client, meta, limit)
     else:
-        out["candidates"] = find_top_traders(client, meta, time_frame, sort_by, limit)
-        out["ranking"] = {"time_frame": time_frame, "sort_by": sort_by}
+        cands = find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=enrich_top)
+        out["candidates"] = cands
+        # Lead the copy decision with the shortlist ranked by COPYABILITY, not the ROI table.
+        enriched = [c for c in cands if "mirrorability" in c]
+        if enriched:
+            out["mirror_shortlist"] = sorted(enriched, key=_mirror_sort_key)
+        out["ranking"] = {"time_frame": time_frame, "sort_by": sort_by, "enriched": len(enriched)}
     if mode != "vet" and not out.get("candidates") and not out.get("strategies"):
         meta["degraded"] = "no ranking data — check the token is USER-scoped"
     return out
@@ -309,6 +444,9 @@ def main(argv=None):
     ap.add_argument("--time-frame", default="MONTHLY", choices=["DAILY", "WEEKLY", "MONTHLY", "ALL_TIME"])
     ap.add_argument("--sort-by", default="RETURN_ON_INVESTMENT")
     ap.add_argument("--limit", type=int, default=20)
+    ap.add_argument("--enrich-top", type=int, default=ENRICH_TOP_DEFAULT,
+                    help="mirror-enrich the top N find candidates (live book + distance-from-entry + momentum)")
+    ap.add_argument("--no-mirror", action="store_true", help="skip mirror enrichment — track record only")
     ap.add_argument("--fixture")
     ap.add_argument("--dry", action="store_true")
     a = ap.parse_args(argv)
@@ -332,8 +470,10 @@ def main(argv=None):
         return 0
 
     mode = "vet" if a.trader else ("strategies" if a.strategies else "top")
+    enrich = 0 if a.no_mirror else a.enrich_top
     try:
-        result = run(client, mode, addr=a.trader, time_frame=a.time_frame, sort_by=a.sort_by, limit=a.limit)
+        result = run(client, mode, addr=a.trader, time_frame=a.time_frame, sort_by=a.sort_by,
+                     limit=a.limit, enrich_top=enrich)
     except Exception as e:  # noqa
         print(json.dumps({"candidates": [], "meta": {"error": f"engine failure: {e}"}}))
         return 1
