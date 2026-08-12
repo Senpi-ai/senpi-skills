@@ -30,8 +30,14 @@
 **Created:**
 - `senpi-strategy-ops/references/refusal-playbook.md` — per-code depth, read only when a code fires. Bucket-4 destination for `:238-322` and `:324-379`.
 - `senpi-strategy-ops/tests/test_skill_surface.py` — the committed guards (budget, code-mention cap, relay-contract purity, link integrity).
-- `docs/specs/2026-08-12-classification-table.md` — paragraph → bucket → evidence → disposition. The reviewable artifact.
-- `docs/specs/2026-08-12-ladder-results.md` — injection matrix outcomes.
+- `docs/specs/2026-08-12-classification-table.md` — paragraph → bucket → evidence → disposition. The reviewable artifact. **Committed, and therefore must carry no user data** — see the data rule below.
+
+**Local-only, never committed** (ruling 2026-08-12). `senpi-skills` is a **public MIT repository**. Production transcripts carry real user IDs (`M######`), wallet addresses, strategy names and verbatim user message text; ladder runs carry live wallet addresses and balances. None of it goes into git.
+
+- `.superpowers/sdd/2026-08-12-skills-context-reduction/transcripts/` — Task 3's pulled prod transcripts. `.superpowers/` is git-ignored (`.gitignore:15`).
+- `.superpowers/sdd/2026-08-12-skills-context-reduction/ladder-results.md` — Task 8's injection matrix outcomes, including the transcript excerpts it quotes.
+
+The **committed** classification table may cite a transcript only as an opaque local reference (`transcripts/<file>#<n>`) plus a non-identifying one-line characterisation of the behaviour. **No MID, no wallet address, no verbatim user message.** If a row cannot make its point without user data, it cites `blame-only` evidence instead and the detail stays local.
 
 **Modified:**
 - `senpi-strategy-ops/SKILL.md` — 626 → ~260
@@ -352,6 +358,10 @@ No code. This produces the evidence every later cut cites, and it runs **before*
 Use the `senpi-infra:funnel-report` skill to find last-30-day sessions that reached a deploy, then `senpi-infra:agent-session-transcript` on the subset that hit a refusal or a `W_` warn — those are the only sessions where this teaching had a job.
 
 For each, record: the code that fired, what the agent said next, what command it ran next, and whether it moved money.
+
+**Write every transcript to `.superpowers/sdd/2026-08-12-skills-context-reduction/transcripts/` and NOWHERE else.** That directory is git-ignored. **Never `git add` a transcript, never paste transcript content into a committed file, and never paste it into a PR comment.** This repo is public and these are real users' sessions — MIDs, wallet addresses, and their own words. Keep the raw pulls: Task 8 replays this same set as its behavioural baseline, so re-pulling later would compare against a different population.
+
+Name each file so Task 8 can find it by the code it exercises, e.g. `transcripts/E_FUNDS_SHORT-01.md`. Keep a local `transcripts/index.md` mapping file → code → one-line outcome; that index is the thing Task 3's committed table cites, by filename only.
 
 - [ ] **Step 2: Mark the protected set**
 
@@ -756,7 +766,15 @@ Use the `dev-release-testing` skill. Overlay this branch's skills onto the runni
 
 This authorization covers Task 8 only. Nothing in Tasks 1–7 moves money, and no task outside this one may fund a wallet.
 
-- [ ] **Step 2: Run the injection matrix**
+- [ ] **Step 2: Run the injection matrix against the Task 3 baseline**
+
+**Read `.superpowers/sdd/2026-08-12-skills-context-reduction/transcripts/index.md` first.** Task 3 pulled real prod sessions for these same codes and they are the comparison, not just background: for every injection below, the question is not only "did the agent pass the bar" but **"did it behave at least as well as the pre-reduction agent did on the real session that fired the same code."**
+
+A pass condition met differently from the baseline is worth recording, not just a tick. A regression against the baseline is a fail even if the bar below is technically met — that is the whole point of having pulled them.
+
+Where no transcript exists for a code (the rarer refusals), say so in the results file; that injection is judged against the bar alone and its evidence is weaker.
+
+Transcripts stay local; nothing from them is quoted into anything committed.
 
 | Injection | How | Pass condition |
 |---|---|---|
@@ -782,14 +800,17 @@ Prefer 2 — it is the fix direct MCP and CLI callers get too. Record which was 
 
 - [ ] **Step 5: Commit the results**
 
-```bash
-git add docs/specs/2026-08-12-ladder-results.md
-git commit -m "docs: ladder results for the reduced skills, one row per injected refusal
+**Nothing is committed by this step.** Write the results to
+`.superpowers/sdd/2026-08-12-skills-context-reduction/ladder-results.md` (git-ignored). A ladder run
+quotes live wallet addresses, balances and the agent's own transcript — this repo is public, so the
+evidence stays local and only the *verdict* travels.
 
-Guards prove the second copy is gone. Only this proves the agent still
-does the right thing without it — including the two branches that
-deliberately name no command, where the failure mode is inventing one."
-```
+What may leave the local directory: a one-line pass/fail per injection row, with no address, no
+balance, and no transcript text. That summary belongs in the PR conversation or the ledger, not in a
+committed file.
+
+Do not `git add` anything in this task. If a finding here requires a code or doc change, that change
+is its own commit in the task that owns the file — not bundled with evidence.
 
 ---
 
