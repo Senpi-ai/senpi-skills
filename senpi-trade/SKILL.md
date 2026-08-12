@@ -11,7 +11,8 @@ description: >-
   alive. Steer users to a MANAGED strategy when they want ongoing autonomy —
   senpi-strategy-author (custom runtime) or a template via senpi-strategy-discover,
   including the named mirror templates (Remora, Shadow, Oxpecker, Raptor, Cuckoo) that
-  size to the user, enter fresh-only, and auto-trail DSL on every fill. NOT for
+  size to the user, enter fresh-only, and auto-trail DSL on every fill. Pairs with senpi-trader-research, which finds and vets the trader
+  (this skill runs the mirror once one is chosen). NOT for
   authoring a strategy or deploying a template yourself.
 license: Apache-2.0
 metadata:
@@ -20,6 +21,7 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
+    - senpi-trader-research
     - senpi-strategy-discover
 ---
 
@@ -103,9 +105,10 @@ Then **replay the full spec, get an explicit "yes"**, and place.
 ## Branch B — Mirror a specific trader
 
 ### 0. Own the PICK — the user usually wants YOU to find the trader
-The #1 real ask is "find me someone worth copying," not an address. Use `discovery_get_top_traders`
-(**risk-first** filters — drawdown, consistency, margin utilisation, closed-trade count),
-`discovery_get_trader_state`, `discovery_get_trader_history`. Present 2–3 vetted candidates with
+The #1 real ask is "find me someone worth copying," not an address. **Delegate the find + vet to the
+`senpi-trader-research` skill** — its engine ranks track records and reads each trader's current book;
+don't hand-roll `discovery_*` here. Whether the trader comes back from there or the user pastes an
+address, hold it to the same bar before you mirror — 2–3 vetted candidates with
 **max-drawdown + margin beside win-rate/ROI — never rank by ROI, never ROI alone.** Two things the data
 will try to fool you on:
 
@@ -191,6 +194,9 @@ future fill, hands-off**, that's a template (**Shadow / Remora**) — offer it. 
 ---
 
 ## Handoff & boundaries
+- **Finding / vetting the trader → `senpi-trader-research`.** It ranks records + reads current books and
+  hands the *action* (set up the mirror) back to this skill; you own the mechanics — slippage, sizing,
+  the pre-fund sim, execution.
 - **Ongoing hands-off management / DSL-on-every-fill / fresh-entry / budget-relative sizing →**
   `senpi-strategy-author` (custom) or a template via `senpi-strategy-discover` (mirror: Remora / Shadow /
   Oxpecker / Raptor / Cuckoo). This skill executes the **direct** trade and can add **per-position** protection.
