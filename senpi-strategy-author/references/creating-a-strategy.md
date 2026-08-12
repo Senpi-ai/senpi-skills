@@ -302,7 +302,7 @@ kind — the flat package §11 builds is not, and neither is yours.)
 `[E_VALIDATE_NO_RECIPE]` is a **layout** answer, not a code one, and it is the cheapest way to find
 out you built the wrong shape. Observed in testing: a package written as `runtime/recipe.yaml` could
 not be loaded by anything — and was still offered to the user as "ready to deploy". Per-code depth
-for this and every other refusal: `../senpi-strategy-ops/references/refusal-playbook.md`.
+for this and every other refusal: `../../senpi-strategy-ops/references/refusal-playbook.md`.
 
 It runs the **real loop** — same code path production uses — imports every scanner file, executes `scan()` once against live read-only data, counts what it actually read, and builds each returned candidate into the exact wire shape intake would receive, checking it against intake's own schema. **No wallet, no funding, no deploy.**
 
@@ -316,10 +316,14 @@ finding, and any other error alongside it makes the run a FAIL instead. So two p
 already excluded, and neither is worth chasing: *"reads were attempted and failed"* is a FAIL (exit
 1) carrying the failing tool and its error, not an UNPROVEN; and *"no setups right now"* is a PASS
 with a no-signals warning, because a tick that reads and finds nothing to trade still read. What is
-left is the pair the finding itself distinguishes — the scan **returned early** (it names the file,
-line and function it returned from, so put the `ctx.dry_run` bypass on *that* path, not the one you
-assumed), or it fetched **off-route**: data pulled through anything other than `ctx.senpi_mcp` is
-invisible to the counter, so the run cannot be proven however much it actually read.
+left is a pair the finding **reports without adjudicating**: it names the file, line and function
+the scan returned from (so put the `ctx.dry_run` bypass on *that* path, not the one you assumed),
+and, when it detects any, the **off-route** data sources — anything fetched outside `ctx.senpi_mcp`
+is invisible to the counter, so the run cannot be proven however much it really read. It will
+**not** tell you which of the two caused this, deliberately: the off-route check is import-level
+rather than call-level, so a scanner can import such a source for something else and still have a
+genuine early exit, and a confident wrong diagnosis costs more than two honest observations. When
+both are reported, check both.
 
 Fix what it reports, re-run, and only hand to ops once it says PASS. **A clean lint is not a pass; only `senpi validate` is.**
 

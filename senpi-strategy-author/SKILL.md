@@ -365,7 +365,7 @@ loop every time:
    pass**, no money moved and nothing installed. The deployer **accepts the flat package you built**
    (it synthesizes the `main` instance), so you do **not** restructure into `main/` or hand-write
    `.deploy-state.json`. **Pass the package DIRECTORY** (absolute is safest, e.g.
-   `/data/workspace/strategies/<id>`) — a bare id becomes a remote catalog fetch, not your package.
+   `/data/workspace/strategies/<id>`) — a bare id is searched for, and fetched from the catalog only if nothing is on disk.
 3. **Deploy** — `deploy.py create <path> --budget <the user's exact amount>`. That ONE command runs the
    whole path (wallet create+fund → runtime install → one observed scanner tick) as a detached job and
    relays the job's report; there is no separate `runtime` step to chase. The budget is a **hard
