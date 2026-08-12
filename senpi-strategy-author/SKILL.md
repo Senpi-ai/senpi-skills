@@ -68,11 +68,6 @@ never as a gate:
    bridge for *"close, but I want changes."*
 3. **Design your own from scratch** — first-class, fully supported; you run the interview below.
 
-**Example opening (new-ish user, thesis hinted):**
-> *"Two ways to go: I can get you running fast from a proven template — **Cougar** is close to what you
-> described, and you can tweak it to make it yours — or if you'd rather, we design one from scratch
-> together. Your call — what sounds better?"*
-
 **Tone — encourage without discouraging:** template-first is *"the fastest way to get running,"* **never**
 *"the right way"* — scratch is a **peer**, not a downsell. **The user's choice is final**: if they pick scratch
 (or already gave a specific thesis), go straight into the interview — **never re-pitch or nag**. Calibrate to
@@ -134,10 +129,6 @@ to exactly $10 still refuses with `[E_FUNDS_BELOW_FLOOR]`.
   (deposit flow = the `senpi-deposit-withdraw-transfer` skill)
 - One heads-up total. NEVER hold the interview hostage on funding, never re-ask
   mid-interview, and never refuse to build.
-
-Why this exists: users have completed the entire interview and build, then hit the
-funding wall at the last step and left. The wall is real and stays — this step only
-moves the news to the first minute, while the user's investment is still zero.
 
 1. **One question at a time. Never dump all 7 decisions, never paste the guide.** Ask → wait for the
    answer → reflect it back → ask the next. A wall of seven questions is the failure mode this skill
@@ -240,12 +231,11 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
    (b) **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>`
    — every hardcoded ticker must be a live HL instrument (derived-universe strategies pass trivially);
    (c) **deploy contract** → `python3 senpi-strategy-ops/scripts/deploy.py validate /data/workspace/strategies/<id>`
-   — the deployer's structural preflight (structure, linkage, render; **no side effects**). It also
-   REPORTS the universe from the same predicates as (b), so it reads the live instrument list and
-   needs `SENPI_AUTH_TOKEN`. Reporting is all it does: the universe is **enforced by the deploy verb
-   itself, pre-money** — a dead ticker refuses `[E_UNIVERSE_NOT_LIVE]`, and that run funds no wallet
-   (the refusal is scoped to itself: on a redeploy the package may already own a funded one, which
-   this gate stops before reading — never relay it as "no wallet exists").
+   — the deployer's structural preflight (structure, linkage, render; **no money moved, nothing
+   installed** — though not side-effect-free: a bare catalog id is fetched to disk). It also
+   **reports** the universe from (b)'s predicates, so it reads the live instrument list and needs
+   `SENPI_AUTH_TOKEN`; the deploy verb **enforces** that gate itself, pre-money, and renders its own
+   refusal — [`refusal-playbook.md`](../senpi-strategy-ops/references/refusal-playbook.md).
    These are **fast feedback, not a verdict** — they read the package, they never run it. Fix what
    they report, then go to stage 9. **A clean lint does not mean the strategy works.**
 9. **THE GATE — `senpi validate`. Authoring is not done until this is green.**
@@ -271,14 +261,7 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
      accepted. *Now* you may hand to ops.
    - **UNPROVEN** (exit 2) — it ran cleanly and **established nothing**: zero successful reads. **This
      is NOT a pass.** Usually a gate inside `scan()` (a session/time-of-day check) that returned
-     early — have it consult `ctx.dry_run` so validation can see a real read. The finding names the
-     line it returned from.
-     **If it stays UNPROVEN after that**, the reads still are not happening, and the finding says
-     which of two things it is: reads were attempted and failed (an auth or service problem —
-     confirm the token actually reaches that service before blaming the scanner), or no read was
-     attempted at all (the `dry_run` bypass is not on the path that fetches). "No setups right now"
-     is **not** one of the possibilities — a tick that reads and finds nothing to trade returns
-     PASS with a no-signals warning.
+     early — have it consult `ctx.dry_run` so validation can see a real read.
    - **FAIL** (exit 1) — every finding carries `what` / `why` / `fix`, computed against your actual
      package. Apply the fix, re-run. Don't go silent while you debug — narrate the fix and re-run.
 
@@ -286,11 +269,6 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
    verdict. If `live` is not in what you are about to paste, you did not run the gate and you have
    nothing to report. This is the one claim in the whole flow that must carry its own evidence,
    because nothing downstream re-checks it.
-
-   **`E_VALIDATE_NO_RECIPE` (exit 3) means your layout is wrong, not your code.** The recipe must be
-   `runtime.yaml` at the package root — see the FLAT layout rule in step 2. Observed in testing: a
-   package written as `runtime/recipe.yaml` could not be loaded by anything, and was still offered to
-   the user as "ready to deploy".
 
    **Fix → re-run is a loop, and it has a stop.** Re-running is not optional after an edit: the
    proof a PASS writes is tied to the exact bytes it validated, so any change invalidates it.
@@ -300,11 +278,8 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
    decide — do not deploy, and do not keep editing.
 
    **What PASS does not mean.** It proves the strategy *runs*, never that its logic is *right* — the
-   command says as much in its own output. Two examples from testing, both of which passed cleanly:
-   a Supertrend that returned the same direction for every input, so the strategy could never open a
-   long; and a cooldown keyed on `ctx.now_utc`, which does not exist on the ctx surface, so it never
-   fired. Read your own indicator math against a known trend before you call it done — a green gate
-   is a floor, not a finish line.
+   command says as much in its own output. Read your own indicator math against a known trend before
+   you call it done — a green gate is a floor, not a finish line.
 
    **Never tell the user a strategy is ready, and never hand it to ops, unless `senpi validate`
    returned PASS.** `verify` reports `live` for a scanner that reads nothing, so nothing after this
@@ -386,28 +361,25 @@ loop every time:
    this is an explicit yes, not an assumption.
 2. **Preflight** — you proved it runs at stage 9 (`senpi validate` → PASS). Nothing downstream
    re-establishes that a tick actually runs, so stage 9 is what stands between a broken scanner and a
-   funded wallet. `deploy.py validate <path-to-package>`
-   is the structural half — every fix in **one pass**, no side effects. The
-   deployer **accepts the flat package you built** (it synthesizes the `main` instance), so you do **not**
-   restructure into `main/` or hand-write `.deploy-state.json`. **Pass the package DIRECTORY** (absolute is
-   safest, e.g. `/data/workspace/strategies/<id>`) — a bare id resolves CWD-relative and otherwise becomes a
-   remote catalog fetch, never what you want for a package you just wrote.
+   funded wallet. `deploy.py validate <path-to-package>` is the structural half — every fix in **one
+   pass**, no money moved and nothing installed. The deployer **accepts the flat package you built**
+   (it synthesizes the `main` instance), so you do **not** restructure into `main/` or hand-write
+   `.deploy-state.json`. **Pass the package DIRECTORY** (absolute is safest, e.g.
+   `/data/workspace/strategies/<id>`) — a bare id becomes a remote catalog fetch, not your package.
 3. **Deploy** — `deploy.py create <path> --budget <the user's exact amount>`. That ONE command runs the
    whole path (wallet create+fund → runtime install → one observed scanner tick) as a detached job and
-   relays the job's report; there is no separate `runtime` step to chase. The budget is a **hard target** —
-   if the accessible balance can't cover it the deploy **refuses** (`[E_FUNDS_SHORT]` /
-   `[E_FUNDS_BELOW_FLOOR]`); fund, or confirm a lower amount with the user, **never silently fund less**.
-   A wallet that already exists for this package is **adopted, not replaced, and never topped up** — if
-   you need a fresh one, `close.py <id>` first.
+   relays the job's report; there is no separate `runtime` step to chase. The budget is a **hard
+   target**: the deploy **refuses** rather than silently funding less, and the refusal names the exact
+   next step — relay it, never re-derive it or lower `--budget` to dodge it. Per-code depth:
+   [`refusal-playbook.md`](../senpi-strategy-ops/references/refusal-playbook.md).
 4. **GATE — the deploy report's `overall`**: `live` (every instance installed **and** a scanner tick
    observed) is the only value you may call live. `installed-unobserved` means the tick was not seen in
    the window — say exactly that and re-read `openclaw senpi scanner -r <runtime_id>` in a few minutes;
    `refused` / `failed` name their cause — fix it and re-run. Re-read the verdict **read-only** with
-   `openclaw senpi deploy status` (or `status.py <id>` / `deploy.py verify <id>` for the running fleet —
-   both read-only; `verify` deploys nothing and exits `0` verified / `3` not verified / `1` could not
-   check). The command that RESUMES a deploy is `deploy.py runtime <id>` (or `create <id> --budget
-   <usd>`): that one installs, starts trading, and can create+fund a wallet — reach for it only when you
-   mean to resume. **Never tell the user it's live until a report says `overall: live`.**
+   `openclaw senpi deploy status` (or `status.py <id>` / `deploy.py verify <id>`, both read-only). The
+   command that RESUMES a deploy is `deploy.py runtime <id>` (or `create <id> --budget <usd>`): that one
+   installs, starts trading, and can create+fund a wallet — reach for it only when you mean to resume.
+   **Never tell the user it's live until a report says `overall: live`.**
 
 **NEVER deploy an authored strategy with `strategy_create_custom_strategy` / `create_position`.** Those raw
 MCP tools fund a wallet with **no runtime** — a naked funded wallet: no scanner, no DSL, no guard-rails (the

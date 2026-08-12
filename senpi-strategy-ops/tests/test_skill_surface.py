@@ -19,8 +19,15 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 #
 # One key per skill, and a key lands here only when that skill is under its ceiling — a dict entry
 # whose subTest is red on the day it is written is a guard nobody can distinguish from a regression.
-# `senpi-strategy-author` joins when the task that cuts it makes it green.
-BODY_BUDGET = {"senpi-strategy-ops": 300}
+#
+# `senpi-strategy-author` is set at its post-cut line count with NO slack, and its number is much
+# higher than ops' on purpose: that skill is a conversation script, not a relay surface. Its bulk is
+# the 7-decision interview, the staged build and the handoff gate — rules about what to ASK and what
+# to CLAIM, which no rendered message can own, so there is nothing to move them to. Only seven of its
+# 51 blocks were bucket-1/rationale (docs/specs/2026-08-12-classification-table.md:176-232) and all
+# seven are gone. Cutting further means deleting a conversation rule, which this budget exists to
+# make visible, not to force.
+BODY_BUDGET = {"senpi-strategy-ops": 300, "senpi-strategy-author": 368}
 
 
 def _skill_body(path):
@@ -134,15 +141,22 @@ class CodesAreNamedNotExplained(unittest.TestCase):
     past the cap — write the third mention as a backticked bare `E_FUNDS_SHORT` and the guard never
     sees it, while a reader sees the same second copy. The `(?!\\*)` keeps the glob shorthands the
     outcome table uses (`[E_FUNDS_*]`, `[E_VALIDATE_*]`, `[W_BUDGET_*]`) out of the tally: they name
-    a family, not a code, and without it the prefix before the `*` counts as a code of its own."""
+    a family, not a code, and without it the prefix before the `*` counts as a code of its own.
+
+    Both resident bodies are in the corpus. Scanning ops alone was the same silent weakening
+    `_ops_teaching_corpus` documents, one file over: `senpi-strategy-author` reached the deploy
+    refusals too (it embedded `[E_FUNDS_SHORT]`/`[E_FUNDS_BELOW_FLOOR]` prose in its handoff loop, and
+    that copy said "confirm a lower amount" for the one code where **no** budget is valid), and the
+    guard could not see it. Author is at 1 mention per code after Task 7, so it joins green."""
 
     def test_no_code_is_mentioned_more_than_twice(self):
-        body = _skill_body(OPS)
-        counts = {}
-        for code in re.findall(r"\[?\b([EW]_[A-Z0-9_]+)\b(?!\*)\]?", body):
-            counts[code] = counts.get(code, 0) + 1
-        over = {c: n for c, n in counts.items() if n > 2}
-        self.assertEqual(over, {}, f"codes explained rather than named: {over}")
+        for path in (OPS, AUTHOR):
+            with self.subTest(skill=path.parent.name):
+                counts = {}
+                for code in re.findall(r"\[?\b([EW]_[A-Z0-9_]+)\b(?!\*)\]?", _skill_body(path)):
+                    counts[code] = counts.get(code, 0) + 1
+                over = {c: n for c, n in counts.items() if n > 2}
+                self.assertEqual(over, {}, f"codes explained rather than named: {over}")
 
 
 class SkillBodyWithinBudget(unittest.TestCase):
