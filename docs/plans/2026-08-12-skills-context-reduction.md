@@ -303,10 +303,13 @@ In `senpi-strategy-ops/SKILL.md`:
    `# 0b. preflight — structurally deploy-ready? (no money, nothing installed; a bare id is fetched to disk)`
 2. **Line ~92** — replace `with **no side effects**,` with `with **no money moved and nothing installed** (a bare catalog id is fetched to disk),`
 3. **Line ~160** — after `staying inside the ~180s tool timeout`, insert: ` — with one bounded exception, the stale-proof repair below`
-4. **Line ~302**, in the `[E_UNIVERSE_NOT_LIVE]` bullet, replace the final sentence about the unreadable list with:
-   `If the step instead reports that the live instrument list **could not be read**, nothing is claimed dead, nothing was created by that run and nothing the package already had was touched. That one lands as **`failed` (exit `3`)**, not `refused` — it is an MCP outage, not a package bug: retry once the server is reachable.`
+4. ~~**Line ~302**, in the `[E_UNIVERSE_NOT_LIVE]` bullet…~~ **WITHDRAWN 2026-08-12 — this instruction was FALSE. Do not apply it.**
+   It prescribed saying the unreadable-universe branch "lands as `failed` (exit `3`), not `refused`". Verified against source: `orchestrator.ts:2736` sets `refused = true` *before* the `record(..., status: "failed")` call at `:2741`, and `decideOverall` (`:4041`) returns `"refused"` before it ever scans step statuses. `overall` is `refused` → exit **`2`**. The `return "failed"` at `:2744` is the span callback's value, not the report's overall.
+   The original sentence in `SKILL.md` ("retry once the MCP server is reachable") was **already correct**; this "fix" would have made it worse. Finding 4 has been retracted on PR #526. If anything remains to say here, it is that the step detail is deliberately code-less and that exit `2` on this path is an MCP outage to retry, never a package bug to hunt.
 5. In the `[E_VALIDATE_RUNTIME_VERSION_CHANGED]` bullet, after the sentence describing the automatic repair, add:
-   `That repair is the one path that can outrun the ~180s tool timeout (re-validate + a second poll). **If the call is killed mid-repair, nothing was created** — read `openclaw senpi deploy status` and do NOT re-run `create`; the repair note is printed to stderr before validation starts, so a killed call still says what it was doing.`
+   `That repair is the one **automatic** path that can outrun the ~180s tool timeout (re-validate + a second poll); an explicit `--max-wait` above 150 is the other, and it is honoured deliberately. **If the call is killed mid-repair, nothing was created** — read `openclaw senpi deploy status` and do NOT re-run `create`; the repair note is printed to stderr before validation starts, so a killed call still says what it was doing.`
+
+> **Why these two carry corrections rather than edits.** Both were written from a source read that stopped one level short of the decision point — the first at the step record instead of `decideOverall`, the second at the repair path instead of the flag that also exceeds the budget. That is the failure mode the R1 citation rule exists to catch, and it caught both. A plan instruction is not evidence; the cited line is. **Verify a claim against source before transcribing it into a stable registry, even when this plan supplies the wording.**
 
 - [ ] **Step 6: Verify nothing else broke**
 
