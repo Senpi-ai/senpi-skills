@@ -1,9 +1,55 @@
 {
   "_version": "2.1",
-  "_updated": "2026-08-05",
+  "_updated": "2026-08-12",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
+    {
+      "id": "barracuda",
+      "name": "Barracuda",
+      "emoji": "🦈",
+      "tagline": null,
+      "belief_plain": "Continuously scans every liquid crypto and xyz: equity perp for breakouts and breakdowns, opens with the strongest momentum in either direction (confirmed by smart-money positioning, funding squeeze and rising open interest, with a size bonus for the harder-pumping small caps), lets winners run on a trailing stop, and banks the whole book once total profit hits its target.\n",
+      "version": "1.0.0",
+      "thesis": "You want an always-on screener that hunts the hottest moves across the entire market — long the breakouts, short the breakdowns — instead of watching a fixed basket, and you accept the higher turnover and leverage that pump-chasing implies.\n",
+      "tags": [
+        "breakout",
+        "momentum",
+        "pump",
+        "dual-direction",
+        "screener",
+        "funding-squeeze",
+        "smart-money",
+        "xyz-equities"
+      ],
+      "group": null,
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "dynamic_screener",
+      "sub_style_label": "Rescans the whole liquid universe each tick and rotates into the strongest fresh breakout signals rather than a fixed basket.",
+      "asset_classes": [
+        "universe_crypto",
+        "xyz_equities"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 6,
+      "time_horizon": "scalp",
+      "cadence_seconds": 30,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": null,
+      "branch": "main",
+      "sort_order": 1
+    },
     {
       "id": "hawk",
       "name": "Hawk — Breakout Buyer / Breakdown Seller",

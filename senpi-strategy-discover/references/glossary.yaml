@@ -100,6 +100,7 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   rank_jump:     { gloss: "Catches leaderboard rank-jumps early." }
   momentum_event: { gloss: "Snipes fresh momentum events the instant they fire." }
   liquidation_cascade: { gloss: "Rides liquidation cascades / forced flow." }
+  dynamic_screener: { gloss: "Rescans the whole liquid universe each tick and rotates into the strongest fresh breakout signals rather than a fixed basket." }
   orderbook_pressure: { gloss: "Trades order-book depth skew." }
   breakout:      { gloss: "Enters on a clean breakout of structure." }
   confluence_sniper: { gloss: "Fires only when multiple timeframes/factors line up." }
