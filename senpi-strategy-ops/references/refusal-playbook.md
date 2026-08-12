@@ -68,6 +68,33 @@ them first — `python3 status.py
 whether anything is watching them, was **not** read. **Never `close.py` a wallet stamped for another
 package** to clear the collision — that is a different strategy's funds. Whose they are is the USER's call.
 
+### `[INVALID_REQUEST]` — an instance declares no DSL exit block
+
+The instance ships no `exit.dsl_preset` and no `exit.engine: dsl`, so every position it opened would
+run with **no stop loss and no trailing floor**. Refused **before any wallet exists**, on every route
+into a deploy: the verb's reconcile gate, the gateway's synchronous start gate, and — earlier and
+cheaper — the two skills-side validators (`deploy.py validate`, and the author's
+`validate_strategy.py`). Nothing was created; nothing was started.
+
+The refusal **names the offending instances and computes the re-check block for them** — one
+`openclaw senpi validate '<that instance's dir>'` per offender, then the package-wide
+`python3 senpi-strategy-ops/scripts/deploy.py validate '<package dir>'`. **Run the block it printed,
+in that order, and do not substitute the python line for the runtime one**: the refusal says so
+itself — only `openclaw senpi validate` records the proof the deploy requires, and the python route
+writes none. Add the exit block to the instance `runtime.yaml`, re-check, then re-run.
+
+`[INVALID_REQUEST]` is a **family**, not one condition — see the taxonomy row. Fix what the message
+names and nothing else; a shape defect no `--budget` can clear sits beside members that a valid
+`--budget` is precisely the fix for.
+
+### `[E_VALIDATE_NO_RECIPE]`
+
+`openclaw senpi validate` was pointed at a directory holding no recipe of its own — normally a
+package root whose `strategy.yaml` lists instance directories. Validation runs against **one**
+runtime, so the root is not a target. Not a package defect and not a money path: the refusal lists
+the instances, so point it at the dir holding that instance's `runtime.yaml` and run it once per
+instance — which is also how each instance gets its own proof.
+
 ### `[E_DEPLOY_IN_PROGRESS]`
 
 Another deploy is running. Watch it (`deploy status`). There is nothing

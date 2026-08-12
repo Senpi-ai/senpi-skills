@@ -13,6 +13,15 @@ OPS = REPO / "senpi-strategy-ops" / "SKILL.md"
 AUTHOR = REPO / "senpi-strategy-author" / "SKILL.md"
 TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 
+# Budgets, not aspirations: the convergence took ops from 278 to 626 lines by restating rendered
+# refusal text in prose. This is the post-reduction ceiling from
+# docs/specs/2026-08-12-skills-context-reduction-design.md §2 (~260 lines), with headroom.
+#
+# One key per skill, and a key lands here only when that skill is under its ceiling — a dict entry
+# whose subTest is red on the day it is written is a guard nobody can distinguish from a regression.
+# `senpi-strategy-author` joins when the task that cuts it makes it green.
+BODY_BUDGET = {"senpi-strategy-ops": 300}
+
 
 def _skill_body(path):
     """SKILL.md with its YAML frontmatter stripped — the part loaded on invoke."""
@@ -100,7 +109,12 @@ class RelayContractNamesNoComputedCommand(unittest.TestCase):
     """`buildBudgetEscape` (runtime orchestrator.ts:810) decides AT RUNTIME whether to emit a scoped
     `close.py --instance`, a read-only `status.py` pointer, or nothing at all — the stranded-wallet
     and zero-share branches deliberately emit no teardown. A static copy in the skill contradicts
-    whichever branch actually fired, and the failure mode is an agent closing a funded wallet."""
+    whichever branch actually fired, and the failure mode is an agent closing a funded wallet.
+
+    The slice is the contract and its money rules, and stops at `### Report from the structured
+    output` — which used to sit inside it only because it had no heading of its own. That block is
+    about quoting the report's numbers, never about what to run at a refusal, so it was never what
+    this guard was written to cover."""
 
     def test_relay_section_hardcodes_no_teardown_command(self):
         section = _section(_skill_body(OPS), RELAY_HEADING)
@@ -114,15 +128,33 @@ class CodesAreNamedNotExplained(unittest.TestCase):
     runtime renders the explanation, computed against terminal state). Two mentions is the ceiling:
     the refused-table row, plus at most one routing line. Each occurrence past that is a second
     copy of a message that decides its own content at runtime — and the copy is what contradicts
-    whichever branch actually fired."""
+    whichever branch actually fired.
+
+    The brackets are OPTIONAL in the pattern on purpose. Counting only `[CODE]` left a trivial way
+    past the cap — write the third mention as a backticked bare `E_FUNDS_SHORT` and the guard never
+    sees it, while a reader sees the same second copy. The `(?!\\*)` keeps the glob shorthands the
+    outcome table uses (`[E_FUNDS_*]`, `[E_VALIDATE_*]`, `[W_BUDGET_*]`) out of the tally: they name
+    a family, not a code, and without it the prefix before the `*` counts as a code of its own."""
 
     def test_no_code_is_mentioned_more_than_twice(self):
         body = _skill_body(OPS)
         counts = {}
-        for code in re.findall(r"\[([EW]_[A-Z0-9_]+)\]", body):
+        for code in re.findall(r"\[?\b([EW]_[A-Z0-9_]+)\b(?!\*)\]?", body):
             counts[code] = counts.get(code, 0) + 1
         over = {c: n for c, n in counts.items() if n > 2}
         self.assertEqual(over, {}, f"codes explained rather than named: {over}")
+
+
+class SkillBodyWithinBudget(unittest.TestCase):
+    """The skill body is loaded on every invoke; references are pay-per-read. Depth belongs in
+    references/, and a budget is the only thing that keeps that true under editing pressure — every
+    task in this workstream had a reason to add "just three more lines" resident."""
+
+    def test_bodies_are_within_budget(self):
+        for skill, budget in BODY_BUDGET.items():
+            with self.subTest(skill=skill):
+                n = len(_skill_body(REPO / skill / "SKILL.md").splitlines())
+                self.assertLessEqual(n, budget, f"{skill}/SKILL.md body is {n} lines (budget {budget})")
 
 
 class ReferencePointersResolve(unittest.TestCase):

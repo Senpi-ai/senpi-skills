@@ -2,7 +2,9 @@
 
 Both scripts live in `senpi-strategy-ops/scripts/`, share `_pkg.py` (package model) + `_cli.py`
 (openclaw CLI + tolerant JSON digging) + `mcp_client.py` (vendored stdlib HTTP MCP client, reads
-`SENPI_AUTH_TOKEN` / `SENPI_MCP_URL`). They are stdlib-only (plus PyYAML). No daemons, no `push_signal`.
+`SENPI_AUTH_TOKEN` / `SENPI_MCP_URL`). They are **stdlib-only**: PyYAML is used if it happens to be
+installed, else a vendored stdlib YAML loader, so no pip step is ever required. No daemons, no
+`push_signal`.
 
 ## Why there is no scanner daemon anymore
 
@@ -26,6 +28,21 @@ unscoped live-depth run writes the `.senpi-proof.json` beside that instance's re
 verb refuses pre-money without one (`[E_VALIDATE_NO_PROOF]` / `[E_VALIDATE_CONTENT_CHANGED]` /
 `[E_VALIDATE_RUNTIME_VERSION_CHANGED]`, distinguished by the `reason` on the refused step's
 `evidence`).
+
+That run loads every scanner file, calls one real tick against live read-only data, counts what it
+read, and checks each emitted signal against the runtime's own wire schema — no wallet, no funding.
+The proof it writes names **the exact file bytes it passed over and the runtime version it passed
+under**, which is what makes `CONTENT_CHANGED` and `RUNTIME_VERSION_CHANGED` separable afterwards.
+**Only a full, unscoped run at live depth records one**: `--scanner <name>`, `--no-attest` and
+`--stage static|import` deliberately record nothing, and `deploy.py validate` records nothing either
+(it is the structural pass, not the run). So the flow is **validate → deploy, per instance**, and a
+package whose files were edited needs a fresh `validate` before the next `create`. **One run per
+instance, each pointed at the dir holding its `runtime.yaml`** — the package root for a flat package
+(no `instances:` list), the instance's own dir once `strategy.yaml` lists them, which every catalog
+package does; a root that lists instances and holds no recipe of its own refuses
+`[E_VALIDATE_NO_RECIPE]` and lists the instances to pick from. **`UNPROVEN` (exit 2) is not a pass**
+— the tick ran and established nothing, usually a gate in `scan()` that should consult
+`ctx.dry_run`.
 
 **`deploy.py` repairs exactly one of those three, once.** A proof recorded under a different runtime
 build (`runtime_version_changed`) says the package is untouched and only the engine under it moved —
@@ -157,7 +174,10 @@ Per instance the job runs five steps, each recorded with its own outcome:
    time**: each instance is polled to ACTIVE before the next is submitted, all under that one shared
    budget. `strategy_create_custom_strategy` returns at `CREATE_WALLET` and funds asynchronously, so
    concurrent legs would draw on the same embedded wallet — the loser reads a balance the winner already
-   claimed, funds $0 and parks in `PENDING_FUNDING`. A name rejection retries **once** without `strategyName` —
+   claimed, funds $0 and parks in `PENDING_FUNDING`. **Every wallet is named for its role in the
+   strategy** — a WhaleHunter deploy with two sub-wallets creates `whalehunter-long` and
+   `whalehunter-short`, never a bare `0x…` address, so the user can tell a strategy's wallets apart in
+   the app, in balances and in notifications. A name rejection retries **once** without `strategyName` —
    naming is best-effort legibility and must never block a deploy. Deadline hit → `pending` (re-run resumes).
    That ACTIVE read's `totalFunded` is also the **outcome** check on the budget: the final report compares
    it against what `planFunding` asked for and warns `[W_BUDGET_PARTIAL_FUND]` below 90%, naming each
@@ -249,14 +269,24 @@ package resolution (a path, or a bare catalog id fetched from the remote — `va
 same way, so it moves no money and installs nothing but does write a fetched package to disk) and the
 structural
 preflight (`validate` also makes one read-only `market_list_instruments` call to report the universe,
-so it needs `SENPI_AUTH_TOKEN` and can take a few seconds — an unreachable list is a note, never a
-failed validate) — then starts the verb, polls `deploy status`, and relays the report **verbatim**.
+so it needs `SENPI_AUTH_TOKEN` and can take a few seconds — up to ~25s on a slow or token-less host,
+which ends in the loud note, never in a failed validate) — then starts the verb, polls `deploy
+status`, and relays the report **verbatim**.
 It polls for **~150s** by default and then returns, which keeps the call inside the ~180s tool/session
-timeout the detached job exists to escape; a job still running at the lapse is reported as **pending
+timeout the detached job exists to escape; a longer foreground wait would simply get the call killed,
+losing the report and the exit code while the job runs on. A job still running at the lapse is
+reported as **pending
 (exit 6)** with the snapshot and the `openclaw senpi deploy status` command to watch it — the honest
 outcome, not a failure. An explicit `--max-wait` replaces that budget in either direction. Its two
 money-moving subcommands (`create` / `runtime`) drive the same idempotent verb — one path under two
-names, either of which resumes and adopts what exists.
+names, either of which resumes and adopts what exists. **`--dry-run` and `--json` are mutually
+exclusive** (refused, exit `1`, nothing planned): the plan is prose only — a JSON report needs a real
+run.
+
+The structural preflight **accepts the flat single-instance layout** agents naturally scaffold — one
+`runtime.yaml` + `scanners/` at the package root — by synthesizing the canonical `main` instance, so
+there is **no need to restructure into `main/`**. Any remaining fix is named prescriptively (e.g.
+`set runtime name: <id>-main`), and every structural + render issue is reported in **one pass**.
 
 **`verify` drives nothing.** It is the READ-ONLY check: per instance it composes MCP `strategy_list`
 (a live, non-dead strategy under the name the verb assigns — `<id>`, or `<id>-<instance>` on a
@@ -264,7 +294,9 @@ multi-instance package — with its status and `totalFunded`), `openclaw senpi r
 runtime registered on this instance's wallet?) and `openclaw senpi status --json` (the runtime's own
 health verdict, quoted verbatim), then relays the last deploy job's `[W_*]` warn lines **iff that job
 ran this package** (no snapshot is not a failure — a package deployed before the verb has none). It
-**honours** no deploy flag — there is no job to size, wait for or plan — but it still **accepts** the
+**quotes**; it never re-derives a status or a number. It
+**honours** no deploy flag — there is no job to size, wait for or plan, and **no `--budget` handed to
+it funds anything**, because a check that can fund a wallet is not a check — but it still **accepts** the
 five it used to carry (`--budget`, `--max-wait`, `--tick-wait`, `--decision-model`, `--dry-run`) and
 ignores each with a stderr warning naming it and pointing at `verify --help`, `SKILL.md` and this
 file; the verdict, the reads and the exit code are the flagless ones. Rejecting them was argparse's
@@ -279,7 +311,8 @@ funded runtime-less wallet — each named **with the fact that it installs and s
 `status.py <id>` for degraded/unknown/ambiguous states) · **`1`** could-not-check, fail-closed: if
 `strategy_list`, `runtime list`, `status --json`, **the deploy-job read** or **the package itself**
 cannot be read, NO verdict is rendered at all, the failed read is named, and nothing steers at the
-money path. It never emits a close command. All three verdicts print the SAME `--json` keys —
+money path. It never emits a close command. All three verdicts print the SAME `--json` keys on clean
+stdout —
 `deploy_job_running` is `null` on a could-not-check that never got as far as reading the job, and
 `next` carries that verdict's own step (`null` on a rendered verdict, where the steps are the
 per-instance ones). `next` is what a `--json` caller reads on the two could-not-check subclasses
@@ -326,7 +359,7 @@ Four rules keep `verify` from steering at a state it did not read:
 - **Attribution DISAMBIGUATES the match; it never shrinks it to nothing.** Instances are matched by
   the name the verb derives, across every live strategy. A candidate is dropped only when the record
   carries a WRITTEN `strategyMetadata.skillName` naming a **different** package; a record with no
-  attribution at all stays a candidate — and an **empty** stamp (`skillName: ""`, at either the
+  attribution at all stays a candidate (a wallet with no attribution is usually the user's own) — and an **empty** stamp (`skillName: ""`, at either the
   metadata or the top level) is no attribution, not a package called `''`. The read parses a
   `strategyMetadata` that arrives JSON-**string**-shaped too: the MCP passes the backend's scalar
   through verbatim, and a payload skipped for its shape would make a foreign wallet read as
@@ -403,13 +436,49 @@ relayed verbatim; no deploy state is reported in any of them, and a re-run refus
 whatever code rides beside it — a refused or still-running job is relayed with `2`/`6`, never
 discarded as an unreadable status. Branch on the code; use `--json` for anything richer.
 
+**Plugin skew, in both directions, lands on exit `1` with nothing dispatched.** The host needs
+`openclaw` + the `@senpi-ai/runtime` plugin running, and a plugin **new enough to carry the `senpi
+deploy` verb**. On a box whose plugin predates it (a wedged self-update) the start fails at exit `1`
+saying so: no job, no wallet, no funds, and `deploy status` has nothing to report there. Update it
+(`openclaw plugins install @senpi-ai/runtime`, or wait for the box's own self-update) and re-run the
+same command. The **opposite** skew lands on the same exit `1` and the same "nothing was dispatched",
+and the message says which side is behind: a plugin NEWER than the box's openclaw runs the verb, has
+its inner `gateway call` rejected, and is **not** fixed by installing the plugin — that one is
+reported, not retried.
+
 **Package fetch.** Any subcommand **except `verify`** (read-only: it resolves on disk or reports
 could-not-check) and `status` (which resolves no package at all) fetches `strategies/<id>/` from the remote if it isn't on disk
 (`_fetch.py`: GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default
 `Senpi-ai/senpi-skills`@`main`; `--ref` overrides). Fetches land in the **durable strategies root** —
 `SENPI_STRATEGIES_DIR` if set, else `<OPENCLAW_WORKSPACE_DIR>/strategies`, else `/data/workspace/strategies`
 on agent hosts (with a loud stderr warning on the last-resort CWD-relative dev fallback) — never inside a
-managed skill dir: a package written there is destroyed on the next skill update.
+managed skill dir: a package written there is destroyed on the next skill update. A bare id **resolves
+from the durable root first** — that copy is the authoritative one — then CWD-relative
+`strategies/<id>` as a legacy fallback, so re-running a step works from any directory.
+
+## Worked example — "install spider"
+
+```
+user: "deploy spider with $300"
+1. resolve  → id = spider (two instances: swing 60% / scalp 40%; $300 → swing $180, scalp $120)
+              confirm the split with the user BEFORE funding
+2. prove    → openclaw senpi validate /data/workspace/strategies/spider/swing   → PASS
+              openclaw senpi validate /data/workspace/strategies/spider/scalp   → PASS
+              (one run per instance; only a PASS records the proof `create` refuses without)
+3. preflight→ python3 scripts/deploy.py validate spider   → structurally deploy-ready, both proven
+4. start    → python3 scripts/deploy.py create spider --budget 300
+              (starts the job, which refuses pre-money on a dead universe: dpl-a1b2c3d4 — phase: reconcile)
+5. watch    → it polls for you; or openclaw senpi deploy status  (repeat until it is terminal)
+              running (phase: create) → running (phase: install) → done — live
+              (if it ends `installed-unobserved`, say the tick was not observed yet and check
+               `openclaw senpi scanner -r spider-swing` in a few minutes — do NOT call it live)
+6. confirm  → "🕷️ Spider is live (swing + scalp)." + the required How it runs block, e.g.:
+   • Cadence — scans every 5 min (swing) / 5 min (scalp).
+   • Scoring — grades tech/AI names on 4h/1h trend + smart-money consensus; opens above its score bar,
+     sizing bigger at higher conviction.
+   • Protection — hard stop −22% from entry; a trailing floor ratchets up locking profit from +15% to
+     +80%; DSL-only, no manual exits.
+```
 
 ## `close.py [<id>] [--all] [--instance name] [--dry-run] [--json]`
 
@@ -454,6 +523,8 @@ own verdict + active-position count. Classes:
   (`deploy.py runtime <id>` to start, or `close.py <id>` to recover funds).
 - **copy** — copy-trading strategy (follows a `traderAddress`) → run by Senpi's copy engine, no runtime.
 - **manual** — manual / app-managed strategy → you manage it in the app, no runtime.
+- **runtime-unknown** — the host has no `openclaw`, so the registry is not visible at all. Not a
+  diagnosis and **never** to be read as an interrupted deploy: check again from the runtime host.
 
 A strategy off the runtime is **not broken** — copy/manual are managed elsewhere by design; `status.py`
 prints *how* each is managed (an info line, not a warning). Only `no-runtime` (autonomous, missing runtime)
