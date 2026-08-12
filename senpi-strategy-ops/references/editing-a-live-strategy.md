@@ -38,10 +38,9 @@ on a fresh wallet** — which market-exits its open positions and returns the fu
    declared share`, so redeploying a `funding_share: 0.3` arm with `--budget 300` funds it **$90**, not
    $300. Size it as *the amount you want in that arm ÷ that arm's share* (300 ÷ 0.3 → `--budget 1000`),
    and **say the resulting wallet figure to the user, not the `--budget` number**, when you take
-   consent for the redeploy. **A budget warn's own re-run figure is a FLOOR, not that number**: it is
-   sized to the smallest budget that clears the sleeve's *minimum* need, so using it as the consented
-   amount redeploys at the floor instead of at the size the user agreed to. Size from `want ÷ share`,
-   and if the warn's figure is larger, use the larger one.
+   consent for the redeploy. If a budget warn printed its own re-run `--budget`, **that figure is a
+   floor, not the size to consent to** — the rule, and why, live with the code that emits it:
+   `[W_BUDGET_BELOW_STRATEGY_MIN]` in [`refusal-playbook.md`](refusal-playbook.md).
 
 **NEVER, when applying an edit:**
 

@@ -198,6 +198,13 @@ kinds.
   closing and re-deploying would only reproduce the identical warn — the warn names the real fix (a
   share in strategy.yaml); relay that, never close the sleeve over it. And where
   `[E_ROLLBACK_INCOMPLETE]` is on the report, it owns the cleanup; do that first.
+  **The `--budget` figure inside that escape is a FLOOR, not the size to take consent for.** The verb
+  computes it as the smallest budget at which every wallet the re-run will fund clears its own
+  *minimum* — `max(perWalletMin ÷ share)` across that set, or the whole-package `minBudget` when
+  every sleeve is being closed. Consent to that number and the sleeve redeploys **at the floor**,
+  not at the size the user agreed to. Size from **want ÷ that arm's share** instead, and if the
+  warn's figure is larger, use the larger one. It is the same inversion the verb just did: a
+  `funding_share` is a **divisor**, never a multiplier.
   `minBudget` in the report is **context** ("the whole package fresh needs $30 across 2 wallets"), not
   the thing that was violated — a partially-adopted deploy splits the budget among fewer wallets.
 - **`[W_BUDGET_UNRESOLVED]`** — one or more sleeves publish risk weights rather than slot sizes, so the

@@ -456,6 +456,19 @@ managed skill dir: a package written there is destroyed on the next skill update
 from the durable root first** — that copy is the authoritative one — then CWD-relative
 `strategies/<id>` as a legacy fallback, so re-running a step works from any directory.
 
+## The report document
+
+What `SKILL.md` means by "report from the structured output, not raw logs" — the shape, so the fields
+it names are findable. Every number in it is quoted, never re-derived: `funded` is the backend's
+`totalFunded`, and the tick line is the scanner row's own fields.
+
+```jsonc
+{ "strategy":"spider","version":"6.0.0","status":"live",
+  "attribution":{ "skillName":"spider","skillVersion":"6.0.0" },
+  "instances":[ { "instance":"swing","runtime_id":"spider-swing","wallet":"0x…","status":"live" },
+                { "instance":"scalp","runtime_id":"spider-scalp","wallet":"0x…","status":"live" } ] }
+```
+
 ## Worked example — "install spider"
 
 ```

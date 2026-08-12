@@ -93,8 +93,7 @@ returned `PASS`. What the proof records: [`references/lifecycle.md`](references/
 **Step 1 — start the deploy.** Budget splits across instances by `funding_share`, **min $10 each** (the
 platform wallet floor) — **confirm the amount with the user first**. Two tiers, and only the first
 stops anything: below the $10/wallet floor the deploy **refuses**; a wallet left with less than **its
-own** sizing needs still **deploys**, with a `[W_BUDGET_BELOW_STRATEGY_MIN]` warn to relay (that check
-is per wallet against what it was actually allocated, never the budget against the package total).
+own** sizing needs still **deploys**, with a `[W_BUDGET_BELOW_STRATEGY_MIN]` warn to relay.
 ```
 python3 senpi-strategy-ops/scripts/deploy.py create spider --budget 300
 ```
@@ -212,12 +211,8 @@ in [`references/refusal-playbook.md`](references/refusal-playbook.md):
 ### Report from the structured output, not raw logs
 
 Then always close with the **How it runs** block below. `funded` is the backend's `totalFunded` and the
-tick line is the scanner row's own fields — quote both verbatim.
-```jsonc
-{ "strategy":"spider","version":"6.0.0","status":"live",
-  "attribution":{ "skillName":"spider","skillVersion":"6.0.0" },
-  "instances":[ { "instance":"swing","runtime_id":"spider-swing","wallet":"0x…","status":"live" } ] }
-```
+tick line is the scanner row's own fields — **quote both verbatim** (the document's shape:
+[`references/lifecycle.md`](references/lifecycle.md)).
 
 ### The funded path — `deploy.py create|runtime`
 
@@ -302,8 +297,8 @@ Per strategy: **stop the runtime** (if live) → **trigger `strategy_close`** (f
 + closes the strategy, funds returned). `strategy_close` is **async**, so the script **does not wait** —
 it returns `closing` and hands polling to you: **re-run `close.py spider`** until it reports `closed`.
 Re-runs are idempotent. `--instance <name>` scopes an instance (needs its live runtime to map; else omit
-to close all). **Redeploy** = `close` then `create`. Discovery is strategy-driven, so close also cleans
-up **orphaned** wallets with no runtime ([`references/lifecycle.md`](references/lifecycle.md)).
+to close all). **Redeploy** = `validate` → `close` → `create`, in that order. Discovery is
+strategy-driven, so close also cleans up **orphaned** wallets with no runtime.
 
 ## Applying an edit to a strategy that is already LIVE
 
@@ -312,9 +307,14 @@ here. And **re-running `create` will NOT apply it**: the deploy verb is idempote
 existing wallet and leaves the deployed scanner as it is. Applying an edit means **closing the strategy
 and redeploying on a fresh wallet** — a market exit of every open position, funds back to main, and a
 custom ratchet/stop ladder that does **not** carry over. **Get explicit consent in those words before
-you close anything**; never present it as a re-tune. Full procedure — prove-then-close ordering,
-per-sleeve redeploys, and the `want ÷ share` budget arithmetic that decides what the user is actually
-consenting to: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md).
+you close anything**; never present it as a re-tune.
+
+**Prove the edited package still RUNS — `openclaw senpi validate <instance-dir>` → `PASS` — BEFORE you
+close anything**: you are about to flatten a live book to install it. And `--budget` is the WHOLE
+package's, split by `funding_share`, so on a per-sleeve redeploy size it **want ÷ share** ($300 into a
+`0.3` arm is `--budget 1000`; `--budget 300` funds that arm **$90**) and **say the resulting wallet
+figure to the user, not the `--budget` number**, when you take consent. Durable-root check, per-sleeve
+adopt mechanics, what NEVER to reach for: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md).
 
 ## Invariants
 
