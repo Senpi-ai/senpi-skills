@@ -124,7 +124,8 @@ that has not returned `PASS`.
 platform wallet floor) — **confirm the amount with the user first**. Two tiers, and only the first one
 stops anything: below the $10/wallet floor the deploy **refuses**; and when the split leaves any wallet
 with less than **its own** sizing needs, it **deploys and warns** (`[W_BUDGET_BELOW_STRATEGY_MIN]` — that
-sleeve runs degraded; see the budget warnings below). The second check is per wallet against what it is
+sleeve runs degraded; relay the warn — [`references/refusal-playbook.md`](references/refusal-playbook.md)
+has the per-code depth). The second check is per wallet against what it is
 actually allocated, not the budget against the package total — those differ whenever a sleeve is adopted.
 ```
 python3 senpi-strategy-ops/scripts/deploy.py create spider --budget 300
@@ -210,7 +211,7 @@ Terminal `overall` values:
 
 | `overall` | Meaning | What to do |
 |---|---|---|
-| `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block. A `warn:` line (`[W_BUDGET_*]`) may ride a `live` report — relay it; it did **not** stop the deploy (see the budget warnings below) |
+| `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block. A `warn:` line (`[W_BUDGET_*]`) may ride a `live` report — relay it; it did **not** stop the deploy (see the relay contract below) |
 | `installed-unobserved` | installed, no tick seen inside `--tick-wait` (or `--tick-wait 0` skipped the check) | say exactly that; check `openclaw senpi scanner -r <runtimeId>` in a few minutes. External scanners legitimately tick on long intervals. **`--tick-wait 0` can never report `live`** — nothing was verified |
 | `pending` | a wallet was still funding when the poll budget ran out | re-run the same deploy command — it resumes and adopts the wallet |
 | `refused` | a gate said no (`[E_FUNDS_*]`, `[E_VALIDATE_*]`, `[E_UNIVERSE_NOT_LIVE]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[E_INSTANCE_BINDING_UNKNOWN]`, `[E_WALLET_OWNED_BY_OTHER_PACKAGE]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** (below); nothing was created past it |
@@ -342,7 +343,9 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 Every refusal and warn is **rendered by the runtime against the state it actually read**, and it
 names its own next step. So:
 
-- **Relay it verbatim.** Never re-derive a number or a lifecycle claim in prose.
+- **Relay it verbatim** — **the figure it names, not one beside it** (a report carries the requested
+  amount too; quoting that one is not a re-derivation, it is the wrong number). Never re-derive a
+  number or a lifecycle claim in prose.
 - **Execute the step it names** — never improvise one, never widen its scope. If it names a
   read-only triage, that is the step.
 - **If it names no command, that is the answer**, not a gap for you to fill. Some reports

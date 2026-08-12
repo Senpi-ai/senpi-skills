@@ -9,8 +9,9 @@ report. Where this file and a rendered message differ, the message wins and this
 
 ## Budget warnings (`W_`)
 
-**The `W_` prefix means WARNING — the deploy went through.** Every `E_` code stops something; a `W_`
-code never does. The four budget codes below are the `W_` ones. They ride a
+**The `W_` prefix means WARNING — it blocked nothing.** Every `E_` code stops something; a `W_`
+code never does. A warn rides `failed` and `pending` reports too, so `overall` — not the presence of
+a `W_` — is what says whether the deploy went through. The four budget codes below are the `W_` ones. They ride a
 `live` report as `minBudget` / `minWalletCount` / `belowMin` / `minBudgetNote` / `minBudgetUnresolved`
 / `partialFundNote` (printed as `calculated minimum:` and `warn:` lines by `deploy status`), and they
 persist on the snapshot — a later `deploy status` re-renders the same warn. The first two judge the

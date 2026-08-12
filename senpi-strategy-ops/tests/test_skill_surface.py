@@ -39,16 +39,48 @@ class TaxonomyCoversWhatTheSkillsTeach(unittest.TestCase):
 RELAY_HEADING = "### Refusals and warns — the relay contract"
 
 
+_FENCE = re.compile(r"\s*(```+|~~~+)")
+
+
 def _section(body, heading):
-    """The lines under `heading`, up to the next heading at the same or shallower depth."""
+    """The lines under `heading`, up to the next heading at the same or shallower depth.
+
+    FENCE-AWARE, and that is load-bearing for the guards below rather than cosmetic: a `#` opening a
+    line inside a fenced block is a bash/yaml/jsonc comment, not a heading. Terminating on one would
+    silently hand a guard a TRUNCATED slice — it would still pass, just over less text than it
+    claims to cover, which is a guard that has stopped guarding without ever going red.
+    """
     lines = body.splitlines()
     start = next(i for i, ln in enumerate(lines) if ln.strip() == heading)
     depth = len(heading) - len(heading.lstrip("#"))
+    fence = None
     for j in range(start + 1, len(lines)):
         ln = lines[j]
-        if ln.startswith("#") and (len(ln) - len(ln.lstrip("#"))) <= depth:
+        opener = _FENCE.match(ln)
+        if opener:
+            # Normalised so ``` never closes ~~~ and vice versa.
+            token = opener.group(1)[0] * 3
+            fence = token if fence is None else (None if token == fence else fence)
+            continue
+        if fence is None and ln.startswith("#") and (len(ln) - len(ln.lstrip("#"))) <= depth:
             return "\n".join(lines[start:j])
     return "\n".join(lines[start:])
+
+
+class SectionSliceIsFenceAware(unittest.TestCase):
+    """Guards the guard's own reader. Tasks 5-7 extend the relay-contract section, and the first
+    fenced bash/yaml block with a `#` comment in it would otherwise shorten every slice taken after
+    that point — weakening `RelayContractNamesNoComputedCommand` invisibly."""
+
+    def test_a_comment_inside_a_fence_does_not_end_the_section(self):
+        body = "\n".join([
+            "### H", "before", "```bash", "# not a heading", "close.py 'x'", "```", "after",
+            "### Next", "outside",
+        ])
+        section = _section(body, "### H")
+        self.assertIn("close.py 'x'", section, "the fenced body was truncated away")
+        self.assertIn("after", section, "the section ended at a comment inside a fence")
+        self.assertNotIn("outside", section, "the section ran past the next heading")
 
 
 class RelayContractNamesNoComputedCommand(unittest.TestCase):
