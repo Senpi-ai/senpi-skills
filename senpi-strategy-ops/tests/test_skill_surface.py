@@ -21,6 +21,19 @@ def _skill_body(path):
     return text[m.end():] if m else text
 
 
+def _ops_teaching_corpus():
+    """Everything the ops skill teaches about codes: the resident body PLUS its references.
+
+    The references are in the corpus because the reduction MOVES per-code teaching there. Scanning
+    `SKILL.md` alone made this guard shrink every time a task relocated a block — Task 4 took the
+    four `W_BUDGET_*` codes out of its view and it kept passing, which is a guard that stops
+    guarding without ever going red. Coverage has to follow the teaching, not the file.
+    """
+    parts = [_skill_body(OPS)]
+    parts += [p.read_text() for p in sorted((REPO / "senpi-strategy-ops" / "references").glob("*.md"))]
+    return "\n".join(parts)
+
+
 class TaxonomyCoversWhatTheSkillsTeach(unittest.TestCase):
     """The taxonomy header claims to cover every refusal an agent can hit, and did not carry the
     one code the deploy verb reaches for most: `[INVALID_REQUEST]` renders the no-DSL-exit refusal
@@ -31,7 +44,7 @@ class TaxonomyCoversWhatTheSkillsTeach(unittest.TestCase):
         taxonomy = TAXONOMY.read_text()
         # The pattern deliberately excludes the glob shorthands the refused-table row uses
         # (`[E_FUNDS_*]`, `[E_VALIDATE_*]`): `*` is outside the class, so they never match.
-        named = set(re.findall(r"\[([A-Z][A-Z0-9_]*)\]", _skill_body(OPS)))
+        named = set(re.findall(r"\[([A-Z][A-Z0-9_]*)\]", _ops_teaching_corpus()))
         missing = sorted(c for c in named if f"`{c}`" not in taxonomy)
         self.assertEqual(missing, [], f"codes taught with no taxonomy row: {missing}")
 
@@ -94,6 +107,22 @@ class RelayContractNamesNoComputedCommand(unittest.TestCase):
         for forbidden in ("close.py", "strategy_close"):
             self.assertNotIn(forbidden, section,
                              f"the relay contract names {forbidden!r}; the runtime computes it")
+
+
+class CodesAreNamedNotExplained(unittest.TestCase):
+    """A code may be NAMED in the skill (routing: which branch am I on) but not EXPLAINED (the
+    runtime renders the explanation, computed against terminal state). Two mentions is the ceiling:
+    the refused-table row, plus at most one routing line. Each occurrence past that is a second
+    copy of a message that decides its own content at runtime — and the copy is what contradicts
+    whichever branch actually fired."""
+
+    def test_no_code_is_mentioned_more_than_twice(self):
+        body = _skill_body(OPS)
+        counts = {}
+        for code in re.findall(r"\[([EW]_[A-Z0-9_]+)\]", body):
+            counts[code] = counts.get(code, 0) + 1
+        over = {c: n for c, n in counts.items() if n > 2}
+        self.assertEqual(over, {}, f"codes explained rather than named: {over}")
 
 
 class ReferencePointersResolve(unittest.TestCase):
