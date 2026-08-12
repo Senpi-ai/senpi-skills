@@ -41,7 +41,7 @@ path — funds preflight → wallet create+fund → runtime install → one obse
 
 ```
 openclaw senpi validate <recipe-dir>                                    # 0a. does it RUN? records the proof create needs
-python3 senpi-strategy-ops/scripts/deploy.py validate <id>              # 0b. preflight — deploy-ready? (no side effects)
+python3 senpi-strategy-ops/scripts/deploy.py validate <id>              # 0b. preflight — structurally deploy-ready? (no money, nothing installed; a bare id is fetched to disk)
 python3 senpi-strategy-ops/scripts/deploy.py create <id> --budget <usd> # 1. THE FUNDED PATH: validates, then starts the deploy
 openclaw senpi deploy status                                            # 2. poll until terminal; read the verified report
 python3 senpi-strategy-ops/scripts/status.py                            # what am I running? (+ health)
@@ -89,8 +89,9 @@ curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/
 ```
 
 **Step 0.5 — preflight (required).** `deploy.py validate <id>` reports every structural + render
-issue in **one pass**, with **no side effects**, before you fund anything — and it resolves a bare
-catalog id to a package directory on disk (fetching it if needed). It also **reports** the live universe
+issue in **one pass**, with **no money moved and nothing installed** (a bare catalog id is fetched to
+disk), before you fund anything — and that is how it resolves a bare
+catalog id to a package directory. It also **reports** the live universe
 (dead hardcoded instruments are listed as validate errors; an unreachable instrument list is a loud note,
 never a silent pass) — the deploy verb enforces that same gate before money moves, so `validate` is the
 cheap early read of it, not the thing holding it. That one read is a **network call**
@@ -157,7 +158,8 @@ amount, then re-run — **never lower `--budget` to dodge a funding error**. Whe
 budget per strategy ("$1k on X, $2k on Y"), deploy each with its own `--budget` and **confirm the
 split before funding**.
 
-`deploy.py` polls for ~150s by default and then **returns**, staying inside the ~180s tool timeout — a
+`deploy.py` polls for ~150s by default and then **returns**, staying inside the ~180s tool timeout — with one
+bounded exception, the stale-proof repair below — a
 longer foreground wait would just get the call killed, losing the report and the exit code while the
 job runs on. A job still running at that point is **exit `6` / pending**, printed with the snapshot and
 `openclaw senpi deploy status` to watch it: that is a normal outcome on a slow funding leg or a long
@@ -268,7 +270,12 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 >   every time. Two routes, neither a money move, both named by the refusal: **rename** — give this package
 >   a name of its own by editing `id:` (or the instance's `name:`) in `strategy.yaml`, then re-run, and
 >   deploy creates its own wallet; or, if one of those wallets **is** this package under an id it no longer
->   has, set `id:` back to the stamp the wallet carries and re-run. Read them first — `python3 status.py
+>   has — and here the refusal is explicit that the obvious edit does **not** work: **setting `id:` back to
+>   the stamp does NOT reach that wallet**, because the name deploy looks for is derived FROM the id, so the
+>   edit moves the name too and the next run refuses again having bound nothing. The name came from the id
+>   **and** the sleeve layout together; only restoring **both** as they were would bind it, and whether this
+>   package should go back to that shape is the **USER's** call — a metadata read cannot settle it. Read
+>   them first — `python3 status.py
 >   '<stamp>'`, per stamp the refusal names. The refusal read metadata only: what those wallets hold, and
 >   whether anything is watching them, was **not** read. **Never `close.py` a wallet stamped for another
 >   package** to clear the collision — that is a different strategy's funds. Whose they are is the USER's call.
@@ -301,7 +308,11 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 >   errors at runtime — the scan skips it and the strategy silently trades nothing — so **never
 >   "deploy anyway"**. If the step instead reports that the live instrument list **could not be read**,
 >   nothing is claimed dead, nothing was created by that run and nothing the package already had was
->   touched: retry once the MCP server is reachable.
+>   touched. That one still lands as **`refused` (exit `2`)** like any other gate saying no — the
+>   step is recorded `failed`, but the halt flag decides `overall`. What separates it is the message:
+>   the detail carries **no code at all**, and that absence is the tell — nothing was named dead
+>   because nothing could be read. It is an MCP outage, not a package bug: retry once the server is
+>   reachable, and never go hunting an instrument the refusal never named.
 > - **`[E_VALIDATE_NO_PROOF]` / `[E_VALIDATE_CONTENT_CHANGED]` / `[E_VALIDATE_RUNTIME_VERSION_CHANGED]`** —
 >   deploy will not fund a package it cannot prove ever ran. **Refused pre-money — nothing was created
 >   BY THAT RUN.** Say it exactly that scoped way: this gate reads the package's own files and stops
@@ -317,7 +328,12 @@ stop loss and no trailing floor. Fix the runtime.yaml and re-check with `deploy.
 >   runtime self-updates in place, so this hits packages nobody has touched). **`deploy.py
 >   create|runtime` repairs that one for you**: it re-runs `senpi validate` once, re-runs the deploy,
 >   and does this for this reason only. If that re-validation does not PASS it prints validate's own
->   findings and does **not** re-run the deploy — fix those, then re-run. Deploy needs **every**
+>   findings and does **not** re-run the deploy — fix those, then re-run.
+>   That repair is the one **automatic** path that can outrun the ~180s tool timeout (re-validate +
+>   a second poll); an explicit `--max-wait` above 150 is the other, and you asked for that one.
+>   **If the call is killed mid-repair, nothing was created** — read `openclaw senpi deploy status`
+>   and do NOT re-run `create`; the repair note is printed to stderr before validation starts, so a
+>   killed call still says what it was doing. Deploy needs **every**
 >   instance proven and stops at the first that is not, so on a multi-instance package expect to be
 >   sent back for the next sleeve; validating every instance dir up front avoids the round trip.
 
