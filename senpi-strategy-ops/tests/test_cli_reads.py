@@ -12,6 +12,7 @@ Two contracts live here, both of them about not answering a question the surface
 Run:  python3 senpi-strategy-ops/tests/test_cli_reads.py
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -294,6 +295,37 @@ class RunState(unittest.TestCase):
         self.assertEqual(_cli.health_verdict({"status": "running"}), "unknown")
         self.assertEqual(_cli.health_verdict({"status": "failed"}), "unhealthy")
         self.assertEqual(_cli.health_verdict({"status": "degraded"}), "degraded")
+
+
+class CliJson(unittest.TestCase):
+    """A CLI call's exit code and its stdout answer different questions — `deploy status --json`
+    exits with the JOB's own verdict code (e.g. `E_VALIDATE_NO_PROOF` is rc=6), not a transport
+    code, so a refusal still prints a complete JSON report. Gating on `rc != 0` before parsing
+    discarded that report unread, which is exactly the class of surface this reader exists to
+    keep readable (mirrors `deploy.py`'s own `read_status`, which already ignores rc for this
+    reason)."""
+
+    def setUp(self):
+        self._real_run_cli = _cli.run_cli
+
+    def tearDown(self):
+        _cli.run_cli = self._real_run_cli
+
+    def test_a_refusal_with_a_valid_payload_is_still_parsed(self):
+        _cli.run_cli = lambda args, timeout=60: (6, json.dumps({"code": "E_VALIDATE_NO_PROOF"}), "")
+        self.assertEqual(_cli.cli_json(["openclaw", "senpi", "deploy", "status", "--json"]),
+                          {"code": "E_VALIDATE_NO_PROOF"})
+
+    def test_a_transport_failure_with_no_output_is_still_none(self):
+        # rc != 0 is not itself proof of a payload — an empty capture (spawn failure, timeout) must
+        # still degrade to None. Only the earlier "rc != 0 alone" gate is retired, not fail-closed
+        # behaviour on a genuinely empty read.
+        _cli.run_cli = lambda args, timeout=60: (-1, "", "command not found: openclaw")
+        self.assertIsNone(_cli.cli_json(["openclaw", "senpi", "status", "--json"]))
+
+    def test_unparseable_output_is_still_none(self):
+        _cli.run_cli = lambda args, timeout=60: (0, "not json", "")
+        self.assertIsNone(_cli.cli_json(["openclaw", "senpi", "status", "--json"]))
 
 
 if __name__ == "__main__":

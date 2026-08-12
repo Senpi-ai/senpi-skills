@@ -63,9 +63,15 @@ def _extract_json(text):
 
 
 def cli_json(args, timeout=60):
-    """Run a CLI command expected to emit JSON on stdout; return the parsed object or None."""
-    rc, out, _err = run_cli(args, timeout)
-    if rc != 0 or not out.strip():
+    """Run a CLI command expected to emit JSON on stdout; return the parsed object or None.
+
+    Does NOT gate on `rc`: some verbs (`deploy status`) exit with the JOB's own verdict code, not
+    a transport code, so a refusal still prints a complete report. Discarding it on `rc != 0` threw
+    away the one payload callers most need to read. Mirrors `deploy.py`'s `read_status`, which
+    already ignores rc for the same reason. A transport failure still degrades to None here because
+    it also leaves `out` empty or unparseable — the sentinel survives on those grounds, not on rc."""
+    _rc, out, _err = run_cli(args, timeout)
+    if not out.strip():
         return None
     return _extract_json(out)
 
