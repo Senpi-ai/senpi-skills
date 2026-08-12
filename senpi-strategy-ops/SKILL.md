@@ -86,9 +86,9 @@ run** — one real tick against live read-only data, no wallet and no funding �
 what RECORDS the proof `create` refuses without**. So it is **validate → deploy, per instance**: **one
 run per instance, pointed at the dir holding that instance's `runtime.yaml`** (the package root for a
 flat package, the instance's own dir once `strategy.yaml` lists them), and an edited package needs a
-fresh `validate` before the next `create`. **`UNPROVEN` (exit 2) is not a pass.** `deploy.py validate
-<id>` answers the other question, **is the package well formed**. Do not deploy a package that has not
-returned `PASS`. What the proof records: [`references/lifecycle.md`](references/lifecycle.md).
+fresh `openclaw senpi validate` before the next `create`. **`UNPROVEN` (exit 2) is not a pass.**
+`deploy.py validate <id>` answers the other question, **is the package well formed**. Do not deploy a
+package that has not returned `PASS`. The proof: [`references/lifecycle.md`](references/lifecycle.md).
 
 **Step 1 — start the deploy.** Budget splits across instances by `funding_share`, **min $10 each** (the
 platform wallet floor) — **confirm the amount with the user first**. Two tiers, and only the first
