@@ -263,9 +263,26 @@ if __name__ == "__main__":
 Run: `python3 -m pytest senpi-strategy-ops/tests/test_skill_surface.py -q`
 Expected: FAIL — `codes taught with no taxonomy row: ['INVALID_REQUEST']`
 
-- [ ] **Step 3: Add the two missing taxonomy rows**
+- [ ] **Step 3: Add the missing taxonomy rows**
 
-In `docs/error-code-taxonomy.md`, in the Active codes table, after the `E_DEPLOY_IN_PROGRESS` row:
+**Finding 6 (added 2026-08-12, from prod telemetry — read this before writing the rows).** A ClickStack probe of `telemetry.otel_traces` over the last 3 days of production found these codes reaching real users through `gen_ai.tool.call.result`:
+
+| Code | hits (3d) | distinct users | producer |
+|---|---|---|---|
+| `E_FUNDS_SHORT` | 46 | 13 | `main` deploy.py |
+| `E_STATE_AMBIGUOUS` | 25 | 4 | `main` deploy.py:588, :1110 — **no taxonomy row, on either branch** |
+| `E_FUNDS_BELOW_FLOOR` | 18 | 9 | `main` deploy.py |
+| `E_BUDGET_UNRESOLVED` | 17 | 6 | `main` deploy.py:507 |
+| `E_RUNTIME_REGISTER_FAILED` | 14 | 3 | `main` deploy.py |
+| `E_BUDGET_BELOW_STRATEGY_MIN` | 9 | 3 | `main` deploy.py:512 |
+| `E_STATE_NO_WALLETS` | 8 | 3 | `main` deploy.py |
+
+Two consequences, both of which this step must handle:
+
+1. **The `E_BUDGET_* → W_BUDGET_*` rename is not free.** The taxonomy on this branch says the rename carries no alias rows, *"acceptable only because no release has shipped them."* **That is false.** `origin/main:senpi-strategy-ops/scripts/deploy.py:507,512` emits both, `main` is cloned by every agent bootstrap, and prod shows 26 hits across 9 distinct users in three days. Add **alias rows** for `E_BUDGET_UNRESOLVED` and `E_BUDGET_BELOW_STRATEGY_MIN` pointing at their `W_` successors, and correct the sentence — per taxonomy rule 2, a shipped code's meaning is stable and an agent replaying a recent transcript must still resolve it.
+2. **`E_STATE_AMBIGUOUS` needs a row of its own.** It is distinct from `E_STATE_AMBIGUOUS_WALLETS` (both appear separately in the same telemetry) and has never had one. It is retired by Convergence like its `E_STATE_*` siblings — give it a retired row so an old transcript resolves.
+
+In `docs/error-code-taxonomy.md`, in the Active codes table, after the `E_DEPLOY_IN_PROGRESS` row, add the `INVALID_REQUEST` and `NOT_FOUND` rows below — then add the three rows above (two aliases + `E_STATE_AMBIGUOUS`) alongside the existing retired rows, and fix the "no release has shipped them" sentence:
 
 ```markdown
 | `INVALID_REQUEST` | `senpi-trading-runtime` (`senpi deploy`, reconcile + `register.ts`) | The package's own shape is wrong, decided pre-money: an instance declaring no DSL exit block (`orchestrator.ts:1972`), an unsupported scanner-level `enabled` key (`:2067`), or a package `id` carrying capitals. One bucket code, three conditions | The MESSAGE names the exact edit — a delete-this-line list, or the field to change — and every offence is enumerated in ONE refusal so the package is fixed in one pass. Never a funding or state problem: never re-run with a bigger `--budget`, never close anything. Re-check with `deploy.py validate <id>`, then re-run |
@@ -692,7 +709,16 @@ The behavioural acceptance test. Guards prove the mirror is gone; only this prov
 
 - [ ] **Step 1: Overlay the branch on Box A**
 
-Use the `dev-release-testing` skill. Overlay this branch's skills onto the running dev box. **Respect the money-authorization gate** — do not run a funded deploy without explicit approval.
+Use the `dev-release-testing` skill. Overlay this branch's skills onto the running dev box.
+
+**Money authorization (granted 2026-08-12, standing for this task):**
+- **≤ $150 per strategy.**
+- **≤ $450 total across all strategies live at once.**
+- Create as many strategies as the matrix needs, within those two limits.
+- Recycling is allowed and preferred: `close.py <id>`, wait for `closed` so funds return to the embedded wallet, then fund a new strategy from the same balance. Closing to recycle keeps the parallel total under $450 without needing a deposit.
+- The limits are on **live** strategies. A closed one no longer counts against the $450 once its funds have returned.
+
+This authorization covers Task 8 only. Nothing in Tasks 1–7 moves money, and no task outside this one may fund a wallet.
 
 - [ ] **Step 2: Run the injection matrix**
 
