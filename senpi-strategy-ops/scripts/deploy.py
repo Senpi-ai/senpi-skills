@@ -224,6 +224,33 @@ def universe_report(pkg):
     return [], None
 
 
+PROOF_FILE = ".senpi-proof.json"
+
+
+def proof_state(pkg):
+    """Which instances have a recorded `.senpi-proof.json`, and which do not.
+
+    Presence only — this is a local stat, never a re-implementation of the gate. `verifyProof`
+    (runtime src/validate/index.ts) owns freshness: content hashes and the runtime build the proof
+    was recorded under. Re-deriving either here would be a second copy of a producer, and the
+    deploy verb refuses on its own reading regardless of what this reports.
+
+    The directory per instance is the one holding that instance's runtime.yaml — `inst.runtime_path`
+    is a FILE path (`_pkg.Instance` has no `runtime_yaml_dir`), so this takes its parent, mirroring
+    `_instance_dirs`'s own fallback: the package root when an instance has no runtime_path to point
+    at (a flat package, or an unmodellable instance). `openclaw senpi validate` writes the proof
+    beside the exact directory it was pointed at, so this has to name the same one.
+
+    Returned as `(name, state, dir)` per instance so the caller renders one line each, naming the
+    exact directory `openclaw senpi validate` has to be pointed at."""
+    out = []
+    for inst in pkg.instances:
+        path = getattr(inst, "runtime_path", None)
+        d = Path(path).parent if path else Path(pkg.dir)
+        out.append((inst.name, "proven" if (d / PROOF_FILE).is_file() else "no_proof", d))
+    return out
+
+
 # ---------- the verb ----------
 
 def budget_arg(v):
@@ -1518,9 +1545,12 @@ def main(argv):
         # note that never changes the exit code — it is not this command's invariant to hold.
         u_errors, u_note = universe_report(pkg)
         errors = gate + u_errors
+        proofs = proof_state(pkg)
+        unproven = [(n, d) for n, s, d in proofs if s == "no_proof"]
         if a.json:
             print(json.dumps({"status": "valid" if not errors else "invalid", "id": pkg.id,
-                              "errors": errors, **({"note": u_note} if u_note else {})}))
+                              "errors": errors, "proof": {n: s for n, s, _ in proofs},
+                              **({"note": u_note} if u_note else {})}))
         else:
             # The note rides EVERY verdict, not just the clean one: it says a check did not run,
             # which is as true of an otherwise-invalid package as of a green one.
@@ -1531,7 +1561,14 @@ def main(argv):
                 for e in errors:
                     print(f"    - {e}", file=sys.stderr)
             else:
-                print(f"✓ {pkg.id}: deploy-ready ({len(pkg.instances)} instance(s))")
+                proven = ", ".join(f"{n} ✓" for n, s, _ in proofs if s == "proven")
+                print(f"✓ {pkg.id}: structurally deploy-ready ({len(pkg.instances)} instance(s))"
+                      + (f" — proven: {proven}" if proven else ""))
+            # The proof gate is the runtime's, and it refuses PRE-MONEY. Naming it here is the whole
+            # point: an unproven instance makes the NEXT command fail, not this one.
+            for name, d in unproven:
+                print(f"  {name}: NO PROOF — `openclaw senpi validate {d}` must PASS before "
+                      f"`create` will fund this package", file=sys.stderr)
         sys.exit(EXIT_CODES["refused"] if errors else 0)
     if gate:
         # A gate said no and nothing was created past it — D-12's 2, the same code the verb's own

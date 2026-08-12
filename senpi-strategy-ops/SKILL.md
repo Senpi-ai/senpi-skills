@@ -495,14 +495,17 @@ Keep it to ~3 short lines per strategy. Multi-instance packages whose legs diffe
 user: "deploy spider with $300"
 1. resolve  → id = spider (two instances: swing 60% / scalp 40%; $300 → swing $180, scalp $120)
               confirm the split with the user BEFORE funding
-2. preflight→ python3 scripts/deploy.py validate spider        → deploy-ready (2 instances)
-3. start    → python3 scripts/deploy.py create spider --budget 300
+2. prove    → openclaw senpi validate /data/workspace/strategies/spider/swing   → PASS
+              openclaw senpi validate /data/workspace/strategies/spider/scalp   → PASS
+              (one run per instance; only a PASS records the proof `create` refuses without)
+3. preflight→ python3 scripts/deploy.py validate spider   → structurally deploy-ready, both proven
+4. start    → python3 scripts/deploy.py create spider --budget 300
               (starts the job, which refuses pre-money on a dead universe: dpl-a1b2c3d4 — phase: reconcile)
-4. watch    → it polls for you; or openclaw senpi deploy status  (repeat until it is terminal)
+5. watch    → it polls for you; or openclaw senpi deploy status  (repeat until it is terminal)
               running (phase: create) → running (phase: install) → done — live
               (if it ends `installed-unobserved`, say the tick was not observed yet and check
                `openclaw senpi scanner -r spider-swing` in a few minutes — do NOT call it live)
-5. confirm  → "🕷️ Spider is live (swing + scalp)." + the required How it runs block, e.g.:
+6. confirm  → "🕷️ Spider is live (swing + scalp)." + the required How it runs block, e.g.:
    • Cadence — scans every 5 min (swing) / 5 min (scalp).
    • Scoring — grades tech/AI names on 4h/1h trend + smart-money consensus; opens above its score bar,
      sizing bigger at higher conviction.

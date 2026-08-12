@@ -2397,5 +2397,102 @@ class BudgetArg(unittest.TestCase):
         self.assertNotIn("$", rendered)
 
 
+# ---------- `validate`'s proof-state report (real files, real subprocess) ----------
+
+DEPLOY_PY = SCRIPTS / "deploy.py"
+
+_FIXTURE_RUNTIME = """\
+name: {name}
+group: {group}
+strategy:
+  wallet: "${{{wallet_env}}}"
+  slots: 1
+  margin_pct: 20
+exit:
+  dsl_preset: let_winners_run
+scanners:
+  - type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 900
+    inputs: {{}}
+    signal_data_schema:
+      score:
+        type: float
+"""
+
+
+def _fixture_package(instances, proven=(), pkg_id="spider"):
+    """A real, structurally-clean package on disk — one `<instance>/runtime.yaml` +
+    `<instance>/scanners/scan.py` per name in `instances`, satisfying every prescriptive check
+    `_pkg.validate` runs (group/name linkage, a bound wallet_env, a DSL exit block, a non-empty
+    `signal_data_schema`, `funding_share` summing to 1.0) so `validate`'s structural verdict is
+    clean and proof state is the only thing left to report.
+
+    `.senpi-proof.json` is written only for the instances named in `proven` — presence is all
+    `proof_state` reads, so an empty placeholder is enough. Returns the package directory."""
+    root = Path(tempfile.mkdtemp())
+    pkg_dir = root / pkg_id
+    share = 1.0 / len(instances)
+    lines = [f"id: {pkg_id}\nversion: \"1.0.0\"\ninstances:\n"]
+    for name in instances:
+        wallet_env = f"{pkg_id.upper()}_{name.upper()}_WALLET"
+        lines.append(f"  - name: {name}\n    runtime: {name}/runtime.yaml\n"
+                     f"    wallet_env: {wallet_env}\n    funding_share: {share}\n")
+        inst_dir = pkg_dir / name
+        (inst_dir / "scanners").mkdir(parents=True)
+        (inst_dir / "runtime.yaml").write_text(_FIXTURE_RUNTIME.format(
+            name=f"{pkg_id}-{name}", group=pkg_id, wallet_env=wallet_env))
+        (inst_dir / "scanners" / "scan.py").write_text("def scan(inputs, ctx):\n    return []\n")
+        if name in proven:
+            (inst_dir / ".senpi-proof.json").write_text("{}")
+    (pkg_dir / "strategy.yaml").write_text("".join(lines))
+    return pkg_dir
+
+
+def _run_validate(pkg_dir, json_mode=False):
+    """Run the REAL `deploy.py validate <dir>` in a subprocess — no stubs, the same argparse +
+    `_pkg` + `full_validate` + `universe_report` path an agent invokes. `SENPI_MCP_URL` points at
+    a closed local port so the network universe check fails instantly and deterministically
+    (connection refused) instead of depending on prod reachability or a token; it surfaces only as
+    a note (never an error — see `ValidateUniverseHook`), so it cannot affect the proof-state
+    verdict under test. JSON mode returns stdout alone (the one parseable line); text mode returns
+    stdout+stderr, since the proof-state lines this test class is about are printed on stderr."""
+    env = dict(os.environ, SENPI_MCP_URL="http://127.0.0.1:1/mcp")
+    args = [sys.executable, str(DEPLOY_PY), "validate", str(pkg_dir)]
+    if json_mode:
+        args.append("--json")
+    proc = subprocess.run(args, capture_output=True, text=True, timeout=60, env=env)
+    return proc.stdout if json_mode else proc.stdout + proc.stderr
+
+
+class ValidateReportsProofState(unittest.TestCase):
+    """`validate` printed `deploy-ready` over a package the very next command refuses.
+
+    No catalog package ships a `.senpi-proof.json`, and `senpi deploy` refuses pre-money without one
+    (`[E_VALIDATE_NO_PROOF]`, runtime src/deploy/proof-gate.ts). A preflight that promises "every
+    issue in ONE pass, before you fund anything" and cannot see the gate that actually stops the
+    deploy is claiming more than it read."""
+
+    def test_unproven_instance_is_named_with_its_validate_command(self):
+        pkg = _fixture_package(instances=["swing", "scalp"], proven=["swing"])
+        out = _run_validate(pkg)
+        self.assertIn("scalp", out)
+        self.assertIn("NO PROOF", out)
+        self.assertIn("openclaw senpi validate", out)
+        self.assertIn("swing", out)
+
+    def test_fully_proven_package_says_so(self):
+        pkg = _fixture_package(instances=["main"], proven=["main"])
+        out = _run_validate(pkg)
+        self.assertIn("proven", out)
+        self.assertNotIn("NO PROOF", out)
+
+    def test_json_carries_proof_state_per_instance(self):
+        pkg = _fixture_package(instances=["swing", "scalp"], proven=["swing"])
+        doc = json.loads(_run_validate(pkg, json_mode=True))
+        self.assertEqual(doc["proof"], {"swing": "proven", "scalp": "no_proof"})
+
+
 if __name__ == "__main__":
     unittest.main()
