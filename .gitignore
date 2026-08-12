@@ -12,5 +12,6 @@ __pycache__/
 # local tool state
 .codex/
 .claude/
+.superpowers/
 .DS_Store
 .pytest_cache/
