@@ -275,7 +275,6 @@ each instance's `external_scanner` has a recent successful tick. Confirm it on a
 — every one of these is read-only; the money path is `deploy.py create|runtime` (see the funded path
 above) and nothing here is it:
 - `python3 scripts/deploy.py verify <id>` — the per-instance verdict over the surfaces below
-  (`0` verified / `3` not verified / `1` could not check); deploys nothing, fetches nothing
 - `python3 scripts/status.py <id>` — the fleet view + each runtime's own health verdict
 - `openclaw senpi deploy status` / `deploy.py status [<id>]` — the agent's ONE last-deploy-job record
 - `openclaw senpi scanner -r <runtime_id>` — the scanner rows (`lastRunStatus`, `runCount`), the tick itself
@@ -297,8 +296,9 @@ Per strategy: **stop the runtime** (if live) → **trigger `strategy_close`** (f
 + closes the strategy, funds returned). `strategy_close` is **async**, so the script **does not wait** —
 it returns `closing` and hands polling to you: **re-run `close.py spider`** until it reports `closed`.
 Re-runs are idempotent. `--instance <name>` scopes an instance (needs its live runtime to map; else omit
-to close all). **Redeploy** = `validate` → `close` → `create`, in that order. Discovery is
-strategy-driven, so close also cleans up **orphaned** wallets with no runtime.
+to close all). **Redeploy** = `openclaw senpi validate` → `close` → `create`, in that order.
+Discovery is strategy-driven, so close also cleans up **orphaned** wallets with no runtime
+([`references/lifecycle.md`](references/lifecycle.md)).
 
 ## Applying an edit to a strategy that is already LIVE
 
