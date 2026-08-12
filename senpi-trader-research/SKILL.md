@@ -83,13 +83,22 @@ burying them.
 
 Formatting: short addresses, `Δ%`, labels as given; emoji sparingly.
 
+**Two things the data will fool you on — apply before you recommend anyone:**
+- **A 100% win rate is a warning, not a credential** — near-zero closed trades or hidden unrealised
+  drawdown. If it reads 100% for *every* candidate, the field is broken: don't cite it; judge on
+  max-drawdown + closed-trade count. Never rank on ROI alone, and never rate a −90%+ drawdown "solid."
+- **Mirrorability is the go/no-go for a copy target:** read how far each of their current positions sits
+  from entry. A trader whose winners have **already run** is **un-mirrorable at a tight slippage** — the
+  mirror opens nothing. Flag it, and lean toward a trader entering fresh (or a fresh-entry template).
+
 ## Mandatory closing (verbatim)
 
 > **1. Want me to set up a copy strategy that mirrors this trader?**
 > **2. Want me to vet another trader, or pull the top traders to compare?**
 
-- **CTA 1 → copy.** Route to **`strategy_create`** (the copy-trading path) with the trader's address —
-  confirm budget + multiplier first; never create without confirmation.
+- **CTA 1 → mirror. Hand off to the `senpi-trade` skill** — it owns the mirror mechanics (slippage,
+  sizing / `mirrorMultiplier`, the pre-fund deployability sim, optional DSL, execution + verification).
+  Do **not** call `strategy_create` from here; pass the vetted trader to `senpi-trade` and let it drive.
 - **CTA 2 → compare.** Re-run the engine (`--trader` for another, or default for the ranking).
 
 ## ⚠ Token scope
@@ -100,7 +109,8 @@ Formatting: short addresses, `Δ%`, labels as given; emoji sparingly.
 ## Skill Attribution
 
 Guide/analysis skill — it *researches* and *recommends*; it does not create a wallet or place a trade.
-Attribution happens downstream when **`strategy_create`** sets up the copy strategy on CTA 1.
+The action is downstream: **`senpi-trade`** owns setting up the mirror on CTA 1 (it wraps `strategy_create`
+in its own guardrails — slippage, sizing, the deployability sim).
 
 
 ## Install — both scripts are required
