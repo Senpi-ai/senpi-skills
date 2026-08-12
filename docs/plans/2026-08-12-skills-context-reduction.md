@@ -737,7 +737,9 @@ deliberately name no command, where the failure mode is inventing one."
 
 - [ ] **Step 1: Bump versions**
 
-`senpi-strategy-ops` `3.6.10` → `3.7.0`; `senpi-strategy-author` `2.16.2` → `2.17.0`. Minor, not major: the contract does not change, only where it is written down. Boxes gate updates on this field — without the bump they never pick the change up.
+`senpi-strategy-ops` `3.6.10` → `3.7.0`; `senpi-strategy-author` `3.0.0` → `3.1.0`. Minor, not major: the contract does not change, only where it is written down. Boxes gate updates on this field — without the bump they never pick the change up.
+
+(Author's base is `3.0.0`, not the `2.16.2` this plan was written against: the deploy-verb branch took it to a major so the skills-manager tick gates it behind a runtime carrying the new verb. A minor on top of `3.x` still flows normally to any box that has already taken `3.0.0`.)
 
 - [ ] **Step 2: Check CLAUDE.md still matches**
 
