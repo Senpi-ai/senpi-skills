@@ -28,7 +28,7 @@ catalog:
     You want an always-on screener that hunts the hottest moves across the entire
     market — long the breakouts, short the breakdowns — instead of watching a fixed
     basket, and you accept the higher turnover and leverage that pump-chasing implies.
-  tags: [breakout, momentum, pump, dual-direction, screener, funding-squeeze, smart-money, xyz-equities]
+  tags: [breakout, breakdown, momentum, pump, dual-direction, long-short, screener, rotation, hot-movers, funding-squeeze, smart-money, universe, all-coins, xyz-equities]
 
 requires:
   runtime: ">=3.0.0"
