@@ -12,7 +12,8 @@
 
 ## Global Constraints
 
-- **Branch:** all work lands on `feat/deploy-verb-convergence` (PR #526). Do not branch off main.
+- **Branch:** work happens on `feat/skills-context-reduction`, branched from the `feat/deploy-verb-convergence` head and fast-forwarded back into it once Task 8's ladder passes. Never branch off main, and never commit directly to `feat/deploy-verb-convergence` — it is pushed and shared, and a direct commit there ends the fast-forward.
+- **Worktree:** `.claude/worktrees/skills-context-reduction`, off the `senpi-skills` checkout. The `senpi-trading-runtime` reference checkout at `origin/feat/senpi-deploy` stays where it is — R1 citations are read from it, never edited.
 - **Repo conventions are load-bearing** — read `CLAUDE.md` first. Strategies are packages, not skills. `catalog.json` is GENERATED into two places by `gen_catalog.py`; never hand-edit. Production package is `@senpi-ai/runtime`, never `@senpi/runtime`.
 - **No AI attribution in commits or PRs.** No `Co-Authored-By`, no "Generated with" footer.
 - **Every content commit bumps the skill's frontmatter `version`** — boxes gate updates on it and will silently never update otherwise.
@@ -766,11 +767,14 @@ Expected: no diff (no `strategy.yaml` was touched).
 
 ```bash
 git add senpi-strategy-ops/SKILL.md senpi-strategy-author/SKILL.md CLAUDE.md
-git commit -m "skills: bump ops 3.7.0 / author 2.17.0 for the reduction
+git commit -m "skills: bump ops 3.7.0 / author 3.1.0 for the reduction
 
-Minor, not major: the contract is unchanged, only where it is written
-down. Boxes gate updates on this field, so a content change without a
-bump never reaches the fleet."
+Minor on both, not major: the contract is unchanged, only where it is
+written down. Author sits on 3.x because the deploy-verb branch already
+took it to a major to gate the tick behind a runtime carrying the verb;
+a minor on top of that flows normally to any box that has taken 3.0.0.
+Boxes gate updates on this field, so a content change without a bump
+never reaches the fleet."
 ```
 
 - [ ] **Step 6: Update the PR body**
