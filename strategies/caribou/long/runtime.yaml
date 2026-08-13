@@ -143,7 +143,6 @@ risk:
     per_asset_cooldown_seconds: 14400       # v2 per_asset_cooldown_minutes 240
 
 notifications:
-  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
   dsl_lifecycle: true
   dsl_notify_sl_updates: false
   action_lifecycle: true
