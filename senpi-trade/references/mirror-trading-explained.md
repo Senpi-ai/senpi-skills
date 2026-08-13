@@ -70,10 +70,10 @@ The five templates by job: **Remora** (whale cohort) · **Shadow** (2–3 named 
 - **$10 minimum notional per position** (auto-bumped to ~$12). A mirror needs enough budget that
   positions clear that floor *given the trader's size* — see the sizing section; this is why $10–$20
   mirrors of a large trader often do nothing.
-- **For a *specific* trader, quote the number — don't estimate.** `senpi-trader-research` computes a
-  per-trader **`min_mirror_budget`** (floor / recommended) from their live account value +
-  position sizes — the copy-trading analog of a template's catalog minimum. Use it to answer "how much do
-  I need for *this* OG"; the pre-fund sim confirms it.
+- **For a *specific* trader, state the minimum — don't estimate, and don't recommend a trade size.**
+  `senpi-trader-research` computes a per-trader **`min_mirror_budget.min_budget_usd`** — the minimum to run
+  it properly — from their live account value + position sizes, the copy-trading analog of a template's
+  catalog minimum. Answer "how much do I need for *this* OG" with it as a factual floor; the sim confirms it.
 - You pay **Hyperliquid trading fees on every mirrored fill**, so copying a hyper-active trader costs
   more in fees over time.
 - **Always simulate before funding** (`execution_estimate_position_opening`) — it shows exactly what

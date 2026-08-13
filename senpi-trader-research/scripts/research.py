@@ -217,15 +217,17 @@ def _mirrorability(positions):
 
 
 def _min_mirror_budget(account_value, positions, mult=1.0, dust_frac=MIRROR_DUST_FRAC):
-    """Recommended minimum budget to mirror THIS trader's CURRENT book — the copy-trading analog of a
-    template's catalog minimum. Your copy of a position opens only when
+    """The minimum budget required to run a mirror of THIS trader's CURRENT book PROPERLY — the copy-trading
+    analog of a template's catalog minimum. This is a FACT about the floor, NOT a recommendation of how much
+    to trade (that is the user's call). Your copy of a position opens only when
         budget >= MIN_NOTIONAL_USD * (account_value / position_notional) / mult.
-    - `floor_usd` opens their LARGEST position — the least you can fund and have *anything* open. Whales run
-      leveraged, concentrated books, so this is often only a few dollars (positions are dust-sized here).
-    - `recommended_usd` opens their whole book minus dust tails (positions >= `dust_frac` of notional) — the
-      "actually tracks them" number, sized proportionally to their leverage. A residual tail is excluded so
-      it can't explode the figure. Both at 1x; a higher multiplier divides them. A snapshot; the pre-fund
-      sim is the exact per-position check. Returns None when it can't be computed (flat / no account value)."""
+    - `min_budget_usd` opens their whole book minus dust tails (positions >= `dust_frac` of notional) — the
+      minimum at which the mirror actually replicates them rather than fragments of them, sized to their
+      leverage. A residual tail is excluded so it can't explode the figure.
+    - `opens_nothing_below_usd` is the hard floor: below it, even their largest position scales under the
+      minimum and NOTHING opens. Whales run leveraged, concentrated books, so this is often a few dollars.
+    Both at 1x; a higher multiplier divides them. A snapshot; the pre-fund sim is the exact per-position
+    check. Returns None when it can't be computed (flat / no account value)."""
     notionals = sorted((p["notional"] for p in (positions or [])
                         if p.get("notional") and p["notional"] > 0), reverse=True)
     if not account_value or account_value <= 0 or not notionals:
@@ -237,12 +239,12 @@ def _min_mirror_budget(account_value, positions, mult=1.0, dust_frac=MIRROR_DUST
     def _b(pn):
         return round(MIN_NOTIONAL_USD * account_value / (pn * mult), 2)
     return {
-        "floor_usd": _b(notionals[0]),       # opens their largest position; below this, nothing opens
-        "recommended_usd": _b(nondust[-1]),  # opens their whole book minus dust tails — real position sizes
+        "min_budget_usd": _b(nondust[-1]),           # minimum to run PROPERLY — opens their whole book ex-dust
+        "opens_nothing_below_usd": _b(notionals[0]), # hard floor: below this, literally nothing opens
         "at_multiplier": mult,
         "positions": len(notionals),
         "dust_excluded": len(notionals) - len(nondust),
-        "note": f"current-book snapshot at {mult}x — floor opens only the largest, recommended opens the book (ex-dust); confirm with the sim",
+        "note": f"minimum to run the mirror properly at {mult}x (opens their whole book ex-dust) — a fact, not a trade-size recommendation; the sim is the exact check",
     }
 
 

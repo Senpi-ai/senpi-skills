@@ -22,13 +22,13 @@ def test_min_mirror_budget():
     acct = 1_000_000.0
     poss = [{"notional": 500_000}, {"notional": 250_000}, {"notional": 50_000}]  # total 800k, none dust
     b = research._min_mirror_budget(acct, poss)                 # MIN_NOTIONAL_USD == 12.0
-    assert b["floor_usd"] == 24.0          # opens the 500k position (largest) — least you can fund
-    assert b["recommended_usd"] == 240.0   # opens the whole book down to the 50k position (12*1M/50k)
+    assert b["opens_nothing_below_usd"] == 24.0  # 500k (largest) clears the floor — below this, nothing
+    assert b["min_budget_usd"] == 240.0          # min to run properly — opens the whole book (12*1M/50k)
     assert b["positions"] == 3 and b["dust_excluded"] == 0 and b["at_multiplier"] == 1.0
-    assert research._min_mirror_budget(acct, poss, mult=4.0)["floor_usd"] == 6.0  # multiplier divides it
-    # a dust tail is excluded from "recommended" (else it explodes) but still counted in positions
+    assert research._min_mirror_budget(acct, poss, mult=4.0)["opens_nothing_below_usd"] == 6.0  # multiplier divides it
+    # a dust tail is excluded from min_budget (else it explodes) but still counted in positions
     d = research._min_mirror_budget(acct, poss + [{"notional": 100}])  # 100 << 1% of ~800k
-    assert d["dust_excluded"] == 1 and d["recommended_usd"] == 240.0   # still the 50k, not the $100 tail
+    assert d["dust_excluded"] == 1 and d["min_budget_usd"] == 240.0   # still the 50k, not the $100 tail
     # can't compute → None (say so, don't guess)
     assert research._min_mirror_budget(acct, []) is None        # trader flat
     assert research._min_mirror_budget(None, poss) is None      # account value unavailable

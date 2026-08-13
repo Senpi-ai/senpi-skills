@@ -59,12 +59,13 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
   `mirrorMultiplier`, slippage-as-entry-gate, protection, minimums, "how much do I need", "spot or perps")
   is the **single source** in senpi-trade (`references/mirror-trading-explained.md`). If the user asks how
   copy trading works, hand off there — never write a parallel explanation that can drift.
-- **Answer "how much do I need?" with the trader's own number.** Every enriched trader carries
-  `min_mirror_budget` — `floor_usd` (below it the mirror opens *nothing* — often a few dollars for a
-  leveraged whale), `recommended_usd` (opens their whole book ex-dust, at real sizes), at 1× (a higher
-  multiplier divides them). Quote the
-  **recommended** figure when the user asks what a copy costs or names a budget; it's the pre-fund
-  estimate, the sim is the exact check. If it's `null` (trader flat / account value unreadable), say so.
+- **Answer "how much do I need?" with the *minimum required* — never a trade-size recommendation.** Every
+  enriched trader carries `min_mirror_budget` — `min_budget_usd` (the **minimum to run the mirror
+  properly**: opens their whole book ex-dust) and `opens_nothing_below_usd` (a hard floor — below it
+  *nothing* opens; often a few dollars for a leveraged whale), at 1× (a higher multiplier divides them).
+  State `min_budget_usd` as the minimum when the user asks what a copy needs or names a budget; **do not
+  advise how much they should trade with — that's their call.** It's a pre-fund estimate; the sim is the
+  exact check. If it's `null` (flat / account value unreadable), say so.
 - **Honor the user's stated filters.** "5–55 trades/day", "altcoins only", "few positions", "1–3 names" —
   filter the returned candidates by `trades_per_day`, their `current_positions` assets, and position count;
   if none in the shortlist match, say so and widen or re-rank rather than recommending an off-spec trader.
@@ -86,14 +87,14 @@ python3 scripts/research.py --no-mirror            # track record only (skip the
 
 - **Find** (mirror-aware by default) → **`mirror_shortlist[]`** — the top candidates **ranked by
   copyability**, each with `mirrorability` (`mirror_fit` good/partial/poor + `fresh_entry_surface_pct` =
-  share of book still within slippage of entry), **`min_mirror_budget`** (`floor` = opens their largest, `recommended` = opens their whole
-  book ex-dust), `momentum` (hot/cold), `reliability`, and
+  share of book still within slippage of entry), **`min_mirror_budget`** (`min_budget_usd` = minimum to run it *properly* / opens their whole
+  book ex-dust; `opens_nothing_below_usd` = hard floor), `momentum` (hot/cold), `reliability`, and
   `flags[]`. **Lead with this.** `candidates[]` is the fuller track-record list (`roi_pct`, `pnl_usd`,
   `win_rate_pct`, `max_drawdown_pct`, `trades`, `active_days`, labels, `reliability`). `--no-mirror`
   returns track record only.
 - **Vet** → `trader`: `track_record`, `labels`, `current_positions` (each with `moved_from_entry_pct` —
-  the price distance from the trader's entry) + `mirrorability` + **`min_mirror_budget`** (recommended USD
-  to mirror their book), `net_exposure` (with `margin_pct`), `recent_momentum` / `momentum` (hot/cold),
+  the price distance from the trader's entry) + `mirrorability` + **`min_mirror_budget`** (minimum USD to
+  run the mirror properly), `net_exposure` (with `margin_pct`), `recent_momentum` / `momentum` (hot/cold),
   and `flags[]`. This is the dossier.
 - **`--strategies`** → `strategies[]`: ranked mirror strategies (copied trader, total/realized PnL,
   return %, followers).
@@ -108,8 +109,8 @@ comprehensive, decision-first answer on every call, never a bare ROI list.
 1. **The call** — one line: *"the best trader you can actually mirror right now is …"* — the decision,
    not a menu. If nothing is cleanly mirrorable, say that in the first line.
 2. **The shortlist** — a table from **`mirror_shortlist`**, ordered by **copyability**: `mirror_fit` (can
-   you open near their entries now?), **min budget** (`min_mirror_budget.recommended_usd` — what it takes
-   to actually copy their book), `momentum` (hot/cold), `reliability`. ROI / max-drawdown are *supporting*
+   you open near their entries now?), **min to run** (`min_mirror_budget.min_budget_usd` — the minimum to
+   run it properly, not a suggested trade size), `momentum` (hot/cold), `reliability`. ROI / max-drawdown are *supporting*
    columns, never the headline.
 3. **Why each — the part users ask for by name** (*"…and tell me why"*). One line per top candidate tying
    **track record + mirrorability + market-fit** together: why they're proven, whether you can copy them

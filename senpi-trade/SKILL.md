@@ -145,9 +145,9 @@ the goal is to land them on **raw mirror / a named template / custom** — offer
    traders, fresh entries only (**Shadow**) · one elite's single biggest conviction bet (**Oxpecker**) ·
    traders hot right now (**Raptor**) · consensus of the top copy strategies (**Cuckoo**) · a rule the
    templates don't cover (**→ senpi-strategy-author**).
-4. **Budget** — quote the trader's **computed minimum** (`senpi-trader-research` returns
-   `min_mirror_budget`: floor / recommended at 1×). Recommend at least the **recommended**
-   figure; if their ask is below the **floor**, say plainly the mirror would open nothing and offer a
+4. **Budget — their call; don't advise how much to trade.** Just state the trader's **minimum to run it
+   properly** (`senpi-trader-research` `min_mirror_budget.min_budget_usd`). If their budget is below it,
+   say plainly it won't open their full book (below `opens_nothing_below_usd`, nothing opens) and offer a
    closer-sized trader, a higher multiplier, or a budget-relative template. The pre-fund sim confirms it.
 5. **Protection** — default **follow their exits**; offer an added DSL safety-net, especially if the
    trader runs without stops.
