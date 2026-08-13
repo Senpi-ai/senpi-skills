@@ -328,5 +328,45 @@ class CliJson(unittest.TestCase):
         self.assertIsNone(_cli.cli_json(["openclaw", "senpi", "status", "--json"]))
 
 
+class RunCliSpawnFailures(unittest.TestCase):
+    """`run_cli` is the bottom of every lifecycle script — deploy, close, status all read through it.
+    An exception escaping HERE takes the caller's whole run with it, mid-money-path, so every way a
+    spawn can fail has to come back as the rc=-1 never-ran verdict instead. Catching only
+    FileNotFoundError left the fork/exec failures a strained box actually produces (ENOMEM, EAGAIN)
+    propagating."""
+
+    def setUp(self):
+        self._real = _cli.subprocess.run
+
+    def tearDown(self):
+        _cli.subprocess.run = self._real
+
+    def _raise(self, exc):
+        def boom(*_a, **_kw):
+            raise exc
+        _cli.subprocess.run = boom
+
+    def test_a_fork_failure_is_the_never_ran_verdict_not_an_exception(self):
+        self._raise(OSError(12, "Cannot allocate memory"))
+        rc, out, err = _cli.run_cli(["openclaw", "senpi", "runtime", "list"])
+        self.assertEqual((rc, out), (-1, ""))
+        self.assertTrue(err.startswith(_cli.SPAWN_FAILED_PREFIX))   # never ran — the money-path branch
+        self.assertIn("Cannot allocate memory", err)                # …and the cause survives to the log
+
+    def test_a_missing_binary_still_reads_exactly_as_before(self):
+        self._raise(FileNotFoundError())
+        self.assertEqual(_cli.run_cli(["openclaw", "senpi", "runtime", "list"]),
+                         (-1, "", f"{_cli.SPAWN_FAILED_PREFIX}openclaw"))
+
+    def test_a_timeout_is_still_the_stopped_waiting_verdict(self):
+        # The distinction the prefix exists for: a timeout RAN, so whatever it dispatched may still be
+        # in flight. It must not pick up the never-ran prefix now that the OSError arm is broader.
+        self._raise(_cli.subprocess.TimeoutExpired(cmd="openclaw", timeout=60))
+        rc, out, err = _cli.run_cli(["openclaw", "senpi", "runtime", "list"])
+        self.assertEqual((rc, out), (-1, ""))
+        self.assertFalse(err.startswith(_cli.SPAWN_FAILED_PREFIX))
+        self.assertIn("timed out", err)
+
+
 if __name__ == "__main__":
     unittest.main()

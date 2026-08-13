@@ -202,9 +202,10 @@ def validate(pkg: Path) -> list:
                         f"every strategy must ship built-in protection")
 
         # Self-describing is not optional: every instance needs a substantive top-level `description`.
-        # The runtime REGISTERS it (installed_runtimes.json) and senpi-portfolio reads it back as the
-        # strategy's mandate — "is it doing its job?". A missing/stub description makes an authored
-        # strategy invisible to portfolio analysis (and works the same for user-authored strategies).
+        # The runtime REGISTERS it and senpi-portfolio reads it back (via `openclaw senpi runtime list
+        # --json`, never a registry file) as the strategy's mandate — "is it doing its job?". A
+        # missing/stub description makes an authored strategy invisible to portfolio analysis (and
+        # works the same for user-authored strategies).
         dlines, capture, dbody = rt_text.splitlines(), False, []
         for ln in dlines:
             if not capture and re.match(r"^description\s*:", ln):

@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.6.11"
+  version: "3.6.15"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -258,16 +258,16 @@ Keep it to ~3 short lines per strategy. Multi-instance packages whose legs diffe
 
 **"What strategies am I running?" / "list my strategies" / "is my fleet healthy?"** →
 `python3 scripts/status.py` (`<id>` filters, `--fast` skips the per-runtime health call, `--json` for
-machine output). It is the single source of truth — live `strategy_list` ∪ `runtime list`, never the
+machine output). It is the single source of truth — live `strategy_list` ∪ `runtime list` (the same runtime-CLI
+read `senpi-portfolio` also quotes — neither surface independently confirms the other), never the
 ephemeral deploy state — so **don't hand-compose `strategy_list`**. A strategy with **no runtime is not
-"broken"**: it is just not autonomous, and `status.py` labels how each one is managed (copy, manual, …).
-**Tell the user the management mode for off-runtime strategies — do not call them idle.** The one real
-anomaly is an autonomous package strategy missing its runtime (**no-runtime**). The full label set:
-[`references/lifecycle.md`](references/lifecycle.md).
+"broken"**: it is just not autonomous, and `status.py` labels how it is managed (copy, manual, …) — never
+call it idle. The one real anomaly is an autonomous package strategy missing its runtime
+(**no-runtime**). Full label set: [`references/lifecycle.md`](references/lifecycle.md).
 
-**"Are my open positions protected? / do they have a stop-loss?"** → the DSL coverage verdict
-(PROTECTED / UNPROTECTED / STOP-NOT-ON-VENUE). Key trap: an unprotected position shows up as an
-**absence** in `senpi dsl positions`, so reconcile open positions against the tracked set — procedure:
+**"Are my open positions protected? / do they have a stop-loss?"** → the DSL coverage verdict (PROTECTED
+/ UNPROTECTED / STOP-NOT-ON-VENUE) — a separate read, not the runtime list above. Key trap: an
+unprotected position is an **absence** in `senpi dsl positions` — reconcile the tracked set:
 [`senpi-trading-runtime/references/dsl-protection-check.md`](../senpi-trading-runtime/references/dsl-protection-check.md).
 
 Do **not** trust "runtime: running" alone. A strategy is **live** only when its runtime is running AND

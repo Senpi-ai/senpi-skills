@@ -18,18 +18,144 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 
 import portfolio  # noqa: E402
-import _yaml  # noqa: E402
 
 FIXTURE = os.path.join(HERE, "fixtures", "portfolio_fixture.json")
-REGISTRY_DIR = os.path.join(HERE, "fixtures", "registry")           # holds installed_runtimes.json
-REGISTRY_COUGAR_DIR = os.path.join(HERE, "fixtures", "registry_cougar")   # 2-instance strategy fixture
-REPO_ROOT = os.path.dirname(os.path.dirname(HERE))                  # senpi-skills/
-KODIAK_YAML = os.path.join(REPO_ROOT, "strategies", "kodiak", "main", "runtime.yaml")
-# the wallet the registry fixture keys the kodiak runtime.yaml under (see fixtures/registry/…json)
+# The shape `openclaw senpi runtime list --json` emits — ONE registered runtime (kodiak-main).
+RUNTIMES_FIXTURE = os.path.join(HERE, "fixtures", "runtimes_list.json")
+# the wallet the runtimes fixture registers kodiak-main under
 KODIAK_WALLET = "0xKODIAK00000000000000000000000000000kdk"
-# the two wallets of the cougar long/short pair (one strategy, two instances — see registry_cougar/…json)
+# ACTIVE + funded + attributed, and ABSENT from the runtime list — the trap `not_running` exists to catch
+GHOST_WALLET = "0xGHOST00000000000000000000000000000ghost"
+# the two wallets of the cougar long/short pair (one strategy, two instances)
 COUGAR_LONG_WALLET = "0xCOUGARLONG000000000000000000000000000lng"
 COUGAR_SHORT_WALLET = "0xCOUGARSHORT00000000000000000000000000sht"
+
+_TMP = tempfile.mkdtemp(prefix="senpi-portfolio-tests-")
+# The engine SHELLS OUT (`openclaw senpi runtime list --json`) — so on a host that actually HAS the CLI
+# these tests would read that host's real runtimes. Empty PATH while THIS module's tests run: the only
+# way data reaches the engine here is the offline hooks ($SENPI_RUNTIMES_FIXTURE / $SENPI_STATUS_FIXTURE),
+# and a test that sets neither exercises the REAL spawn-failure path deterministically.
+_EMPTY_BIN = os.path.join(_TMP, "empty-bin")
+os.makedirs(_EMPTY_BIN, exist_ok=True)
+_SAVED_PATH = "unset"  # sentinel distinct from `None` (PATH legitimately absent from the environment)
+
+
+def _empty_path():
+    """Save the real PATH, then empty it. Must bracket ONLY this module's own test run: setting PATH
+    at import time with no restore is what starved `test_run_sh.py`'s `subprocess.run(["bash", ...])`
+    of `bash` for the rest of the pytest process — collection imports every test module up front, so
+    an unrestored mutation here outlives this file."""
+    global _SAVED_PATH
+    _SAVED_PATH = os.environ.get("PATH", None)
+    os.environ["PATH"] = _EMPTY_BIN
+
+
+def _restore_path():
+    global _SAVED_PATH
+    if _SAVED_PATH == "unset":
+        return  # _empty_path() never ran — nothing to undo
+    if _SAVED_PATH is None:
+        os.environ.pop("PATH", None)
+    else:
+        os.environ["PATH"] = _SAVED_PATH
+    _SAVED_PATH = "unset"
+
+
+def setup_module(module):  # pytest xunit-style hook — runs once before this module's tests
+    _empty_path()
+
+
+def teardown_module(module):  # runs once after this module's tests, restoring PATH for every module after
+    _restore_path()
+
+
+def _write_runtimes(payload):
+    """Persist a `runtime list --json` payload; return the path to hand to $SENPI_RUNTIMES_FIXTURE."""
+    fd, path = tempfile.mkstemp(suffix=".json", dir=_TMP)
+    with os.fdopen(fd, "w") as fh:
+        json.dump(payload, fh)
+    return path
+
+
+def _runtimes_payload():
+    with open(RUNTIMES_FIXTURE) as fh:
+        return json.load(fh)
+
+
+def fixture_with_status(status):
+    """The canonical runtimes fixture with kodiak-main's `status` replaced (running / stopped /
+    `running — NO ENTRY SCANNERS`)."""
+    payload = _runtimes_payload()
+    payload["runtimes"][0]["status"] = status
+    return _write_runtimes(payload)
+
+
+def fixture_with_descriptor(patch):
+    """The canonical runtimes fixture with kodiak-main's `descriptor` patched (or replaced by null —
+    what the producer emits when the entry's YAML was absent/unparseable). Honors the producer's
+    guarantee that hasExit/dslPreset/dsl agree: hasExit False ⇒ the other two are null."""
+    payload = _runtimes_payload()
+    entry = payload["runtimes"][0]
+    if patch is None:
+        entry["descriptor"] = None
+        return _write_runtimes(payload)
+    entry["descriptor"].update(patch)
+    if entry["descriptor"].get("hasExit") is not True:
+        entry["descriptor"]["dslPreset"] = None
+        entry["descriptor"]["dsl"] = None
+    return _write_runtimes(payload)
+
+
+def _engine_fixture():
+    """The default MCP fixture behind `run_engine`: ONE strategy the runtime list registers (kodiak,
+    $200 idle) + ONE that is ACTIVE, funded $2,000 and attributed but has NO runtime behind it (ghost)."""
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"total_balance_usd": 2200, "total_withdrawable": 2200,
+                                  "total_usdc_in_hyperliquid": 0, "token_balances": []},
+        "strategy_list": {"strategies": [
+            {"strategyName": "kodiak", "tradingStrategyName": "kodiak",
+             "strategyMetadata": {"skillName": "kodiak", "skillVersion": "1.0.0"},
+             "strategyWalletAddress": KODIAK_WALLET, "status": "ACTIVE", "totalFunded": 200},
+            {"strategyName": "gibbon", "tradingStrategyName": "gibbon",
+             "strategyMetadata": {"skillName": "gibbon", "skillVersion": "1.0.0"},
+             "strategyWalletAddress": GHOST_WALLET, "status": "ACTIVE", "totalFunded": 2000}]},
+    }
+    for w, usd in ((KODIAK_WALLET, "200"), (GHOST_WALLET, "2000")):
+        fixture[f"strategy_get_clearinghouse_state::{w.lower()}"] = {
+            "main": {"marginSummary": {"accountValue": usd}, "withdrawable": usd, "assetPositions": []},
+            "xyz": {"marginSummary": {"accountValue": usd}, "withdrawable": usd, "assetPositions": []}}
+    return fixture
+
+
+def run_engine(runtimes_fixture=RUNTIMES_FIXTURE, status_fixture=None, mcp_fixture=None,
+               cli_missing=False, want_market=False):
+    """Run the engine offline against `mcp_fixture` (default `_engine_fixture`), with the runtime read
+    served from `runtimes_fixture`. `cli_missing=True` (or `runtimes_fixture=None`) leaves the hook unset
+    so the engine really tries to spawn the CLI — which cannot be found on this module's emptied PATH."""
+    wanted = {"SENPI_RUNTIMES_FIXTURE": None if cli_missing else runtimes_fixture,
+              "SENPI_STATUS_FIXTURE": status_fixture}
+    saved = {k: os.environ.get(k) for k in wanted}
+    try:
+        for k, v in wanted.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        return portfolio.run(portfolio._FixtureClient(mcp_fixture or _engine_fixture()),
+                             want_market=want_market)
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def by_wallet(out, wallet):
+    """The strategy row for `wallet` — rows are keyed by wallet, never by a name a fixture chose."""
+    return next(s for s in out["strategies"] if str(s["wallet"]).lower() == str(wallet).lower())
 
 
 def _result():
@@ -80,11 +206,12 @@ def test_canonical_fixture_sleeves_group_by_attribution_not_by_name():
     assert len(groups) == 1 and groups[0]["label"] == "cub"
     assert groups[0]["is_multi_wallet"] is True
     assert len(groups[0]["instances"]) == 3
-    # `protected` follows the stamp: a package deploy carries a validator-guaranteed DSL exit, so an
-    # attributed row is protected even with no registry on this host. It read False here only because
-    # the fixture's missing stamp made every row look hand-rolled — pinned so it can never drift back
-    # unpinned, this being the field the skill carries a whole hard-rule section about.
-    assert all(s["protected"] is True for s in res["strategies"])
+    # `protected` does NOT follow the stamp. This run has no runtime read behind it (no CLI on PATH),
+    # so no exit was ever read — every row reports null, not the reassuring True the stamp used to buy.
+    # That True is the defect: an attributed strategy whose runtime was never registered was rendered
+    # "✅ DSL protected" on exactly this evidence.
+    assert all(s["protected"] is None for s in res["strategies"])
+    assert all(s["runtime_health"] == "unverified" for s in res["strategies"])
 
 
 def test_embedded_address_resolved():
@@ -122,121 +249,163 @@ def test_fails_open_on_empty():
     assert "totals" in res and res["meta"].get("degraded")
 
 
-def test_yaml_parses_kodiak_description():
-    """The vendored parser reads the runtime.yaml folded `description` block — non-empty, real text."""
-    with open(KODIAK_YAML) as f:
-        doc = _yaml.loads(f.read())
-    assert isinstance(doc, dict)
-    desc = doc.get("description")
-    assert isinstance(desc, str) and desc.strip()
-    assert "KODIAK" in desc            # sanity — it's the kodiak thesis, not an empty capture
+def test_profile_description_comes_from_the_engine_descriptor():
+    """The mandate is the engine's rendered description — the skill no longer parses runtime.yaml."""
+    out = run_engine(runtimes_fixture=RUNTIMES_FIXTURE)
+    kodiak = by_wallet(out, KODIAK_WALLET)
+    assert kodiak["profile"]["description"] == "SOL alpha hunter"
+    # the RUNTIME answered, never the catalog alone (whether catalog facets also landed depends only on
+    # whether a catalog.json is reachable from wherever this runs — it never supplies the description)
+    assert kodiak["profile"]["source"] in ("registry", "registry+catalog")
+    assert kodiak["profile"]["runtime_name"] == "kodiak-main"
+    assert kodiak["profile"]["group"] == "kodiak"
+    assert kodiak["profile"]["version"] == 7
 
 
-def test_profile_description_from_runtime_registry():
-    """UNIVERSAL mandate: with SENPI_STATE_DIR pointed at a registry holding the kodiak runtime.yaml
-    (keyed by wallet), the engine attaches `profile.description` for that wallet — read from the
-    DEPLOYED runtime.yaml the runtime registers, NOT from the catalog."""
-    # a minimal MCP fixture: one ACTIVE strategy whose wallet matches the registry entry
-    fixture = {
-        "user_get_me": {"wallets": [
-            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
-        "account_get_portfolio": {"total_balance_usd": 200, "total_withdrawable": 200,
-                                  "total_usdc_in_hyperliquid": 0, "token_balances": []},
-        "strategy_list": {"strategies": [
-            {"tradingStrategyName": "kodiak", "strategyWalletAddress": KODIAK_WALLET, "status": "ACTIVE"}]},
-        f"strategy_get_clearinghouse_state::{KODIAK_WALLET.lower()}": {
-            "main": {"marginSummary": {"accountValue": "200"}, "withdrawable": "200", "assetPositions": []},
-            "xyz": {"marginSummary": {"accountValue": "200"}, "withdrawable": "200", "assetPositions": []}},
-    }
-    old = os.environ.get("SENPI_STATE_DIR")
-    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
-    try:
-        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
-    finally:
-        if old is None:
-            os.environ.pop("SENPI_STATE_DIR", None)
+def test_registered_running_runtime_is_not_not_running():
+    out = run_engine(runtimes_fixture=RUNTIMES_FIXTURE)
+    kodiak = by_wallet(out, KODIAK_WALLET)
+    assert kodiak["runtime_registered"] is True
+    assert kodiak["not_running"] is False
+    assert kodiak["running_blind"] is False
+    assert kodiak["protected"] is True            # descriptor.hasExit — an exit the ENGINE read
+
+
+def test_active_funded_strategy_absent_from_the_list_is_not_running():
+    """The trap this field exists to catch: ACTIVE + funded + stamped, with no runtime behind it."""
+    out = run_engine(runtimes_fixture=RUNTIMES_FIXTURE)
+    ghost = by_wallet(out, GHOST_WALLET)
+    assert ghost["runtime_registered"] is False
+    assert ghost["not_running"] is True
+    assert ghost["protected"] is False
+    assert ghost["runtime_health"] == "not_running"
+    assert out["meta"].get("not_running") == ["gibbon"]
+    assert any("not running" in w.lower() for w in out["meta"]["warnings"])
+
+
+def test_running_blind_is_surfaced():
+    """`running — NO ENTRY SCANNERS`: the runtime is up and cannot produce entry signals. Before this,
+    this surface rendered it as plain healthy."""
+    out = run_engine(runtimes_fixture=fixture_with_status("running — NO ENTRY SCANNERS"))
+    kodiak = by_wallet(out, KODIAK_WALLET)
+    assert kodiak["running_blind"] is True
+    assert kodiak["runtime_health"] == "degraded"
+    assert kodiak["runtime_registered"] is True    # it IS registered and up — just blind
+    assert out["meta"].get("running_blind") == ["kodiak"]
+    assert any("no entry scanners" in w.lower() for w in out["meta"]["warnings"])
+
+
+def test_a_listed_runtime_with_no_status_does_not_claim_it_can_enter():
+    """A dropped field must buy nothing. If the inventory row carries no `status` — key missing, or
+    present and null — we never checked whether that runtime has entry scanners, so `running_blind` is
+    null, not False. False there asserts "we checked, and it can enter positions"; and with telemetry
+    answering healthy the row would otherwise read running_blind False + runtime_health live."""
+    for label, payload in (("missing key", _runtimes_payload()), ("explicit null", _runtimes_payload())):
+        entry = payload["runtimes"][0]
+        if label == "missing key":
+            entry.pop("status")
         else:
-            os.environ["SENPI_STATE_DIR"] = old
-    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
-    prof = strat["profile"]
-    assert prof is not None
-    assert isinstance(prof["description"], str) and "KODIAK" in prof["description"]
-    assert prof["source"] in ("registry", "registry+catalog")
-    assert strat["protected"] is True                      # runtime.yaml ships an `exit:` block
-    assert res["meta"]["registry_source"] == "registry"
-    assert res["meta"]["profile_source"] in ("registry", "mixed")
+            entry["status"] = None
+        res = _run_with_status({"kodiak-main": status_doc({"health": "healthy"})},
+                               runtimes_fixture=_write_runtimes(payload))
+        strat = by_wallet(res, KODIAK_WALLET)
+        assert strat["running_blind"] is None, label
+        assert strat["runtime_registered"] is True, label      # it IS listed — that much we did check
+        assert strat["runtime_health"] == "unknown", label     # and telemetry cannot upgrade it to live
+        assert res["strategy_groups"][0]["running_blind"] is None, label
+        assert res["strategy_groups"][0]["runtime_health"] == "unknown", label
 
 
-def test_active_but_no_runtime_is_not_running():
-    """A skill_name strategy that is ACTIVE + funded but ABSENT from the runtime registry has NO runtime
-    behind it — the engine must flag it not_running + unprotected, never 'alive/protected'. The registry
-    IS present (kodiak only), so a different funded wallet is judgeable as 'no runtime registered' — the
-    exact gibbon case where the user was told a never-registered strategy was live and DSL-protected."""
-    GHOST = "0xGHOST00000000000000000000000000000ghost"
-    fixture = {
-        "user_get_me": {"wallets": [
-            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
-        "account_get_portfolio": {"total_balance_usd": 2000, "total_withdrawable": 2000,
-                                  "total_usdc_in_hyperliquid": 0, "token_balances": []},
-        "strategy_list": {"strategies": [
-            {"tradingStrategyName": "gibbon", "skillName": "gibbon", "status": "ACTIVE",
-             "totalFunded": 2000, "strategyWalletAddress": GHOST}]},
-        f"strategy_get_clearinghouse_state::{GHOST.lower()}": {
-            "main": {"marginSummary": {"accountValue": "2000"}, "withdrawable": "2000", "assetPositions": []},
-            "xyz": {"marginSummary": {"accountValue": "2000"}, "withdrawable": "2000", "assetPositions": []}},
-    }
-    old = os.environ.get("SENPI_STATE_DIR")
-    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR   # registry present (kodiak only) → GHOST wallet is absent
+def test_a_stopped_runtime_never_reads_live():
+    """`stopped` is the producer's third status. It is registered, so it is not `not_running` — but a
+    stopped process is not working either, and must never fall through to a 'live' verdict."""
+    out = run_engine(runtimes_fixture=fixture_with_status("stopped"))
+    kodiak = by_wallet(out, KODIAK_WALLET)
+    assert kodiak["runtime_registered"] is True
+    assert kodiak["runtime_health"] == "degraded"
+
+
+def test_protected_is_false_when_the_descriptor_reports_no_exit():
+    """`protected` must come from an exit actually read, never from the presence of a skillName.
+    (`hasExit` is the ENGINE's funding-gate predicate — stricter than the `exit:`-block-exists test this
+    skill used to apply, so some strategies correctly flip from protected to unprotected here.)"""
+    out = run_engine(runtimes_fixture=fixture_with_descriptor({"hasExit": False, "dsl": None}))
+    kodiak = by_wallet(out, KODIAK_WALLET)
+    assert kodiak["skill_name"]          # attribution IS present
+    assert kodiak["protected"] is False  # and it is not what decides this
+
+
+def test_unreadable_cli_degrades_to_null_and_warns_loudly():
+    """The whole finding in one test: no field may degrade to its reassuring value, and the
+    sourcing failure may not be silent."""
+    out = run_engine(runtimes_fixture=None, cli_missing=True)
+    for s in out["strategies"]:
+        assert s["runtime_registered"] is None
+        assert s["not_running"] is None
+        assert s["running_blind"] is None
+        assert s["protected"] is None
+        assert s["runtime_health"] == "unverified"
+    assert out["meta"]["warnings"], "a silent sourcing failure is the defect"
+    assert any("runtime list" in w for w in out["meta"]["warnings"])
+    # and the group roll-up may not launder those nulls into a verdict either
+    for g in out["strategy_groups"]:
+        assert g["protected"] is None and g["not_running"] is None
+        assert g["runtime_health"] == "unverified"
+
+
+def _raise_oserror(*_a, **_kw):
+    """What `subprocess.run` really does on a memory-constrained box: the FORK fails, so the child
+    never runs. Not a FileNotFoundError — an ENOMEM OSError, which used to propagate."""
+    raise OSError(12, "Cannot allocate memory")
+
+
+def test_a_fork_failure_is_a_failed_read_not_a_dead_engine():
+    """A spawn that fails for any reason other than a missing binary must degrade like any other
+    failed read. It used to propagate out of the registry read, through fetch_strategies, out of
+    run() — taking the money map, the positions and the whole JSON answer with it, on the exact
+    kind of strained box where a user most wants to know where their money is."""
+    real = portfolio.subprocess.run
+    portfolio.subprocess.run = _raise_oserror
     try:
-        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+        rc, out, err = portfolio._run_cli(["openclaw", "senpi", "runtime", "list", "--json"])
+        assert (rc, out) == (-1, "")
+        # never-ran, so it carries the never-ran prefix the money path in deploy.py branches on —
+        # a timeout (ran, still in flight) remains the only rc=-1 without it
+        assert err.startswith(portfolio.SPAWN_FAILED_PREFIX)
+        assert "Cannot allocate memory" in err
+        res = run_engine(cli_missing=True)
     finally:
-        if old is None:
-            os.environ.pop("SENPI_STATE_DIR", None)
-        else:
-            os.environ["SENPI_STATE_DIR"] = old
-    strat = {s["name"]: s for s in res["strategies"]}["gibbon"]
-    assert strat["runtime_registered"] is False   # registry present, wallet not in it → no runtime
-    assert strat["not_running"] is True
-    assert strat["protected"] is False            # not running ⇒ not protected, despite skill_name
-    assert res["meta"].get("not_running") == ["gibbon"]
-    assert any("not running" in w.lower() for w in res["meta"]["warnings"])
-    grp = {g["label"]: g for g in res["strategy_groups"]}.get("gibbon")
-    assert grp is not None and grp["not_running"] is True and grp["protected"] is False
+        portfolio.subprocess.run = real
+    assert len(res["strategies"]) == 2, "the whole read died with the spawn"
+    assert res["totals"]["grand_total_usd"] > 0
+    for s in res["strategies"]:
+        assert s["runtime_health"] == "unverified"
+        assert s["protected"] is None
+    assert any("runtime list" in w for w in res["meta"]["warnings"])
 
 
-def test_registry_absent_leaves_runtime_status_unknown():
-    """With NO registry on this host (SENPI_STATE_DIR unset/empty), the engine must NOT claim not_running —
-    runtime_registered is None (unknown) and protected falls back to the config posture."""
-    GHOST = "0xNOREG000000000000000000000000000000nrg"
-    fixture = {
-        "user_get_me": {"wallets": [
-            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
-        "account_get_portfolio": {"total_balance_usd": 2000, "total_withdrawable": 2000,
-                                  "total_usdc_in_hyperliquid": 0, "token_balances": []},
-        "strategy_list": {"strategies": [
-            {"tradingStrategyName": "gibbon", "skillName": "gibbon", "status": "ACTIVE",
-             "totalFunded": 2000, "strategyWalletAddress": GHOST}]},
-        f"strategy_get_clearinghouse_state::{GHOST.lower()}": {
-            "main": {"marginSummary": {"accountValue": "2000"}, "withdrawable": "2000", "assetPositions": []},
-            "xyz": {"marginSummary": {"accountValue": "2000"}, "withdrawable": "2000", "assetPositions": []}},
-    }
-    old = os.environ.get("SENPI_STATE_DIR")
-    os.environ["SENPI_STATE_DIR"] = os.path.join(HERE, "fixtures", "does_not_exist")
-    try:
-        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
-    finally:
-        if old is None:
-            os.environ.pop("SENPI_STATE_DIR", None)
-        else:
-            os.environ["SENPI_STATE_DIR"] = old
-    strat = {s["name"]: s for s in res["strategies"]}["gibbon"]
-    assert strat["runtime_registered"] is None    # no registry visible → unknown, do not assert
-    assert strat["not_running"] is False           # never claim not-running without the registry
-    assert "not_running" not in res["meta"]
+def test_a_payload_that_is_not_ok_is_a_failed_read_not_an_empty_fleet():
+    """`ok: false` means the runtime could not answer. Reading that as 'zero runtimes' would flag every
+    funded strategy not_running — a false alarm as bad as the false all-clear."""
+    out = run_engine(runtimes_fixture=_write_runtimes({"ok": False, "error": "gateway unreachable"}))
+    kodiak = by_wallet(out, KODIAK_WALLET)
+    assert kodiak["runtime_registered"] is None
+    assert kodiak["runtime_health"] == "unverified"
+    assert any("runtime list" in w for w in out["meta"]["warnings"])
 
 
-def _kodiak_active_fixture():
-    """One ACTIVE kodiak strategy whose wallet matches the registry fixture (id=kodiak-main)."""
+def test_an_empty_runtimes_list_is_a_successful_read_of_zero_runtimes():
+    """The other side of it: `{ok: true, runtimes: []}` IS an answer — the box has no runtimes, so an
+    ACTIVE + funded + attributed strategy really is not running."""
+    out = run_engine(runtimes_fixture=_write_runtimes({"ok": True, "runtimes": []}))
+    kodiak = by_wallet(out, KODIAK_WALLET)
+    assert kodiak["runtime_registered"] is False
+    assert kodiak["not_running"] is True
+    assert kodiak["protected"] is False
+
+
+def _kodiak_only_fixture():
+    """One ACTIVE kodiak strategy on the wallet the runtimes fixture registers (id=kodiak-main)."""
     return {
         "user_get_me": {"wallets": [
             {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
@@ -250,29 +419,28 @@ def _kodiak_active_fixture():
     }
 
 
-def _run_with_status(status_by_id):
-    """Run the engine with the registry present (kodiak registered) and a `senpi status` telemetry fixture
-    keyed by runtime id — no subprocess. Returns the result dict."""
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
-        json.dump(status_by_id, tf)
-        status_path = tf.name
-    saved = {k: os.environ.get(k) for k in ("SENPI_STATE_DIR", "SENPI_STATUS_FIXTURE")}
-    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
-    os.environ["SENPI_STATUS_FIXTURE"] = status_path
-    try:
-        return portfolio.run(portfolio._FixtureClient(_kodiak_active_fixture()), want_market=False)
-    finally:
-        for k, v in saved.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
-        os.unlink(status_path)
+def status_doc(*records):
+    """The DOCUMENT `openclaw senpi status -r <id> --json` really prints: `{ok: true, statuses: [...]}`.
 
+    Every telemetry fixture here goes through this, because a fixture that invents a shape the producer
+    never emits certifies nothing: these tests were green over a mapper that found no verdict in ANY
+    real payload and defaulted to 'live'. The shape is the producer's own — senpi-trading-runtime
+    `src/cli/senpi-commands.ts` writes `writeJson({ ok: true, statuses })`, and each record is a
+    `RuntimeHealthStatus` (`health`, `components`, …) — and it is what `_cli.runtime_health_map` reads."""
+    return {"ok": True, "statuses": list(records)}
+
+
+def _run_with_status(status_by_id, runtimes_fixture=RUNTIMES_FIXTURE, mcp_fixture=None):
+    """Run the engine with kodiak-main registered (the runtimes fixture) and a `senpi status` telemetry
+    fixture keyed by runtime id — no subprocess. Each value is the whole document that id's call prints
+    (build it with `status_doc`). Returns the result dict."""
+    return run_engine(runtimes_fixture=runtimes_fixture,
+                      status_fixture=_write_runtimes(status_by_id),
+                      mcp_fixture=mcp_fixture or _kodiak_only_fixture())
 
 def test_registered_runtime_healthy_status_is_live():
     """A registered runtime whose `senpi status` telemetry reports healthy → runtime_health 'live'."""
-    res = _run_with_status({"kodiak-main": {"overallHealth": "healthy", "activePositions": 0}})
+    res = _run_with_status({"kodiak-main": status_doc({"health": "healthy", "activePositions": 0})})
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_registered"] is True
     assert strat["runtime_health"] == "live"
@@ -282,17 +450,52 @@ def test_registered_runtime_healthy_status_is_live():
 def test_registered_runtime_degraded_status_is_flagged():
     """Registered runtime whose telemetry reports degraded/unhealthy → runtime_health 'degraded' + warning
     (running, but not cleanly — distinct from not_running and from live)."""
-    res = _run_with_status({"kodiak-main": {"overallHealth": "degraded"}})
+    res = _run_with_status({"kodiak-main": status_doc({"health": "degraded"})})
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_health"] == "degraded"
     assert res["meta"].get("degraded_runtimes") == ["kodiak"]
     assert any("degraded" in w.lower() for w in res["meta"]["warnings"])
 
 
+def test_the_runtime_the_engine_calls_unhealthy_never_reads_live():
+    """THE regression this branch made load-bearing, measured against the document the producer really
+    writes: `{ok, statuses:[{health:'unhealthy', …}]}`. The verdict lives INSIDE `statuses[]`; a mapper
+    that searched only the wrapper found none, fell through to its 'live' default, and reported live +
+    protected + no warning for a runtime the engine itself called unhealthy."""
+    res = _run_with_status({"kodiak-main": status_doc(
+        {"runtimeName": "kodiak-main", "health": "unhealthy", "lastError": "scan threw"})})
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["runtime_health"] == "degraded"
+    assert res["meta"].get("degraded_runtimes") == ["kodiak"]
+    assert any("degraded" in w.lower() for w in res["meta"]["warnings"]), "and it may not be silent"
+
+
+def test_no_running_runtime_at_all_is_not_live():
+    """`{ok: true, statuses: []}` — the gateway answered, and it is running NO runtime under that id.
+    That is the emptiest possible answer and it must not read as confirmation: 'unknown' (unproven), and
+    not 'degraded' either — registered-vs-not is the registry read's verdict, not telemetry's."""
+    res = _run_with_status({"kodiak-main": status_doc()})
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["runtime_registered"] is True     # the registry DID list it
+    assert strat["runtime_health"] == "unknown"
+    assert "degraded_runtimes" not in res["meta"]
+
+
+def test_a_run_state_never_promotes_a_runtime_to_live():
+    """`status: "running"` is a RUN STATE, not a health verdict: it proves a process exists, never that
+    it works. Promoting one is the incident `_cli.py`'s HEALTH_KEYS/_RUN_STATE_KEYS split records — a
+    `{name, status: 'running'}` row rendered as a ✅ for a runtime no tick had ever proven."""
+    res = _run_with_status({"kodiak-main": status_doc({"runtimeName": "kodiak-main",
+                                                       "status": "running"})})
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["runtime_health"] == "unknown"
+    assert "degraded_runtimes" not in res["meta"]
+
+
 def test_registered_runtime_no_telemetry_is_unknown():
     """Registered runtime but telemetry has no entry for it (and no subprocess) → runtime_health 'unknown'
     — liveness unverified, never asserted broken."""
-    res = _run_with_status({"some-other-runtime-id": {"overallHealth": "healthy"}})
+    res = _run_with_status({"some-other-runtime-id": status_doc({"health": "healthy"})})
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_registered"] is True
     assert strat["runtime_health"] == "unknown"
@@ -302,7 +505,7 @@ def test_runtime_reported_unknown_is_not_live():
     """The runtime's own overall health of `unknown` (never-heard scanner, just-restarted runtime) must NOT
     be painted 'live' — it is UNPROVEN, not confirmed working. It also must not join the DEGRADED warning
     list: unproven is not broken."""
-    res = _run_with_status({"kodiak-main": {"overallHealth": "unknown"}})
+    res = _run_with_status({"kodiak-main": status_doc({"health": "unknown"})})
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_registered"] is True
     assert strat["runtime_health"] == "unknown"
@@ -310,98 +513,101 @@ def test_runtime_reported_unknown_is_not_live():
 
 
 def test_unrecognised_health_verdict_is_not_live():
-    """Fail-closed on vocabulary drift: a top-level verdict in neither the healthy nor the broken family
-    (here the runtime's `disabled`) reads 'unknown', never 'live'."""
-    res = _run_with_status({"kodiak-main": {"overallHealth": "disabled"}})
+    """Fail-closed on vocabulary drift: a verdict in neither the healthy nor the broken family (here the
+    runtime's `disabled`) reads 'unknown', never 'live'."""
+    res = _run_with_status({"kodiak-main": status_doc({"health": "disabled"})})
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_health"] == "unknown"
     assert "degraded_runtimes" not in res["meta"]
 
 
 def test_liveness_mapping_table():
-    """Pin the whole `_liveness_from_status` mapping in one place: healthy→live, degraded/unhealthy→
-    degraded, unknown→unknown, empty/non-dict→unknown, answered-with-no-verdict→live."""
+    """Pin the whole `_liveness_from_status` mapping in one place, against the REAL document shape:
+    healthy→live, degraded/unhealthy→degraded, unknown/disabled→unknown, empty `statuses[]`→unknown,
+    a run state→unknown (never promoted) unless it is a broken one (→degraded), and a document with no
+    verdict we recognise→unknown. Nothing but a health verdict earns 'live'."""
+    doc = status_doc
+    assert portfolio._liveness_from_status(doc({"health": "healthy"})) == "live"
+    assert portfolio._liveness_from_status(doc({"health": "ok"})) == "live"
+    assert portfolio._liveness_from_status(doc({"health": "degraded"})) == "degraded"
+    assert portfolio._liveness_from_status(doc({"health": "unhealthy"})) == "degraded"
+    assert portfolio._liveness_from_status(doc({"health": "unknown"})) == "unknown"
+    assert portfolio._liveness_from_status(doc({"health": "disabled"})) == "unknown"
+    assert portfolio._liveness_from_status(doc({"health": "sparkling"})) == "unknown"
+    assert portfolio._liveness_from_status(doc()) == "unknown"              # answered: no runtime running
+    assert portfolio._liveness_from_status(doc({"status": "running"})) == "unknown"   # run state ≠ health
+    assert portfolio._liveness_from_status(doc({"status": "stopped"})) == "degraded"  # …may downgrade
+    assert portfolio._liveness_from_status(doc({"activePositions": 2})) == "unknown"  # no verdict at all
+    # worst wins across records — one sick runtime is not averaged away by a healthy sibling
+    assert portfolio._liveness_from_status(
+        doc({"health": "healthy"}, {"health": "unhealthy"})) == "degraded"
+    # the single-record shape the `-r <id>` form may hand back, and a bare record, still classify
+    assert portfolio._liveness_from_status({"ok": True, "status": {"health": "healthy"}}) == "live"
     assert portfolio._liveness_from_status({"overallHealth": "healthy"}) == "live"
-    assert portfolio._liveness_from_status({"health": "degraded"}) == "degraded"
-    assert portfolio._liveness_from_status({"health": "unhealthy"}) == "degraded"
-    assert portfolio._liveness_from_status({"overallHealth": "unknown"}) == "unknown"
     assert portfolio._liveness_from_status({"data": {"health": "unknown"}}) == "unknown"
+    assert portfolio._liveness_from_status({"ok": False, "error": "gateway unreachable"}) == "unknown"
     assert portfolio._liveness_from_status({}) == "unknown"
     assert portfolio._liveness_from_status(None) == "unknown"
     assert portfolio._liveness_from_status([{"health": "healthy"}]) == "unknown"
-    assert portfolio._liveness_from_status({"activePositions": 2}) == "live"
 
 
 def test_nested_component_status_does_not_falsely_degrade():
-    """A healthy runtime whose telemetry carries NO top-level health verdict but DOES have a nested
-    per-scanner `status:"error"` must read 'live', not 'degraded'. Deep-matching a bare `status` anywhere
-    would cry DEGRADED on an otherwise-fine runtime — a false alarm."""
-    res = _run_with_status({"kodiak-main": {"activePositions": 2,
-                                            "scanners": [{"name": "kodiak_signals", "status": "error"}]}})
+    """A runtime whose OVERALL verdict is healthy but whose nested per-scanner health is unhealthy must
+    read 'live', not 'degraded'. Deep-matching a health key anywhere would cry DEGRADED on a runtime the
+    engine itself calls healthy — a false alarm. The overall verdict is `RuntimeHealthStatus.health`."""
+    res = _run_with_status({"kodiak-main": status_doc(
+        {"runtimeName": "kodiak-main", "health": "healthy", "activePositions": 2,
+         "components": {"scanners": {"component": "scanners", "health": "unhealthy",
+                                     "scanners": [{"scannerId": "kodiak_signals",
+                                                   "health": "unhealthy"}]}}})})
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_health"] == "live"
     assert "degraded_runtimes" not in res["meta"]
 
 
-def test_toplevel_status_still_classifies_degraded():
-    """Guard the other side of the liveness fix: a TOP-LEVEL `status` verdict is still honored — a runtime
-    that reports status 'stopped' at the top level → degraded (we only ignore NESTED bare status)."""
-    res = _run_with_status({"kodiak-main": {"status": "stopped"}})
+def test_a_stopped_run_state_still_classifies_degraded():
+    """The other side of the promotion rule: a run state may only DOWNGRADE, and it still does — a
+    record reporting `status: "stopped"` reads degraded, not unknown."""
+    res = _run_with_status({"kodiak-main": status_doc({"status": "stopped"})})
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_health"] == "degraded"
 
 
-def test_registered_but_unparseable_yaml_is_still_running():
-    """A runtime that IS registered (wallet present in installed_runtimes.json with an id) but whose
-    runtimeYamlContent doesn't parse to a mapping must be treated as REGISTERED + running — NEVER flagged
-    not_running/UNPROTECTED. Registration is PRESENCE, independent of whether we can read its mandate.
-    Mirror-image of the false-all-clear this PR fixes: don't false-alarm a fine runtime we can't describe."""
-    UNMAP = "0xUNMAPPED0000000000000000000000000unmapd"
-    fixture = {
-        "user_get_me": {"wallets": [
-            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
-        "account_get_portfolio": {"total_balance_usd": 2000, "total_withdrawable": 2000,
-                                  "total_usdc_in_hyperliquid": 0, "token_balances": []},
-        "strategy_list": {"strategies": [
-            {"tradingStrategyName": "myquant", "skillName": "myquant", "status": "ACTIVE",
-             "totalFunded": 2000, "strategyWalletAddress": UNMAP}]},
-        f"strategy_get_clearinghouse_state::{UNMAP.lower()}": {
-            "main": {"marginSummary": {"accountValue": "2000"}, "withdrawable": "2000", "assetPositions": []},
-            "xyz": {"marginSummary": {"accountValue": "2000"}, "withdrawable": "2000", "assetPositions": []}},
-    }
-    # a registry that HAS this wallet (id set) but a non-mapping runtimeYamlContent (parses to a list)
-    with tempfile.TemporaryDirectory() as d:
-        with open(os.path.join(d, "installed_runtimes.json"), "w") as f:
-            json.dump({"version": 1, "runtimes": [
-                {"id": "myquant-main", "wallet": UNMAP,
-                 "runtimeYamlContent": "- this\n- is a list\n- not a mapping\n"}]}, f)
-        status_path = os.path.join(d, "status.json")
-        with open(status_path, "w") as f:
-            json.dump({"myquant-main": {"overallHealth": "healthy"}}, f)
-        saved = {k: os.environ.get(k) for k in ("SENPI_STATE_DIR", "SENPI_STATUS_FIXTURE")}
-        os.environ["SENPI_STATE_DIR"] = d
-        os.environ["SENPI_STATUS_FIXTURE"] = status_path
-        try:
-            res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
-        finally:
-            for k, v in saved.items():
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
-    strat = {s["name"]: s for s in res["strategies"]}["myquant"]
-    assert strat["runtime_registered"] is True      # present in the registry → registered (mandate-parse aside)
+def test_registered_runtime_with_a_null_descriptor_is_still_running():
+    """The producer emits `descriptor: null` when an entry's YAML was absent or unparseable. That runtime
+    is still REGISTERED and still RUNNING — never flagged not_running. But its exit was never read, so it
+    is not asserted protected either: undescribed is undescribed in BOTH directions."""
+    res = _run_with_status({"kodiak-main": status_doc({"health": "healthy"})},
+                           runtimes_fixture=fixture_with_descriptor(None))
+    strat = by_wallet(res, KODIAK_WALLET)
+    assert strat["runtime_registered"] is True      # present in the list → registered
     assert strat["not_running"] is False            # registered ⇒ NOT "not running"
     assert strat["runtime_health"] == "live"        # telemetry says healthy
-    assert strat["protected"] is True               # skill deploy ⇒ validator-guaranteed DSL, still protected
-    assert strat["profile"] is None                 # mandate unparseable — undescribed, but that must NOT
-    assert "not_running" not in res["meta"]          # downgrade it to not-running
+    assert strat["protected"] is False              # no exit was read — nothing earns True here
+    assert strat["profile"] is None                 # undescribed …
+    assert "not_running" not in res["meta"]         # … which must NOT downgrade it to not-running
+
+
+def _cougar_runtimes():
+    """A `runtime list --json` payload for the cougar pair — two instances of ONE strategy (shared
+    `group`), which is what re-unites them into a single strategy_groups[] entry."""
+    def entry(name, wallet, sleeve):
+        return {"id": name, "wallet": wallet, "source": "(inline)", "status": "running",
+                "descriptor": {"name": name, "group": "cougar", "version": 1,
+                               "description": f"COUGAR — a market-neutral long/short pair. This {sleeve} "
+                                              f"sleeve holds its half of the book.",
+                               "hasExit": True, "dslPreset": "conviction",
+                               "dsl": {"preset_name": "conviction",
+                                       "note": "named preset — ladder not inlined"}}}
+    return _write_runtimes({"ok": True, "runtimes": [
+        entry("cougar-long", COUGAR_LONG_WALLET, "LONG"),
+        entry("cougar-short", COUGAR_SHORT_WALLET, "SHORT")]})
 
 
 def test_multi_wallet_strategy_groups_into_one():
     """A STRATEGY IS ALL ITS WALLETS. cougar deploys as TWO instances on TWO wallets (cougar-long +
-    cougar-short, sharing `group: cougar` in their runtime.yamls). `strategy_list` returns them as two
-    separate rows; the engine must re-unite them into ONE `strategy_groups[]` entry with
+    cougar-short, sharing `group: cougar` in the descriptors the runtime renders). `strategy_list` returns
+    them as two separate rows; the engine must re-unite them into ONE `strategy_groups[]` entry with
     `is_multi_wallet: true` and 2 instances — never present the two sleeves as two strategies."""
     fixture = {
         "user_get_me": {"wallets": [
@@ -428,15 +634,7 @@ def test_multi_wallet_strategy_groups_into_one():
                               "leverage": {"value": 4}, "liquidationPx": 2100}}]},
             "xyz": {"marginSummary": {"accountValue": "800"}, "withdrawable": "800", "assetPositions": []}},
     }
-    old = os.environ.get("SENPI_STATE_DIR")
-    os.environ["SENPI_STATE_DIR"] = REGISTRY_COUGAR_DIR
-    try:
-        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
-    finally:
-        if old is None:
-            os.environ.pop("SENPI_STATE_DIR", None)
-        else:
-            os.environ["SENPI_STATE_DIR"] = old
+    res = run_engine(runtimes_fixture=_cougar_runtimes(), mcp_fixture=fixture)
 
     # still two per-wallet rows in strategies[] (bucket math relies on it) …
     assert len(res["strategies"]) == 2
@@ -455,7 +653,7 @@ def test_multi_wallet_strategy_groups_into_one():
     assert g["totals"]["account_value"] == 1000 + 1000        # long wallet + short wallet
     assert g["totals"]["deployed"] == 200                     # only the short sleeve has a position
     assert g["totals"]["upnl"] == 20
-    # mandate shared across instances (from the deployed runtime.yaml description)
+    # mandate shared across instances (from the descriptor the runtime rendered)
     assert isinstance(g["mandate"], str) and "market-neutral" in g["mandate"]
     # meta flag flips on
     assert res["meta"]["has_multi_wallet_strategy"] is True
@@ -464,101 +662,57 @@ def test_multi_wallet_strategy_groups_into_one():
 def test_single_wallet_strategy_is_one_instance_group():
     """A single-instance strategy is its own group with is_multi_wallet: false and one instance —
     and with no multi-wallet strategy present, the meta flag stays False."""
-    fixture = {
-        "user_get_me": {"wallets": [
-            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
-        "account_get_portfolio": {"portfolio": {
-            "total_balance_usd": 200, "total_withdrawable": 200,
-            "total_in_hyperliquid": 0, "token_balances": []}},
-        "strategy_list": {"strategies": [
-            {"tradingStrategyName": "kodiak", "strategyWalletAddress": KODIAK_WALLET, "status": "ACTIVE"}]},
-        f"strategy_get_clearinghouse_state::{KODIAK_WALLET.lower()}": {
-            "main": {"marginSummary": {"accountValue": "200"}, "withdrawable": "200", "assetPositions": []},
-            "xyz": {"marginSummary": {"accountValue": "200"}, "withdrawable": "200", "assetPositions": []}},
-    }
-    old = os.environ.get("SENPI_STATE_DIR")
-    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
-    try:
-        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
-    finally:
-        if old is None:
-            os.environ.pop("SENPI_STATE_DIR", None)
-        else:
-            os.environ["SENPI_STATE_DIR"] = old
+    res = run_engine(mcp_fixture=_kodiak_only_fixture())
     groups = res["strategy_groups"]
     assert len(groups) == 1
     g = groups[0]
-    assert g["label"] == "kodiak"                # profile.group from the deployed runtime.yaml
+    assert g["label"] == "kodiak"                # descriptor.group, via profile.group
     assert g["is_multi_wallet"] is False
     assert len(g["instances"]) == 1
     assert res["meta"]["has_multi_wallet_strategy"] is False
 
 
-def test_dsl_ladder_parses_from_runtime_yaml():
-    """(1) HOW DSL works: the kodiak registry runtime.yaml has a real phase1+phase2 dsl_preset; the
-    engine parses profile.dsl into a hard-stop floor + arm-at + the full tier ladder — the CONFIG side of
-    the "protected from entry" story. (kodiak ships phase1.max_loss_pct 15 → -15, tiers[0].trigger 10.)"""
-    fixture = {
-        "user_get_me": {"wallets": [
-            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
-        "account_get_portfolio": {"portfolio": {
-            "total_balance_usd": 200, "total_withdrawable": 200,
-            "total_in_hyperliquid": 0, "token_balances": []}},
-        "strategy_list": {"strategies": [
-            {"tradingStrategyName": "kodiak", "strategyWalletAddress": KODIAK_WALLET, "status": "ACTIVE"}]},
-        f"strategy_get_clearinghouse_state::{KODIAK_WALLET.lower()}": {
-            "main": {"marginSummary": {"accountValue": "200"}, "withdrawable": "200", "assetPositions": []},
-            "xyz": {"marginSummary": {"accountValue": "200"}, "withdrawable": "200", "assetPositions": []}},
-    }
-    old = os.environ.get("SENPI_STATE_DIR")
-    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
-    try:
-        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
-    finally:
-        if old is None:
-            os.environ.pop("SENPI_STATE_DIR", None)
-        else:
-            os.environ["SENPI_STATE_DIR"] = old
-    dsl = {s["name"]: s for s in res["strategies"]}["kodiak"]["profile"]["dsl"]
+def test_dsl_ladder_comes_from_the_descriptor():
+    """(1) HOW DSL works: the engine renders the ladder (phase1 hard-stop floor + the phase2 tiers) into
+    `descriptor.dsl`, and this skill reports it verbatim — the CONFIG side of the "protected from entry"
+    story. Nothing here re-derives it from a runtime.yaml the skill never reads."""
+    res = run_engine(mcp_fixture=_kodiak_only_fixture())
+    dsl = by_wallet(res, KODIAK_WALLET)["profile"]["dsl"]
     assert dsl is not None
-    assert dsl["hard_stop_roe_pct"] == -15.0        # phase1.max_loss_pct 15 → the hard floor
-    assert dsl["arm_at_roe_pct"] == 10              # tiers[0].trigger_pct — where the ratchet ARMS
+    assert dsl["hard_stop_roe_pct"] == -14          # the hard floor, active FROM ENTRY
+    assert dsl["arm_at_roe_pct"] == 8               # where the profit-ratchet ARMS
     assert dsl["has_phase2"] is True
-    assert len(dsl["tiers"]) == 5
-    assert dsl["tiers"][1] == {"trigger_pct": 18, "lock_hw_pct": 40}   # tiers parse fully
+    assert dsl["tiers"] == [{"trigger_pct": 8, "lock_hw_pct": 50}]
     # the group surfaces the ladder once per strategy too
-    assert res["strategy_groups"][0]["dsl"]["arm_at_roe_pct"] == 10
-
-
-def test_dsl_ladder_parses_cougar_short_repo_yaml():
-    """Ground-truth check on the actual deployed cougar/short/runtime.yaml in the repo: profile.dsl has
-    hard_stop -14, arm-at 8, and the exact 5-tier ladder (the example from the task spec)."""
-    path = os.path.join(REPO_ROOT, "strategies", "cougar", "short", "runtime.yaml")
-    with open(path) as f:
-        prof = portfolio._profile_from_runtime_yaml(f.read())
-    dsl = prof["dsl"]
-    assert dsl["hard_stop_roe_pct"] == -14.0
-    assert dsl["arm_at_roe_pct"] == 8
-    assert [t["trigger_pct"] for t in dsl["tiers"]] == [8, 18, 35, 60, 100]
-    assert [t["lock_hw_pct"] for t in dsl["tiers"]] == [0, 40, 60, 78, 88]
+    assert res["strategy_groups"][0]["dsl"]["arm_at_roe_pct"] == 8
 
 
 def test_named_preset_dsl_is_reported_not_dropped():
-    """A NAMED string preset ("conviction", from the cougar registry fixture) → profile.dsl records the
-    preset name + a note, never None — the ladder just isn't inlined in the runtime.yaml."""
-    with open(os.path.join(REGISTRY_COUGAR_DIR, "installed_runtimes.json")) as f:
-        reg = json.load(f)
-    text = reg["runtimes"][0]["runtimeYamlContent"]
-    prof = portfolio._profile_from_runtime_yaml(text)
+    """A NAMED string preset ("conviction") renders as a preset name + a note, never None — the ladder
+    just isn't inlined. Reported as-is; a named preset is never "no DSL"."""
+    res = run_engine(runtimes_fixture=_cougar_runtimes(), mcp_fixture={
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"total_balance_usd": 100, "total_withdrawable": 100,
+                                  "total_usdc_in_hyperliquid": 0, "token_balances": []},
+        "strategy_list": {"strategies": [
+            {"strategyName": "cougar-long", "strategyWalletAddress": COUGAR_LONG_WALLET,
+             "status": "ACTIVE"}]},
+        f"strategy_get_clearinghouse_state::{COUGAR_LONG_WALLET.lower()}": {
+            "main": {"marginSummary": {"accountValue": "100"}, "withdrawable": "100", "assetPositions": []},
+            "xyz": {"marginSummary": {"accountValue": "100"}, "withdrawable": "100", "assetPositions": []}},
+    })
+    prof = by_wallet(res, COUGAR_LONG_WALLET)["profile"]
     assert prof["dsl"] == {"preset_name": "conviction", "note": "named preset — ladder not inlined"}
+    assert prof["dsl_preset"] == "conviction"
 
 
 def test_live_position_dsl_armed_and_unarmed():
     """(2) WHICH open position is in WHICH tier — the core fix.
 
-    Two open positions on a kodiak-style strategy:
-      - SOL: a LIVE ratchet record at tier 2 → dsl.armed True, tier_index 2, locked = lock_hw_pct at
-        tier 2 (from the parsed ladder = 40).
+    Two open positions on the kodiak strategy:
+      - SOL: a LIVE ratchet record at tier 0 → dsl.armed True, tier_index 0, locked = lock_hw_pct at
+        tier 0 (from the descriptor's ladder = 50).
       - ETH: NO ratchet record (sub-Tier-1) → dsl.armed False, but framed as PROTECTED from entry with
         the arm-at note — NEVER a falsy/'none' that reads as unprotected.
     ratchet_stop_list is keyed by wallet in the fixture (the engine calls it with strategy_wallet_address)."""
@@ -582,36 +736,27 @@ def test_live_position_dsl_armed_and_unarmed():
                               "entryPx": 1700, "unrealizedPnl": 6, "returnOnEquity": 0.06,
                               "leverage": {"value": 4}, "liquidationPx": 1300}}]},
             "xyz": {"marginSummary": {"accountValue": "100"}, "withdrawable": "100", "assetPositions": []}},
-        # LIVE ratchet state — only SOL has crossed Tier 1 (tier 2 = 35% trigger). ETH is absent BY DESIGN.
+        # LIVE ratchet state — only SOL has crossed Tier 1. ETH is absent BY DESIGN.
         f"ratchet_stop_list::{KODIAK_WALLET.lower()}": {"configs": [
-            {"asset": "SOL", "status": "ACTIVE", "currentTierIndex": 2, "highWaterRoe": 36.5}]},
+            {"asset": "SOL", "status": "ACTIVE", "currentTierIndex": 0, "highWaterRoe": 36.5}]},
     }
-    old = os.environ.get("SENPI_STATE_DIR")
-    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
-    try:
-        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
-    finally:
-        if old is None:
-            os.environ.pop("SENPI_STATE_DIR", None)
-        else:
-            os.environ["SENPI_STATE_DIR"] = old
+    res = run_engine(mcp_fixture=fixture)
+    pos = {p["asset"]: p for p in by_wallet(res, KODIAK_WALLET)["positions"]}
 
-    pos = {p["asset"]: p for p in {s["name"]: s for s in res["strategies"]}["kodiak"]["positions"]}
-
-    # SOL — armed at the live tier, with the locked % pulled from the parsed ladder (tier 2 → 60 for kodiak)
+    # SOL — armed at the live tier, with the locked % pulled from the descriptor's ladder
     sol = pos["SOL"]["dsl"]
     assert sol["armed"] is True
-    assert sol["tier_index"] == 2
+    assert sol["tier_index"] == 0
     assert sol["high_water_roe"] == 36.5
     assert sol["status"] == "ACTIVE"
-    assert sol["locked"] == 60          # lock_hw_pct at kodiak tier 2 (tiers = 20/40/60/75/88)
+    assert sol["locked"] == 50          # lock_hw_pct at tier 0
 
     # ETH — NO ratchet record, but NEVER unprotected: armed False + the arm-at framing, and the note
     # must read as PROTECTED, not as a gap.
     eth = pos["ETH"]["dsl"]
     assert eth["armed"] is False
-    assert eth["hard_stop_roe_pct"] == -15.0    # phase1 floor still protecting from entry
-    assert eth["arm_at_roe_pct"] == 10          # ratchet arms at Tier 1 (+10%)
+    assert eth["hard_stop_roe_pct"] == -14      # phase1 floor still protecting from entry
+    assert eth["arm_at_roe_pct"] == 8           # ratchet arms at Tier 1 (+8%)
     assert eth["roe"] == 6.0                    # this position is at +6% — below the arm point
     assert "protected from entry" in eth["note"]
     low = eth["note"].lower()
@@ -639,21 +784,12 @@ def test_live_position_dsl_fails_open_when_ratchet_call_absent():
             "xyz": {"marginSummary": {"accountValue": "100"}, "withdrawable": "100", "assetPositions": []}},
         # NOTE: no ratchet_stop_list::<wallet> fixture — the list call yields no records at all.
     }
-    old = os.environ.get("SENPI_STATE_DIR")
-    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
-    try:
-        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
-    finally:
-        if old is None:
-            os.environ.pop("SENPI_STATE_DIR", None)
-        else:
-            os.environ["SENPI_STATE_DIR"] = old
-    sol = {s["name"]: s for s in res["strategies"]}["kodiak"]["positions"][0]["dsl"]
+    res = run_engine(mcp_fixture=fixture)
+    sol = by_wallet(res, KODIAK_WALLET)["positions"][0]["dsl"]
     assert sol["armed"] is False
-    assert sol["hard_stop_roe_pct"] == -15.0
-    assert sol["arm_at_roe_pct"] == 10
+    assert sol["hard_stop_roe_pct"] == -14
+    assert sol["arm_at_roe_pct"] == 8
     assert "protected from entry" in sol["note"]
-
 
 def test_embedded_idle_reads_nested_total_in_hyperliquid():
     """Regression (the invisible-$10k bug): account_get_portfolio nests balances under a `portfolio`
@@ -729,6 +865,31 @@ def test_step_positions_emits_market_exposure_signals_offline():
     short = {s["name"]: s for s in out["strategies"]}["cub-short"]
     eth = next(p for p in short["positions"] if p["asset"] == "ETH")
     assert eth["market_24h_pct"] < 0 and eth["vs_market"] == "with the move"
+
+
+def test_every_step_reports_where_the_runtime_read_came_from():
+    """`meta.registry_source` is documented as always present, and it is what a reader checks before
+    trusting any runtime claim on a row. The `positions` step used to drop it on the state-HIT path (the
+    read ran in an earlier step), so its output carried runtime-derived fields with no provenance beside
+    them. Pinned on both steps that carry those fields, and pinned to AGREE. (`money` is exempt by
+    design: it makes no runtime read and its rows carry no runtime-derived field to qualify.)"""
+    saved = os.environ.get("SENPI_RUNTIMES_FIXTURE")
+    os.environ["SENPI_RUNTIMES_FIXTURE"] = RUNTIMES_FIXTURE
+    try:
+        sp = _tmp_state()
+        portfolio.step_money(_client(), want_market=False, state_path=sp)
+        outs = [portfolio.step_strategies(_client(), want_market=False, state_path=sp),
+                portfolio.step_positions(_client(), want_market=False, state_path=sp)]
+    finally:
+        if saved is None:
+            os.environ.pop("SENPI_RUNTIMES_FIXTURE", None)
+        else:
+            os.environ["SENPI_RUNTIMES_FIXTURE"] = saved
+    for key in ("registry_source", "catalog_source", "profile_source", "runtime_read_ok"):
+        assert all(key in o["meta"] for o in outs), key
+        assert len({json.dumps(o["meta"][key]) for o in outs}) == 1, key
+    assert outs[-1]["meta"]["registry_source"] == "runtime-cli"
+    assert outs[-1]["meta"]["runtime_read_ok"] is True
 
 
 def test_step_sequence_reproduces_all_values():
@@ -1013,22 +1174,14 @@ def test_stale_cross_run_state_is_dropped_not_served_as_ghost():
     strategy served from a stale snapshot as a live ghost)."""
     LIVE = "0xLIVE0000000000000000000000000000000live"
     GHOST = "0xORANG000000000000000000000000000000rng"
-    old = os.environ.get("SENPI_STATE_DIR")
-    os.environ["SENPI_STATE_DIR"] = os.path.join(HERE, "fixtures", "does_not_exist")   # no registry visible
-    try:
-        with tempfile.TemporaryDirectory() as td:
-            state_path = os.path.join(td, "state.json")
-            with open(state_path, "w") as fh:
-                json.dump(_ghost_state(GHOST), fh)
-            old_mtime = time.time() - (portfolio.STATE_TTL_S + 10)   # a cross-run file, past the TTL
-            os.utime(state_path, (old_mtime, old_mtime))
-            res = portfolio.step_strategies(portfolio._FixtureClient(_one_live_fixture(LIVE)),
-                                            want_market=False, state_path=state_path)
-    finally:
-        if old is None:
-            os.environ.pop("SENPI_STATE_DIR", None)
-        else:
-            os.environ["SENPI_STATE_DIR"] = old
+    with tempfile.TemporaryDirectory() as td:
+        state_path = os.path.join(td, "state.json")
+        with open(state_path, "w") as fh:
+            json.dump(_ghost_state(GHOST), fh)
+        old_mtime = time.time() - (portfolio.STATE_TTL_S + 10)   # a cross-run file, past the TTL
+        os.utime(state_path, (old_mtime, old_mtime))
+        res = portfolio.step_strategies(portfolio._FixtureClient(_one_live_fixture(LIVE)),
+                                        want_market=False, state_path=state_path)
     names = {s["name"] for s in res["strategies"]}
     assert "orangutan" not in names, "closed strategy served from stale cross-run cache (ghost)"
     assert "cub" in names, "live strategy missing after the freshness re-fetch"
@@ -1074,8 +1227,14 @@ def test_within_ttl_cached_state_is_reused():
 
 
 if __name__ == "__main__":
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-    for fn in fns:
-        fn()
-        print(f"  ✓ {fn.__name__}")
-    print(f"\n{len(fns)}/{len(fns)} passed")
+    # Direct-script mode bypasses pytest's setup_module/teardown_module hooks entirely, so this run
+    # must bracket the same guarantee by hand.
+    _empty_path()
+    try:
+        fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+        for fn in fns:
+            fn()
+            print(f"  ✓ {fn.__name__}")
+        print(f"\n{len(fns)}/{len(fns)} passed")
+    finally:
+        _restore_path()
