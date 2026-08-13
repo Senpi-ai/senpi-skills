@@ -518,16 +518,25 @@ def strategy_name(s):
 def strategy_name_and_source(s):
     """What to CALL a strategy, and WHICH FIELD said so — `(name, name_source)`.
 
-    Same fallback chain as `strategy_name` (`strategyName` → `tradingStrategyName` → `name`), and
-    the exact `(name, name_source)` shape `senpi-portfolio/scripts/portfolio.py`'s
-    `_strategy_name_and_source` returns — quoted, not reinvented, so the two surfaces that both
-    read `strategy_list` never disagree about what a wallet is called. `strategyName` is the
-    strategy's own name; `tradingStrategyName`/`name` are the package id standing in for an
-    unnamed strategy (nullable by mechanism — `strategy_create_custom_strategy` makes it optional).
-    `name_source` records which of those answered, so a caller can tell "this strategy is named
-    cub" from "this strategy is unnamed and cub is its package" — a distinction `status.py`'s
-    runtime-name column collapsed by printing a different field (`runtime`, not `strategyName`) in
-    what a reader takes for the name column."""
+    Same fallback chain as `strategy_name` (`strategyName` → `tradingStrategyName` → `name`), and the
+    exact `(name, name_source)` shape `senpi-portfolio/scripts/portfolio.py`'s
+    `_strategy_name_and_source` returns — quoted, not reinvented. `strategyName` is the strategy's
+    own name; `tradingStrategyName`/`name` are the package id standing in for an unnamed strategy
+    (nullable by mechanism — `strategy_create_custom_strategy` makes it optional). `name_source`
+    records which of those answered, so a caller can tell "this strategy is named cub" from "this
+    strategy is unnamed and cub is its package" — a distinction `status.py`'s runtime-name column
+    collapsed by printing a different field (`runtime`, not `strategyName`) in what a reader takes
+    for the name column.
+
+    The chain and the ANSWER are held identical to `portfolio._strategy_name_and_source` by
+    `senpi-portfolio/tests/test_name_reader_parity.py::test_ops_chain_answers_match_portfolio_where_the_readers_cannot_disagree`
+    — but this reader is built on `_first_written` below (`dig()`-dispatched: case-insensitive, no
+    `.strip()`, no container/bool exclusion), NOT on portfolio's vendored one (exact-cased, strips,
+    excludes dict/list/bool). The two are held to the same chain, not the same implementation, so a
+    handful of shapes legitimately diverge — a case-only key variant, a whitespace-only string, a
+    dict/bool/bare-scalar value in a name field — and each one is pinned to both readers' real
+    answers by that same test file's `test_ops_chain_diverges_only_where_pinned_as_intended`, not
+    left as an untested gap."""
     o = strategy_obj(s)
     for key in ("strategyName", "tradingStrategyName", "name"):
         got = _first_written(o, key)
