@@ -11,7 +11,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.1.0"
+  version: "1.2.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -55,6 +55,10 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
   verbatim — `choppy_consistency`, `high/critical_margin_usage`, `currently_in_drawdown`,
   `concentrated_book`.
 - **Never say "safe."** Copying inherits their risk. Be honest.
+- **Mechanics live in `senpi-trade` — don't improvise them.** How a mirror actually *works* (sizing /
+  `mirrorMultiplier`, slippage-as-entry-gate, protection, minimums, "how much do I need", "spot or perps")
+  is the **single source** in senpi-trade (`references/mirror-trading-explained.md`). If the user asks how
+  copy trading works, hand off there — never write a parallel explanation that can drift.
 - **Always end with the two CTAs** (below).
 
 ## How to run the engine
@@ -87,13 +91,27 @@ python3 scripts/research.py --no-mirror            # track record only (skip the
 
 ## Output contract
 
-**Finding candidates (a mirror decision):** lead with the **`mirror_shortlist`**, ordered by
-copyability. One row per trader — `mirror_fit` (can you open near their entries now?), `momentum`
-(hot/cold), `reliability` — with ROI / max-drawdown as *supporting* columns, never the headline. Open
-with the decision ("the best *mirrorable* proven trader right now is …"), then the caveats. **If the
-whole shortlist is `poor` fit, say so and steer to a fresh-entry template (Shadow / Raptor)** rather
-than crowning the least-bad stale book. Cross-reference the market (`senpi-market-pulse`) *before* you
-recommend. Call out `thin` / `choppy` / `blowup_risk` rather than burying them.
+**Finding candidates (a mirror decision) — this shape, every time.** The market-pulse bar: the same
+comprehensive, decision-first answer on every call, never a bare ROI list.
+
+1. **The call** — one line: *"the best trader you can actually mirror right now is …"* — the decision,
+   not a menu. If nothing is cleanly mirrorable, say that in the first line.
+2. **The shortlist** — a table from **`mirror_shortlist`**, ordered by **copyability**: `mirror_fit` (can
+   you open near their entries now?), `momentum` (hot/cold), `reliability`. ROI / max-drawdown are
+   *supporting* columns, never the headline.
+3. **Why each — the part users ask for by name** (*"…and tell me why"*). One line per top candidate tying
+   **track record + mirrorability + market-fit** together: why they're proven, whether you can copy them
+   *today*, and whether they're positioned with or against what's working now.
+4. **Who to skip, and why** — name the traders you are **not** recommending and the reason (already ran /
+   `single_position` / `blowup_risk` / thin sample / positioned against the tape). Users copy the wrong
+   wallet without this line.
+5. **The steer** — if the whole shortlist is `poor` fit, do **not** crown the least-bad stale book:
+   recommend a **fresh-entry template (Shadow / Raptor)** that waits for their next open. Otherwise, the
+   pick + the single biggest reason.
+6. **The two CTAs** (below), verbatim.
+
+Cross-reference the market (`senpi-market-pulse`) **before** step 1, not after. Surface `thin` / `choppy`
+/ `blowup_risk` in the open, never buried.
 
 **Vetting one trader:** a dossier —
 1. **Verdict line** — is this a proven, copy-worthy record or not, in one sentence, with the single

@@ -126,22 +126,37 @@ will try to fool you on:
 
 If the user pasted an address, still run **both** checks on it before mirroring.
 
-### How a mirror actually works — SAY THIS to the user (the teaching block)
-> - **Sizing is proportional to the trader, scaled by your budget × a multiplier.** Your position ≈
->   (your budget ÷ their account) × their position × `mirrorMultiplier`. A small budget vs a big trader
->   = small positions unless you raise the multiplier — this is *the* size knob.
-> - **Slippage is your entry-divergence tolerance — and it's the gate on their *existing* book.** It's how
->   far the *current* price may sit from *their* entry and still open for you. On start, each of the trader's
->   current positions opens only if it's **within your slippage** of their entry; anything that already ran
->   past it is skipped. So it's a real dial, not a formality: **too tight (e.g. 1%) on a trader whose
->   positions have already moved opens *nothing*** — the mirror sits flat and looks broken (this is what left
->   a mirror empty and looking broken). Too loose chases runners into a worse entry than the trader got. Set
->   it **deliberately, against where their current positions actually sit** (from the mirrorability check).
-> - **From then on you mirror every move proportionally** — their opens, their adds, and **their exits**
->   (you close when they close). *Their unrealised PnL does NOT transfer.*
-> - **Protection is optional and stacks on top.** The mirror already follows them out; you can *also* add
->   your own DSL/stop per position (`ratchet_stop_add`) as a safety net, or use a managed template that
->   auto-trails DSL on every fill.
+### Steer the product FIRST — the copy questionnaire (lead with capital use)
+Before you run a raw mirror, find the right **shape**. Ask one at a time, pre-fill from the opening ask;
+the goal is to land them on **raw mirror / a named template / custom** — offer as peers, recommend the fit.
+
+1. **Capital use — ask this first; it is the #1 pain.** *"Do you want to use **most** of your capital in a
+   few concentrated positions, or replicate the trader's exact proportional book?"*
+   - *"use most of my funds / a few big orders / not 5% sitting idle"* → **a budget-relative template
+     (Shadow / Remora)** — a raw proportional mirror will feel too small, always. **Most common answer.**
+   - *"exactly proportional to the trader"* → **raw mirror** (below), sized via the multiplier.
+2. **Hands-on or hands-off?** Drive one trader yourself → **raw mirror**. Set-and-forget, auto-DSL every
+   fill → **template**.
+3. **What shape of copy?** → one specific trader (**raw**) · a whale cohort (**Remora**) · 2–3 named
+   traders, fresh entries only (**Shadow**) · one elite's single biggest conviction bet (**Oxpecker**) ·
+   traders hot right now (**Raptor**) · consensus of the top copy strategies (**Cuckoo**) · a rule the
+   templates don't cover (**→ senpi-strategy-author**).
+4. **Budget** — reality-check it against the trader's account size (explainer's sizing section) *before*
+   you promise anything.
+5. **Protection** — default **follow their exits**; offer an added DSL safety-net, especially if the
+   trader runs without stops.
+
+**Route the answer:** template → hand to **senpi-strategy-discover** by name · custom → **senpi-strategy-author**
+· raw mirror of one specific trader → continue below. Offer the managed option **once**, then respect a "no."
+
+### How a mirror actually works — explain it from the single source
+When the user needs the mechanics — and many do (*"why did it open at a 30% different entry?"*, *"why so
+small?"*, *"do I need my own stop?"*, *"spot or perps?"*, *"how much do I need?"*) — explain from
+**`references/mirror-trading-explained.md`**, the one source every skill quotes. Always hit: **sizing
+reality** (small budget vs big trader = dust; the multiplier is locked; concentrated-use → a template),
+**slippage is the entry gate** (too tight opens nothing), **you mirror their exits** (unrealised PnL
+doesn't transfer), **protection is optional and stacks** (default: follow their exits). Never paraphrase a
+different version of this anywhere.
 
 ### Set it up (interview; pre-fill what's given)
 Vetted trader → **budget** → **`mirrorMultiplier`** (the size knob; **immutable after creation** — set it
@@ -200,6 +215,14 @@ future fill, hands-off**, that's a template (**Shadow / Remora**) — offer it. 
 - **Ongoing hands-off management / DSL-on-every-fill / fresh-entry / budget-relative sizing →**
   `senpi-strategy-author` (custom) or a template via `senpi-strategy-discover` (mirror: Remora / Shadow /
   Oxpecker / Raptor / Cuckoo). This skill executes the **direct** trade and can add **per-position** protection.
+- **"How's my mirror doing?" / compare my mirrors / is my trader still active →** `senpi-portfolio`.
+  Monitoring a *running* mirror (its performance, whether the copied trader is still trading, comparing two
+  mirrors) is a read surface — route there. After you create a mirror, tell the user they can ask any time.
+- **Close / withdraw / rebalance a mirror →** `senpi-strategy-ops` (close a mirror, reclaim funds, top-up,
+  or shift budget between mirrors). A mirror **is** a strategy — lifecycle actions live in ops, not here.
+- **A pasted address (`I want to mirror trade 0x…`) is the single most common entry** — vet it through
+  `senpi-trader-research` (mirrorability + drawdown) **before** mirroring, even when it's a popular wallet
+  everyone is asking about. Don't rubber-stamp a hot address.
 - **Never** send USDC to an external address (no tool for it — direct the user to the app), and never
   present a strategy wallet as a deposit target.
 - Every money amount (`marginAmount`, `initialBudget`, `mirrorMultiplier`, budgets) is **user intent** —
