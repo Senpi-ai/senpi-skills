@@ -43,6 +43,11 @@ strategies/<id>/                   # a strategy package (e.g. strategies/spider/
   places**: repo `strategies/catalog.json` (source of truth) AND
   `senpi-strategy-discover/catalog.json` (bundled so the catalog travels with the discover skill
   when installed standalone). Keep both in sync by re-running `gen_catalog.py`.
+- **The README skill-version table is GENERATED.** The `Ver` column mirrors each
+  `senpi-*/SKILL.md` `metadata.version` and is written by `scripts/gen_readme_versions.py`
+  (a repo-level generator, alongside `gen_catalog.py`) — never hand-edit it. Bump the version in
+  `SKILL.md` only, then run the script (or let CI do it). `--check` gates this in CI and also fails
+  if a skill has a `SKILL.md` but no README row.
 - **Validate** a package with `senpi-strategy-author/scripts/validate_strategy.py <dir>` and
   `senpi-strategy-ops/scripts/validate_universe.py <dir>` (every hardcoded ticker must be a live
   HL instrument — a dead name silently no-trades; `deploy.py create` runs this as a preflight and

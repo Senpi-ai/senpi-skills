@@ -1,0 +1,30 @@
+name: README versions
+
+# The README skill-version table mirrors each SKILL.md metadata.version (the
+# single source of truth). This verifies the mirror. If it fails, run:
+#   python3 scripts/gen_readme_versions.py
+#
+# No `paths:` filter on purpose: the job takes ~2s, and a paths-filtered job can
+# never be a required check (PRs that don't touch a SKILL.md would sit forever
+# on "Expected — waiting for status").
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: readme-versions-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      # Plain checkout: on pull_request this resolves the merge ref, which works
+      # identically for same-repo and fork PRs.
+      - uses: actions/checkout@v4
+      - run: python3 scripts/gen_readme_versions.py --check
