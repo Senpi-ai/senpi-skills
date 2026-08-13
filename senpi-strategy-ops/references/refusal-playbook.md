@@ -123,9 +123,10 @@ else** — they are not interchangeable, and one of them permits no action at al
   until it settles). **Change nothing and close nothing.** The install can still write its registry
   row and start a runtime seconds from now; a close here lands on a strategy the install is binding
   and leaves a live runtime trading a closed strategy. Re-read shortly — `openclaw senpi deploy
-  status`, then `openclaw senpi runtime list` — and act on the settled state. A re-run before then is
-  refused on that wallet (`[E_WALLET_INSTALL_IN_FLIGHT]`) and changes nothing. **No close appears in
-  this arm of the report, and there is none to improvise.**
+  status`, then `openclaw senpi runtime list` — and act on the settled state. A re-run that reaches
+  this wallet is refused (`[E_WALLET_INSTALL_IN_FLIGHT]`) rather than installing over it, so it
+  cannot settle this for you. **No close appears in this arm of the report, and there is none to
+  improvise.**
 - **The install is over** (the report says the fence has cleared, so what exists now is what it
   left). Only here does what you read decide anything — and only a wallet **this deploy created**
   can carry a close at all. A wallet this deploy **adopted** predates it entirely: the report names
