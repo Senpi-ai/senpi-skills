@@ -149,8 +149,7 @@ raises `PermissionError` (loud, fail-fast — never a silent `None`).
   `edit_position`, `cancel_order`, `send_usdc`, `transfer_spot_to_perps`, `strategy_create`,
   `strategy_create_custom_strategy`, `strategy_close`, `strategy_close_positions`, `strategy_update`,
   `strategy_pause`, `strategy_top_up`, `strategy_withdraw_funds`,
-  `strategy_bridge_funds_from_hyperliquid_to_evm`, `ratchet_stop_add`/`edit`/`delete`,
-  `user_claim_referral_rewards`.
+  `ratchet_stop_add`/`edit`/`delete`, `user_claim_referral_rewards`.
 
 The allowlist is scaffold-owned in source and **empty by default** — there is no env/operator/author
 knob. As an author: **assume you cannot mutate anything.** Produce signals; the runtime executes.

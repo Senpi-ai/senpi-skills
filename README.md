@@ -70,9 +70,9 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.3.0 | Conversational picker — rank the catalog against your worldview |
 | [`senpi-strategy-author`](senpi-strategy-author/) | 2.4.2 | Build/edit a DSL-protected strategy package, one decision at a time |
 | [`senpi-strategy-ops`](senpi-strategy-ops/) | 2.2.1 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
-| [`senpi-trading-runtime`](senpi-trading-runtime/) | 3.0.2 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
+| [`senpi-trading-runtime`](senpi-trading-runtime/) | 3.2.1 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
 | **Move money / positioning** | | |
-| [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.0.1 | The money-movement rails (funds in via embedded wallet; out via the app) |
+| [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.1.0 | The money-movement rails (funds in via embedded wallet or in-app USDC purchase; out via the app) |
 | [`senpi-why`](senpi-why/) | 1.0.3 | "Why Senpi / vs. other tools" — the positioning answer |
 
 Skills **compose**: `improve-trades` pulls in `market-pulse` + `smart-money` + `portfolio`; `discover` hands a chosen package to `ops`; `author` hands a built package to `ops`. The agent routes by **intent**, not keywords, and never re-implements one skill inside another.
