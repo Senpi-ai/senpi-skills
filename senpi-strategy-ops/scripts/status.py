@@ -52,6 +52,13 @@ _MANAGED = {"copy": "copy-trading — followed by Senpi's copy engine (no runtim
             "manual": "manual — positions you manage in the app (no runtime)"}
 
 
+def _pkg_label(r):
+    """The package cell for display, never a data field. `r["package"]` is `None` in the row data
+    for a strategy attributed to no package (unattributed / copy-trading / manual) — only here does
+    that become the human-readable placeholder, so `--json` consumers see the honest `null`."""
+    return r["package"] or "(not on runtime)"
+
+
 def _funded(r):
     """The funded cell. `_cli.strategy_funded` is None when the strategy record carried no
     `totalFunded`/`netFunded` — an amount nobody read is `unknown`, never the requested budget
@@ -136,7 +143,14 @@ def build(mcp, only_pkg=None, deep=True):
             health = "no-runtime" if cli_ok else "runtime-unknown"
         else:
             health = "manual"         # manual / app-managed position, no runtime expected
-        rows.append({"package": skill or "(not on runtime)", "is_pkg": bool(skill),
+        # `name`/`name_source`: the strategy's OWN name (never the runtime's — that stays in
+        # `runtime` below), read exactly as `senpi-portfolio/scripts/portfolio.py`'s
+        # `_strategy_name_and_source` does, so the two surfaces never disagree about what a wallet
+        # is called. `package` is a real data value (`None`, not a display string) — the
+        # "(not on runtime)" placeholder belongs at the render site, not in the row.
+        name, name_source = _cli.strategy_name_and_source(s)
+        rows.append({"package": skill or None, "is_pkg": bool(skill),
+                     "name": name, "name_source": name_source,
                      "strategyId": _cli.strategy_id_of(s), "wallet": wallet,
                      "status": _cli.strategy_status(s), "funded": _cli.strategy_funded(s),
                      "positions": positions,
@@ -174,7 +188,7 @@ def main(argv):
 
     by_pkg = defaultdict(list)
     for r in rows:
-        by_pkg[r["package"]].append(r)
+        by_pkg[_pkg_label(r)].append(r)
     running = sum(1 for r in rows if r["health"] in _OK)
     idle = [r for r in rows if r["health"] == "no-runtime"]
     unknown = [r for r in rows if r["health"] == "runtime-unknown"]
@@ -211,7 +225,7 @@ def main(argv):
     if sick:
         print("\n⚠ Degraded (runtime up but not operating cleanly):")
         for r in sick:
-            print(f"  - {r['package']} {r['runtime'] or ''} → "
+            print(f"  - {_pkg_label(r)} {r['runtime'] or ''} → "
                   f"`openclaw senpi status -r {r['runtime']} --json` / "
                   f"`openclaw senpi scanner -r {r['runtime']}` to triage (read-only)")
         print("  Deliberately resuming/reinstalling one? That is `deploy.py runtime <id>` — it runs the "
@@ -220,7 +234,7 @@ def main(argv):
     if unproven:
         print("\n❔ Unknown (fail-closed — not proven live: scanner not yet proven by a tick, or reporting disabled; verify, don't assume):")
         for r in unproven:
-            print(f"  - {r['package']} {r['runtime'] or ''} → "
+            print(f"  - {_pkg_label(r)} {r['runtime'] or ''} → "
                   f"`openclaw senpi scanner -r {r['runtime']}` / "
                   f"`openclaw senpi status -r {r['runtime']} --json` to check (read-only); "
                   f"`openclaw senpi deploy status` for the last deploy's verdict")
@@ -233,7 +247,8 @@ def main(argv):
     if off:
         print("\nℹ Not on a runtime — managed outside autonomous trading (this is normal):")
         for r in off:
-            print(f"  - {r['package']} {r['wallet'][:10]}… ({_funded(r)}): {_MANAGED.get(r['health'], r['health'])}")
+            print(f"  - {_pkg_label(r)} {r['wallet'][:10]}… ({_funded(r)}): "
+                  f"{_MANAGED.get(r['health'], r['health'])}")
     if orphans:
         print("\n⚠ Orphan runtimes (no active strategy — safe to delete):")
         for o in orphans:

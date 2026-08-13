@@ -515,6 +515,27 @@ def strategy_name(s):
     return _first_written(strategy_obj(s), "strategyName", "tradingStrategyName", "name")
 
 
+def strategy_name_and_source(s):
+    """What to CALL a strategy, and WHICH FIELD said so — `(name, name_source)`.
+
+    Same fallback chain as `strategy_name` (`strategyName` → `tradingStrategyName` → `name`), and
+    the exact `(name, name_source)` shape `senpi-portfolio/scripts/portfolio.py`'s
+    `_strategy_name_and_source` returns — quoted, not reinvented, so the two surfaces that both
+    read `strategy_list` never disagree about what a wallet is called. `strategyName` is the
+    strategy's own name; `tradingStrategyName`/`name` are the package id standing in for an
+    unnamed strategy (nullable by mechanism — `strategy_create_custom_strategy` makes it optional).
+    `name_source` records which of those answered, so a caller can tell "this strategy is named
+    cub" from "this strategy is unnamed and cub is its package" — a distinction `status.py`'s
+    runtime-name column collapsed by printing a different field (`runtime`, not `strategyName`) in
+    what a reader takes for the name column."""
+    o = strategy_obj(s)
+    for key in ("strategyName", "tradingStrategyName", "name"):
+        got = _first_written(o, key)
+        if got:
+            return got, key
+    return "strategy", None
+
+
 def strategy_name_match(a, b):
     """Do these two strategy names name the same strategy? Case- and whitespace-insensitive; an
     empty/absent name on EITHER side is never a match.
