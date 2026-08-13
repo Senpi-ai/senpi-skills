@@ -133,8 +133,12 @@ the goal is to land them on **raw mirror / a named template / custom** — offer
 1. **Capital use — ask this first; it is the #1 pain.** *"Do you want to use **most** of your capital in a
    few concentrated positions, or replicate the trader's exact proportional book?"*
    - *"use most of my funds / a few big orders / not 5% sitting idle"* → **a budget-relative template
-     (Shadow / Remora)** — a raw proportional mirror will feel too small, always. **Most common answer.**
-   - *"exactly proportional to the trader"* → **raw mirror** (below), sized via the multiplier.
+     (Shadow / Remora)** — they size to *your* capital and open a few full-size positions, which a
+     proportional mirror won't (it tracks the trader's proportions). **Common answer.**
+   - *"exactly proportional to the trader"* → **raw mirror** (below), sized via the multiplier. If the
+     trader's account **dwarfs** the budget, match a closer-sized trader or raise the multiplier so
+     positions clear the $10 floor — a proportional mirror preserves *their* utilization %, it doesn't
+     shrink yours.
 2. **Hands-on or hands-off?** Drive one trader yourself → **raw mirror**. Set-and-forget, auto-DSL every
    fill → **template**.
 3. **What shape of copy?** → one specific trader (**raw**) · a whale cohort (**Remora**) · 2–3 named

@@ -13,16 +13,21 @@ trader, and you can stop or withdraw any time.
 ## How your size is decided — read this first (it is the #1 confusion)
 Your position ≈ **(your budget ÷ the trader's account value) × their position × your `mirrorMultiplier`.**
 
-- A small budget against a big trader = **tiny positions.** $100 mirroring a $1M account is ~1/10,000
-  of their book — often below the $10 floor, so little or nothing opens. This is the single most common
-  complaint ("it only used 5% of my funds", "$3 of $190").
-- The **`mirrorMultiplier` is the size knob** (0.1×–4×) and it is **locked after creation** — set it
-  deliberately.
-- **If what the user actually wants is "use most of my capital in a few concentrated positions"** — the
-  most common ask — a raw proportional mirror is the wrong tool; it will always feel too small. That is
-  exactly what the **budget-relative templates (Shadow, Remora)** are for: they size to *the user's*
-  capital, not the whale's, and open a handful of full-size positions. Steer there the moment a user
-  says "use most of my funds / not 5% while 95% sits / 1–3 big orders."
+- **Your capital utilization mirrors the trader's, times your multiplier.** If they deploy 40% of their
+  account, you deploy ~40% of your budget (× multiplier). A small budget does **not** by itself lower how
+  much of your capital gets used — proportional copying *preserves* their utilization %.
+- **What leaves capital idle is the $10 per-position floor.** When the trader's account **dwarfs** your
+  budget, each of their positions scales below $10 and is **skipped** — so a diversified whale copied with
+  a small budget opens only its largest one or two names and the rest of your budget sits. This is a
+  trader-size-vs-budget **mismatch**, not the trader under-deploying. Fix it by **raising the multiplier**
+  or picking a **closer-sized trader** so positions clear the floor.
+- The **`mirrorMultiplier` is the size knob** (0.1×–4×), **locked after creation** — set it deliberately.
+- **If the user wants "most of my capital in a few concentrated positions" *regardless* of how the trader
+  sizes**, that isn't what a proportional mirror does (it tracks *their* proportions). The
+  **budget-relative templates (Shadow, Remora)** do exactly that — size to *the user's* capital and open a
+  handful of full-size positions. Steer there for "use most of my funds / 1–3 big orders".
+- **Always confirm with the sim** (`execution_estimate_position_opening`) before funding — it shows
+  exactly what clears the floor and what gets skipped, so you never guess at utilization.
 
 ## How entry works — slippage is the gate
 **Slippage tolerance** = how far the *current* price may sit from *the trader's* entry and still open
