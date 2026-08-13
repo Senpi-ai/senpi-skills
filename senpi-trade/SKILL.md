@@ -5,10 +5,10 @@ description: >-
   close) or mirroring a specific Hyperliquid trader — ONE decision at a time. Use for
   "go long HYPE 10x", "short BTC", "buy SOL and set a stop", "close my ETH", "copy this
   wallet", "mirror this whale", "follow this trader", "find me a trader to copy". Both
-  paths can carry protection and it is OPTIONAL: bare, a static stop/TP, or a DSL
-  trailing stop — DSL is NOT runtime-only, `ratchet_stop_add` attaches a real
-  HL-native trailing stop to any open position (manual or mirrored) with no runtime
-  alive. Steer users to a MANAGED strategy when they want ongoing autonomy —
+  paths can carry protection and it is OPTIONAL: bare, a static stop/TP, or a profit-lock
+  trailing ladder (`ratchet_stop_add`, no runtime) — but that ladder is profit-lock ONLY (no
+  downside floor); the full two-phase DSL (a ratcheting max-loss floor + the profit locks) is
+  runtime-only, so route to a managed mirror template for real two-sided protection. Steer users to a MANAGED strategy when they want ongoing autonomy —
   senpi-strategy-author (custom runtime) or a template via senpi-strategy-discover,
   including the named mirror templates (Remora, Shadow, Oxpecker, Raptor, Cuckoo) that
   size to the user, enter fresh-only, and auto-trail DSL on every fill. Pairs with senpi-trader-research, which finds and vets the trader
@@ -31,17 +31,28 @@ This skill runs the two **direct** trade paths: a **manual one-off position** (o
 and a **mirror** of a specific trader. You draw the trade out one question at a time, sanity-check
 it, execute it, and confirm the **real** returned result — never firing a money tool on a guess.
 
-## Protection is OPTIONAL — and it is NOT runtime-only
+## Protection is OPTIONAL — and know exactly what a raw position can carry
 
-> Both a manual position and a mirror can run **bare, with a static stop/TP, or with DSL** (a
-> trailing stop + tiered profit-lock). **DSL is not runtime-only.** `ratchet_stop_add` attaches a
-> **real, Hyperliquid-native** trailing stop to any *open* position — manual or mirrored — with no
-> runtime alive: it subscribes the position to the price feed and writes the SL server-side, so
-> nothing agent-side has to stay running. **Never tell a user "you can't trail-stop this, go build a
-> runtime."** Offer protection, let them choose, add it if they want it.
+> A manual position or a raw mirror can run **bare**, with a **static stop/TP**, or with a **profit-lock
+> trailing ladder** (`ratchet_stop_add`) — all with **no runtime.** But be precise about that ladder: it
+> is **profit-lock ONLY.** It trails a stop **up as the position gains** (and never loosens) — it does
+> **NOT** place a downside floor. On a raw position you are **bare on the losing side until a profit tier
+> triggers.** (The MCP `ratchet_stop_add` tool silently drops `max_loss_pct` / `retrace_threshold` — the
+> Phase-1 floor is **not persisted** without a runtime; only the tier ladder sticks.)
+>
+> So without a runtime, "protection" is **two separate, uncoordinated stops**: the profit-lock ladder
+> (ratchets up as you win) **plus**, for a downside cap, a **static SL** (`edit_position` — fixed, does
+> **not** ratchet, and won't cancel/replace at tier crossings). Offer both; don't call the pair "DSL."
+>
+> **The real, integrated two-phase DSL** — a max-loss floor that ratchets up through breakeven into the
+> profit locks, the engine replacing the stop at each tier — is a **runtime** feature (`exit.dsl_preset`);
+> a **managed mirror template** has it built in and auto-applies it on every fill. **Don't** tell a user a
+> raw position "can't be protected" (it can — profit-lock + a static SL), **but don't oversell it as DSL**
+> either. When they want a true two-sided ratcheting stop → managed template.
 
-**When a managed strategy / template IS the better answer** — steer there, but for the *real* reason,
-not a false DSL monopoly:
+**When a managed strategy / template IS the better answer** — steer there for the real reasons, which now
+explicitly include **integrated two-phase DSL** (a raw position gets only profit-lock + an uncoordinated
+static SL, per above):
 
 - they want it **managed for them going forward** — DSL auto-attached to **every** new fill without
   you babysitting, **budget-relative sizing**, **fresh-entry-only** (no chasing a runner). A raw mirror
@@ -85,8 +96,9 @@ On "go long HYPE 10x" / "buy BTC" / "short NVDA", do **not** just place it. Ask 
 3. **Entry** — MARKET (immediate, taker) or FEE_OPTIMIZED_LIMIT (maker, cheaper; add
    `ensureExecutionAsTaker` for a guaranteed fill).
 4. **Protection — OPTIONAL, offer all three:** (a) none, (b) a **static** stop/TP (`stopLoss`/`takeProfit`,
-   `percentage` XOR `price`; margin-relative %; one fixed trigger, won't trail), or (c) **DSL** via
-   `ratchet_stop_add` (trailing + tiered profit-lock, a real HL stop, no runtime needed). Explain the
+   `percentage` XOR `price`; margin-relative %; one fixed trigger, won't trail), or (c) a **profit-lock
+   ladder** via `ratchet_stop_add` (tiered locks that trail up as you gain — **profit-lock only; NO downside
+   floor without a runtime**, pair with (b) for a cap). Explain the
    difference in one line; let them pick.
 
 Then **replay the full spec, get an explicit "yes"**, and place.
@@ -183,8 +195,11 @@ barely trades.
 window, **tell the user** and adjust target / budget / multiplier — **do not** close+recreate (see below).
 
 ### DSL on the mirror
-If they want it: `ratchet_stop_add` per opened position — works, no runtime. If they want it on **every
-future fill, hands-off**, that's a template (**Shadow / Remora**) — offer it. Don't hand-wrap 40 fills a day.
+`ratchet_stop_add` per opened position adds the **profit-lock ladder** (no runtime) — but that's
+**profit-lock only**; for a downside cap pair it with a **static SL** (`edit_position`), and be clear the
+two don't coordinate. The **real two-phase DSL** (a ratcheting max-loss floor + the locks, integrated) needs
+a **runtime** → a managed template (**Shadow / Remora**) that auto-applies it on **every** fill. Don't
+hand-wrap 40 fills a day.
 
 ---
 
@@ -194,7 +209,7 @@ future fill, hands-off**, that's a template (**Shadow / Remora**) — offer it. 
 |---|---|---|
 | Fund a mirror without simulating it | It can deploy a **tiny fraction of the budget** — the rest sits idle | Run `execution_estimate_position_opening` first (Branch B) |
 | Mirror a whale whose account dwarfs the budget | A small budget on a whale-sized account = **dust** — positions round below the $10 floor | Check trader-account ÷ budget up front; if ~100×+, raise the multiplier or pick a closer-sized trader |
-| Tell a user a manual/mirror position "can't be protected without a runtime" | **False** — `ratchet_stop_add` writes a real HL stop with no runtime | Offer DSL; add it per-position if they want it |
+| Call `ratchet_stop_add` on a raw position "DSL protection", or say it "can't be protected" | It's **profit-lock only** (no downside floor — Phase-1 is dropped); integrated two-phase DSL is runtime-only | Offer profit-lock **+ a static SL** on a raw position; steer to a **managed template** for real two-sided DSL |
 | Say funds are "stuck" / "lost" / "file a ticket" | `PENDING_FUNDING` **self-completes**; `FAILED` **auto-refunds** to the embedded wallet | Poll transient states with backoff; check the on-chain balance before any alarm |
 | Explain a failure with an "approval gateway / approve again" step | No such step exists — the user clicked a phantom control | Surface the **verbatim** tool error; poll `strategy_list` for the real status |
 | Fire a fund-movement tool on partial args | A bridge call with `{amount:0.01}` errored `nan` | Build fund calls from a validated template; never proceed as if funds moved when it errored |
@@ -244,7 +259,7 @@ future fill, hands-off**, that's a template (**Shadow / Remora**) — offer it. 
 
 ## Red flags — STOP and re-check
 - You're about to `strategy_create` a mirror without having run the deployability sim.
-- You're about to tell a user a position **can't have a trailing stop without a runtime** (it can).
+- You're about to call `ratchet_stop_add` on a raw position "DSL protection" — it's **profit-lock only** (no downside floor without a runtime); offer a static SL and/or a managed template for real two-sided DSL.
 - You're about to tell the user funds are "stuck" or to "approve again."
 - You're about to open a manual position into a wallet a runtime is managing.
 - You're about to close+recreate a mirror that "isn't trading."

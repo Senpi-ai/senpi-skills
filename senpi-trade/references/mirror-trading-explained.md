@@ -54,12 +54,16 @@ Two valid philosophies — surface both, recommend the default:
 - **Follow their exits (the default).** Copy trading means inheriting their risk management — their
   stops become your stops. Adding your own tight stop can knock you out of a trade the trader rides back
   to profit (a real user: *"us putting our own in screwed us"*).
-- **Add your own safety net.** A per-position DSL trailing stop (`ratchet_stop_add` — a **real
-  Hyperliquid-native** stop, **no runtime needed**) layered on top. This earns its place **when the
-  trader runs without stops** (many do — then you are as exposed as they are). Tell the user which case
-  they are in.
+- **Add your own safety net — but know its limits without a runtime.** `ratchet_stop_add` adds a
+  **profit-lock ladder** (no runtime): it trails a stop **up as you gain**, but places **no downside
+  floor** (the Phase-1 max-loss is silently dropped), so you're bare on the losing side until a profit
+  tier triggers. For a downside cap, add a **static stop** (`edit_position`) — fixed, doesn't ratchet.
+  This matters most **when the trader runs without stops** (many do). For a **real two-phase ratcheting
+  DSL** (downside floor → breakeven → profit locks, coordinated), you need a **runtime** — a managed
+  mirror template has it built in.
 
-**Never** tell a user a mirror "can't be protected without a runtime" — it can, per position, with DSL.
+**Don't** tell a user a mirror "can't be protected" — it can (profit-lock + a static SL). **But don't call
+that DSL:** the integrated two-phase DSL is runtime-only. For real two-sided protection → a managed template.
 
 ## The three ways to deploy a copy
 | Way | What it is | Best when |
