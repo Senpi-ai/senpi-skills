@@ -114,24 +114,40 @@ down with it. Tell the user either way. Never leave this one unreported.
 
 Rides a **`failed` report (exit 3)**, and it is the one failure that does not tell you what happened.
 The deploy stopped *waiting* on an install it cannot cancel, so the install may have completed after
-the report was written. The wallet is funded and was deliberately **not** closed.
+the report was written.
 
-Do the read first — `openclaw senpi runtime list`:
+**Whether a close is even possible depends on how this deploy reached the wallet — and the report
+says which:**
+- **This deploy CREATED the wallet.** It is funded and was deliberately **not** closed, because
+  unwinding a wallet an install may still be binding would leave a live runtime trading a closed
+  strategy.
+- **This deploy ADOPTED the wallet.** It predates this deploy entirely, and this deploy never closes
+  an adopted wallet, whichever way the install landed — the report names **no** close command for it,
+  on purpose, because that wallet's funds are not this deploy's to reclaim.
+
+Do the read first either way — `openclaw senpi runtime list`:
 
 - **A row names that wallet** → the install landed. Re-run the same deploy command; it adopts the
   wallet, skips the install and observes a tick.
-- **No row, and `openclaw senpi deploy status` shows no job running** → nothing is watching the
-  funds. Reclaim them with the MCP `strategy_close` the report names, on the address it names, and
-  mind the package-wide caveat it computed — other sleeves of this package may be live.
+- **No row** → on a **created** wallet, and only when `openclaw senpi deploy status` also shows no
+  job running, nothing is watching the funds: reclaim them with the MCP `strategy_close` the report
+  names, on the address it names, and mind the package-wide caveat it computed — other sleeves of
+  this package may be live. On an **adopted** wallet, the read above is the whole next step — the
+  report names nothing to reclaim, and improvising a close is not yours to do.
 
-**Never close on the strength of the exit code alone.** That is the one action this code exists to
-stop you taking blind.
+**Never close on the strength of the exit code alone, and never substitute a close the report did not
+name.** That is the one action this code exists to stop you taking blind.
 
 ### `[E_WALLET_INSTALL_IN_FLIGHT]`
 
 An install on that wallet is **running right now** inside the gateway — usually a previous deploy
 whose wait expired while its install kept going. Nothing was installed, nothing was deleted, and the
-condition clears itself when that install finishes.
+condition **normally** clears itself when that install finishes.
+
+**Past the deploy's own 120s install bound, treat it as possibly wedged rather than merely slow.**
+If it is wedged, the fence on this wallet will not clear until the gateway process restarts — that is
+the condition that would clear it, reported here so you know what you are waiting on, not an action
+to take yourself.
 
 **Delete nothing.** `openclaw senpi runtime delete` removes the row the in-flight install is about to
 bind, and `close.py` would tear down a wallet that is seconds from being watched. Read instead —
