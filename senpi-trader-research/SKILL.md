@@ -32,8 +32,12 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
 
 - **Run the engine; never hand-pull.** `python3 scripts/research.py` (find) or `--trader 0x…` (vet).
   Read its JSON.
-- **Only name traders/values the engine returned.** Cite addresses in **short form** (`0x35d1…acb1`)
-  unless the user asks for the full address.
+- **Only name traders/values the engine returned. Show the short address, keep the full one.** Cite the
+  engine's `short` (`0x35d1…5acb1`) for readability — but the engine returns the full `address` on every
+  candidate and dossier, so **keep it.** When the user later refers to a trader by the short form, a row
+  number, or its bias, **resolve it back to the full `address` from the engine output before any vet /
+  mirror call** — never pass the abbreviated `…` string to a tool. If nothing in context resolves it
+  (e.g. a fresh session), re-run the find or ask for the full address; never guess the middle.
 - **Lead with copyability, not ROI.** For a mirror decision the ranking that matters is
   `mirror_shortlist` (ordered by whether you can actually copy them *now*), not the track-record table.
   **Never crown an un-mirrorable trader "best."** If the top track record can't be mirrored — book
@@ -188,7 +192,8 @@ Formatting: short addresses, `Δ%`, labels as given; emoji sparingly.
 
 - **CTA 1 → mirror. Hand off to the `senpi-trade` skill** — it owns the mirror mechanics (slippage,
   sizing / `mirrorMultiplier`, the pre-fund deployability sim, optional DSL, execution + verification).
-  Do **not** call `strategy_create` from here; pass the vetted trader to `senpi-trade` and let it drive.
+  Do **not** call `strategy_create` from here; pass the vetted trader's **full `address`** (not the short
+  form) to `senpi-trade` and let it drive.
 - **CTA 2 → compare.** Re-run the engine (`--trader` for another, or default for the ranking).
 
 ## ⚠ Token scope

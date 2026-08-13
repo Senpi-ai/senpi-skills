@@ -78,7 +78,7 @@ def _field(d, *names, default=None):
 
 def _short(addr):
     a = str(addr or "")
-    return f"{a[:6]}…{a[-4:]}" if len(a) > 12 else a
+    return f"{a[:6]}…{a[-5:]}" if len(a) > 13 else a   # 0x + 4 … last 5 — a stable reference; the full `address` is always kept alongside
 
 
 def _rows(data, *keys):
