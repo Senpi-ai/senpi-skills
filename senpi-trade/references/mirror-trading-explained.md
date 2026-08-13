@@ -43,6 +43,12 @@ for you.
 Their **opens, adds, reduces, and exits** — you close when they close. Their **unrealized PnL does not
 transfer**; you enter at the *current* price, not their original entry.
 
+**A mirror only opens when the OG opens.** If they trade rarely or are dormant (sitting on an old
+position), your mirror sits idle — that's by design, not a bug. And a trader parked on a big *unrealized*
+winner is worth little to copy: you can't inherit their gain, and if the position already ran past their
+entry your mirror won't even open it. Say this **before** mirroring a low-activity trader, so an idle
+mirror doesn't read as broken.
+
 ## Protection — optional, and it stacks on top
 Two valid philosophies — surface both, recommend the default:
 - **Follow their exits (the default).** Copy trading means inheriting their risk management — their

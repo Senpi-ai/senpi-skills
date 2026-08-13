@@ -44,6 +44,12 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
   what's working now is still a bad copy today. Turn-1 work, not a follow-up.
 - **Track record ≠ timing.** Discovery (historical) tells you if they're *good*; the 4h momentum tells
   you if they're *hot right now*. Say which is which. "Should I copy?" needs both.
+- **A mirror only fires when the OG trades — set that expectation *before* you recommend.** Surface their
+  `trades_per_day` and `last_trade_days_ago`, and flag `infrequent_trader` / `dormant` loudly —
+  *especially* with `mirror_fit: poor` (they're sitting on an old position that already ran). Then the
+  mirror opens little now, will rarely fire later, and their unrealised gains **don't transfer** — so it
+  will read as idle/broken to the user. A trader dormant for months on a big winner is the classic trap:
+  nothing to copy today, nothing coming soon. Say it up front; don't let them find out as "it's not working."
 - **Respect the reliability floor.** A record with **< 5 trades or < 7 active days** is not yet
   trustworthy — the engine flags it `thin_track_record`. Surface that loudly; don't recommend a copy
   off a tiny sample.
@@ -53,7 +59,7 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
 - **Use leveraged return + labels honestly.** Cite the behavior labels (consistency
   ELITE/RELIABLE/STREAKY/CHOPPY, risk CONSERVATIVE/BALANCED/AGGRESSIVE/SNIPER) and surface every flag
   verbatim — `choppy_consistency`, `high/critical_margin_usage`, `currently_in_drawdown`,
-  `concentrated_book`.
+  `concentrated_book`, `infrequent_trader`, `dormant`.
 - **Never say "safe."** Copying inherits their risk. Be honest.
 - **Mechanics live in `senpi-trade` — don't improvise them.** How a mirror actually *works* (sizing /
   `mirrorMultiplier`, slippage-as-entry-gate, protection, minimums, "how much do I need", "spot or perps")
@@ -116,8 +122,8 @@ comprehensive, decision-first answer on every call, never a bare ROI list.
    **track record + mirrorability + market-fit** together: why they're proven, whether you can copy them
    *today*, and whether they're positioned with or against what's working now.
 4. **Who to skip, and why** — name the traders you are **not** recommending and the reason (already ran /
-   `single_position` / `blowup_risk` / thin sample / positioned against the tape). Users copy the wrong
-   wallet without this line.
+   `single_position` / `blowup_risk` / thin sample / positioned against the tape / **`dormant` or
+   `infrequent_trader`** — a mirror of them would sit idle). Users copy the wrong wallet without this line.
 5. **The steer** — if the whole shortlist is `poor` fit, do **not** crown the least-bad stale book:
    recommend a **fresh-entry template (Shadow / Raptor)** that waits for their next open. Otherwise, the
    pick + the single biggest reason.
@@ -133,7 +139,9 @@ Cross-reference the market (`senpi-market-pulse`) **before** step 1, not after. 
 3. **Behavior** — the consistency/risk/activity labels, in plain English.
 4. **What they hold now** — current positions, net bias, and **account risk** (`margin_pct` > 80 high,
    > 90 critical).
-5. **Right now** — 4h momentum (hot/cold), so timing isn't blind.
+5. **Right now** — 4h momentum (hot/cold), plus **how often and how recently they trade**
+   (`trades_per_day`, `last_trade_days_ago`): a mirror only fires when they do, so surface
+   `infrequent_trader` / `dormant` — an idle OG means an idle mirror, and the user must hear it before funding.
 6. **Risks** — every `flags[]` entry, verbatim.
 
 Formatting: short addresses, `Δ%`, labels as given; emoji sparingly.

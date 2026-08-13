@@ -21,6 +21,7 @@ Modeled on senpi-strategy-discover's hidden-engine pattern: guarded I/O, fails o
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
+import datetime
 import json
 import os
 import sys
@@ -33,6 +34,8 @@ MIN_ACTIVE_DAYS_FOR_TRUST = 7
 CATASTROPHIC_DD = -60.0        # a max drawdown at/below this can't read "solid" — near-liquidation history
 BLOWUP_DD = -80.0             # …and at/below this caps the verdict at "choppy" outright
 HIGH_TURNOVER_PER_DAY = 8.0   # above this, a proportional copy bleeds fees (fees are the biggest killer)
+LOW_ACTIVITY_PER_DAY = 0.2    # below this trades/day the OG opens new positions so rarely a mirror sits idle between them
+DORMANT_DAYS = 30             # no trade in this many days — a fresh mirror won't fire until they trade again ("looks broken")
 NEAR_ENTRY_BAND_PCT = 5.0     # a position within this PRICE distance of the trader's entry is a fresh mirror entry
 ENRICH_TOP_DEFAULT = 5        # how many top find-candidates to mirror-enrich (positions + distance + momentum)
 MIN_NOTIONAL_USD = 12.0       # HL per-position minimum (the $10 floor, auto-bumped to ~$12) — a copy below this is skipped
@@ -127,6 +130,7 @@ def _candidate(t):
         "risk": _field(t, "risk", "riskLabel"),
         "activity": _field(t, "activity", "activityLabel", "tas"),
         "trades_per_day": _f(t, "averageTradesPerDay"),
+        "last_trade_ts": _f(t, "lastTradeTimestamp", "last_trade_timestamp", "lastTradeTime"),
     }
     # live payload carries age as traderAgeSeconds and activity as averageTradesPerDay —
     # derive the human units the ranker/reliability gate need
@@ -140,6 +144,12 @@ def _candidate(t):
             c["trades"] = round(tpd * c["active_days"])
     if c["trades_per_day"] is None and c["trades"] and c["active_days"]:
         c["trades_per_day"] = round(c["trades"] / c["active_days"], 2)
+    ts = c.get("last_trade_ts")
+    if ts:
+        ts = ts / 1000.0 if ts > 1e11 else ts   # lastTradeTimestamp seen in both seconds and ms — normalize to s
+        c["last_trade_days_ago"] = round((datetime.datetime.now(datetime.timezone.utc).timestamp() - ts) / 86400.0, 1)
+    else:
+        c["last_trade_days_ago"] = None
     return c
 
 
@@ -261,6 +271,11 @@ def _flags(c, positions=None, net_upnl=None, margin_pct=None):
     tpd = c.get("trades_per_day")
     if tpd is not None and tpd > HIGH_TURNOVER_PER_DAY:
         flags.append("high_turnover")          # a proportional copy will bleed fees
+    if tpd is not None and tpd < LOW_ACTIVITY_PER_DAY:
+        flags.append("infrequent_trader")      # opens new positions rarely — the mirror sits idle between their trades
+    ltd = c.get("last_trade_days_ago")
+    if ltd is not None and ltd > DORMANT_DAYS:
+        flags.append("dormant")                # no trade in weeks — a fresh mirror won't fire until they trade again
     if margin_pct is not None and margin_pct > 90:
         flags.append("critical_margin_usage")
     elif margin_pct is not None and margin_pct > 80:
@@ -409,7 +424,7 @@ def vet_trader(client, meta, addr):
     c["reliability"] = _reliability(c) if c else "unknown"
     dossier["track_record"] = {k: c.get(k) for k in
                                ("roi_pct", "pnl_usd", "win_rate_pct", "max_drawdown_pct",
-                                "trades", "active_days", "trades_per_day")}
+                                "trades", "active_days", "trades_per_day", "last_trade_days_ago")}
     dossier["labels"] = {"consistency": c.get("consistency"), "risk": c.get("risk"), "activity": c.get("activity")}
     dossier["reliability"] = c.get("reliability", "unknown")
 

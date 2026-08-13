@@ -250,6 +250,7 @@ future fill, hands-off**, that's a template (**Shadow / Remora**) — offer it. 
 - You're about to close+recreate a mirror that "isn't trading."
 - You're quoting a trader's ROI/win-rate with no drawdown beside it.
 - You're about to recommend mirroring a trader whose current positions have already run past their entry — the mirror would open **nothing**.
+- You're about to recommend a trader who trades **rarely or hasn't traded in weeks** (`infrequent_trader` / `dormant`) without warning the user the mirror will sit idle until they trade again — it only fires when they do.
 - You're about to promise a mirror "will replicate shortly" or a stuck strategy "should resolve" — verify on-chain first; never predict a sync that hasn't happened.
 
 All of these mean: stop, run the check, correct the framing, or route to the managed path.

@@ -42,6 +42,21 @@ def test_min_mirror_budget_wired():
     assert all("min_mirror_budget" in c for c in enriched)
 
 
+def test_activity_and_recency_flags():
+    # a mirror only fires when the OG trades — flag the ones that will sit idle so the agent warns first
+    assert "infrequent_trader" in research._flags({"trades_per_day": 0.05})   # ~1 trade / 3 weeks
+    assert "infrequent_trader" not in research._flags({"trades_per_day": 3.0})
+    assert "dormant" in research._flags({"last_trade_days_ago": 180})          # last traded 6 months ago
+    assert "dormant" not in research._flags({"last_trade_days_ago": 4})
+    # recency is derived from lastTradeTimestamp (seconds OR ms), relative to now
+    import time
+    c = research._candidate({"address": "0xz", "lastTradeTimestamp": time.time() - 10 * 86400})   # 10d ago, seconds
+    assert abs(c["last_trade_days_ago"] - 10.0) < 0.2
+    c_ms = research._candidate({"address": "0xz", "lastTradeTimestamp": (time.time() - 10 * 86400) * 1000})  # ms
+    assert abs(c_ms["last_trade_days_ago"] - 10.0) < 0.2
+    assert research._candidate({"address": "0xz"})["last_trade_days_ago"] is None   # no timestamp -> None
+
+
 def test_top_candidates_and_reliability():
     res = research.run(_client(), "top")
     assert len(res["candidates"]) == 3
