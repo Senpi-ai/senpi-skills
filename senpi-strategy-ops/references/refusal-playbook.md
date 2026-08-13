@@ -110,6 +110,34 @@ reached by `close.py --instance`; the refusal offers the package-wide `close.py 
 nothing else in the package is live, and otherwise names the live sleeves that command would take
 down with it. Tell the user either way. Never leave this one unreported.
 
+### `[E_INSTALL_INDETERMINATE]`
+
+Rides a **`failed` report (exit 3)**, and it is the one failure that does not tell you what happened.
+The deploy stopped *waiting* on an install it cannot cancel, so the install may have completed after
+the report was written. The wallet is funded and was deliberately **not** closed.
+
+Do the read first — `openclaw senpi runtime list`:
+
+- **A row names that wallet** → the install landed. Re-run the same deploy command; it adopts the
+  wallet, skips the install and observes a tick.
+- **No row, and `openclaw senpi deploy status` shows no job running** → nothing is watching the
+  funds. Reclaim them with the MCP `strategy_close` the report names, on the address it names, and
+  mind the package-wide caveat it computed — other sleeves of this package may be live.
+
+**Never close on the strength of the exit code alone.** That is the one action this code exists to
+stop you taking blind.
+
+### `[E_WALLET_INSTALL_IN_FLIGHT]`
+
+An install on that wallet is **running right now** inside the gateway — usually a previous deploy
+whose wait expired while its install kept going. Nothing was installed, nothing was deleted, and the
+condition clears itself when that install finishes.
+
+**Delete nothing.** `openclaw senpi runtime delete` removes the row the in-flight install is about to
+bind, and `close.py` would tear down a wallet that is seconds from being watched. Read instead —
+`openclaw senpi deploy status`, then `openclaw senpi runtime list` — and once a row names the wallet,
+re-run the same deploy command. A re-run adopts the wallet; it does not fund a second one.
+
 ### A live `<id>` strategy that is PAUSED (or mid-teardown)
 
 The verb refuses immediately with the
