@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.6.20"
+  version: "3.6.21"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -291,14 +291,15 @@ above) and nothing here is it:
 ```
 python3 scripts/close.py spider          # stop runtime(s) + trigger strategy_close; re-run to poll
 python3 scripts/close.py --all           # close EVERY open strategy (all packages) + delete runtimes
+python3 scripts/close.py --strategy-id <id> | --address <wallet>   # a wallet with NO package at all
 ```
 Per strategy: **stop the runtime** (if live) → **trigger `strategy_close`** (flattens **all** positions
 + closes the strategy, funds returned). `strategy_close` is **async**, so the script **does not wait** —
 it returns `closing` and hands polling to you: **re-run `close.py spider`** until it reports `closed`.
 Re-runs are idempotent. `--instance <name>` scopes an instance (needs its live runtime to map; else omit
-to close all). **Redeploy** = `openclaw senpi validate` → `close` → `create`, in that order.
-Discovery is strategy-driven, so close also cleans up **orphaned** wallets with no runtime
-([`references/lifecycle.md`](references/lifecycle.md)).
+to close all). **Redeploy** = `openclaw senpi validate` → `close` → `create`, in that order. Discovery
+is strategy-driven: close also cleans up an attributed package's **orphaned** (no-runtime) wallet, and
+`--strategy-id`/`--address` close one with **no package at all** ([`references/lifecycle.md`](references/lifecycle.md)).
 
 ## Applying an edit to a strategy that is already LIVE
 

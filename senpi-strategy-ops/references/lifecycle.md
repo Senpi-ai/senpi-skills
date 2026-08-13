@@ -493,7 +493,7 @@ user: "deploy spider with $300"
      +80%; DSL-only, no manual exits.
 ```
 
-## `close.py [<id>] [--all] [--instance name] [--dry-run] [--json]`
+## `close.py [<id>] [--all] [--strategy-id <id> | --address <wallet>] [--instance name] [--dry-run] [--json]`
 
 Like deploy, close **does not block** on the async flatten — it stops + triggers, returns `closing`, and
 hands polling to the agent (re-run). Discovery is ledger-free and **strategy-driven**: MCP `strategy_list`
@@ -503,6 +503,17 @@ close also cleans up **orphaned** strategies (wallets a failed deploy created be
 runtime is used **only to stop** the strategy, found by wallet (`find_runtime_by_wallet`).
 **`--all`** closes **every** OPEN strategy across all packages (for "close all strategies / return funds")
 and deletes their runtimes. `--instance` needs the live runtime to identify an instance; if it's gone, omit it.
+
+**`--strategy-id <id>` / `--address <wallet>`** close ONE strategy directly, bypassing package resolution
+entirely — the only route for a wallet with **no package at all** (unattributed create, or app/manual —
+`strategy_create_custom_strategy` does not require `skillName`/`skillVersion`, so this is reachable).
+Mutually exclusive with each other, with `<id>`, and with `--all`/`--instance`/`--ref`. The read is
+**unfiltered by status** (unlike `--all`/`<id>` above, which read only `LIVE_STATUSES`): a status-filtered
+read can't tell "no such id" from "already closed" — both return zero rows — and either would otherwise
+fall through to the generic "no OPEN strategies to close" + exit 0, a false all-clear on a target named
+explicitly. Zero matches refuses instead; more than one also refuses rather than guess which to close
+(wallets are 1:1 with strategies here, so this should not happen — it's a defensive backstop, not a
+reachable case). Get the id/address from `status.py`.
 
 Per strategy:
 
