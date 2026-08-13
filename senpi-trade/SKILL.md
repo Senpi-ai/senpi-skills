@@ -145,8 +145,10 @@ the goal is to land them on **raw mirror / a named template / custom** — offer
    traders, fresh entries only (**Shadow**) · one elite's single biggest conviction bet (**Oxpecker**) ·
    traders hot right now (**Raptor**) · consensus of the top copy strategies (**Cuckoo**) · a rule the
    templates don't cover (**→ senpi-strategy-author**).
-4. **Budget** — reality-check it against the trader's account size (explainer's sizing section) *before*
-   you promise anything.
+4. **Budget** — quote the trader's **computed minimum** (`senpi-trader-research` returns
+   `min_mirror_budget`: floor / recommended / full-book at 1×). Recommend at least the **recommended**
+   figure; if their ask is below the **floor**, say plainly the mirror would open nothing and offer a
+   closer-sized trader, a higher multiplier, or a budget-relative template. The pre-fund sim confirms it.
 5. **Protection** — default **follow their exits**; offer an added DSL safety-net, especially if the
    trader runs without stops.
 
@@ -219,9 +221,17 @@ future fill, hands-off**, that's a template (**Shadow / Remora**) — offer it. 
 - **Ongoing hands-off management / DSL-on-every-fill / fresh-entry / budget-relative sizing →**
   `senpi-strategy-author` (custom) or a template via `senpi-strategy-discover` (mirror: Remora / Shadow /
   Oxpecker / Raptor / Cuckoo). This skill executes the **direct** trade and can add **per-position** protection.
-- **"How's my mirror doing?" / compare my mirrors / is my trader still active →** `senpi-portfolio`.
-  Monitoring a *running* mirror (its performance, whether the copied trader is still trading, comparing two
-  mirrors) is a read surface — route there. After you create a mirror, tell the user they can ask any time.
+- **Mirror with *custom rules* the templates don't cover** — a position-count cap ("max 5; if he opens
+  more, don't mirror"), a per-position % cap ("each ≤ 5% of my capital"), "don't copy his shorts",
+  "capture his adds", or a conditional exit → a **custom mirror runtime** via `senpi-strategy-author`; the
+  named templates are the fast path for common shapes, author covers bespoke rules. Note the
+  **`mirrorMultiplier` is immutable after creation** — a user who wants to change size live must redeploy;
+  there is no in-place edit.
+- **"How's my mirror doing?" / compare my mirrors / is my trader still active / why didn't it fire →**
+  read **`references/mirror-monitoring.md`** — it composes your mirror's state (`senpi-portfolio` /
+  `strategy_get_clearinghouse_state`) with the OG's current book (`senpi-trader-research`) and diffs them
+  (are you still tracking, did the OG go idle, which positions drifted). After you create a mirror, tell
+  the user they can ask any time.
 - **Close / withdraw / rebalance a mirror →** `senpi-strategy-ops` (close a mirror, reclaim funds, top-up,
   or shift budget between mirrors). A mirror **is** a strategy — lifecycle actions live in ops, not here.
 - **A pasted address (`I want to mirror trade 0x…`) is the single most common entry** — vet it through

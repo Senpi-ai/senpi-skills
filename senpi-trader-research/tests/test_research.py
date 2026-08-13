@@ -17,6 +17,29 @@ def _client():
         return research._FixtureClient(json.load(f))
 
 
+def test_min_mirror_budget():
+    # budget to open a position = MIN_NOTIONAL_USD * account / (notional * mult)
+    acct = 1_000_000.0
+    poss = [{"notional": 500_000}, {"notional": 250_000}, {"notional": 50_000}]  # total 800k
+    b = research._min_mirror_budget(acct, poss)                 # MIN_NOTIONAL_USD == 12.0
+    assert b["floor_usd"] == 24.0        # opens the 500k position (largest) — least you can fund
+    assert b["recommended_usd"] == 48.0  # 80% coverage stops at the 250k position (12*1M/250k)
+    assert b["full_book_usd"] == 240.0   # opens even the 50k position (smallest)
+    assert b["positions"] == 3 and b["at_multiplier"] == 1.0
+    assert research._min_mirror_budget(acct, poss, mult=4.0)["floor_usd"] == 6.0  # multiplier divides it
+    # can't compute → None (say so, don't guess)
+    assert research._min_mirror_budget(acct, []) is None        # trader flat
+    assert research._min_mirror_budget(None, poss) is None      # account value unavailable
+    assert research._min_mirror_budget(0, poss) is None
+
+
+def test_min_mirror_budget_wired():
+    # the key is always set (a dict when computable, else None) — never silently absent
+    assert "min_mirror_budget" in research.run(_client(), "vet", addr="0xpro")["trader"]
+    enriched = [c for c in research.run(_client(), "top")["candidates"] if "mirrorability" in c]
+    assert all("min_mirror_budget" in c for c in enriched)
+
+
 def test_top_candidates_and_reliability():
     res = research.run(_client(), "top")
     assert len(res["candidates"]) == 3

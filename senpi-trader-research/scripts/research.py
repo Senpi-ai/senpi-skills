@@ -35,6 +35,8 @@ BLOWUP_DD = -80.0             # …and at/below this caps the verdict at "choppy
 HIGH_TURNOVER_PER_DAY = 8.0   # above this, a proportional copy bleeds fees (fees are the biggest killer)
 NEAR_ENTRY_BAND_PCT = 5.0     # a position within this PRICE distance of the trader's entry is a fresh mirror entry
 ENRICH_TOP_DEFAULT = 5        # how many top find-candidates to mirror-enrich (positions + distance + momentum)
+MIN_NOTIONAL_USD = 12.0       # HL per-position minimum (the $10 floor, auto-bumped to ~$12) — a copy below this is skipped
+MIRROR_COVERAGE_TARGET = 0.8  # "recommended" min budget opens positions covering this share of the trader's notional
 
 
 # ──────────────────────────────────────────────────────────────── guarded helpers
@@ -167,10 +169,11 @@ def _positions_from_state(trec):
     """Open positions + account aggregates from a discovery_get_trader_state record. Each position
     carries `moved_from_entry_pct` — the PRICE distance from the trader's entry, which is exactly what
     a mirror's slippage tolerance gates on. (ROE is leveraged and overstates that distance.)"""
-    positions, net_notional, upnl, margin_pct = [], 0.0, 0.0, None
+    positions, net_notional, upnl, margin_pct, account_value = [], 0.0, 0.0, None, None
     if isinstance(trec, dict):
         cms = _field(trec, "crossMarginSummary", "cross_margin_summary", default={}) or {}
         margin_pct = _f(trec, "marginPercentage", "margin_percentage") or _f(cms, "marginPercentage")
+        account_value = _f(trec, "accountValue", "account_value") or _f(cms, "accountValue", "account_value")
         for p in (_field(trec, "openPositions", "open_positions", "positions", default=[]) or []):
             if not isinstance(p, dict):
                 continue
@@ -192,7 +195,9 @@ def _positions_from_state(trec):
                 "mark_px": round(mark, 6) if mark else None,
                 "moved_from_entry_pct": moved,      # signed price move since entry; |·| is the slippage distance
             })
-    return positions, round(net_notional, 2), round(upnl, 2), (round(margin_pct, 1) if margin_pct is not None else None)
+    return (positions, round(net_notional, 2), round(upnl, 2),
+            round(margin_pct, 1) if margin_pct is not None else None,
+            round(account_value, 2) if account_value is not None else None)
 
 
 def _mirrorability(positions):
@@ -209,6 +214,39 @@ def _mirrorability(positions):
     fit = "good" if surface >= 60 else "partial" if surface >= 20 else "poor"
     return {"fresh_entry_surface_pct": surface, "mirror_fit": fit,
             "positions_scored": len(scored), "near_entry_band_pct": NEAR_ENTRY_BAND_PCT}
+
+
+def _min_mirror_budget(account_value, positions, mult=1.0, coverage=MIRROR_COVERAGE_TARGET):
+    """Recommended minimum budget to mirror THIS trader's CURRENT book — the copy-trading analog of a
+    template's catalog minimum. Your copy of a position opens only when
+        budget >= MIN_NOTIONAL_USD * (account_value / position_notional) / mult
+    so the largest position sets the floor (the least you can fund and still open anything), and covering
+    ~`coverage` of their notional is the honest "this actually tracks them" number. A snapshot of the
+    current book; the pre-fund sim is the exact per-position check. Returns None when it can't be computed
+    (trader flat, or account value unavailable) — say so, don't guess."""
+    notionals = sorted((p["notional"] for p in (positions or [])
+                        if p.get("notional") and p["notional"] > 0), reverse=True)
+    if not account_value or account_value <= 0 or not notionals:
+        return None
+    mult = mult or 1.0
+    total = sum(notionals)
+    cover_notional, cum = notionals[-1], 0.0
+    for n in notionals:
+        cum += n
+        cover_notional = n
+        if cum >= coverage * total:
+            break
+
+    def _b(pn):
+        return round(MIN_NOTIONAL_USD * account_value / (pn * mult), 2)
+    return {
+        "floor_usd": _b(notionals[0]),          # opens their largest position; below this, nothing opens
+        "recommended_usd": _b(cover_notional),  # opens positions covering ~coverage of their book by notional
+        "full_book_usd": _b(notionals[-1]),     # opens even their smallest current position
+        "at_multiplier": mult,
+        "positions": len(notionals),
+        "note": f"current-book snapshot (~{int(coverage * 100)}% coverage at {mult}x); confirm with the pre-fund sim",
+    }
 
 
 def _flags(c, positions=None, net_upnl=None, margin_pct=None):
@@ -260,11 +298,11 @@ def _enrich_for_mirror(client, meta, c):
     """Attach the copy-decision layer to a find candidate — current book, price-distance mirrorability,
     4h momentum, full flags. Best-effort per trader; fails open so one bad lookup can't sink the find."""
     addr = c.get("address")
-    positions, net_upnl, margin_pct, momentum = [], None, None, None
+    positions, net_upnl, margin_pct, momentum, account_value = [], None, None, None, None
     try:
         st = _ok(client.mcp_call("discovery_get_trader_state", trader_addresses=[addr], timeout=15))
         trec = next((t for t in _rows(st, "traders") if isinstance(t, dict)), st if isinstance(st, dict) else {})
-        positions, _net, net_upnl, margin_pct = _positions_from_state(trec)
+        positions, _net, net_upnl, margin_pct, account_value = _positions_from_state(trec)
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"state {c.get('short')}: {e}")
     try:
@@ -274,6 +312,7 @@ def _enrich_for_mirror(client, meta, c):
         meta.setdefault("warnings", []).append(f"momentum {c.get('short')}: {e}")
     c["current_positions"] = positions
     c["mirrorability"] = _mirrorability(positions)
+    c["min_mirror_budget"] = _min_mirror_budget(account_value, positions)
     c["recent_momentum"] = momentum
     c["momentum"] = _momentum_label(momentum)
     c["net_exposure"] = {"unrealized_pnl_usd": net_upnl, "margin_pct": margin_pct}
@@ -382,9 +421,10 @@ def vet_trader(client, meta, addr):
         meta.setdefault("warnings", []).append(f"trader_state failed: {e}")
         st = None
     trec = next((t for t in _rows(st, "traders") if isinstance(t, dict)), st if isinstance(st, dict) else {})
-    positions, net_notional, upnl, margin_pct = _positions_from_state(trec)
+    positions, net_notional, upnl, margin_pct, account_value = _positions_from_state(trec)
     dossier["current_positions"] = positions
     dossier["mirrorability"] = _mirrorability(positions)
+    dossier["min_mirror_budget"] = _min_mirror_budget(account_value, positions)
     dossier["net_exposure"] = {"net_notional_usd": net_notional,
                                "bias": "long" if net_notional > 0 else "short" if net_notional < 0 else "flat",
                                "unrealized_pnl_usd": upnl,
