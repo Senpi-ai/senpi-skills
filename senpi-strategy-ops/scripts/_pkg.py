@@ -81,6 +81,19 @@ class Instance:
         return (self.runtime_doc or {}).get("group")
 
     @property
+    def wallet(self):
+        """`strategy.wallet` as authored — the field that decides what the runtime actually binds.
+
+        Read PARSED, never by searching `runtime_text`: a `${WALLET_ENV}` sitting anywhere in the
+        file satisfies a text search while `strategy.wallet` holds a hardcoded address, and the
+        render then substitutes that stray token harmlessly and leaves no `${...}` for the
+        placeholder check either. Only this field says which wallet the deploy would trade.
+        """
+        strat = (self.runtime_doc or {}).get("strategy")
+        w = strat.get("wallet") if isinstance(strat, dict) else None
+        return w.strip() if isinstance(w, str) else None
+
+    @property
     def external_scanner(self):
         for s in (self.runtime_doc or {}).get("scanners", []) or []:
             if isinstance(s, dict) and s.get("type") == "external_scanner":
@@ -330,11 +343,22 @@ def validate(pkg: Package) -> list:
         # small). Refuse to fund it (author's validate_strategy flags it too; ops re-checks fetched packages).
         for kp, val in margin_fraction_offenders(inst.runtime_doc):
             errs.append(f"{tag}: `{kp}` must be a PERCENT in (0,100] — set {val * 100:g} (not {val})")
-        # wallet binding
+        # wallet binding — asked of the PARSED `strategy.wallet`, not of the file's text. A text
+        # search passes on a recipe that pins an address while parking the token in some field
+        # nothing reads, and deploy would then fund a fresh wallet and install the strategy, exit
+        # engine included, against the pinned one. The runtime refuses that
+        # (`E_VALIDATE_WALLET_UNBOUND`) off the same field; asking a weaker question here leaves
+        # this validator green on exactly the bytes deploy rejects.
+        expect_wallet = "${%s}" % inst.wallet_env
         if not inst.wallet_env:
             errs.append(f"{tag}: missing wallet_env")
-        elif ("${%s}" % inst.wallet_env) not in inst.runtime_text:
-            errs.append(f"{tag}: wallet_env {inst.wallet_env!r} not bound as ${{{inst.wallet_env}}}")
+        elif inst.wallet != expect_wallet:
+            found = "no strategy.wallet" if inst.wallet is None else repr(inst.wallet)
+            errs.append(
+                f"{tag}: set runtime `strategy.wallet: \"{expect_wallet}\"` (found {found}) — deploy "
+                f"substitutes the wallet it creates, so a literal address there funds one wallet and "
+                f"trades another"
+            )
         else:
             seen_wallet_envs.add(inst.wallet_env)
         # external scanner + entrypoint

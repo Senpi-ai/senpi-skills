@@ -235,8 +235,24 @@ def validate(pkg: Path) -> list:
             errs.append(f"instance {name}: missing sibling {scoring_py.relative_to(pkg)} ('import scoring' will fail)")
         if (scn_dir / "__init__.py").is_file():
             errs.append(f"instance {name}: {(scn_dir / '__init__.py').relative_to(pkg)} present — remove it (sibling-import model)")
-        if not wenv or ("${%s}" % wenv) not in rt_text:
-            errs.append(f"instance {name}: wallet_env {wenv!r} not bound as ${{{wenv}}} in {rt_rel}")
+        # Asked of the PARSED `strategy.wallet`, never of the file's text. A `${WALLET_ENV}` sitting
+        # anywhere at all — a `note:`, a comment, an input nothing reads — satisfies a text search
+        # while `strategy.wallet` holds a hardcoded address; the render then substitutes that stray
+        # token harmlessly and leaves no `${...}`, so the unresolved-placeholder check clears it too.
+        # Deploy would fund a fresh wallet and install the strategy, exit engine included, against
+        # the pinned one. The runtime refuses that (`E_VALIDATE_WALLET_UNBOUND`) off this same field,
+        # so asking a weaker question here is how author-green stops meaning deploy-green.
+        if not wenv:
+            errs.append(f"instance {name}: missing wallet_env in strategy.yaml")
+        elif isinstance(rt_doc, dict):
+            _strat = rt_doc.get("strategy")
+            _bound = _strat.get("wallet") if isinstance(_strat, dict) else None
+            _bound = _bound.strip() if isinstance(_bound, str) else None
+            if _bound != "${%s}" % wenv:
+                _found = "no strategy.wallet" if _bound is None else repr(_bound)
+                errs.append(f"instance {name}: set runtime `strategy.wallet: \"${{{wenv}}}\"` in "
+                            f"{rt_rel} (found {_found}) — deploy substitutes the wallet it creates, "
+                            f"so a literal address there funds one wallet and trades another")
         seen_wallet_envs.add(wenv)
 
     # multi-instance must use distinct wallets

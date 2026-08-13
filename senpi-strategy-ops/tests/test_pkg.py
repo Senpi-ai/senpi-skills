@@ -189,6 +189,41 @@ def test_ensure_pkg_local_invalid_never_fetches_remote(tmp_path, monkeypatch):
     assert called["fetch"] is False                                  # never reached the remote
 
 
+def test_wallet_binding_reads_the_parsed_field_not_the_raw_text(tmp_path):
+    """A recipe that PINS an address passes a text search for its `wallet_env` as long as the token
+    appears anywhere at all — including a field nothing reads.
+
+    That is not a hypothetical: `${W}` parked in a `note:` is substituted harmlessly, so the
+    render dry-run's "no `${...}` left" check has nothing to catch either, and the package reaches
+    deploy. The runtime refuses it (`E_VALIDATE_WALLET_UNBOUND`) by reading the parsed
+    `strategy.wallet`; this validator has to ask the same question or it is green on exactly the
+    bytes deploy rejects.
+    """
+    d = make_nested(tmp_path, pkg_id="pinned", wallet_env="PINNED_WALLET")
+    rt = d / "main" / "runtime.yaml"
+    pinned = '"0x%s"' % ("a" * 40)
+    rt.write_text(
+        rt.read_text().replace('"${PINNED_WALLET}"', pinned)
+        + 'note: "funded via ${PINNED_WALLET}"\n'
+    )
+    errs = _pkg.validate(_pkg.load(str(d)))
+    # Prescriptive, like every other linkage message here: the exact value to set, not a diagnosis.
+    assert any("PINNED_WALLET" in e and "strategy.wallet" in e for e in errs), errs
+
+
+def test_wallet_binding_accepts_the_token_the_manifest_declares(tmp_path):
+    """The guard against over-refusing: a correctly bound recipe must stay clean."""
+    assert _pkg.validate(_pkg.load(str(make_nested(tmp_path, pkg_id="bound")))) == []
+
+
+def test_wallet_binding_survives_a_recipe_that_will_not_parse(tmp_path):
+    """An unparseable recipe is already its own error; this check must not throw on the way past."""
+    d = make_nested(tmp_path, pkg_id="torn")
+    (d / "main" / "runtime.yaml").write_text("scanners: [unclosed\n")
+    errs = _pkg.validate(_pkg.load(str(d)))          # must not raise
+    assert errs                                       # and must still say something
+
+
 def test_full_validate_catches_unresolved_placeholder(tmp_path):
     """The render dry-run in full_validate surfaces an unresolved `${...}` (a runtime that references
     an env the manifest doesn't bind) BEFORE any wallet is funded."""
