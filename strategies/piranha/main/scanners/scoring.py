@@ -73,7 +73,13 @@ def oi_velocity_1h(asset_data, prev_oi):
     caller. None if neither is available. Verbatim from v2 except the prev-OI is
     passed in (caller owns the cache) instead of read from a file here.
 
-    Returns (None, "unavailable") when OI velocity cannot be resolved."""
+    Returns (None, "unavailable") when OI velocity cannot be resolved.
+
+    Live `market_get_asset_data` returns oi_velocity with FLAT keys
+    (`oi_change_pct_1h`, `oi_change_pct_5m`, …). The original port only read a
+    NESTED `oi_change_pct: {"1h": …}` shape, so the primary source never
+    resolved and every tick fell through to the self-computed path. Both shapes
+    are accepted now; the flat one is what production actually sends."""
     data = asset_data.get("data", {}) if isinstance(asset_data, dict) else {}
     ctx = data.get("asset_context", {}) or {}
     cur_oi = _f(ctx, "openInterest")
@@ -83,6 +89,12 @@ def oi_velocity_1h(asset_data, prev_oi):
         if isinstance(ch, dict) and ch.get("1h") is not None:
             try:
                 return float(ch["1h"]), "oi_velocity"
+            except (TypeError, ValueError):
+                pass
+        flat = oiv.get("oi_change_pct_1h")
+        if flat is not None:
+            try:
+                return float(flat), "oi_velocity"
             except (TypeError, ValueError):
                 pass
     if cur_oi > 0 and prev_oi and float(prev_oi) > 0:
