@@ -44,6 +44,8 @@ _CASES = [
     ("mandate",  _intent(), "capital preservation no leverage diversified portfolio rwa"),
     ("hare",     _intent(), "scalp btc eth session quick in and out leverage"),
     ("kite",     _intent(), "smc ict break of structure fibonacci divergence"),
+    # ── dynamic pump/breakout screener (from the 2026-08-12 pump-hunter build) ──
+    ("barracuda", _intent(), "pump hunter breakout momentum screener"),
 ]
 
 

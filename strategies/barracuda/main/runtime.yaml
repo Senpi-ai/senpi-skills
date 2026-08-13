@@ -1,0 +1,189 @@
+# ── BARRACUDA · Dynamic Dual-Direction Breakout Screener ───────────────────
+# Rebuilds a live universe of liquid crypto AND xyz: equity perps every 60s (no
+# fixed whitelist) and scores each name, independently for LONG (breakout) and
+# SHORT (breakdown), on candle momentum (1h+4h) + acceleration + RSI(14) +
+# smart-money positioning + funding-squeeze regime + OI velocity + 24h volume +
+# a micro-cap size bonus, with a 15m volume-spike fast-track and per-asset-class
+# RSI / overextension bands. Best direction per coin wins; the strongest few open.
+# Sizing is a compounding marginPct intent (the runtime sizes it off withdrawable);
+# the DSL runs each exit (let winners run) and a close_all banks the whole book at a
+# total-profit target. Fees are the killer here — the entry bar (min_score), the
+# cooldowns, and max_entries_per_day are the turnover levers; keep them honest.
+name: barracuda-main
+group: barracuda
+version: 1.0.0                    # PLUGIN schema version (NOT the strategy semver — that lives in strategy.yaml)
+description: >
+  Barracuda — a dynamic, dual-direction breakout/pump screener over the full
+  liquid Hyperliquid universe (crypto + xyz: equity perps), no whitelist. It scores
+  each candidate LONG and SHORT independently on multi-timeframe candle momentum,
+  acceleration, RSI(14), smart-money positioning, funding-squeeze regime, OI velocity,
+  24h volume and a micro-cap size bonus, with a 15m volume-spike fast-track and
+  per-asset-class RSI/overextension bands; the single strongest direction per coin
+  wins and the top few open. Margin is a compounding percent-of-withdrawable intent;
+  the DSL let-winners-run ladder owns every individual exit and a take-profit
+  circuit breaker flattens the whole book once total unrealized PnL hits its target.
+  For a trader who wants an always-on momentum screener that rotates through the
+  hottest moves in both directions across every asset class.
+
+strategy:
+  wallet: "${BARRACUDA_WALLET}"
+  slots: 4                       # 3–4 concurrent pumps (the runtime's hard ceiling)
+  margin_pct: 30                 # default sizing when a signal omits marginPct (percent of withdrawable)
+  default_leverage: 5
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: pump_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 60
+    timeout_seconds: 90
+    default_signal_validity_seconds: 300
+    state_history_max_count: 200
+    inputs:
+      # ── entry bar — the primary turnover/fee lever ──
+      # Calibrated to fire on medium+ confluence in a normal regime (the engine's
+      # own "medium" conviction floor) while the cooldowns + max_entries_per_day
+      # hold turnover down. NOTE: gate any real deploy on a 24h backtest FIRE RATE —
+      # a min_score that yields zero candidates over the window ships a dead scanner.
+      min_score: 20
+      min_score_fast: 18         # fast-track (volume-spike breakout) enters a touch easier
+      max_positions: 4           # matches strategy.slots
+      # ── sizing intent (compounds: runtime sizes marginPct% of withdrawable) ──
+      margin_pct: 30
+      default_leverage: 5
+      xyz_max_leverage: 6        # clamp leverage on the more volatile xyz venue
+      # ── universe filters ──
+      min_volume_usd_m: 15.0     # crypto: require >= $15M/24h (filters manipulable micro-caps)
+      min_volume_usd_m_xyz: 5.0  # xyz equities carry less daily volume
+      max_scan_coins: 200        # per-tick deep-fetch bound (a work cap, not a whitelist)
+      parallel_workers: 8        # bounded concurrent reads; the runtime owns the tick timeout
+      smart_money_leaderboard_limit: 50
+      # ── per-asset-class RSI bands (xyz equities trend harder, stay extended) ──
+      rsi_overbought: 72
+      rsi_oversold: 28
+      rsi_overbought_xyz: 80
+      rsi_oversold_xyz: 20
+      # ── anti-churn ──
+      max_new_entries_per_tick: 2
+      recent_signal_ttl_seconds: 180
+
+    signal_data_schema:
+      total_score: { type: number, required: false }
+      momentum_1h: { type: number }
+      momentum_4h: { type: number }
+      candle_score: { type: number }
+      smart_money_score: { type: number }
+      funding_score: { type: number }
+      volume_usd_m: { type: number }
+      funding_annualized_pct: { type: number }
+      rsi: { type: number, required: false }
+      acceleration: { type: number }
+      oi_score: { type: number }
+      oi_trend: { type: string }
+      size_score: { type: number }
+      market_size: { type: string }
+      fast_track: { type: boolean }
+      ch_15m: { type: number, required: false }
+      conviction: { type: string }
+
+  - name: close_all_scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: close_all.py
+    interval_seconds: 30
+    timeout_seconds: 30
+    default_signal_validity_seconds: 60
+    state_history_max_count: 50
+    inputs:
+      profit_pct_close_all: 5.0  # flatten the whole book once total unrealized PnL >= this % of account value
+
+    signal_data_schema:
+      roe: { type: number }
+      u_pnl: { type: number }
+      total_upnl: { type: number }
+      total_upnl_pct: { type: number }
+      profit_target: { type: number }
+      reason: { type: string }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: pump_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [pump_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 30
+    context:
+      - { type: signal, scanner: pump_signals }
+
+  - name: close_all_action
+    action_type: CLOSE_POSITION
+    decision_mode: rule
+    scanners: [close_all_scanner]
+    params:
+      order_type: MARKET
+    context:
+      - { type: signal, scanner: close_all_scanner }
+
+# EXIT — DSL only (let winners run). Phase 1 caps the loss at 15% ROE with a fast
+# retrace; Phase 2 is a granular breakeven-first profit-lock ladder that rides a
+# winner to +100% ROE while ratcheting the floor up. Maker exits recover fees. The
+# close_all scanner above is the aggregate take-profit; the DSL is the per-position stop.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 120         # a follow that never peaked > +5% in 2h frees its slot
+      min_value: 5.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 360         # a position held flat/red for 6h is cut
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 7
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10,  lock_hw_pct: 0 }    # breakeven-first (stop to entry at +10% ROE)
+        - { trigger_pct: 15,  lock_hw_pct: 20 }
+        - { trigger_pct: 20,  lock_hw_pct: 40 }
+        - { trigger_pct: 25,  lock_hw_pct: 55 }
+        - { trigger_pct: 30,  lock_hw_pct: 65 }
+        - { trigger_pct: 40,  lock_hw_pct: 75 }
+        - { trigger_pct: 50,  lock_hw_pct: 82 }
+        - { trigger_pct: 60,  lock_hw_pct: 88 }
+        - { trigger_pct: 75,  lock_hw_pct: 92 }
+        - { trigger_pct: 100, lock_hw_pct: 95 }
+
+risk:
+  data_retention_seconds: 345600
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 20              # hard daily entry cap — the primary turnover/fee control; never disable it
+    max_consecutive_losses: 5
+    cooldown_seconds: 1200               # 20m global pause between entries
+    per_asset_cooldown_seconds: 7200     # 2h before the same name can re-enter
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
