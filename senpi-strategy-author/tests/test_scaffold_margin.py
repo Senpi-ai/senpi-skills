@@ -32,6 +32,18 @@ def test_offenders_flags_fraction_passes_percent():
     assert off({"inputs": {"minScore": 0.5, "leverage": 0.5}}) == []
 
 
+def test_offenders_ignores_scanner_private_tunables():
+    """Kept identical to senpi-strategy-ops `_pkg.margin_fraction_offenders` — author-green must mean
+    deploy-green. Clamp bounds (caribou, hydra) and nested tier tunables (dire) are the scanner's own
+    units, converted before emit; flagging them called three shipped packages broken."""
+    off = vs.margin_fraction_offenders
+    assert off({"scanners": [{"inputs": {"minMarginPct": 0.03, "maxMarginPct": 0.15}}]}) == []
+    assert off({"scanners": [{"inputs": {"sizingTiers": [{"marginPct": 0.2}]}}]}) == []
+    assert off({"scanners": [{"inputs": {"marginPct": 0.2, "minMarginPct": 0.03}}]}) == [
+        ("scanners[0].inputs.marginPct", 0.2)
+    ]
+
+
 def test_scaffold_doc_teaches_percent_not_fraction():
     """Regression on the copy-source: creating-a-strategy.md must NEVER assign a marginPct/margin_pct a
     value <= 1 (the fraction slip that was the root cause). Percent forms like `marginPct: 10` pass."""

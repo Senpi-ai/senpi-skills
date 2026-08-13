@@ -21,26 +21,35 @@ except ImportError:
 
 
 _VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
-_MARGIN_PCT_RE = re.compile(r"margin_?pct", re.I)
+# The keys a SLOT SIZE is written under, and the only two places one is read: `strategy.margin_pct`
+# (the single margin the runtime itself interprets) and the `marginPct` / `marginPctBase` a scanner
+# passes through to its emitted signal. Deliberately NOT a `*marginPct*` walk of the whole document:
+# a scanner's clamp bounds (`minMarginPct`) and its private tier tunables are in whatever units that
+# scanner defines and are converted before emit, so a pattern refuses CORRECT packages — it made
+# caribou, dire and hydra undeployable. Same scoping the runtime settled on independently
+# (`findMarginPctFraction`, senpi-trading-runtime src/validate/recipe-checks.ts).
+_SIZING_KEYS = {"marginpct", "margin_pct", "marginpctbase", "margin_pct_base"}
+_SIZING_PARENTS = {"strategy", "inputs"}
 
 
-def margin_fraction_offenders(doc, path=""):
-    """Margin-percent keys whose value is a fraction (0,1] where a PERCENT (0,100] is required
-    (`marginPct: 0.10` meant 10 — 100× too small). Walks the whole doc (scanners[].inputs,
-    strategy.margin_pct, or a top-level emit; any key: marginPct / marginPctBase / margin_pct).
-    Returns [(dotted_key, value), ...]."""
+def margin_fraction_offenders(doc, path="", parent=None):
+    """Slot-size keys whose value is a fraction (0,1] where a PERCENT (0,100] is required
+    (`marginPct: 0.10` meant 10 — 100× too small, so every order lands under the min notional).
+    Scoped to `_SIZING_KEYS` under `_SIZING_PARENTS`; an emitted per-signal value is checked at the
+    live stage instead, where the real number is visible rather than inferred. Kept identical to
+    senpi-strategy-ops `_pkg.margin_fraction_offenders`. Returns [(dotted_key, value), ...]."""
     out = []
     if isinstance(doc, dict):
         for k, v in doc.items():
             kp = f"{path}.{k}" if path else str(k)
-            if isinstance(v, (int, float)) and not isinstance(v, bool) \
-                    and _MARGIN_PCT_RE.search(str(k)) and 0 < v <= 1:
+            if parent in _SIZING_PARENTS and str(k).lower() in _SIZING_KEYS \
+                    and isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v <= 1:
                 out.append((kp, v))
             else:
-                out.extend(margin_fraction_offenders(v, kp))
+                out.extend(margin_fraction_offenders(v, kp, str(k).lower()))
     elif isinstance(doc, list):
         for i, v in enumerate(doc):
-            out.extend(margin_fraction_offenders(v, f"{path}[{i}]"))
+            out.extend(margin_fraction_offenders(v, f"{path}[{i}]", parent))
     return out
 
 
