@@ -77,6 +77,19 @@ def test_blend_default_tags_views_single_view_does_not():
     assert "time_frame" in single["ranking"]
 
 
+def test_copyability_prefers_clean_partial_over_flagged_good_fit():
+    # the pick must be row #1: a clean, reliable, active partial-fit trader beats a flagged good-fit one
+    clean_partial = {"mirrorability": {"mirror_fit": "partial", "fresh_entry_surface_pct": 40},
+                     "flags": [], "reliability": "solid", "seen_in": []}
+    flagged_good = {"mirrorability": {"mirror_fit": "good", "fresh_entry_surface_pct": 70},
+                    "flags": ["choppy_consistency", "infrequent_trader"], "reliability": "choppy", "seen_in": []}
+    stale_clean = {"mirrorability": {"mirror_fit": "poor", "fresh_entry_surface_pct": 5},
+                   "flags": [], "reliability": "solid", "seen_in": []}
+    ordered = sorted([flagged_good, stale_clean, clean_partial], key=research._mirror_sort_key)
+    assert ordered[0] is clean_partial          # clean + mirrorable-now leads
+    assert ordered[-1] is stale_clean           # poor fit (stale) still demoted below mirrorable ones
+
+
 def test_top_candidates_and_reliability():
     res = research.run(_client(), "top")
     assert len(res["candidates"]) == 3

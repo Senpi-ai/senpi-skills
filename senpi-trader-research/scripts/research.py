@@ -358,19 +358,25 @@ def _enrich_for_mirror(client, meta, c, with_momentum=True):
     return c
 
 
-_FIT_RANK = {"good": 0, "partial": 1, "poor": 2, "unknown": 3}
+# good & partial both count as "mirrorable now"; poor is stale. Fit is a bucket, not the dominant ranker —
+# a clean, reliable, active PARTIAL-fit trader is a better copy than a flagged GOOD-fit one.
+_FIT_BUCKET = {"good": 0, "partial": 0, "poor": 1, "unknown": 2}
 _REL_RANK = {"solid": 0, "ok": 1, "choppy": 2, "thin": 3, "unknown": 4}
 
 
 def _mirror_sort_key(c):
-    """Order the shortlist by COPYABILITY, not ROI: no blowup history, then mirror-fit, then a trusted
-    record, then how much of the book is still near entry. This is what 'smart from the get-go' means."""
+    """Order the shortlist by COPYABILITY — the pick is row #1. Not blown up, then mirrorable-now
+    (good/partial both; poor = stale), then the FEWEST copy concerns (idle / fee / single-name / underwater
+    flags), then a trusted record, cross-window confirmation, and freshest book. Fit is not the sole ranker,
+    so a clean, reliable, active *partial*-fit trader correctly leads a flagged *good*-fit one."""
     m = c.get("mirrorability") or {}
     flags = c.get("flags") or []
+    concerns = sum(1 for f in flags if f != "blowup_risk")   # fewer flags = a cleaner copy
     return (1 if "blowup_risk" in flags else 0,
-            _FIT_RANK.get(m.get("mirror_fit"), 3),
+            _FIT_BUCKET.get(m.get("mirror_fit"), 2),
+            concerns,
             _REL_RANK.get(c.get("reliability"), 4),
-            -len(c.get("seen_in") or []),                 # cross-window confirmation breaks ties (proven AND hot)
+            -len(c.get("seen_in") or []),                     # cross-window confirmation (proven AND hot)
             -(m.get("fresh_entry_surface_pct") or 0))
 
 

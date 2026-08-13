@@ -136,7 +136,9 @@ comprehensive, decision-first answer on every call, never a bare ROI list.
 1. **The call** — one line with the decision (not a menu): *"the best trader you can actually mirror right
    now is …"* — **or**, when no single trader is cleanly mirrorable, *"the best play right now is a
    fresh-entry template, because the proven books have already run"* (a real recommendation framed as the
-   smart move — see step 5; never "senpi can't help").
+   smart move — see step 5; never "senpi can't help"). **Your pick is row #1 of the shortlist** — the sort
+   already weighs cleanliness + reliability, not just fit, so a clean, active *partial*-fit trader can
+   correctly lead a flagged *good*-fit one. Trust the order; don't re-pick by fit alone.
 2. **The shortlist** — a table in the **order the engine returns `mirror_shortlist`** (already ranked by
    copyability — flagged traders demoted *first*, then fit). **Never re-sort by `mirror_fit`** — else a
    good-fit trader carrying `blowup_risk` / positioned against the tape lands at #1 with a ✅ you're telling
