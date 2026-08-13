@@ -223,9 +223,11 @@ def _parse_runtime_list(out):
 
 def list_runtimes():
     """All runtimes (running AND stopped) by parsing `runtime list` text. NOTE on runtime v3: `runtime
-    list` has no --json (human text only), and `status --json` is *flaky* — it transiently returns an
-    empty `statuses[]` even while runtimes are running — so it is NOT a reliable inventory. The text
-    table (id / wallet / source / status) is authoritative; use `status -r <id>` only for health.
+    list --json` exists only on newer builds (see `senpi-trading-runtime/references/runtime-cli.md`) and
+    this reader must keep working on the older ones, and `status --json` is *flaky* — it transiently
+    returns an empty `statuses[]` even while runtimes are running — so it is NOT a reliable inventory.
+    The text table (id / wallet / source / status) is what every build prints and stays authoritative
+    here; use `status -r <id>` only for health.
     Returns [] on a failed/garbled read; a caller that must NOT conflate 'none' with 'unreadable'
     (teardown's money path) uses `list_runtimes_or_none` instead."""
     rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])

@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Hermetic tests for status.py's row shape — no MCP, no openclaw.
+"""Hermetic tests for status.py's row shape AND its default text render — no MCP, no openclaw.
 
 Pins Ticket 23's other half (the grouping fix in #526 didn't touch this): `--json` rows must carry
 the backend's own `name`/`name_source` (the same `(name, name_source)` shape
 `senpi-portfolio/scripts/portfolio.py`'s `_strategy_name_and_source` returns), the runtime's own
 name must stay in the `runtime` field and never stand in for the strategy's name, and `package`
 must be `None` — a real data value — rather than the display string `"(not on runtime)"` sitting in
-a data field. Run:
+a data field. The text surface is covered too, because that is the one a human reads by default: it
+was printing the runtime name and no strategy name at all while the `--json` row was already right.
+Run:
     python3 -m pytest senpi-strategy-ops/tests/test_status.py -v
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import contextlib
+import io
 import sys
 import unittest
 from pathlib import Path
@@ -95,6 +99,56 @@ class TestStatusRowNaming(unittest.TestCase):
         rows = build_rows(fixture_with(strategyName="x", skillName=None))
         self.assertIsNone(rows[0]["package"])
         self.assertFalse(rows[0]["is_pkg"])
+
+
+def render(rows, orphans=()):
+    """status.py's DEFAULT (text) output for `rows` — the surface a human actually reads.
+
+    `--json` is not the default and is not what an agent skims: the row shape can carry `name` while
+    the printed table shows only the runtime's, which is exactly how Ticket 23 happened. Patches
+    `status.build` (already covered by `build_rows` above) and `status.MCPClient` so nothing is read."""
+    orig_build, orig_client = status.build, status.MCPClient
+    status.build = lambda *a, **k: (list(rows), list(orphans), True)
+    status.MCPClient = lambda *a, **k: None
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            rc = status.main(["status.py"])
+    finally:
+        status.build, status.MCPClient = orig_build, orig_client
+    assert rc == 0, rc
+    return buf.getvalue()
+
+
+def row_line(text, wallet_prefix="0xtest0000"):
+    """The one table line for a wallet — asserted on directly, so a claim about "the text surface"
+    cannot be satisfied by the word appearing somewhere else in the output (a triage footer, say)."""
+    return next(ln for ln in text.splitlines() if wallet_prefix in ln)
+
+
+class TestStatusTextRender(unittest.TestCase):
+    def test_text_output_prints_the_strategy_name_and_labels_the_runtime_name(self):
+        """Ticket 23's field evidence: the wallet's backend name is `owl`, its runtime is `owl-main`,
+        and the human render printed only the runtime name, unlabelled — so an agent grepping for
+        `owl-main` was sent to the wrong wallet. The name a reader takes away must be the strategy's;
+        the runtime name may appear, but only labelled as the runtime's."""
+        text = render(build_rows(fixture_with(strategyName="owl", runtime="owl-main")))
+        line = row_line(text)
+        self.assertIn("owl ", line + " ")                    # the strategy's own name is printed …
+        self.assertIn("runtime owl-main", line)              # … and the runtime's is labelled as such
+        self.assertNotIn("owl-main ", line.replace("runtime owl-main", ""))  # never bare/unlabelled
+
+    def test_a_name_the_record_did_not_carry_is_marked_and_explained(self):
+        """`tradingStrategyName` is the PACKAGE id — identical across every instance — so a row named
+        from it has not proven that name. It is starred, and the star is explained once."""
+        text = render(build_rows(fixture_with(skillName="owl-pkg", tradingStrategyName="owl-pkg")))
+        self.assertIn("owl-pkg*", row_line(text))
+        self.assertIn("carried NO name of its own", text)
+
+    def test_a_real_name_is_not_starred(self):
+        text = render(build_rows(fixture_with(strategyName="owl", runtime="owl-main")))
+        self.assertNotIn("*", row_line(text))
+        self.assertNotIn("carried NO name of its own", text)
 
 
 # At the END of the file, not the middle: `unittest.main()` only runs the classes already defined

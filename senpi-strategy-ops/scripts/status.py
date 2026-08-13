@@ -59,6 +59,19 @@ def _pkg_label(r):
     return r["package"] or "(not on runtime)"
 
 
+def _name_cell(r):
+    """The strategy's OWN name for the text table, starred when it is a FALLBACK.
+
+    The identity a reader takes away from this surface must be the strategy's, not the runtime's:
+    printing only the runtime name is what sent an agent grepping for `owl-main` to the wrong wallet
+    (the deployed strategy there is called `owl`). `name_source` is the field that answered, so a name
+    the record did not actually carry (`tradingStrategyName` — the PACKAGE id, identical across every
+    instance) is marked `*` and explained once below the table, instead of being presented as a name
+    this wallet proved."""
+    n = str(r.get("name") or "strategy")
+    return n if r.get("name_source") == "strategyName" else n + "*"
+
+
 def _funded(r):
     """The funded cell. `_cli.strategy_funded` is None when the strategy record carried no
     `totalFunded`/`netFunded` — an amount nobody read is `unknown`, never the requested budget
@@ -210,10 +223,18 @@ def main(argv):
     for pkg in sorted(by_pkg):
         print(f"\n{pkg}")
         for r in by_pkg[pkg]:
-            rt = r["runtime"] or "(none)"
             pos = f"  {r['positions']} pos" if isinstance(r.get("positions"), int) else ""
-            print(f"  {_ICON.get(r['health'], ' ')} {r['health']:<15} {rt:<16} "
-                  f"{r['wallet'][:10]}…  {_funded(r):>8}  [{(r['strategyId'] or '')[:8]}]{pos}")
+            # The runtime name is LABELLED as the runtime's, never left standing in the identity column
+            # unmarked. The strategy's own name takes that column: it is the one an agent greps for, and
+            # the one that maps to a wallet. Of the two ids the runtime id is the one a human needs least
+            # here — the triage lines below hand it back, with the command it belongs to.
+            rt = f"  · runtime {r['runtime']}" if r["runtime"] else ""
+            print(f"  {_ICON.get(r['health'], ' ')} {r['health']:<15} {_name_cell(r):<22} "
+                  f"{r['wallet'][:10]}…  {_funded(r):>8}  [{(r['strategyId'] or '')[:8]}]{pos}{rt}")
+    if any(r.get("name_source") != "strategyName" for r in rows):
+        print("\nℹ `*` after a name means the strategy record carried NO name of its own — what's shown "
+              "is its package id (every instance of that package renders the same), not a name this "
+              "wallet proved. Identify those by wallet / strategyId, never by the starred name.")
     if any(r["funded"] is None for r in rows):
         print("\nℹ `unknown` in the funded column means the strategy record carried no funded amount "
               "(totalFunded/netFunded) — NOT $0, and never the budget that was requested. Read what "
