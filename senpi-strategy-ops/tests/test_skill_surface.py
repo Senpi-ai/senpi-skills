@@ -5,8 +5,10 @@ Run:  python3 -m pytest senpi-strategy-ops/tests/test_skill_surface.py -q
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import re
+import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[2]
 OPS = REPO / "senpi-strategy-ops" / "SKILL.md"
@@ -57,12 +59,29 @@ class TaxonomyCoversWhatTheSkillsTeach(unittest.TestCase):
     uppercase-package-id refusal, and senpi-strategy-ops/SKILL.md lists it as a refusal code."""
 
     def test_every_code_the_ops_skill_names_has_a_taxonomy_row(self):
+        # Skills install as bare dirs on a box; the repo-root docs/ tree is not installed. Skip
+        # rather than error, so "run the suite on the box" stays a usable release gate.
+        if not TAXONOMY.is_file():
+            self.skipTest(f"taxonomy not present at {TAXONOMY} (installed skill layout)")
         taxonomy = TAXONOMY.read_text()
         # The pattern deliberately excludes the glob shorthands the refused-table row uses
         # (`[E_FUNDS_*]`, `[E_VALIDATE_*]`): `*` is outside the class, so they never match.
         named = set(re.findall(r"\[([A-Z][A-Z0-9_]*)\]", _ops_teaching_corpus()))
         missing = sorted(c for c in named if f"`{c}`" not in taxonomy)
         self.assertEqual(missing, [], f"codes taught with no taxonomy row: {missing}")
+
+
+class TaxonomyGateOnABox(unittest.TestCase):
+    def test_taxonomy_test_skips_when_the_repo_docs_tree_is_absent(self):
+        """Skills install as bare dirs; the repo-root docs/ tree is not installed. A release gate
+        that raises FileNotFoundError instead of skipping is not a usable gate."""
+        case = TaxonomyCoversWhatTheSkillsTeach("test_every_code_the_ops_skill_names_has_a_taxonomy_row")
+        with mock.patch.object(
+            sys.modules[TaxonomyCoversWhatTheSkillsTeach.__module__], "TAXONOMY", Path("/nonexistent/taxonomy.md")
+        ):
+            result = case.run()
+        self.assertEqual(len(result.errors), 0, f"raised instead of skipping: {result.errors}")
+        self.assertEqual(len(result.skipped), 1, "expected exactly one skip")
 
 
 RELAY_HEADING = "### Refusals and warns — the relay contract"
