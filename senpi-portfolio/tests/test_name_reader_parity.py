@@ -52,11 +52,14 @@ def _fn_source(path, name):
     tree = ast.parse(open(path).read())
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name == name:
-            body = ast.parse(ast.unparse(node)).body[0].body
+            norm = ast.parse(ast.unparse(node)).body[0]
             # ast.dump() takes a single AST node, not a bare list of statements — wrap the body
             # in a Module so bodies compare (the rename run_cli -> _run_cli is intentional, so the
-            # function name itself must not be part of the comparison).
-            return ast.dump(ast.Module(body=body, type_ignores=[]))
+            # function name itself must not be part of the comparison). The SIGNATURE is compared
+            # too: `timeout=60` drifting to `timeout=30` in one copy is the same silent divergence
+            # with every statement still matching.
+            return (ast.dump(ast.Module(body=norm.body, type_ignores=[]))
+                    + ast.dump(norm.args))
     raise AssertionError(f"{name} not found in {path}")
 
 

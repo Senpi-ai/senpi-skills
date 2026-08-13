@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "runtimes": [
+    {
+      "id": "kodiak-main",
+      "wallet": "0xKODIAK00000000000000000000000000000kdk",
+      "source": "(inline)",
+      "status": "running",
+      "descriptor": {
+        "name": "kodiak-main",
+        "group": "kodiak",
+        "version": 7,
+        "description": "SOL alpha hunter",
+        "hasExit": true,
+        "dslPreset": true,
+        "dsl": {
+          "hard_stop_roe_pct": -14,
+          "arm_at_roe_pct": 8,
+          "tiers": [{ "trigger_pct": 8, "lock_hw_pct": 50 }],
+          "has_phase2": true
+        }
+      }
+    }
+  ]
+}
