@@ -116,27 +116,41 @@ Rides a **`failed` report (exit 3)**, and it is the one failure that does not te
 The deploy stopped *waiting* on an install it cannot cancel, so the install may have completed after
 the report was written.
 
-**Whether a close is even possible depends on how this deploy reached the wallet — and the report
-says which:**
-- **This deploy CREATED the wallet.** It is funded and was deliberately **not** closed, because
-  unwinding a wallet an install may still be binding would leave a live runtime trading a closed
-  strategy.
-- **This deploy ADOPTED the wallet.** It predates this deploy entirely, and this deploy never closes
-  an adopted wallet, whichever way the install landed — the report names **no** close command for it,
-  on purpose, because that wallet's funds are not this deploy's to reclaim.
+**The report forks on two facts, and it states both. Read which arm you are on before anything
+else** — they are not interchangeable, and one of them permits no action at all:
 
-Do the read first either way — `openclaw senpi runtime list`:
+- **The install is STILL RUNNING** (the report says so in those words, and that the wallet is fenced
+  until it settles). **Change nothing and close nothing.** The install can still write its registry
+  row and start a runtime seconds from now; a close here lands on a strategy the install is binding
+  and leaves a live runtime trading a closed strategy. Re-read shortly — `openclaw senpi deploy
+  status`, then `openclaw senpi runtime list` — and act on the settled state. A re-run before then is
+  refused on that wallet (`[E_WALLET_INSTALL_IN_FLIGHT]`) and changes nothing. **No close appears in
+  this arm of the report, and there is none to improvise.**
+- **The install is over** (the report says the fence has cleared, so what exists now is what it
+  left). Only here does what you read decide anything — and only a wallet **this deploy created**
+  can carry a close at all. A wallet this deploy **adopted** predates it entirely: the report names
+  **no** close command for it on any arm, on purpose, because those funds are not this deploy's to
+  reclaim.
 
-- **A row names that wallet** → the install landed. Re-run the same deploy command; it adopts the
-  wallet, skips the install and observes a tick.
-- **No row** → on a **created** wallet, and only when `openclaw senpi deploy status` also shows no
-  job running, nothing is watching the funds: reclaim them with the MCP `strategy_close` the report
+**A registry ROW is not proof the install landed.** The row is written *before* the runtime starts,
+so the wedge this code reports for produces exactly a row with nothing running behind it —
+`openclaw senpi runtime list` renders it `stopped`. Read the list for the **state**, not for the
+presence of a line:
+
+- **The runtime is RUNNING on that wallet** → the install landed. Re-run the same deploy command; it
+  adopts the wallet, skips the install and observes a tick.
+- **A row exists but is NOT running** → neither landed nor abandoned. **Do not close that wallet**:
+  the next gateway restart will try to start that runtime, so a close now buys the same live-runtime-
+  on-a-closed-strategy outcome later. Read it first (`openclaw senpi status -r <runtime-id>`) and
+  decide with the user.
+- **NO runtime names that wallet at all**, on a **created** wallet, with the report saying the fence
+  has cleared → nothing is watching the funds: reclaim them with the MCP `strategy_close` the report
   names, on the address it names, and mind the package-wide caveat it computed — other sleeves of
-  this package may be live. On an **adopted** wallet, the read above is the whole next step — the
-  report names nothing to reclaim, and improvising a close is not yours to do.
+  this package may be live.
 
-**Never close on the strength of the exit code alone, and never substitute a close the report did not
-name.** That is the one action this code exists to stop you taking blind.
+**Never close on the strength of the exit code alone, never close while the report says the install
+is still running, and never substitute a close the report did not name.** That is the one action
+this code exists to stop you taking blind.
 
 ### `[E_WALLET_INSTALL_IN_FLIGHT]`
 
