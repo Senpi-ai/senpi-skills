@@ -266,6 +266,27 @@ def test_running_blind_is_surfaced():
     assert any("no entry scanners" in w.lower() for w in out["meta"]["warnings"])
 
 
+def test_a_listed_runtime_with_no_status_does_not_claim_it_can_enter():
+    """A dropped field must buy nothing. If the inventory row carries no `status` — key missing, or
+    present and null — we never checked whether that runtime has entry scanners, so `running_blind` is
+    null, not False. False there asserts "we checked, and it can enter positions"; and with telemetry
+    answering healthy the row would otherwise read running_blind False + runtime_health live."""
+    for label, payload in (("missing key", _runtimes_payload()), ("explicit null", _runtimes_payload())):
+        entry = payload["runtimes"][0]
+        if label == "missing key":
+            entry.pop("status")
+        else:
+            entry["status"] = None
+        res = _run_with_status({"kodiak-main": {"overallHealth": "healthy"}},
+                               runtimes_fixture=_write_runtimes(payload))
+        strat = by_wallet(res, KODIAK_WALLET)
+        assert strat["running_blind"] is None, label
+        assert strat["runtime_registered"] is True, label      # it IS listed — that much we did check
+        assert strat["runtime_health"] == "unknown", label     # and telemetry cannot upgrade it to live
+        assert res["strategy_groups"][0]["running_blind"] is None, label
+        assert res["strategy_groups"][0]["runtime_health"] == "unknown", label
+
+
 def test_a_stopped_runtime_never_reads_live():
     """`stopped` is the producer's third status. It is registered, so it is not `not_running` — but a
     stopped process is not working either, and must never fall through to a 'live' verdict."""
@@ -301,6 +322,37 @@ def test_unreadable_cli_degrades_to_null_and_warns_loudly():
     for g in out["strategy_groups"]:
         assert g["protected"] is None and g["not_running"] is None
         assert g["runtime_health"] == "unverified"
+
+
+def _raise_oserror(*_a, **_kw):
+    """What `subprocess.run` really does on a memory-constrained box: the FORK fails, so the child
+    never runs. Not a FileNotFoundError — an ENOMEM OSError, which used to propagate."""
+    raise OSError(12, "Cannot allocate memory")
+
+
+def test_a_fork_failure_is_a_failed_read_not_a_dead_engine():
+    """A spawn that fails for any reason other than a missing binary must degrade like any other
+    failed read. It used to propagate out of the registry read, through fetch_strategies, out of
+    run() — taking the money map, the positions and the whole JSON answer with it, on the exact
+    kind of strained box where a user most wants to know where their money is."""
+    real = portfolio.subprocess.run
+    portfolio.subprocess.run = _raise_oserror
+    try:
+        rc, out, err = portfolio._run_cli(["openclaw", "senpi", "runtime", "list", "--json"])
+        assert (rc, out) == (-1, "")
+        # never-ran, so it carries the never-ran prefix the money path in deploy.py branches on —
+        # a timeout (ran, still in flight) remains the only rc=-1 without it
+        assert err.startswith(portfolio.SPAWN_FAILED_PREFIX)
+        assert "Cannot allocate memory" in err
+        res = run_engine(cli_missing=True)
+    finally:
+        portfolio.subprocess.run = real
+    assert len(res["strategies"]) == 2, "the whole read died with the spawn"
+    assert res["totals"]["grand_total_usd"] > 0
+    for s in res["strategies"]:
+        assert s["runtime_health"] == "unverified"
+        assert s["protected"] is None
+    assert any("runtime list" in w for w in res["meta"]["warnings"])
 
 
 def test_a_payload_that_is_not_ok_is_a_failed_read_not_an_empty_fleet():

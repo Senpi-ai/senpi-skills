@@ -472,8 +472,9 @@ one fetched instead of re-pulling. **For a NARROW ask, run only the minimal step
 
 `--no-market` applies to every step (skips the `positions` market fan-out). Same fail-open contract as
 `all`: each step returns valid JSON with `meta.warnings` on partial data and **never crashes on a
-missing/corrupt state file** (it self-heals by recomputing its prerequisites — every step also works
-STANDALONE, just slower). Keep `all` as the one-shot fallback when a single blocking call is fine; every
+missing/corrupt state file, nor on a runtime CLI that is absent or cannot even be spawned** (it
+self-heals by recomputing its prerequisites — every step also works STANDALONE, just slower; an
+unreadable runtime costs you the runtime fields, which come back `null` + a warning, not the read). Keep `all` as the one-shot fallback when a single blocking call is fine; every
 existing guardrail (the three-bucket taxonomy, `protected`, the mandate reads, multi-wallet grouping, the
 DSL ladder + live tiers) holds identically across the steps and `all`.
 

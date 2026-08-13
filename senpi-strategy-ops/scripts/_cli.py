@@ -23,6 +23,8 @@ SPAWN_FAILED_PREFIX = "command not found: "
 def run_cli(args, timeout=60):
     """Run a CLI command; return (returncode, stdout, stderr). rc=-1 on spawn failure/timeout —
     `SPAWN_FAILED_PREFIX` on stderr distinguishes the never-ran case from the stopped-waiting one.
+    NEVER raises for a failure to run: EVERY spawn-side OSError is caught, not just the missing
+    binary, because a caller that dies here takes the whole script's output with it.
 
     Suppresses the senpi plugin's info logs (which it prints to STDOUT and which otherwise corrupt
     `--json` output) by forcing SENPI_LOG_LEVEL=error in the child env."""
@@ -30,10 +32,17 @@ def run_cli(args, timeout=60):
     try:
         p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
         return p.returncode, p.stdout, p.stderr
-    except FileNotFoundError:
-        return -1, "", f"{SPAWN_FAILED_PREFIX}{args[0]}"
     except subprocess.TimeoutExpired:
         return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
+    except OSError as e:
+        # The command NEVER RAN. FileNotFoundError (no such binary) is the common case; the rest are
+        # fork/exec failures a strained box really does produce — ENOMEM ("Cannot allocate memory"),
+        # EAGAIN (process-table exhaustion), EACCES, ENOEXEC. All of them are the never-ran event, so
+        # all of them carry SPAWN_FAILED_PREFIX: the distinction the money path makes is never-ran vs
+        # stopped-waiting, and only a timeout is the latter. Catching only FileNotFoundError let an
+        # ENOMEM fork failure propagate out of the read and kill the caller mid-run.
+        return -1, "", f"{SPAWN_FAILED_PREFIX}{args[0]}" + ("" if isinstance(e, FileNotFoundError)
+                                                            else f" ({e})")
 
 
 def _extract_json(text):

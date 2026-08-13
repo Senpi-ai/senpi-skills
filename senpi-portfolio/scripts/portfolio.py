@@ -78,6 +78,8 @@ SPAWN_FAILED_PREFIX = "command not found: "
 def _run_cli(args, timeout=60):
     """Run a CLI command; return (returncode, stdout, stderr). rc=-1 on spawn failure/timeout —
     `SPAWN_FAILED_PREFIX` on stderr distinguishes the never-ran case from the stopped-waiting one.
+    NEVER raises for a failure to run: EVERY spawn-side OSError is caught, not just the missing
+    binary, because a caller that dies here takes the whole script's output with it.
 
     Suppresses the senpi plugin's info logs (which it prints to STDOUT and which otherwise corrupt
     `--json` output) by forcing SENPI_LOG_LEVEL=error in the child env."""
@@ -85,10 +87,17 @@ def _run_cli(args, timeout=60):
     try:
         p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
         return p.returncode, p.stdout, p.stderr
-    except FileNotFoundError:
-        return -1, "", f"{SPAWN_FAILED_PREFIX}{args[0]}"
     except subprocess.TimeoutExpired:
         return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
+    except OSError as e:
+        # The command NEVER RAN. FileNotFoundError (no such binary) is the common case; the rest are
+        # fork/exec failures a strained box really does produce — ENOMEM ("Cannot allocate memory"),
+        # EAGAIN (process-table exhaustion), EACCES, ENOEXEC. All of them are the never-ran event, so
+        # all of them carry SPAWN_FAILED_PREFIX: the distinction the money path makes is never-ran vs
+        # stopped-waiting, and only a timeout is the latter. Catching only FileNotFoundError let an
+        # ENOMEM fork failure propagate out of the read and kill the caller mid-run.
+        return -1, "", f"{SPAWN_FAILED_PREFIX}{args[0]}" + ("" if isinstance(e, FileNotFoundError)
+                                                            else f" ({e})")
 
 
 def _extract_json(text):
@@ -287,8 +296,10 @@ def load_runtime_registry(meta):
         rid = _field(entry, "id", "runtimeId", "runtime_id")   # the `senpi status -r <id>` address
         if rid:
             id_map[wl] = rid
-        if entry.get("status") is not None:
-            statuses[wl] = str(entry["status"])
+        # The key is written for EVERY listed runtime, `status` present or not — a missing/null status
+        # is "the inventory did not say", which must stay tellable from "not in the list at all".
+        st = entry.get("status")
+        statuses[wl] = str(st) if st is not None else None
     meta["runtime_read_ok"] = True
     return descriptors, id_map, statuses
 
@@ -323,8 +334,10 @@ def _note_telemetry_unavailable(meta, msg):
 
 
 def _fetch_runtime_status(runtime_id, meta):
-    """`openclaw senpi status -r <id> --json` → parsed dict or None. FAIL-OPEN: no `openclaw` / non-zero
-    exit / unknown method / parse error → None + a one-time note; NEVER raises. `meta._telemetry_dead`
+    """`openclaw senpi status -r <id> --json` → parsed dict or None. FAIL-OPEN: no `openclaw` / a
+    fork-or-exec failure / timeout / non-zero exit / unknown method / parse error → None + a one-time
+    note. Raises on none of those: the spawn itself is guarded inside `_run_cli`, which catches every
+    OSError (not just the missing binary) precisely so this claim holds. `meta._telemetry_dead`
     short-circuits once the host has no CLI. Offline test hook: $SENPI_STATUS_FIXTURE = JSON
     {"<runtime_id>": {status payload}} is read instead of shelling out (tests use this — no subprocess)."""
     if not runtime_id or meta.get("_telemetry_dead"):
@@ -634,7 +647,17 @@ def fetch_strategies(client, meta):
         # funded-but-never-registered strategy was live and protected. Unanswerable ⇒ None.
         not_running = (bool(skill_name) and runtime_registered is False) if read_ok else None
         # Up, and structurally unable to produce entry signals. Invisible on this surface before now.
-        running_blind = (bool(rt_status) and RUNTIME_BLIND_MARK in rt_status.upper()) if read_ok else None
+        # Tri-state for the same reason every field here is: a registered runtime whose inventory row
+        # carried NO status was never checked, and False there would claim "we checked, and it can
+        # enter positions" — the reassuring answer, which is what a dropped field must never buy.
+        if not read_ok:
+            running_blind = None
+        elif not runtime_registered:
+            running_blind = False        # no runtime at all — `not_running` carries that, not this
+        elif rt_status is None:
+            running_blind = None         # listed, but it did not say
+        else:
+            running_blind = RUNTIME_BLIND_MARK in rt_status.upper()
         # PROTECTED — from an exit the ENGINE read in the deployed runtime.yaml (`descriptor.hasExit`, the
         # engine's own funding-gate predicate). The presence of a skillName stamp is ATTRIBUTION, not
         # protection, and asserting it as DSL protection is what this field did on every real host.
@@ -762,6 +785,10 @@ def fetch_strategies(client, meta):
             s["runtime_health"] = "not_running"
         elif s.get("running_blind"):
             s["runtime_health"] = "degraded"       # up, and structurally unable to enter a position
+        elif s.get("running_blind") is None:
+            # Registered, but the inventory carried no status for it: we do not know whether it can
+            # enter a position at all, so telemetry's "healthy" cannot make this row read 'live'.
+            s["runtime_health"] = "unknown"
         elif s.get("runtime_registered") is not True:
             s["runtime_health"] = "unknown"        # unattributed strategy with no runtime (e.g. copy-trade)
         elif str(runtime_statuses.get(str(s.get("wallet")).lower(), "")).lower().startswith("stopped"):
