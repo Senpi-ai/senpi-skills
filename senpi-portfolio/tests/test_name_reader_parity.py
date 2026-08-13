@@ -15,6 +15,7 @@ two skills case-INSENSITIVE for every name read — a behaviour change neither b
 readers share a CHAIN, not an implementation; only these two share bytes.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import ast
 import hashlib
 import os
 import re
@@ -23,6 +24,11 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 COPIES = (os.path.join(HERE, "..", "scripts", "portfolio.py"),
           os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts", "review.py"))
+
+OPS_CLI = os.path.join(HERE, "..", "..", "senpi-strategy-ops", "scripts", "_cli.py")
+PORTFOLIO = os.path.join(HERE, "..", "scripts", "portfolio.py")
+
+SHARED_HELPERS = {"run_cli": "_run_cli", "_extract_json": "_extract_json"}
 
 for _d in (os.path.join(HERE, "..", "scripts"),
            os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts")):
@@ -40,6 +46,28 @@ def _vendored_block(path):
         found = _BLOCK.search(f.read())
     assert found, f"vendored `_first_written` block not found in {path}"
     return found.group(0)
+
+
+def _fn_source(path, name):
+    tree = ast.parse(open(path).read())
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            body = ast.parse(ast.unparse(node)).body[0].body
+            # ast.dump() takes a single AST node, not a bare list of statements — wrap the body
+            # in a Module so bodies compare (the rename run_cli -> _run_cli is intentional, so the
+            # function name itself must not be part of the comparison).
+            return ast.dump(ast.Module(body=body, type_ignores=[]))
+    raise AssertionError(f"{name} not found in {path}")
+
+
+def test_vendored_cli_helpers_match_their_origin():
+    """The name reader was held byte-identical while the state-dir resolver — copied from the same
+    origin, twenty lines away, gating strictly more of the output — drifted unnoticed. Parity that
+    covers only the cheapest shared function certifies the wrong thing."""
+    for origin, vendored in SHARED_HELPERS.items():
+        assert _fn_source(OPS_CLI, origin) == _fn_source(PORTFOLIO, vendored), (
+            f"{vendored} in portfolio.py has drifted from {origin} in _cli.py"
+        )
 
 
 def test_first_written_vendor_parity():
@@ -82,6 +110,7 @@ def test_the_two_skills_answer_the_same_chain_the_same_way():
 
 
 if __name__ == "__main__":
+    test_vendored_cli_helpers_match_their_origin()
     test_first_written_vendor_parity()
     test_the_two_skills_answer_the_same_chain_the_same_way()
     print("NAME READER PARITY OK")
