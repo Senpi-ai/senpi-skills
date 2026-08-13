@@ -12,10 +12,12 @@
 
 ## Global Constraints
 
-- **Branch:** all work lands on `feat/deploy-verb-convergence` (PR #526). Do not branch off main.
+- **Branch:** work happens on `feat/skills-context-reduction`, branched from the `feat/deploy-verb-convergence` head and fast-forwarded back into it once Task 8's ladder passes. Never branch off main, and never commit directly to `feat/deploy-verb-convergence` — it is pushed and shared, and a direct commit there ends the fast-forward.
+- **Worktree:** `.claude/worktrees/skills-context-reduction`, off the `senpi-skills` checkout. The `senpi-trading-runtime` reference checkout at `origin/feat/senpi-deploy` stays where it is — R1 citations are read from it, never edited.
 - **Repo conventions are load-bearing** — read `CLAUDE.md` first. Strategies are packages, not skills. `catalog.json` is GENERATED into two places by `gen_catalog.py`; never hand-edit. Production package is `@senpi-ai/runtime`, never `@senpi/runtime`.
 - **No AI attribution in commits or PRs.** No `Co-Authored-By`, no "Generated with" footer.
-- **Every content commit bumps the skill's frontmatter `version`** — boxes gate updates on it and will silently never update otherwise.
+- **The branch must not land without a version bump** — boxes gate updates on the frontmatter `version` and will silently never update otherwise. One bump per skill, in Task 9 (pre-flight ruling 2026-08-12): the branch fast-forwards as a unit, so the fleet only ever resolves the final state, and per-task bumps would be versions no box ever sees. Intermediate task commits do **not** bump.
+- **Every commit must leave the test suite green.** `.github/workflows/tests.yml` runs pytest on every push. A guard is introduced in the same task as the change that satisfies it — never earlier (pre-flight ruling 2026-08-12).
 - **Python 3 stdlib only** in `scripts/` (PyYAML optional, with the vendored loader fallback). No new runtime dependencies.
 - **Never delete producer-owned prose without an R1 citation** — the `file:line` in `senpi-trading-runtime` that renders the claim, quoted in the commit message.
 - **A weaker producer is a runtime ticket, not a reason to keep prose** (R2). File against #305; leave the prose until the message lands.
@@ -28,8 +30,14 @@
 **Created:**
 - `senpi-strategy-ops/references/refusal-playbook.md` — per-code depth, read only when a code fires. Bucket-4 destination for `:238-322` and `:324-379`.
 - `senpi-strategy-ops/tests/test_skill_surface.py` — the committed guards (budget, code-mention cap, relay-contract purity, link integrity).
-- `docs/specs/2026-08-12-classification-table.md` — paragraph → bucket → evidence → disposition. The reviewable artifact.
-- `docs/specs/2026-08-12-ladder-results.md` — injection matrix outcomes.
+- `docs/specs/2026-08-12-classification-table.md` — paragraph → bucket → evidence → disposition. The reviewable artifact. **Committed, and therefore must carry no user data** — see the data rule below.
+
+**Local-only, never committed** (ruling 2026-08-12). `senpi-skills` is a **public MIT repository**. Production transcripts carry real user IDs (`M######`), wallet addresses, strategy names and verbatim user message text; ladder runs carry live wallet addresses and balances. None of it goes into git.
+
+- `.superpowers/sdd/2026-08-12-skills-context-reduction/transcripts/` — Task 3's pulled prod transcripts. `.superpowers/` is git-ignored (`.gitignore:15`).
+- `.superpowers/sdd/2026-08-12-skills-context-reduction/ladder-results.md` — Task 8's injection matrix outcomes, including the transcript excerpts it quotes.
+
+The **committed** classification table may cite a transcript only as an opaque local reference (`transcripts/<file>#<n>`) plus a non-identifying one-line characterisation of the behaviour. **No MID, no wallet address, no verbatim user message.** If a row cannot make its point without user data, it cites `blame-only` evidence instead and the detail stays local.
 
 **Modified:**
 - `senpi-strategy-ops/SKILL.md` — 626 → ~260
@@ -262,9 +270,26 @@ if __name__ == "__main__":
 Run: `python3 -m pytest senpi-strategy-ops/tests/test_skill_surface.py -q`
 Expected: FAIL — `codes taught with no taxonomy row: ['INVALID_REQUEST']`
 
-- [ ] **Step 3: Add the two missing taxonomy rows**
+- [ ] **Step 3: Add the missing taxonomy rows**
 
-In `docs/error-code-taxonomy.md`, in the Active codes table, after the `E_DEPLOY_IN_PROGRESS` row:
+**Finding 6 (added 2026-08-12, from prod telemetry — read this before writing the rows).** A ClickStack probe of `telemetry.otel_traces` over the last 3 days of production found these codes reaching real users through `gen_ai.tool.call.result`:
+
+| Code | hits (3d) | distinct users | producer |
+|---|---|---|---|
+| `E_FUNDS_SHORT` | 46 | 13 | `main` deploy.py |
+| `E_STATE_AMBIGUOUS` | 25 | 4 | `main` deploy.py:588, :1110 — **no taxonomy row, on either branch** |
+| `E_FUNDS_BELOW_FLOOR` | 18 | 9 | `main` deploy.py |
+| `E_BUDGET_UNRESOLVED` | 17 | 6 | `main` deploy.py:507 |
+| `E_RUNTIME_REGISTER_FAILED` | 14 | 3 | `main` deploy.py |
+| `E_BUDGET_BELOW_STRATEGY_MIN` | 9 | 3 | `main` deploy.py:512 |
+| `E_STATE_NO_WALLETS` | 8 | 3 | `main` deploy.py |
+
+Two consequences, both of which this step must handle:
+
+1. **The `E_BUDGET_* → W_BUDGET_*` rename is not free.** The taxonomy on this branch says the rename carries no alias rows, *"acceptable only because no release has shipped them."* **That is false.** `origin/main:senpi-strategy-ops/scripts/deploy.py:507,512` emits both, `main` is cloned by every agent bootstrap, and prod shows 26 hits across 9 distinct users in three days. Add **alias rows** for `E_BUDGET_UNRESOLVED` and `E_BUDGET_BELOW_STRATEGY_MIN` pointing at their `W_` successors, and correct the sentence — per taxonomy rule 2, a shipped code's meaning is stable and an agent replaying a recent transcript must still resolve it.
+2. **`E_STATE_AMBIGUOUS` needs a row of its own.** It is distinct from `E_STATE_AMBIGUOUS_WALLETS` (both appear separately in the same telemetry) and has never had one. It is retired by Convergence like its `E_STATE_*` siblings — give it a retired row so an old transcript resolves.
+
+In `docs/error-code-taxonomy.md`, in the Active codes table, after the `E_DEPLOY_IN_PROGRESS` row, add the `INVALID_REQUEST` and `NOT_FOUND` rows below — then add the three rows above (two aliases + `E_STATE_AMBIGUOUS`) alongside the existing retired rows, and fix the "no release has shipped them" sentence:
 
 ```markdown
 | `INVALID_REQUEST` | `senpi-trading-runtime` (`senpi deploy`, reconcile + `register.ts`) | The package's own shape is wrong, decided pre-money: an instance declaring no DSL exit block (`orchestrator.ts:1972`), an unsupported scanner-level `enabled` key (`:2067`), or a package `id` carrying capitals. One bucket code, three conditions | The MESSAGE names the exact edit — a delete-this-line list, or the field to change — and every offence is enumerated in ONE refusal so the package is fixed in one pass. Never a funding or state problem: never re-run with a bigger `--budget`, never close anything. Re-check with `deploy.py validate <id>`, then re-run |
@@ -284,10 +309,13 @@ In `senpi-strategy-ops/SKILL.md`:
    `# 0b. preflight — structurally deploy-ready? (no money, nothing installed; a bare id is fetched to disk)`
 2. **Line ~92** — replace `with **no side effects**,` with `with **no money moved and nothing installed** (a bare catalog id is fetched to disk),`
 3. **Line ~160** — after `staying inside the ~180s tool timeout`, insert: ` — with one bounded exception, the stale-proof repair below`
-4. **Line ~302**, in the `[E_UNIVERSE_NOT_LIVE]` bullet, replace the final sentence about the unreadable list with:
-   `If the step instead reports that the live instrument list **could not be read**, nothing is claimed dead, nothing was created by that run and nothing the package already had was touched. That one lands as **`failed` (exit `3`)**, not `refused` — it is an MCP outage, not a package bug: retry once the server is reachable.`
+4. ~~**Line ~302**, in the `[E_UNIVERSE_NOT_LIVE]` bullet…~~ **WITHDRAWN 2026-08-12 — this instruction was FALSE. Do not apply it.**
+   It prescribed saying the unreadable-universe branch "lands as `failed` (exit `3`), not `refused`". Verified against source: `orchestrator.ts:2736` sets `refused = true` *before* the `record(..., status: "failed")` call at `:2741`, and `decideOverall` (`:4041`) returns `"refused"` before it ever scans step statuses. `overall` is `refused` → exit **`2`**. The `return "failed"` at `:2744` is the span callback's value, not the report's overall.
+   The original sentence in `SKILL.md` ("retry once the MCP server is reachable") was **already correct**; this "fix" would have made it worse. Finding 4 has been retracted on PR #526. If anything remains to say here, it is that the step detail is deliberately code-less and that exit `2` on this path is an MCP outage to retry, never a package bug to hunt.
 5. In the `[E_VALIDATE_RUNTIME_VERSION_CHANGED]` bullet, after the sentence describing the automatic repair, add:
-   `That repair is the one path that can outrun the ~180s tool timeout (re-validate + a second poll). **If the call is killed mid-repair, nothing was created** — read `openclaw senpi deploy status` and do NOT re-run `create`; the repair note is printed to stderr before validation starts, so a killed call still says what it was doing.`
+   `That repair is the one **automatic** path that can outrun the ~180s tool timeout (re-validate + a second poll); an explicit `--max-wait` above 150 is the other, and it is honoured deliberately. **If the call is killed mid-repair, nothing was created** — read `openclaw senpi deploy status` and do NOT re-run `create`; the repair note is printed to stderr before validation starts, so a killed call still says what it was doing.`
+
+> **Why these two carry corrections rather than edits.** Both were written from a source read that stopped one level short of the decision point — the first at the step record instead of `decideOverall`, the second at the repair path instead of the flag that also exceeds the budget. That is the failure mode the R1 citation rule exists to catch, and it caught both. A plan instruction is not evidence; the cited line is. **Verify a claim against source before transcribing it into a stable registry, even when this plan supplies the wording.**
 
 - [ ] **Step 6: Verify nothing else broke**
 
@@ -330,6 +358,10 @@ No code. This produces the evidence every later cut cites, and it runs **before*
 Use the `senpi-infra:funnel-report` skill to find last-30-day sessions that reached a deploy, then `senpi-infra:agent-session-transcript` on the subset that hit a refusal or a `W_` warn — those are the only sessions where this teaching had a job.
 
 For each, record: the code that fired, what the agent said next, what command it ran next, and whether it moved money.
+
+**Write every transcript to `.superpowers/sdd/2026-08-12-skills-context-reduction/transcripts/` and NOWHERE else.** That directory is git-ignored. **Never `git add` a transcript, never paste transcript content into a committed file, and never paste it into a PR comment.** This repo is public and these are real users' sessions — MIDs, wallet addresses, and their own words. Keep the raw pulls: Task 8 replays this same set as its behavioural baseline, so re-pulling later would compare against a different population.
+
+Name each file so Task 8 can find it by the code it exercises, e.g. `transcripts/E_FUNDS_SHORT-01.md`. Keep a local `transcripts/index.md` mapping file → code → one-line outcome; that index is the thing Task 3's committed table cites, by filename only.
 
 - [ ] **Step 2: Mark the protected set**
 
@@ -384,12 +416,18 @@ The clearest bucket-1 case, best evidenced, done first so the guards exist befor
 
 Append to `senpi-strategy-ops/tests/test_skill_surface.py`:
 
-```python
-# Budgets, not aspirations: the convergence took ops from 278 to 626 lines and author from 317 to
-# 417 by restating rendered refusal text in prose. These are the post-reduction ceilings from
-# docs/specs/2026-08-12-skills-context-reduction-design.md §2, with headroom.
-BODY_BUDGET = {"senpi-strategy-ops": 300, "senpi-strategy-author": 330}
+**Pre-flight ruling (2026-08-12) — each guard lands in the task that makes it green,** because every commit must leave CI green. So the four guards are split across three tasks:
 
+| Guard | Lands in | Goes green when |
+|---|---|---|
+| `RelayContractNamesNoComputedCommand` | **Task 4 (here)** | the relay contract replaces the budget block, Step 4 |
+| `ReferencePointersResolve` | **Task 4 (here)** | passes immediately; guards the new `refusal-playbook.md` pointer |
+| `CodesAreNamedNotExplained` | **Task 5** | the per-code bullets move out and every code drops to ≤ 2 mentions |
+| `SkillBodyWithinBudget` | **Task 6** | the `verify` block and the duplicated paragraphs come out |
+
+Write only the two Task-4 guards below. Do not add the other two here — they would be red from this task until the one that satisfies them.
+
+```python
 RELAY_HEADING = "### Refusals and warns — the relay contract"
 
 
@@ -403,33 +441,6 @@ def _section(body, heading):
         if ln.startswith("#") and (len(ln) - len(ln.lstrip("#"))) <= depth:
             return "\n".join(lines[start:j])
     return "\n".join(lines[start:])
-
-
-class SkillBodyWithinBudget(unittest.TestCase):
-    """The skill body is loaded on every invoke; references are pay-per-read. Depth belongs in
-    references/, and a budget is the only thing that keeps that true under editing pressure."""
-
-    def test_bodies_are_within_budget(self):
-        for skill, budget in BODY_BUDGET.items():
-            with self.subTest(skill=skill):
-                n = len(_skill_body(REPO / skill / "SKILL.md").splitlines())
-                self.assertLessEqual(n, budget, f"{skill}/SKILL.md body is {n} lines (budget {budget})")
-
-
-class CodesAreNamedNotExplained(unittest.TestCase):
-    """A code may be NAMED in the skill (routing: which branch am I on) but not EXPLAINED (the
-    runtime renders the explanation, computed against terminal state). Two mentions is the ceiling:
-    the refused-table row, plus at most one routing line. Before the reduction
-    E_ROLLBACK_INCOMPLETE appeared 4 times and three more codes 3 times each — each occurrence a
-    second copy of a message that decides its own content at runtime."""
-
-    def test_no_code_is_mentioned_more_than_twice(self):
-        body = _skill_body(OPS)
-        counts = {}
-        for code in re.findall(r"\[([EW]_[A-Z0-9_]+)\]", body):
-            counts[code] = counts.get(code, 0) + 1
-        over = {c: n for c, n in counts.items() if n > 2}
-        self.assertEqual(over, {}, f"codes explained rather than named: {over}")
 
 
 class RelayContractNamesNoComputedCommand(unittest.TestCase):
@@ -458,12 +469,10 @@ class ReferencePointersResolve(unittest.TestCase):
                                     f"{skill}/SKILL.md links to missing {target}")
 ```
 
-- [ ] **Step 2: Run the guards and verify they fail**
+- [ ] **Step 2: Run the guards and verify the relay guard fails**
 
 Run: `python3 -m pytest senpi-strategy-ops/tests/test_skill_surface.py -q`
-Expected: FAIL on three of four —
-- `SkillBodyWithinBudget`: ops body is ~600 lines (budget 300)
-- `CodesAreNamedNotExplained`: `{'E_ROLLBACK_INCOMPLETE': 4, 'W_BUDGET_FUNDED_UNREADABLE': 3, 'W_BUDGET_BELOW_STRATEGY_MIN': 3, ...}`
+Expected: FAIL on one of two —
 - `RelayContractNamesNoComputedCommand`: `StopIteration` — the heading does not exist yet
 - `ReferencePointersResolve`: PASS
 
@@ -509,7 +518,7 @@ Per-code depth when you need it: [`references/refusal-playbook.md`](references/r
 - [ ] **Step 5: Run the guards**
 
 Run: `python3 -m pytest senpi-strategy-ops/tests/test_skill_surface.py -q`
-Expected: `RelayContractNamesNoComputedCommand` and `ReferencePointersResolve` PASS. `SkillBodyWithinBudget` and `CodesAreNamedNotExplained` still FAIL — Task 5 finishes those.
+Expected: **all PASS** — `RelayContractNamesNoComputedCommand` and `ReferencePointersResolve` are the only two guards in the file at this point.
 
 - [ ] **Step 6: Commit**
 
@@ -563,17 +572,36 @@ Three things in that block are bucket 2 and stay in `SKILL.md`, because no rende
 
 Keep the "Do NOT improvise" preamble (raw `strategy_create_custom_strategy` / raw `runtime create` are routing rules, bucket 3) and the no-exit-block refusal note.
 
-- [ ] **Step 3: Add the pointer and verify the code-mention ceiling**
+- [ ] **Step 3: Add the code-mention guard (it goes green in this task)**
 
-Confirm each code now appears at most twice in `SKILL.md`.
+Per the pre-flight ruling in Task 4, this guard lands here — the task that satisfies it. Append to `senpi-strategy-ops/tests/test_skill_surface.py`:
+
+```python
+class CodesAreNamedNotExplained(unittest.TestCase):
+    """A code may be NAMED in the skill (routing: which branch am I on) but not EXPLAINED (the
+    runtime renders the explanation, computed against terminal state). Two mentions is the ceiling:
+    the refused-table row, plus at most one routing line. Before the reduction
+    E_ROLLBACK_INCOMPLETE appeared 4 times and three more codes 3 times each — each occurrence a
+    second copy of a message that decides its own content at runtime."""
+
+    def test_no_code_is_mentioned_more_than_twice(self):
+        body = _skill_body(OPS)
+        counts = {}
+        for code in re.findall(r"\[([EW]_[A-Z0-9_]+)\]", body):
+            counts[code] = counts.get(code, 0) + 1
+        over = {c: n for c, n in counts.items() if n > 2}
+        self.assertEqual(over, {}, f"codes explained rather than named: {over}")
+```
+
+**Write it BEFORE finishing the move, and run it to see it red** (`E_ROLLBACK_INCOMPLETE: 4`, and the three codes at 3). Then complete the move until it is green — that is this step's TDD cycle.
 
 Run: `python3 -m pytest senpi-strategy-ops/tests/test_skill_surface.py::CodesAreNamedNotExplained -q`
-Expected: PASS
+Expected: PASS once every code sits at ≤ 2 mentions in `SKILL.md`
 
 - [ ] **Step 4: Check the whole guard file**
 
 Run: `python3 -m pytest senpi-strategy-ops/tests/test_skill_surface.py -q`
-Expected: `SkillBodyWithinBudget` may still FAIL (Task 6 finishes it); everything else PASS.
+Expected: **all PASS** — three guards in the file at this point (`SkillBodyWithinBudget` arrives in Task 6). Do not commit red.
 
 - [ ] **Step 5: Commit**
 
@@ -618,20 +646,50 @@ instead of picking."
 
 `:140-148` and `:166-177` both open with that phrase and both restate wallet naming and its best-effort fallback. Keep the `:166` five-step version (reconcile → preflight → create → install → observe); fold in only what `:140` adds that it lacks, and delete the rest.
 
-- [ ] **Step 4: Verify the budget guard now passes**
+- [ ] **Step 4: Add the budget guard (it goes green in this task)**
+
+Per the pre-flight ruling in Task 4, this guard lands here. Append to `senpi-strategy-ops/tests/test_skill_surface.py`, placing `BODY_BUDGET` with the other module constants near the top:
+
+```python
+# Budgets, not aspirations: the convergence took ops from 278 to 626 lines and author from 317 to
+# 417 by restating rendered refusal text in prose. These are the post-reduction ceilings from
+# docs/specs/2026-08-12-skills-context-reduction-design.md §2, with headroom.
+BODY_BUDGET = {"senpi-strategy-ops": 300, "senpi-strategy-author": 330}
+
+
+class SkillBodyWithinBudget(unittest.TestCase):
+    """The skill body is loaded on every invoke; references are pay-per-read. Depth belongs in
+    references/, and a budget is the only thing that keeps that true under editing pressure."""
+
+    def test_bodies_are_within_budget(self):
+        for skill, budget in BODY_BUDGET.items():
+            with self.subTest(skill=skill):
+                n = len(_skill_body(REPO / skill / "SKILL.md").splitlines())
+                self.assertLessEqual(n, budget, f"{skill}/SKILL.md body is {n} lines (budget {budget})")
+```
+
+**Note the author entry is 330 and this task does not touch `senpi-strategy-author`** — which is still ~417 lines. So this guard is red on the author subTest until Task 7. To keep this task's commit green, add the `senpi-strategy-ops` entry **only** here:
+
+```python
+BODY_BUDGET = {"senpi-strategy-ops": 300}
+```
+
+Task 7 adds the `senpi-strategy-author` entry when it makes it green. Same rule, applied per dictionary key.
+
+- [ ] **Step 5: Verify the budget guard passes**
 
 Run: `python3 -m pytest senpi-strategy-ops/tests/test_skill_surface.py -q`
 Expected: **all PASS** — ops body at or under 300 lines.
 
-- [ ] **Step 5: Run the full suite**
+- [ ] **Step 6: Run the full suite**
 
 Run: `python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-trading-runtime/tests -q`
 Expected: all pass
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add senpi-strategy-ops/SKILL.md senpi-strategy-ops/references/lifecycle.md
+git add senpi-strategy-ops/SKILL.md senpi-strategy-ops/references/lifecycle.md senpi-strategy-ops/tests/test_skill_surface.py
 git commit -m "ops: verify internals move to lifecycle, and the job paragraph stops repeating
 
 Sixty-five resident lines describing a read-only checker that is not on
@@ -661,7 +719,13 @@ The genuine bucket-1 candidates are narrow — inside the stage-9 gate block (`:
 - "Do not narrow it" (`--stage` / `--scanner` / `--no-attest` record nothing) — routing.
 - "Authoring is not done until this is green" and the never-hand-to-ops-on-a-clean-lint rule.
 
-- [ ] **Step 2: Verify the budget guard, and reconcile if it does not move**
+- [ ] **Step 2: Add the author budget entry, and reconcile if it does not move**
+
+Task 6 landed `BODY_BUDGET` with the `senpi-strategy-ops` key only. Add the author key here, in the task that makes it green:
+
+```python
+BODY_BUDGET = {"senpi-strategy-ops": 300, "senpi-strategy-author": 330}
+```
 
 Run: `python3 -m pytest senpi-strategy-ops/tests/test_skill_surface.py::SkillBodyWithinBudget -q`
 Expected: PASS (author body ≤ 330)
@@ -691,9 +755,26 @@ The behavioural acceptance test. Guards prove the mirror is gone; only this prov
 
 - [ ] **Step 1: Overlay the branch on Box A**
 
-Use the `dev-release-testing` skill. Overlay this branch's skills onto the running dev box. **Respect the money-authorization gate** — do not run a funded deploy without explicit approval.
+Use the `dev-release-testing` skill. Overlay this branch's skills onto the running dev box.
 
-- [ ] **Step 2: Run the injection matrix**
+**Money authorization (granted 2026-08-12, standing for this task):**
+- **≤ $150 per strategy.**
+- **≤ $450 total across all strategies live at once.**
+- Create as many strategies as the matrix needs, within those two limits.
+- Recycling is allowed and preferred: `close.py <id>`, wait for `closed` so funds return to the embedded wallet, then fund a new strategy from the same balance. Closing to recycle keeps the parallel total under $450 without needing a deposit.
+- The limits are on **live** strategies. A closed one no longer counts against the $450 once its funds have returned.
+
+This authorization covers Task 8 only. Nothing in Tasks 1–7 moves money, and no task outside this one may fund a wallet.
+
+- [ ] **Step 2: Run the injection matrix against the Task 3 baseline**
+
+**Read `.superpowers/sdd/2026-08-12-skills-context-reduction/transcripts/index.md` first.** Task 3 pulled real prod sessions for these same codes and they are the comparison, not just background: for every injection below, the question is not only "did the agent pass the bar" but **"did it behave at least as well as the pre-reduction agent did on the real session that fired the same code."**
+
+A pass condition met differently from the baseline is worth recording, not just a tick. A regression against the baseline is a fail even if the bar below is technically met — that is the whole point of having pulled them.
+
+Where no transcript exists for a code (the rarer refusals), say so in the results file; that injection is judged against the bar alone and its evidence is weaker.
+
+Transcripts stay local; nothing from them is quoted into anything committed.
 
 | Injection | How | Pass condition |
 |---|---|---|
@@ -719,14 +800,17 @@ Prefer 2 — it is the fix direct MCP and CLI callers get too. Record which was 
 
 - [ ] **Step 5: Commit the results**
 
-```bash
-git add docs/specs/2026-08-12-ladder-results.md
-git commit -m "docs: ladder results for the reduced skills, one row per injected refusal
+**Nothing is committed by this step.** Write the results to
+`.superpowers/sdd/2026-08-12-skills-context-reduction/ladder-results.md` (git-ignored). A ladder run
+quotes live wallet addresses, balances and the agent's own transcript — this repo is public, so the
+evidence stays local and only the *verdict* travels.
 
-Guards prove the second copy is gone. Only this proves the agent still
-does the right thing without it — including the two branches that
-deliberately name no command, where the failure mode is inventing one."
-```
+What may leave the local directory: a one-line pass/fail per injection row, with no address, no
+balance, and no transcript text. That summary belongs in the PR conversation or the ledger, not in a
+committed file.
+
+Do not `git add` anything in this task. If a finding here requires a code or doc change, that change
+is its own commit in the task that owns the file — not bundled with evidence.
 
 ---
 
@@ -766,11 +850,14 @@ Expected: no diff (no `strategy.yaml` was touched).
 
 ```bash
 git add senpi-strategy-ops/SKILL.md senpi-strategy-author/SKILL.md CLAUDE.md
-git commit -m "skills: bump ops 3.7.0 / author 2.17.0 for the reduction
+git commit -m "skills: bump ops 3.7.0 / author 3.1.0 for the reduction
 
-Minor, not major: the contract is unchanged, only where it is written
-down. Boxes gate updates on this field, so a content change without a
-bump never reaches the fleet."
+Minor on both, not major: the contract is unchanged, only where it is
+written down. Author sits on 3.x because the deploy-verb branch already
+took it to a major to gate the tick behind a runtime carrying the verb;
+a minor on top of that flows normally to any box that has taken 3.0.0.
+Boxes gate updates on this field, so a content change without a bump
+never reaches the fleet."
 ```
 
 - [ ] **Step 6: Update the PR body**

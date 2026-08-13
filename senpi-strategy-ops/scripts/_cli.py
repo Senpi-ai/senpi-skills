@@ -23,6 +23,8 @@ SPAWN_FAILED_PREFIX = "command not found: "
 def run_cli(args, timeout=60):
     """Run a CLI command; return (returncode, stdout, stderr). rc=-1 on spawn failure/timeout —
     `SPAWN_FAILED_PREFIX` on stderr distinguishes the never-ran case from the stopped-waiting one.
+    NEVER raises for a failure to run: EVERY spawn-side OSError is caught, not just the missing
+    binary, because a caller that dies here takes the whole script's output with it.
 
     Suppresses the senpi plugin's info logs (which it prints to STDOUT and which otherwise corrupt
     `--json` output) by forcing SENPI_LOG_LEVEL=error in the child env."""
@@ -30,10 +32,17 @@ def run_cli(args, timeout=60):
     try:
         p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
         return p.returncode, p.stdout, p.stderr
-    except FileNotFoundError:
-        return -1, "", f"{SPAWN_FAILED_PREFIX}{args[0]}"
     except subprocess.TimeoutExpired:
         return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
+    except OSError as e:
+        # The command NEVER RAN. FileNotFoundError (no such binary) is the common case; the rest are
+        # fork/exec failures a strained box really does produce — ENOMEM ("Cannot allocate memory"),
+        # EAGAIN (process-table exhaustion), EACCES, ENOEXEC. All of them are the never-ran event, so
+        # all of them carry SPAWN_FAILED_PREFIX: the distinction the money path makes is never-ran vs
+        # stopped-waiting, and only a timeout is the latter. Catching only FileNotFoundError let an
+        # ENOMEM fork failure propagate out of the read and kill the caller mid-run.
+        return -1, "", f"{SPAWN_FAILED_PREFIX}{args[0]}" + ("" if isinstance(e, FileNotFoundError)
+                                                            else f" ({e})")
 
 
 def _extract_json(text):
@@ -214,9 +223,11 @@ def _parse_runtime_list(out):
 
 def list_runtimes():
     """All runtimes (running AND stopped) by parsing `runtime list` text. NOTE on runtime v3: `runtime
-    list` has no --json (human text only), and `status --json` is *flaky* — it transiently returns an
-    empty `statuses[]` even while runtimes are running — so it is NOT a reliable inventory. The text
-    table (id / wallet / source / status) is authoritative; use `status -r <id>` only for health.
+    list --json` exists only on newer builds (see `senpi-trading-runtime/references/runtime-cli.md`) and
+    this reader must keep working on the older ones, and `status --json` is *flaky* — it transiently
+    returns an empty `statuses[]` even while runtimes are running — so it is NOT a reliable inventory.
+    The text table (id / wallet / source / status) is what every build prints and stays authoritative
+    here; use `status -r <id>` only for health.
     Returns [] on a failed/garbled read; a caller that must NOT conflate 'none' with 'unreadable'
     (teardown's money path) uses `list_runtimes_or_none` instead."""
     rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])
@@ -504,6 +515,36 @@ def strategy_name(s):
     0` is what LANDED) all flip the wrong way if it skips falsy. This reader has exactly ONE
     production consumer (`deploy.py`'s `verify_instance`), so the narrow fix is also the small one."""
     return _first_written(strategy_obj(s), "strategyName", "tradingStrategyName", "name")
+
+
+def strategy_name_and_source(s):
+    """What to CALL a strategy, and WHICH FIELD said so — `(name, name_source)`.
+
+    Same fallback chain as `strategy_name` (`strategyName` → `tradingStrategyName` → `name`), and the
+    exact `(name, name_source)` shape `senpi-portfolio/scripts/portfolio.py`'s
+    `_strategy_name_and_source` returns — quoted, not reinvented. `strategyName` is the strategy's
+    own name; `tradingStrategyName`/`name` are the package id standing in for an unnamed strategy
+    (nullable by mechanism — `strategy_create_custom_strategy` makes it optional). `name_source`
+    records which of those answered, so a caller can tell "this strategy is named cub" from "this
+    strategy is unnamed and cub is its package" — a distinction `status.py`'s runtime-name column
+    collapsed by printing a different field (`runtime`, not `strategyName`) in what a reader takes
+    for the name column.
+
+    The chain and the ANSWER are held identical to `portfolio._strategy_name_and_source` by
+    `senpi-portfolio/tests/test_name_reader_parity.py::test_ops_chain_answers_match_portfolio_where_the_readers_cannot_disagree`
+    — but this reader is built on `_first_written` below (`dig()`-dispatched: case-insensitive, no
+    `.strip()`, no container/bool exclusion), NOT on portfolio's vendored one (exact-cased, strips,
+    excludes dict/list/bool). The two are held to the same chain, not the same implementation, so a
+    handful of shapes legitimately diverge — a case-only key variant, a whitespace-only string, a
+    dict/bool/bare-scalar value in a name field — and each one is pinned to both readers' real
+    answers by that same test file's `test_ops_chain_diverges_only_where_pinned_as_intended`, not
+    left as an untested gap."""
+    o = strategy_obj(s)
+    for key in ("strategyName", "tradingStrategyName", "name"):
+        got = _first_written(o, key)
+        if got:
+            return got, key
+    return "strategy", None
 
 
 def strategy_name_match(a, b):

@@ -13,7 +13,7 @@ in place, so every update invalidates every proof on the box at once, and relayi
 our own release cadence a fleet-wide deploy outage. The repair is `senpi validate` + ONE re-run —
 see `stale_proof_dirs`, which keys on the gate's structured evidence, never on its wording.
 
-  python3 deploy.py validate <id>                                  # preflight (no side effects)
+  python3 deploy.py validate <id>                                  # preflight (no money, nothing installed; DOES fetch a bare id)
   python3 deploy.py create   <id> --budget <usd> [--max-wait S]    # run the deploy (create+fund+install+tick)
   python3 deploy.py runtime  <id> [--decision-model M]             # resume/complete the same deploy
   python3 deploy.py verify   <id>                                  # READ-ONLY: is it live? (deploys/fetches nothing)
@@ -63,8 +63,10 @@ closing it (`close.py`), and a wedged job frees its own slot at the deploy deadl
 
 There is NO local deploy-state file any more. The backend strategies and the runtime registry ARE
 the record — the sidecar `.deploy-state.json` was the source of the whole `E_STATE_*` lost-state
-class, and it is gone. Package resolution (path or bare catalog id, with the remote fetch — on the
-money path only; `verify` resolves locally) and the structural preflight stay here; the live-universe
+class, and it is gone. Package resolution (path or bare catalog id, with the remote fetch — which
+`validate` runs too, so it is NOT side-effect-free: a bare id is downloaded and written under the
+durable strategies root. `verify` is the only subcommand that resolves locally) and the structural
+preflight stay here; the live-universe
 gate and everything after them live in the
 runtime (`[E_UNIVERSE_NOT_LIVE]`, pre-money, relayed verbatim like every other refusal). `validate`
 still REPORTS the universe locally, from the same predicates the runtime ports — a report beside
@@ -161,7 +163,8 @@ def local_pkg(arg):
     `ensure_pkg` falls through to a remote fetch that DOWNLOADS and WRITES a full package under the
     durable strategies root. That is a network+disk side effect from a command whose whole promise is
     "read-only — nothing was changed", and on a bare catalog id it is the common case, not an edge.
-    A check reads what is here; fetching is the money path's job."""
+    A check reads what is here. `verify` is the ONLY subcommand that does not fetch — `validate`
+    resolves through `ensure_pkg` exactly like the money path does, so it is not fetch-free either."""
     return _pkg.load(arg) if (_pkg.resolve_pkg_dir(arg) / "strategy.yaml").is_file() else None
 
 
@@ -222,6 +225,33 @@ def universe_report(pkg):
         return ([f"hardcodes instrument(s) not live on Hyperliquid: {', '.join(unknown)} "
                  f"(the deploy verb will refuse this pre-money: [E_UNIVERSE_NOT_LIVE])"], None)
     return [], None
+
+
+PROOF_FILE = ".senpi-proof.json"
+
+
+def proof_state(pkg):
+    """Which instances have a recorded `.senpi-proof.json`, and which do not.
+
+    Presence only — this is a local stat, never a re-implementation of the gate. `verifyProof`
+    (runtime src/validate/index.ts) owns freshness: content hashes and the runtime build the proof
+    was recorded under. Re-deriving either here would be a second copy of a producer, and the
+    deploy verb refuses on its own reading regardless of what this reports.
+
+    The directory per instance is the one holding that instance's runtime.yaml — `inst.runtime_path`
+    is a FILE path (`_pkg.Instance` has no `runtime_yaml_dir`), so this takes its parent, mirroring
+    `_instance_dirs`'s own fallback: the package root when an instance has no runtime_path to point
+    at (a flat package, or an unmodellable instance). `openclaw senpi validate` writes the proof
+    beside the exact directory it was pointed at, so this has to name the same one.
+
+    Returned as `(name, state, dir)` per instance so the caller renders one line each, naming the
+    exact directory `openclaw senpi validate` has to be pointed at."""
+    out = []
+    for inst in pkg.instances:
+        path = getattr(inst, "runtime_path", None)
+        d = Path(path).parent if path else Path(pkg.dir)
+        out.append((inst.name, "proven" if (d / PROOF_FILE).is_file() else "no_proof", d))
+    return out
 
 
 # ---------- the verb ----------
@@ -1417,7 +1447,7 @@ def main(argv):
     ps.add_argument("--ref", default=None, help=argparse.SUPPRESS)
 
     pval = sub.add_parser("validate",
-                          help="Preflight: is the package deploy-ready? (structural + render — no side effects)")
+                          help="Preflight: is the package structurally deploy-ready? (structure + render — no money moved, nothing installed; a bare catalog id IS fetched to disk)")
     common(pval)
 
     a = ap.parse_args(argv[1:])
@@ -1503,14 +1533,15 @@ def main(argv):
                       f"agent, whatever it is named\n"
                       f"    python3 {Path(__file__).name} verify <dir>   # if you have the package "
                       f"locally, pass its DIRECTORY\n"
-                      f"  (`create`/`runtime` DO fetch a bare catalog id — that is the money path, "
-                      f"not this check.)")))
+                      f"  (`create`/`runtime` DO fetch a bare catalog id, and so does `validate` — "
+                      f"this check is the one that does not.)")))
         sys.exit(cmd_verify(pkg, a))
 
     pkg = ensure_pkg(a.package, a.ref, log)
 
-    # `validate` is the standalone, side-effect-free preflight; the action subcommands run the SAME
-    # full check before the verb touches money.
+    # `validate` is the standalone preflight — no money moves and nothing is installed, but it is not
+    # side-effect-free: `ensure_pkg` above fetches a bare catalog id and writes it under the durable
+    # strategies root. The action subcommands run the SAME full check before the verb touches money.
     gate = full_validate(pkg)
     if a.cmd == "validate":
         # `validate` also REPORTS the live universe (the verb enforces it; this saves a deploy
@@ -1518,9 +1549,12 @@ def main(argv):
         # note that never changes the exit code — it is not this command's invariant to hold.
         u_errors, u_note = universe_report(pkg)
         errors = gate + u_errors
+        proofs = proof_state(pkg)
+        unproven = [(n, d) for n, s, d in proofs if s == "no_proof"]
         if a.json:
             print(json.dumps({"status": "valid" if not errors else "invalid", "id": pkg.id,
-                              "errors": errors, **({"note": u_note} if u_note else {})}))
+                              "errors": errors, "proof": {n: s for n, s, _ in proofs},
+                              **({"note": u_note} if u_note else {})}))
         else:
             # The note rides EVERY verdict, not just the clean one: it says a check did not run,
             # which is as true of an otherwise-invalid package as of a green one.
@@ -1531,7 +1565,14 @@ def main(argv):
                 for e in errors:
                     print(f"    - {e}", file=sys.stderr)
             else:
-                print(f"✓ {pkg.id}: deploy-ready ({len(pkg.instances)} instance(s))")
+                proven = ", ".join(f"{n} ✓" for n, s, _ in proofs if s == "proven")
+                print(f"✓ {pkg.id}: structurally deploy-ready ({len(pkg.instances)} instance(s))"
+                      + (f" — proven: {proven}" if proven else ""))
+            # The proof gate is the runtime's, and it refuses PRE-MONEY. Naming it here is the whole
+            # point: an unproven instance makes the NEXT command fail, not this one.
+            for name, d in unproven:
+                print(f"  {name}: NO PROOF — `openclaw senpi validate {d}` must PASS before "
+                      f"`create` will fund this package", file=sys.stderr)
         sys.exit(EXIT_CODES["refused"] if errors else 0)
     if gate:
         # A gate said no and nothing was created past it — D-12's 2, the same code the verb's own

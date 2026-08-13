@@ -4,6 +4,23 @@
 
 ---
 
+## 0. Before the build — two notes on the conversation `SKILL.md` runs
+
+`SKILL.md` owns the template-first offer and the funding heads-up. This section holds the two things
+that make them concrete but that no rendered message and no rule can carry.
+
+**An example of the offer, for a new-ish user who hinted a thesis** (the shape, not a script to read
+out — name whatever template `senpi-strategy-discover` actually matched):
+
+> *"Two ways to go: I can get you running fast from a proven template — **Cougar** is close to what
+> you described, and you can tweak it to make it yours — or if you'd rather, we design one from
+> scratch together. Your call — what sounds better?"*
+
+**Why the funding heads-up happens at minute one and never gates the interview:** users have
+completed the entire interview and build, then hit the funding wall at the last step and left. The
+wall is real and stays — reading the balance before Decision 1 only moves the news to the point
+where the user's investment is still zero. It is not a permission check, so it never blocks a build.
+
 ## 1. Mental model
 
 A strategy is a **deployable package, not a skill.** You author two things — the **thesis** (what to believe, how to score it) and the **guardrails** (how to exit, how much risk). Runtime 3.0 owns everything operational: it **spawns and supervises** your scanner, calling `scan(inputs, ctx)` every `interval_seconds`, and owns sizing, execution, exits, slots, risk gates, state durability, and retries.
@@ -282,15 +299,35 @@ multi-instance exception instead, the root holds no recipe of its own: pointing 
 `.../<id>/<instance>`, per §2's table. Every package in the repo's `strategies/` catalog is that
 kind — the flat package §11 builds is not, and neither is yours.)
 
+`[E_VALIDATE_NO_RECIPE]` is a **layout** answer, not a code one, and it is the cheapest way to find
+out you built the wrong shape. Observed in testing: a package written as `runtime/recipe.yaml` could
+not be loaded by anything — and was still offered to the user as "ready to deploy". Per-code depth
+for this and every other refusal: `../../senpi-strategy-ops/references/refusal-playbook.md`.
+
 It runs the **real loop** — same code path production uses — imports every scanner file, executes `scan()` once against live read-only data, counts what it actually read, and builds each returned candidate into the exact wire shape intake would receive, checking it against intake's own schema. **No wallet, no funding, no deploy.**
 
 - **PASS** — the code loads, a real tick ran, it read live data, and its signals would be accepted. This is what a green smoke test used to mean, minus the money.
 - **UNPROVEN** (exit 2) — it ran and **established nothing**: zero successful reads. Not a pass. Usually a gate in `scan()` returning early; have it consult `ctx.dry_run`. The finding names the line it returned from.
 - **FAIL** (exit 1) — each finding carries `what` / `why` / `fix` computed against your package: the rejected field and why intake refuses it, the tool name the server doesn't expose, the exception with its file and line, an exception your own `except` swallowed.
 
+**What UNPROVEN narrows it down to, if it survives the `ctx.dry_run` fix.** The verdict is reached
+only when the tick made **no observable read at all** — the runtime reserves exit 2 for that one
+finding, and any other error alongside it makes the run a FAIL instead. So two possibilities are
+already excluded, and neither is worth chasing: *"reads were attempted and failed"* is a FAIL (exit
+1) carrying the failing tool and its error, not an UNPROVEN; and *"no setups right now"* is a PASS
+with a no-signals warning, because a tick that reads and finds nothing to trade still read. What is
+left is a pair the finding **reports without adjudicating**: it names the file, line and function
+the scan returned from (so put the `ctx.dry_run` bypass on *that* path, not the one you assumed),
+and, when it detects any, the **off-route** data sources — anything fetched outside `ctx.senpi_mcp`
+is invisible to the counter, so the run cannot be proven however much it really read. It will
+**not** tell you which of the two caused this, deliberately: the off-route check is import-level
+rather than call-level, so a scanner can import such a source for something else and still have a
+genuine early exit, and a confident wrong diagnosis costs more than two honest observations. When
+both are reported, check both.
+
 Fix what it reports, re-run, and only hand to ops once it says PASS. **A clean lint is not a pass; only `senpi validate` is.**
 
-Two things it deliberately does *not* prove, so don't over-claim on its behalf: branches this tick didn't take, and logic that depends on open positions (it runs against an empty account by default — which is exactly the state a freshly funded strategy starts in). After deploy, still confirm the strategy **operates** — `deploy.py verify <id>`, then a positive run count and an accepted signal in `openclaw senpi state -r <id>-main --json` (`<id>-<leg>` per leg on §2's exception).
+Two things it deliberately does *not* prove, so don't over-claim on its behalf: branches this tick didn't take, and logic that depends on open positions (it runs against an empty account by default — which is exactly the state a freshly funded strategy starts in). It prints both as `does not prove:` lines on a PASS. **A PASS is therefore a floor, not a finish line: it proves the strategy *runs*, never that its logic is *right*.** Two from testing, both of which passed cleanly — a Supertrend that returned the same direction for every input, so the strategy could never open a long; and a cooldown keyed on `ctx.now_utc`, which does not exist on the ctx surface, so it never fired. Read your own indicator math against a known trend before you call it done. After deploy, still confirm the strategy **operates** — `deploy.py verify <id>`, then a positive run count and an accepted signal in `openclaw senpi state -r <id>-main --json` (`<id>-<leg>` per leg on §2's exception).
 
 ## 10. The author's checklist (the silent-failure guards)
 

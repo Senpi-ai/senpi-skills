@@ -39,19 +39,22 @@ MARKET_ENRICH_CAP = 24      # cap the per-asset market pull
 CLOSED_HISTORY_CAP = 5      # recent closed trades to surface per strategy (realized PnL is over the full pull)
 CLOSED_HISTORY_PULL = 50    # closed positions to pull for the realized-PnL total (API default page)
 
-# WHAT A STRATEGY DOES = its `profile`, and the load-bearing field is `profile.description`, read from
-# the DEPLOYED runtime.yaml that the runtime itself registers (installed_runtimes.json). This is
-# UNIVERSAL: it works for a user's OWN authored strategy, not just our catalog templates — every
-# deployed strategy has a runtime.yaml, only templates are in the catalog. The catalog stays as
-# OPTIONAL enrichment (archetype/belief_plain/asset_classes/…) for templates, keyed by skill_name.
-#   registry (universal, runtime-registered runtime.yaml)  →  the "what it does / how it works"
-#   catalog  (templates only, our packages)                →  extra facets when present
-# Neither is agent memory; the runtime registry outranks the catalog.
+# WHAT A STRATEGY DOES = its `profile`, and the load-bearing field is `profile.description`, taken from
+# the descriptor the RUNTIME renders for each runtime it has. This is UNIVERSAL: it works for a user's
+# OWN authored strategy, not just our catalog templates — every deployed strategy has a runtime.yaml,
+# only templates are in the catalog. The catalog stays as OPTIONAL enrichment
+# (archetype/belief_plain/asset_classes/…) for templates, keyed by skill_name.
+#   registry (universal, the runtime's own rendered descriptor)  →  the "what it does / how it works"
+#   catalog  (templates only, our packages)                      →  extra facets when present
+# Neither is agent memory; the runtime outranks the catalog.
 
-# The runtime registers every deployed strategy in installed_runtimes.json in the state dir.
-STATE_DIR_ENV = "SENPI_STATE_DIR"
-DEFAULT_STATE_DIR = os.path.expanduser("~/.openclaw/senpi-state")
-REGISTRY_FILENAME = "installed_runtimes.json"
+# ASK THE RUNTIME, don't guess at its files. Every registry-derived field on this surface comes from
+# this ONE command — the process that owns the registry, answering through its own CLI.
+RUNTIME_LIST_CMD = ["openclaw", "senpi", "runtime", "list", "--json"]
+RUNTIMES_FIXTURE_ENV = "SENPI_RUNTIMES_FIXTURE"     # offline test hook (see load_runtime_registry)
+# The producer's exact blind-runtime status is `running — NO ENTRY SCANNERS` (em dash, U+2014). Matched
+# on the phrase, not the whole string, so a dash/spacing drift cannot silently repaint blind as healthy.
+RUNTIME_BLIND_MARK = "NO ENTRY SCANNERS"
 # Telemetry liveness (health check): `openclaw senpi status -r <runtime_id> --json` says whether a
 # REGISTERED runtime is actually WORKING (healthy vs degraded), not just present in the registry. Same
 # fail-open + fixture pattern as senpi-improve-trades' event-log read. Offline test hook: a JSON file at
@@ -67,6 +70,62 @@ CATALOG_KEYS = ("belief_plain", "thesis", "archetype", "archetype_label", "sub_s
 
 
 # ──────────────────────────────────────────────────────────────── guarded I/O helpers
+# Vendored from senpi-strategy-ops/scripts/_cli.py — skills install as bare sibling dirs, so there
+# is no cross-skill import. Held identical by tests/test_name_reader_parity.py; edit both or neither.
+SPAWN_FAILED_PREFIX = "command not found: "
+
+
+def _run_cli(args, timeout=60):
+    """Run a CLI command; return (returncode, stdout, stderr). rc=-1 on spawn failure/timeout —
+    `SPAWN_FAILED_PREFIX` on stderr distinguishes the never-ran case from the stopped-waiting one.
+    NEVER raises for a failure to run: EVERY spawn-side OSError is caught, not just the missing
+    binary, because a caller that dies here takes the whole script's output with it.
+
+    Suppresses the senpi plugin's info logs (which it prints to STDOUT and which otherwise corrupt
+    `--json` output) by forcing SENPI_LOG_LEVEL=error in the child env."""
+    env = dict(os.environ, SENPI_LOG_LEVEL="error")
+    try:
+        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
+        return p.returncode, p.stdout, p.stderr
+    except subprocess.TimeoutExpired:
+        return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
+    except OSError as e:
+        # The command NEVER RAN. FileNotFoundError (no such binary) is the common case; the rest are
+        # fork/exec failures a strained box really does produce — ENOMEM ("Cannot allocate memory"),
+        # EAGAIN (process-table exhaustion), EACCES, ENOEXEC. All of them are the never-ran event, so
+        # all of them carry SPAWN_FAILED_PREFIX: the distinction the money path makes is never-ran vs
+        # stopped-waiting, and only a timeout is the latter. Catching only FileNotFoundError let an
+        # ENOMEM fork failure propagate out of the read and kill the caller mid-run.
+        return -1, "", f"{SPAWN_FAILED_PREFIX}{args[0]}" + ("" if isinstance(e, FileNotFoundError)
+                                                            else f" ({e})")
+
+
+def _extract_json(text):
+    """Recover a JSON object/array from output that may be polluted with leading/trailing log lines
+    (e.g. `[plugins] [senpi-runtime] …` printed to stdout). Tries a clean parse, then raw_decode at
+    every `{`/`[` offset and returns the LARGEST successful parse (the real payload, not a log line)."""
+    text = text.strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    dec = json.JSONDecoder()
+    best = None
+    best_len = -1
+    for i, ch in enumerate(text):
+        if ch not in "{[":
+            continue
+        try:
+            obj, end = dec.raw_decode(text, i)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, (dict, list)) and (end - i) > best_len:
+            best, best_len = obj, end - i
+    return best
+
+
 def _ok(resp):
     if isinstance(resp, dict):
         if resp.get("success") is False:
@@ -165,17 +224,7 @@ def _pct(mark, prev):
     return round((m - p) / p * 100, 2)
 
 
-# ──────────────────────────────────────────────────────────────── vendored YAML (runtime.yaml parse)
-def _yaml_loads(text):
-    """Parse runtime.yaml text via the vendored stdlib loader (scripts/_yaml.py — no cross-skill
-    import). Returns the parsed mapping or None; never raises here (caller guards)."""
-    if HERE not in sys.path:
-        sys.path.insert(0, HERE)
-    import _yaml
-    return _yaml.loads(text)
-
-
-# ──────────────────────────────────────────────── runtime registry (deployed runtime.yaml — UNIVERSAL)
+# ────────────────────────────── the runtime's own inventory (ASK THE RUNTIME — never read its files)
 def _collapse_ws(s):
     """Collapse internal whitespace/newlines in a folded `description` block to single spaces + strip."""
     if not isinstance(s, str):
@@ -184,159 +233,93 @@ def _collapse_ws(s):
     return out or None
 
 
-def _dsl_preset_summary(exit_block):
-    """From a runtime.yaml `exit:` block: (dsl_preset, has_exit). dsl_preset keeps a named string preset
-    if that's what shipped, else True when a dsl_preset mapping is present (a bespoke inline preset)."""
-    if not isinstance(exit_block, dict):
-        return None, False
-    has_exit = True
-    dp = exit_block.get("dsl_preset")
-    if isinstance(dp, str):
-        return dp, has_exit            # a named preset ("conviction", …)
-    if isinstance(dp, dict) and dp:
-        return True, has_exit          # inline preset — protection present, no single name
-    if dp is not None:
-        return True, has_exit
-    return None, has_exit              # an `exit:` with no dsl_preset still counts as an exit
+def _runtime_read_failed(meta, cause):
+    """A failed runtime read, made LOUD and returned as three Nones — never as empty maps.
 
-
-def _dsl_ladder(exit_block):
-    """Parse the DSL PROTECTION LADDER from a runtime.yaml `exit:` block for reporting. Returns a dict
-    that says (a) HOW DSL works for this strategy and (b) the tier ladder — the config side of the
-    "protected from entry" story. NEVER raises; fail-open to None.
-
-    From `exit.dsl_preset`:
-      - inline mapping with phase1/phase2 →
-          {hard_stop_roe_pct: -phase1.max_loss_pct,      # the hard stop floor, active FROM ENTRY
-           arm_at_roe_pct: tiers[0].trigger_pct,          # Tier 1 = where the profit-ratchet ARMS
-           tiers: [{trigger_pct, lock_hw_pct}, …],        # the profit-lock ladder
-           has_phase2: bool}
-        If phase2 is absent/disabled → tiers: [], arm_at_roe_pct: null (phase1-only protection).
-        If phase1 is absent → hard_stop_roe_pct: null (rare; still report the ladder we have).
-      - a NAMED string preset ("conviction", …) → {preset_name: "<name>", note: "named preset — ladder
-        not inlined"} (the ladder lives in the runtime's preset table, not here).
-      - no dsl_preset (an `exit:` with none) → None.
-    """
-    if not isinstance(exit_block, dict):
-        return None
-    dp = exit_block.get("dsl_preset")
-    if isinstance(dp, str):
-        return {"preset_name": dp, "note": "named preset — ladder not inlined"}
-    if not isinstance(dp, dict) or not dp:
-        return None
-
-    p1 = dp.get("phase1") if isinstance(dp.get("phase1"), dict) else {}
-    p2 = dp.get("phase2") if isinstance(dp.get("phase2"), dict) else {}
-
-    # hard stop = the phase1 floor (active from entry). ROE floor is negative: -max_loss_pct.
-    hard = None
-    if p1 and p1.get("enabled") is not False:
-        ml = _num(p1.get("max_loss_pct"))
-        if ml is not None:
-            hard = -abs(ml)
-
-    # the profit-lock ratchet ladder (phase2). Present + enabled → parse the tiers; else empty ladder.
-    tiers, has_phase2, arm_at = [], False, None
-    if p2 and p2.get("enabled") is not False:
-        raw_tiers = p2.get("tiers")
-        if isinstance(raw_tiers, list):
-            for t in raw_tiers:
-                if not isinstance(t, dict):
-                    continue
-                trig = _num(t.get("trigger_pct"))
-                lock = _num(t.get("lock_hw_pct"))
-                tiers.append({"trigger_pct": trig, "lock_hw_pct": lock})
-        has_phase2 = bool(tiers)
-        if tiers and tiers[0].get("trigger_pct") is not None:
-            arm_at = tiers[0]["trigger_pct"]   # Tier 1 arms the trail (first trigger)
-
-    return {
-        "hard_stop_roe_pct": hard,       # e.g. -14.0 — floor, active FROM ENTRY (phase1)
-        "arm_at_roe_pct": arm_at,        # e.g. 8 — where the profit-ratchet ARMS (Tier 1), or null
-        "tiers": tiers,                  # the profit-lock ladder ([] when phase2 off)
-        "has_phase2": has_phase2,
-    }
-
-
-def _profile_from_runtime_yaml(text):
-    """Parse one deployed runtime.yaml TEXT into the universal profile fields. Returns a dict (possibly
-    partial) or None if the text doesn't parse to a mapping. Never raises."""
-    doc = _yaml_loads(text)
-    if not isinstance(doc, dict):
-        return None
-    exit_block = doc.get("exit")
-    dsl_preset, has_exit = _dsl_preset_summary(exit_block)
-    return {
-        "runtime_name": doc.get("name"),
-        "group": doc.get("group"),
-        "version": doc.get("version"),
-        "description": _collapse_ws(doc.get("description")),   # the UNIVERSAL "what it does / how it works"
-        "dsl_preset": dsl_preset,
-        # The DSL protection LADDER — how DSL works for this strategy: phase1 hard-stop floor (active
-        # FROM ENTRY) + the phase2 profit-lock tiers. Reported per strategy; the per-position tier state
-        # comes live from ratchet_stop_list (see hydrate). None when there's no dsl_preset to parse.
-        "dsl": _dsl_ladder(exit_block),
-        "has_exit": bool(has_exit),
-    }
+    Empty maps read as "asked, and there is nothing", which is what turned every registry-derived field
+    into a reassuring value on a host where the read never worked. The warning names the command, the
+    cause, and the fields the failure disarms, so the narrator cannot mistake silence for an all-clear."""
+    meta.setdefault("warnings", []).append(
+        f"RUNTIME STATE UNVERIFIED — `{' '.join(RUNTIME_LIST_CMD)}` failed ({cause}). On EVERY strategy "
+        f"this run, runtime_registered / not_running / running_blind / protected are null and "
+        f"runtime_health is 'unverified': we could NOT check whether a runtime is behind a strategy, nor "
+        f"whether a DSL exit is protecting it. Say so — never report a strategy as running, protected, "
+        f"or not-running from this run.")
+    meta["runtime_read_ok"] = False
+    return None, None, None
 
 
 def load_runtime_registry(meta):
-    """wallet_lower → runtime-profile for every deployed strategy the runtime has registered.
+    """wallet_lower → the engine's rendered descriptor, for every runtime the RUNTIME says it has.
 
-    SOURCE OF TRUTH for a strategy's "what it does / how it works" — read from the DEPLOYED runtime.yaml
-    the runtime itself registers in installed_runtimes.json (state dir). UNIVERSAL: covers user-authored
-    strategies too, not just catalog templates. Read-guarded + fail-open: any problem → ({}, {}, set(), None). A
-    meta.warnings note is added ONLY for a real parse error, not for a simply-absent registry file.
-    Also returns a wallet_lower → runtime_id map (the `senpi status --runtime <id>` address, for the
-    telemetry liveness read). Returns (profiles_map, id_map, registered_wallets, source)."""
-    state_dir = os.environ.get(STATE_DIR_ENV) or DEFAULT_STATE_DIR
-    path = os.path.join(state_dir, REGISTRY_FILENAME)
-    if not os.path.isfile(path):          # absent registry is normal, not an error
-        return {}, {}, set(), None
-    try:
-        with open(path) as fh:
-            raw = json.load(fh)
-    except Exception as e:  # noqa — a corrupt registry is a real parse error worth surfacing
-        meta.setdefault("warnings", []).append(
-            f"runtime registry unreadable ({e}); mandates fall back to catalog")
-        return {}, {}, set(), None
-    entries = raw.get("runtimes", raw) if isinstance(raw, dict) else raw
-    out = {}
-    id_map = {}                            # wallet_lower → runtime id (the `senpi status --runtime <id>` key)
-    registered = set()                     # wallet_lower for EVERY registry entry — PRESENCE, independent of
-                                           # whether its runtime.yaml parses. A registered runtime with an
-                                           # unreadable/non-mapping mandate is still RUNNING, not "not running".
-    for entry in (entries if isinstance(entries, list) else []):
+    SOURCE: `openclaw senpi runtime list --json` — the process that owns the registry, asked through
+    its own CLI. This used to resolve `~/.openclaw/senpi-state` by hand, which is `/root/…` on a box
+    where OpenClaw lives under `/data/…`: the read failed on every real host and said nothing.
+    FAIL-LOUD: a failed read returns (None, None, None) — three Nones, NOT empty maps — so callers
+    render "could not verify" rather than a reassuring false. Offline test hook:
+    $SENPI_RUNTIMES_FIXTURE is read instead of shelling out.
+    Returns (descriptors_by_wallet, id_map, status_by_wallet) or (None, None, None)."""
+    fixture = os.environ.get(RUNTIMES_FIXTURE_ENV)
+    if fixture:
+        try:
+            with open(fixture) as fh:
+                payload = json.load(fh)
+        except Exception as e:  # noqa — a bad fixture is a failed read like any other, never an empty one
+            return _runtime_read_failed(meta, f"fixture {fixture} unreadable ({e})")
+    else:
+        rc, out, err = _run_cli(RUNTIME_LIST_CMD, timeout=30)
+        payload = _extract_json(out)          # stdout carries `[plugins]` banners on a real box
+        if payload is None:                   # spawn failure, timeout, or nothing parseable on stdout
+            return _runtime_read_failed(meta, (err or "").strip()[:200] or f"exit {rc}, no JSON on stdout")
+    if not isinstance(payload, dict):
+        return _runtime_read_failed(meta, "output was not a JSON object")
+    if payload.get("ok") is False:
+        return _runtime_read_failed(meta, f"reported ok:false ({str(payload.get('error'))[:120]})")
+    entries = payload.get("runtimes")
+    if not isinstance(entries, list):         # no `runtimes` key ⇒ not the payload we asked for
+        return _runtime_read_failed(meta, "payload carried no `runtimes` list")
+
+    # An EMPTY list is a successful read of zero runtimes — an answer, not a failure.
+    descriptors, id_map, statuses = {}, {}, {}
+    for entry in entries:
         if not isinstance(entry, dict):
             continue
         wallet = entry.get("wallet")
-        if not wallet:
+        if not wallet:                        # unattributable to a strategy row; nothing to key it by
             continue
         wl = str(wallet).lower()
-        registered.add(wl)                 # a runtime IS registered for this wallet — mandate-parse aside
-        rid = _field(entry, "id", "runtimeId", "runtime_id")   # address for the status/liveness read
+        # PRESENCE is the key's existence; the VALUE may be None. `descriptor: null` is what the engine
+        # emits when an entry's YAML was absent/unparseable — that runtime is still registered and
+        # running, it is just undescribed (and, having no read exit, not assertable as protected).
+        desc = entry.get("descriptor")
+        descriptors[wl] = desc if isinstance(desc, dict) else None
+        rid = _field(entry, "id", "runtimeId", "runtime_id")   # the `senpi status -r <id>` address
         if rid:
             id_map[wl] = rid
-        text = entry.get("runtimeYamlContent")
-        if text is None:
-            ypath = entry.get("runtimeYamlPath")   # rarer form — a file path instead of inline content
-            if ypath and os.path.isfile(ypath):
-                try:
-                    with open(ypath) as yf:
-                        text = yf.read()
-                except Exception:  # noqa — a missing/unreadable path is fail-open, skip this entry
-                    text = None
-        if not text:
-            continue
-        try:
-            prof = _profile_from_runtime_yaml(text)
-        except Exception as e:  # noqa — one bad runtime.yaml must not sink the whole registry
-            meta.setdefault("warnings", []).append(
-                f"runtime.yaml parse failed for {str(wallet)[:8]} ({e})")
-            prof = None
-        if prof:
-            out[wl] = prof
-    return out, id_map, registered, "registry"
+        # The key is written for EVERY listed runtime, `status` present or not — a missing/null status
+        # is "the inventory did not say", which must stay tellable from "not in the list at all".
+        st = entry.get("status")
+        statuses[wl] = str(st) if st is not None else None
+    meta["runtime_read_ok"] = True
+    return descriptors, id_map, statuses
+
+
+def _profile_from_descriptor(desc):
+    """The engine's rendered descriptor → the universal profile fields this surface narrates. None when
+    the runtime had no descriptor to give (YAML absent/unparseable). Never raises."""
+    if not isinstance(desc, dict):
+        return None
+    return {
+        "runtime_name": desc.get("name"),
+        "group": desc.get("group"),
+        "version": desc.get("version"),
+        "description": _collapse_ws(desc.get("description")),   # the UNIVERSAL "what it does / how it works"
+        "dsl_preset": desc.get("dslPreset"),
+        # The DSL protection LADDER as the ENGINE renders it: the phase1 hard-stop floor (active FROM
+        # ENTRY) + the phase2 profit-lock tiers, or {preset_name, note} for a named preset. Reported per
+        # strategy; the per-position tier state comes live from ratchet_stop_list (see hydrate).
+        "dsl": desc.get("dsl"),
+    }
 
 
 # ──────────────────────────────────────────── telemetry liveness (is a REGISTERED runtime actually working?)
@@ -351,10 +334,13 @@ def _note_telemetry_unavailable(meta, msg):
 
 
 def _fetch_runtime_status(runtime_id, meta):
-    """`openclaw senpi status -r <id> --json` → parsed dict or None. FAIL-OPEN: no `openclaw` / non-zero
-    exit / unknown method / parse error → None + a one-time note; NEVER raises. `meta._telemetry_dead`
+    """`openclaw senpi status -r <id> --json` → parsed dict or None. FAIL-OPEN: no `openclaw` / a
+    fork-or-exec failure / timeout / non-zero exit / unknown method / parse error → None + a one-time
+    note. Raises on none of those: the spawn itself is guarded inside `_run_cli`, which catches every
+    OSError (not just the missing binary) precisely so this claim holds. `meta._telemetry_dead`
     short-circuits once the host has no CLI. Offline test hook: $SENPI_STATUS_FIXTURE = JSON
-    {"<runtime_id>": {status payload}} is read instead of shelling out (tests use this — no subprocess)."""
+    {"<runtime_id>": {the document that call prints}} is read instead of shelling out (tests use this —
+    no subprocess), so a fixture carries the real `{ok, statuses:[…]}` shape, never an invented one."""
     if not runtime_id or meta.get("_telemetry_dead"):
         return None
     fixture = os.environ.get(STATUS_FIXTURE_ENV)
@@ -367,73 +353,127 @@ def _fetch_runtime_status(runtime_id, meta):
         except Exception as e:  # noqa — a bad fixture is fail-open too
             _note_telemetry_unavailable(meta, f"status fixture unreadable ({e})")
             return None
-    try:
-        proc = subprocess.run(["openclaw", "senpi", "status", "-r", str(runtime_id), "--json"],
-                              capture_output=True, text=True, timeout=15)
-    except FileNotFoundError:                # not a runtime host → every call fails; stop shelling out
-        meta["_telemetry_dead"] = True
-        _note_telemetry_unavailable(meta, "openclaw CLI not found — runtime liveness unverified (registry-only)")
-        return None
-    except Exception as e:  # noqa — timeout / OS error → fail-open
-        _note_telemetry_unavailable(meta, f"status read failed ({e})")
-        return None
-    if proc.returncode != 0:
-        err = (proc.stderr or "")[:200]
-        if "unknown method" in err.lower():
+    rc, out, err = _run_cli(["openclaw", "senpi", "status", "-r", str(runtime_id), "--json"], timeout=20)
+    if rc != 0:
+        err = (err or "")[:200]
+        if err.startswith(SPAWN_FAILED_PREFIX):   # not a runtime host → every call fails; stop shelling out
+            meta["_telemetry_dead"] = True
+            _note_telemetry_unavailable(meta, "openclaw CLI not found — runtime liveness unverified")
+        elif "unknown method" in err.lower():
             meta["_telemetry_dead"] = True
             _note_telemetry_unavailable(meta, "runtime build predates the status RPC — liveness unverified")
         else:
-            _note_telemetry_unavailable(meta, f"status read exit {proc.returncode} ({err.strip()})")
+            _note_telemetry_unavailable(meta, f"status read exit {rc} ({err.strip()})")
         return None
-    try:
-        return json.loads(proc.stdout or "null")
-    except Exception as e:  # noqa — malformed JSON → fail-open
-        _note_telemetry_unavailable(meta, f"status JSON parse failed ({e})")
-        return None
+    # NOT a strict json.loads: on a real box stdout carries `[plugins] …` banners around the payload, so
+    # strict parsing failed even when the payload was right there. (`_run_cli` also forces
+    # SENPI_LOG_LEVEL=error, which suppresses most of them at the source.)
+    data = _extract_json(out)
+    if data is None:
+        _note_telemetry_unavailable(meta, "status read returned no parseable JSON")
+    return data
 
 
-# The runtime's own overall-health vocabulary is healthy/degraded/unhealthy/disabled/unknown. Only the
-# HEALTHY family earns 'live'; the broken family earns 'degraded'; everything else (`unknown`, `disabled`,
-# and any verdict we don't recognise) is UNPROVEN, not confirmed working — see _liveness_from_status.
-_HEALTH_LIVE = ("healthy", "ok", "okay", "running", "live", "up", "active", "ready", "true")
+# The runtime's own health vocabulary is healthy/degraded/unhealthy/disabled/unknown (the engine's
+# `ComponentHealth`). Only the HEALTHY family earns 'live'; the broken family earns 'degraded'; everything
+# else (`unknown`, `disabled`, and any verdict we don't recognise) is UNPROVEN, not confirmed working.
+_HEALTH_LIVE = ("healthy", "ok")
 _HEALTH_BROKEN = ("degraded", "warn", "warning", "unhealthy", "failed", "error", "down", "false", "stopped")
+# The keys that carry a HEALTH VERDICT the runtime computed about ITSELF (`RuntimeHealthStatus.health`;
+# `overallHealth` is the older spelling this skill has always accepted). ONLY these may promote to 'live'.
+_HEALTH_KEYS = ("overallHealth", "health")
+# Keys that carry a RUN or JOB STATE, not health: `runtime list`'s `status`, a deploy snapshot's
+# `state.overall`. They prove a process exists — never that it works — so they may only DOWNGRADE, never
+# promote. `senpi-strategy-ops/scripts/_cli.py` splits the two for exactly this reason, and its comment
+# records the incident: reading a run state as health turned a `{name, status: "running"}` entry into a ✅
+# for a runtime no tick had ever proven.
+_RUN_STATE_KEYS = ("overall", "status")
+
+
+def _classify_health(raw, allow_live):
+    """One verdict string → live / degraded / unknown. `allow_live=False` for a run state: it can say
+    the process is stopped (→ degraded), it can never say the runtime is working."""
+    h = str(raw).strip().lower()
+    if h in _HEALTH_BROKEN:
+        return "degraded"
+    if allow_live and h in _HEALTH_LIVE:
+        return "live"
+    return "unknown"    # runtime-reported unknown/disabled, a run state, or an unrecognised verdict
+
+
+def _entry_verdict(entry):
+    """One `RuntimeHealthStatus` record → live / degraded / unknown. Health keys first (they may
+    promote), then run-state keys (they may only downgrade), then 'unknown' — a record we could read but
+    could not interpret is UNPROVEN, never 'live'."""
+    if not isinstance(entry, dict):
+        return "unknown"
+    for k in _HEALTH_KEYS:
+        if entry.get(k) is not None:
+            return _classify_health(entry[k], allow_live=True)
+    for k in _RUN_STATE_KEYS:
+        if entry.get(k) is not None:
+            return _classify_health(entry[k], allow_live=False)
+    return "unknown"
+
+
+def _status_entries(payload):
+    """The `RuntimeHealthStatus` records inside a `senpi status --json` DOCUMENT.
+
+    The document the CLI actually writes is `{ok: true, statuses: [RuntimeHealthStatus…]}` — the verdict
+    lives one level DOWN, inside the array. Corroborated twice: the producer (senpi-trading-runtime
+    `src/cli/senpi-commands.ts`, the status subcommand's `writeJson({ ok: true, statuses })`) and this
+    repo's field-proven reader (`senpi-strategy-ops/scripts/_cli.py`'s `runtime_health_map`, which reads
+    `find_list(obj, "statuses")`). A mapper that only looked at the wrapper found no verdict on EVERY
+    real payload — which is how a fail-open default read `live` for a runtime the engine called unhealthy.
+
+    An EMPTY `statuses` is a real ANSWER — the gateway is running no runtime under that id — and returns
+    `[]`, which the caller maps to 'unknown' (never 'live').
+
+    Also accepts the single-record shape (`{status: {…}}`, what the gateway hands the `-r <id>` form
+    before the CLI folds it into `statuses`) and a bare record (a flatter/rewrapped payload)."""
+    scopes = [payload] + [payload.get(k) for k in ("payload", "data", "result", "runtime")]
+    scopes = [s for s in scopes if isinstance(s, dict)]
+    for s in scopes:
+        if isinstance(s.get("statuses"), list):
+            return s["statuses"]                      # THE shape the CLI writes
+        if isinstance(s.get("status"), dict):
+            return [s["status"]]                      # the single-record shape
+    for s in scopes:
+        if any(s.get(k) is not None for k in _HEALTH_KEYS + _RUN_STATE_KEYS):
+            return [s]                                # the scope IS the record
+    return []
 
 
 def _liveness_from_status(status):
-    """Map a `senpi status` payload → runtime_health. The payload existing at all means the runtime is up
-    (the gateway answered for it); an explicit overall-health verdict then refines it: healthy→'live',
-    degraded/unhealthy→'degraded', and anything NOT in either family (the runtime's own `unknown` and
-    `disabled`, or a verdict we don't recognise)→'unknown'. None ⇒ 'unknown' too.
+    """Map a `senpi status -r <id> --json` DOCUMENT → runtime_health: 'live' / 'degraded' / 'unknown'.
+
+    'live' has to be EARNED by a health verdict the runtime computed about itself (healthy/ok). A run
+    state ("running") is not that verdict and cannot promote; a document we could read but found no
+    recognisable verdict in is 'unknown'; an empty `statuses[]` is 'unknown'. None ⇒ 'unknown' too.
+    Broken verdicts (degraded/unhealthy/…) and a stopped run state → 'degraded'. Worst wins across
+    records (degraded > unknown > live) — an id that answers with several runtimes cannot have the sick
+    one averaged away.
 
     'unknown' is NOT PROVEN LIVE — telemetry unavailable, or the runtime itself says it can't vouch for
     the runtime yet (never-heard scanners, right after a restart, a scanner-only runtime whose overall
     verdict renders `unknown`). It is never asserted as broken and never upgraded to 'live': the runtime
     is fail-closed about `unknown` (it refuses to paint an unproven scanner healthy), so painting that
-    `unknown` as 'live' here would re-open exactly the fail-open it closes.
+    `unknown` as 'live' here would re-open exactly the fail-open it closes. Registered-vs-not-running is
+    the registry read's verdict, not this one's — telemetry that reports nothing may neither upgrade a
+    strategy to running nor condemn it.
 
-    Reads the verdict ONLY from the top of the payload (or a well-known wrapper) — NOT via a deep search.
-    A deep search would pick up a per-scanner / per-order `status:"error"` on an otherwise-healthy runtime
-    and cry DEGRADED (a false alarm); the OVERALL verdict is a top-level concern."""
+    Reads the verdict ONLY from a record's own top level — NOT via a deep search. A deep search would
+    pick up a per-scanner / per-order `status:"error"` on an otherwise-healthy runtime and cry DEGRADED
+    (a false alarm); the OVERALL verdict is `RuntimeHealthStatus.health`."""
     if not isinstance(status, dict) or not status:
         return "unknown"
-    h = None
-    for scope in (status, status.get("data"), status.get("runtime"), status.get("result")):
-        if not isinstance(scope, dict):
-            continue
-        for k in ("overallHealth", "health", "overall", "status"):
-            if scope.get(k) is not None:
-                h = scope.get(k)
-                break
-        if h is not None:
-            break
-    if h is None:
-        return "live"   # answered with NO explicit health verdict at all → it's running
-    h = str(h).lower()
-    if h in _HEALTH_BROKEN:
-        return "degraded"
-    if h in _HEALTH_LIVE:
-        return "live"
-    return "unknown"    # runtime-reported unknown/disabled, or an unrecognised verdict → not proven live
+    if status.get("ok") is False:                     # the document itself says it could not answer
+        return "unknown"
+    verdicts = [_entry_verdict(e) for e in _status_entries(status)]
+    for worst in ("degraded", "unknown", "live"):
+        if worst in verdicts:
+            return worst
+    return "unknown"                                  # no records at all (empty `statuses[]`)
 
 
 # ──────────────────────────────────────────────────────────────── strategy profile (catalog enrichment)
@@ -456,7 +496,8 @@ def _merge_profile(registry_prof, catalog_facets):
     if not registry_prof and not catalog_facets:
         return None
     prof = {
-        "description": None, "runtime_name": None, "group": None, "dsl_preset": None, "dsl": None,
+        "description": None, "runtime_name": None, "group": None, "version": None,
+        "dsl_preset": None, "dsl": None,
         "belief_plain": None, "thesis": None, "archetype": None, "sub_style": None,
         "asset_classes": None, "risk_level": None, "time_horizon": None, "tagline": None,
         "source": None,
@@ -465,6 +506,7 @@ def _merge_profile(registry_prof, catalog_facets):
         prof["description"] = registry_prof.get("description")
         prof["runtime_name"] = registry_prof.get("runtime_name")
         prof["group"] = registry_prof.get("group")
+        prof["version"] = registry_prof.get("version")
         prof["dsl_preset"] = registry_prof.get("dsl_preset")
         prof["dsl"] = registry_prof.get("dsl")   # the DSL protection ladder (how DSL works for this strat)
     if catalog_facets:
@@ -622,10 +664,12 @@ def fetch_strategies(client, meta):
         meta.setdefault("warnings", []).append(f"strategy_list failed: {e}")
         return []
     rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
-    # UNIVERSAL source of "what it does / how it works": the deployed runtime.yaml the runtime registers,
-    # keyed by wallet — works for user-authored strategies, not just our catalog templates.
-    registry, runtime_id_map, registered_wallets, registry_src = load_runtime_registry(meta)  # profiles + ids + presence
-    meta["registry_source"] = registry_src
+    # UNIVERSAL source of "what it does / how it works": the descriptor the RUNTIME renders for each
+    # runtime it has, keyed by wallet — works for user-authored strategies, not just catalog templates.
+    # THREE NONES when the read failed: every field below then reports null, never a reassuring value.
+    descriptors, runtime_id_map, runtime_statuses = load_runtime_registry(meta)
+    read_ok = descriptors is not None
+    meta["registry_source"] = "runtime-cli" if read_ok else None
     # OPTIONAL template enrichment (archetype/belief_plain/…), keyed by skill_name.
     catalog, catalog_src = load_catalog(meta)
     meta["catalog_source"] = catalog_src
@@ -645,26 +689,43 @@ def fetch_strategies(client, meta):
             skill_name = _field(s, "skillName", "skill_name", "skill")
         if not skill_version:
             skill_version = _field(s, "skillVersion", "skill_version")
-        # UNIVERSAL profile: the registry's runtime.yaml `description` (keyed by wallet) is the
-        # load-bearing "what it does / how it works" — present for user-authored strategies too. Catalog
-        # facets enrich templates only. Merged into a single `profile`; None only if BOTH are absent.
-        registry_prof = registry.get(str(wallet).lower())
+        wl = str(wallet).lower()
+        desc = descriptors.get(wl) if read_ok else None
+        rt_status = runtime_statuses.get(wl) if read_ok else None
+        # UNIVERSAL profile: the descriptor's `description` (keyed by wallet) is the load-bearing "what it
+        # does / how it works" — present for user-authored strategies too. Catalog facets enrich templates
+        # only. Merged into a single `profile`; None only if BOTH are absent.
+        registry_prof = _profile_from_descriptor(desc)
         catalog_facets = _catalog_facets(catalog.get(skill_name) if skill_name else None)
         profile = _merge_profile(registry_prof, catalog_facets)
-        # PROTECTED — universal: the deployed runtime.yaml ships an `exit` block (has_exit), OR it's a
-        # template deploy (skill_name present ⟹ built-in DSL exit by the validator invariant). Config-
-        # level protection posture, not a live per-position DSL-tracking check.
-        has_exit = bool(registry_prof and registry_prof.get("has_exit"))
-        # RUNTIME LIVENESS — is a runtime actually REGISTERED for this strategy? The runtime records every
-        # deployed strategy in installed_runtimes.json (keyed by wallet). A skill_name strategy that is
-        # ACTIVE + funded but ABSENT from that registry has NO runtime behind it — its scanner never ran,
-        # so it has NO DSL and NO guardrails despite "status: ACTIVE" (the exact trap that let a user think
-        # a funded-but-never-registered strategy was live and protected). Only judgeable when the registry
-        # is actually present on THIS host; an absent registry ⇒ unknown (never claim not-running from it).
-        # PRESENCE-based, NOT mandate-parse: a registered runtime whose runtime.yaml we can't read/parse is
-        # still RUNNING (just undescribed) — keying off registry_prof would falsely call it "not running".
-        runtime_registered = (str(wallet).lower() in registered_wallets) if registry_src == "registry" else None
-        not_running = bool(skill_name) and runtime_registered is False
+        # Registered per the runtime itself. None ⇒ we could not ask — never False, which reads as
+        # "we checked and there is nothing", a claim no failed read has earned. PRESENCE-based, not
+        # descriptor-based: a registered runtime whose YAML the engine couldn't render is still RUNNING.
+        runtime_registered = (wl in descriptors) if read_ok else None
+        # ACTIVE + funded + attributed, with no runtime behind it: the trap that let a user think a
+        # funded-but-never-registered strategy was live and protected. Unanswerable ⇒ None.
+        not_running = (bool(skill_name) and runtime_registered is False) if read_ok else None
+        # Up, and structurally unable to produce entry signals. Invisible on this surface before now.
+        # Tri-state for the same reason every field here is: a registered runtime whose inventory row
+        # carried NO status was never checked, and False there would claim "we checked, and it can
+        # enter positions" — the reassuring answer, which is what a dropped field must never buy.
+        if not read_ok:
+            running_blind = None
+        elif not runtime_registered:
+            running_blind = False        # no runtime at all — `not_running` carries that, not this
+        elif rt_status is None:
+            running_blind = None         # listed, but it did not say
+        else:
+            running_blind = RUNTIME_BLIND_MARK in rt_status.upper()
+        # PROTECTED — from an exit the ENGINE read in the deployed runtime.yaml (`descriptor.hasExit`, the
+        # engine's own funding-gate predicate). The presence of a skillName stamp is ATTRIBUTION, not
+        # protection, and asserting it as DSL protection is what this field did on every real host.
+        if not read_ok:
+            protected = None
+        elif not_running:
+            protected = False
+        else:
+            protected = bool(desc and desc.get("hasExit"))
         name, name_source = _strategy_name_and_source(s)
         strategies.append({
             "name": name,
@@ -680,14 +741,14 @@ def fetch_strategies(client, meta):
             "total_withdrawn": _f(s, "totalWithdrawn", "total_withdrawn", default=None),
             "skill_name": skill_name,
             "skill_version": skill_version,
-            # PROTECTED — config posture (deployed runtime.yaml ships an `exit` block, or a template deploy
-            # carries the validator-guaranteed DSL). But a strategy with NO registered runtime is running
-            # NOTHING, so it is NOT protected regardless of config — force False when not_running.
-            "protected": False if not_running else bool(has_exit or skill_name),
-            "runtime_registered": runtime_registered,   # True | False | None (unknown — no registry here)
+            # PROTECTED — an exit the ENGINE read in the deployed runtime.yaml. True | False | None
+            # (null = the runtime read failed; we could not check, so nothing here is claimed).
+            "protected": protected,
+            "runtime_registered": runtime_registered,   # True | False | None (null — could not ask)
             "not_running": not_running,                  # ACTIVE + funded skill strategy, no runtime → dead
-            # The strategy's declared job — `profile.description` from its DEPLOYED runtime.yaml (the
-            # runtime registers it), plus optional catalog facets. The yardstick to judge it against.
+            "running_blind": running_blind,              # up, but with NO entry scanners — cannot enter
+            # The strategy's declared job — `profile.description` from the descriptor the RUNTIME
+            # rendered for it, plus optional catalog facets. The yardstick to judge it against.
             "profile": profile,
         })
 
@@ -769,15 +830,28 @@ def fetch_strategies(client, meta):
     except Exception:  # noqa
         strategies = [hydrate(s) for s in strategies]
     # TELEMETRY LIVENESS — for each strategy WITH a registered runtime, ask the runtime itself (senpi
-    # status) whether it's actually healthy, not just registered. runtime_health: not_running (no registry)
-    # / degraded (registered but reports unhealthy) / live (reports healthy) / unknown (NOT PROVEN LIVE —
-    # telemetry unavailable, or the runtime itself reports unknown; do NOT assert broken, do NOT call it
-    # live). Fail-open + short-circuited by _telemetry_dead; sequential (few per user).
+    # status) whether it's actually healthy, not just registered. runtime_health:
+    #   unverified  — the runtime read FAILED; we could not ask ANY of it (never say running/protected)
+    #   not_running — the read succeeded and there is no runtime behind an ACTIVE + funded strategy
+    #   degraded    — up but broken: no entry scanners, stopped, or telemetry reports unhealthy
+    #   live        — registered and telemetry reports healthy. Only this earns "running"
+    #   unknown     — NOT PROVEN LIVE (telemetry unavailable, or the runtime won't vouch for it yet)
+    # Fail-open + short-circuited by _telemetry_dead; sequential (few per user).
     for s in strategies:
-        if s.get("not_running"):
+        if s.get("runtime_registered") is None:
+            s["runtime_health"] = "unverified"     # the read failed — nothing below was ever asked
+        elif s.get("not_running"):
             s["runtime_health"] = "not_running"
+        elif s.get("running_blind"):
+            s["runtime_health"] = "degraded"       # up, and structurally unable to enter a position
+        elif s.get("running_blind") is None:
+            # Registered, but the inventory carried no status for it: we do not know whether it can
+            # enter a position at all, so telemetry's "healthy" cannot make this row read 'live'.
+            s["runtime_health"] = "unknown"
         elif s.get("runtime_registered") is not True:
-            s["runtime_health"] = "unknown"        # no registry on this host, or a custom/no-skill one-off
+            s["runtime_health"] = "unknown"        # unattributed strategy with no runtime (e.g. copy-trade)
+        elif str(runtime_statuses.get(str(s.get("wallet")).lower(), "")).lower().startswith("stopped"):
+            s["runtime_health"] = "degraded"       # the inventory itself says the process is stopped
         else:
             rid = runtime_id_map.get(str(s.get("wallet")).lower())
             s["runtime_health"] = _liveness_from_status(_fetch_runtime_status(rid, meta) if rid else None)
@@ -799,9 +873,21 @@ def fetch_strategies(client, meta):
             f"running: no scanner, no DSL, no guardrails despite 'ACTIVE'. Report as UNPROTECTED / not "
             f"running, never as live or 'waiting for a setup': {', '.join(str(n) for n in not_running)}. "
             f"Confirm + fix with senpi-strategy-ops `diagnose.py <id>` (then close.py → redeploy).")
+    # Up, and CANNOT ENTER: the runtime reports `running — NO ENTRY SCANNERS`. Broken wiring, not a quiet
+    # market — a strategy that will never take a position no matter what its scanners would have found.
+    # Kept out of the degraded roll-up below so the cause the agent relays is the real one.
+    blind = [s["name"] for s in strategies if s.get("running_blind")]
+    if blind:
+        meta["running_blind"] = blind
+        meta.setdefault("warnings", []).append(
+            f"{len(blind)} strategy(ies) are RUNNING WITH NO ENTRY SCANNERS — the runtime is up but has no "
+            f"scanner wired to produce entry signals, so it can never open a position (this is broken "
+            f"wiring, NOT 'waiting for a setup'): {', '.join(str(b) for b in blind)}. Confirm + fix with "
+            f"senpi-strategy-ops `diagnose.py <id>` (then close.py → redeploy).")
     # Registered but telemetry says the runtime is DEGRADED/unhealthy — running, but not cleanly (scanner
     # erroring, monitor stalled, etc.). Distinct from not_running (no runtime) and from live (healthy).
-    degraded = [s["name"] for s in strategies if s.get("runtime_health") == "degraded"]
+    degraded = [s["name"] for s in strategies
+                if s.get("runtime_health") == "degraded" and not s.get("running_blind")]
     if degraded:
         meta["degraded_runtimes"] = degraded
         meta.setdefault("warnings", []).append(
@@ -1086,6 +1172,26 @@ def _short_wallet(w):
     return f"{w[:6]}...{w[-4:]}" if len(w) > 12 else w
 
 
+def _rollup_flag(insts, field):
+    """ALL-instances roll-up of a tri-state flag: None if ANY instance is null (we could not check that
+    sleeve, so the strategy-level answer is not known either), else all(...)."""
+    vals = [s.get(field) for s in insts]
+    if any(v is None for v in vals):
+        return None
+    return all(bool(v) for v in vals)
+
+
+def _rollup_any(insts, field):
+    """ANY-instance roll-up of a tri-state flag: True if any sleeve says yes (one is enough), else None
+    if any sleeve is unknown, else False. A null sleeve may never roll up as a reassuring False."""
+    vals = [s.get(field) for s in insts]
+    if any(v is True for v in vals):
+        return True
+    if any(v is None for v in vals):
+        return None
+    return False
+
+
 def group_strategies(strategies, meta):
     """Collapse the per-wallet `strategies[]` rows into `strategy_groups[]` — ONE entry per real strategy.
 
@@ -1167,17 +1273,18 @@ def group_strategies(strategies, meta):
             "instances": instances,                             # per-wallet detail
             "totals": totals,                                   # summed across all wallets
             # protected ONLY if ALL instances are protected — a strategy with one unguarded sleeve is not
-            # fully protected. (An instance with no registered runtime is forced unprotected upstream.)
-            "protected": all(bool(s.get("protected")) for s in insts),
+            # fully protected. None if ANY instance is null: the roll-up may not launder an unverified
+            # instance into a verdict (bool(None) would quietly render "we checked, and it is not").
+            "protected": _rollup_flag(insts, "protected"),
             # not_running: ANY instance is ACTIVE + funded but has no runtime registered → the strategy (or
-            # a sleeve of it) isn't actually running. runtime_registered: True (all registered) / False
-            # (some missing) / None (unknown — no registry on this host, don't assert either way).
-            "not_running": any(bool(s.get("not_running")) for s in insts),
-            "runtime_registered": (None if any(s.get("runtime_registered") is None for s in insts)
-                                   else all(bool(s.get("runtime_registered")) for s in insts)),
-            # runtime_health = the WORST across instances (not_running > degraded > unknown > live) — one
-            # dead/degraded sleeve makes the whole strategy not-fully-live.
-            "runtime_health": next((v for v in ("not_running", "degraded", "unknown", "live")
+            # a sleeve of it) isn't actually running. running_blind: ANY sleeve is up but cannot enter.
+            # runtime_registered: True (all registered) / False (some missing) / None (could not ask).
+            "not_running": _rollup_any(insts, "not_running"),
+            "running_blind": _rollup_any(insts, "running_blind"),
+            "runtime_registered": _rollup_flag(insts, "runtime_registered"),
+            # runtime_health = the WORST across instances (not_running > degraded > unverified > unknown >
+            # live) — one dead/degraded/unverifiable sleeve makes the whole strategy not-fully-live.
+            "runtime_health": next((v for v in ("not_running", "degraded", "unverified", "unknown", "live")
                                     if any(s.get("runtime_health") == v for s in insts)), "unknown"),
             "flat_instances": flat_instances,
             "profile_source": prof.get("source"),
@@ -1397,7 +1504,22 @@ def _ensure_full_strategies_in_state(client, state, want_market, meta):
     state["registry_source"] = meta.get("registry_source")
     state["catalog_source"] = meta.get("catalog_source")
     state["profile_source"] = meta.get("profile_source")
+    if "runtime_read_ok" in meta:
+        state["runtime_read_ok"] = meta["runtime_read_ok"]
     return embedded, strategies, portfolio_totals
+
+
+def _carry_provenance(meta, state):
+    """Restore the read-provenance keys onto a step's own `meta` from the shared state.
+
+    On a state HIT the reads that set these ran in an EARLIER step, so without this a step drops
+    `registry_source` — documented in SKILL.md as always present, and the field a reader checks before
+    trusting any runtime claim. `runtime_read_ok` is copied only when the state HAS it: a bool defaulted
+    to null would report a failed runtime read this step never made."""
+    for k in ("registry_source", "catalog_source", "profile_source"):
+        meta[k] = state.get(k, meta.get(k))
+    if "runtime_read_ok" in state:
+        meta["runtime_read_ok"] = state["runtime_read_ok"]
 
 
 # ──────────────────────────────────────────── step subcommands (fast, resumable, standalone)
@@ -1446,9 +1568,7 @@ def step_strategies(client, want_market=True, state_path=None):
     for w in state.get("meta_warnings", []):
         if w not in meta["warnings"]:
             meta["warnings"].append(w)
-    meta["registry_source"] = state.get("registry_source", meta.get("registry_source"))
-    meta["catalog_source"] = state.get("catalog_source", meta.get("catalog_source"))
-    meta["profile_source"] = state.get("profile_source", meta.get("profile_source"))
+    _carry_provenance(meta, state)
     meta["strategy_count"] = len(strategies)
     meta.setdefault("has_multi_wallet_strategy", False)
     strategy_groups = group_strategies(strategies, meta)
@@ -1479,6 +1599,7 @@ def step_positions(client, want_market=True, state_path=None):
     if want_market and strategies:
         enrich_market(client, strategies, meta)
     totals, exposure, signals = compute(embedded, strategies, portfolio_totals)
+    _carry_provenance(meta, state)   # same restore as `step_strategies` — see _carry_provenance
     meta["strategy_count"] = len(strategies)
     meta.setdefault("has_multi_wallet_strategy", False)
     # REBUILD strategy_groups AFTER the market fold so the persisted groups reference the market-enriched
@@ -1561,7 +1682,8 @@ def main(argv=None):
                     "state file so later steps don't re-fetch.")
     ap.add_argument("--no-market", action="store_true", help="skip per-asset market enrichment")
     ap.add_argument("--state", default=None,
-                    help="shared state file path (default <tempdir>/senpi-portfolio/state.json)")
+                    help="shared STEP state file path (default <tempdir>/senpi-portfolio/state.json) — "
+                         "not the runtime state dir; this engine no longer reads one")
     ap.add_argument("--fixture", help="offline: path to a recorded MCP-response map (tests only)")
     ap.add_argument("--dry", action="store_true", help="dump raw MCP responses for schema debugging")
     # `step` was already peeled off argv above; feed the remainder (flags only).
