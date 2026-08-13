@@ -66,6 +66,16 @@ def test_book_summary():
     assert research._book_summary([], 0.0)["open_positions"] == 0
 
 
+def test_perps_drawdown_threshold():
+    # perps run big drawdowns on leverage — only near-liquidation (~83%+) is a real concern
+    assert "blowup_risk" not in research._flags({"max_drawdown_pct": -79.6})   # normal for a leveraged trader
+    assert "blowup_risk" in research._flags({"max_drawdown_pct": -86.6})       # near-liquidation
+    base = {"consistency": "ELITE", "trades": 100, "active_days": 90}
+    assert research._reliability({**base, "max_drawdown_pct": -75.0}) == "solid"   # big DD, still a proven copy
+    assert research._reliability({**base, "max_drawdown_pct": -85.0}) == "ok"      # ≤ -83 caps solid -> ok
+    assert research._reliability({**base, "max_drawdown_pct": -92.0}) == "choppy"  # ≤ -90 forced choppy
+
+
 def test_top_candidates_and_reliability():
     res = research.run(_client(), "top")
     assert len(res["candidates"]) == 3

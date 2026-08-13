@@ -61,9 +61,11 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
 - **Respect the reliability floor.** A record with **< 5 trades or < 7 active days** is not yet
   trustworthy — the engine flags it `thin_track_record`. Surface that loudly; don't recommend a copy
   off a tiny sample.
-- **A catastrophic drawdown is never "solid."** The engine caps the `reliability` verdict once max
-  drawdown is ≤ −60% and raises `blowup_risk` — a trader once near-liquidation is not a safe copy at any
-  ROI. Surface `blowup_risk` and `high_turnover` (copying a hyper-active trader bleeds fees) verbatim.
+- **On perps, big drawdowns are normal — don't alarm on them.** Leverage cuts both ways; a proven trader
+  routinely carries a −50% to −80% max drawdown and that is **not** a red flag. The engine only raises
+  `blowup_risk` at ≤ **−83%** (near-liquidation even by perps standards) and caps `reliability` there.
+  Surface `blowup_risk` when it actually fires, but **don't editorialize a −60/−70% drawdown as
+  "high-risk"** — that's just a leveraged trader. Surface `high_turnover` (a hyper-active copy bleeds fees) too.
 - **Use leveraged return + labels honestly.** Cite the behavior labels (consistency
   ELITE/RELIABLE/STREAKY/CHOPPY, risk CONSERVATIVE/BALANCED/AGGRESSIVE/SNIPER) and surface every flag
   verbatim — `choppy_consistency`, `high/critical_margin_usage`, `currently_in_drawdown`,
@@ -168,8 +170,8 @@ Formatting: short addresses, `Δ%`, labels as given; emoji sparingly.
 **Three things the data will fool you on — apply before you recommend anyone:**
 - **A 100% win rate is a warning, not a credential** — near-zero closed trades or hidden unrealised
   drawdown. If it reads 100% for *every* candidate, the field is broken: don't cite it; judge on
-  max-drawdown + closed-trade count. Never rank on ROI alone; the engine already refuses to call a
-  ≤ −60% drawdown "solid" (`blowup_risk`) — don't override it.
+  max-drawdown + closed-trade count. Never rank on ROI alone; the engine only flags `blowup_risk` at
+  ≤ −83% drawdown (near-liquidation on perps) — don't invent alarm below that.
 - **Mirrorability is the go/no-go — and it's PRICE distance, not ROE.** The engine computes `mirror_fit`
   + `fresh_entry_surface_pct` from how far each position's *price* sits from the trader's entry (what
   slippage actually gates on) — not the leveraged ROE, which overstates the distance (a −51% ROE can be

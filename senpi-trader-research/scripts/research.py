@@ -31,8 +31,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MIN_TRADES_FOR_TRUST = 5
 MIN_ACTIVE_DAYS_FOR_TRUST = 7
 # A copy decision needs more than a track record. These gate the mirror layer:
-CATASTROPHIC_DD = -60.0        # a max drawdown at/below this can't read "solid" — near-liquidation history
-BLOWUP_DD = -80.0             # …and at/below this caps the verdict at "choppy" outright
+CATASTROPHIC_DD = -83.0        # perps run big drawdowns on leverage — only near-liquidation (~83%+) is a real concern: blowup_risk + can't read "solid"
+BLOWUP_DD = -90.0             # …and at/below this is a near-total loss — cap the verdict at "choppy" outright
 HIGH_TURNOVER_PER_DAY = 8.0   # above this, a proportional copy bleeds fees (fees are the biggest killer)
 LOW_ACTIVITY_PER_DAY = 0.2    # below this trades/day the OG opens new positions so rarely a mirror sits idle between them
 DORMANT_DAYS = 30             # no trade in this many days — a fresh mirror won't fire until they trade again ("looks broken")
@@ -279,7 +279,7 @@ def _flags(c, positions=None, net_upnl=None, margin_pct=None):
         flags.append("choppy_consistency")
     dd = c.get("max_drawdown_pct")
     if dd is not None and dd <= CATASTROPHIC_DD:
-        flags.append("blowup_risk")            # ≤ -60% max drawdown — near-liquidation history
+        flags.append("blowup_risk")            # ≤ -83% max drawdown — near-liquidation even by perps standards
     tpd = c.get("trades_per_day")
     if tpd is not None and tpd > HIGH_TURNOVER_PER_DAY:
         flags.append("high_turnover")          # a proportional copy will bleed fees
