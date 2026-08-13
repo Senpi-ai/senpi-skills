@@ -16,9 +16,11 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.13.1"
+  version: "1.13.2"
   platform: senpi
   exchange: hyperliquid
+  requires:
+    - senpi-trading-runtime
 ---
 
 # Senpi Portfolio — real-time, all-wallet analysis
@@ -180,14 +182,28 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
   `openclaw senpi status`,"** not a clean all-clear. Flagged in `meta.warnings` too.
 - **`not_running`** — no runtime at all (above). ⛔ NOT RUNNING / UNPROTECTED.
 - **`unknown`** — registered, but health **not yet proven**: a scanner it has never heard from, a runtime
-  just restarted. Say **"runtime liveness unverified — not confirmed running"** — never upgrade to
-  "healthy/protected" or downgrade to "broken." The runtime is deliberately fail-closed about `unknown`
-  (it refuses to call an unproven scanner healthy); repeating it back is the whole point.
+  just restarted, or a `senpi status` document that carried no health verdict this engine recognises. Say
+  **"runtime liveness unverified — not confirmed running"** — never upgrade to "healthy/protected" or
+  downgrade to "broken." The runtime is deliberately fail-closed about `unknown` (it refuses to call an
+  unproven scanner healthy); repeating it back is the whole point. A runtime *process* that exists
+  (`status: running`) is not a health verdict and never reaches `live` on its own.
 - **`unverified`** — the registry READ ITSELF failed (no `openclaw` on this host, a build without the
   RPC, or the CLI call errored) — nothing below was ever asked. Say **"could not verify on this
   host"** — never "protected," "not protected," "running," or "not running." **`null` is not `false`.**
   `meta.warnings` names the failed command; quote it, never invent a cause. This is the honest bar:
   **only `live` means "confirmed working."**
+
+**Minimum runtime — `openclaw senpi runtime list --json`.** The engine asks the runtime for its own
+inventory through that command (it never reads the runtime's private state files). It is a **newer
+runtime build than some hosts carry**; a box whose `@senpi-ai/runtime` predates it exits non-zero on the
+`--json` flag, and you will see **every** runtime-sourced field `null` on **every** strategy —
+`runtime_registered` / `not_running` / `running_blind` / `protected` null, `runtime_health:
+"unverified"`, `meta.registry_source: null` — plus a `meta.warnings` line naming that exact command.
+**That whole-fleet pattern means the runtime on this box is too old for this skill's registry read, not
+that the strategies are broken.** Say so in those words, quote the warning, and do not diagnose the
+strategies from it: no strategy may be called running, not-running, protected or unprotected off that
+run. (A *single* strategy reading null while others read fine is a different thing — that one is
+genuinely unattributed.) The fix is a runtime upgrade on the box, not a redeploy of the strategies.
 
 This health check owns **liveness triage** (registered + running + healthy) via telemetry, and **references
 `diagnose.py` as the confirmation step** — it does not re-derive the deep checks. A thorough health check
@@ -580,7 +596,9 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
   `largest_position_pct_of_deployed` (concentration).
 - `meta` — `profile_source` (`registry` / `catalog` / `mixed` / `null` — where the strategies' mandates
   came from, in aggregate), `registry_source` (`"runtime-cli"` / `null` — `null` when the
-  `openclaw senpi runtime list` read failed), `catalog_source`
+  `openclaw senpi runtime list` read failed), **`runtime_read_ok`** (bool — `true` when that read
+  answered, `false` when it failed; `false` is the whole-fleet "this box's runtime could not be asked"
+  signal that pairs with the `meta.warnings` line naming the command), `catalog_source`
   (`local` / `remote` / `null`), `strategy_count`, **`has_multi_wallet_strategy`** (bool — `true` when at
   least one strategy spans multiple wallets/instances; a cue to reason at `strategy_groups[]` and apply
   the "a strategy is all its wallets" rules), and `warnings[]`.
