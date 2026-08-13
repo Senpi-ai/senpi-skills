@@ -253,7 +253,7 @@ def plan_funding(need, budget, available):
     The requested budget is a HARD TARGET, not a suggestion: if the live balance can't cover it (minus a
     per-wallet fee buffer) we return a `shortfall` dict and the caller HALTS — we never silently fund
     LESS than asked. The old behaviour scaled every wallet down to fit `available`, which quietly turned
-    a "$1,000 / $2,000" request into two $100 floor wallets; that silent under-funding is the bug this
+    a "$1,000 / $2,000" request into two $10 floor wallets; that silent under-funding is the bug this
     removes. (`available` unreadable → shortfall stays None → proceed; create would fail loudly anyway.)"""
     shares = [(i.funding_share or (1.0 / len(need))) for i in need]
     raw = {i.name: max(MIN_WALLET, round((budget or 0) * s, 2)) for i, s in zip(need, shares)}
@@ -293,8 +293,8 @@ def max_feasible_budget(shares, usable):
 
     Computed with the SAME per-wallet rounding `plan_funding` uses, so re-running `create` at the
     hinted `--budget ≤ $b*` round-trips with NO shortfall — even for uneven shares, where the old
-    `usable` ceiling was wrong (2 wallets 0.6/0.4, usable $230 → the small leg floors to $100, so
-    the true max is $216.67, not the hinted $230). Bisection in integer cents; exact to the cent."""
+    `usable` ceiling was wrong (2 wallets 0.6/0.4, usable $23 → the small leg floors to $10, so
+    the true max is $21.67, not the hinted $23). Bisection in integer cents; exact to the cent."""
     def total_cents(cents):
         b = cents / 100.0
         return int(round(sum(max(MIN_WALLET, round(b * s, 2)) for s in shares) * 100))
@@ -632,7 +632,7 @@ def cmd_create(pkg, a, log):
 
     # Size the to-create instances against the LIVE available balance. The requested --budget is a HARD
     # TARGET: if the balance can't cover it, HALT with the shortfall (fund more / lower the ask) rather
-    # than silently funding the $100 floor. Nothing is created on this path.
+    # than silently funding the $10 floor. Nothing is created on this path.
     amounts, shortfall = plan_funding(need, a.budget, available_usd(mcp)) if need else ({}, None)
     if shortfall:
         return report(pkg, st, "underfunded", note=underfunded_note(shortfall), as_json=a.json)
