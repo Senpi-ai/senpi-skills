@@ -306,7 +306,7 @@ def test_a_listed_runtime_with_no_status_does_not_claim_it_can_enter():
             entry.pop("status")
         else:
             entry["status"] = None
-        res = _run_with_status({"kodiak-main": {"overallHealth": "healthy"}},
+        res = _run_with_status({"kodiak-main": status_doc({"health": "healthy"})},
                                runtimes_fixture=_write_runtimes(payload))
         strat = by_wallet(res, KODIAK_WALLET)
         assert strat["running_blind"] is None, label
@@ -419,16 +419,28 @@ def _kodiak_only_fixture():
     }
 
 
+def status_doc(*records):
+    """The DOCUMENT `openclaw senpi status -r <id> --json` really prints: `{ok: true, statuses: [...]}`.
+
+    Every telemetry fixture here goes through this, because a fixture that invents a shape the producer
+    never emits certifies nothing: these tests were green over a mapper that found no verdict in ANY
+    real payload and defaulted to 'live'. The shape is the producer's own — senpi-trading-runtime
+    `src/cli/senpi-commands.ts` writes `writeJson({ ok: true, statuses })`, and each record is a
+    `RuntimeHealthStatus` (`health`, `components`, …) — and it is what `_cli.runtime_health_map` reads."""
+    return {"ok": True, "statuses": list(records)}
+
+
 def _run_with_status(status_by_id, runtimes_fixture=RUNTIMES_FIXTURE, mcp_fixture=None):
     """Run the engine with kodiak-main registered (the runtimes fixture) and a `senpi status` telemetry
-    fixture keyed by runtime id — no subprocess. Returns the result dict."""
+    fixture keyed by runtime id — no subprocess. Each value is the whole document that id's call prints
+    (build it with `status_doc`). Returns the result dict."""
     return run_engine(runtimes_fixture=runtimes_fixture,
                       status_fixture=_write_runtimes(status_by_id),
                       mcp_fixture=mcp_fixture or _kodiak_only_fixture())
 
 def test_registered_runtime_healthy_status_is_live():
     """A registered runtime whose `senpi status` telemetry reports healthy → runtime_health 'live'."""
-    res = _run_with_status({"kodiak-main": {"overallHealth": "healthy", "activePositions": 0}})
+    res = _run_with_status({"kodiak-main": status_doc({"health": "healthy", "activePositions": 0})})
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_registered"] is True
     assert strat["runtime_health"] == "live"
@@ -438,17 +450,52 @@ def test_registered_runtime_healthy_status_is_live():
 def test_registered_runtime_degraded_status_is_flagged():
     """Registered runtime whose telemetry reports degraded/unhealthy → runtime_health 'degraded' + warning
     (running, but not cleanly — distinct from not_running and from live)."""
-    res = _run_with_status({"kodiak-main": {"overallHealth": "degraded"}})
+    res = _run_with_status({"kodiak-main": status_doc({"health": "degraded"})})
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_health"] == "degraded"
     assert res["meta"].get("degraded_runtimes") == ["kodiak"]
     assert any("degraded" in w.lower() for w in res["meta"]["warnings"])
 
 
+def test_the_runtime_the_engine_calls_unhealthy_never_reads_live():
+    """THE regression this branch made load-bearing, measured against the document the producer really
+    writes: `{ok, statuses:[{health:'unhealthy', …}]}`. The verdict lives INSIDE `statuses[]`; a mapper
+    that searched only the wrapper found none, fell through to its 'live' default, and reported live +
+    protected + no warning for a runtime the engine itself called unhealthy."""
+    res = _run_with_status({"kodiak-main": status_doc(
+        {"runtimeName": "kodiak-main", "health": "unhealthy", "lastError": "scan threw"})})
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["runtime_health"] == "degraded"
+    assert res["meta"].get("degraded_runtimes") == ["kodiak"]
+    assert any("degraded" in w.lower() for w in res["meta"]["warnings"]), "and it may not be silent"
+
+
+def test_no_running_runtime_at_all_is_not_live():
+    """`{ok: true, statuses: []}` — the gateway answered, and it is running NO runtime under that id.
+    That is the emptiest possible answer and it must not read as confirmation: 'unknown' (unproven), and
+    not 'degraded' either — registered-vs-not is the registry read's verdict, not telemetry's."""
+    res = _run_with_status({"kodiak-main": status_doc()})
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["runtime_registered"] is True     # the registry DID list it
+    assert strat["runtime_health"] == "unknown"
+    assert "degraded_runtimes" not in res["meta"]
+
+
+def test_a_run_state_never_promotes_a_runtime_to_live():
+    """`status: "running"` is a RUN STATE, not a health verdict: it proves a process exists, never that
+    it works. Promoting one is the incident `_cli.py`'s HEALTH_KEYS/_RUN_STATE_KEYS split records — a
+    `{name, status: 'running'}` row rendered as a ✅ for a runtime no tick had ever proven."""
+    res = _run_with_status({"kodiak-main": status_doc({"runtimeName": "kodiak-main",
+                                                       "status": "running"})})
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["runtime_health"] == "unknown"
+    assert "degraded_runtimes" not in res["meta"]
+
+
 def test_registered_runtime_no_telemetry_is_unknown():
     """Registered runtime but telemetry has no entry for it (and no subprocess) → runtime_health 'unknown'
     — liveness unverified, never asserted broken."""
-    res = _run_with_status({"some-other-runtime-id": {"overallHealth": "healthy"}})
+    res = _run_with_status({"some-other-runtime-id": status_doc({"health": "healthy"})})
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_registered"] is True
     assert strat["runtime_health"] == "unknown"
@@ -458,7 +505,7 @@ def test_runtime_reported_unknown_is_not_live():
     """The runtime's own overall health of `unknown` (never-heard scanner, just-restarted runtime) must NOT
     be painted 'live' — it is UNPROVEN, not confirmed working. It also must not join the DEGRADED warning
     list: unproven is not broken."""
-    res = _run_with_status({"kodiak-main": {"overallHealth": "unknown"}})
+    res = _run_with_status({"kodiak-main": status_doc({"health": "unknown"})})
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_registered"] is True
     assert strat["runtime_health"] == "unknown"
@@ -466,43 +513,62 @@ def test_runtime_reported_unknown_is_not_live():
 
 
 def test_unrecognised_health_verdict_is_not_live():
-    """Fail-closed on vocabulary drift: a top-level verdict in neither the healthy nor the broken family
-    (here the runtime's `disabled`) reads 'unknown', never 'live'."""
-    res = _run_with_status({"kodiak-main": {"overallHealth": "disabled"}})
+    """Fail-closed on vocabulary drift: a verdict in neither the healthy nor the broken family (here the
+    runtime's `disabled`) reads 'unknown', never 'live'."""
+    res = _run_with_status({"kodiak-main": status_doc({"health": "disabled"})})
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_health"] == "unknown"
     assert "degraded_runtimes" not in res["meta"]
 
 
 def test_liveness_mapping_table():
-    """Pin the whole `_liveness_from_status` mapping in one place: healthy→live, degraded/unhealthy→
-    degraded, unknown→unknown, empty/non-dict→unknown, answered-with-no-verdict→live."""
+    """Pin the whole `_liveness_from_status` mapping in one place, against the REAL document shape:
+    healthy→live, degraded/unhealthy→degraded, unknown/disabled→unknown, empty `statuses[]`→unknown,
+    a run state→unknown (never promoted) unless it is a broken one (→degraded), and a document with no
+    verdict we recognise→unknown. Nothing but a health verdict earns 'live'."""
+    doc = status_doc
+    assert portfolio._liveness_from_status(doc({"health": "healthy"})) == "live"
+    assert portfolio._liveness_from_status(doc({"health": "ok"})) == "live"
+    assert portfolio._liveness_from_status(doc({"health": "degraded"})) == "degraded"
+    assert portfolio._liveness_from_status(doc({"health": "unhealthy"})) == "degraded"
+    assert portfolio._liveness_from_status(doc({"health": "unknown"})) == "unknown"
+    assert portfolio._liveness_from_status(doc({"health": "disabled"})) == "unknown"
+    assert portfolio._liveness_from_status(doc({"health": "sparkling"})) == "unknown"
+    assert portfolio._liveness_from_status(doc()) == "unknown"              # answered: no runtime running
+    assert portfolio._liveness_from_status(doc({"status": "running"})) == "unknown"   # run state ≠ health
+    assert portfolio._liveness_from_status(doc({"status": "stopped"})) == "degraded"  # …may downgrade
+    assert portfolio._liveness_from_status(doc({"activePositions": 2})) == "unknown"  # no verdict at all
+    # worst wins across records — one sick runtime is not averaged away by a healthy sibling
+    assert portfolio._liveness_from_status(
+        doc({"health": "healthy"}, {"health": "unhealthy"})) == "degraded"
+    # the single-record shape the `-r <id>` form may hand back, and a bare record, still classify
+    assert portfolio._liveness_from_status({"ok": True, "status": {"health": "healthy"}}) == "live"
     assert portfolio._liveness_from_status({"overallHealth": "healthy"}) == "live"
-    assert portfolio._liveness_from_status({"health": "degraded"}) == "degraded"
-    assert portfolio._liveness_from_status({"health": "unhealthy"}) == "degraded"
-    assert portfolio._liveness_from_status({"overallHealth": "unknown"}) == "unknown"
     assert portfolio._liveness_from_status({"data": {"health": "unknown"}}) == "unknown"
+    assert portfolio._liveness_from_status({"ok": False, "error": "gateway unreachable"}) == "unknown"
     assert portfolio._liveness_from_status({}) == "unknown"
     assert portfolio._liveness_from_status(None) == "unknown"
     assert portfolio._liveness_from_status([{"health": "healthy"}]) == "unknown"
-    assert portfolio._liveness_from_status({"activePositions": 2}) == "live"
 
 
 def test_nested_component_status_does_not_falsely_degrade():
-    """A healthy runtime whose telemetry carries NO top-level health verdict but DOES have a nested
-    per-scanner `status:"error"` must read 'live', not 'degraded'. Deep-matching a bare `status` anywhere
-    would cry DEGRADED on an otherwise-fine runtime — a false alarm."""
-    res = _run_with_status({"kodiak-main": {"activePositions": 2,
-                                            "scanners": [{"name": "kodiak_signals", "status": "error"}]}})
+    """A runtime whose OVERALL verdict is healthy but whose nested per-scanner health is unhealthy must
+    read 'live', not 'degraded'. Deep-matching a health key anywhere would cry DEGRADED on a runtime the
+    engine itself calls healthy — a false alarm. The overall verdict is `RuntimeHealthStatus.health`."""
+    res = _run_with_status({"kodiak-main": status_doc(
+        {"runtimeName": "kodiak-main", "health": "healthy", "activePositions": 2,
+         "components": {"scanners": {"component": "scanners", "health": "unhealthy",
+                                     "scanners": [{"scannerId": "kodiak_signals",
+                                                   "health": "unhealthy"}]}}})})
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_health"] == "live"
     assert "degraded_runtimes" not in res["meta"]
 
 
-def test_toplevel_status_still_classifies_degraded():
-    """Guard the other side of the liveness fix: a TOP-LEVEL `status` verdict is still honored — a runtime
-    that reports status 'stopped' at the top level → degraded (we only ignore NESTED bare status)."""
-    res = _run_with_status({"kodiak-main": {"status": "stopped"}})
+def test_a_stopped_run_state_still_classifies_degraded():
+    """The other side of the promotion rule: a run state may only DOWNGRADE, and it still does — a
+    record reporting `status: "stopped"` reads degraded, not unknown."""
+    res = _run_with_status({"kodiak-main": status_doc({"status": "stopped"})})
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_health"] == "degraded"
 
@@ -511,7 +577,7 @@ def test_registered_runtime_with_a_null_descriptor_is_still_running():
     """The producer emits `descriptor: null` when an entry's YAML was absent or unparseable. That runtime
     is still REGISTERED and still RUNNING — never flagged not_running. But its exit was never read, so it
     is not asserted protected either: undescribed is undescribed in BOTH directions."""
-    res = _run_with_status({"kodiak-main": {"overallHealth": "healthy"}},
+    res = _run_with_status({"kodiak-main": status_doc({"health": "healthy"})},
                            runtimes_fixture=fixture_with_descriptor(None))
     strat = by_wallet(res, KODIAK_WALLET)
     assert strat["runtime_registered"] is True      # present in the list → registered
@@ -799,6 +865,31 @@ def test_step_positions_emits_market_exposure_signals_offline():
     short = {s["name"]: s for s in out["strategies"]}["cub-short"]
     eth = next(p for p in short["positions"] if p["asset"] == "ETH")
     assert eth["market_24h_pct"] < 0 and eth["vs_market"] == "with the move"
+
+
+def test_every_step_reports_where_the_runtime_read_came_from():
+    """`meta.registry_source` is documented as always present, and it is what a reader checks before
+    trusting any runtime claim on a row. The `positions` step used to drop it on the state-HIT path (the
+    read ran in an earlier step), so its output carried runtime-derived fields with no provenance beside
+    them. Pinned on both steps that carry those fields, and pinned to AGREE. (`money` is exempt by
+    design: it makes no runtime read and its rows carry no runtime-derived field to qualify.)"""
+    saved = os.environ.get("SENPI_RUNTIMES_FIXTURE")
+    os.environ["SENPI_RUNTIMES_FIXTURE"] = RUNTIMES_FIXTURE
+    try:
+        sp = _tmp_state()
+        portfolio.step_money(_client(), want_market=False, state_path=sp)
+        outs = [portfolio.step_strategies(_client(), want_market=False, state_path=sp),
+                portfolio.step_positions(_client(), want_market=False, state_path=sp)]
+    finally:
+        if saved is None:
+            os.environ.pop("SENPI_RUNTIMES_FIXTURE", None)
+        else:
+            os.environ["SENPI_RUNTIMES_FIXTURE"] = saved
+    for key in ("registry_source", "catalog_source", "profile_source", "runtime_read_ok"):
+        assert all(key in o["meta"] for o in outs), key
+        assert len({json.dumps(o["meta"][key]) for o in outs}) == 1, key
+    assert outs[-1]["meta"]["registry_source"] == "runtime-cli"
+    assert outs[-1]["meta"]["runtime_read_ok"] is True
 
 
 def test_step_sequence_reproduces_all_values():

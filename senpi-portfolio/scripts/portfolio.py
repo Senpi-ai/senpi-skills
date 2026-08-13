@@ -339,7 +339,8 @@ def _fetch_runtime_status(runtime_id, meta):
     note. Raises on none of those: the spawn itself is guarded inside `_run_cli`, which catches every
     OSError (not just the missing binary) precisely so this claim holds. `meta._telemetry_dead`
     short-circuits once the host has no CLI. Offline test hook: $SENPI_STATUS_FIXTURE = JSON
-    {"<runtime_id>": {status payload}} is read instead of shelling out (tests use this — no subprocess)."""
+    {"<runtime_id>": {the document that call prints}} is read instead of shelling out (tests use this —
+    no subprocess), so a fixture carries the real `{ok, statuses:[…]}` shape, never an invented one."""
     if not runtime_id or meta.get("_telemetry_dead"):
         return None
     fixture = os.environ.get(STATUS_FIXTURE_ENV)
@@ -373,48 +374,106 @@ def _fetch_runtime_status(runtime_id, meta):
     return data
 
 
-# The runtime's own overall-health vocabulary is healthy/degraded/unhealthy/disabled/unknown. Only the
-# HEALTHY family earns 'live'; the broken family earns 'degraded'; everything else (`unknown`, `disabled`,
-# and any verdict we don't recognise) is UNPROVEN, not confirmed working — see _liveness_from_status.
-_HEALTH_LIVE = ("healthy", "ok", "okay", "running", "live", "up", "active", "ready", "true")
+# The runtime's own health vocabulary is healthy/degraded/unhealthy/disabled/unknown (the engine's
+# `ComponentHealth`). Only the HEALTHY family earns 'live'; the broken family earns 'degraded'; everything
+# else (`unknown`, `disabled`, and any verdict we don't recognise) is UNPROVEN, not confirmed working.
+_HEALTH_LIVE = ("healthy", "ok")
 _HEALTH_BROKEN = ("degraded", "warn", "warning", "unhealthy", "failed", "error", "down", "false", "stopped")
+# The keys that carry a HEALTH VERDICT the runtime computed about ITSELF (`RuntimeHealthStatus.health`;
+# `overallHealth` is the older spelling this skill has always accepted). ONLY these may promote to 'live'.
+_HEALTH_KEYS = ("overallHealth", "health")
+# Keys that carry a RUN or JOB STATE, not health: `runtime list`'s `status`, a deploy snapshot's
+# `state.overall`. They prove a process exists — never that it works — so they may only DOWNGRADE, never
+# promote. `senpi-strategy-ops/scripts/_cli.py` splits the two for exactly this reason, and its comment
+# records the incident: reading a run state as health turned a `{name, status: "running"}` entry into a ✅
+# for a runtime no tick had ever proven.
+_RUN_STATE_KEYS = ("overall", "status")
+
+
+def _classify_health(raw, allow_live):
+    """One verdict string → live / degraded / unknown. `allow_live=False` for a run state: it can say
+    the process is stopped (→ degraded), it can never say the runtime is working."""
+    h = str(raw).strip().lower()
+    if h in _HEALTH_BROKEN:
+        return "degraded"
+    if allow_live and h in _HEALTH_LIVE:
+        return "live"
+    return "unknown"    # runtime-reported unknown/disabled, a run state, or an unrecognised verdict
+
+
+def _entry_verdict(entry):
+    """One `RuntimeHealthStatus` record → live / degraded / unknown. Health keys first (they may
+    promote), then run-state keys (they may only downgrade), then 'unknown' — a record we could read but
+    could not interpret is UNPROVEN, never 'live'."""
+    if not isinstance(entry, dict):
+        return "unknown"
+    for k in _HEALTH_KEYS:
+        if entry.get(k) is not None:
+            return _classify_health(entry[k], allow_live=True)
+    for k in _RUN_STATE_KEYS:
+        if entry.get(k) is not None:
+            return _classify_health(entry[k], allow_live=False)
+    return "unknown"
+
+
+def _status_entries(payload):
+    """The `RuntimeHealthStatus` records inside a `senpi status --json` DOCUMENT.
+
+    The document the CLI actually writes is `{ok: true, statuses: [RuntimeHealthStatus…]}` — the verdict
+    lives one level DOWN, inside the array. Corroborated twice: the producer (senpi-trading-runtime
+    `src/cli/senpi-commands.ts`, the status subcommand's `writeJson({ ok: true, statuses })`) and this
+    repo's field-proven reader (`senpi-strategy-ops/scripts/_cli.py`'s `runtime_health_map`, which reads
+    `find_list(obj, "statuses")`). A mapper that only looked at the wrapper found no verdict on EVERY
+    real payload — which is how a fail-open default read `live` for a runtime the engine called unhealthy.
+
+    An EMPTY `statuses` is a real ANSWER — the gateway is running no runtime under that id — and returns
+    `[]`, which the caller maps to 'unknown' (never 'live').
+
+    Also accepts the single-record shape (`{status: {…}}`, what the gateway hands the `-r <id>` form
+    before the CLI folds it into `statuses`) and a bare record (a flatter/rewrapped payload)."""
+    scopes = [payload] + [payload.get(k) for k in ("payload", "data", "result", "runtime")]
+    scopes = [s for s in scopes if isinstance(s, dict)]
+    for s in scopes:
+        if isinstance(s.get("statuses"), list):
+            return s["statuses"]                      # THE shape the CLI writes
+        if isinstance(s.get("status"), dict):
+            return [s["status"]]                      # the single-record shape
+    for s in scopes:
+        if any(s.get(k) is not None for k in _HEALTH_KEYS + _RUN_STATE_KEYS):
+            return [s]                                # the scope IS the record
+    return []
 
 
 def _liveness_from_status(status):
-    """Map a `senpi status` payload → runtime_health. The payload existing at all means the runtime is up
-    (the gateway answered for it); an explicit overall-health verdict then refines it: healthy→'live',
-    degraded/unhealthy→'degraded', and anything NOT in either family (the runtime's own `unknown` and
-    `disabled`, or a verdict we don't recognise)→'unknown'. None ⇒ 'unknown' too.
+    """Map a `senpi status -r <id> --json` DOCUMENT → runtime_health: 'live' / 'degraded' / 'unknown'.
+
+    'live' has to be EARNED by a health verdict the runtime computed about itself (healthy/ok). A run
+    state ("running") is not that verdict and cannot promote; a document we could read but found no
+    recognisable verdict in is 'unknown'; an empty `statuses[]` is 'unknown'. None ⇒ 'unknown' too.
+    Broken verdicts (degraded/unhealthy/…) and a stopped run state → 'degraded'. Worst wins across
+    records (degraded > unknown > live) — an id that answers with several runtimes cannot have the sick
+    one averaged away.
 
     'unknown' is NOT PROVEN LIVE — telemetry unavailable, or the runtime itself says it can't vouch for
     the runtime yet (never-heard scanners, right after a restart, a scanner-only runtime whose overall
     verdict renders `unknown`). It is never asserted as broken and never upgraded to 'live': the runtime
     is fail-closed about `unknown` (it refuses to paint an unproven scanner healthy), so painting that
-    `unknown` as 'live' here would re-open exactly the fail-open it closes.
+    `unknown` as 'live' here would re-open exactly the fail-open it closes. Registered-vs-not-running is
+    the registry read's verdict, not this one's — telemetry that reports nothing may neither upgrade a
+    strategy to running nor condemn it.
 
-    Reads the verdict ONLY from the top of the payload (or a well-known wrapper) — NOT via a deep search.
-    A deep search would pick up a per-scanner / per-order `status:"error"` on an otherwise-healthy runtime
-    and cry DEGRADED (a false alarm); the OVERALL verdict is a top-level concern."""
+    Reads the verdict ONLY from a record's own top level — NOT via a deep search. A deep search would
+    pick up a per-scanner / per-order `status:"error"` on an otherwise-healthy runtime and cry DEGRADED
+    (a false alarm); the OVERALL verdict is `RuntimeHealthStatus.health`."""
     if not isinstance(status, dict) or not status:
         return "unknown"
-    h = None
-    for scope in (status, status.get("data"), status.get("runtime"), status.get("result")):
-        if not isinstance(scope, dict):
-            continue
-        for k in ("overallHealth", "health", "overall", "status"):
-            if scope.get(k) is not None:
-                h = scope.get(k)
-                break
-        if h is not None:
-            break
-    if h is None:
-        return "live"   # answered with NO explicit health verdict at all → it's running
-    h = str(h).lower()
-    if h in _HEALTH_BROKEN:
-        return "degraded"
-    if h in _HEALTH_LIVE:
-        return "live"
-    return "unknown"    # runtime-reported unknown/disabled, or an unrecognised verdict → not proven live
+    if status.get("ok") is False:                     # the document itself says it could not answer
+        return "unknown"
+    verdicts = [_entry_verdict(e) for e in _status_entries(status)]
+    for worst in ("degraded", "unknown", "live"):
+        if worst in verdicts:
+            return worst
+    return "unknown"                                  # no records at all (empty `statuses[]`)
 
 
 # ──────────────────────────────────────────────────────────────── strategy profile (catalog enrichment)
@@ -1445,7 +1504,22 @@ def _ensure_full_strategies_in_state(client, state, want_market, meta):
     state["registry_source"] = meta.get("registry_source")
     state["catalog_source"] = meta.get("catalog_source")
     state["profile_source"] = meta.get("profile_source")
+    if "runtime_read_ok" in meta:
+        state["runtime_read_ok"] = meta["runtime_read_ok"]
     return embedded, strategies, portfolio_totals
+
+
+def _carry_provenance(meta, state):
+    """Restore the read-provenance keys onto a step's own `meta` from the shared state.
+
+    On a state HIT the reads that set these ran in an EARLIER step, so without this a step drops
+    `registry_source` — documented in SKILL.md as always present, and the field a reader checks before
+    trusting any runtime claim. `runtime_read_ok` is copied only when the state HAS it: a bool defaulted
+    to null would report a failed runtime read this step never made."""
+    for k in ("registry_source", "catalog_source", "profile_source"):
+        meta[k] = state.get(k, meta.get(k))
+    if "runtime_read_ok" in state:
+        meta["runtime_read_ok"] = state["runtime_read_ok"]
 
 
 # ──────────────────────────────────────────── step subcommands (fast, resumable, standalone)
@@ -1494,9 +1568,7 @@ def step_strategies(client, want_market=True, state_path=None):
     for w in state.get("meta_warnings", []):
         if w not in meta["warnings"]:
             meta["warnings"].append(w)
-    meta["registry_source"] = state.get("registry_source", meta.get("registry_source"))
-    meta["catalog_source"] = state.get("catalog_source", meta.get("catalog_source"))
-    meta["profile_source"] = state.get("profile_source", meta.get("profile_source"))
+    _carry_provenance(meta, state)
     meta["strategy_count"] = len(strategies)
     meta.setdefault("has_multi_wallet_strategy", False)
     strategy_groups = group_strategies(strategies, meta)
@@ -1527,6 +1599,7 @@ def step_positions(client, want_market=True, state_path=None):
     if want_market and strategies:
         enrich_market(client, strategies, meta)
     totals, exposure, signals = compute(embedded, strategies, portfolio_totals)
+    _carry_provenance(meta, state)   # same restore as `step_strategies` — see _carry_provenance
     meta["strategy_count"] = len(strategies)
     meta.setdefault("has_multi_wallet_strategy", False)
     # REBUILD strategy_groups AFTER the market fold so the persisted groups reference the market-enriched
