@@ -32,12 +32,41 @@ COUGAR_SHORT_WALLET = "0xCOUGARSHORT00000000000000000000000000sht"
 
 _TMP = tempfile.mkdtemp(prefix="senpi-portfolio-tests-")
 # The engine SHELLS OUT (`openclaw senpi runtime list --json`) — so on a host that actually HAS the CLI
-# these tests would read that host's real runtimes. Empty PATH for the whole module: the only way data
-# reaches the engine here is the offline hooks ($SENPI_RUNTIMES_FIXTURE / $SENPI_STATUS_FIXTURE), and a
-# test that sets neither exercises the REAL spawn-failure path deterministically.
+# these tests would read that host's real runtimes. Empty PATH while THIS module's tests run: the only
+# way data reaches the engine here is the offline hooks ($SENPI_RUNTIMES_FIXTURE / $SENPI_STATUS_FIXTURE),
+# and a test that sets neither exercises the REAL spawn-failure path deterministically.
 _EMPTY_BIN = os.path.join(_TMP, "empty-bin")
 os.makedirs(_EMPTY_BIN, exist_ok=True)
-os.environ["PATH"] = _EMPTY_BIN
+_SAVED_PATH = "unset"  # sentinel distinct from `None` (PATH legitimately absent from the environment)
+
+
+def _empty_path():
+    """Save the real PATH, then empty it. Must bracket ONLY this module's own test run: setting PATH
+    at import time with no restore is what starved `test_run_sh.py`'s `subprocess.run(["bash", ...])`
+    of `bash` for the rest of the pytest process — collection imports every test module up front, so
+    an unrestored mutation here outlives this file."""
+    global _SAVED_PATH
+    _SAVED_PATH = os.environ.get("PATH", None)
+    os.environ["PATH"] = _EMPTY_BIN
+
+
+def _restore_path():
+    global _SAVED_PATH
+    if _SAVED_PATH == "unset":
+        return  # _empty_path() never ran — nothing to undo
+    if _SAVED_PATH is None:
+        os.environ.pop("PATH", None)
+    else:
+        os.environ["PATH"] = _SAVED_PATH
+    _SAVED_PATH = "unset"
+
+
+def setup_module(module):  # pytest xunit-style hook — runs once before this module's tests
+    _empty_path()
+
+
+def teardown_module(module):  # runs once after this module's tests, restoring PATH for every module after
+    _restore_path()
 
 
 def _write_runtimes(payload):
@@ -1107,8 +1136,14 @@ def test_within_ttl_cached_state_is_reused():
 
 
 if __name__ == "__main__":
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-    for fn in fns:
-        fn()
-        print(f"  ✓ {fn.__name__}")
-    print(f"\n{len(fns)}/{len(fns)} passed")
+    # Direct-script mode bypasses pytest's setup_module/teardown_module hooks entirely, so this run
+    # must bracket the same guarantee by hand.
+    _empty_path()
+    try:
+        fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+        for fn in fns:
+            fn()
+            print(f"  ✓ {fn.__name__}")
+        print(f"\n{len(fns)}/{len(fns)} passed")
+    finally:
+        _restore_path()
