@@ -50,6 +50,10 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
   trading today) landed outside the enriched set, **vet them before you settle** — don't recommend a
   flagged trader while a cleaner one sits un-scored. And when the proven names have all run their books,
   the **fresh-entry templates are the good options** — present them as the smart play, not a shrug.
+- **Don't make the user pick a sort — the engine blends windows.** The default find unions 30d-steady
+  (Gain-to-Pain), 7d-hot (ROI) and 30d-return, so proven *and* currently-performing names land in one pool.
+  Each candidate's `seen_in` shows which views it ranked in — **a trader in 2–3 views is a stronger copy
+  target than one in a single window's list**; call it out ("proven, and hot right now").
 - **Factor the market — don't wait to be asked.** Before recommending anyone to mirror, cross-reference
   the shortlist's book against the current regime (compose `senpi-market-pulse` if installed; otherwise
   use each candidate's engine `momentum` hot/cold). A proven, mirrorable trader positioned *against*
@@ -93,17 +97,20 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
 
 ## How to run the engine
 
-**Default (no flags) = FIND mode** — ranks the top traders; **no address needed.** Add `--trader
-<addr>` *only* to vet one specific wallet. ("best traders this month" / "who should I copy" → run with
-no `--trader`.)
+**Default (no flags) = FIND mode** — **no address needed, and no sort to choose.** The default **blends
+complementary views** — 30d Gain-to-Pain (steady, risk-adjusted) + 7d ROI (hot now) + 30d ROI (proven
+return) — unions them, and ranks a trader seen in more than one higher (proven **and** currently
+performing). The user never picks a window or metric. Add `--trader <addr>` only to vet one wallet.
 
 ```
-python3 scripts/research.py                        # FIND (default): mirror-aware — top + mirror_shortlist
-python3 scripts/research.py --time-frame MONTHLY --sort-by RETURN_ON_INVESTMENT --limit 15   # FIND, tuned
+python3 scripts/research.py                        # FIND (default): the smart blend → top + mirror_shortlist
+python3 scripts/research.py --time-frame WEEKLY --sort-by GAIN_TO_PAIN_RATIO   # override: ONE explicit view instead of the blend
 python3 scripts/research.py --trader 0xABC…        # VET mode: due-diligence dossier on ONE trader
 python3 scripts/research.py --strategies           # top copy-trading (mirror) strategies
 python3 scripts/research.py --no-mirror            # track record only (skip the live-book enrichment)
 ```
+The blend mirror-enriches a ~20-deep pool, so give it a generous timeout (~90s); it fails open — partial
+data still returns a valid shortlist.
 
 - **Find** (mirror-aware by default) → **`mirror_shortlist[]`** — the top candidates **ranked by
   copyability**, each with `mirrorability` (`mirror_fit` good/partial/poor + `fresh_entry_surface_pct` =

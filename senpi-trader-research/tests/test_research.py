@@ -66,6 +66,17 @@ def test_book_summary():
     assert research._book_summary([], 0.0)["open_positions"] == 0
 
 
+def test_blend_default_tags_views_single_view_does_not():
+    # default FIND blends complementary views — every candidate is tagged with the view(s) it came from
+    res = research.run(_client(), "top")
+    assert res["candidates"] and all(c.get("seen_in") for c in res["candidates"])
+    assert "blend" in res["ranking"]
+    # an explicit single-view (blend=False) tags nothing and keeps the old ranking shape
+    single = research.run(_client(), "top", blend=False)
+    assert all(c.get("seen_in") == [] for c in single["candidates"])
+    assert "time_frame" in single["ranking"]
+
+
 def test_top_candidates_and_reliability():
     res = research.run(_client(), "top")
     assert len(res["candidates"]) == 3

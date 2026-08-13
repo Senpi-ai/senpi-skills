@@ -37,9 +37,18 @@ HIGH_TURNOVER_PER_DAY = 8.0   # above this, a proportional copy bleeds fees (fee
 LOW_ACTIVITY_PER_DAY = 0.2    # below this trades/day the OG opens new positions so rarely a mirror sits idle between them
 DORMANT_DAYS = 30             # no trade in this many days — a fresh mirror won't fire until they trade again ("looks broken")
 NEAR_ENTRY_BAND_PCT = 5.0     # a position within this PRICE distance of the trader's entry is a fresh mirror entry
-ENRICH_TOP_DEFAULT = 10       # how many top find-candidates to mirror-enrich — a wider net so more genuinely-mirrorable options surface
+ENRICH_TOP_DEFAULT = 20       # how many of the blended pool to mirror-enrich — a wide net so genuinely-mirrorable options surface
+MOMENTUM_TOP = 10             # pull the 4h-momentum leaderboard call only for the top N (it's a tiebreak, not part of the copyability rank) — bounds MCP calls on a wide pool
 MIN_NOTIONAL_USD = 12.0       # HL per-position minimum (the $10 floor, auto-bumped to ~$12) — a copy below this is skipped
 MIRROR_DUST_FRAC = 0.01       # positions below this share of notional are dust — excluded from the whole-book budget so a residual tail can't explode it
+# "Who should I copy?" — no single sort is smart enough, so the default FIND blends complementary views and
+# lets a trader seen in more than one (proven AND currently performing) rank higher. The user never picks a sort.
+# GAIN_TO_PAIN_RATIO = risk-adjusted (steady winners, not big-drawdown gamblers); WEEKLY ROI = hot now; MONTHLY ROI = proven return.
+MIRROR_VIEWS = [
+    ("MONTHLY", "GAIN_TO_PAIN_RATIO",   "30d steady"),
+    ("WEEKLY",  "RETURN_ON_INVESTMENT", "7d hot"),
+    ("MONTHLY", "RETURN_ON_INVESTMENT", "30d return"),
+]
 
 
 # ──────────────────────────────────────────────────────────────── guarded helpers
@@ -320,9 +329,10 @@ def _momentum_label(m):
     return "hot" if d > 0 else "cold" if d < 0 else "flat"
 
 
-def _enrich_for_mirror(client, meta, c):
+def _enrich_for_mirror(client, meta, c, with_momentum=True):
     """Attach the copy-decision layer to a find candidate — current book, price-distance mirrorability,
-    4h momentum, full flags. Best-effort per trader; fails open so one bad lookup can't sink the find."""
+    4h momentum, full flags. Best-effort per trader; fails open so one bad lookup can't sink the find.
+    `with_momentum=False` skips the 4h leaderboard call (a tiebreak) to bound calls on a wide pool."""
     addr = c.get("address")
     positions, net_upnl, margin_pct, momentum, account_value, net_notional = [], None, None, None, None, 0.0
     try:
@@ -331,11 +341,12 @@ def _enrich_for_mirror(client, meta, c):
         positions, net_notional, net_upnl, margin_pct, account_value = _positions_from_state(trec)
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"state {c.get('short')}: {e}")
-    try:
-        lm = _ok(client.mcp_call("leaderboard_get_trader", trader_id=addr, timeout=12))
-        momentum = _momentum_from_leaderboard(lm)
-    except Exception as e:  # noqa
-        meta.setdefault("warnings", []).append(f"momentum {c.get('short')}: {e}")
+    if with_momentum:
+        try:
+            lm = _ok(client.mcp_call("leaderboard_get_trader", trader_id=addr, timeout=12))
+            momentum = _momentum_from_leaderboard(lm)
+        except Exception as e:  # noqa
+            meta.setdefault("warnings", []).append(f"momentum {c.get('short')}: {e}")
     c["current_positions"] = positions
     c["mirrorability"] = _mirrorability(positions)
     c["book"] = _book_summary(positions, net_notional)
@@ -359,28 +370,53 @@ def _mirror_sort_key(c):
     return (1 if "blowup_risk" in flags else 0,
             _FIT_RANK.get(m.get("mirror_fit"), 3),
             _REL_RANK.get(c.get("reliability"), 4),
+            -len(c.get("seen_in") or []),                 # cross-window confirmation breaks ties (proven AND hot)
             -(m.get("fresh_entry_surface_pct") or 0))
 
 
-def find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=ENRICH_TOP_DEFAULT):
+def _fetch_view(client, meta, time_frame, sort_by, limit):
     try:
         resp = client.mcp_call("discovery_get_top_traders", time_frame=time_frame, sort_by=sort_by,
                                limit=limit, timeout=20)
     except Exception as e:  # noqa
-        meta.setdefault("warnings", []).append(f"top_traders failed: {e}")
+        meta.setdefault("warnings", []).append(f"view {time_frame}/{sort_by} failed: {e}")
         return []
-    out = []
-    for t in _rows(_ok(resp)):
-        if not isinstance(t, dict):
-            continue
-        c = _candidate(t)
-        c["reliability"] = _reliability(c)
-        out.append(c)
-    # Mirror-aware by default: the FIRST answer must be able to lead with whether you can actually
-    # copy these traders now, not just their track record. Enrich the top few we'd realistically
-    # recommend with their live book + distance-from-entry + momentum. `enrich_top=0` opts out.
-    for c in out[:min(enrich_top, len(out))] if enrich_top else []:
-        _enrich_for_mirror(client, meta, c)
+    return [t for t in _rows(_ok(resp)) if isinstance(t, dict)]
+
+
+def find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=ENRICH_TOP_DEFAULT, blend=True):
+    if blend:
+        # No single sort is smart enough for "who should I copy" — union complementary views and let a
+        # trader seen in more than one (proven AND currently performing) rank higher. The user never picks.
+        merged = {}
+        for tf, sb, label in MIRROR_VIEWS:
+            for rank, t in enumerate(_fetch_view(client, meta, tf, sb, limit), start=1):
+                addr = _field(t, "address", "trader_address", "wallet")
+                if not addr:
+                    continue
+                if addr in merged:
+                    merged[addr]["seen_in"].append(f"{label} #{rank}")
+                else:
+                    c = _candidate(t)
+                    c["reliability"] = _reliability(c)
+                    c["seen_in"] = [f"{label} #{rank}"]
+                    merged[addr] = c
+        # cross-window confirmation first (in how many views), then the best rank reached in any of them
+        out = sorted(merged.values(),
+                     key=lambda c: (-len(c["seen_in"]),
+                                    min(int(s.rsplit("#", 1)[-1]) for s in c["seen_in"])))
+    else:
+        out = []
+        for t in _fetch_view(client, meta, time_frame, sort_by, limit):
+            c = _candidate(t)
+            c["reliability"] = _reliability(c)
+            c["seen_in"] = []
+            out.append(c)
+    # Enrich the top of the pool for mirrorability. Momentum (a 4h leaderboard call) is a tiebreak, not
+    # part of the copyability rank — pull it only for the top MOMENTUM_TOP so a wide pool doesn't blow the
+    # call budget. `enrich_top=0` opts out entirely.
+    for i, c in enumerate(out[:min(enrich_top, len(out))] if enrich_top else []):
+        _enrich_for_mirror(client, meta, c, with_momentum=(i < MOMENTUM_TOP))
     return out
 
 
@@ -474,7 +510,7 @@ def vet_trader(client, meta, addr):
 
 # ──────────────────────────────────────────────────────────────── orchestration
 def run(client, mode, addr=None, time_frame="MONTHLY", sort_by="RETURN_ON_INVESTMENT", limit=20,
-        enrich_top=ENRICH_TOP_DEFAULT):
+        enrich_top=ENRICH_TOP_DEFAULT, blend=True):
     meta = {"warnings": []}
     out = {"as_of": "live", "mode": mode, "meta": meta}
     if mode == "vet":
@@ -482,13 +518,14 @@ def run(client, mode, addr=None, time_frame="MONTHLY", sort_by="RETURN_ON_INVEST
     elif mode == "strategies":
         out["strategies"] = find_top_strategies(client, meta, limit)
     else:
-        cands = find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=enrich_top)
+        cands = find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=enrich_top, blend=blend)
         out["candidates"] = cands
         # Lead the copy decision with the shortlist ranked by COPYABILITY, not the ROI table.
         enriched = [c for c in cands if "mirrorability" in c]
         if enriched:
             out["mirror_shortlist"] = sorted(enriched, key=_mirror_sort_key)
-        out["ranking"] = {"time_frame": time_frame, "sort_by": sort_by, "enriched": len(enriched)}
+        out["ranking"] = ({"blend": [f"{tf}/{sb}" for tf, sb, _ in MIRROR_VIEWS], "enriched": len(enriched)}
+                          if blend else {"time_frame": time_frame, "sort_by": sort_by, "enriched": len(enriched)})
     if mode != "vet" and not out.get("candidates") and not out.get("strategies"):
         meta["degraded"] = "no ranking data — check the token is USER-scoped"
     return out
@@ -509,8 +546,10 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="senpi trader-research engine (find candidates + vet one)")
     ap.add_argument("--trader", help="vet this trader address (due-diligence dossier)")
     ap.add_argument("--strategies", action="store_true", help="rank top copy-trading strategies instead")
-    ap.add_argument("--time-frame", default="MONTHLY", choices=["DAILY", "WEEKLY", "MONTHLY", "ALL_TIME"])
-    ap.add_argument("--sort-by", default="RETURN_ON_INVESTMENT")
+    ap.add_argument("--time-frame", default=None, choices=["DAILY", "WEEKLY", "MONTHLY", "ALL_TIME"],
+                    help="single-view override (default: a smart blend of 30d-steady + 7d-hot + 30d-return)")
+    ap.add_argument("--sort-by", default=None,
+                    help="single-view override, e.g. GAIN_TO_PAIN_RATIO / RETURN_ON_INVESTMENT (default: the blend)")
     ap.add_argument("--limit", type=int, default=20)
     ap.add_argument("--enrich-top", type=int, default=ENRICH_TOP_DEFAULT,
                     help="mirror-enrich the top N find candidates (live book + distance-from-entry + momentum)")
@@ -539,9 +578,10 @@ def main(argv=None):
 
     mode = "vet" if a.trader else ("strategies" if a.strategies else "top")
     enrich = 0 if a.no_mirror else a.enrich_top
+    blend = a.time_frame is None and a.sort_by is None   # explicit --time-frame/--sort-by => single view
     try:
-        result = run(client, mode, addr=a.trader, time_frame=a.time_frame, sort_by=a.sort_by,
-                     limit=a.limit, enrich_top=enrich)
+        result = run(client, mode, addr=a.trader, time_frame=(a.time_frame or "MONTHLY"),
+                     sort_by=(a.sort_by or "RETURN_ON_INVESTMENT"), limit=a.limit, enrich_top=enrich, blend=blend)
     except Exception as e:  # noqa
         print(json.dumps({"candidates": [], "meta": {"error": f"engine failure: {e}"}}))
         return 1
