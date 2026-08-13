@@ -144,8 +144,10 @@ comprehensive, decision-first answer on every call, never a bare ROI list.
    good-fit trader carrying `blowup_risk` / positioned against the tape lands at #1 with a ✅ you're telling
    them to skip. Columns: `mirror_fit`, **`book`** (`open_positions` + net long/short `bias` + `top_assets`
    — a mirror inherits this, so show it), **min to run** (`min_mirror_budget.min_budget_usd`, a fact not a
-   trade-size rec), `momentum` (hot/cold), `reliability`. ROI / max-drawdown are *supporting*, never the
-   headline. **Surface every good/partial-fit trader as a real option — never one pick over a wall of skips.**
+   trade-size rec), **last traded** (`last_trade_days_ago` + `trades_per_day` — a mirror only fires when
+   they trade, so **always show this**; it's often more useful than 4h `momentum`, and `unknown` momentum
+   just means "not in the 4h-hot set"), `momentum` (hot/cold), `reliability`. ROI / max-drawdown are
+   *supporting*, never the headline. **Surface every good/partial-fit trader as a real option — never one pick over a wall of skips.**
 3. **Why each — the part users ask for by name** (*"…and tell me why"*). One line per top candidate tying
    **track record + mirrorability + market-fit** together: why they're proven, whether you can copy them
    *today*, and whether they're positioned with or against what's working now.

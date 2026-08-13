@@ -72,9 +72,14 @@ that DSL:** the integrated two-phase DSL is runtime-only. For real two-sided pro
 | **Managed mirror template** (Remora · Shadow · Oxpecker · Raptor · Cuckoo) | Set-and-forget: **budget-relative sizing**, **fresh-entry-only**, **auto-DSL on every fill** | Hands-off, sized to *your* capital, protected automatically — **most users** |
 | **Custom runtime** | A bespoke copy strategy authored to the user's thesis | Rules the templates don't cover |
 
-The five templates by job: **Remora** (whale cohort) · **Shadow** (2–3 named traders, fresh-entry) ·
-**Oxpecker** (one elite trader's single biggest conviction bet) · **Raptor** (traders hot right now) ·
-**Cuckoo** (consensus of the top copy strategies).
+Direct-mirror templates (copy specific traders): **Remora** (whale cohort) · **Shadow** (2–3 named
+traders, fresh-entry) · **Oxpecker** (one elite trader's single biggest conviction bet) · **Raptor**
+(traders hot right now) · **Cuckoo** (consensus of the top copy strategies).
+
+Smart-money-by-signal templates position by where the **whole cohort** leans — many proven traders at
+once, not a 1:1 copy of anyone's book: **Stingray** (rotates long/short by net smart-money conviction
+across the board) · **Starling** (buys on a flock of top wallets piling into one name) · **Whalehunter**
+(with the smart cohort, against the crowd). Use these for *"follow the smart money"* rather than one trader.
 
 ## Economics — answer "how much do I need" honestly
 - **$10 minimum notional per position** (auto-bumped to ~$12). A mirror needs enough budget that

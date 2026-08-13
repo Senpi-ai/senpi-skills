@@ -57,6 +57,9 @@ static SL, per above):
 - they want it **managed for them going forward** — DSL auto-attached to **every** new fill without
   you babysitting, **budget-relative sizing**, **fresh-entry-only** (no chasing a runner). A raw mirror
   + per-position DSL means *you* wrap each new fill by hand; a template does all of it automatically.
+- they want to **mirror more than one trader at once, by signal** — a template can position by where the
+  **smart-money cohort** leans (the aggregate of many proven traders), not copy one trader's book. A raw
+  mirror is strictly **1:1**; multi-trader, signal-driven copying is only possible with a runtime template.
 
 | The user wants… | Route to | Why (real reason) |
 |---|---|---|
@@ -65,10 +68,15 @@ static SL, per above):
 | To **copy / mirror a trader, managed** | **senpi-strategy-discover** → a **named mirror template** | fresh-entry, budget-relative sizing, auto-DSL |
 | A genuine one-off, or to mirror **one specific trader hands-on** | **stay here** | direct execution the user is driving |
 
-**The 5 named mirror templates — surface them by name for the copy intent:**
-**Remora** (whale-cohort, or name your whales) · **Shadow** (multi-trader fresh-entry, name 2–3) ·
-**Oxpecker** (elite conviction — their single biggest concentrated bet) · **Raptor** (hot-streak —
-traders winning right now) · **Cuckoo** (copy-the-copiers — consensus of top strategies).
+**The named copy templates — surface them by name for the copy intent.**
+*Direct-mirror* (copy specific traders' books): **Remora** (whale-cohort, or name your whales) · **Shadow**
+(multi-trader fresh-entry, name 2–3) · **Oxpecker** (elite conviction — their single biggest concentrated
+bet) · **Raptor** (hot-streak — traders winning right now) · **Cuckoo** (copy-the-copiers — consensus of
+top strategies).
+*Smart-money by signal* (position by where the whole cohort leans — **many traders at once, not 1:1**):
+**Stingray** (ranks the entire smart-money board and rotates long/short by net conviction) · **Starling**
+(buys when a flock of top wallets pile into the same name at once) · **Whalehunter** (with the smart cohort,
+against the crowd). These are the answer for *"follow the smart money"* rather than one specific trader.
 
 Offer the managed option **once**, then respect a "no." For mirror, the templates fix the exact pains
 a raw mirror causes (tiny size, stale entries) — offer one before you reach for a raw `strategy_create`.
