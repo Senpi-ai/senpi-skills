@@ -66,16 +66,6 @@ def test_book_summary():
     assert research._book_summary([], 0.0)["open_positions"] == 0
 
 
-def test_perps_drawdown_threshold():
-    # perps run big drawdowns on leverage — only near-liquidation (~83%+) is a real concern
-    assert "blowup_risk" not in research._flags({"max_drawdown_pct": -79.6})   # normal for a leveraged trader
-    assert "blowup_risk" in research._flags({"max_drawdown_pct": -86.6})       # near-liquidation
-    base = {"consistency": "ELITE", "trades": 100, "active_days": 90}
-    assert research._reliability({**base, "max_drawdown_pct": -75.0}) == "solid"   # big DD, still a proven copy
-    assert research._reliability({**base, "max_drawdown_pct": -85.0}) == "ok"      # ≤ -83 caps solid -> ok
-    assert research._reliability({**base, "max_drawdown_pct": -92.0}) == "choppy"  # ≤ -90 forced choppy
-
-
 def test_top_candidates_and_reliability():
     res = research.run(_client(), "top")
     assert len(res["candidates"]) == 3
@@ -116,11 +106,13 @@ def test_fails_open_on_empty():
 
 
 def test_reliability_drawdown_gate():
-    # A real record (ELITE, deep sample) can't read "solid" if the trader was once near-liquidated.
+    # Perps run big drawdowns on leverage — only near-liquidation (~83%+) caps a proven record.
     base = {"trades": 100, "active_days": 200, "consistency": "ELITE"}
     assert research._reliability({**base, "max_drawdown_pct": -20}) == "solid"
-    assert research._reliability({**base, "max_drawdown_pct": -65}) == "ok"      # capped below solid
-    assert research._reliability({**base, "max_drawdown_pct": -85}) == "choppy"  # near-liquidation
+    assert research._reliability({**base, "max_drawdown_pct": -70}) == "solid"   # big DD is normal on perps
+    assert research._reliability({**base, "max_drawdown_pct": -85}) == "ok"      # ≤ -83 caps solid -> ok
+    assert research._reliability({**base, "max_drawdown_pct": -92}) == "choppy"  # ≤ -90 forced choppy
+    assert "blowup_risk" not in research._flags({**base, "max_drawdown_pct": -79})  # not a red flag on perps
     assert "blowup_risk" in research._flags({**base, "max_drawdown_pct": -85})
 
 
