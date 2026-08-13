@@ -57,6 +57,15 @@ def test_activity_and_recency_flags():
     assert research._candidate({"address": "0xz"})["last_trade_days_ago"] is None   # no timestamp -> None
 
 
+def test_book_summary():
+    poss = [{"asset": "BTC", "direction": "long", "notional": 500},
+            {"asset": "ETH", "direction": "short", "notional": 200}]
+    b = research._book_summary(poss, 300)   # net_notional > 0 -> net long
+    assert b["open_positions"] == 2 and b["longs"] == 1 and b["shorts"] == 1
+    assert b["bias"] == "net long" and b["top_assets"] == ["BTC", "ETH"]   # sorted by notional
+    assert research._book_summary([], 0.0)["open_positions"] == 0
+
+
 def test_top_candidates_and_reliability():
     res = research.run(_client(), "top")
     assert len(res["candidates"]) == 3

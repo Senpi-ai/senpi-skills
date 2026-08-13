@@ -37,7 +37,7 @@ HIGH_TURNOVER_PER_DAY = 8.0   # above this, a proportional copy bleeds fees (fee
 LOW_ACTIVITY_PER_DAY = 0.2    # below this trades/day the OG opens new positions so rarely a mirror sits idle between them
 DORMANT_DAYS = 30             # no trade in this many days — a fresh mirror won't fire until they trade again ("looks broken")
 NEAR_ENTRY_BAND_PCT = 5.0     # a position within this PRICE distance of the trader's entry is a fresh mirror entry
-ENRICH_TOP_DEFAULT = 5        # how many top find-candidates to mirror-enrich (positions + distance + momentum)
+ENRICH_TOP_DEFAULT = 10       # how many top find-candidates to mirror-enrich — a wider net so more genuinely-mirrorable options surface
 MIN_NOTIONAL_USD = 12.0       # HL per-position minimum (the $10 floor, auto-bumped to ~$12) — a copy below this is skipped
 MIRROR_DUST_FRAC = 0.01       # positions below this share of notional are dust — excluded from the whole-book budget so a residual tail can't explode it
 
@@ -226,6 +226,18 @@ def _mirrorability(positions):
             "positions_scored": len(scored), "near_entry_band_pct": NEAR_ENTRY_BAND_PCT}
 
 
+def _book_summary(positions, net_notional):
+    """A glanceable read of what they hold NOW — how many positions, net long/short bias, biggest names.
+    A mirror inherits this book, so the user should see it beside each candidate, not have to ask."""
+    if not positions:
+        return {"open_positions": 0, "bias": "flat", "longs": 0, "shorts": 0, "top_assets": []}
+    longs = sum(1 for p in positions if p.get("direction") == "long")
+    top = [p.get("asset") for p in sorted(positions, key=lambda p: p.get("notional") or 0, reverse=True)[:3]]
+    return {"open_positions": len(positions), "longs": longs, "shorts": len(positions) - longs,
+            "bias": "net long" if net_notional > 0 else "net short" if net_notional < 0 else "mixed",
+            "top_assets": [a for a in top if a]}
+
+
 def _min_mirror_budget(account_value, positions, mult=1.0, dust_frac=MIRROR_DUST_FRAC):
     """The minimum budget required to run a mirror of THIS trader's CURRENT book PROPERLY — the copy-trading
     analog of a template's catalog minimum. This is a FACT about the floor, NOT a recommendation of how much
@@ -312,11 +324,11 @@ def _enrich_for_mirror(client, meta, c):
     """Attach the copy-decision layer to a find candidate — current book, price-distance mirrorability,
     4h momentum, full flags. Best-effort per trader; fails open so one bad lookup can't sink the find."""
     addr = c.get("address")
-    positions, net_upnl, margin_pct, momentum, account_value = [], None, None, None, None
+    positions, net_upnl, margin_pct, momentum, account_value, net_notional = [], None, None, None, None, 0.0
     try:
         st = _ok(client.mcp_call("discovery_get_trader_state", trader_addresses=[addr], timeout=15))
         trec = next((t for t in _rows(st, "traders") if isinstance(t, dict)), st if isinstance(st, dict) else {})
-        positions, _net, net_upnl, margin_pct, account_value = _positions_from_state(trec)
+        positions, net_notional, net_upnl, margin_pct, account_value = _positions_from_state(trec)
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"state {c.get('short')}: {e}")
     try:
@@ -326,6 +338,7 @@ def _enrich_for_mirror(client, meta, c):
         meta.setdefault("warnings", []).append(f"momentum {c.get('short')}: {e}")
     c["current_positions"] = positions
     c["mirrorability"] = _mirrorability(positions)
+    c["book"] = _book_summary(positions, net_notional)
     c["min_mirror_budget"] = _min_mirror_budget(account_value, positions)
     c["recent_momentum"] = momentum
     c["momentum"] = _momentum_label(momentum)
@@ -438,6 +451,7 @@ def vet_trader(client, meta, addr):
     positions, net_notional, upnl, margin_pct, account_value = _positions_from_state(trec)
     dossier["current_positions"] = positions
     dossier["mirrorability"] = _mirrorability(positions)
+    dossier["book"] = _book_summary(positions, net_notional)
     dossier["min_mirror_budget"] = _min_mirror_budget(account_value, positions)
     dossier["net_exposure"] = {"net_notional_usd": net_notional,
                                "bias": "long" if net_notional > 0 else "short" if net_notional < 0 else "flat",

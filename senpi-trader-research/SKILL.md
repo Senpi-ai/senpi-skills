@@ -38,6 +38,14 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
   `mirror_shortlist` (ordered by whether you can actually copy them *now*), not the track-record table.
   **Never crown an un-mirrorable trader "best."** If the top track record can't be mirrored — book
   already ran, `single_position`, `high_turnover` — say so and lead with the best *mirrorable* one.
+  **And never crown a *flagged* trader "best" just because their book is fresh** — a `blowup_risk` /
+  `infrequent` / against-the-tape trader is not the pick even at `mirror_fit: good`.
+- **Give the user real choice, and keep it constructive.** One pick over a wall of skips isn't shopping —
+  surface *every* genuinely mirrorable option (good/partial fit, unflagged). The engine mirror-enriches a
+  wide pool for exactly this; if the cleanest track records (ELITE / solid / no `blowup_risk`, still
+  trading today) landed outside the enriched set, **vet them before you settle** — don't recommend a
+  flagged trader while a cleaner one sits un-scored. And when the proven names have all run their books,
+  the **fresh-entry templates are the good options** — present them as the smart play, not a shrug.
 - **Factor the market — don't wait to be asked.** Before recommending anyone to mirror, cross-reference
   the shortlist's book against the current regime (compose `senpi-market-pulse` if installed; otherwise
   use each candidate's engine `momentum` hot/cold). A proven, mirrorable trader positioned *against*
@@ -93,14 +101,14 @@ python3 scripts/research.py --no-mirror            # track record only (skip the
 
 - **Find** (mirror-aware by default) → **`mirror_shortlist[]`** — the top candidates **ranked by
   copyability**, each with `mirrorability` (`mirror_fit` good/partial/poor + `fresh_entry_surface_pct` =
-  share of book still within slippage of entry), **`min_mirror_budget`** (`min_budget_usd` = minimum to run it *properly* / opens their whole
+  share of book still within slippage of entry), **`book`** (open positions + net bias + top names), **`min_mirror_budget`** (`min_budget_usd` = minimum to run it *properly* / opens their whole
   book ex-dust; `opens_nothing_below_usd` = hard floor), `momentum` (hot/cold), `reliability`, and
   `flags[]`. **Lead with this.** `candidates[]` is the fuller track-record list (`roi_pct`, `pnl_usd`,
   `win_rate_pct`, `max_drawdown_pct`, `trades`, `active_days`, labels, `reliability`). `--no-mirror`
   returns track record only.
 - **Vet** → `trader`: `track_record`, `labels`, `current_positions` (each with `moved_from_entry_pct` —
-  the price distance from the trader's entry) + `mirrorability` + **`min_mirror_budget`** (minimum USD to
-  run the mirror properly), `net_exposure` (with `margin_pct`), `recent_momentum` / `momentum` (hot/cold),
+  the price distance from the trader's entry) + `mirrorability` + **`book`** (positions / bias / top names)
+  + **`min_mirror_budget`** (minimum USD to run the mirror properly), `net_exposure` (with `margin_pct`), `recent_momentum` / `momentum` (hot/cold),
   and `flags[]`. This is the dossier.
 - **`--strategies`** → `strategies[]`: ranked mirror strategies (copied trader, total/realized PnL,
   return %, followers).
@@ -112,21 +120,32 @@ python3 scripts/research.py --no-mirror            # track record only (skip the
 **Finding candidates (a mirror decision) — this shape, every time.** The market-pulse bar: the same
 comprehensive, decision-first answer on every call, never a bare ROI list.
 
-1. **The call** — one line: *"the best trader you can actually mirror right now is …"* — the decision,
-   not a menu. If nothing is cleanly mirrorable, say that in the first line.
-2. **The shortlist** — a table from **`mirror_shortlist`**, ordered by **copyability**: `mirror_fit` (can
-   you open near their entries now?), **min to run** (`min_mirror_budget.min_budget_usd` — the minimum to
-   run it properly, not a suggested trade size), `momentum` (hot/cold), `reliability`. ROI / max-drawdown are *supporting*
-   columns, never the headline.
+1. **The call** — one line with the decision (not a menu): *"the best trader you can actually mirror right
+   now is …"* — **or**, when no single trader is cleanly mirrorable, *"the best play right now is a
+   fresh-entry template, because the proven books have already run"* (a real recommendation framed as the
+   smart move — see step 5; never "senpi can't help").
+2. **The shortlist** — a table in the **order the engine returns `mirror_shortlist`** (already ranked by
+   copyability — flagged traders demoted *first*, then fit). **Never re-sort by `mirror_fit`** — else a
+   good-fit trader carrying `blowup_risk` / positioned against the tape lands at #1 with a ✅ you're telling
+   them to skip. Columns: `mirror_fit`, **`book`** (`open_positions` + net long/short `bias` + `top_assets`
+   — a mirror inherits this, so show it), **min to run** (`min_mirror_budget.min_budget_usd`, a fact not a
+   trade-size rec), `momentum` (hot/cold), `reliability`. ROI / max-drawdown are *supporting*, never the
+   headline. **Surface every good/partial-fit trader as a real option — never one pick over a wall of skips.**
 3. **Why each — the part users ask for by name** (*"…and tell me why"*). One line per top candidate tying
    **track record + mirrorability + market-fit** together: why they're proven, whether you can copy them
    *today*, and whether they're positioned with or against what's working now.
 4. **Who to skip, and why** — name the traders you are **not** recommending and the reason (already ran /
    `single_position` / `blowup_risk` / thin sample / positioned against the tape / **`dormant` or
    `infrequent_trader`** — a mirror of them would sit idle). Users copy the wrong wallet without this line.
-5. **The steer** — if the whole shortlist is `poor` fit, do **not** crown the least-bad stale book:
-   recommend a **fresh-entry template (Shadow / Raptor)** that waits for their next open. Otherwise, the
-   pick + the single biggest reason.
+5. **The steer — frame it as the smart play, never a dead end.** When no trader is cleanly mirrorable (all
+   `poor` fit, *or* the only good/partial-fit ones are flag-disqualified — `blowup_risk` / against the tape
+   / `dormant`), **lead with a fresh-entry template** — it's the *better* approach here, not a consolation:
+   it opens **with** the trader on their *next* move instead of copying a book that already ran. **Name the
+   fit and differentiate them** so the user can choose: *Shadow* = mirror 2–3 proven traders' fresh entries;
+   *Raptor* = ride whoever's on a hot streak right now; *Remora* = auto-follow a whale cohort; *Oxpecker* =
+   one elite's single biggest bet; *Cuckoo* = the consensus of top copy strategies. **Never say "senpi
+   can't help" or "the field is broken."** Otherwise: the pick + the single biggest reason, and every other
+   genuinely mirrorable option.
 6. **The two CTAs** (below), verbatim.
 
 Cross-reference the market (`senpi-market-pulse`) **before** step 1, not after. Surface `thin` / `choppy`
