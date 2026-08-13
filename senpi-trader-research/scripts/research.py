@@ -36,7 +36,7 @@ HIGH_TURNOVER_PER_DAY = 8.0   # above this, a proportional copy bleeds fees (fee
 NEAR_ENTRY_BAND_PCT = 5.0     # a position within this PRICE distance of the trader's entry is a fresh mirror entry
 ENRICH_TOP_DEFAULT = 5        # how many top find-candidates to mirror-enrich (positions + distance + momentum)
 MIN_NOTIONAL_USD = 12.0       # HL per-position minimum (the $10 floor, auto-bumped to ~$12) — a copy below this is skipped
-MIRROR_COVERAGE_TARGET = 0.8  # "recommended" min budget opens positions covering this share of the trader's notional
+MIRROR_DUST_FRAC = 0.01       # positions below this share of notional are dust — excluded from the whole-book budget so a residual tail can't explode it
 
 
 # ──────────────────────────────────────────────────────────────── guarded helpers
@@ -216,36 +216,33 @@ def _mirrorability(positions):
             "positions_scored": len(scored), "near_entry_band_pct": NEAR_ENTRY_BAND_PCT}
 
 
-def _min_mirror_budget(account_value, positions, mult=1.0, coverage=MIRROR_COVERAGE_TARGET):
+def _min_mirror_budget(account_value, positions, mult=1.0, dust_frac=MIRROR_DUST_FRAC):
     """Recommended minimum budget to mirror THIS trader's CURRENT book — the copy-trading analog of a
     template's catalog minimum. Your copy of a position opens only when
-        budget >= MIN_NOTIONAL_USD * (account_value / position_notional) / mult
-    so the largest position sets the floor (the least you can fund and still open anything), and covering
-    ~`coverage` of their notional is the honest "this actually tracks them" number. A snapshot of the
-    current book; the pre-fund sim is the exact per-position check. Returns None when it can't be computed
-    (trader flat, or account value unavailable) — say so, don't guess."""
+        budget >= MIN_NOTIONAL_USD * (account_value / position_notional) / mult.
+    - `floor_usd` opens their LARGEST position — the least you can fund and have *anything* open. Whales run
+      leveraged, concentrated books, so this is often only a few dollars (positions are dust-sized here).
+    - `recommended_usd` opens their whole book minus dust tails (positions >= `dust_frac` of notional) — the
+      "actually tracks them" number, sized proportionally to their leverage. A residual tail is excluded so
+      it can't explode the figure. Both at 1x; a higher multiplier divides them. A snapshot; the pre-fund
+      sim is the exact per-position check. Returns None when it can't be computed (flat / no account value)."""
     notionals = sorted((p["notional"] for p in (positions or [])
                         if p.get("notional") and p["notional"] > 0), reverse=True)
     if not account_value or account_value <= 0 or not notionals:
         return None
     mult = mult or 1.0
     total = sum(notionals)
-    cover_notional, cum = notionals[-1], 0.0
-    for n in notionals:
-        cum += n
-        cover_notional = n
-        if cum >= coverage * total:
-            break
+    nondust = [n for n in notionals if n >= dust_frac * total] or notionals
 
     def _b(pn):
         return round(MIN_NOTIONAL_USD * account_value / (pn * mult), 2)
     return {
-        "floor_usd": _b(notionals[0]),          # opens their largest position; below this, nothing opens
-        "recommended_usd": _b(cover_notional),  # opens positions covering ~coverage of their book by notional
-        "full_book_usd": _b(notionals[-1]),     # opens even their smallest current position
+        "floor_usd": _b(notionals[0]),       # opens their largest position; below this, nothing opens
+        "recommended_usd": _b(nondust[-1]),  # opens their whole book minus dust tails — real position sizes
         "at_multiplier": mult,
         "positions": len(notionals),
-        "note": f"current-book snapshot (~{int(coverage * 100)}% coverage at {mult}x); confirm with the pre-fund sim",
+        "dust_excluded": len(notionals) - len(nondust),
+        "note": f"current-book snapshot at {mult}x — floor opens only the largest, recommended opens the book (ex-dust); confirm with the sim",
     }
 
 

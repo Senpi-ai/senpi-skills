@@ -10,7 +10,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.1.1"
+  version: "1.2.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -153,6 +153,7 @@ bias with its member count — conviction is the whole point.
 
 > **1. Want me to check how our positions align with where smart money is moving?**
 > **2. Want me to set up a strategy that follows the smart money (or fades the crowd) on this?**
+> **3. Want me to find one of these smart-money traders to mirror directly?**
 
 - **CTA 1 → positions read.** Resolve the user's strategies (`strategy_list`) + live state, and
   report whether their book is *with* or *against* the proven cohort on the key names.
@@ -161,6 +162,9 @@ bias with its member count — conviction is the whole point.
   short / fade-the-crowd, trailing-stop managed; risk: smart money can be early"*). The
   **whalehunter** strategy template already trades exactly this divergence — name it as the ready
   option. **Propose; never auto-build or trade.**
+- **CTA 3 → mirror a smart-money trader.** You just surfaced the individual proven wallets — offer to
+  copy one. Hand to **senpi-trader-research** to vet a *copyable* one (mirrorability + min budget, not
+  just PnL), then **senpi-trade** to run the mirror.
 
 ## Resilience (engine handles; narrate honestly)
 
