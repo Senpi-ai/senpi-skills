@@ -8,8 +8,7 @@
 schema_version: 1
 
 id: piranha
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Piranha — Liquidation-Cascade / Forced-Flow Hunter"
   emoji: "🐟"
@@ -27,7 +26,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 1
-  min_budget: 200
   assets: ["BTC", "ETH", "SOL", "HYPE"]
   tags: [btc, eth, sol, hype, multi-asset, momentum, liquidation-cascade, forced-flow, open-interest, order-flow, microstructure, single-slot]
 

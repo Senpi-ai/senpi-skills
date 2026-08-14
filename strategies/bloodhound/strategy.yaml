@@ -1,0 +1,39 @@
+# Bloodhound — Chart-Pattern Scanner. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. Hunts a dynamic universe for double bottoms,
+# double tops and trend structure. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: bloodhound
+
+version: "1.0.0"
+
+catalog:
+  name: "Bloodhound — Chart-Pattern Scanner"
+  emoji: "🐕"
+  tagline: "Scans the whole liquid market for the patterns traders actually draw and trades whichever way the pattern points. A double bottom goes long once price reclaims the peak between the two lows; a double top goes short on a break of the trough; intact higher-high or lower-low structure is traded as continuation. Every pattern must clear a depth and magnitude floor so noise can't manufacture one, and each coin+pattern fires at most once per 6 hours."
+  belief_plain: "Instead of watching one coin, this hunts the entire liquid market for recognisable chart setups — the double bottom (a W), the double top (an M), and clean staircase trends. It doesn't take the pattern on faith: the two lows have to be at genuinely the same level, the shape has to be deep enough to matter, and price has to actually break the confirmation line before it commits. It has no opinion on direction — if the chart says down, it shorts. And it won't keep re-entering the same setup, because a pattern that's on the chart today is still there tomorrow."
+  thesis: "Pattern recognition is the most common way retail traders actually read a chart, and the catalog had no equivalent — the closest template reads market structure on a single name rather than hunting setups across a universe. The engineering that matters is not finding patterns but refusing bad ones: swing pivots come from a symmetric fractal window (so a pivot needs bars of hindsight on both sides and cannot be invented at the live edge), the two lows of a W must sit within a tolerance of each other and be separated by real time, the shape must clear a depth floor, and continuation structure must STEP by a minimum percent — without that last gate random data produces a clean 'lower low' about half the time. Direction is an output of the pattern, never an input."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: chart_pattern
+  asset_classes: [btc_eth, major_alts, universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: starter
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 3
+  tags: [pattern, chart-pattern, double-bottom, double-top, price-action, technical-analysis, structure, higher-high, scanner, dynamic-universe, dedup, multi-asset, long-short]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: BLOODHOUND_WALLET
+    funding_share: 1.0

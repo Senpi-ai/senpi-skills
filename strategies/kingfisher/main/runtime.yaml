@@ -1,0 +1,142 @@
+# ── KINGFISHER · single instance — Classic Indicators (RSI + MACD) ────────────
+# A textbook indicator-crossover swing strategy on a liquid-majors basket. MACD
+# signal-line crossover is the entry trigger, RSI(14) confirms/vetoes, 4h trend
+# structure is context. Moderate leverage (3-5x), conviction-tiered margin, a
+# balanced DSL ladder (locks profit earlier than a conviction holder). Retail-
+# recognisable "RSI + MACD" — the highest-frequency organic build request.
+name: kingfisher-main
+group: kingfisher
+version: 1.0.0
+description: >
+  KINGFISHER — Classic Indicators (RSI + MACD) on a liquid-majors basket
+  (BTC/ETH/SOL/BNB/XRP/AVAX/LINK/DOGE). The entry TRIGGER is a MACD signal-line
+  crossover (12/26/9) on 1h candles; RSI(14) CONFIRMS momentum (a long needs RSI
+  above 50, a short below 50) — a true extreme (>=78 / <=22) is a mild caution, not
+  a fade, since a strong MACD trend runs RSI hot; 4h trend structure adds context. Emits
+  every name clearing the conviction floor, best-first, sized 10% base margin
+  (x1.25 / x1.5 by score) at 3-5x. Exits are DSL-only: a balanced ratchet that
+  locks profit from +8% ROE while a real trend still breathes. Long & short.
+
+strategy:
+  wallet: "${KINGFISHER_WALLET}"
+  slots: 3
+  margin_pct: 10                          # baseline %; scan emits the conviction-tier marginPct per signal
+  default_leverage: 4                     # fallback; scan emits 3-5x per signal
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: kingfisher_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 900                  # 15m: re-check the 1h MACD/RSI, catch fresh crossovers promptly
+    timeout_seconds: 180                   # up to ~1 candle read per basket name + account
+    default_signal_validity_seconds: 1800  # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 100           # crossover dedup map + per-tick scan-results history
+    inputs:
+      allowedAssets: ["BTC", "ETH", "SOL", "BNB", "XRP", "AVAX", "LINK", "DOGE"]  # liquid HL majors
+      minScore: 6                          # MACD cross (4) + RSI confirm (2); continuation alone won't clear
+      marginPctBase: 10                    # PERCENT of withdrawable (0,100]; tiered x1.25 (>=6) / x1.5 (>=8)
+      maxSlots: 3
+      leverageDefault: 4                   # clamped to [leverageMin, leverageMax]
+      leverageMin: 3
+      leverageMax: 5
+      macdFast: 12
+      macdSlow: 26
+      macdSignal: 9
+      rsiPeriod: 14
+      rsiOverbought: 78                    # true-extreme caution for longs (not a mean-reversion fade)
+      rsiOversold: 22                      # true-extreme caution for shorts
+      histStrengthPct: 0.03                # |histogram|/price %% to count as a strong crossover
+      recentSignalTtlSeconds: 3600         # one crossover per name per hour (race-window dedup)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      directionSource: { type: string, required: false }
+      reasons: { type: array, required: false }
+      rsi: { type: number, required: false }
+      macd: { type: number, required: false }
+      signal: { type: number, required: false }
+      hist: { type: number, required: false }
+      trend4h: { type: string, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: kingfisher_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (crossover + RSI + trend)
+    scanners: [kingfisher_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # taker fallback: a maker-only entry rests and silently misses
+                                           # the fill on a fast crossover move (CREATE_ORDER_RESTING).
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: kingfisher_main_signals
+
+# ── EXIT (DSL — balanced swing ladder) ───────────────────────────────────────
+# A crossover swing takes profit on the move, so this locks earlier than a
+# conviction holder (first lock at +8% ROE) while still letting a real trend run.
+# Time-cuts off (exits are price-action, not clock); weak_peak_cut kept as a
+# self-limiting thesis-validity check. Phase 1 max_loss 20%. Closes MUST happen —
+# taker fallback on.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+      interval_in_minutes: 240
+    weak_peak_cut:
+      enabled: true                        # self-limiting: fires only if peak ROE never clears 2.0 in 60m
+      interval_in_minutes: 60
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # balanced: FIRST lock at +8% ROE, tighten as it runs
+        - { trigger_pct: 8, lock_hw_pct: 0 }
+        - { trigger_pct: 15, lock_hw_pct: 25 }
+        - { trigger_pct: 25, lock_hw_pct: 45 }
+        - { trigger_pct: 40, lock_hw_pct: 60 }
+        - { trigger_pct: 60, lock_hw_pct: 75 }
+
+# ── RISK guard rails (moderate) ──
+risk:
+  data_retention_seconds: 259200           # 72h
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 5                  # a basket scanner across 8 names
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 1800                  # post-loss cooldown 30m
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 3600        # 1h — matches the 1h signal timeframe
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

@@ -23,7 +23,6 @@ catalog:
   tier: advanced
   leverage_max: 5
   max_slots: 6
-  min_budget: 400
   assets: []
   tags: [smart-money, cohort, divergence, copy-trading, long-short, crowd-fade, hedged]
 

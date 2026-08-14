@@ -33,7 +33,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 7            # core 1 + dip 1 + hedge up to 5 (the cross-asset blend basket)
-  min_budget: 600         # 3 wallets; core ~50% / dip ~25% / hedge ~25% — each needs working size
   assets: ["ETH", "SOL", "HYPE", "BTC", "BNB", "XRP", "DOGE", "AVAX", "xyz:SP500", "xyz:XYZ100"]
   tags: [conviction, single-coin, hedged, cross-asset-hedge, long-term-hold, dip-buyer, vol-parity, ride-the-thesis]
 

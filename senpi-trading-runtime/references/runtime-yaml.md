@@ -294,7 +294,7 @@ A `runtime.yaml` that passes the schema still fails at load if any of these brea
 A strategy **package** (`strategy.yaml`) may declare more than one `runtime.yaml`. Two common shapes,
 tied together by a shared `group:` label:
 
-- **Shared scanner, different sizing/exit (turbine):** both runtimes point `path:` at the same scan
+- **Shared scanner, different sizing/exit:** both runtimes point `path:` at the same scan
   module; per-leg margin/slots live in each runtime's `inputs:` and the exit profile in each `exit:`.
   One signal stream, two legs.
 - **Separate theses, separate wallets (spider):** each leg is its own `runtime.yaml` + its own scanner

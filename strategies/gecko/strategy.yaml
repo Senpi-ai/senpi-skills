@@ -8,8 +8,7 @@
 schema_version: 1
 
 id: gecko
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Gecko — Any-Coin Confluence"
   emoji: "🦎"
@@ -27,7 +26,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 1
-  min_budget: 100
   assets: ["BTC"]            # DEFAULT; configurable — the user sets inputs.asset to any liquid coin
   tags: [configurable, any-asset, confluence, single-asset, custom, dsl-only]
 

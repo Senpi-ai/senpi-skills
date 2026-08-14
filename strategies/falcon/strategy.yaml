@@ -7,8 +7,7 @@
 schema_version: 1
 
 id: falcon
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Falcon — Conversion-Event Momentum"
   emoji: "🦅"
@@ -25,7 +24,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 1
-  min_budget: 200
   assets: []
   tags: [xyz, pre-ipo, ipo-conversion, conversion-event, momentum, price-discovery, let-winners-run, universe-scanner]
 

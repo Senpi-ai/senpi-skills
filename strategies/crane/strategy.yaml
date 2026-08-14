@@ -5,8 +5,7 @@
 schema_version: 1
 
 id: crane
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Crane — Managed Pairs / Stat-Arb"
   emoji: "🕊️"
@@ -24,7 +23,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 8
-  min_budget: 200
   assets: []                 # configured correlated pairs (identity baskets)
   status: blocked            # ⚠️ not deployable — see crane/DESIGN.md
   tags: [pairs, stat-arb, market-neutral, mean-reversion, spread, z-score, hedged, blocked, not-deployable]

@@ -9,8 +9,7 @@
 schema_version: 1
 
 id: chameleon
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Chameleon — Relative-Value / Pairs"
   emoji: "🦎"
@@ -27,7 +26,6 @@ catalog:
   tier: advanced
   leverage_max: 5
   max_slots: 1
-  min_budget: 200
   assets: ["ETH", "SOL"]
   tags: [eth, sol, btc, pairs, relative-value, ratio, z-score, mean-reversion, market-neutral-leg, structural]
 

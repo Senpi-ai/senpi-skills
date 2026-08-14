@@ -1,0 +1,31 @@
+name: tests
+
+# Makes the "guarded by a checksum test / fails CI on drift" promise real: the min_budget vendor
+# parity + golden-file locks now actually run on every PR and push, alongside the ops + discover
+# suites. Without this workflow those guards only ran when someone remembered to.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: install deps
+        run: pip install pyyaml pytest
+
+      - name: min_budget — vendor parity (byte-identical across the two skills)
+        run: python3 senpi-strategy-ops/tests/test_min_budget_vendor_parity.py
+
+      - name: min_budget — golden minimums (a retune must update the golden in the same PR)
+        run: python3 senpi-trading-runtime/tests/test_min_budget_golden.py
+
+      # pytest collects every test regardless of a __main__ runner — bare `python3 <file>` exits 0
+      # without running anything on a runner-less file (test_default_catalog.py), a silent green.
+      - name: full suites (ops + discover + trading-runtime)
+        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-trading-runtime/tests -q

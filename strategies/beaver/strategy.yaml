@@ -6,8 +6,7 @@
 schema_version: 1
 
 id: beaver
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Beaver — BTC Trend Follower"
   emoji: "🦫"
@@ -24,7 +23,6 @@ catalog:
   tier: starter
   leverage_max: 5
   max_slots: 1
-  min_budget: 100
   assets: ["BTC"]
   tags: [btc, single-asset, trend-following, smart-money, onboarding, beginner]
 

@@ -60,7 +60,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | Skill | Ver | Role |
 |---|---|---|
 | **Analyze** | | |
-| [`senpi-portfolio`](senpi-portfolio/) | 1.7.1 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads |
+| [`senpi-portfolio`](senpi-portfolio/) | 1.11.1 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads |
 | [`senpi-market-pulse`](senpi-market-pulse/) | 1.1.1 | Daily cross-asset market read (crypto, equities, commodities, macro, funding regime) |
 | [`senpi-smart-money`](senpi-smart-money/) | 1.1.1 | Where the most-profitable wallets are positioned vs. the crowd |
 | [`senpi-trader-research`](senpi-trader-research/) | 1.0.2 | Rank + vet Hyperliquid traders before copying them |
@@ -70,9 +70,9 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.3.0 | Conversational picker — rank the catalog against your worldview |
 | [`senpi-strategy-author`](senpi-strategy-author/) | 2.4.2 | Build/edit a DSL-protected strategy package, one decision at a time |
 | [`senpi-strategy-ops`](senpi-strategy-ops/) | 2.2.1 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
-| [`senpi-trading-runtime`](senpi-trading-runtime/) | 3.0.2 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
+| [`senpi-trading-runtime`](senpi-trading-runtime/) | 3.2.1 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
 | **Move money / positioning** | | |
-| [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.0.1 | The money-movement rails (funds in via embedded wallet; out via the app) |
+| [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.1.0 | The money-movement rails (funds in via embedded wallet or in-app USDC purchase; out via the app) |
 | [`senpi-why`](senpi-why/) | 1.0.3 | "Why Senpi / vs. other tools" — the positioning answer |
 
 Skills **compose**: `improve-trades` pulls in `market-pulse` + `smart-money` + `portfolio`; `discover` hands a chosen package to `ops`; `author` hands a built package to `ops`. The agent routes by **intent**, not keywords, and never re-implements one skill inside another.
@@ -122,19 +122,19 @@ The scanner proposes; the runtime's risk engine disposes.
 
 ### The strategy templates, by archetype
 
-The 80+ templates span the full cross-asset spectrum (majors, alts, universe crypto, XYZ equities, commodities, indices, pre-IPO) at 3–10× leverage, 70 advanced / 13 starter, mostly long/short. The range is deliberate — directional and market-neutral, single-asset and whole-universe, momentum and mean-reversion, copy-trading and macro, everyday starters and crisis insurance:
+The 80+ templates span the full cross-asset spectrum (majors, alts, universe crypto, XYZ equities, commodities, indices, pre-IPO) at 1–10× leverage, 74 advanced / 13 starter, mostly long/short. The range is deliberate — directional and market-neutral, single-asset and whole-universe, momentum and mean-reversion, copy-trading and macro, everyday starters and crisis insurance:
 
 | Archetype | # | What it does | Examples |
 |---|---|---|---|
 | Trend-following | 22 | Ride durable multi-timeframe trends | Spider, Elephant, Python, Lynx |
 | Single-market specialist | 15 | Master one asset deeply | Kodiak (SOL), Coyote (BTC/ETH), Falcon (pre-IPO) |
-| Breakout / momentum | 14 | Buy the break, gated on trend + smart money | Hawk, Badger, Condor, Orca |
-| Structural / neutral | 10 | Non-directional (DCA, market-neutral, thematic) | Tortoise (DCA), Turbine, Cougar |
+| Breakout / momentum | 16 | Buy the break, gated on trend + smart money | Hawk, Badger, Hare (crypto session scalp), Kite (SMC/ICT) |
+| Structural / neutral | 9 | Non-directional (DCA, market-neutral, thematic) | Tortoise (DCA), Cougar |
 | Contrarian / fade | 8 | Fade crowding once it exhausts | Camel (funding), Owl, Pangolin |
-| Copy-trading | 8 | Mirror proven traders | Albatross, Jackal, Whalehunter |
-| Macro thesis | 3 | Read the regime, set a posture, rotate by attrition | Chimp (daily), Gorilla (weekly) |
+| Copy-trading | 9 | Mirror proven traders | Jackal, Whalehunter, Shadow (multi-trader fresh-entry mirror) |
+| Macro thesis | 4 | Read the regime, set a posture, rotate by attrition | Chimp (daily), Gorilla (weekly), Rotator (3h conviction rebalance) |
 | Event-driven | 1 | IPO / new-listing convexity | Magpie |
-| Risk parity | 1 | Equal-risk across uncorrelated classes | Ox |
+| Risk parity | 2 | Equal-risk / diversified capital preservation across uncorrelated classes | Ox, Mandate (no-leverage crypto + RWA) |
 | Tail-risk | 1 | Standing insurance + crisis convexity | Rhino |
 
 Browse the live set with `senpi-strategy-discover` rather than any hand-maintained list — the catalog is the source of truth.

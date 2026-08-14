@@ -10,6 +10,10 @@ OPEN strategy it classifies the runtime:
   healthy/degraded/unhealthy — ACTIVE strategy + live runtime, upgraded from process-level "running" to
                                the runtime's OWN verdict via `openclaw senpi status -r <id>` (+ position
                                count). `--fast` skips this per-runtime call and just reports `running`.
+  unknown          — live runtime whose scanner has not yet PROVEN itself with a tick (the runtime's
+                     fail-closed verdict). Not sickness, not health — verify rather than assume.
+  no-entry-scanners — runtime is UP but its entry scanners never wired ("running — NO ENTRY SCANNERS"
+                     in runtime list): it cannot produce entry signals — broken wiring, not stopped.
   runtime-stopped  — ACTIVE strategy + runtime exists but not running
   no-runtime       — autonomous PACKAGE strategy (skillName, no trader) with NO runtime → funded but not
                      running (likely an interrupted deploy); the only no-runtime case that's an anomaly
@@ -18,8 +22,9 @@ OPEN strategy it classifies the runtime:
   copy             — copy-trading strategy (follows a traderAddress) — run by Senpi's copy engine, no runtime
   manual           — manual / app-managed strategy — you manage it in the app, no runtime
 and separately flags orphan runtimes (a runtime with no open strategy). A strategy off the runtime is NOT
-broken — it's just not autonomous; status.py says how it's managed. `healthy` ≠ a confirmed scanner tick —
-use `deploy.py verify <id>` for that.
+broken — it's just not autonomous; status.py says how it's managed. Scanner health is fail-closed: an
+external scanner never proven by a tick reads `unknown`, not `healthy` — `deploy.py verify <id>` remains
+the deploy-time liveness gate.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -32,8 +37,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _cli  # noqa: E402
 from mcp_client import MCPClient  # noqa: E402
 
-_ICON = {"healthy": "✅", "running": "✅", "degraded": "⚠", "unhealthy": "❌",
-         "runtime-stopped": "⚠", "no-runtime": "⚠", "runtime-unknown": "·", "copy": "·", "manual": "·"}
+_ICON = {"healthy": "✅", "running": "✅", "degraded": "⚠", "unhealthy": "❌", "unknown": "❔",
+         "no-entry-scanners": "❌", "runtime-stopped": "⚠", "no-runtime": "⚠", "runtime-unknown": "·",
+         "copy": "·", "manual": "·"}
 _OK = ("healthy", "running")
 _OFF_RUNTIME = ("copy", "manual")  # managed outside the runtime — not autonomous, not flagged
 _MANAGED = {"copy": "copy-trading — followed by Senpi's copy engine (no runtime)",
@@ -85,6 +91,11 @@ def build(mcp, only_pkg=None, deep=True):
             if entry:  # upgrade process-level "running" to the runtime's own verdict (+ positions)
                 health = _cli.health_verdict(entry) or "running"
                 positions = _cli.active_positions(entry)
+            if _cli.runtime_no_entry_scanners(rt):
+                # positive wiring-failure evidence from the inventory itself ("running — NO ENTRY
+                # SCANNERS"): the runtime is up but cannot produce entry signals — own class, not
+                # "running" and not "runtime-stopped".
+                health = "no-entry-scanners"
         elif rt:
             health = "runtime-stopped"
         elif _cli.strategy_trader(s):
@@ -136,11 +147,14 @@ def main(argv):
     running = sum(1 for r in rows if r["health"] in _OK)
     idle = [r for r in rows if r["health"] == "no-runtime"]
     unknown = [r for r in rows if r["health"] == "runtime-unknown"]
-    sick = [r for r in rows if r["health"] in ("degraded", "unhealthy", "runtime-stopped")]
+    unproven = [r for r in rows if r["health"] == "unknown"]
+    sick = [r for r in rows if r["health"] in ("degraded", "unhealthy", "runtime-stopped", "no-entry-scanners")]
     off = [r for r in rows if r["health"] in _OFF_RUNTIME]
     bits = [f"{running} autonomous (on runtime)"]
     if sick:
         bits.append(f"{len(sick)} degraded")
+    if unproven:
+        bits.append(f"{len(unproven)} unknown (not proven live)")
     if idle:
         bits.append(f"{len(idle)} funded-but-idle")
     if unknown:
@@ -160,6 +174,11 @@ def main(argv):
         for r in sick:
             print(f"  - {r['package']} {r['runtime'] or ''} → "
                   f"`openclaw senpi status -r {r['runtime']}` / `deploy.py verify {r['package']}` to triage")
+    if unproven:
+        print("\n❔ Unknown (fail-closed — not proven live: scanner not yet proven by a tick, or reporting disabled; verify, don't assume):")
+        for r in unproven:
+            print(f"  - {r['package']} {r['runtime'] or ''} → "
+                  f"`openclaw senpi status -r {r['runtime']}` / `deploy.py verify {r['package']}` to check")
     if idle:
         print("\n⚠ Autonomous strategy with NO runtime (funded but not running — likely an interrupted deploy):")
         for r in idle:

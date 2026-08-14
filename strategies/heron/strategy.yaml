@@ -8,8 +8,7 @@
 schema_version: 1
 
 id: heron
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Heron — ETH Trend Follower"
   emoji: "🐦"
@@ -26,7 +25,6 @@ catalog:
   tier: starter
   leverage_max: 5
   max_slots: 1
-  min_budget: 200
   assets: ["ETH"]
   tags: [eth, single-asset, trend-following, smart-money, onboarding, beginner]
 

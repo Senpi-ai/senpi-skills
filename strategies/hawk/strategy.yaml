@@ -8,8 +8,7 @@
 schema_version: 1
 
 id: hawk
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Hawk — Breakout Buyer / Breakdown Seller"
   emoji: "🦅"
@@ -27,7 +26,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 1
-  min_budget: 200
   assets: ["BTC", "ETH", "SOL"]
   tags: [btc, eth, sol, multi-asset, breakout, breakdown, smart-money, range-break, onboarding, let-winners-run]
 

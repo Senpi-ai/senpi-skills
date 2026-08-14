@@ -1,9 +1,9 @@
 """CUB · PREIPO satellite — supervised scanner (Runtime 3.0 port of cub-producer.py CUB_LEG=preipo).
 
 The ~10% pre-IPO ramp sleeve (Lemur IPOP-discovery method). Each tick it auto-DISCOVERS pre-IPO
-perpetuals (IPOPs) from the live Hyperliquid XYZ board by their structural funding signature
-(|funding| <= ipopFundingMaxAbs AND venue max_leverage <= ipopMaxLeverageCap — the throttled
-pre-listing state), then LONGS the ones with a confirming absolute 4h/1h uptrend (rides the
+perpetuals (IPOPs) from the live Hyperliquid XYZ board by their structural leverage signature
+(venue max_leverage <= ipopMaxLeverageCap — fresh pre-IPO perps launch capped low) plus a
+budget-relative liquidity floor, then LONGS the ones with a confirming absolute 4h/1h uptrend (rides the
 pre-listing ramp; blow-off guard loosened since pre-IPO names run hot). There is NO static universe
 — it is discovered every tick, so a new IPOP (the next SpaceX/Cerebras) auto-joins the moment it
 lists. LONG-only. Episodic by design — most ticks may find 0-2 IPOPs. Read-only, single-pass.
@@ -241,7 +241,8 @@ def scan(inputs, ctx):
         if open_slots <= 0:
             break
         weight = scoring.sizing_weight(th["coin"], weights)
-        margin_pct = round(base_margin_pct * weight, 4)
+        size_factor = float(th.get("size_factor", 1.0))     # fresh-listing starter -> reduced margin
+        margin_pct = round(base_margin_pct * weight * size_factor, 4)
         venue_max = (th.get("_meta") or {}).get("max_leverage")
         leverage = scoring.clamp_leverage(max_lev, venue_max)
         if margin_pct <= 0 or leverage <= 0:
@@ -263,6 +264,8 @@ def scan(inputs, ctx):
                 "excess": round(th.get("excess", 0), 2),
                 "own24h": round(th.get("own24h", 0), 2),
                 "weight": weight,
+                "basis": th.get("basis"),                    # "4h" full engine | "1h" fresh-listing starter
+                "sizeFactor": size_factor,
                 "heldAssets": held,
             },
         })
@@ -271,7 +274,8 @@ def scan(inputs, ctx):
         free_margin -= margin_usd * 1.1
 
     _persist()
+    starters = sum(1 for o in out if o["data"].get("basis") == "1h")
     print(f"[cub.preipo.scan] universe={len(universe)} pool={len(pool)} candidates={len(candidates)} "
-          f"emitted={len(out)} mean_rs={mean_rs:.2f} elapsed={time.time() - run_start:.2f}s",
+          f"emitted={len(out)} starters={starters} mean_rs={mean_rs:.2f} elapsed={time.time() - run_start:.2f}s",
           file=sys.stderr)
     return out

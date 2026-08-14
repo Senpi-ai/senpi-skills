@@ -14,6 +14,24 @@ import time
 
 import scoring
 
+def _sm_row_matches(row, token, target):
+    """True if leaderboard row `row` is the market for `target`.
+
+    `leaderboard_get_markets` returns BARE tickers (`NVDA`) plus a separate `dex`
+    field, while our universe carries the qualified name (`xyz:NVDA`). A raw
+    `token != target` compare therefore NEVER matches an xyz name, so every xyz
+    instrument reads as "no smart-money data" and a hard SM gate blocks it
+    permanently. Compare bare tickers, and require the dex to agree so a main-DEX
+    name cannot cross-match its xyz twin (e.g. main `GOLD` vs `xyz:GOLD`)."""
+    tok = str(token or "").upper()
+    want = str(target or "").upper()
+    if tok.split(":", 1)[-1] != want.split(":", 1)[-1]:
+        return False
+    row_xyz = (str((row or {}).get("dex", "")).strip().lower() == "xyz"
+               or tok.startswith("XYZ:"))
+    return row_xyz == want.startswith("XYZ:")
+
+
 _DEFAULT_TTL = 14400          # 240m — mirror the v2 per-asset cooldown (anti re-fire)
 _DEFAULT_TIERS = [[17, 10], [15, 7], [14, 5]]
 
@@ -89,7 +107,7 @@ def _sm_for_asset(ctx, asset):
         if not isinstance(m, dict):
             continue
         token = str(m.get("token", m.get("coin", ""))).upper()
-        if token != want:
+        if not _sm_row_matches(m, token, want):
             continue
         found = True
         d = str(m.get("direction", "")).upper()
@@ -222,7 +240,10 @@ def scan(inputs, ctx):
             "direction": th["direction"],
             "marginPct": margin_pct,          # SIZING INTENT — runtime sizes the dollars
             "leverage": leverage,             # conviction-tiered (5/7/10); runtime applies it
-            "data": {
+            # Runtime schema validation REJECTS a null for a field declared `type: number|string`,
+            # even when `required: false` — the whole candidate is dropped (`candidate_rejected`),
+            # silently. An optional field that does not apply must be OMITTED, never set to None.
+            "data": {k: v for k, v in {
                 "score": th["score"], "leverage": leverage, "direction": th["direction"], "tier": tier_label,
                 "trend4h": th["trend_4h"], "trendStrength4h": th["trend_strength_4h"], "trend1h": th["trend_1h"],
                 "mom5mPct": th["mom_5m"], "mom15mPct": th["mom_15m"], "mom1hPct": th["mom_1h"], "mom4hPct": th["mom_4h"],
@@ -231,7 +252,7 @@ def scan(inputs, ctx):
                 "smPct": th["sm_pct"], "smTraders": th["sm_traders"], "smCc15m": th["sm_cc15m"],
                 "smCc1h": th["sm_cc1h"], "smCc4h": th["sm_cc4h"],
                 "reasons": th["reasons"],
-            },
+            }.items() if v is not None},
         }]
 
     # ── persist dedup map + this tick's result EVERY tick; self-trims at

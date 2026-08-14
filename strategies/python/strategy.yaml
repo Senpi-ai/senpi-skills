@@ -25,7 +25,6 @@ catalog:
   tier: advanced
   leverage_max: 7
   max_slots: 2
-  min_budget: 200
   assets: []
   tags: [momentum, trend-following, universe, multi-day-hold, patience, smart-money, long-biased, conviction-margin, let-winners-run]
 

@@ -26,7 +26,6 @@ catalog:
   tier: starter
   leverage_max: 5
   max_slots: 1
-  min_budget: 100
   assets: ["xyz:SP500", "xyz:XYZ100"]
   tags: [sp500, xyz100, xyz, indices, index-fund, trend-following, macro, onboarding, 24-7, two-asset]
 

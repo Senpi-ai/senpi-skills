@@ -7,8 +7,7 @@
 schema_version: 1
 
 id: egret
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Egret — Smart-Money Divergence Fader"
   emoji: "🐦"
@@ -26,7 +25,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 1
-  min_budget: 200
   assets: ["BTC", "ETH", "SOL", "HYPE"]
   tags: [btc, eth, sol, hype, smart-money, contrarian, fade, mean-reversion, divergence, rsi, maker-only, tight-ratchet]
 

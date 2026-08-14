@@ -5,8 +5,7 @@
 schema_version: 1
 
 id: viper
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Viper — SMC/ICT Structure Trader"
   emoji: "🐍"
@@ -24,7 +23,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 6
-  min_budget: 100
   assets: []                 # DERIVED live from both dexes (vol floor + top-N)
   tags: [smc, ict, wyckoff, market-structure, liquidity-sweep, fvg, bos, choch]
 

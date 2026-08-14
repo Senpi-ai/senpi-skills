@@ -1,0 +1,147 @@
+# ── HEN · single instance — The Basket Opener (pre-market-open equity breadth) ─────
+# Rooster's companion. Same clock-is-the-signal engine, but it scores a big-tech equity
+# basket in the pre-open window and positions into the US open across the 3-4 strongest
+# names at once. Two equity-correctness rules Rooster does not need: a TRADING-DAY gate
+# (no bell on weekends → nothing to position into) and a session hard_timeout so the book
+# is flat before the Fri-Sun XYZ oracle gap. Outside the window it emits nothing, reads nothing.
+name: hen-main
+group: hen
+version: 1.0.0
+description: >
+  HEN — The Basket Opener. Positions a big-tech equity basket into the US market open.
+  In the configured pre-open window (default 45m before 13:30 UTC, weekdays only) it scores
+  every name on 15m candles: the signed pre-open DRIFT is the directional read, expanding
+  VOLUME vs the trailing baseline confirms real positioning, a break of the PRIOR session's
+  range adds conviction, 4h trend is context. Ranks all qualifiers and emits the top few
+  (up to 4 slots) by conviction, long or short, 2-5x. Exits are DSL-led price action with a
+  session hard_timeout — the edge is the open, so nothing camps into the weekend oracle gap.
+
+strategy:
+  wallet: "${HEN_WALLET}"
+  slots: 4                                 # a small book into the open, not one leg
+  margin_pct: 12                           # baseline %; scan emits the conviction-tier marginPct per signal
+  default_leverage: 3                      # fallback; scan emits 2-5x per signal
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: hen_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                   # 5m: fine enough to catch the window, cheap when idle
+                                            # (outside the pre-open window the tick makes ZERO market reads)
+    timeout_seconds: 120
+    default_signal_validity_seconds: 900    # 3x tick — a pre-open read goes stale fast
+    state_history_max_count: 120            # per-session fired map + per-tick scan-results history
+    inputs:
+      assets: ["xyz:NVDA", "xyz:TSLA", "xyz:AAPL", "xyz:META", "xyz:MSFT", "xyz:GOOGL",
+               "xyz:AMZN", "xyz:AMD", "xyz:MU", "xyz:INTC", "xyz:TSM", "xyz:ORCL"]
+      sessionOpensUtc: ["13:30"]            # US cash open. 13:30 UTC in EDT / 14:30 in EST — set both if you want year-round.
+      tradingDaysUtc: [0, 1, 2, 3, 4]       # Mon-Fri (UTC weekday of the OPEN). Weekend opens don't exist → idle.
+                                            # NOTE: US market holidays are NOT in this list; on a holiday the
+                                            # thin-volume floor (minVolumeRatio) is the backstop, not this gate.
+      preOpenMinutes: 45                    # "start scanning 30-60 minutes earlier" — the core knob
+      minScore: 5                           # drift (3) + one of volume/breakout (2)
+      marginPctBase: 12                     # PERCENT of withdrawable (0,100]; tiered x1.25 (>=6) / x1.5 (>=8)
+      maxSlots: 4                           # up to four names into one open
+      leverageDefault: 3
+      leverageMin: 2
+      leverageMax: 5
+      windowBars: 3                         # 3 x 15m = the 45m pre-open drift window
+      baselineBars: 16                      # 4h of 15m bars as the volume baseline
+      priorRangeBars: 24                    # 6h of settled price for the breakout reference
+      minDriftPct: 0.35                     # noise floor — below this there is no directional read
+      strongDriftPct: 0.9
+      minVolumeRatio: 1.15                  # window volume must beat baseline by 15% to count
+      breakoutHighPct: 0.8                  # >=80% of the prior range = breaking the high
+      breakoutLowPct: 0.2
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      driftPct: { type: number, required: false }
+      volRatio: { type: number, required: false }
+      rangePos: { type: number, required: false }
+      trend4h: { type: string, required: false }
+      minutesToOpen: { type: number, required: false }
+      sessionOpenUtc: { type: string, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: hen_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied the clock gate + every filter
+    scanners: [hen_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true     # a pre-open entry that rests and misses the fill has
+                                            # missed the whole thesis — the open does not wait.
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: hen_main_signals
+
+# ── EXIT (DSL — session ladder) ──────────────────────────────────────────────
+# Price action leads. hard_timeout is ENABLED (unlike the fleet default) because this strategy's
+# whole thesis IS a time window: a position still open 8h after the bell is no longer the trade
+# that was entered — AND, for equities, it guarantees the book is flat before the Fri-Sun XYZ
+# oracle gap. So the timeout is signal-invalidation + weekend-gap protection, not a blind cut.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true                         # session thesis expires + never camp into the weekend gap
+      interval_in_minutes: 480              # 8h: covers the open plus the ~6.5h cash session that follows
+    weak_peak_cut:
+      enabled: true                         # the open came and went and nothing happened -> release it
+      interval_in_minutes: 90
+      min_value: 1.5
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0                    # tighter than a swing: an open that goes wrong goes fast
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                                # bank the open move early, then let a real trend breathe
+        - { trigger_pct: 6, lock_hw_pct: 0 }
+        - { trigger_pct: 12, lock_hw_pct: 30 }
+        - { trigger_pct: 20, lock_hw_pct: 50 }
+        - { trigger_pct: 35, lock_hw_pct: 65 }
+        - { trigger_pct: 55, lock_hw_pct: 78 }
+
+# ── RISK guard rails (moderate) ──
+risk:
+  data_retention_seconds: 259200            # 72h
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 5                   # up to 4 into one open + 1 buffer; one session/day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4                # a basket can take 2-3 red legs on a bad open without a halt
+    cooldown_seconds: 1800
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400        # 4h — never two entries into the same session for one name
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

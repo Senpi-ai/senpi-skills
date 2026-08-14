@@ -9,7 +9,7 @@
 schema_version: 1
 
 id: cuckoo
-version: "1.0.0"
+version: "1.0.1"
 
 catalog:
   name: "Cuckoo — Copy-the-Copiers"
@@ -28,7 +28,6 @@ catalog:
   time_horizon: swing
   leverage_max: 10
   max_slots: 1
-  min_budget: 200
   assets: []
   tags: [copy-trading, copy-the-copiers, meta-strategy, consensus, performance-weighted, follows-strategies, let-winners-run]
 

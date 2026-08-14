@@ -21,6 +21,79 @@ except ImportError:
 
 
 _VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_MARGIN_PCT_RE = re.compile(r"margin_?pct", re.I)
+
+
+def margin_fraction_offenders(doc, path=""):
+    """Margin-percent keys whose value is a fraction (0,1] where a PERCENT (0,100] is required
+    (`marginPct: 0.10` meant 10 — 100× too small). Walks the whole doc (scanners[].inputs,
+    strategy.margin_pct, or a top-level emit; any key: marginPct / marginPctBase / margin_pct).
+    Returns [(dotted_key, value), ...]."""
+    out = []
+    if isinstance(doc, dict):
+        for k, v in doc.items():
+            kp = f"{path}.{k}" if path else str(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) \
+                    and _MARGIN_PCT_RE.search(str(k)) and 0 < v <= 1:
+                out.append((kp, v))
+            else:
+                out.extend(margin_fraction_offenders(v, kp))
+    elif isinstance(doc, list):
+        for i, v in enumerate(doc):
+            out.extend(margin_fraction_offenders(v, f"{path}[{i}]"))
+    return out
+
+
+# Candles (market_get_asset_data) are keyed o/h/l/c/v; the long forms (open/high/low/close) don't exist,
+# so `candle.get("close")` is always None → the scan silently emits nothing. A file that reads a long key
+# with NO short-form counterpart anywhere is the bug (0 fleet false positives). volume/v is EXCLUDED —
+# scanners legitimately read a `volume` field from market rows.
+_OHLCV_LONG = {"open": "o", "high": "h", "low": "l", "close": "c"}
+_CANDLE_ACCESS = {k: re.compile(r"""(?:\.get\(|\[)\s*['"]%s['"]""" % k)
+                  for k in list(_OHLCV_LONG) + list(_OHLCV_LONG.values())}
+
+
+def candle_key_bug(text):
+    """Long-form OHLCV keys accessed on a dict with NO short-form counterpart in the file — the silent
+    candle-key bug (`candle.get("close")` where Senpi candles are keyed `c`). Returns [(long, short), ...]."""
+    return [(lng, sht) for lng, sht in _OHLCV_LONG.items()
+            if _CANDLE_ACCESS[lng].search(text) and not _CANDLE_ACCESS[sht].search(text)]
+
+
+# A signal `data` field declared `type: number|string|...` in signal_data_schema is REJECTED by the
+# runtime when its value is null — even with `required: false`. The whole candidate is dropped
+# (`candidate_rejected`), silently, so the strategy funds and never trades. An optional field that
+# does not apply to this signal must be OMITTED, not set to None. (ibis shipped 100% dead on this.)
+_NONE_IN_DATA = re.compile(r'"(\w+)":\s*(?:th\[[^\]]+\]|None)\s*(?:,|\})')
+_STRIPS_NONE = re.compile(r'if\s+v\s+is\s+not\s+None')
+
+
+def null_signal_field_offenders(scan_src, scoring_src, schema):
+    """Fields emitted into a signal's `data` that can be None while declared as a typed schema
+    field. Returns [(field, declared_type), ...]. Empty when the scanner strips Nones at emit."""
+    if not schema or _STRIPS_NONE.search(scan_src):
+        return []
+    nullable = set(re.findall(r'"(\w+)":\s*None', scoring_src or ""))
+    out = []
+    for m in re.finditer(r'"(\w+)":\s*th\["(\w+)"\]', scan_src):
+        camel, snake = m.group(1), m.group(2)
+        ty = (schema.get(camel) or {}).get("type") if isinstance(schema.get(camel), dict) else None
+        if snake in nullable and ty in ("number", "string", "boolean", "array"):
+            out.append((camel, ty))
+    return sorted(set(out))
+
+
+def _runtime_docs(pkg: Path):
+    """Every parsed runtime.yaml in the package (flat or nested)."""
+    out = []
+    for rt in pkg.rglob("runtime.yaml"):
+        try:
+            d = yaml.safe_load(rt.read_text()) or {}
+        except Exception:  # noqa: BLE001
+            continue
+        if isinstance(d, dict):
+            out.append(d)
+    return out
 
 
 def _flat_wallet_env(pkg: Path, sid) -> str:
@@ -89,6 +162,11 @@ def validate(pkg: Path) -> list:
                 errs.append(f"instance {name}: set runtime `name: {expect}` (found {rt_doc.get('name')!r})")
             if rt_doc.get("group") != sid:
                 errs.append(f"instance {name}: set runtime `group: {sid}` (found {rt_doc.get('group')!r})")
+            # marginPct is a PERCENT in (0,100]; a value <= 1 is the fraction slip (0.10 meant 10, 100x
+            # too small). Flag it pre-deploy with the exact fix. (See scan-contract.md.)
+            for kp, val in margin_fraction_offenders(rt_doc):
+                errs.append(f"instance {name}: `{kp}` must be a PERCENT in (0,100] — set {val * 100:g} "
+                            f"(not {val})")
 
         # data_retention: Runtime 3.0 uses data_retention_seconds (integer 3600–604800);
         # the v2 data_retention_hours field is deprecated. (See senpi-trading-runtime/references/runtime-yaml.md.)
@@ -156,12 +234,34 @@ def validate(pkg: Path) -> list:
     if len(man.get("instances", [])) > 1 and len(seen_wallet_envs) < len(man["instances"]):
         errs.append("multi-instance strategy must declare a distinct wallet_env per instance")
 
-    # scanner present + parses; no '@senpi/runtime' without -ai anywhere
+    # scanner present + parses; candle-key sanity; no '@senpi/runtime' without -ai anywhere
     for py in pkg.rglob("*.py"):
+        src = py.read_text()
         try:
-            ast.parse(py.read_text())
+            ast.parse(src)
         except SyntaxError as e:
             errs.append(f"{py.name}: syntax error ({e})")
+        for lng, sht in candle_key_bug(src):
+            errs.append(f"{py.name}: candles are keyed `o/h/l/c/v` — use `candle['{sht}']`, not `{lng}` "
+                        f"(no such key → always None → the scan emits nothing).")
+
+    # null-in-typed-schema: an optional signal field set to None is REJECTED by the runtime
+    # (candidate_rejected, silently) — omit it instead. Checked per scanner dir so scan.py,
+    # its sibling scoring.py, and the runtime's signal_data_schema are compared together.
+    for scan_py in pkg.rglob("scanners/scan.py"):
+        scoring_py = scan_py.with_name("scoring.py")
+        scoring_src = scoring_py.read_text() if scoring_py.is_file() else ""
+        for rt_doc in _runtime_docs(pkg):
+            for sc in (rt_doc.get("scanners") or []):
+                if not isinstance(sc, dict) or sc.get("type") != "external_scanner":
+                    continue
+                for field, ty in null_signal_field_offenders(
+                        scan_py.read_text(), scoring_src, sc.get("signal_data_schema") or {}):
+                    errs.append(
+                        f"{scan_py.name}: signal field `{field}` is declared `type: {ty}` but can be "
+                        f"None — OMIT it when it doesn't apply (a null fails schema validation and the "
+                        f"runtime drops the whole candidate silently). Build data as "
+                        f"`{{k: v for k, v in {{...}}.items() if v is not None}}`.")
     for f in pkg.rglob("*"):
         if f.is_file() and f.suffix in (".py", ".yaml", ".md"):
             t = f.read_text(errors="ignore")

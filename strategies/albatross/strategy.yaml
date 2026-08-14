@@ -27,9 +27,13 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 3
-  min_budget: 200
   assets: []
-  tags: [arena, copy-trading, multi-week, conviction, mirror, long-short, persistence]
+  # ⚠️ PAUSED 2026-07-23: The Arena is paused, so the arena_* feed Albatross mirrors is
+  # unavailable — the strategy would fund but never find a trader to copy. Blocked from the
+  # catalog (non-discoverable, non-installable) until the Arena resumes; re-enable by deleting
+  # the `status: blocked` line below. Package kept on disk + tested meanwhile.
+  status: blocked
+  tags: [arena, copy-trading, multi-week, conviction, mirror, long-short, persistence, blocked, arena-paused]
 
 requires:
   runtime: ">=3.0.0"

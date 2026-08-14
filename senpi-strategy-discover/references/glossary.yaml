@@ -65,6 +65,7 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   conviction_hold_hedged: { gloss: "Single-asset conviction hold paired with a basket hedge sleeve." }
   trend_continuation: { gloss: "Enters in the direction of an established, still-intact trend." }
   accumulation: { gloss: "Detects persistent institutional accumulation — relative-strength decoupling from the market on rising volume with shallow, bought dips — from the tape, no catalyst feed needed." }
+  indicator_crossover: { gloss: "Textbook technical setup: a MACD signal-line crossover triggers the entry, RSI confirms momentum, higher-timeframe trend adds context." }
   # contrarian_fade
   sm_crowding:   { gloss: "Fades the crowded smart-money side once price stops following." }
   funding_extreme: { gloss: "Fades extreme funding rates." }
@@ -79,6 +80,7 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   cohort_divergence: { gloss: "Acts when a smart-money cohort diverges from price." }
   sm_rotation: { gloss: "Follows where smart money is rotating across asset classes — long the crowded-into, short the fled." }
   elite_conviction: { gloss: "Mirrors only top-tier (elite/reliable) traders' concentrated, high-conviction positions." }
+  fresh_entry_mirror: { gloss: "Mirrors only the FRESHLY-opened positions of a small vetted cohort — never inherits an existing book — with an entry-slippage guard so you don't chase a fill that already ran." }
   # single_market
   pre_ipo:       { gloss: "Trades pre-IPO perpetuals (IPOPs) before the company lists." }
   ipo_moment:    { gloss: "Trades the IPO conversion moment." }
@@ -93,13 +95,17 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   pullback:      { gloss: "Buys the dip within an uptrend." }
   mean_reversion: { gloss: "Buys oversold / sells overbought, betting price reverts to its mean (works in chop, not just trends)." }
   market_structure: { gloss: "Trades SMC/ICT/Wyckoff structure: break-of-structure, liquidity sweeps, fair-value gaps." }
+  chart_pattern: { gloss: "Scans for classic chart patterns (double bottom/top, higher-high structure) and trades the direction the pattern points." }
+  session_open: { gloss: "Positions into a session open on the clock — reads pre-open drift/volume and carries into the open, rather than reacting after." }
   rank_jump:     { gloss: "Catches leaderboard rank-jumps early." }
   momentum_event: { gloss: "Snipes fresh momentum events the instant they fire." }
   liquidation_cascade: { gloss: "Rides liquidation cascades / forced flow." }
+  dynamic_screener: { gloss: "Rescans the whole liquid universe each tick and rotates into the strongest fresh breakout signals rather than a fixed basket." }
   orderbook_pressure: { gloss: "Trades order-book depth skew." }
   breakout:      { gloss: "Enters on a clean breakout of structure." }
   confluence_sniper: { gloss: "Fires only when multiple timeframes/factors line up." }
   parabolic_runner: { gloss: "Rides parabolic runs with a very wide let-winners-run exit." }
+  pyramid_breakout: { gloss: "Turtle-style: enters a Donchian breakout and ADDS units as it runs, each unit on its own wallet with its own trailing stop." }
   sector_momentum: { gloss: "Rides a whole sector / supply chain only when its breadth confirms; won't chase a lone name." }
   # structural_neutral
   cross_asset_lag: { gloss: "Trades an alt that lags a BTC move." }
@@ -107,6 +113,9 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   market_making: { gloss: "Volume / market-making, not directional." }
   pairs_rv:      { gloss: "Trades a pair's ratio back to its mean (relative value)." }
   dca:           { gloss: "Dollar-cost-averages on a schedule; predicts nothing." }
+  capital_preservation: { gloss: "Diversified, NO-leverage, capped portfolio that preserves capital first — enters only high-quality multi-timeframe trends that clear a fee hurdle, with hard per-position and per-class limits; 'no trade is better than a poor trade'." }
+  # macro_thesis
+  conviction_rebalance: { gloss: "Re-underwrites a concentrated book on a fixed clock (e.g. every 3h) from a blended short-horizon score — cross-asset flows + funding regime + momentum events — holding only the 1-2 highest-conviction long/short ideas." }
   # tail_risk
   crisis_alpha:  { gloss: "Convex crisis hedge that pays off in tail / vol events." }
   # event_driven

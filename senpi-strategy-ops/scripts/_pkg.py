@@ -13,7 +13,9 @@ Render substitutes ONLY `${wallet_env}` (+ the decision-model env iff a runtime 
 `decision_mode: llm` action), then asserts zero `${...}` placeholders remain before deploy.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import os
 import re
+import sys
 from pathlib import Path
 
 try:
@@ -22,6 +24,27 @@ except ImportError:
     import _yaml as yaml  # vendored stdlib-only fallback — agent hosts may lack PyYAML / pip
 
 _VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_MARGIN_PCT_RE = re.compile(r"margin_?pct", re.I)
+
+
+def margin_fraction_offenders(doc, path=""):
+    """Margin-percent keys whose value is a fraction (0,1] where a PERCENT (0,100] is required
+    (`marginPct: 0.10` meant 10 — 100× too small). Walks the whole runtime doc (scanners[].inputs,
+    strategy.margin_pct, or a top-level emit; any key: marginPct / marginPctBase / margin_pct). Mirrors
+    senpi-strategy-author validate_strategy so author-green == deploy-green. [(key, value), ...]."""
+    out = []
+    if isinstance(doc, dict):
+        for k, v in doc.items():
+            kp = f"{path}.{k}" if path else str(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) \
+                    and _MARGIN_PCT_RE.search(str(k)) and 0 < v <= 1:
+                out.append((kp, v))
+            else:
+                out.extend(margin_fraction_offenders(v, kp))
+    elif isinstance(doc, list):
+        for i, v in enumerate(doc):
+            out.extend(margin_fraction_offenders(v, f"{path}[{i}]"))
+    return out
 
 
 class BadPackage(Exception):
@@ -127,14 +150,79 @@ class Package:
         return any(i.needs_model for i in self.instances)
 
 
+def strategies_root():
+    """Absolute, CWD-independent root where fetched strategy packages live.
+
+    MUST stay outside any managed skill dir: the runtime's skills-manager swap-replaces those
+    dirs on every SKILL.md version bump, destroying anything inside (the 2026-07-30 incident —
+    a CWD-relative dest meant deploys run from a skill dir were wiped on the next bump).
+
+    Precedence: SENPI_STRATEGIES_DIR env > <OPENCLAW_WORKSPACE_DIR>/strategies (the agent
+    workspace, relocatable) > /data/workspace/strategies (agent-host default) > CWD-relative
+    strategies/ (dev hosts with no workspace — legacy behavior, WARNED loudly because it
+    reintroduces the exact CWD-dependence this function exists to remove)."""
+    env = os.environ.get("SENPI_STRATEGIES_DIR", "").strip()
+    if env:
+        root = Path(env)
+        if not root.is_absolute():
+            print(f"⚠ SENPI_STRATEGIES_DIR={env!r} is a RELATIVE path — packages there may not "
+                  f"survive skill updates; use an absolute path.", file=sys.stderr)
+        return root
+    # A SET workspace env is honored even before the dir exists (fresh volume, gateway not yet
+    # booted — the gateway mkdir -p's it at boot, and fetch mkdir -p's on write): gating on
+    # is_dir() would fall through to CWD-relative, the exact incident behavior. Existence-gating
+    # is only legitimate on the hardcoded tier below, where it's host detection.
+    workspace_env = os.environ.get("OPENCLAW_WORKSPACE_DIR", "").strip()
+    if workspace_env:
+        if not Path(workspace_env).is_absolute():
+            print(f"⚠ OPENCLAW_WORKSPACE_DIR={workspace_env!r} is a RELATIVE path — packages there "
+                  f"may not survive skill updates; use an absolute path.", file=sys.stderr)
+        return Path(workspace_env) / "strategies"
+    workspace = Path("/data/workspace")
+    if workspace.is_dir():
+        return workspace / "strategies"
+    print("⚠ no durable strategies root found (no SENPI_STRATEGIES_DIR, no workspace dir) — "
+          "falling back to CWD-relative strategies/. Packages here may not survive skill updates.",
+          file=sys.stderr)
+    return Path("strategies")
+
+
 def resolve_pkg_dir(arg):
     """Accept a package PATH (strategies/spider) OR a bare strategy id (spider, as discover emits)
-    and return the directory that holds strategy.yaml. Tries the arg as-is, then strategies/<arg>."""
+    and return the directory that holds strategy.yaml. Tries the arg as-is (an explicit path is
+    explicit intent — never second-guessed), then <strategies_root()>/<arg> (the durable root where
+    remote fetches land), then strategies/<arg> (CWD-relative, legacy fallback for pre-durable-root
+    deploys). When BOTH the durable and CWD copies exist, the one carrying .deploy-state.json wins —
+    that file is what distinguishes THE DEPLOYED PACKAGE from a checkout of the same id. Either
+    direction of shadowing is money-adjacent: a pristine copy over the deployed one makes `runtime`
+    render catalog-default parameters onto a live recovered wallet; ties go durable (and two copies
+    BOTH carrying state is a real ambiguity — warned loudly, the backend reconcile owns wallet truth)."""
     p = Path(arg)
     if (p / "strategy.yaml").is_file():
         return p
-    nested = Path("strategies") / arg
-    if (nested / "strategy.yaml").is_file():
+    # Bare-id tiers key on the BASENAME — the strategy id, and exactly what ensure_pkg would fetch.
+    # Keying on the raw arg doubled the prefix for the documented path form (strategies/<id> →
+    # <root>/strategies/<id>), so the deployed package looked missing from a foreign CWD and the
+    # fallback fetch overwrote its tuned files IN PLACE (deploy state intact, files pristine).
+    # Resolution must always try the exact location the fetch would write to.
+    sid = p.name
+    durable = strategies_root() / sid
+    nested = Path("strategies") / sid
+    dur_ok = (durable / "strategy.yaml").is_file()
+    nest_ok = (nested / "strategy.yaml").is_file()
+    if dur_ok and nest_ok and durable.resolve() != nested.resolve():
+        dur_state = (durable / ".deploy-state.json").is_file()
+        nest_state = (nested / ".deploy-state.json").is_file()
+        if nest_state and not dur_state:
+            return nested
+        if nest_state and dur_state:
+            print(f"⚠ two copies of {sid!r} BOTH carry deploy state ({durable} and {nested.resolve()}) "
+                  f"— using the durable one. If that's wrong, pass the package path explicitly.",
+                  file=sys.stderr)
+        return durable
+    if dur_ok:
+        return durable
+    if nest_ok:
         return nested
     return p  # let load() raise the BadPackage with the original arg
 
@@ -170,8 +258,10 @@ def load(pkg_dir) -> Package:
     pkg = resolve_pkg_dir(pkg_dir).resolve()
     man_path = pkg / "strategy.yaml"
     if not man_path.is_file():
-        raise BadPackage(f"{pkg_dir!r}: no strategy.yaml found (looked at {pkg_dir} and "
-                         f"strategies/{pkg_dir}) — pass a strategy id or package directory")
+        sid = Path(str(pkg_dir)).name
+        raise BadPackage(f"{pkg_dir!r}: no strategy.yaml found (looked at {pkg_dir}, "
+                         f"{strategies_root() / sid}, and strategies/{sid}) — "
+                         f"pass a strategy id or package directory")
     try:
         man = yaml.safe_load(man_path.read_text())
     except yaml.YAMLError as e:
@@ -220,6 +310,10 @@ def validate(pkg: Package) -> list:
         expect_name = f"{pkg.id}-{inst.name}"
         if inst.runtime_name != expect_name:
             errs.append(f"{tag}: set runtime `name: {expect_name}` (found {inst.runtime_name!r})")
+        # marginPct is a PERCENT in (0,100]; a value <= 1 is the fraction slip (0.10 meant 10, 100x too
+        # small). Refuse to fund it (author's validate_strategy flags it too; ops re-checks fetched packages).
+        for kp, val in margin_fraction_offenders(inst.runtime_doc):
+            errs.append(f"{tag}: `{kp}` must be a PERCENT in (0,100] — set {val * 100:g} (not {val})")
         # wallet binding
         if not inst.wallet_env:
             errs.append(f"{tag}: missing wallet_env")

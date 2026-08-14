@@ -1,0 +1,146 @@
+# ── MANTA · single instance — Multi-Timeframe Structure (FX) ─────────────────
+# Textbook top-down structure trading on Hyperliquid's FX pairs. Daily/4h/1h set the
+# bias, the 4h marks the Area Of Interest, the 15m times the entry off a break of
+# structure inside that zone. Nothing fires without all three aligning.
+name: manta-main
+group: manta
+version: 1.0.0
+description: >
+  MANTA — Multi-Timeframe Structure on FX (xyz:EUR / xyz:GBP / xyz:JPY). The classic
+  top-down method, each timeframe answering one question: DAILY + 4h + 1h must all agree
+  on trend direction (one dissenter is a no-trade); the 4h marks the AREA OF INTEREST —
+  the most recent swing price broke away from and is expected to retest; the 15m provides
+  the trigger — price must tag that zone and then BREAK 15m structure in the bias direction.
+  Missing any layer means no trade: a 15m break outside the zone is noise, a zone touch with
+  no break is a falling knife, aligned timeframes with neither are just an opinion. The
+  confluence is the strategy. Long & short, low leverage (FX moves are small), DSL-only exits.
+
+strategy:
+  wallet: "${MANTA_WALLET}"
+  slots: 2
+  margin_pct: 12                          # baseline %; scan emits the conviction-tier marginPct per signal
+  default_leverage: 5                     # FX: small % moves, so leverage carries the size (still capped)
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: manta_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 900                  # 15m — the execution timeframe; fine enough to catch the
+                                           # trigger bar, and the higher frames move far slower
+    timeout_seconds: 180                   # 4 timeframes x a few pairs + account
+    default_signal_validity_seconds: 1800  # 2x tick — a 15m trigger goes stale fast
+    state_history_max_count: 120           # trigger dedup + per-tick scan-results history
+    inputs:
+      pairs: ["xyz:EUR", "xyz:GBP", "xyz:JPY"]   # Hyperliquid FX (validated present in instruments)
+      minScore: 9                          # bias(4) + AOI(3) + break(2) — the confluence is mandatory
+      marginPctBase: 12                    # PERCENT of withdrawable (0,100]; tiered x1.25 / x1.5
+      maxSlots: 2
+      leverageDefault: 5
+      leverageMin: 3
+      leverageMax: 8                       # FX-appropriate; a 0.4% move at 8x is a 3.2% position move
+      # ── bias (Daily / 4h / 1h) ──
+      pivotWindow: 2
+      minStructureStepPct: 0.15            # FX-scaled: a 0.5% daily move is a big FX day. A crypto
+                                           # threshold (1-2%) would call every FX chart NEUTRAL forever.
+      requireAllThree: true                # all three timeframes must agree; false demotes 1h to tiebreaker
+      minCandles: 20
+      # ── AOI (4h) ──
+      aoiPaddingPct: 0.12                  # widen the pivot into a zone — price respects areas, not lines
+      maxAoiAgeBars: 30                    # a 4h level older than ~5 days has stopped mattering
+      aoiTouchWindowBars: 8                # price must have tagged the zone within the last 8 x 15m (2h)
+      # ── trigger (15m) ──
+      pivotWindow15m: 1                    # tighter fractal on the execution frame
+      triggerLookbackBars: 12
+      minDisplacementPct: 0.08             # the break bar must actually move, not just tick through
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      bias: { type: string, required: false }
+      biases: { type: array, required: false }
+      aoiLow: { type: number, required: false }
+      aoiHigh: { type: number, required: false }
+      triggerLevel: { type: number, required: false }
+      displacementPct: { type: number, required: false }
+      reasons: { type: array, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: manta_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already ran the full top-down cascade
+    scanners: [manta_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # the trigger IS a break of structure — a resting maker
+                                           # order misses the very move it was waiting for
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: manta_main_signals
+
+# ── EXIT (DSL — structure ladder, FX-scaled) ─────────────────────────────────
+# FX moves in fractions of a percent, so the ROE tiers are TIGHTER than a crypto swing: a
+# 0.5% pair move at 5x is a 2.5% position move, and the profit-lock ladder is scaled to that
+# reality rather than a crypto template's. Time-cuts off; weak_peak_cut releases a break that
+# failed to follow through inside the zone — the classic MTF failure.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+      interval_in_minutes: 480
+    weak_peak_cut:
+      enabled: true                        # the break didn't follow through -> release it
+      interval_in_minutes: 90
+      min_value: 1.5
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0                   # tighter: the invalidation (other side of the AOI) is close
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # FX-scaled position-ROE ladder (leverage already applied)
+        - { trigger_pct: 5, lock_hw_pct: 0 }
+        - { trigger_pct: 10, lock_hw_pct: 30 }
+        - { trigger_pct: 18, lock_hw_pct: 50 }
+        - { trigger_pct: 30, lock_hw_pct: 65 }
+        - { trigger_pct: 45, lock_hw_pct: 78 }
+
+# ── RISK guard rails (moderate) ──
+risk:
+  data_retention_seconds: 259200           # 72h
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 4
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 1800
+    drawdown_halt_pct: 18
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 7200        # 2h — one setup per pair per few hours
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

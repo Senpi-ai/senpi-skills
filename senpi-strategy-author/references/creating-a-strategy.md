@@ -13,7 +13,7 @@ Your code is **one read-only, pure function**: it reads data and returns candida
 ## 2. The package
 
 ```
-strategies/<id>/
+/data/workspace/strategies/<id>/    # the DURABLE root — never author inside a managed skill dir
   strategy.yaml                 # identity, catalog facets, instances + funding
   <instance>/
     runtime.yaml                # the deterministic spec: inputs, entry action, DSL exit, risk
@@ -21,27 +21,31 @@ strategies/<id>/
       scan.py                   # scan(inputs, ctx) -> list[dict]   (reads + emits)
       scoring.py                # pure thesis math — no I/O, unit-testable
 ```
+
+**Location is load-bearing:** build under `/data/workspace/strategies/` (`SENPI_STRATEGIES_DIR`
+overrides). A package created inside a managed skill directory (`/data/.openclaw/skills/…`) is
+destroyed on that skill's next version bump — the skills-manager replaces the whole dir.
 One instance binds to one wallet. A long book + a short book, or a swing + a scalp leg, = **multiple instances**.
 
 **Single-instance? Build it FLAT** — `strategy.yaml` + `runtime.yaml` + `scanners/` at the package root,
 no `instances:` list and no `<instance>/` dir: the deployer (strategy-ops v2.4.0+) synthesizes the
 canonical `main` instance for you. The nested `<instance>/` layout above is only *required* for
-multi-instance strategies. Either way, `deploy.py validate strategies/<id>` tells you in one pass
-whether the package is deploy-ready.
+multi-instance strategies. Either way, `deploy.py validate /data/workspace/strategies/<id>` tells you
+in one pass whether the package is deploy-ready.
 
 ## 3. Division of labor — memorize this
 
 | **You own** | **Runtime 3.0 owns** |
 |---|---|
 | Universe, signal, score | Scheduling + supervising `scan()` (restarts a crashed child) |
-| Sizing **intent** (`marginPct` / weight) | Converting intent → **dollars** off the live (reconciled) account |
+| Sizing **intent** (`marginPct`) | Converting intent → **dollars** off the live (reconciled) account |
 | Exit shape (a named DSL preset) | Execution, slot caps, position dedup |
 | Risk limits (guard rails) | State durability (transactional), retries |
 | Catalog facets | **Read-only enforcement** — any mutating tool raises `PermissionError` |
 
 Two invariants fall out of this:
 1. **`scan()` is read-only + pure + single-pass.** On *any* error, `return []` — never crash.
-2. **You emit a sizing *intent* (`marginPct`/weight), not dollars.** The runtime computes `marginUsd` from the reconciled account value. Do **not** read the clearinghouse to size — that's the runtime's job in 3.0.
+2. **You emit a sizing *intent* (`marginPct`), not dollars.** The runtime converts it to a dollar amount off the reconciled account value. Do **not** read the clearinghouse to size — that's the runtime's job in 3.0. **`marginPct` is a PERCENT in (0,100]** — `10` = 10%, sized `(marginPct/100) × withdrawable` (not a fraction: `0.10` = 0.1%). **`marginPct` and `leverage` are the only two per-signal sizing keys** — any other top-level key is dropped with a stderr warning and sizing falls back to the configured margin.
 
 ## 4. The design space — the 7 decisions that define *any* strategy
 
@@ -81,9 +85,22 @@ grep `strategies/catalog.json` by its `archetype` field (a closed set; every pac
 
 ### `scoring.py` — pure math (the edge)
 No I/O, no MCP, no clock, no state — just functions over candles/numbers, so it unit-tests without mocks.
+
+> **Candle schema (`market_get_asset_data`):** keys `t,o,h,l,c,v` (+ `T,s,i,n`). Close is `candle["c"]` — there is no `candle["close"]`. Values may arrive as **strings** — always read numerics through `_f()` below (`float` of a number is a no-op, so it's correct on every runtime version and every tool). Type contract: `senpi-trading-runtime/references/scan-contract.md` → "Market data types".
+
 ```python
+def _f(v, d=0.0):
+    """Defensive numeric read: no-op on numbers, casts strings, d on None/garbage.
+    Gate on presence first — a fallback 0.0 reads as a real price."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return d
+
 def score(asset, candles, extra, inputs):    # candles/numbers in, thesis dict out
-    if not _qualifies(...): return None
+    if not candles: return None
+    close = _f(candles[-1]["c"])
+    if not _qualifies(close, ...): return None
     return {"score": s, "direction": "LONG"|"SHORT", "reasons": [...]}
 ```
 
@@ -114,7 +131,7 @@ def scan(inputs, ctx):
     out = [{
         "asset": p["asset"],
         "direction": p["direction"],                 # REQUIRED: LONG | SHORT
-        "marginPct": inputs.get("marginPct", 0.10),  # SIZING INTENT — runtime makes it dollars
+        "marginPct": inputs.get("marginPct", 10),    # SIZING INTENT — PERCENT in (0,100]; 10 = 10%
         "data": {                                    # must match signal_data_schema exactly
             "score": p["score"], "direction": p["direction"], "reasons": p["reasons"],
         },
@@ -210,41 +227,52 @@ Discovery matches your strategy to users by the `catalog:` block. **Validation o
   - `belief_plain` — *what it does*, plain-language.
   - `thesis` — *when/who it's for* — **the only worldview hook** (how "I think the US rebounds" / "run me a hedge fund" finds you). For any thesis/macro/fund-style strategy this field is the whole point.
   - `tags` — free keywords.
-- **Derived by `gen_catalog.py` (don't duplicate):** `assets`, `leverage_max`, `funding_split`, `cadence_seconds`/`time_horizon` (from cadence), `instance_count`, `max_slots`, `min_budget` (= `max(declared, 100 × instance_count)`).
+- **Derived by `gen_catalog.py` (don't duplicate):** `assets`, `leverage_max`, `funding_split`, `cadence_seconds`/`time_horizon` (from cadence), `instance_count`, `max_slots`, `min_budget` (**computed** by `min_budget.py`), `wallet_count`, `min_budget_breakdown`.
 
-## 9. Validate, smoke-test, deploy, confirm it *operates*
+## 9. Prove it runs, then deploy, then confirm it *operates*
 
 ```
-python3 senpi-strategy-author/scripts/validate_strategy.py strategies/<id>      # 0 errors
-python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # wallet(s); $100/instance floor
+python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>   # advisory lint
+openclaw senpi validate /data/workspace/strategies/<id>                          # THE GATE — must be PASS
+python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # wallet(s); $10/wallet floor
 python3 senpi-strategy-ops/scripts/deploy.py runtime <id>
 python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                        # re-run after interval_seconds
 # teardown / redeploy:  close.py <id>  (flattens positions, returns funds)
 ```
 **"running" ≠ "operating."** Don't trust `status: running`. Confirm the scanner has a **positive run count + a fresh `lastRunFinishedAt`** (`openclaw senpi state -r <id>-<instance> --json`), and that it **emits a non-empty set on a tick where it should** — `verify` proves it *ticked*, not that it produced a signal. This is an **agent-side check** — run it yourself; never ask the user "is it working?".
 
-### The first smoke test — run it yourself, once, before you scale
+### The gate — `senpi validate`, before any wallet exists
 
-The desk checks above catch *your* bugs. The first time the **live openclaw runtime runs your scanner** catches a different, higher-value class: the **contract / language mismatches between the authoring agent and the runtime** — a `runtime.yaml` key the runtime silently ignores, a `data{}` field it rejects, an MCP tool name/arg that doesn't exist, a `marginPct`/`leverage` the sizer reads differently. These surface *only* when the runtime itself executes your code, and they fail **silently**. So for every new strategy (and every new archetype), do this deliberately, by hand:
+The desk checks above catch *your* bugs. A different and higher-value class only appears when **the runtime itself executes your code**: the contract / language mismatches between the authoring agent and the runtime — a `data{}` field it rejects, an MCP tool name that doesn't exist, a `marginPct` the sizer reads differently. These fail **silently**; a scanner with any of them ticks clean and trades nothing.
 
-1. **Dry-run the plan** — `deploy.py create <id> --dry-run` + `deploy.py runtime <id> --dry-run`. Catches manifest / linkage / render errors with zero side effects (no wallet, no funds).
-2. **Run `scan()` once against the live read-only MCP** — confirm it returns a **non-empty, correctly-shaped** list (right tool names, right field reads). Catches the MCP language gap at the desk.
-3. **Deploy tiny, then read the runtime's OWN view of the first tick** — `create --budget <one-instance min>` → `runtime` → `openclaw senpi state -r <id>-<instance> --json`. Confirm the scanner **ran** *and the runtime **accepted** its signal* — not rejected for an undeclared `data{}` key, a non-positive `marginPct`, or a schema mismatch. The runtime reports those rejections in its state — **that is where a Claude↔openclaw language mismatch shows up loud** instead of as a silent `[]`.
-4. **Green smoke test = one strategy went `scan` → signal → runtime-*accepted* → action, end to end.** A clean dry-run is **not** a green smoke test. Only after that do you scale — more budget, more instances, or porting siblings.
+Finding them used to require a tiny deploy. It doesn't any more:
 
-If anything mismatches, fix the **contract** (the field name, the `signal_data_schema`, the key the runtime expects), re-run the smoke test, *then* proceed. Budget time for this on every new strategy: **the first agent-run smoke test is where the contract meets reality.**
+```
+openclaw senpi validate /data/workspace/strategies/<id>
+```
+
+It runs the **real loop** — same code path production uses — imports every scanner file, executes `scan()` once against live read-only data, counts what it actually read, and builds each returned candidate into the exact wire shape intake would receive, checking it against intake's own schema. **No wallet, no funding, no deploy.**
+
+- **PASS** — the code loads, a real tick ran, it read live data, and its signals would be accepted. This is what a green smoke test used to mean, minus the money.
+- **UNPROVEN** (exit 2) — it ran and **established nothing**: zero successful reads. Not a pass. Usually a gate in `scan()` returning early; have it consult `ctx.dry_run`. The finding names the line it returned from.
+- **FAIL** (exit 1) — each finding carries `what` / `why` / `fix` computed against your package: the rejected field and why intake refuses it, the tool name the server doesn't expose, the exception with its file and line, an exception your own `except` swallowed.
+
+Fix what it reports, re-run, and only hand to ops once it says PASS. **A clean lint is not a pass; only `senpi validate` is.**
+
+Two things it deliberately does *not* prove, so don't over-claim on its behalf: branches this tick didn't take, and logic that depends on open positions (it runs against an empty account by default — which is exactly the state a freshly funded strategy starts in). After deploy, still confirm the strategy **operates** — `deploy.py verify <id>`, then a positive run count and an accepted signal in `openclaw senpi state -r <id>-<instance> --json`.
 
 ## 10. The author's checklist (the silent-failure guards)
 
 - `scan()` single-pass + sync; read-only MCP only; `return []` on any error.
 - Pure scoring in `scoring.py`; MCP + state in `scan.py`.
-- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` 500s, the scan skips it). Gate it: `validate_universe.py strategies/<id>` (and `deploy.py create` runs it as a preflight). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`.
+- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Gate it: `validate_universe.py /data/workspace/strategies/<id>` (and `deploy.py create` runs it as a preflight). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`.
 - Emit a **`marginPct` intent**, not dollars; `marginPct`/`leverage` top-level, not in `data{}`.
 - Declare every `data{}` key in `signal_data_schema`.
 - **Anchor on the references:** MCP fields → I/O guide; exit → a named preset; catalog facets → the glossary.
 - Linkage: `group: <id>`, `name: <id>-<instance>`, `wallet_env` bound, `funding_share` sums to 1.0, package is `@senpi-ai/runtime`.
-- Validate (0 errors) → deploy → **confirm it emits/operates**, not just "ticked."
-- **Smoke-test the first deploy by hand** — dry-run → `scan()` once on live MCP → tiny deploy → confirm the runtime **accepted** a live signal (not just ticked) — *before* scaling. This is what catches the authoring-agent↔runtime language mismatches.
+- Lint (advisory) → **`openclaw senpi validate <pkg>` = PASS (the gate)** → deploy → **confirm it emits/operates**, not just "ticked."
+- **A gate in `scan()` must honour `ctx.dry_run`** — otherwise the tick reads nothing and validates as UNPROVEN, which is not a pass.
+- **Never hand a strategy to ops on a clean lint alone.** The lint reads your package; only `senpi validate` runs it. That is what catches the authoring-agent↔runtime language mismatches — and it now costs nothing to find out.
 
 ---
 
@@ -291,10 +319,10 @@ scanners:
     timeout_seconds: 180
     state_history_max_count: 100
     inputs:
-      universe: ["xyz:SP500","xyz:NASDAQ","xyz:NVDA","xyz:AMD","xyz:MSFT","xyz:JPM","xyz:CAT","BTC","ETH"]
+      universe: ["xyz:SP500","xyz:XYZ100","xyz:NVDA","xyz:AMD","xyz:MSFT","xyz:JPM","xyz:CAT","BTC","ETH"]
       minScore: 5
       breadthMin: 4
-      marginPct: 0.10
+      marginPct: 10          # PERCENT of withdrawable in (0,100]; 10 = 10%
       rsiMaxLong: 72
       horizonEndIso: "2026-10-01T00:00:00Z"
     signal_data_schema:
@@ -352,7 +380,7 @@ def scan(inputs, ctx):
     universe    = inputs.get("universe", [])
     min_score   = int(inputs.get("minScore", 5))
     breadth_min = int(inputs.get("breadthMin", 4))
-    base_pct    = float(inputs.get("marginPct", 0.10))
+    base_pct    = float(inputs.get("marginPct", 10))    # PERCENT in (0,100]; 10 = 10%
 
     confirmers = []
     for asset in universe:
@@ -379,7 +407,8 @@ def scan(inputs, ctx):
 
 **Ship it:**
 ```
-validate_strategy.py strategies/us-rebound          # 0 errors
+validate_strategy.py strategies/us-rebound          # advisory lint
+openclaw senpi validate strategies/us-rebound      # THE GATE — PASS before ops
 deploy.py create us-rebound --budget 200 ; deploy.py runtime us-rebound ; deploy.py verify us-rebound
 ```
 …then confirm it **emits** on a tick where ≥4 names confirm — not just that it ticked.

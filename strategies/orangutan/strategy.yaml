@@ -6,8 +6,7 @@
 schema_version: 1
 
 id: orangutan
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Orangutan — Rotation Rider (Weekly)"
   emoji: "🦧"
@@ -25,7 +24,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 7
-  min_budget: 100
   assets: []                 # DERIVED live weekly from both dexes (vol floor + top-N)
   tags: [rotation, dispersion, sector, pulse, smart-money, long-short, universe, weekly, no-close, dsl-only]
 

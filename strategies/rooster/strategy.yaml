@@ -1,0 +1,38 @@
+# Rooster — The Opener. A single-instance PACKAGE: this manifest + one self-contained
+# runtime.yaml + scanners/. The only fleet strategy whose signal is the CLOCK: it positions
+# into a session open rather than reacting after it. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: rooster
+version: "1.0.2"
+catalog:
+  name: "Rooster — The Opener"
+  emoji: "🐓"
+  tagline: "Trades the clock, not the chart — BTC's reaction to the US stock-market open. In the 45 minutes before the opening bell (default 13:30 UTC, fully configurable) it reads how BTC is setting up: the drift across the window sets direction, expanding volume confirms real positioning, and a break of the prior session's range adds conviction. Carries the position INTO the open, one signal per session, at 2-5x with a session-aware DSL ladder. The asset (BTC by default) and the session time are separate knobs — point it at another market, or another open."
+  belief_plain: "When Wall Street opens, the risk-on / risk-off flow spills into crypto — and the move often starts setting up in the 30-60 minutes BEFORE the bell. Rooster's signal is a clock, not a chart: by default it wakes 45 minutes before the US equity open (13:30 UTC), checks whether BTC is actually drifting one way on real volume (not just wandering on thin trade), and takes the position into the open. BTC has no open of its own, so the one it trades is borrowed from the stock market. It fires at most once per session, banks profit early, and lets go if the open comes and goes with nothing happening. Both the asset and the session time are inputs you can change."
+  thesis: "Every other template in the catalog reads price; none reads the clock. Session opens are the most reliable recurring liquidity event in any market, and pre-open drift on expanding volume is a genuine directional tell — but only when it clears a noise floor and only when volume confirms it, which is what separates positioning from wandering. The default session is the US equity cash open (13:30 UTC in EDT, 14:30 in EST); BTC is the default asset because equity-open flows move crypto — but both are inputs. Rooster makes the window itself the strategy: outside it the scanner emits nothing and reads nothing (a cheap idle tick), inside it it scores once and commits. The pre-open window, the session times, and the noise floor are all inputs, because the right window is exactly what a user wants to tune."
+  group: momentum
+  archetype: single_market
+  sub_style: session_open
+  asset_classes: [btc_eth]
+  asset_scope: single
+  direction: long_short
+  risk_level: moderate
+  tier: starter
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 1
+  assets: ["BTC"]
+  tags: [session, market-open, time-of-day, opener, pre-open, clock, intraday, btc, single-asset, long-short, beginner]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: ROOSTER_WALLET
+    funding_share: 1.0

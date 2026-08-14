@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.9.1"
+  version: "1.11.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -175,14 +175,18 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
   *running but not cleanly*: say **"⚠ runtime degraded — running but not healthy; check `openclaw senpi
   status`,"** not a clean all-clear. Flagged in `meta.warnings` too.
 - **`not_running`** — no runtime at all (above). ⛔ NOT RUNNING / UNPROTECTED.
-- **`unknown`** — telemetry unavailable from here (no `openclaw` on this host, or a build without the RPC).
-  Say **"runtime liveness unverified from here"** — never upgrade `unknown` to "healthy/protected" or
-  downgrade it to "broken." This is the honest bar: **only `live` means "confirmed working."**
+- **`unknown`** — **not proven live.** Either telemetry is unavailable from here (no `openclaw` on this
+  host, or a build without the RPC), **or the runtime itself reports its overall health as `unknown`** —
+  a scanner it has never heard from, a runtime just restarted, a scanner-only runtime with nothing yet
+  proven. Say **"runtime liveness unverified — not confirmed running"** — never upgrade `unknown` to
+  "healthy/protected" or downgrade it to "broken." This is the honest bar: **only `live` means "confirmed
+  working."** The runtime is deliberately fail-closed about `unknown` (it refuses to call an unproven
+  scanner healthy) — repeating that `unknown` back to the user is the whole point; do not smooth it over.
 
 This health check owns **liveness triage** (registered + running + healthy) via telemetry, and **references
 `diagnose.py` as the confirmation step** — it does not re-derive the deep checks. A thorough health check
 does not stop at the verdict: for **any** strategy that isn't cleanly `live` (`not_running` / `degraded` /
-`unknown`), running **`senpi-strategy-ops` `diagnose.py <id>`** (registered? ticked? BARREN? erroring?
+`unknown`), running **`senpi-strategy-ops` `diagnose.py <id>`** (registered? ticked? no signals yet? erroring?
 `--run-scan` for the literal scan output) is how you **confirm what's actually wrong and fix it** — surface
 it as the required next step (and its verdict, if you can run it), then close.py → redeploy as needed. For
 **"where am I leaking / did a stop fail / any halts / exit quality"**, hand to `senpi-improve-trades` (it
@@ -313,11 +317,17 @@ directly.)
 - **Don't infer "wiped out" from a low balance.** Check `total_funded` / `total_withdrawn` — a
   strategy can show a small balance because profits were withdrawn (`netFunded` can be negative). That
   is not a loss.
-- **"Current / my strategies" = ACTIVE only — never CLOSED.** The engine already filters
-  `strategy_list(status=["ACTIVE"])`, so closed strategies are excluded by construction. If you ever
-  reach for `strategy_list` directly, pass `status: ["ACTIVE"]` — a bare call returns CLOSED/PAUSED too
-  and they must not be presented as current. Mention PAUSED strategies only if relevant, clearly
+- **"Current / my strategies" = ACTIVE only — never CLOSED.** The engine filters
+  `strategy_list(status=["ACTIVE"])`, starts each analysis turn from a clean state, and expires the shared
+  cache after a short window — so a strategy CLOSED since a prior run can't linger as a ghost. If
+  you ever reach for `strategy_list` directly, pass `status: ["ACTIVE"]` — a bare call returns CLOSED/PAUSED
+  too and they must not be presented as current. Mention PAUSED strategies only if relevant, clearly
   labeled "paused," never as active.
+- **If the engine's own signals disagree, STOP and re-run — do NOT narrate through it.** A `reconciles:
+  false` in `totals`, or the `money` and `strategies` steps reporting a different strategy count/set, means
+  the numbers didn't tie out. Re-run the step fresh and reconcile BEFORE you say a word — above all before
+  any close / rebalance recommendation. Recommending action on a strategy that turns out to be already
+  closed is exactly the failure this guards against.
 - **The live clearinghouse is the source of truth for whether a strategy holds capital — over the `status`
   field AND over what anyone asserts about the wallet.** The engine reconciles this: a strategy whose live
   wallet holds **$0 account value, no positions, no idle** is flagged **`empty: true`** (`empty_reason`:

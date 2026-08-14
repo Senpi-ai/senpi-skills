@@ -193,10 +193,15 @@ def mirror_direction(pos):
 
 
 def position_asset(pos):
-    """Asset symbol, upper-cased. Verbatim from Remora."""
+    """Asset symbol, CASE-PRESERVED. Verbatim from Remora.
+
+    Not upper-cased: the emitted symbol goes straight into a Senpi tool call and
+    Hyperliquid coin names are CASE-SENSITIVE (kPEPE/kSHIB/kBONK are rejected as
+    `KPEPE`; HIP-3 prefixes are lowercase `xyz:`). Callers needing a
+    case-insensitive COMPARISON upper-case at the comparison site."""
     if not isinstance(pos, dict):
         return ""
-    return str(pos.get("coin", pos.get("market", pos.get("asset", pos.get("symbol", ""))))).upper()
+    return str(pos.get("coin", pos.get("market", pos.get("asset", pos.get("symbol", "")))))
 
 
 def position_leverage(pos):

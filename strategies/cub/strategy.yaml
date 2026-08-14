@@ -12,14 +12,14 @@
 schema_version: 1
 
 id: cub
-version: "1.0.0"
+version: "1.1.0"
 
 catalog:
   name: "Cub — Two-Speed-Market Long/Short + Pre-IPO"
   emoji: "🐅"
   tagline: "Longs the structural winners of a K-shaped world (the AI complex on Hyperliquid XYZ + crypto winners HYPE/SOL) and shorts the laggards (the broad U.S. market via SP500 + a gated basket of laggard alts) — both trend-confirmed on separate wallets — plus a ~10% pre-IPO ramp satellite that auto-discovers pre-IPO perpetuals (IPOPs) and rides them into their listing."
   belief_plain: "The world is splitting into haves and have-nots: AI companies and crypto's winners keep booming while the broad economy and the rest of crypto struggle. Cub buys the booming side and shorts the struggling side at the same time on separate wallets, so it makes money on the GAP between the two — and keeps a small slice aimed at the next SpaceX before it goes public."
-  thesis: "The edge is K-shaped DISPERSION, not market direction. Long the AI complex + HYPE/SOL only while they're actually trending up; short SP500 + laggard alts only while they're actually rolling over; the P&L is the spread between the two speeds. A ~10% pre-IPO sleeve adds optionality — it discovers IPOPs by their funding signature and longs the ones ramping into their listing. Tokenized equities trade 24/7 on Hyperliquid, so the book never waits for a market open."
+  thesis: "The edge is K-shaped DISPERSION, not market direction. Long the AI complex + HYPE/SOL only while they're actually trending up; short SP500 + laggard alts only while they're actually rolling over; the P&L is the spread between the two speeds. A ~10% pre-IPO sleeve adds optionality — it discovers IPOPs by their leverage signature (fresh perps launch capped low) and longs the ones ramping into their listing. Tokenized equities trade 24/7 on Hyperliquid, so the book never waits for a market open."
   group: multi-asset-thematic
   archetype: structural_neutral   # cross-asset L/S dispersion — net beta set by operator funding split
   sub_style: pairs_rv             # cross-sectional relative-value (haves vs have-nots dispersion)
@@ -31,7 +31,6 @@ catalog:
   time_horizon: position
   leverage_max: 5
   max_slots: 12           # long 5 + short 4 + preipo 3
-  min_budget: 600         # 3 wallets; ~90% across long+short / ~10% preipo — each needs working size
   assets: ["xyz:NVDA", "xyz:AMD", "xyz:MRVL", "xyz:ARM", "xyz:AVGO", "xyz:TSM", "xyz:ASML", "xyz:MU", "xyz:CRWV", "xyz:GOOGL", "xyz:MSFT", "xyz:META", "xyz:AMZN", "xyz:ORCL", "xyz:PLTR", "xyz:SPCX", "HYPE", "SOL", "xyz:SP500", "ETH", "XRP", "DOGE", "AVAX", "LINK"]
   tags: [k-shaped, two-speed, ai-complex, hedge-fund, long-short, dispersion, xyz, equities, crypto, pre-ipo, ipop, hype, sp500]
 

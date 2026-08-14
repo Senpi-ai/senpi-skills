@@ -10,8 +10,7 @@
 schema_version: 1
 
 id: hornet
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Hornet — Semiconductor Supply-Chain Momentum"
   emoji: "🐝"
@@ -29,7 +28,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 3
-  min_budget: 200
   assets: ["xyz:ASML", "xyz:AMAT", "xyz:MRVL", "xyz:NVDA", "xyz:AMD", "xyz:AVGO", "xyz:TSM", "xyz:QCOM", "xyz:ARM", "xyz:INTC", "xyz:SMH", "xyz:MU", "xyz:SNDK", "xyz:SMSN", "xyz:SKHX", "xyz:WDC"]
   tags: [semiconductors, ai-capex, supply-chain, sector-breadth, equities, xyz, nvda, asml, tsm, momentum, smart-money, basket, long-short, advanced, 23-5]
 

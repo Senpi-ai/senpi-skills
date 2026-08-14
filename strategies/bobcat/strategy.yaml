@@ -10,8 +10,7 @@
 schema_version: 1
 
 id: bobcat
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Bobcat — Big Tech Trend Follower"
   emoji: "🐈"
@@ -28,7 +27,6 @@ catalog:
   tier: starter
   leverage_max: 5
   max_slots: 3
-  min_budget: 200
   assets: ["xyz:NVDA", "xyz:TSLA", "xyz:AAPL", "xyz:META", "xyz:MSFT", "xyz:GOOGL", "xyz:AMZN", "xyz:AMD", "xyz:MU", "xyz:INTC", "xyz:TSM", "xyz:ORCL"]
   tags: [big-tech, equities, xyz, nvda, tsla, aapl, trend-following, smart-money, basket, onboarding, 23-5]
 

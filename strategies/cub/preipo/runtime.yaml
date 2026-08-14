@@ -5,11 +5,13 @@ version: 3.0.0
 description: >
   CUB PREIPO (satellite) — the ~10% pre-IPO ramp sleeve of the Cub combined fund (~90% Lion
   two-speed AI long/short + ~10% pre-IPO). Runtime 3.0 port of v2 Cub v1.0.0, CUB_LEG=preipo. This
-  book auto-DISCOVERS pre-IPO perpetuals (IPOPs) on Hyperliquid XYZ by their structural funding
-  signature (|funding| <= ipopFundingMaxAbs AND venue max_leverage <= ipopMaxLeverageCap — the
-  throttled pre-listing state) and LONGS the ones with a confirming absolute 4h/1h uptrend, riding
+  book auto-DISCOVERS pre-IPO perpetuals (IPOPs) on Hyperliquid XYZ by their structural leverage
+  signature (venue max_leverage <= ipopMaxLeverageCap — fresh pre-IPO perps launch capped low) plus a
+  budget-relative liquidity floor, and LONGS the ones with a confirming absolute 4h/1h uptrend, riding
   the pre-listing ramp (the SpaceX / Cerebras pattern). No static universe — discovered every tick,
-  so the next IPOP auto-joins on listing. Blow-off guard loosened (pre-IPO names run hot). LONG only.
+  so the next IPOP auto-joins on listing; a fresh listing is entered ~6h after launch on a 1h-confirmed
+  STARTER (half size), scaling to full size once 24h of 4h history exists. Blow-off guard loosened
+  (pre-IPO names run hot). LONG only.
   Episodic by design — most ticks may find 0-2 IPOPs. The IPOP liquidity floor is BUDGET-RELATIVE
   (no hardcoded $). Runs on its OWN wallet, funded with ~10% of Cub's combined pool (allocation =
   the operator's funding split across the three book wallets, NOT a runtime field). Pairs with the
@@ -36,7 +38,7 @@ scanners:
     default_signal_validity_seconds: 900
     state_history_max_count: 50
     inputs:
-      # NO static universe — IPOPs are DISCOVERED each tick by the funding+leverage signature below.
+      # NO static universe — IPOPs are DISCOVERED each tick by the leverage-cap + liquidity signature below.
       sizingWeights:
         _default: 1.0
       minScore: 4             # pre-IPO data is sparse — slightly lower bar
@@ -44,12 +46,24 @@ scanners:
       maxLeverage: 5          # IPOPs are venue-capped at 5x anyway; clamp then each name's HL venue max
       maxSlots: 3
       rankPoolSize: 16
-      ipopFundingMaxAbs: 1.0e-7   # IPOP funding signature (throttled pre-listing)
-      ipopMaxLeverageCap: 5       # IPOP leverage signature
+      ipopFundingMaxAbs: 0        # OFF (0) — funding does NOT identify an IPOP: live pre-IPO perps fund
+                                  # like ordinary equities, so the old 1.0e-7 gate matched NO live IPOP
+                                  # and left this wallet empty. Leverage cap + liquidity floor discriminate.
+      ipopMaxLeverageCap: 5       # IPOP leverage signature — the real discriminator (fresh perps launch capped low)
       ipopLiqVolMultiple: 30      # budget-relative IPOP liquidity floor (× position notional)
       rsThresholdPct: 3.0
       rsiOverbought: 88       # pre-IPO ramps run hot; loosen the blow-off guard
       recentSignalTtlSeconds: 180
+      # FRESH-LISTING FAST PATH — a just-listed IPOP has no 4h history for ~24h. When enabled, confirm the
+      # ramp on the 1h structure once it has >= minCandles1h 1h candles (~6h from launch, vs ~24h for 4h)
+      # and enter a de-risked STARTER (starterSizeFactor × normal margin); the full 4h engine sizes up once
+      # 24h of history exists. maxRunPct blocks chasing a name already up big since launch (RSI-14 is inert
+      # day-1). Set enabled:false to revert to 4h-only (~24h) entry.
+      freshListing:
+        enabled: true
+        minCandles1h: 6          # ~6h of 1h candles before a fresh IPOP is eligible for the starter
+        starterSizeFactor: 0.5   # starter enters at half the normal per-name margin
+        maxRunPct: 25            # skip the starter if already up >25% since launch (don't chase the spike)
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }
@@ -59,6 +73,8 @@ scanners:
       excess: { type: number, required: false }
       own24h: { type: number, required: false }
       weight: { type: number, required: false }
+      basis: { type: string, required: false }      # "4h" full engine | "1h" fresh-listing starter
+      sizeFactor: { type: number, required: false }
       heldAssets: { type: array, required: false }
 
 actions:

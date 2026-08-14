@@ -9,8 +9,7 @@
 schema_version: 1
 
 id: osprey
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Osprey — Cross-Venue Lag (Crypto -> XYZ Equity)"
   emoji: "🦅"
@@ -27,7 +26,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 1
-  min_budget: 200
   assets: ["xyz:COIN", "xyz:MSTR"]
   tags: [xyz, coin, mstr, cross-venue-lag, cross-asset-lag, btc-proxy, crypto-equities, catch-up, let-winners-run]
 

@@ -63,6 +63,35 @@ def cli_json(args, timeout=60):
     return _extract_json(out)
 
 
+# Stdout/stderr lines that are pure plugin/telemetry chatter — never the failure cause.
+_NOISE_PREFIXES = ("[plugins]",)
+
+
+def error_tail(err, out="", limit=600):
+    """Best-available error text from a failed CLI call: prefer stderr, fall back to stdout;
+    drop blank + known banner lines; return the LAST `limit` chars. CLI failures print the
+    real cause at the END of the stream — a head truncation (`text[:N]`) returns the banner
+    flood and destroys the cause (a register-error banner-flood blackout).
+
+    ANSI escapes are stripped FIRST (before filtering) so a color-coded `\\x1b[90m[plugins]…`
+    banner still matches the noise filter, and no raw escape sequences leak into
+    `.deploy-state.json` / the report. If a stream filters down to nothing (all banner noise),
+    we try the SAME filter on the other stream before the raw-tail fallback — a Node CLI that
+    prints banners to stderr and the real error to stdout must not surface the banner as the
+    cause. Filtering must never turn a non-empty capture into an empty message."""
+    err_s = _strip_ansi(err or "").strip()
+    out_s = _strip_ansi(out or "").strip()
+    for text in (err_s, out_s):
+        if not text:
+            continue
+        lines = [ln for ln in text.splitlines()
+                 if ln.strip() and not ln.strip().startswith(_NOISE_PREFIXES)]
+        cleaned = "\n".join(lines).strip()
+        if cleaned:
+            return cleaned[-limit:]
+    return (err_s or out_s)[-limit:]
+
+
 # ---- tolerant extraction ----
 
 def dig(obj, *keys, default=None):
@@ -120,15 +149,11 @@ def wallet_match(a, b):
     return False
 
 
-def list_runtimes():
-    """All runtimes (running AND stopped) by parsing `runtime list` text. NOTE on runtime v3: `runtime
-    list` has no --json (human text only), and `status --json` is *flaky* — it transiently returns an
-    empty `statuses[]` even while runtimes are running — so it is NOT a reliable inventory. The text
-    table (id / wallet / source / status) is authoritative; use `status -r <id>` only for health."""
-    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])
-    if rc != 0:
-        return []
-    rows, seen_header = [], False
+def _parse_runtime_list(out):
+    """Parse `runtime list` text → (rows, valid). `valid` is True only when the output actually looked
+    like the runtime-list table (header row seen, or an explicit 'no runtimes' line) — so a garbled /
+    banner-only stdout that yields zero rows is reported as NOT valid rather than as an empty inventory."""
+    rows, seen_header, empty_marker = [], False, False
     for line in out.splitlines():
         line = _strip_ansi(line).strip()
         if not line:
@@ -139,12 +164,38 @@ def list_runtimes():
                 seen_header = True
             continue
         if "no runtimes" in low:
+            empty_marker = True
             break
         parts = [p for p in re.split(r"\s{2,}|\t+", line) if p]
         if len(parts) >= 2:
             rows.append({"name": parts[0], "wallet": parts[1],
                          "source": parts[2] if len(parts) > 2 else None, "status": parts[-1]})
+    return rows, (seen_header or empty_marker)
+
+
+def list_runtimes():
+    """All runtimes (running AND stopped) by parsing `runtime list` text. NOTE on runtime v3: `runtime
+    list` has no --json (human text only), and `status --json` is *flaky* — it transiently returns an
+    empty `statuses[]` even while runtimes are running — so it is NOT a reliable inventory. The text
+    table (id / wallet / source / status) is authoritative; use `status -r <id>` only for health.
+    Returns [] on a failed/garbled read; a caller that must NOT conflate 'none' with 'unreadable'
+    (teardown's money path) uses `list_runtimes_or_none` instead."""
+    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])
+    if rc != 0:
+        return []
+    rows, _valid = _parse_runtime_list(out)
     return rows
+
+
+def list_runtimes_or_none():
+    """Like `list_runtimes()` but returns None when the `runtime list` read FAILED (rc != 0) or produced
+    unparseable output — so callers can tell 'no runtimes' (→ []) from 'couldn't read the inventory'
+    (→ None). The teardown money path must never mistake an unreadable inventory for 'the runtime is gone'."""
+    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])
+    if rc != 0:
+        return None
+    rows, valid = _parse_runtime_list(out)
+    return rows if valid else None
 
 
 def runtime_name(rt):
@@ -162,9 +213,21 @@ def runtime_running(rt):
     if isinstance(st, bool):
         return st
     s = str(st).lower()
-    if s in ("running", "active", "live", "ok", "true", "healthy", "degraded"):
+    # "running — NO ENTRY SCANNERS" (B1) is a RUNNING runtime whose entry scanners never wired —
+    # the process is up (and DSL may be protecting positions), so it must never read as stopped:
+    # deploy.py's create closes "open but not running" strategies, and that would flatten a live one.
+    if s.startswith("running"):
+        return True
+    if s in ("active", "live", "ok", "true", "healthy", "degraded"):
         return True
     return False
+
+
+def runtime_no_entry_scanners(rt):
+    """True when `runtime list` marks this running runtime as `running — NO ENTRY SCANNERS`
+    (entry scanners never wired — positive wiring-failure evidence; NOT live)."""
+    st = dig(rt, "status", "state")
+    return "no entry scanners" in str(st or "").lower()
 
 
 def find_runtime(name):
@@ -204,8 +267,54 @@ def _deep_first(obj, keys):
 
 
 def runtime_status(name, timeout=15):
-    """`openclaw senpi status -r <name> --json` — lightweight per-runtime health (or None)."""
+    """`openclaw senpi status -r <name> --json` — lightweight per-runtime health (or None).
+
+    Single fast read, no in-call retry. `_check_live` prefers the batched `runtime_health_map` (which
+    already retries) and only falls here when a runtime is missing from that map; retry across reads is
+    the caller's job (re-run `verify`, or its `--max-wait` poll loop) — NOT per call. Each openclaw
+    invocation pays ~2-3s startup, so a per-call retry loop silently blows verify's fast-single-check
+    budget (regression seen live: 2× retries here + on `state` pushed one pass past the tool timeout)."""
     return cli_json(["openclaw", "senpi", "status", "-r", name, "--json"], timeout)
+
+
+def runtime_state(name, timeout=15):
+    """`openclaw senpi state -r <name> --json` → parsed state, or None.
+
+    Single fast read — do NOT retry in-call. `senpi.getSystemState` transiently THROWS for minutes
+    after a runtime starts (external-scanner subprocesses still launching); a throw exits non-zero
+    with empty stdout so this returns None. That is EXPECTED and cheap to handle: the scanner verdict
+    falls straight through to `senpi status` (see deploy.py `_scanner_verdict`), which answers while
+    `state` is still throwing. Waiting/retrying on `state` here just burns the caller's budget for a
+    read we already know how to do without — retry belongs in the poll loop, not this call."""
+    return cli_json(["openclaw", "senpi", "state", "-r", name, "--json"], timeout)
+
+
+def scanner_health_in_status(status_entry, scanner_name):
+    """Per-scanner health string (or None) from a `senpi status` entry (getHealthStatus), by stable
+    scanner name. The scanners component is `components.scanners.scanners[] = [{address, scannerId,
+    health}]`. This is the RELIABLE liveness source: getHealthStatus keeps answering while
+    getSystemState is still throwing post-deploy, and the runtime has already computed each scanner's
+    health verdict for us here. Returns None both when status is unreadable and when the scanner isn't
+    (yet) in the list — the caller treats both the same (a running runtime supervises the scanner
+    regardless), so there is intentionally no 'was the list populated?' distinction to return."""
+    comp = None
+    comps = dig(status_entry, "components")
+    if isinstance(comps, dict):
+        comp = comps.get("scanners")
+    if not isinstance(comp, dict):
+        comp = _deep_first(status_entry, ["scanners"])  # tolerate a flatter/rewrapped shape
+    if isinstance(comp, dict):
+        rows = comp.get("scanners")
+    elif isinstance(comp, list):
+        rows = comp
+    else:
+        rows = None
+    if not isinstance(rows, list):
+        return None
+    for r in rows:
+        if dig(r, "scannerId", "name", "scanner") == scanner_name:
+            return str(dig(r, "health") or "").lower() or None
+    return None
 
 
 def runtime_health_map(timeout=15):
@@ -221,16 +330,24 @@ def runtime_health_map(timeout=15):
 
 
 def health_verdict(status_json):
-    """Map a `senpi status` payload to healthy | degraded | unhealthy | None (shape-tolerant)."""
+    """Map a `senpi status` payload to healthy | degraded | unhealthy | unknown | None (shape-tolerant).
+
+    Fail-closed: any verdict that is PRESENT but not a recognised healthy/broken value — the
+    runtime's `unknown` (scanner not yet proven by a tick), `disabled`, or future vocabulary —
+    maps to `unknown`, never to None: None triggers the caller's "running" fallback, which would
+    paint an unproven runtime ✅. None is reserved for payloads with no health field at all.
+    """
     h = _deep_first(status_json, ["overallHealth", "health", "overall", "status"])
-    h = str(h).lower() if h is not None else None
+    if h is None:
+        return None
+    h = str(h).lower()
     if h in ("healthy", "ok", "running", "live", "true"):
         return "healthy"
     if h in ("degraded", "warn", "warning"):
         return "degraded"
     if h in ("unhealthy", "failed", "error", "down", "false"):
         return "unhealthy"
-    return None
+    return "unknown"  # unknown / disabled / unrecognised verdict → not proven live
 
 
 def active_positions(status_json):
@@ -325,17 +442,41 @@ def strategy_open(s):
     return str(strategy_status(s) or "").upper() not in DEAD_STATUSES
 
 
+def list_strategies_or_none(mcp, timeout=15, statuses=None):
+    """Like `list_strategies()` but returns None when the `strategy_list` read FAILED (transport error) —
+    so a money path can tell 'no strategies' (→ []) from 'couldn't read the list' (→ None) and REFUSE
+    rather than fund a second wallet next to an unread live one. Mirrors `list_runtimes_or_none`."""
+    args = {"status": statuses} if statuses else {}
+    try:
+        res = mcp.mcp_call("strategy_list", timeout=timeout, **args)
+    except Exception:  # noqa: BLE001 — the WHOLE point: surface the failure instead of swallowing to []
+        return None
+    return find_list(res, "strategies")
+
+
+def _match_strategy(s, skill_name, strategy_id, wallet):
+    if strategy_id is not None and strategy_id_of(s) != strategy_id:
+        return False
+    if skill_name is not None and strategy_skill(s) != skill_name:
+        return False
+    if wallet is not None and str(strategy_wallet(s) or "").lower() != str(wallet).lower():
+        return False
+    return True
+
+
 def strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15, statuses=None):
     """Return strategies matching any provided filter (skill_name / strategyId / wallet). Pass `statuses`
     to filter server-side (faster; e.g. close only needs live ones). Leave None when you must also see
-    CLOSED/FAILED (e.g. create's reconcile checks a recorded id's terminal state)."""
-    out = []
-    for s in list_strategies(mcp, timeout, statuses=statuses):
-        if strategy_id is not None and strategy_id_of(s) != strategy_id:
-            continue
-        if skill_name is not None and strategy_skill(s) != skill_name:
-            continue
-        if wallet is not None and str(strategy_wallet(s) or "").lower() != str(wallet).lower():
-            continue
-        out.append(s)
-    return out
+    CLOSED/FAILED (e.g. create's reconcile checks a recorded id's terminal state). Fail-OPEN ([] on read
+    error) — fine for reads that only ADD work; use `strategies_for_or_none` on a money path."""
+    return [s for s in list_strategies(mcp, timeout, statuses=statuses)
+            if _match_strategy(s, skill_name, strategy_id, wallet)]
+
+
+def strategies_for_or_none(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15, statuses=None):
+    """Fail-CLOSED `strategies_for`: returns None when the `strategy_list` read failed, so a money path
+    can refuse rather than mistake 'unreadable' for 'none' (the double-fund / un-consented-flatten trap)."""
+    rows = list_strategies_or_none(mcp, timeout, statuses=statuses)
+    if rows is None:
+        return None
+    return [s for s in rows if _match_strategy(s, skill_name, strategy_id, wallet)]

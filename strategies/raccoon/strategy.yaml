@@ -25,7 +25,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 3
-  min_budget: 200
   assets: []
   tags: [xyz, equities, commodities, weekend, reconciliation, oracle-gap, smart-money, snap-back, hard-timeout]
 

@@ -36,6 +36,17 @@ LIVE_STATUSES = ["ACTIVE", "PAUSED", "CREATE_WALLET", "FUND_WALLET", "INITIALIZE
                  "SUBSCRIBE_TRADER", "CLOSING_POSITIONS"]
 
 
+def _runtime_gone(name):
+    """True ONLY when `runtime list` was read successfully AND `name` is absent from it. An UNREADABLE
+    inventory (rc!=0 / garbled → None) returns False: on teardown's money path we must never mistake
+    'couldn't read the inventory' for 'the runtime is gone' and then strategy_close a strategy whose
+    runtime is still live and could re-enter positions. Fail CLOSED here — the caller retries / reports."""
+    rts = _cli.list_runtimes_or_none()
+    if rts is None:
+        return False
+    return not any(_cli.runtime_name(r) == name for r in rts)
+
+
 def close_one(label, strat, runtimes, dry_run, log):
     """Stop the runtime (FIRE — no confirm-wait) + TRIGGER strategy_close, then return immediately. The
     agent polls by re-running close.py (idempotent: runtime already gone → skip; status closing/closed →
@@ -64,15 +75,25 @@ def close_one(label, strat, runtimes, dry_run, log):
         rec["status"] = "closed"
         return rec
 
-    # 1. stop the runtime if one is live — FIRE only, no confirm poll (the re-run poll confirms via
-    #    strategy_list status; blocking here cost ~30s/instance). Idempotent across re-runs.
+    # 1. stop the runtime if one is live. Trust `runtime list` (the authoritative inventory), NOT the
+    #    delete's exit code: `runtime delete` rides the flaky gateway (its OTel/HyperDX banner leaks into
+    #    our captured output) AND returns NOT_FOUND / non-zero when the runtime is ALREADY gone — so a
+    #    non-zero is NOT proof of failure. Trusting it both broke idempotent re-runs (a poll re-run hit
+    #    NOT_FOUND → false 'failed') and false-aborted the money-critical strategy_close below, stranding
+    #    the strategy open (seen live). The delete succeeded iff the runtime is gone from `runtime list`.
     if rt:
         log(f"  [{label}] stopping runtime {rname!r}…")
-        rc, _o, err = _cli.run_cli(["openclaw", "senpi", "runtime", "delete", "--id", rname,
-                                    "--address", wallet or ""], timeout=60)
-        if rc != 0:
+        _cli.run_cli(["openclaw", "senpi", "runtime", "delete", "--id", rname,
+                      "--address", wallet or ""], timeout=60)
+        if not _runtime_gone(rname):   # still listed OR inventory unreadable → one retry, then treat as stuck
+            _cli.run_cli(["openclaw", "senpi", "runtime", "delete", "--id", rname,
+                          "--address", wallet or ""], timeout=60)
+        if not _runtime_gone(rname):
             rec["status"] = "failed"
-            rec["error"] = (err or "runtime delete failed").strip()[:300]
+            rec["error"] = (f"runtime {rname!r} still in (or unreadable from) `runtime list` after delete — "
+                            f"it may re-enter positions; delete it "
+                            f"(`openclaw senpi runtime delete --id {rname} --address {wallet or '<wallet>'}`) "
+                            f"then re-run close")
             return rec
         rec["runtime"] = "stopped"
     else:
@@ -124,8 +145,10 @@ def main(argv):
         except _pkg.BadPackage as e:
             sid = Path(a.package).name
             try:
-                _fetch.fetch_package(sid, "strategies", ref=a.ref)
-                pkg = _pkg.load(sid)
+                # Same durable, CWD-independent fetch root as deploy.py (see _pkg.strategies_root).
+                dest_root = _pkg.strategies_root()
+                _fetch.fetch_package(sid, dest_root, ref=a.ref)
+                pkg = _pkg.load(dest_root / sid)
             except (_fetch.FetchError, _pkg.BadPackage):
                 raise SystemExit(f"error: {e}")
         if a.instance and a.instance not in {i.name for i in pkg.instances}:

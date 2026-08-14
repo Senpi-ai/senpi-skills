@@ -141,7 +141,13 @@ def fetch_instruments(ctx):
     for inst in instruments:
         if not isinstance(inst, dict):
             continue
-        name = str(inst.get("name", inst.get("coin", ""))).upper()
+        # CASE-PRESERVED: market_list_instruments is the source of truth for exact
+        # coin-name casing, and HL names are CASE-SENSITIVE — the 1000x names carry
+        # a lowercase k (kPEPE/kSHIB/kBONK) and `KPEPE` is rejected as
+        # INVALID_ARGUMENT. This symbol is emitted as the signal asset and passed to
+        # fetch_spread_bps, so upper-casing it silently no-traded every
+        # k-denominated name. Comparisons upper-case at their site.
+        name = str(inst.get("name", inst.get("coin", "")))
         dex = str(inst.get("dex", "")).lower()
         if not name:
             continue
@@ -337,7 +343,10 @@ def scan(inputs, ctx):
     bootstrapping = 0
     for inst in instruments:
         samples = history.get(inst["asset"], [])
-        sig = scoring.evaluate_oi_velocity(inst, samples, sm_map.get(inst["asset"]),
+        # sm_map is keyed upper-case (see the token parse in the sm fetch); asset
+        # names are now case-preserved, so upper-case at the lookup.
+        sig = scoring.evaluate_oi_velocity(inst, samples,
+                                           sm_map.get(inst["asset"].upper()),
                                            hour, inputs)
         if sig == "BOOTSTRAP":
             bootstrapping += 1
@@ -351,7 +360,9 @@ def scan(inputs, ctx):
     eligible = [
         c for c in candidates
         if c["score"] >= min_score
-        and not _is_cooled_down(cooldowns, c["asset"], cooldown_min, now)
+        # cooldowns is keyed upper-case at the write site (`cooldowns[au]`), and
+        # asset names are case-preserved — upper-case here so the lookup matches.
+        and not _is_cooled_down(cooldowns, c["asset"].upper(), cooldown_min, now)
     ]
 
     total = len(instruments)

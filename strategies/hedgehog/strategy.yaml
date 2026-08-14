@@ -7,8 +7,7 @@
 schema_version: 1
 
 id: hedgehog
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Hedgehog — Major Crypto Basket"
   emoji: "🦔"
@@ -25,7 +24,6 @@ catalog:
   tier: starter
   leverage_max: 5
   max_slots: 3
-  min_budget: 200
   assets: ["BTC", "ETH", "SOL"]
   tags: [btc, eth, sol, multi-asset, basket, momentum, smart-money, directional, onboarding, per-position-dsl]
 

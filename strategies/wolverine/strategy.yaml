@@ -7,8 +7,7 @@
 schema_version: 1
 
 id: wolverine
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Wolverine — HYPE Alpha Hunter"
   emoji: "🦡"
@@ -25,7 +24,6 @@ catalog:
   tier: advanced
   leverage_max: 5
   max_slots: 1
-  min_budget: 200
   assets: ["HYPE"]
   tags: [hype, single-asset, momentum, smart-money, funding-regime, macro-gate, conviction-leverage, alpha-hunter]
 

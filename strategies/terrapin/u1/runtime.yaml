@@ -1,0 +1,138 @@
+# ── TERRAPIN · unit 1 of 4 — the BASE of the breakout pyramid ─────────────────
+# Enters on the Donchian breakout itself (unitIndex 0), so it has the most cushion and
+# is the core trend position. Its DSL is the WIDEST of the four — it breathes through
+# noise and rides the whole move. The upper units lock tighter; the base holds.
+name: terrapin-u1
+group: terrapin
+version: 1.0.0
+description: >
+  TERRAPIN unit 1/4 — the base unit of a Turtle-style breakout pyramid on a single asset
+  (BTC by default). Enters when price breaks the prior 20-day Donchian channel and MACD
+  agrees (long above the high, short below the low). This is the base rung (arms at the
+  breakout, offset 0), given the widest let-winners-run DSL so it carries the core trend
+  position while the upper units protect profit. One position at a time; the DSL owns the exit.
+
+strategy:
+  wallet: "${TERRAPIN_U1_WALLET}"
+  slots: 1
+  margin_pct: 40                          # % of THIS unit's wallet (each unit funds 1/4 of the book)
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: terrapin_u1_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 1800                 # 30m — a daily breakout doesn't need faster; this catches
+                                           # the intraday breach of the daily level promptly enough
+    timeout_seconds: 120
+    default_signal_validity_seconds: 3600  # 2x tick
+    state_history_max_count: 100
+    inputs:
+      asset: "BTC"                         # the ONE market the whole pyramid stacks into
+      unitIndex: 0                         # BASE rung — arms at the breakout (offset 0 x N)
+      candleInterval: "1d"                 # Turtle is a daily-breakout system
+      breakoutLookback: 20                 # Turtle System 1: the 20-day channel
+      atrPeriod: 20                        # N = 20-day ATR
+      addStepN: 0.5                        # units ladder every ½N (u1=0, u2=½N, u3=1N, u4=1½N)
+      macdFast: 12
+      macdSlow: 26
+      macdSignal: 9
+      requireMacd: true                    # "turtle con MACD": a breakout MACD disagrees with is vetoed
+      macdStrongHistPct: 0.05
+      beyondRungN: 0.15
+      minScore: 6                          # breakout(4) + MACD agree(2)
+      marginPctBase: 40                    # PERCENT of this unit's wallet in (0,100]
+      leverageDefault: 3
+      leverageMin: 2
+      leverageMax: 5
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      unit: { type: number, required: false }
+      atr: { type: number, required: false }
+      rung: { type: number, required: false }
+      beyondN: { type: number, required: false }
+      channelHigh: { type: number, required: false }
+      channelLow: { type: number, required: false }
+      macdHist: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: terrapin_u1_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied the breakout + ladder + MACD gate
+    scanners: [terrapin_u1_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # a breakout is a fast move; a resting maker order misses it
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: terrapin_u1_signals
+
+# ── EXIT (DSL — the TWIST: base rung = widest ladder) ────────────────────────
+# Classic Turtle exits the whole pyramid on one 2N / 10-day-low stop. Our twist hands each
+# unit its own DSL, calibrated to its rung. This is u1, the base: entered lowest, most cushion,
+# so it gets the WIDEST let-winners-run ladder — late first lock, wide phase-1 floor — to carry
+# the core trend. Time-cuts off; the trailing ratchet IS the modern 10-day-low exit.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+      interval_in_minutes: 1440
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 240             # a daily breakout that does nothing for 4h was a fakeout
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 25.0                   # WIDEST — the base rides through the noise
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # lock LATE, let the core trend run
+        - { trigger_pct: 15, lock_hw_pct: 0 }
+        - { trigger_pct: 25, lock_hw_pct: 25 }
+        - { trigger_pct: 45, lock_hw_pct: 45 }
+        - { trigger_pct: 70, lock_hw_pct: 62 }
+        - { trigger_pct: 100, lock_hw_pct: 78 }
+
+# ── RISK guard rails (moderate) ──
+risk:
+  data_retention_seconds: 604800           # 7d
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 3
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 3600
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400       # 4h — don't instantly re-arm the same rung after a shakeout
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

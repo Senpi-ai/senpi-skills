@@ -26,7 +26,6 @@ catalog:
   time_horizon: swing
   leverage_max: 10
   max_slots: 1
-  min_budget: 200
   assets: ["BTC", "ETH", "SOL", "HYPE"]
   tags: [smart-money, contrarian, fade, exhaustion, funding-regime, multi-asset, btc, eth, sol, hype, conservative, let-winners-run]
 

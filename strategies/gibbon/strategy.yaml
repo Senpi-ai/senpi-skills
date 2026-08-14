@@ -7,8 +7,7 @@
 schema_version: 1
 
 id: gibbon
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Gibbon — Rotation Rider (Daily)"
   emoji: "🐒"
@@ -26,7 +25,6 @@ catalog:
   time_horizon: swing
   leverage_max: 5
   max_slots: 8
-  min_budget: 100
   assets: []                 # DERIVED live daily from both dexes (vol floor + top-N)
   tags: [rotation, dispersion, sector, pulse, smart-money, long-short, universe, daily, no-close, dsl-only]
 

@@ -7,7 +7,7 @@
 schema_version: 1
 
 id: otter
-version: "1.0.0"
+version: "1.0.1"
 
 catalog:
   name: "Otter — Open Interest Velocity Hunter"
@@ -25,7 +25,6 @@ catalog:
   tier: advanced
   leverage_max: 10
   max_slots: 2
-  min_budget: 200
   assets: []
   tags: [open-interest, oi-velocity, momentum, universe, flow, smart-money, conviction-sizing, short-hold, crypto]
 

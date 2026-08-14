@@ -76,12 +76,29 @@ def trader_address(t):
 
 
 def position_notional(pos):
-    """USD notional of a position for conviction ranking: size x entry,
-    falling back to marginUsed, then to raw size. Verbatim from v2."""
+    """USD notional of a position for conviction ranking: notional_size, else
+    size x entry, falling back to marginUsed, then to raw size.
+
+    Handles BOTH position shapes: the Hyperliquid clearinghouse one
+    (szi/entryPx/marginUsed) and the leaderboard_get_trader_positions one
+    (market/size/entry_price/notional_size). The leaderboard shape is what
+    scan.py actually receives — without these keys `entry` resolved to 0 and
+    the notional collapsed to the RAW TOKEN COUNT via the final fallback, so a
+    184M-token PUMP dust position ($350K) outranked a 59K-token ETH short
+    ($112M) and Remora mirrored meme dust instead of real conviction.
+
+    `notional_size` is the documented USD field (|size| x current price) per
+    senpi://guides/hyperfeed-trader-positions, so it is preferred over the
+    size x entry product; `entry_price` backs it up if it is ever absent."""
     if not isinstance(pos, dict):
         return 0.0
+    # leaderboard shape: USD notional is returned directly — no math needed.
+    ns = abs(safe_float(pos.get("notional_size", pos.get("notionalSize", 0))))
+    if ns > 0:
+        return ns
     size = abs(safe_float(pos.get("szi", pos.get("size", 0))))
-    entry = safe_float(pos.get("entryPx", pos.get("entryPrice", pos.get("entry", 0))))
+    entry = safe_float(pos.get("entryPx", pos.get("entryPrice",
+                       pos.get("entry_price", pos.get("entry", 0)))))
     notional = size * entry
     if notional > 0:
         return notional
@@ -106,10 +123,19 @@ def mirror_direction(pos):
 
 
 def position_asset(pos):
-    """Verbatim from v2."""
+    """Asset symbol for a position, CASE-PRESERVED.
+
+    v2 upper-cased this. That is wrong for a derived universe: the emitted
+    symbol goes straight into a Senpi tool call, and Hyperliquid coin names are
+    CASE-SENSITIVE. The 1000x-denominated names carry a lowercase k (kPEPE,
+    kSHIB, kBONK) and `KPEPE` is rejected as INVALID_ARGUMENT; HIP-3 assets
+    carry a lowercase dex prefix (`xyz:GOLD`, not `XYZ:GOLD`). Remora mirrors
+    whatever the whales hold, so both forms occur live — upper-casing turned
+    those into silent no-trades. Callers that need a case-insensitive COMPARISON
+    (held-asset set, dedup map) upper-case at the comparison site instead."""
     if not isinstance(pos, dict):
         return ""
-    return str(pos.get("coin", pos.get("market", pos.get("asset", pos.get("symbol", ""))))).upper()
+    return str(pos.get("coin", pos.get("market", pos.get("asset", pos.get("symbol", "")))))
 
 
 def top_position(positions, min_notional=0.0):

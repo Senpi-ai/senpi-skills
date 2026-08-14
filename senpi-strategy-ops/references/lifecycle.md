@@ -15,13 +15,23 @@ nothing else to keep alive.
 ## `deploy.py {create|runtime|verify|status} <id> …`
 
 Deploy is **three short, resumable steps**, not one blocking call — because wallet funding (CREATE →
-FUND → ACTIVE, incl. bridging) and the first scan tick (up to an instance's `interval_seconds`) are each
-multi-minute waits that blow the ~180s tool/session timeout. Each step is **bounded** (`--max-wait`,
-default 150s) and the agent **re-runs a step until it reports done**.
+FUND → ACTIVE, incl. bridging) is a multi-minute wait that blows the ~180s tool/session timeout. Each
+step is **bounded** (`--max-wait`, default 150s) and the agent **re-runs a step until it reports done**.
+The first scan tick is *not* one of those waits: `verify` does not need one (see step 3).
+
+**Before any of this, the package must have been proven runnable** — `openclaw senpi validate
+<package-dir>` returning `PASS`. That is a separate gate answering a different question ("does the
+scanner actually run and read?") from the three below ("did the deploy land?"). Nothing here re-checks
+it today, so a package that skipped it can be funded and reported live while trading nothing.
 
 **Package fetch.** Any step fetches `strategies/<id>/` from the remote if it isn't on disk (`_fetch.py`:
 GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default `Senpi-ai/senpi-skills`@`main`;
-`--ref` overrides).
+`--ref` overrides). Fetches land in the **durable strategies root** — `SENPI_STRATEGIES_DIR` if set,
+else `<OPENCLAW_WORKSPACE_DIR>/strategies`, else `/data/workspace/strategies` on agent hosts (with a
+loud stderr warning on the last-resort CWD-relative dev fallback) — never inside a managed skill dir:
+a package written there is destroyed on the next skill update. Bare-id resolution prefers the durable
+root over CWD-relative `strategies/<id>` so a pristine checkout or stale skill-dir copy can't shadow
+the deployed package and its `.deploy-state.json`.
 
 **State file** `<pkg>/.deploy-state.json` — `{instances: {name: {strategyId, wallet, status}}}`, status
 flowing `pending → creating → active → registered → live`. Every sub-action persists, so a kill mid-step
@@ -41,28 +51,46 @@ just means re-run that step.
    - Per instance: `strategy_create_custom_strategy(skillName=<id>, skillVersion=<version>, initialBudget=…,
      strategyName=<id>-<instance>)` — names the wallet for its role (e.g. `whalehunter-short`), never a bare
      address; best-effort (falls back to unnamed if the name is rejected). Record `strategyId` **immediately**,
-     poll `strategy_list` to **ACTIVE** (bounded by `--max-wait`).
-     Not all ACTIVE → **`creating`** (re-run to resume); all ACTIVE → **`wallets-ready`**.
+     poll `strategy_list` to **ACTIVE before the next instance is submitted** — one wallet funds at a
+     time, all bounded by ONE shared `--max-wait`. `strategy_create_custom_strategy` returns at
+     `CREATE_WALLET` and funds asynchronously, so concurrent legs draw on the same embedded wallet: the
+     loser reads a balance the winner already claimed, funds $0 and parks in `PENDING_FUNDING`.
+     Not all ACTIVE → **`creating`** (re-run to resume — it ADOPTS the wallets it already created; only
+     an open runtime-less strategy this deploy never created is closed); all ACTIVE →
+     **`wallets-ready`**.
 2. **`runtime <id>`** — per instance: render the instance's `runtime.yaml` (substitute `${wallet_env}` + the
    decision-model env iff a `decision_mode: llm` action) **beside the source** (so `path: ./scanners`
    resolves) → `openclaw senpi runtime create … --runtime-id <id>-<instance>`. **Self-healing:** an existing
    runtime on the right ACTIVE wallet is skipped; a stale one (different/CLOSED wallet — e.g. orphaned by an
    earlier close) is **deleted and recreated** (fixes the "already exists" / "wallet CLOSED" collisions).
-   Requires wallets `active`. → `registered`. **After this, deployment is DONE** — the strategy is live and
-   trading autonomously; it scans on its own `interval_seconds` and opens positions when its signals fire.
-   Do **not** wait/poll for the first tick as part of deploy.
-3. **`verify <id>` — OPTIONAL** (only when the user asks "is it actually scanning yet?"). **Fast single
-   check** (`--max-wait 0` default) of `openclaw senpi state -r <id>-<instance>` for a completed tick. It
-   does **not** block: a scanner's first `scan()` only fires on its `interval_seconds`. Right after
-   `runtime` it reports `registered` (not ticked yet) — expected; re-run after the interval to see `live`.
-   `--max-wait S` opts into a bounded poll. `status <id>` prints the state file any time. Never `sleep`
-   then `verify` as a default step.
+   Requires wallets `active`. → `registered`. **`registered` is not `live`** — the runtime is wired, and
+   whether its scanner is actually active, its DSL wired, and its budget funded is what step 3 answers.
+   Do **not** wait or poll for the first tick: a supervised scanner is already scheduled, and `verify`
+   does not need a tick to have happened.
+3. **`verify <id>` — THE GATE, not optional.** A strategy is live only when every instance is
+   **runtime-running + scanner-active + DSL-wired + funded to what was requested**; `verify` returns
+   `live` or `not-live` (exit 2) naming the failing component. **Never report a strategy live off
+   `registered` alone.**
+
+   **How it judges** — on signals that are reliably readable right after deploy: `openclaw senpi runtime
+   list` (is the runtime running), the deployed `runtime.yaml` (does it declare the external scanner and
+   a DSL preset), and MCP `strategy_list` (funded). It deliberately does **not** gate on
+   `senpi status` / `senpi state`, whose JSON is flaky-empty for a minute or more after start; those are
+   used only to **downgrade** a scanner to `broken` on positive evidence of breakage. When they are
+   unreadable the scanner reads `supervised` = live, because a running runtime spawns and supervises its
+   declared scanner.
+
+   **It is a single fast check and does not wait for a tick** — a scheduled scanner passes without one.
+   So never `sleep` then `verify`. `--max-wait S` opts into a bounded poll for the wallet side;
+   `status <id>` prints the deploy state any time.
 
 **Ephemeral state.** `.deploy-state.json` exists only to resume an in-progress deploy. `verify` **deletes
 it once all instances are `live`** (a partial `registered` keeps it). So a completed deploy leaves no
 state → the next deploy (e.g. after a close) starts clean and can't reuse stale wallets. `verify`/`status`
 work without it (runtime ids derive from the manifest). `create`'s reconcile is the safety net for partial
-state. There is **no `--reinstall`** and no wallet-reuse — redeploy = `close` then `create`/`runtime`/`verify`.
+state. There is **no `--reinstall`** and no wallet-reuse. To apply an edit to a live strategy, use
+**`deploy.py upgrade <id> [--instance <arm>] --budget <usd>`** (it drives close → create → runtime → verify
+on a fresh wallet, consent-gated, per arm) — never a bare `close`+`create` by hand.
 
 ## `close.py [<id>] [--all] [--instance name] [--dry-run] [--json]`
 
@@ -96,8 +124,9 @@ list` (never the ephemeral deploy state), matches strategies to runtimes **by wa
 running instance calls **`openclaw senpi status -r <id>`** to upgrade process-level "running" to the runtime's
 own verdict + active-position count. Classes:
 
-- **healthy / degraded / unhealthy** — ACTIVE strategy + live runtime, per the runtime's `status` health
-  (`healthy` ≠ a confirmed scanner tick — use `deploy.py verify <id>` for that; degraded prints a triage hint).
+- **healthy / degraded / unhealthy / unknown** — ACTIVE strategy + live runtime, per the runtime's `status`
+  health, which is fail-closed: `unknown` = scanner not yet proven by a tick (verify, don't assume);
+  `deploy.py verify <id>` remains the deploy-time liveness gate; degraded/unknown print a triage hint.
 - **runtime-stopped** — ACTIVE + runtime exists but not running.
 - **no-runtime** — autonomous *package* strategy (`skillName`, no `traderAddress`) with **no runtime** →
   the only no-runtime anomaly (funded but not running, likely an interrupted deploy); printed with the fix

@@ -148,7 +148,6 @@ AGENT = {
     "bald-eagle": ("multi-asset-xyz-contrarian-fader", ["xyz-macro", "stale-cancel", "tick-300s", "contrarian"]),
     "kestrel": ("multi-asset-xyz-contrarian-fader", ["xyz-macro", "funding-align", "13-xyz-assets"]),
     # §11 volume engine
-    "turbine": ("volume-engine-market-making", ["volume-engine", "two-wallet", "builder-fee-recycle"]),
     # §12 microstructure
     "piranha": ("microstructure-order-flow", ["oi-velocity", "order-book", "forced-flow"]),
     "marlin": ("microstructure-order-flow", ["order-book", "imbalance", "momentum"]),

@@ -25,7 +25,6 @@ catalog:
   time_horizon: intraday
   leverage_max: 10
   max_slots: 2
-  min_budget: 200
   assets: []                      # derived universe (leaderboard_get_markets); main-DEX crypto only (XYZ banned)
   tags: [momentum, smart-money, rank-jump, striker, conviction-leverage, multi-asset]
 

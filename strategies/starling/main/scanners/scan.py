@@ -101,7 +101,18 @@ def _held(ctx):
     if not isinstance(d, dict):
         return None
     out = set()
-    for e in d.get("assetPositions", d.get("asset_positions", [])) or []:
+    # dual-DEX: strategy_get_clearinghouse_state returns {"main": ..., "xyz": ...} —
+    # two views of ONE cross-margined wallet, each with its own assetPositions.
+    # Reading assetPositions off the TOP level silently yields NOTHING held, so a
+    # scanner re-opens names it already holds (pyramiding / failed duplicate opens).
+    _rows = []
+    for _sec in ("main", "xyz"):
+        _s = d.get(_sec)
+        if isinstance(_s, dict):
+            _rows.extend(_s.get("assetPositions", _s.get("asset_positions", [])) or [])
+    if not _rows:  # legacy/flat shape
+        _rows = d.get("assetPositions", d.get("asset_positions", [])) or []
+    for e in _rows:
         pos = e.get("position", e) if isinstance(e, dict) else {}
         coin = str(pos.get("coin", "")).strip()
         if coin and scoring._f(pos.get("szi")) != 0:

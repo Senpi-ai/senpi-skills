@@ -33,7 +33,7 @@ strategies/<id>/                   # a strategy package (e.g. strategies/spider/
   deposit-withdraw-transfer, why) are analysis/guidance utilities.
 - **Install/teardown is `senpi-strategy-ops`**, always: `deploy.py create <id> --budget <usd>`
   (one named wallet per instance via `strategy_create_custom_strategy`, budget split by
-  `funding_share`, min $100/wallet, resumable) → `deploy.py runtime <id>` (renders each
+  `funding_share`, min $10/wallet, resumable) → `deploy.py runtime <id>` (renders each
   runtime.yaml onto its wallet, `openclaw senpi runtime create`) → optional `verify`. Teardown is
   `close.py <id>` (or `--all`) — **never a raw `strategy_close`** (it strands the runtime).
   Attribution is automatic: `deploy.py` passes **`skillName`/`skillVersion` from `strategy.yaml`
@@ -102,6 +102,25 @@ Hard-won invariants (each failed silently in production once):
   tradeable.
 - **Copy identifiers from their source, never from memory** — a plausible field name, enum, or
   unit compiles fine, ticks clean, and trades nothing.
+- **Coin symbols on every Senpi tool call: plain for main-dex crypto, dex-prefixed for HIP-3
+  assets — never mix the two up.** This applies to any tool taking a coin/asset param — market
+  data, trading limits, position details, ratchet stops, and all money-moving tools (where a
+  wrong symbol costs the most). Main-dex crypto stays bare (`BTC`, not `xyz:BTC`); HIP-3
+  builder-dex assets carry their dex prefix — today that's the XYZ dex (equities, metals,
+  indices, energy): `xyz:BRENTOIL`, not `BRENTOIL`. When unsure which side a symbol falls on,
+  check `market_list_instruments`. Unknown coins are rejected as `INVALID_ARGUMENT` — never
+  retry them. In `discovery_*` output, `coinDisplayName` (`"NVDA"`) is display-only — **always
+  copy the `coin` field into tool calls**, it holds the tradeable form.
+
+---
+
+## ▶ Editing skill text? Rules + snippets, not narration
+
+Skill hot paths (SKILL.md, build guides like `creating-a-strategy.md`) carry **rules and runnable
+snippets**; rationale lives in reference files and PR/commit history. Keep only the one
+justification clause that stops a future editor from "correcting" the rule (e.g. "`float` of a
+number is a no-op" is what keeps `_f()` from being stripped as redundant). A paragraph explaining
+*why* at length: move the why out, leave the rule.
 
 ---
 

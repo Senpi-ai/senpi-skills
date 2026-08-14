@@ -30,14 +30,22 @@ def _rank(target, itn, theme):
 
 # (target, intent, theme) mirroring the real user prompts
 _CASES = [
-    ("viper",     _intent(), "smc ict market structure"),                      # M174126
-    ("salmon",    _intent(), "mean reversion rsi oversold buy the dip"),       # M210373 / M272040
-    ("armadillo", _intent(), "low risk capital preservation conservative"),    # M264525 / M287260
-    ("starling",  _intent(), "follow smart money rotation"),                   # M279357 / M196406
-    ("ant",       _intent(), "funding carry cash and carry harvest"),          # M242529
+    ("viper",     _intent(), "smc ict market structure"),
+    ("salmon",    _intent(), "mean reversion rsi oversold buy the dip"),
+    ("armadillo", _intent(), "low risk capital preservation conservative"),
+    ("starling",  _intent(), "follow smart money rotation"),
+    ("ant",       _intent(), "funding carry cash and carry harvest"),
     ("raven",     _intent(), "adaptive self tuning momentum learns"),
-    ("ram",       _intent(assets=[("class", "commodities")]), "gold xauusd metals"),  # M207348 / M197292
-    ("gecko",     _intent(assets=[("named", "VVV")]), "any coin"),             # M279357 (VVV) / M199951 ($LIT)
+    ("ram",       _intent(assets=[("class", "commodities")]), "gold xauusd metals"),
+    ("gecko",     _intent(assets=[("named", "VVV")]), "any coin"),
+    # ── demand-driven builds from the 2026-08-04 verbatim-prompts doc ──
+    ("shadow",   _intent(), "mirror multiple traders fresh entry copy the top traders"),
+    ("rotator",  _intent(), "rebalance conviction every few hours concentrated smart money"),
+    ("mandate",  _intent(), "capital preservation no leverage diversified portfolio rwa"),
+    ("hare",     _intent(), "scalp btc eth session quick in and out leverage"),
+    ("kite",     _intent(), "smc ict break of structure fibonacci divergence"),
+    # ── dynamic pump/breakout screener (from the 2026-08-12 pump-hunter build) ──
+    ("barracuda", _intent(), "pump hunter breakout momentum screener"),
 ]
 
 

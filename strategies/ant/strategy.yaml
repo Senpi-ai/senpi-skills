@@ -6,8 +6,7 @@
 schema_version: 1
 
 id: ant
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Ant — Funding Harvester"
   emoji: "🐜"
@@ -25,7 +24,6 @@ catalog:
   time_horizon: swing
   leverage_max: 4
   max_slots: 5
-  min_budget: 100
   assets: []                 # DERIVED live: top-N perps by open interest
   tags: [funding, carry, harvest, cash-and-carry, basis, short, contrarian, exhaustion, perps-only, dsl-only, no-close]
 

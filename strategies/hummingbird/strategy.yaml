@@ -6,8 +6,7 @@
 schema_version: 1
 
 id: hummingbird
-version: "1.0.0"
-
+version: "1.0.1"
 catalog:
   name: "Hummingbird — HYPE Trend Follower"
   emoji: "🪶"
@@ -24,7 +23,6 @@ catalog:
   tier: starter
   leverage_max: 5
   max_slots: 1
-  min_budget: 200
   assets: ["HYPE"]
   tags: [hype, single-asset, trend-follower, smart-money, onboarding, beginner]
 
