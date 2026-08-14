@@ -999,6 +999,142 @@ def test_stdout_slim_small_book_not_falsely_sampled():
     assert "trades_sample" not in slim                                        # NOT flagged as truncated
 
 
+# ──────────────────────────────────────────── the strategy LABEL (strategyName, MCP #190)
+def test_label_prefers_the_strategys_own_name_over_the_package_id():
+    """`strategyName` is the strategy's OWN name; `tradingStrategyName` is the PACKAGE id the backend
+    reads off `strategyMetadata.skillName`. Labelling by the package id is what renders the long and
+    short sleeves of one strategy as an ambiguous "cougar ×2"."""
+    assert review._strategy_label(
+        {"strategyName": "cougar-long", "tradingStrategyName": "cougar"}) == "cougar-long"
+
+
+def test_a_present_but_empty_label_falls_through_to_the_package_id():
+    """`strategyName` is nullable BY MECHANISM — `strategy_create` has no name input and it is optional
+    on `strategy_create_custom_strategy` — and the MCP now selects it, so the key is present on EVERY
+    row. Silence at that leg must not answer for the legs behind it."""
+    for empty in (None, "", "  "):
+        assert review._strategy_label(
+            {"strategyName": empty, "tradingStrategyName": "kodiak"}) == "kodiak", repr(empty)
+    assert review._strategy_label({}) == "strategy"
+
+
+COUGAR_LONG = "0xCOUGARLONG000000000000000000000000000lng"
+COUGAR_SHORT = "0xCOUGARSHORT00000000000000000000000000sht"
+
+_SLEEVE_YAML = """name: {name}
+group: cougar
+description: >
+  {desc}
+exit:
+  dsl_preset:
+    phase1: {{hard_stop_roe_pct: -14}}
+    phase2: {{arm_at_roe_pct: 8, tiers: [{{trigger_pct: 12, lock_hw_pct: 6}}]}}
+"""
+
+
+def _two_sleeve_fixture():
+    """ONE package deployed as TWO sleeves, as the backend really returns it: a distinct `strategyName`
+    per sleeve, the SAME `tradingStrategyName` (it is the package id), the `strategyMetadata.skillName`
+    stamp it is derived from, and a DIFFERENT mandate per sleeve. Both sleeves close trades."""
+    with open(FIXTURE) as f:
+        base = json.load(f)
+    hist = base["discovery_get_trader_history::0xkodiak00000000000000000000000000000kdk"]["closedPositions"]
+    ch = base["strategy_get_clearinghouse_state::0xkodiak00000000000000000000000000000kdk"]
+    fx = {k: v for k, v in base.items() if k.startswith(("market_get_asset_data::", "leaderboard_"))}
+    fx["strategy_list"] = {"strategies": [
+        {"strategyName": "cougar-long", "tradingStrategyName": "cougar",
+         "strategyMetadata": {"skillName": "cougar", "skillVersion": "1.0.0"},
+         "id": "strat-cougar-long", "strategyWalletAddress": COUGAR_LONG, "status": "ACTIVE"},
+        {"strategyName": "cougar-short", "tradingStrategyName": "cougar",
+         "strategyMetadata": {"skillName": "cougar", "skillVersion": "1.0.0"},
+         "id": "strat-cougar-short", "strategyWalletAddress": COUGAR_SHORT, "status": "ACTIVE"}]}
+    # long sleeve closes SOL+ETH, short sleeve closes BTC → both buckets non-empty, different terminals
+    fx[f"discovery_get_trader_history::{COUGAR_LONG.lower()}"] = {"closedPositions": hist[:2]}
+    fx[f"discovery_get_trader_history::{COUGAR_SHORT.lower()}"] = {"closedPositions": hist[2:]}
+    fx[f"ratchet_stop_list::{COUGAR_LONG.lower()}"] = {"configs": [
+        {"asset": "SOL", "status": "SL_TRIGGERED", "currentTierIndex": 2, "highWaterRoe": 41.0}]}
+    fx[f"ratchet_stop_list::{COUGAR_SHORT.lower()}"] = {"configs": [
+        {"asset": "BTC", "status": "SL_TRIGGERED", "currentTierIndex": 0, "highWaterRoe": 5.0}]}
+    fx[f"strategy_get_clearinghouse_state::{COUGAR_LONG.lower()}"] = ch
+    fx[f"strategy_get_clearinghouse_state::{COUGAR_SHORT.lower()}"] = ch
+    return fx
+
+
+def _two_sleeve_registry():
+    """A registry dir where BOTH sleeve wallets carry `group: cougar` — the runtime.yaml's own key, the
+    authoritative "these are one strategy" field."""
+    import tempfile
+    d = tempfile.mkdtemp()
+    doc = {"version": 1, "runtimes": [
+        {"id": "cougar-long", "wallet": COUGAR_LONG,
+         "runtimeYamlContent": _SLEEVE_YAML.format(name="cougar-long", desc="Long book of the pair.")},
+        {"id": "cougar-short", "wallet": COUGAR_SHORT,
+         "runtimeYamlContent": _SLEEVE_YAML.format(name="cougar-short", desc="Short book of the pair.")}]}
+    with open(os.path.join(d, "installed_runtimes.json"), "w") as f:
+        json.dump(doc, f)
+    return d
+
+
+def _run_two_sleeves():
+    old = os.environ.get("SENPI_STATE_DIR")
+    os.environ["SENPI_STATE_DIR"] = _two_sleeve_registry()
+    try:
+        return review.run(review._FixtureClient(_two_sleeve_fixture()), window_days=WINDOW_DAYS,
+                          want_market=False, now_ms=NOW_MS)
+    finally:
+        if old is None:
+            os.environ.pop("SENPI_STATE_DIR", None)
+        else:
+            os.environ["SENPI_STATE_DIR"] = old
+
+
+def test_sleeves_of_one_package_bucket_apart_in_by_strategy():
+    """THE behavioural change. `dsl_close_reason_mix.by_strategy` is keyed by label and routes a fix at a
+    DSL preset — and the DSL ladder is PER INSTANCE, so a merged long+short bucket pointed one "fix" at
+    two different ladders. Labelled by the package id both sleeves landed in a single `cougar` bucket."""
+    res = _run_two_sleeves()
+    mix = res["dsl_close_reason_mix"]
+    assert set(mix["by_strategy"]) == {"cougar-long", "cougar-short"}
+    assert mix["by_strategy"]["cougar-long"]["trade_count"] == 2
+    assert mix["by_strategy"]["cougar-short"]["trade_count"] == 1
+    assert mix["overall"]["trade_count"] == 3          # the split does not lose or duplicate a trade
+    assert {t["strategy_label"] for t in res["trades"]} == {"cougar-long", "cougar-short"}
+
+
+def test_sleeve_rows_carry_the_attribution_that_proves_they_are_one_strategy():
+    """Naming the sleeves apart REMOVED the accidental detector behind "never merge two ACTIVE same-label
+    wallets": they no longer share a label, and they never shared a mandate. `group` (the runtime.yaml key)
+    and `skill_name` (the attribution stamp) are the only fields that say these two rows are one book —
+    without them on the row the rule is unactionable and closing the losing sleeve looks reasonable."""
+    res = _run_two_sleeves()
+    rows = {s["label"]: s for s in res["strategies"]}
+    assert set(rows) == {"cougar-long", "cougar-short"}
+    assert [rows[k]["group"] for k in rows] == ["cougar", "cougar"]
+    assert [rows[k]["skill_name"] for k in rows] == ["cougar", "cougar"]
+    # nothing ELSE on the row links them — this is why the two fields have to be there
+    assert rows["cougar-long"]["mandate"] != rows["cougar-short"]["mandate"]
+    assert rows["cougar-long"]["wallet"] != rows["cougar-short"]["wallet"]
+
+
+def test_the_shared_group_survives_an_unreadable_registry():
+    """`group` comes from the runtime.yaml, so it is None exactly when the registry is unreadable — the
+    degradation the rule already documents. `skill_name` is read from the strategy record itself, so it
+    still proves the pairing on a host with no registry."""
+    old = os.environ.get("SENPI_STATE_DIR")
+    os.environ["SENPI_STATE_DIR"] = os.path.join(HERE, "fixtures", "no-such-registry")
+    try:
+        res = review.run(review._FixtureClient(_two_sleeve_fixture()), window_days=WINDOW_DAYS,
+                         want_market=False, now_ms=NOW_MS)
+    finally:
+        if old is None:
+            os.environ.pop("SENPI_STATE_DIR", None)
+        else:
+            os.environ["SENPI_STATE_DIR"] = old
+    rows = {s["label"]: s for s in res["strategies"]}
+    assert all(r["group"] is None for r in rows.values())          # registry gone → no group
+    assert all(r["skill_name"] == "cougar" for r in rows.values())  # attribution still pairs them
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

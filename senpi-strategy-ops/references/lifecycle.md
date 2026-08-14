@@ -2,107 +2,518 @@
 
 Both scripts live in `senpi-strategy-ops/scripts/`, share `_pkg.py` (package model) + `_cli.py`
 (openclaw CLI + tolerant JSON digging) + `mcp_client.py` (vendored stdlib HTTP MCP client, reads
-`SENPI_AUTH_TOKEN` / `SENPI_MCP_URL`). They are stdlib-only (plus PyYAML). No daemons, no `push_signal`.
+`SENPI_AUTH_TOKEN` / `SENPI_MCP_URL`). They are **stdlib-only**: PyYAML is used if it happens to be
+installed, else a vendored stdlib YAML loader, so no pip step is ever required. No daemons, no
+`push_signal`.
 
 ## Why there is no scanner daemon anymore
 
-Runtime 2.x **supervises** the scanner. `openclaw senpi runtime create -p <runtime.yaml>` hot-loads the
-runtime, which spawns the Python scaffold child and calls `scan(inputs, ctx)` every `interval_seconds`,
+Runtime 2.x **supervises** the scanner. Installing a runtime (the deploy verb's install step) hot-loads
+it: the runtime spawns the Python scaffold child and calls `scan(inputs, ctx)` every `interval_seconds`,
 time-boxed by `timeout_seconds`, restarting a crashed child itself. The old model (a separate
 `nohup python3 … &` producer daemon that pushed signals over HTTP) is gone. Deploy = create a runtime;
 nothing else to keep alive.
 
-## `deploy.py {create|runtime|verify|status} <id> …`
+## Deploy — the runtime's `openclaw senpi deploy` verb
 
-Deploy is **three short, resumable steps**, not one blocking call — because wallet funding (CREATE →
-FUND → ACTIVE, incl. bridging) is a multi-minute wait that blows the ~180s tool/session timeout. Each
-step is **bounded** (`--max-wait`, default 150s) and the agent **re-runs a step until it reports done**.
-The first scan tick is *not* one of those waits: `verify` does not need one (see step 3).
+Deploy is **one verb running as a detached job**, not a blocking call and not a chain of scripted steps:
+wallet funding (CREATE → FUND → ACTIVE, incl. bridging) and the first scan tick (up to an instance's
+`interval_seconds`) are each multi-minute waits that would blow the ~180s tool/session timeout. The verb
+returns in ~1s with a `deployId`; the agent polls `openclaw senpi deploy status` until the job is terminal.
 
 **Before any of this, the package must have been proven runnable** — `openclaw senpi validate
-<package-dir>` returning `PASS`. That is a separate gate answering a different question ("does the
-scanner actually run and read?") from the three below ("did the deploy land?"). Nothing here re-checks
-it today, so a package that skipped it can be funded and reported live while trading nothing.
+<recipe-dir>` returning `PASS`. That answers a different question ("does the scanner actually run
+and read?") from the one below ("did the deploy land?"), and it is **not optional**: a passing,
+unscoped live-depth run writes the `.senpi-proof.json` beside that instance's recipe, and the deploy
+verb refuses pre-money without one (`[E_VALIDATE_NO_PROOF]` / `[E_VALIDATE_CONTENT_CHANGED]` /
+`[E_VALIDATE_RUNTIME_VERSION_CHANGED]`, distinguished by the `reason` on the refused step's
+`evidence`).
 
-**Package fetch.** Any step fetches `strategies/<id>/` from the remote if it isn't on disk (`_fetch.py`:
-GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default `Senpi-ai/senpi-skills`@`main`;
-`--ref` overrides). Fetches land in the **durable strategies root** — `SENPI_STRATEGIES_DIR` if set,
-else `<OPENCLAW_WORKSPACE_DIR>/strategies`, else `/data/workspace/strategies` on agent hosts (with a
-loud stderr warning on the last-resort CWD-relative dev fallback) — never inside a managed skill dir:
-a package written there is destroyed on the next skill update. Bare-id resolution prefers the durable
-root over CWD-relative `strategies/<id>` so a pristine checkout or stale skill-dir copy can't shadow
-the deployed package and its `.deploy-state.json`.
+That run loads every scanner file, calls one real tick against live read-only data, counts what it
+read, and checks each emitted signal against the runtime's own wire schema — no wallet, no funding.
+The proof it writes names **the exact file bytes it passed over and the runtime version it passed
+under**, which is what makes `CONTENT_CHANGED` and `RUNTIME_VERSION_CHANGED` separable afterwards.
+**Only a full, unscoped run at live depth records one**: `--scanner <name>`, `--no-attest` and
+`--stage static|import` deliberately record nothing, and `deploy.py validate` records nothing either
+(it is the structural pass, not the run). So the flow is **validate → deploy, per instance**, and a
+package whose files were edited needs a fresh `validate` before the next `create`. **One run per
+instance, each pointed at the dir holding its `runtime.yaml`** — the package root for a flat package
+(no `instances:` list), the instance's own dir once `strategy.yaml` lists them, which every catalog
+package does; a root that lists instances and holds no recipe of its own refuses
+`[E_VALIDATE_NO_RECIPE]` and lists the instances to pick from. **`UNPROVEN` (exit 2) is not a pass**
+— the tick ran and established nothing, usually a gate in `scan()` that should consult
+`ctx.dry_run`.
 
-**State file** `<pkg>/.deploy-state.json` — `{instances: {name: {strategyId, wallet, status}}}`, status
-flowing `pending → creating → active → registered → live`. Every sub-action persists, so a kill mid-step
-just means re-run that step.
+**`deploy.py` repairs exactly one of those three, once.** A proof recorded under a different runtime
+build (`runtime_version_changed`) says the package is untouched and only the engine under it moved —
+and the runtime self-updates in place on the fleet, so every update invalidates every proof on the
+box. `run_deploy` re-runs `openclaw senpi validate` for the directories the refusal names and
+re-invokes the deploy **once** for that reason only, keyed on the structured `evidence.reason`
+rather than the refusal text. `no_proof` and `content_changed` are relayed untouched — both mean
+someone changed something — and a re-validation that does not `PASS` prints validate's own findings
+and does not re-run the deploy.
 
-1. **`create <id> --budget N`** —
-   - **Reconcile first:** for each recorded `strategyId`, re-fetch its backend status; if **not `ACTIVE`**
-     (CLOSED / FAILED / gone) the entry is **discarded** so it gets recreated. This is the durable fix for
-     stale `.deploy-state.json` (reusing a CLOSED wallet, or getting stuck on a FAILED instance) — **no manual
-     state editing**.
-   - **Anti-duplicate guard:** if `strategy_list` shows **OPEN** `skillName==<id>` strategies not in the
-     state file (an interrupted run), refuse and point at `close.py <id>` (closed/failed history is ignored).
-   - **Fund to live balance:** sizes the to-create wallets from `account_get_portfolio`
-     (`total_in_hyperliquid`) minus a per-wallet fee buffer, split by `funding_share` and capped to
-     available — so sequential funding + creation fees can't leave an instance $1 short. **Never lower `--budget`
-     to dodge rounding; just re-run.**
-   - Per instance: `strategy_create_custom_strategy(skillName=<id>, skillVersion=<version>, initialBudget=…,
-     strategyName=<id>-<instance>)` — names the wallet for its role (e.g. `whalehunter-short`), never a bare
-     address; best-effort (falls back to unnamed if the name is rejected). Record `strategyId` **immediately**,
-     poll `strategy_list` to **ACTIVE before the next instance is submitted** — one wallet funds at a
-     time, all bounded by ONE shared `--max-wait`. `strategy_create_custom_strategy` returns at
-     `CREATE_WALLET` and funds asynchronously, so concurrent legs draw on the same embedded wallet: the
-     loser reads a balance the winner already claimed, funds $0 and parks in `PENDING_FUNDING`.
-     Not all ACTIVE → **`creating`** (re-run to resume — it ADOPTS the wallets it already created; only
-     an open runtime-less strategy this deploy never created is closed); all ACTIVE →
-     **`wallets-ready`**.
-2. **`runtime <id>`** — per instance: render the instance's `runtime.yaml` (substitute `${wallet_env}` + the
-   decision-model env iff a `decision_mode: llm` action) **beside the source** (so `path: ./scanners`
-   resolves) → `openclaw senpi runtime create … --runtime-id <id>-<instance>`. **Self-healing:** an existing
-   runtime on the right ACTIVE wallet is skipped; a stale one (different/CLOSED wallet — e.g. orphaned by an
-   earlier close) is **deleted and recreated** (fixes the "already exists" / "wallet CLOSED" collisions).
-   Requires wallets `active`. → `registered`. **`registered` is not `live`** — the runtime is wired, and
-   whether its scanner is actually active, its DSL wired, and its budget funded is what step 3 answers.
-   Do **not** wait or poll for the first tick: a supervised scanner is already scheduled, and `verify`
-   does not need a tick to have happened.
-3. **`verify <id>` — THE GATE, not optional.** A strategy is live only when every instance is
-   **runtime-running + scanner-active + DSL-wired + funded to what was requested**; `verify` returns
-   `live` or `not-live` (exit 2) naming the failing component. **Never report a strategy live off
-   `registered` alone.**
+Before any of them, **package-level gates run once, pre-money** — recorded at the reconcile step, so a
+refusal there means nothing was created **by that run**: no exit block on an instance (a strategy that
+cannot stop itself out is never funded), an unsupported scanner-level `enabled` key (`[INVALID_REQUEST]`), and the
+**live-universe gate** — every hardcoded instrument checked against the live HL instrument list,
+refusing **`[E_UNIVERSE_NOT_LIVE]`** on any dead name (one refusal, every offender, each with its file
+and key path; a bare `T` counts as live if `xyz:T` is) and **failing closed with no code** when that list
+cannot be read, because unknown is never "not live". A package with no hardcoded instruments (a derived
+universe) never reads the list at all.
 
-   **How it judges** — on signals that are reliably readable right after deploy: `openclaw senpi runtime
-   list` (is the runtime running), the deployed `runtime.yaml` (does it declare the external scanner and
-   a DSL preset), and MCP `strategy_list` (funded). It deliberately does **not** gate on
-   `senpi status` / `senpi state`, whose JSON is flaky-empty for a minute or more after start; those are
-   used only to **downgrade** a scanner to `broken` on positive evidence of breakage. When they are
-   unreadable the scanner reads `supervised` = live, because a running runtime spawns and supervises its
-   declared scanner.
+**Relay each refusal as scoped as its own producer writes it — do not normalise them to one sentence.**
+The universe gate and the proof gate above both say "nothing was created **by this run** … and whatever
+this package already had is untouched (this gate cannot see it)", because they stop before reading the
+package's live state: on a resume there may be a funded, live wallet the refusal cannot see, and the
+unscoped version is what funds a second one beside it. The exit-block and `enabled` refusals state it
+flat — that is their producers' wording, not a discrepancy to correct. (Scoping is not a property of
+"pre-money": `[E_INSTANCE_BINDING_UNKNOWN]` is flat *and* correct, because it has already read the live
+wallets and lists them.)
 
-   **It is a single fast check and does not wait for a tick** — a scheduled scanner passes without one.
-   So never `sleep` then `verify`. `--max-wait S` opts into a bounded poll for the wallet side;
-   `status <id>` prints the deploy state any time.
+Per instance the job runs five steps, each recorded with its own outcome:
 
-**Ephemeral state.** `.deploy-state.json` exists only to resume an in-progress deploy. `verify` **deletes
-it once all instances are `live`** (a partial `registered` keeps it). So a completed deploy leaves no
-state → the next deploy (e.g. after a close) starts clean and can't reuse stale wallets. `verify`/`status`
-work without it (runtime ids derive from the manifest). `create`'s reconcile is the safety net for partial
-state. There is **no `--reinstall`** and no wallet-reuse. To apply an edit to a live strategy, use
-**`deploy.py upgrade <id> [--instance <arm>] --budget <usd>`** (it drives close → create → runtime → verify
-on a fresh wallet, consent-gated, per arm) — never a bare `close`+`create` by hand.
+1. **reconcile** — read live backend strategies and match by `strategyName` (`<id>` for a single-instance
+   package, `<id>-<instance>` for a multi, sanitized), **compared case-insensitively** because the backend
+   case-normalizes what it stores ("WARPATH" in, "warpath" back) while the sanitizer deliberately keeps
+   capitals. An empty name on either side is never a match — two absences are not an identity.
+   **The name-matched set is then partitioned by the `skillName` stamp**, because a name is not an
+   identity: `<id>-<instance>` and a flat package whose id IS `<id>-<instance>` derive the same name, so
+   two different packages can answer to one. A candidate is **ours** when its stamp is this package's
+   (case-folded, same reason as the name) **or absent**; it is **foreign** only when a stamp is present and
+   names someone else. Absent stays bindable on purpose — an MCP that stops returning `strategyMetadata`
+   would otherwise stop every package recognising its own wallet and fund a second one beside it on each
+   re-run. Wallets predating attribution, and wallets created by hand through the MCP, are stampless for
+   the same reason. When every name-match is foreign → refuse **`[E_WALLET_OWNED_BY_OTHER_PACKAGE]`**
+   (pre-money, nothing created): adopting one would install this package's runtime onto another package's
+   funded wallet and its open positions. A name shared by one of ours and one of theirs is not an
+   ambiguity — the stamp says which is which — so the foreign one is neither bound nor refused over.
+   Among the candidates that ARE ours: exactly one live match → **adopt** its wallet
+   (create is skipped). More than one → refuse **`[E_STATE_AMBIGUOUS_WALLETS]`**: one may be a funded live
+   strategy, so it points at read-only triage and never at close/recreate. Zero → this instance needs a wallet
+   — **unless live wallets carry this package's `skillName` stamp and nothing in this run accounted for
+   them**, which refuses **`[E_INSTANCE_BINDING_UNKNOWN]`** instead. **Deploy refuses rather than funding a
+   second wallet when it cannot account for a package's live wallets**: "I could not tell which of these is
+   this instance" is never "there are none", and creating there funds a new wallet beside a live one and
+   rebinds the instance's runtime id onto it. The gate is decided once the WHOLE package has been matched,
+   so a wallet a sibling sleeve just adopted is accounted for and a partial multi-sleeve deploy still
+   proceeds; it cannot fire on a first deploy, where nothing carries the stamp yet.
+   **That refusal is a refusal to RE-READ, never a reason to re-run with a bigger budget** — nothing about
+   it is a funding shortfall, and a re-run binds by the same two routes (the derived name, and a create key
+   journaled on this box) that just failed, so it changes nothing until the user says what those wallets
+   are. The steer is `status.py <id>` first; `close.py <id>` is named last and only on the user's
+   confirmation, because it tears down the whole package.
+   The gate survives a starved NAME route (an older MCP build, a backend that renames) but not a starved
+   STAMP: an MCP that stops returning `strategyMetadata` empties its candidate filter, which is why the
+   verb logs a stampless non-empty strategy list rather than passing over it in silence.
 
-## `close.py [<id>] [--all] [--instance name] [--dry-run] [--json]`
+   **The NAME and the `skillName` STAMP are both compared CASE-FOLDED** — `.strip().lower()` on both
+   sides, in both layers (`_cli.strategy_name_match` / `strategy_skill_match` here; `.trim().toLowerCase()`
+   in `src/deploy/orchestrator.ts`). The verb stamps `pkg.id` **verbatim** at create while the backend
+   case-normalizes what it stores, so an exact compare asks a different question than the layer that wrote
+   the field: for a package id `Warpath` the runtime's own gates matched and `close.py Warpath` matched
+   **nothing**, printing "no OPEN strategies to close." over a live, funded, trading wallet. Folding widens
+   nothing across packages — two different ids stay different, so `spider` and `spider-swing` are as
+   distinguishable folded as unfolded; what rules a candidate out is the stamp's VALUE. `strategy.yaml`
+   now refuses a mixed-case `id` at validate (pre-money, in both the ops and the author validator), so
+   there is one canonical stamp going forward and the fold is what covers wallets already stamped under
+   one.
+
+   **One compare is still exact, and it is a known gap, not a doctrine:** `deploy.py`'s `verify_instance`
+   rules a name-matched candidate foreign on `strategy_skill_declared(s) not in (None, pkg.id)`. A package
+   already deployed under a mixed-case id therefore gets a **false** foreign-owner collision row from
+   `verify` — read-only, already-hedged text (it quotes the stamp and never claims who created the
+   wallet), on the do-not-deploy path. `status.py` and `close.py` read through the folded matcher and are
+   unaffected.
+2. **preflight** — `account_get_portfolio` (forced fresh) → the accessible-USDC waterfall (HL perps + HL
+   spot USDC + EVM USDC; never `total_withdrawable`) → the funding plan (split by `funding_share`, floored
+   at **$10/wallet** — the platform floor `min_budget.py` owns — minus a per-wallet fee buffer). A shortfall
+   **HALTS** with `[E_FUNDS_SHORT]` or `[E_FUNDS_BELOW_FLOOR]` and **no create call is made**. The budget is
+   a hard target — it is never silently scaled down. An unreadable balance yields "unknown" and the deploy
+   proceeds: the backend is the funding authority and would fail loudly.
+   Once that hard floor passes, the step computes the package's **calculated minimum** locally (the verb's
+   port of `min_budget.py`, parity-tested against it) and **warns, never refuses**, when a wallet comes up
+   short: `[W_BUDGET_BELOW_STRATEGY_MIN]`, or `[W_BUDGET_UNRESOLVED]` when a sleeve's sizing could not be
+   read and the figure is only a lower bound (that note carries the shortfall too, and the same escape).
+   The floor is the platform's rule; the calculated minimum is a design estimate and the user sizes their
+   own budget. Both land on the final report (`minBudget`, `minWalletCount`, `belowMin`, `minBudgetNote`,
+   `minBudgetUnresolved`) so they survive to a `live` render, not just the running narration; `belowMin`
+   is set under either code.
+   **The shortfall claim is PER WALLET, against what each one is actually allocated** — not the whole
+   budget against the whole-package minimum. Those two differ the moment anything is adopted:
+   `planFunding` splits the budget among the instances still NEEDING a wallet, while `minBudget` is
+   computed across every instance. Comparing the totals once announced a shortfall on a re-run that was
+   handing a single $13.50 sleeve the entire $20 — money that was not short, on a deploy that was not
+   even touching the other sleeve. `minBudget`/`minWalletCount` therefore ride the report as
+   **context** ("deploying the whole package fresh needs $30 across 2 wallets"), never as the claim.
+   The escape is **close-then-redeploy** — a re-run at a larger `--budget` would only adopt what is
+   already there — and it is **scoped to the underfunded sleeves** (`close.py <id> --instance <name>`),
+   because `close.py <id>` would tear down adopted, live, funded sleeves this warn is not about.
+   **No emitted command may need a precondition the report lacks**, so the scoped form appears only
+   when those sleeves have a live RUNTIME: `--instance` resolves a sleeve through its runtime and
+   hard-exits without one, and its error text then tells the reader to omit `--instance` and close
+   the whole package — the exact widening the scoping exists to prevent. The other states get what
+   they can actually support: a funded wallet with no runtime (deadline-abandoned after create, or a
+   failed rollback) gets a read-only `status.py <id>` triage pointer and NO teardown command; a
+   deploy that created nothing gets no escape at all; and where `[E_ROLLBACK_INCOMPLETE]` is present
+   it owns the cleanup, so the budget warn defers to it by name instead of emitting a second,
+   differently-scoped close. The redeploy figure is sized for every wallet the re-run will fund —
+   the closed sleeves plus any that never got a wallet — not just the ones being closed.
+   An instance that declares **no `funding_share`** is sized against `1/n` — the split a FRESH deploy of
+   the package would apply — rather than `min_budget.py`'s whole-book `1.0`, which understates the total
+   by the wallet count. (The Python is safe with `1.0` because it only runs at catalog-generation time, on
+   packages `_pkg.validate` has already forced to declare shares summing to 1; the verb is a direct path
+   with no such gate.) A **quoted** share (`"0.4"`) parses as a number here, matching `min_budget._f` so
+   the card's `min_budget` and the verb's agree — note this does NOT make the whole card agree: `_pkg.py`
+   reads the field raw (a quoted share raises in `_pkg.validate`) and `gen_catalog.derive_funding_split`
+   drops non-numeric values, so a quoted share is a packaging bug `deploy.py validate` catches loudly.
+3. **create** — one `strategy_create_custom_strategy(initialBudget, positions=[], strategyName,
+   skillName=<id>, skillVersion=<version>)` per needing instance, then poll `strategy_list` to **ACTIVE**
+   (bounded by `--max-wait`, default 150s — `deploy.py` forwards the same flag and defaults it identically;
+   an explicit value also becomes `deploy.py`'s own poll budget, in either direction). **One wallet at a
+   time**: each instance is polled to ACTIVE before the next is submitted, all under that one shared
+   budget. `strategy_create_custom_strategy` returns at `CREATE_WALLET` and funds asynchronously, so
+   concurrent legs would draw on the same embedded wallet — the loser reads a balance the winner already
+   claimed, funds $0 and parks in `PENDING_FUNDING`. **Every wallet is named for its role in the
+   strategy** — a WhaleHunter deploy with two sub-wallets creates `whalehunter-long` and
+   `whalehunter-short`, never a bare `0x…` address, so the user can tell a strategy's wallets apart in
+   the app, in balances and in notifications. A name rejection retries **once** without `strategyName` —
+   naming is best-effort legibility and must never block a deploy. Deadline hit → `pending` (re-run resumes).
+   That ACTIVE read's `totalFunded` is also the **outcome** check on the budget: the final report compares
+   it against what `planFunding` asked for and warns `[W_BUDGET_PARTIAL_FUND]` below 90%, naming each
+   wallet once (`main (0x…) funded $60.00 of requested $500.00 (12%, short $440.00)`). The successor to the old three-step
+   verify gate's deleted `_budget_verdict` — but a `W_`, not its not-live verdict: the wallet is funded and the runtime
+   ticks, so `overall` and the exit code do not move, and closing a live strategy over a shortfall a
+   top-up fixes is the teardown this repo keeps having to prevent. The figures are **as at deploy
+   time** and the note re-renders on every later `deploy status`, so the route is: re-read the current
+   funding (`status.py <id>`) FIRST, then add the remaining difference through the
+   `senpi-deposit-withdraw-transfer` skill. Close-and-redeploy is named as the alternative with no
+   command attached, because `[E_ROLLBACK_INCOMPLETE]` and the below-min escape are the report's only
+   close-command producers — and where that rollback line is present this warn is silent for that
+   wallet entirely, so one report never carries two opposite money moves on one address. The
+   "nothing is broken, the strategy is LIVE" line only appears when the report supports it.
+   It stays silent where there is nothing to compare: a wallet nobody planned to fund (an adopted one
+   whose ask a PRIOR run of the package journaled IS compared, though — against a fresh read, so a
+   crash between a partial fund and the report does not resume as a clean `live`), a create that never
+   reached ACTIVE (no funded figure was read), a rolled-back wallet. Exactly 90% does not fire.
+   When the backend reports no readable `totalFunded` at all, the wallet gets
+   `[W_BUDGET_FUNDED_UNREADABLE]` instead — the ask, no percentage, no shortfall, no top-up, and the
+   user asked to verify what actually landed. An unread amount is never reported as `$0.00`.
+4. **install** — render the instance's `runtime.yaml` (substitute `${wallet_env}` + the decision-model env
+   iff a `decision_mode: llm` action) and install it with the instance directory attached, so `path:
+   ./scanners` resolves against the YAML's own directory. An existing runtime already on this wallet is an
+   idempotent skip; one bound to a **different/old** wallet is **deleted and recreated** on the fresh wallet,
+   never updated in place.
+5. **observe** — poll the runtime's scanner rows for one **fresh** tick within `--tick-wait` (default 120s).
+   What counts as a tick depends on the scanner: an interval (built-in) scanner proves it ran with
+   `lastRunStatus` of `ok` **or `heartbeat`** — `ok` literally means "found a signal", so a quiet scanner
+   records `heartbeat` and that is still a tick; an **external** (supervised push) scanner proves it with a
+   fresh `lastAliveAt`, because intake short-circuits an empty POST before any run telemetry and a
+   watch-only scanner therefore never records a run status at all. **Fresh** means at or after this
+   install: scanner telemetry is name-keyed and survives a re-mint, so a stale `ok` from a previous
+   incarnation never certifies this one. Seen → `ok` with the row quoted verbatim. Not seen →
+   **`unobserved`**, which is truthful, not success — and when the registry says the first tick is still
+   ahead of the window, the report names *when* it is due. A row that **errored since this install** →
+   `failed` immediately, quoting `lastError` (polling the rest of the budget adds nothing). Every scanner
+   disabled → `unobserved` with that said out loud, not a silent wait. `--tick-wait 0` skips the check
+   entirely and reports `installed-unobserved`; it **can never report `live`**.
+
+   A package whose scanner entries carry an **`enabled` key** is refused up front, before anything is
+   created — whatever the value. The engine never reads a scanner-level `enabled` (registration comes
+   from the strategy, not the scanner entry), so an `enabled: false` scanner would register and tick
+   anyway: the package would trade while its author believes it is switched off. The refusal names
+   every offending line — instance, scanner, file, value — so one edit pass fixes the package. A
+   scanner runs because the package declares it: to stop one, remove the scanner entry.
+
+**No local deploy state.** There is no `.deploy-state.json` any more — the backend strategies and the
+runtime registry ARE the record, which is what killed the whole `E_STATE_*` lost-state class. The job does
+keep an append-only JSONL journal under the runtime's state dir (`deploys/<deployId>.jsonl`), but it is
+**narration only**: nothing ever reads it to decide an action. It is read for exactly three things —
+rendering `deploy status` history, the boot scan that stamps a journal left unterminated by a restart as
+`interrupted`, and one narrow carve-out: the **strategyId this box journaled at create time**, used only
+as a LOOKUP KEY when reconcile's name match finds nothing (a create whose custom name the backend rejected
+lands under a backend-assigned name that the name match can never find again). Every such id is re-read
+from the live backend before reconcile may act on it — the journal supplies the key, the backend supplies
+the decision. Nothing auto-resumes; only a fresh deploy does, and it reconciles.
+
+**Single-flight, and self-freeing.** One deploy job per agent. A second start refuses
+`[E_DEPLOY_IN_PROGRESS]`: concurrent deploys read one shared funding waterfall and two preflights could
+both pass while jointly overdrawing. **There is no cancel** — undeploying is closing the strategy
+(`close.py`), not stopping the job. Instead every MCP call the job makes is deadline-bounded — the job stops
+*waiting* on an overrunning call, which is what makes the step boundary reachable; the request may
+still be in flight server-side, so an overrun is reported as an unknown outcome, never as a failure —
+and the job carries a wall-clock deadline: past it the run is abandoned at its **next step boundary** (an in-flight
+money-moving call always completes and is journaled) and, after a grace longer than any single call's
+deadline (so the abandoned job is no longer *waiting* on a money-moving call when the slot comes back —
+a call it stopped waiting on may still land server-side, which the next deploy reconciles), the slot is
+freed even if the run is still wedged inside an await. An abandoned deploy reports `failed` with the
+resume command.
+
+**Rollback is exactly one case.** A wallet **this job created and funded** whose *install* then failed is
+closed and its funds returned (`strategy_close` returns them to the owner wallet on its own). Never an
+adopted wallet — it predates this deploy; never on an observe failure — the runtime is installed and may
+open a position at any moment; never on a refusal — nothing was created. If that close cannot run (the
+wallet holds open positions) or fails, the report says **`[E_ROLLBACK_INCOMPLETE]`** and names the wallet,
+the amount and the command to reclaim it: a stranded funded wallet is never silent. That command is an MCP
+**`strategy_close` on that wallet address** — a funded wallet with no runtime cannot be reached by
+`close.py --instance`. The package-wide `close.py <id>` is offered **only** when nothing else in the
+package is live; otherwise the caveat names the live sleeves it would take down and says not to reach for
+it. Run the command the report prints, never a wider one. The crash case does not
+unwind — the boot scan never moves money — so an `interrupted` status names both exits (re-run to adopt,
+or close to reclaim) along with the amount, read fresh from the backend.
+
+## `deploy.py {validate|create|runtime} <id> | verify <id> | status [<id>] …` — the funded path
+
+`deploy.py` keeps its CLI contract but no longer deploys anything itself. It owns the **front half** —
+package resolution (a path, or a bare catalog id fetched from the remote — `validate` resolves the
+same way, so it moves no money and installs nothing but does write a fetched package to disk) and the
+structural
+preflight (`validate` also makes one read-only `market_list_instruments` call to report the universe,
+so it needs `SENPI_AUTH_TOKEN` and can take a few seconds — up to ~25s on a slow or token-less host,
+which ends in the loud note, never in a failed validate) — then starts the verb, polls `deploy
+status`, and relays the report **verbatim**.
+It polls for **~150s** by default and then returns, which keeps the call inside the ~180s tool/session
+timeout the detached job exists to escape; a longer foreground wait would simply get the call killed,
+losing the report and the exit code while the job runs on. A job still running at the lapse is
+reported as **pending
+(exit 6)** with the snapshot and the `openclaw senpi deploy status` command to watch it — the honest
+outcome, not a failure. An explicit `--max-wait` replaces that budget in either direction. Its two
+money-moving subcommands (`create` / `runtime`) drive the same idempotent verb — one path under two
+names, either of which resumes and adopts what exists. **`--dry-run` and `--json` are mutually
+exclusive** (refused, exit `1`, nothing planned): the plan is prose only — a JSON report needs a real
+run.
+
+The structural preflight **accepts the flat single-instance layout** agents naturally scaffold — one
+`runtime.yaml` + `scanners/` at the package root — by synthesizing the canonical `main` instance, so
+there is **no need to restructure into `main/`**. Any remaining fix is named prescriptively (e.g.
+`set runtime name: <id>-main`), and every structural + render issue is reported in **one pass**.
+
+**`verify` drives nothing.** It is the READ-ONLY check: per instance it composes MCP `strategy_list`
+(a live, non-dead strategy under the name the verb assigns — `<id>`, or `<id>-<instance>` on a
+multi-instance package — with its status and `totalFunded`), `openclaw senpi runtime list` (is a
+runtime registered on this instance's wallet?) and `openclaw senpi status --json` (the runtime's own
+health verdict, quoted verbatim), then relays the last deploy job's `[W_*]` warn lines **iff that job
+ran this package** (no snapshot is not a failure — a package deployed before the verb has none). It
+**quotes**; it never re-derives a status or a number. It
+**honours** no deploy flag — there is no job to size, wait for or plan, and **no `--budget` handed to
+it funds anything**, because a check that can fund a wallet is not a check — but it still **accepts** the
+five it used to carry (`--budget`, `--max-wait`, `--tick-wait`, `--decision-model`, `--dry-run`) and
+ignores each with a stderr warning naming it and pointing at `verify --help`, `SKILL.md` and this
+file; the verdict, the reads and the exit code are the flagless ones. Rejecting them was argparse's
+exit **2** — the code D-12 teaches as *refused, nothing created, a retry refuses identically* — so a
+stale-transcript re-check (`verify spider --max-wait 300`) read as "the deploy was refused" over a
+package that may be perfectly live. A flag it never had (a typo like `--bugdet`) still errors. Its
+exit codes are its own — **`0`** verified (an **ACTIVE** wallet + registered runtime + healthy, per
+instance) ·
+**`3`** not verified (each instance names what is missing/unhealthy plus the one non-destructive next
+step: `deploy.py create <id> --budget <usd>` where nothing is funded, `deploy.py runtime <id>` on a
+funded runtime-less wallet — each named **with the fact that it installs and starts trading** — and
+`status.py <id>` for degraded/unknown/ambiguous states) · **`1`** could-not-check, fail-closed: if
+`strategy_list`, `runtime list`, `status --json`, **the deploy-job read** or **the package itself**
+cannot be read, NO verdict is rendered at all, the failed read is named, and nothing steers at the
+money path. It never emits a close command. All three verdicts print the SAME `--json` keys on clean
+stdout —
+`deploy_job_running` is `null` on a could-not-check that never got as far as reading the job, and
+`next` carries that verdict's own step (`null` on a rendered verdict, where the steps are the
+per-instance ones). `next` is what a `--json` caller reads on the two could-not-check subclasses
+where the taught "re-read" cannot work — a package that does not parse, a package that is not here:
+both say retrying answers nothing and what to fix instead.
+
+Four rules keep `verify` from steering at a state it did not read:
+
+- **It resolves the package LOCALLY.** A bare catalog id that isn't on disk is `could-not-check` (1)
+  naming the absence — a check that promises "nothing was changed" must not download and write a
+  package under the durable strategies root. `create`/`runtime` are what fetch. A package that IS on
+  disk but cannot be modelled (bad YAML, no `id`, no instances) is could-not-check too, naming the
+  strategy.yaml and the parse failure — never a raw traceback, and `--json` still prints the
+  document.
+- **Only `ACTIVE` is resumable.** A `PAUSED`/`CLOSING_POSITIONS` wallet (exactly the window the
+  doctrine teardown opens: positions closing, runtime already removed — and the verb ADOPTS
+  `CLOSING_POSITIONS`, only `CLOSING_DONE` is dead) or a deploy still mid-flight
+  (`CREATE_WALLET`/`FUND_WALLET`/`INITIALIZE_POSITIONS`) gets `status.py <id>` triage, never the resume
+  verb — and is never verified, even with a healthy runtime still registered against it.
+- **A deploy job RUNNING for this package replaces every money steer** with `openclaw senpi deploy
+  status`, and the report says the picture is mid-flight. The resume already is that job; re-checking
+  during your own `create` must not dispatch a second one. That bit is read fail-closed, and the read
+  lands in exactly one of three classes. A **job snapshot** (the shape the verb emits — a
+  `state.status`): its `meta.packageId` decides whether it is this package's. A **positive no-job
+  answer**: the verb's own `[NOT_FOUND]` (no deploy has ever run here), or a CLI that **rejected the
+  command line** — a plugin predating the verb never reached a gateway, so it cannot be running a
+  verb job, and a box mid-rollout (fleet skew: skills update hourly, the runtime self-updates on its
+  own cadence) gets a verdict instead of a permanent could-not-check. That rejection is matched on
+  Commander's parse-error grammar, taken from what the runtime's own CLI prints: since `senpi` grew
+  its root `--cheatsheet` action (2026-03-27) it answers `senpi deploy status --json` with
+  `error: unknown option '--json'`, **not** "unknown command" — a detector looking for the latter
+  matched nothing in the fleet. Both streams are read for that answer: a stray JSON log line on
+  stdout must not bury a `[NOT_FOUND]` on stderr. **Whose** parser spoke is part of the answer too:
+  the verb shells every gateway round-trip out to an inner `openclaw gateway call … --params …` with
+  stderr **inherited**, so an openclaw older than the plugin rejects a flag the plugin passed and
+  prints the identical grammar on the identical stream — while the verb exists and a job may be
+  funding a wallet. So only a parse error naming a token this script itself sent counts, and any
+  answer mentioning the `gateway call` round-trip is transport breakage (a box without the verb
+  never gets that far). **Anything else** — spawn failure, timeout, an
+  `{"ok": false, …}` envelope or any other JSON that is not a snapshot, and a RUNNING job whose
+  snapshot names no package — is could-not-check (1), never "no job". The `[NOT_FOUND]` match is
+  anchored to the code at the start of its line, where the verb's refusal puts it: a failed read that
+  merely quotes `[NOT_FOUND]` somewhere in its log tail is not an answer about this agent's job.
+- **Attribution DISAMBIGUATES the match; it never shrinks it to nothing.** Instances are matched by
+  the name the verb derives, across every live strategy. A candidate is dropped only when the record
+  carries a WRITTEN `strategyMetadata.skillName` naming a **different** package; a record with no
+  attribution at all stays a candidate (a wallet with no attribution is usually the user's own) — and an **empty** stamp (`skillName: ""`, at either the
+  metadata or the top level) is no attribution, not a package called `''`. The read parses a
+  `strategyMetadata` that arrives JSON-**string**-shaped too: the MCP passes the backend's scalar
+  through verbatim, and a payload skipped for its shape would make a foreign wallet read as
+  unattributed and be adopted (gating on attribution reported live funded wallets as
+  "nothing is funded here" — its `strategy_skill` fallback is `tradingStrategyName`, which on a
+  multi-instance package can never equal the package id). When every name-match is another package's
+  — single-instance package `spider-swing` is live and `spider`'s `swing` sleeve derives the same
+  name — the instance is **NOT VERIFIED (3)** with the collision named (the wanted name and the
+  `skillName` stamp on the record): neither the other wallet's runtime/health rendered as this
+  sleeve's, nor a `create --budget` on a taken name. What that steer would actually hit is a **refusal**:
+  the verb's name route partitions its matches by stamp, and every match here carries a written stamp
+  naming another package, so deploy refuses **`[E_WALLET_OWNED_BY_OTHER_PACKAGE]`** pre-money instead of
+  adopting. It is still the wrong thing to emit — a refusal is not a next step, and the row is the layer
+  that can say what the collision IS. (A name-match with **no** stamp is not foreign to either layer: it
+  stays a candidate here and is adopted there.) The row quotes
+  that stamp and stops there — it never claims the other package CREATED the wallet, because a
+  `skillName` is whatever the creating call wrote (raw-MCP creates stamp anything; script guards are
+  advisory), so the user's own wallet stamped with an older or differently-cased id renders here too.
+  Triage is read-only and asks by the **stamp** — one `status.py <stamp>` per stamp named (never a
+  joined list: `status.py` takes a single id and a joined line exits 2 on the read the reader was
+  just told to make), plus bare `status.py` for every open strategy on the agent; `status.py <id>`
+  filters on that same field, so it is the one read guaranteed not to show the colliding wallet. Two
+  outcomes, both named: if a stamp is a package you have, **that** package is where the wallet is
+  checked and operated (`deploy.py verify <stamp>`, read-only). And there is **no re-stamping
+  route** — no tool on this path rewrites `strategyMetadata.skillName` (`strategy_update` carries
+  slippage, mirror multiplier and SL/TP only) — so if the wallet turns out to be the user's own
+  under a stamp nothing owns, the honest answer is that this package cannot adopt it under that name
+  and it keeps running as it is. The derived name comes from the verb's own sanitizer
+  (`sanitizeStrategyName` in the runtime's `src/deploy/package.ts`): whitespace→`-`,
+  `[A-Za-z0-9_-]` only, trim leading/trailing **`-` only**, 40 chars.
+
+An **unreadable** surface is never an empty one: `strategy_list` answering with a payload that carries
+no strategies list at all is `could-not-check` (1), not "nothing is funded here". The converse holds
+too — an unreadable surface is not the same as a BROKEN one: a `status --json` entry with no health
+field whose run state reads `failed`/`degraded` is **not verified (3)** with that state quoted as a
+run state, because positive broken evidence is believed wherever it is found. Only an entry carrying
+neither health nor any classifiable evidence (a bare `status: "running"` among them — a run state can
+never promote to healthy) stays could-not-check. And a funded figure
+the record does not carry prints **UNKNOWN** — `totalFunded`/`netFunded` or nothing; the requested
+`initialBudget` is never printed as funded (the `[W_BUDGET_FUNDED_UNREADABLE]` rule, in the check).
+
+`status` is the other read-only one: it reads the agent's
+**last deploy job** — one record, not package-addressed — so it resolves no package and fetches nothing.
+An id is optional there and acts as an assertion: if the job ran a different package, `status` refuses
+(naming both, and pointing at `status.py <id>` for what that package is actually doing) rather than
+printing the other package's report and exit code under the id you asked about.
+
+**The live-universe ticker gate lives in the RUNTIME.** `runDeploy` checks every hardcoded instrument in
+the package (`strategy.yaml` `catalog.assets` + each instance's `scanners[].inputs`) against the live HL
+instrument list **pre-money** — before it reads the backend, and on an adopt-only run too, since
+installing a blind runtime on an existing wallet is the same zombie. A dead name refuses
+**`[E_UNIVERSE_NOT_LIVE]`** (one refusal, every dead instrument, each with the file and key path it
+appears in); when the instrument list **cannot be read** the step **fails closed** with no code and names
+nothing dead — unknown is never "not live". Both branches say nothing was created **by that run**, and
+that whatever the package already had is untouched (the gate stops before reading it) — relay them that
+scoped way, per the rule above. `deploy.py` therefore
+carries no universe gate of its own: it relays the verb's refusal verbatim, exactly like every other
+`[E_*]`. `validate_universe.py` remains the standalone **read-only** check (`deploy.py validate` runs the
+same predicates and reports them beside its structural verdict), and it is what the refusal points at for
+the fix → re-check → deploy loop.
+
+**Exit codes** for `validate`/`create`/`runtime`/`status` (identical to the verb's; `verify` has its
+own 0/3/1 above): `0` live · `2` refused · `3` failed · `4`
+installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job still running) ·
+`1` internal/transport error. `2` is **any gate saying no with nothing created past it**: the verb's
+refusals, and the wrapper's own structural preflight failing on `create`/`runtime` — the same
+check `validate` runs, deterministic, so a bare retry refuses identically. `1` is also the fallback
+for a status the wrapper does not recognise, so a new
+status can never read as success, and for the wrapper's own "could not answer" cases: a start it could
+not follow, and a `status` it could not answer as asked — an id that does not match the recorded job,
+a `--ref` it has no use for, or a read that produced no snapshot at all (the verb's `[NOT_FOUND]`,
+relayed verbatim; no deploy state is reported in any of them, and a re-run refuses identically).
+`deploy status` sets the JOB's code before printing its snapshot, so the wrapper reads the snapshot
+whatever code rides beside it — a refused or still-running job is relayed with `2`/`6`, never
+discarded as an unreadable status. Branch on the code; use `--json` for anything richer.
+
+**Plugin skew, in both directions, lands on exit `1` with nothing dispatched.** The host needs
+`openclaw` + the `@senpi-ai/runtime` plugin running, and a plugin **new enough to carry the `senpi
+deploy` verb**. On a box whose plugin predates it (a wedged self-update) the start fails at exit `1`
+saying so: no job, no wallet, no funds, and `deploy status` has nothing to report there. Update it
+(`openclaw plugins install @senpi-ai/runtime`, or wait for the box's own self-update) and re-run the
+same command. The **opposite** skew lands on the same exit `1` and the same "nothing was dispatched",
+and the message says which side is behind: a plugin NEWER than the box's openclaw runs the verb, has
+its inner `gateway call` rejected, and is **not** fixed by installing the plugin — that one is
+reported, not retried.
+
+**Package fetch.** Any subcommand **except `verify`** (read-only: it resolves on disk or reports
+could-not-check) and `status` (which resolves no package at all) fetches `strategies/<id>/` from the remote if it isn't on disk
+(`_fetch.py`: GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default
+`Senpi-ai/senpi-skills`@`main`; `--ref` overrides). Fetches land in the **durable strategies root** —
+`SENPI_STRATEGIES_DIR` if set, else `<OPENCLAW_WORKSPACE_DIR>/strategies`, else `/data/workspace/strategies`
+on agent hosts (with a loud stderr warning on the last-resort CWD-relative dev fallback) — never inside a
+managed skill dir: a package written there is destroyed on the next skill update. A bare id **resolves
+from the durable root first** — that copy is the authoritative one — then CWD-relative
+`strategies/<id>` as a legacy fallback, so re-running a step works from any directory.
+
+## The report document
+
+What `SKILL.md` means by "report from the structured output, not raw logs" — the shape, so the fields
+it names are findable. Every number in it is quoted, never re-derived: `funded` is the backend's
+`totalFunded`, and the tick line is the scanner row's own fields.
+
+```jsonc
+{ "strategy":"spider","version":"6.0.0","status":"live",
+  "attribution":{ "skillName":"spider","skillVersion":"6.0.0" },
+  "instances":[ { "instance":"swing","runtime_id":"spider-swing","wallet":"0x…","status":"live" },
+                { "instance":"scalp","runtime_id":"spider-scalp","wallet":"0x…","status":"live" } ] }
+```
+
+## Worked example — "install spider"
+
+```
+user: "deploy spider with $300"
+1. resolve  → id = spider (two instances: swing 60% / scalp 40%; $300 → swing $180, scalp $120)
+              confirm the split with the user BEFORE funding
+2. prove    → openclaw senpi validate /data/workspace/strategies/spider/swing   → PASS
+              openclaw senpi validate /data/workspace/strategies/spider/scalp   → PASS
+              (one run per instance; only a PASS records the proof `create` refuses without)
+3. preflight→ python3 scripts/deploy.py validate spider   → structurally deploy-ready, both proven
+4. start    → python3 scripts/deploy.py create spider --budget 300
+              (starts the job, which refuses pre-money on a dead universe: dpl-a1b2c3d4 — phase: reconcile)
+5. watch    → it polls for you; or openclaw senpi deploy status  (repeat until it is terminal)
+              running (phase: create) → running (phase: install) → done — live
+              (if it ends `installed-unobserved`, say the tick was not observed yet and check
+               `openclaw senpi scanner -r spider-swing` in a few minutes — do NOT call it live)
+6. confirm  → "🕷️ Spider is live (swing + scalp)." + the required How it runs block, e.g.:
+   • Cadence — scans every 5 min (swing) / 5 min (scalp).
+   • Scoring — grades tech/AI names on 4h/1h trend + smart-money consensus; opens above its score bar,
+     sizing bigger at higher conviction.
+   • Protection — hard stop −22% from entry; a trailing floor ratchets up locking profit from +15% to
+     +80%; DSL-only, no manual exits.
+```
+
+## `close.py [<id>] [--all] [--strategy-id <id> | --address <wallet>] [--instance name] [--dry-run] [--json]`
 
 Like deploy, close **does not block** on the async flatten — it stops + triggers, returns `closing`, and
 hands polling to the agent (re-run). Discovery is ledger-free and **strategy-driven**: MCP `strategy_list`
 filtered by `skillName == <id>` (resolved from `strategyMetadata.skillName`) gives the package's OPEN
 strategies; **`strategyId` + wallet come straight from each strategy record** — NOT via the runtime, so
-close also cleans up **orphaned** strategies (wallets a failed deploy created before `runtime create`). The
+close also cleans up **orphaned** strategies (wallets a failed deploy created before its install step). The
 runtime is used **only to stop** the strategy, found by wallet (`find_runtime_by_wallet`).
 **`--all`** closes **every** OPEN strategy across all packages (for "close all strategies / return funds")
 and deletes their runtimes. `--instance` needs the live runtime to identify an instance; if it's gone, omit it.
-After a real package close, the package's `.deploy-state.json` is deleted (state is ephemeral).
+
+**`--strategy-id <id>` / `--address <wallet>`** close ONE strategy directly, bypassing package resolution
+entirely — the only route for a wallet with **no package at all** (unattributed create, or app/manual —
+`strategy_create_custom_strategy` does not require `skillName`/`skillVersion`, so this is reachable).
+Mutually exclusive with each other, with `<id>`, and with `--all`/`--instance`/`--ref`. The read is
+**unfiltered by status** (unlike `--all`/`<id>` above, which read only `LIVE_STATUSES`): a status-filtered
+read can't tell "no such id" from "already closed" — both return zero rows — and either would otherwise
+fall through to the generic "no OPEN strategies to close" + exit 0, a false all-clear on a target named
+explicitly. Zero matches refuses instead; more than one also refuses rather than guess which to close
+(wallets are 1:1 with strategies here, so this should not happen — it's a defensive backstop, not a
+reachable case). Get the id/address from `status.py`.
 
 Per strategy:
 
@@ -125,14 +536,19 @@ running instance calls **`openclaw senpi status -r <id>`** to upgrade process-le
 own verdict + active-position count. Classes:
 
 - **healthy / degraded / unhealthy / unknown** — ACTIVE strategy + live runtime, per the runtime's `status`
-  health, which is fail-closed: `unknown` = scanner not yet proven by a tick (verify, don't assume);
-  `deploy.py verify <id>` remains the deploy-time liveness gate; degraded/unknown print a triage hint.
+  health, which is fail-closed: `unknown` = scanner not yet proven by a tick (check, don't assume);
+  the deploy report's `overall: live` is the deploy-time liveness gate — re-read it read-only with
+  `openclaw senpi deploy status` (or `deploy.py verify <id>`, also read-only, for the per-instance
+  verdict). The money path near this surface is the RESUME, `deploy.py runtime <id>` — that one starts
+  the deploy verb and can fund/install; degraded/unknown print a read-only triage hint.
 - **runtime-stopped** — ACTIVE + runtime exists but not running.
 - **no-runtime** — autonomous *package* strategy (`skillName`, no `traderAddress`) with **no runtime** →
   the only no-runtime anomaly (funded but not running, likely an interrupted deploy); printed with the fix
   (`deploy.py runtime <id>` to start, or `close.py <id>` to recover funds).
 - **copy** — copy-trading strategy (follows a `traderAddress`) → run by Senpi's copy engine, no runtime.
 - **manual** — manual / app-managed strategy → you manage it in the app, no runtime.
+- **runtime-unknown** — the host has no `openclaw`, so the registry is not visible at all. Not a
+  diagnosis and **never** to be read as an interrupted deploy: check again from the runtime host.
 
 A strategy off the runtime is **not broken** — copy/manual are managed elsewhere by design; `status.py`
 prints *how* each is managed (an info line, not a warning). Only `no-runtime` (autonomous, missing runtime)
@@ -147,11 +563,18 @@ not by hand-composing `strategy_list`.
 
 | Command | Used for |
 |---|---|
-| `openclaw senpi runtime create -p <yaml> --runtime-id <id>` | deploy step 3 |
-| `openclaw senpi runtime list [--json]` | idempotency check, verify, reverse lookup, close discovery |
-| `openclaw senpi runtime delete --id <id> --address <wallet>` | reinstall, close step 1 |
-| `openclaw senpi status -r <id> [--json]` / `state -r <id> [--json]` | verify + Monitor (scanner ticked) |
+| `openclaw senpi deploy -p <dir> …` / `deploy status [--json]` | the deploy verb + its read-only report — started via `deploy.py` (the funded path) |
+| `openclaw senpi runtime list` — text output only, it takes no `--json` | reverse lookup, close discovery, `status.py` fleet view |
+| `openclaw senpi runtime delete --id <id> --address <wallet>` | close step 1, orphan-runtime cleanup |
+| `openclaw senpi status -r <id> [--json]` / `state -r <id> [--json]` | Monitor (scanner ticked) |
 | `openclaw senpi dsl positions\|inspect\|closes` · `action list\|history\|decisions` | troubleshooting |
+
+There is deliberately **no `runtime create` row**: install is the deploy verb's own step 4, done
+in-process — the verb never shells out to it, and running it by hand skips the funds preflight, the
+attribution and the observed tick. Pasted as content (`-c`, no `--runtime-yaml-dir`) it also leaves a
+relative scanner path nothing to resolve against and the install gate refuses
+`[E_VALIDATE_UNRESOLVABLE_SCANNER_PATH]`; `-p <file>` derives that directory from the file, so it is
+the content form specifically that breaks.
 
 ## MCP tools used (via `mcp_client.py`)
 

@@ -14,8 +14,17 @@ import subprocess
 
 # ---- openclaw CLI ----
 
+# The two rc=-1 causes are not the same event: a spawn failure means the command NEVER RAN, a timeout
+# means it ran and we stopped waiting (so whatever it dispatched may still be in flight). Callers on the
+# money path have to tell them apart, so the spawn message carries a stable prefix instead of prose.
+SPAWN_FAILED_PREFIX = "command not found: "
+
+
 def run_cli(args, timeout=60):
-    """Run a CLI command; return (returncode, stdout, stderr). rc=-1 on spawn failure/timeout.
+    """Run a CLI command; return (returncode, stdout, stderr). rc=-1 on spawn failure/timeout —
+    `SPAWN_FAILED_PREFIX` on stderr distinguishes the never-ran case from the stopped-waiting one.
+    NEVER raises for a failure to run: EVERY spawn-side OSError is caught, not just the missing
+    binary, because a caller that dies here takes the whole script's output with it.
 
     Suppresses the senpi plugin's info logs (which it prints to STDOUT and which otherwise corrupt
     `--json` output) by forcing SENPI_LOG_LEVEL=error in the child env."""
@@ -23,10 +32,17 @@ def run_cli(args, timeout=60):
     try:
         p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
         return p.returncode, p.stdout, p.stderr
-    except FileNotFoundError:
-        return -1, "", f"command not found: {args[0]}"
     except subprocess.TimeoutExpired:
         return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
+    except OSError as e:
+        # The command NEVER RAN. FileNotFoundError (no such binary) is the common case; the rest are
+        # fork/exec failures a strained box really does produce — ENOMEM ("Cannot allocate memory"),
+        # EAGAIN (process-table exhaustion), EACCES, ENOEXEC. All of them are the never-ran event, so
+        # all of them carry SPAWN_FAILED_PREFIX: the distinction the money path makes is never-ran vs
+        # stopped-waiting, and only a timeout is the latter. Catching only FileNotFoundError let an
+        # ENOMEM fork failure propagate out of the read and kill the caller mid-run.
+        return -1, "", f"{SPAWN_FAILED_PREFIX}{args[0]}" + ("" if isinstance(e, FileNotFoundError)
+                                                            else f" ({e})")
 
 
 def _extract_json(text):
@@ -56,9 +72,15 @@ def _extract_json(text):
 
 
 def cli_json(args, timeout=60):
-    """Run a CLI command expected to emit JSON on stdout; return the parsed object or None."""
-    rc, out, _err = run_cli(args, timeout)
-    if rc != 0 or not out.strip():
+    """Run a CLI command expected to emit JSON on stdout; return the parsed object or None.
+
+    Does NOT gate on `rc`: some verbs (`deploy status`) exit with the JOB's own verdict code, not
+    a transport code, so a refusal still prints a complete report. Discarding it on `rc != 0` threw
+    away the one payload callers most need to read. Mirrors `deploy.py`'s `read_status`, which
+    already ignores rc for the same reason. A transport failure still degrades to None here because
+    it also leaves `out` empty or unparseable — the sentinel survives on those grounds, not on rc."""
+    _rc, out, _err = run_cli(args, timeout)
+    if not out.strip():
         return None
     return _extract_json(out)
 
@@ -67,11 +89,26 @@ def cli_json(args, timeout=60):
 _NOISE_PREFIXES = ("[plugins]",)
 
 
+def _head_and_tail(text, limit):
+    """Both ends of an over-limit error, with the omission said out loud. A refusal opens with
+    the `[CODE]` line agents branch on and closes with the cause detail — a tail-only cut
+    decapitates the code line (the scanner-`enabled` refusal did exactly this), a head-only cut
+    loses the cause. The tail gets the larger share: the code line is short, causes ramble."""
+    if len(text) <= limit:
+        return text
+    head_n = limit // 3
+    tail_n = limit - head_n
+    marker = f"\n… [{len(text) - head_n - tail_n} chars omitted] …\n"
+    return text[:head_n].rstrip() + marker + text[-tail_n:].lstrip()
+
+
 def error_tail(err, out="", limit=600):
     """Best-available error text from a failed CLI call: prefer stderr, fall back to stdout;
-    drop blank + known banner lines; return the LAST `limit` chars. CLI failures print the
-    real cause at the END of the stream — a head truncation (`text[:N]`) returns the banner
-    flood and destroys the cause (a register-error banner-flood blackout).
+    drop blank + known banner lines; over `limit` chars keep BOTH ends (head + tail, loud
+    omission marker) — the head carries the `[CODE]` line agents branch on, the END carries
+    the cause CLI failures print last. The raw fallback (nothing survived the noise filter)
+    stays a plain LAST-`limit` cut: its text is unfiltered, so its head is exactly the banner
+    flood that destroyed a cause once before (the register-error banner-flood blackout).
 
     ANSI escapes are stripped FIRST (before filtering) so a color-coded `\\x1b[90m[plugins]…`
     banner still matches the noise filter, and no raw escape sequences leak into
@@ -88,7 +125,7 @@ def error_tail(err, out="", limit=600):
                  if ln.strip() and not ln.strip().startswith(_NOISE_PREFIXES)]
         cleaned = "\n".join(lines).strip()
         if cleaned:
-            return cleaned[-limit:]
+            return _head_and_tail(cleaned, limit)
     return (err_s or out_s)[-limit:]
 
 
@@ -107,8 +144,13 @@ def dig(obj, *keys, default=None):
     return default
 
 
-def find_list(obj, *wrapper_keys):
-    """Locate a list payload: a bare list, or nested under a common wrapper key."""
+def find_list_or_none(obj, *wrapper_keys):
+    """Locate a list payload: a bare list, or nested under a common wrapper key. Returns **None**
+    when the payload carries no list at all — which is NOT the same fact as an empty list.
+
+    `find_list`'s `[]` answers both questions with one value, so a response whose shape drifted (a
+    renamed wrapper, an error envelope) reads as "there is nothing" at every call site that trusts
+    it. Callers that must fail closed on an unreadable surface use this one."""
     if isinstance(obj, list):
         return obj
     if isinstance(obj, dict):
@@ -119,8 +161,14 @@ def find_list(obj, *wrapper_keys):
         # single nested dict that itself wraps a list
         d = obj.get("data") if isinstance(obj.get("data"), dict) else None
         if d:
-            return find_list(d, *wrapper_keys)
-    return []
+            return find_list_or_none(d, *wrapper_keys)
+    return None
+
+
+def find_list(obj, *wrapper_keys):
+    """Locate a list payload (see `find_list_or_none`), degrading an unrecognised shape to `[]`."""
+    found = find_list_or_none(obj, *wrapper_keys)
+    return [] if found is None else found
 
 
 # ---- runtime lookups (openclaw senpi runtime ...) ----
@@ -175,9 +223,11 @@ def _parse_runtime_list(out):
 
 def list_runtimes():
     """All runtimes (running AND stopped) by parsing `runtime list` text. NOTE on runtime v3: `runtime
-    list` has no --json (human text only), and `status --json` is *flaky* — it transiently returns an
-    empty `statuses[]` even while runtimes are running — so it is NOT a reliable inventory. The text
-    table (id / wallet / source / status) is authoritative; use `status -r <id>` only for health.
+    list --json` exists only on newer builds (see `senpi-trading-runtime/references/runtime-cli.md`) and
+    this reader must keep working on the older ones, and `status --json` is *flaky* — it transiently
+    returns an empty `statuses[]` even while runtimes are running — so it is NOT a reliable inventory.
+    The text table (id / wallet / source / status) is what every build prints and stays authoritative
+    here; use `status -r <id>` only for health.
     Returns [] on a failed/garbled read; a caller that must NOT conflate 'none' with 'unreadable'
     (teardown's money path) uses `list_runtimes_or_none` instead."""
     rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])
@@ -329,25 +379,57 @@ def runtime_health_map(timeout=15):
     return {}
 
 
-def health_verdict(status_json):
-    """Map a `senpi status` payload to healthy | degraded | unhealthy | unknown | None (shape-tolerant).
+# The keys that carry a HEALTH verdict the runtime itself computed. `RuntimeHealthStatus.health` and
+# each `components.scanners.scanners[].health` are the real ones (senpi-trading-runtime
+# `src/health/types.ts`); `overallHealth` is the older spelling this repo has always accepted.
+HEALTH_KEYS = ("overallHealth", "health")
+# Keys that carry a RUN or JOB state, not health: `runtime list`'s `status`, and a deploy snapshot's
+# `state.overall`. They prove a process (or a job) exists — never that it is working.
+_RUN_STATE_KEYS = ("overall", "status")
 
-    Fail-closed: any verdict that is PRESENT but not a recognised healthy/broken value — the
-    runtime's `unknown` (scanner not yet proven by a tick), `disabled`, or future vocabulary —
-    maps to `unknown`, never to None: None triggers the caller's "running" fallback, which would
-    paint an unproven runtime ✅. None is reserved for payloads with no health field at all.
-    """
-    h = _deep_first(status_json, ["overallHealth", "health", "overall", "status"])
-    if h is None:
-        return None
-    h = str(h).lower()
-    if h in ("healthy", "ok", "running", "live", "true"):
-        return "healthy"
+
+def _classify_health(raw, allow_healthy):
+    h = str(raw).lower()
     if h in ("degraded", "warn", "warning"):
         return "degraded"
     if h in ("unhealthy", "failed", "error", "down", "false"):
         return "unhealthy"
-    return "unknown"  # unknown / disabled / unrecognised verdict → not proven live
+    if allow_healthy and h in ("healthy", "ok"):
+        return "healthy"
+    return "unknown"  # unknown / disabled / a run state / unrecognised verdict → not proven live
+
+
+def run_state(status_json):
+    """The RUN/JOB state string an entry published (`status`/`overall`), or None — for QUOTING.
+
+    Not health, and never rendered as health: it is the evidence a caller quotes when
+    `health_verdict` reached its verdict off a run state because no health field was published."""
+    h = _deep_first(status_json, list(_RUN_STATE_KEYS))
+    return None if h is None else str(h)
+
+
+def health_verdict(status_json):
+    """Map a `senpi status` payload to healthy | degraded | unhealthy | unknown | None (shape-tolerant).
+
+    Fail-closed twice over:
+
+    * Any verdict that is PRESENT but not a recognised healthy/broken value — the runtime's
+      `unknown` (scanner not yet proven by a tick), `disabled`, or future vocabulary — maps to
+      `unknown`, never to None: None triggers the caller's "running" fallback, which would paint an
+      unproven runtime ✅. None is reserved for payloads with no health field at all.
+    * **Only a real health field may render `healthy`.** The runtime's health vocabulary is
+      `healthy|degraded|unhealthy|disabled|unknown` — "running"/"live"/"true" are not in it, they are
+      RUN states. Reading one as healthy turned a `{name, status: "running"}` entry into a ✅ for a
+      runtime no tick had ever proven. A run-state key can still DOWNGRADE (positive broken evidence
+      is believed wherever it is found); it can never promote.
+    """
+    h = _deep_first(status_json, list(HEALTH_KEYS))
+    if h is not None:
+        return _classify_health(h, allow_healthy=True)
+    h = _deep_first(status_json, list(_RUN_STATE_KEYS))
+    if h is None:
+        return None
+    return _classify_health(h, allow_healthy=False)
 
 
 def active_positions(status_json):
@@ -367,9 +449,20 @@ def active_positions(status_json):
 
 # ---- strategy lookups (MCP strategy_list) ----
 
+class ReadFailed(Exception):
+    """A surface a caller needs came back unusable — a transport failure, or a payload whose shape
+    carries no answer. Raised by CALLERS of the fail-closed `*_or_none` readers
+    (`list_strategies_or_none`, `list_runtimes_or_none`, `cli_json`) once they have turned that
+    sentinel into a refusal: a caller that catches this must render NO verdict."""
+
+
 def list_strategies(mcp, timeout=15, statuses=None):
-    """strategy_list. Pass `statuses` to filter server-side (much smaller payload than fetching a long
-    closed/failed history — strategy_list with no filter can return many dozens of records)."""
+    """strategy_list, degrading to `[]` on a transport error or an unrecognised payload. Pass
+    `statuses` to filter server-side (much smaller payload than fetching a long closed/failed
+    history — strategy_list with no filter can return many dozens of records).
+
+    A CHECK must not use this: "no strategies" and "I could not read the strategies" come back as
+    the same empty list. `list_strategies_or_none` is that caller's reader."""
     args = {"status": statuses} if statuses else {}
     try:
         res = mcp.mcp_call("strategy_list", timeout=timeout, **args)
@@ -408,24 +501,176 @@ def strategy_wallet(s):
 
 def strategy_name(s):
     """The strategyName a strategy was created under (create sets it to <id> or <id>-<instance>).
-    Lets a lost-state redeploy match a backend strategy back to its package instance."""
-    return dig(strategy_obj(s), "strategyName", "tradingStrategyName", "name")
+    Lets a lost-state redeploy match a backend strategy back to its package instance.
+
+    `_first_written`, not `dig`: the MCP now SELECTS `strategyName`, so the key is PRESENT on every
+    row and the column is NULLABLE (null on 21 of 23 rows in a live sample). `dig` answers with the
+    first key that exists — null included — so a present-null would answer for the whole chain and
+    switch off the `tradingStrategyName` fallback that is the only name most rows carry today. That
+    is the exact shape of an upstream fix turning a working reader OFF.
+
+    Fixed HERE and not in `dig` because `dig`'s present-but-falsy answer is load-bearing for other
+    callers — `find_list_or_none` (`[]` is an answer, not an unreadable shape), `runtime_running`
+    (`running: False` must not fall through to a health string) and `strategy_funded` (`totalFunded:
+    0` is what LANDED) all flip the wrong way if it skips falsy. This reader has exactly ONE
+    production consumer (`deploy.py`'s `verify_instance`), so the narrow fix is also the small one."""
+    return _first_written(strategy_obj(s), "strategyName", "tradingStrategyName", "name")
+
+
+def strategy_name_and_source(s):
+    """What to CALL a strategy, and WHICH FIELD said so — `(name, name_source)`.
+
+    Same fallback chain as `strategy_name` (`strategyName` → `tradingStrategyName` → `name`), and the
+    exact `(name, name_source)` shape `senpi-portfolio/scripts/portfolio.py`'s
+    `_strategy_name_and_source` returns — quoted, not reinvented. `strategyName` is the strategy's
+    own name; `tradingStrategyName`/`name` are the package id standing in for an unnamed strategy
+    (nullable by mechanism — `strategy_create_custom_strategy` makes it optional). `name_source`
+    records which of those answered, so a caller can tell "this strategy is named cub" from "this
+    strategy is unnamed and cub is its package" — a distinction `status.py`'s runtime-name column
+    collapsed by printing a different field (`runtime`, not `strategyName`) in what a reader takes
+    for the name column.
+
+    The chain and the ANSWER are held identical to `portfolio._strategy_name_and_source` by
+    `senpi-portfolio/tests/test_name_reader_parity.py::test_ops_chain_answers_match_portfolio_where_the_readers_cannot_disagree`
+    — but this reader is built on `_first_written` below (`dig()`-dispatched: case-insensitive, no
+    `.strip()`, no container/bool exclusion), NOT on portfolio's vendored one (exact-cased, strips,
+    excludes dict/list/bool). The two are held to the same chain, not the same implementation, so a
+    handful of shapes legitimately diverge — a case-only key variant, a whitespace-only string, a
+    dict/bool/bare-scalar value in a name field — and each one is pinned to both readers' real
+    answers by that same test file's `test_ops_chain_diverges_only_where_pinned_as_intended`, not
+    left as an untested gap."""
+    o = strategy_obj(s)
+    for key in ("strategyName", "tradingStrategyName", "name"):
+        got = _first_written(o, key)
+        if got:
+            return got, key
+    return "strategy", None
+
+
+def strategy_name_match(a, b):
+    """Do these two strategy names name the same strategy? Case- and whitespace-insensitive; an
+    empty/absent name on EITHER side is never a match.
+
+    Case-folded because the backend case-normalizes what it stores (observed in production create
+    calls: `"WARPATH"` in, `"warpath"` back) while `deploy.py`'s `_sanitize_strategy_name`
+    deliberately preserves `[A-Za-z0-9_-]` capitals — so a mixed-case package id derives a name a
+    case-SENSITIVE compare could never match, and the check reads its own live funded wallets as
+    "nothing is funded here" and steers at a deploy that funds a second one beside each.
+
+    Two absences are not an identity: an unnamed strategy matched on `"" == ""` binds to the first
+    instance that asks. ONE producer, because the runtime's deploy verb asks this same question of
+    this same field (`src/deploy/orchestrator.ts`, the `byName` filter) — the two consumers
+    answering differently is how a wallet gets funded twice."""
+    a, b = str(a or "").strip().lower(), str(b or "").strip().lower()
+    return bool(a) and a == b
+
+
+def strategy_skill_match(a, b):
+    """Do these two attribution stamps name the same PACKAGE? Same normalisation as
+    `strategy_name_match` — `.strip().lower()` on both sides — and an empty/absent stamp on either
+    side is never a match.
+
+    Case-folded for the same reason and against the same consumer: the runtime's deploy verb reads
+    this field as `(s.skillName ?? "").trim().toLowerCase()` (`src/deploy/orchestrator.ts`, both the
+    name route's stamp partition and `gateOrCreate`'s), while the verb STAMPS `pkg.id` verbatim and
+    nothing forces a package id lowercase. An exact compare here therefore diverges from the layer
+    that wrote the stamp: for a package id with a capital in it the runtime's own gates match and
+    `close.py <id>` matches NOTHING, printing "no OPEN strategies to close." over a live, funded,
+    trading wallet — a false all-clear on the one command a user runs to get their money back.
+
+    Two absences are not an identity, for a sharper reason than names: an unattributed strategy that
+    matched an empty filter would be handed to a teardown that was asked about one package."""
+    a, b = str(a or "").strip().lower(), str(b or "").strip().lower()
+    return bool(a) and a == b
+
+
+def _strategy_metadata(o):
+    """`strategyMetadata` as a dict, or None when the record carries none this reader can navigate.
+
+    A JSON-encoded STRING is parsed rather than skipped. The MCP declares the field
+    `Record<string, unknown> | null` but only passes the backend's GraphQL scalar straight through
+    (`strategy_list` spreads it verbatim), so the shape is the backend's promise, not the MCP's —
+    and read as "no metadata", a serializer drift would make a genuinely FOREIGN-attributed wallet
+    read as unattributed, which is exactly the adoption `strategy_skill_declared` exists to stop."""
+    meta = dig(o, "strategyMetadata", "metadata")
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except ValueError:
+            return None
+    return meta if isinstance(meta, dict) else None
+
+
+def _first_written(o, *keys):
+    """The first key of `o` carrying a value someone actually WROTE — a present-but-empty field
+    (`skillName: ""`) is silence, not a value.
+
+    `dig` stops at the first key that EXISTS, so it hands back `''` verbatim; a caller comparing
+    that against a package id ("is this someone else's wallet?") then reads effectively-silent
+    attribution as a foreign owner and drops the user's own live wallet out of the match."""
+    for k in keys:
+        v = dig(o, k)
+        if v:
+            return v
+    return None
+
+
+def _declared_skill(o):
+    """The WRITTEN attribution on a strategy object: `strategyMetadata.skillName`, else a top-level
+    one. None when every leg is absent or empty — silence, at every leg, is never an owner."""
+    meta = _strategy_metadata(o)
+    if meta:
+        sk = _first_written(meta, "skillName", "skill_name")
+        if sk:
+            return sk
+    return _first_written(o, "skillName", "skill_name", "skill")
 
 
 def strategy_skill(s):
     """The package id a strategy was created under. Lives in strategyMetadata.skillName (set by
     strategy_create_custom_strategy's skillName arg); falls back to tradingStrategyName."""
     o = strategy_obj(s)
-    meta = dig(o, "strategyMetadata", "metadata")
-    if isinstance(meta, dict):
-        sk = dig(meta, "skillName", "skill_name")
-        if sk:
-            return sk
-    return dig(o, "skillName", "skill_name", "skill") or dig(o, "tradingStrategyName", "name")
+    return _declared_skill(o) or _first_written(o, "tradingStrategyName", "name")
+
+
+def strategy_skill_declared(s):
+    """The package id a strategy was actually ATTRIBUTED to, or **None** when the record carries no
+    attribution at all — the same fields as `strategy_skill` minus its tradingStrategyName fallback.
+
+    Two different questions, so two readers. `strategy_skill` answers "which package do we file this
+    under" and guesses from the name when nobody said; that guess is unusable for deciding whether a
+    wallet belongs to SOMEONE ELSE, because an unattributed wallet named `spider-swing` and a wallet
+    a package called `spider-swing` really created read identically through it. Only an attribution
+    that was WRITTEN can rule a candidate out — silence must never be read as a foreign owner, and
+    an EMPTY stamp is silence by the same rule: `''` is not a package id, so returning it verbatim
+    would make every caller comparing against a package id read a blank field as a DIFFERENT owner.
+    (No sanctioned path writes one — the MCP's create schema is `z.string().trim().min(1)` — so this
+    is the invariant held at the reader, not a field sighting.)"""
+    return _declared_skill(strategy_obj(s))
 
 
 # strategies in these states are done — never close them again, and they must NOT block a new deploy.
 DEAD_STATUSES = ("CLOSED", "FAILED", "INACTIVE", "TERMINATED", "CLOSING_DONE")
+
+# Live (non-terminal) statuses — pass to `strategy_list` to filter SERVER-side (much smaller payload
+# than a long closed/failed history). One list, shared by every caller: three copies of it drifted
+# apart is three different answers to "what is still live".
+LIVE_STATUSES = ["ACTIVE", "PAUSED", "CREATE_WALLET", "FUND_WALLET", "INITIALIZE_POSITIONS",
+                 "SUBSCRIBE_TRADER", "CLOSING_POSITIONS"]
+
+
+def strategy_funded(s):
+    """The backend's own funded figure for a strategy, rendered for display (`$300`), or **None**
+    when the record carries none. ONE producer: `status.py` and `deploy.py verify` must print the
+    same number for the same wallet — and it is always what the backend says LANDED (`totalFunded`,
+    else `netFunded`), never a requested amount.
+
+    `initialBudget` used to close the chain, and it is the REQUESTED figure: a $500 request that
+    partially funded $60 printed as "funded $500". Same rule as the deploy verb's
+    `[W_BUDGET_FUNDED_UNREADABLE]` — an unread amount is reported as unknown and the reader is sent
+    to a surface that can prove it, never rendered as a number nobody read."""
+    v = dig(strategy_obj(s), "totalFunded", "netFunded")
+    return f"${float(v):g}" if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
 def strategy_trader(s):
@@ -442,22 +687,62 @@ def strategy_open(s):
     return str(strategy_status(s) or "").upper() not in DEAD_STATUSES
 
 
-def list_strategies_or_none(mcp, timeout=15, statuses=None):
-    """Like `list_strategies()` but returns None when the `strategy_list` read FAILED (transport error) —
-    so a money path can tell 'no strategies' (→ []) from 'couldn't read the list' (→ None) and REFUSE
-    rather than fund a second wallet next to an unread live one. Mirrors `list_runtimes_or_none`."""
+def strategy_active(s):
+    """True only for `ACTIVE` — the one status that means this wallet is TRADING.
+
+    Everything else `strategy_open` admits is a transition: `CREATE_WALLET`/`FUND_WALLET`/
+    `INITIALIZE_POSITIONS`/`SUBSCRIBE_TRADER` is a deploy still in flight, `PAUSED`/
+    `CLOSING_POSITIONS` is a wallet being wound down (`close.py`'s own doctrine path leaves exactly
+    that window open, runtime already removed). Open and active are different questions: reading
+    open as active is how a teardown-in-progress gets a "start trading this funded wallet" steer."""
+    return str(strategy_status(s) or "").upper() == "ACTIVE"
+
+
+def list_strategies_or_none(mcp, timeout=15, statuses=None, why=None):
+    """`strategy_list` for callers that must fail CLOSED: returns **None** when the read did not
+    produce an answer — so a money path can tell 'no strategies' (→ `[]`, an answer) from 'couldn't
+    read the list' (→ None) and REFUSE rather than fund a second wallet next to an unread live one.
+    Mirrors `list_runtimes_or_none`.
+
+    **Two ways a read produces no answer, and both return None:**
+
+    * the call FAILED — a transport/tool error;
+    * the call ANSWERED, but with a payload carrying no recognisable strategies list — a renamed
+      wrapper key, an error envelope, any response-shape drift.
+
+    The second is the one that hid, which is why this routes through `find_list_or_none` and not
+    `find_list`: `find_list` navigating nothing returns `[]`, which looks exactly like a backend
+    with nothing live, so a shape drift renders as "no live strategy — nothing is funded here" and
+    steers at the money path over wallets that may be perfectly live. A genuinely empty list is
+    still `[]` — that IS an answer, and the only one of the three this function reports as one.
+
+    The **verdict** is the same for both, deliberately — render NOTHING, say the surface was
+    unreadable — so there is one sentinel and no caller can treat either mode as benign. The
+    **cause** is still worth printing, so pass `why`: a list the reason is appended to, for callers
+    that render a "could not check" line an operator has to act on ("no SENPI_AUTH_TOKEN" and "the
+    payload carried no list" send them to different places). Callers that only branch omit it."""
     args = {"status": statuses} if statuses else {}
     try:
         res = mcp.mcp_call("strategy_list", timeout=timeout, **args)
-    except Exception:  # noqa: BLE001 — the WHOLE point: surface the failure instead of swallowing to []
+    except Exception as e:  # noqa: BLE001 — the WHOLE point: surface the failure instead of swallowing to []
+        if why is not None:
+            why.append(f"the MCP `strategy_list` call failed ({e})")
         return None
-    return find_list(res, "strategies")
+    found = find_list_or_none(res, "strategies")
+    if found is None and why is not None:
+        why.append("MCP `strategy_list` answered, but with no recognisable strategies list in it "
+                   "(an empty list would have read as an answer; this payload carries none)")
+    return found
 
 
 def _match_strategy(s, skill_name, strategy_id, wallet):
     if strategy_id is not None and strategy_id_of(s) != strategy_id:
         return False
-    if skill_name is not None and strategy_skill(s) != skill_name:
+    # The stamp compare goes through `strategy_skill_match`, not `!=`: the runtime case-folds this
+    # field (it stamps `pkg.id` verbatim and reads it back lowercased) and an exact compare here
+    # made `close.py <MixedCaseId>` match nothing and report "no OPEN strategies to close." over a
+    # live funded wallet. One producer for the comparison, so the two layers cannot disagree.
+    if skill_name is not None and not strategy_skill_match(strategy_skill(s), skill_name):
         return False
     if wallet is not None and str(strategy_wallet(s) or "").lower() != str(wallet).lower():
         return False
@@ -473,10 +758,13 @@ def strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=
             if _match_strategy(s, skill_name, strategy_id, wallet)]
 
 
-def strategies_for_or_none(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15, statuses=None):
-    """Fail-CLOSED `strategies_for`: returns None when the `strategy_list` read failed, so a money path
-    can refuse rather than mistake 'unreadable' for 'none' (the double-fund / un-consented-flatten trap)."""
-    rows = list_strategies_or_none(mcp, timeout, statuses=statuses)
+def strategies_for_or_none(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15,
+                           statuses=None, why=None):
+    """Fail-CLOSED `strategies_for`: returns None when the `strategy_list` read produced no answer —
+    either it failed or its payload carried no list — so a money path can refuse rather than mistake
+    'unreadable' for 'none' (the double-fund / un-consented-flatten trap). `why` carries the cause
+    out for callers that render it; see `list_strategies_or_none`."""
+    rows = list_strategies_or_none(mcp, timeout, statuses=statuses, why=why)
     if rows is None:
         return None
     return [s for s in rows if _match_strategy(s, skill_name, strategy_id, wallet)]

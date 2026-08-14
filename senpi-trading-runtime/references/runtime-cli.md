@@ -25,18 +25,72 @@ Stored in `~/.openclaw/senpi-cli.json`; changes require a gateway restart to app
 | `config unset <key>` | Remove a key |
 | `config reset` | Clear all preferences |
 
+## `senpi validate` — prove a strategy runs, before it is funded (the gate)
+
+Runs **locally** rather than forwarding to the gateway (as `config` and `guide` also do), so CI can
+run the offline depths with no gateway present and a validation can never touch a live runtime. It loads
+every scanner file, runs one real `scan()` tick against live read-only data, counts what it read, and
+checks each emitted signal against intake's own wire schema. **No wallet, no funding, no deploy.**
+
+A full, **unscoped** run at `live` depth that PASSES writes `.senpi-proof.json` beside that instance's
+recipe — the proof `senpi deploy` refuses to fund a package without
+(`[E_VALIDATE_NO_PROOF]` / `[E_VALIDATE_CONTENT_CHANGED]` / `[E_VALIDATE_RUNTIME_VERSION_CHANGED]`).
+`--scanner`, `--no-attest` and `--stage static|import` all run their checks and deliberately record
+nothing, and the python validators write no proof either — so only this command ends the deploy loop.
+
+| Command | What it does | Options |
+|---|---|---|
+| `validate [target]` | Validate a recipe, a directory containing one, a scanner directory, or a scanner file. **The target is a DIRECTORY, never an instance name** — the package root for a flat package (root `runtime.yaml`, no `instances:`), the instance's own dir once `strategy.yaml` lists instances. Validation runs against ONE recipe, so a root that lists instances and holds no recipe of its own refuses `[E_VALIDATE_NO_RECIPE]` and lists the instances to pick from. Run it once per instance. | `-p, --path <path>` (alias for the positional target) · `-c, --content <yaml>` (recipe text instead of a path) · `--dir <dir>` (directory relative scanner paths resolve against, for `--content`) · `--stage <static\|import\|live>` (default `live`) · `--scanner <name>` (restrict to one scanner; never records a proof) · `--wallet <address>` (account to run against; default an empty placeholder account) · `--timeout <seconds>` (per-scanner tick budget) · `--strict` (treat warnings as failures) · `--no-attest` (run everything, record no proof) · `--json` (one JSON document on stdout, everything else on stderr) |
+
+Depths are cumulative — `live` runs `static` + `import` + `live`. Only `live` executes a tick, so a
+`--stage import` run cannot see a tick fail and must never be reported as the gate passing.
+
+Exit codes: `0` PASS · `1` FAIL · `2` UNPROVEN · `3` the request itself was wrong (unknown `--stage`,
+bad `--timeout`, target not found, an unresolvable package root).
+
+- **PASS** — the code loads, a real tick ran, it read live data, and its signals would be accepted.
+- **UNPROVEN** — it ran cleanly and established **nothing**: zero successful reads. Not a pass.
+  Usually a gate in `scan()` returning early; have it consult `ctx.dry_run`.
+- **FAIL** — each finding carries `what` / `why` / `fix` computed against the package.
+
+```bash
+openclaw senpi validate strategies/spider/swing        # an instance dir — the target is a directory
+openclaw senpi validate ./my-strategy --stage import   # fast, offline, no credentials — NOT the gate
+```
+
+## `senpi deploy` — take a strategy package live (the deploy path)
+
+One verb, run as a **detached job**: reconcile → funds preflight → wallet create+fund (carrying the
+package's `skillName`/`skillVersion` attribution) → install → one **observed** scanner tick. It
+returns in ~1s with a `deployId`; you poll `deploy status` until the job is terminal. Package-level
+gates run **pre-money** — no DSL exit on an instance, an unsupported scanner-level `enabled` key, and
+the live-universe check (`[E_UNIVERSE_NOT_LIVE]`, fail-closed when the instrument list is unreadable).
+
+| Command | What it does | Options |
+|---|---|---|
+| `deploy -p <package-dir>` | Start the deploy job for a strategy package. One job per agent (a second refuses `[E_DEPLOY_IN_PROGRESS]`); re-running reconciles and adopts what exists, it never duplicates. There is no `cancel` — undeploying is closing the strategy. | `--budget <usd>` (split across instances by `funding_share`, min $10/wallet) · `--max-wait <s>` (wallet-ACTIVE budget, default 150) · `--tick-wait <s>` (observe budget, default 120; `0` skips and can never report `live`) · `--decision-model <model>` · `--json` |
+| `deploy status [deployId]` | The job's phase while running, the full verified report once terminal. **Read-only** — it starts nothing. | `--json` |
+
+Exit codes (`deploy status` and `deploy.py` alike): `0` live · `2` refused · `3` failed · `4`
+installed-unobserved · `5` interrupted · `6` pending/still running · `1` internal/transport error.
+`deploy status` sets the JOB's code and then prints the snapshot, on `--json` too — a non-zero code
+there is a verdict about the deploy, not a failed read.
+
+**Deploy through `senpi-strategy-ops/scripts/deploy.py create <id> --budget <usd>`**, which resolves
+the package (a bare catalog id is fetched), runs the structural preflight and drives this verb.
+
 ## `senpi runtime` — manage runtimes
 
 | Command | What it does | Options |
 |---|---|---|
-| `runtime create` | Add a runtime from a YAML file (or pasted YAML); the gateway validates and runs it. Hot-loads — no gateway restart. | `-p, --path <path>` (path to the runtime.yaml) · `-c, --content <yaml>` (paste YAML directly) · `--runtime-id <id>` (name; default derived from the file name/content) |
-| `runtime list` | List all installed runtimes with their id, source, and status (running/stopped). A runtime whose entry scanners failed to wire shows `running — NO ENTRY SCANNERS`: the runtime is up but cannot produce entry signals — `senpi status` names the failed phase; check `senpi events` for the failure. | — |
+| `runtime create` | **Internal — not the deploy path.** Adds a runtime from a YAML file (or pasted YAML) and hot-loads it, skipping the funds preflight, the attribution and the verified tick that `senpi deploy` performs. Pasted as content (`-c`) with no `--runtime-yaml-dir` it also leaves a relative scanner path nothing to resolve against and the install gate refuses `[E_VALIDATE_UNRESOLVABLE_SCANNER_PATH]` — `-p` derives that directory from the file, so only the content form breaks. | `-p, --path <path>` (path to the runtime.yaml) · `-c, --content <yaml>` (paste YAML directly) · `--runtime-id <id>` (name; default derived from the file name/content) · `--runtime-yaml-dir <dir>` (directory to resolve relative scanner paths against — content installs only; `-p` derives it) |
+| `runtime list` | List all installed runtimes with their id, source, and status (running/stopped). A runtime whose entry scanners failed to wire shows `running — NO ENTRY SCANNERS`: the runtime is up but cannot produce entry signals — `senpi status` names the failed phase; check `senpi events` for the failure. | `--json` |
 | `runtime delete [runtime_id]` | Remove a runtime by id or wallet address. | `--id <runtime_id>` (from `runtime list`) · `--address <wallet>` |
 
 ```bash
-openclaw senpi runtime create -p runtime.yaml     # deploy / hot-load
-openclaw senpi runtime list                        # verify it is running
-openclaw senpi runtime delete --id iguana-tracker  # tear down
+openclaw senpi deploy -p strategies/spider --budget 300   # the deploy path (detached; then: deploy status)
+openclaw senpi runtime list                               # verify it is running
+openclaw senpi runtime delete --id iguana-tracker         # tear down (packages: close.py <id>, which also closes the strategy)
 ```
 
 ## `senpi dsl` — inspect the DSL exit engine
@@ -118,5 +172,6 @@ Printed reference for `@senpi-ai/runtime`, available on the host without leaving
 
 `openclaw senpi --cheatsheet` prints the whole command cheatsheet.
 
-> Each CLI command wraps a gateway RPC (`openclaw gateway call senpi.<method>`). The CLI is the
+> Every CLI command that reaches a running runtime wraps a gateway RPC (`openclaw gateway call
+> senpi.<method>`); `validate`, `config` and `guide` run locally and wrap none. The CLI is the
 > supported human-facing surface; reach for the raw RPCs only for programmatic automation.

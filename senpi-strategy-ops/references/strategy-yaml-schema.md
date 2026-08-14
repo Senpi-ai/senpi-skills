@@ -7,23 +7,57 @@ each self-contained `runtime.yaml` (the runtime's own concept) — the manifest 
 
 ## Package layout
 
+**The rule: a package always RESOLVES to a non-empty `instances[]` — that is not the same as the
+manifest having to declare one.** The two layouts differ only in where that list comes from.
+
+**FLAT** — single-instance, and what `senpi-strategy-author` scaffolds. **No `instances:` list at
+all**; every loader synthesizes the canonical `main` instance from the root recipe:
+
 ```
-strategies/<id>/                # all strategy packages live under strategies/
-  strategy.yaml                 # this manifest
-  <instance>/
-    runtime.yaml                # the runtime's self-contained spec for this instance
-    scanners/                   # the supervised scanner module(s)
-      scan.py                   # exports scan(inputs, ctx) -> list[dict]
-      scoring.py                # (optional) pure helpers
-  <instance2>/ …                # one subdir per instance (multi-runtime, e.g. spider swing + scalp)
+strategies/<id>/
+  strategy.yaml                 # this manifest — no `instances:`
+  runtime.yaml                  # the runtime's self-contained spec; `main` is synthesized from it
+  scanners/
+    scan.py                     # exports scan(inputs, ctx) -> list[dict]
+    scoring.py                  # (optional) pure helpers
 ```
 
-A single-instance strategy may use the **FLAT layout** instead — `runtime.yaml` + `scanners/` at the
-package root with **no `instances:` list at all**: the deployer (strategy-ops v2.4.0+) synthesizes the
-canonical `main` instance, binding `wallet_env` to the `${...}` the runtime already uses. A
-multi-instance strategy (spider) has one `<instance>/` dir per runtime, **each on its own wallet** (a
-runtime binds to exactly one wallet), and declares them in `instances:`. `deploy.py validate <id>`
-confirms either form is deploy-ready.
+**NESTED** — required for multi-instance, and what every package in this repo's `strategies/`
+catalog uses. One `<instance>/` dir per runtime, **each on its own wallet** (a runtime binds to
+exactly one wallet), declared in `instances:`:
+
+```
+strategies/<id>/
+  strategy.yaml                 # this manifest — with `instances:`
+  <instance>/
+    runtime.yaml                # this instance's spec
+    scanners/{scan,scoring}.py
+  <instance2>/ …                # e.g. spider swing + scalp
+```
+
+Same rule on both sides: `_pkg.load` (synthesizing via `_flat_instance`) raises only when there is
+neither an `instances:` list nor a root `runtime.yaml`; the author lint (`validate_strategy.py`) and
+the runtime's own `loadDeployPackage` (via `synthesizeFlatInstance`) do the same.
+`deploy.py validate <id>` confirms either form is deploy-ready.
+
+### The flat wallet binding is stricter in the runtime than in the python loaders
+
+**A flat package's `strategy.wallet` must be the WHOLE value and UPPERCASE — `"${WALLET_ENV}"`,
+`[A-Z0-9_]` only.** The python loaders accept far more than that, and they do not warn:
+
+| `strategy.wallet` | `deploy.py validate` | the runtime |
+|---|---|---|
+| `"${MY_WALLET}"` | green, binds `MY_WALLET` | loads |
+| `"${my_wallet}"` (lowercase) | **green**, binds `my_wallet` | **refuses the package** |
+| `"pre${FOO}"` (embedded) | **green**, binds `FOO` | **refuses the package** |
+| `"0xabc…"` (no `${…}`) | reports `wallet_env … not bound` | refuses the package |
+
+`_flat_instance` finds the token with a `.search()` over `\$\{([A-Za-z_][A-Za-z0-9_]*)\}`, so it
+matches a lowercase name and one embedded mid-string, and only falls back to `<ID>_WALLET` — the case
+`validate` then reports — when there is **no** `${…}` anywhere. `synthesizeFlatInstance` anchors and
+uppercases (`/^\$\{([A-Z0-9_]+)\}$/`) and throws otherwise. So rows 2 and 3 pass every python check,
+including `deploy.py validate`, and are refused at load by `senpi validate` and `senpi deploy`.
+(Verified by running both loaders over all four spellings, not by reading them.)
 
 ## Schema
 
@@ -58,7 +92,9 @@ defaults:                   # env VAR NAMES only — never values
   auth_token_env: SENPI_AUTH_TOKEN
   # decision_model_env: <ENV>   # ONLY if a runtime.yaml has a decision_mode: llm action
 
-instances:                  # REQUIRED, non-empty. Each entry = one runtime.yaml + one wallet.
+instances:                  # Each entry = one runtime.yaml + one wallet. REQUIRED and non-empty
+                            #   UNLESS the package is FLAT (a root runtime.yaml), which synthesizes
+                            #   `main` — see "Package layout". Multi-instance MUST declare it.
   - name: swing                       # REQUIRED. Instance id.
     runtime: swing/runtime.yaml       # REQUIRED. Path to this instance's runtime.yaml.
     wallet_env: SPIDER_SWING_WALLET   # REQUIRED. Bound as ${SPIDER_SWING_WALLET} in that runtime.yaml.
@@ -88,6 +124,7 @@ So: **forward** = `instances[].runtime` path → the instance's spec; **reverse*
 ## Validation
 
 `deploy.py` preflight-validates the package (and the model in `scripts/_pkg.py` is reusable): id == dir,
-version present, instances non-empty, each `runtime.yaml` exists + binds `${wallet_env}` + has the
-`group`/`name` linkage + an `external_scanner` whose entrypoint module exists, distinct `wallet_env` per
-instance, `funding_share` sums to 1.0, and no bare `@senpi/runtime` anywhere.
+id lowercase, version present, the package resolves to at least one instance (declared, or synthesized
+from a root `runtime.yaml`), each `runtime.yaml` exists + binds `${wallet_env}` + has the `group`/`name`
+linkage + an `external_scanner` whose entrypoint module exists, distinct `wallet_env` per instance,
+`funding_share` sums to 1.0, and no bare `@senpi/runtime` anywhere.

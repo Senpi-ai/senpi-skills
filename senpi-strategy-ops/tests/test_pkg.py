@@ -139,6 +139,26 @@ def test_validate_requires_signal_data_schema(tmp_path):
     assert any("signal_data_schema" in e and "sibling of `inputs`" in e for e in errs)
 
 
+def test_validate_refuses_a_mixed_case_package_id(tmp_path):
+    """The id becomes the wallet's `skillName` stamp VERBATIM while the backend stores it
+    case-normalized — so a mixed-case id is stamped under one spelling and looked up under another.
+    Refused at validate (deploy's pre-money gate), not at load: `close.py` loads a package to tear it
+    down, and a load-time refusal would lock an already-deployed mixed-case package out of the only
+    command that returns its funds."""
+    pkg = _pkg.load(str(make_flat(tmp_path, pkg_id="Warpath", wallet_env="WARPATH_WALLET")))
+    errs = _pkg.validate(pkg)
+    assert any("must be lowercase" in e and "id: warpath" in e for e in errs)
+    # …and the package still LOADS, so teardown of one already deployed stays reachable.
+    assert pkg.id == "Warpath" and len(pkg.instances) == 1
+
+
+def test_validate_accepts_the_lowercase_form(tmp_path):
+    """The same package spelled lowercase is clean — the rule adds no error to any of the 103
+    packages already under `strategies/`."""
+    pkg = _pkg.load(str(make_flat(tmp_path, pkg_id="warpath", wallet_env="WARPATH_WALLET")))
+    assert _pkg.validate(pkg) == []
+
+
 def test_validate_flags_missing_version(tmp_path):
     """Sanity: an existing invariant still fires (version required)."""
     pkg = _pkg.load(str(make_flat(tmp_path, version=None)))
@@ -167,6 +187,41 @@ def test_ensure_pkg_local_invalid_never_fetches_remote(tmp_path, monkeypatch):
     with pytest.raises(_pkg.BadPackage):
         deploy.ensure_pkg(str(d), None, lambda m: None)
     assert called["fetch"] is False                                  # never reached the remote
+
+
+def test_wallet_binding_reads_the_parsed_field_not_the_raw_text(tmp_path):
+    """A recipe that PINS an address passes a text search for its `wallet_env` as long as the token
+    appears anywhere at all — including a field nothing reads.
+
+    That is not a hypothetical: `${W}` parked in a `note:` is substituted harmlessly, so the
+    render dry-run's "no `${...}` left" check has nothing to catch either, and the package reaches
+    deploy. The runtime refuses it (`E_VALIDATE_WALLET_UNBOUND`) by reading the parsed
+    `strategy.wallet`; this validator has to ask the same question or it is green on exactly the
+    bytes deploy rejects.
+    """
+    d = make_nested(tmp_path, pkg_id="pinned", wallet_env="PINNED_WALLET")
+    rt = d / "main" / "runtime.yaml"
+    pinned = '"0x%s"' % ("a" * 40)
+    rt.write_text(
+        rt.read_text().replace('"${PINNED_WALLET}"', pinned)
+        + 'note: "funded via ${PINNED_WALLET}"\n'
+    )
+    errs = _pkg.validate(_pkg.load(str(d)))
+    # Prescriptive, like every other linkage message here: the exact value to set, not a diagnosis.
+    assert any("PINNED_WALLET" in e and "strategy.wallet" in e for e in errs), errs
+
+
+def test_wallet_binding_accepts_the_token_the_manifest_declares(tmp_path):
+    """The guard against over-refusing: a correctly bound recipe must stay clean."""
+    assert _pkg.validate(_pkg.load(str(make_nested(tmp_path, pkg_id="bound")))) == []
+
+
+def test_wallet_binding_survives_a_recipe_that_will_not_parse(tmp_path):
+    """An unparseable recipe is already its own error; this check must not throw on the way past."""
+    d = make_nested(tmp_path, pkg_id="torn")
+    (d / "main" / "runtime.yaml").write_text("scanners: [unclosed\n")
+    errs = _pkg.validate(_pkg.load(str(d)))          # must not raise
+    assert errs                                       # and must still say something
 
 
 def test_full_validate_catches_unresolved_placeholder(tmp_path):
@@ -354,6 +409,103 @@ def test_fetch_out_path_refuses_traversal(tmp_path):
         _fetch._out_path(tmp_path, "strategies/../../evil.py")
 
 
+def _universe_pkg(tmp_path, block):
+    """A flat package whose scanner hardcodes `block` as its asset universe."""
+    d = make_flat(tmp_path, pkg_id="spider", wallet_env="SPIDER_WALLET")
+    (d / "runtime.yaml").write_text(
+        (d / "runtime.yaml").read_text() + f"    inputs:\n      asset_universe:\n{block}")
+    return d
+
+
+# ─────────── the block-scalar trailing-newline rule (LOCKSTEP with senpi-trading-runtime) ──────────
+# A YAML block scalar (`- |`) clip-chomps to "BTC\n". Python's `$` matched that, so this tool used to
+# COLLECT the untrimmed string and compare it against the live names — a LIVE ticker reported NOT
+# LIVE. The runtime port's `$` did not match at all, so a DEAD ticker written that way slipped past
+# the money gate. Both sides now tolerate exactly ONE trailing newline and check the TRIMMED ticker.
+# Change neither side alone.
+
+def test_a_block_scalar_ticker_is_collected_trimmed(tmp_path):
+    import validate_universe
+    d = _universe_pkg(tmp_path, "        - |\n          BTC\n")
+    assert validate_universe.package_tickers(str(d)) == {"BTC"}
+
+
+def test_a_live_block_scalar_ticker_is_not_reported_unknown(tmp_path):
+    import validate_universe
+    d = _universe_pkg(tmp_path, "        - |\n          BTC\n")
+    tickers = validate_universe.package_tickers(str(d))
+    assert validate_universe.unknown_tickers(tickers, {"BTC", "ETH"}) == []
+
+
+def test_a_dead_block_scalar_ticker_is_still_reported_unknown_without_its_newline(tmp_path):
+    import validate_universe
+    d = _universe_pkg(tmp_path, "        - |\n          XYZDEAD\n")
+    tickers = validate_universe.package_tickers(str(d))
+    assert validate_universe.unknown_tickers(tickers, {"BTC", "ETH"}) == ["XYZDEAD"]
+
+
+def test_more_than_one_trailing_newline_is_not_a_ticker_at_all(tmp_path):
+    import validate_universe
+    # `- |+` keeps the blank line: "BTC\n\n" — not a ticker on either side.
+    d = _universe_pkg(tmp_path, "        - |+\n          BTC\n\n")
+    assert validate_universe.package_tickers(str(d)) == set()
+
+
+# ───────────────── key POLARITY (LOCKSTEP with senpi-trading-runtime's EXCLUSION_KEY_RE) ──────────
+# KEY_HINT cannot separate "the universe I trade" from "the names I refuse to trade": its hint is a
+# substring of both, so `excludeAssets` matches on `asset`. An exclusion list routinely names things
+# the venue does not carry — usually the reason they are on it — so demanding they be live asks the
+# inverse question. `bloodhound` and `ibis`, which hardcode no universe at all, were refused on
+# their `["USDC", "USDT"]` stablecoin filter. Change neither side alone.
+
+def _inputs_pkg(tmp_path, inputs_block):
+    """A flat package whose scanner carries `inputs_block` verbatim under `inputs:`."""
+    d = make_flat(tmp_path, pkg_id="spider", wallet_env="SPIDER_WALLET")
+    (d / "runtime.yaml").write_text(
+        (d / "runtime.yaml").read_text() + f"    inputs:\n{inputs_block}")
+    return d
+
+
+def test_values_under_an_exclusion_key_are_not_collected(tmp_path):
+    import validate_universe
+    d = _inputs_pkg(tmp_path, '      excludeAssets: ["USDC", "USDT"]\n')
+    assert validate_universe.package_tickers(str(d)) == set()
+
+
+def test_polarity_is_read_over_the_whole_key_path_not_the_leaf(tmp_path):
+    import validate_universe
+    d = _inputs_pkg(tmp_path, '      exclude:\n        assets: ["USDC"]\n')
+    assert validate_universe.package_tickers(str(d)) == set()
+
+
+def test_a_required_key_containing_an_exclusion_shaped_substring_is_still_collected(tmp_path):
+    """The over-match guard: a looser pattern would read these as exclusion lists and let a dead
+    name past the money gate to fail silently at scan time."""
+    import validate_universe
+    d = _inputs_pkg(tmp_path, '      blockchainAssets: ["BTC"]\n      denominatedAssets: ["ETH"]\n')
+    assert validate_universe.package_tickers(str(d)) == {"BTC", "ETH"}
+
+
+def test_a_package_whose_only_tickers_are_excluded_hardcodes_nothing(tmp_path):
+    """The bloodhound/ibis shape, pinned as a regression."""
+    import validate_universe
+    d = _inputs_pkg(
+        tmp_path,
+        '      universeVolFloorUsd: 20000000\n      excludeAssets: ["USDC", "USDT"]\n')
+    tickers = validate_universe.package_tickers(str(d))
+    assert tickers == set()
+    assert validate_universe.unknown_tickers(tickers, {"BTC", "ETH"}) == []
+
+
+def test_a_mixed_package_reports_its_required_dead_name_only(tmp_path):
+    import validate_universe
+    d = _inputs_pkg(
+        tmp_path,
+        '      asset_universe: ["XYZDEAD"]\n      excludeAssets: ["USDC"]\n')
+    tickers = validate_universe.package_tickers(str(d))
+    assert validate_universe.unknown_tickers(tickers, {"BTC", "ETH"}) == ["XYZDEAD"]
+
+
 def test_validate_universe_all_lists_durable_root(monkeypatch, tmp_path):
     """`validate_universe.py --all` must enumerate the durable root, not CWD-relative strategies/ —
     the same bug class as the fetch dest (a CWD glob inside a skill dir sees nothing / the wrong
@@ -403,6 +555,34 @@ def test_validate_accepts_percent_marginpct(tmp_path):
     rt = d / "runtime.yaml"
     rt.write_text(rt.read_text().replace("inputs: {}", "inputs:\n      marginPct: 10"))
     assert _pkg.validate(_pkg.load(str(d))) == []
+
+
+# ───────────────────────────── the DSL exit-block predicate ─────────────────────────────
+# `Instance.has_dsl` gates `_pkg.validate`'s funded-but-no-DSL refusal: a package whose positions
+# run naked (no hard stop, no trailing floor) is never funded. Its branch coverage used to live in
+# `test_deploy_gates.py::HasDsl`, which went away with the fat deploy.py — the predicate did not,
+# so the coverage moved here rather than being lost with the script it used to be tested beside.
+
+def _dsl_inst(runtime_doc):
+    """A bare `_pkg.Instance` with only `runtime_doc` set — all `exit_block`/`has_dsl` need."""
+    i = _pkg.Instance.__new__(_pkg.Instance)
+    i.runtime_doc = runtime_doc
+    return i
+
+
+@pytest.mark.parametrize(
+    "runtime_doc, protected",
+    [
+        ({"exit": {"engine": "dsl", "dsl_preset": {"phase1": {}}}}, True),   # engine + preset
+        ({"exit": {"engine": "dsl"}}, True),                                 # engine alone
+        ({"exit": {"dsl_preset": {"phase1": {}}}}, True),                    # preset alone
+        ({"exit": {}}, False),                                               # an empty exit is naked
+        ({}, False),                                                         # no exit at all
+        ({"exit": {"engine": "none"}}, False),                               # a non-DSL engine is naked
+    ],
+)
+def test_has_dsl_only_a_real_dsl_exit_counts_as_protected(runtime_doc, protected):
+    assert _dsl_inst(runtime_doc).has_dsl is protected
 
 
 if __name__ == "__main__":
