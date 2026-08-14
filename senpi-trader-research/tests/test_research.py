@@ -40,10 +40,14 @@ def test_min_mirror_budget():
     assert b["opens_nothing_below_usd"] == 24.0  # 500k (largest) clears the floor — below this, nothing
     assert b["min_budget_usd"] == 240.0          # min to run properly — opens the whole book (12*1M/50k)
     assert b["positions"] == 3 and b["dust_excluded"] == 0 and b["at_multiplier"] == 1.0
-    assert research._min_mirror_budget(acct, poss, mult=4.0)["opens_nothing_below_usd"] == 6.0  # multiplier divides it
+    assert research._min_mirror_budget(acct, poss, mult=4.0)["opens_nothing_below_usd"] == 10.0  # 6.0 computed, clamped UP to the $10 platform floor
     # a dust tail is excluded from min_budget (else it explodes) but still counted in positions
     d = research._min_mirror_budget(acct, poss + [{"notional": 100}])  # 100 << 1% of ~800k
     assert d["dust_excluded"] == 1 and d["min_budget_usd"] == 240.0   # still the 50k, not the $100 tail
+    # slippage-aware: a position that ran in the OG's favor past the band is SKIPPED, so it doesn't inflate the floor
+    ran = [{"notional": 500_000, "direction": "long", "moved_from_entry_pct": 40.0},   # ran up 40% → skipped
+           {"notional": 50_000, "direction": "long", "moved_from_entry_pct": 1.0}]     # still openable
+    assert research._min_mirror_budget(acct, ran)["positions"] == 1                    # only the openable one counts
     # can't compute → None (say so, don't guess)
     assert research._min_mirror_budget(acct, []) is None        # trader flat
     assert research._min_mirror_budget(None, poss) is None      # account value unavailable
@@ -108,9 +112,9 @@ def test_copyability_prefers_clean_partial_over_flagged_good_fit():
 def test_top_candidates_and_reliability():
     res = research.run(_client(), "top")
     assert len(res["candidates"]) == 3
-    # trades/active_days are DERIVED from averageTradesPerDay × traderAgeSeconds (live fields)
+    # active_days is derived from traderAgeSeconds; `trades` is the true CLOSED count = realizedPnL / avgProfitPerTrade
     pro = next(c for c in res["candidates"] if c["address"] == "0xpro")
-    assert pro["active_days"] == 90.0 and pro["trades"] == 140
+    assert pro["active_days"] == 90.0 and pro["trades"] == 117   # 10000 / 85.7 — NOT fills × age
     assert pro["consistency"] == "ELITE"              # from tcsLabel
     assert pro["reliability"] == "solid"
     assert next(c for c in res["candidates"] if c["address"] == "0xstreak")["reliability"] == "thin"
@@ -162,6 +166,19 @@ def test_mirrorability_uses_price_distance():
     assert research._mirrorability(ran)["mirror_fit"] == "poor"
     assert research._mirrorability(fresh)["mirror_fit"] == "good"
     assert research._mirrorability([])["mirror_fit"] == "unknown"
+
+
+def test_mirrorability_is_directional_not_symmetric():
+    # the platform gates slippage ONLY in the OG's favor — underwater-for-the-OG is a cheaper entry and OPENS.
+    # long DOWN 40% (underwater for the OG) → adverse -40 <= band → opens → good
+    assert research._mirrorability(
+        [{"direction": "long", "notional": 100.0, "moved_from_entry_pct": -40.0}])["mirror_fit"] == "good"
+    # short UP 40% (underwater for the OG short) → adverse -40 <= band → opens → good
+    assert research._mirrorability(
+        [{"direction": "short", "notional": 100.0, "moved_from_entry_pct": 40.0}])["mirror_fit"] == "good"
+    # short DOWN 40% (ran in the OG's favor) → adverse +40 > band → skipped → poor
+    assert research._mirrorability(
+        [{"direction": "short", "notional": 100.0, "moved_from_entry_pct": -40.0}])["mirror_fit"] == "poor"
 
 
 def test_high_turnover_flag():
@@ -244,6 +261,53 @@ def test_tcs_score_breaks_ties_in_the_shortlist():
     lo = {"mirrorability": {"mirror_fit": "good", "fresh_entry_surface_pct": 50}, "flags": [],
           "reliability": "solid", "seen_in": ["30d return #1"], "tcs_score": 40}
     assert sorted([lo, hi], key=research._mirror_sort_key)[0] is hi
+
+
+def test_trades_is_closed_count_not_fills():
+    # `trades` = realizedPnL / avgProfitPerTrade (true closed positions), NOT averageTradesPerDay × account age.
+    c = research._candidate({"address": "0xe650", "realizedProfitAndLoss": -20700, "averageProfitPerTrade": -6900,
+                             "averageTradesPerDay": 7071.0, "traderAgeSeconds": 77 * 86400})
+    assert c["trades"] == 3                        # 3 closed (all losses), not 7071 × 77 ≈ 544k fills
+    # no avgProfit to divide by → None, never a fills-based guess
+    assert research._candidate({"address": "0x", "averageTradesPerDay": 500, "traderAgeSeconds": 100 * 86400})["trades"] is None
+
+
+class _StateFailClient:
+    """discovery_get_top_traders returns one row; the per-trader state + momentum lookups FAIL (success:False)."""
+    def mcp_call(self, tool, timeout=12, **kw):
+        if tool == "discovery_get_top_traders":
+            return {"success": True, "data": {"traders": [
+                {"address": "0xfail", "returnOnInvestment": 50, "profitAndLoss": 1000,
+                 "realizedProfitAndLoss": 5000, "averageProfitPerTrade": 100,
+                 "traderAgeSeconds": 30 * 86400, "tcsLabel": "ELITE"}]}}
+        return {"success": False}
+
+
+def test_failed_state_lookup_is_unknown_not_empty_book():
+    # a failed/timed-out state lookup must read as UNKNOWN, never a false empty book (which would flag
+    # no_open_positions and sink it below `poor`). This fires on the skill's most common entry — a pasted address.
+    c = next(x for x in research.run(_StateFailClient(), "top")["candidates"] if x["address"] == "0xfail")
+    assert c["current_positions"] is None                          # book UNKNOWN, not []
+    assert "no_open_positions" not in (c.get("flags") or [])
+    assert c["mirrorability"]["mirror_fit"] == "unknown"
+
+
+def test_window_scoped_fields_are_not_backfilled_across_views():
+    # roi from one window must not sit beside pnl from another — that made roi_pnl_conflict a false artifact.
+    v1 = [{"address": "0xw", "returnOnInvestment": 295, "traderAgeSeconds": 30 * 86400, "tcsLabel": "ELITE"}]  # roi present, pnl absent
+    v2 = [{"address": "0xw", "profitAndLoss": -2000, "traderAgeSeconds": 30 * 86400, "tcsLabel": "ELITE"}]     # pnl present (negative)
+    w = next(c for c in research.run(_SeqClient([v1, v2, v1]), "top")["candidates"] if c["address"] == "0xw")
+    assert w["pnl_usd"] is None                                    # NOT backfilled from the other window
+    assert "roi_pnl_conflict" not in (w.get("flags") or [])       # so no false cross-window conflict
+
+
+def test_heavy_flags_demote_a_fee_bleeder_below_the_copyable_pick():
+    # a hyper-active fee-bleeder (one HEAVY flag) must not outrank the actually-copyable trader on flag count.
+    bleeder = {"mirrorability": {"mirror_fit": "partial", "fresh_entry_surface_pct": 30},
+               "flags": ["high_turnover"], "reliability": "solid", "seen_in": []}
+    copyable = {"mirrorability": {"mirror_fit": "good", "fresh_entry_surface_pct": 69},
+                "flags": [], "reliability": "ok", "seen_in": []}
+    assert sorted([bleeder, copyable], key=research._mirror_sort_key)[0] is copyable
 
 
 if __name__ == "__main__":

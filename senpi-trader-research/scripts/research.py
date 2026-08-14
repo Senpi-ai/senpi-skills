@@ -40,6 +40,7 @@ NEAR_ENTRY_BAND_PCT = 5.0     # a position within this PRICE distance of the tra
 ENRICH_TOP_DEFAULT = 20       # how many of the blended pool to mirror-enrich — a wide net so genuinely-mirrorable options surface
 MOMENTUM_TOP = 10             # pull the 4h-momentum leaderboard call only for the top N (it's a tiebreak, not part of the copyability rank) — bounds MCP calls on a wide pool
 MIN_NOTIONAL_USD = 12.0       # HL per-position minimum (the $10 floor, auto-bumped to ~$12) — a copy below this is skipped
+MIN_STRATEGY_BUDGET_USD = 10.0  # strategy_create's own initialBudget floor — a budget figure below this can't be funded, so clamp to it
 MIRROR_DUST_FRAC = 0.01       # positions below this share of notional are dust — excluded from the whole-book budget so a residual tail can't explode it
 # "Who should I copy?" — no single sort is smart enough, so the default FIND blends complementary views and
 # lets a trader seen in more than one (proven AND currently performing) rank higher. The user never picks a sort.
@@ -153,7 +154,7 @@ def _candidate(t):
         "pnl_usd": _f(t, "profitAndLoss", "pnl", "realizedProfitAndLoss"),
         "win_rate_pct": _f(t, "winRate", "win_rate"),
         "max_drawdown_pct": _f(t, "maxDrawdown", "max_drawdown"),
-        "trades": _f(t, "totalTrades", "tradeCount", "trades", "numTrades"),
+        "trades": None,   # true CLOSED-position count derived below (realizedPnL / avgProfitPerTrade) — NOT fills
         "active_days": _f(t, "activeDays", "active_days", "traderAgeDays"),
         "consistency": _field(t, "tcsLabel", "consistency", "consistencyLabel", "tcs"),
         "tcs_score": _f(t, "tcsValue", "tcs_score", "tcsScore"),   # 0–100 consistency SCORE behind the label — rank on it, don't discard it
@@ -168,10 +169,13 @@ def _candidate(t):
         age_s = _f(t, "traderAgeSeconds")
         if age_s is not None:
             c["active_days"] = round(age_s / 86400.0, 1)
-    if c["trades"] is None:
-        tpd = _f(t, "averageTradesPerDay")
-        if tpd is not None and c["active_days"] is not None:
-            c["trades"] = round(tpd * c["active_days"])
+    # `trades` = true CLOSED-position count. totalTrades / averageTradesPerDay count FILLS, not distinct
+    # positions, and averageTradesPerDay * account age inflates wildly (seen: >500k "trades"). realizedPnL /
+    # averageProfitPerTrade divides to the real closed count; leave None rather than derive a fills-based one.
+    realized = _f(t, "realizedProfitAndLoss", "realized_pnl")
+    avg_profit = _f(t, "averageProfitPerTrade", "avg_profit_per_trade")
+    if c["trades"] is None and realized is not None and avg_profit not in (None, 0):
+        c["trades"] = round(realized / avg_profit)
     if c["trades_per_day"] is None and c["trades"] and c["active_days"]:
         c["trades_per_day"] = round(c["trades"] / c["active_days"], 2)
     ts = c.get("last_trade_ts")
@@ -248,17 +252,29 @@ def _positions_from_state(trec):
             round(account_value, 2) if account_value is not None else None)
 
 
+def _adverse_move(p):
+    """Signed price move AGAINST the OG's position — the direction the platform actually gates slippage on: a
+    long is gated as price RISES above entry, a short as price FALLS below it. Underwater-for-the-OG is
+    negative and opens at any distance (it's a *cheaper* entry than they got). `None` if the move isn't scored.
+    (The platform: "Current price exceeds slippage price for BUY" / "below slippage price for SELL".)"""
+    moved = p.get("moved_from_entry_pct")
+    if moved is None:
+        return None
+    return moved if p.get("direction") == "long" else -moved
+
+
 def _mirrorability(positions):
-    """How copyable this book is RIGHT NOW: the share of notional still within slippage range of the
-    trader's entry. A mirror opens those near-entry positions; the ones that already ran it either
-    skips (tight slippage) or chases into a bad price (loose slippage). This is the go/no-go."""
-    total = sum(p["notional"] for p in positions) if positions else 0.0
+    """How copyable this book is RIGHT NOW: the notional share a mirror would actually OPEN. Slippage is gated
+    DIRECTIONALLY — only movement in the OG's favor (a long that rose / a short that fell) past the band is
+    skipped; a position underwater for the OG opens at any distance. So we gate on the *adverse* move, not
+    |move|. Denominator is the SCORED notional only, so a position missing an entry price can't deflate it."""
     scored = [p for p in (positions or []) if p.get("moved_from_entry_pct") is not None]
-    if not scored or total <= 0:
+    scored_total = sum(p["notional"] for p in scored)
+    if not scored or scored_total <= 0:
         return {"fresh_entry_surface_pct": None, "mirror_fit": "unknown",
                 "positions_scored": 0, "near_entry_band_pct": NEAR_ENTRY_BAND_PCT}
-    near = sum(p["notional"] for p in scored if abs(p["moved_from_entry_pct"]) <= NEAR_ENTRY_BAND_PCT)
-    surface = round(near / total * 100, 1)
+    near = sum(p["notional"] for p in scored if _adverse_move(p) <= NEAR_ENTRY_BAND_PCT)
+    surface = round(near / scored_total * 100, 1)
     fit = "good" if surface >= 60 else "partial" if surface >= 20 else "poor"
     return {"fresh_entry_surface_pct": surface, "mirror_fit": fit,
             "positions_scored": len(scored), "near_entry_band_pct": NEAR_ENTRY_BAND_PCT}
@@ -277,19 +293,22 @@ def _book_summary(positions, net_notional):
 
 
 def _min_mirror_budget(account_value, positions, mult=1.0, dust_frac=MIRROR_DUST_FRAC):
-    """The minimum budget required to run a mirror of THIS trader's CURRENT book PROPERLY — the copy-trading
-    analog of a template's catalog minimum. This is a FACT about the floor, NOT a recommendation of how much
-    to trade (that is the user's call). Your copy of a position opens only when
-        budget >= MIN_NOTIONAL_USD * (account_value / position_notional) / mult.
-    - `min_budget_usd` opens their whole book minus dust tails (positions >= `dust_frac` of notional) — the
-      minimum at which the mirror actually replicates them rather than fragments of them, sized to their
-      leverage. A residual tail is excluded so it can't explode the figure.
-    - `opens_nothing_below_usd` is the hard floor: below it, even their largest position scales under the
-      minimum and NOTHING opens. Whales run leveraged, concentrated books, so this is often a few dollars.
-    Both at 1x; a higher multiplier divides them. A snapshot; the pre-fund sim is the exact per-position
-    check. Returns None when it can't be computed (flat / no account value)."""
-    notionals = sorted((p["notional"] for p in (positions or [])
-                        if p.get("notional") and p["notional"] > 0), reverse=True)
+    """A ROUGH pre-sim floor for the budget to run a mirror of THIS trader's current book — NOT an exact figure
+    and NOT a trade-size recommendation. The pre-fund sim (execution_estimate_position_opening) is the
+    authoritative number; this is only a ballpark for "walk away or keep going" before the sim runs.
+    Your copy of a position opens at ~ budget * (position_notional / account_value) * mult, so opening it needs
+    budget >= MIN_NOTIONAL_USD * account_value / (position_notional * mult).
+    - Only positions a mirror would actually OPEN are counted — one that ran in the OG's favor is skipped by
+      slippage, so it must not inflate the floor (this is why the figure ran high before).
+    - `min_budget_usd` opens the whole openable book minus dust tails; `opens_nothing_below_usd` is where even
+      the largest openable position clears the per-position minimum.
+    - Both are clamped to the platform's own $10 initialBudget floor, and both scale with the multiplier.
+    Note the engine sizes off position NOTIONAL while the platform sizes off MARGIN, so treat this as an
+    estimate only. Returns None when it can't be computed (flat / no account value / book unknown)."""
+    openable = [p for p in (positions or [])
+                if p.get("notional") and p["notional"] > 0
+                and (_adverse_move(p) is None or _adverse_move(p) <= NEAR_ENTRY_BAND_PCT)]
+    notionals = sorted((p["notional"] for p in openable), reverse=True)
     if not account_value or account_value <= 0 or not notionals:
         return None
     mult = mult or 1.0
@@ -297,14 +316,14 @@ def _min_mirror_budget(account_value, positions, mult=1.0, dust_frac=MIRROR_DUST
     nondust = [n for n in notionals if n >= dust_frac * total] or notionals
 
     def _b(pn):
-        return round(MIN_NOTIONAL_USD * account_value / (pn * mult), 2)
+        return round(max(MIN_STRATEGY_BUDGET_USD, MIN_NOTIONAL_USD * account_value / (pn * mult)), 2)
     return {
-        "min_budget_usd": _b(nondust[-1]),           # minimum to run PROPERLY — opens their whole book ex-dust
-        "opens_nothing_below_usd": _b(notionals[0]), # hard floor: below this, literally nothing opens
+        "min_budget_usd": _b(nondust[-1]),           # rough floor to open the whole openable book (ex-dust)
+        "opens_nothing_below_usd": _b(notionals[0]), # below this even the largest openable position clears nothing
         "at_multiplier": mult,
-        "positions": len(notionals),
+        "positions": len(notionals),                 # positions a mirror would OPEN now (ran-in-favor ones excluded)
         "dust_excluded": len(notionals) - len(nondust),
-        "note": f"minimum to run the mirror properly at {mult}x (opens their whole book ex-dust) — a fact, not a trade-size recommendation; the sim is the exact check",
+        "note": f"ROUGH pre-sim estimate at {mult}x — counts only positions a mirror would open now, clamped to the ${int(MIN_STRATEGY_BUDGET_USD)} platform floor. The pre-fund sim is the exact figure, not this.",
     }
 
 
@@ -368,11 +387,15 @@ def _enrich_for_mirror(client, meta, c, with_momentum=True):
     4h momentum, full flags. Best-effort per trader; fails open so one bad lookup can't sink the find.
     `with_momentum=False` skips the 4h leaderboard call (a tiebreak) to bound calls on a wide pool."""
     addr = c.get("address")
-    positions, net_upnl, margin_pct, momentum, account_value, net_notional = [], None, None, None, None, 0.0
+    # positions=None means the book is UNKNOWN (lookup failed/empty) — distinct from [] (a genuinely flat
+    # trader). A failed lookup must NOT read as an empty book: that would mislabel it `no_open_positions` and
+    # sink it below `poor` in the sort. This is the skill's most common entry (a pasted address), so it matters.
+    positions, net_upnl, margin_pct, momentum, account_value, net_notional = None, None, None, None, None, 0.0
     try:
         st = _ok(client.mcp_call("discovery_get_trader_state", trader_addresses=[addr], timeout=15))
-        trec = next((t for t in _rows(st, "traders") if isinstance(t, dict)), st if isinstance(st, dict) else {})
-        positions, net_notional, net_upnl, margin_pct, account_value = _positions_from_state(trec)
+        if st is not None:   # None = success:False / empty response → leave positions None (unknown), don't parse to []
+            trec = next((t for t in _rows(st, "traders") if isinstance(t, dict)), st if isinstance(st, dict) else {})
+            positions, net_notional, net_upnl, margin_pct, account_value = _positions_from_state(trec)
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"state {c.get('short')}: {e}")
     if with_momentum:
@@ -396,6 +419,13 @@ def _enrich_for_mirror(client, meta, c, with_momentum=True):
 # a clean, reliable, active PARTIAL-fit trader is a better copy than a flagged GOOD-fit one.
 _FIT_BUCKET = {"good": 0, "partial": 0, "poor": 1, "unknown": 2}
 _REL_RANK = {"solid": 0, "ok": 1, "choppy": 2, "thin": 3, "unknown": 4}
+# Window-SCOPED metrics: their value depends on the view's time window, so they must NOT be backfilled across
+# views — a 7d ROI beside a 30d PnL is what turned `roi_pnl_conflict` into a false cross-window artifact.
+# (max_drawdown is left backfillable: the worst drawdown seen in ANY window is a legitimate risk signal.)
+_WINDOW_SCOPED = {"roi_pct", "pnl_usd", "win_rate_pct"}
+# A fee-bleeder / near-liquidation book is a much bigger copy problem than one more minor flag — weigh these
+# heavier in the sort so a 7,000-trades/day wallet can't outrank the actually-copyable one on flag COUNT alone.
+_HEAVY_FLAGS = {"high_turnover", "critical_margin_usage"}
 
 
 def _mirror_sort_key(c):
@@ -406,9 +436,11 @@ def _mirror_sort_key(c):
     correctly leads a flagged *good*-fit one; and a flagged-but-not-blown-up trader is demoted, never dropped."""
     m = c.get("mirrorability") or {}
     flags = c.get("flags") or []
-    concerns = sum(1 for f in flags if f != "blowup_risk")   # fewer flags = a cleaner copy
+    heavy = sum(1 for f in flags if f in _HEAVY_FLAGS)                       # fee-bleed / near-liquidation demote hardest
+    concerns = sum(1 for f in flags if f != "blowup_risk" and f not in _HEAVY_FLAGS)   # then the lighter flags
     return (1 if "blowup_risk" in flags else 0,
             _FIT_BUCKET.get(m.get("mirror_fit"), 2),
+            heavy,                                            # a hyper-active fee-bleeder can't outrank the copyable one on count alone
             concerns,
             _REL_RANK.get(c.get("reliability"), 4),
             -len(c.get("seen_in") or []),                     # cross-window confirmation (proven AND hot)
@@ -434,17 +466,19 @@ def find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=ENRICH
         merged = {}
         for tf, sb, label in MIRROR_VIEWS:
             rows = _fetch_view(client, meta, tf, sb, limit)
-            _progress(f"Ranked the {label} leaders — weighing consistency, risk, trading volume and turnover…")
+            if rows:   # don't announce a view was "ranked" when the fetch failed / returned nothing
+                _progress(f"Ranked the {label} leaders — weighing consistency, risk, trading volume and turnover…")
             for rank, t in enumerate(rows, start=1):
                 addr = _field(t, "address", "trader_address", "wallet")
                 if not addr:
                     continue
                 if addr in merged:
                     merged[addr]["seen_in"].append(f"{label} #{rank}")
-                    # backfill any field a higher-priority view left blank (its 0-sentinel coerced to None), so a
-                    # real drawdown / ROI present in ANOTHER window isn't lost to the first view's missing value
+                    # backfill a field a higher-priority view left blank (its 0-sentinel coerced to None), so a
+                    # real value present in ANOTHER view isn't lost — but NEVER the window-scoped metrics, or
+                    # roi/pnl end up from different windows and `roi_pnl_conflict` becomes a false artifact.
                     for k, v in _candidate(t).items():
-                        if v is not None and merged[addr].get(k) is None:
+                        if v is not None and merged[addr].get(k) is None and k not in _WINDOW_SCOPED:
                             merged[addr][k] = v
                 else:
                     c = _candidate(t)
@@ -583,7 +617,7 @@ def run(client, mode, addr=None, time_frame="MONTHLY", sort_by="RETURN_ON_INVEST
         out["ranking"] = ({"blend": [f"{tf}/{sb}" for tf, sb, _ in MIRROR_VIEWS], "enriched": len(enriched)}
                           if blend else {"time_frame": time_frame, "sort_by": sort_by, "enriched": len(enriched)})
     if mode != "vet" and not out.get("candidates") and not out.get("strategies"):
-        meta["degraded"] = "no ranking data — check the token is USER-scoped"
+        meta["degraded"] = "no ranking data returned — see meta.warnings for the cause (an app-scoped token returns empty discovery; a bad limit/params also yields no rows)"
     return out
 
 
