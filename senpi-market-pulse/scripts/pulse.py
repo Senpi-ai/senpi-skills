@@ -83,6 +83,21 @@ def _num(v):
         return None
 
 
+EMIT_PROGRESS = False   # main() turns this on for real CLI runs; tests import run() directly and stay quiet
+
+
+def _progress(msg):
+    """Live progress to stderr (flushed) so a host that surfaces a running exec's output streams the market
+    read a beat at a time. stdout stays pure JSON; off by default so offline/fixture runs (tests) stay quiet."""
+    if not EMIT_PROGRESS:
+        return
+    try:
+        sys.stderr.write(msg + "\n")
+        sys.stderr.flush()
+    except Exception:  # noqa
+        pass
+
+
 def _pct(mark, prev):
     m, p = _num(mark), _num(prev)
     if m is None or p is None or p == 0:
@@ -188,6 +203,7 @@ def deep_pull_movers(client, movers, meta):
         except Exception:  # noqa
             return (asset, None)
 
+    _progress(f"Gauging conviction on the top {len(movers)} movers — volume, funding, open interest…")
     pairs = []
     try:
         from concurrent.futures import ThreadPoolExecutor
@@ -200,6 +216,7 @@ def deep_pull_movers(client, movers, meta):
 
 def fetch_smart_money(client, meta):
     """The leaderboard / Hyperfeed layer — health-gated. Returns None (cleanly) if the feed is down."""
+    _progress("Checking where the smart money is positioned vs the crowd…")
     try:
         status = _ok(client.mcp_call("leaderboard_get_status", timeout=8))
     except Exception as e:  # noqa
@@ -305,6 +322,7 @@ def compute_signals(prices, groups):
 # ──────────────────────────────────────────────────────────────── orchestration
 def run(client, want_smart=True):
     meta = {"warnings": []}
+    _progress("Reading the whole market — every crypto, equity, and commodity across both dexes…")
     prices = fetch_instruments(client, meta)
     groups = build_groups(prices)
     signals = compute_signals(prices, groups)
@@ -392,6 +410,7 @@ def _core_market_read(client, meta):
     (volume/funding conviction folded onto the rows + the funding_regime signal). Returns (prices, groups,
     signals). This is exactly what run() does MINUS the smart-money layer, so pulse+smart reproduces all.
     Fail-open throughout (each layer degrades to a meta flag, never an exception)."""
+    _progress("Reading the whole market — every crypto, equity, and commodity across both dexes…")
     prices = fetch_instruments(client, meta)
     groups = build_groups(prices)
     signals = compute_signals(prices, groups)
@@ -528,6 +547,8 @@ def main(argv=None):
                     help="dump raw MCP responses (instruments both dexes + one asset) for schema debugging")
     # `step` was already peeled off argv above; feed the remainder (flags only).
     args = ap.parse_args(argv)
+    global EMIT_PROGRESS
+    EMIT_PROGRESS = not bool(args.fixture)   # stream live progress on real runs; stay quiet offline (tests/fixtures)
 
     if args.dry:
         try:
