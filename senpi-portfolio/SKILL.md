@@ -16,9 +16,11 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.11.1"
+  version: "1.13.3"
   platform: senpi
   exchange: hyperliquid
+  requires:
+    - senpi-trading-runtime
 ---
 
 # Senpi Portfolio — real-time, all-wallet analysis
@@ -164,24 +166,44 @@ guardrails**, and tell the user to redeploy it via `senpi-strategy-ops`. **Never
 strategy "alive and waiting," "scanner is live," or "DSL-protected" — that is a false all-clear (a funded
 strategy sat exactly like this while the user believed it was protected and running). This is DISTINCT from
 the flat-but-running case above: a flat sleeve with a *registered, ticking* runtime is waiting for a signal
-(fine); a `not_running` strategy has **no runtime behind it** (broken). When `runtime_registered` is `null`,
-the registry isn't visible on this host — say "runtime status unknown from here," don't assert either way.
+(fine); a `not_running` strategy has **no runtime behind it** (broken). `running_blind: true` is a third,
+previously-invisible state: the runtime IS registered and ticking, but its entry scanners never wired
+(`running — NO ENTRY SCANNERS`), so it **cannot produce entry signals** — report **⚠ RUNNING — NO ENTRY
+SCANNERS**, not a clean "running." When `runtime_registered` (or `not_running` / `running_blind`) is
+`null`, the registry read did not answer — say **"could not verify on this host,"** never "running" and
+never "not running."
 
 **Telemetry-verified liveness — `runtime_health`.** Beyond "is a runtime registered," the engine asks the
 runtime itself (`openclaw senpi status`) whether it's actually *working*, and sets `runtime_health` per
 strategy and per group. Narrate it honestly — a registered runtime is not automatically a healthy one:
 - **`live`** — registered and telemetry reports healthy. Only this earns "running / protected."
-- **`degraded`** — registered but telemetry reports **unhealthy** (scanner erroring, monitor stalled). It's
-  *running but not cleanly*: say **"⚠ runtime degraded — running but not healthy; check `openclaw senpi
-  status`,"** not a clean all-clear. Flagged in `meta.warnings` too.
+- **`degraded`** — registered but telemetry reports **unhealthy** (scanner erroring, monitor stalled), or
+  `running_blind` (up, no entry scanners). Say **"⚠ runtime degraded — running but not healthy; check
+  `openclaw senpi status`,"** not a clean all-clear. Flagged in `meta.warnings` too.
 - **`not_running`** — no runtime at all (above). ⛔ NOT RUNNING / UNPROTECTED.
-- **`unknown`** — **not proven live.** Either telemetry is unavailable from here (no `openclaw` on this
-  host, or a build without the RPC), **or the runtime itself reports its overall health as `unknown`** —
-  a scanner it has never heard from, a runtime just restarted, a scanner-only runtime with nothing yet
-  proven. Say **"runtime liveness unverified — not confirmed running"** — never upgrade `unknown` to
-  "healthy/protected" or downgrade it to "broken." This is the honest bar: **only `live` means "confirmed
-  working."** The runtime is deliberately fail-closed about `unknown` (it refuses to call an unproven
-  scanner healthy) — repeating that `unknown` back to the user is the whole point; do not smooth it over.
+- **`unknown`** — registered, but health **not yet proven**: a scanner it has never heard from, a runtime
+  just restarted, or a `senpi status` document that carried no health verdict this engine recognises. Say
+  **"runtime liveness unverified — not confirmed running"** — never upgrade to "healthy/protected" or
+  downgrade to "broken." The runtime is deliberately fail-closed about `unknown` (it refuses to call an
+  unproven scanner healthy); repeating it back is the whole point. A runtime *process* that exists
+  (`status: running`) is not a health verdict and never reaches `live` on its own.
+- **`unverified`** — the registry READ ITSELF failed (no `openclaw` on this host, a build without the
+  RPC, or the CLI call errored) — nothing below was ever asked. Say **"could not verify on this
+  host"** — never "protected," "not protected," "running," or "not running." **`null` is not `false`.**
+  `meta.warnings` names the failed command; quote it, never invent a cause. This is the honest bar:
+  **only `live` means "confirmed working."**
+
+**Minimum runtime — `openclaw senpi runtime list --json`.** The engine asks the runtime for its own
+inventory through that command (it never reads the runtime's private state files). It is a **newer
+runtime build than some hosts carry**; a box whose `@senpi-ai/runtime` predates it exits non-zero on the
+`--json` flag, and you will see **every** runtime-sourced field `null` on **every** strategy —
+`runtime_registered` / `not_running` / `running_blind` / `protected` null, `runtime_health:
+"unverified"`, `meta.registry_source: null` — plus a `meta.warnings` line naming that exact command.
+**That whole-fleet pattern means the runtime on this box is too old for this skill's registry read, not
+that the strategies are broken.** Say so in those words, quote the warning, and do not diagnose the
+strategies from it: no strategy may be called running, not-running, protected or unprotected off that
+run. (A *single* strategy reading null while others read fine is a different thing — that one is
+genuinely unattributed.) The fix is a runtime upgrade on the box, not a redeploy of the strategies.
 
 This health check owns **liveness triage** (registered + running + healthy) via telemetry, and **references
 `diagnose.py` as the confirmation step** — it does not re-derive the deep checks. A thorough health check
@@ -307,13 +329,17 @@ directly.)
   booked* real gains; report both realized and unrealized. If `closed.realized_pnl` is `null`, the
   history read failed (see `meta.warnings`) — say realized PnL is unavailable, don't imply zero.
 - **Surface the protection posture per strategy — then the live tiers.** Each strategy carries
-  `protected` (bool): `True` when its **deployed `runtime.yaml` ships an `exit:` block** (the universal
-  signal — works for user-authored strategies too), OR it was template-deployed (has a `skill_name`).
-  Either way it ships a built-in DSL exit by construction. State it as posture ("deployed with a DSL
-  exit"), then give the **ladder** (`profile.dsl`: hard stop + arm-at + tiers) and each **open position's
-  live tier** (`positions[].dsl`). This config-level bool is NOT the per-position tier — see "DSL — how
-  it works per strategy, and which position is in which tier" below. **Never call a live position
-  "unprotected" just because it has no ratchet record — sub-Tier-1 positions have none by design.**
+  `protected` (`true` / `false` / `null`): `true` only when the deployed `runtime.yaml`'s `exit:` block
+  is one the **ENGINE actually read** (`dsl_preset` or `engine: dsl`) — a `skill_name` attribution stamp
+  alone no longer suffices. `protected` / `not_running` / `running_blind` are **tri-state**: `null` means
+  the runtime gateway did not answer — say **"could not verify on this host"**, never "protected" and
+  never "not protected." `runtime_health: "unverified"` reads the same way; `meta.warnings` carries the
+  command that failed — quote it rather than inventing a cause. State a `true` posture as ("deployed with
+  a DSL exit"), then give the **ladder** (`profile.dsl`: hard stop + arm-at + tiers) and each **open
+  position's live tier** (`positions[].dsl`). This config-level field is NOT the per-position tier — see
+  "DSL — how it works per strategy, and which position is in which tier" below. **Never call a live
+  position "unprotected" just because it has no ratchet record — sub-Tier-1 positions have none by
+  design.**
 - **Don't infer "wiped out" from a low balance.** Check `total_funded` / `total_withdrawn` — a
   strategy can show a small balance because profits were withdrawn (`netFunded` can be negative). That
   is not a loss.
@@ -407,15 +433,23 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
   fails open here (config framing stands alone, plus a `meta.warnings` note); a by-hand call has no such
   fallback, which is why hand-rolling produces false "unprotected" verdicts. Never turn a failed read into
   a risk finding.
-- **A strategy with `tradingStrategyName: null` is still a real strategy.** Custom strategies created via
-  `strategy_create_custom_strategy` can come back with a null/blank name — identify and analyze them by
-  `strategyId` + wallet, never skip, mislabel ("Unnamed"), or double-count them for lacking a display name.
-  (If you *created* it this session, you already know its name — don't re-derive it as "unknown.")
-- **Config-level `protected` ≠ live per-position tier.** `strategy.protected` / `group.protected` (bool)
-  is the **config posture** — the strategy ships an `exit:` block (always true for template strategies).
-  It says "this strategy has a DSL exit," not which tier a given position sits in. The per-position tier
-  is the `dsl` object above. Report both: "cougar runs a DSL exit (hard stop −14%, ratchet from +8%);
-  its NVDA short is sub-Tier-1 at +6% — hard-stop protected, ratchet arms at +8%."
+- **A strategy with a null name is still a real strategy.** `strategyName` is optional on
+  `strategy_create_custom_strategy` and absent entirely from `strategy_create`, so it comes back null for
+  many strategies — identify and analyze them by `strategyId` + wallet, never skip, mislabel ("Unnamed"),
+  or double-count them for lacking a display name. (If you *created* it this session, you already know its
+  name — don't re-derive it as "unknown.")
+- **Only `name_source: "strategyName"` means `name` is really its name.** Anything else is a stand-in the
+  engine substituted: `"tradingStrategyName"` is the **package id** (identical on every sleeve of a
+  package — all three cub sleeves read `cub`), `"name"` is a defensive flat-payload alias, and `null`
+  means it has no name at all. When
+  `name_source != "strategyName"`, call it by `strategy_id` + wallet and say which package it came from —
+  never "the cub strategy", and never tell one sleeve from another by that string.
+- **Config-level `protected` ≠ live per-position tier.** `strategy.protected` / `group.protected`
+  (`true`/`false`/`null`) is the **config posture** — `true` only when the deployed `runtime.yaml`'s
+  `exit:` block was actually READ by the engine; `null` means the read didn't happen, never assume `true`
+  from `skill_name` alone. It says "this strategy has a DSL exit," not which tier a given position sits in.
+  The per-position tier is the `dsl` object above. Report both: "cougar runs a DSL exit (hard stop −14%,
+  ratchet from +8%); its NVDA short is sub-Tier-1 at +6% — hard-stop protected, ratchet arms at +8%."
 - **`SL_TRIGGERED` is history, not current exposure.** A `SL_TRIGGERED` (or `MANUALLY_CLOSED` /
   `LIQUIDATED`) record on a **closed** position means the DSL **did its job** — it locked profit / cut the
   loss. Present it as history ("DSL locked profit on the ETH short last week"), never as current risk.
@@ -465,8 +499,9 @@ one fetched instead of re-pulling. **For a NARROW ask, run only the minimal step
 
 `--no-market` applies to every step (skips the `positions` market fan-out). Same fail-open contract as
 `all`: each step returns valid JSON with `meta.warnings` on partial data and **never crashes on a
-missing/corrupt state file** (it self-heals by recomputing its prerequisites — every step also works
-STANDALONE, just slower). Keep `all` as the one-shot fallback when a single blocking call is fine; every
+missing/corrupt state file, nor on a runtime CLI that is absent or cannot even be spawned** (it
+self-heals by recomputing its prerequisites — every step also works STANDALONE, just slower; an
+unreadable runtime costs you the runtime fields, which come back `null` + a warning, not the read). Keep `all` as the one-shot fallback when a single blocking call is fine; every
 existing guardrail (the three-bucket taxonomy, `protected`, the mandate reads, multi-wallet grouping, the
 DSL ladder + live tiers) holds identically across the steps and `all`.
 
@@ -504,8 +539,8 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
     live `dsl` tier object), `closed`.
   - `totals` — summed across every instance: `account_value`, `idle_withdrawable`, `deployed`, `upnl`,
     and `realized_pnl` (when available). **Report the strategy's figures from here, not per-wallet.**
-  - `protected` (bool) — `true` **only if ALL instances are protected** (a strategy with one unguarded
-    sleeve is not fully protected).
+  - `protected` (`true` / `false` / `null`) — `true` **only if ALL instances are protected**; `null` if
+    ANY instance is `null` — an unread instance is never laundered into a `false`.
   - `flat_instances` — names of instances with **no open positions**. For a multi-wallet strategy these
     are the OTHER sleeve(s) **waiting for a signal** — NOT redeployable idle, never "dead money."
   - `profile_source` — where this strategy's profile came from (`registry` / `registry+catalog` / …).
@@ -513,6 +548,11 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
   the level you *present* from). Per wallet: `name`, `wallet`, `account_value`, `idle_withdrawable` (bucket 2 for
   *this* strategy), `deployed` (equity tied up in positions = account_value − withdrawable),
   `position_margin` (initial margin detail), `total_funded`/`total_withdrawn`, and:
+  - `name` / `name_source` — the display name, and WHICH FIELD produced it. Chain:
+    `strategyName` (its own name, `<id>-<instance>` for a package deploy) → `tradingStrategyName` (the
+    package id) → `name` → the `"strategy"` placeholder (`name_source: null`). This is the instance
+    label; `skill_name` is the package. **Trust `name` as a name only when `name_source` is
+    `"strategyName"`.**
   - `skill_name` / `skill_version` — the strategy's package attribution (e.g. `ox`, `cougar`, `lion`),
     from its `strategy_list` record. `null` for a hand-rolled/custom strategy with no package.
   - `profile` — **the strategy's declared job, universal across ours + user-authored strategies.** Its
@@ -530,9 +570,11 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
     `"catalog"`. **This is the yardstick — judge the strategy against `profile.description`, not memory
     and not a momentum benchmark.** `profile` is `null` only when the strategy is in neither the runtime
     registry nor the catalog (`meta.profile_source` records `registry`/`catalog`/`mixed`/`null`).
-  - `protected` (bool) — `True` when the deployed `runtime.yaml` ships an `exit:` block **or**
-    `skill_name` is present ⟹ ships a built-in DSL exit. Universal (covers authored strategies).
-    Config-level protection posture, not a live per-position check.
+  - `protected` (`true` / `false` / `null`) — `true` only when the deployed `runtime.yaml`'s `exit:`
+    block was actually READ by the engine (`dsl_preset` or `engine: dsl`); a `skill_name` attribution
+    stamp alone no longer counts. `null` = the runtime read did not answer — say "could not verify on
+    this host," never "protected" or "not protected." Config-level posture, not a live per-position
+    check — see the tri-state rule above.
   - `closed` — `{realized_pnl, trade_count, recent[]}` from a read-guarded `discovery_get_trader_history`
     on the strategy wallet: `realized_pnl` (total booked PnL over the recent pull), `trade_count`, and
     `recent[]` (last few closed trades: `asset`, `direction`, `realized_pnl`, `entry_px`, `exit_px`,
@@ -553,7 +595,10 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
 - `signals` — `idle_drag_pct` (how much capital isn't working), `deployed_pct`,
   `largest_position_pct_of_deployed` (concentration).
 - `meta` — `profile_source` (`registry` / `catalog` / `mixed` / `null` — where the strategies' mandates
-  came from, in aggregate), `registry_source` (`registry` / `null`), `catalog_source`
+  came from, in aggregate), `registry_source` (`"runtime-cli"` / `null` — `null` when the
+  `openclaw senpi runtime list` read failed), **`runtime_read_ok`** (bool — `true` when that read
+  answered, `false` when it failed; `false` is the whole-fleet "this box's runtime could not be asked"
+  signal that pairs with the `meta.warnings` line naming the command), `catalog_source`
   (`local` / `remote` / `null`), `strategy_count`, **`has_multi_wallet_strategy`** (bool — `true` when at
   least one strategy spans multiple wallets/instances; a cue to reason at `strategy_groups[]` and apply
   the "a strategy is all its wallets" rules), and `warnings[]`.

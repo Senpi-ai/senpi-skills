@@ -3,9 +3,17 @@
 VENDORED BYTE-IDENTICALLY into two skills:
   - senpi-trading-runtime/scripts/min_budget.py  (imported by gen_catalog.py -> bakes the
     number into catalog.json, which discovery reads at card time)
-  - senpi-strategy-ops/scripts/min_budget.py     (imported by deploy.py -> enforces the gate;
-    computes locally because custom-authored packages never pass through catalog generation)
+  - senpi-strategy-ops/scripts/min_budget.py     (the canonical reference copy; deploy.py
+    imported it until deploy.py became a thin wrapper over `senpi deploy`, which now computes
+    the number itself. Kept because this is the file the port cites and the checksum test pairs)
 A checksum test (test_min_budget_vendor_parity) fails CI if the two copies drift.
+
+A THIRD implementation exists, in ANOTHER REPO, that no test here can see:
+Senpi-ai/senpi-trading-runtime `src/deploy/min-budget.ts` — the `senpi deploy` verb's port, which
+computes this number for custom-authored packages that never pass through catalog generation.
+CHANGING THIS FILE MEANS PORTING THE CHANGE THERE and re-running that repo's
+`scripts/gen-min-budget-goldens.py` against this file to regenerate its parity goldens. The
+checksum test below only guards the two copies in THIS repo; nothing fails if the TS port drifts.
 
 WHAT IT IS. The smallest TOTAL strategy budget at which the design functions: every wallet
 funds (>= the $10 platform floor) AND every wallet's SMALLEST slot can open at least the
