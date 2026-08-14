@@ -21,7 +21,13 @@ Your position ≈ **(your budget ÷ the trader's account value) × their positio
   a small budget opens only its largest one or two names and the rest of your budget sits. This is a
   trader-size-vs-budget **mismatch**, not the trader under-deploying. Fix it by **raising the multiplier**
   or picking a **closer-sized trader** so positions clear the floor.
-- The **`mirrorMultiplier` is the size knob** (0.1×–4×), **locked after creation** — set it deliberately.
+  - **The floor also distorts what *does* open — so at small budgets the copy is NOT truly proportional.** A
+    surviving position gets bumped **up** to the ~$12 minimum, so a small mirror ends up holding several
+    roughly-equal ~$12 positions rather than a scaled copy of the trader's proportions. Proportionality only
+    really holds once the budget is large enough that few or no positions hit the floor — say this plainly for
+    small budgets instead of promising a faithful scaled copy.
+- The **`mirrorMultiplier` is the size knob** (any value **greater than 0** — `strategy_create` sets no upper
+  bound; raise it to clear the $10 floor), **locked after creation** — set it deliberately.
 - **If the user wants "most of my capital in a few concentrated positions" *regardless* of how the trader
   sizes**, that isn't what a proportional mirror does (it tracks *their* proportions). The
   **budget-relative templates (Shadow, Remora)** do exactly that — size to *the user's* capital and open a
@@ -69,12 +75,14 @@ that DSL:** the integrated two-phase DSL is runtime-only. For real two-sided pro
 | Way | What it is | Best when |
 |---|---|---|
 | **Raw hands-on mirror** | You pick one trader; Senpi runs it; the user drives size / slippage / protection | Copy one specific trader and stay in control |
-| **Managed mirror template** (Remora · Shadow · Oxpecker · Raptor · Cuckoo) | Set-and-forget: **budget-relative sizing**, **fresh-entry-only**, **auto-DSL on every fill** | Hands-off, sized to *your* capital, protected automatically — **most users** |
+| **Managed mirror template** (Shadow · Jackal · Remora · Oxpecker · Raptor · Cuckoo) | Set-and-forget: **budget-relative sizing** + **auto-DSL on every fill**. **Shadow / Jackal** additionally enter **fresh-only** (open on the trader's *next* move); the rest mirror the cohort's *current* book | Hands-off, sized to *your* capital, protected automatically — **most users** |
 | **Custom runtime** | A bespoke copy strategy authored to the user's thesis | Rules the templates don't cover |
 
-Direct-mirror templates (copy specific traders): **Remora** (whale cohort) · **Shadow** (2–3 named
-traders, fresh-entry) · **Oxpecker** (one elite trader's single biggest conviction bet) · **Raptor**
-(traders hot right now) · **Cuckoo** (consensus of the top copy strategies).
+Direct-mirror templates (copy specific traders): **Shadow** (2–3 named traders, **fresh-entry only**) ·
+**Jackal** (a top-pool trader's brand-new position, <10 min old — **fresh-entry**) · **Remora** (whale
+cohort) · **Oxpecker** (one elite trader's single biggest conviction bet) · **Raptor** (traders hot right
+now) · **Cuckoo** (consensus of the top copy strategies). Only **Shadow / Jackal** enter fresh-only; the
+rest open the cohort's *current* positions, so they don't cure an already-run book.
 
 Smart-money-by-signal templates position by where the **whole cohort** leans — many proven traders at
 once, not a 1:1 copy of anyone's book: **Stingray** (rotates long/short by net smart-money conviction

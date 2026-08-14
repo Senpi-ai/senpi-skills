@@ -93,10 +93,12 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
   `mirrorMultiplier`, slippage-as-entry-gate, protection, minimums, "how much do I need", "spot or perps")
   is the **single source** in senpi-trade (`references/mirror-trading-explained.md`). If the user asks how
   copy trading works, hand off there — never write a parallel explanation that can drift.
-- **Answer "how much do I need?" with the *minimum required* — never a trade-size recommendation.** Every
-  enriched trader carries `min_mirror_budget` — `min_budget_usd` (the **minimum to run the mirror
-  properly**: opens their whole book ex-dust) and `opens_nothing_below_usd` (a hard floor — below it
-  *nothing* opens; often a few dollars for a leveraged whale), at 1× (a higher multiplier divides them).
+- **Answer "how much do I need?" with `min_mirror_budget` — but call it a ROUGH estimate, never an exact
+  figure, and never a trade-size recommendation.** Every enriched trader carries `min_budget_usd` (a ballpark
+  floor to open their *openable* book) and `opens_nothing_below_usd` (below it nothing opens), both clamped to
+  the $10 platform minimum, at 1× (a higher multiplier divides them). The engine sizes off position **notional**
+  while the platform sizes off **margin**, so the figure can be off by ~2× in either direction — quote it as a
+  rough *"you'll need at least about $X"*, then run the **pre-fund sim** for the real number.
   State `min_budget_usd` as the minimum when the user asks what a copy needs or names a budget; **do not
   advise how much they should trade with — that's their call.** It's a pre-fund estimate; the sim is the
   exact check. If it's `null` (flat / account value unreadable), say so.
@@ -183,10 +185,12 @@ comprehensive, decision-first answer on every call, never a bare ROI list.
    their book you can still open near entry), **not** the raw `mirror_fit` word: "partial" reads as a hedge and
    undersells a clean pick, whereas "55% fresh" is self-explanatory (`mirror_fit` stays *internal*, for the
    ranking). **`book`** (`open_positions` + net long/short `bias` + `top_assets`
-   — a mirror inherits this, so show it), **min to run** (`min_mirror_budget.min_budget_usd`, a fact not a
-   trade-size rec), **last traded** (`last_trade_days_ago` + `trades_per_day` — a mirror only fires when
-   they trade, so **always show this**; it's often more useful than 4h `momentum`, and `unknown` momentum
-   just means "not in the 4h-hot set"), `momentum` (hot/cold), `reliability`. ROI / max-drawdown are
+   — a mirror inherits this, so show it), **min to run** (`min_mirror_budget.min_budget_usd`, a rough estimate
+   — the sim is exact — not a trade-size rec), **last traded** (`last_trade_days_ago` + `trades_per_day` — a
+   mirror only fires when they trade, so **always show this**; use it, not `momentum`, to judge idleness).
+   `momentum` (hot/cold — this is 4h **PnL direction**, NOT an activity signal, and it may read `unknown`
+   simply because the 4h call wasn't made for a re-sorted row; never narrate `unknown`/`cold` as "idle").
+   `reliability`. ROI / max-drawdown are
    *supporting*, never the headline. **Surface every good/partial-fit trader as a real option — never one pick over a wall of skips.**
 3. **Why each — the part users ask for by name** (*"…and tell me why"*). One line per top candidate tying
    **track record + mirrorability + market-fit** together: why they're proven, whether you can copy them
@@ -200,13 +204,15 @@ comprehensive, decision-first answer on every call, never a bare ROI list.
    doesn't belong on screen. These are *not* rows in the shortlist table above (those are the real options);
    this is the cutting-room floor, clearly labelled as such.
 5. **A more sophisticated approach — ALWAYS close with this section, even when you have a great mirror pick.**
-   It's an upsell, not a consolation: a **fresh-entry template** opens **with** a trader on their *next* move
-   instead of copying a book that may already have run — and it carries **auto-DSL** a raw mirror doesn't. It
-   fires the moment the trader re-enters, so you're never chasing a stale book. Frame it as the smarter play,
-   and **name + differentiate** the options so the user can choose — cover **both flavors**:
-   - *copy specific traders*: **Shadow** (2–3 proven traders' fresh entries) · **Raptor** (whoever's on a hot
-     streak) · **Remora** (auto-follow a whale cohort) · **Oxpecker** (one elite's single biggest bet) ·
-     **Cuckoo** (consensus of the top copy strategies);
+   It's an upsell, not a consolation: a **managed template** carries **auto-DSL** and **budget-relative sizing**
+   a raw mirror doesn't, and the **fresh-entry** ones open **with** a trader on their *next* move instead of
+   copying a book that may already have run. **Name + differentiate** so the user can choose — cover **both
+   flavors**, and be precise about which actually enter fresh:
+   - *copy specific traders*: **Shadow** (2–3 proven traders, opens *only* on a fresh entry) and **Jackal**
+     (a top-pool trader's brand-new position, <10 min old) are the true **fresh-entry** ones — the right
+     answer for an already-run book. **Raptor** (rides a hot streak), **Remora** (a whale cohort), **Oxpecker**
+     (one elite's biggest bet) and **Cuckoo** (consensus of top copy strategies) mirror the *current* book
+     (auto-DSL'd, budget-sized) — a different style, **not** a cure for a stale book;
    - *follow the smart money by signal* (many traders at once, not 1:1): **Stingray** · **Starling** · **Whalehunter**.
 
    **When no single trader is cleanly mirrorable** (all `poor` fit, or the good/partial ones are flag-disqualified

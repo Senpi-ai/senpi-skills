@@ -11,7 +11,7 @@ description: >-
   runtime-only, so route to a managed mirror template for real two-sided protection. Steer users to a MANAGED strategy when they want ongoing autonomy —
   senpi-strategy-author (custom runtime) or a template via senpi-strategy-discover,
   including the named mirror templates (Remora, Shadow, Oxpecker, Raptor, Cuckoo) that
-  size to the user, enter fresh-only, and auto-trail DSL on every fill. Pairs with senpi-trader-research, which finds and vets the trader
+  size to the user and auto-trail DSL on every fill (Shadow / Jackal also enter fresh-only). Pairs with senpi-trader-research, which finds and vets the trader
   (this skill runs the mirror once one is chosen). NOT for
   authoring a strategy or deploying a template yourself.
 license: Apache-2.0
@@ -55,7 +55,7 @@ explicitly include **integrated two-phase DSL** (a raw position gets only profit
 static SL, per above):
 
 - they want it **managed for them going forward** — DSL auto-attached to **every** new fill without
-  you babysitting, **budget-relative sizing**, **fresh-entry-only** (no chasing a runner). A raw mirror
+  you babysitting, **budget-relative sizing** (and, with **Shadow / Jackal**, **fresh-entry-only** — no chasing a runner). A raw mirror
   + per-position DSL means *you* wrap each new fill by hand; a template does all of it automatically.
 - they want to **mirror more than one trader at once, by signal** — a template can position by where the
   **smart-money cohort** leans (the aggregate of many proven traders), not copy one trader's book. A raw
@@ -65,7 +65,7 @@ static SL, per above):
 |---|---|---|
 | Ongoing, hands-off, protected-on-every-fill | **senpi-strategy-author** (custom runtime) | continuous management + DSL on every fill |
 | "Something already built" | **senpi-strategy-discover** (100+ templates) | DSL + risk gates + budget-relative sizing built in |
-| To **copy / mirror a trader, managed** | **senpi-strategy-discover** → a **named mirror template** | fresh-entry, budget-relative sizing, auto-DSL |
+| To **copy / mirror a trader, managed** | **senpi-strategy-discover** → a **named mirror template** | budget-relative sizing, auto-DSL; Shadow/Jackal add fresh-entry-only |
 | A genuine one-off, or to mirror **one specific trader hands-on** | **stay here** | direct execution the user is driving |
 
 **The named copy templates — surface them by name for the copy intent.**
@@ -141,8 +141,10 @@ will try to fool you on:
   distance is the slippage gate: a trader whose winners have **already run** (mark far past entry) is
   **un-mirrorable right now — the mirror opens nothing** (every position slippage-skips), and a flat trader
   has nothing to copy. The "best track record" is often the worst mirror *today* for exactly this reason.
-  When the book has already moved, that's the cue to **steer to a fresh-entry template (Shadow / Remora),
-  which waits for their *next* open instead of chasing the old book** — or find a trader entering now.
+  When the book has already moved, that's the cue to **steer to a fresh-entry template — Shadow (or Jackal),
+  the ones that wait for the trader's *next* open instead of copying the old book** — or find a trader
+  entering now. **Not** Remora / Raptor / Oxpecker / Cuckoo: those mirror the cohort's *current* positions, so
+  they'd re-open the same already-run book you're steering away from.
 
 If the user pasted an address, still run **both** checks on it before mirroring.
 
@@ -198,7 +200,10 @@ open, STOP and offer: (a) more budget, (b) a higher multiplier, (c) a trader clo
 barely trades.
 
 ### Create + verify — don't fabricate
-`strategy_create` with the agreed params. Poll `strategy_list` to ACTIVE, then read
+`strategy_create` with the agreed params — and **always pass `skillName` + `skillVersion`** (both are real
+params on `strategy_create` *and* `strategy_create_custom_strategy`). This skill creates the wallet directly,
+outside `deploy.py`, so without them every mirror it opens is **orphaned** (unattributed) per CLAUDE.md. Poll
+`strategy_list` to ACTIVE, then read
 `strategy_get_clearinghouse_state` and confirm positions actually opened. If the wallet is idle past a short
 window, **tell the user** and adjust target / budget / multiplier — **do not** close+recreate (see below).
 
