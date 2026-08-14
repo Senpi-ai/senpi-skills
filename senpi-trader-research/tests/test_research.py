@@ -33,25 +33,25 @@ class _SeqClient:
 
 
 def test_min_mirror_budget():
-    # budget to open a position = MIN_NOTIONAL_USD * account / (notional * mult)
-    acct = 1_000_000.0
-    poss = [{"notional": 500_000}, {"notional": 250_000}, {"notional": 50_000}]  # total 800k, none dust
-    b = research._min_mirror_budget(acct, poss)                 # MIN_NOTIONAL_USD == 12.0
-    assert b["opens_nothing_below_usd"] == 24.0  # 500k (largest) clears the floor — below this, nothing
-    assert b["min_budget_usd"] == 240.0          # min to run properly — opens the whole book (12*1M/50k)
-    assert b["positions"] == 3 and b["dust_excluded"] == 0 and b["at_multiplier"] == 1.0
-    assert research._min_mirror_budget(acct, poss, mult=4.0)["opens_nothing_below_usd"] == 10.0  # 6.0 computed, clamped UP to the $10 platform floor
-    # a dust tail is excluded from min_budget (else it explodes) but still counted in positions
-    d = research._min_mirror_budget(acct, poss + [{"notional": 100}])  # 100 << 1% of ~800k
-    assert d["dust_excluded"] == 1 and d["min_budget_usd"] == 240.0   # still the 50k, not the $100 tail
-    # slippage-aware: a position that ran in the OG's favor past the band is SKIPPED, so it doesn't inflate the floor
-    ran = [{"notional": 500_000, "direction": "long", "moved_from_entry_pct": 40.0},   # ran up 40% → skipped
-           {"notional": 50_000, "direction": "long", "moved_from_entry_pct": 1.0}]     # still openable
-    assert research._min_mirror_budget(acct, ran)["positions"] == 1                    # only the openable one counts
-    # can't compute → None (say so, don't guess)
-    assert research._min_mirror_budget(acct, []) is None        # trader flat
-    assert research._min_mirror_budget(None, poss) is None      # account value unavailable
-    assert research._min_mirror_budget(0, poss) is None
+    # MARGIN model: to open a position at the ~$12 notional floor a mirror needs MIN_NOTIONAL_USD / leverage in
+    # margin — matches the platform (the old notional-proportional formula overstated ~20x on leveraged books).
+    small = [{"notional": 5000, "direction": "long", "moved_from_entry_pct": 1.0, "leverage": 10},   # 12/10 = 1.2
+             {"notional": 3000, "direction": "long", "moved_from_entry_pct": 1.0, "leverage": 5},     # 12/5  = 2.4
+             {"notional": 2000, "direction": "long", "moved_from_entry_pct": 1.0, "leverage": 3}]     # 12/3  = 4.0
+    b = research._min_mirror_budget(1000.0, small)               # Σ = 7.6, cheapest = 1.2 → both clamp to $10
+    assert b["min_budget_usd"] == 10.0 and b["opens_nothing_below_usd"] == 10.0 and b["positions"] == 3
+    # a book whose Σ margins clears the $10 floor
+    big = [{"notional": 9000, "direction": "long", "moved_from_entry_pct": 1.0, "leverage": 2} for _ in range(5)]  # 5 × (12/2=6) = 30
+    assert research._min_mirror_budget(1000.0, big)["min_budget_usd"] == 30.0
+    # a position that ran in the OG's favor is slippage-skipped → costs no margin
+    ran = [{"notional": 5000, "direction": "long", "moved_from_entry_pct": 40.0, "leverage": 2},   # ran up 40% → skipped
+           {"notional": 3000, "direction": "long", "moved_from_entry_pct": 1.0, "leverage": 2}]     # openable
+    assert research._min_mirror_budget(1000.0, ran)["positions"] == 1
+    # missing leverage → assume 1x (full notional as margin): 12/1 = 12
+    assert research._min_mirror_budget(1000.0, [{"notional": 100, "direction": "long", "moved_from_entry_pct": 0.0}])["min_budget_usd"] == 12.0
+    # flat / unknown book → None (account_value is no longer required by the margin model)
+    assert research._min_mirror_budget(1000.0, []) is None
+    assert research._min_mirror_budget(1000.0, None) is None
 
 
 def test_min_mirror_budget_wired():
@@ -112,9 +112,9 @@ def test_copyability_prefers_clean_partial_over_flagged_good_fit():
 def test_top_candidates_and_reliability():
     res = research.run(_client(), "top")
     assert len(res["candidates"]) == 3
-    # active_days is derived from traderAgeSeconds; `trades` is the true CLOSED count = realizedPnL / avgProfitPerTrade
+    # active_days is derived from traderAgeSeconds; `trades` is NOT derivable from the find payload → None
     pro = next(c for c in res["candidates"] if c["address"] == "0xpro")
-    assert pro["active_days"] == 90.0 and pro["trades"] == 117   # 10000 / 85.7 — NOT fills × age
+    assert pro["active_days"] == 90.0 and pro["trades"] is None   # closed count only comes from the vet path
     assert pro["consistency"] == "ELITE"              # from tcsLabel
     assert pro["reliability"] == "solid"
     assert next(c for c in res["candidates"] if c["address"] == "0xstreak")["reliability"] == "thin"
@@ -124,6 +124,7 @@ def test_vet_dossier():
     res = research.run(_client(), "vet", addr="0xpro")
     t = res["trader"]
     assert t["track_record"]["roi_pct"] == 62.0
+    assert t["track_record"]["trades"] == 140   # the REAL closed count, from discovery_get_trader_history page_info.totalCount
     assert t["labels"]["consistency"] == "ELITE"
     assert t["net_exposure"]["margin_pct"] == 84.0
     assert "high_margin_usage" in t["flags"]          # 84 > 80
@@ -263,13 +264,35 @@ def test_tcs_score_breaks_ties_in_the_shortlist():
     assert sorted([lo, hi], key=research._mirror_sort_key)[0] is hi
 
 
-def test_trades_is_closed_count_not_fills():
-    # `trades` = realizedPnL / avgProfitPerTrade (true closed positions), NOT averageTradesPerDay × account age.
-    c = research._candidate({"address": "0xe650", "realizedProfitAndLoss": -20700, "averageProfitPerTrade": -6900,
-                             "averageTradesPerDay": 7071.0, "traderAgeSeconds": 77 * 86400})
-    assert c["trades"] == 3                        # 3 closed (all losses), not 7071 × 77 ≈ 544k fills
-    # no avgProfit to divide by → None, never a fills-based guess
-    assert research._candidate({"address": "0x", "averageTradesPerDay": 500, "traderAgeSeconds": 100 * 86400})["trades"] is None
+def test_trades_not_fabricated_in_find_path():
+    # the find/blend payload CANNOT give a real closed count: realizedPnL / avgProfitPerTrade is NOT it on the
+    # ALL_TIME payload (821679.97 / 7402.52 = 111 for a trader with 2 closed positions). So _candidate leaves
+    # trades None — "not established" beats a fabricated number; the vet path fills it exactly.
+    c = research._candidate({"address": "0xfbc9", "realizedProfitAndLoss": 821679.97, "averageProfitPerTrade": 7402.52,
+                             "totalTrades": 55000, "averageTradesPerDay": 7071.0, "traderAgeSeconds": 572 * 86400})
+    assert c["trades"] is None                        # NOT 111, NOT 55000 fills, NOT 7071×age
+
+
+class _VetHistoryClient:
+    """Vet a trader whose record barely exists: ELITE label + long age, but only 2 closed positions."""
+    def mcp_call(self, tool, timeout=12, **kw):
+        if tool == "discovery_get_top_traders":
+            return {"success": True, "data": {"traders": [
+                {"address": "0xbarely", "returnOnInvestment": 283, "profitAndLoss": 206000,
+                 "realizedProfitAndLoss": 821679.97, "averageProfitPerTrade": 7402.52,
+                 "traderAgeSeconds": 572 * 86400, "tcsLabel": "ELITE"}]}}
+        if tool == "discovery_get_trader_history":
+            return {"success": True, "data": {"page_info": {"totalCount": 2}}}
+        return {"success": False}
+
+
+def test_vet_uses_real_closed_count_and_trips_thin():
+    # the vet dossier narrates the count as fact → it must be the REAL one (page_info.totalCount), and a
+    # 2-closed record trips `thin` despite an ELITE label + 572 active days (111 would have sailed past it).
+    d = research.run(_VetHistoryClient(), "vet", addr="0xbarely")["trader"]
+    assert d["track_record"]["trades"] == 2
+    assert d["reliability"] == "thin"
+    assert "thin_track_record" in d["flags"]
 
 
 class _StateFailClient:

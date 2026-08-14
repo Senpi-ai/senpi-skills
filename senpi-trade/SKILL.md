@@ -113,7 +113,9 @@ Then **replay the full spec, get an explicit "yes"**, and place.
 
 ### Execute & manage
 - **Open:** `strategy_create_custom_strategy` (fresh wallet + position [+ static SL/TP]) or `create_position`
-  (into an existing un-managed wallet). Async — poll `strategy_list` to ACTIVE; **report the real returned
+  (into an existing un-managed wallet) — and **always pass `skillName` + `skillVersion`** (real params on both;
+  `strategy_create_custom_strategy` creates a wallet outside `deploy.py`, so without them the position is
+  **orphaned** / unattributed per CLAUDE.md). Async — poll `strategy_list` to ACTIVE; **report the real returned
   status**, never assume success.
 - **Protect (if chosen):** `ratchet_stop_add` on the open position (asset + tier config; it auto-reads the live position).
 - **Edit:** `edit_position` — `targetMargin` is **absolute, not a delta**; a direction flip does NOT carry

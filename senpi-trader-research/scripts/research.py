@@ -169,15 +169,11 @@ def _candidate(t):
         age_s = _f(t, "traderAgeSeconds")
         if age_s is not None:
             c["active_days"] = round(age_s / 86400.0, 1)
-    # `trades` = true CLOSED-position count. totalTrades / averageTradesPerDay count FILLS, not distinct
-    # positions, and averageTradesPerDay * account age inflates wildly (seen: >500k "trades"). realizedPnL /
-    # averageProfitPerTrade divides to the real closed count; leave None rather than derive a fills-based one.
-    realized = _f(t, "realizedProfitAndLoss", "realized_pnl")
-    avg_profit = _f(t, "averageProfitPerTrade", "avg_profit_per_trade")
-    if c["trades"] is None and realized is not None and avg_profit not in (None, 0):
-        c["trades"] = round(realized / avg_profit)
-    if c["trades_per_day"] is None and c["trades"] and c["active_days"]:
-        c["trades_per_day"] = round(c["trades"] / c["active_days"], 2)
+    # `trades` = true CLOSED-position count is NOT derivable from the find/blend payload: totalTrades and
+    # averageTradesPerDay count FILLS, and realizedPnL / averageProfitPerTrade does NOT equal the closed count on
+    # the ALL_TIME payload (it happens to divide cleanly on WEEKLY, but gives e.g. 111 for a 2-closed trader).
+    # So leave `trades` None here — "not established" beats a fabricated number, and None flows correctly through
+    # the `thin` gate. The VET path fills it exactly from discovery_get_trader_history's page_info.totalCount.
     ts = c.get("last_trade_ts")
     if ts:
         ts = ts / 1000.0 if ts > 1e11 else ts   # lastTradeTimestamp seen in both seconds and ms — normalize to s
@@ -235,6 +231,8 @@ def _positions_from_state(trec):
             entry = _f(p, "entryPx", "entry_px")
             mark = (abs(val) / abs(szi)) if szi else None
             moved = round((mark - entry) / entry * 100, 2) if (entry and mark) else None
+            lev_obj = p.get("leverage")
+            lev = _f(lev_obj, "value", "leverage") if isinstance(lev_obj, dict) else _f(p, "leverage", "leverageValue")
             upnl += pu
             net_notional += (val if szi > 0 else -val)
             positions.append({
@@ -246,6 +244,7 @@ def _positions_from_state(trec):
                 "entry_px": entry,
                 "mark_px": round(mark, 6) if mark else None,
                 "moved_from_entry_pct": moved,      # signed price move since entry; |·| is the slippage distance
+                "leverage": lev,                    # the mirror needs only MARGIN = notional / leverage to open it
             })
     return (positions, round(net_notional, 2), round(upnl, 2),
             round(margin_pct, 1) if margin_pct is not None else None,
@@ -292,38 +291,37 @@ def _book_summary(positions, net_notional):
             "top_assets": [a for a in top if a]}
 
 
-def _min_mirror_budget(account_value, positions, mult=1.0, dust_frac=MIRROR_DUST_FRAC):
-    """A ROUGH pre-sim floor for the budget to run a mirror of THIS trader's current book — NOT an exact figure
-    and NOT a trade-size recommendation. The pre-fund sim (execution_estimate_position_opening) is the
-    authoritative number; this is only a ballpark for "walk away or keep going" before the sim runs.
-    Your copy of a position opens at ~ budget * (position_notional / account_value) * mult, so opening it needs
-    budget >= MIN_NOTIONAL_USD * account_value / (position_notional * mult).
-    - Only positions a mirror would actually OPEN are counted — one that ran in the OG's favor is skipped by
-      slippage, so it must not inflate the floor (this is why the figure ran high before).
-    - `min_budget_usd` opens the whole openable book minus dust tails; `opens_nothing_below_usd` is where even
-      the largest openable position clears the per-position minimum.
-    - Both are clamped to the platform's own $10 initialBudget floor, and both scale with the multiplier.
-    Note the engine sizes off position NOTIONAL while the platform sizes off MARGIN, so treat this as an
-    estimate only. Returns None when it can't be computed (flat / no account value / book unknown)."""
-    openable = [p for p in (positions or [])
-                if p.get("notional") and p["notional"] > 0
-                and (_adverse_move(p) is None or _adverse_move(p) <= NEAR_ENTRY_BAND_PCT)]
-    notionals = sorted((p["notional"] for p in openable), reverse=True)
-    if not account_value or account_value <= 0 or not notionals:
+def _min_mirror_budget(account_value, positions, mult=1.0):
+    """A ROUGH pre-sim floor for the budget to open a mirror of THIS trader's current book — NOT exact and NOT a
+    trade-size recommendation; the pre-fund sim (execution_estimate_position_opening) is authoritative.
+    MARGIN-based, to match how the platform actually sizes: it bumps a sub-floor position UP to the ~$12
+    notional minimum and needs only the MARGIN for it — `MIN_NOTIONAL_USD / leverage`. So the budget to open the
+    whole openable book ≈ Σ (MIN_NOTIONAL_USD / leverage) over the positions a mirror would open, and the
+    cheapest single position is the floor below which nothing opens. (The old notional-proportional formula
+    overstated ~20× on diversified, leveraged books.) Clamped to the $10 platform minimum. `account_value` is
+    unused now (kept for signature stability). Returns None when the book is flat / unknown."""
+    margins = []
+    for p in (positions or []):
+        if not (p.get("notional") and p["notional"] > 0):
+            continue
+        adv = _adverse_move(p)
+        if adv is not None and adv > NEAR_ENTRY_BAND_PCT:   # ran in the OG's favor → slippage-skipped → costs no margin
+            continue
+        lev = p.get("leverage")
+        lev = lev if (isinstance(lev, (int, float)) and lev > 0) else 1.0   # missing leverage → assume 1x (full notional as margin)
+        margins.append(MIN_NOTIONAL_USD / lev)
+    if not margins:
         return None
     mult = mult or 1.0
-    total = sum(notionals)
-    nondust = [n for n in notionals if n >= dust_frac * total] or notionals
 
-    def _b(pn):
-        return round(max(MIN_STRATEGY_BUDGET_USD, MIN_NOTIONAL_USD * account_value / (pn * mult)), 2)
+    def _clamp(x):
+        return round(max(MIN_STRATEGY_BUDGET_USD, x), 2)
     return {
-        "min_budget_usd": _b(nondust[-1]),           # rough floor to open the whole openable book (ex-dust)
-        "opens_nothing_below_usd": _b(notionals[0]), # below this even the largest openable position clears nothing
+        "min_budget_usd": _clamp(sum(margins)),            # margin to open the whole openable book at the $12 floor
+        "opens_nothing_below_usd": _clamp(min(margins)),   # below this even the cheapest openable position clears nothing
         "at_multiplier": mult,
-        "positions": len(notionals),                 # positions a mirror would OPEN now (ran-in-favor ones excluded)
-        "dust_excluded": len(notionals) - len(nondust),
-        "note": f"ROUGH pre-sim estimate at {mult}x — counts only positions a mirror would open now, clamped to the ${int(MIN_STRATEGY_BUDGET_USD)} platform floor. The pre-fund sim is the exact figure, not this.",
+        "positions": len(margins),                          # positions a mirror would OPEN now (ran-in-favor ones excluded)
+        "note": f"ROUGH pre-sim estimate — margin to open the openable book at the ${int(MIN_NOTIONAL_USD)} notional floor (≈ Σ floor/leverage). The pre-fund sim is the exact figure for your chosen multiplier, not this.",
     }
 
 
@@ -380,6 +378,21 @@ def _momentum_label(m):
         return "unknown"
     d = m["delta_pnl_4h_usd"]
     return "hot" if d > 0 else "cold" if d < 0 else "flat"
+
+
+def _enrich_momentum(client, meta, c):
+    """Fetch 4h momentum for ONE candidate. Called only for the top of the COPYABILITY-sorted shortlist — never
+    in blend order, or the recommended row #1 could show `momentum: unknown` purely because the call was never
+    made for it (it fell outside the blend-order top-N)."""
+    try:
+        lm = _ok(client.mcp_call("leaderboard_get_trader", trader_id=c.get("address"), timeout=12))
+        m = _momentum_from_leaderboard(lm)
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"momentum {c.get('short')}: {e}")
+        m = None
+    c["recent_momentum"] = m
+    c["momentum"] = _momentum_label(m)
+    return c
 
 
 def _enrich_for_mirror(client, meta, c, with_momentum=True):
@@ -497,14 +510,14 @@ def find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=ENRICH
             c["reliability"] = _reliability(c)
             c["seen_in"] = []
             out.append(c)
-    # Enrich the top of the pool for mirrorability. Momentum (a 4h leaderboard call) is a tiebreak, not
-    # part of the copyability rank — pull it only for the top MOMENTUM_TOP so a wide pool doesn't blow the
-    # call budget. `enrich_top=0` opts out entirely.
+    # Enrich the top of the pool for mirrorability (book + distance-from-entry). Momentum is NOT pulled here —
+    # it's a tiebreak, and the caller fetches it for the top of the COPYABILITY-sorted shortlist (see run), so
+    # the recommended row isn't `unknown` just because it fell outside blend order. `enrich_top=0` opts out.
     top = out[:min(enrich_top, len(out))] if enrich_top else []
     if top:
         _progress(f"Pulling current open positions for the top {len(top)} and checking what's mirrorable right now…")
     for i, c in enumerate(top):
-        _enrich_for_mirror(client, meta, c, with_momentum=(i < MOMENTUM_TOP))
+        _enrich_for_mirror(client, meta, c, with_momentum=False)
         if (i + 1) % 5 == 0 and (i + 1) < len(top):
             _progress(f"Analyzed {i + 1}/{len(top)} open books…")
     return out
@@ -561,6 +574,19 @@ def vet_trader(client, meta, addr):
         row = {}
     c = _candidate(row) if row else {}
     c["reliability"] = _reliability(c) if c else "unknown"
+    # The CLOSED-position count is narrated here as fact, so pull it exactly from the trade history
+    # (`page_info.totalCount`) — the ranking payload can't give it (see _candidate). One extra call, and this
+    # path already makes several. A record that "barely exists" (e.g. 2 closed) now trips the `thin` gate.
+    if c:
+        try:
+            hist = _ok(client.mcp_call("discovery_get_trader_history", trader_address=addr, limit=1, timeout=15))
+            page = _field(hist, "page_info", "pageInfo", default={}) or {}
+            total = _f(page, "totalCount", "total_count", "total")
+            if total is not None:
+                c["trades"] = int(total)
+                c["reliability"] = _reliability(c)   # recompute — the real count can now trip `thin`
+        except Exception as e:  # noqa
+            meta.setdefault("warnings", []).append(f"trade history failed: {e}")
     dossier["track_record"] = {k: c.get(k) for k in
                                ("roi_pct", "pnl_usd", "win_rate_pct", "max_drawdown_pct",
                                 "trades", "active_days", "trades_per_day", "last_trade_days_ago")}
@@ -613,7 +639,13 @@ def run(client, mode, addr=None, time_frame="MONTHLY", sort_by="RETURN_ON_INVEST
         # Lead the copy decision with the shortlist ranked by COPYABILITY, not the ROI table.
         enriched = [c for c in cands if "mirrorability" in c]
         if enriched:
-            out["mirror_shortlist"] = sorted(enriched, key=_mirror_sort_key)
+            shortlist = sorted(enriched, key=_mirror_sort_key)
+            # momentum is a tiebreak → fetch it only NOW, for the top of the sorted shortlist, so the rows the
+            # user actually sees (incl. row #1) carry it — not whichever rows happened to lead in blend order.
+            if enrich_top:
+                for c in shortlist[:MOMENTUM_TOP]:
+                    _enrich_momentum(client, meta, c)
+            out["mirror_shortlist"] = shortlist
         out["ranking"] = ({"blend": [f"{tf}/{sb}" for tf, sb, _ in MIRROR_VIEWS], "enriched": len(enriched)}
                           if blend else {"time_frame": time_frame, "sort_by": sort_by, "enriched": len(enriched)})
     if mode != "vet" and not out.get("candidates") and not out.get("strategies"):

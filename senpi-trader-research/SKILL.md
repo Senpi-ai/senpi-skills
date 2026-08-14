@@ -68,9 +68,13 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
   mirror opens little now, will rarely fire later, and their unrealised gains **don't transfer** — so it
   will read as idle/broken to the user. A trader dormant for months on a big winner is the classic trap:
   nothing to copy today, nothing coming soon. Say it up front; don't let them find out as "it's not working."
-- **Respect the reliability floor.** A record with **< 5 trades or < 7 active days** is not yet
-  trustworthy — the engine flags it `thin_track_record`. Surface that loudly; don't recommend a copy
-  off a tiny sample.
+- **Respect the reliability floor — and never quote a closed-trade count off the FIND shortlist.** A record
+  with **< 5 closed trades or < 7 active days** is not yet trustworthy (`thin_track_record`). But the true
+  closed-position count is **not derivable from the find/blend payload** — the engine leaves `trades` **None**
+  there rather than fabricate one, so *do not state a trade count for a find candidate* ("76 trades" is a
+  number the find path cannot know). Only the **VET path** (`--trader`) carries the real count — it pulls
+  `discovery_get_trader_history`'s `page_info.totalCount`. So a record can only be confirmed thin (or thick) by
+  vetting it; say "vet to confirm the track record" rather than citing a count you don't have.
 - **On perps, big drawdowns are normal — don't alarm on them.** Leverage cuts both ways; a proven trader
   routinely carries a −50% to −80% max drawdown and that is **not** a red flag. The engine only raises
   `blowup_risk` at ≤ **−83%** (near-liquidation even by perps standards) and caps `reliability` there.
@@ -93,12 +97,13 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
   `mirrorMultiplier`, slippage-as-entry-gate, protection, minimums, "how much do I need", "spot or perps")
   is the **single source** in senpi-trade (`references/mirror-trading-explained.md`). If the user asks how
   copy trading works, hand off there — never write a parallel explanation that can drift.
-- **Answer "how much do I need?" with `min_mirror_budget` — but call it a ROUGH estimate, never an exact
-  figure, and never a trade-size recommendation.** Every enriched trader carries `min_budget_usd` (a ballpark
-  floor to open their *openable* book) and `opens_nothing_below_usd` (below it nothing opens), both clamped to
-  the $10 platform minimum, at 1× (a higher multiplier divides them). The engine sizes off position **notional**
-  while the platform sizes off **margin**, so the figure can be off by ~2× in either direction — quote it as a
-  rough *"you'll need at least about $X"*, then run the **pre-fund sim** for the real number.
+- **Answer "how much do I need?" with `min_mirror_budget` — a rough estimate, never an exact figure or a
+  trade-size recommendation.** Every enriched trader carries `min_budget_usd` (a floor to open their *openable*
+  book) and `opens_nothing_below_usd` (below it nothing opens), both clamped to the $10 platform minimum. It's
+  **margin-based** now — the platform bumps a sub-floor position up to the ~$12 notional minimum and needs only
+  the margin (`$12 / leverage`) for it, so the estimate ≈ Σ of those margins and lands close to the platform on
+  leveraged books. Still an estimate — quote it as *"you'll need at least about $X"*, then run the **pre-fund
+  sim** for the exact figure at the user's chosen multiplier.
   State `min_budget_usd` as the minimum when the user asks what a copy needs or names a budget; **do not
   advise how much they should trade with — that's their call.** It's a pre-fund estimate; the sim is the
   exact check. If it's `null` (flat / account value unreadable), say so.
