@@ -157,15 +157,23 @@ comprehensive, decision-first answer on every call, never a bare ROI list.
 1. **The call** — one line with the decision (not a menu): *"the best trader you can actually mirror right
    now is …"* — **or**, when no single trader is cleanly mirrorable, *"the best play right now is a
    fresh-entry template, because the proven books have already run"* (a real recommendation framed as the
-   smart move — see step 5; never "senpi can't help"). **Your pick is row #1 of the shortlist** — the sort
-   already weighs cleanliness + reliability, not just fit, so a clean, active *partial*-fit trader can
-   correctly lead a flagged *good*-fit one. Trust the order; don't re-pick by fit alone. **State the pick's
+   smart move — see step 5; never "senpi can't help"). **Default your pick to row #1** — the sort already
+   weighs cleanliness + reliability, not just fit, so a clean, active *partial*-fit trader can correctly lead
+   a flagged *good*-fit one; don't re-pick by fit alone. **The one thing that may move the pick off row #1 is
+   market-fit** — the engine can't see the regime, so among the *clean, mirrorable* candidates one aligned
+   with today's tape can beat a higher-ranked book that's off-regime (a net-long-equities book on a crypto
+   question); market-fit **never** rescues a `blowup_risk` / against-the-tape trader. **If your pick is NOT
+   row #1, say so and why in this same line** — name what's ranked above it and why it isn't the call ("0x…
+   tops raw copyability, but it's net-long equities, off today's crypto tape; my call is 0x…, net-short and
+   aligned"). Never leave higher-ranked traders sitting unexplained above your pick. **State the pick's
    copyability as the fresh %** ("~55% of their book is still fresh to enter") — never headline your
    recommendation with the bare word "partial."
 2. **The shortlist** — a table in the **order the engine returns `mirror_shortlist`** (already ranked by
    copyability — flagged traders demoted *first*, then fit). **Never re-sort by `mirror_fit`** — else a
    good-fit trader carrying `blowup_risk` / positioned against the tape lands at #1 with a ✅ you're telling
-   them to skip. Columns: **copyable now** — render `fresh_entry_surface_pct` as "**N% fresh**" (the share of
+   them to skip. **Mark your pick's row** with a clear indicator (⭐ / "◄ my call") so it's unmistakable even
+   when it isn't #1 — never make the user hunt for the trader you recommended, or wonder why others sit above
+   it (step 1 already explains *why* — usually market-fit). Columns: **copyable now** — render `fresh_entry_surface_pct` as "**N% fresh**" (the share of
    their book you can still open near entry), **not** the raw `mirror_fit` word: "partial" reads as a hedge and
    undersells a clean pick, whereas "55% fresh" is self-explanatory (`mirror_fit` stays *internal*, for the
    ranking). **`book`** (`open_positions` + net long/short `bias` + `top_assets`
