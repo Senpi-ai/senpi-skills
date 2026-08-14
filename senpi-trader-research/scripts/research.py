@@ -43,11 +43,15 @@ MIN_NOTIONAL_USD = 12.0       # HL per-position minimum (the $10 floor, auto-bum
 MIRROR_DUST_FRAC = 0.01       # positions below this share of notional are dust — excluded from the whole-book budget so a residual tail can't explode it
 # "Who should I copy?" — no single sort is smart enough, so the default FIND blends complementary views and
 # lets a trader seen in more than one (proven AND currently performing) rank higher. The user never picks a sort.
-# GAIN_TO_PAIN_RATIO = risk-adjusted (steady winners, not big-drawdown gamblers); WEEKLY ROI = hot now; MONTHLY ROI = proven return.
+# Axes: 7d ROI = hot now; 30d ROI = proven return; 30d realized PnL = profit actually banked (real money off the
+# table, not paper gains). Consistency is ranked from each row's tcs_score, NOT by sorting the API on it.
+# GAIN_TO_PAIN_RATIO is deliberately NOT a view: on the live payload its denominator collapses and the sort
+# surfaces wiped / micro-volume / days-old accounts, and it comes back 0 (missing) on most rows of the other
+# views — an unreliable axis that would spend a third of the enrichment budget on noise.
 MIRROR_VIEWS = [
-    ("MONTHLY", "GAIN_TO_PAIN_RATIO",   "30d steady"),
-    ("WEEKLY",  "RETURN_ON_INVESTMENT", "7d hot"),
-    ("MONTHLY", "RETURN_ON_INVESTMENT", "30d return"),
+    ("WEEKLY",  "RETURN_ON_INVESTMENT",     "7d hot"),
+    ("MONTHLY", "RETURN_ON_INVESTMENT",     "30d return"),
+    ("MONTHLY", "PROFIT_AND_LOSS_REALIZED", "30d realized"),
 ]
 
 
@@ -136,6 +140,7 @@ def _candidate(t):
         "trades": _f(t, "totalTrades", "tradeCount", "trades", "numTrades"),
         "active_days": _f(t, "activeDays", "active_days", "traderAgeDays"),
         "consistency": _field(t, "tcsLabel", "consistency", "consistencyLabel", "tcs"),
+        "tcs_score": _f(t, "tcsValue", "tcs_score", "tcsScore"),   # 0–100 consistency SCORE behind the label — rank on it, don't discard it
         "risk": _field(t, "risk", "riskLabel"),
         "activity": _field(t, "activity", "activityLabel", "tas"),
         "trades_per_day": _f(t, "averageTradesPerDay"),
@@ -159,6 +164,14 @@ def _candidate(t):
         c["last_trade_days_ago"] = round((datetime.datetime.now(datetime.timezone.utc).timestamp() - ts) / 86400.0, 1)
     else:
         c["last_trade_days_ago"] = None
+    # The live payload uses 0 as a "not computed" sentinel on several numeric fields — coerce those to None so a
+    # missing value can't read as a real one: a 0 max-drawdown as a flawless record (which would hide blowup_risk
+    # and read "solid"), or a 0 ROI sinking a real earner. None already flows correctly through _reliability /
+    # _flags / the sort; 0 does not. (tcs_score 0 is a REAL low score, not a sentinel — left alone.)
+    if c["roi_pct"] == 0 and c["pnl_usd"] not in (None, 0):
+        c["roi_pct"] = None                    # positive/negative PnL but 0% ROI = ROI not computed, not a flat return
+    if c["max_drawdown_pct"] == 0:
+        c["max_drawdown_pct"] = None           # a true 0% max drawdown on a leveraged perps book is effectively impossible → 0 = missing
     return c
 
 
@@ -289,6 +302,9 @@ def _flags(c, positions=None, net_upnl=None, margin_pct=None):
     dd = c.get("max_drawdown_pct")
     if dd is not None and dd <= CATASTROPHIC_DD:
         flags.append("blowup_risk")            # ≤ -83% max drawdown — near-liquidation even by perps standards
+    roi, pnl = c.get("roi_pct"), c.get("pnl_usd")
+    if roi is not None and pnl is not None and roi > 0 and pnl < 0:
+        flags.append("roi_pnl_conflict")       # headline ROI is positive but actual PnL is negative — a caution, not a disqualifier: don't LEAD with the ROI number
     tpd = c.get("trades_per_day")
     if tpd is not None and tpd > HIGH_TURNOVER_PER_DAY:
         flags.append("high_turnover")          # a proportional copy will bleed fees
@@ -309,6 +325,8 @@ def _flags(c, positions=None, net_upnl=None, margin_pct=None):
             flags.append("concentrated_book")
         if len(positions) == 1:
             flags.append("single_position")    # one bet — un-diversifiable and often already run
+    elif positions is not None:
+        flags.append("no_open_positions")      # enriched and their book is empty — nothing to copy right now; a fresh mirror opens nothing until they trade again
     return flags
 
 
@@ -366,9 +384,10 @@ _REL_RANK = {"solid": 0, "ok": 1, "choppy": 2, "thin": 3, "unknown": 4}
 
 def _mirror_sort_key(c):
     """Order the shortlist by COPYABILITY — the pick is row #1. Not blown up, then mirrorable-now
-    (good/partial both; poor = stale), then the FEWEST copy concerns (idle / fee / single-name / underwater
-    flags), then a trusted record, cross-window confirmation, and freshest book. Fit is not the sole ranker,
-    so a clean, reliable, active *partial*-fit trader correctly leads a flagged *good*-fit one."""
+    (good/partial both; poor = stale), then the FEWEST copy concerns (idle / fee / single-name / underwater /
+    roi-pnl-conflict / no-open-book flags), then a trusted record, cross-window confirmation, the consistency
+    SCORE, and freshest book. Fit is not the sole ranker, so a clean, reliable, active *partial*-fit trader
+    correctly leads a flagged *good*-fit one; and a flagged-but-not-blown-up trader is demoted, never dropped."""
     m = c.get("mirrorability") or {}
     flags = c.get("flags") or []
     concerns = sum(1 for f in flags if f != "blowup_risk")   # fewer flags = a cleaner copy
@@ -377,6 +396,7 @@ def _mirror_sort_key(c):
             concerns,
             _REL_RANK.get(c.get("reliability"), 4),
             -len(c.get("seen_in") or []),                     # cross-window confirmation (proven AND hot)
+            -(c.get("tcs_score") or 0),                       # the consistency SCORE behind the label — steadier ranks higher within a tie
             -(m.get("fresh_entry_surface_pct") or 0))
 
 
@@ -402,11 +422,17 @@ def find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=ENRICH
                     continue
                 if addr in merged:
                     merged[addr]["seen_in"].append(f"{label} #{rank}")
+                    # backfill any field a higher-priority view left blank (its 0-sentinel coerced to None), so a
+                    # real drawdown / ROI present in ANOTHER window isn't lost to the first view's missing value
+                    for k, v in _candidate(t).items():
+                        if v is not None and merged[addr].get(k) is None:
+                            merged[addr][k] = v
                 else:
                     c = _candidate(t)
-                    c["reliability"] = _reliability(c)
                     c["seen_in"] = [f"{label} #{rank}"]
                     merged[addr] = c
+        for c in merged.values():
+            c["reliability"] = _reliability(c)   # after cross-view backfill, so a real drawdown counts toward the verdict
         # cross-window confirmation first (in how many views), then the best rank reached in any of them
         out = sorted(merged.values(),
                      key=lambda c: (-len(c["seen_in"]),
@@ -553,9 +579,9 @@ def main(argv=None):
     ap.add_argument("--trader", help="vet this trader address (due-diligence dossier)")
     ap.add_argument("--strategies", action="store_true", help="rank top copy-trading strategies instead")
     ap.add_argument("--time-frame", default=None, choices=["DAILY", "WEEKLY", "MONTHLY", "ALL_TIME"],
-                    help="single-view override (default: a smart blend of 30d-steady + 7d-hot + 30d-return)")
+                    help="single-view override (default: a smart blend of 7d-hot + 30d-return + 30d-realized)")
     ap.add_argument("--sort-by", default=None,
-                    help="single-view override, e.g. GAIN_TO_PAIN_RATIO / RETURN_ON_INVESTMENT (default: the blend)")
+                    help="single-view override, e.g. RETURN_ON_INVESTMENT / WIN_RATE (default: the blend)")
     ap.add_argument("--limit", type=int, default=20)
     ap.add_argument("--enrich-top", type=int, default=ENRICH_TOP_DEFAULT,
                     help="mirror-enrich the top N find candidates (live book + distance-from-entry + momentum)")

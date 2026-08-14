@@ -17,6 +17,21 @@ def _client():
         return research._FixtureClient(json.load(f))
 
 
+class _SeqClient:
+    """Returns a different discovery_get_top_traders payload on each successive call — lets a test give the
+    same address different fields across the blend's three views (to exercise cross-view backfill). Every other
+    tool returns None, so enrichment fails open to an empty book."""
+    def __init__(self, payloads):
+        self._p, self._i = list(payloads), 0
+
+    def mcp_call(self, tool, timeout=12, **kw):
+        if tool == "discovery_get_top_traders":
+            p = self._p[min(self._i, len(self._p) - 1)]
+            self._i += 1
+            return {"success": True, "data": {"traders": p}}
+        return None
+
+
 def test_min_mirror_budget():
     # budget to open a position = MIN_NOTIONAL_USD * account / (notional * mult)
     acct = 1_000_000.0
@@ -167,6 +182,68 @@ def test_no_mirror_stays_track_record_only():
     res = research.run(_client(), "top", enrich_top=0)
     assert "mirror_shortlist" not in res
     assert all("mirrorability" not in c for c in res["candidates"])
+
+
+def test_blend_drops_gain_to_pain_for_realized_pnl():
+    # GAIN_TO_PAIN_RATIO surfaces wiped / days-old / micro-volume accounts on live data — not a blend axis.
+    sorts = [sb for _, sb, _ in research.MIRROR_VIEWS]
+    assert "GAIN_TO_PAIN_RATIO" not in sorts
+    assert "PROFIT_AND_LOSS_REALIZED" in sorts          # banked profit (not paper gains) replaces it
+    assert sorts.count("RETURN_ON_INVESTMENT") == 2       # 7d hot + 30d return
+
+
+def test_zero_sentinels_coerced_but_real_zeros_kept():
+    # the live payload uses 0 for "not computed" — a 0 max-drawdown must not read as a flawless record,
+    # and a 0 ROI on a real earner must not sink them; but genuine zeros and a real low tcs are kept.
+    c = research._candidate({"address": "0x", "maxDrawdown": 0, "returnOnInvestment": 0, "profitAndLoss": 5000})
+    assert c["max_drawdown_pct"] is None                 # 0 DD = missing, not a perfect record
+    assert c["roi_pct"] is None                          # +PnL with 0% ROI = ROI not computed
+    assert "blowup_risk" not in research._flags(c)        # None DD → unknown, never a fabricated clean record
+    flat = research._candidate({"address": "0x", "returnOnInvestment": 0, "profitAndLoss": 0})
+    assert flat["roi_pct"] == 0                          # 0 ROI AND 0 PnL is ambiguous — leave it, don't invent None
+    assert research._candidate({"address": "0x", "tcsValue": 0})["tcs_score"] == 0   # tcs 0 is a real low score
+
+
+def test_cross_view_backfill_recovers_real_drawdown():
+    # a wiped account can show maxDrawdown=0 (sentinel) in one view and the real -100 in another; the blend
+    # must not lose the real value to the first view's blank — else blowup_risk never fires.
+    base = {"address": "0xw", "returnOnInvestment": 500, "profitAndLoss": 1000,
+            "totalTrades": 50, "traderAgeSeconds": 30 * 86400, "tcsLabel": "STREAKY"}
+    v_sentinel = [{**base, "maxDrawdown": 0}]
+    v_real = [{**base, "maxDrawdown": -100}]
+    res = research.run(_SeqClient([v_sentinel, v_real, v_sentinel]), "top")
+    w = next(c for c in res["candidates"] if c["address"] == "0xw")
+    assert w["max_drawdown_pct"] == -100                 # backfilled from the view that carried it
+    assert "blowup_risk" in w["flags"]                    # the gate fires now; the sentinel view alone hid it
+
+
+def test_roi_pnl_conflict_flags_but_keeps_the_trader():
+    # +ROI with -PnL is a caution, not a disqualifier: flag it, demote it, DON'T drop it.
+    assert "roi_pnl_conflict" in research._flags({"roi_pct": 295, "pnl_usd": -1_584_318})
+    assert "roi_pnl_conflict" not in research._flags({"roi_pct": 50, "pnl_usd": 1000})    # both positive → fine
+    assert "roi_pnl_conflict" not in research._flags({"roi_pct": -10, "pnl_usd": -500})   # both negative → honest loser
+    conflict = {"mirrorability": {"mirror_fit": "good", "fresh_entry_surface_pct": 80},
+                "flags": ["roi_pnl_conflict"], "reliability": "solid", "seen_in": []}
+    clean = {"mirrorability": {"mirror_fit": "good", "fresh_entry_surface_pct": 50},
+             "flags": [], "reliability": "solid", "seen_in": []}
+    ordered = sorted([conflict, clean], key=research._mirror_sort_key)
+    assert ordered[0] is clean and conflict in ordered    # clean leads; the conflicted trader stays on the list
+
+
+def test_no_open_positions_flags_but_keeps_the_trader():
+    # an empty current book = nothing to copy today: flag it so the user knows, don't exclude the trader.
+    assert "no_open_positions" in research._flags({}, positions=[])
+    assert "no_open_positions" not in research._flags({}, positions=[{"notional": 100}])
+    assert "no_open_positions" not in research._flags({})                # unenriched (positions=None) → assert nothing
+
+
+def test_tcs_score_breaks_ties_in_the_shortlist():
+    # the consistency SCORE behind the label orders otherwise-equal candidates — don't discard it
+    hi = {"mirrorability": {"mirror_fit": "good", "fresh_entry_surface_pct": 50}, "flags": [],
+          "reliability": "solid", "seen_in": ["30d return #1"], "tcs_score": 90}
+    lo = {"mirrorability": {"mirror_fit": "good", "fresh_entry_surface_pct": 50}, "flags": [],
+          "reliability": "solid", "seen_in": ["30d return #1"], "tcs_score": 40}
+    assert sorted([lo, hi], key=research._mirror_sort_key)[0] is hi
 
 
 if __name__ == "__main__":

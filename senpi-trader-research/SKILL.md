@@ -50,8 +50,10 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
   trading today) landed outside the enriched set, **vet them before you settle** — don't recommend a
   flagged trader while a cleaner one sits un-scored. And when the proven names have all run their books,
   the **fresh-entry templates are the good options** — present them as the smart play, not a shrug.
-- **Don't make the user pick a sort — the engine blends windows.** The default find unions 30d-steady
-  (Gain-to-Pain), 7d-hot (ROI) and 30d-return, so proven *and* currently-performing names land in one pool.
+- **Don't make the user pick a sort — the engine blends windows.** The default find unions 7d-hot (ROI),
+  30d-return (ROI) and 30d-realized (profit actually banked, not paper gains), then ranks within by the
+  consistency *score* — so proven *and* currently-performing names land in one pool. (It deliberately does
+  **not** sort on Gain-to-Pain: on live data that axis surfaces wiped / days-old / micro-volume accounts.)
   Each candidate's `seen_in` shows which views it ranked in — **a trader in 2–3 views is a stronger copy
   target than one in a single window's list**; call it out ("proven, and hot right now").
 - **Factor the market — don't wait to be asked.** Before recommending anyone to mirror, cross-reference
@@ -77,7 +79,15 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
 - **Use leveraged return + labels honestly.** Cite the behavior labels (consistency
   ELITE/RELIABLE/STREAKY/CHOPPY, risk CONSERVATIVE/BALANCED/AGGRESSIVE/SNIPER) and surface every flag
   verbatim — `choppy_consistency`, `high/critical_margin_usage`, `currently_in_drawdown`,
-  `concentrated_book`, `infrequent_trader`, `dormant`.
+  `concentrated_book`, `infrequent_trader`, `dormant`, `roi_pnl_conflict`, `no_open_positions`.
+- **When ROI and PnL disagree, don't lead with ROI (`roi_pnl_conflict`).** A trader can show a big
+  positive headline ROI while their actual PnL is deeply negative (a paper-gain % against a real dollar
+  loss). The engine flags this — **it's a caution, not a disqualifier** (they stay on the shortlist,
+  demoted): show the **PnL beside the ROI**, say the two disagree, and don't crown them on the ROI number.
+- **A trader with no open book can still be worth copying later — just say so now (`no_open_positions`).**
+  When their current book is empty there's **nothing for a fresh mirror to open today** — it fires only
+  when they next trade. Don't hide them and don't drop them; surface the flag so the user knows the mirror
+  starts idle, and point out a fresh-entry template (Shadow) fires the moment the OG re-enters.
 - **Never say "safe."** Copying inherits their risk. Be honest.
 - **Mechanics live in `senpi-trade` — don't improvise them.** How a mirror actually *works* (sizing /
   `mirrorMultiplier`, slippage-as-entry-gate, protection, minimums, "how much do I need", "spot or perps")
@@ -98,13 +108,14 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
 ## How to run the engine
 
 **Default (no flags) = FIND mode** — **no address needed, and no sort to choose.** The default **blends
-complementary views** — 30d Gain-to-Pain (steady, risk-adjusted) + 7d ROI (hot now) + 30d ROI (proven
-return) — unions them, and ranks a trader seen in more than one higher (proven **and** currently
-performing). The user never picks a window or metric. Add `--trader <addr>` only to vet one wallet.
+complementary views** — 7d ROI (hot now) + 30d ROI (proven return) + 30d realized PnL (profit actually
+banked, not paper gains) — unions them, ranks within by the consistency *score*, and ranks a trader seen
+in more than one higher (proven **and** currently performing). The user never picks a window or metric.
+Add `--trader <addr>` only to vet one wallet.
 
 ```
 python3 scripts/research.py                        # FIND (default): the smart blend → top + mirror_shortlist
-python3 scripts/research.py --time-frame WEEKLY --sort-by GAIN_TO_PAIN_RATIO   # override: ONE explicit view instead of the blend
+python3 scripts/research.py --time-frame WEEKLY --sort-by RETURN_ON_INVESTMENT # override: ONE explicit view instead of the blend
 python3 scripts/research.py --trader 0xABC…        # VET mode: due-diligence dossier on ONE trader
 python3 scripts/research.py --strategies           # top copy-trading (mirror) strategies
 python3 scripts/research.py --no-mirror            # track record only (skip the live-book enrichment)
