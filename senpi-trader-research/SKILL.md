@@ -144,16 +144,31 @@ data still returns a valid shortlist.
 **Finding candidates (a mirror decision) — this shape, every time.** The market-pulse bar: the same
 comprehensive, decision-first answer on every call, never a bare ROI list.
 
+0. **Open with what you're doing — say it BEFORE you run the engine.** The blend sweeps the whole field and
+   pulls each candidate's live book; it takes ~30–60s, so never leave the user on a silent spinner. Post a
+   confident, scale-setting line as its **own message first** (it builds trust and covers the wait), *then*
+   run `research.py`. Name the real work — vary the wording, e.g.:
+   > *"Scanning tens of thousands of Hyperliquid traders to find who's best to mirror right now — ranking the
+   > top performers over the last 7 and 30 days, then checking each for consistency, evaluating risk, looking
+   > at trading volume and turnover, pulling their current open positions, and matching every book against
+   > today's market. Give me ~30–60s."*
+   Keep the steps honest and lead with the **scan and the scale**, never a bare "let me pull the list." Don't
+   invent a precise trader count you can't verify — "tens of thousands" is the honest scale.
 1. **The call** — one line with the decision (not a menu): *"the best trader you can actually mirror right
    now is …"* — **or**, when no single trader is cleanly mirrorable, *"the best play right now is a
    fresh-entry template, because the proven books have already run"* (a real recommendation framed as the
    smart move — see step 5; never "senpi can't help"). **Your pick is row #1 of the shortlist** — the sort
    already weighs cleanliness + reliability, not just fit, so a clean, active *partial*-fit trader can
-   correctly lead a flagged *good*-fit one. Trust the order; don't re-pick by fit alone.
+   correctly lead a flagged *good*-fit one. Trust the order; don't re-pick by fit alone. **State the pick's
+   copyability as the fresh %** ("~55% of their book is still fresh to enter") — never headline your
+   recommendation with the bare word "partial."
 2. **The shortlist** — a table in the **order the engine returns `mirror_shortlist`** (already ranked by
    copyability — flagged traders demoted *first*, then fit). **Never re-sort by `mirror_fit`** — else a
    good-fit trader carrying `blowup_risk` / positioned against the tape lands at #1 with a ✅ you're telling
-   them to skip. Columns: `mirror_fit`, **`book`** (`open_positions` + net long/short `bias` + `top_assets`
+   them to skip. Columns: **copyable now** — render `fresh_entry_surface_pct` as "**N% fresh**" (the share of
+   their book you can still open near entry), **not** the raw `mirror_fit` word: "partial" reads as a hedge and
+   undersells a clean pick, whereas "55% fresh" is self-explanatory (`mirror_fit` stays *internal*, for the
+   ranking). **`book`** (`open_positions` + net long/short `bias` + `top_assets`
    — a mirror inherits this, so show it), **min to run** (`min_mirror_budget.min_budget_usd`, a fact not a
    trade-size rec), **last traded** (`last_trade_days_ago` + `trades_per_day` — a mirror only fires when
    they trade, so **always show this**; it's often more useful than 4h `momentum`, and `unknown` momentum
@@ -165,7 +180,7 @@ comprehensive, decision-first answer on every call, never a bare ROI list.
 4. **Who to skip, and why** — name the traders you are **not** recommending and the reason (already ran /
    `single_position` / `blowup_risk` / thin sample / positioned against the tape / **`dormant` or
    `infrequent_trader`** — a mirror of them would sit idle). Users copy the wrong wallet without this line.
-5. **The steer — frame it as the smart play, never a dead end.** When no trader is cleanly mirrorable (all
+5. **A more sophisticated approach — frame templates as the smarter play, never a dead end.** When no trader is cleanly mirrorable (all
    `poor` fit, *or* the only good/partial-fit ones are flag-disqualified — `blowup_risk` / against the tape
    / `dormant`), **lead with a fresh-entry template** — it's the *better* approach here, not a consolation:
    it opens **with** the trader on their *next* move instead of copying a book that already ran. **Name the
@@ -209,14 +224,16 @@ Formatting: short addresses, `Δ%`, labels as given; emoji sparingly.
 
 ## Mandatory closing (verbatim)
 
-> **1. Want me to set up a copy strategy that mirrors this trader?**
-> **2. Want me to vet another trader, or pull the top traders to compare?**
+> **1. Want me to set up the mirror? I'll simulate it at your budget first — show exactly what would open — then fund it.**
+> **2. Or want to compare a couple of these side by side, vet a specific wallet in depth, or go hands-off with a managed template?**
 
 - **CTA 1 → mirror. Hand off to the `senpi-trade` skill** — it owns the mirror mechanics (slippage,
   sizing / `mirrorMultiplier`, the pre-fund deployability sim, optional DSL, execution + verification).
   Do **not** call `strategy_create` from here; pass the vetted trader's **full `address`** (not the short
   form) to `senpi-trade` and let it drive.
-- **CTA 2 → compare.** Re-run the engine (`--trader` for another, or default for the ranking).
+- **CTA 2 → compare / vet / template.** Re-run the engine (`--trader <addr>` to vet one in depth, or the
+  default ranking to compare); or hand to a managed **Copy-Trader template** via `senpi-strategy-discover`
+  for the hands-off route.
 
 ## ⚠ Token scope
 
