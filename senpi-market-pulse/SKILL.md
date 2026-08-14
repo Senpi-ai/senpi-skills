@@ -10,7 +10,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.1.1"
+  version: "1.2.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -143,10 +143,12 @@ adding") — it's high-signal.
 
 ## Mandatory closing (verbatim)
 
-Always end every market read with exactly these two offers:
+Always end every market read with these offers — the **first two every time**, and the **third whenever
+`smart_money` is present** (a concentrated cohort is a high-intent mirror moment):
 
 > **1. Want me to check how our strategies and positions are positioned in this?**
 > **2. Want me to create a new strategy catered to this market?**
+> **3. Want me to find one of these smart-money traders to mirror?**  *(only when smart-money is live)*
 
 - **CTA 1 → positions read.** Resolve the user's strategies (`strategy_list`) and pull live state
   per wallet (`strategy_get_clearinghouse_state` + `discovery_get_trader_history`); report how the
@@ -156,6 +158,9 @@ Always end every market read with exactly these two offers:
   DXY calm = orderly rotation → candidate: long asset-light software / short memory, or fade if
   washout; risk: timing"*). **Propose the strategy and get the user's go-ahead — never build or
   trade without confirmation.**
+- **CTA 3 → mirror the smart money** (only when `smart_money` is present). Hand to **senpi-trader-research**
+  to vet a *copyable* trader from the cohort (mirrorability + min budget, not just PnL), then
+  **senpi-trade** to run the mirror.
 
 ## Resilience (the engine handles these — narrate them honestly)
 
