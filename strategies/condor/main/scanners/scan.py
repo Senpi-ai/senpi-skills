@@ -101,8 +101,17 @@ def fetch_universe(ctx, inputs):
 
 
 def fetch_sm_map(ctx, inputs):
-    """Hyperfeed SM leaderboard: per-coin direction, consensus, 4h/1h price,
-    15m velocity. Ported verbatim from v2 fetch_sm_map (XYZ banned by name)."""
+    """Hyperfeed SM leaderboard: per-coin direction, gain share, dominance, 4h/1h
+    price, 15m velocity. Ported from v2 fetch_sm_map (XYZ banned by name).
+
+    NOTE on `gain_share_pct`: this is `pct_of_top_traders_gain`, a share of the
+    TOTAL top-trader gain attributed to this market — it is NOT a "% of traders
+    leaning this way". It is distributed across every market in the response
+    (observed: sums to ~125 across 271 markets, max ~26, median ~0.01), so a
+    threshold on the 0-100 "consensus" scale can never be met. The v2 port named
+    this `consensus_pct` and gated it at >=70, which silently blocked every
+    signal. Directional agreement is carried separately by `is_dominant`
+    (`is_dominant_direction`), which is the field that actually expresses it."""
     limit = int(inputs.get("smLimit", 100))
     raw = _read(ctx, "leaderboard_get_markets", {"limit": limit})
     if not raw:
@@ -128,7 +137,8 @@ def fetch_sm_map(ctx, inputs):
             continue
         sm_map[token] = {
             "direction": str(m.get("direction", "")).upper(),
-            "consensus_pct": scoring._f(m.get("pct_of_top_traders_gain", 0)),
+            "gain_share_pct": scoring._f(m.get("pct_of_top_traders_gain", 0)),
+            "is_dominant": bool(m.get("is_dominant_direction", False)),
             "traders": int(m.get("trader_count", 0) or 0),
             "p4h": scoring._f(m.get("token_price_change_pct_4h", 0)),
             "p1h": scoring._f(m.get("token_price_change_pct_1h",
@@ -277,7 +287,7 @@ def scan(inputs, ctx):
             "priceChange4hPct": best["p4h"],
             "priceChange1hPct": best["p1h"],
             "contribChange15m": best["c15m"],
-            "smConsensusPct": best["sm_consensus"],
+            "smGainSharePct": best["sm_gain_share"],
             "smTraders": best["sm_traders"],
             "oiUsd": best["oi_usd"],
             "funding": best["funding"],

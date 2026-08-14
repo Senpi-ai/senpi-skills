@@ -264,12 +264,16 @@ def scan(inputs, ctx):
         md = _asset_data(ctx, coin)
         if not md:
             continue
+        # Read the PREVIOUS tick's OI *before* refreshing the cache. Reading it after
+        # the write handed build_thesis prev_oi == cur_oi, so the self-computed delta
+        # was always exactly 0.00% and GATE 1 (oi_pct <= -oiDropMinPct) could never pass.
+        prev_oi = _prev_oi(oi_cache, coin)
         # refresh OI cache for the self-compute fallback (verbatim: record on every pass)
         cur_oi = scoring.current_oi(md)
         if cur_oi > 0:
             oi_cache[cu] = {"oi": cur_oi, "ts": now}
         sm = _get_sm_direction(ctx, cu)
-        th = scoring.build_thesis(coin, md, _prev_oi(oi_cache, coin), sm, inputs)
+        th = scoring.build_thesis(coin, md, prev_oi, sm, inputs)
         if th and th["score"] >= min_score:
             candidates.append(th)
 

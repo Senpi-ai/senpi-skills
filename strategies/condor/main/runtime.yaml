@@ -38,13 +38,22 @@ scanners:
       minScore: 12                         # v2 MIN_SCORE (v3.4 calibration)
       marginPct: 50                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
       maxPositions: 1                      # "one amazing trade per day"
-      minSmConsensusPct: 70                # SM consensus hard gate
+      # SM gates. `minSmConsensusPct: 70` used to live here and gated
+      # `pct_of_top_traders_gain` — a share of TOTAL top-trader gain spread across the
+      # whole leaderboard (sums to ~100 board-wide), never a per-market "% of traders".
+      # No market could reach 70, so it blocked 100% of signals. Directional agreement
+      # now comes from `is_dominant_direction`; the gain share is a separate
+      # concentration filter on its own scale. Thresholds derived from one live
+      # snapshot — NOT backtested, tune before relying on them.
+      requireDominantDirection: true       # is_dominant_direction must be true
+      minSmGainSharePct: 5.0               # concentration hard gate (~median of deep markets)
       minTraderCount: 50                   # trader-depth hard gate
       min4hMagnitude: 1.0                  # 3TF alignment floors
       min1hMagnitude: 0.3
       min15mVelocity: 0.1
       macroGateThresholdPct: 10.0          # MACRO_TREND_GATE (no counter-trend >10%)
-      stronglyTiltedPct: 80                # SM consensus scoring tier
+      stronglyTiltedPct: 15                # SM concentration scoring tier (+4)
+      convergentPct: 8                     # SM concentration scoring tier (+3)
       recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC race-window dedup
       # leverageTiers: per-score [min_score, leverage, marginPct(PERCENT)]; omit -> scoring defaults
       leverageTiers: [[15, 10, 80], [13, 10, 70], [11, 10, 50]]
@@ -56,7 +65,7 @@ scanners:
       priceChange4hPct: { type: number, required: false }
       priceChange1hPct: { type: number, required: false }
       contribChange15m: { type: number, required: false }
-      smConsensusPct: { type: number, required: false }
+      smGainSharePct: { type: number, required: false }
       smTraders: { type: number, required: false }
       oiUsd: { type: number, required: false }
       funding: { type: number, required: false }

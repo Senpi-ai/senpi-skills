@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-08-12",
+  "_updated": "2026-08-13",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -849,10 +849,10 @@
       "id": "condor",
       "name": "Condor — One Amazing Trade per Day",
       "emoji": "🦅",
-      "tagline": "Scans the top 50 Hyperliquid crypto assets by volume and fires at most one position at a time — only when 4h, 1h and 15m momentum all align, smart money is >=70% leaning the same way, and the move isn't a runaway counter-trend. Sizes margin to conviction (50/70/80%) at 10x, then rides a wide DSL.",
+      "tagline": "Scans the top 50 Hyperliquid crypto assets by volume and fires at most one position at a time — only when 4h, 1h and 15m momentum all align, the smart-money leaderboard is leaning the same way on a market it is actually concentrated in, and the move isn't a runaway counter-trend. Sizes margin to conviction (50/70/80%) at 10x, then rides a wide DSL.",
       "belief_plain": "Watches every liquid coin on Hyperliquid and waits, doing nothing until ONE setup is near-perfect: the trend, the momentum and the best traders all pointing the same direction at once. Then it takes a single, well-sized swing and trails a stop instead of guessing the top.",
-      "version": "1.0.0",
-      "thesis": "The biggest swings happen when 4h + 1h + 15m momentum are perfectly unified AND the smart-money leaderboard is heavily lopsided (>=70%) in that same direction — a runaway trend's continuation, not a reversal. One amazing trade a day beats a scattergun: scan broadly, fire rarely, size to conviction, and never fight a trend already up >10% on the 4h.",
+      "version": "1.1.0",
+      "thesis": "The biggest swings happen when 4h + 1h + 15m momentum are perfectly unified AND the smart-money leaderboard is leaning that same way on a market it has meaningful skin in — a runaway trend's continuation, not a reversal. One amazing trade a day beats a scattergun: scan broadly, fire rarely, size to conviction, and never fight a trend already up >10% on the 4h.",
       "tags": [
         "momentum",
         "trend-continuation",
@@ -1526,7 +1526,7 @@
       "emoji": "🐟",
       "tagline": "Rides forced flow on crypto majors (BTC/ETH/SOL/HYPE): when open interest is unwinding fast (positions being force-closed) AND price is moving violently AND the 5-minute candle is still pushing the same way, it takes ONE position in the direction of the flow, sized 1-5x, and lets a wide DSL ratchet ride the squeeze with a 24h outer bound.",
       "belief_plain": "A liquidation cascade is the cleanest momentum in crypto — it's forced flow, not opinion. When lots of positions are being force-closed at once, price gets shoved hard in one direction and the move feeds on itself until the leverage is flushed. Piranha reads the order flow underneath price (open-interest velocity + order-book depth) to confirm the move is forced, then rides it: OI down + price up = shorts squeezed, go long; OI down + price down = longs liquidated, go short.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "thesis": "Most agents react to price; the edge is reading the forced flow beneath it. Open interest dropping fast means positions are closing under duress, and when that coincides with a violent move and a thinning book on the side price is running into, there is little resistance left and the cascade continues. That signature is short-horizon and self-resolving, so the right move is one conviction entry in the flow direction, a wide ratchet that lets a squeeze extend, and a 24h hard timeout because if the cascade hasn't paid in a day it's over.",
       "tags": [
         "btc",
