@@ -209,6 +209,11 @@ two don't coordinate. The **real two-phase DSL** (a ratcheting max-loss floor + 
 a **runtime** → a managed template (**Shadow / Remora**) that auto-applies it on **every** fill. Don't
 hand-wrap 40 fills a day.
 
+### Closing — present next steps as a LIST, never a paragraph
+Whenever you end a mirror or template flow with options ("set it up / simulate first / compare / point a
+template at a specific whale"), render them as a short **numbered or bulleted list, one option per line** —
+never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one clear next step per line.
+
 ---
 
 ## The guardrails — every one earned from real mirror-trading churn

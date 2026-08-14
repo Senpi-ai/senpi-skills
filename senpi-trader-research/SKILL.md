@@ -187,9 +187,14 @@ comprehensive, decision-first answer on every call, never a bare ROI list.
 3. **Why each — the part users ask for by name** (*"…and tell me why"*). One line per top candidate tying
    **track record + mirrorability + market-fit** together: why they're proven, whether you can copy them
    *today*, and whether they're positioned with or against what's working now.
-4. **Who to skip, and why** — name the traders you are **not** recommending and the reason (already ran /
-   `single_position` / `blowup_risk` / thin sample / positioned against the tape / **`dormant` or
-   `infrequent_trader`** — a mirror of them would sit idle). Users copy the wrong wallet without this line.
+4. **Considered but skipped — the tempting names, and why they didn't make it.** Only list a trader here if
+   you also give **what would have drawn the user to them** — the headline a naive ROI/PnL/hot sort surfaces
+   ("283% ROI", "$6.7M PnL", "🔥 top of the 4h board") — **and then the disqualifier** (`blowup_risk` /
+   near-liquidation margin / `roi_pnl_conflict` / already ran / thin sample / against today's tape). That
+   contrast is the whole value: it shows you vetted the flashy ones so they don't have to. **Never list a bare
+   address with no reason the user would have cared about it** — if they had no reason to look at it, it
+   doesn't belong on screen. These are *not* rows in the shortlist table above (those are the real options);
+   this is the cutting-room floor, clearly labelled as such.
 5. **A more sophisticated approach — frame templates as the smarter play, never a dead end.** When no trader is cleanly mirrorable (all
    `poor` fit, *or* the only good/partial-fit ones are flag-disqualified — `blowup_risk` / against the tape
    / `dormant`), **lead with a fresh-entry template** — it's the *better* approach here, not a consolation:
@@ -232,10 +237,13 @@ Formatting: short addresses, `Δ%`, labels as given; emoji sparingly.
   current regime (`senpi-market-pulse`) up front — the best proven, mirrorable trader is still a pass if
   they're positioned against what's working now.
 
-## Mandatory closing (verbatim)
+## Mandatory closing — render as a LIST, each option on its OWN line (never a run-on paragraph)
 
-> **1. Want me to set up the mirror? I'll simulate it at your budget first — show exactly what would open — then fund it.**
-> **2. Or want to compare a couple of these side by side, vet a specific wallet in depth, or go hands-off with a managed template?**
+End with these two as a real numbered list on **separate lines** — never collapse them into one sentence:
+
+> **What next?**
+> 1. **Set up the mirror** — I'll simulate it at your budget first (show exactly what would open), then fund it.
+> 2. **Or explore first** — compare a couple side by side · vet a specific wallet in depth · or go hands-off with a managed template.
 
 - **CTA 1 → mirror. Hand off to the `senpi-trade` skill** — it owns the mirror mechanics (slippage,
   sizing / `mirrorMultiplier`, the pre-fund deployability sim, optional DSL, execution + verification).
