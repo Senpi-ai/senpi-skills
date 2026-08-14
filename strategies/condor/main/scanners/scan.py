@@ -72,9 +72,14 @@ def fetch_universe(ctx, inputs):
             continue
         ctx_block = inst.get("context", {}) if isinstance(inst.get("context"), dict) else {}
         # v2 read inst.get("coin") OR inst.get("name"); live top level is "name",
-        # context also carries "coin". Either resolves to the same casing.
-        coin = str(inst.get("coin") or inst.get("name") or ctx_block.get("coin", "")).upper()
-        if not coin or coin in scoring.STABLECOINS_BANNED:
+        # context also carries "coin". CASE-PRESERVED: market_list_instruments is the
+        # source of truth for exact coin-name casing, and HL names are CASE-SENSITIVE —
+        # the 1000x names carry a lowercase k (kPEPE/kSHIB/kBONK) and `KPEPE` is rejected
+        # as INVALID_ARGUMENT. This symbol is emitted as the signal asset, so upper-casing
+        # it here silently no-traded every k-denominated name. Comparisons upper-case at
+        # their site.
+        coin = str(inst.get("coin") or inst.get("name") or ctx_block.get("coin", ""))
+        if not coin or coin.upper() in scoring.STABLECOINS_BANNED:
             continue
         if _is_xyz(coin):                          # XYZ ban (name-prefix; see module docstring)
             continue
@@ -221,7 +226,9 @@ def scan(inputs, ctx):
     candidates = []
     for asset_info in universe:
         coin = asset_info["coin"]
-        sm = sm_map.get(coin)
+        # sm_map is keyed upper-case (see the token parse in fetch_sm_map); `coin` is
+        # case-preserved, so upper-case at the lookup to keep the join intact.
+        sm = sm_map.get(coin.upper())
         if not sm:
             continue
         sig = scoring.evaluate_trend_continuation(asset_info, sm, btc_macro, hour, inputs)

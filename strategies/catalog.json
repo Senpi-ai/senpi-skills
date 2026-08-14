@@ -329,7 +329,7 @@
       "emoji": "🦔",
       "tagline": "Scans every liquid perp for funding that has stayed extreme for hours — the crowd piled onto one side and is paying to hold it — then fades that crowd at exhaustion, collecting funding while the over-stretched position mean-reverts.",
       "belief_plain": "When everyone crowds the same side of a trade and keeps paying a steep funding fee to stay there for hours, that crowd usually unwinds. Pangolin waits for the crowding to actually persist, checks the smartest traders aren't on the crowd's side, then takes the OTHER side and gets paid funding while it waits for the snap-back.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "Persistent extreme funding is a crowding signal, not noise. A fresh funding spike means nothing — but funding that stays extreme for 3+ hours means real positioning that has to unwind. Fade the crowd only once the regime confirms (or is at least neutral), size conservatively because crowded unwinds are violent, and let the funding you collect pay you to be patient through a 24-48h mean reversion.",
       "tags": [
         "funding-fade",
@@ -851,7 +851,7 @@
       "emoji": "🦅",
       "tagline": "Scans the top 50 Hyperliquid crypto assets by volume and fires at most one position at a time — only when 4h, 1h and 15m momentum all align, smart money is >=70% leaning the same way, and the move isn't a runaway counter-trend. Sizes margin to conviction (50/70/80%) at 10x, then rides a wide DSL.",
       "belief_plain": "Watches every liquid coin on Hyperliquid and waits, doing nothing until ONE setup is near-perfect: the trend, the momentum and the best traders all pointing the same direction at once. Then it takes a single, well-sized swing and trails a stop instead of guessing the top.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "The biggest swings happen when 4h + 1h + 15m momentum are perfectly unified AND the smart-money leaderboard is heavily lopsided (>=70%) in that same direction — a runaway trend's continuation, not a reversal. One amazing trade a day beats a scattergun: scan broadly, fire rarely, size to conviction, and never fight a trend already up >10% on the 4h.",
       "tags": [
         "momentum",
@@ -1389,7 +1389,7 @@
       "emoji": "🦦",
       "tagline": "A sentry that watches the momentum-event feed and snipes the freshest, highest-tier move the instant it fires: tier (event magnitude) + freshness gate the entry, smart-money alignment and rising volume add conviction, then it takes ONE position in the momentum direction and lets a wide DSL ride the burst.",
       "belief_plain": "Watches a live feed of coins that just made a sharp move in the last few hours, and pounces only on the strongest, freshest ones — before the move is widely known. It sizes one bet in the direction of the move and trails a wide stop so a real burst can keep running, but cuts it loose after about a day and a half if it stalls.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "thesis": "Fresh momentum is the earliest, cleanest edge, and it decays fast — an event that's already 30+ minutes old is half-known and somebody else's trade. So the whole job is speed plus selectivity: only the strongest tiers, only while they're fresh, one position at a time. Smart-money lean and rising volume are confirmation bonuses, not gates, because the event fires faster than that data updates — waiting for confirmation forfeits the edge. A momentum burst pays out fast or it's stale, so a short hard timeout cuts a trade that hasn't moved.",
       "tags": [
         "momentum",
@@ -3386,7 +3386,7 @@
       "emoji": "🦂",
       "tagline": "Hunts trend-following entries across a curated crypto + XYZ basket (BTC/ETH/majors, mid-caps, plus crude oil, Brent, gold and the S&P): enters only when smart money is concentrated in a direction AND 4h price agrees, scores SM dominance + multi-timeframe momentum, and rides maker-optimized exits with a let-winners-run trailing ladder.",
       "belief_plain": "Trades a hand-picked set of coins and commodities/indices. It only acts when the best traders are crowded on one side and the 4-hour price is already moving that way, then trails a profit-locking stop and pays cheaper maker fees on the way out.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "The strongest, lowest-noise trends show up where smart-money concentration and 4h price direction agree — across BOTH crypto and the XYZ commodities/indices that most agents ignore. Score that agreement, gate hard on it, and let the DSL ride the winners while maker-preferred exits claw back the fee drag that kills high-turnover active traders.",
       "tags": [
         "momentum",
@@ -3813,7 +3813,7 @@
       "emoji": "🦫",
       "tagline": "An onboarding-tier BTC specialist: enters only when the 4h candle structure is trending AND Senpi's Smart-Money leaderboard agrees with that direction — then takes one flat-5x position and lets a wide DSL ladder ride the trend.",
       "belief_plain": "Trades only BTC. It asks two questions — is BTC trending on the 4-hour chart, and does smart money agree? If both are yes it opens one position and trails a stop instead of guessing the exit. Built for first-time users.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "thesis": "New users want one clean answer, not a scattergun across the market. BTC is the most liquid, most legible asset on Hyperliquid; 'is it trending and does smart money agree?' is the simplest honest edge — and a wide trailing stop lets a real trend run multi-day without micromanagement.",
       "tags": [
         "btc",
@@ -4106,7 +4106,7 @@
       "emoji": "🪶",
       "tagline": "An onboarding-tier single-asset HYPE specialist: enters only when the 4h trend structure is directional AND Senpi's Smart-Money leaderboard agrees with that direction (tilt >= 60%) — then holds one flat-5x position and lets a wide DSL ladder ride the trend.",
       "belief_plain": "Trades only HYPE. It asks two simple questions — is HYPE trending on the 4-hour chart, and do the best traders agree with that direction? If both are yes, it opens one position and trails a wide stop instead of guessing the exit, so winning trends can run for days.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "thesis": "New users want one clean decision, not a scattergun across the market. HYPE has the liquidity and the moves, and a one-asset, one-direction strategy with a Smart-Money confirmation gate is the simplest honest answer to 'I'm new to Senpi, where do I start?'",
       "tags": [
         "hype",
@@ -4201,7 +4201,7 @@
       "emoji": "🐨",
       "tagline": "The simplest agent in the catalog: pick one asset (default BTC), fire LONG once on deploy, then hold with an ultra-wide DSL trail (max_loss 30%, retrace, 90-day timeout). No scoring, no scheduling — the choice to deploy Koala IS the bet.",
       "belief_plain": "Trades only the one coin you pick (BTC by default). It buys once when you turn it on, then just holds — never adding, never trading around it — with a very wide safety stop that only releases on a catastrophic reversal or after three months. The whole idea is to own the coin and have a net under it.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "Some users do not want a market-reading agent at all — they just want to own one asset and have a safety net. Koala is that answer in code: one asset, one entry, one stop. Fire-once by default (a true buy-and-forget), with an optional re-entry cycle for operators who want 'buy / DSL-exits / buy again' on a long cooldown.",
       "tags": [
         "btc",
@@ -4440,7 +4440,7 @@
       "emoji": "🦌",
       "tagline": "Watches a small whitelist of large-cap crypto for a real parabolic setup — established uptrend, a 7-day move of 25%+ on surging volume that's still accelerating, with smart money piled long — then goes long and hands the trade to the widest stop in the catalog so it can ride the whole run through the violent intraday pullbacks.",
       "belief_plain": "Only buys when a coin is genuinely going parabolic, not just trending. It waits for a big multi-week move that's still speeding up on heavy volume with the best traders leaning long, then uses a very loose trailing stop so the position survives the 5-8% dips that would shake out a normal trend trade.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "thesis": "The hard part of a parabolic run isn't entering — it's not getting chopped out. A standard trend trail makes local-volatility decisions and exits on the first 5-8% pullback, missing the rest of a +60% move. Stag pairs a strict entry filter (so it only fires on a real parabolic) with the deliberately wide parabolic_runner DSL (so the trade survives the gyrations). The trade-off is honest: it bleeds in chop, which is exactly why the filter is strict.",
       "tags": [
         "parabolic",
@@ -4693,7 +4693,7 @@
       "emoji": "🐦",
       "tagline": "Auto-discovers the platform's top-performing strategies, then trades the asset + direction they agree on most — performance-weighted, so a stronger strategy gets more say (capped so one outlier can't dominate).",
       "belief_plain": "Lets the best strategies on the platform do the work. Every few minutes it finds the top performers, looks at what they're holding right now, and copies whatever the most (and best) of them are piling into together — going long what they're long and short what they're short.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "thesis": "Following one trader or one leaderboard is one layer; Cuckoo is a layer above it. The strategies it follows are themselves copy/algo/trader-following strategies, so it captures the consensus of the consensus. When the best strategies independently pile into the same asset+direction, that agreement is a strong, self-cleaning signal — underperformers fall out of the top-N automatically, so the pool refreshes toward whatever is working.",
       "tags": [
         "copy-trading",
@@ -5011,7 +5011,7 @@
       "emoji": "🦅",
       "tagline": "Hunts ELITE/RELIABLE traders who are winning big this week, reads the single bet driving their streak, confirms the smart-money crowd agrees and the asset hasn't already run away from the whale's entry, then piggybacks the same trade — sizing leverage to conviction (7/8/10x).",
       "belief_plain": "Finds the traders who are crushing it right now AND have a proven track record, figures out which position is making them the money, checks the smart-money crowd is leaning the same way, and copies that trade — but skips it if the price already ran too far past where the whale got in.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "A trader who is both proven (ELITE/RELIABLE) and hot right now is the best signal you can ride. Don't average a cohort and don't chase one-week wonders — find the quality account on a live streak, isolate the conviction bet driving it, confirm the smart-money crowd and recent price action agree, and follow only if you can still get in near the whale's entry.",
       "tags": [
         "smart-money",

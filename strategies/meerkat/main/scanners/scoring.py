@@ -26,7 +26,7 @@ def safe_float(v, default=0.0):
 def event_asset(event):
     if not isinstance(event, dict):
         return ""
-    return str(event.get("token", event.get("coin", event.get("asset", event.get("symbol", ""))))).upper()
+    return str(event.get("token", event.get("coin", event.get("asset", event.get("symbol", "")))))
 
 
 def event_magnitude(event):

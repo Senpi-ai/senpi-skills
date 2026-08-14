@@ -111,7 +111,7 @@ def _sm_for_asset(ctx, asset):
 
 
 def scan(inputs, ctx):
-    asset = (inputs.get("asset", "BTC") or "BTC").upper()
+    asset = (inputs.get("asset", "BTC") or "BTC")   # PRESERVE case for emit/tool (kPEPE/xyz:*); compare sites re-upper both sides
     min_score = float(inputs.get("minScore", 5))
     margin_pct = float(inputs.get("marginPct", 25))   # PERCENT of withdrawable (0,100], not a fraction
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))

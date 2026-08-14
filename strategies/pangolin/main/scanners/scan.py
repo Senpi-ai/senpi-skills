@@ -75,7 +75,12 @@ def _build_universe(ctx, inputs):
             continue
         if inst.get("is_delisted"):
             continue
-        name = str(inst.get("name", inst.get("coin", ""))).upper()
+        # CASE-PRESERVED: market_list_instruments is the source of truth for exact coin-name
+        # casing, and HL names are CASE-SENSITIVE — the 1000x names carry a lowercase k
+        # (kPEPE/kSHIB/kBONK) and `KPEPE` is rejected as INVALID_ARGUMENT. This name is
+        # passed to market_get_funding_history AND emitted as the signal asset, so upper-casing
+        # it silently no-traded every k-denominated name. Comparisons upper-case at their site.
+        name = str(inst.get("name", inst.get("coin", "")))
         if not name:
             continue
         if _is_xyz(name):                                  # v2-quirk: XYZ banned (no funding thesis on equities)
@@ -240,7 +245,8 @@ def scan(inputs, ctx):
         if ph < min_persistence:
             continue
 
-        c = scoring.score_candidate(name, ctx_block, fh, regime, sm_map.get(name), u["volume_24h"])
+        # sm_map is keyed upper-case (see _get_sm_map); `name` is case-preserved -> upper at lookup.
+        c = scoring.score_candidate(name, ctx_block, fh, regime, sm_map.get(name.upper()), u["volume_24h"])
         if c is not None:
             candidates.append(c)
 
@@ -252,9 +258,12 @@ def scan(inputs, ctx):
         if c["score"] < min_score:
             continue
         t = c["token"]
-        if t in held:                                      # v2.1.0: never add to an existing position
+        # held + last_closed are keyed upper-case (account read / post-close diff); `t` is
+        # case-preserved -> upper at the membership test. `emitted` is keyed by c["token"]
+        # (case-preserved) at both write and read, so it stays self-consistent.
+        if t.upper() in held:                              # v2.1.0: never add to an existing position
             continue
-        if t in last_closed:                               # v2.1.2: post-close thrash guard
+        if t.upper() in last_closed:                       # v2.1.2: post-close thrash guard
             continue
         if t in emitted:                                   # v1 post-emit debounce
             continue

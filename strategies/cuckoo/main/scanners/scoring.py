@@ -109,12 +109,17 @@ def tally_consensus(entries):
     (asset, direction) -> {"asset","direction","count","weight"}. Verbatim."""
     agg = {}
     for e in entries:
-        asset = str(e.get("asset", "")).upper()
+        asset = str(e.get("asset", ""))
         direction = e.get("direction")
         if not asset or direction not in ("LONG", "SHORT"):
             continue
         weight = safe_float(e.get("weight"), 1.0)
-        key = (asset, direction)
+        # KEY on the upper-cased symbol so different-case duplicates aggregate,
+        # but STORE the original case: the emitted symbol goes straight into a
+        # Senpi tool call and Hyperliquid coin names are CASE-SENSITIVE (kPEPE
+        # rejected as KPEPE; HIP-3 prefix lowercase xyz:). Downstream held/dedup
+        # sites (scan.py) upper-case at their own comparison site.
+        key = (asset.upper(), direction)
         rec = agg.setdefault(key, {"asset": asset, "direction": direction, "count": 0, "weight": 0.0})
         rec["count"] += 1
         rec["weight"] += weight

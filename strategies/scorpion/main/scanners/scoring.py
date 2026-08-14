@@ -56,7 +56,8 @@ def score_market(m, inputs):
     min_4h_xyz = float(inputs.get("min4hAlignedPctXyz", 0.5))
     min_traders = int(inputs.get("minTraders", 5))
 
-    token = str(m.get("token", "")).upper()
+    raw = str(m.get("token", ""))     # PRESERVE case for emission (kPEPE/kSHIB/kBONK; PR #501)
+    token = raw.upper()               # UPPER only for the membership/gate comparisons below
     dex = str(m.get("dex", "")).lower()
 
     is_xyz_asset = (dex == "xyz" and token in xyz_assets)
@@ -134,11 +135,11 @@ def score_market(m, inputs):
     if score < min_score:
         return None
 
-    reasons.insert(0, f"TREND_FOLLOW {coin_label(token, is_xyz_asset)} {sm_direction}")
+    reasons.insert(0, f"TREND_FOLLOW {coin_label(raw, is_xyz_asset)} {sm_direction}")
 
     return {
-        "asset": coin_label(token, is_xyz_asset),
-        "token": token,
+        "asset": coin_label(raw, is_xyz_asset),   # EMIT case-preserved tradeable name
+        "token": token,                            # UPPER — internal peer-momentum join key (symmetric)
         "is_xyz": is_xyz_asset,
         "direction": sm_direction,
         "score": score,

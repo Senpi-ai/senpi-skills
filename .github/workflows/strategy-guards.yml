@@ -1,0 +1,35 @@
+name: strategy-guards
+
+# Lightweight, dependency-free guards for strategy scanner code.
+# Introduced with the fleet casing sweep: enforces that NEW code cannot
+# reintroduce the case-sensitivity silent-no-trade bug (kPEPE/kSHIB/kBONK, xyz:).
+
+on:
+  pull_request:
+    paths:
+      - "strategies/**"
+      - "senpi-strategy-author/scripts/**"
+      - ".github/workflows/strategy-guards.yml"
+  push:
+    branches: [main]
+    paths:
+      - "strategies/**"
+      - "senpi-strategy-author/scripts/**"
+
+jobs:
+  guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile all scanner modules
+        run: find strategies -path '*/scanners/*.py' -not -path '*/tests/*' -print0 | xargs -0 -n1 python3 -m py_compile
+
+      - name: Casing guard (ratchet — fails only on NEW symbol upper-casing)
+        run: python3 senpi-strategy-author/scripts/lint_casing.py --baseline senpi-strategy-author/scripts/casing-baseline.txt .
+
+      - name: Casing / position_notional regression tests
+        run: python3 strategies/cuckoo/tests/test_scoring_casing.py
