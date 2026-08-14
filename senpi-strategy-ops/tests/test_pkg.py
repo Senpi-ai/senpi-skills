@@ -451,6 +451,61 @@ def test_more_than_one_trailing_newline_is_not_a_ticker_at_all(tmp_path):
     assert validate_universe.package_tickers(str(d)) == set()
 
 
+# ───────────────── key POLARITY (LOCKSTEP with senpi-trading-runtime's EXCLUSION_KEY_RE) ──────────
+# KEY_HINT cannot separate "the universe I trade" from "the names I refuse to trade": its hint is a
+# substring of both, so `excludeAssets` matches on `asset`. An exclusion list routinely names things
+# the venue does not carry — usually the reason they are on it — so demanding they be live asks the
+# inverse question. `bloodhound` and `ibis`, which hardcode no universe at all, were refused on
+# their `["USDC", "USDT"]` stablecoin filter. Change neither side alone.
+
+def _inputs_pkg(tmp_path, inputs_block):
+    """A flat package whose scanner carries `inputs_block` verbatim under `inputs:`."""
+    d = make_flat(tmp_path, pkg_id="spider", wallet_env="SPIDER_WALLET")
+    (d / "runtime.yaml").write_text(
+        (d / "runtime.yaml").read_text() + f"    inputs:\n{inputs_block}")
+    return d
+
+
+def test_values_under_an_exclusion_key_are_not_collected(tmp_path):
+    import validate_universe
+    d = _inputs_pkg(tmp_path, '      excludeAssets: ["USDC", "USDT"]\n')
+    assert validate_universe.package_tickers(str(d)) == set()
+
+
+def test_polarity_is_read_over_the_whole_key_path_not_the_leaf(tmp_path):
+    import validate_universe
+    d = _inputs_pkg(tmp_path, '      exclude:\n        assets: ["USDC"]\n')
+    assert validate_universe.package_tickers(str(d)) == set()
+
+
+def test_a_required_key_containing_an_exclusion_shaped_substring_is_still_collected(tmp_path):
+    """The over-match guard: a looser pattern would read these as exclusion lists and let a dead
+    name past the money gate to fail silently at scan time."""
+    import validate_universe
+    d = _inputs_pkg(tmp_path, '      blockchainAssets: ["BTC"]\n      denominatedAssets: ["ETH"]\n')
+    assert validate_universe.package_tickers(str(d)) == {"BTC", "ETH"}
+
+
+def test_a_package_whose_only_tickers_are_excluded_hardcodes_nothing(tmp_path):
+    """The bloodhound/ibis shape, pinned as a regression."""
+    import validate_universe
+    d = _inputs_pkg(
+        tmp_path,
+        '      universeVolFloorUsd: 20000000\n      excludeAssets: ["USDC", "USDT"]\n')
+    tickers = validate_universe.package_tickers(str(d))
+    assert tickers == set()
+    assert validate_universe.unknown_tickers(tickers, {"BTC", "ETH"}) == []
+
+
+def test_a_mixed_package_reports_its_required_dead_name_only(tmp_path):
+    import validate_universe
+    d = _inputs_pkg(
+        tmp_path,
+        '      asset_universe: ["XYZDEAD"]\n      excludeAssets: ["USDC"]\n')
+    tickers = validate_universe.package_tickers(str(d))
+    assert validate_universe.unknown_tickers(tickers, {"BTC", "ETH"}) == ["XYZDEAD"]
+
+
 def test_validate_universe_all_lists_durable_root(monkeypatch, tmp_path):
     """`validate_universe.py --all` must enumerate the durable root, not CWD-relative strategies/ —
     the same bug class as the fetch dest (a CWD glob inside a skill dir sees nothing / the wrong

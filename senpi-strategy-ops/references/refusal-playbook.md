@@ -185,7 +185,9 @@ which derives it from the file. Only a **content** install (`runtime create -c <
 
 ### `[E_UNIVERSE_NOT_LIVE]`
 
-The package hardcodes instrument(s) that are not live on Hyperliquid.
+The package hardcodes instrument(s) it intends to TRADE that are not live on Hyperliquid. (An
+exclusion list — `excludeAssets`, `deny*`/`skip*` — never triggers this: those names are what the
+strategy refuses to trade, and are not required to exist on the venue.)
 **Nothing was created BY THAT RUN** — the gate read the instrument list and stopped before reading
 this package's own live state, so whatever the package already had is untouched and this gate
 cannot see it. Relay it that scoped way (never "there is no wallet"): on a resume the package may

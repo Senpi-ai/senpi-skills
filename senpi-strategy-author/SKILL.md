@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.0.1"
+  version: "3.0.2"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -229,7 +229,7 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
    (a) **authoring lint** → `python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>`
    (candle keys, null-in-schema, mandate description, retention/cooldown bounds);
    (b) **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>`
-   — every hardcoded ticker must be a live HL instrument (derived-universe strategies pass trivially);
+   — every hardcoded ticker you TRADE must be a live HL instrument (derived universes, and names under an exclusion key, pass trivially);
    (c) **deploy contract** → `python3 senpi-strategy-ops/scripts/deploy.py validate /data/workspace/strategies/<id>`
    — the deployer's structural preflight (structure, linkage, render; **no money moved, nothing
    installed** — though not side-effect-free: a bare catalog id is fetched to disk). It also
@@ -332,9 +332,9 @@ makes one new wallet per instance). Authoring just designs the package; **concur
   free-text **`thesis`** is the only worldview hook (how "run me a hedge fund" finds the strategy).
 - **Anchor every `call_tool` on the published MCP I/O reference** — a guessed tool name, interval
   string, or output field is a scanner that ticks clean and emits nothing.
-- **Never hardcode a ticker you didn't verify.** Every static `universe`/`asset`/`catalog.assets`
-  entry must be a live HL instrument (`validate_universe.py`) — a fake ticker 500s on
-  `market_get_asset_data` and the scan skips it: no error, no trade. `xyz:XYZ100`, not `xyz:NASDAQ`.
+- **Never hardcode a ticker you didn't verify.** Every static `universe`/`asset`/`catalog.assets` entry you TRADE
+  must be a live HL instrument (`validate_universe.py`; an **exclusion** list — `excludeAssets`, `deny*`, `skip*` —
+  is exempt: it names what you will *not* trade) — a fake ticker 500s on `market_get_asset_data` and the scan skips it: no error, no trade. `xyz:XYZ100`, not `xyz:NASDAQ`.
 
 ## Editing an existing strategy
 

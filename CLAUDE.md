@@ -54,8 +54,10 @@ strategies/<id>/                   # a strategy package (e.g. strategies/spider/
   `senpi-strategy-discover/catalog.json` (bundled so the catalog travels with the discover skill
   when installed standalone). Keep both in sync by re-running `gen_catalog.py`.
 - **Validate** a package with `senpi-strategy-author/scripts/validate_strategy.py <dir>` and
-  `senpi-strategy-ops/scripts/validate_universe.py <dir>` (every hardcoded ticker must be a live
-  HL instrument — a dead name silently no-trades). The universe **gate** lives in the RUNTIME verb:
+  `senpi-strategy-ops/scripts/validate_universe.py <dir>` (every hardcoded ticker the strategy
+  TRADES must be a live HL instrument — a dead name silently no-trades; an **exclusion** list
+  (`excludeAssets`, `deny*`/`skip*`) is exempt on both sides, since it names what is NOT traded).
+  The universe **gate** lives in the RUNTIME verb:
   `openclaw senpi deploy` refuses `[E_UNIVERSE_NOT_LIVE]` **pre-money** (fail-closed when the live
   list is unreadable) and `deploy.py` only relays that refusal. `validate_universe.py` stays the
   standalone read-only check, and `deploy.py validate <id>` reports it from the same predicates.
