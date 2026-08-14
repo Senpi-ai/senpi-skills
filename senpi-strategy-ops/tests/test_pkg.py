@@ -557,6 +557,31 @@ def test_validate_accepts_percent_marginpct(tmp_path):
     assert _pkg.validate(_pkg.load(str(d))) == []
 
 
+def test_margin_offenders_ignores_scanner_private_tunables():
+    """Only a key the runtime (or the emit convention) reads as a slot size may refuse a package.
+
+    A vol-parity sleeve keeps its clamp bounds as FRACTIONS and emits `marginPct` as `pct * 100`
+    (caribou, hydra); a tiered sleeve parks the same fraction form in a private list and converts at
+    emit (dire). A whole-document `*marginPct*` walk called all three broken and made live catalog
+    packages unfundable."""
+    off = _pkg.margin_fraction_offenders
+    assert off({"scanners": [{"inputs": {"minMarginPct": 0.03, "maxMarginPct": 0.15}}]}) == []
+    assert off({"scanners": [{"inputs": {"sizingTiers": [{"marginPct": 0.2}]}}]}) == []
+    # the slot-size key itself still flags, in the very same inputs map
+    assert off({"scanners": [{"inputs": {"marginPct": 0.2, "minMarginPct": 0.03}}]}) == [
+        ("scanners[0].inputs.marginPct", 0.2)
+    ]
+
+
+def test_every_catalog_package_validates():
+    """Every shipped package must pass the gate that funds it. Nothing else asserted this, so the
+    fraction-walk regression sat on `main` making caribou/dire/hydra undeployable, and only a dev-box
+    deploy attempt found it."""
+    root = Path(_pkg.strategies_root())
+    pkgs = sorted(d for d in root.iterdir() if (d / "strategy.yaml").is_file())
+    assert len(pkgs) > 50, f"catalog looks unexpectedly small ({len(pkgs)}) — wrong root?"
+    broken = {d.name: errs for d in pkgs if (errs := _pkg.validate(_pkg.load(str(d))))}
+    assert broken == {}, f"packages failing validate: {broken}"
 # ───────────────────────────── the DSL exit-block predicate ─────────────────────────────
 # `Instance.has_dsl` gates `_pkg.validate`'s funded-but-no-DSL refusal: a package whose positions
 # run naked (no hard stop, no trailing floor) is never funded. Its branch coverage used to live in
