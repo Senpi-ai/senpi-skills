@@ -810,6 +810,50 @@ def test_embedded_idle_reads_nested_total_in_hyperliquid():
     assert res["totals"]["idle_in_embedded"] == 10446.0
 
 
+def test_embedded_evm_usdc_reads_balanceInUSD():
+    """Regression (the always-empty evm_usdc bug): live GetPortfolioV3 token_balances carry the USD
+    amount as `balanceInUSD` (with `tokenSymbol`/`formattedBalance`), none of which were in the old
+    field-name fallback chain — so every EVM token read $0 and evm_usdc was always []. This fixture
+    (the exact live shape, USDC on Base) must surface as embedded EVM idle."""
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"portfolio": {
+            "total_balance_usd": 7.98, "total_allocated_in_strategy": 0, "total_withdrawable": 0,
+            "total_in_hyperliquid": 0, "total_spot_usd_in_hyperliquid": 0,
+            "token_balances": [{
+                "tokenSymbol": "USDC",
+                "tokenAddress": "0x833589fcd6edb6e8f4c7c32d4f71b54bda02913",
+                "formattedBalance": "7.984101",
+                "balanceInUSD": 7.983940679251919,
+                "chainId": 8453}]}},
+        "strategy_list": {"strategies": []},
+    }
+    res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    assert res["embedded_wallet"]["evm_usdc"] == [{"chain": "EVM", "usd": 7.98}]
+    assert res["totals"]["idle_in_embedded"] == 7.98
+
+
+def test_embedded_evm_usdc_falls_back_to_formattedBalance_times_price():
+    """When `balanceInUSD` is absent the amount comes from formattedBalance x tokenPriceInUSD."""
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"portfolio": {
+            "total_balance_usd": 5.0, "total_allocated_in_strategy": 0, "total_withdrawable": 0,
+            "total_in_hyperliquid": 0, "total_spot_usd_in_hyperliquid": 0,
+            "token_balances": [{
+                "tokenSymbol": "USDC",
+                "formattedBalance": "5.0",
+                "tokenPriceInUSD": 0.9998,
+                "chainId": 42161}]}},
+        "strategy_list": {"strategies": []},
+    }
+    res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    assert res["embedded_wallet"]["evm_usdc"] == [{"chain": "EVM", "usd": 5.0}]
+    assert res["totals"]["idle_in_embedded"] == 5.0
+
+
 # ──────────────────────────────────────────────── streaming STEPS (money · strategies · positions · all)
 def _client():
     """A fresh fixture client on the canonical portfolio fixture (each step consumes its own client)."""
