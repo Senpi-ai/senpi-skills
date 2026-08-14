@@ -14,8 +14,10 @@ trades[]      per CLOSED trade (from strategies of ALL statuses — a churned bo
   exit_reason: { terminal, tier_index/tier_reached, high_water_roe, source },   # which DSL lever fired
   source: "telemetry" | "reconstructed"   # telemetry = exit_reason came from the event log; else discovery+ratchet
 
-pnl_summary      TOTAL LEDGER — LEAD WITH THIS (realized closed + unrealized open):
-  realized, unrealized (None = UNKNOWN read, not 0), total (None when unrealized UNKNOWN),
+pnl_summary      TOTAL LEDGER — LEAD WITH NET (net_realized closed + unrealized open); gross_* is pre-fee:
+  gross_realized, fees (None = UNDETERMINED, fills read failed — NOT 0), net_realized (gross − fees; None when fees undetermined),
+  fees_status ("ok" | "undetermined"), unrealized (None = UNKNOWN read, not 0),
+  gross_total, net_total (None when unrealized OR fees UNKNOWN),   # LEAD with net_total, not gross_total
   realized_by_book{ current, closed },      # quote this split — never re-derive a closed-book figure
   unrealized_coverage{ read, current_strategies },
   unrealized_partial   # true → some wallets UNKNOWN; unrealized/total are a FLOOR ("at least $X, N of M") — HARD RULE 1
@@ -27,7 +29,8 @@ telemetry_availability   the 'undetermined ≠ all-clear' signal — READ IT FIR
 
 timing_summary   PROCESS-framed COUNTS (never $/week; NEUTRAL, never a grade):
   trade_count, exits_ahead, exits_held_higher, exits_flat, exits_unknown,
-  realized_pnl_total, if_all_reclosed_now_total (CONTEXT, symmetric — see guardrail 1), by_asset_class{}
+  gross_realized_pnl_total, fees_total (None = UNDETERMINED, NOT 0), net_realized_pnl_total (LEAD with this), fees_status,
+  if_all_reclosed_now_total (CONTEXT, symmetric — see guardrail 1), by_asset_class{}   # by_asset_class carries gross/fees/net per class
 
 dsl_close_reason_mix   "shaken out too early / how are my exits firing" (from trades[] exit_reason):
   overall        { by_terminal{}, trade_count, premature_exits }
@@ -60,16 +63,19 @@ strategies[]  the CURRENT book ONLY (status ACTIVE | PAUSED) — each judged vs 
     skill_name,               # the package attribution stamp — same pairing, survives a dead registry
     # group/skill_name are the ONLY proof two rows are one strategy: sleeves are named apart and carry
     # different mandates. Two ACTIVE rows sharing either one are sleeves — never merge or close one.
-    wallet, status, mandate, dsl, closed_trade_count, realized_pnl,
+    wallet, status, mandate, dsl, closed_trade_count,
+    gross_realized_pnl,       # HL closedPnl — GROSS (pre-fee)
+    fees, net_realized_pnl, fees_status,   # fees from the fills ledger (None = UNDETERMINED, NOT 0); net = gross − fees
     unrealized_pnl,           # current open positions' unrealized — None = UNKNOWN read (never a fake 0)
-    total_pnl,                # realized + unrealized (None when unrealized UNKNOWN) — JUDGE ON THIS, not realized
+    gross_total_pnl,          # gross_realized + unrealized (None when unrealized UNKNOWN)
+    net_total_pnl,            # net_realized + unrealized (None when either UNKNOWN) — JUDGE ON THIS, not gross
     open_position_count,
     open_positions[]{ asset, direction, unrealized_pnl, return_on_equity_pct, entry_px, position_value, leverage },
     on_mandate_note }         # open_positions = the 'are winners running' evidence (guardrail 1)
   # THIS is the verdict + improvement surface. Nothing here is closed.
 
 closed_strategies[]  HISTORY ONLY (CLOSED / INACTIVE / … — churned or retired redeployments):
-  { label, wallet_short, status, trade_count, realized_pnl }
+  { label, wallet_short, status, trade_count, gross_realized_pnl, fees, net_realized_pnl, fees_status }
   # deliberately NO mandate / dsl / verdict / on_mandate_note. Their trades are already in trades[]
   # (part of the timing review, attributed by label). NEVER give these a "consolidate/kill/fix" verdict,
   # NEVER flag their absent mandate as a bug, NEVER count them as live "wallets to consolidate."

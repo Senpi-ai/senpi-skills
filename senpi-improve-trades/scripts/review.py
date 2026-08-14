@@ -799,10 +799,13 @@ def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
         if not coin or sz <= 0:
             continue
         if d.startswith("Open"):
-            lots[coin].append({"px": px, "sz": sz, "time": t})
+            # carry the OPEN-side fee + original size so a later Close can pro-rate the matched share.
+            lots[coin].append({"px": px, "sz": sz, "orig_sz": sz, "time": t,
+                               "fee": abs(_num(f.get("fee")) or 0.0)})
         elif d.startswith("Close"):
             side = "long" if "Long" in d else ("short" if "Short" in d else None)
             remaining, entry_notional, matched, open_time = sz, 0.0, 0.0, t
+            open_fee = 0.0                               # matched share of the OPEN-side fees
             q = lots[coin]
             while remaining > 1e-9 and q:                # FIFO-match the closed size against open lots
                 lot = q[0]
@@ -810,6 +813,8 @@ def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
                 entry_notional += take * (lot["px"] or 0.0)
                 matched += take
                 open_time = lot["time"] or open_time
+                if lot.get("orig_sz"):                   # pro-rate the open fee by the fraction of the lot taken
+                    open_fee += (lot.get("fee") or 0.0) * (take / lot["orig_sz"])
                 lot["sz"] -= take
                 remaining -= take
                 if lot["sz"] <= 1e-9:
@@ -821,12 +826,14 @@ def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
                 "leverage": None,                        # not carried on HL fills
                 "entry_px": (entry_notional / matched) if matched > 0 else None,
                 "exit_px": px,
-                "realized_pnl": round(_num(f.get("closedPnl")) or 0.0, 2),   # HL's own realized — authoritative
+                "realized_pnl": round(_num(f.get("closedPnl")) or 0.0, 2),   # HL's own realized — GROSS (pre-fee)
                 "margin_used": None,
                 "open_time": open_time,
                 "close_time": t,
                 "closed_order_id": f.get("oid"),
-                "fee": _num(f.get("fee")),
+                # round-trip trading fee = matched OPEN-side fees + this CLOSE fill's fee. HL `fee` ALREADY
+                # includes the builder fee, so this is the whole cost — never add a builder fee on top.
+                "fee": round(open_fee + abs(_num(f.get("fee")) or 0.0), 4),
                 "source": "onchain_fills",
             })
     out = []
@@ -891,18 +898,31 @@ def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
             "closed_order_id": _field(p, "closedOrderId", "closed_order_id"),
             "source": "discovery",
         })
+    # FEES: the fills ledger is the ONLY authoritative fee source — discovery_get_trader_history carries no
+    # fee, so the realized_pnl above is GROSS. Pull userFills ONCE and use it both to attribute a round-trip
+    # `fee` to each discovery trade and (when discovery is empty) to reconstruct the closed book. `_hl_info`
+    # fails OPEN → None (distinct from an empty list): None ⇒ fee UNDETERMINED for these trades, never a fake $0.
+    fills = _hl_info({"type": "userFills", "user": wallet}, meta, client)
+    recon = _reconstruct_closed_from_fills(fills, since_ms, until_ms, None) if isinstance(fills, list) else []
+    fee_by_oid = {}
+    for r in recon:
+        oid = r.get("closed_order_id")
+        if oid is not None:
+            fee_by_oid[oid] = round((fee_by_oid.get(oid) or 0.0) + (_num(r.get("fee")) or 0.0), 4)
+
     if trades:
+        for t in trades:                        # stamp the fills-derived round-trip fee onto each discovery row
+            t["fee"] = fee_by_oid.get(t.get("closed_order_id")) if isinstance(fills, list) else None
         trades.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
         return trades[:cap] if cap else trades
 
-    # DISCOVERY EMPTY → recover on-chain. This is the closed-strategy trap: the trades exist, just not in
-    # Senpi's index. Empty HL fills too ⇒ genuinely no trades (a brand-new book) → [].
-    fills = _hl_info({"type": "userFills", "user": wallet}, meta, client)
-    recon = _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap)
+    # DISCOVERY EMPTY → the reconstructed on-chain book IS the trade list (each row already carries its `fee`).
+    # The closed-strategy trap: strategy_close clears Senpi's index but HL keeps the fills by wallet ADDRESS.
+    # Empty HL fills too ⇒ genuinely no trades (a brand-new book) → [].
     if recon:
         meta.setdefault("onchain_recovered_wallets", []).append(wallet)
         meta["closed_trade_source"] = "onchain_fills"
-    return recon
+    return recon[:cap] if cap else recon
 
 
 # ──────────────────────────────────────────────────────────────── current price (market_get_asset_data)
@@ -1376,7 +1396,12 @@ def _timing_summary(trades):
     held_higher = sum(1 for t in trades if t.get("exit_vs_hold") == "held_higher")
     flat = sum(1 for t in trades if t.get("exit_vs_hold") == "flat")
     unknown = sum(1 for t in trades if t.get("exit_vs_hold") == "unknown")
-    realized_total = round(sum(_num(t.get("realized_pnl")) or 0.0 for t in trades), 2)
+    realized_total = round(sum(_num(t.get("realized_pnl")) or 0.0 for t in trades), 2)   # GROSS — pre-fee
+    _fees = [t.get("fee") for t in trades]
+    _all_known = all(isinstance(f, (int, float)) and not isinstance(f, bool) for f in _fees)   # True for []
+    fees_total = (round(sum(f for f in _fees if isinstance(f, (int, float)) and not isinstance(f, bool)), 2)
+                  if _all_known else None)
+    net_realized_total = round(realized_total - fees_total, 2) if fees_total is not None else None
     if_deltas = [_num(t.get("if_held_delta_usd")) for t in trades]
     if_deltas = [d for d in if_deltas if d is not None]
     if_all = round(sum(if_deltas), 2) if if_deltas else None
@@ -1385,13 +1410,23 @@ def _timing_summary(trades):
     for t in trades:
         cls = "equity/index" if t.get("dex") == "xyz" else "crypto"
         b = by_class.setdefault(cls, {"trade_count": 0, "exits_ahead": 0, "exits_held_higher": 0,
-                                      "realized_pnl_total": 0.0})
+                                      "gross_realized_pnl_total": 0.0, "_fees": 0.0, "_fees_known": 0})
         b["trade_count"] += 1
         if t.get("exit_vs_hold") == "exit_ahead":
             b["exits_ahead"] += 1
         elif t.get("exit_vs_hold") == "held_higher":
             b["exits_held_higher"] += 1
-        b["realized_pnl_total"] = round(b["realized_pnl_total"] + (_num(t.get("realized_pnl")) or 0.0), 2)
+        b["gross_realized_pnl_total"] = round(b["gross_realized_pnl_total"] + (_num(t.get("realized_pnl")) or 0.0), 2)
+        fee = t.get("fee")
+        if isinstance(fee, (int, float)) and not isinstance(fee, bool):
+            b["_fees"] = round(b["_fees"] + fee, 2)
+            b["_fees_known"] += 1
+    for b in by_class.values():                # finalize each class's net (UNDETERMINED if any fee missing)
+        known = b.pop("_fees_known") == b["trade_count"]
+        f = b.pop("_fees")
+        b["fees_total"] = round(f, 2) if known else None
+        b["net_realized_pnl_total"] = round(b["gross_realized_pnl_total"] - f, 2) if known else None
+        b["fees_status"] = "ok" if known else "undetermined"
 
     return {
         "trade_count": trade_count,
@@ -1399,7 +1434,10 @@ def _timing_summary(trades):
         "exits_held_higher": held_higher,      # holding to now would be higher — NEUTRAL, NOT 'premature'
         "exits_flat": flat,
         "exits_unknown": unknown,              # price missing → couldn't compare (honest sourcing)
-        "realized_pnl_total": realized_total,
+        "gross_realized_pnl_total": realized_total,     # GROSS — before trading fees
+        "fees_total": fees_total,              # window trading fees (builder-fee-incl); None = UNDETERMINED
+        "net_realized_pnl_total": net_realized_total,   # gross − fees; None when fees undetermined — LEAD with this
+        "fees_status": ("ok" if fees_total is not None else "undetermined"),
         "if_all_reclosed_now_total": if_all,   # counterfactual aggregate — CONTEXT, NEVER a projection/target
         "by_asset_class": by_class,
     }
@@ -1608,14 +1646,21 @@ def book_vs_market(client, trades, strategies, meta, want_market):
 
 # ──────────────────────────────────────────────────────────────── per-strategy read (judged vs mandate)
 def _pnl_by_wallet(trades):
-    """wallet_lower → {count, pnl} rollup of closed trades. Shared by the current-book read and the
-    historical closed-strategy rollup so both attribute trades by the SAME wallet key."""
+    """wallet_lower → {count, pnl (GROSS realized), fees, fees_known} rollup of closed trades. Shared by the
+    current-book read and the historical closed-strategy rollup so both attribute trades by the SAME wallet
+    key. `fees` sums each trade's authoritative fills-ledger fee (builder-fee-inclusive); `fees_known` counts
+    the trades whose fee resolved — when it is < count the fee source was UNDETERMINED for some trade, so the
+    wallet's net PnL must stay UNKNOWN rather than subtract a partial (understated) fee total."""
     by_wallet = {}
     for t in trades:
         w = str(t.get("strategy_wallet") or "").lower()
-        b = by_wallet.setdefault(w, {"count": 0, "pnl": 0.0})
+        b = by_wallet.setdefault(w, {"count": 0, "pnl": 0.0, "fees": 0.0, "fees_known": 0})
         b["count"] += 1
         b["pnl"] = round(b["pnl"] + (_num(t.get("realized_pnl")) or 0.0), 2)
+        fee = t.get("fee")
+        if isinstance(fee, (int, float)) and not isinstance(fee, bool):
+            b["fees"] = round(b["fees"] + fee, 4)
+            b["fees_known"] += 1
     return by_wallet
 
 
@@ -1638,9 +1683,17 @@ def _strategy_reads(trades, strategies, open_book=None):
         ob = open_book.get(w) or {}
         unrealized = ob.get("unrealized_pnl")       # None → open book unreadable (UNKNOWN, never a fake 0)
         open_positions = ob.get("positions") or []
-        realized = agg["pnl"]
-        total = (round(realized + unrealized, 2)
-                 if isinstance(unrealized, (int, float)) and not isinstance(unrealized, bool) else None)
+        gross_realized = agg["pnl"]                  # HL closedPnl sum — GROSS, before trading fees
+        _uok = isinstance(unrealized, (int, float)) and not isinstance(unrealized, bool)
+        # NET is available only when EVERY closed trade's fee resolved. If the fills read was UNDETERMINED for
+        # even one, subtracting a partial fee understates the cost — so fees/net stay UNKNOWN (never gross-as-net).
+        cnt = agg.get("count", 0)
+        fees_ok = (cnt == 0) or (agg.get("fees_known", 0) == cnt)
+        fees = round(agg.get("fees", 0.0), 2) if fees_ok else None
+        net_realized = round(gross_realized - fees, 2) if fees is not None else None
+        gross_total = round(gross_realized + unrealized, 2) if _uok else None
+        net_total = round(net_realized + unrealized, 2) if (net_realized is not None and _uok) else None
+        fees_status = "ok" if fees is not None else "undetermined"
         mandate = s.get("mandate")
         if mandate is None:
             note = ("mandate unavailable on this CURRENT strategy — look it up / check the runtime "
@@ -1666,9 +1719,13 @@ def _strategy_reads(trades, strategies, open_book=None):
             "mandate": mandate,
             "dsl": s.get("dsl"),                 # the levers a fix routes to
             "closed_trade_count": agg["count"],
-            "realized_pnl": realized,
-            "unrealized_pnl": unrealized,        # current open positions' unrealized — None = UNKNOWN read
-            "total_pnl": total,                  # realized + unrealized; None when unrealized UNKNOWN
+            "gross_realized_pnl": gross_realized,   # HL closedPnl sum — GROSS, before trading fees
+            "fees": fees,                           # window trading fees (builder-fee-incl); None = UNDETERMINED
+            "net_realized_pnl": net_realized,       # gross_realized − fees; None when fees undetermined
+            "unrealized_pnl": unrealized,           # current open positions' unrealized — None = UNKNOWN read
+            "gross_total_pnl": gross_total,         # gross_realized + unrealized; None when unrealized UNKNOWN
+            "net_total_pnl": net_total,             # net_realized + unrealized; None when either UNKNOWN
+            "fees_status": fees_status,             # ok | undetermined — never render gross as net when undetermined
             "open_position_count": len(open_positions),
             "open_positions": open_positions,    # asset/direction/unrealized_pnl/return_on_equity_pct/entry/lev
             "on_mandate_note": note,
@@ -1690,12 +1747,18 @@ def _closed_strategy_rollup(trades, strategies):
         w = str(s.get("wallet") or "").lower()
         agg = by_wallet.get(w, {"count": 0, "pnl": 0.0})
         wallet = s.get("wallet")
+        cnt = agg.get("count", 0)
+        _fok = (cnt == 0) or (agg.get("fees_known", 0) == cnt)
+        _fees = round(agg.get("fees", 0.0), 2) if _fok else None
         out.append({
             "label": s.get("label"),
             "wallet_short": (str(wallet)[:10] if wallet else None),
             "status": s.get("status"),
             "trade_count": agg["count"],
-            "realized_pnl": agg["pnl"],
+            "gross_realized_pnl": agg["pnl"],       # GROSS (pre-fee)
+            "fees": _fees,                          # None = UNDETERMINED (fills read failed for some trade)
+            "net_realized_pnl": (round(agg["pnl"] - _fees, 2) if _fees is not None else None),
+            "fees_status": ("ok" if _fees is not None else "undetermined"),
         })
     return out
 
@@ -1726,36 +1789,54 @@ def _telemetry_source(source_counts, telemetry_warned):
 
 
 # ──────────────────────────────────────────────── total-ledger PnL + the 'undetermined ≠ all-clear' signal
-def _pnl_summary(realized_total, strat_reads):
+def _fees_total_of(trades):
+    """Sum of every trade's authoritative round-trip fee — or None if ANY trade's fee is UNDETERMINED, so the
+    net headline stays UNKNOWN rather than subtract a partial (understated) fee. None for [] → 0.0 (no trades)."""
+    fees = [t.get("fee") for t in trades]
+    if all(isinstance(f, (int, float)) and not isinstance(f, bool) for f in fees):   # all() is True for []
+        return round(sum(f for f in fees if isinstance(f, (int, float)) and not isinstance(f, bool)), 2)
+    return None
+
+
+def _pnl_summary(realized_total, strat_reads, fees_total=None):
     """The TOTAL-ledger headline the narrator LEADS with — realized (closed trades) + unrealized (current
     open positions) + total — PLUS the current-vs-closed realized split (so the narrator QUOTES it and never
     re-derives a wrong closed-book figure). `realized_total` is ALL closed trades; current-book realized = the
     current strategies' realized sum; closed-book = the remainder (reconciles by construction). `unrealized`
     sums only the current strategies whose open book was READABLE → None when none were, so `total` stays an
     honest UNKNOWN rather than collapsing to a realized-only headline."""
-    realized = round(_num(realized_total) or 0.0, 2)
-    current_realized = round(sum(_num(s.get("realized_pnl")) or 0.0 for s in strat_reads), 2)
-    closed_realized = round(realized - current_realized, 2)
+    gross_realized = round(_num(realized_total) or 0.0, 2)
+    current_realized = round(sum(_num(s.get("gross_realized_pnl")) or 0.0 for s in strat_reads), 2)
+    closed_realized = round(gross_realized - current_realized, 2)
     known = [u for u in (s.get("unrealized_pnl") for s in strat_reads)
              if isinstance(u, (int, float)) and not isinstance(u, bool)]
     unrealized = round(sum(known), 2) if known else None
-    total = round(realized + unrealized, 2) if unrealized is not None else None
+    gross_total = round(gross_realized + unrealized, 2) if unrealized is not None else None
+    fees = round(fees_total, 2) if isinstance(fees_total, (int, float)) and not isinstance(fees_total, bool) else None
+    net_realized = round(gross_realized - fees, 2) if fees is not None else None
+    net_total = round(net_realized + unrealized, 2) if (net_realized is not None and unrealized is not None) else None
+    fees_status = "ok" if fees is not None else "undetermined"
     # PARTIAL coverage: some current wallets were readable, some were NOT — so `unrealized` (and therefore
     # `total`) sums only the readable ones: a FLOOR, not a complete number. Flag it so the narrator says
     # "at least $X (N of M wallets readable)" and never presents a partial sum as the finished total. (0
     # readable is the all-UNKNOWN case: unrealized/total = None above, not a floor.)
     partial = unrealized is not None and len(known) < len(strat_reads)
     return {
-        "realized": realized,
+        "gross_realized": gross_realized,         # GROSS closed-trade PnL — before trading fees
+        "fees": fees,                             # window trading fees (builder-fee-incl); None = UNDETERMINED
+        "net_realized": net_realized,             # gross_realized − fees; None when fees undetermined
+        "fees_status": fees_status,               # ok | undetermined
         "realized_by_book": {"current": current_realized, "closed": closed_realized},
         "unrealized": unrealized,                 # None → no current open book readable (UNKNOWN, not 0)
         "unrealized_coverage": {"read": len(known), "current_strategies": len(strat_reads)},
         "unrealized_partial": partial,            # True → unrealized/total are a FLOOR (some wallets UNKNOWN)
-        "total": total,                           # realized + unrealized; None when UNKNOWN; a FLOOR when partial
-        "note": ("TOTAL = realized (closed trades) + unrealized (current open positions). LEAD with TOTAL, "
-                 "not realized alone. unrealized None = the open book couldn't be read (UNKNOWN, not 0). "
-                 "unrealized_partial True = only some current wallets read, so unrealized/total are a FLOOR "
-                 "('at least $X, N of M wallets readable') — never present them as complete."),
+        "gross_total": gross_total,               # gross_realized + unrealized; None UNKNOWN; FLOOR when partial
+        "net_total": net_total,                   # net_realized + unrealized — the honest headline; None UNKNOWN
+        "note": ("LEAD with NET total (net_realized + unrealized), NOT gross. gross_* excludes trading fees. "
+                 "fees None / fees_status 'undetermined' = the fills ledger couldn't be read, so the number is "
+                 "GROSS and fees are UNKNOWN (NOT 0) — never present a gross number as net/booked. unrealized "
+                 "None = open book unreadable (UNKNOWN, not 0). unrealized_partial True = only some current "
+                 "wallets read, so unrealized/total are a FLOOR ('at least $X, N of M wallets readable')."),
     }
 
 
@@ -1941,7 +2022,7 @@ def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_m
     strat_reads = _strategy_reads(trades, strategies, open_book)
     closed_reads = _closed_strategy_rollup(trades, strategies)
     realized_total = round(sum(_num(t.get("realized_pnl")) or 0.0 for t in trades), 2)
-    pnl_summary = _pnl_summary(realized_total, strat_reads)
+    pnl_summary = _pnl_summary(realized_total, strat_reads, _fees_total_of(trades))
     dsl_mix = _dsl_close_reason_mix(trades)   # from whatever exit_reason is in state (UNKNOWN until telemetry)
     current_count = sum(1 for s in strategies if _is_current(s.get("status")))
     closed_count = len(strategies) - current_count
@@ -2065,7 +2146,8 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     bvm = book_vs_market(client, trades, strategies, meta, want_market)
     strat_reads = _strategy_reads(trades, strategies, open_book)   # CURRENT book — now with unrealized/total/open
     closed_reads = _closed_strategy_rollup(trades, strategies) # HISTORY: closed/inactive, rollup only
-    pnl_summary = _pnl_summary(timing["realized_pnl_total"], strat_reads)   # realized + unrealized = TOTAL ledger
+    pnl_summary = _pnl_summary(timing["gross_realized_pnl_total"], strat_reads,   # realized + unrealized, net of fees
+                               timing.get("fees_total"))
 
     current_count = sum(1 for s in strategies if _is_current(s.get("status")))
     closed_count = len(strategies) - current_count

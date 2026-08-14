@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.13.3"
+  version: "1.14.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -71,8 +71,8 @@ dump when the user asked about their **strategies** — is a failure. The user w
 >   scanner-managed wallet can be reconciled as foreign and DSL-flattened within minutes (order "succeeds,"
 >   position gone; a raw read of the wrong sub-wallet then shows it "phantom").
 > - **"What happened to my [asset] / my closed trades"** → read the authoritative CLOSED record
->   (`closed.recent[]` / `closed.realized_pnl` here, or hand to `senpi-improve-trades` for why-it-closed).
->   Never narrate a closed-position story from memory.
+>   (`closed.recent[]` / `closed.net_realized_pnl` — after fees — here, or hand to `senpi-improve-trades`
+>   for why-it-closed). Never narrate a closed-position story from memory.
 
 ## The wallet model (get this exactly right)
 
@@ -323,11 +323,18 @@ directly.)
   *fighting* a rally? Read net exposure, concentration, idle drag. See `references/analysis-framework.md`.
 - **Use leveraged return, not raw price %.** Cite `return_on_equity_pct` (uPnL / margin), the number
   that actually reflects the position — a 1% price move at 10x is a 10% return on margin.
-- **Report realized PnL + closed trades, not only open ones.** Each strategy carries a `closed` block —
-  `realized_pnl` (total booked PnL over the recent history pull) and `recent[]` (last few closed
-  trades: asset, direction, realized pnl, closed time). A strategy flat right now may have *already
-  booked* real gains; report both realized and unrealized. If `closed.realized_pnl` is `null`, the
-  history read failed (see `meta.warnings`) — say realized PnL is unavailable, don't imply zero.
+- **Report NET realized PnL + closed trades, not only open ones — and never gross-as-booked.** Each
+  strategy carries a `closed` block with four PnL fields: `gross_realized_pnl` (price-PnL over the recent
+  history pull, **BEFORE fees**), `fees` (the window's builder-inclusive trading fees actually paid),
+  `net_realized_pnl` (`gross − fees` — the **real booked** number), and `fees_status`. **Lead with
+  `net_realized_pnl`** — that is what the user actually pocketed; gross alone overstates their profit.
+  `recent[]` carries the last few closed trades (asset, direction, per-trade gross `realized_pnl`, closed
+  time). A strategy flat right now may have *already booked* real gains; report both net realized and
+  unrealized. **Honesty gate on `fees_status`:** when it is `"undetermined"` the fills read failed/was
+  empty, so `fees` and `net_realized_pnl` are `null` — report the `gross_realized_pnl` figure explicitly
+  as **gross/before-fees with fees UNKNOWN (not zero)**, and never present it as booked or net. If
+  `gross_realized_pnl` is also `null`, the history read itself failed (see `meta.warnings`) — say realized
+  PnL is unavailable, don't imply zero.
 - **Surface the protection posture per strategy — then the live tiers.** Each strategy carries
   `protected` (`true` / `false` / `null`): `true` only when the deployed `runtime.yaml`'s `exit:` block
   is one the **ENGINE actually read** (`dsl_preset` or `engine: dsl`) — a `skill_name` attribution stamp
@@ -538,7 +545,10 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
     `wallet_short`, `account_value`, `idle_withdrawable`, `deployed`, `upnl`, `positions[]` (each with a
     live `dsl` tier object), `closed`.
   - `totals` — summed across every instance: `account_value`, `idle_withdrawable`, `deployed`, `upnl`,
-    and `realized_pnl` (when available). **Report the strategy's figures from here, not per-wallet.**
+    and the closed-PnL set `gross_realized_pnl` / `fees` / `net_realized_pnl` / `fees_status`. Fees/net
+    are `null` with `fees_status: "undetermined"` if **any** sleeve's fees are undetermined (a partial fee
+    sum is never reported as complete). **Report the strategy's figures from here, not per-wallet — and
+    lead with `net_realized_pnl`.**
   - `protected` (`true` / `false` / `null`) — `true` **only if ALL instances are protected**; `null` if
     ANY instance is `null` — an unread instance is never laundered into a `false`.
   - `flat_instances` — names of instances with **no open positions**. For a multi-wallet strategy these
@@ -575,11 +585,17 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
     stamp alone no longer counts. `null` = the runtime read did not answer — say "could not verify on
     this host," never "protected" or "not protected." Config-level posture, not a live per-position
     check — see the tri-state rule above.
-  - `closed` — `{realized_pnl, trade_count, recent[]}` from a read-guarded `discovery_get_trader_history`
-    on the strategy wallet: `realized_pnl` (total booked PnL over the recent pull), `trade_count`, and
-    `recent[]` (last few closed trades: `asset`, `direction`, `realized_pnl`, `entry_px`, `exit_px`,
-    `closed_time`). On a read failure `realized_pnl` is `null` and a `meta.warnings` entry is added —
-    treat as "realized PnL unavailable," never as zero.
+  - `closed` — `{gross_realized_pnl, fees, net_realized_pnl, fees_status, trade_count, recent[]}`.
+    `gross_realized_pnl` (price-PnL over the recent pull, **BEFORE fees**) comes from a read-guarded
+    `discovery_get_trader_history` on the strategy wallet; `fees` (window trading fees, builder-inclusive)
+    is summed from the HL `userFills` ledger; `net_realized_pnl` = `gross − fees` is the **real booked
+    figure — lead with it**. `fees_status` is `"ok"` when fees were determined and `"undetermined"` when
+    the fills read failed or was empty **while the wallet has closed trades** — then `fees` and
+    `net_realized_pnl` are `null` and you must call the number **gross with fees UNKNOWN (not $0)**. A
+    wallet with genuinely **no** closed trades reports `fees: 0.0`, `net_realized_pnl` = gross, `"ok"`.
+    `recent[]` = the last few closed trades (`asset`, `direction`, per-trade gross `realized_pnl`,
+    `entry_px`, `exit_px`, `closed_time`). If `gross_realized_pnl` is `null` the history read failed (a
+    `meta.warnings` entry is added) — treat realized PnL as "unavailable," never as zero.
   - `positions[]` (asset, dex, direction, leverage, notional, margin, `upnl`, `return_on_equity_pct`,
     `liq_px`, `market_24h_pct`, `vs_market`, and **`dsl`** — the live per-position ratchet tier).
     - **`dsl`** — this position's live DSL/ratchet state. **`armed: true`** → `tier_index`,
@@ -637,9 +653,11 @@ See "A strategy is ALL its wallets."
       **OTHER sleeve waiting for its signal** (for a multi-wallet strategy) or the whole strategy
       waiting for its setup (for a single-wallet one) — say that, never "dead money." Flag any position
       fighting the tape *for a directional-momentum mandate* / near `liq_px` / oversized.
-   4. **PnL — realized + unrealized, summed across the strategy.** The group's `totals.realized_pnl`
-      and `totals.upnl` (+ a couple of `closed.recent[]` trades from its instances). A flat sleeve may
-      have already banked real gains on the other sleeve.
+   4. **PnL — NET realized + unrealized, summed across the strategy.** Lead with `totals.net_realized_pnl`
+      (gross − fees — what was actually booked), not `totals.gross_realized_pnl`, alongside `totals.upnl`
+      (+ a couple of `closed.recent[]` trades from its instances). If `totals.fees_status` is
+      `"undetermined"`, net/fees are `null` — quote gross as **before-fees, fees unknown (not $0)**. A flat
+      sleeve may have already banked real gains on the other sleeve.
    5. **DSL protection — ladder + live tiers.** State the group's `protected` posture (⟹ **all**
       instances ship a DSL exit), then **how its DSL works** from `group.dsl` / `profile.dsl` (hard stop
       at `hard_stop_roe_pct`, ratchet arms at `arm_at_roe_pct`, the tier ladder), then **each open
@@ -683,9 +701,13 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
   token (it needs a USER-scoped token); don't report an empty portfolio as "$0."
 - **A strategy's clearinghouse read failed** → it's in `meta.warnings`; that wallet's positions may be
   incomplete. Say so rather than implying it's flat.
-- **A strategy's closed-history read failed** → `closed.realized_pnl` is `null` + a `meta.warnings`
+- **A strategy's closed-history read failed** → `closed.gross_realized_pnl` is `null` + a `meta.warnings`
   entry (`trader_history … failed/returned no data`). Report realized PnL as **unavailable** for that
   strategy — never as `$0`.
+- **A strategy's fee read failed / was empty** → `closed.fees_status` is `"undetermined"`, with
+  `closed.fees` and `closed.net_realized_pnl` `null` + a `meta.warnings` entry (`userFills … undetermined`).
+  Only `gross_realized_pnl` is known: report it as **gross / before fees, with fees UNKNOWN (not zero)** —
+  never present gross as booked or net. Fees are $0 **only** when the wallet has no closed trades at all.
 - **`totals.reconciles == false`** → the per-wallet sum and the portfolio aggregate disagree; surface
   it and trust the per-wallet (live) figures.
 - **Never** report `total_withdrawable` as embedded idle, never skip a wallet, never skip the CTAs.

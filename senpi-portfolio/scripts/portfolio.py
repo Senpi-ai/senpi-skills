@@ -38,6 +38,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MARKET_ENRICH_CAP = 24      # cap the per-asset market pull
 CLOSED_HISTORY_CAP = 5      # recent closed trades to surface per strategy (realized PnL is over the full pull)
 CLOSED_HISTORY_PULL = 50    # closed positions to pull for the realized-PnL total (API default page)
+# Fees come from the Hyperliquid fills ledger, NOT from discovery: HL `realizedPnl`/`closedPnl` is
+# price-PnL EXCLUDING fees, so the discovery total is GROSS. The per-fill `fee` (which ALREADY includes
+# the builder fee — never add a builder fee on top, that double-counts) is the separate cost; net =
+# gross − fees. `userFills` is public + no-auth and keyed by wallet ADDRESS, the same transport the
+# sibling senpi-improve-trades review engine uses.
+HL_INFO_URL = "https://api.hyperliquid.xyz/info"
 
 # WHAT A STRATEGY DOES = its `profile`, and the load-bearing field is `profile.description`, taken from
 # the descriptor the RUNTIME renders for each runtime it has. This is UNIVERSAL: it works for a user's
@@ -157,6 +163,17 @@ def _field(d, *names, default=None):
             if n in d and d[n] is not None:
                 return d[n]
     return default
+
+
+def _ms(ts):
+    """Normalize a Unix timestamp to MILLISECONDS. trader-history close times come in seconds OR ms and HL
+    fill `time` is ms; anything below ~1e12 (≈ 2001 in ms) is seconds → scale ×1000. Without this a
+    seconds-valued closeTime and a ms-valued fill time land in different eras and every fee falls outside
+    the window (a fee-window that reads $0 on a book that paid fees)."""
+    n = _num(ts)
+    if n is None:
+        return None
+    return n * 1000.0 if n < 1e12 else n
 
 
 # ── VENDORED, byte-identical in senpi-portfolio/scripts/portfolio.py and
@@ -904,13 +921,79 @@ def fetch_strategies(client, meta):
     return strategies
 
 
+def _hl_info(payload, meta, client=None, timeout=12):
+    """POST the Hyperliquid Info API (public, no auth) — the same transport the sibling senpi-improve-trades
+    review engine uses. HL keys fills by wallet ADDRESS (durable across a `strategy_close`). Offline/fixture
+    aware for tests (`_FixtureClient` serves a recorded `hl::<type>::<wallet>` entry). Fails OPEN → None."""
+    if client is not None and hasattr(client, "_r"):          # _FixtureClient — serve recorded HL response
+        u = str(payload.get("user", "")).lower()
+        return client._r.get(f"hl::{payload.get('type')}::{u}") or client._r.get(f"hl::{payload.get('type')}")
+    try:
+        p = subprocess.run(
+            ["curl", "-s", "-m", str(timeout), "-X", "POST", HL_INFO_URL,
+             "-H", "Content-Type: application/json", "-d", json.dumps(payload)],
+            capture_output=True, text=True, timeout=timeout + 3)
+        if p.returncode != 0 or not (p.stdout or "").strip():
+            return None
+        return json.loads(p.stdout)
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"hl_info {payload.get('type')} failed: {e}")
+        return None
+
+
+def _window_fees(client, wallet, rows, meta):
+    """Total builder-inclusive trading fee for the closed-trade window, summed from the HL `userFills`
+    ledger — the SEPARATE cost that discovery's gross `realizedPnl` excludes (net = gross − fees). The
+    window is the span the reported closed trades occupy: every fill with `time` at or before the LATEST
+    reported close, so BOTH the opening and closing legs of each closed trade are captured (with the
+    default CLOSED_HISTORY_PULL page this is the whole book — the exact total fee for the exact gross).
+
+    Returns (fees, status):
+      (sum, "ok")            fills read and summed — a per-fill `fee` ALREADY includes the builder fee, so
+                             it is NEVER added again.
+      (None, "undetermined") the `userFills` read FAILED or came back EMPTY while the wallet HAS closed
+                             trades — fees are UNKNOWN and MUST NOT be reported as $0 (that would overstate
+                             the user's booked profit, the exact bug this guards).
+    FAIL-OPEN: any fee-source error degrades to `undetermined`, it never raises into the portfolio read."""
+    closes = [t for t in (_ms(_field(p, "closeTime", "closed_time", "closeTimeMs"))
+                          for p in rows if isinstance(p, dict)) if t is not None]
+    until_ms = max(closes) if closes else None      # bound above by the latest reported close; no lower bound
+    try:
+        fills = _hl_info({"type": "userFills", "user": wallet}, meta, client)
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"userFills {wallet[:8]} failed: {e}")
+        return None, "undetermined"
+    # A FAILED (None) or EMPTY fills read while the wallet has closed trades ⇒ fees UNKNOWN, never $0.
+    if not isinstance(fills, list) or not fills:
+        meta.setdefault("warnings", []).append(
+            f"userFills {wallet[:8]} empty/unavailable — fees undetermined (NOT $0)")
+        return None, "undetermined"
+    total = 0.0
+    for fl in fills:
+        if not isinstance(fl, dict):
+            continue
+        t = _ms(fl.get("time"))
+        if until_ms is not None and t is not None and t > until_ms:
+            continue                                # a fill after the last reported close — not this window
+        total += _num(fl.get("fee")) or 0.0
+    return round(total, 2), "ok"
+
+
 def fetch_closed(client, wallet, meta):
-    """Read-guarded closed-position ledger for a strategy wallet: total realized PnL + a short list of
-    recent closed trades. Extraction matches the real `discovery_get_trader_history` shape
-    (senpi://guides/trader-closed-positions): a `closedPositions[]` of records with `coin`, signed `szi`
-    (>0 closed long / <0 closed short), string `realizedPnl`, Unix-ms `closeTime`, `entryPx`/`exitPx`.
+    """Read-guarded closed-position ledger for a strategy wallet: GROSS realized PnL, the trading fees, the
+    NET (gross − fees), and a short list of recent closed trades. Extraction matches the real
+    `discovery_get_trader_history` shape (senpi://guides/trader-closed-positions): a `closedPositions[]` of
+    records with `coin`, signed `szi` (>0 closed long / <0 closed short), string `realizedPnl` (price-PnL
+    EXCLUDING fees → GROSS), Unix-ms `closeTime`, `entryPx`/`exitPx`. Fees are sourced SEPARATELY from the
+    HL `userFills` ledger (see `_window_fees`).
+
+    Emits: `gross_realized_pnl`, `fees`, `net_realized_pnl`, `fees_status` ("ok" | "undetermined"),
+    `trade_count`, `recent[]`. Degrades HONESTLY — a wallet WITH closed trades whose fills read
+    fails/empty reports `fees`/`net_realized_pnl` = null + `fees_status` "undetermined" (NEVER a fake $0).
     Fails OPEN — any read/parse error → empty closed block + a meta.warning, never crashes."""
-    empty = {"realized_pnl": None, "trade_count": 0, "recent": []}
+    # trader-history itself unread ⇒ GROSS is unknown, so net + fees are unknowable too → undetermined.
+    empty = {"gross_realized_pnl": None, "fees": None, "net_realized_pnl": None,
+             "fees_status": "undetermined", "trade_count": 0, "recent": []}
     try:
         h = _ok(client.mcp_call("discovery_get_trader_history", trader_address=wallet,
                                 sort_by="CLOSED_TIME", sort_direction="DESC",
@@ -930,19 +1013,28 @@ def fetch_closed(client, wallet, meta):
     for p in rows:
         if not isinstance(p, dict):
             continue
-        pnl = _f(p, "realizedPnl", "realized_pnl", default=0.0)   # often a string → _f coerces
+        pnl = _f(p, "realizedPnl", "realized_pnl", default=0.0)   # GROSS price-PnL; often a string → _f coerces
         realized_total += pnl
         if len(recent) < CLOSED_HISTORY_CAP:
             szi = _f(p, "szi", "size", default=0.0)
             recent.append({
                 "asset": _field(p, "coin", "coinDisplayName", "asset"),
                 "direction": "long" if szi >= 0 else "short",   # closed-side sign (szi>0 closed a long)
-                "realized_pnl": round(pnl, 2),
+                "realized_pnl": round(pnl, 2),                   # per-trade GROSS (kept as-is)
                 "entry_px": _field(p, "entryPx", "entry_px"),
                 "exit_px": _field(p, "exitPx", "exit_px"),
                 "closed_time": _field(p, "closeTime", "closed_time", "closeTimeMs"),
             })
-    return {"realized_pnl": round(realized_total, 2), "trade_count": len(rows), "recent": recent}
+    gross = round(realized_total, 2)
+    if not rows:
+        # A SUCCESSFUL read of an empty book: genuinely no closed trades ⇒ fees really ARE $0 (net = gross).
+        # This is the ONLY branch that may report $0 fees — distinct from a failed/empty fills read above.
+        return {"gross_realized_pnl": gross, "fees": 0.0, "net_realized_pnl": gross,
+                "fees_status": "ok", "trade_count": 0, "recent": recent}
+    fees, fees_status = _window_fees(client, wallet, rows, meta)
+    net = round(gross - fees, 2) if fees is not None else None
+    return {"gross_realized_pnl": gross, "fees": fees, "net_realized_pnl": net,
+            "fees_status": fees_status, "trade_count": len(rows), "recent": recent}
 
 
 # ──────────────────────────────────────────────────────────────── live per-position DSL / ratchet tier
@@ -1249,14 +1341,34 @@ def group_strategies(strategies, meta):
             vals = [_num(i.get(field)) for i in instances]
             vals = [v for v in vals if v is not None]
             return round(sum(vals), 2) if vals else None
-        realized_vals = [_num((s.get("closed") or {}).get("realized_pnl")) for s in insts]
-        realized_vals = [v for v in realized_vals if v is not None]
+        # Closed-PnL roll-up across the strategy's wallets. GROSS (from discovery) sums independently of
+        # fees. FEES/NET are known for the STRATEGY only if EVERY instance's fees were determined — one
+        # `undetermined` sleeve makes the strategy total fees/net undetermined too (a partial fee sum must
+        # never be reported as the complete cost). Never launder an unknown fee into $0.
+        closed_recs = [(s.get("closed") or {}) for s in insts]
+        gross_vals = [_num(c.get("gross_realized_pnl")) for c in closed_recs]
+        gross_vals = [v for v in gross_vals if v is not None]
+        gross_total = round(sum(gross_vals), 2) if gross_vals else None
+        fee_statuses = [c.get("fees_status") for c in closed_recs if c.get("fees_status") is not None]
+        fees_known = bool(fee_statuses) and all(st == "ok" for st in fee_statuses)
+        if fees_known:
+            fee_vals = [v for v in (_num(c.get("fees")) for c in closed_recs) if v is not None]
+            fees_total = round(sum(fee_vals), 2) if fee_vals else None
+            net_total = (round(gross_total - fees_total, 2)
+                         if (gross_total is not None and fees_total is not None) else None)
+            fees_status_total = "ok"
+        else:
+            fees_total = net_total = None
+            fees_status_total = "undetermined" if fee_statuses else None
         totals = {
             "account_value": _sum("account_value"),
             "idle_withdrawable": _sum("idle_withdrawable"),
             "deployed": _sum("deployed"),
             "upnl": _sum("upnl"),
-            "realized_pnl": round(sum(realized_vals), 2) if realized_vals else None,
+            "gross_realized_pnl": gross_total,
+            "fees": fees_total,
+            "net_realized_pnl": net_total,
+            "fees_status": fees_status_total,
         }
 
         # flat instances = an instance with NO open positions. For a multi-wallet strategy this is its

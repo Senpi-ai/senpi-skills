@@ -1270,6 +1270,133 @@ def test_within_ttl_cached_state_is_reused():
     assert s["account_value"] == 9999.0, "within-TTL cache was re-fetched (fast path lost)"
 
 
+# ─────────────────────────────── fee-aware closed PnL (gross vs net, builder-inclusive) ───────────────
+FEE_WALLET = "0xFEE0000000000000000000000000000000feefe"
+NOFILLS_WALLET = "0xNOFILL000000000000000000000000000nofill"
+EMPTY_CLOSED_WALLET = "0xEMPTYCLOSED0000000000000000000000empty"
+
+
+def _closed_fixture(wallet, closed_positions, fills=None):
+    """A `_FixtureClient` serving `discovery_get_trader_history` (keyed by trader_address) and, when
+    provided, the HL `userFills` ledger (keyed `hl::userFills::<wallet>` — the same key `_hl_info` reads).
+    Omit `fills` entirely to model an UNAVAILABLE fills read (the fixture returns None)."""
+    rec = {f"discovery_get_trader_history::{wallet.lower()}": {"closedPositions": closed_positions}}
+    if fills is not None:
+        rec[f"hl::userFills::{wallet.lower()}"] = fills
+    return portfolio._FixtureClient(rec)
+
+
+def test_closed_net_realized_is_gross_minus_fees_from_the_fills_ledger():
+    """A wallet WITH fills: `net_realized_pnl == gross_realized_pnl - fees`, `fees_status == "ok"`, and the
+    fee is the builder-INCLUSIVE `fee` summed straight off `userFills` (never gross reported as booked)."""
+    closed = [
+        {"coin": "ETH", "szi": 1, "realizedPnl": "100", "closeTime": 2000, "entryPx": "1", "exitPx": "2"},
+        {"coin": "BTC", "szi": -1, "realizedPnl": "50", "closeTime": 3000, "entryPx": "2", "exitPx": "1"},
+    ]
+    fills = [
+        {"coin": "ETH", "time": 1000, "fee": "1.25", "closedPnl": "0"},     # ETH open leg
+        {"coin": "ETH", "time": 2000, "fee": "1.25", "closedPnl": "100"},   # ETH close leg
+        {"coin": "BTC", "time": 1500, "fee": "1.00", "closedPnl": "0"},     # BTC open leg
+        {"coin": "BTC", "time": 3000, "fee": "1.50", "closedPnl": "50"},    # BTC close leg
+        {"coin": "ETH", "time": 9000, "fee": "99.0", "closedPnl": "0"},     # AFTER last close — excluded
+    ]
+    meta = {}
+    out = portfolio.fetch_closed(_closed_fixture(FEE_WALLET, closed, fills), FEE_WALLET, meta)
+    assert out["gross_realized_pnl"] == 150.0             # discovery's realizedPnl is GROSS (pre-fee)
+    assert out["fees"] == 5.0                             # 1.25+1.25+1.00+1.50 — the 99.0 fill is out-of-window
+    assert out["net_realized_pnl"] == 145.0
+    assert out["net_realized_pnl"] == round(out["gross_realized_pnl"] - out["fees"], 2)
+    assert out["fees_status"] == "ok"
+    assert out["trade_count"] == 2
+    assert "realized_pnl" not in out                      # the gross-as-booked key is GONE (renamed)
+
+
+def test_closed_fees_undetermined_when_fills_empty_never_a_fake_zero():
+    """DEGRADATION: closed trades EXIST but the `userFills` read comes back an EMPTY list → fees/net are
+    null and `fees_status` is "undetermined" (NOT $0 — reporting $0 fees would overstate the user's booked
+    profit, the exact bug). A loud warning is emitted; gross is still known. `_hl_info` is forced to return
+    a genuine `[]` here (the fixture's `or`-fallback would otherwise collapse `[]` to the None path)."""
+    closed = [{"coin": "ETH", "szi": 1, "realizedPnl": "80", "closeTime": 3000, "entryPx": "1", "exitPx": "2"}]
+    client = _closed_fixture(NOFILLS_WALLET, closed, fills=None)
+    meta = {}
+    saved = portfolio._hl_info
+    portfolio._hl_info = lambda payload, m, c=None, timeout=12: []      # empty-list read reaching _window_fees
+    try:
+        out = portfolio.fetch_closed(client, NOFILLS_WALLET, meta)
+    finally:
+        portfolio._hl_info = saved
+    assert out["gross_realized_pnl"] == 80.0
+    assert out["fees"] is None                            # NOT 0.0
+    assert out["net_realized_pnl"] is None                # NOT 80.0
+    assert out["fees_status"] == "undetermined"
+    assert out["trade_count"] == 1
+    assert any("undetermined" in w for w in meta.get("warnings", [])), "a silent $0, not a loud warning"
+
+
+def test_closed_fees_undetermined_when_fills_read_unavailable():
+    """DEGRADATION (read failure, not empty list): the `userFills` source is UNAVAILABLE (fixture returns
+    None) while the wallet has closed trades → same honest degradation, never $0."""
+    closed = [{"coin": "BTC", "szi": -1, "realizedPnl": "40", "closeTime": 5000, "entryPx": "2", "exitPx": "1"}]
+    meta = {}
+    out = portfolio.fetch_closed(_closed_fixture(NOFILLS_WALLET, closed, fills=None), NOFILLS_WALLET, meta)
+    assert out["gross_realized_pnl"] == 40.0
+    assert out["fees"] is None and out["net_realized_pnl"] is None
+    assert out["fees_status"] == "undetermined"
+
+
+def test_closed_no_trades_is_genuinely_zero_fees_not_undetermined():
+    """The ONLY legitimate $0-fees branch: a SUCCESSFUL read of an empty book (zero closed trades). Fees
+    are really $0, net == gross == 0.0, `fees_status == "ok"` — and the fills ledger is never even read."""
+    meta = {}
+    out = portfolio.fetch_closed(_closed_fixture(EMPTY_CLOSED_WALLET, []), EMPTY_CLOSED_WALLET, meta)
+    assert out["trade_count"] == 0
+    assert out["gross_realized_pnl"] == 0.0
+    assert out["fees"] == 0.0                             # genuine zero — distinct from undetermined
+    assert out["net_realized_pnl"] == 0.0
+    assert out["fees_status"] == "ok"
+
+
+def _closed_rec(gross, fees, status):
+    net = round(gross - fees, 2) if (gross is not None and fees is not None) else None
+    return {"gross_realized_pnl": gross, "fees": fees, "net_realized_pnl": net,
+            "fees_status": status, "trade_count": 1, "recent": []}
+
+
+def test_group_totals_sum_net_and_fees_when_every_sleeve_is_ok():
+    """A multi-wallet strategy whose every sleeve read fees cleanly: group `totals` sum gross + fees and
+    net == gross − fees, `fees_status == "ok"`."""
+    rows = [
+        {"name": "tigris-long", "wallet": "0xL", "profile": {"group": "tigris"},
+         "closed": _closed_rec(100.0, 5.0, "ok")},
+        {"name": "tigris-short", "wallet": "0xS", "profile": {"group": "tigris"},
+         "closed": _closed_rec(40.0, 3.0, "ok")},
+    ]
+    groups = portfolio.group_strategies(rows, {})
+    t = groups[0]["totals"]
+    assert t["gross_realized_pnl"] == 140.0
+    assert t["fees"] == 8.0
+    assert t["net_realized_pnl"] == 132.0
+    assert t["fees_status"] == "ok"
+    assert "realized_pnl" not in t                        # renamed at the totals level too
+
+
+def test_group_totals_are_undetermined_if_any_sleeve_is_undetermined():
+    """Honesty roll-up: one sleeve's fees are undetermined → the STRATEGY's fees/net are undetermined too
+    (a partial fee sum is never laundered into a complete cost). Gross still sums from what was readable."""
+    rows = [
+        {"name": "tigris-long", "wallet": "0xL", "profile": {"group": "tigris"},
+         "closed": _closed_rec(100.0, 5.0, "ok")},
+        {"name": "tigris-short", "wallet": "0xS", "profile": {"group": "tigris"},
+         "closed": _closed_rec(40.0, None, "undetermined")},
+    ]
+    groups = portfolio.group_strategies(rows, {})
+    t = groups[0]["totals"]
+    assert t["gross_realized_pnl"] == 140.0               # gross is fee-independent — still summed
+    assert t["fees"] is None                              # NOT 5.0 (a partial sum)
+    assert t["net_realized_pnl"] is None
+    assert t["fees_status"] == "undetermined"
+
+
 if __name__ == "__main__":
     # Direct-script mode bypasses pytest's setup_module/teardown_module hooks entirely, so this run
     # must bracket the same guarantee by hand.
