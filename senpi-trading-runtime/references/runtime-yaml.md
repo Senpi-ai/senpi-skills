@@ -12,8 +12,11 @@ author-side `scan(inputs, ctx)` + signal shape see [scan-contract.md](scan-contr
 > runtime — e.g. spider's `swing` + `scalp` legs are two `runtime.yaml` files under one `strategy.yaml`.
 > See [Multi-runtime packages](#multi-runtime-packages).
 >
-> The runtime engine accepts any YAML path (`runtime create -p <path>`); the engine's own examples name
-> the file `recipe.yaml`. `runtime.yaml` is the Senpi package convention and is fully compatible.
+> The engine loads a runtime spec from any YAML path — the file does not have to be called
+> `runtime.yaml`, and the engine's own examples name it `recipe.yaml`. `runtime.yaml` is the Senpi
+> package convention and is fully compatible: `openclaw senpi deploy -p <package dir>` installs each
+> instance's file itself, whatever it is named. (`runtime create -p <path>` is the engine's internal,
+> hidden install command — never the deploy path; see [runtime-cli.md](runtime-cli.md).)
 
 ---
 
@@ -151,6 +154,11 @@ Each entry needs a unique `name` and a `type`. Registered types: `position_track
 - **Built-in scanners** take `interval_seconds` (integer, **floored at 7s**), and may use `depends_on`
   (`scanner`, `required`, `max_age_seconds`, `on_missing`/`on_stale`), `blocked_assets`, `config`.
 - **`position_tracker`** — typical: `{ name: position_tracker, type: position_tracker, interval_seconds: 10 }`.
+- **No `enabled` key on a scanner entry.** It is not part of the scanner schema and the engine never
+  reads it — a scanner written `enabled: false` registers ENABLED and ticks. `senpi deploy` refuses a
+  package that carries it (at any value) rather than ship a strategy that trades while its author
+  believes it is off. A scanner runs because the entry exists: to stop one, remove the entry (or, on
+  a running runtime, disable it through the runtime API).
 
 ### `external_scanner` field set
 
@@ -178,6 +186,13 @@ delivers the returned signals — there is no push/ingest model.
 | `outputs` | removed — an external scanner emits one output (signals) |
 | `blocked_assets` | filter candidates inside `scan()` |
 | `depends_on` | not supported on `external_scanner` |
+
+**Refused by `senpi deploy`, NOT by the schema** — the loader accepts it silently, which is exactly
+why deploy refuses it:
+
+| Field | Replacement |
+|---|---|
+| `enabled` | not a scanner field at all (the schema passes it through and the engine never reads it, so an `enabled: false` scanner ticks anyway). Remove the entry to stop a scanner |
 
 ---
 

@@ -12,6 +12,9 @@ name, and the strategy silently trades nothing (the `xyz:NASDAQ` incident — th
 What counts as "hardcoded": ticker-shaped strings (BTC, xyz:AAPL) in `strategy.yaml` `catalog.assets`
 and under any `scanners[].inputs` key whose name suggests an asset list (asset/universe/basket/
 whitelist/sleeve/class*/volume*/…). Derived-universe strategies (no hardcoded names) pass trivially.
+Names under an EXCLUSION key (excludeAssets, deny*/skip*/ignore*/…) are not hardcoded instruments in
+this sense and are never checked: the package is naming what it will NOT trade, and such a list
+routinely names things the venue does not carry — usually why they are on it (see EXCLUSION_KEY).
 Requires SENPI_AUTH_TOKEN (reads the live instrument list once via market_list_instruments).
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
@@ -37,16 +40,42 @@ def load_yaml(path):
     with open(path) as fh:
         return yaml.safe_load(fh.read())
 
-TICKER = re.compile(r"^(xyz:)?[A-Z][A-Z0-9]{0,11}$")
+# `\Z`, not `$`: python's `$` also matches just before a trailing newline, so `TICKER.match("BTC\n")`
+# used to succeed and the UNTRIMMED string was compared against the live names — a live ticker
+# written as a YAML block scalar was reported NOT LIVE. `_collect` strips the one tolerated newline
+# instead (see the rule there).
+TICKER = re.compile(r"^(xyz:)?[A-Z][A-Z0-9]{0,11}\Z")
 KEY_HINT = re.compile(r"(asset|universe|basket|coin|symbol|market|whitelist|sleeve|defensiv|equit|"
                       r"probe|allowed|watch|class|volume|metal|energ|indice|long|short)", re.I)
 # uppercase enum-ish values that are never tickers — never flag these
 NOT_TICKERS = {"WEEK", "MONTH", "DAY", "ALL", "ALL_TIME", "LONG", "SHORT", "BUY", "SELL",
                "ASC", "DESC", "AND", "OR", "TRUE", "FALSE", "NONE", "AUTO"}
+# POLARITY (LOCKSTEP with the runtime's `EXCLUSION_KEY_RE` — change neither side alone): a key that
+# reads as an EXCLUSION names what the strategy will NOT trade, and KEY_HINT cannot tell the two
+# apart because its hint is a substring of both (`excludeAssets` matches on `asset`). Such a list
+# routinely names things the venue does not carry — usually the reason they are on it — so requiring
+# them to be live asks the exact inverse of this tool's question. Matched over the WHOLE key path,
+# so `exclude: {assets: [...]}` counts too; KEY_HINT stays leaf-only because the nearest key answers
+# "is this an instrument name" while any ancestor can set polarity.
+# THE RULE FOR EDITING THIS PATTERN: the failure modes are not symmetric. A MISS (an exclusion key
+# with no stem here, e.g. `notAssets`) produces the loud refusal we already have and an author can
+# act on it; an OVER-MATCH (a REQUIRED universe key read as an exclusion — a bare `block` would
+# swallow `blockchainAssets`) lets a dead name through the money gate to fail silently at scan time.
+# Keep the stems narrow, prefer a miss to a reach: `non`/`not` are deliberately absent.
+EXCLUSION_KEY = re.compile(r"(exclud|deny|blacklist|blocklist|blocked|banned|forbidden|ignor|"
+                           r"skip|omit)", re.I)
 
 
 def _collect(node, key_path, out):
-    """Collect ticker-shaped strings from values under asset-suggesting keys."""
+    r"""Collect ticker-shaped strings from values under asset-suggesting, non-exclusion keys.
+
+    TRAILING-NEWLINE RULE (LOCKSTEP with senpi-trading-runtime's `src/universe/package-universe.ts`
+    `collect` — change neither side alone): a YAML block scalar (`- |`) clip-chomps to `"BTC\n"`, so
+    exactly ONE trailing newline is tolerated and the ticker is collected TRIMMED; two or more
+    (`- |+` with a blank line) are not a ticker at all. This is a convergence, not either side's
+    original: this tool used to collect the untrimmed `"BTC\n"` and then compare it against the live
+    names (a LIVE name reported NOT LIVE), while the runtime ignored the value outright (a DEAD name
+    written that way slipped past the money gate)."""
     if isinstance(node, dict):
         for k, v in node.items():
             _collect(v, f"{key_path}.{k}", out)
@@ -54,9 +83,14 @@ def _collect(node, key_path, out):
         for v in node:
             _collect(v, key_path, out)
     elif isinstance(node, str):
+        # Polarity first: nothing under an exclusion key is a name this package intends to trade,
+        # so it is not a candidate at all — see EXCLUSION_KEY for why this is path-wide.
+        if EXCLUSION_KEY.search(key_path):
+            return
         leaf = key_path.rsplit(".", 1)[-1]
-        if TICKER.match(node) and node not in NOT_TICKERS and KEY_HINT.search(leaf):
-            out.add(node)
+        ticker = node[:-1] if node.endswith("\n") else node
+        if TICKER.match(ticker) and ticker not in NOT_TICKERS and KEY_HINT.search(leaf):
+            out.add(ticker)
 
 
 def package_tickers(pkg_dir):

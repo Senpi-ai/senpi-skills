@@ -34,11 +34,37 @@ class ErrorTail(unittest.TestCase):
     def test_falls_back_to_stdout_when_stderr_empty(self):
         self.assertIn("stdout says why", _cli.error_tail("", "Error: stdout says why"))
 
-    def test_keeps_last_limit_chars_of_a_long_error(self):
-        err = "x" * 1000 + " FINAL CAUSE"
+    def test_long_error_keeps_head_and_tail_with_loud_omission(self):
+        # over-limit CLEANED text: keep both ends — the head opens the message, the tail
+        # carries the final cause — and say out loud that the middle was cut
+        err = "HEAD-CODE-LINE " + "x" * 1000 + " FINAL CAUSE"
         tail = _cli.error_tail(err, limit=100)
-        self.assertLessEqual(len(tail), 100)
+        self.assertTrue(tail.startswith("HEAD-CODE-LINE"))
         self.assertTrue(tail.endswith("FINAL CAUSE"))
+        self.assertIn("omitted", tail)
+
+    def test_long_refusal_keeps_the_code_line_agents_branch_on(self):
+        # the start-phase decapitation shape: a refusal whose [CODE] line is at the HEAD,
+        # followed by one line per offender and a ~430-char Why paragraph — a tail-only cut
+        # loses exactly the part an agent branches on
+        code_line = "[INVALID_REQUEST] Unsupported `enabled` key on scanners — delete these lines:"
+        offenders = "\n".join(f"  - instances/main/runtime.yaml scanners[{i}].enabled" for i in range(10))
+        why = "Why: " + "scanner-level enabled is inert in the engine and refused by deploy. " * 6
+        err = f"{code_line}\n{offenders}\n{why.strip()}"
+        self.assertGreater(len(err), 600)  # the shape only decapitates when over the relay cap
+        tail = _cli.error_tail(err)
+        self.assertIn("[INVALID_REQUEST]", tail)
+        self.assertIn("omitted", tail)
+        self.assertTrue(tail.endswith(why.strip()[-40:]))
+
+    def test_raw_fallback_stays_tail_only(self):
+        # the raw fallback relays UNFILTERED text, where the head is the banner flood the
+        # noise filter failed to catch — keeping a head there would re-open the
+        # banner-flood blackout, so it stays a plain last-`limit` cut with no marker
+        err = "[plugins] " + "y" * 200  # one huge banner line: filters to nothing, over limit
+        tail = _cli.error_tail(err, limit=50)
+        self.assertEqual(tail, err[-50:])
+        self.assertNotIn("omitted", tail)
 
     def test_all_noise_falls_back_to_raw_tail(self):
         # filtering must never turn a non-empty capture into an empty message

@@ -12,9 +12,9 @@
     "token_balances": [{"symbol": "USDC", "chain": "Base", "usdValue": 1.51}]
   }},
   "strategy_list": {"strategies": [
-    {"tradingStrategyName": "cub-long", "strategyWalletAddress": "0xlong0000000000000000000000000000000long", "status": "ACTIVE", "totalFunded": 1739, "totalWithdrawn": 0},
-    {"tradingStrategyName": "cub-short", "strategyWalletAddress": "0xshort000000000000000000000000000000shrt", "status": "ACTIVE", "totalFunded": 1378, "totalWithdrawn": 0},
-    {"tradingStrategyName": "cub-preipo", "strategyWalletAddress": "0xpreipo00000000000000000000000000000prei", "status": "ACTIVE", "totalFunded": 202, "totalWithdrawn": 0}
+    {"strategyName": "cub-long", "tradingStrategyName": "cub", "strategyMetadata": {"skillName": "cub", "skillVersion": "1.0.0"}, "strategyWalletAddress": "0xlong0000000000000000000000000000000long", "status": "ACTIVE", "totalFunded": 1739, "totalWithdrawn": 0},
+    {"strategyName": "cub-short", "tradingStrategyName": "cub", "strategyMetadata": {"skillName": "cub", "skillVersion": "1.0.0"}, "strategyWalletAddress": "0xshort000000000000000000000000000000shrt", "status": "ACTIVE", "totalFunded": 1378, "totalWithdrawn": 0},
+    {"strategyName": "cub-preipo", "tradingStrategyName": "cub", "strategyMetadata": {"skillName": "cub", "skillVersion": "1.0.0"}, "strategyWalletAddress": "0xpreipo00000000000000000000000000000prei", "status": "ACTIVE", "totalFunded": 202, "totalWithdrawn": 0}
   ]},
   "strategy_get_clearinghouse_state::0xlong0000000000000000000000000000000long": {
     "main": {"marginSummary": {"accountValue": "1520.90"}, "withdrawable": "1520.90", "assetPositions": []},

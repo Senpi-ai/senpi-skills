@@ -32,21 +32,35 @@ strategies/<id>/                   # a strategy package (e.g. strategies/spider/
   skills (portfolio, improve-trades, market-pulse, smart-money, trader-research, account-status,
   deposit-withdraw-transfer, why) are analysis/guidance utilities.
 - **Install/teardown is `senpi-strategy-ops`**, always: `deploy.py create <id> --budget <usd>`
-  (one named wallet per instance via `strategy_create_custom_strategy`, budget split by
-  `funding_share`, min $10/wallet, resumable) → `deploy.py runtime <id>` (renders each
-  runtime.yaml onto its wallet, `openclaw senpi runtime create`) → optional `verify`. Teardown is
-  `close.py <id>` (or `--all`) — **never a raw `strategy_close`** (it strands the runtime).
-  Attribution is automatic: `deploy.py` passes **`skillName`/`skillVersion` from `strategy.yaml`
-  `id`/`version`** on every wallet-creation call.
+  starts the runtime's **detached `openclaw senpi deploy` job** — reconcile → funds preflight →
+  one named wallet per instance via `strategy_create_custom_strategy` (budget split by
+  `funding_share`, min $10/wallet) → install → one observed scanner tick — then polls
+  `openclaw senpi deploy status` until it is terminal and relays that report verbatim.
+  `deploy.py create|runtime <id>` drive the **same idempotent verb**: re-running either resumes and
+  adopts whatever exists, so they are not separate steps. **`deploy.py verify <id>` is NOT one of
+  them** — it is the **read-only** check (`strategy_list` + `runtime list` + `senpi status --json`,
+  quoting what it read; exits `0` verified / `3` not verified / `1` could-not-check) and it never
+  starts a deploy, funds a wallet, installs a runtime **or fetches a package** (it resolves on disk
+  only — downloading and writing one is a side effect too). It NAMES the resume when one is needed —
+  but only for a wallet the backend reads as `ACTIVE`, and only when no deploy job for that package is
+  already running; the resume itself is always `create`/`runtime`. **Install is the verb's own in-process step** —
+  never hand-run `openclaw senpi runtime create` (it skips the funds preflight, the attribution and
+  the verified tick). Teardown is `close.py <id>` (or `--all`) — **never a raw `strategy_close`**
+  (it strands the runtime). Attribution is automatic: the deploy path stamps
+  **`skillName`/`skillVersion` from `strategy.yaml` `id`/`version`** on every wallet-creation call.
 - **`strategies/catalog.json` is GENERATED** from `strategies/*/strategy.yaml` via
   `senpi-trading-runtime/scripts/gen_catalog.py` — never hand-edit it. It is written to **two
   places**: repo `strategies/catalog.json` (source of truth) AND
   `senpi-strategy-discover/catalog.json` (bundled so the catalog travels with the discover skill
   when installed standalone). Keep both in sync by re-running `gen_catalog.py`.
 - **Validate** a package with `senpi-strategy-author/scripts/validate_strategy.py <dir>` and
-  `senpi-strategy-ops/scripts/validate_universe.py <dir>` (every hardcoded ticker must be a live
-  HL instrument — a dead name silently no-trades; `deploy.py create` runs this as a preflight and
-  refuses to fund a bad universe).
+  `senpi-strategy-ops/scripts/validate_universe.py <dir>` (every hardcoded ticker the strategy
+  TRADES must be a live HL instrument — a dead name silently no-trades; an **exclusion** list
+  (`excludeAssets`, `deny*`/`skip*`) is exempt on both sides, since it names what is NOT traded).
+  The universe **gate** lives in the RUNTIME verb:
+  `openclaw senpi deploy` refuses `[E_UNIVERSE_NOT_LIVE]` **pre-money** (fail-closed when the live
+  list is unreadable) and `deploy.py` only relays that refusal. `validate_universe.py` stays the
+  standalone read-only check, and `deploy.py validate <id>` reports it from the same predicates.
 
 ---
 

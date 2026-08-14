@@ -2,11 +2,14 @@
 """Close a strategy PACKAGE — stop the runtime(s), TRIGGER strategy_close, return immediately.
 
   python3 close.py <id> [--instance <name>] [--dry-run] [--json]
-  python3 close.py --all                       # close EVERY open strategy + delete their runtimes
+  python3 close.py --all                                     # close EVERY open strategy + delete their runtimes
+  python3 close.py --strategy-id <id> | --address <wallet>    # a wallet with NO package (unattributed
+                                                                # or app-created) — <id>/--all only resolve a package
 
 Does NOT wait for the on-chain flatten — it hands off to the agent to poll. Per strategy (discovered
-from strategy_list by attribution skillName == manifest id; sid + wallet read from the strategy record,
-not the runtime, so orphans close too):
+from strategy_list by attribution skillName == manifest id, or directly by strategyId/wallet for
+--strategy-id/--address; sid + wallet read from the strategy record, not the runtime, so orphans
+close too):
   1. STOP    — openclaw senpi runtime delete (if a runtime is live), confirm gone.
   2. TRIGGER — submit MCP strategy_close(<strategyId>) — flattens ALL positions + closes the strategy
                (returns funds). Submit only; no poll.
@@ -15,6 +18,7 @@ not the runtime, so orphans close too):
     once the strategy leaves the active set.
 
 --instance scopes which instance(s) to close; --dry-run prints the plan with no side effects.
+--strategy-id/--address are mutually exclusive with <id>/--all/--instance/--ref and with each other.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -30,10 +34,50 @@ import _pkg  # noqa: E402
 from mcp_client import MCPClient, MCPError  # noqa: E402
 
 SUBMIT_TIMEOUT = 60        # HTTP timeout for the strategy_close submit
-_CLOSED = ("CLOSED", "INACTIVE", "CLOSING_DONE", "TERMINATED")
+# Alias, not a local copy: a separately-maintained tuple here once omitted FAILED, so a FAILED row
+# matched neither this early-return nor the ACTIVE submit condition below and fell through to
+# reporting "closing" having done nothing — a terminal strategy misreported as freshly triggered.
+_CLOSED = _cli.DEAD_STATUSES
 # Live (non-terminal) statuses — filter server-side so discovery doesn't pull a long closed history.
-LIVE_STATUSES = ["ACTIVE", "PAUSED", "CREATE_WALLET", "FUND_WALLET", "INITIALIZE_POSITIONS",
-                 "SUBSCRIBE_TRADER", "CLOSING_POSITIONS"]
+LIVE_STATUSES = _cli.LIVE_STATUSES
+
+
+def _read_or_refuse(rows, why, what):
+    """The strategy inventory, or a refusal — never an empty list standing in for an unread one.
+
+    `strategy_list` degrading to `[]` on an unreadable read is not a silent no-op here: teardown then
+    finds no targets, prints "no OPEN strategies to close" and exits **0**. That is a positive
+    all-clear the surface never earned, answering the one question where being wrong is worst — the
+    user asked to close everything and return their funds, and got told there was nothing to close
+    while their wallets may be live and funded. Same rule `_runtime_gone` holds one call later: on the
+    teardown money path, "couldn't read it" must never render as "there is nothing there"."""
+    if rows is not None:
+        return rows
+    raise SystemExit(
+        f"error: could not read the strategy list, so NOTHING was closed and nothing about {what} is "
+        f"known here — this is not 'there is nothing to close'.\n"
+        f"  Cause: {why[0] if why else 'no cause reported'}\n"
+        f"  Your strategies may be live and funded. Re-run this command, or read what is actually "
+        f"open first (read-only):  python3 status.py")
+
+
+def _select_direct_target(rows, target):
+    """From an UNFILTERED-by-status `strategies_for_or_none()` read, pick the one row addressed by
+    `--strategy-id`/`--address`. Refuses on 0 or >1 matches rather than guessing: `--all`/`<package>`
+    answer a SET question ("what's open for X"), where zero rows is a legitimate true fact; this
+    answers an EXISTENCE question about one named target, where zero rows must never be read as the
+    generic 'no OPEN strategies to close' all-clear — that would report success on a typo'd id or
+    address over a live, funded wallet. `strategy_id` is a backend primary key so >1 should not
+    happen for `--strategy-id`; wallets are documented elsewhere in this codebase as only ever
+    duplicated across DIFFERENT addresses (never one address on two strategy rows), so >1 here would
+    mean an unmodeled backend state — refuse and name every match rather than pick one silently."""
+    if not rows:
+        raise SystemExit(f"error: no strategy found for {target!r} on this account — nothing to close.")
+    if len(rows) > 1:
+        ids = ", ".join(str(_cli.strategy_id_of(s) or "?")[:8] for s in rows)
+        raise SystemExit(f"error: {target!r} matched {len(rows)} strategies ({ids}) — refusing to "
+                         f"guess which to close. Re-run with --strategy-id for the exact one.")
+    return rows[0]
 
 
 def _runtime_gone(name):
@@ -120,25 +164,56 @@ def main(argv):
                     help="Close EVERY open strategy (all packages) and delete their runtimes.")
     ap.add_argument("--instance", default=None, help="Close only this instance of <package>.")
     ap.add_argument("--ref", default=None, help="Branch/ref to fetch the package manifest from if not on disk.")
+    ap.add_argument("--strategy-id", default=None,
+                    help="Close by strategy id directly — for a wallet with NO package (unattributed "
+                         "or app-created). Mutually exclusive with <package>/--all/--instance/--ref "
+                         "and with --address.")
+    ap.add_argument("--address", default=None,
+                    help="Close by wallet address directly — same use as --strategy-id.")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv[1:])
-    if not a.package and not a.all:
-        raise SystemExit("error: pass a strategy id, or --all to close every open strategy.")
+    direct = a.strategy_id or a.address
+    if a.strategy_id and a.address:
+        raise SystemExit("error: pass --strategy-id or --address, not both.")
+    if direct and (a.package or a.all or a.instance or a.ref):
+        raise SystemExit("error: --strategy-id/--address addresses one strategy directly — drop the "
+                         "package id, --all, --instance, and --ref.")
+    if not a.package and not a.all and not direct:
+        raise SystemExit("error: pass a strategy id, --strategy-id/--address for a wallet with no "
+                         "package, or --all to close every open strategy.")
 
     msgs = []
     log = (lambda m: msgs.append(m)) if a.json else (lambda m: print(m))
     mcp = MCPClient()
     pkg = None
+    why = []
 
     if a.all:
         # Close every OPEN strategy across all packages — for "close all strategies / return funds".
         # sid + wallet come from each strategy record; close_one stops the matching runtime (by wallet)
         # and triggers strategy_close, so package runtimes are never stranded.
-        opens = [s for s in _cli.list_strategies(mcp, statuses=LIVE_STATUSES) if _cli.strategy_open(s)]
+        rows = _read_or_refuse(_cli.list_strategies_or_none(mcp, statuses=LIVE_STATUSES, why=why),
+                               why, "every open strategy")
+        opens = [s for s in rows if _cli.strategy_open(s)]
         targets = [((_cli.strategy_skill(s) or "strategy") + ":" + str(_cli.strategy_id_of(s))[:8], s)
                    for s in opens]
         hdr = "all open strategies"
+        strategy_label = "ALL"
+    elif direct:
+        # A wallet with NO package — unattributed, or app/manual-created — has no <id> to resolve
+        # against. Read UNFILTERED by status, unlike --all/<package> above: a status-filtered read
+        # cannot tell "no such id" from "already closed" (both return zero rows), and either would
+        # otherwise fall through to the "no OPEN strategies to close" + exit 0 below — a false
+        # all-clear on a target named explicitly. `_select_direct_target` refuses on 0 or >1 matches.
+        rows = _read_or_refuse(
+            _cli.strategies_for_or_none(mcp, strategy_id=a.strategy_id, wallet=a.address, why=why),
+            why, direct)
+        strat = _select_direct_target(rows, direct)
+        sid = str(_cli.strategy_id_of(strat) or "")
+        targets = [(f"strategy:{sid[:8]}", strat)]
+        hdr = f"strategy {sid[:8]} (no package attribution)"
+        strategy_label = sid
     else:
         try:
             pkg = _pkg.load(a.package)
@@ -150,11 +225,16 @@ def main(argv):
                 _fetch.fetch_package(sid, dest_root, ref=a.ref)
                 pkg = _pkg.load(dest_root / sid)
             except (_fetch.FetchError, _pkg.BadPackage):
-                raise SystemExit(f"error: {e}")
+                raise SystemExit(
+                    f"error: {e}\n  If this wallet has no package — unattributed, or created "
+                    f"directly in the app — address it instead: --strategy-id <id> or "
+                    f"--address <wallet> (read either from status.py).")
         if a.instance and a.instance not in {i.name for i in pkg.instances}:
             raise SystemExit(f"error: no instance {a.instance!r} in {pkg.id} (have: {', '.join(i.name for i in pkg.instances)})")
-        opens = [s for s in _cli.strategies_for(mcp, skill_name=pkg.id, statuses=LIVE_STATUSES)
-                 if _cli.strategy_open(s)]
+        rows = _read_or_refuse(_cli.strategies_for_or_none(mcp, skill_name=pkg.id,
+                                                           statuses=LIVE_STATUSES, why=why),
+                               why, pkg.id)
+        opens = [s for s in rows if _cli.strategy_open(s)]
         if a.instance:
             rt = _cli.find_runtime(f"{pkg.id}-{a.instance}")
             w = _cli.runtime_wallet(rt) if rt else None
@@ -165,6 +245,7 @@ def main(argv):
         else:
             targets = [(f"{pkg.id}[{i + 1}]", s) for i, s in enumerate(opens)]
         hdr = f"{pkg.id} v{pkg.version}"
+        strategy_label = pkg.id
 
     if not targets and not a.dry_run:
         print(f"{hdr}: no OPEN strategies to close.")
@@ -189,7 +270,7 @@ def main(argv):
                "failed" if "failed" in statuses else
                "closing" if "closing" in statuses else
                "closed" if statuses <= {"closed"} else "partial")
-    out = {"strategy": (pkg.id if pkg else "ALL"), "status": overall, "instances": results}
+    out = {"strategy": strategy_label, "status": overall, "instances": results}
 
     if a.json:
         print(json.dumps(out, indent=2))
@@ -199,7 +280,12 @@ def main(argv):
             extra = f"  ({r['error']})" if r.get("error") else ""
             print(f"  - {r['instance']}: {r['status']}{extra}")
         if overall == "closing":
-            poll = f"close.py {pkg.id}" if pkg else "close.py --all"
+            if pkg:
+                poll = f"close.py {pkg.id}"
+            elif direct:
+                poll = f"close.py --strategy-id {a.strategy_id}" if a.strategy_id else f"close.py --address {a.address}"
+            else:
+                poll = "close.py --all"
             print(f"\nClose triggered (runtimes stopped). strategy_close is async — positions flatten "
                   f"on-chain. Poll until closed by re-running: {poll}  (or check strategy_list status).")
 
