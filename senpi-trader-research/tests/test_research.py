@@ -33,22 +33,24 @@ class _SeqClient:
 
 
 def test_min_mirror_budget():
-    # MARGIN model: to open a position at the ~$12 notional floor a mirror needs MIN_NOTIONAL_USD / leverage in
-    # margin — matches the platform (the old notional-proportional formula overstated ~20x on leveraged books).
-    small = [{"notional": 5000, "direction": "long", "moved_from_entry_pct": 1.0, "leverage": 10},   # 12/10 = 1.2
-             {"notional": 3000, "direction": "long", "moved_from_entry_pct": 1.0, "leverage": 5},     # 12/5  = 2.4
-             {"notional": 2000, "direction": "long", "moved_from_entry_pct": 1.0, "leverage": 3}]     # 12/3  = 4.0
-    b = research._min_mirror_budget(1000.0, small)               # Σ = 7.6, cheapest = 1.2 → both clamp to $10
+    # MARGIN model over the WHOLE book: to hold a position at the ~$12 notional floor a mirror needs
+    # MIN_NOTIONAL_USD / leverage in margin, summed over ALL positions — the minimum to run the mirror PROPERLY
+    # (fund only today's openable slice and it runs dry following the OG's next move).
+    small = [{"notional": 5000, "leverage": 10},   # 12/10 = 1.2
+             {"notional": 3000, "leverage": 5},     # 12/5  = 2.4
+             {"notional": 2000, "leverage": 3}]     # 12/3  = 4.0
+    b = research._min_mirror_budget(1000.0, small)              # Σ = 7.6, cheapest = 1.2 → both clamp to $10
     assert b["min_budget_usd"] == 10.0 and b["opens_nothing_below_usd"] == 10.0 and b["positions"] == 3
     # a book whose Σ margins clears the $10 floor
-    big = [{"notional": 9000, "direction": "long", "moved_from_entry_pct": 1.0, "leverage": 2} for _ in range(5)]  # 5 × (12/2=6) = 30
+    big = [{"notional": 9000, "leverage": 2} for _ in range(5)]  # 5 × (12/2=6) = 30
     assert research._min_mirror_budget(1000.0, big)["min_budget_usd"] == 30.0
-    # a position that ran in the OG's favor is slippage-skipped → costs no margin
-    ran = [{"notional": 5000, "direction": "long", "moved_from_entry_pct": 40.0, "leverage": 2},   # ran up 40% → skipped
-           {"notional": 3000, "direction": "long", "moved_from_entry_pct": 1.0, "leverage": 2}]     # openable
-    assert research._min_mirror_budget(1000.0, ran)["positions"] == 1
+    # a position that ran in the OG's favor is STILL counted — margin to hold the FULL book over time, not just
+    # today's openable slice (that's the whole point: don't starve the mirror on the OG's next move)
+    full = [{"notional": 5000, "leverage": 2, "direction": "long", "moved_from_entry_pct": 40.0},   # ran up 40% — still counted
+            {"notional": 3000, "leverage": 2, "direction": "long", "moved_from_entry_pct": 1.0}]
+    assert research._min_mirror_budget(1000.0, full)["positions"] == 2
     # missing leverage → assume 1x (full notional as margin): 12/1 = 12
-    assert research._min_mirror_budget(1000.0, [{"notional": 100, "direction": "long", "moved_from_entry_pct": 0.0}])["min_budget_usd"] == 12.0
+    assert research._min_mirror_budget(1000.0, [{"notional": 100}])["min_budget_usd"] == 12.0
     # flat / unknown book → None (account_value is no longer required by the margin model)
     assert research._min_mirror_budget(1000.0, []) is None
     assert research._min_mirror_budget(1000.0, None) is None
