@@ -292,33 +292,36 @@ def _book_summary(positions, net_notional):
 
 
 def _min_mirror_budget(account_value, positions, mult=1.0):
-    """The minimum budget to run a mirror of THIS trader PROPERLY — enough MARGIN to hold a proportional copy of
-    their WHOLE current book, so the mirror keeps tracking their opens/closes instead of running dry after the
-    first few. The platform bumps a sub-floor position up to the ~$12 notional minimum and charges only the
-    margin, `MIN_NOTIONAL_USD / leverage`, so the floor ≈ Σ (MIN_NOTIONAL_USD / leverage) over ALL open
-    positions — NOT just the slippage-openable slice. Funding only for what opens today under-margins the mirror
-    on the OG's next move (fund 20% of their book and you can't follow the other 80%). This is deliberately ≥
-    the platform's day-1 `minimumBudgetRequired` (which covers only today's fresh entries): the sim shows what
-    opens NOW, this shows what it takes to RUN it. Clamped to the $10 platform minimum. `account_value` unused
-    (kept for signature stability). Returns None when the book is flat / unknown."""
+    """A ROUGH pre-sim floor for the budget to open a mirror of THIS trader's current book — NOT exact and NOT a
+    trade-size recommendation; the pre-fund sim (execution_estimate_position_opening) is authoritative.
+    MARGIN-based, to match how the platform actually sizes: it bumps a sub-floor position UP to the ~$12
+    notional minimum and needs only the MARGIN for it — `MIN_NOTIONAL_USD / leverage`. So the budget to open the
+    whole openable book ≈ Σ (MIN_NOTIONAL_USD / leverage) over the positions a mirror would open, and the
+    cheapest single position is the floor below which nothing opens. (The old notional-proportional formula
+    overstated ~20× on diversified, leveraged books.) Clamped to the $10 platform minimum. `account_value` is
+    unused now (kept for signature stability). Returns None when the book is flat / unknown."""
     margins = []
     for p in (positions or []):
         if not (p.get("notional") and p["notional"] > 0):
+            continue
+        adv = _adverse_move(p)
+        if adv is not None and adv > NEAR_ENTRY_BAND_PCT:   # ran in the OG's favor → slippage-skipped → costs no margin
             continue
         lev = p.get("leverage")
         lev = lev if (isinstance(lev, (int, float)) and lev > 0) else 1.0   # missing leverage → assume 1x (full notional as margin)
         margins.append(MIN_NOTIONAL_USD / lev)
     if not margins:
         return None
+    mult = mult or 1.0
 
     def _clamp(x):
         return round(max(MIN_STRATEGY_BUDGET_USD, x), 2)
     return {
-        "min_budget_usd": _clamp(sum(margins)),            # margin to hold their WHOLE book at the floor — the minimum to run properly
-        "opens_nothing_below_usd": _clamp(min(margins)),   # below this, not even the cheapest single position can be held
-        "at_multiplier": mult or 1.0,
-        "positions": len(margins),                          # ALL open positions — a mirror tracks the full book over time, not just today's openable slice
-        "note": f"minimum MARGIN to run a proportional copy of the whole book at the ${int(MIN_NOTIONAL_USD)} notional floor (≈ Σ floor/leverage over ALL positions). Deliberately ≥ the sim's day-1 minimum, which covers only what opens today.",
+        "min_budget_usd": _clamp(sum(margins)),            # margin to open the whole openable book at the $12 floor
+        "opens_nothing_below_usd": _clamp(min(margins)),   # below this even the cheapest openable position clears nothing
+        "at_multiplier": mult,
+        "positions": len(margins),                          # positions a mirror would OPEN now (ran-in-favor ones excluded)
+        "note": f"ROUGH pre-sim estimate — margin to open the openable book at the ${int(MIN_NOTIONAL_USD)} notional floor (≈ Σ floor/leverage). The pre-fund sim is the exact figure for your chosen multiplier, not this.",
     }
 
 

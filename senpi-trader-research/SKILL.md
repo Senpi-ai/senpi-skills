@@ -97,14 +97,14 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
   `mirrorMultiplier`, slippage-as-entry-gate, protection, minimums, "how much do I need", "spot or perps")
   is the **single source** in senpi-trade (`references/mirror-trading-explained.md`). If the user asks how
   copy trading works, hand off there — never write a parallel explanation that can drift.
-- **Answer "how much do I need?" with `min_budget_usd` — the minimum to run the mirror PROPERLY, never a
-  trade-size recommendation.** It's **margin-based**: the platform bumps a sub-floor position up to the ~$12
-  notional minimum and charges only the margin (`$12 / leverage`), and the figure sums that over the OG's
-  **whole book** — because a mirror keeps tracking their opens/closes, so it must be funded to hold a
-  proportional copy of *all* their positions, not just today's slippage-openable slice. **It is deliberately ≥
-  the pre-fund sim's `minimumBudgetRequired`** (the sim shows what opens *today*; this is what it takes to *run*
-  it) — don't "reconcile" the two, they answer different questions. `opens_nothing_below_usd` is the hard floor
-  below which not even the cheapest single position can be held.
+- **Answer "how much do I need?" with `min_mirror_budget` — a rough estimate, never an exact figure or a
+  trade-size recommendation.** Every enriched trader carries `min_budget_usd` (a floor to open their *openable*
+  book) and `opens_nothing_below_usd` (below it nothing opens), both clamped to the $10 platform minimum. It's
+  **margin-based** — the platform bumps a sub-floor position up to the ~$12 notional minimum and charges only
+  the margin (`$12 / leverage`), so the estimate ≈ Σ of those margins over the openable positions. This is the
+  **same basis the execution engine uses**, so it lines up with the pre-fund sim's `minimumBudgetRequired` —
+  treat a small gap as rounding, not a discrepancy. Quote it as *"you'll need at least about $X"*, then run the
+  **pre-fund sim** for the exact figure at the user's chosen multiplier.
   State `min_budget_usd` as the minimum when the user asks what a copy needs or names a budget; **do not
   advise how much they should trade with — that's their call.** It's a pre-fund estimate; the sim is the
   exact check. If it's `null` (flat / account value unreadable), say so.
