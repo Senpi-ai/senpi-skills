@@ -71,6 +71,22 @@ def _num(v):
         return None
 
 
+EMIT_PROGRESS = False   # main() turns this on for real CLI runs; tests import run() directly and stay quiet
+
+
+def _progress(msg):
+    """Emit a live progress line to **stderr** (flushed) as the ~30–60s blend works, so a host that surfaces a
+    running exec's output can stream it to the user a beat at a time. stdout stays pure JSON — this never
+    touches it — and it's off by default, so offline/fixture runs (tests) don't print."""
+    if not EMIT_PROGRESS:
+        return
+    try:
+        sys.stderr.write(msg + "\n")
+        sys.stderr.flush()
+    except Exception:  # noqa
+        pass
+
+
 def _f(d, *keys, default=None):
     if isinstance(d, dict):
         for k in keys:
@@ -414,9 +430,12 @@ def find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=ENRICH
     if blend:
         # No single sort is smart enough for "who should I copy" — union complementary views and let a
         # trader seen in more than one (proven AND currently performing) rank higher. The user never picks.
+        _progress("Scanning tens of thousands of Hyperliquid traders — ranking the top performers over the last 7 and 30 days…")
         merged = {}
         for tf, sb, label in MIRROR_VIEWS:
-            for rank, t in enumerate(_fetch_view(client, meta, tf, sb, limit), start=1):
+            rows = _fetch_view(client, meta, tf, sb, limit)
+            _progress(f"Ranked the {label} leaders — weighing consistency, risk, trading volume and turnover…")
+            for rank, t in enumerate(rows, start=1):
                 addr = _field(t, "address", "trader_address", "wallet")
                 if not addr:
                     continue
@@ -447,8 +466,13 @@ def find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=ENRICH
     # Enrich the top of the pool for mirrorability. Momentum (a 4h leaderboard call) is a tiebreak, not
     # part of the copyability rank — pull it only for the top MOMENTUM_TOP so a wide pool doesn't blow the
     # call budget. `enrich_top=0` opts out entirely.
-    for i, c in enumerate(out[:min(enrich_top, len(out))] if enrich_top else []):
+    top = out[:min(enrich_top, len(out))] if enrich_top else []
+    if top:
+        _progress(f"Pulling current open positions for the top {len(top)} and checking what's mirrorable right now…")
+    for i, c in enumerate(top):
         _enrich_for_mirror(client, meta, c, with_momentum=(i < MOMENTUM_TOP))
+        if (i + 1) % 5 == 0 and (i + 1) < len(top):
+            _progress(f"Analyzed {i + 1}/{len(top)} open books…")
     return out
 
 
@@ -589,6 +613,8 @@ def main(argv=None):
     ap.add_argument("--fixture")
     ap.add_argument("--dry", action="store_true")
     a = ap.parse_args(argv)
+    global EMIT_PROGRESS
+    EMIT_PROGRESS = not bool(a.fixture)   # stream live progress on real runs; stay quiet offline (tests/fixtures)
 
     if a.fixture:
         try:

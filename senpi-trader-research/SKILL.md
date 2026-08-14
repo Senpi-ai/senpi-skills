@@ -144,16 +144,18 @@ data still returns a valid shortlist.
 **Finding candidates (a mirror decision) — this shape, every time.** The market-pulse bar: the same
 comprehensive, decision-first answer on every call, never a bare ROI list.
 
-0. **Open with what you're doing — say it BEFORE you run the engine.** The blend sweeps the whole field and
-   pulls each candidate's live book; it takes ~30–60s, so never leave the user on a silent spinner. Post a
-   confident, scale-setting line as its **own message first** (it builds trust and covers the wait), *then*
-   run `research.py`. Name the real work — vary the wording, e.g.:
-   > *"Scanning tens of thousands of Hyperliquid traders to find who's best to mirror right now — ranking the
-   > top performers over the last 7 and 30 days, then checking each for consistency, evaluating risk, looking
-   > at trading volume and turnover, pulling their current open positions, and matching every book against
-   > today's market. Give me ~30–60s."*
-   Keep the steps honest and lead with the **scan and the scale**, never a bare "let me pull the list." Don't
-   invent a precise trader count you can't verify — "tens of thousands" is the honest scale.
+0. **Stream progress in short beats — don't front-load one paragraph, and don't go silent for 30–60s.** Pace
+   the narration to the actual work so the user watches it happen, a few seconds apart:
+   - A one-line **opener as its own message**, *before* the engine: *"Scanning tens of thousands of Hyperliquid
+     traders to find who's best to mirror right now — ~30–60s."* Lead with the **scan and the scale**; never a
+     bare "let me pull the list," and never invent a precise count ("tens of thousands" is the honest scale).
+   - `research.py` **emits live progress to stderr as it runs** (ranking 7d/30d → consistency, risk, volume,
+     turnover → pulling each open book — a line every few seconds). **If your host surfaces a running exec's
+     output, let it stream through** — don't swallow it; that IS the live "working…" feed. (If your host
+     buffers tool output until the call returns, the opener covers the wait and the next beat picks up below.)
+   - A **second beat when you cross-reference the market**: *"Now matching every book against today's tape…"*
+     as you run `senpi-market-pulse` — then deliver the shortlist.
+   The goal: several short updates a few seconds apart — never one wall of text up front, never a silent wait.
 1. **The call** — one line with the decision (not a menu): *"the best trader you can actually mirror right
    now is …"* — **or**, when no single trader is cleanly mirrorable, *"the best play right now is a
    fresh-entry template, because the proven books have already run"* (a real recommendation framed as the
