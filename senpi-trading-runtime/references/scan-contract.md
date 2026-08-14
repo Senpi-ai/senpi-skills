@@ -242,7 +242,11 @@ Both are valid — it's your thesis:
 - ✅ On any failure, **return `[]`** (or a partial list) — don't crash.
 - ✅ If a gate can make `scan()` return **before it reads anything**, let `ctx.dry_run` bypass it — a
   tick that reads nothing validates as **UNPROVEN**, not as a pass.
-- ✅ Prove it before you hand it over: `openclaw senpi validate <package-dir>` must return **PASS**.
+- ✅ Prove it before you hand it over: `openclaw senpi validate <recipe-dir>` must return **PASS** —
+  the directory holding that instance's `runtime.yaml`: the package root for a flat package (no
+  `instances:` list), the instance's own dir once `strategy.yaml` lists instances. A root that lists
+  instances holds no recipe of its own and refuses `[E_VALIDATE_NO_RECIPE]`; each instance needs its
+  own pass.
 - ❌ Don't set `valid_until`/`produced_at` — the scaffold owns the envelope (`signal_id` optional).
 - ❌ Don't schedule the scanner yourself or POST signals — the runtime does it.
 - ❌ Don't try to mutate `ctx` (it's frozen) or `append` a non-dict to `ctx.state`.

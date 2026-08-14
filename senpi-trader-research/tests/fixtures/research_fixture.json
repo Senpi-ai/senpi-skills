@@ -84,6 +84,13 @@
       }
     }
   },
+  "discovery_get_trader_history::0xpro": {
+    "success": true,
+    "data": {
+      "page_info": {"totalCount": 140, "hasNextPage": true},
+      "trades": []
+    }
+  },
   "discovery_get_top_strategies": {
     "success": true,
     "data": {

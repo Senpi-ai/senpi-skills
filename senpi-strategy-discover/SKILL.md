@@ -15,7 +15,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.16.0"
+  version: "2.17.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -151,7 +151,13 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
    2. "Ride what's moving, or fade the crowd?" → rank `archetype_label` Trend-Follower vs Contrarian/Fade.
    3. "A **specific market** — a stock (NVDA), a pre-IPO name (SpaceX), a commodity (gold/oil), an index,
       or a coin?" → this IS concrete → `--assets xyz_equities|pre_ipo|commodities|indices|<class/ticker>`.
-   4. "Copy traders already winning?" → rank Copy-Trader up.
+   4. "Copy traders already winning?" → **hand off to `senpi-trader-research`** to find the best wallets to
+      mirror — it blends proven + hot and ranks by who you can actually copy *right now*, so **the user never
+      picks a window.** For the **hands-off** route, managed copy templates come in **two flavors — surface
+      both, don't show only one**: *copy specific traders* (**Shadow / Remora / Raptor / Cuckoo / Oxpecker /
+      Jackal** — mirror a trader's fresh entries or book) **and** *follow the smart money by signal* (**Stingray
+      / Starling / Whalehunter** — position by where the whole proven cohort leans, many traders at once, not
+      1:1). All auto-apply DSL + budget-relative sizing. (`senpi-trade` carries the full flavor breakdown.)
    5. 🏆 "Just run what's set up best right now?" → *read the market*, lead with the best current setup
       (be honest — see "What's winning" in Special paths; there's no per-package performance board).
    6. "Catch breakouts early, or earn from market structure?" → rank Breakout / Structural up.
@@ -162,7 +168,7 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
    | a fund — a style | "AI/tech, market-neutral, income, or macro?" → rank by `tags`/`thesis`. |
    | trend / contrarian | "On one name, a basket, or the whole board?" (one name → `--assets <ticker>`; else rank on `asset_scope`). |
    | a specific market | "Which — a stock, pre-IPO name, commodity, index, or coin?" → `--assets`. |
-   | copy | "Multi-week proven winners, live hot streaks, or specific whales?" → rank on `tags`. |
+   | copy | **Don't make them pick a window** — "proven vs hot" is exactly what the `senpi-trader-research` blend unions for them (that's the whole point of the blend). Ask only: *"a specific wallet you already have in mind, or should I find the best to copy?"* — a named wallet → `senpi-trader-research --trader <addr>` (vet, then mirror); "find the best" → hand to `senpi-trader-research` (blended shortlist, ranked by copyability); prefer hands-off → a managed copy template — **surface both flavors**: *copy specific traders* (Shadow / Remora / Raptor / Cuckoo / Oxpecker / Jackal) **and** *follow the smart money by signal* (Stingray / Starling / Whalehunter — many traders at once, not 1:1). |
    | breakout / structural | the one drill-down that matters for that branch. |
 3. **Size & lock in (Layer 3)** — pick the DSL preset and size the budget. **`min_budget` on each card is
    the FLOOR to run it, not a recommended amount** — never just parrot it as "Suggested: $X". Size from
@@ -186,6 +192,9 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
 - **Orient / browse** — a short plain-English menu of what's possible (the style families + the funds +
   the non-crypto markets); never force a pick. From here they pick a belief, read the market, or build custom.
 - **Build custom** — hand to **senpi-strategy-author** at any time; a real choice, not a dead-end.
+- **Mirror a specific trader** — to copy an individual Hyperliquid wallet (not a managed template), hand to
+  **senpi-trader-research** (find + vet) → **senpi-trade** (mirror). It blends the windows so the user never
+  picks proven-vs-hot; a wallet they name goes straight to `--trader`.
 
 ### Layer 0 fallback — only if they can't answer belief
 
@@ -222,7 +231,7 @@ They lack the vocabulary; recommend *without* making them self-classify:
 - "I think there's going to be a war" → *(no asset cut)* run broad → rank up war / tail-risk / oil-gold
   theses (`thesis-war-escalation`, `rhino`)
 - "run a hedge fund / all-weather book" → run broad → rank up `hedge-fund`/`all-weather`/`risk-parity` tags (`ox`, `spider`, `rhino`)
-- "copy good traders, nothing crazy" → *(no flags)* run, rank Copy-Trader up; keep risk=moderate in head
+- "copy good traders, nothing crazy" → **hand to `senpi-trader-research`** for the blended shortlist (steady names surface by copyability — no window for the user to pick); or a managed **Copy-Trader template** if they want it hands-off. Keep risk=moderate in head.
 - "trade stocks not crypto" → `--assets xyz_equities --exclude crypto`
 - "I don't want to short" → `--direction long_only`
 - "no copy-trading" → `--exclude copy_trading`

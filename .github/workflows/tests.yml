@@ -28,4 +28,4 @@ jobs:
       # pytest collects every test regardless of a __main__ runner — bare `python3 <file>` exits 0
       # without running anything on a runner-less file (test_default_catalog.py), a silent green.
       - name: full suites (ops + discover + trading-runtime)
-        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-trading-runtime/tests -q
+        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-trading-runtime/tests senpi-trader-research/tests senpi-market-pulse/tests -q

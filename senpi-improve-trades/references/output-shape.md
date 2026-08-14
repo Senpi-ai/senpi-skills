@@ -55,7 +55,12 @@ book_vs_market   the "what did I miss" gap:
   window                                              # the leaderboard's rolling window (e.g. "4h")
 
 strategies[]  the CURRENT book ONLY (status ACTIVE | PAUSED) — each judged vs ITS mandate, on TOTAL PnL:
-  { label, wallet, status, mandate, dsl, closed_trade_count, realized_pnl,
+  { label,                    # its own name (strategyName), or the package id when it has none
+    group,                    # the runtime.yaml's strategy key — SAME on every sleeve of one strategy
+    skill_name,               # the package attribution stamp — same pairing, survives a dead registry
+    # group/skill_name are the ONLY proof two rows are one strategy: sleeves are named apart and carry
+    # different mandates. Two ACTIVE rows sharing either one are sleeves — never merge or close one.
+    wallet, status, mandate, dsl, closed_trade_count, realized_pnl,
     unrealized_pnl,           # current open positions' unrealized — None = UNKNOWN read (never a fake 0)
     total_pnl,                # realized + unrealized (None when unrealized UNKNOWN) — JUDGE ON THIS, not realized
     open_position_count,

@@ -131,6 +131,14 @@ def validate(pkg: Path) -> list:
     sid = man.get("id")
     if sid != pkg.name:
         errs.append(f"id {sid!r} != package dir {pkg.name!r}")
+    # Same rule, same wording as strategy-ops `_pkg.validate`, so author-green == deploy-green: the id
+    # becomes the wallet's `skillName` stamp verbatim while the backend stores it case-normalized, so
+    # a mixed-case id is stamped under one spelling and looked up under another.
+    if sid and str(sid) != str(sid).lower():
+        errs.append(f"id {str(sid)!r} must be lowercase — set `id: {str(sid).lower()}` in "
+                    f"strategy.yaml and rename the package directory to match. The id is written "
+                    f"into the wallet's `skillName` stamp verbatim and read back case-normalized, so "
+                    f"a mixed-case id is stamped under one spelling and looked up under another")
     if not man.get("version"):
         errs.append("missing version (single source for catalog + attribution)")
     if not man.get("instances"):
@@ -203,9 +211,10 @@ def validate(pkg: Path) -> list:
                         f"every strategy must ship built-in protection")
 
         # Self-describing is not optional: every instance needs a substantive top-level `description`.
-        # The runtime REGISTERS it (installed_runtimes.json) and senpi-portfolio reads it back as the
-        # strategy's mandate — "is it doing its job?". A missing/stub description makes an authored
-        # strategy invisible to portfolio analysis (and works the same for user-authored strategies).
+        # The runtime REGISTERS it and senpi-portfolio reads it back (via `openclaw senpi runtime list
+        # --json`, never a registry file) as the strategy's mandate — "is it doing its job?". A
+        # missing/stub description makes an authored strategy invisible to portfolio analysis (and
+        # works the same for user-authored strategies).
         dlines, capture, dbody = rt_text.splitlines(), False, []
         for ln in dlines:
             if not capture and re.match(r"^description\s*:", ln):
@@ -235,8 +244,24 @@ def validate(pkg: Path) -> list:
             errs.append(f"instance {name}: missing sibling {scoring_py.relative_to(pkg)} ('import scoring' will fail)")
         if (scn_dir / "__init__.py").is_file():
             errs.append(f"instance {name}: {(scn_dir / '__init__.py').relative_to(pkg)} present — remove it (sibling-import model)")
-        if not wenv or ("${%s}" % wenv) not in rt_text:
-            errs.append(f"instance {name}: wallet_env {wenv!r} not bound as ${{{wenv}}} in {rt_rel}")
+        # Asked of the PARSED `strategy.wallet`, never of the file's text. A `${WALLET_ENV}` sitting
+        # anywhere at all — a `note:`, a comment, an input nothing reads — satisfies a text search
+        # while `strategy.wallet` holds a hardcoded address; the render then substitutes that stray
+        # token harmlessly and leaves no `${...}`, so the unresolved-placeholder check clears it too.
+        # Deploy would fund a fresh wallet and install the strategy, exit engine included, against
+        # the pinned one. The runtime refuses that (`E_VALIDATE_WALLET_UNBOUND`) off this same field,
+        # so asking a weaker question here is how author-green stops meaning deploy-green.
+        if not wenv:
+            errs.append(f"instance {name}: missing wallet_env in strategy.yaml")
+        elif isinstance(rt_doc, dict):
+            _strat = rt_doc.get("strategy")
+            _bound = _strat.get("wallet") if isinstance(_strat, dict) else None
+            _bound = _bound.strip() if isinstance(_bound, str) else None
+            if _bound != "${%s}" % wenv:
+                _found = "no strategy.wallet" if _bound is None else repr(_bound)
+                errs.append(f"instance {name}: set runtime `strategy.wallet: \"${{{wenv}}}\"` in "
+                            f"{rt_rel} (found {_found}) — deploy substitutes the wallet it creates, "
+                            f"so a literal address there funds one wallet and trades another")
         seen_wallet_envs.add(wenv)
 
     # multi-instance must use distinct wallets

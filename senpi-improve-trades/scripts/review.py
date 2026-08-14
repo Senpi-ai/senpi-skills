@@ -163,6 +163,53 @@ def _field(d, *names, default=None):
     return default
 
 
+# ── VENDORED, byte-identical in senpi-portfolio/scripts/portfolio.py and
+# ── senpi-improve-trades/scripts/review.py — skills install standalone, so neither may import the other.
+# ── senpi-portfolio/tests/test_name_reader_parity.py fails the moment the two copies drift.
+def _first_written(d, *names, default=None):
+    """The first of `names` whose value someone actually WROTE, as a stripped string.
+
+    A boundary reader, so it coerces: `_field` hands back whatever the payload held, and a dict or a
+    number landing in a name field renders as one. A container is never a name; a scalar is stringified.
+
+    The strip is the load-bearing part. `_field` already skips a present-but-NULL key, so the null case
+    survives on its own — this exists so that silence at one leg can never answer for the legs behind it
+    NO MATTER the shape it arrives in, and so the two vendored copies answer identically."""
+    if isinstance(d, dict):
+        for n in names:
+            v = d.get(n)
+            if v is None or isinstance(v, (dict, list, tuple, set, bool)):
+                continue                      # a container or a flag never names anything
+            v = str(v).strip()
+            if v:
+                return v
+    return default
+# ── end vendored block
+
+
+def _strategy_label(s):
+    """What to CALL a strategy — the label every trade, event and rollup is attributed by, and the KEY
+    the `by_strategy` rollups bucket on.
+
+    `strategyName` first: it is the strategy's own name (`<id>-<instance>` for a package deploy), so it is
+    the only field that tells the `long` sleeve from the `short` one. `tradingStrategyName` is NOT a second
+    name — `strategy_list` sets it to `strategyMetadata.skillName` verbatim, so it is the PACKAGE id,
+    identical across every instance of a package. Bucketing by it merged two sleeves into one
+    `dsl_close_reason_mix.by_strategy` entry — and since the DSL ladder is PER INSTANCE, that merged bucket
+    routed a "fix" at two different ladders. It stays as the fallback because `strategyName` is nullable by
+    mechanism (no name input on `strategy_create`, optional on `strategy_create_custom_strategy`).
+
+    Two live wallets can still share a label — sleeves of an UNNAMED strategy both fall back to the package
+    id, and a user-named `cub` collides with an unnamed strategy from package `cub`. That is why the row
+    also carries `skill_name` + `group`: the label is what a bucket is called, never the proof of what is
+    one strategy.
+
+    Chain-identical to senpi-portfolio's `name` and senpi-strategy-ops' `strategy_name`; the READERS are
+    not identical (ops' dispatches through a case-insensitive `dig` and does not strip) — see
+    tests/test_name_reader_parity.py for which two copies are held byte-identical and why the third isn't."""
+    return _first_written(s, "strategyName", "tradingStrategyName", "name", default="strategy")
+
+
 # ──────────────────────────────────────────────────────────────── vendored YAML (runtime.yaml parse)
 def _yaml_loads(text):
     """Parse runtime.yaml text via the vendored stdlib loader (scripts/_yaml.py — no cross-skill
@@ -365,7 +412,7 @@ def fetch_strategies(client, meta):
             skill_name = _field(s, "skillName", "skill_name", "skill")
         prof = registry.get(str(wallet).lower()) or {}
         strategies.append({
-            "label": _field(s, "tradingStrategyName", "name", default="strategy"),
+            "label": _strategy_label(s),
             "wallet": wallet,
             "strategy_id": _field(s, "id", "strategyId", "strategy_id"),
             "skill_name": skill_name,
@@ -1608,6 +1655,13 @@ def _strategy_reads(trades, strategies, open_book=None):
         out.append({
             "label": s.get("label"),
             "wallet": s.get("wallet"),
+            # WHICH ROWS ARE ONE STRATEGY. Sleeves are named apart (`cougar-long`/`cougar-short`) and carry
+            # different mandates, so nothing in the LABEL says they are one book — these two fields are the
+            # only thing that does, and "never merge two sleeves" is unactionable without them on the row.
+            # `group` is the runtime.yaml's own key (authoritative, shared by every sleeve); `skill_name` is
+            # the attribution stamp, which survives when the registry is unreadable and `group` is None.
+            "group": s.get("group"),
+            "skill_name": s.get("skill_name"),
             "status": s.get("status"),
             "mandate": mandate,
             "dsl": s.get("dsl"),                 # the levers a fix routes to

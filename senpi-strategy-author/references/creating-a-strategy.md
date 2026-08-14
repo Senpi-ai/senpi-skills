@@ -4,34 +4,74 @@
 
 ---
 
+## 0. Before the build — two notes on the conversation `SKILL.md` runs
+
+`SKILL.md` owns the template-first offer and the funding heads-up. This section holds the two things
+that make them concrete but that no rendered message and no rule can carry.
+
+**An example of the offer, for a new-ish user who hinted a thesis** (the shape, not a script to read
+out — name whatever template `senpi-strategy-discover` actually matched):
+
+> *"Two ways to go: I can get you running fast from a proven template — **Cougar** is close to what
+> you described, and you can tweak it to make it yours — or if you'd rather, we design one from
+> scratch together. Your call — what sounds better?"*
+
+**Why the funding heads-up happens at minute one and never gates the interview:** users have
+completed the entire interview and build, then hit the funding wall at the last step and left. The
+wall is real and stays — reading the balance before Decision 1 only moves the news to the point
+where the user's investment is still zero. It is not a permission check, so it never blocks a build.
+
 ## 1. Mental model
 
 A strategy is a **deployable package, not a skill.** You author two things — the **thesis** (what to believe, how to score it) and the **guardrails** (how to exit, how much risk). Runtime 3.0 owns everything operational: it **spawns and supervises** your scanner, calling `scan(inputs, ctx)` every `interval_seconds`, and owns sizing, execution, exits, slots, risk gates, state durability, and retries.
 
 Your code is **one read-only, pure function**: it reads data and returns candidate signals. It **never** trades, sizes in dollars, loops, sleeps, or writes files. There is no daemon, no `push_signal`.
 
-## 2. The package
+## 2. The package — FLAT, and that is the layout this whole guide builds
 
 ```
-/data/workspace/strategies/<id>/    # the DURABLE root — never author inside a managed skill dir
-  strategy.yaml                 # identity, catalog facets, instances + funding
-  <instance>/
-    runtime.yaml                # the deterministic spec: inputs, entry action, DSL exit, risk
-    scanners/
-      scan.py                   # scan(inputs, ctx) -> list[dict]   (reads + emits)
-      scoring.py                # pure thesis math — no I/O, unit-testable
+/data/workspace/strategies/<id>/  # the DURABLE root — never author inside a managed skill dir
+  strategy.yaml                   # identity + catalog facets — and NO `instances:` list
+  runtime.yaml                    # the deterministic spec: inputs, entry action, DSL exit, risk
+  scanners/
+    scan.py                       # scan(inputs, ctx) -> list[dict]   (reads + emits)
+    scoring.py                    # pure thesis math — no I/O, unit-testable
 ```
+
+**No `instances:` list, no `<instance>/` dir.** Every loader — the deployer, the author lint and the
+runtime itself — synthesizes the canonical `main` instance from that root `runtime.yaml`, binding
+`wallet_env` to the `${...}` the recipe already uses. That is what makes **one** path serve every
+command in this guide: the package root is the target of `validate_strategy.py`,
+`validate_universe.py`, `deploy.py validate`, `openclaw senpi validate` and `deploy.py create` alike.
+The instance is still named `main`, so the recipe's linkage is `name: <id>-main`, `group: <id>` (§6).
 
 **Location is load-bearing:** build under `/data/workspace/strategies/` (`SENPI_STRATEGIES_DIR`
 overrides). A package created inside a managed skill directory (`/data/.openclaw/skills/…`) is
 destroyed on that skill's next version bump — the skills-manager replaces the whole dir.
-One instance binds to one wallet. A long book + a short book, or a swing + a scalp leg, = **multiple instances**.
 
-**Single-instance? Build it FLAT** — `strategy.yaml` + `runtime.yaml` + `scanners/` at the package root,
-no `instances:` list and no `<instance>/` dir: the deployer (strategy-ops v2.4.0+) synthesizes the
-canonical `main` instance for you. The nested `<instance>/` layout above is only *required* for
-multi-instance strategies. Either way, `deploy.py validate /data/workspace/strategies/<id>` tells you
-in one pass whether the package is deploy-ready.
+**The one exception — multi-instance — is a different shape, and §4's decision 4 is what picks it.**
+One instance binds to one wallet, so an independent long book + short book, or a swing + a scalp leg,
+needs one `<instance>/` dir per leg (each with its own `runtime.yaml` + `scanners/`) plus an explicit
+`instances:` list in `strategy.yaml`. Schema and the instance-entry fields:
+`references/strategy-yaml-schema.md`. **Unless decision 4 says multi-instance, build flat.**
+
+Beyond the layout itself, taking the exception changes **two things about the commands and ids** below:
+
+| | flat (this guide) | multi-instance |
+|---|---|---|
+| `openclaw senpi validate` | `<pkg-root>`, once | `<pkg-root>/<instance>`, **one run per instance** |
+| the runtime id (`-r`, and the recipe's `name:`) | `<id>-main` | `<id>-<instance>`, one per leg |
+
+**Every other command still takes the package root or the bare id.** `validate_strategy.py` and
+`deploy.py validate` read `strategy.yaml`, so they need the **root** — pointed at an instance dir,
+`validate_strategy.py` fails `missing strategy.yaml`. `validate_universe.py` walks every
+`runtime*.yaml` under whatever dir you give it, so the root covers all legs in one run.
+`deploy.py create <id>` takes the bare id and funds every instance by `funding_share`. Only
+`senpi validate` is per-instance, because it resolves ONE recipe and a multi-instance root holds none.
+
+Two §10 checklist items are layout-specific too: `funding_share` has to sum to 1.0 once `instances:`
+is declared, and the strict whole-value uppercase `strategy.wallet` rule binds only on the flat
+synthesis — a multi-instance package names each `wallet_env` in the manifest instead.
 
 ## 3. Division of labor — memorize this
 
@@ -54,7 +94,7 @@ Decide these in prose first; the files just encode them.
 1. **Universe** — single asset · static basket · **dynamic** (rebuilt from `market_list_instruments`, volume floor + fresh-listing) · **derived** (names come from a leaderboard/cohort, not a list).
 2. **Data** — candles (`market_get_asset_data`) · funding/OI (`market_get_funding_*`) · smart-money (`leaderboard_get_markets`, `discovery_*`) · cross-asset flow (`market_get_cross_asset_flows`).
 3. **Edge** — trend-follow · mean-revert · breakout · relative-strength · copy/follow · cohort-divergence · event/new-listing · macro-thesis.
-4. **Shape** — long-only / short-only / mixed-on-one-wallet = **1 instance** · independent long+short or distinct cadences = **multiple instances** (each its own wallet + `funding_share`).
+4. **Shape** — long-only / short-only / mixed-on-one-wallet = **1 instance** (build flat, §2) · independent long+short or distinct cadences = **multiple instances** (each its own wallet + `funding_share`) — that is §2's exception, and the only decision here that changes the layout.
 5. **Cardinality** — one best pick (`slots: 1`) · all gated qualifiers (runtime caps via `slots`).
 6. **Memory (`ctx.state`)** — none · signal-dedup (TTL) · first-seen ledger · rolling history (breadth / "adding-daily") · pool/cohort cache (daily refresh).
 7. **Exit / risk / cadence** — a named **DSL preset** (§7), risk gates sized to style, `interval_seconds` 60→900, `decision_mode: rule` (default — `llm` only for a genuine gate).
@@ -148,8 +188,9 @@ def scan(inputs, ctx):
 - **Anchor every `call_tool` on the published MCP I/O reference** (`read_senpi_guide`). A guessed tool name, interval string, or output field = a silent dead scanner.
 
 ### `runtime.yaml` — the deterministic spec
+At the package root (§2). Multi-instance: one per `<instance>/` dir, with `<instance>` in place of `main`.
 ```yaml
-name: <id>-<instance>          # REQUIRED linkage
+name: <id>-main                # REQUIRED linkage — `<id>-<instance>`; flat's instance IS `main`
 group: <id>                    # REQUIRED linkage
 version: 3.0.0
 description: >                  # REQUIRED — plain-language thesis + how it works, 2-4 sentences.
@@ -196,10 +237,12 @@ version: "1.0.0"               # the ONE version (catalog + MCP attribution deri
 catalog: { ... }               # section 8 — controlled vocabulary
 requires: { runtime: ">=3.0.0" }     # @senpi-ai/runtime (with -ai). Confirm exact semver with the team.
 defaults: { auth_token_env: SENPI_AUTH_TOKEN }      # env NAMES only, never values
-instances:
-  - { name: main, runtime: main/runtime.yaml, wallet_env: <ID>_WALLET, funding_share: 1.0 }
-# multi-leg: one entry per instance; funding_share sums to 1.0; each a distinct wallet_env
+# NO `instances:` — flat (§2). The `main` instance is synthesized from the root runtime.yaml,
+# and its wallet_env is read back out of that recipe's `strategy.wallet: "${<ID>_WALLET}"`.
 ```
+Multi-instance only (§2's exception): add `instances:` with one entry per leg —
+`- { name: <leg>, runtime: <leg>/runtime.yaml, wallet_env: <ID>_<LEG>_WALLET, funding_share: 0.5 }` —
+each a distinct `wallet_env`, `funding_share` summing to 1.0.
 
 ## 7. Exits — name a DSL preset, don't hand-roll
 
@@ -233,13 +276,12 @@ Discovery matches your strategy to users by the `catalog:` block. **Validation o
 
 ```
 python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>   # advisory lint
-openclaw senpi validate /data/workspace/strategies/<id>                          # THE GATE — must be PASS
-python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # wallet(s); $10/wallet floor
-python3 senpi-strategy-ops/scripts/deploy.py runtime <id>
-python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                        # re-run after interval_seconds
+openclaw senpi validate /data/workspace/strategies/<id>                         # THE GATE — must be PASS. The package root (flat, §2)
+python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # the whole path: wallet(s) ($10/wallet floor) → install → observed tick
+openclaw senpi deploy status                                                    # read-only: the report; `overall: live` is the gate
 # teardown / redeploy:  close.py <id>  (flattens positions, returns funds)
 ```
-**"running" ≠ "operating."** Don't trust `status: running`. Confirm the scanner has a **positive run count + a fresh `lastRunFinishedAt`** (`openclaw senpi state -r <id>-<instance> --json`), and that it **emits a non-empty set on a tick where it should** — `verify` proves it *ticked*, not that it produced a signal. This is an **agent-side check** — run it yourself; never ask the user "is it working?".
+**"running" ≠ "operating."** Don't trust `status: running`. Confirm the scanner has a **positive run count + a fresh `lastRunFinishedAt`** (`openclaw senpi state -r <id>-main --json`, or `openclaw senpi scanner -r <id>-main` — `-r` is the runtime id, so `<id>-<leg>` per leg on §2's exception), and that it **emits a non-empty set on a tick where it should** — a `live` report proves it *ticked*, not that it produced a signal. Those reads are read-only, and so is `deploy.py verify <id>` (it composes them into a per-instance verdict and deploys nothing); the command that moves money is the resume, `deploy.py runtime <id>` / `create <id> --budget <usd>`. This is an **agent-side check** — run it yourself; never ask the user "is it working?".
 
 ### The gate — `senpi validate`, before any wallet exists
 
@@ -250,6 +292,17 @@ Finding them used to require a tiny deploy. It doesn't any more:
 ```
 openclaw senpi validate /data/workspace/strategies/<id>
 ```
+**Point it at the directory holding the `runtime.yaml`** — which, for the flat package §2 tells you to
+build, is the package root. It resolves ONE recipe, and the root holds it. (If you built §2's
+multi-instance exception instead, the root holds no recipe of its own: pointing there refuses
+`[E_VALIDATE_NO_RECIPE]` and lists the instances, and you run it once per instance against
+`.../<id>/<instance>`, per §2's table. Every package in the repo's `strategies/` catalog is that
+kind — the flat package §11 builds is not, and neither is yours.)
+
+`[E_VALIDATE_NO_RECIPE]` is a **layout** answer, not a code one, and it is the cheapest way to find
+out you built the wrong shape. Observed in testing: a package written as `runtime/recipe.yaml` could
+not be loaded by anything — and was still offered to the user as "ready to deploy". Per-code depth
+for this and every other refusal: `../../senpi-strategy-ops/references/refusal-playbook.md`.
 
 It runs the **real loop** — same code path production uses — imports every scanner file, executes `scan()` once against live read-only data, counts what it actually read, and builds each returned candidate into the exact wire shape intake would receive, checking it against intake's own schema. **No wallet, no funding, no deploy.**
 
@@ -257,20 +310,36 @@ It runs the **real loop** — same code path production uses — imports every s
 - **UNPROVEN** (exit 2) — it ran and **established nothing**: zero successful reads. Not a pass. Usually a gate in `scan()` returning early; have it consult `ctx.dry_run`. The finding names the line it returned from.
 - **FAIL** (exit 1) — each finding carries `what` / `why` / `fix` computed against your package: the rejected field and why intake refuses it, the tool name the server doesn't expose, the exception with its file and line, an exception your own `except` swallowed.
 
+**What UNPROVEN narrows it down to, if it survives the `ctx.dry_run` fix.** The verdict is reached
+only when the tick made **no observable read at all** — the runtime reserves exit 2 for that one
+finding, and any other error alongside it makes the run a FAIL instead. So two possibilities are
+already excluded, and neither is worth chasing: *"reads were attempted and failed"* is a FAIL (exit
+1) carrying the failing tool and its error, not an UNPROVEN; and *"no setups right now"* is a PASS
+with a no-signals warning, because a tick that reads and finds nothing to trade still read. What is
+left is a pair the finding **reports without adjudicating**: it names the file, line and function
+the scan returned from (so put the `ctx.dry_run` bypass on *that* path, not the one you assumed),
+and, when it detects any, the **off-route** data sources — anything fetched outside `ctx.senpi_mcp`
+is invisible to the counter, so the run cannot be proven however much it really read. It will
+**not** tell you which of the two caused this, deliberately: the off-route check is import-level
+rather than call-level, so a scanner can import such a source for something else and still have a
+genuine early exit, and a confident wrong diagnosis costs more than two honest observations. When
+both are reported, check both.
+
 Fix what it reports, re-run, and only hand to ops once it says PASS. **A clean lint is not a pass; only `senpi validate` is.**
 
-Two things it deliberately does *not* prove, so don't over-claim on its behalf: branches this tick didn't take, and logic that depends on open positions (it runs against an empty account by default — which is exactly the state a freshly funded strategy starts in). After deploy, still confirm the strategy **operates** — `deploy.py verify <id>`, then a positive run count and an accepted signal in `openclaw senpi state -r <id>-<instance> --json`.
+Two things it deliberately does *not* prove, so don't over-claim on its behalf: branches this tick didn't take, and logic that depends on open positions (it runs against an empty account by default — which is exactly the state a freshly funded strategy starts in). It prints both as `does not prove:` lines on a PASS. **A PASS is therefore a floor, not a finish line: it proves the strategy *runs*, never that its logic is *right*.** Two from testing, both of which passed cleanly — a Supertrend that returned the same direction for every input, so the strategy could never open a long; and a cooldown keyed on `ctx.now_utc`, which does not exist on the ctx surface, so it never fired. Read your own indicator math against a known trend before you call it done. After deploy, still confirm the strategy **operates** — `deploy.py verify <id>`, then a positive run count and an accepted signal in `openclaw senpi state -r <id>-main --json` (`<id>-<leg>` per leg on §2's exception).
 
 ## 10. The author's checklist (the silent-failure guards)
 
 - `scan()` single-pass + sync; read-only MCP only; `return []` on any error.
 - Pure scoring in `scoring.py`; MCP + state in `scan.py`.
-- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Gate it: `validate_universe.py /data/workspace/strategies/<id>` (and `deploy.py create` runs it as a preflight). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`.
+- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Check it: `validate_universe.py /data/workspace/strategies/<id>` (read-only; `deploy.py validate` reports the same thing, and `openclaw senpi deploy` REFUSES a dead name pre-money with `[E_UNIVERSE_NOT_LIVE]` — so that deploy funds no wallet, though on a redeploy it says nothing about a wallet the package already has; you find out faster here). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`. This applies to the universe a strategy TRADES: an **exclusion** list (`excludeAssets`, `deny*`/`skip*`/`ignore*`) is exempt and never checked on either side, because it names what the strategy refuses to trade — often precisely because the venue carries no instrument for it (stablecoins are the usual case).
 - Emit a **`marginPct` intent**, not dollars; `marginPct`/`leverage` top-level, not in `data{}`.
 - Declare every `data{}` key in `signal_data_schema`.
 - **Anchor on the references:** MCP fields → I/O guide; exit → a named preset; catalog facets → the glossary.
-- Linkage: `group: <id>`, `name: <id>-<instance>`, `wallet_env` bound, `funding_share` sums to 1.0, package is `@senpi-ai/runtime`.
-- Lint (advisory) → **`openclaw senpi validate <pkg>` = PASS (the gate)** → deploy → **confirm it emits/operates**, not just "ticked."
+- Linkage: `group: <id>`, `name: <id>-main` (`<id>-<instance>` per leg when multi-instance), package is `@senpi-ai/runtime`. `funding_share` sums to 1.0 only when `instances:` is declared.
+- **`strategy.wallet` must be the WHOLE value and UPPERCASE** — `"${MY_WALLET}"`, `[A-Z0-9_]` only. A lowercase (`${my_wallet}`) or mid-string (`pre${FOO}`) token passes **every** python lint, `deploy.py validate` included, and is then refused by the runtime when it loads the flat package.
+- Lint (advisory) → **`openclaw senpi validate /data/workspace/strategies/<id>` = PASS (the gate)** → deploy → **confirm it emits/operates**, not just "ticked."
 - **A gate in `scan()` must honour `ctx.dry_run`** — otherwise the tick reads nothing and validates as UNPROVEN, which is not a pass.
 - **Never hand a strategy to ops on a clean lint alone.** The lint reads your package; only `senpi validate` runs it. That is what catches the authoring-agent↔runtime language mismatches — and it now costs nothing to find out.
 
@@ -300,11 +369,11 @@ catalog:
   tags: [macro, thesis, rebound, us-economy, risk-on]
 requires: { runtime: ">=3.0.0" }
 defaults: { auth_token_env: SENPI_AUTH_TOKEN }
-instances:
-  - { name: main, runtime: main/runtime.yaml, wallet_env: US_REBOUND_WALLET, funding_share: 1.0 }
+# no `instances:` — flat, per §2. `main` is synthesized from the root runtime.yaml below,
+# and its wallet_env comes from that recipe's `strategy.wallet: "${US_REBOUND_WALLET}"`.
 ```
 
-**`strategies/us-rebound/main/runtime.yaml`** (key parts; `exit:` = `let_winners_run` with the horizon override)
+**`strategies/us-rebound/runtime.yaml`** (key parts; `exit:` = `let_winners_run` with the horizon override)
 ```yaml
 name: us-rebound-main
 group: us-rebound
@@ -353,7 +422,7 @@ risk:
   guard_rails: { drawdown_halt_pct: 22, daily_loss_limit_pct: 12, max_entries_per_day: 9, cooldown_seconds: 3600, drawdown_reset_on_day_rollover: true }
 ```
 
-**`strategies/us-rebound/main/scanners/scoring.py`**
+**`strategies/us-rebound/scanners/scoring.py`**
 ```python
 def confirm_rebound(c4, c1d, inputs):
     """A name confirms the rebound: uptrend on both timeframes, with RSI room. Pure."""
@@ -367,7 +436,7 @@ def confirm_rebound(c4, c1d, inputs):
 # _trend / _trend_strength / _rsi: standard candle math, unit-tested.
 ```
 
-**`strategies/us-rebound/main/scanners/scan.py`**
+**`strategies/us-rebound/scanners/scan.py`**
 ```python
 import sys, time, scoring
 
@@ -407,9 +476,9 @@ def scan(inputs, ctx):
 
 **Ship it:**
 ```
-validate_strategy.py strategies/us-rebound          # advisory lint
-openclaw senpi validate strategies/us-rebound      # THE GATE — PASS before ops
-deploy.py create us-rebound --budget 200 ; deploy.py runtime us-rebound ; deploy.py verify us-rebound
+validate_strategy.py strategies/us-rebound          # advisory lint (this one DOES take the package dir)
+openclaw senpi validate strategies/us-rebound      # THE GATE — PASS before ops. The package root: flat, per the manifest above
+deploy.py create us-rebound --budget 200 ; openclaw senpi deploy status   # `overall: live` is the gate
 ```
 …then confirm it **emits** on a tick where ≥4 names confirm — not just that it ticked.
 
