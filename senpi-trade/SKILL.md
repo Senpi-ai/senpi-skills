@@ -141,10 +141,11 @@ will try to fool you on:
   distance is the slippage gate: a trader whose winners have **already run** (mark far past entry) is
   **un-mirrorable right now — the mirror opens nothing** (every position slippage-skips), and a flat trader
   has nothing to copy. The "best track record" is often the worst mirror *today* for exactly this reason.
-  When the book has already moved, that's the cue to **steer to a fresh-entry template — Shadow (or Jackal),
-  the ones that wait for the trader's *next* open instead of copying the old book** — or find a trader
-  entering now. **Not** Remora / Raptor / Oxpecker / Cuckoo: those mirror the cohort's *current* positions, so
-  they'd re-open the same already-run book you're steering away from.
+  When the book has already moved, **lead with a fresh-entry template — Shadow (or Jackal), the ones that wait
+  for the trader's *next* open instead of copying the old book** — or find a trader entering now. Still show
+  the full template menu (more choice is better); just label it honestly: Remora / Raptor / Oxpecker / Cuckoo
+  mirror the cohort's *current* positions, so they're a valid copy style but **not** the fresh-entry fix for an
+  already-run book — don't sell them as such.
 
 If the user pasted an address, still run **both** checks on it before mirroring.
 
