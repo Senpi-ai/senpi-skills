@@ -55,12 +55,26 @@ has it; "here's what just *moved* in a way nobody's watching" is the product.
    conviction, the *flow* (building / unwinding, piling in / exiting). A "surge" or "conviction jump"
    with no direction is useless. If you can't resolve the side, say "side unresolved" and pull the OI
    long/short split — never omit it.
-8. **Anchor every trader count.** Never a bare "N traders". Always **"N of the top C proven traders
-   (Y% of top-trader PnL)"** — C = `source_trader_count` from `leaderboard_get_markets`, Y =
-   `pct_of_top_traders_gain`. "69 of the top 100" reads big; "69" alone reads small.
+8. **Anchor *and define* every reference — assume the reader knows nothing about HL.** Never a bare
+   "N traders", "the leaderboard", "4h window", or "% of top-trader PnL"; each is meaningless without
+   a plain-English gloss the first time you use it (full glossary in `references/detectors.md`):
+   - **who the top traders are** — "the top ~C traders on Hyperliquid by realized PnL — the *proven
+     money*"; C = `source_trader_count` from `leaderboard_get_markets`. Not "everyone."
+   - **which leaderboard + window** — `leaderboard_get_top` = Hyperliquid's **live 4-hour rolling**
+     leaderboard; `discovery_*` = historical track record. Say which, and that "4h" = the last 4 hours.
+   - **what the metric means** — "% of top-trader PnL" = of all the open profit that proven cohort is
+     sitting on right now, this share is in this one bet. **Translate the metric; don't quote it raw.**
+9. **Weight signals by their actual size — lead with what's robust.** A thin signal (few traders, low
+   % concentration, tiny market) is *color*, never the headline. Lead with the facts a sharp reader
+   can independently check (a price move + volume, OI building/draining), and use small positioning
+   as corroboration. **Never upgrade "leans short (1.23%)" into "smart money is short."** Overstating
+   a small signal is how the account loses credibility. See `references/worked-examples.md` (WLFI).
 
 ## Output conventions
 - **Title the sweep `Live Signals — <YYYY-MM-DD HH:MM> UTC`** (not "Signals of the Day").
+- **Present `score.py`'s rendered block** (the badged, titled, deduped list) as the canonical signal
+  list — narrate *around* it, don't replace it with free prose. The badges, header, ranking and
+  diff-state are the engine's job; keep them.
 - **Severity-flag every finding** by score: 🔥 ≥ 80 · 🟠 65–79 · 🟡 45–64; ⭐ the single top; ⚑ a
   named-wallet signal. (`score.py` emits these — keep them.)
 - **Always include a smart-money-vs-crowd divergence check and a whale-shifts check** in a sweep. If

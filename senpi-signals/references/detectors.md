@@ -59,6 +59,10 @@ cross-asset) you assemble as pre-formed `events[]`.
 - **Fires when:** `|smart_share − prior.smart_share| ≥ 12` points — **both directions**: a jump = top
   traders **piling in**, a drop = top traders **unwinding / exiting** (the BTC-exodus case is a real
   signal, not noise). Always state which flow *and* the side (long/short).
+- **Prefer the API's own `contribution_pct_change_4h`** (percentage-point change vs 4h ago) when
+  present — it fires on the first run with no state and reconciles with the absolute share. Use the
+  state-diff only for longer horizons. (A "+57pp to 56%" that implies a negative prior means the two
+  sources got mixed — pick one.)
 - **Framing:** `Top traders are <piling into|unwinding> <ASSET> <LONG|SHORT> — concentration <+/−>Npp to <share>%.`
 
 ### 4. `funding_dislocation` — funding at an extreme / flipped  *(funding family — the biggest)*
@@ -101,7 +105,23 @@ cross-asset) you assemble as pre-formed `events[]`.
 - **Direction is mandatory** — LONG or SHORT, plus the flow for OI/conviction (building/unwinding).
   A surge with no side is useless. Unknown side → say "side unresolved" + pull the OI split.
 - **Anchor counts** — "N of the top C proven traders (Y% of top-trader PnL)", never bare N.
+- **Define the jargon inline** — never "the leaderboard", "top traders", "4h window", or "% of
+  top-trader PnL" without a plain-English gloss the first time (see Glossary below).
+- **Weight by size; lead with the robust facts.** Lead with what a sharp reader can independently
+  check (price move + volume, OI building/draining); use thin positioning (few traders, low %,
+  tiny market) as *corroboration*, never the headline. Never upgrade "leans short (1.23%)" to
+  "smart money is short." See `worked-examples.md` (WLFI).
 - **Severity flag** — 🔥 ≥ 80 · 🟠 65–79 · 🟡 45–64; ⭐ top; ⚑ named wallet (score.py emits these).
+
+### Glossary (use these plain-English definitions in output)
+- **Top traders / the cohort** — the top ~C most-profitable traders on Hyperliquid by realized PnL
+  (`source_trader_count` from `leaderboard_get_markets`) — "the proven money," not "everyone."
+- **The leaderboard** — `leaderboard_get_top` = Hyperliquid's *live 4-hour rolling* board
+  ("Predators"); `discovery_*` = historical track record. Always say **which**.
+- **4h window** — the last four hours (the live leaderboard's rolling window).
+- **% of top-trader PnL** (`pct_of_top_traders_gain`) — of all the open profit that cohort is holding
+  right now, the share sitting in this one token+side. High = the proven money is concentrated there.
+- **Concentration jump/drop** (`contribution_pct_change_4h`) — how much that share moved vs 4h ago.
 
 ## Ways to play (the opt-in follow-up — never in public/tweet copy)
 Per detector, the thesis the agent can *offer* to build (consent-gated, via senpi-trade /
