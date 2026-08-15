@@ -16,7 +16,7 @@ trades[]      per CLOSED trade (from strategies of ALL statuses — a churned bo
 
 pnl_summary      TOTAL LEDGER — LEAD WITH NET (net_realized closed + unrealized open); gross_* is pre-fee:
   gross_realized, fees (None = UNDETERMINED, fills read failed — NOT 0), net_realized (gross − fees; None when fees undetermined),
-  fees_status ("ok" | "undetermined"), unrealized (None = UNKNOWN read, not 0),
+  fees_status ("ok" | "undetermined"), fees_coverage {resolved, total} (partial → "net for R of T"), unrealized (None = UNKNOWN read, not 0),
   gross_total, net_total (None when unrealized OR fees UNKNOWN),   # LEAD with net_total, not gross_total
   realized_by_book{ current, closed },      # quote this split — never re-derive a closed-book figure
   unrealized_coverage{ read, current_strategies },
@@ -29,7 +29,7 @@ telemetry_availability   the 'undetermined ≠ all-clear' signal — READ IT FIR
 
 timing_summary   PROCESS-framed COUNTS (never $/week; NEUTRAL, never a grade):
   trade_count, exits_ahead, exits_held_higher, exits_flat, exits_unknown,
-  gross_realized_pnl_total, fees_total (None = UNDETERMINED, NOT 0), net_realized_pnl_total (LEAD with this), fees_status,
+  gross_realized_pnl_total, fees_total (None = UNDETERMINED, NOT 0), net_realized_pnl_total (LEAD with this), fees_status, fees_coverage {resolved, total},
   if_all_reclosed_now_total (CONTEXT, symmetric — see guardrail 1), by_asset_class{}   # by_asset_class carries gross/fees/net per class
 
 dsl_close_reason_mix   "shaken out too early / how are my exits firing" (from trades[] exit_reason):
@@ -65,7 +65,7 @@ strategies[]  the CURRENT book ONLY (status ACTIVE | PAUSED) — each judged vs 
     # different mandates. Two ACTIVE rows sharing either one are sleeves — never merge or close one.
     wallet, status, mandate, dsl, closed_trade_count,
     gross_realized_pnl,       # HL closedPnl — GROSS (pre-fee)
-    fees, net_realized_pnl, fees_status,   # fees from the fills ledger (None = UNDETERMINED, NOT 0); net = gross − fees
+    fees, net_realized_pnl, fees_status, fees_coverage {resolved, total},   # fees from the fills ledger (None = UNDETERMINED, NOT 0); net = gross − fees; coverage = trades whose fee resolved
     unrealized_pnl,           # current open positions' unrealized — None = UNKNOWN read (never a fake 0)
     gross_total_pnl,          # gross_realized + unrealized (None when unrealized UNKNOWN)
     net_total_pnl,            # net_realized + unrealized (None when either UNKNOWN) — JUDGE ON THIS, not gross
@@ -75,7 +75,7 @@ strategies[]  the CURRENT book ONLY (status ACTIVE | PAUSED) — each judged vs 
   # THIS is the verdict + improvement surface. Nothing here is closed.
 
 closed_strategies[]  HISTORY ONLY (CLOSED / INACTIVE / … — churned or retired redeployments):
-  { label, wallet_short, status, trade_count, gross_realized_pnl, fees, net_realized_pnl, fees_status }
+  { label, wallet_short, status, trade_count, gross_realized_pnl, fees, net_realized_pnl, fees_status, fees_coverage }
   # deliberately NO mandate / dsl / verdict / on_mandate_note. Their trades are already in trades[]
   # (part of the timing review, attributed by label). NEVER give these a "consolidate/kill/fix" verdict,
   # NEVER flag their absent mandate as a bug, NEVER count them as live "wallets to consolidate."

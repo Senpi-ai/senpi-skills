@@ -46,7 +46,9 @@ CLOSED_HISTORY_PULL = 100    # closed positions to pull per wallet before the wi
 WINDOW_DEFAULT_DAYS = 7      # the default review window
 TOP_MOVERS_CAP = 12          # cap the book-vs-market movers surfaced
 HL_INFO_URL = "https://api.hyperliquid.xyz/info"   # public, no-auth — durable closed-trade recovery
-HL_FILLS_CAP = 2000          # userFills returns the most recent N fills; ample for any review window
+HL_FILLS_CAP = 2000          # userFills / userFillsByTime page size — the most recent (or per-page) N fills
+FILL_LOOKBACK_MS = 90 * 24 * 3600 * 1000   # page fills from since−90d so a closed trade's OPEN leg is captured
+FILL_PAGE_CAP = 25           # userFillsByTime page backstop (×~2000) — never hit in practice; stops a runaway
 
 # The runtime registers every deployed strategy in installed_runtimes.json in the state dir — the
 # UNIVERSAL source of a strategy's mandate (the runtime.yaml `description`) + its DSL ladder. Reused
@@ -778,6 +780,44 @@ def _hl_info(payload, meta, client=None, timeout=12):
         return None
 
 
+def _fetch_window_fills(client, wallet, since_ms, until_ms, meta):
+    """The authoritative fee source — HL fills covering the review window. `userFills` returns only the most
+    recent ~2000 fills with NO paging, so on a long / high-turnover window an older trade's fills fall off the
+    slice and its fee silently reads UNKNOWN (blanking net for the whole wallet). When a window is set we page
+    `userFillsByTime` from since−lookback .. until, so COVERAGE MATCHES the window being reported (the lookback
+    captures the OPEN leg of a position that closed inside the window). Ascending pages, deduped on the boundary
+    overlap. Fails OPEN → None (a failed read) — distinct from [] (genuinely no fills). No window → the recent
+    `userFills` slice (the standalone / test path)."""
+    if since_ms is None or until_ms is None:
+        return _hl_info({"type": "userFills", "user": wallet}, meta, client)
+    cursor, end = max(0, int(since_ms) - FILL_LOOKBACK_MS), int(until_ms)
+    out, seen = [], set()
+    for _ in range(FILL_PAGE_CAP):
+        page = _hl_info({"type": "userFillsByTime", "user": wallet,
+                         "startTime": cursor, "endTime": end}, meta, client)
+        if page is None:
+            return out if out else None          # earlier pages are still usable; nothing yet → propagate failure
+        if not isinstance(page, list):
+            break
+        fresh, last_t = 0, cursor
+        for f in page:
+            if not isinstance(f, dict):
+                continue
+            key = (f.get("tid"), f.get("oid"), f.get("time"), f.get("dir"), f.get("sz"), f.get("px"))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(f)
+            fresh += 1
+            ft = _num(f.get("time"))
+            if ft is not None and int(ft) > last_t:
+                last_t = int(ft)
+        if len(page) < HL_FILLS_CAP or fresh == 0 or last_t <= cursor:
+            break                                # last (short) page, or no forward progress → done
+        cursor = last_t                          # advance; the dedup set absorbs the boundary overlap
+    return out
+
+
 def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
     """Rebuild round-trip CLOSED trades from raw HL fills — the durable, close-independent source. HL gives
     per-fill `dir` ('Open/Close Long/Short'), px, sz, closedPnl, fee, time, oid. Walk fills per coin
@@ -801,7 +841,7 @@ def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
         if d.startswith("Open"):
             # carry the OPEN-side fee + original size so a later Close can pro-rate the matched share.
             lots[coin].append({"px": px, "sz": sz, "orig_sz": sz, "time": t,
-                               "fee": abs(_num(f.get("fee")) or 0.0)})
+                               "fee": _num(f.get("fee")) or 0.0})    # SIGNED — a maker rebate is a NEGATIVE fee
         elif d.startswith("Close"):
             side = "long" if "Long" in d else ("short" if "Short" in d else None)
             remaining, entry_notional, matched, open_time = sz, 0.0, 0.0, t
@@ -831,9 +871,10 @@ def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
                 "open_time": open_time,
                 "close_time": t,
                 "closed_order_id": f.get("oid"),
-                # round-trip trading fee = matched OPEN-side fees + this CLOSE fill's fee. HL `fee` ALREADY
-                # includes the builder fee, so this is the whole cost — never add a builder fee on top.
-                "fee": round(open_fee + abs(_num(f.get("fee")) or 0.0), 4),
+                # round-trip trading fee = matched OPEN-side fees + this CLOSE fill's fee. HL `fee` is SIGNED
+                # (a maker rebate is NEGATIVE — the wallet was paid) and ALREADY includes the builder fee, so
+                # sum it as-is: never abs() it (that turns rebates into costs) and never add a builder fee.
+                "fee": round(open_fee + (_num(f.get("fee")) or 0.0), 4),
                 "source": "onchain_fills",
             })
     out = []
@@ -899,10 +940,10 @@ def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
             "source": "discovery",
         })
     # FEES: the fills ledger is the ONLY authoritative fee source — discovery_get_trader_history carries no
-    # fee, so the realized_pnl above is GROSS. Pull userFills ONCE and use it both to attribute a round-trip
+    # fee, so the realized_pnl above is GROSS. Pull the window fills ONCE (userFillsByTime, paged) and use them to attribute a round-trip
     # `fee` to each discovery trade and (when discovery is empty) to reconstruct the closed book. `_hl_info`
     # fails OPEN → None (distinct from an empty list): None ⇒ fee UNDETERMINED for these trades, never a fake $0.
-    fills = _hl_info({"type": "userFills", "user": wallet}, meta, client)
+    fills = _fetch_window_fills(client, wallet, since_ms, until_ms, meta)
     recon = _reconstruct_closed_from_fills(fills, since_ms, until_ms, None) if isinstance(fills, list) else []
     fee_by_oid = {}
     for r in recon:
@@ -1438,6 +1479,8 @@ def _timing_summary(trades):
         "fees_total": fees_total,              # window trading fees (builder-fee-incl); None = UNDETERMINED
         "net_realized_pnl_total": net_realized_total,   # gross − fees; None when fees undetermined — LEAD with this
         "fees_status": ("ok" if fees_total is not None else "undetermined"),
+        "fees_coverage": {"resolved": sum(1 for f in _fees if isinstance(f, (int, float)) and not isinstance(f, bool)),
+                          "total": trade_count},
         "if_all_reclosed_now_total": if_all,   # counterfactual aggregate — CONTEXT, NEVER a projection/target
         "by_asset_class": by_class,
     }
@@ -1726,6 +1769,7 @@ def _strategy_reads(trades, strategies, open_book=None):
             "gross_total_pnl": gross_total,         # gross_realized + unrealized; None when unrealized UNKNOWN
             "net_total_pnl": net_total,             # net_realized + unrealized; None when either UNKNOWN
             "fees_status": fees_status,             # ok | undetermined — never render gross as net when undetermined
+            "fees_coverage": {"resolved": agg.get("fees_known", 0), "total": cnt},  # net knowable for resolved/total trades
             "open_position_count": len(open_positions),
             "open_positions": open_positions,    # asset/direction/unrealized_pnl/return_on_equity_pct/entry/lev
             "on_mandate_note": note,
@@ -1759,6 +1803,7 @@ def _closed_strategy_rollup(trades, strategies):
             "fees": _fees,                          # None = UNDETERMINED (fills read failed for some trade)
             "net_realized_pnl": (round(agg["pnl"] - _fees, 2) if _fees is not None else None),
             "fees_status": ("ok" if _fees is not None else "undetermined"),
+            "fees_coverage": {"resolved": agg.get("fees_known", 0), "total": cnt},
         })
     return out
 
@@ -1798,7 +1843,15 @@ def _fees_total_of(trades):
     return None
 
 
-def _pnl_summary(realized_total, strat_reads, fees_total=None):
+def _fees_coverage_of(trades):
+    """How many trades' fees resolved vs total — lets a partial read say 'net is at least $X (R of T resolved)'
+    instead of dropping the whole book to gross when a single fee is unknown."""
+    resolved = sum(1 for t in trades
+                   if isinstance(t.get("fee"), (int, float)) and not isinstance(t.get("fee"), bool))
+    return {"resolved": resolved, "total": len(trades)}
+
+
+def _pnl_summary(realized_total, strat_reads, fees_total=None, fees_coverage=None):
     """The TOTAL-ledger headline the narrator LEADS with — realized (closed trades) + unrealized (current
     open positions) + total — PLUS the current-vs-closed realized split (so the narrator QUOTES it and never
     re-derives a wrong closed-book figure). `realized_total` is ALL closed trades; current-book realized = the
@@ -1826,6 +1879,7 @@ def _pnl_summary(realized_total, strat_reads, fees_total=None):
         "fees": fees,                             # window trading fees (builder-fee-incl); None = UNDETERMINED
         "net_realized": net_realized,             # gross_realized − fees; None when fees undetermined
         "fees_status": fees_status,               # ok | undetermined
+        "fees_coverage": fees_coverage or {"resolved": 0, "total": 0},   # net knowable for resolved/total trades
         "realized_by_book": {"current": current_realized, "closed": closed_realized},
         "unrealized": unrealized,                 # None → no current open book readable (UNKNOWN, not 0)
         "unrealized_coverage": {"read": len(known), "current_strategies": len(strat_reads)},
@@ -2022,7 +2076,7 @@ def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_m
     strat_reads = _strategy_reads(trades, strategies, open_book)
     closed_reads = _closed_strategy_rollup(trades, strategies)
     realized_total = round(sum(_num(t.get("realized_pnl")) or 0.0 for t in trades), 2)
-    pnl_summary = _pnl_summary(realized_total, strat_reads, _fees_total_of(trades))
+    pnl_summary = _pnl_summary(realized_total, strat_reads, _fees_total_of(trades), _fees_coverage_of(trades))
     dsl_mix = _dsl_close_reason_mix(trades)   # from whatever exit_reason is in state (UNKNOWN until telemetry)
     current_count = sum(1 for s in strategies if _is_current(s.get("status")))
     closed_count = len(strategies) - current_count
@@ -2147,7 +2201,7 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     strat_reads = _strategy_reads(trades, strategies, open_book)   # CURRENT book — now with unrealized/total/open
     closed_reads = _closed_strategy_rollup(trades, strategies) # HISTORY: closed/inactive, rollup only
     pnl_summary = _pnl_summary(timing["gross_realized_pnl_total"], strat_reads,   # realized + unrealized, net of fees
-                               timing.get("fees_total"))
+                               timing.get("fees_total"), timing.get("fees_coverage"))
 
     current_count = sum(1 for s in strategies if _is_current(s.get("status")))
     closed_count = len(strategies) - current_count

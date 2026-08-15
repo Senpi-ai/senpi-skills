@@ -1290,20 +1290,21 @@ def test_closed_net_realized_is_gross_minus_fees_from_the_fills_ledger():
     """A wallet WITH fills: `net_realized_pnl == gross_realized_pnl - fees`, `fees_status == "ok"`, and the
     fee is the builder-INCLUSIVE `fee` summed straight off `userFills` (never gross reported as booked)."""
     closed = [
-        {"coin": "ETH", "szi": 1, "realizedPnl": "100", "closeTime": 2000, "entryPx": "1", "exitPx": "2"},
-        {"coin": "BTC", "szi": -1, "realizedPnl": "50", "closeTime": 3000, "entryPx": "2", "exitPx": "1"},
+        {"coin": "ETH", "szi": 1, "realizedPnl": "100", "openTime": 1000, "closeTime": 2000, "entryPx": "1", "exitPx": "2"},
+        {"coin": "BTC", "szi": -1, "realizedPnl": "50", "openTime": 1500, "closeTime": 3000, "entryPx": "2", "exitPx": "1"},
     ]
     fills = [
+        {"coin": "ETH", "time": 500,  "fee": "88.0", "closedPnl": "0"},     # BEFORE earliest open — a prior trade, EXCLUDED
         {"coin": "ETH", "time": 1000, "fee": "1.25", "closedPnl": "0"},     # ETH open leg
         {"coin": "ETH", "time": 2000, "fee": "1.25", "closedPnl": "100"},   # ETH close leg
         {"coin": "BTC", "time": 1500, "fee": "1.00", "closedPnl": "0"},     # BTC open leg
         {"coin": "BTC", "time": 3000, "fee": "1.50", "closedPnl": "50"},    # BTC close leg
-        {"coin": "ETH", "time": 9000, "fee": "99.0", "closedPnl": "0"},     # AFTER last close — excluded
+        {"coin": "ETH", "time": 9000, "fee": "99.0", "closedPnl": "0"},     # AFTER last close — EXCLUDED
     ]
     meta = {}
     out = portfolio.fetch_closed(_closed_fixture(FEE_WALLET, closed, fills), FEE_WALLET, meta)
     assert out["gross_realized_pnl"] == 150.0             # discovery's realizedPnl is GROSS (pre-fee)
-    assert out["fees"] == 5.0                             # 1.25+1.25+1.00+1.50 — the 99.0 fill is out-of-window
+    assert out["fees"] == 5.0                             # 1.25+1.25+1.00+1.50 — the 88.0 (pre-open) + 99.0 (post-close) are out-of-window
     assert out["net_realized_pnl"] == 145.0
     assert out["net_realized_pnl"] == round(out["gross_realized_pnl"] - out["fees"], 2)
     assert out["fees_status"] == "ok"

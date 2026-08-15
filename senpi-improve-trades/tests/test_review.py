@@ -370,7 +370,7 @@ def test_closed_strategies_rollup_shape():
     assert cs["trade_count"] == 2                       # BTC + DOGE on the closed wallet
     assert cs["gross_realized_pnl"] == 220.0                  # 200 + 20
     assert set(cs.keys()) == {"label", "wallet_short", "status", "trade_count",
-                              "gross_realized_pnl", "fees", "net_realized_pnl", "fees_status"}
+                              "gross_realized_pnl", "fees", "net_realized_pnl", "fees_status", "fees_coverage"}
     # explicitly NO verdict/mandate leakage onto a closed strategy
     for banned in ("mandate", "dsl", "on_mandate_note", "verdict"):
         assert banned not in cs
@@ -917,6 +917,49 @@ def test_fees_undetermined_when_fills_read_fails():
     assert r["gross_realized_pnl"] == 40.0                          # gross still known
     assert r["fees"] is None and r["net_realized_pnl"] is None and r["fees_status"] == "undetermined"
     assert r["net_total_pnl"] is None and r["gross_total_pnl"] == 45.0   # net UNKNOWN; gross total = 40 + 5
+
+
+def test_reconstruct_fees_are_signed_maker_rebates_reduce_cost():
+    """HL `fee` is SIGNED — a maker rebate is NEGATIVE (the wallet was paid). The round-trip fee sums it
+    as-is; abs() would flip a rebate into a cost and understate net by 2x (Ignas' review of #538)."""
+    base = 1784000000000
+    fills = [
+        {"coin": "SOL", "dir": "Open Long",  "sz": "1", "px": "100", "closedPnl": "0",  "fee": "-0.5", "time": base + 1, "oid": 1},  # maker rebate
+        {"coin": "SOL", "dir": "Close Long", "sz": "1", "px": "110", "closedPnl": "10", "fee": "0.2",  "time": base + 2, "oid": 2},  # taker cost
+    ]
+    tr = review._reconstruct_closed_from_fills(fills, None, None, None)
+    assert len(tr) == 1 and tr[0]["fee"] == -0.3        # −0.5 rebate + 0.2 cost — SIGNED, not abs()
+    tr[0]["strategy_wallet"] = "0xw"
+    agg = review._pnl_by_wallet(tr)["0xw"]
+    assert agg["fees"] == -0.3 and round(agg["pnl"] - agg["fees"], 2) == 10.3   # the rebate ADDS to net
+
+
+def test_fees_coverage_reports_resolved_over_total():
+    """When some trades' fees resolve and one doesn't, the record carries fees_coverage {resolved, total}
+    so a consumer can say 'net for R of T' instead of only a flat undetermined (Ignas' review of #538)."""
+    w = "0xcov00000000000000000000000000000000cov0"
+    trades = [
+        {"asset": "A", "realized_pnl": 10.0, "fee": 0.1,  "strategy_wallet": w},
+        {"asset": "B", "realized_pnl": 5.0,  "fee": None, "strategy_wallet": w},   # one unresolved
+    ]
+    strategies = [{"wallet": w, "status": "ACTIVE", "label": "x", "mandate": None}]
+    r = review._strategy_reads(trades, strategies, {w.lower(): {"unrealized_pnl": 0.0, "positions": []}})[0]
+    assert r["fees_status"] == "undetermined" and r["net_realized_pnl"] is None
+    assert r["fees_coverage"] == {"resolved": 1, "total": 2}
+
+
+def test_fetch_window_fills_pages_userfillsbytime_when_windowed():
+    """A windowed review pages `userFillsByTime` (so coverage matches the window, not the recent-2000 cap);
+    no window → the recent `userFills` slice. Both are served by the fixture under their own hl:: keys."""
+    w = "0xwin00000000000000000000000000000000win0"
+    byt = [{"coin": "X", "dir": "Open Long", "sz": "1", "px": "1", "closedPnl": "0", "fee": "0.1", "time": 5, "oid": 1}]
+    recent = [{"coin": "Y", "dir": "Open Long", "sz": "1", "px": "1", "closedPnl": "0", "fee": "0.2", "time": 5, "oid": 2}]
+    client = review._FixtureClient({
+        f"hl::userFillsByTime::{w.lower()}": byt,
+        f"hl::userFills::{w.lower()}": recent,
+    })
+    assert review._fetch_window_fills(client, w, 100, 200, {}) == byt        # windowed → userFillsByTime
+    assert review._fetch_window_fills(client, w, None, None, {}) == recent   # no window → userFills
 
 
 # ────────────────────────────── scope + fast-fail (the "telemetry unavailable" live-run fix) ──

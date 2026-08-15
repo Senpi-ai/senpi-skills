@@ -944,9 +944,9 @@ def _hl_info(payload, meta, client=None, timeout=12):
 def _window_fees(client, wallet, rows, meta):
     """Total builder-inclusive trading fee for the closed-trade window, summed from the HL `userFills`
     ledger — the SEPARATE cost that discovery's gross `realizedPnl` excludes (net = gross − fees). The
-    window is the span the reported closed trades occupy: every fill with `time` at or before the LATEST
-    reported close, so BOTH the opening and closing legs of each closed trade are captured (with the
-    default CLOSED_HISTORY_PULL page this is the whole book — the exact total fee for the exact gross).
+    window is the span the reported closed trades occupy — every fill between the EARLIEST reported open and
+    the LATEST reported close — so fees are symmetric with the gross those rows produce. (An unbounded-below
+    sum would add fees for trades NOT in the gross total and overstate the cost on a long-history wallet.)
 
     Returns (fees, status):
       (sum, "ok")            fills read and summed — a per-fill `fee` ALREADY includes the builder fee, so
@@ -955,9 +955,23 @@ def _window_fees(client, wallet, rows, meta):
                              trades — fees are UNKNOWN and MUST NOT be reported as $0 (that would overstate
                              the user's booked profit, the exact bug this guards).
     FAIL-OPEN: any fee-source error degrades to `undetermined`, it never raises into the portfolio read."""
-    closes = [t for t in (_ms(_field(p, "closeTime", "closed_time", "closeTimeMs"))
-                          for p in rows if isinstance(p, dict)) if t is not None]
-    until_ms = max(closes) if closes else None      # bound above by the latest reported close; no lower bound
+    opens, closes = [], []
+    for p in rows:
+        if not isinstance(p, dict):
+            continue
+        for k in ("openTime", "open_time"):
+            ov = _ms(p.get(k)) if p.get(k) is not None else None
+            if ov is not None:
+                opens.append(ov)
+        for k in ("closeTime", "closed_time", "closeTimeMs"):
+            cv = _ms(p.get(k)) if p.get(k) is not None else None
+            if cv is not None:
+                closes.append(cv)
+    until_ms = max(closes) if closes else None      # bound ABOVE by the latest reported close
+    # bound BELOW by the earliest reported OPEN — captures both legs of every reported round-trip, so fees are
+    # symmetric with the gross those rows produce. If opens are unavailable, leave it UNBOUNDED rather than clip
+    # at the earliest close: undercounting fees overstates net (the exact bug), so prefer to over-attribute.
+    since_ms = min(opens) if opens else None
     try:
         fills = _hl_info({"type": "userFills", "user": wallet}, meta, client)
     except Exception as e:  # noqa
@@ -973,8 +987,10 @@ def _window_fees(client, wallet, rows, meta):
         if not isinstance(fl, dict):
             continue
         t = _ms(fl.get("time"))
-        if until_ms is not None and t is not None and t > until_ms:
-            continue                                # a fill after the last reported close — not this window
+        if t is not None and until_ms is not None and t > until_ms:
+            continue                                # a fill AFTER the latest reported close — not this window
+        if t is not None and since_ms is not None and t < since_ms:
+            continue                                # a fill BEFORE the earliest reported open — not this window
         total += _num(fl.get("fee")) or 0.0
     return round(total, 2), "ok"
 
