@@ -308,8 +308,12 @@ def _min_mirror_budget(account_value, positions, mult=1.0):
         if adv is not None and adv > NEAR_ENTRY_BAND_PCT:   # ran in the OG's favor → slippage-skipped → costs no margin
             continue
         lev = p.get("leverage")
-        lev = lev if (isinstance(lev, (int, float)) and lev > 0) else 1.0   # missing leverage → assume 1x (full notional as margin)
-        margins.append(MIN_NOTIONAL_USD / lev)
+        # A perp opens at >= 1x, so the margin for a $12-floor position is <= $12. A sub-1 (or missing / garbage)
+        # leverage is a BAD READ — e.g. an XYZ isolated-margin field carrying a fraction — which once inflated a
+        # whale's min-budget to ~$182K (12 / 0.0002 ≈ $60K per position). Clamp to 1x AND cap each position's
+        # margin at the notional floor, so a mirror position's margin can never exceed $12 no matter the read.
+        lev = lev if (isinstance(lev, (int, float)) and lev >= 1.0) else 1.0
+        margins.append(min(MIN_NOTIONAL_USD, MIN_NOTIONAL_USD / lev))
     if not margins:
         return None
     mult = mult or 1.0
