@@ -704,6 +704,14 @@ def fetch_strategies(client, meta):
         registry_prof = _profile_from_descriptor(desc)
         catalog_facets = _catalog_facets(catalog.get(skill_name) if skill_name else None)
         profile = _merge_profile(registry_prof, catalog_facets)
+        # MIRROR / copy-trade strategies (`strategy_create`, via senpi-trade) run WITHOUT a runtime — they
+        # follow the copied trader's positions AND exits, and carry their OWN risk config (multiplier +
+        # strategy-level SL/TP). The runtime questions below (registered / not_running / running_blind /
+        # DSL-protected) do NOT apply to them; answering them False would misread an intentional copy-trade
+        # as a broken, unprotected custom strategy — the senpi-trade → portfolio blind spot this fixes.
+        strategy_type = str(_field(s, "strategyType", "strategy_type", default="") or "")
+        is_mirror = strategy_type.upper() == "MIRROR"
+        short_trader = _first_written(s, "shortTraderAddress", "short_trader_address")
         # Registered per the runtime itself. None ⇒ we could not ask — never False, which reads as
         # "we checked and there is nothing", a claim no failed read has earned. PRESENCE-based, not
         # descriptor-based: a registered runtime whose YAML the engine couldn't render is still RUNNING.
@@ -732,7 +740,12 @@ def fetch_strategies(client, meta):
             protected = False
         else:
             protected = bool(desc and desc.get("hasExit"))
+        if is_mirror:
+            # N/A, not False — a mirror has no runtime; False here reads as "we checked, and it's broken/naked".
+            runtime_registered = not_running = running_blind = protected = None
         name, name_source = _strategy_name_and_source(s)
+        if is_mirror and name_source != "strategyName" and short_trader:
+            name, name_source = f"copy of {short_trader}", "shortTraderAddress"   # a mirror has no name of its own
         strategies.append({
             "name": name,
             # WHICH field named it: "strategyName" = its own name; "tradingStrategyName"/"name" = the
@@ -753,6 +766,14 @@ def fetch_strategies(client, meta):
             "runtime_registered": runtime_registered,   # True | False | None (null — could not ask)
             "not_running": not_running,                  # ACTIVE + funded skill strategy, no runtime → dead
             "running_blind": running_blind,              # up, but with NO entry scanners — cannot enter
+            # COPY-TRADE / MIRROR: `strategy_kind` "mirror" (else "custom"). A mirror follows `mirror_of`'s
+            # book + exits and carries its OWN risk levers (multiplier + strategy-level SL/TP) — NOT a DSL
+            # runtime. For a mirror the runtime flags above are null (N/A); judge it on these fields instead.
+            "strategy_kind": "mirror" if is_mirror else "custom",
+            "mirror_of": short_trader if is_mirror else None,          # the copied OG (masked) — its name + risk anchor
+            "mirror_multiplier": _f(s, "mirrorMultiplier", "mirror_multiplier", default=None) if is_mirror else None,
+            "stop_loss_pct": _f(s, "stopLossPercentage", "stop_loss_percentage", default=None) if is_mirror else None,
+            "take_profit_pct": _f(s, "takeProfitPercentage", "take_profit_percentage", default=None) if is_mirror else None,
             # The strategy's declared job — `profile.description` from the descriptor the RUNTIME
             # rendered for it, plus optional catalog facets. The yardstick to judge it against.
             "profile": profile,
@@ -844,7 +865,10 @@ def fetch_strategies(client, meta):
     #   unknown     — NOT PROVEN LIVE (telemetry unavailable, or the runtime won't vouch for it yet)
     # Fail-open + short-circuited by _telemetry_dead; sequential (few per user).
     for s in strategies:
-        if s.get("runtime_registered") is None:
+        if s.get("strategy_kind") == "mirror":
+            s["runtime_health"] = "mirror"         # copy-trade: no runtime BY DESIGN — the runtime flags are N/A,
+            #                                        not "broken"; judge it on mirror_of + multiplier + SL/TP
+        elif s.get("runtime_registered") is None:
             s["runtime_health"] = "unverified"     # the read failed — nothing below was ever asked
         elif s.get("not_running"):
             s["runtime_health"] = "not_running"
