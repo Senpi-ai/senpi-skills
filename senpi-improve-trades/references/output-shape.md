@@ -5,9 +5,16 @@ The shape of the JSON `scripts/review.py` prints. The runtime JSON you get back 
 ```
 window        { from, to, label, window_days, last_n }   # the review window
 
+account_history  WHOLE-ACCOUNT PnL from account_get_historical_info — narrate this FIRST, before any strategy.
+  { day|week|month|allTime: { pnl, pnl_pct, account_value } }   # null = the read failed (UNKNOWN, not 0)
+  Per-period totals only. The raw pnlHistory / accountValueHistory series are deliberately NOT emitted:
+  they are account-value SNAPSHOTS, not trades, and a drop in one is usually a withdrawal, not a loss.
+
 trades[]      per CLOSED trade (from strategies of ALL statuses — a churned book's history is complete):
   asset, strategy_label, strategy_status, direction, leverage, entry_px, exit_px, open_time, close_time,
-  realized_pnl,                           # strategy_status: ACTIVE|PAUSED = current book; else = HISTORY
+  realized_pnl,                           # EXACT, as MCP reported it. Never adjust / fee-net / re-derive
+  fees,                                   # SEPARATE cost realized_pnl already excludes — only if asked (RULE 7)
+                                          # strategy_status: ACTIVE|PAUSED = current book; else = HISTORY
   price_now, price_since_exit_pct,        # subsequent action (current price only, v1)
   if_held_delta_usd,                      # counterfactual — CONTEXT, not verdict (short-sign adjusted)
   exit_vs_hold: exit_ahead | held_higher | flat | unknown,   # NEUTRAL context (exit_ahead=got out ahead), NOT a grade
@@ -15,7 +22,9 @@ trades[]      per CLOSED trade (from strategies of ALL statuses — a churned bo
   source: "telemetry" | "reconstructed"   # telemetry = exit_reason came from the event log; else discovery+ratchet
 
 pnl_summary      TOTAL LEDGER — LEAD WITH THIS (realized closed + unrealized open):
-  realized, unrealized (None = UNKNOWN read, not 0), total (None when unrealized UNKNOWN),
+  realized,          # EXACT. Report as given — never fee-netted, never recomputed (HARD RULE 6)
+  fees,              # separate cost, already excluded from realized — only if the user asked (HARD RULE 7)
+  unrealized (None = UNKNOWN read, not 0), total (None when unrealized UNKNOWN),
   realized_by_book{ current, closed },      # quote this split — never re-derive a closed-book figure
   unrealized_coverage{ read, current_strategies },
   unrealized_partial   # true → some wallets UNKNOWN; unrealized/total are a FLOOR ("at least $X, N of M") — HARD RULE 1
@@ -27,7 +36,9 @@ telemetry_availability   the 'undetermined ≠ all-clear' signal — READ IT FIR
 
 timing_summary   PROCESS-framed COUNTS (never $/week; NEUTRAL, never a grade):
   trade_count, exits_ahead, exits_held_higher, exits_flat, exits_unknown,
-  realized_pnl_total, if_all_reclosed_now_total (CONTEXT, symmetric — see guardrail 1), by_asset_class{}
+  realized_pnl_total,   # EXACT — the sum of each trade's own realized_pnl. Never adjusted
+  fees_total,           # separate cost, already excluded from realized_pnl_total — only if asked (RULE 7)
+  if_all_reclosed_now_total (CONTEXT, symmetric — see guardrail 1), by_asset_class{}
 
 dsl_close_reason_mix   "shaken out too early / how are my exits firing" (from trades[] exit_reason):
   overall        { by_terminal{}, trade_count, premature_exits }

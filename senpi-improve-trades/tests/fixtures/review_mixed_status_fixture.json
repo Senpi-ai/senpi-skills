@@ -8,29 +8,36 @@
      "strategyWalletAddress": "0xKODIAKOLD00000000000000000000000000old", "status": "CLOSED"}
   ]},
 
+  "account_get_historical_info": {"historical_info": {
+    "week":    {"totalPnlByValue": "340.00", "totalPnlByPercentage": "34.0",
+                "accountValueHistory": [{"timestamp": "1782700000000", "value": "1012.00"}]},
+    "allTime": {"totalPnlByValue": "460.00", "totalPnlByPercentage": "46.0",
+                "accountValueHistory": [{"timestamp": "1782700000000", "value": "1012.00"}]}
+  }},
+
   "discovery_get_trader_history::0xkodiak00000000000000000000000000000kdk": {"closedPositions": [
     {"closedOrderId": "0xSOL", "coin": "SOL", "coinDisplayName": "SOL", "szi": "3.0",
      "entryPx": "120.00", "exitPx": "150.00", "leverage": {"type": "cross", "value": 5},
-     "realizedPnl": "90.00", "marginUsed": "90.00",
+     "realizedPnl": "90.00", "marginUsed": "90.00", "totalFees": "1.00",
      "openTime": 1782500000000, "closeTime": 1782700000000}
   ]},
 
   "discovery_get_trader_history::0xgrizzly0000000000000000000000000000grz": {"closedPositions": [
     {"closedOrderId": "0xETH", "coin": "ETH", "coinDisplayName": "ETH", "szi": "0.5",
      "entryPx": "1900.00", "exitPx": "2000.00", "leverage": {"type": "cross", "value": 4},
-     "realizedPnl": "50.00", "marginUsed": "250.00",
+     "realizedPnl": "50.00", "marginUsed": "250.00", "totalFees": "1.00",
      "openTime": 1782600000000, "closeTime": 1782750000000}
   ]},
 
   "discovery_get_trader_history::0xkodiakold00000000000000000000000000old": {"closedPositions": [
     {"closedOrderId": "0xBTC", "coin": "BTC", "coinDisplayName": "BTC", "szi": "-0.05",
      "entryPx": "104000.00", "exitPx": "100000.00", "leverage": {"type": "cross", "value": 3},
-     "realizedPnl": "200.00", "marginUsed": "1666.00",
+     "realizedPnl": "200.00", "marginUsed": "1666.00", "totalFees": "1.00",
      "openTime": 1782650000000, "closeTime": 1782800000000},
 
     {"closedOrderId": "0xDOGE", "coin": "DOGE", "coinDisplayName": "DOGE", "szi": "1000.0",
      "entryPx": "0.100", "exitPx": "0.120", "leverage": {"type": "cross", "value": 2},
-     "realizedPnl": "20.00", "marginUsed": "60.00",
+     "realizedPnl": "20.00", "marginUsed": "60.00", "totalFees": "1.00",
      "openTime": 1782640000000, "closeTime": 1782780000000}
   ]},
 
