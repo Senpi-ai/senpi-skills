@@ -54,6 +54,23 @@ def test_min_mirror_budget():
     assert research._min_mirror_budget(1000.0, None) is None
 
 
+def test_min_mirror_budget_clamps_sub_1_leverage_bad_read():
+    """A perp opens at >= 1x, so a mirror position's margin can never exceed the $12 notional floor. A sub-1
+    leverage read (an XYZ isolated-margin field carrying a fraction) must NOT inflate the budget — it once
+    produced a ~$182K "minimum" for a whale's 3-position book (12 / 0.0002 ≈ $60K each). Clamp to 1x + cap."""
+    whale = [{"notional": 838000, "direction": "short", "moved_from_entry_pct": 4.4, "leverage": 0.0002},
+             {"notional": 500000, "direction": "short", "moved_from_entry_pct": 3.0, "leverage": 0.0002},
+             {"notional": 300000, "direction": "short", "moved_from_entry_pct": 2.0, "leverage": 0.0002}]
+    b = research._min_mirror_budget(None, whale)
+    assert b["positions"] == 3
+    assert b["min_budget_usd"] == 36.0             # 3 × $12 floor — NOT ~$182K
+    assert b["opens_nothing_below_usd"] == 12.0    # cheapest openable margin, capped at the notional floor
+    # 0 / negative leverage is a bad read too → the 1x floor, never a divide-by-zero or a huge margin
+    assert research._min_mirror_budget(
+        None, [{"notional": 100, "direction": "long", "moved_from_entry_pct": 0.0, "leverage": 0}]
+    )["min_budget_usd"] == 12.0
+
+
 def test_min_mirror_budget_wired():
     # the key is always set (a dict when computable, else None) — never silently absent
     assert "min_mirror_budget" in research.run(_client(), "vet", addr="0xpro")["trader"]
