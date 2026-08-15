@@ -1160,3 +1160,15 @@ if __name__ == "__main__":
         fn()
         print(f"  ok {fn.__name__}")
     print(f"\n{len(fns)}/{len(fns)} passed")
+
+
+def test_closed_only_book_has_a_real_zero_unrealized_not_unknown():
+    """A book with NO current strategies has no open positions at all, so unrealized is a REAL 0 and TOTAL
+    equals realized. Returning None there left a fully-closed book with no headline (HARD RULE 1)."""
+    ps = review._pnl_summary(17.05, [], 17.23)
+    assert ps["unrealized"] == 0.0 and ps["total"] == 17.05
+    assert ps["unrealized_partial"] is False
+    assert ps["realized"] == 17.05 and ps["fees"] == 17.23      # fees never netted into realized
+    # current strategies that exist but are ALL unreadable stay UNKNOWN — that is a different case
+    unreadable = review._pnl_summary(17.05, [{"unrealized_pnl": None}], 17.23)
+    assert unreadable["unrealized"] is None and unreadable["total"] is None

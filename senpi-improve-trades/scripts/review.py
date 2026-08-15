@@ -1628,7 +1628,10 @@ def _pnl_summary(realized_total, strat_reads, fees_total=None):
     closed_realized = round(realized - current_realized, 2)
     known = [u for u in (s.get("unrealized_pnl") for s in strat_reads)
              if isinstance(u, (int, float)) and not isinstance(u, bool)]
-    unrealized = round(sum(known), 2) if known else None
+    if not strat_reads:
+        unrealized = 0.0          # no current strategies ⇒ no open book ⇒ a REAL zero, not UNKNOWN
+    else:
+        unrealized = round(sum(known), 2) if known else None
     total = round(realized + unrealized, 2) if unrealized is not None else None
     # PARTIAL coverage: some current wallets were readable, some were NOT — so `unrealized` (and therefore
     # `total`) sums only the readable ones: a FLOOR, not a complete number. Flag it so the narrator says
@@ -1741,9 +1744,11 @@ def _save_state(path, state):
 def _fresh_meta():
     """A meta skeleton seeded like run()'s — the same `sources` list + fail-open scaffolding, so every step's
     meta reads consistently whether it ran standalone or off state."""
-    return {"warnings": [], "sources": ["discovery_get_trader_history", "ratchet_stop_list",
-                                        "market_get_asset_data", "leaderboard_get_markets",
-                                        "openclaw senpi events"], "degraded": None}
+    return {"warnings": [], "sources": ["account_get_historical_info", "strategy_list",
+                                        "discovery_get_trader_history", "discovery_get_trader_state",
+                                        "ratchet_stop_list", "market_get_asset_data",
+                                        "leaderboard_get_markets", "openclaw senpi events"],
+            "degraded": None}
 
 
 def _window_for(window_days, last_n, now_ms=None):
@@ -2097,7 +2102,7 @@ def _all_and_persist(client, window_days, last_n, want_market, state_path, now_m
 # the COMPLETE arrays for the stepped path. `--full` restores everything (debug / "the whole ledger").
 STDOUT_TRADES_SAMPLE = 12
 STDOUT_MISSED_SAMPLE = 10
-_TRADE_STDOUT_FIELDS = ("asset", "direction", "strategy_label", "realized_pnl", "close_time",
+_TRADE_STDOUT_FIELDS = ("asset", "direction", "strategy_label", "realized_pnl", "fees", "close_time",
                         "exit_vs_hold", "price_since_exit_pct", "if_held_delta_usd", "exit_reason")
 
 
