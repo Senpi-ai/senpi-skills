@@ -76,9 +76,13 @@ def detect_from_metrics(cur, prior):
                 conflict=True, flip=flip)
 
         pshare = _num(p.get("smart_share"))
-        if share is not None and pshare is not None and (share - pshare) >= SMART_JUMP_PP:
-            sig("sm_conviction", sd, share / 100.0,
-                [f"top-trader concentration +{share-pshare:.0f}pp to {share:.0f}%"])
+        if share is not None and pshare is not None and abs(share - pshare) >= SMART_JUMP_PP:
+            delta = share - pshare
+            flow = "piling in" if delta > 0 else "unwinding"
+            side = (str(sd).upper() + " ") if sd else ""
+            sig("sm_conviction", sd, abs(share) / 100.0,
+                [f"top traders {flow} {side}".rstrip()
+                 + f" — concentration {'+' if delta > 0 else '−'}{abs(delta):.0f}pp to {share:.0f}%"])
 
         fp = _num(m.get("funding_pctile"))
         if fp is not None:
@@ -119,22 +123,30 @@ def score(s):
     return round(min(val, 100.0), 1)
 
 
+def badge(sc):
+    """Severity flag by noteworthiness score — so the eye lands on the biggest first."""
+    return "🔥" if sc >= 80 else ("🟠" if sc >= 65 else "🟡")
+
+
 def frame(s):
+    """Every headline states DIRECTION (long/short). A surge with no side is useless."""
     a, d = s["asset"], (s.get("direction") or "")
+    dl = f" {d.upper()}" if d else ""
     nums = "; ".join(s.get("numbers") or [])
     det = s["detector"]
     if det == "sm_divergence":
-        return f"Smart money is {d.upper()} on {a} while the crowd is the other way — {nums}."
+        return f"Smart money is{dl} on {a} while the crowd is the other way — {nums}."
     if det == "oi_surge":
-        return f"{nums} on {a}" + (f" {d}s" if d else "") + " — positioning building."
+        side = f" {d.upper()}S" if d else " (side unresolved — pull the OI long/short split)"
+        return f"OI building on {a}{side} — {nums}."
     if det == "funding_dislocation":
         return f"{a}: {nums} — a funding dislocation most screens miss."
     if det == "whale_move":
         who = s.get("concrete_entity") or "a top trader"
-        return f"{who} on {a}: {nums}."
+        return f"{who} on {a}{dl}: {nums}."
     if det == "sm_conviction":
-        return f"Top traders are crowding into {a}" + (f" {d}" if d else "") + f" — {nums}."
-    return f"{a}: {nums}."
+        return f"{a}{dl}: {nums}."
+    return f"{a}{dl}: {nums}."
 
 
 def dedupe_rank(signals, top_n):
@@ -186,11 +198,12 @@ def main():
     except Exception as e:  # noqa — never sink the run on a state-write failure
         print(f"[warn] state write failed: {e}", file=sys.stderr)
 
-    lines = [f"# Senpi Signals — {len(ranked)} noteworthy ({now[:16]}Z)", "",
+    lines = [f"# Live Signals — {now[:16]}Z · {len(ranked)} noteworthy", "",
              "_Observation, not advice. Every number is from a live read — verify before posting._", ""]
-    for s in ranked:
-        lines.append(f"**{s['score']}** · `{s['asset']}` — {s['detector']}"
-                     + ("  ⚑" if s.get("concrete_entity") else ""))
+    for i, s in enumerate(ranked):
+        star = "⭐ " if i == 0 else ""
+        lines.append(f"{star}{badge(s['score'])} **{s['score']}** · `{s['asset']}` — {s['detector']}"
+                     + ("  ⚑ whale" if s.get("concrete_entity") else ""))
         lines.append(f"  {frame(s)}")
         lines.append("")
     md = "\n".join(lines)

@@ -51,6 +51,27 @@ has it; "here's what just *moved* in a way nobody's watching" is the product.
 6. **Derive the universe, don't hardcode.** Pull it from `market_list_instruments` (a liquidity
    floor + top-N by volume). Identity baskets (e.g. "the AI names") are the only allowed hardcode,
    and only in focus mode.
+7. **Always state direction.** Every signal names the side — **LONG or SHORT** — and for OI /
+   conviction, the *flow* (building / unwinding, piling in / exiting). A "surge" or "conviction jump"
+   with no direction is useless. If you can't resolve the side, say "side unresolved" and pull the OI
+   long/short split — never omit it.
+8. **Anchor every trader count.** Never a bare "N traders". Always **"N of the top C proven traders
+   (Y% of top-trader PnL)"** — C = `source_trader_count` from `leaderboard_get_markets`, Y =
+   `pct_of_top_traders_gain`. "69 of the top 100" reads big; "69" alone reads small.
+
+## Output conventions
+- **Title the sweep `Live Signals — <YYYY-MM-DD HH:MM> UTC`** (not "Signals of the Day").
+- **Severity-flag every finding** by score: 🔥 ≥ 80 · 🟠 65–79 · 🟡 45–64; ⭐ the single top; ⚑ a
+  named-wallet signal. (`score.py` emits these — keep them.)
+- **Always include a smart-money-vs-crowd divergence check and a whale-shifts check** in a sweep. If
+  either finds nothing, **say so plainly** — never relabel smart-vs-price as a divergence.
+
+## Follow-up: "how could I play it?" (opt-in, consent-gated)
+After the signals, **offer** — don't push — to show how the user could position for one: *align with
+the smart-money side · fade the crowd on a divergence · harvest the funding · follow the whale.* On a
+yes, compose **senpi-trader-research / senpi-trade / senpi-strategy-author** to propose a concrete,
+**simulated** setup (with a stop), acting only on the user's confirmation. **Keep this out of any
+public/tweet copy** — public output stays observation-only; "play it" is a private interactive step.
 
 ## Two modes
 - **Sweep** — *"what's noteworthy right now?"* Run every detector across the universe → snapshot +

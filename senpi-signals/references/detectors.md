@@ -47,13 +47,19 @@ cross-asset) you assemble as pre-formed `events[]`.
 - **Metric fields:** `smart_dir`, `crowd_dir`, `smart_share` (= `pct_of_top_traders_gain`).
 - **Fires when:** `smart_dir != crowd_dir` AND `smart_share ≥ 25`. Flip bonus if `prior.smart_dir`
   existed and differs (smart money *just* shifted). Conflict bonus (it's a divergence).
-- **Framing:** `Smart money is <SHORT> on <ASSET> (<share>% of top-trader PnL) while the crowd is <LONG>.`
+- **crowd_dir (how to get it, in order):** (1) HL OI long/short split per asset (VERIFY-LIVE
+  `metaAndAssetCtxs`); (2) **funding sign** as a live proxy — positive funding ⇒ crowd LONG, negative
+  ⇒ crowd SHORT. **Divergence = the smart dominant direction *opposite* crowd_dir.** Smart-long-while-
+  price-*down* is NOT a divergence (that's smart-vs-price) — don't call it one.
+- **Framing:** `Smart money is <SHORT> on <ASSET> — <N of top C> proven traders (<share>% of top-trader PnL) — while the crowd is <LONG>.`
 
 ### 3. `sm_conviction` — fresh smart-money conviction  *(smart-money + momentum)*
 - **Source:** `leaderboard_get_markets` `pct_of_top_traders_gain` / `trader_count`, diffed vs prior.
 - **Metric fields:** `smart_share`, `trader_count`.
-- **Fires when:** `smart_share − prior.smart_share ≥ 12` points (top traders piling in this window).
-- **Framing:** `Top traders are crowding into <ASSET> <long|short> — concentration jumped to <share>%.`
+- **Fires when:** `|smart_share − prior.smart_share| ≥ 12` points — **both directions**: a jump = top
+  traders **piling in**, a drop = top traders **unwinding / exiting** (the BTC-exodus case is a real
+  signal, not noise). Always state which flow *and* the side (long/short).
+- **Framing:** `Top traders are <piling into|unwinding> <ASSET> <LONG|SHORT> — concentration <+/−>Npp to <share>%.`
 
 ### 4. `funding_dislocation` — funding at an extreme / flipped  *(funding family — the biggest)*
 - **Source (partly Confirmed):** `market_get_funding_history` (asset) → 8h rate, annualized %,
@@ -71,6 +77,10 @@ cross-asset) you assemble as pre-formed `events[]`.
   4h deltas from `leaderboard_get_trader_positions` and `discovery_get_trader_state`. Diff each
   wallet's per-asset notional vs its prior snapshot (store wallet books in the state file too).
 - **Fires when:** a wallet opens/adds/flips ≥ ~$1M (or ≥ ~25% of its book) on one asset.
+- **The 4h delta needs no state** — `leaderboard_get_trader_positions` returns each trader's **4h
+  position delta** directly; use it so whale-shifts fire even on the **first run** (the state file
+  adds longer horizons). **Always run this in a sweep** — "any whale shifts?" is a headline detector,
+  not optional — and state LONG/SHORT + the size change.
 - **`concrete_entity`** = the public `0x…`. **Framing:**
   `A top trader (0x12…) grew their <ASSET> short by $10M to $50M.`
 
@@ -86,6 +96,23 @@ cross-asset) you assemble as pre-formed `events[]`.
 - **Source:** the regime read (bull/bear/range/event-driven) from weekly-daily structure; flag flips.
 
 ---
+
+## Framing rules (apply to every signal)
+- **Direction is mandatory** — LONG or SHORT, plus the flow for OI/conviction (building/unwinding).
+  A surge with no side is useless. Unknown side → say "side unresolved" + pull the OI split.
+- **Anchor counts** — "N of the top C proven traders (Y% of top-trader PnL)", never bare N.
+- **Severity flag** — 🔥 ≥ 80 · 🟠 65–79 · 🟡 45–64; ⭐ top; ⚑ named wallet (score.py emits these).
+
+## Ways to play (the opt-in follow-up — never in public/tweet copy)
+Per detector, the thesis the agent can *offer* to build (consent-gated, via senpi-trade /
+senpi-trader-research / senpi-strategy-author), always a **simulated** setup with a stop, executed
+only on the user's confirmation:
+- `sm_divergence` → **align with the smart-money side** (or fade the crowd).
+- `sm_conviction` piling-in → **follow the crowding**; unwinding → **de-risk / fade**.
+- `whale_move` → **mirror the whale** (senpi-trade mirror) at your budget, with a stop.
+- `funding_dislocation` → **harvest the funding** — take the side that *collects*, sized for the carry.
+- `oi_surge` / `cross_asset_laggard` → position for the build / the catch-up.
+Observation stays public; the play stays private.
 
 ## Noteworthiness scoring (in score.py — keep in sync)
 `score = 100 × ( 0.35·non_obvious + 0.25·magnitude + 0.20·conflict + 0.10·concrete + 0.10·credibility )`
