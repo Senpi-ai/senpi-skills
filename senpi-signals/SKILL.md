@@ -60,6 +60,15 @@ has it; "here's what just *moved* in a way nobody's watching" is the product.
    a plain-English gloss the first time you use it (full glossary in `references/detectors.md`):
    - **who the top traders are** — "the top ~C traders on Hyperliquid by realized PnL — the *proven
      money*"; C = `source_trader_count` from `leaderboard_get_markets`. Not "everyone."
+   - **express headcounts as a % of the cohort** — "**44% of the proven traders are short CASHCAT**",
+     not "44 traders" (% = `trader_count / source_trader_count`). A % anchors the weight; a raw count
+     reads small. Keep this headcount-% **distinct** from the *PnL-concentration* % below.
+   - **quantify in dollars when you can** — the aggregate notional the cohort is long/short, e.g.
+     "**~$204M in notional GOOGL shorts**", summed from their *actual* positions
+     (`leaderboard_get_trader_positions`). Dollars make it tangible. Use it for the signals you
+     feature. **Only a real summed figure — never estimate a $ number; omit it if you can't sum one.**
+   So a full positioning line reads: *"44% of the proven traders are short CASHCAT — ~$Xm notional —
+   and 2.4% of their open PnL."*
    - **which leaderboard + window** — `leaderboard_get_top` = Hyperliquid's **live 4-hour rolling**
      leaderboard; `discovery_*` = historical track record. Say which, and that "4h" = the last 4 hours.
    - **what the metric means** — "% of top-trader PnL" = of all the open profit that proven cohort is
@@ -69,6 +78,20 @@ has it; "here's what just *moved* in a way nobody's watching" is the product.
    can independently check (a price move + volume, OI building/draining), and use small positioning
    as corroboration. **Never upgrade "leans short (1.23%)" into "smart money is short."** Overstating
    a small signal is how the account loses credibility. See `references/worked-examples.md` (WLFI).
+
+10. **Smart-money *direction* comes from the proven cohort — not the leaderboard.** For "what is
+    smart money doing" and any divergence, use **senpi-smart-money**: the **≥$1M-lifetime-realized**
+    cohort's **net positioning** (bias, members, net $, crowd side — it already computes all of it).
+    `leaderboard_get_markets` `pct_of_top_traders_gain` is a *different* thing — the share of the
+    **live-4h** leaderboard's open profit in a name, i.e. *what's winning right now*, which is
+    **momentum / survivorship-biased** (for a rising asset the winners are simply the ones long it).
+    **Never call the leaderboard number "smart money is long/short"** — label it "what's hot in the
+    last 4h." When the two disagree (proven cohort net-short HYPE while the 4h winners ride HYPE
+    longs), **that gap is itself the story** — report both, correctly labeled. And **don't whistle in
+    the wind on every 4h move**: treat 4h / momentum reads as supplementary *color (fwiw)*, never a
+    standalone headline. Require **persistence** (the signal held across reads) or a **durable
+    corroborator** (proven-cohort positioning, funding, real OI build, a sized whale) before you
+    feature it. Durable + structural leads; transient 4h momentum is color.
 
 ## Output conventions
 - **Title the sweep `Live Signals — <YYYY-MM-DD HH:MM> UTC`** (not "Signals of the Day").

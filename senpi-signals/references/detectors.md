@@ -39,11 +39,14 @@ cross-asset) you assemble as pre-formed `events[]`.
 - **Framing:** `OI +10% on <ASSET> <longs|—> while price sat flat.`
 
 ### 2. `sm_divergence` — smart money vs the crowd  *(smart-money + divergence families)*
-- **Source (Confirmed shape):** `leaderboard_get_markets` — per token+dex+direction:
-  `pct_of_top_traders_gain` (0–100, top-trader concentration), `is_dominant_direction`,
-  `trader_count`, `token_price_change_pct_4h`, `day_notional_volume`, `window` (~"4h"). The
-  **dominant direction** = top-trader (smart-money) bias. Crowd bias: the aggregate side — use HL OI
-  long/short split (VERIFY-LIVE via `metaAndAssetCtxs`) or `senpi-smart-money`'s crowd read.
+- **Source — the proven cohort, NOT the leaderboard.** Smart-money *direction* = **senpi-smart-money**
+  engine (the **≥$1M-lifetime-realized** cohort's **net positioning**: bias, members, **net $**, crowd
+  side, divergence flag — it already computes all of this; consume it). **Do NOT derive smart-money
+  direction from `leaderboard_get_markets` `pct_of_top_traders_gain`** — that's the *live-4h*
+  leaderboard cohort (momentum / survivorship-biased: for a rising asset the "top traders" are just
+  whoever's long it). Confusing the two is what makes senpi-signals contradict the pulse read (e.g.
+  proven cohort net-**short** HYPE while the 4h winners ride HYPE longs). Crowd side: from
+  senpi-smart-money, or the funding-sign proxy (positive ⇒ crowd LONG, negative ⇒ crowd SHORT).
 - **Metric fields:** `smart_dir`, `crowd_dir`, `smart_share` (= `pct_of_top_traders_gain`).
 - **Fires when:** `smart_dir != crowd_dir` AND `smart_share ≥ 25`. Flip bonus if `prior.smart_dir`
   existed and differs (smart money *just* shifted). Conflict bonus (it's a divergence).
@@ -51,9 +54,13 @@ cross-asset) you assemble as pre-formed `events[]`.
   `metaAndAssetCtxs`); (2) **funding sign** as a live proxy — positive funding ⇒ crowd LONG, negative
   ⇒ crowd SHORT. **Divergence = the smart dominant direction *opposite* crowd_dir.** Smart-long-while-
   price-*down* is NOT a divergence (that's smart-vs-price) — don't call it one.
-- **Framing:** `Smart money is <SHORT> on <ASSET> — <N of top C> proven traders (<share>% of top-trader PnL) — while the crowd is <LONG>.`
+- **Framing:** `Smart money is <SHORT> on <ASSET> — <X>% of the proven cohort, ~$<Nm> notional, <share>% of their open PnL — while the crowd is <LONG>.`
 
-### 3. `sm_conviction` — fresh smart-money conviction  *(smart-money + momentum)*
+### 3. `sm_conviction` — hot-money crowding (a *momentum* read, fwiw)  *(momentum family)*
+- **This is momentum, not positioning.** It measures the **live-4h leaderboard's** PnL concentration
+  shifting — "what's winning right now" — NOT the proven cohort's direction (that's #2 /
+  senpi-smart-money). Label it as such; don't headline a single 4h wiggle — require persistence
+  across reads or a durable corroborator before featuring it.
 - **Source:** `leaderboard_get_markets` `pct_of_top_traders_gain` / `trader_count`, diffed vs prior.
 - **Metric fields:** `smart_share`, `trader_count`.
 - **Fires when:** `|smart_share − prior.smart_share| ≥ 12` points — **both directions**: a jump = top
@@ -104,7 +111,12 @@ cross-asset) you assemble as pre-formed `events[]`.
 ## Framing rules (apply to every signal)
 - **Direction is mandatory** — LONG or SHORT, plus the flow for OI/conviction (building/unwinding).
   A surge with no side is useless. Unknown side → say "side unresolved" + pull the OI split.
-- **Anchor counts** — "N of the top C proven traders (Y% of top-trader PnL)", never bare N.
+- **Quantify: % of cohort + $ notional + % of PnL** — never a raw "44 traders". Say
+  "**X% of the proven traders are short GOOGL — ~$204M notional — and Y% of their open PnL**".
+  X = `trader_count / source_trader_count`; **$** = sum of the cohort's *actual* position notional on
+  that asset+side (VERIFY-LIVE via `leaderboard_get_trader_positions`; surface it for featured
+  signals; **never estimate — omit if you can't sum a real figure**). Keep the headcount-% distinct
+  from the PnL-concentration-% (`pct_of_top_traders_gain`).
 - **Define the jargon inline** — never "the leaderboard", "top traders", "4h window", or "% of
   top-trader PnL" without a plain-English gloss the first time (see Glossary below).
 - **Weight by size; lead with the robust facts.** Lead with what a sharp reader can independently
@@ -119,6 +131,11 @@ cross-asset) you assemble as pre-formed `events[]`.
 - **The leaderboard** — `leaderboard_get_top` = Hyperliquid's *live 4-hour rolling* board
   ("Predators"); `discovery_*` = historical track record. Always say **which**.
 - **4h window** — the last four hours (the live leaderboard's rolling window).
+- **Cohort headcount %** (`trader_count / source_trader_count`) — what share of the proven cohort
+  holds this position: "44% of the top traders are short X." Distinct from % of top-trader PnL below.
+- **Aggregate notional $** — the dollar size of the cohort's combined position on an asset+side,
+  summed from their actual positions (`leaderboard_get_trader_positions`): "~$204M in GOOGL shorts."
+  Real summed figure only — never estimated.
 - **% of top-trader PnL** (`pct_of_top_traders_gain`) — of all the open profit that cohort is holding
   right now, the share sitting in this one token+side. High = the proven money is concentrated there.
 - **Concentration jump/drop** (`contribution_pct_change_4h`) — how much that share moved vs 4h ago.
