@@ -18,8 +18,12 @@ CURRENT = {"asset_metrics": {
              "notional_vol": 3_000_000},                                        # smart flips vs crowd
     "MEME": {"oi": 220, "notional_vol": 100_000},                              # +120% but illiquid -> drop
 }, "events": [
-    {"asset": "INTC", "detector": "whale_move", "usd": 10_000_000, "concrete_entity": "0x1234",
+    # a real MOVE: grew the short by $10M this window -> fires
+    {"asset": "INTC", "detector": "whale_move", "change_usd": 10_000_000, "concrete_entity": "0x1234",
      "notional_vol": 5_000_000, "direction": "short", "numbers": ["grew INTC short by $10M to $50M"]},
+    # a STATIC holding (no change) -> must be dropped ("holdings, not moves")
+    {"asset": "HYPE", "detector": "whale_move", "usd": 78_000_000, "concrete_entity": "0x082e",
+     "notional_vol": 90_000_000, "direction": "long", "numbers": ["holds $78M HYPE long, old entry"]},
 ]}
 
 
@@ -36,9 +40,10 @@ def main():
         res = json.loads(r.stdout)
         sigs = {s["asset"]: s for s in res["signals"]}
 
-        # the three real signals surface; the illiquid one is dropped
+        # the three real signals surface; the illiquid one and the static whale holding are dropped
         assert set(sigs) == {"OIL", "SPCX", "INTC"}, sigs.keys()
         assert "MEME" not in sigs, "illiquid micro-cap should be dropped"
+        assert "HYPE" not in sigs, "a static whale holding (no change) is holdings, not a signal"
 
         # detectors classified right
         assert sigs["OIL"]["detector"] == "oi_surge"

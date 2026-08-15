@@ -99,10 +99,19 @@ def detect_from_metrics(cur, prior):
 def normalize_event(e):
     if not isinstance(e, dict) or not e.get("asset") or not e.get("detector"):
         return None
-    mag = _num(e.get("magnitude"))
-    if mag is None:
-        usd = _num(e.get("usd"))
-        mag = min(1.0, usd / WHALE_MIN_USD / 10) if (usd and e["detector"] == "whale_move") else 0.6
+    det = e["detector"]
+    if det == "whale_move":
+        # MOVES, not holdings. A big position held from an old entry with no recent change is NOT a
+        # signal. Require a recent size change (opened/added/flipped) or a large 4h PnL swing.
+        chg = _num(e.get("change_usd")) or _num(e.get("pnl_swing_usd"))
+        if not (chg or e.get("opened") or e.get("flipped")):
+            return None
+        base = abs(chg) if chg else WHALE_MIN_USD
+        mag = min(1.0, base / (10 * WHALE_MIN_USD))
+    else:
+        mag = _num(e.get("magnitude"))
+        if mag is None:
+            mag = 0.6
     return {"asset": e["asset"], "dex": e.get("dex", ""), "detector": e["detector"],
             "direction": e.get("direction"), "numbers": e.get("numbers") or [],
             "notional_vol": _num(e.get("notional_vol")), "concrete_entity": e.get("concrete_entity"),

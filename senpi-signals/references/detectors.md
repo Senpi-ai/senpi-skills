@@ -82,18 +82,32 @@ cross-asset) you assemble as pre-formed `events[]`.
 
 ## Event-based detectors (assemble as pre-formed `events[]`)
 
-### 5. `whale_move` — a proven wallet moves real size  *(whale / position_tracker)*
-- **Source (VERIFY-LIVE):** the whale set = the top-trader cohort from
-  `discovery_get_top_traders` (auto-derived each run; a curated seed list optional). Their live book +
-  4h deltas from `leaderboard_get_trader_positions` and `discovery_get_trader_state`. Diff each
-  wallet's per-asset notional vs its prior snapshot (store wallet books in the state file too).
-- **Fires when:** a wallet opens/adds/flips ≥ ~$1M (or ≥ ~25% of its book) on one asset.
-- **The 4h delta needs no state** — `leaderboard_get_trader_positions` returns each trader's **4h
-  position delta** directly; use it so whale-shifts fire even on the **first run** (the state file
-  adds longer horizons). **Always run this in a sweep** — "any whale shifts?" is a headline detector,
-  not optional — and state LONG/SHORT + the size change.
-- **`concrete_entity`** = the public `0x…`. **Framing:**
-  `A top trader (0x12…) grew their <ASSET> short by $10M to $50M.`
+### 5. `whale_move` — a proven wallet *just moved* (a change, not a holding)  *(whale / position_tracker)*
+- **The whole point is the MOVE, not the holding.** A whale *sitting on* a big position — even a
+  $78M one — is **not a signal** if it's been held since an old entry and hasn't changed. "0x… holds
+  $78M HYPE long" tells a reader nothing they can act on: they may have opened it months ago and just
+  ridden it. What's noteworthy is a **recent change** or a **sudden P&L swing** — that's news; a
+  static book is not. **Never emit a whale_move for a position that only *exists* and is large.**
+- **Fires only on ONE of:**
+  1. **A recent size change** — opened / added / trimmed / **flipped** ≥ ~$1M (or ≥ ~25% of the book)
+     **this window**. Set `change_usd` (signed Δnotional) and/or `opened: true` / `flipped: true`.
+  2. **A sudden P&L swing** — the position moved ≥ ~$1M **in the last 4h** (a winner suddenly bleeding,
+     a loser ripping). Set `pnl_swing_usd`. This catches "an old position that's *now* in motion."
+  `score.py` **drops any whale_move that carries none of** `change_usd / pnl_swing_usd / opened /
+  flipped` — a bare holding never scores. Magnitude comes from the **change**, not the position size.
+- **Recency is required in the framing.** Say **when / how fresh**: "opened today", "added in the last
+  4h", "flipped from long to short this window". If you can only tell that it's *large* and *old* (the
+  entry price sits far from the recent range and nothing changed), it's a holding — **skip it**.
+- **Source (VERIFY-LIVE):** whale set = top-trader cohort from `discovery_get_top_traders`. The **4h
+  delta needs no state** — `leaderboard_get_trader_positions` returns each trader's **4h position
+  delta** and **4h P&L delta** directly; use them so moves fire even on the **first run**. For longer
+  horizons, diff each wallet's per-asset notional vs its prior snapshot (store wallet books in state).
+  **Always run this in a sweep** — "any whale shifts?" is a headline detector — but report a shift
+  only when there genuinely is one; "no notable whale moves" is a correct, honest answer.
+- **`concrete_entity`** = the public `0x…`. **Framing (lead with the change + when):**
+  `A top trader (0x12…) just grew their <ASSET> SHORT by $10M to $50M (added this 4h window).`
+  or `0x12… flipped <ASSET> long→short today — now $30M short.` Include the entry only as context
+  for the *change*, never as the headline of a static hold.
 
 ### 6. `cross_asset_laggard` — rotation not yet priced in  *(cross-asset family)*
 - **Source:** `market_get_cross_asset_flows` (meaningful only when BTC moved >2% in 4h; `follow_rate`).
@@ -117,6 +131,14 @@ cross-asset) you assemble as pre-formed `events[]`.
   that asset+side (VERIFY-LIVE via `leaderboard_get_trader_positions`; surface it for featured
   signals; **never estimate — omit if you can't sum a real figure**). Keep the headcount-% distinct
   from the PnL-concentration-% (`pct_of_top_traders_gain`).
+- **Name the asset — never a bare ticker.** Assume the reader has never heard of it. One clause on
+  *what it is*: "ACE (a low-cap gaming alt)", "ZEC (Zcash, a privacy coin)", "OIL (crude oil, an xyz
+  perp)". A ticker + a % with no idea what the thing is can't be judged noteworthy. Well-known majors
+  (BTC/ETH/SOL/HYPE) need no gloss. Source the descriptor from `market_list_instruments` metadata or
+  common knowledge; if you genuinely don't know what it is, say so rather than posting it blind.
+- **Price context on positioning signals.** A divergence or whale move needs price to hang on: the
+  recent move (e.g. "−6% today, −18% on the week") and *where price sits* (near range low/high, a
+  round level). Positioning without price is half a signal — pull `market_get_asset_data` candles.
 - **Define the jargon inline** — never "the leaderboard", "top traders", "4h window", or "% of
   top-trader PnL" without a plain-English gloss the first time (see Glossary below).
 - **Weight by size; lead with the robust facts.** Lead with what a sharp reader can independently

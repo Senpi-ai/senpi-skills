@@ -79,7 +79,21 @@ has it; "here's what just *moved* in a way nobody's watching" is the product.
    as corroboration. **Never upgrade "leans short (1.23%)" into "smart money is short."** Overstating
    a small signal is how the account loses credibility. See `references/worked-examples.md` (WLFI).
 
-10. **Smart-money *direction* comes from the proven cohort — not the leaderboard.** For "what is
+11. **The bar: a signal is a *change* that's *fresh*, *sized*, and *legible* — else cut it, don't pad.**
+    "Overall not that interesting" is the failure mode to design against. Four filters, applied hard:
+    - **Change, not state.** A big *holding* is not news — a whale sitting on $78M HYPE from a
+      months-old $38.68 entry is holdings, not a move. Only a **recent open/add/flip or a sudden P&L
+      swing** qualifies (rule → `whale_move`); the gain from *good timing* is the story, not the size.
+    - **Fresh.** Prefer what moved *this run / this 4h*; a condition that's been true for weeks is
+      wallpaper. State *when*.
+    - **Legible.** Never a bare ticker — one clause on **what the asset is** ("ACE, a low-cap gaming
+      alt") and, on positioning signals, **price context** (recent move + where it sits). A reader who
+      doesn't know the asset can't judge it, so it isn't a signal to them.
+    - **Don't pad to a count.** Better six that clear the bar than a padded ten. If the market's quiet,
+      say "quiet right now — here are the 2 that stand out." Consolidate repeats (three majors all
+      "smart-lean short" → one grouped line, not three thin ones).
+
+12. **Smart-money *direction* comes from the proven cohort — not the leaderboard.** For "what is
     smart money doing" and any divergence, use **senpi-smart-money**: the **≥$1M-lifetime-realized**
     cohort's **net positioning** (bias, members, net $, crowd side — it already computes all of it).
     `leaderboard_get_markets` `pct_of_top_traders_gain` is a *different* thing — the share of the
