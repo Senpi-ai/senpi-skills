@@ -280,7 +280,45 @@ def test_active_funded_strategy_absent_from_the_list_is_not_running():
     assert ghost["protected"] is False
     assert ghost["runtime_health"] == "not_running"
     assert out["meta"].get("not_running") == ["gibbon"]
+    assert ghost.get("strategy_kind") == "custom"        # a real custom strategy is still classified normally
     assert any("not running" in w.lower() for w in out["meta"]["warnings"])
+
+
+def test_mirror_copy_trade_is_not_flagged_not_running_or_unprotected():
+    """A copy-trade / MIRROR strategy (strategy_create, via senpi-trade) has NO runtime BY DESIGN. It must NOT
+    be misread as an unprotected, not-running custom strategy: its runtime flags are null (N/A, never False),
+    runtime_health is 'mirror', it is named by the copied trader, and it never lands in meta.not_running — even
+    though it is ACTIVE + funded + absent from the runtime list (the exact shape that trips `not_running`)."""
+    W = "0xB67D00000000000000000000000000000000B67D"
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"total_balance_usd": 500, "total_withdrawable": 500,
+                                  "total_usdc_in_hyperliquid": 0, "token_balances": []},
+        "strategy_list": {"strategies": [{
+            "strategyName": None, "strategyType": "MIRROR",
+            "shortTraderAddress": "0x35d1...acb1",
+            "traderAddress": "0x35d1000000000000000000000000000000acb1",
+            "mirrorMultiplier": 1.0, "stopLossPercentage": None, "takeProfitPercentage": None,
+            "strategyMetadata": {"skillName": "senpi-trade", "skillVersion": "1.0.0"},
+            "strategyWalletAddress": W, "status": "ACTIVE", "totalFunded": 500}]},
+        f"strategy_get_clearinghouse_state::{W.lower()}": {
+            "main": {"marginSummary": {"accountValue": "500"}, "withdrawable": "50",
+                     "assetPositions": [{"position": {
+                         "coin": "BTC", "szi": "-0.1", "leverage": {"type": "cross", "value": 20},
+                         "entryPx": "60000", "positionValue": "6000", "unrealizedPnl": "5"}}]},
+            "xyz": {"marginSummary": {"accountValue": "500"}, "withdrawable": "50", "assetPositions": []}},
+    }
+    out = run_engine(mcp_fixture=fixture)                 # default runtime list — the mirror wallet is NOT in it
+    m = by_wallet(out, W)
+    assert m["strategy_kind"] == "mirror"
+    assert m["runtime_health"] == "mirror"
+    # the runtime questions are N/A for a mirror — null, never False (False reads as "checked, and it's broken")
+    assert m["runtime_registered"] is None and m["not_running"] is None
+    assert m["running_blind"] is None and m["protected"] is None
+    assert m["mirror_of"] == "0x35d1...acb1" and m["mirror_multiplier"] == 1.0
+    assert m["name"] == "copy of 0x35d1...acb1"           # named by the copied trader, never "unnamed"/"strategy"
+    assert out["meta"].get("not_running") is None         # a mirror is NEVER an unprotected/not-running warning
 
 
 def test_running_blind_is_surfaced():

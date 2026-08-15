@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.13.3"
+  version: "1.14.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -156,6 +156,13 @@ live multi-wallet strategy is not.
 
 ### "ACTIVE" ≠ running — a strategy with no runtime registered is NOT alive, and NOT protected
 
+> **First, is it a copy-trade?** If `strategy_kind: "mirror"` (a.k.a. `runtime_health: "mirror"`), everything in
+> this section does **NOT** apply — a mirror / copy-trade strategy has **no runtime by design**. Its
+> `runtime_registered` / `not_running` / `running_blind` / `protected` are **`null` (N/A), never `false`** — do
+> NOT report it as "not running / unprotected," do NOT tell the user to add a DSL, set a stop via
+> `edit_position`, or redeploy via `senpi-strategy-ops`, and never call it "redundant." See **Copy-trade /
+> mirror strategies** below. Everything here is about **CUSTOM** strategies (`strategy_kind: "custom"`).
+
 `status: ACTIVE` only means the strategy *record* exists and is funded — it does **not** mean a runtime is
 actually running it. The engine checks the runtime registry and flags any strategy that is **ACTIVE +
 funded but has NO runtime registered** via `strategy_groups[].not_running` (and per-instance `not_running`
@@ -192,6 +199,9 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
   host"** — never "protected," "not protected," "running," or "not running." **`null` is not `false`.**
   `meta.warnings` names the failed command; quote it, never invent a cause. This is the honest bar:
   **only `live` means "confirmed working."**
+- **`mirror`** — a **copy-trade** strategy: no runtime BY DESIGN (see **Copy-trade / mirror strategies** below).
+  Never `live` / `degraded` / `not_running` / `unverified` — those don't apply to it. Judge it on `mirror_of` +
+  `mirror_multiplier` + `stop_loss_pct` / `take_profit_pct`, never on a runtime it was never meant to have.
 
 **Minimum runtime — `openclaw senpi runtime list --json`.** The engine asks the runtime for its own
 inventory through that command (it never reads the runtime's private state files). It is a **newer
@@ -214,6 +224,34 @@ it as the required next step (and its verdict, if you can run it), then close.py
 **"where am I leaking / did a stop fail / any halts / exit quality"**, hand to `senpi-improve-trades` (it
 reads the runtime event log for protection gaps, risk halts, failed orders, and exit quality). Reference the
 right tool to *confirm* — never re-derive its analysis here.
+
+### Copy-trade / mirror strategies (`strategy_kind: "mirror"`)
+
+A **mirror** (copy-trade) strategy — created via **`senpi-trade`** (`strategy_create`) — **copies a specific
+trader** instead of running a scanner. It has **no runtime, no `runtime.yaml`, and no DSL by design** — that is
+NOT a defect, and it is NOT "unprotected." Recognise it by `strategy_kind: "mirror"` (equivalently
+`runtime_health: "mirror"`); it carries `mirror_of` (the copied trader, masked), `mirror_multiplier` (how hard
+it sizes vs the OG), and `stop_loss_pct` / `take_profit_pct` (its **strategy-level** risk caps). Its `name` is
+**"copy of `mirror_of`"** — never call it "unnamed."
+
+**How a mirror is protected — two ways, neither a DSL:**
+1. It **follows the copied trader's exits** — when the OG closes or trims, the mirror does too. Its positions,
+   direction, and leverage are the OG's, scaled by `mirror_multiplier` (so a `20x` position is the *trader's*
+   20x, mirrored — inherited, not a config you tune per-position).
+2. Optional **strategy-level `stop_loss_pct` / `take_profit_pct`** — a hard cap the user placed on the copy.
+
+**Judging one, and the ONLY correct remedies.** A mirror's risk = the copied trader's risk × `mirror_multiplier`.
+High leverage or a lopsided book is worth *surfacing* ("this copies `mirror_of` at 20x — a sharp adverse move
+liquidates fast; it has [no] strategy-level stop"), but the fix is **never** a DSL or a per-position stop. To
+add/tighten a downside cap, take profit, or size down → set `stopLossPercentage` / `takeProfitPercentage` or
+lower `mirrorMultiplier` **via `senpi-trade`** (it wraps `strategy_update`). To stop copying → unsubscribe /
+close the mirror **via `senpi-trade`**.
+
+> **NEVER, for a mirror:** add a DSL / ratchet; set a stop via `edit_position` on its positions; "redeploy it
+> via `senpi-strategy-ops`"; call it "running unprotected / not running"; or call it "redundant with strategy X,
+> close it." Those are **custom-strategy** remedies — applied to a mirror they break the copy-trade the user
+> deliberately set up. A mirror is an intentional copy of a trader, judged on the trader + the multiplier + its
+> strategy-level SL/TP.
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
