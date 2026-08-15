@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.8.0"
+  version: "1.9.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -38,12 +38,16 @@ more" questions; use `senpi-portfolio` for live state.
 
 ## HARD RULES (never violate — obey these even if you skim the rest)
 
-1. **Lead with TOTAL PnL** (`pnl_summary.total` = realized + unrealized), never realized alone. Realized-only
-   is half the ledger — it calls a book riding open winners a "loser" and penalizes hold-strategies. **If
-   `pnl_summary.unrealized_partial` is true (or `unrealized_coverage.read < .current_strategies`), TOTAL is a
-   FLOOR, not a complete number** — some current wallets couldn't be read. Say **"at least $X (N of M wallets
-   readable)"**, never present it as the finished total. (`total: null` = the open book was *entirely*
-   unreadable → UNKNOWN, not 0 and not a floor.)
+1. **Lead with NET TOTAL PnL** (`pnl_summary.net_total` = net_realized + unrealized), never realized alone and
+   never a GROSS number. `gross_*` excludes trading fees — the biggest killer of returns — so a gross headline
+   can read ~5× rosier than the wallet on a churny book. **When `pnl_summary.fees_status` is `undetermined`
+   (the fills ledger couldn't be read), `fees` and every `net_*` are `null`:** the figure you have is GROSS and
+   fees are UNKNOWN (**not 0**) — say **"about $X gross; fees couldn't be read, so net is lower by an unknown
+   amount,"** never present a gross number as net/booked. Realized-only is half the ledger — it calls a book
+   riding open winners a "loser" and penalizes hold-strategies. **If `pnl_summary.unrealized_partial` is true
+   (or `unrealized_coverage.read < .current_strategies`), the total is a FLOOR** — some current wallets couldn't
+   be read; say **"at least $X (N of M wallets readable)"**. (`net_total`/`gross_total` `null` = the open book
+   was *entirely* unreadable → UNKNOWN, not 0 and not a floor.)
 2. **The hold-to-now counterfactual is CONTEXT, never a verdict.** `held_higher` / a positive
    `if_all_reclosed_now_total` just means the asset kept running THIS window (hindsight; it ignores the risk
    the exit avoided). NEVER say "you exited too early / N% premature / left $X on the table," and NEVER let it
@@ -194,7 +198,7 @@ could I make more" — run the steps **in order** and narrate between:
 
 1. `review.py timing` → narrate the timing teardown (the NEUTRAL exit counts `exits_ahead` / `exits_held_higher`
    + realized so far) — but this is NOT your headline: TOTAL PnL (realized + unrealized) lands with the
-   `strategies` step (`pnl_summary.total`). `exit_reason` is still `UNKNOWN` here (telemetry hasn't run) —
+   `strategies` step (`pnl_summary.net_total`). `exit_reason` is still `UNKNOWN` here (telemetry hasn't run) —
    narrate the *timing*, not the mechanism yet, and never call `held_higher` "premature / left on the table."
 2. `review.py strategies` → narrate the **per-strategy read** (each CURRENT strategy vs its OWN mandate,
    realized PnL as evidence; `closed_strategies[]` is history — no verdict).
@@ -262,7 +266,7 @@ These are non-negotiable. Each fixes a real failure from live agent responses to
 
 ### 1. TOTAL PnL leads; `if_held` is NEUTRAL context, symmetric, never the verdict
 
-**Lead with `pnl_summary.total`** (realized closed + unrealized open) — NOT `realized_pnl_total` alone.
+**Lead with `pnl_summary.net_total`** (realized closed + unrealized open) — NOT `gross_realized_pnl_total` alone.
 Realized-only is half the ledger: it calls a book riding open winners a "loser" and penalizes hold-strategies.
 **Degraded-read honesty (same principle as `undetermined ≠ all-clear`):** if `pnl_summary.unrealized_partial`
 is true (some current wallets read, some didn't), `total` is a **FLOOR** — headline it as *"at least $X (N of M
@@ -322,7 +326,7 @@ never from whether a live position has *armed* it:
 
 **Never invent a forward number.** No "+$1,400–2,200/week," no "deploy 25% = +$800–1,200," no guaranteed-gain
 figure of any kind. The only dollar figures you may state are:
-- **realized PnL** (`realized_pnl`, `realized_pnl_total`) — what actually happened, and
+- **realized PnL** — GROSS (`gross_realized_pnl`, `gross_realized_pnl_total`) and NET of fees (`net_realized_pnl`, `net_realized_pnl_total`) — what actually happened, and
 - the engine's **counterfactuals** (`if_held_delta_usd`, `if_all_reclosed_now_total`) — clearly labeled as
   *"if held to now"* context.
 
@@ -463,11 +467,11 @@ run on a just-deployed book):
 
 ## What the engine gives you
 
-The engine prints one JSON dict. **Lead with `pnl_summary.total`** (realized+unrealized); the PROCESS counts are in `timing_summary`; per-strategy verdicts in `strategies[]` (CURRENT book only); the telemetry streams (`dsl_close_reason_mix` / `blocked_summary` / `leaks` / `execution_quality`) are real only when `telemetry_availability.streams_computed` is true; `trades[]` is a curated outlier sample (counts from the aggregates, never `len(trades)`). **Full field-by-field catalog + the `exit_reason.terminal` enum: [`references/output-shape.md`](references/output-shape.md).**
+The engine prints one JSON dict. **Lead with `pnl_summary.net_total`** (realized+unrealized); the PROCESS counts are in `timing_summary`; per-strategy verdicts in `strategies[]` (CURRENT book only); the telemetry streams (`dsl_close_reason_mix` / `blocked_summary` / `leaks` / `execution_quality`) are real only when `telemetry_availability.streams_computed` is true; `trades[]` is a curated outlier sample (counts from the aggregates, never `len(trades)`). **Full field-by-field catalog + the `exit_reason.terminal` enum: [`references/output-shape.md`](references/output-shape.md).**
 
 ## The output contract — what you produce
 
-1. **Total-PnL + timing teardown** — **led by TOTAL PnL** (`pnl_summary.total` = realized + unrealized), then
+1. **Total-PnL + timing teardown** — **led by TOTAL PnL** (`pnl_summary.net_total` = realized + unrealized), then
    the NEUTRAL aggregate (`timing_summary`: `exits_ahead` / `exits_held_higher`), each exit attributed via
    `exit_reason` (which tier / hard stop fired). Process-framed, NEVER "premature / left on the table."
    Discuss individual reversals only after the aggregate, and only as evidence. Trades whose
@@ -504,10 +508,14 @@ Never pick for the user, and never act unprompted.
 
 Don't re-implement these — call them and weave their output into the four-part contract above.
 
-## The one pending upgrade — authoritative fee $
+## Authoritative fee $ — wired (net PnL)
 
-`execution_quality` reports the maker-vs-taker **rate** today, not fee dollars. The authoritative fee **$**
-lives in the ledger — `order.filled` / `position.closed` carry `senpi.order.id`, which joins to
-`execution_get_closed_position_details({closedOrderId})` → realized PnL + **fees** + funding. That per-order
-join is the future upgrade; it's intentionally **not** called per-trade (rate-limit risk), so until it's
-wired, quote the maker ratio as a fee-tier signal, never a fee dollar total.
+Fee **dollars** are now sourced from the HL **fills ledger** (`userFills.fee`, already builder-fee-inclusive)
+and attributed per round-trip (matched OPEN-side fee + CLOSE fee), so every PnL surface carries
+`gross_realized_pnl` / `fees` / `net_realized_pnl` (and `gross_total` / `net_total` on `pnl_summary`,
+`gross_realized_pnl_total` / `fees_total` / `net_realized_pnl_total` on `timing_summary`). **Lead with net;
+`gross_*` is pre-fee.** When the fills read fails for a wallet, that record's `fees` / `net_*` are `null` and
+`fees_status` is `undetermined` — the figure is GROSS and fees are UNKNOWN, never 0 (HARD RULE 1).
+
+`execution_quality` still reports the maker-vs-taker **rate** — a separate execution-quality signal ("am I
+paying taker fees I could avoid?"), not the fee-dollar total above.

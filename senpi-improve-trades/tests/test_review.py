@@ -105,7 +105,7 @@ def test_timing_summary_counts_beat_vs_worse():
     assert ts["exits_ahead"] == 1
     assert ts["exits_held_higher"] == 2
     assert ts["exits_flat"] == 0
-    assert ts["realized_pnl_total"] == 340.0
+    assert ts["gross_realized_pnl_total"] == 340.0
     assert ts["if_all_reclosed_now_total"] == 290.0
 
 
@@ -165,7 +165,7 @@ def test_strategy_read_carries_mandate_and_dsl_lever():
     assert strat["dsl"]["hard_stop_roe_pct"] == -15.0      # the hard-stop lever
     assert strat["dsl"]["arm_at_roe_pct"] == 10            # the arm-at lever
     assert strat["closed_trade_count"] == 3
-    assert strat["realized_pnl"] == 340.0
+    assert strat["gross_realized_pnl"] == 340.0
 
 
 def test_open_book_unrealized_and_total_pnl():
@@ -174,15 +174,15 @@ def test_open_book_unrealized_and_total_pnl():
     the current/closed realized split. A book riding an open winner is NOT judged on realized alone."""
     res = _result()
     strat = {s["label"]: s for s in res["strategies"]}["kodiak"]
-    assert strat["realized_pnl"] == 340.0
+    assert strat["gross_realized_pnl"] == 340.0
     assert strat["unrealized_pnl"] == 120.0
-    assert strat["total_pnl"] == 460.0
+    assert strat["gross_total_pnl"] == 460.0
     assert strat["open_position_count"] == 1
     op = strat["open_positions"][0]
     assert op["asset"] == "SOL" and op["direction"] == "long"
     assert op["unrealized_pnl"] == 120.0 and op["return_on_equity_pct"] == 10.0
     ps = res["pnl_summary"]
-    assert ps["realized"] == 340.0 and ps["unrealized"] == 120.0 and ps["total"] == 460.0
+    assert ps["gross_realized"] == 340.0 and ps["unrealized"] == 120.0 and ps["gross_total"] == 460.0
     assert ps["realized_by_book"] == {"current": 340.0, "closed": 0.0}
 
 
@@ -202,9 +202,9 @@ def test_open_book_unreadable_is_unknown_not_zero():
         else:
             os.environ["SENPI_STATE_DIR"] = old
     strat = {s["label"]: s for s in res["strategies"]}["kodiak"]
-    assert strat["unrealized_pnl"] is None and strat["total_pnl"] is None   # UNKNOWN, not 0
-    assert res["pnl_summary"]["unrealized"] is None and res["pnl_summary"]["total"] is None
-    assert res["pnl_summary"]["realized"] == 340.0                          # realized still known
+    assert strat["unrealized_pnl"] is None and strat["gross_total_pnl"] is None   # UNKNOWN, not 0
+    assert res["pnl_summary"]["unrealized"] is None and res["pnl_summary"]["gross_total"] is None
+    assert res["pnl_summary"]["gross_realized"] == 340.0                          # realized still known
 
 
 def test_pnl_summary_partial_coverage_is_flagged_floor_not_complete():
@@ -219,7 +219,7 @@ def test_pnl_summary_partial_coverage_is_flagged_floor_not_complete():
     ]
     ps = review._pnl_summary(150.0, strat_reads)
     assert ps["unrealized"] == 500.0                         # only the readable wallet — a FLOOR
-    assert ps["total"] == 650.0                              # 150 realized + 500 known unrealized (floor)
+    assert ps["gross_total"] == 650.0                              # 150 realized + 500 known unrealized (floor)
     assert ps["unrealized_partial"] is True                 # <-- flagged, not silent
     assert ps["unrealized_coverage"] == {"read": 1, "current_strategies": 2}
 
@@ -229,7 +229,7 @@ def test_pnl_summary_full_coverage_is_not_partial():
     strat_reads = [{"realized_pnl": 100.0, "unrealized_pnl": 500.0},
                    {"realized_pnl": 50.0, "unrealized_pnl": -20.0}]
     ps = review._pnl_summary(150.0, strat_reads)
-    assert ps["unrealized"] == 480.0 and ps["total"] == 630.0
+    assert ps["unrealized"] == 480.0 and ps["gross_total"] == 630.0
     assert ps["unrealized_partial"] is False
 
 
@@ -238,7 +238,7 @@ def test_pnl_summary_all_unreadable_is_none_not_partial():
     strat_reads = [{"realized_pnl": 100.0, "unrealized_pnl": None},
                    {"realized_pnl": 50.0, "unrealized_pnl": None}]
     ps = review._pnl_summary(150.0, strat_reads)
-    assert ps["unrealized"] is None and ps["total"] is None
+    assert ps["unrealized"] is None and ps["gross_total"] is None
     assert ps["unrealized_partial"] is False                # None ≠ floor
 
 
@@ -306,7 +306,7 @@ def test_fails_open_when_market_source_missing():
     assert all(t["if_held_delta_usd"] is None for t in res["trades"])
     assert res["timing_summary"]["exits_unknown"] == 3
     assert res["book_vs_market"]["top_movers"] == []
-    assert res["timing_summary"]["realized_pnl_total"] == 340.0   # realized PnL is source-independent
+    assert res["timing_summary"]["gross_realized_pnl_total"] == 340.0   # realized PnL is source-independent
 
 
 def test_fails_open_on_empty_everything():
@@ -368,8 +368,9 @@ def test_closed_strategies_rollup_shape():
     cs = res["closed_strategies"][0]
     assert cs["label"] == "kodiak" and cs["status"] == "CLOSED"
     assert cs["trade_count"] == 2                       # BTC + DOGE on the closed wallet
-    assert cs["realized_pnl"] == 220.0                  # 200 + 20
-    assert set(cs.keys()) == {"label", "wallet_short", "status", "trade_count", "realized_pnl"}
+    assert cs["gross_realized_pnl"] == 220.0                  # 200 + 20
+    assert set(cs.keys()) == {"label", "wallet_short", "status", "trade_count",
+                              "gross_realized_pnl", "fees", "net_realized_pnl", "fees_status", "fees_coverage"}
     # explicitly NO verdict/mandate leakage onto a closed strategy
     for banned in ("mandate", "dsl", "on_mandate_note", "verdict"):
         assert banned not in cs
@@ -663,7 +664,7 @@ def test_step_strategies_slice_reads_state():
     assert set(out) == {"strategies", "closed_strategies", "pnl_summary", "dsl_close_reason_mix", "meta"}
     strat = {s["label"]: s for s in out["strategies"]}["kodiak"]
     assert strat["dsl"]["hard_stop_roe_pct"] == -15.0    # mandate/DSL from the registry
-    assert strat["realized_pnl"] == 340.0
+    assert strat["gross_realized_pnl"] == 340.0
     assert out["meta"]["current_strategy_count"] == 1
     assert out["strategies"] == _result()["strategies"]  # == all's per-strategy read
 
@@ -757,7 +758,7 @@ def test_steps_self_heal_when_state_absent():
         return s, te
     s, te = _with_env(_solo, events=True)
     assert {x["label"] for x in s["strategies"]} == {"kodiak"}
-    assert s["strategies"][0]["realized_pnl"] == 340.0
+    assert s["strategies"][0]["gross_realized_pnl"] == 340.0
     # telemetry self-healed the fetch, then enriched
     assert {t["asset"]: t["exit_reason"]["terminal"] for t in te["trades"]}["SOL"] == "tier_breach"
 
@@ -821,7 +822,11 @@ def test_reconstruct_closed_from_fills_fifo_direction_pnl():
     assert by[("HYPE", 120.0)]["entry_px"] == 100.0 and by[("HYPE", 120.0)]["direction"] == "long"
     assert by[("HYPE", 130.0)]["entry_px"] == 110.0
     assert by[("SOL", 190.0)]["direction"] == "short" and by[("SOL", 190.0)]["entry_px"] == 200.0
-    assert round(sum(t["realized_pnl"] for t in tr), 2) == 160.0    # HL closedPnl — authoritative
+    assert round(sum(t["realized_pnl"] for t in tr), 2) == 160.0    # HL closedPnl — GROSS, authoritative
+    # round-trip fee = matched OPEN-side fee (pro-rated) + this CLOSE fill's fee (HL fee is builder-inclusive)
+    assert by[("HYPE", 120.0)]["fee"] == 0.22 and by[("HYPE", 130.0)]["fee"] == 0.11
+    assert by[("SOL", 190.0)]["fee"] == 0.39
+    assert round(sum(t["fee"] for t in tr), 2) == 0.72              # total trading fees over the window
     assert all(t["source"] == "onchain_fills" for t in tr)
     assert tr[0]["asset"] == "SOL"                                  # newest close first
     assert [t["asset"] for t in review._reconstruct_closed_from_fills(fills, base + 5000, None, None)] == ["SOL"]
@@ -861,6 +866,100 @@ def test_no_trades_when_both_sources_empty():
     meta = {}
     assert review.fetch_closed_trades(client, w, None, None, None, meta) == []
     assert "closed_trade_source" not in meta
+
+
+# ── fee-honest PnL: discovery is GROSS; fees come from the fills ledger; net stays UNKNOWN when unread ──
+def test_discovery_trades_get_fees_from_fills_and_net():
+    """discovery owns the trade list but carries NO fee (its realized_pnl is GROSS). fetch_closed_trades
+    stamps each row's round-trip fee from the fills ledger (matched by close order id), so net = gross − fees."""
+    w = "0xfeed00000000000000000000000000000000feed"
+    disco = {"closedPositions": [
+        {"coin": "HYPE", "szi": "2",   "entryPx": "100", "exitPx": "120", "realizedPnl": "40",
+         "closeTime": 1784000003000, "openTime": 1784000001000, "closedOrderId": 3},
+        {"coin": "SOL",  "szi": "-10", "entryPx": "200", "exitPx": "190", "realizedPnl": "100",
+         "closeTime": 1784000009000, "openTime": 1784000001500, "closedOrderId": 6},
+    ]}
+    fills = [
+        {"coin": "HYPE", "dir": "Open Long",   "sz": "2",  "px": "100", "closedPnl": "0",   "fee": "0.10", "time": 1784000001000, "oid": 1},
+        {"coin": "HYPE", "dir": "Close Long",  "sz": "2",  "px": "120", "closedPnl": "40",  "fee": "0.12", "time": 1784000003000, "oid": 3},
+        {"coin": "SOL",  "dir": "Open Short",  "sz": "10", "px": "200", "closedPnl": "0",   "fee": "0.20", "time": 1784000001500, "oid": 5},
+        {"coin": "SOL",  "dir": "Close Short", "sz": "10", "px": "190", "closedPnl": "100", "fee": "0.19", "time": 1784000009000, "oid": 6},
+    ]
+    client = review._FixtureClient({
+        f"discovery_get_trader_history::{w.lower()}": disco,
+        f"hl::userFills::{w.lower()}": fills,
+    })
+    trades = review.fetch_closed_trades(client, w, None, None, None, {})
+    assert len(trades) == 2
+    by = {t["asset"]: t for t in trades}
+    assert by["HYPE"]["fee"] == 0.22 and by["SOL"]["fee"] == 0.39   # open + close, matched by oid
+    for t in trades:
+        t["strategy_wallet"] = w
+    agg = review._pnl_by_wallet(trades)[w.lower()]
+    assert agg["pnl"] == 140.0 and round(agg["fees"], 2) == 0.61 and agg["fees_known"] == 2
+
+
+def test_fees_undetermined_when_fills_read_fails():
+    """discovery has closed trades but the fills ledger is UNREADABLE → each fee is None, and the record marks
+    fees/net UNDETERMINED (never a fake $0 net that would read to the user as booked profit)."""
+    w = "0xnofills0000000000000000000000000000nofil"
+    disco = {"closedPositions": [
+        {"coin": "HYPE", "szi": "2", "entryPx": "100", "exitPx": "120", "realizedPnl": "40",
+         "closeTime": 1784000003000, "closedOrderId": 3},
+    ]}
+    client = review._FixtureClient({f"discovery_get_trader_history::{w.lower()}": disco})   # NO userFills → read fails
+    trades = review.fetch_closed_trades(client, w, None, None, None, {})
+    assert len(trades) == 1 and trades[0]["fee"] is None
+    for t in trades:
+        t["strategy_wallet"] = w
+    strategies = [{"wallet": w, "status": "ACTIVE", "label": "x", "mandate": None}]
+    r = review._strategy_reads(trades, strategies, {w.lower(): {"unrealized_pnl": 5.0, "positions": []}})[0]
+    assert r["gross_realized_pnl"] == 40.0                          # gross still known
+    assert r["fees"] is None and r["net_realized_pnl"] is None and r["fees_status"] == "undetermined"
+    assert r["net_total_pnl"] is None and r["gross_total_pnl"] == 45.0   # net UNKNOWN; gross total = 40 + 5
+
+
+def test_reconstruct_fees_are_signed_maker_rebates_reduce_cost():
+    """HL `fee` is SIGNED — a maker rebate is NEGATIVE (the wallet was paid). The round-trip fee sums it
+    as-is; abs() would flip a rebate into a cost and understate net by 2x (Ignas' review of #538)."""
+    base = 1784000000000
+    fills = [
+        {"coin": "SOL", "dir": "Open Long",  "sz": "1", "px": "100", "closedPnl": "0",  "fee": "-0.5", "time": base + 1, "oid": 1},  # maker rebate
+        {"coin": "SOL", "dir": "Close Long", "sz": "1", "px": "110", "closedPnl": "10", "fee": "0.2",  "time": base + 2, "oid": 2},  # taker cost
+    ]
+    tr = review._reconstruct_closed_from_fills(fills, None, None, None)
+    assert len(tr) == 1 and tr[0]["fee"] == -0.3        # −0.5 rebate + 0.2 cost — SIGNED, not abs()
+    tr[0]["strategy_wallet"] = "0xw"
+    agg = review._pnl_by_wallet(tr)["0xw"]
+    assert agg["fees"] == -0.3 and round(agg["pnl"] - agg["fees"], 2) == 10.3   # the rebate ADDS to net
+
+
+def test_fees_coverage_reports_resolved_over_total():
+    """When some trades' fees resolve and one doesn't, the record carries fees_coverage {resolved, total}
+    so a consumer can say 'net for R of T' instead of only a flat undetermined (Ignas' review of #538)."""
+    w = "0xcov00000000000000000000000000000000cov0"
+    trades = [
+        {"asset": "A", "realized_pnl": 10.0, "fee": 0.1,  "strategy_wallet": w},
+        {"asset": "B", "realized_pnl": 5.0,  "fee": None, "strategy_wallet": w},   # one unresolved
+    ]
+    strategies = [{"wallet": w, "status": "ACTIVE", "label": "x", "mandate": None}]
+    r = review._strategy_reads(trades, strategies, {w.lower(): {"unrealized_pnl": 0.0, "positions": []}})[0]
+    assert r["fees_status"] == "undetermined" and r["net_realized_pnl"] is None
+    assert r["fees_coverage"] == {"resolved": 1, "total": 2}
+
+
+def test_fetch_window_fills_pages_userfillsbytime_when_windowed():
+    """A windowed review pages `userFillsByTime` (so coverage matches the window, not the recent-2000 cap);
+    no window → the recent `userFills` slice. Both are served by the fixture under their own hl:: keys."""
+    w = "0xwin00000000000000000000000000000000win0"
+    byt = [{"coin": "X", "dir": "Open Long", "sz": "1", "px": "1", "closedPnl": "0", "fee": "0.1", "time": 5, "oid": 1}]
+    recent = [{"coin": "Y", "dir": "Open Long", "sz": "1", "px": "1", "closedPnl": "0", "fee": "0.2", "time": 5, "oid": 2}]
+    client = review._FixtureClient({
+        f"hl::userFillsByTime::{w.lower()}": byt,
+        f"hl::userFills::{w.lower()}": recent,
+    })
+    assert review._fetch_window_fills(client, w, 100, 200, {}) == byt        # windowed → userFillsByTime
+    assert review._fetch_window_fills(client, w, None, None, {}) == recent   # no window → userFills
 
 
 # ────────────────────────────── scope + fast-fail (the "telemetry unavailable" live-run fix) ──
@@ -954,7 +1053,7 @@ def _big_result(n_trades=146, n_missed=40):
                 "exit_reason": {"terminal": "SL_TRIGGERED", "tier_reached": 2, "high_water_roe": 41.0}}
     return {"trades": [mk(i) for i in range(n_trades)],
             "timing_summary": {"trade_count": n_trades, "exits_ahead": 124},
-            "pnl_summary": {"total": 468.44, "realized": -239.44},
+            "pnl_summary": {"gross_total": 468.44, "net_total": 467.5, "gross_realized": -239.44},
             "missed_signals": [{"asset": f"M{i}", "reason_code": "no_slots"} for i in range(n_missed)],
             "meta": {"trade_count": n_trades}}
 
@@ -967,7 +1066,7 @@ def test_stdout_slim_samples_trades_and_keeps_aggregates():
     assert len(slim["trades"]) == review.STDOUT_TRADES_SAMPLE                  # sampled, not all 146
     assert slim["trades_sample"]["total"] == 146                              # true count preserved
     assert slim["timing_summary"]["exits_ahead"] == 124                       # aggregate untouched
-    assert slim["pnl_summary"]["total"] == 468.44
+    assert slim["pnl_summary"]["gross_total"] == 468.44
     assert len(slim["missed_signals"]) == review.STDOUT_MISSED_SAMPLE
     keys = set(slim["trades"][0].keys())                                      # per-trade fields trimmed
     assert "realized_pnl" in keys and "exit_reason" in keys
