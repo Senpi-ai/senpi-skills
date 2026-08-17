@@ -45,11 +45,18 @@ def test_loyalty_demotion():
     assert loy["maintenance_deadline"] == "2026-08-23T13:25:02.760Z"
 
 
+def test_arena_retired():
+    """Arena is deprecated and the arena_* MCP tools were removed from the server —
+    the engine must neither emit an arena section nor attempt an arena call."""
+    r = _result()
+    assert "arena" not in r
+    assert not any("arena" in w for w in r["meta"]["warnings"])
+
+
 def test_referral():
     r = _result()
     assert r["referral"]["balance_usdc"] == 12.5
     assert "wins" not in r                              # get_share_your_wins is retired
-    assert "arena" not in r                             # Arena is deprecated; arena_* tools retired
 
 
 def test_fails_open_on_empty():
