@@ -2,8 +2,8 @@
 """senpi-account-status engine — the user's standing across Senpi programs (hidden, deterministic).
 
 The agent (LLM) runs this via the OpenClaw `exec` tool, reads the JSON on stdout, and NARRATES the
-user's standing (see SKILL.md): Senpi points + rank, loyalty tier + fee, Arena position, and referral
-earnings. One real-time pull across all the status tools.
+user's standing (see SKILL.md): Senpi points + rank, loyalty tier + fee, and referral earnings.
+One real-time pull across all the status tools.
 
   python3 status.py                 # full standing
   python3 status.py --fixture f.json   # offline (tests)   |   --dry  (raw dump)
@@ -176,50 +176,6 @@ def fetch_referral(client, meta):
             "wallet": _field(r, "wallet_address", "walletAddress")}
 
 
-def _inner(data, key):
-    """Descend one level into the tool's named wrapper: {leaderboard:{...}} / {pool:{...}} / {prizes:{...}}."""
-    if isinstance(data, dict) and isinstance(data.get(key), dict):
-        return data[key]
-    return data
-
-
-def fetch_arena(client, meta, user_id):
-    arena = {"enrolled": False}
-    try:
-        lb_doc = _inner(_ok(client.mcp_call("arena_leaderboard", period_type="WEEK", limit=500, timeout=20)) or {},
-                        "leaderboard")
-        lb = _rows(lb_doc, "entries")
-        if _f(lb_doc, "totalCount", default=len(lb)) > len(lb):
-            meta.setdefault("warnings", []).append(
-                "arena_leaderboard truncated at 500 rows — enrollment check may miss agents ranked below 500")
-    except Exception as e:  # noqa
-        meta.setdefault("warnings", []).append(f"arena_leaderboard failed: {e}")
-        lb = []
-    me = next((e for e in lb if str(_field(e, "senpiUserId", "userId", default="")) == str(user_id)), None) if user_id else None
-    if me:
-        arena.update({"enrolled": True, "rank": _f(me, "rank"),
-                      "roe_pct": _f(me, "roePct", "roe"),
-                      "total_pnl_usd": _f(me, "totalPnl", "total_pnl"),
-                      "trade_count": _f(me, "tradeCount", "trades"),
-                      "notional_volume_usd": _f(me, "notionalVolume", "notional_volume"),
-                      "qualified": _field(me, "qualified", default=None)})
-    try:
-        pool = _inner(_ok(client.mcp_call("arena_pool", timeout=12)) or {}, "pool")
-        arena["week_pool_usd"] = _f(pool, "currentWeekPool", "current_week_pool")
-    except Exception as e:  # noqa
-        meta.setdefault("warnings", []).append(f"arena_pool failed: {e}")
-    if arena.get("enrolled") and arena.get("rank"):
-        try:
-            prizes = _rows(_inner(_ok(client.mcp_call("arena_prizes", period_type="WEEK", timeout=12)) or {},
-                                  "prizes"), "entries")
-            pe = next((e for e in prizes if _f(e, "rank") == arena["rank"]), None)
-            if pe:
-                arena["prize_estimate_usd"] = _f(pe, "prizeAmount", "prize_amount")
-        except Exception as e:  # noqa
-            meta.setdefault("warnings", []).append(f"arena_prizes failed: {e}")
-    return arena
-
-
 # ──────────────────────────────────────────────────────────────── orchestration
 def run(client):
     meta = {"warnings": []}
@@ -227,7 +183,6 @@ def run(client):
     points, loyalty = fetch_points(client, meta, user.get("wallet"), user.get("senpi_user_id"))
     enrich_from_tiers(client, meta, loyalty, points.get("total"))
     referral = fetch_referral(client, meta)
-    arena = fetch_arena(client, meta, user.get("senpi_user_id"))
     if not user.get("senpi_user_id") and not user.get("wallet"):
         meta["degraded"] = "no user resolved — check the token is USER-scoped"
     return {
@@ -235,7 +190,6 @@ def run(client):
         "identity": user,
         "points": points,
         "loyalty": loyalty,
-        "arena": arena,
         "referral": referral,
         "meta": meta,
     }
@@ -245,7 +199,7 @@ def run(client):
 def _dry(client):
     out = {}
     for tool, kw in (("user_get_me", {}), ("user_get_referral_rewards", {}),
-                    ("arena_pool", {}), ("get_loyalty_tiers", {})):
+                    ("get_loyalty_tiers", {})):
         try:
             out[tool] = client.mcp_call(tool, timeout=12, **kw)
         except Exception as e:  # noqa

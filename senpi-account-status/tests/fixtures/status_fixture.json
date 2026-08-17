@@ -6,9 +6,21 @@
         "id": "u123",
         "privyId": "did:privy:test",
         "wallets": [
-          {"userId": "u123", "walletType": "injected", "walletAddress": "0xinjected"},
-          {"userId": "u123", "walletType": "subwallet", "walletAddress": "0xsub1"},
-          {"userId": "u123", "walletType": "embedded", "walletAddress": "0xme"}
+          {
+            "userId": "u123",
+            "walletType": "injected",
+            "walletAddress": "0xinjected"
+          },
+          {
+            "userId": "u123",
+            "walletType": "subwallet",
+            "walletAddress": "0xsub1"
+          },
+          {
+            "userId": "u123",
+            "walletType": "embedded",
+            "walletAddress": "0xme"
+          }
         ],
         "createdAt": "2025-11-13T06:00:46.165Z",
         "referralCode": "dGVzdA=="
@@ -26,7 +38,10 @@
       "loyaltyMultiplier": 1.5,
       "rank": 42,
       "rankChange": 3,
-      "profile": {"handle": "tester", "imageUrl": null},
+      "profile": {
+        "handle": "tester",
+        "imageUrl": null
+      },
       "lastUpdated": "2026-07-05T14:05:01.922Z",
       "loyaltyTier": "SILVER",
       "loyaltyTierIcon": "🥈",
@@ -51,64 +66,63 @@
     "success": true,
     "data": {
       "tiers": [
-        {"tier": "BRONZE", "threshold": 0, "feeBps": 50, "feePercent": "0.05%", "maintenance": 0, "discountPercent": 0},
-        {"tier": "SILVER", "threshold": 100, "feeBps": 47, "feePercent": "0.047%", "maintenance": 10, "discountPercent": 6},
-        {"tier": "GOLD", "threshold": 500, "feeBps": 45, "feePercent": "0.045%", "maintenance": 50, "discountPercent": 10},
-        {"tier": "PLATINUM", "threshold": 1000, "feeBps": 40, "feePercent": "0.04%", "maintenance": 100, "discountPercent": 20},
-        {"tier": "DIAMOND", "threshold": 2000, "feeBps": 35, "feePercent": "0.035%", "maintenance": 200, "discountPercent": 30},
-        {"tier": "APEX", "threshold": 2500, "feeBps": 30, "feePercent": "0.03%", "maintenance": 250, "discountPercent": 40},
-        {"tier": "LEGEND", "threshold": 3000, "feeBps": 25, "feePercent": "0.025%", "maintenance": 300, "discountPercent": 50}
+        {
+          "tier": "BRONZE",
+          "threshold": 0,
+          "feeBps": 50,
+          "feePercent": "0.05%",
+          "maintenance": 0,
+          "discountPercent": 0
+        },
+        {
+          "tier": "SILVER",
+          "threshold": 100,
+          "feeBps": 47,
+          "feePercent": "0.047%",
+          "maintenance": 10,
+          "discountPercent": 6
+        },
+        {
+          "tier": "GOLD",
+          "threshold": 500,
+          "feeBps": 45,
+          "feePercent": "0.045%",
+          "maintenance": 50,
+          "discountPercent": 10
+        },
+        {
+          "tier": "PLATINUM",
+          "threshold": 1000,
+          "feeBps": 40,
+          "feePercent": "0.04%",
+          "maintenance": 100,
+          "discountPercent": 20
+        },
+        {
+          "tier": "DIAMOND",
+          "threshold": 2000,
+          "feeBps": 35,
+          "feePercent": "0.035%",
+          "maintenance": 200,
+          "discountPercent": 30
+        },
+        {
+          "tier": "APEX",
+          "threshold": 2500,
+          "feeBps": 30,
+          "feePercent": "0.03%",
+          "maintenance": 250,
+          "discountPercent": 40
+        },
+        {
+          "tier": "LEGEND",
+          "threshold": 3000,
+          "feeBps": 25,
+          "feePercent": "0.025%",
+          "maintenance": 300,
+          "discountPercent": 50
+        }
       ]
-    }
-  },
-  "arena_leaderboard::week": {
-    "success": true,
-    "data": {
-      "leaderboard": {
-        "periodType": "WEEK",
-        "periodNumber": 27,
-        "totalCount": 2,
-        "updatedAt": "2026-07-05T14:09:08.524Z",
-        "entries": [
-          {"senpiUserId": "u999", "rank": 1, "roePct": "44.2", "totalPnl": "1210.55", "tradeCount": 210, "notionalVolume": "310000", "qualified": true},
-          {"senpiUserId": "u123", "rank": 5, "roePct": "18.5", "totalPnl": "230.40", "tradeCount": 57, "notionalVolume": "51000", "qualified": true}
-        ]
-      },
-      "count": 2
-    }
-  },
-  "arena_pool": {
-    "success": true,
-    "data": {
-      "pool": {
-        "currentWeekNumber": 27,
-        "currentWeekPool": "5000",
-        "currentWeekStart": "2026-06-29T00:00:00Z",
-        "currentWeekEnd": "2026-07-06T00:00:00Z",
-        "nextWeekNumber": 28,
-        "nextWeekPool": "5000",
-        "currentMonthNumber": 7,
-        "currentMonthPool": "20000",
-        "nextMonthNumber": 8,
-        "nextMonthPool": "20000"
-      }
-    }
-  },
-  "arena_prizes::week": {
-    "success": true,
-    "data": {
-      "prizes": {
-        "periodType": "WEEK",
-        "periodNumber": 27,
-        "totalPool": "5000",
-        "entries": [
-          {"rank": 1, "sharePct": 40, "senpiUserId": "u999", "roePct": "44.2", "prizeAmount": "2000"},
-          {"rank": 2, "sharePct": 25, "senpiUserId": "u777", "roePct": "31.0", "prizeAmount": "1250"},
-          {"rank": 3, "sharePct": 15, "senpiUserId": "u555", "roePct": "27.4", "prizeAmount": "750"},
-          {"rank": 4, "sharePct": 12, "senpiUserId": "u444", "roePct": "22.1", "prizeAmount": "600"},
-          {"rank": 5, "sharePct": 8, "senpiUserId": "u123", "roePct": "18.5", "prizeAmount": "400"}
-        ]
-      }
     }
   },
   "user_get_referral_rewards": {
