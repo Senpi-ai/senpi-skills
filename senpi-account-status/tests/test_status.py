@@ -2,7 +2,7 @@
 """Offline engine test — runs status.run() against a recorded MCP fixture (no network).
 
 The fixture entries are REAL response shapes captured from the senpi MCP server
-(success/data envelopes, data.leaderboard/pool/prizes nesting, decimals-as-strings) —
+(success/data envelopes, decimals-as-strings) —
 do not hand-edit shapes; re-record with `status.py --dry` if the API changes."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import json
@@ -45,20 +45,12 @@ def test_loyalty_demotion():
     assert loy["maintenance_deadline"] == "2026-08-23T13:25:02.760Z"
 
 
-def test_arena_standing():
-    a = _result()["arena"]
-    assert a["enrolled"] is True and a["rank"] == 5.0   # found inside data.leaderboard.entries
-    assert a["roe_pct"] == 18.5 and a["qualified"] is True
-    assert a["week_pool_usd"] == 5000.0                 # data.pool.currentWeekPool
-    assert a["prize_estimate_usd"] == 400.0             # data.prizes.entries rank-5
-
-
-def test_arena_truncation_warning():
-    with open(FIXTURE) as f:
-        fx = json.load(f)
-    fx["arena_leaderboard::week"]["data"]["leaderboard"]["totalCount"] = 900
-    r = status.run(status._FixtureClient(fx))
-    assert any("truncated" in w for w in r["meta"]["warnings"])
+def test_arena_retired():
+    """Arena is deprecated and the arena_* MCP tools were removed from the server —
+    the engine must neither emit an arena section nor attempt an arena call."""
+    r = _result()
+    assert "arena" not in r
+    assert not any("arena" in w for w in r["meta"]["warnings"])
 
 
 def test_referral():

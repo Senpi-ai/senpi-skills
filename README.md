@@ -65,7 +65,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-smart-money`](senpi-smart-money/) | 1.2.0 | Where the most-profitable wallets are positioned vs. the crowd |
 | [`senpi-trader-research`](senpi-trader-research/) | 1.4.0 | Rank + vet Hyperliquid traders before copying them (mirror-aware: copyability, min-budget, live book) |
 | [`senpi-improve-trades`](senpi-improve-trades/) | 1.1.1 | Retrospective review + health checks off the **telemetry event log**: exit quality, missed signals, leaks, crashes, "if I'd held" counterfactual |
-| [`senpi-account-status`](senpi-account-status/) | 1.1.1 | Points, loyalty tier, fees, Arena standing, referrals |
+| [`senpi-account-status`](senpi-account-status/) | 1.2.0 | Points, loyalty tier, fees, referrals |
 | **Run a strategy** | | |
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.17.0 | Conversational picker — rank the catalog against your worldview |
 | [`senpi-strategy-author`](senpi-strategy-author/) | 2.4.2 | Build/edit a DSL-protected strategy package, one decision at a time |

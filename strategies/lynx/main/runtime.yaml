@@ -51,7 +51,7 @@ scanners:
       recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
       # ── self-tuning audit (archetype #15) ──
       # auditUserId enables the audit. Empty -> audit skipped, floor stays at
-      # initialMinScore forever (v2 behaviour). Find it via user_get_me / arena_leaderboard.
+      # initialMinScore forever (v2 behaviour). Find it via user_get_me.
       # NOT hardcoded — operator sets it per install (defaults to env LYNX_AUDIT_USER_ID).
       auditUserId: "${LYNX_AUDIT_USER_ID}"
       maxMinScore: 7                       # v2 maxMinScore — HARD ceiling; never tunes above

@@ -61,56 +61,6 @@
       ]
     }
   },
-  "arena_leaderboard::week": {
-    "success": true,
-    "data": {
-      "leaderboard": {
-        "periodType": "WEEK",
-        "periodNumber": 27,
-        "totalCount": 2,
-        "updatedAt": "2026-07-05T14:09:08.524Z",
-        "entries": [
-          {"senpiUserId": "u999", "rank": 1, "roePct": "44.2", "totalPnl": "1210.55", "tradeCount": 210, "notionalVolume": "310000", "qualified": true},
-          {"senpiUserId": "u123", "rank": 5, "roePct": "18.5", "totalPnl": "230.40", "tradeCount": 57, "notionalVolume": "51000", "qualified": true}
-        ]
-      },
-      "count": 2
-    }
-  },
-  "arena_pool": {
-    "success": true,
-    "data": {
-      "pool": {
-        "currentWeekNumber": 27,
-        "currentWeekPool": "5000",
-        "currentWeekStart": "2026-06-29T00:00:00Z",
-        "currentWeekEnd": "2026-07-06T00:00:00Z",
-        "nextWeekNumber": 28,
-        "nextWeekPool": "5000",
-        "currentMonthNumber": 7,
-        "currentMonthPool": "20000",
-        "nextMonthNumber": 8,
-        "nextMonthPool": "20000"
-      }
-    }
-  },
-  "arena_prizes::week": {
-    "success": true,
-    "data": {
-      "prizes": {
-        "periodType": "WEEK",
-        "periodNumber": 27,
-        "totalPool": "5000",
-        "entries": [
-          {"rank": 1, "sharePct": 40, "senpiUserId": "u999", "roePct": "44.2", "prizeAmount": "2000"},
-          {"rank": 2, "sharePct": 25, "senpiUserId": "u777", "roePct": "31.0", "prizeAmount": "1250"},
-          {"rank": 3, "sharePct": 15, "senpiUserId": "u555", "roePct": "27.4", "prizeAmount": "750"},
-          {"rank": 4, "sharePct": 12, "senpiUserId": "u444", "roePct": "22.1", "prizeAmount": "600"},
-          {"rank": 5, "sharePct": 8, "senpiUserId": "u123", "roePct": "18.5", "prizeAmount": "400"}
-        ]
-      }
-    }
-  },
   "user_get_referral_rewards": {
     "success": true,
     "data": {
