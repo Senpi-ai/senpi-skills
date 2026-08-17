@@ -9,7 +9,7 @@
     "total_withdrawable": 2461.98,
     "total_in_hyperliquid": 0,
     "total_spot_usd_in_hyperliquid": 0,
-    "token_balances": [{"symbol": "USDC", "chain": "Base", "usdValue": 1.51}]
+    "token_balances": [{"tokenSymbol": "USDC", "tokenAddress": "0x833589fcd6edb6e8f4c7c32d4f71b54bda02913", "formattedBalance": "1.510231", "balanceInUSD": 1.5099873, "tokenPriceInUSD": 0.9998, "chainId": 8453}]
   }},
   "strategy_list": {"strategies": [
     {"strategyName": "cub-long", "tradingStrategyName": "cub", "strategyMetadata": {"skillName": "cub", "skillVersion": "1.0.0"}, "strategyWalletAddress": "0xlong0000000000000000000000000000000long", "status": "ACTIVE", "totalFunded": 1739, "totalWithdrawn": 0},

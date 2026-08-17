@@ -15,7 +15,7 @@ WHY THIS EXISTS — the balance-bucket trap:
 Agents conflate `total_withdrawable` (free margin sitting INSIDE strategy wallets) with "idle cash in
 the main embedded wallet." They are different buckets. This engine computes three structurally
 separate pools so the agent never mixes them:
-  1. idle_in_embedded   = total_usdc_in_hyperliquid + EVM token_balances   (truly free; deploy or withdraw)
+  1. idle_in_embedded   = total_in_hyperliquid + HL spot USDC + EVM token_balances   (truly free; deploy or withdraw)
   2. idle_in_strategies = sum of each strategy wallet's `withdrawable`      (in a strategy, not a position)
   3. deployed           = margin backing open positions
 Grand total = idle_in_embedded + idle_in_strategies + deployed.
@@ -646,13 +646,18 @@ def fetch_embedded(client, meta):
             amt = _f(tb, "usdValue", "usd_value", "amountUsd", "balanceUsd", "balanceInUSD", "amount", default=0.0)
             if amt == 0.0:
                 raw = _f(tb, "formattedBalance", "amount", default=0.0)
-                price = _f(tb, "tokenPriceInUSD", default=1.0)
+                # `or 1.0`: a PRESENT-and-zero price is this API's zero-as-missing sentinel (see #537),
+                # and raw × 0 would make the balance invisible — the exact bug this path exists to fix.
+                price = _f(tb, "tokenPriceInUSD", default=1.0) or 1.0
                 amt = raw * price
             chain = _field(tb, "chain", "network", "chainName", default="EVM")
             if amt:
                 out["evm_usdc"].append({"chain": chain, "usd": round(amt, 2)})
                 evm += amt
-    out["idle_total"] = round((out["idle_hl_usdc"] or 0.0) + evm, 2)
+    # spot_usd is the HL SPOT USDC bucket — deployable like the perps balance (the funding waterfall is
+    # perps + spot + EVM), and NOT inside total_in_hyperliquid. Omitting it under-reported idle_total by
+    # exactly the spot balance, quietly enough to hide under the reconciliation tolerance.
+    out["idle_total"] = round((out["idle_hl_usdc"] or 0.0) + (out["spot_usd"] or 0.0) + evm, 2)
     portfolio_totals = {
         "total_balance_usd": _f(p, "total_balance_usd", default=None),
         "total_allocated_in_strategy": _f(p, "total_allocated_in_strategy", default=None),
@@ -1122,7 +1127,25 @@ def enrich_market(client, strategies, meta):
 
 
 # ──────────────────────────────────────────────────────────────── taxonomy + signals
-def compute(embedded, strategies, portfolio_totals):
+def _warn_if_not_reconciled(totals, meta):
+    """A `reconciles: false` must land in meta.warnings like every other failure mode in this file —
+    a reader scanning warnings and seeing [] next to a silent mismatch never triggers SKILL.md's
+    "STOP and re-run on reconciles: false" rule. Names the two figures and the gap so the narrator
+    can quote what disagreed."""
+    if meta is None or totals.get("reconciles") is not False:
+        return
+    pbal = totals.get("portfolio_total_balance_usd")
+    grand = totals.get("grand_total_usd") or 0.0
+    gap = round(abs((pbal or 0.0) - grand), 2)
+    tol = round(max(2.0, 0.01 * grand), 2)
+    meta.setdefault("warnings", []).append(
+        f"TOTALS DO NOT RECONCILE — the portfolio aggregate (${pbal:,.2f}) and the per-wallet grand "
+        f"total (${grand:,.2f}) disagree by ${gap:,.2f} (tolerance ${tol:,.2f}): a bucket is missing or "
+        f"double-counted. STOP and re-run before narrating any dollar figure (SKILL.md); if it "
+        f"persists, trust the per-wallet (live) figures and say the aggregate disagrees.")
+
+
+def compute(embedded, strategies, portfolio_totals, meta=None):
     idle_strat = round(sum(_num(s.get("idle_withdrawable")) or 0.0 for s in strategies), 2)
     deployed = round(sum(_num(s.get("deployed")) or 0.0 for s in strategies), 2)
     idle_emb = embedded.get("idle_total") or 0.0
@@ -1161,6 +1184,7 @@ def compute(embedded, strategies, portfolio_totals):
     # reconciliation flag — surfaces silent drift between the two sources
     pbal = portfolio_totals.get("total_balance_usd")
     totals["reconciles"] = (pbal is None) or (abs(pbal - grand_total) <= max(2.0, 0.01 * grand_total))
+    _warn_if_not_reconciled(totals, meta)
 
     net = round(gross_long - gross_short, 2)
     exposure = {
@@ -1332,7 +1356,7 @@ def run(client, want_market=True):
     strategies = fetch_strategies(client, meta)
     if want_market and strategies:
         enrich_market(client, strategies, meta)
-    totals, exposure, signals = compute(embedded, strategies, portfolio_totals)
+    totals, exposure, signals = compute(embedded, strategies, portfolio_totals, meta)
     meta["strategy_count"] = len(strategies)
     meta.setdefault("has_multi_wallet_strategy", False)   # default; group_strategies flips it to True
     # A STRATEGY IS ALL ITS WALLETS — re-unite the per-wallet rows into one entry per real strategy.
@@ -1481,7 +1505,7 @@ def fetch_strategy_money(client, meta):
     return strategies
 
 
-def _money_totals(embedded, strategies, portfolio_totals):
+def _money_totals(embedded, strategies, portfolio_totals, meta=None):
     """The three-bucket money map — the SAME classification compute() does, over money-lite strategy rows
     (which carry idle_withdrawable / deployed / account_value). idle_in_embedded / idle_in_strategies /
     deployed_in_positions + grand_total_usd + reconciles. No exposure/signals here (those need the full
@@ -1502,6 +1526,7 @@ def _money_totals(embedded, strategies, portfolio_totals):
     }
     pbal = portfolio_totals.get("total_balance_usd")
     totals["reconciles"] = (pbal is None) or (abs(pbal - grand_total) <= max(2.0, 0.01 * grand_total))
+    _warn_if_not_reconciled(totals, meta)
     return totals
 
 
@@ -1568,7 +1593,7 @@ def step_money(client, want_market=True, state_path=None):
     meta = _fresh_meta()
     embedded, portfolio_totals = fetch_embedded(client, meta)
     strategies = fetch_strategy_money(client, meta)
-    totals = _money_totals(embedded, strategies, portfolio_totals)
+    totals = _money_totals(embedded, strategies, portfolio_totals, meta)
     meta["strategy_count"] = len(strategies)
     if not strategies and not embedded.get("address"):
         meta["degraded"] = "no wallet data — check the token is USER-scoped"
@@ -1628,7 +1653,7 @@ def step_positions(client, want_market=True, state_path=None):
             meta["warnings"].append(w)
     if want_market and strategies:
         enrich_market(client, strategies, meta)
-    totals, exposure, signals = compute(embedded, strategies, portfolio_totals)
+    totals, exposure, signals = compute(embedded, strategies, portfolio_totals, meta)
     _carry_provenance(meta, state)   # same restore as `step_strategies` — see _carry_provenance
     meta["strategy_count"] = len(strategies)
     meta.setdefault("has_multi_wallet_strategy", False)

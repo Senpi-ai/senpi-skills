@@ -83,7 +83,7 @@ Every dollar is in exactly one of **three buckets** — and the #1 mistake is co
 
 | Bucket | What it is | Engine field |
 |---|---|---|
-| **Idle in embedded** | Truly free cash in the main wallet — HL USDC + EVM USDC. Deploy it into a strategy or withdraw it to your bank. | `totals.idle_in_embedded` |
+| **Idle in embedded** | Truly free cash in the main wallet — HL perps USDC + HL spot USDC + EVM USDC (all three legs; the funding waterfall deploys from all of them). Deploy it into a strategy or withdraw it to your bank. | `totals.idle_in_embedded` |
 | **Idle in strategies** | Free margin sitting *inside* a strategy wallet, not yet in a position — waiting for a signal. | `totals.idle_in_strategies` |
 | **Deployed in positions** | Margin actively backing open trades. | `totals.deployed_in_positions` |
 
@@ -724,8 +724,9 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
 - **A strategy's closed-history read failed** → `closed.realized_pnl` is `null` + a `meta.warnings`
   entry (`trader_history … failed/returned no data`). Report realized PnL as **unavailable** for that
   strategy — never as `$0`.
-- **`totals.reconciles == false`** → the per-wallet sum and the portfolio aggregate disagree; surface
-  it and trust the per-wallet (live) figures.
+- **`totals.reconciles == false`** → the per-wallet sum and the portfolio aggregate disagree; the engine
+  also appends a `TOTALS DO NOT RECONCILE` entry to `meta.warnings` quoting both figures and the gap.
+  STOP and re-run first (see above); if it persists, surface it and trust the per-wallet (live) figures.
 - **Never** report `total_withdrawable` as embedded idle, never skip a wallet, never skip the CTAs.
 
 ## Skill Attribution
