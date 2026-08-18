@@ -644,6 +644,8 @@ def fetch_embedded(client, meta):
             # Live GetPortfolioV3 uses `balanceInUSD` (+ `formattedBalance`/`tokenPriceInUSD`) —
             # without it every token read $0 and evm_usdc was always [].
             amt = _f(tb, "usdValue", "usd_value", "amountUsd", "balanceUsd", "balanceInUSD", "amount", default=0.0)
+            # `== 0.0` (not a missing-key test) is DELIBERATE: a present-and-zero amount is this API's
+            # zero-as-missing sentinel (#537), same convention as the `or 1.0` price guard below.
             if amt == 0.0:
                 raw = _f(tb, "formattedBalance", "amount", default=0.0)
                 # `or 1.0`: a PRESENT-and-zero price is this API's zero-as-missing sentinel (see #537),
