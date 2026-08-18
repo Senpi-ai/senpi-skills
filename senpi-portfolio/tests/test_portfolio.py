@@ -861,7 +861,7 @@ def test_embedded_evm_usdc_reads_balanceInUSD():
             "total_in_hyperliquid": 0, "total_spot_usd_in_hyperliquid": 0,
             "token_balances": [{
                 "tokenSymbol": "USDC",
-                "tokenAddress": "0x833589fcd6edb6e8f4c7c32d4f71b54bda02913",
+                "tokenAddress": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
                 "formattedBalance": "7.984101",
                 "balanceInUSD": 7.983940679251919,
                 "chainId": 8453}]}},
@@ -890,6 +890,102 @@ def test_embedded_evm_usdc_falls_back_to_formattedBalance_times_price():
     res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
     assert res["embedded_wallet"]["evm_usdc"] == [{"chain": "EVM", "usd": 5.0}]
     assert res["totals"]["idle_in_embedded"] == 5.0
+
+
+def test_embedded_evm_usdc_survives_a_present_and_zero_price():
+    """Regression (PR #481 review): `_f` returns the first PRESENT numeric key, so `tokenPriceInUSD: 0`
+    yielded price 0.0 and raw × 0 == 0 made the balance invisible again — the exact failure the
+    balanceInUSD fix closed. Zero-as-missing is a known shape on this API (#537 coerces the same `0`
+    sentinels to None); a present-and-zero price must fall back to 1.0, never multiply the balance away."""
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"portfolio": {
+            "total_balance_usd": 93.95, "total_allocated_in_strategy": 0, "total_withdrawable": 0,
+            "total_in_hyperliquid": 0, "total_spot_usd_in_hyperliquid": 0,
+            "token_balances": [{
+                "tokenSymbol": "USDC",
+                "formattedBalance": "93.95",
+                "tokenPriceInUSD": 0,
+                "chainId": 8453}]}},
+        "strategy_list": {"strategies": []},
+    }
+    res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    assert res["embedded_wallet"]["evm_usdc"] == [{"chain": "EVM", "usd": 93.95}]
+    assert res["totals"]["idle_in_embedded"] == 93.95
+
+
+def test_embedded_idle_counts_the_hl_spot_bucket():
+    """Regression (PR #481 review, follow-up 1): `spot_usd` was read and never added, so idle_total
+    omitted the HL spot USDC bucket — the funding waterfall is perps + spot + EVM. On the review's live
+    payload that under-reported embedded idle by $1.81, quietly enough to hide under the reconciliation
+    tolerance. All three legs must sum: 135.21 (perps) + 1.81 (spot) + 93.95 (EVM) = 230.97."""
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"portfolio": {
+            "total_balance_usd": 230.97, "total_allocated_in_strategy": 0, "total_withdrawable": 0,
+            "total_in_hyperliquid": 135.21, "total_spot_usd_in_hyperliquid": 1.81,
+            "token_balances": [{
+                "tokenSymbol": "USDC",
+                "formattedBalance": "93.953021",
+                "balanceInUSD": 93.9511,
+                "chainId": 8453}]}},
+        "strategy_list": {"strategies": []},
+    }
+    res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    e = res["embedded_wallet"]
+    assert e["spot_usd"] == 1.81
+    assert e["idle_total"] == 230.97                       # perps + SPOT + EVM — spot no longer dropped
+    assert res["totals"]["idle_in_embedded"] == 230.97
+    assert res["totals"]["reconciles"] is True
+
+
+def test_canonical_fixture_token_balances_use_the_live_shape():
+    """Regression (PR #481 review, follow-up 2): the shared fixture carried `{symbol, chain, usdValue}` —
+    a token_balances shape GetPortfolioV3 does not return — so the suite proved the parser reads the
+    fixture, not the API, and the always-empty evm_usdc bug shipped green. Every entry must carry the
+    live field names (`tokenSymbol`/`balanceInUSD`/`chainId`) and none of the invented ones."""
+    with open(FIXTURE) as f:
+        tbs = json.load(f)["account_get_portfolio"]["portfolio"]["token_balances"]
+    assert tbs, "the canonical fixture must exercise the token_balances parser"
+    for tb in tbs:
+        assert "tokenSymbol" in tb and "balanceInUSD" in tb and "chainId" in tb
+        for invented in ("symbol", "chain", "usdValue"):
+            assert invented not in tb, f"fixture regressed to the invented `{invented}` field"
+
+
+def test_reconcile_mismatch_is_a_loud_warning_not_a_silent_flag():
+    """Regression (PR #481 review, follow-up 3): `totals.reconciles == false` emitted no meta.warnings
+    entry — the ONLY failure mode in the engine that stayed silent — so a reader scanning warnings saw []
+    next to a mismatch and SKILL.md's "STOP and re-run on reconciles: false" rule never fired. Both
+    totals builders (run()/`positions` and the `money` step) must append the warning, naming the gap."""
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        # aggregate says $500; the per-wallet legs sum to $100 → gap $400, far past the $2 tolerance
+        "account_get_portfolio": {"portfolio": {
+            "total_balance_usd": 500.0, "total_allocated_in_strategy": 0, "total_withdrawable": 0,
+            "total_in_hyperliquid": 100.0, "total_spot_usd_in_hyperliquid": 0, "token_balances": []}},
+        "strategy_list": {"strategies": []},
+    }
+    res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    assert res["totals"]["reconciles"] is False
+    warns = [w for w in res["meta"]["warnings"] if "RECONCILE" in w.upper()]
+    assert warns, "a silent reconciliation mismatch is the defect"
+    assert "$400.00" in warns[0]                           # the gap is quoted, not just asserted
+    # the fast money step computes reconciles through its own builder — it must be just as loud
+    m = portfolio.step_money(portfolio._FixtureClient(fixture),
+                             want_market=False, state_path=_tmp_state())
+    assert m["totals"]["reconciles"] is False
+    assert any("RECONCILE" in w.upper() for w in m["meta"]["warnings"])
+
+
+def test_reconciled_totals_stay_quiet():
+    """The other side: reconciles True (or unknowable — no aggregate) appends nothing."""
+    res = _result()
+    assert res["totals"]["reconciles"] is True
+    assert not any("RECONCILE" in w.upper() for w in res["meta"]["warnings"])
 
 
 # ──────────────────────────────────────────────── streaming STEPS (money · strategies · positions · all)
