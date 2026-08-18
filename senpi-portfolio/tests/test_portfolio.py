@@ -861,7 +861,7 @@ def test_embedded_evm_usdc_reads_balanceInUSD():
             "total_in_hyperliquid": 0, "total_spot_usd_in_hyperliquid": 0,
             "token_balances": [{
                 "tokenSymbol": "USDC",
-                "tokenAddress": "0x833589fcd6edb6e8f4c7c32d4f71b54bda02913",
+                "tokenAddress": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
                 "formattedBalance": "7.984101",
                 "balanceInUSD": 7.983940679251919,
                 "chainId": 8453}]}},
