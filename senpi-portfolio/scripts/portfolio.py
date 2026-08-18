@@ -1127,6 +1127,13 @@ def enrich_market(client, strategies, meta):
 
 
 # ──────────────────────────────────────────────────────────────── taxonomy + signals
+def _reconcile_tolerance(grand_total):
+    """THE reconciliation tolerance — the single definition behind the `reconciles` flag in BOTH totals
+    builders (compute / _money_totals) and the warning that quotes it. Inlining the formula at each site
+    is how the warning ends up quoting a stale tolerance while the flag uses the real one."""
+    return max(2.0, 0.01 * (grand_total or 0.0))
+
+
 def _warn_if_not_reconciled(totals, meta):
     """A `reconciles: false` must land in meta.warnings like every other failure mode in this file —
     a reader scanning warnings and seeing [] next to a silent mismatch never triggers SKILL.md's
@@ -1137,7 +1144,7 @@ def _warn_if_not_reconciled(totals, meta):
     pbal = totals.get("portfolio_total_balance_usd")
     grand = totals.get("grand_total_usd") or 0.0
     gap = round(abs((pbal or 0.0) - grand), 2)
-    tol = round(max(2.0, 0.01 * grand), 2)
+    tol = round(_reconcile_tolerance(grand), 2)
     meta.setdefault("warnings", []).append(
         f"TOTALS DO NOT RECONCILE — the portfolio aggregate (${pbal:,.2f}) and the per-wallet grand "
         f"total (${grand:,.2f}) disagree by ${gap:,.2f} (tolerance ${tol:,.2f}): a bucket is missing or "
@@ -1183,7 +1190,7 @@ def compute(embedded, strategies, portfolio_totals, meta=None):
     }
     # reconciliation flag — surfaces silent drift between the two sources
     pbal = portfolio_totals.get("total_balance_usd")
-    totals["reconciles"] = (pbal is None) or (abs(pbal - grand_total) <= max(2.0, 0.01 * grand_total))
+    totals["reconciles"] = (pbal is None) or (abs(pbal - grand_total) <= _reconcile_tolerance(grand_total))
     _warn_if_not_reconciled(totals, meta)
 
     net = round(gross_long - gross_short, 2)
@@ -1525,7 +1532,7 @@ def _money_totals(embedded, strategies, portfolio_totals, meta=None):
         "portfolio_total_withdrawable": portfolio_totals.get("total_withdrawable"),
     }
     pbal = portfolio_totals.get("total_balance_usd")
-    totals["reconciles"] = (pbal is None) or (abs(pbal - grand_total) <= max(2.0, 0.01 * grand_total))
+    totals["reconciles"] = (pbal is None) or (abs(pbal - grand_total) <= _reconcile_tolerance(grand_total))
     _warn_if_not_reconciled(totals, meta)
     return totals
 
