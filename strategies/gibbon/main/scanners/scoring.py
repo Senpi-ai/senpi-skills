@@ -368,7 +368,7 @@ def score_candidate(name, side, c1, c4, cohort, board, inputs):
     score = _clamp(10.0 * (t4_c + t1_c + m_c + sm_c) / (w_t4 + w_t1 + w_m + w_sm), 0, 10)
     return {"asset": name, "score": round(score, 2), "trend4h": t4,
             "mom24h": round(m24, 2), "lean": round(lean, 3),
-            "reasons": [f"4h {t4} {s4:.0%}", f"24h {m24:+.1f}%", f"lean {lean:+.2f}"]}
+            "reasons": [f"4h trend {t4} ({s4:.0%} of bars)", f"price {m24:+.1f}% over 24h", f"smart-money lean {lean:+.2f}"]}
 
 
 def band_for(score, inputs):

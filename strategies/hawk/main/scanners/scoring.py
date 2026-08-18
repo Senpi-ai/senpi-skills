@@ -169,32 +169,32 @@ def build_thesis(coin, candles_1h, candles_4h, sm, inputs):
     # Breakout magnitude (+3 / +2 / +1)
     if magnitude_pct >= 1.0:
         score += 3
-        reasons.append(f"breakout_strong_{magnitude_pct:+.2f}%")
+        reasons.append(f"strong breakout {magnitude_pct:+.2f}% past recent range")
     elif magnitude_pct >= 0.3:
         score += 2
-        reasons.append(f"breakout_{magnitude_pct:+.2f}%")
+        reasons.append(f"price broke {magnitude_pct:+.2f}% past recent range")
     else:
         score += 1
-        reasons.append(f"breakout_weak_{magnitude_pct:+.2f}%")
+        reasons.append(f"small breakout {magnitude_pct:+.2f}% past recent range")
 
     # SM aligned (gate-confirmed) (+2)
     score += 2
-    reasons.append(f"sm_aligned_{sm_tilt:.0f}%")
+    reasons.append(f"smart money {sm_tilt:.0f}% on the same side")
 
     # SM strongly tilted (+1)
     if sm_tilt >= sm_strong:
         score += 1
-        reasons.append("sm_strongly_tilted")
+        reasons.append("smart money is strongly one-sided")
 
     # 4h trend aligned (+2)
     if trend_aligned:
         score += 2
-        reasons.append(f"4h_trend_aligned_{t4.lower()}")
+        reasons.append(f"4-hour trend is {t4.lower()}, same direction")
 
     # Volume confirmation >= 1.5x average (+1)
     if vol_x >= 1.5:
         score += 1
-        reasons.append(f"vol_{vol_x:.1f}x")
+        reasons.append(f"volume {vol_x:.1f}x its recent average")
 
     return {
         "coin": coin,

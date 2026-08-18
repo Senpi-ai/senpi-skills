@@ -207,20 +207,20 @@ def build_thesis(coin, candles, unit_index, inputs):
         return None                              # the MACD filter vetoes the breakout
 
     score, reasons = 4, [
-        f"unit {unit_index + 1} armed: {direction} breakout of the {lookback}-bar channel",
-        f"rung {rung:.6g} = channel {anchor:.6g} {'+' if direction == 'LONG' else '-'} "
-        f"{unit_index}x{add_step:g}N (N={n:.6g})",
+        f"unit {unit_index + 1} armed on a {direction.lower()} break of the {lookback}-bar range",
+        f"entry rung {rung:.6g}: {unit_index}x{add_step:g} ATR past the breakout "
+        f"at {anchor:.6g} (ATR {n:.6g})",
     ]
     hist_pct = abs(hist) / price * 100.0 if hist is not None else 0.0
     if macd_ok:
         score += 2
-        reasons.append(f"MACD hist {hist:+.6g} agrees")
+        reasons.append(f"MACD momentum ({hist:+.6g}) agrees with the move")
         if hist_pct >= strong_hist_pct:
             score += 2
-            reasons.append(f"MACD strong ({hist_pct:.3f}% of price)")
+            reasons.append(f"MACD momentum is strong ({hist_pct:.3f}% of price)")
     if beyond >= float(inputs.get("beyondRungN", 0.15)):
         score += 1
-        reasons.append(f"price {beyond:.2f}N beyond the rung")
+        reasons.append(f"price {beyond:.2f} ATRs past the entry rung")
 
     return {"coin": coin, "direction": direction, "score": score, "unit_index": unit_index,
             "atr": round(n, 8), "channel_high": round(ch_high, 8), "channel_low": round(ch_low, 8),

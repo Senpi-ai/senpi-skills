@@ -113,18 +113,18 @@ def build_thesis_graduation(name, c1h, max_leverage_cap, sm_dir, sm_tilt, config
     vt = volume_trend(c1h)
 
     score = 3
-    reasons = ["converted_ipop_to_equity", f"mom_{mom:+.1f}%"]
+    reasons = ["just converted to a live equity listing", f"price momentum {mom:+.1f}%"]
     if abs(mom) >= strong_mom:
         score += 2
-        reasons.append(f"mom_strong_{mom:+.1f}%")
+        reasons.append(f"strong momentum {mom:+.1f}%")
     if sm_dir == direction and sm_tilt >= sm_min:
         score += 1
-        reasons.append(f"sm_confirms_{sm_tilt:.0f}%")
+        reasons.append(f"smart money confirms at {sm_tilt:.0f}%")
         if sm_tilt >= sm_strong:
             score += 1
-            reasons.append("sm_strong")
+            reasons.append("smart money strongly tilted")
     if vt > 15:
         score += 1
-        reasons.append(f"vol_rising_{vt:+.0f}%")
+        reasons.append(f"volume rising {vt:+.0f}%")
     return {"coin": name, "direction": direction, "score": score, "reasons": reasons,
             "momentum_pct": round(mom, 2), "max_leverage_cap": max_leverage_cap}

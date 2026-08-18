@@ -282,10 +282,10 @@ def build_thesis(coin, candles, candles_4h, inputs):
     t4 = trend_structure_4h(candles_4h)
     if (t4 == "UP" and pat["direction"] == "LONG") or (t4 == "DOWN" and pat["direction"] == "SHORT"):
         score += 1
-        reasons.append(f"4h trend {t4} agrees")
+        reasons.append(f"4h trend {t4.lower()} agrees")
     elif t4 != "NEUTRAL":
         score -= 1
-        reasons.append(f"4h trend {t4} opposes")
+        reasons.append(f"4h trend {t4.lower()} opposes")
 
     return {"coin": coin, "direction": pat["direction"], "score": max(0, score),
             "pattern": pat["pattern"], "confirmed": pat["confirmed"],

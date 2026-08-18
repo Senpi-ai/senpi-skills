@@ -206,7 +206,7 @@ def scan(inputs, ctx):
             lev, mgn = scoring.sizing_for(band, inputs, None)
             recent[bare] = now
             free -= 1
-            reasons = [f"{count}_smart_wallets_{direction}"]
+            reasons = [f"{count} smart-money wallets just went {direction.lower()}"]
             out.append({
                 "asset": asset, "direction": direction, "marginPct": mgn, "leverage": lev,
                 "data": {"consensusCount": count, "band": band, "direction": direction,

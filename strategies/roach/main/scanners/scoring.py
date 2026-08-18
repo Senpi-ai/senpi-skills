@@ -111,9 +111,9 @@ def time_of_day_modifier(now_hour):
     to keep this pure)."""
     hour = now_hour
     if 4 <= hour < 14:
-        return 1, "time_bonus_optimal_window"
+        return 1, "in the historically strong trading hours"
     elif hour >= 18 or hour < 2:
-        return -2, "time_penalty_chop_zone"
+        return -2, "in historically choppy trading hours"
     return 0, None
 
 
@@ -185,19 +185,19 @@ def detect_striker_signals(current_scan, history, now_hour):
 
         if rank_jump >= 10 and prev_market["rank"] >= 25:
             is_immediate = True
-            reasons.append(f"IMMEDIATE_MOVER +{rank_jump} from #{prev_market['rank']}")
+            reasons.append(f"jumped {rank_jump} spots from #{prev_market['rank']}")
 
             was_in_prev = (token, dex) in prev_top50_tokens
             if not was_in_prev or prev_market["rank"] >= 30:
                 is_first_jump = True
-                reasons.append(f"FIRST_JUMP #{prev_market['rank']}->#{current_rank}")
+                reasons.append(f"first big jump, from #{prev_market['rank']} to #{current_rank}")
 
         # Contribution explosion
         if prev_market["contribution"] > 0:
             contrib_ratio = current_contrib / prev_market["contribution"]
             if contrib_ratio >= 3.0:
                 is_contrib_explosion = True
-                reasons.append(f"CONTRIB_EXPLOSION {contrib_ratio:.1f}x")
+                reasons.append(f"share of top-trader gains up {contrib_ratio:.1f}x")
 
         if not is_first_jump and not is_immediate:
             continue
@@ -237,17 +237,17 @@ def detect_striker_signals(current_scan, history, now_hour):
             score += 2
         if abs_velocity > 10:
             score += 2
-            reasons.append(f"HIGH_VELOCITY {abs_velocity:.1f}")
+            reasons.append(f"climbing the board fast, velocity {abs_velocity:.1f}")
 
         if prev_market["rank"] >= 40:
             score += 1
-            reasons.append("DEEP_CLIMBER")
+            reasons.append("came from deep in the pack (#40 or lower)")
 
         if old_market:
             total_climb = old_market["rank"] - current_rank
             if total_climb >= 10:
                 score += 1
-                reasons.append(f"CLIMBING +{total_climb} over scans")
+                reasons.append(f"up {total_climb} spots over recent scans")
 
         tod_mod, tod_reason = time_of_day_modifier(now_hour)
         score += tod_mod
@@ -268,7 +268,7 @@ def detect_striker_signals(current_scan, history, now_hour):
             continue
         if direction == "SHORT" and p1h > -MIN_PRICE_1H_ALIGN_PCT:
             continue
-        reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
+        reasons.append(f"1h price confirms, {p1h:+.2f}%")
 
         # NOTE: the volume-confirmation gate (check_asset_volume / vol >= 1.5x) is
         # applied by scan.py immediately after this, via an MCP read. Candidates

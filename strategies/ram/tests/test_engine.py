@@ -52,8 +52,8 @@ def test_safe_haven_tilt_adds_to_long_only():
                                   {"safeHavenBonusLong": 2})
     assert tilted["direction"] == "LONG"
     assert tilted["score"] == base["score"] + 2
-    assert any("safe_haven" in r for r in tilted["reasons"])
-    assert not any("safe_haven" in r for r in base["reasons"])
+    assert any("safe-haven bid in risk-off" in r for r in tilted["reasons"])
+    assert not any("safe-haven bid in risk-off" in r for r in base["reasons"])
 
     # a SHORT is never given the safe-haven tilt
     dn1h, dn4h = _synth_candles(14, -1.0), _synth_candles(6, -2.0)

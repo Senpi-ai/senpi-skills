@@ -94,17 +94,17 @@ def build_score(leader_asset, leader_rs, margin_vs_runner, has_held):
     Verbatim from v2 (margin gates/cutoffs preserved)."""
     score = 3   # base — leader cleared both RS and margin gates
     reasons = [
-        f"{leader_asset}_rs_{leader_rs:+.2f}%",
-        f"margin_vs_runner_up_{margin_vs_runner:+.2f}pp",
+        f"{leader_asset} leads the pack at {leader_rs:+.2f}%",
+        f"ahead of the runner-up by {margin_vs_runner:+.2f} points",
     ]
     if leader_rs >= 4.0:
         score += 1
-        reasons.append("leader_strong")
+        reasons.append("the leader's move is strong")
     if margin_vs_runner >= 3.0:
         score += 1
-        reasons.append("dominant_margin")
+        reasons.append("a dominant lead over the field")
     if has_held:
         # Re-entering after a prior position exited — leadership has either
         # confirmed the holdover OR rotated. Either way it's a fresh decision.
-        reasons.append("post_dsl_re_entry")
+        reasons.append("re-entering after a prior exit")
     return score, reasons

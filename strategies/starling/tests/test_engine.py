@@ -186,7 +186,7 @@ def test_scan_smoke_returns_valid_signals_and_persists():
     assert s["asset"] == "BTC" and s["direction"] == "LONG"
     assert 0 < s["marginPct"] <= 25 and 1 <= s["leverage"] <= 5
     assert s["data"]["consensusCount"] == 3 and s["data"]["band"] == "base"
-    assert s["data"]["reasons"] == ["3_smart_wallets_LONG"]
+    assert s["data"]["reasons"] == ["3 smart-money wallets just went long"]
     # state persisted: cohort + snapshot + recent
     last = ctx.state.last()
     assert last is not None and len(last["cohort"]) == 4

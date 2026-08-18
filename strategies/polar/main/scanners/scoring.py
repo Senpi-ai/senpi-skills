@@ -212,17 +212,17 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_change_1h,
     reasons = []
 
     score += 3
-    reasons.append(f"4h_{trend_4h.lower()}_{ts_4h:.0%}")
+    reasons.append(f"4h trend {trend_4h.lower()}, {ts_4h:.0%} strength")
     score += 2
-    reasons.append(f"1h_confirms_{mom_1h:+.2f}%")
+    reasons.append(f"1h trend confirms, {mom_1h:+.2f}%")
     if strong_15m:
         score += 1
-        reasons.append(f"15m_strong_{mom_15m:+.2f}%")
+        reasons.append(f"strong 15m move, {mom_15m:+.2f}%")
     # v2-quirk: polar scores 4TF_aligned on aligned_5m ALONE (kodiak required
     # aligned_5m AND strong_15m). Reproduced verbatim.
     if aligned_5m:
         score += 1
-        reasons.append("4TF_aligned")
+        reasons.append("all four timeframes aligned")
 
     # smart-money concentration (v2 polar pct thresholds: 15/10/5)
     sm_pct = _f(sm.get("pct", 0))
@@ -232,43 +232,43 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_change_1h,
     sm_cc4h = _f(sm.get("cc_4h", 0))
     if sm_pct >= 15:
         score += 3
-        reasons.append(f"SM_DOMINANT_{sm_pct:.1f}%_{sm_traders}t")
+        reasons.append(f"smart money dominant, {sm_pct:.1f}% ({sm_traders} traders)")
     elif sm_pct >= 10:
         score += 2
-        reasons.append(f"SM_STRONG_{sm_pct:.1f}%_{sm_traders}t")
+        reasons.append(f"smart money strong, {sm_pct:.1f}% ({sm_traders} traders)")
     elif sm_pct >= 5:
         score += 1
-        reasons.append(f"SM_aligned_{sm_pct:.1f}%_{sm_traders}t")
+        reasons.append(f"smart money aligned, {sm_pct:.1f}% ({sm_traders} traders)")
 
     # SM 15m velocity (v2 polar thresholds: 2.0 / 0.5)
     if sm_cc15m > 2.0:
         score += 2
-        reasons.append(f"SM_15m_strong_+{sm_cc15m:.2f}")
+        reasons.append(f"smart money piling in, +{sm_cc15m:.2f} in 15m")
     elif sm_cc15m > 0.5:
         score += 1
-        reasons.append(f"SM_15m_+{sm_cc15m:.2f}")
+        reasons.append(f"smart money adding, +{sm_cc15m:.2f} in 15m")
 
     # SM accelerating (15m velocity exceeds 1h velocity)
     if sm_cc15m > 0 and sm_cc1h > 0 and sm_cc15m > sm_cc1h:
         score += 1
-        reasons.append(f"SM_ACCELERATING_15m({sm_cc15m:.2f})>1h({sm_cc1h:.2f})")
+        reasons.append(f"smart money accelerating: 15m {sm_cc15m:.2f} vs 1h {sm_cc1h:.2f}")
 
     # SM depth
     if sm_traders >= 100:
         score += 1
-        reasons.append(f"SM_DEEP_{sm_traders}t")
+        reasons.append(f"deep smart-money crowd, {sm_traders} traders")
 
     # funding (v2-quirk: polar uses sign-only thresholds funding<0 / >0, and a
     # crowded penalty at +/-0.005 — NOT kodiak's -0.0001 / 0.0005). Verbatim.
     if direction == "LONG" and funding < 0:
         score += 2
-        reasons.append(f"funding_pays_longs_{funding:+.4f}")
+        reasons.append(f"funding pays longs ({funding:+.4f})")
     elif direction == "SHORT" and funding > 0:
         score += 2
-        reasons.append(f"funding_pays_shorts_{funding:+.4f}")
+        reasons.append(f"funding pays shorts ({funding:+.4f})")
     elif (direction == "LONG" and funding > 0.005) or (direction == "SHORT" and funding < -0.005):
         score -= 1
-        reasons.append(f"funding_crowded_{funding:+.4f}")
+        reasons.append(f"funding crowded ({funding:+.4f})")
 
     # OI velocity (polar-specific factor; kodiak has none). oi_change_1h is the
     # oi_velocity.oi_change_pct_1h field extracted by the caller, or None.
@@ -277,13 +277,13 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_change_1h,
         oi_change = _f(oi_change_1h)
         if oi_change > 5:
             score += 2
-            reasons.append(f"OI_ACCELERATING_{oi_change:+.1f}%")
+            reasons.append(f"open interest surging, {oi_change:+.1f}% in 1h")
         elif oi_change > 2:
             score += 1
-            reasons.append(f"OI_rising_{oi_change:+.1f}%")
+            reasons.append(f"open interest rising, {oi_change:+.1f}% in 1h")
         elif oi_change < -3:
             score -= 1
-            reasons.append(f"OI_draining_{oi_change:+.1f}%")
+            reasons.append(f"open interest draining, {oi_change:+.1f}% in 1h")
 
     # BTC correlation (v2-quirk: polar requires BOTH 15m AND 1h to agree;
     # kodiak only checked 1h > 0.3). Verbatim.
@@ -292,29 +292,29 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_change_1h,
                      (direction == "SHORT" and btc_mom_15m < 0 and btc_mom_1h < 0)
         if btc_agrees:
             score += 1
-            reasons.append(f"btc_confirms_{btc_mom_1h:+.2f}%")
+            reasons.append(f"BTC moving the same way, {btc_mom_1h:+.2f}% in 1h")
 
     # RSI room
     if (direction == "LONG" and r < 55) or (direction == "SHORT" and r > 45):
         score += 1
-        reasons.append(f"rsi_room_{r:.0f}")
+        reasons.append(f"RSI at {r:.0f}, room to run")
 
     # 4h momentum bonus (v2-quirk: polar uses abs(mom_4h) > 1.0 — direction-
     # agnostic bonus; kodiak required directional agreement). Verbatim.
     if abs(mom_4h) > 1.0:
         score += 1
-        reasons.append(f"4h_momentum_{mom_4h:+.1f}%")
+        reasons.append(f"4h momentum {mom_4h:+.1f}%")
 
     # move-exhaustion / tiring penalty (v2 polar thresholds 4.0 / 2.5,
     # direction-gated; NOT kodiak's 5.0 / 3.0). Verbatim.
     if abs(mom_4h) >= 4.0:
         if (direction == "LONG" and mom_4h > 0) or (direction == "SHORT" and mom_4h < 0):
             score -= 2
-            reasons.append(f"MOVE_EXHAUSTION_{mom_4h:+.1f}%")
+            reasons.append(f"move may be exhausted, {mom_4h:+.1f}% in 4h")
     elif abs(mom_4h) >= 2.5:
         if (direction == "LONG" and mom_4h > 0) or (direction == "SHORT" and mom_4h < 0):
             score -= 1
-            reasons.append(f"MOVE_TIRING_{mom_4h:+.1f}%")
+            reasons.append(f"move tiring, {mom_4h:+.1f}% in 4h")
 
     # v2-quirk: polar has NO time-of-day modifier (kodiak does). Quiet-hours is a
     # scan-level emission gate (FP-001), handled in scan.py, not a score delta.

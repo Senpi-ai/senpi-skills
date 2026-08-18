@@ -116,14 +116,14 @@ def build_thesis_pre_listing(asset_name, c1h, c4h, sm_dir, sm_tilt, config):
         return None
 
     score = 3
-    reasons = [f"4h_{t4.lower()}_{s4:.0%}"]
+    reasons = [f"4h trend {t4.lower()} ({s4:.0%} of bars)"]
     if (direction == "LONG" and t1 == "BULLISH") or (direction == "SHORT" and t1 == "BEARISH"):
         score += 2
-        reasons.append(f"1h_confirms_{t1.lower()}")
+        reasons.append(f"1h trend {t1.lower()} confirms")
     score += 2
-    reasons.append(f"sm_aligned_{sm_tilt:.0f}%" if sm_tilt > sm_min else "sm_sparse_assumed_aligned")
+    reasons.append(f"smart money aligned at {sm_tilt:.0f}%" if sm_tilt > sm_min else "smart-money data sparse, assumed aligned")
     if sm_tilt >= sm_strong:
         score += 1
-        reasons.append("sm_strong")
+        reasons.append("smart money strongly tilted")
     return {"coin": asset_name, "direction": direction, "score": score, "reasons": reasons,
             "trend4h": t4, "sm_tilt": sm_tilt}

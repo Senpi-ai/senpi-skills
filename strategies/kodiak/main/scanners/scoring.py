@@ -100,9 +100,9 @@ def rsi(closes, period=14):
 def tod_modifier(hour):
     """UTC hour -> (score_delta, reason|None). Caller passes the hour (keeps this pure)."""
     if 4 <= hour < 14:
-        return 1, "tod_active_window"
+        return 1, "active trading hours"
     if hour >= 18 or hour < 2:
-        return -2, "tod_chop_zone"
+        return -2, "choppy off-hours window"
     return 0, None
 
 
@@ -164,15 +164,15 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi, btc_mom_1h, sm, hour, inputs):
     score = 0
     reasons = []
     score += 3
-    reasons.append(f"4h_{trend_4h.lower()}_{ts_4h:.0%}")
+    reasons.append(f"4h trend {trend_4h.lower()} ({ts_4h:.0%} of bars)")
     score += 2
-    reasons.append(f"1h_confirms_{mom_1h:+.2f}%")
+    reasons.append(f"1h move {mom_1h:+.2f}% confirms the trend")
     if strong_15m:
         score += 1
-        reasons.append(f"15m_strong_{mom_15m:+.2f}%")
+        reasons.append(f"strong 15m move {mom_15m:+.2f}%")
     if aligned_5m and strong_15m:
         score += 1
-        reasons.append("4TF_aligned")
+        reasons.append("all 4 timeframes aligned")
 
     # smart-money concentration
     sm_aligned = False
@@ -184,60 +184,60 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi, btc_mom_1h, sm, hour, inputs):
         sm_cc15m = _f(sm.get("cc_15m", 0))
         if sm_pct >= 70 and sm_traders >= 50:
             score += 3
-            reasons.append(f"SM_DOMINANT_{sm_pct:.1f}%_{sm_traders}t")
+            reasons.append(f"smart money dominant: {sm_pct:.1f}% ({sm_traders} traders)")
         elif sm_pct >= 60 and sm_traders >= 30:
             score += 2
-            reasons.append(f"SM_STRONG_{sm_pct:.1f}%_{sm_traders}t")
+            reasons.append(f"smart money strong: {sm_pct:.1f}% ({sm_traders} traders)")
         else:
             score += 1
-            reasons.append(f"SM_aligned_{sm_pct:.1f}%_{sm_traders}t")
+            reasons.append(f"smart money aligned: {sm_pct:.1f}% ({sm_traders} traders)")
         if sm_cc15m > 0.5:
             score += 2
-            reasons.append(f"SM_15m_strong_+{sm_cc15m:.2f}")
+            reasons.append(f"smart-money share surging +{sm_cc15m:.2f} in 15m")
         elif sm_cc15m > 0.2:
             score += 1
-            reasons.append(f"SM_15m_+{sm_cc15m:.2f}")
+            reasons.append(f"smart-money share up +{sm_cc15m:.2f} in 15m")
         if sm_traders >= 80:
             score += 1
-            reasons.append(f"SM_DEEP_{sm_traders}t")
+            reasons.append(f"deep bench: {sm_traders} smart-money traders")
 
     # funding
     if direction == "LONG" and funding < -0.0001:
         score += 2
-        reasons.append(f"funding_pays_longs_{funding:+.4f}")
+        reasons.append(f"funding pays longs at {funding:+.4f}")
     elif direction == "SHORT" and funding > 0.0001:
         score += 2
-        reasons.append(f"funding_pays_shorts_{funding:+.4f}")
+        reasons.append(f"funding pays shorts at {funding:+.4f}")
     elif (direction == "LONG" and funding > 0.0005) or (direction == "SHORT" and funding < -0.0005):
         score -= 1
-        reasons.append(f"funding_crowded_{funding:+.4f}")
+        reasons.append(f"funding shows a crowded side at {funding:+.4f}")
 
     # BTC correlation
     if (direction == "LONG" and btc_mom_1h > 0.3) or (direction == "SHORT" and btc_mom_1h < -0.3):
         score += 1
-        reasons.append(f"btc_confirms_{btc_mom_1h:+.2f}%")
+        reasons.append(f"BTC confirms with {btc_mom_1h:+.2f}% in 1h")
 
     # RSI room
     if (direction == "LONG" and r < 55) or (direction == "SHORT" and r > 45):
         score += 1
-        reasons.append(f"rsi_room_{r:.0f}")
+        reasons.append(f"RSI has room to run at {r:.0f}")
 
     # 4h momentum bonus / exhaustion penalty
     if (direction == "LONG" and mom_4h > 1.0) or (direction == "SHORT" and mom_4h < -1.0):
         score += 1
-        reasons.append(f"4h_momentum_{mom_4h:+.1f}%")
+        reasons.append(f"4h momentum {mom_4h:+.1f}%")
     if direction == "LONG" and mom_4h > 5.0:
         score -= 2
-        reasons.append(f"MOVE_EXHAUSTION_{mom_4h:+.1f}%")
+        reasons.append(f"move may be exhausted at {mom_4h:+.1f}% in 4h")
     elif direction == "SHORT" and mom_4h < -5.0:
         score -= 2
-        reasons.append(f"MOVE_EXHAUSTION_{mom_4h:+.1f}%")
+        reasons.append(f"move may be exhausted at {mom_4h:+.1f}% in 4h")
     elif direction == "LONG" and mom_4h > 3.0:
         score -= 1
-        reasons.append(f"MOVE_TIRING_{mom_4h:+.1f}%")
+        reasons.append(f"move tiring at {mom_4h:+.1f}% in 4h")
     elif direction == "SHORT" and mom_4h < -3.0:
         score -= 1
-        reasons.append(f"MOVE_TIRING_{mom_4h:+.1f}%")
+        reasons.append(f"move tiring at {mom_4h:+.1f}% in 4h")
 
     # time-of-day
     tod_mod, tod_reason = tod_modifier(hour)

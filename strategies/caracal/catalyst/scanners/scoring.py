@@ -150,35 +150,35 @@ def score_vol_breakout(asset, c1, c4, config=None):
     trend4, _ = trend_structure(c4)
 
     score = 0
-    reasons = [f"breakout_{'up' if broke_up else 'down'}"]
+    reasons = [f"price broke {'above' if broke_up else 'below'} its recent range"]
     score += 3  # the breakout trigger
 
     # Compression precondition — the edge. A coil scores; no coil is penalized.
     if squeeze <= sq_tight:
         score += 2
-        reasons.append(f"coil_{squeeze:.2f}")
+        reasons.append(f"volatility squeezed to {squeeze:.2f}x normal")
     elif squeeze <= sq_loose:
         score += 1
-        reasons.append(f"coil_{squeeze:.2f}")
+        reasons.append(f"volatility squeezed to {squeeze:.2f}x normal")
     else:
         score -= 1
-        reasons.append(f"no_coil_{squeeze:.2f}")
+        reasons.append(f"no squeeze, volatility {squeeze:.2f}x normal")
 
     # Expansion surge — the breakout bar should be an outsized move.
     if surge >= surge_strong:
         score += 2
-        reasons.append(f"surge_{surge:.1f}x")
+        reasons.append(f"breakout bar {surge:.1f}x the usual range")
     elif surge >= surge_mod:
         score += 1
-        reasons.append(f"surge_{surge:.1f}x")
+        reasons.append(f"breakout bar {surge:.1f}x the usual range")
 
     # Higher-TF agreement (a break with the 4h structure follows through more).
     if (broke_up and trend4 == "BULLISH") or (broke_dn and trend4 == "BEARISH"):
         score += 1
-        reasons.append(f"4h_{trend4.lower()}_agree")
+        reasons.append(f"4h trend {trend4.lower()} backs the break")
     elif (broke_up and trend4 == "BEARISH") or (broke_dn and trend4 == "BULLISH"):
         score -= 1
-        reasons.append("4h_against")
+        reasons.append("4h trend runs against the break")
 
     return {
         "coin": asset, "direction": direction, "score": score,

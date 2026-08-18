@@ -230,29 +230,31 @@ def score_structure(candles_1h, candles_4h, inputs):
 
     reasons = []
     score = 3 if kind == "BOS" else 2
-    reasons.append("1h_%s_%s" % (kind.lower(), d1.lower()))
+    reasons.append("1h structure break %s (%s)"
+                   % (d1.lower(), "continuation" if kind == "BOS" else "reversal"))
 
     swept, sdir = liquidity_sweep(candles_1h, left, right)
     if swept and sdir == d1:
         score += 2
-        reasons.append("sweep_aligned_%s" % sdir.lower())
+        reasons.append("stop-hunt wick backs the %s side" % sdir.lower())
     elif swept and sdir is not None:
-        reasons.append("sweep_opposing_%s" % sdir.lower())
+        reasons.append("stop-hunt wick leans %s, against this move" % sdir.lower())
 
     present, fdir = fvg(candles_1h)
     if present and fdir == d1:
         score += 1
-        reasons.append("fvg_aligned_%s" % fdir.lower())
+        reasons.append("fair value gap backs the %s side" % fdir.lower())
     elif present and fdir is not None:
-        reasons.append("fvg_opposing_%s" % fdir.lower())
+        reasons.append("fair value gap leans %s, against this move" % fdir.lower())
 
     d4, kind4 = structure(candles_4h, left, right)
     if d4 == d1:
         score += 2
-        reasons.append("4h_agrees_%s" % kind4.lower())
+        reasons.append("4h structure agrees with a %s break"
+                       % ("continuation" if kind4 == "BOS" else "reversal"))
     elif d4 is not None:
         score -= 2
-        reasons.append("4h_opposes_%s" % d4.lower())
+        reasons.append("4h structure points %s, against this move" % d4.lower())
 
     return {"direction": d1, "score": score, "reasons": reasons, "structure": kind}
 

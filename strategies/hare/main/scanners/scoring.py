@@ -135,17 +135,18 @@ def scalp_thesis(coin, c15, c1h, session, inputs):
     if vr < min_vol:                                         # fee-bait guard — no volume, no scalp
         return None
     direction = "LONG" if drift > 0 else "SHORT"
-    score, reasons = 4, [f"{session} {burst_bars * 15}m burst {drift:+.2f}%", f"vol {vr:.2f}x baseline"]
+    score, reasons = 4, [f"price moved {drift:+.2f}% in {burst_bars * 15}m ({session} session)",
+                         f"volume running {vr:.2f}x its recent average"]
     if abs(drift) >= strong_burst:
         score += 1
-        reasons.append("burst is strong")
+        reasons.append("the move is unusually strong")
     t1, _ = trend_structure(c1h)
     if (t1 == "UP" and direction == "LONG") or (t1 == "DOWN" and direction == "SHORT"):
         score += 1
-        reasons.append(f"1h trend {t1} agrees")
+        reasons.append(f"hourly trend is {t1}, same direction")
     elif t1 != "NEUTRAL":
         score -= 1
-        reasons.append(f"1h trend {t1} opposes")
+        reasons.append(f"hourly trend is {t1}, against this move")
     return {"coin": coin, "direction": direction, "score": max(0, score), "drift": round(drift, 4),
             "vol_ratio": round(vr, 3), "trend_1h": t1, "session": session, "reasons": reasons}
 

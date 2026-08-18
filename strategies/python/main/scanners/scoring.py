@@ -237,67 +237,67 @@ def build_thesis(coin, candles_15m, candles_1h, candles_4h, candles_1d,
     # 4h trend strength
     if trend_strength_4h >= 0.8:
         score += 4
-        reasons.append(f"4h_strong_{trend_4h}")
+        reasons.append(f"strong 4h {trend_4h.lower()} trend")
     elif trend_strength_4h >= 0.6:
         score += 3
-        reasons.append(f"4h_{trend_4h}")
+        reasons.append(f"4h trend {trend_4h.lower()}")
     else:
         score += 2
-        reasons.append(f"4h_weak_{trend_4h}")
+        reasons.append(f"weak 4h {trend_4h.lower()} trend")
 
     # 1h momentum
     if abs(mom_1h) > 1.0:
         score += 2
-        reasons.append(f"1h_strong_{mom_1h:+.2f}%")
+        reasons.append(f"strong 1h move, {mom_1h:+.2f}%")
     elif abs(mom_1h) > 0.5:
         score += 1
-        reasons.append(f"1h_ok_{mom_1h:+.2f}%")
+        reasons.append(f"modest 1h move, {mom_1h:+.2f}%")
 
     # 1d candle trend
     if len(candles_1d) >= 3:
         if direction == "LONG" and mom_1d > 1.0:
-            score += 2; reasons.append(f"1d_bullish_{mom_1d:+.1f}%")
+            score += 2; reasons.append(f"daily trend up, {mom_1d:+.1f}%")
         elif direction == "SHORT" and mom_1d < -1.0:
-            score += 2; reasons.append(f"1d_bearish_{mom_1d:+.1f}%")
+            score += 2; reasons.append(f"daily trend down, {mom_1d:+.1f}%")
         elif direction == "LONG" and mom_1d > 0:
-            score += 1; reasons.append("1d_up")
+            score += 1; reasons.append("daily candle up")
         elif direction == "SHORT" and mom_1d < 0:
-            score += 1; reasons.append("1d_down")
+            score += 1; reasons.append("daily candle down")
 
     # LONG bias bonus (pr0br000 insight — top 5 winners were all LONG)
     if direction == "LONG":
         score += LONG_BIAS_BONUS
-        reasons.append("LONG_bias")
+        reasons.append("long setups get a built-in bonus")
 
     # Smart-money alignment / HARD BLOCK
     if sm_info:
         sm_dir, sm_pct, sm_count, sm_cc_15m = sm_info
         if sm_dir == direction:
             score += 2
-            reasons.append(f"sm_aligned_{sm_pct:.0f}%_{sm_count}t")
+            reasons.append(f"smart money aligned, {sm_pct:.0f}% ({sm_count} traders)")
             if sm_pct > 70:
                 score += 1
-                reasons.append("sm_strongly_tilted")
+                reasons.append("smart money strongly tilted this way")
         elif sm_dir != "NEUTRAL" and sm_dir != direction:
             return None  # HARD BLOCK
         if sm_cc_15m > 0.3:
             score += 1
-            reasons.append(f"15m_fresh +{sm_cc_15m:.2f}")
+            reasons.append(f"fresh smart-money flow, +{sm_cc_15m:.2f} in 15m")
 
     # Funding alignment
     if direction == "LONG" and funding < 0:
-        score += 1; reasons.append(f"funding_pays_long_{funding:+.4f}")
+        score += 1; reasons.append(f"funding pays longs ({funding:+.4f})")
     elif direction == "SHORT" and funding > 0:
-        score += 1; reasons.append(f"funding_pays_short_{funding:+.4f}")
+        score += 1; reasons.append(f"funding pays shorts ({funding:+.4f})")
     elif (direction == "LONG" and funding > 0.01) or (direction == "SHORT" and funding < -0.01):
-        score -= 1; reasons.append(f"funding_crowded_{funding:+.4f}")
+        score -= 1; reasons.append(f"funding crowded ({funding:+.4f})")
 
     # Volume ratio
     vol_1h = volume_ratio(candles_1h)
     if vol_1h >= 1.3:
-        score += 1; reasons.append(f"vol_{vol_1h:.1f}x")
+        score += 1; reasons.append(f"volume running {vol_1h:.1f}x normal")
     elif vol_1h < 0.6:
-        score -= 1; reasons.append("vol_weak")
+        score -= 1; reasons.append("volume below normal")
 
     # RSI filter (hard block on extremes; +1 for midrange room)
     closes_1h = [_close(c) for c in candles_1h]
@@ -307,15 +307,15 @@ def build_thesis(coin, candles_15m, candles_1h, candles_4h, candles_1d,
     if direction == "SHORT" and rsi < 22:
         return None
     if (direction == "LONG" and 50 < rsi < 68) or (direction == "SHORT" and 32 < rsi < 50):
-        score += 1; reasons.append(f"rsi_room_{rsi:.0f}")
+        score += 1; reasons.append(f"RSI at {rsi:.0f}, room to run")
 
     # Move-exhaustion / move-tiring penalty (with-trend overextension)
     if abs(mom_4h) >= 6.0:
         if (direction == "LONG" and mom_4h > 0) or (direction == "SHORT" and mom_4h < 0):
-            score -= 2; reasons.append(f"MOVE_EXHAUSTION_{mom_4h:+.1f}%")
+            score -= 2; reasons.append(f"move may be exhausted, {mom_4h:+.1f}% in 4h")
     elif abs(mom_4h) >= 4.0:
         if (direction == "LONG" and mom_4h > 0) or (direction == "SHORT" and mom_4h < 0):
-            score -= 1; reasons.append(f"MOVE_TIRING_{mom_4h:+.1f}%")
+            score -= 1; reasons.append(f"move tiring, {mom_4h:+.1f}% in 4h")
 
     return {
         "coin": coin, "direction": direction, "score": score, "reasons": reasons,

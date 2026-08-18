@@ -118,10 +118,10 @@ def cohort_signals(smart_per, crowd_per, growth, direction, config):
             "coin": coin, "direction": direction, "score": score,
             "smart_bias": bias, "crowd_bias": round(crowd_bias, 3),
             "growth": g, "n_confirm": n_confirm,
-            "reasons": [f"smart cohort net {bias:+.2f} on {coin}",
-                        f"{'ADDING' if growing else 'flat'} (dnet {g})",
-                        f"crowd {crowd_bias:+.2f}{' DIVERGES' if crowd_div else ''}",
-                        f"{n_confirm} smart whales {direction}"],
+            "reasons": [f"smart money tilt {bias:+.2f} on {coin}",
+                        f"{'still adding daily' if growing else 'holding flat'} (net change {g})",
+                        f"crowd tilt {crowd_bias:+.2f}{', on the other side' if crowd_div else ''}",
+                        f"{n_confirm} smart money whales positioned {direction.lower()}"],
         })
     out.sort(key=lambda s: (s["score"], abs(s["smart_bias"])), reverse=True)
     return out

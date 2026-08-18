@@ -116,13 +116,13 @@ def build_thesis(asset, strength, candles, config):
     vol = volume_trend(candles)
 
     score = 3   # base — trend strength above min
-    reasons = [f"{asset}_4d_trend_{strength:+.1f}%"]
+    reasons = [f"{asset} moved {strength:+.1f}% over 4 days"]
     if abs(strength) >= strong_pct:
         score += 2
-        reasons.append(f"trend_strong_{strength:+.1f}%")
+        reasons.append(f"a strong trend at {strength:+.1f}%")
     if vol > 15:
         score += 1
-        reasons.append(f"vol_rising_{vol:+.0f}%")
+        reasons.append(f"volume rising {vol:+.0f}%")
 
     return {
         "coin": asset,

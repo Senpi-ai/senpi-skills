@@ -88,13 +88,13 @@ def score_dip(c1, c4, cd, config):
         return None
     direction = "LONG"
     sc = 2 + (1 if s4 >= 0.6 else 0)
-    reasons = [f"4h_uptrend_{s4:.0%}"]
+    reasons = [f"4-hour uptrend at {s4:.0%} strength"]
     if rsi <= dip_rsi:
         sc += 2
-        reasons.append(f"dip_rsi_{rsi:.0f}")
+        reasons.append(f"RSI pulled back to {rsi:.0f}, a dip to buy")
     if trend1 == "BEARISH":
         sc += 1
-        reasons.append("1h_pullback")
+        reasons.append("1-hour pullback within the uptrend")
 
     leverage = clamp_lev(leverage, max_lev)
     return {"direction": direction, "score": sc, "leverage": leverage, "reasons": reasons,

@@ -103,35 +103,35 @@ def score_trend(asset, candles_1h, candles_4h, own24h, inputs):
         return None
 
     score = 3
-    reasons = [f"4h_{trend4.lower()}_{s4:.0%}"]
+    reasons = [f"4h trend {trend4.lower()}, {s4:.0%} of bars confirm"]
 
     if (direction == "LONG" and trend1 == "BULLISH") or (direction == "SHORT" and trend1 == "BEARISH"):
         score += 2
-        reasons.append(f"1h_confirm_{s1:.0%}")
+        reasons.append(f"1h trend agrees, {s1:.0%} of bars confirm")
     elif (direction == "LONG" and trend1 == "BEARISH") or (direction == "SHORT" and trend1 == "BULLISH"):
         score -= 1
-        reasons.append("1h_against")
+        reasons.append("1h trend runs against the move")
 
     if direction == "LONG":
         if own >= mom:
             score += 2
-            reasons.append(f"mom_{own:+.1f}%")
+            reasons.append(f"24h momentum {own:+.1f}%")
         elif own >= 0:
             score += 1
-            reasons.append(f"mom_{own:+.1f}%")
+            reasons.append(f"24h momentum {own:+.1f}%")
         if rsi < rsi_ob:
             score += 1
-            reasons.append(f"rsi_room_{rsi:.0f}")
+            reasons.append(f"RSI {rsi:.0f} leaves room to run")
     else:
         if own <= -mom:
             score += 2
-            reasons.append(f"mom_{own:+.1f}%")
+            reasons.append(f"24h momentum {own:+.1f}%")
         elif own <= 0:
             score += 1
-            reasons.append(f"mom_{own:+.1f}%")
+            reasons.append(f"24h momentum {own:+.1f}%")
         if rsi > rsi_os:
             score += 1
-            reasons.append(f"rsi_room_{rsi:.0f}")
+            reasons.append(f"RSI {rsi:.0f} leaves room to run")
 
     return {
         "coin": asset,

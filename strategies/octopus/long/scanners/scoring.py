@@ -94,67 +94,67 @@ def score_dispersion(asset, candles_1h, candles_4h, excess, own24h, leg, inputs)
             return None
         if excess >= 2 * rs_thresh:
             score += 3
-            reasons.append(f"rs_lead_{excess:+.1f}%")
+            reasons.append(f"beating the group average by {excess:+.1f}%")
         elif excess >= rs_thresh:
             score += 2
-            reasons.append(f"rs_lead_{excess:+.1f}%")
+            reasons.append(f"beating the group average by {excess:+.1f}%")
         else:
             score += 1
-            reasons.append(f"rs_lead_{excess:+.1f}%")
+            reasons.append(f"beating the group average by {excess:+.1f}%")
         if trend4 == "BEARISH":                             # v2-quirk: never long a 4h downtrend
             return None
         if trend4 == "BULLISH":
             score += 2
-            reasons.append(f"4h_bullish_{s4:.0%}")
+            reasons.append(f"4h making higher lows {s4:.0%} of the time")
         if trend1 == "BULLISH":
             score += 1
-            reasons.append(f"1h_bullish_{s1:.0%}")
+            reasons.append(f"1h making higher lows {s1:.0%} of the time")
         elif trend1 == "BEARISH":
             score -= 1
-            reasons.append("1h_bearish")
+            reasons.append("1h making lower highs")
         if own >= 0:
             score += 1
-            reasons.append(f"abs_up_{own:+.1f}%")
+            reasons.append(f"price {own:+.1f}% over the last 24h")
         else:
             score -= 1
-            reasons.append(f"abs_dn_{own:+.1f}%")
+            reasons.append(f"price {own:+.1f}% over the last 24h")
         rsi_ob = float(inputs.get("rsiOverbought", 80))
         if rsi > rsi_ob:                                    # v2-quirk: blow-off guard (don't chase)
             score -= 2
-            reasons.append(f"rsi_blowoff_{rsi:.0f}")
+            reasons.append(f"RSI stretched at {rsi:.0f}")
     else:  # short
         if excess > 0:                                      # v2-quirk: must be a relative LAGGARD
             return None
         if excess <= -2 * rs_thresh:
             score += 3
-            reasons.append(f"rs_lag_{excess:+.1f}%")
+            reasons.append(f"trailing the group average by {excess:+.1f}%")
         elif excess <= -rs_thresh:
             score += 2
-            reasons.append(f"rs_lag_{excess:+.1f}%")
+            reasons.append(f"trailing the group average by {excess:+.1f}%")
         else:
             score += 1
-            reasons.append(f"rs_lag_{excess:+.1f}%")
+            reasons.append(f"trailing the group average by {excess:+.1f}%")
         if trend4 == "BULLISH":                             # v2-quirk: never short a 4h uptrend
             return None
         if trend4 == "BEARISH":
             score += 2
-            reasons.append(f"4h_bearish_{s4:.0%}")
+            reasons.append(f"4h making lower highs {s4:.0%} of the time")
         if trend1 == "BEARISH":
             score += 1
-            reasons.append(f"1h_bearish_{s1:.0%}")
+            reasons.append(f"1h making lower highs {s1:.0%} of the time")
         elif trend1 == "BULLISH":
             score -= 1
-            reasons.append("1h_bullish")
+            reasons.append("1h making higher lows")
         if own <= 0:
             score += 1
-            reasons.append(f"abs_dn_{own:+.1f}%")
+            reasons.append(f"price {own:+.1f}% over the last 24h")
         else:
             score -= 1
-            reasons.append(f"abs_up_{own:+.1f}%")
+            reasons.append(f"price {own:+.1f}% over the last 24h")
         rsi_os = float(inputs.get("rsiOversold", 20))
         if rsi < rsi_os:                                    # v2-quirk: capitulation guard
             score -= 2
-            reasons.append(f"rsi_capitulation_{rsi:.0f}")
+            reasons.append(f"RSI washed out at {rsi:.0f}")
 
     return {
         "coin": asset,

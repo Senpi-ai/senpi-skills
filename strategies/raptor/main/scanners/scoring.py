@@ -139,56 +139,56 @@ def score_signal(trader, best_pos, concentration, sm, current_px, inputs):
     tcs = trader["tcs_label"]
     if tcs == "ELITE":
         score += 3
-        reasons.append(f"ELITE_tcs{trader['tcs_value']:.0f}")
+        reasons.append(f"elite-rated trader, TCS {trader['tcs_value']:.0f}")
     elif tcs == "RELIABLE":
         score += 2
-        reasons.append(f"RELIABLE_tcs{trader['tcs_value']:.0f}")
+        reasons.append(f"reliable-rated trader, TCS {trader['tcs_value']:.0f}")
     else:
         return None  # v2-quirk: non-ELITE/RELIABLE rejected inside scoring (belt-and-suspenders)
 
     trader_delta = trader["unrealized_pnl"]
     if trader_delta >= float(inputs.get("tier3Threshold", 3_000_000)):
-        score += 3; reasons.append(f"TIER3_${trader_delta/1e6:.1f}M")
+        score += 3; reasons.append(f"whale up a massive ${trader_delta/1e6:.1f}M unrealized")
     elif trader_delta >= float(inputs.get("tier2Threshold", 1_500_000)):
-        score += 2; reasons.append(f"TIER2_${trader_delta/1e6:.1f}M")
+        score += 2; reasons.append(f"whale up a large ${trader_delta/1e6:.1f}M unrealized")
     else:
-        score += 1; reasons.append(f"TIER1_${trader_delta/1e6:.1f}M")
+        score += 1; reasons.append(f"whale up ${trader_delta/1e6:.1f}M unrealized")
 
     if trader["roi"] >= 50:
-        score += 1; reasons.append(f"ROI_{trader['roi']:.0f}%")
+        score += 1; reasons.append(f"whale ROI {trader['roi']:.0f}%")
 
     if concentration >= 0.70:
-        score += 2; reasons.append(f"HIGH_CONV_{concentration:.0%}")
+        score += 2; reasons.append(f"high conviction, {concentration:.0%} of whale's book")
     elif concentration >= 0.55:
-        score += 1; reasons.append(f"CONC_{concentration:.0%}")
+        score += 1; reasons.append(f"{concentration:.0%} of the whale's book in this bet")
 
     if sm["pct"] >= 8:
-        score += 2; reasons.append(f"SM_STRONG_{sm['pct']:.1f}%")
+        score += 2; reasons.append(f"smart money strong at {sm['pct']:.1f}%")
     elif sm["pct"] >= 4:
-        score += 1; reasons.append(f"SM_ALIGNED_{sm['pct']:.1f}%")
+        score += 1; reasons.append(f"smart money aligned at {sm['pct']:.1f}%")
 
     p4h = sm["price_chg_4h"]
     p1h = sm["price_chg_1h"]
     if best_pos["direction"] == "LONG":
         if p4h > 0.5 and p1h > 0.2:
-            score += 2; reasons.append(f"4H+1H_CONFIRMS_+{p4h:.1f}/+{p1h:.1f}%")
+            score += 2; reasons.append(f"4h and 1h confirm, +{p4h:.1f}% / +{p1h:.1f}%")
         elif p4h > 0.5:
-            score += 1; reasons.append(f"4H_CONFIRMS_+{p4h:.1f}%")
+            score += 1; reasons.append(f"4h trend confirms, +{p4h:.1f}%")
         elif p4h < -2:
-            score -= 1; reasons.append(f"4H_OPPOSING_{p4h:.1f}%")
+            score -= 1; reasons.append(f"4h trend against us, {p4h:.1f}%")
     else:
         if p4h < -0.5 and p1h < -0.2:
-            score += 2; reasons.append(f"4H+1H_CONFIRMS_{p4h:.1f}/{p1h:.1f}%")
+            score += 2; reasons.append(f"4h and 1h confirm, {p4h:.1f}% / {p1h:.1f}%")
         elif p4h < -0.5:
-            score += 1; reasons.append(f"4H_CONFIRMS_{p4h:.1f}%")
+            score += 1; reasons.append(f"4h trend confirms, {p4h:.1f}%")
         elif p4h > 2:
-            score -= 1; reasons.append(f"4H_OPPOSING_+{p4h:.1f}%")
+            score -= 1; reasons.append(f"4h trend against us, +{p4h:.1f}%")
 
     c15m = sm.get("contrib_15m", 0)
     if c15m > 0.5:
-        score += 1; reasons.append(f"15M_SPIKE_+{c15m:.2f}")
+        score += 1; reasons.append(f"smart-money flow spiking, +{c15m:.2f} in 15m")
     elif c15m <= 0:
-        score -= 1; reasons.append(f"15M_STALE_{c15m:.2f}")
+        score -= 1; reasons.append(f"15m smart-money flow stale ({c15m:.2f})")
 
     # v3.2 entry-discipline BONUS — reward getting in BETTER than the whale
     whale_entry_px = best_pos.get("whale_entry_px", 0)
@@ -198,9 +198,9 @@ def score_signal(trader, best_pos, concentration, sm, current_px, inputs):
         else:
             edge_pct = ((current_px - whale_entry_px) / whale_entry_px) * 100
         if edge_pct >= 5:
-            score += 2; reasons.append(f"BETTER_THAN_WHALE_+{edge_pct:.1f}%")
+            score += 2; reasons.append(f"entry {edge_pct:.1f}% better than the whale's")
         elif edge_pct >= 2:
-            score += 1; reasons.append(f"EDGE_VS_WHALE_+{edge_pct:.1f}%")
+            score += 1; reasons.append(f"entry edge over the whale, {edge_pct:.1f}%")
 
     return {
         "asset": best_pos["asset"],

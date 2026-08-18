@@ -92,49 +92,49 @@ def score_market(m, inputs):
 
     # SM concentration (0-3)
     if pct >= 15:
-        score += 3; reasons.append(f"DOMINANT_SM {pct:.1f}% ({traders}t)")
+        score += 3; reasons.append(f"smart money dominant at {pct:.1f}% ({traders} traders)")
     elif pct >= 10:
-        score += 2; reasons.append(f"STRONG_SM {pct:.1f}% ({traders}t)")
+        score += 2; reasons.append(f"strong smart-money backing, {pct:.1f}% ({traders} traders)")
     elif pct >= 5:
-        score += 1; reasons.append(f"SM_PRESENT {pct:.1f}% ({traders}t)")
+        score += 1; reasons.append(f"smart money present at {pct:.1f}% ({traders} traders)")
 
     # 4H price alignment (0-3)
     big_move = 3.0 if is_xyz_asset else 5.0
     med_move = 1.5 if is_xyz_asset else 3.0
     if abs(p4h) >= big_move:
-        score += 3; reasons.append(f"STRONG_TREND {p4h:+.1f}%")
+        score += 3; reasons.append(f"strong 4h trend, price {p4h:+.1f}%")
     elif abs(p4h) >= med_move:
-        score += 2; reasons.append(f"TREND {p4h:+.1f}%")
+        score += 2; reasons.append(f"clear 4h trend, price {p4h:+.1f}%")
     elif abs(p4h) >= min_4h:
-        score += 1; reasons.append(f"ALIGNED {p4h:+.1f}%")
+        score += 1; reasons.append(f"price agrees, {p4h:+.1f}% over 4h")
 
     # 15m SM velocity (0-2, penalty -1 on fade)
     if cc_15m > 1.0:
-        score += 2; reasons.append(f"15M_SM_BUILDING {cc_15m:+.2f}")
+        score += 2; reasons.append(f"smart money piling in, {cc_15m:+.2f} in 15m")
     elif cc_15m > 0.3:
-        score += 1; reasons.append(f"15M_SM_FRESH {cc_15m:+.2f}")
+        score += 1; reasons.append(f"fresh smart-money interest, {cc_15m:+.2f} in 15m")
     elif cc_15m < -0.5:
-        score -= 1; reasons.append(f"15M_SM_FADING {cc_15m:+.2f}")
+        score -= 1; reasons.append(f"smart money fading, {cc_15m:+.2f} in 15m")
 
     # 1H acceleration
     if sm_direction == "LONG" and p1h > 0.5:
-        score += 1; reasons.append(f"1H_ACCEL {p1h:+.2f}%")
+        score += 1; reasons.append(f"accelerating, {p1h:+.2f}% in the last hour")
     elif sm_direction == "SHORT" and p1h < -0.5:
-        score += 1; reasons.append(f"1H_ACCEL {p1h:+.2f}%")
+        score += 1; reasons.append(f"accelerating, {p1h:+.2f}% in the last hour")
 
     # Trader depth
     if traders >= 50:
-        score += 1; reasons.append(f"DEEP_SM ({traders}t)")
+        score += 1; reasons.append(f"deep smart-money crowd ({traders} traders)")
 
     # 4H contribution shift
     if abs(cc_4h) >= 5.0:
-        score += 1; reasons.append(f"4H_CONVICTION {cc_4h:+.1f}")
+        score += 1; reasons.append(f"conviction building over 4h, {cc_4h:+.1f}")
 
     min_score = min_score_xyz if is_xyz_asset else min_score_crypto
     if score < min_score:
         return None
 
-    reasons.insert(0, f"TREND_FOLLOW {coin_label(token, is_xyz_asset)} {sm_direction}")
+    reasons.insert(0, f"trend-following {sm_direction.lower()} on {coin_label(token, is_xyz_asset)}")
 
     return {
         "asset": coin_label(token, is_xyz_asset),

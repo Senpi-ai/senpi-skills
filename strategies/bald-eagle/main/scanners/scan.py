@@ -317,17 +317,17 @@ def scan(inputs, ctx):
             # gate: spread HARD GATE (execution-quality, <0.1%)
             spread_pct, _bid, _ask = _check_spread(ctx, token)
             if spread_pct is None:
-                reasons.append("SPREAD_UNREADABLE")
+                reasons.append("order book spread unreadable")
                 continue
             if spread_pct > max_spread_pct:
-                reasons.append(f"SPREAD_WIDE {spread_pct*100:.3f}%")
+                reasons.append(f"spread too wide at {spread_pct*100:.3f}%")
                 continue
-            reasons.append(f"SPREAD_OK {spread_pct*100:.3f}%")
+            reasons.append(f"tight spread of {spread_pct*100:.3f}%")
 
             # CONTRARIAN FLIP — fade SM consensus (verbatim v2 main())
             sm_direction = cand["direction"]
             fade_dir = scoring.fade_direction(sm_direction)
-            reasons.insert(0, f"CONTRARIAN_FLIP xyz:{token} (SM is {sm_direction})")
+            reasons.insert(0, f"fading the {sm_direction} smart-money crowd on xyz:{token}")
 
             funding = 0.0
             if candle_data:

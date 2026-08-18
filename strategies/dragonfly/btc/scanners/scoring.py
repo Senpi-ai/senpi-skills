@@ -97,17 +97,17 @@ def get_session_factor(ts=None, weekend_leverage_cap=None):
     factor, labels = 1.0, []
     if dow == 0 and 0 <= hour < 8:
         factor *= 1.2
-        labels.append("mon-early x1.2")
+        labels.append("Monday early x1.2")
     if dow == 3 and 10 <= hour < 18:
         factor *= 1.3
-        labels.append("thu x1.3")
+        labels.append("Thursday x1.3")
     if dow == 4 and 14 <= hour < 20:
         factor *= 0.8
-        labels.append("fri-late x0.8")
+        labels.append("Friday late x0.8")
     if 14 <= hour < 17:
         factor *= 1.15
-        labels.append("us-open x1.15")
-    return _clamp(factor, 0.5, 1.5), None, " ".join(labels) or "base x1.0"
+        labels.append("US open x1.15")
+    return _clamp(factor, 0.5, 1.5), None, " ".join(labels) or "normal hours x1.0"
 
 
 # ── spread gate (kestrel-verbatim dual-path order-book parse) ───────────────
@@ -310,6 +310,28 @@ _FACTORS = {
 }
 
 
+# Plain-language names for the factor keys, used ONLY when rendering the
+# user-facing `reasons` strings (notifications render reasons verbatim).
+_FACTOR_LABELS = {
+    "ret4h": "4h return",
+    "align1h": "1h/4h trend alignment",
+    "volRatio": "volume surge",
+    "oiVelocity": "open interest velocity",
+    "funding": "funding-rate fade",
+    "fundingRegime": "funding regime",
+    "fundingPersistence": "funding regime persistence",
+    "smExposure": "smart-money lean",
+    "smPnl": "smart-money winners pressing",
+    "premiumOracle": "mark vs oracle premium",
+    "pairCorrelation": "pair correlation",
+    "pairGap": "pair catch-up gap",
+    "pairDivergence": "pair divergence",
+    "crossAssetFlow": "cross-asset flow",
+    "volProfile": "volume profile",
+    "volTrend": "volume trend",
+}
+
+
 def compute(view, inputs, ts=None):
     """Composite score for one asset view. Returns a thesis dict or None.
 
@@ -363,10 +385,10 @@ def compute(view, inputs, ts=None):
             leverage = min(leverage, _f(lev_cap, leverage))
         margin_pct = max(round(_f(mgn_tiers.get(band), 20) * factor, 2), 5.0)
 
-    reasons = [f"score {score:.2f} ({'HOLD' if not direction else direction} band={band})",
-               f"session {session_label}"]
+    reasons = [f"composite score {score:.2f} of 10 ({'hold' if not direction else direction.lower()}, {band} band)",
+               f"session weighting {session_label}"]
     top = sorted(components.items(), key=lambda kv: abs(kv[1]), reverse=True)[:4]
-    reasons.extend(f"{k} {v:+.2f}" for k, v in top)
+    reasons.extend(f"{_FACTOR_LABELS.get(k, k)} contributed {v:+.2f}" for k, v in top)
 
     return {
         "score": round(score, 2), "direction": direction, "band": band,

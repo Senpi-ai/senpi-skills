@@ -157,69 +157,69 @@ def score_candidate(cand, candle_data):
     pct = cand["pct"]
     if pct >= 20:
         score += 4
-        reasons.append(f"DOMINANT_SM {pct:.1f}%")
+        reasons.append(f"smart money dominant at {pct:.1f}%")
     elif pct >= 10:
         score += 3
-        reasons.append(f"HIGH_SM {pct:.1f}%")
+        reasons.append(f"heavy smart-money interest at {pct:.1f}%")
     elif pct >= 5:
         score += 2
-        reasons.append(f"SOLID_SM {pct:.1f}%")
+        reasons.append(f"solid smart-money interest at {pct:.1f}%")
     elif pct >= 3:
         score += 1
-        reasons.append(f"BASE_SM {pct:.1f}%")
+        reasons.append(f"some smart-money interest at {pct:.1f}%")
 
     # ── Trader depth (0-2 pts) ──
     traders = cand["traders"]
     if traders >= 100:
         score += 2
-        reasons.append(f"DEEP_SM ({traders}t)")
+        reasons.append(f"{traders} smart-money traders in this market")
     elif traders >= 30:
         score += 1
-        reasons.append(f"SM_ACTIVE ({traders}t)")
+        reasons.append(f"{traders} smart-money traders active")
 
     # ── SM contribution velocity (0-3 pts) ──
     c1h = cand["contrib_chg_1h"]
     c4h = cand["contrib_chg_4h"]
     if c1h > 5:
         score += 2
-        reasons.append(f"CONTRIB_SURGE_1H +{c1h:.1f}%")
+        reasons.append(f"top-trader gain share surged +{c1h:.1f}% in 1h")
     elif c1h > 2:
         score += 1
-        reasons.append(f"CONTRIB_RISING_1H +{c1h:.1f}%")
+        reasons.append(f"top-trader gain share rising +{c1h:.1f}% in 1h")
     if c4h > 3 and c1h > 0:
         score += 1
-        reasons.append(f"CONTRIB_SUSTAINED_4H +{c4h:.1f}%")
+        reasons.append(f"top-trader gain share up +{c4h:.1f}% over 4h")
 
     # ── 4H price alignment (±2 pts) ──
     p4h = cand["price_chg_4h"]
     if direction == "LONG" and p4h > 0.5:
         score += 2
-        reasons.append(f"4H_ALIGNED +{p4h:.1f}%")
+        reasons.append(f"4h price move +{p4h:.1f}% agrees with smart money")
     elif direction == "SHORT" and p4h < -0.5:
         score += 2
-        reasons.append(f"4H_ALIGNED {p4h:.1f}%")
+        reasons.append(f"4h price move {p4h:.1f}% agrees with smart money")
     elif direction == "LONG" and p4h > 0:
         score += 1
-        reasons.append(f"4H_POSITIVE +{p4h:.2f}%")
+        reasons.append(f"4h price edging +{p4h:.2f}% the same way")
     elif direction == "SHORT" and p4h < 0:
         score += 1
-        reasons.append(f"4H_POSITIVE {p4h:.2f}%")
+        reasons.append(f"4h price edging {p4h:.2f}% the same way")
     elif direction == "LONG" and p4h < -1:
         score -= 1
-        reasons.append(f"4H_OPPOSING {p4h:.1f}%")
+        reasons.append(f"4h price move {p4h:.1f}% against smart money")
     elif direction == "SHORT" and p4h > 1:
         score -= 1
-        reasons.append(f"4H_OPPOSING +{p4h:.1f}%")
+        reasons.append(f"4h price move +{p4h:.1f}% against smart money")
 
     # ── MOVE EXHAUSTION BONUS (XYZ-tuned: 1-2% vs crypto 3-5%) ──
     if abs(p4h) >= 2.0:
         if (direction == "LONG" and p4h > 0) or (direction == "SHORT" and p4h < 0):
             score += 2
-            reasons.append(f"DEEP_EXHAUSTION {p4h:+.1f}%")
+            reasons.append(f"move looks very stretched at {p4h:+.1f}% in 4h")
     elif abs(p4h) >= 1.0:
         if (direction == "LONG" and p4h > 0) or (direction == "SHORT" and p4h < 0):
             score += 1
-            reasons.append(f"EXHAUSTION {p4h:+.1f}%")
+            reasons.append(f"move looks stretched at {p4h:+.1f}% in 4h")
 
     # ── Technical scoring from candles ──
     if candle_data:
@@ -232,12 +232,12 @@ def score_candidate(cand, candle_data):
             if (direction == "LONG" and trend_4h == "BULLISH") or \
                (direction == "SHORT" and trend_4h == "BEARISH"):
                 score += 2
-                reasons.append(f"4H_TREND_{trend_4h} {strength:.0%}")
+                reasons.append(f"4h trend {trend_4h.lower()} ({strength:.0%} strength)")
             elif trend_4h != "NEUTRAL" and \
                  ((direction == "LONG" and trend_4h == "BEARISH") or
                   (direction == "SHORT" and trend_4h == "BULLISH")):
                 score -= 1
-                reasons.append("4H_TREND_OPPOSING")
+                reasons.append("4h trend pointing the other way")
 
         # 1H momentum (0-1 pts)
         if len(candles_1h) >= 4:
@@ -245,14 +245,14 @@ def score_candidate(cand, candle_data):
             if (direction == "LONG" and mom_1h > 0.3) or \
                (direction == "SHORT" and mom_1h < -0.3):
                 score += 1
-                reasons.append(f"1H_MOMENTUM {mom_1h:+.2f}%")
+                reasons.append(f"1h momentum {mom_1h:+.2f}%")
 
         # Volume trend (0-1 pts)
         if len(candles_1h) >= 8:
             vol = volume_trend(candles_1h)
             if vol > 15:
                 score += 1
-                reasons.append(f"VOL_RISING +{vol:.0f}%")
+                reasons.append(f"volume rising +{vol:.0f}%")
 
         # Funding alignment (0-1 pts)
         asset_ctx = candle_data.get("asset_context", candle_data)
@@ -260,7 +260,7 @@ def score_candidate(cand, candle_data):
         if (direction == "LONG" and funding < -0.005) or \
            (direction == "SHORT" and funding > 0.005):
             score += 1
-            reasons.append(f"FUNDING_ALIGNED {funding:+.4f}")
+            reasons.append(f"funding rate {funding:+.4f} favors this side")
 
     return score, reasons
 

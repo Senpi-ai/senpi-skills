@@ -177,20 +177,20 @@ def build_thesis(coin, candles_1h, candles_4h, sm, inputs):
     score = 0
     reasons = []
     score += 3
-    reasons.append(f"4h_{t4.lower()}_{s4:.0%}")
+    reasons.append(f"4h trend {t4.lower()} ({s4:.0%} of bars)")
     if (direction == "LONG" and t1 == "BULLISH") or (direction == "SHORT" and t1 == "BEARISH"):
         score += 2
-        reasons.append(f"1h_confirms_{t1.lower()}")
+        reasons.append(f"1h trend {t1.lower()} confirms")
     score += 2
     # v2-quirk: the "sm_aligned" reason uses strict > DEFAULT_SM_TILT_MIN (55),
     # NOT the configurable sm_min — reproduced exactly.
     reasons.append(
-        f"sm_aligned_{sm_tilt:.0f}%" if sm_tilt > DEFAULT_SM_TILT_MIN
-        else "sm_data_sparse_assumed_aligned"
+        f"smart money aligned at {sm_tilt:.0f}%" if sm_tilt > DEFAULT_SM_TILT_MIN
+        else "smart-money data sparse, assumed aligned"
     )
     if sm_tilt >= sm_strong:
         score += 1
-        reasons.append("sm_strongly_tilted")
+        reasons.append("smart money strongly tilted this way")
 
     return {
         "coin": coin,

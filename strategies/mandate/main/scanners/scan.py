@@ -117,7 +117,7 @@ def scan(inputs, ctx):
             if not scoring.passes_fee_hurdle(edge, inputs):
                 continue
             scored.append({"coin": coin, "cls": cls, "score": score, "edge": edge,
-                           "reasons": reasons + [f"edge {edge:.2f}% clears fee hurdle"]})
+                           "reasons": reasons + [f"expected move {edge:.2f}% clears fee hurdle"]})
 
     scored.sort(key=lambda s: s["score"], reverse=True)
     out = []

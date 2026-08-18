@@ -252,15 +252,15 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_velocity, sm, regime,
     reasons = []
 
     score += 3
-    reasons.append(f"4h_{trend_4h.lower()}_{ts_4h:.0%}")
+    reasons.append(f"4h trend {trend_4h.lower()} at {ts_4h:.0%} strength")
     score += 2
-    reasons.append(f"1h_confirms_{mom_1h:+.2f}%")
+    reasons.append(f"1h momentum confirms at {mom_1h:+.2f}%")
     if strong_15m:
         score += 1
-        reasons.append(f"15m_strong_{mom_15m:+.2f}%")
+        reasons.append(f"strong 15m momentum {mom_15m:+.2f}%")
     if aligned_5m:
         score += 1
-        reasons.append("4TF_aligned")
+        reasons.append("all four timeframes aligned")
 
     # ── SM positioning — HARD BLOCK if opposes (the macro-conviction gate) ──
     sm_dir = sm.get("direction") if sm else None
@@ -269,32 +269,32 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_velocity, sm, regime,
     sm_cc_15m = _f(sm.get("cc_15m", 0)) if sm else 0.0
     if sm_dir == direction:
         score += 2
-        reasons.append(f"sm_aligned_{sm_pct:.0f}%_{sm_count}traders")
+        reasons.append(f"smart money aligned: {sm_pct:.0f}% ({sm_count} traders)")
         if sm_pct > 65:
             score += 1
-            reasons.append("sm_strongly_tilted")
+            reasons.append("smart money strongly tilted this way")
     elif sm_dir and sm_dir != "NEUTRAL" and sm_dir != direction:
         return None  # sm_opposes — HARD BLOCK
 
     # ── SM 15m freshness ──
     if sm_cc_15m <= 0:
         score -= 3
-        reasons.append(f"15M_STALE_PENALTY ({sm_cc_15m:.2f})")
+        reasons.append(f"smart money interest stale ({sm_cc_15m:.2f} in 15m)")
     elif sm_cc_15m > 0.5:
         score += 1
-        reasons.append(f"15M_FRESH +{sm_cc_15m:.2f}")
+        reasons.append(f"smart money interest fresh, +{sm_cc_15m:.2f} in 15m")
 
     # ── Funding alignment ──
     if direction == "LONG" and funding < 0:
         score += 2
-        reasons.append(f"funding_pays_longs_{funding:+.4f}")
+        reasons.append(f"funding pays longs ({funding:+.4f})")
     elif direction == "SHORT" and funding > 0:
         score += 2
-        reasons.append(f"funding_pays_shorts_{funding:+.4f}")
+        reasons.append(f"funding pays shorts ({funding:+.4f})")
     elif (direction == "LONG" and funding > funding_crowded) or \
          (direction == "SHORT" and funding < -funding_crowded):
         score -= 1
-        reasons.append(f"funding_crowded_{funding:+.4f}")
+        reasons.append(f"funding crowded at {funding:+.4f}")
 
     # ── MACRO / REGIME GATE (scoring layer): market-wide funding regime ──
     # regime is the market-wide crowding signal (market_get_funding_regime):
@@ -303,37 +303,37 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_velocity, sm, regime,
     # regime (None) is neutral — degrade, never block.
     if regime == "LONG_CROWDED" and direction == "LONG":
         score += 1
-        reasons.append("REGIME_LONG_CROWDED_aligned")
+        reasons.append("market crowd leans long, trade agrees")
     elif regime == "SHORT_CROWDED" and direction == "SHORT":
         score += 1
-        reasons.append("REGIME_SHORT_CROWDED_aligned")
+        reasons.append("market crowd leans short, trade agrees")
     elif regime == "LONG_CROWDED" and direction == "SHORT":
         score -= 1
-        reasons.append("REGIME_LONG_CROWDED_fighting")
+        reasons.append("market crowd leans long, trade fights it")
     elif regime == "SHORT_CROWDED" and direction == "LONG":
         score -= 1
-        reasons.append("REGIME_SHORT_CROWDED_fighting")
+        reasons.append("market crowd leans short, trade fights it")
     elif regime is not None:
-        reasons.append(f"REGIME_{regime}")
+        reasons.append(f"market regime: {regime.replace('_', ' ').lower()}")
 
     # ── Funding persistence (macro/regime: how long the regime has held) ──
     if persistence_h is not None and persistence_h >= 6:
         score += 1
-        reasons.append(f"FUNDING_PERSISTENT_{persistence_h:.0f}h")
+        reasons.append(f"funding regime has held {persistence_h:.0f}h")
 
     # ── Volume ──
     vol_1h = volume_ratio(c1h)
     if vol_1h >= 1.2:
         score += 1
-        reasons.append(f"vol_{vol_1h:.1f}x")
+        reasons.append(f"volume {vol_1h:.1f}x the recent average")
     elif vol_1h < 0.7:
         score -= 1
-        reasons.append("vol_weak")
+        reasons.append("volume below average")
 
     vt = volume_trend(c1h)
     if vt > 15:
         score += 1
-        reasons.append(f"vol_rising_{vt:+.0f}%")
+        reasons.append(f"volume rising {vt:+.0f}%")
 
     # ── OI velocity ──
     oi_change = None
@@ -344,13 +344,13 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_velocity, sm, regime,
                 oi_change = float(oi_raw)
                 if oi_change > 5:
                     score += 2
-                    reasons.append(f"OI_ACCELERATING_{oi_change:+.1f}%")
+                    reasons.append(f"open interest jumping {oi_change:+.1f}% in 1h")
                 elif oi_change > 2:
                     score += 1
-                    reasons.append(f"OI_rising_{oi_change:+.1f}%")
+                    reasons.append(f"open interest up {oi_change:+.1f}% in 1h")
                 elif oi_change < -3:
                     score -= 1
-                    reasons.append(f"OI_draining_{oi_change:+.1f}%")
+                    reasons.append(f"open interest draining {oi_change:+.1f}% in 1h")
             except (TypeError, ValueError):
                 oi_change = None
 
@@ -360,7 +360,7 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_velocity, sm, regime,
                      (direction == "SHORT" and btc_mom_15m < 0 and btc_mom_1h < 0)
         if btc_agrees:
             score += 1
-            reasons.append(f"btc_confirms_{btc_mom_1h:+.2f}%")
+            reasons.append(f"BTC moving the same way ({btc_mom_1h:+.2f}% 1h)")
 
     # ── RSI hard gates + room bonus ──
     closes_1h = [_close(c) for c in c1h]
@@ -371,22 +371,22 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_velocity, sm, regime,
         return None  # rsi_oversold — HARD GATE
     if (direction == "LONG" and r < 55) or (direction == "SHORT" and r > 45):
         score += 1
-        reasons.append(f"rsi_room_{r:.0f}")
+        reasons.append(f"RSI {r:.0f} leaves room to run")
 
     # ── 4h momentum bonus ──
     if abs(mom_4h) > STRONG_4H_PCT:
         score += 1
-        reasons.append(f"4h_strong_{mom_4h:+.1f}%")
+        reasons.append(f"strong 4h move {mom_4h:+.1f}%")
 
     # ── Move-exhaustion penalty ──
     if abs(mom_4h) >= MOVE_EXHAUSTION_PCT:
         if (direction == "LONG" and mom_4h > 0) or (direction == "SHORT" and mom_4h < 0):
             score -= 2
-            reasons.append(f"MOVE_EXHAUSTION_{mom_4h:+.1f}%")
+            reasons.append(f"move may be exhausted at {mom_4h:+.1f}% in 4h")
     elif abs(mom_4h) >= MOVE_TIRING_PCT:
         if (direction == "LONG" and mom_4h > 0) or (direction == "SHORT" and mom_4h < 0):
             score -= 1
-            reasons.append(f"MOVE_TIRING_{mom_4h:+.1f}%")
+            reasons.append(f"move tiring at {mom_4h:+.1f}% in 4h")
 
     return {
         "direction": direction,

@@ -172,15 +172,16 @@ def trend_thesis(coin, candles_4h, er, struct, strength, oi_vel, inputs):
         return None                      # flat/falling OI: short-covering, not new commitment
 
     direction = "LONG" if struct == "UP" else "SHORT"
-    score, reasons = 3, [f"4h {struct} structure (strength {strength:.2f})", f"ER {er:.2f} = trending"]
+    score, reasons = 3, [f"4-hour trend is {struct} (strength {strength:.2f})",
+                         f"clean directional move (efficiency {er:.2f})"]
     score += 2 if er >= float(inputs.get("strongErThreshold", 0.55)) else 1
 
     if oi_vel >= strong_oi_vel:
         score += 2
-        reasons.append(f"OI +{oi_vel:.2f}% — strong new commitment")
+        reasons.append(f"open interest up {oi_vel:.2f}%, strong new money")
     else:
         score += 1
-        reasons.append(f"OI +{oi_vel:.2f}% — rising")
+        reasons.append(f"open interest rising {oi_vel:.2f}%")
 
     pb = pullback_pct(candles_4h, direction)
     if pb > max_pullback:
@@ -227,25 +228,25 @@ def range_thesis(coin, candles_4h, er, funding_apr, inputs):
         return None                      # mid-range: no edge, and the fee is certain
 
     score = 4
-    reasons = [f"at the range {'low' if direction == 'LONG' else 'high'} (pos {pos:.2f})",
-               f"ER {er:.2f} = ranging"]
+    reasons = [f"price at the range {'low' if direction == 'LONG' else 'high'} ({pos:.2f})",
+               f"price chopping sideways (efficiency {er:.2f})"]
     width_pct = (hi - lo) / lo * 100.0 if lo > 0 else 0.0
     if width_pct >= float(inputs.get("minRangeWidthPct", 3.0)):
         score += 2
-        reasons.append(f"range is {width_pct:.1f}% wide — worth fading")
+        reasons.append(f"range is {width_pct:.1f}% wide, enough to trade")
     else:
         return None                      # too tight to clear fees on the round trip
 
     if abs(funding_apr) <= calm_apr:
         score += 2
-        reasons.append(f"funding calm ({funding_apr:+.1f}% APR)")
+        reasons.append(f"funding is calm ({funding_apr:+.1f}% APR)")
     else:
         score += 1
         reasons.append(f"funding elevated but not extreme ({funding_apr:+.1f}% APR)")
 
     if pos <= buy_below / 2 or pos >= 1 - (1 - sell_above) / 2:
         score += 1
-        reasons.append("deep at the edge")
+        reasons.append("price deep at the edge of the range")
 
     return {"coin": coin, "direction": direction, "score": score, "regime": "RANGE",
             "er": round(er, 4), "structure": None, "oi_velocity_pct": None,

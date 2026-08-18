@@ -241,13 +241,13 @@ def build_thesis(coin, candles_4h, candles_1h, sm, current_min_score, inputs):
     if score < current_min_score:
         return None
 
-    reasons = [f"trend4h_{move_4h:+.1f}%", f"score_{score}", f"floor_{current_min_score}"]
+    reasons = [f"price {move_4h:+.1f}% over 24h", f"signal score {score}", f"score floor {current_min_score}"]
     if one_h_aligned:
-        reasons.append("1h_aligned")
+        reasons.append("1h move aligned")
     if sm_aligned:
-        reasons.append(f"sm_{sm_tilt:.0f}%")
+        reasons.append(f"smart money tilted {sm_tilt:.0f}% this way")
     if vol_rising:
-        reasons.append("vol_rising")
+        reasons.append("volume rising")
 
     return {
         "coin": coin,

@@ -115,26 +115,26 @@ def score_carry(asset, candles_1h, candles_4h, fund, own24h, leg, inputs):
             score += 2
         else:
             score += 1
-        reasons.append(f"funding_short_{ann:+.0f}%/yr")
+        reasons.append(f"funding {ann:+.0f}%/yr pays shorts")
         # v2-quirk: never short a fresh uptrend — squeeze risk dwarfs the carry.
         if trend4 == "BULLISH":
             return None
         if trend4 == "BEARISH":
             score += 2
-            reasons.append(f"4h_bearish_{s4:.0%}")
+            reasons.append(f"4h trend bearish at {s4:.0%} strength")
         else:
             score += 1
-            reasons.append("4h_neutral")
+            reasons.append("4h trend flat")
         rsi_ob = float(inputs.get("rsiOverbought", 70))
         if rsi >= rsi_ob:
             score += 1
-            reasons.append(f"rsi_ob_{rsi:.0f}")
+            reasons.append(f"RSI overbought at {rsi:.0f}")
         if own <= 0:
             score += 1
-            reasons.append(f"rolling_over_{own:+.1f}%")
+            reasons.append(f"price rolling over, {own:+.1f}% in 24h")
         elif own >= 5:
             score -= 1
-            reasons.append(f"still_ripping_{own:+.1f}%")
+            reasons.append(f"still rallying, {own:+.1f}% in 24h")
     else:  # payout
         # v2-quirk: need meaningful NEGATIVE funding to long-collect.
         if fund > -floor:
@@ -145,26 +145,26 @@ def score_carry(asset, candles_1h, candles_4h, fund, own24h, leg, inputs):
             score += 2
         else:
             score += 1
-        reasons.append(f"funding_long_{ann:+.0f}%/yr")
+        reasons.append(f"funding {ann:+.0f}%/yr pays longs")
         # v2-quirk: never long a fresh downtrend — don't catch a knife.
         if trend4 == "BEARISH":
             return None
         if trend4 == "BULLISH":
             score += 2
-            reasons.append(f"4h_bullish_{s4:.0%}")
+            reasons.append(f"4h trend bullish at {s4:.0%} strength")
         else:
             score += 1
-            reasons.append("4h_neutral")
+            reasons.append("4h trend flat")
         rsi_os = float(inputs.get("rsiOversold", 30))
         if rsi <= rsi_os:
             score += 1
-            reasons.append(f"rsi_os_{rsi:.0f}")
+            reasons.append(f"RSI oversold at {rsi:.0f}")
         if own >= 0:
             score += 1
-            reasons.append(f"bouncing_{own:+.1f}%")
+            reasons.append(f"price bouncing, {own:+.1f}% in 24h")
         elif own <= -5:
             score -= 1
-            reasons.append(f"still_crashing_{own:+.1f}%")
+            reasons.append(f"still falling, {own:+.1f}% in 24h")
 
     return {
         "coin": asset,

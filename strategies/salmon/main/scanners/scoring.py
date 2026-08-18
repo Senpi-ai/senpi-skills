@@ -112,22 +112,22 @@ def _reversion_score(depth, turn, pm):
     more strongly (|pm| = last-bar % move). Range 1..8."""
     score, reasons = 0, []
     if depth >= 18:
-        score += 4; reasons.append(f"depth_{depth:.0f}")
+        score += 4; reasons.append(f"RSI overshot the trigger by {depth:.0f} pts")
     elif depth >= 12:
-        score += 3; reasons.append(f"depth_{depth:.0f}")
+        score += 3; reasons.append(f"RSI overshot the trigger by {depth:.0f} pts")
     elif depth >= 6:
-        score += 2; reasons.append(f"depth_{depth:.0f}")
+        score += 2; reasons.append(f"RSI overshot the trigger by {depth:.0f} pts")
     else:
-        score += 1; reasons.append(f"depth_{depth:.0f}")
+        score += 1; reasons.append(f"RSI overshot the trigger by {depth:.0f} pts")
     if turn >= 10:
-        score += 2; reasons.append(f"turn_{turn:.0f}")
+        score += 2; reasons.append(f"RSI turned back {turn:.0f} pts in one bar")
     elif turn >= 4:
-        score += 1; reasons.append(f"turn_{turn:.0f}")
+        score += 1; reasons.append(f"RSI turned back {turn:.0f} pts in one bar")
     apm = abs(pm)
     if apm >= 1.0:
-        score += 2; reasons.append(f"px_{pm:+.2f}%")
+        score += 2; reasons.append(f"last candle moved {pm:+.2f}%")
     elif apm >= 0.3:
-        score += 1; reasons.append(f"px_{pm:+.2f}%")
+        score += 1; reasons.append(f"last candle moved {pm:+.2f}%")
     return score, reasons
 
 
@@ -164,7 +164,8 @@ def oversold_bounce(candles, inputs):
         depth, turn, pm = oversold - min_recent, cur - prev, price_momentum(candles, 1)
         score, comp = _reversion_score(depth, turn, pm)
         return {"direction": "LONG", "score": score, "rsi": round(cur, 1),
-                "reasons": [f"rsi_cross_up_{prev:.0f}->{cur:.0f}", f"min_rsi_{min_recent:.0f}"] + comp}
+                "reasons": [f"RSI crossed back up from {prev:.0f} to {cur:.0f}",
+                            f"RSI bottomed at {min_recent:.0f}"] + comp}
 
     # SHORT — popped above overbought, now crossed back down, RSI falling, price confirms
     max_recent = max(window)
@@ -172,7 +173,8 @@ def oversold_bounce(candles, inputs):
         depth, turn, pm = max_recent - overbought, prev - cur, price_momentum(candles, 1)
         score, comp = _reversion_score(depth, turn, pm)
         return {"direction": "SHORT", "score": score, "rsi": round(cur, 1),
-                "reasons": [f"rsi_cross_down_{prev:.0f}->{cur:.0f}", f"max_rsi_{max_recent:.0f}"] + comp}
+                "reasons": [f"RSI crossed back down from {prev:.0f} to {cur:.0f}",
+                            f"RSI peaked at {max_recent:.0f}"] + comp}
 
     return None
 

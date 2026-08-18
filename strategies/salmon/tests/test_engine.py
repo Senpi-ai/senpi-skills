@@ -56,7 +56,7 @@ def test_oversold_bounce_long_on_confirmed_cross_up():
     assert sig["direction"] == "LONG"
     assert sig["score"] > 0
     assert sig["rsi"] >= 30                       # current RSI is back above the oversold line
-    assert any("cross_up" in r for r in sig["reasons"])
+    assert any("crossed back up" in r for r in sig["reasons"])
 
 
 def test_oversold_bounce_none_when_still_falling():
@@ -71,7 +71,7 @@ def test_oversold_bounce_short_on_overbought_symmetric():
     assert sig["direction"] == "SHORT"
     assert sig["score"] > 0
     assert sig["rsi"] <= 70                       # current RSI is back below the overbought line
-    assert any("cross_down" in r for r in sig["reasons"])
+    assert any("crossed back down" in r for r in sig["reasons"])
 
 
 def test_oversold_bounce_none_on_short_history():

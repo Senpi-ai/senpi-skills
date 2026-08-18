@@ -391,7 +391,7 @@ def scan(inputs, ctx):
         # defense-in-depth dedup: skip if pushed within the race window
         au = c["asset"].upper()
         if recent.get(au) is not None and (now - recent[au]) < ttl:
-            c["reasons"].append("DEDUP_SKIP")
+            c["reasons"].append("skipped: already signaled recently")
             continue
         spread_bps = fetch_spread_bps(ctx, c["asset"])
         if not scoring.apply_spread_bonus(c, spread_bps, max_spread):

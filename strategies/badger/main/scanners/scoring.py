@@ -160,33 +160,33 @@ def build_thesis(coin, direction, bo_dir, bo_mag, oi_pct, oi_src,
         score += 2
     else:
         score += 1
-    reasons.append(f"breakout_{bo_dir.lower()}_{bo_mag:+.2f}%")
+    reasons.append(f"price broke {bo_dir.lower()} out of its range by {bo_mag:+.2f}%")
 
     # OI rising (gate-confirmed) + strongly-building bonus
     score += 2
-    reasons.append(f"oi_rising_{oi_pct:+.1f}%_{oi_src}")
+    reasons.append(f"open interest up {oi_pct:+.1f}% in 1h")
     if oi_pct >= oi_strong:
         score += 1
-        reasons.append("oi_strongly_building")
+        reasons.append("open interest building fast")
 
     # SM aligned (gate-confirmed) + strong bonus
     score += 2
-    reasons.append(f"sm_aligned_{sm_tilt:.0f}%")
+    reasons.append(f"smart money {sm_tilt:.0f}% on this side")
     if sm_tilt >= sm_strong:
         score += 1
-        reasons.append("sm_strongly_tilted")
+        reasons.append("smart money heavily tilted this way")
 
     # 4h structure confirms breakout direction
     if (direction == "LONG" and trend_4h == "BULLISH") or \
        (direction == "SHORT" and trend_4h == "BEARISH"):
         score += 1
-        reasons.append(f"4h_confirms_{trend_4h.lower()}")
+        reasons.append(f"4h trend also {trend_4h.lower()}")
 
     # Volume rising bonus
     vol_pct = volume_trend(candles_1h)
     if vol_pct > 10:
         score += 1
-        reasons.append(f"vol_rising_{vol_pct:+.0f}%")
+        reasons.append(f"volume rising {vol_pct:+.0f}%")
 
     return {
         "coin": coin,

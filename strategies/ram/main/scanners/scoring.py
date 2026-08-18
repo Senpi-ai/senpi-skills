@@ -191,75 +191,75 @@ def build_thesis(coin, candles_1h, candles_4h, funding, sm, risk_off, inputs):
     # 4H trend structure (+3 / -1)
     if trend_4h != "NEUTRAL":
         if (direction == "LONG") == (trend_4h == "BULLISH"):
-            score += 3; reasons.append(f"4h_{trend_4h.lower()}_{trend_strength:.0%}")
+            score += 3; reasons.append(f"4h trend {trend_4h.lower()}, {trend_strength:.0%} strength")
         else:
-            score -= 1; reasons.append(f"4h_opposing_{trend_4h.lower()}")
+            score -= 1; reasons.append(f"4h trend against us ({trend_4h.lower()})")
 
     # 1H trend agreement (+2 / -1)
     if trend_1h != "NEUTRAL":
         if (direction == "LONG") == (trend_1h == "BULLISH"):
-            score += 2; reasons.append(f"1h_confirms_{trend_1h.lower()}")
+            score += 2; reasons.append(f"1h trend confirms ({trend_1h.lower()})")
         else:
-            score -= 1; reasons.append(f"1h_opposing_{trend_1h.lower()}")
+            score -= 1; reasons.append(f"1h trend against us ({trend_1h.lower()})")
 
     # 1H momentum (+2 / +1 / -1)
     if direction == "LONG":
         if mom_1h >= 1.0:
-            score += 2; reasons.append(f"1h_strong_momentum_{mom_1h:+.2f}%")
+            score += 2; reasons.append(f"strong 1h momentum, {mom_1h:+.2f}%")
         elif mom_1h >= 0.5:
-            score += 1; reasons.append(f"1h_momentum_{mom_1h:+.2f}%")
+            score += 1; reasons.append(f"1h momentum {mom_1h:+.2f}%")
         elif mom_1h < -0.5:
-            score -= 1; reasons.append(f"1h_counter_{mom_1h:+.2f}%")
+            score -= 1; reasons.append(f"1h momentum against us, {mom_1h:+.2f}%")
     else:
         if mom_1h <= -1.0:
-            score += 2; reasons.append(f"1h_strong_momentum_{mom_1h:+.2f}%")
+            score += 2; reasons.append(f"strong 1h momentum, {mom_1h:+.2f}%")
         elif mom_1h <= -0.5:
-            score += 1; reasons.append(f"1h_momentum_{mom_1h:+.2f}%")
+            score += 1; reasons.append(f"1h momentum {mom_1h:+.2f}%")
         elif mom_1h > 0.5:
-            score -= 1; reasons.append(f"1h_counter_{mom_1h:+.2f}%")
+            score -= 1; reasons.append(f"1h momentum against us, {mom_1h:+.2f}%")
 
     # SM alignment (+-2) — inert when sm is (None, 0), as in bison
     if sm_dir == direction and sm_dir:
-        score += 2; reasons.append(f"sm_aligned_{_f(sm_pct):.0f}%")
+        score += 2; reasons.append(f"smart money aligned at {_f(sm_pct):.0f}%")
     elif sm_dir and sm_dir != "NEUTRAL" and sm_dir != direction:
-        score -= 2; reasons.append(f"sm_opposing_{sm_dir}")
+        score -= 2; reasons.append(f"smart money on the other side ({sm_dir})")
 
     # Funding alignment (+2 / -1)
     if (direction == "LONG" and funding < 0) or (direction == "SHORT" and funding > 0):
-        score += 2; reasons.append(f"funding_aligned_{funding:+.4f}")
+        score += 2; reasons.append(f"funding favors this side ({funding:+.4f})")
     elif (direction == "LONG" and funding > 0.01) or (direction == "SHORT" and funding < -0.005):
-        score -= 1; reasons.append("funding_crowded")
+        score -= 1; reasons.append("funding crowded on this side")
 
     # Volume trend (+1)
     vol_1h = volume_trend(candles_1h)
     if vol_1h > min_vol_trend:
-        score += 1; reasons.append(f"vol_rising_{vol_1h:+.0f}%")
+        score += 1; reasons.append(f"volume rising, {vol_1h:+.0f}%")
 
     # OI proxy (+1) — recent-3 vs earlier-3 1h volume delta (verbatim)
     vol_recent = sum(_vol(c) for c in candles_1h[-3:])
     vol_earlier = sum(_vol(c) for c in candles_1h[-6:-3])
     oi_proxy = ((vol_recent - vol_earlier) / vol_earlier * 100) if vol_earlier > 0 else 0
     if oi_proxy > 10:
-        score += 1; reasons.append(f"oi_growing_{oi_proxy:+.0f}%")
+        score += 1; reasons.append(f"trading activity growing, {oi_proxy:+.0f}%")
 
     # RSI room (+1 / -1)
     closes_1h = [_close(c) for c in candles_1h]
     rsi = calc_rsi(closes_1h)
     if direction == "LONG" and rsi > rsi_max_long:
-        score -= 1; reasons.append(f"rsi_overbought_{rsi:.0f}")
+        score -= 1; reasons.append(f"RSI overbought at {rsi:.0f}")
     elif direction == "SHORT" and rsi < rsi_min_short:
-        score -= 1; reasons.append(f"rsi_oversold_{rsi:.0f}")
+        score -= 1; reasons.append(f"RSI oversold at {rsi:.0f}")
     elif (direction == "LONG" and rsi < 55) or (direction == "SHORT" and rsi > 45):
-        score += 1; reasons.append(f"rsi_room_{rsi:.0f}")
+        score += 1; reasons.append(f"RSI at {rsi:.0f}, room to run")
 
     # 4H momentum (+1)
     mom_4h = price_momentum(candles_4h, 1)
     if abs(mom_4h) > 1.5 and ((direction == "LONG") == (mom_4h > 0)):
-        score += 1; reasons.append(f"4h_momentum_{mom_4h:+.1f}%")
+        score += 1; reasons.append(f"4h momentum {mom_4h:+.1f}%")
 
     # ── SAFE-HAVEN TILT (metals-specific; LONG only) ──
     if risk_off and direction == "LONG":
-        score += sh_bonus; reasons.append(f"safe_haven_bid_+{sh_bonus:g}")
+        score += sh_bonus; reasons.append(f"safe-haven bid in risk-off, +{sh_bonus:g}")
 
     return {"coin": coin, "direction": direction, "score": score, "reasons": reasons,
             "price": price, "trend_4h": trend_4h, "trend_1h": trend_1h,

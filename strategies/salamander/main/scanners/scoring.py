@@ -160,25 +160,25 @@ def build_thesis(coin, candles_1h, candles_4h, sm, inputs):
 
     # 4h trend aligned (gate-confirmed, this is the foundation) (+3)
     score += 3
-    reasons.append(f"4h_{t4.lower()}_trend")
+    reasons.append(f"4h trend is {t4.lower()}")
 
     # Pullback in the 3-7% sweet spot (gate-confirmed) (+2)
     score += 2
-    reasons.append(f"pullback_{pullback_pct:+.2f}%")
+    reasons.append(f"price pulled back {pullback_pct:+.2f}% against the trend")
 
     # Midpoint bonus (4-6% ideal — too shallow = noise, too deep = trend break) (+1)
     if 4.0 <= pullback_pct <= 6.0:
         score += 1
-        reasons.append("pullback_in_midpoint")
+        reasons.append("pullback in the ideal 4-6% zone")
 
     # SM aligned (gate-confirmed) (+2)
     score += 2
-    reasons.append(f"sm_aligned_{sm_tilt:.0f}%")
+    reasons.append(f"smart money {sm_tilt:.0f}% on the same side")
 
     # SM strongly tilted (>= 70%) (+1)
     if sm_tilt >= sm_strong:
         score += 1
-        reasons.append("sm_strongly_tilted")
+        reasons.append("smart money strongly one-sided")
 
     return {
         "coin": coin,

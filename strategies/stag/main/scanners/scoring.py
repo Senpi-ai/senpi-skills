@@ -120,21 +120,21 @@ def parabolic_score(trend_pct, accelerating, vol_passed, vol_ratio, sm_aligned, 
     """Composite score for a parabolic setup. Gate (caller-side) is all-5
     pass; this scores HOW strong the setup is among passing candidates."""
     score = 3   # base — all five gates passed
-    reasons = [f"trend_{trend_pct:+.1f}%"]
+    reasons = [f"price up {trend_pct:+.1f}% in this run"]
     if trend_pct >= strong_trend_pct:
         score += 2
-        reasons.append(f"strong_{trend_pct:+.1f}%")
+        reasons.append(f"a very strong {trend_pct:+.1f}% run")
     if accelerating:
         score += 1
-        reasons.append("accelerating")
+        reasons.append("the move is accelerating")
     if vol_passed and vol_ratio is not None:
         if vol_ratio >= 2.0:
             score += 1
-            reasons.append(f"vol_surge_{vol_ratio:.1f}x")
+            reasons.append(f"volume surging at {vol_ratio:.1f}x normal")
         else:
-            reasons.append(f"vol_{vol_ratio:.1f}x")
+            reasons.append(f"volume {vol_ratio:.1f}x normal")
     if sm_aligned:
-        reasons.append("sm_aligned")
+        reasons.append("smart money is long too")
     return score, reasons
 
 

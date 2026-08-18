@@ -81,18 +81,18 @@ def score_crowding(asset, sm_long_pct, sm_count, min_funding_ann=MIN_FUNDING_ANN
     # Funding extremity (biggest signal)
     if funding_ann >= 60:
         score += 4
-        details.append(f"funding_extreme_{funding_ann:.0f}%ann")
+        details.append(f"funding rate extreme at {funding_ann:.0f}% a year")
         crowd_direction = "LONG" if funding > 0 else "SHORT"
     elif funding_ann >= 40:
         score += 3
-        details.append(f"funding_high_{funding_ann:.0f}%ann")
+        details.append(f"funding rate high at {funding_ann:.0f}% a year")
         crowd_direction = "LONG" if funding > 0 else "SHORT"
     elif funding_ann >= min_funding_ann:
         score += 2
-        details.append(f"funding_elevated_{funding_ann:.0f}%ann")
+        details.append(f"funding rate elevated at {funding_ann:.0f}% a year")
         crowd_direction = "LONG" if funding > 0 else "SHORT"
     else:
-        details.append(f"funding_below_floor_{funding_ann:.0f}%ann")
+        details.append(f"funding rate mild at {funding_ann:.0f}% a year")
         if funding != 0:
             crowd_direction = "LONG" if funding > 0 else "SHORT"
 
@@ -101,22 +101,22 @@ def score_crowding(asset, sm_long_pct, sm_count, min_funding_ann=MIN_FUNDING_ANN
     if sm_tilt > 20:
         score += 3
         sm_dir = "LONG" if sm_long_pct > 50 else "SHORT"
-        details.append(f"sm_tilted_{sm_dir}_{sm_long_pct:.0f}%")
+        details.append(f"smart money piled {sm_dir} ({sm_long_pct:.0f}% long)")
         if (funding > 0 and sm_long_pct > 50) or (funding < 0 and sm_long_pct < 50):
             score += 1
-            details.append("sm_confirms_funding")
+            details.append("smart money and funding point the same way")
     elif sm_tilt > 12:
         score += 1
-        details.append(f"sm_leaning_{sm_long_pct:.0f}%")
+        details.append(f"smart money leaning one way ({sm_long_pct:.0f}% long)")
 
     # OI concentration (positions building, not churning)
     oi_usd = _f(asset.get("oi_usd", 0))
     if oi_usd > 20_000_000:
         score += 2
-        details.append(f"oi_concentrated_{oi_usd/1e6:.0f}M")
+        details.append(f"open interest heavy at ${oi_usd/1e6:.0f}M")
     elif oi_usd > 10_000_000:
         score += 1
-        details.append(f"oi_moderate_{oi_usd/1e6:.0f}M")
+        details.append(f"open interest building at ${oi_usd/1e6:.0f}M")
 
     return score, crowd_direction, details
 
@@ -154,7 +154,7 @@ def detect_exhaustion(candles_1h, candles_4h, crowd_direction):
         earlier_vol = sum(_vol(c) for c in candles_1h[-8:-3]) / 5
         if earlier_vol > 0 and recent_vol < earlier_vol * 0.7:
             score += 3
-            signals.append(f"volume_declining_{recent_vol/earlier_vol:.0%}")
+            signals.append(f"volume faded to {recent_vol/earlier_vol:.0%} of recent pace")
 
     # SIGNAL 2: Price stalling despite extreme positioning
     closes_4h = [_close(c) for c in candles_4h[-4:]]
@@ -163,10 +163,10 @@ def detect_exhaustion(candles_1h, candles_4h, crowd_direction):
         price_change_4h = ((closes_4h[-1] - closes_4h[-4]) / closes_4h[-4]) * 100
         if crowd_direction == "LONG" and price_change_4h < 0.5:
             score += 3
-            signals.append(f"price_stalled_crowd_long_{price_change_4h:+.1f}%")
+            signals.append(f"crowd is long but price stalled ({price_change_4h:+.1f}% in 4h)")
         elif crowd_direction == "SHORT" and price_change_4h > -0.5:
             score += 3
-            signals.append(f"price_stalled_crowd_short_{price_change_4h:+.1f}%")
+            signals.append(f"crowd is short but price held ({price_change_4h:+.1f}% in 4h)")
 
     # SIGNAL 3: Volume spike without price follow-through (capitulation wick)
     if len(candles_1h) >= 6:
@@ -177,7 +177,7 @@ def detect_exhaustion(candles_1h, candles_4h, crowd_direction):
         price_move = ((latest_close - prev_close) / prev_close * 100) if prev_close > 0 else 0
         if avg_vol > 0 and latest_vol > avg_vol * 2.0 and abs(price_move) < 1.0:
             score += 2
-            signals.append(f"vol_spike_{latest_vol/avg_vol:.1f}x_no_follow_through")
+            signals.append(f"volume spiked {latest_vol/avg_vol:.1f}x but price didn't follow")
 
     # SIGNAL 4: 4h RSI divergence (price flat/up but RSI declining = momentum dying)
     closes_4h_full = [_close(c) for c in candles_4h]
@@ -196,10 +196,10 @@ def detect_exhaustion(candles_1h, candles_4h, crowd_direction):
 
             if crowd_direction == "LONG" and rsi < 55:
                 score += 2
-                signals.append(f"rsi_divergence_crowd_long_rsi_{rsi:.0f}")
+                signals.append(f"crowd long yet RSI slipped to {rsi:.0f}")
             elif crowd_direction == "SHORT" and rsi > 45:
                 score += 2
-                signals.append(f"rsi_divergence_crowd_short_rsi_{rsi:.0f}")
+                signals.append(f"crowd short yet RSI rose to {rsi:.0f}")
 
     return score, signals, price_change_4h, rsi
 

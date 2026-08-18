@@ -142,21 +142,22 @@ def build_thesis(proxy_cfg, leader_move, proxy_closes, proxy_candles, sm, inputs
     vol_trend = volume_trend(proxy_candles)
 
     score = 0
-    reasons = [f"leader_{leader_move:+.1f}%", f"{proxy}_lag_{proxy_move:+.1f}%", f"gap_{gap:+.1f}%"]
+    reasons = [f"leader moved {leader_move:+.1f}%", f"{proxy} only moved {proxy_move:+.1f}% so far",
+               f"{gap:+.1f}% of catch-up still owed"]
     score += 2  # leader moved + proxy owes a gap in the leader's direction (gate)
     if abs(gap) >= strong_gap:
         score += 2
-        reasons.append(f"gap_strong_{gap:+.1f}%")
+        reasons.append(f"large catch-up gap of {gap:+.1f}%")
     # SM is often sparse on XYZ equities — agreement is a bonus, not a gate.
     if sm_dir == direction and sm_tilt >= sm_min:
         score += 1
-        reasons.append(f"sm_confirms_{sm_tilt:.0f}%")
+        reasons.append(f"smart money {sm_tilt:.0f}% on the same side")
         if sm_tilt >= sm_strong:
             score += 1
-            reasons.append("sm_strong")
+            reasons.append("smart money strongly tilted this way")
     if vol_trend > 15:
         score += 1
-        reasons.append(f"vol_rising_{vol_trend:+.0f}%")
+        reasons.append(f"trading volume up {vol_trend:+.0f}%")
 
     return {
         "coin": proxy,

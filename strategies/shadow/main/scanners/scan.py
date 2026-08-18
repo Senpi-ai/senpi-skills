@@ -145,8 +145,8 @@ def scan(inputs, ctx):
                 "entrySlippagePct": slip,
                 "traderEntry": round(a["entry_avg"], 6),
                 "traders": a["traders"],
-                "reasons": [f"{a['confirm']} watched trader(s) opened {a['side']} {a['coin']} fresh",
-                            f"chase {slip:+.2f}% vs their entry (cap {max_slip}%)"],
+                "reasons": [f"{a['confirm']} watched trader(s) just went {a['side'].lower()} on {a['coin']}",
+                            f"price {slip:+.2f}% past their entry (cap {max_slip}%)"],
             },
         })
         recent[k] = now

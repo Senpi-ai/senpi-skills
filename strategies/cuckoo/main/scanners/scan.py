@@ -272,9 +272,9 @@ def scan(inputs, ctx):
         score = scoring.consensus_score(cand["count"], cand["weight"], high_weight)
         if score >= min_score:
             reasons = [
-                f"{cand['asset']}_{cand['direction']}",
-                f"top_strategies_{cand['count']}",
-                f"weighted_{cand['weight']:.1f}",
+                f"top strategies are {cand['direction'].lower()} {cand['asset']}",
+                f"{cand['count']} top strategies agree",
+                f"combined vote weight {cand['weight']:.1f}",
             ]
             scored.append((score, reasons, cand))
 

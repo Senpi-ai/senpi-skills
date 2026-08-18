@@ -129,45 +129,45 @@ def build_thesis(coin, sub_group, candles_1h, candles_4h, direction,
     mom_1h = price_momentum(candles_1h, 2)
 
     score = 3
-    reasons = [f"{sub_group}:{coin}"]
+    reasons = [f"{coin} sits in the {sub_group} sub-group"]
 
     # 4h trend strength (the core per-name conviction; +4 agree / -1 oppose)
     if t4 != "NEUTRAL":
         if (direction == "LONG" and t4 == "BULLISH") or (direction == "SHORT" and t4 == "BEARISH"):
             score += 4
-            reasons.append(f"4h_{t4.lower()}_{s4:.0%}")
+            reasons.append(f"4-hour trend {t4.lower()} at {s4:.0%} strength")
         else:
             score -= 1
-            reasons.append(f"4h_opposing_{t4.lower()}")
+            reasons.append(f"4-hour trend is {t4.lower()}, against this move")
 
     # 1h confirmation (+1)
     if (direction == "LONG" and t1 == "BULLISH") or (direction == "SHORT" and t1 == "BEARISH"):
         score += 1
-        reasons.append(f"1h_confirms_{t1.lower()}")
+        reasons.append(f"1-hour trend confirms, also {t1.lower()}")
 
     # |1h momentum| tier (+2 strong / +1 moderate), sign must match direction
     signed = mom_1h if direction == "LONG" else -mom_1h
     if signed >= mom_strong:
         score += 2
-        reasons.append(f"1h_strong_momentum_{mom_1h:+.2f}%")
+        reasons.append(f"strong momentum: price {mom_1h:+.2f}% in 2h")
     elif signed >= mom_moderate:
         score += 1
-        reasons.append(f"1h_momentum_{mom_1h:+.2f}%")
+        reasons.append(f"price moved {mom_1h:+.2f}% in the last 2h")
 
     # smart-money agreement (+2 aligned / -2 opposing)
     sm_dir, sm_tilt = sm if sm else (None, 0.0)
     if sm_dir == direction:
         score += 2
-        reasons.append(f"sm_aligned_{_f(sm_tilt):.0f}%")
+        reasons.append(f"smart money {_f(sm_tilt):.0f}% on the same side")
     elif sm_dir in ("LONG", "SHORT") and sm_dir != direction:
         score -= 2
-        reasons.append(f"sm_opposing_{sm_dir}")
+        reasons.append(f"smart money leaning {sm_dir}, against this move")
 
     # supply-chain gradient bonus (+1) — equipment leading the complex is the
     # classic early-cycle confirmation: capex tools bid first, then logic/memory.
     if equipment_leading:
         score += 1
-        reasons.append("equipment_leading")
+        reasons.append("chip-equipment names are leading the sector")
 
     return {
         "coin": coin, "sub_group": sub_group, "direction": direction,

@@ -212,7 +212,7 @@ def build_thesis(coin, candles_1h, candles_4h, benchmark_ret, sm, inputs):
     sm_dir, sm_pct = sm if sm else (None, 0.0)
 
     score = 0
-    reasons = [f"excess_{excess:+.1f}%_vs_bench_{benchmark_ret:+.1f}%"]
+    reasons = [f"moved {excess:+.1f}% vs the market's {benchmark_ret:+.1f}%"]
 
     # ── EXCESS tier (the core signal): +2 base for clearing minExcess, +1 strong,
     #    +1 very strong. Decoupling magnitude IS the conviction.
@@ -220,51 +220,51 @@ def build_thesis(coin, candles_1h, candles_4h, benchmark_ret, sm, inputs):
     score += 2
     if abs_ex >= min_excess * 2:
         score += 1
-        reasons.append(f"strong_decouple_{abs_ex:.1f}%")
+        reasons.append(f"strong {abs_ex:.1f}% break from the market")
     if abs_ex >= min_excess * 3:
         score += 1
-        reasons.append(f"very_strong_decouple_{abs_ex:.1f}%")
+        reasons.append(f"very strong {abs_ex:.1f}% break from the market")
 
     # ── VOLUME PERSISTENCE: +2 if 4h volume is rising steadily across the window
     #    (the "relentless accumulation" tell vs a flat/declining tape).
     if vol_trend >= min_vol_trend:
         score += 2
-        reasons.append(f"vol_persistent_{vol_trend:+.0f}%")
+        reasons.append(f"volume steadily rising {vol_trend:+.0f}%")
     elif vol_trend <= -min_vol_trend:
         score -= 1
-        reasons.append(f"vol_fading_{vol_trend:+.0f}%")
+        reasons.append(f"volume fading {vol_trend:+.0f}%")
 
     # ── SHALLOW-DIP / GRIND: +2 if the deepest adverse pullback is shallow (dips
     #    bought = accumulation). A deep dip means a volatile breakout, not a grind.
     if dip <= shallow_dip_max:
         score += 2
-        reasons.append(f"shallow_dip_{dip:.1f}%")
+        reasons.append(f"worst pullback only {dip:.1f}%")
     elif dip >= shallow_dip_max * 2.5:
         score -= 1
-        reasons.append(f"choppy_dip_{dip:.1f}%")
+        reasons.append(f"choppy move, {dip:.1f}% pullback")
 
     # ── TREND STRUCTURE (4h) in the excess direction: +2 confirm / -1 opposing.
     if t4 != "NEUTRAL":
         if (direction == "LONG" and t4 == "BULLISH") or (direction == "SHORT" and t4 == "BEARISH"):
             score += 2
-            reasons.append(f"4h_{t4.lower()}_{s4:.0%}")
+            reasons.append(f"4h trend {t4.lower()} ({s4:.0%} strength)")
         else:
             score -= 1
-            reasons.append(f"4h_opposing_{t4.lower()}")
+            reasons.append(f"4h trend {t4.lower()} against the trade")
 
     # ── 1H trend agreement: +1 confirm.
     if (direction == "LONG" and t1 == "BULLISH") or (direction == "SHORT" and t1 == "BEARISH"):
         score += 1
-        reasons.append(f"1h_confirms_{t1.lower()}")
+        reasons.append(f"1h trend also {t1.lower()}")
 
     # ── SMART-MONEY nudge (+1 / -1), never a gate.
     if sm_dir in ("LONG", "SHORT"):
         if sm_dir == direction:
             score += 1
-            reasons.append(f"sm_aligned_{_f(sm_pct):.0f}%")
+            reasons.append(f"smart money aligned at {_f(sm_pct):.0f}%")
         else:
             score -= 1
-            reasons.append(f"sm_opposing_{sm_dir}")
+            reasons.append(f"smart money opposing, leaning {sm_dir}")
 
     return {
         "coin": coin, "direction": direction, "score": score, "reasons": reasons,

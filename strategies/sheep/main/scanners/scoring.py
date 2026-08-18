@@ -116,19 +116,19 @@ def build_thesis(coin, candles_15m, candles_1h, candles_4h, sm, inputs):
 
     # Score: base 3 for the full triple-stack, then spread + SM bonuses (verbatim)
     s = 3
-    reasons = [f"{coin}_stack_15m_1h_4h", f"spread_4h_{spread_4h:+.2f}%"]
+    reasons = [f"{coin} trending up on 15m, 1h and 4h", f"4h trend strength {spread_4h:+.2f}%"]
     if spread_4h >= 1.0:
         s += 1
-        reasons.append("trend_strong_4h")
+        reasons.append("strong trend on the 4h chart")
     if spread_1h >= 0.5:
         s += 1
-        reasons.append("trend_strong_1h")
+        reasons.append("strong trend on the 1h chart")
     if sm_dir == "LONG" and sm_tilt >= sm_min:
         s += 1
-        reasons.append(f"sm_long_{sm_tilt:.0f}%")
+        reasons.append(f"smart money {sm_tilt:.0f}% long")
         if sm_tilt >= sm_strong:
             s += 1
-            reasons.append("sm_strong")
+            reasons.append("smart money heavily long")
 
     return {
         "coin": coin,

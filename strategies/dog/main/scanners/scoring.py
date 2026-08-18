@@ -106,46 +106,46 @@ def score_market(m, regime, fh, asset_funding, utc_hour):
     # ── SM concentration (0-3) ──
     if pct >= 15:
         score += 3
-        reasons.append(f"DOMINANT_SM {pct:.1f}% ({traders}t)")
+        reasons.append(f"smart money dominant at {pct:.1f}% ({traders} traders)")
     elif pct >= 10:
         score += 2
-        reasons.append(f"STRONG_SM {pct:.1f}% ({traders}t)")
+        reasons.append(f"smart money strong at {pct:.1f}% ({traders} traders)")
     elif pct >= 5:
         score += 1
-        reasons.append(f"SM_ALIGNED {pct:.1f}% ({traders}t)")
+        reasons.append(f"smart money aligned at {pct:.1f}% ({traders} traders)")
 
     # ── Trader depth (0-1) ──
     if traders >= 100:
         score += 1
-        reasons.append(f"DEEP_CONSENSUS ({traders}t)")
+        reasons.append(f"deep consensus among {traders} traders")
 
     # ── 4H price alignment (+/-2) ──
     if abs(p4h) >= 2.0:
         if (sm_direction == "LONG" and p4h > 0) or (sm_direction == "SHORT" and p4h < 0):
             score += 2
-            reasons.append(f"STRONG_4H {p4h:+.1f}%")
+            reasons.append(f"strong 4h price move of {p4h:+.1f}%")
         else:
             score -= 1
-            reasons.append(f"4H_OPPOSING {p4h:+.1f}%")
+            reasons.append(f"4h price {p4h:+.1f}% against smart money")
     elif abs(p4h) >= 0.5:
         if (sm_direction == "LONG" and p4h > 0) or (sm_direction == "SHORT" and p4h < 0):
             score += 1
-            reasons.append(f"4H_CONFIRMS {p4h:+.1f}%")
+            reasons.append(f"4h price {p4h:+.1f}% with smart money")
 
     # ── MOVE EXHAUSTION — INVERTED for contrarian ──
     if abs(p4h) >= EXHAUSTION_BONUS_SEVERE_PCT:
         if (sm_direction == "LONG" and p4h > 0) or (sm_direction == "SHORT" and p4h < 0):
             score += 2
-            reasons.append(f"DEEP_EXHAUSTION {p4h:+.1f}% (great fade)")
+            reasons.append(f"move deeply exhausted after {p4h:+.1f}% in 4h")
     elif abs(p4h) >= EXHAUSTION_BONUS_MODERATE_PCT:
         if (sm_direction == "LONG" and p4h > 0) or (sm_direction == "SHORT" and p4h < 0):
             score += 1
-            reasons.append(f"EXHAUSTION {p4h:+.1f}% (fadeable)")
+            reasons.append(f"move looks exhausted after {p4h:+.1f}% in 4h")
 
     # ── 1H momentum (0-1) ──
     if (sm_direction == "LONG" and p1h > 0.2) or (sm_direction == "SHORT" and p1h < -0.2):
         score += 1
-        reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
+        reasons.append(f"1h price {p1h:+.2f}% confirms the move")
 
     # ── 15m velocity freshness gate ──
     # For contrarian: SM must be actively building the position we're about to fade.
@@ -154,18 +154,18 @@ def score_market(m, regime, fh, asset_funding, utc_hour):
         return None
     if cc_15m > 2.0:
         score += 3
-        reasons.append(f"15M_STRONG_SPIKE +{cc_15m:.2f}")
+        reasons.append(f"smart-money stake surging +{cc_15m:.2f} in 15m")
     elif cc_15m > 0.5:
         score += 2
-        reasons.append(f"15M_SPIKE +{cc_15m:.2f}")
+        reasons.append(f"smart-money stake jumped +{cc_15m:.2f} in 15m")
     elif cc_15m > 0.1:
         score += 1
-        reasons.append(f"15M_BUILDING +{cc_15m:.2f}")
+        reasons.append(f"smart-money stake building +{cc_15m:.2f} in 15m")
 
     # ── 1h acceleration (0-1) ──
     if cc_1h > 1.0:
         score += 1
-        reasons.append(f"1H_ACCEL +{cc_1h:.2f}")
+        reasons.append(f"smart-money stake up +{cc_1h:.2f} in 1h")
 
     # ── Funding alignment (0-1) — Dog likes funded trades ──
     # asset_funding is resolved by the caller (market_get_asset_data). SM direction
@@ -177,7 +177,7 @@ def score_market(m, regime, fh, asset_funding, utc_hour):
     if (fade_direction == "SHORT" and asset_funding > 0.0002) or \
        (fade_direction == "LONG" and asset_funding < -0.0002):
         score += 1
-        reasons.append(f"FUNDING_PAYS {asset_funding*100:.4f}%")
+        reasons.append(f"funding pays the fade at {asset_funding*100:.4f}%")
 
     # ── Regime HARD GATE — fade direction must align with crowded regime ──
     confirms = regime_confirms_fade(fade_direction, regime)
@@ -185,9 +185,9 @@ def score_market(m, regime, fh, asset_funding, utc_hour):
         return None  # regime contradicts fade — skip
     if confirms is True:
         score += 2
-        reasons.append(f"REGIME_CONFIRMS_{regime}")
+        reasons.append(f"market regime confirms: {regime.replace('_', ' ').lower()}")
     elif regime is not None:
-        reasons.append(f"REGIME_{regime}")
+        reasons.append(f"market regime: {regime.replace('_', ' ').lower()}")
 
     # ── Persistence + trend via funding_history ──
     ph_val = None
@@ -202,24 +202,24 @@ def score_market(m, regime, fh, asset_funding, utc_hour):
         if ph_val is not None:
             if ph_val >= 12:
                 score += 2
-                reasons.append(f"MATURE_CROWDING_{ph_val:.0f}h")
+                reasons.append(f"crowding mature after {ph_val:.0f}h")
             elif ph_val >= 6:
                 score += 1
-                reasons.append(f"STABLE_CROWDING_{ph_val:.0f}h")
+                reasons.append(f"crowding stable for {ph_val:.0f}h")
         if crowding_trend == "INCREASING":
             score -= 1
-            reasons.append("CROWDING_STILL_BUILDING (early fade)")
+            reasons.append("crowding still building, early for a fade")
         elif crowding_trend == "DECREASING":
             score += 1
-            reasons.append("CROWDING_UNWINDING (fade confirmed)")
+            reasons.append("crowding starting to unwind, fade confirmed")
 
     # ── US session bonus (0-1) ──
     if 13 <= utc_hour <= 21:
         score += 1
-        reasons.append("US_SESSION")
+        reasons.append("US trading session active")
 
     # CONTRARIAN FLIP: emit OPPOSITE direction
-    reasons.insert(0, f"CONTRARIAN_FLIP {token} (SM is {sm_direction})")
+    reasons.insert(0, f"fading the crowd: smart money is {sm_direction.lower()} {token}")
 
     # Leverage tier (verbatim from v2.5)
     leverage = DEFAULT_LEVERAGE

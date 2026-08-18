@@ -128,24 +128,24 @@ def build_thesis(asset, candles_1h, sm_dir, sm_tilt, inputs=None):
     # Move magnitude
     if move_pct >= 4.0:
         score += 3
-        reasons.append(f"move_strong_{move_pct:+.2f}%")
+        reasons.append(f"strong move, {move_pct:+.2f}% over ~48h")
     elif move_pct >= 2.5:
         score += 2
-        reasons.append(f"move_{move_pct:+.2f}%")
+        reasons.append(f"price moved {move_pct:+.2f}% over ~48h")
     else:
         score += 1
-        reasons.append(f"move_weak_{move_pct:+.2f}%")
+        reasons.append(f"modest move, {move_pct:+.2f}% over ~48h")
     # SM aligned (gate-confirmed)
     score += 2
-    reasons.append(f"sm_aligned_{sm_tilt:.0f}%")
+    reasons.append(f"smart money aligned at {sm_tilt:.0f}%")
     # SM strongly tilted
     if sm_tilt >= sm_strong:
         score += 1
-        reasons.append("sm_strongly_tilted")
+        reasons.append("smart money strongly tilted this way")
     # Volume confirmation
     if vol_x >= 1.5:
         score += 1
-        reasons.append(f"vol_{vol_x:.1f}x")
+        reasons.append(f"volume running {vol_x:.1f}x prior")
 
     return {
         "coin": asset,

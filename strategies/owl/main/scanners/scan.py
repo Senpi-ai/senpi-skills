@@ -403,7 +403,7 @@ def scan(inputs, ctx):
             continue
 
         funding_ann = scoring.funding_annualized_pct(c["asset_data"]["funding"])
-        reasons = list(c["details"]) + ex_signals + [f"persistence_{c['hours']:.1f}h"]
+        reasons = list(c["details"]) + ex_signals + [f"crowding has held for {c['hours']:.1f}h"]
         candidates.append({
             "asset": coin,
             "crowd_direction": crowd_dir,

@@ -138,9 +138,10 @@ def funding_signal(funding, inputs):
         return None
     if trend == "DECAYING":
         return None
-    reasons = [f"funding_apr_{apr:.0f}%", f"persist_{persist:.0f}h"]
+    reasons = [f"funding pays shorts {apr:.0f}% annualized",
+               f"funding has held for {persist:.0f}h"]
     if trend:
-        reasons.append(f"funding_{trend.lower()}")
+        reasons.append(f"funding trend {trend.lower()}")
     return apr, persist, reasons
 
 
@@ -160,13 +161,13 @@ def exhaustion_score(candles_1h, candles_4h):
 
     score, reasons = 0.0, []
     if rsi >= 70 and stalling:
-        score += 2; reasons.append(f"overbought_stalling_rsi{rsi:.0f}")
+        score += 2; reasons.append(f"RSI {rsi:.0f} overbought and stalling")
     if trend_4h == "BEARISH":
-        score += 2; reasons.append("4h_rolling_over")
+        score += 2; reasons.append("4h trend rolling over")
     elif trend_4h == "NEUTRAL":
-        score += 1; reasons.append("4h_stalled")
+        score += 1; reasons.append("4h trend has stalled")
     if mom_1h <= -0.3:
-        score += 1; reasons.append(f"1h_fading_{mom_1h:+.2f}%")
+        score += 1; reasons.append(f"1h momentum fading {mom_1h:+.2f}%")
 
     # still ripping = a bullish 4h structure that is STILL pushing up right now →
     # never short an active uptrend, no matter how rich the funding or how high RSI.
@@ -198,7 +199,7 @@ def build_signal(coin, funding, oi_usd, candles_1h, candles_4h, inputs):
     apr_pts = min(5.0, (apr - target) / max(1.0, target) * 3.0)
     oi_pts = 1.0 if _f(oi_usd) >= _f(inputs.get("oiBonusUsd"), 50_000_000) else 0.0
     score = round(apr_pts + ex + oi_pts, 2)
-    reasons = freasons + [f"oi_${_f(oi_usd) / 1e6:.0f}M"] + ex_reasons
+    reasons = freasons + [f"${_f(oi_usd) / 1e6:.0f}M open interest"] + ex_reasons
     return {"coin": coin, "direction": "SHORT", "score": score, "apr": round(apr, 1),
             "exhaustion": ex, "oi_usd": _f(oi_usd), "reasons": reasons}
 
