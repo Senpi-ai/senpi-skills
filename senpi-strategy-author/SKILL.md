@@ -349,13 +349,13 @@ only once **`senpi-strategy-ops` deploys it AND that deploy's report says `overa
 loop every time:
 
 > **Was this an edit to a strategy that is ALREADY LIVE?** (you changed the scoring / scanner / DSL of a
-> deployed package — "make my live strategy more aggressive", re-tune, re-score) — then say so before you
-> do anything. **There is no single verb for this today, and re-running `create` will NOT apply your
-> edit**: the deploy verb is idempotent, so it adopts the wallet that already exists and leaves the
-> deployed scanner as it is. Applying an edit to a live strategy means **closing it and redeploying** —
-> `close.py <id>` (which flattens its open positions and returns the funds) and then the loop below on a
-> fresh wallet. That is real money and a market exit, so **confirm it with the user in those words
-> first**; never present it as a re-tune. The steps below are for a strategy that is not yet live.
+> deployed package — "make my live strategy more aggressive", re-tune, re-score) — then hand it to
+> **`senpi-strategy-ops`**, which applies it IN PLACE with `openclaw senpi update`: no close, no fresh
+> wallet, no market exit. **Re-running `create` will NOT apply it** — the deploy verb is idempotent, so it
+> adopts the existing wallet and leaves the deployed scanner as it is. Tell the user two things: exit
+> changes are **forward-only**, so a tightened `dsl_preset` governs new entries and never reaches a
+> position already open; and a changed `strategy.wallet`, a renamed/reordered scanner or a changed
+> `action_type` still forces a close-and-redeploy — a market exit. Below is the not-yet-live path.
 
 1. **Confirm with the user** — budget + "ready to deploy?" Funding a wallet is real money and one-way, so
    this is an explicit yes, not an assumption.
