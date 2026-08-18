@@ -83,7 +83,28 @@ real tick with no wallet and no funding, and a full unscoped PASS at live depth 
 `.senpi-proof.json` `senpi deploy` refuses to fund a package without. Run it before `deploy`, once per
 instance, pointed at the directory holding that instance's `runtime.yaml`.
 
-Beyond `validate`, `deploy`/`deploy status` and `runtime list/delete`, the CLI exposes the runtime's live state — `senpi dsl
+**To CHANGE a strategy that is already live** → `openclaw senpi update`, not a delete-and-redeploy.
+Deleting a runtime abandons its DSL position files, so every open position loses the trailing stop
+the strategy already promised and its replacement re-adopts from scratch at whatever price it
+finds. `update` swaps the components in place and keeps DSL state, scanner stores and action
+history — no wallet is created, nothing is funded, and no position is closed.
+
+```bash
+openclaw senpi update ./pkg                       # PLAN — what changes, what it leaves alone
+openclaw senpi update ./pkg --apply               # commit (needs the same proof deploy needs)
+openclaw senpi update ./pkg --apply --code-only   # assert only scan.py changed; refuses if not
+```
+
+It plans by default; `--apply` is the only way to commit. **Exit changes are forward-only** — a new
+`dsl_preset` governs new entries, while every open position keeps a snapshot of the preset it was
+opened under, so a tightened stop does not reach one already running. Refused outright, changing
+nothing: a different `strategy.wallet` (that is a new deployment, and the old wallet's positions
+would be left unmanaged), a renamed or reordered scanner (external scanner state is keyed by name
+and position together), or a changed `action_type` under a stable name. Exit `2` means the runtime
+was never touched; exit `1` means an apply was attempted and it may not be where you left it — read
+the message before retrying.
+
+Beyond `validate`, `deploy`/`deploy status`, `update` and `runtime list/delete`, the CLI exposes the runtime's live state — `senpi dsl
 positions|inspect|closes` (the exit engine), `senpi action list|inspect|history|decisions` (the
 decision layer), `senpi risk` (am I allowed to trade, and why not), `senpi audit` (backend trade
 trail with AI reasoning), `senpi scanner` (per-scanner health, liveness, and a `(no signals yet)` flag for scanners that run but produce nothing),

@@ -303,19 +303,19 @@ is strategy-driven: close also cleans up an attributed package's **orphaned** (n
 
 ## Applying an edit to a strategy that is already LIVE
 
-"Make my live strategy more aggressive." **The edit is authored in `senpi-strategy-author`**, never
-here. And **re-running `create` will NOT apply it**: the deploy verb is idempotent, so it adopts the
-existing wallet and leaves the deployed scanner as it is. Applying an edit means **closing the strategy
-and redeploying on a fresh wallet** — a market exit of every open position, funds back to main, and a
-custom ratchet/stop ladder that does **not** carry over. **Get explicit consent in those words before
-you close anything**; never present it as a re-tune.
+"Make my live strategy more aggressive." **The edit is authored in `senpi-strategy-author`**, never here.
+**Re-running `create` will NOT apply it** — it is idempotent, so it adopts the existing wallet and leaves
+the deployed scanner as it is.
 
-**Prove the edited package still RUNS — `openclaw senpi validate <instance-dir>` → `PASS` — BEFORE you
-close anything**: you are about to flatten a live book to install it. And `--budget` is the WHOLE
-package's, split by `funding_share`, so on a per-sleeve redeploy size it **want ÷ share** ($300 into a
-`0.3` arm is `--budget 1000`; `--budget 300` funds that arm **$90**) and **say the resulting wallet
-figure to the user, not the `--budget` number**, when you take consent. Durable-root check, per-sleeve
-adopt mechanics, what NEVER to reach for: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md).
+**Apply it in place — `openclaw senpi update`.** No close, no fresh wallet, no market exit; DSL state,
+scanner stores and action history survive. `senpi validate <instance-dir>` writes the proof `--apply`
+needs; `senpi update <instance-dir> --id <runtime_id>` PLANS, the same with `--apply` commits. **Read the
+plan out first**: exit changes are **forward-only** — a tightened `dsl_preset` governs new entries only and
+never reaches one already open, so never let "I made it tighter" be heard as "my open trades are tighter".
+
+**Only a changed `strategy.wallet`, a renamed/reordered scanner, or a changed `action_type` still need
+close-and-redeploy**, which market-exits every open position and drops any custom ratchet ladder — take
+**explicit consent in those words first**. Everything else: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md).
 
 ## Invariants
 
