@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.1.0"
+  version: "1.2.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -44,7 +44,7 @@ Everything the agent does with tools happens **strictly between the user's own S
 
 | User intent | Rail |
 | --- | --- |
-| Deposit / add money / fund my account | **Embedded wallet only** — send on any supported EVM chain, or on Hyperliquid, to the one embedded address (`user_get_me`). |
+| Deposit / add money / fund my account | **Show the funding card** — `show_widget` with `widget_type: "fund_user_wallet"`. The card carries the embedded address, the chains and the QR. Never type an address into chat. |
 | **Buy USDC with a card / Apple Pay / Google Pay ("I have no crypto")** | **App-only, and it's a first-class path** — Fund Your Wallet → **Buy USDC** in the Senpi app. No agent tool; not a refusal. |
 | Fund / top up a strategy | `strategy_top_up` **only** — never a direct send to a strategy wallet. |
 | **Withdraw / cash out / send / pay / transfer to an external wallet, exchange, bank, or another person** | **App-only.** Say the security line above. No tool. |
@@ -61,10 +61,15 @@ There are **two ways money gets in**, and both land in the same embedded wallet:
 hold (below), or **buy USDC in the app** with a card (next section). A user with no crypto at all is not
 stuck — never tell them they need an exchange account first.
 
+- **Show the funding card; don't type the address.** Call `show_widget` with
+  `widget_type: "fund_user_wallet"`. The card owns the address, the chain list and the QR, and its button
+  opens the deposit flow. Call it as part of your answer — the user does not have to ask for a card.
+  **Never write a deposit address, a QR, or a chain list into chat**: a hand-typed address is a
+  transcription risk on an irreversible action, and the card is always current.
 - The **embedded wallet is the only deposit destination.** It is **one EVM address valid on ALL
   supported chains** (Base, Arbitrum, Optimism, Ethereum, BNB, Polygon) **and on Hyperliquid** — never
-  imply it works on only one chain. Get it from `user_get_me` (`walletType: "embedded"`). Name the
-  chains in plain words; don't quote chain IDs (easy to garble, and the address is the same everywhere).
+  imply it works on only one chain. Say that in words; the card shows the address itself. Read
+  `user_get_me` only when you need to *verify* an address the user names — never to recite one.
 - **NEVER present a strategy wallet address as a deposit target — on any chain, for any reason.** A
   direct send to a `strategyWalletAddress` bypasses accounting, corrupts PnL, and may be unrecoverable.
   `strategy_top_up` is the **only** way to add funds to a strategy.
@@ -88,8 +93,9 @@ Point at it warmly and specifically.
   and let them tap it. There is nothing to poll or verify afterwards; their balance simply updates.
 - **Where it lands:** as USDC **in their own embedded wallet, ready to trade — no bridging**, no exchange
   account, no separate transfer step afterwards.
-- **Amounts:** **$10 minimum**; most traders start with **$100–250**. Quote these as the app's own
-  guidance, and still never pick an amount for the user.
+- **Amounts:** **$10 minimum**; most traders start with **$100–250**. These are the numbers for *any*
+  "how much do I need to start" question, whether they buy or send. Quote them as the app's own guidance,
+  and still never pick an amount for the user.
 - **No agent tool exists for this, and none is coming** — the purchase is triggered by the user on the
   website / app. Don't invent a buy or onramp tool; name the app screen instead.
 - **Reassurance, when a user hesitates to fund:** the wallet is **theirs**, secured by Privy — the agent
@@ -135,9 +141,16 @@ Point at it warmly and specifically.
 - **External send / withdraw / transfer-out:** the **security line**, verbatim, once. Offer an
   on-platform move (e.g. "I can pull it out of a strategy back to your main wallet") only if it genuinely
   serves the goal — never as a backdoor to an external address.
-- **Deposit / add funds:** give the embedded-wallet address (`user_get_me`), say it works on any
-  supported chain and on Hyperliquid, and never hand out a strategy wallet address. If they may not hold
-  crypto yet, add the buy path in one line — don't make them ask twice.
+- **Deposit / add funds:** show the funding card (`show_widget`, `fund_user_wallet`), say in words that it
+  works on any supported chain and on Hyperliquid, and never hand out a strategy wallet address. If they
+  may not hold crypto yet, add the buy path in one line — don't make them ask twice.
+- **"How much do I need?" / "is $X enough?" / "can I start small?":** answer the number first — **$10
+  minimum, most start with $100–250** — then show the card. A card without the number does not answer
+  the question that was asked.
+- **"Will a deposit to `0x…` land?":** check before you answer. Compare it against the embedded address
+  from `user_get_me`. Their own embedded address → yes, and show the card. A **strategy** wallet → **no**,
+  warn them it bypasses accounting and may be unrecoverable, and point at `strategy_top_up`. Anything else
+  → no. Never answer this one with a bare card.
 - **Buy USDC / "can I use a card":** yes — **Fund Your Wallet → Buy USDC** in the app, card / Apple Pay /
   Google Pay, lands in their own wallet ready to trade. Positive framing, never the security line.
 - **On-platform move:** check state where it matters — `account_get_portfolio` (balances),
@@ -147,6 +160,8 @@ Point at it warmly and specifically.
 ## Never
 
 - Never present a **strategy wallet address** as a deposit target — on any chain, for any reason.
+- Never type a **deposit address, QR, or chain list** into chat — that is the funding card's job.
+- Never show the funding card for a **strategy** funding request; that is `strategy_top_up`.
 - Never route an external withdrawal through the **Hyperliquid UI**, **key export**, or a
   **bridge-/strategy-through** workaround. The external rail is the **app**, always.
 - Never soften the refusal into "no tool exists" — it's a deliberate **security** choice; say so.
