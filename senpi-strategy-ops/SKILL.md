@@ -313,7 +313,7 @@ needs; `senpi update <instance-dir> --id <runtime_id>` PLANS, the same with `--a
 plan out first**: exit changes are **forward-only** — a tightened `dsl_preset` governs new entries only and
 never reaches one already open, so never let "I made it tighter" be heard as "my open trades are tighter".
 
-**Only a changed `strategy.wallet`, a renamed/reordered scanner, or a changed `action_type` still need
+**Only a changed `strategy.wallet`, a renamed or moved scanner, or a changed `action_type` still need
 close-and-redeploy**, which market-exits every open position and drops any custom ratchet ladder — take
 **explicit consent in those words first**. Everything else: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md).
 

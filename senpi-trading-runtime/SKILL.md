@@ -99,8 +99,11 @@ It plans by default; `--apply` is the only way to commit. **Exit changes are for
 `dsl_preset` governs new entries, while every open position keeps a snapshot of the preset it was
 opened under, so a tightened stop does not reach one already running. Refused outright, changing
 nothing: a different `strategy.wallet` (that is a new deployment, and the old wallet's positions
-would be left unmanaged), a renamed or reordered scanner (external scanner state is keyed by name
-and position together), or a changed `action_type` under a stable name. Exit `2` means the runtime
+would be left unmanaged), an external scanner renamed or moved (state is keyed by name and position
+together, and inserting or removing one moves every external scanner below it — appending at the end
+moves nobody and is allowed), or a changed `action_type` under a stable name. `--apply` also needs a
+passing proof that covers the recipe being applied, so point it at the package DIRECTORY: a recipe
+handed over as bare text has nothing to verify against and is refused. Exit `2` means the runtime
 was never touched; exit `1` means an apply was attempted and it may not be where you left it — read
 the message before retrying.
 

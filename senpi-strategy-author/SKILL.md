@@ -354,7 +354,7 @@ loop every time:
 > wallet, no market exit. **Re-running `create` will NOT apply it** — the deploy verb is idempotent, so it
 > adopts the existing wallet and leaves the deployed scanner as it is. Tell the user two things: exit
 > changes are **forward-only**, so a tightened `dsl_preset` governs new entries and never reaches a
-> position already open; and a changed `strategy.wallet`, a renamed/reordered scanner or a changed
+> position already open; and a changed `strategy.wallet`, a renamed or moved scanner or a changed
 > `action_type` still forces a close-and-redeploy — a market exit. Below is the not-yet-live path.
 
 1. **Confirm with the user** — budget + "ready to deploy?" Funding a wallet is real money and one-way, so

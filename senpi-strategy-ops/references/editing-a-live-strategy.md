@@ -27,6 +27,11 @@ openclaw senpi update <recipe-dir> --id <runtime_id> --apply
 you re-tune one sleeve and leave its siblings untouched. `--address <wallet>` works too. Changed only
 `scan.py`/`scoring.py`? Add `--code-only` and it refuses if the recipe moved as well.
 
+Always point `update` at the **directory**, as above — never hand it the recipe as bare text. The
+proof is a claim about a package on disk, so a recipe with no package behind it has nothing to
+verify against and `--apply` refuses it rather than swapping in unvalidated bytes. The proof must
+also cover the recipe actually being applied, not merely some recipe sitting in that directory.
+
 **Read the plan to the user before applying — one thing in it will surprise them.** Exit changes are
 **forward-only**: a new `dsl_preset` governs NEW entries, while every position already open keeps a
 snapshot of the preset it was opened under. A tightened stop does **not** reach a position that is
@@ -45,7 +50,7 @@ the runtime was restored to its previous recipe or is down with positions unmana
 | Change | Why it needs a new deployment |
 |---|---|
 | a different `strategy.wallet` | That is a different deployment. The old wallet's positions would be left with nothing managing them. |
-| a **renamed** or **reordered** scanner | External scanner state is keyed by name and position together — a rename starts it from empty, a reorder points it at another scanner's directory. **Appending at the end is allowed.** |
+| an external scanner **renamed**, **moved**, **inserted** or **removed** | External scanner state is keyed by name and by position among the external scanners, so both matter. A rename starts it from empty; moving one — or inserting or removing one **above** it, which shifts every external scanner below — points it at another scanner's directory. **Appending at the end moves nobody and is allowed**, as is moving an internal scanner, which no state directory is keyed on. |
 | a changed `action_type` under a stable `name` | The new action class would inherit the previous one's execution history. |
 
 Only for those does applying mean **closing the strategy and redeploying it on a fresh wallet** —
