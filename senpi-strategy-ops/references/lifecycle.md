@@ -186,8 +186,10 @@ Per instance the job runs five steps, each recorded with its own outcome:
    ticks, so `overall` and the exit code do not move, and closing a live strategy over a shortfall a
    top-up fixes is the teardown this repo keeps having to prevent. The figures are **as at deploy
    time** and the note re-renders on every later `deploy status`, so the route is: re-read the current
-   funding (`status.py <id>`) FIRST, then add the remaining difference through the
-   `senpi-deposit-withdraw-transfer` skill. Close-and-redeploy is named as the alternative with no
+   funding (`status.py <id>`) FIRST, then add the remaining difference — the funding card to fill the
+   embedded wallet if it is short, then `strategy_top_up` to move it in; the two steps and why their
+   order matters are in [`references/refusal-playbook.md`](refusal-playbook.md) under
+   `[W_BUDGET_PARTIAL_FUND]`. Close-and-redeploy is named as the alternative with no
    command attached, because `[E_ROLLBACK_INCOMPLETE]` and the below-min escape are the report's only
    close-command producers — and where that rollback line is present this warn is silent for that
    wallet entirely, so one report never carries two opposite money moves on one address. The

@@ -60,7 +60,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | Skill | Ver | Role |
 |---|---|---|
 | **Analyze** | | |
-| [`senpi-portfolio`](senpi-portfolio/) | 1.15.0 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads |
+| [`senpi-portfolio`](senpi-portfolio/) | 1.16.0 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads |
 | [`senpi-market-pulse`](senpi-market-pulse/) | 1.2.0 | Daily cross-asset market read (crypto, equities, commodities, macro, funding regime) |
 | [`senpi-smart-money`](senpi-smart-money/) | 1.2.0 | Where the most-profitable wallets are positioned vs. the crowd |
 | [`senpi-trader-research`](senpi-trader-research/) | 1.4.0 | Rank + vet Hyperliquid traders before copying them (mirror-aware: copyability, min-budget, live book) |
@@ -73,7 +73,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-trade`](senpi-trade/) | 1.0.0 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
 | [`senpi-trading-runtime`](senpi-trading-runtime/) | 3.2.1 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
 | **Move money / positioning** | | |
-| [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.1.0 | The money-movement rails (funds in via embedded wallet or in-app USDC purchase; out via the app) |
+| [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.2.0 | The money-movement rails (funds in via embedded wallet or in-app USDC purchase; out via the app) |
 | [`senpi-why`](senpi-why/) | 1.0.3 | "Why Senpi / vs. other tools" — the positioning answer |
 
 Skills **compose**: `improve-trades` pulls in `market-pulse` + `smart-money` + `portfolio`; `discover` hands a chosen package to `ops`; `author` hands a built package to `ops`. The agent routes by **intent**, not keywords, and never re-implements one skill inside another.

@@ -21,15 +21,19 @@ the message left you unsure what it meant, not for composing an answer without i
 
 The balance covers the $10/wallet floor but not the requested budget. Fund/free
 USDC **or** confirm a lower amount with the user (the refusal names the exact `--budget <X>` it can
-fund), then re-run. **Never lower the budget without asking.**
+fund), then re-run. **Never lower the budget without asking.** Show the funding card
+(`show_widget`, `widget_type: "fund_user_wallet"`) alongside the fundable figure — the card carries
+no amount of its own, so it gives the "deposit more" branch an action without competing with the
+figure the refusal named.
 
 ### `[E_FUNDS_BELOW_FLOOR]`
 
 **No budget is valid.** Depositing is the only way forward, so **show the funding card** —
 `show_widget` with `widget_type: "fund_user_wallet"` — in the same reply that reports the refusal.
-Don't name a skill at the user or make them ask for it; the card is the action. Say what is short,
-show the card, and re-run once they have funded. **Never** suggest a lower budget here.
-(Rails and edge cases: `senpi-deposit-withdraw-transfer`.)
+Say what is short, show the card, and re-run once they have funded. **Never** suggest a lower budget
+here. Note the floor is a little over $10 per wallet (~$11.50 with the ~$1.50 creation fee), so
+"deposit $10" sets up a second refusal.
+(Rails, fallback when the card is unavailable, and edge cases: `senpi-deposit-withdraw-transfer`.)
 
 ### `[E_STATE_AMBIGUOUS_WALLETS]`
 

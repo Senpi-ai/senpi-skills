@@ -199,10 +199,12 @@ own next step. So:
 **Two money rules the report cannot enforce for you** — and, when a code fires, the per-code depth is
 in [`references/refusal-playbook.md`](references/refusal-playbook.md):
 - **Never lower `--budget` to clear a funding refusal without asking the user.** `[E_FUNDS_SHORT]`
-  names the exact figure it *can* fund — offer it as a choice, alongside depositing more.
-  `[E_FUNDS_BELOW_FLOOR]` means **no** budget is valid: depositing is the only way forward, so
-  **show the funding card** (`show_widget`, `widget_type: "fund_user_wallet"`) with the refusal —
-  never suggest a smaller budget, and never make the user ask for the card.
+  names the exact figure it *can* fund — offer that figure and depositing more as two choices, and
+  show the funding card (`show_widget`, `widget_type: "fund_user_wallet"`) alongside the offer. The
+  card carries no amount, so it never competes with the figure the refusal named.
+  `[E_FUNDS_BELOW_FLOOR]` means **no** budget is valid: depositing is the only way forward, so show
+  the card with the refusal and never suggest a smaller budget. Both fill the **embedded** wallet;
+  the deploy draws from there. (Rails and fallback: `senpi-deposit-withdraw-transfer`.)
 - **Which wallet is which is the USER's call.** Where a refusal lists live wallets
   (`[E_STATE_AMBIGUOUS_WALLETS]`, `[E_INSTANCE_BINDING_UNKNOWN]`, `[E_WALLET_OWNED_BY_OTHER_PACKAGE]`),
   relay the list and ask. Triage is read-only — run the read the refusal names (`status.py <id>`, or

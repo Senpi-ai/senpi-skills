@@ -3,7 +3,9 @@ name: senpi-deposit-withdraw-transfer
 description: >-
   Handle ANY money-movement request — deposit, add funds, fund my account, "buy USDC", "pay with a card",
   withdraw, cash out, send, "send to my wallet / an exchange / a friend", transfer, "move my money", pay
-  someone, bridge, get my private key. Two hard rails: money ENTERS Senpi only through the user's embedded
+  someone, bridge, get my private key. Also the authority on how much is needed to start — "what's the
+  minimum", "how much do I need", "is $X enough", "can I start small". Two hard rails: money ENTERS Senpi
+  only through the user's embedded
   wallet (one EVM address, all supported chains + Hyperliquid — NEVER a strategy wallet), either by sending
   USDC in or by BUYING it in the app with a card, and money LEAVES Senpi to any EXTERNAL address only
   through the Senpi web/mobile app (Balances/Wallet) — no agent tool can send funds outside Senpi, by
@@ -62,10 +64,13 @@ hold (below), or **buy USDC in the app** with a card (next section). A user with
 stuck — never tell them they need an exchange account first.
 
 - **Show the funding card; don't type the address.** Call `show_widget` with
-  `widget_type: "fund_user_wallet"`. The card owns the address, the chain list and the QR, and its button
-  opens the deposit flow. Call it as part of your answer — the user does not have to ask for a card.
-  **Never write a deposit address, a QR, or a chain list into chat**: a hand-typed address is a
-  transcription risk on an irreversible action, and the card is always current.
+  `widget_type: "fund_user_wallet"`. The card owns the address and the QR, and its button opens the
+  deposit flow. **Never write a deposit address or a QR into chat**: a hand-typed address is a
+  transcription risk on an irreversible action, and the card is always current. Naming the chains in
+  words is still right — it is the answer to "does this work on Base only?" — just never quote chain
+  IDs, which garble easily and are the same address everywhere.
+  If the card is not available on this deployment, the fallback is the app — **Fund Your Wallet →
+  Deposit USDC** — not a typed address. The transcription risk does not go away when the tool is missing.
 - The **embedded wallet is the only deposit destination.** It is **one EVM address valid on ALL
   supported chains** (Base, Arbitrum, Optimism, Ethereum, BNB, Polygon) **and on Hyperliquid** — never
   imply it works on only one chain. Say that in words; the card shows the address itself. Read
@@ -93,9 +98,10 @@ Point at it warmly and specifically.
   and let them tap it. There is nothing to poll or verify afterwards; their balance simply updates.
 - **Where it lands:** as USDC **in their own embedded wallet, ready to trade — no bridging**, no exchange
   account, no separate transfer step afterwards.
-- **Amounts:** **$10 minimum**; most traders start with **$100–250**. These are the numbers for *any*
-  "how much do I need to start" question, whether they buy or send. Quote them as the app's own guidance,
-  and still never pick an amount for the user.
+- **Amounts:** **$10 minimum**, most start with **$100–250** — the app's own onramp guidance, for
+  buying or sending USDC in. **Deploying a strategy is a different number**: a little over $10 per
+  wallet (~$11.50 — the $10 floor plus the ~$1.50 creation fee), so a wallet funded to exactly $10
+  still refuses. Answer the number they actually asked about, and never pick an amount for the user.
 - **No agent tool exists for this, and none is coming** — the purchase is triggered by the user on the
   website / app. Don't invent a buy or onramp tool; name the app screen instead.
 - **Reassurance, when a user hesitates to fund:** the wallet is **theirs**, secured by Privy — the agent
@@ -141,16 +147,20 @@ Point at it warmly and specifically.
 - **External send / withdraw / transfer-out:** the **security line**, verbatim, once. Offer an
   on-platform move (e.g. "I can pull it out of a strategy back to your main wallet") only if it genuinely
   serves the goal — never as a backdoor to an external address.
-- **Deposit / add funds:** show the funding card (`show_widget`, `fund_user_wallet`), say in words that it
-  works on any supported chain and on Hyperliquid, and never hand out a strategy wallet address. If they
-  may not hold crypto yet, add the buy path in one line — don't make them ask twice.
-- **"How much do I need?" / "is $X enough?" / "can I start small?":** answer the number first — **$10
-  minimum, most start with $100–250** — then show the card. A card without the number does not answer
-  the question that was asked.
-- **"Will a deposit to `0x…` land?":** check before you answer. Compare it against the embedded address
-  from `user_get_me`. Their own embedded address → yes, and show the card. A **strategy** wallet → **no**,
-  warn them it bypasses accounting and may be unrecoverable, and point at `strategy_top_up`. Anything else
-  → no. Never answer this one with a bare card.
+- **Deposit / add funds:** show the funding card (`show_widget`, `widget_type: "fund_user_wallet"`), say
+  in words that it works on any supported chain and on Hyperliquid, and never hand out a strategy wallet
+  address. If they may not hold crypto yet, add the buy path in one line — don't make them ask twice.
+- **"How much do I need?" / "is $X enough?" / "can I start small?":** answer the number first, then show
+  the card — a card without the number does not answer what was asked. Which number depends on what they
+  are starting: **putting money in** is the $10 / $100–250 guidance above; **deploying a strategy** needs
+  ~$11.50 per wallet. If it is unclear which they mean, the deploy number is the safer one to name — it
+  is the higher bar, and quoting $10 to someone about to deploy sets them up for a refusal.
+- **"Will a deposit to `0x…` land?":** check before you answer, against **two** reads. `user_get_me` →
+  their own embedded address → yes, and show the card. `strategy_list` → one of their strategy wallets →
+  **no**: it bypasses accounting and may be unrecoverable, and `strategy_top_up` is the way in. Matching
+  neither → no. `user_get_me` alone cannot tell a strategy wallet from a stranger's address, so without
+  the `strategy_list` read you cannot give the strategy warning — which is the whole point of the check.
+  Never answer this one with a bare card.
 - **Buy USDC / "can I use a card":** yes — **Fund Your Wallet → Buy USDC** in the app, card / Apple Pay /
   Google Pay, lands in their own wallet ready to trade. Positive framing, never the security line.
 - **On-platform move:** check state where it matters — `account_get_portfolio` (balances),
@@ -160,8 +170,10 @@ Point at it warmly and specifically.
 ## Never
 
 - Never present a **strategy wallet address** as a deposit target — on any chain, for any reason.
-- Never type a **deposit address, QR, or chain list** into chat — that is the funding card's job.
-- Never show the funding card for a **strategy** funding request; that is `strategy_top_up`.
+- Never type a **deposit address or a QR** into chat — that is the card's job.
+- Never present the card as a way to fund a **strategy** — it fills the embedded wallet, and a strategy
+  is funded from there by `strategy_top_up`. When a strategy is short *because the embedded wallet is
+  short*, that is card first, `strategy_top_up` second — two steps, said as two steps.
 - Never route an external withdrawal through the **Hyperliquid UI**, **key export**, or a
   **bridge-/strategy-through** workaround. The external rail is the **app**, always.
 - Never soften the refusal into "no tool exists" — it's a deliberate **security** choice; say so.

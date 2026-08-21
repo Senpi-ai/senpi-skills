@@ -703,6 +703,10 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
 > **1. Want me to rebalance or adjust any of these positions?**
 > **2. Want me to put the idle capital to work in a new strategy?**
 
+Question 2 assumes there is idle capital. When there isn't — see CTA 2b — ask about adding funds
+instead; the verbatim rule is about not dropping the closing, not about asking a question the numbers
+have already answered.
+
 - **CTA 1 → strategy / position management.** For an **autonomous strategy**, route to the
   STRATEGY-level levers (`strategy_pause` / `strategy_update` config / `strategy_close` / `strategy_top_up`)
   and apply them to the **whole strategy (all its wallets)** — never to a single sleeve of a multi-wallet
@@ -714,10 +718,11 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
   which is committed), offer to hand it to **senpi-strategy-discover** / **senpi-strategy-author** — fund
   a new strategy from the embedded idle, or top up an existing *whole* strategy via `strategy_top_up`.
   Propose; never deploy without confirmation.
-- **CTA 2b → the inverse: nothing free to deploy.** When `idle_in_embedded` is **$0 or too small to
-  deploy**, and the user wants to start or grow a strategy, the answer is to fund the embedded wallet —
-  so **show the funding card** (`show_widget`, `widget_type: "fund_user_wallet"`). Don't leave this case
-  with no call to action, and don't send them off to a skill by name.
+- **CTA 2b → when `idle_in_embedded` cannot fund a wallet** (under ~$11.50 — the $10 floor plus the
+  ~$1.50 creation fee). Closing question 2 is wrong as written in this case: there is no idle capital
+  to put to work, and asking about it reads as though the engine did not look. Ask whether they want to
+  add funds instead, and **show the funding card** (`show_widget`, `widget_type: "fund_user_wallet"`)
+  with the question — the card is the action, so there is nothing to route.
   Two things to keep straight here:
   - **Idle $0 does not mean broke.** A user with everything deployed shows `idle_in_embedded: 0` beside
     a large `total_withdrawable`. Say which it is — new money, or money that has to come out of a
