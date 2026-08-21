@@ -31,8 +31,7 @@ figure the refusal named.
 **No budget is valid.** Depositing is the only way forward, so **show the funding card** —
 `show_widget` with `widget_type: "fund_user_wallet"` — in the same reply that reports the refusal.
 Say what is short, show the card, and re-run once they have funded. **Never** suggest a lower budget
-here. Note the floor is a little over $10 per wallet (~$11.50 with the ~$1.50 creation fee), so
-"deposit $10" sets up a second refusal.
+here. The refusal names the figures; quote those rather than a remembered minimum.
 (Rails, fallback when the card is unavailable, and edge cases: `senpi-deposit-withdraw-transfer`.)
 
 ### `[E_STATE_AMBIGUOUS_WALLETS]`

@@ -718,8 +718,9 @@ have already answered.
   which is committed), offer to hand it to **senpi-strategy-discover** / **senpi-strategy-author** — fund
   a new strategy from the embedded idle, or top up an existing *whole* strategy via `strategy_top_up`.
   Propose; never deploy without confirmation.
-- **CTA 2b → when `idle_in_embedded` cannot fund a wallet** (under ~$11.50 — the $10 floor plus the
-  ~$1.50 creation fee). Closing question 2 is wrong as written in this case: there is no idle capital
+- **CTA 2b → when `idle_in_embedded` cannot fund a wallet.** (What "enough" is depends on the package
+  and the platform floor — `senpi-strategy-ops` owns that number; don't quote one from memory.)
+  Closing question 2 is wrong as written in this case: there is no idle capital
   to put to work, and asking about it reads as though the engine did not look. Ask whether they want to
   add funds instead, and **show the funding card** (`show_widget`, `widget_type: "fund_user_wallet"`)
   with the question — the card is the action, so there is nothing to route.

@@ -3,9 +3,7 @@ name: senpi-deposit-withdraw-transfer
 description: >-
   Handle ANY money-movement request — deposit, add funds, fund my account, "buy USDC", "pay with a card",
   withdraw, cash out, send, "send to my wallet / an exchange / a friend", transfer, "move my money", pay
-  someone, bridge, get my private key. Also the authority on how much is needed to start — "what's the
-  minimum", "how much do I need", "is $X enough", "can I start small". Two hard rails: money ENTERS Senpi
-  only through the user's embedded
+  someone, bridge, get my private key. Two hard rails: money ENTERS Senpi only through the user's embedded
   wallet (one EVM address, all supported chains + Hyperliquid — NEVER a strategy wallet), either by sending
   USDC in or by BUYING it in the app with a card, and money LEAVES Senpi to any EXTERNAL address only
   through the Senpi web/mobile app (Balances/Wallet) — no agent tool can send funds outside Senpi, by
@@ -98,10 +96,8 @@ Point at it warmly and specifically.
   and let them tap it. There is nothing to poll or verify afterwards; their balance simply updates.
 - **Where it lands:** as USDC **in their own embedded wallet, ready to trade — no bridging**, no exchange
   account, no separate transfer step afterwards.
-- **Amounts:** **$10 minimum**, most start with **$100–250** — the app's own onramp guidance, for
-  buying or sending USDC in. **Deploying a strategy is a different number**: a little over $10 per
-  wallet (~$11.50 — the $10 floor plus the ~$1.50 creation fee), so a wallet funded to exactly $10
-  still refuses. Answer the number they actually asked about, and never pick an amount for the user.
+- **Amounts:** **$10 minimum**; most traders start with **$100–250**. Quote these as the app's own
+  guidance, and still never pick an amount for the user.
 - **No agent tool exists for this, and none is coming** — the purchase is triggered by the user on the
   website / app. Don't invent a buy or onramp tool; name the app screen instead.
 - **Reassurance, when a user hesitates to fund:** the wallet is **theirs**, secured by Privy — the agent
@@ -150,11 +146,6 @@ Point at it warmly and specifically.
 - **Deposit / add funds:** show the funding card (`show_widget`, `widget_type: "fund_user_wallet"`), say
   in words that it works on any supported chain and on Hyperliquid, and never hand out a strategy wallet
   address. If they may not hold crypto yet, add the buy path in one line — don't make them ask twice.
-- **"How much do I need?" / "is $X enough?" / "can I start small?":** answer the number first, then show
-  the card — a card without the number does not answer what was asked. Which number depends on what they
-  are starting: **putting money in** is the $10 / $100–250 guidance above; **deploying a strategy** needs
-  ~$11.50 per wallet. If it is unclear which they mean, the deploy number is the safer one to name — it
-  is the higher bar, and quoting $10 to someone about to deploy sets them up for a refusal.
 - **"Will a deposit to `0x…` land?":** check before you answer, against **two** reads. `user_get_me` →
   their own embedded address → yes, and show the card. `strategy_list` → one of their strategy wallets →
   **no**: it bypasses accounting and may be unrecoverable, and `strategy_top_up` is the way in. Matching
