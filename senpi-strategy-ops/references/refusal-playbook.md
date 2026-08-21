@@ -21,10 +21,7 @@ the message left you unsure what it meant, not for composing an answer without i
 
 The balance covers the $10/wallet floor but not the requested budget. Fund/free
 USDC **or** confirm a lower amount with the user (the refusal names the exact `--budget <X>` it can
-fund), then re-run. **Never lower the budget without asking.** Show the funding card
-(`show_widget`, `widget_type: "fund_user_wallet"`) alongside the fundable figure — the card carries
-no amount of its own, so it gives the "deposit more" branch an action without competing with the
-figure the refusal named.
+fund), then re-run. **Never lower the budget without asking.**
 
 ### `[E_FUNDS_BELOW_FLOOR]`
 

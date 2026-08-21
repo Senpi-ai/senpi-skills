@@ -423,7 +423,8 @@ directly.)
   `positions[].dsl` (the live tier) — see "DSL — how it works per strategy, and which position is in
   which tier"; never infer "no stop" from the absence of a resting stop order (DSL exits are
   runtime-managed, not resting orders) or from a missing ratchet record (sub-Tier-1 positions have none).
-- **Always end with the two CTAs** (below), verbatim.
+- **Always end with the two CTAs** (below) — verbatim, except the one case the CTA notes carry, where
+  question 2 does not apply.
 
 ## DSL — how it works per strategy, and which position is in which tier
 
