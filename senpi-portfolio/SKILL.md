@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.15.0"
+  version: "1.16.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -714,6 +714,16 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
   which is committed), offer to hand it to **senpi-strategy-discover** / **senpi-strategy-author** — fund
   a new strategy from the embedded idle, or top up an existing *whole* strategy via `strategy_top_up`.
   Propose; never deploy without confirmation.
+- **CTA 2b → the inverse: nothing free to deploy.** When `idle_in_embedded` is **$0 or too small to
+  deploy**, and the user wants to start or grow a strategy, the answer is to fund the embedded wallet —
+  so **show the funding card** (`show_widget`, `widget_type: "fund_user_wallet"`). Don't leave this case
+  with no call to action, and don't send them off to a skill by name.
+  Two things to keep straight here:
+  - **Idle $0 does not mean broke.** A user with everything deployed shows `idle_in_embedded: 0` beside
+    a large `total_withdrawable`. Say which it is — new money, or money that has to come out of a
+    strategy first (`strategy_withdraw_funds`, or closing it) — before showing the card.
+  - **The card fills the embedded wallet only.** Funding a strategy from it is a second step
+    (`strategy_top_up`). Never imply the card puts money into a strategy.
 
 ## Resilience (engine handles; narrate honestly)
 

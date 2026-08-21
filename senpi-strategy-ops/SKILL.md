@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.6.23"
+  version: "3.7.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -200,8 +200,9 @@ own next step. So:
 in [`references/refusal-playbook.md`](references/refusal-playbook.md):
 - **Never lower `--budget` to clear a funding refusal without asking the user.** `[E_FUNDS_SHORT]`
   names the exact figure it *can* fund — offer it as a choice, alongside depositing more.
-  `[E_FUNDS_BELOW_FLOOR]` means **no** budget is valid: help the user deposit
-  (`senpi-deposit-withdraw-transfer`), and never suggest a smaller one.
+  `[E_FUNDS_BELOW_FLOOR]` means **no** budget is valid: depositing is the only way forward, so
+  **show the funding card** (`show_widget`, `widget_type: "fund_user_wallet"`) with the refusal —
+  never suggest a smaller budget, and never make the user ask for the card.
 - **Which wallet is which is the USER's call.** Where a refusal lists live wallets
   (`[E_STATE_AMBIGUOUS_WALLETS]`, `[E_INSTANCE_BINDING_UNKNOWN]`, `[E_WALLET_OWNED_BY_OTHER_PACKAGE]`),
   relay the list and ask. Triage is read-only — run the read the refusal names (`status.py <id>`, or
