@@ -15,8 +15,13 @@ def test_venue_asset_reattaches_xyz_prefix():
     assert scan._venue_asset("NVDA", "xyz") == "xyz:NVDA"
     assert scan._venue_asset("BRENTOIL", "xyz") == "xyz:BRENTOIL"
     assert scan._venue_asset("BTC", "") == "BTC"          # main-DEX passes through
-    assert scan._venue_asset("xyz:GOLD", "xyz") == "xyz:GOLD"   # already prefixed → no double-prefix
-    assert scan._venue_asset("SILVER", None) == "SILVER"  # missing dex → treated as main (safe fallback)
+    # already-prefixed → canonicalised to lowercase xyz:. The board UPPER-cases tokens, so the REACHABLE
+    # prefixed spelling is XYZ:… — both must land on the canonical name, never the non-canonical XYZ:.
+    assert scan._venue_asset("XYZ:GOLD", "xyz") == "xyz:GOLD"
+    assert scan._venue_asset("xyz:GOLD", "xyz") == "xyz:GOLD"
+    # no dex on the row → can't infer the venue, so addressed on main. NOT "safe": an XYZ asset arriving
+    # without a dex silently no-trades (the same failure the PR fixes) — the board must carry dex.
+    assert scan._venue_asset("SILVER", None) == "SILVER"
 
 
 def test_bare_strips_prefix_for_dedup():
@@ -58,6 +63,9 @@ class _MCP:
                 {"token": "NVDA", "dex": "xyz", "direction": "short", "pct_of_top_traders_gain": 20, "volume": 1000, "trader_count": 50},
                 {"token": "BTC",  "dex": "",    "direction": "long",  "pct_of_top_traders_gain": 75, "volume": 2000, "trader_count": 60},
                 {"token": "BTC",  "dex": "",    "direction": "short", "pct_of_top_traders_gain": 25, "volume": 2000, "trader_count": 60},
+                # a strong SHORT on an XYZ commodity — the "short crypto/commodities" half of the thesis
+                {"token": "BRENTOIL", "dex": "xyz", "direction": "short", "pct_of_top_traders_gain": 80, "volume": 1500, "trader_count": 55},
+                {"token": "BRENTOIL", "dex": "xyz", "direction": "long",  "pct_of_top_traders_gain": 20, "volume": 1500, "trader_count": 55},
             ]}
         if tool == "market_get_asset_data":
             self.asset_data_calls.append({"asset": args.get("asset"), "dex": args.get("dex")})
@@ -87,6 +95,13 @@ def test_xyz_asset_emits_and_is_read_under_its_xyz_prefix():
     xyz_reads = [c for c in mcp.asset_data_calls if c["asset"] == "xyz:NVDA"]
     assert xyz_reads and xyz_reads[0]["dex"] == "xyz", mcp.asset_data_calls
     assert all(c["asset"] != "NVDA" for c in mcp.asset_data_calls), mcp.asset_data_calls
+    # the fix must hold on the SHORT side too — the "short crypto/commodities" half of the thesis
+    short_assets = {e["asset"] for e in out if e["direction"] == "SHORT"}
+    assert "xyz:BRENTOIL" in short_assets, out
+    assert "BRENTOIL" not in short_assets, out
+    brent_reads = [c for c in mcp.asset_data_calls if c["asset"] == "xyz:BRENTOIL"]
+    assert brent_reads and brent_reads[0]["dex"] == "xyz", mcp.asset_data_calls
+    assert all(c["asset"] != "BRENTOIL" for c in mcp.asset_data_calls), mcp.asset_data_calls
 
 
 if __name__ == "__main__":

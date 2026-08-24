@@ -70,11 +70,14 @@ def _venue_asset(token, dex):
     assets — equities/commodities/indices — are addressed as `xyz:<TOKEN>`, but `leaderboard_get_markets`
     returns the BARE token (`NVDA`, `BRENTOIL`, `SILVER`) with the DEX in a separate `dex` field. Re-attach
     the prefix here: without it, market_get_asset_data (and the trade itself) hit an asset that isn't on the
-    main DEX and fail — the exact issue the catalog validator caught. Main-DEX tokens pass through."""
+    main DEX and fail — the exact issue the catalog validator caught. Idempotent AND case-canonical: an
+    already-prefixed token is rebuilt with a lowercase `xyz:` (the board upper-cases tokens, so a future
+    prefixed row would arrive as `XYZ:…`, which is non-canonical and would fail the same way a bare name
+    does). Main-DEX tokens pass through unchanged."""
     t = str(token)
-    if str(dex).lower() == "xyz" and not t.lower().startswith("xyz:"):
-        return f"xyz:{t}"
-    return t
+    if t.lower().startswith("xyz:"):
+        return "xyz:" + t[4:]                    # canonical lowercase prefix, whatever case it arrived in
+    return f"xyz:{t}" if str(dex).lower() == "xyz" else t
 
 
 def _bare(name):
