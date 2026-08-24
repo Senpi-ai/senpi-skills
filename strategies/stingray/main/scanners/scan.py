@@ -65,6 +65,25 @@ def _dex_for(asset):
     return "xyz" if str(asset).lower().startswith("xyz:") else ""
 
 
+def _venue_asset(token, dex):
+    """The venue-correct asset name for BOTH the market read and the emitted trade. XYZ (HIP-3)
+    assets — equities/commodities/indices — are addressed as `xyz:<TOKEN>`, but `leaderboard_get_markets`
+    returns the BARE token (`NVDA`, `BRENTOIL`, `SILVER`) with the DEX in a separate `dex` field. Re-attach
+    the prefix here: without it, market_get_asset_data (and the trade itself) hit an asset that isn't on the
+    main DEX and fail — the exact issue the catalog validator caught. Main-DEX tokens pass through."""
+    t = str(token)
+    if str(dex).lower() == "xyz" and not t.lower().startswith("xyz:"):
+        return f"xyz:{t}"
+    return t
+
+
+def _bare(name):
+    """Bare, upper key for held / recent-signal dedup — strips an `xyz:` prefix so a held or
+    recently-signaled XYZ position matches the leaderboard's bare token (and vice-versa)."""
+    s = str(name)
+    return (s[4:] if s.lower().startswith("xyz:") else s).upper()
+
+
 # ── ACCOUNT + HELD ASSETS (bison _get_account, verbatim shape incl. read-sanity guard) ──
 
 def _get_account(ctx):
@@ -289,26 +308,27 @@ def _emit_side(ctx, ranked, direction, cap, held_set, signaled, ttl, now,
     for c in ranked:
         if len(emits) >= cap:
             break
-        coin = c["token"]
-        cu = coin.upper()
+        cu = _bare(c["token"])                     # bare, upper — held + recent-signal dedup key
         if cu in held_set:
             continue
-        if _recently_signaled(signaled, coin, ttl, now):
+        if _recently_signaled(signaled, cu, ttl, now):
             continue
-        ok = _price_ok(ctx, coin, direction)
+        # venue-correct name (xyz:<TOKEN> for HIP-3 assets) — required by market_get_asset_data AND the emit
+        venue = _venue_asset(c["token"], c.get("dex"))
+        ok = _price_ok(ctx, venue, direction)
         if ok is None:
-            print(f"[stingray.scan] SKIP {coin} {direction}: trend read failed (don't size blind)",
+            print(f"[stingray.scan] SKIP {venue} {direction}: trend read failed (don't size blind)",
                   file=sys.stderr)
             continue
         if not ok:
-            print(f"[stingray.scan] SKIP {coin} {direction}: price gate (hard "
+            print(f"[stingray.scan] SKIP {venue} {direction}: price gate (hard "
                   f"{'down' if direction == 'LONG' else 'up'}trend, don't fight price)",
                   file=sys.stderr)
             continue
         margin_pct = scoring.margin_pct_for(abs(c["net_tilt"]), base_margin, max_margin)
         signaled[cu] = now
         emits.append({
-            "asset": coin,
+            "asset": venue,
             "direction": direction,
             "marginPct": margin_pct,          # PERCENT in (0,100] — runtime sizes the dollars
             "leverage": leverage,             # clamped [1,5] + venue max
@@ -358,7 +378,7 @@ def scan(inputs, ctx):
                 print(f"[stingray.scan] WARNING: state append failed: {exc!r}", file=sys.stderr)
         return []
     held_assets = [p["coin"] for p in positions if p.get("coin")]
-    held_set = {h.upper() for h in held_assets}
+    held_set = {_bare(h) for h in held_assets}     # strip xyz: so held HIP-3 positions dedup vs bare board tokens
 
     signaled = _prune_signaled(_load_signaled(ctx), ttl, now)
 
