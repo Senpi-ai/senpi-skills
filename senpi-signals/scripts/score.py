@@ -45,10 +45,26 @@ CRED_FLOOR_VOL = 1_000_000    # below this a market is too thin to trust the rea
 CRED_MIN_MULT = 0.45          # multiplier at the drop floor, ramping to 1.0 by FULL_CRED_VOL
 TRADE_CRED_FLOOR = 5_000_000  # you can't trade a book this thin → excluded from the TRADE feed only
 
+# ── provenance of the smart-money read (declare it in asset_metrics as `smart_source`) ──
+# The engine must never assert a source it cannot verify. A leaderboard-derived read is momentum
+# (survivorship-biased: whoever is short a falling name tops the 4h board) and is NOT the proven
+# cohort — labelling it as such is the exact overstatement golden rule 12 exists to prevent.
+SMART_SOURCE_LABEL = {
+    "proven_cohort": "the proven cohort",
+    "leaderboard_4h": "the live 4h leaderboard (what's winning now, not track record)",
+    None: "top traders (SOURCE UNSTATED — do not call this smart money)",
+}
+SMART_SOURCE_TRUST = {          # folded into credibility: how much we believe the reading itself
+    "proven_cohort": 1.0,
+    "leaderboard_4h": 0.7,      # momentum read — real, but weaker evidence of conviction
+    None: 0.8,                  # unstated: don't reward it, don't pretend it's worthless
+}
+
 # ── cadence / freshness ──
 DIFF_TARGET_MIN = 60          # diff the change-detectors against the snapshot ~this old (fix 3-min noise)
 TREND_LOOKBACK_MIN = 720      # the SLOW lookback (~12h) for cohort-positioning trend
 TREND_MIN_PP = 3.0            # min move in cohort share (pts) to call it a build/unwind
+TREND_MIN_AGE_MIN = 360       # refuse to call it a trend if the baseline is younger than this (~6h)
 SNAP_MAX_AGE_MIN = 1500       # keep ~25h of snapshots so the 12h lookback always has a partner
 SNAP_RING_MAX = 48            # cap the ring length
 FRESH_WINDOW_MIN = 45         # an (asset,detector) shown within this window is penalized, decaying to 1.0
@@ -186,7 +202,7 @@ def trade_score(s, cred):
     return round(100 * base * cred, 1)
 
 
-def detect_from_metrics(cur, prior, prior_slow=None):
+def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None):
     """Fire the diff/threshold detectors from current asset_metrics.
 
     Two baselines: `prior` ≈ DIFF_TARGET_MIN old (the fast diff — OI, funding, conviction) and
@@ -199,6 +215,9 @@ def detect_from_metrics(cur, prior, prior_slow=None):
             continue
         p = (prior or {}).get(asset, {}) if isinstance(prior, dict) else {}
         ps = (prior_slow or {}).get(asset, {}) if isinstance(prior_slow, dict) else {}
+        src = m.get("smart_source") if m.get("smart_source") in SMART_SOURCE_LABEL else None
+        src_label = SMART_SOURCE_LABEL[src]
+        src_trust = SMART_SOURCE_TRUST[src]
         dex = m.get("dex", "")
         vol = _num(m.get("notional_vol")) or _num(m.get("day_notional_volume"))
         pcp = _num(m.get("price_change_pct"))
@@ -211,6 +230,7 @@ def detect_from_metrics(cur, prior, prior_slow=None):
                 "numbers": numbers, "notional_vol": vol, "concrete_entity": None,
                 "price_change_pct": pcp, "magnitude": max(0.0, min(1.0, magnitude)),
                 "conflict": conflict, "flip": flip,
+                "smart_source": src, "source_trust": src_trust,
                 "is_change": (detector in CHANGE_DETECTORS if is_change is None else is_change),
             })
 
@@ -234,7 +254,7 @@ def detect_from_metrics(cur, prior, prior_slow=None):
             one_sided = one_sidedness(m, sd)
             ln, sn = _num(m.get("smart_long_n")), _num(m.get("smart_short_n"))
             # share = % of the PROVEN COHORT on the smart side (never the 4h leaderboard's PnL share)
-            nums = [f"smart money {str(sd).upper()} ({share:.0f}% of the proven cohort)"]
+            nums = [f"{str(sd).upper()} lean ({share:.0f}% of {src_label})"]
             if one_sided is not None:   # the split is what separates a rout from noise — always cite it
                 nums.append(f"{sn:.0f} short vs {ln:.0f} long among those positioned "
                             f"({one_sided * 100:.0f}% one-sided)")
@@ -249,15 +269,20 @@ def detect_from_metrics(cur, prior, prior_slow=None):
         # "43% of the top 1,000 now hold HYPE shorts, up from 38% 12h ago" — change on the best data
         # we have. A build is a far stronger read than a standing divergence, so it outranks one.
         sshare = _num(ps.get("smart_share"))
+        # The baseline's REAL age — never the nominal target. A fallback baseline can be minutes old,
+        # and printing "~12h ago" over it would be a fabricated number (golden rule 1). Too young ⇒
+        # this is not a trend at all, so it must not fire.
+        age_h = (slow_age_min / 60.0) if slow_age_min is not None else None
         if (sd and share is not None and sshare is not None
                 and ps.get("smart_dir") == sd                      # same side — a genuine build, not a rotation
-                and abs(share - sshare) >= TREND_MIN_PP):
+                and abs(share - sshare) >= TREND_MIN_PP
+                and slow_age_min is not None and slow_age_min >= TREND_MIN_AGE_MIN):
             d_pp = share - sshare
             building = d_pp > 0
-            hrs = TREND_LOOKBACK_MIN / 60.0
-            nums = [f"{share:.0f}% of the proven cohort now hold {str(sd).upper()} positions"
-                    f" — {'up' if building else 'down'} from {sshare:.0f}% ~{hrs:.0f}h ago",
-                    f"{'+' if building else '−'}{abs(d_pp):.0f}pp over ~{hrs:.0f}h"]
+            window = f"~{age_h:.0f}h" if age_h >= 1 else f"~{slow_age_min:.0f}min"
+            nums = [f"{share:.0f}% of {src_label} now hold {str(sd).upper()} positions"
+                    f" — {'up' if building else 'down'} from {sshare:.0f}% {window} ago",
+                    f"{'+' if building else '−'}{abs(d_pp):.0f}pp over {window}"]
             os_now = one_sidedness(m, sd)
             if os_now is not None:
                 nums.append(f"{os_now * 100:.0f}% one-sided among those positioned")
@@ -318,13 +343,22 @@ def normalize_event(e):
     }
 
 
+def _smart_lead(s):
+    """How to NAME the actors in prose — governed by the declared source, never assumed. Calling the
+    4h leaderboard's winners "smart money" is the overstatement golden rule 12 exists to prevent."""
+    return {"proven_cohort": "Smart money",
+            "leaderboard_4h": "The last 4h's top performers",
+            None: "Top traders (source unstated)"}[s.get("smart_source")
+                                                   if s.get("smart_source") in SMART_SOURCE_TRUST else None]
+
+
 def frame(s):
     """Content voice (social feed)."""
     a, d = s["asset"], (s.get("direction") or "")
     nums = "; ".join(s.get("numbers") or [])
     det = s["detector"]
     if det == "sm_divergence":
-        return f"Smart money is {d.upper()} on {a} while the crowd leans the other way — {nums}."
+        return f"{_smart_lead(s)} lean {d.upper()} on {a} while the crowd leans the other way — {nums}."
     if det == "oi_surge":
         return (f"{nums} on {a}" + (f" {d}s" if d else "")
                 + " — positioning building under a quiet chart.")
@@ -354,9 +388,9 @@ def trade_read(s):
     cfm = confirmation(s)
     tag = "price confirming" if cfm >= 0.66 else ("not yet confirmed by price" if cfm <= 0.4 else "price neutral")
     if det == "sm_divergence":
-        return f"Smart-money {d} vs the crowd on {a}, {tag} — a follow-the-smart-money {d} read."
+        return f"{_smart_lead(s)} {d} vs the crowd on {a}, {tag}."
     if det == "sm_positioning_build":
-        return f"The proven cohort is shifting {d} on {a} ({tag}) — {nums}."
+        return f"Top-trader positioning is shifting {d} on {a} ({tag}) — {nums}."
     if det == "sm_conviction":
         return f"{nums} on {a} ({tag}) — a conviction shift to weigh."
     if det == "oi_surge":
@@ -571,10 +605,15 @@ def main():
     prior = (baseline or {}).get("asset_metrics", {})
     slow = _pick_baseline(ring, now, TREND_LOOKBACK_MIN) or baseline      # slow (~12h) — cohort trend
     prior_slow = (slow or {}).get("asset_metrics", {})
+    # the slow baseline's ACTUAL age — _pick_baseline falls back to the oldest snapshot it has, which
+    # may be minutes old. The trend detector must know that and refuse, rather than narrate "~12h".
+    slow_ts = _parse_ts((slow or {}).get("ts"))
+    slow_age_min = (now - slow_ts).total_seconds() / 60.0 if slow_ts else None
 
-    signals = detect_from_metrics(cur_metrics, prior, prior_slow) + events
+    signals = detect_from_metrics(cur_metrics, prior, prior_slow, slow_age_min) + events
     for s in signals:
-        cred = credibility(s.get("notional_vol"))
+        # two independent reasons to discount a reading: a thin book, and an unverified/momentum source
+        cred = round(credibility(s.get("notional_vol")) * float(s.get("source_trust", 1.0)), 3)
         s["credibility"] = cred
         s["freshness"] = freshness(s["asset"], s["detector"], surfaced, now)
         s["social_score"] = social_score(s, cred, s["freshness"])
@@ -594,6 +633,9 @@ def main():
     print(json.dumps({"generated": now.isoformat(),
                       "diff_baseline_ts": (baseline or {}).get("ts"),
                       "trend_baseline_ts": (slow or {}).get("ts"),
+                      "trend_baseline_age_hours": (round(slow_age_min / 60.0, 1)
+                                                   if slow_age_min is not None else None),
+                      "trend_ready": bool(slow_age_min is not None and slow_age_min >= TREND_MIN_AGE_MIN),
                       "trade": trade, "social": social}, indent=2))
     print(f"[wrote {a.out} · trade {len(trade)} · social {len(social)} · baseline "
           f"{(baseline or {}).get('ts', 'none')} · consumer {a.consumer} · state {state_path}]", file=sys.stderr)

@@ -21,7 +21,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.3.0"
+  version: "1.4.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -213,11 +213,16 @@ python3 scripts/score.py current.json --top 6 --out signals.md
   **`smart_long_n` / `smart_short_n`** (the positioned split — see below), `smart_dir`, `crowd_dir`,
   `oi_side`, `funding_pctile` (0–100), `funding_annualized_pct`, `notional_vol`, `dex` (`""` main /
   `"xyz"`), `trader_count`. Missing fields just skip their detectors.
-  - **`smart_share` is the PROVEN-COHORT share** (% of the cohort positioned on `smart_dir`) — **not**
-    the 4h leaderboard's `pct_of_top_traders_gain`. That one is momentum/survivorship-biased (whoever's
-    short a falling name tops the 4h board); if you carry it, put it in `hot_4h_share` as labelled
-    colour. Mixing them is how you get "smart money is short X" from a number that only says "shorts
-    are winning right now."
+  - **`smart_source` — DECLARE WHERE THE READ CAME FROM. This is not optional.**
+    `"proven_cohort"` (senpi-smart-money, ≥$1M lifetime realized — track record) or `"leaderboard_4h"`
+    (`leaderboard_get_markets` — momentum, survivorship-biased). The engine **labels the output from
+    this field and discounts the score by it** (proven 1.0 · leaderboard 0.7 · **unstated 0.8, and it
+    prints "SOURCE UNSTATED — do not call this smart money"**). Omit it and every line the skill emits
+    carries that warning — by design: *the engine will not assert a provenance you did not give it.*
+  - **`smart_share` is the share on `smart_dir` from whichever source you declared** — the cohort %
+    for `proven_cohort`, the leaderboard share for `leaderboard_4h`. If you carry the leaderboard
+    number alongside a proven-cohort read, put it in `hot_4h_share` as labelled colour. Mixing them is
+    how you get "smart money is short X" from a number that only says "shorts are winning right now."
   - **Always supply `smart_long_n` / `smart_short_n` when you can.** The cohort % alone can't tell a
     rout from noise — 43%-short is 429-vs-40 (~91% one-sided, real) or 429-vs-380 (~53%, noise). The
     un-positioned rest of the cohort is **not** the other side. score.py uses the split for magnitude

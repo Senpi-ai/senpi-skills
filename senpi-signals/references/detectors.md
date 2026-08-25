@@ -52,13 +52,24 @@ cross-asset) you assemble as pre-formed `events[]`.
   whoever's long it). Confusing the two is what makes senpi-signals contradict the pulse read (e.g.
   proven cohort net-**short** HYPE while the 4h winners ride HYPE longs). Crowd side: from
   senpi-smart-money, or the funding-sign proxy (positive ⇒ crowd LONG, negative ⇒ crowd SHORT).
-- **Metric fields:** `smart_dir`, `crowd_dir`, `smart_share` — and, whenever you can get them, the
-  **positioned split** `smart_long_n` / `smart_short_n` (+ optional `cohort_n`).
-  **`smart_share` is the PROVEN-COHORT share** (what % of the cohort is positioned on `smart_dir`),
-  **NOT** `pct_of_top_traders_gain`. The leaderboard number is a *different, momentum* metric — if you
-  carry it, put it in **`hot_4h_share`** and label it "what's hot in the last 4h", never as the
-  divergence's headline. (Mixing these is what produces "smart money is short X" when all you have is
-  "whoever's short a falling name is topping the 4h board.")
+- **Metric fields:** `smart_dir`, `crowd_dir`, `smart_share`, **`smart_source`** — and, whenever you
+  can get them, the **positioned split** `smart_long_n` / `smart_short_n` (+ optional `cohort_n`).
+- **⚠️ `smart_source` is mandatory in practice.** The engine will not assert a provenance it wasn't
+  given: it picks the output wording *and* a trust multiplier from this field.
+
+  | `smart_source` | printed as | trust |
+  |---|---|---|
+  | `proven_cohort` | "the proven cohort" / "Smart money" | 1.0 |
+  | `leaderboard_4h` | "the live 4h leaderboard (what's winning now, not track record)" | 0.7 |
+  | *(omitted)* | "top traders (**SOURCE UNSTATED — do not call this smart money**)" | 0.8 |
+
+  Trust multiplies into `credibility`, exactly as thin liquidity does — two independent reasons to
+  believe a reading less. This exists because the failure is silent otherwise: feed the 4h board in,
+  read "smart money is short HYPE" out, and post a survivorship artefact as conviction.
+- **`smart_share` is the share on `smart_dir` from the source you declared** — the cohort % for
+  `proven_cohort`, the leaderboard share for `leaderboard_4h`. Never carry one and label it the other.
+  If you have a proven-cohort read *and* want the 4h number alongside it, put the latter in
+  **`hot_4h_share`** as labelled colour — never as the divergence's headline.
 - **⚠️ The positioned split is what makes a lean directional.** `smart_share` alone can't tell a rout
   from noise: 43%-of-cohort short is **429 vs 40** (~91% one-sided → real conviction) or **429 vs 380**
   (~53% → noise). Pull both sides' counts (the senpi-smart-money engine has them; or sum sides from
@@ -71,8 +82,9 @@ cross-asset) you assemble as pre-formed `events[]`.
   `metaAndAssetCtxs`); (2) **funding sign** as a live proxy — positive funding ⇒ crowd LONG, negative
   ⇒ crowd SHORT. **Divergence = the smart dominant direction *opposite* crowd_dir.** Smart-long-while-
   price-*down* is NOT a divergence (that's smart-vs-price) — don't call it one.
-- **Framing:** `Smart money is <SHORT> on <ASSET> — <X>% of the proven cohort (<S> short vs <L> long
-  among those positioned, <O>% one-sided), ~$<Nm> notional — while the crowd is <LONG>.`
+- **Framing** (the lead phrase follows `smart_source` — "Smart money" only for `proven_cohort`):
+  `<Smart money|The last 4h's top performers> lean <SHORT> on <ASSET> — <X>% of <source> (<S> short vs
+  <L> long among those positioned, <O>% one-sided), ~$<Nm> notional — while the crowd is <LONG>.`
 
 ### 2b. `sm_positioning_build` — the cohort's positioning MOVING  *(smart-money family — the best signal we have)*
 **This is the flagship read: change, applied to the highest-quality data.** A *standing* divergence is
@@ -83,7 +95,13 @@ thing that is actually news. It outranks a standing divergence by design (change
 - **Metric fields:** `smart_dir`, `smart_share` (cohort %), plus the same optional `smart_long_n` /
   `smart_short_n`. **You supply only the current reading** — score.py finds the 12h-ago value itself.
 - **Fires when:** `smart_dir` is UNCHANGED vs ~12h ago (a genuine build on one side, not a rotation)
-  AND `|smart_share − smart_share_12h| ≥ TREND_MIN_PP` (3pp). Rising = building, falling = unwinding.
+  AND `|smart_share − smart_share_12h| ≥ TREND_MIN_PP` (3pp) **AND the baseline is genuinely old —
+  `≥ TREND_MIN_AGE_MIN` (6h).** Rising = building, falling = unwinding.
+- **⚠️ It narrates the baseline's REAL age, and refuses a young one.** `_pick_baseline` falls back to
+  the oldest snapshot it has, so on a cold ring that can be *minutes* old. Firing then — and printing
+  "~12h ago" over a 20-minute diff — fabricates the window (golden rule 1). Below the minimum age it
+  simply does not fire; the run JSON reports `trend_baseline_age_hours` and `trend_ready` so you can
+  see *why* it stayed quiet rather than guessing.
 - **Magnitude:** `|Δpp| / 15` capped at 1 — a 15pp swing in 12h is enormous.
 - **Why it beats everything else:** it needs *history of the cohort*, which nobody else keeps. A price
   chart can't show it, the 4h leaderboard can't show it, and a single-run snapshot can't show it.
@@ -262,4 +280,4 @@ Badges on the rendered feeds: 🔥 ≥ 80 · 🟠 65–79 · 🟡 < 65 · ⭐ to
 ## Defaults (mirrored in score.py — change in BOTH)
 `OI_SURGE_PCT 0.10 · PRICE_FLAT 0.01 · SMART_SHARE_MIN 25 · SMART_JUMP_PP 12 · FUNDING_PCTILE 95 ·
 WHALE_MIN_USD 1_000_000 · FULL_CRED_VOL 25_000_000 · CRED_FLOOR_VOL 1_000_000 · TRADE_CRED_FLOOR 5_000_000 ·
-DIFF_TARGET_MIN 60 · TREND_LOOKBACK_MIN 720 · TREND_MIN_PP 3 · SNAP_MAX_AGE_MIN 1500 · FRESH_WINDOW_MIN 45 · MIN_SOCIAL 30 · MIN_TRADE 45 · FAMILY_CAP 2 · TOP_N 6`
+DIFF_TARGET_MIN 60 · TREND_LOOKBACK_MIN 720 · TREND_MIN_PP 3 · TREND_MIN_AGE_MIN 360 · SNAP_MAX_AGE_MIN 1500 · FRESH_WINDOW_MIN 45 · MIN_SOCIAL 30 · MIN_TRADE 45 · FAMILY_CAP 2 · TOP_N 6`

@@ -99,28 +99,74 @@ def test_one_sidedness_uses_the_positioned_split_not_the_whole_cohort():
 
 def test_cohort_positioning_trend_fires_on_a_12h_build():
     # the signal Jason asked for: "43% now vs 38% of the same cohort ~12h ago".
-    now = score._parse_ts("2026-08-25T12:00:00+00:00")
     cur = {"HYPE": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 43,
+                    "smart_source": "proven_cohort",
                     "smart_short_n": 429, "smart_long_n": 40, "notional_vol": 9e8}}
-    slow = {"HYPE": {"smart_dir": "short", "smart_share": 38}}          # ~12h ago
-    sigs = score.detect_from_metrics(cur, {}, slow)
+    slow = {"HYPE": {"smart_dir": "short", "smart_share": 38}}          # the ~12h-ago reading
+    sigs = score.detect_from_metrics(cur, {}, slow, 720)                # baseline genuinely 12h old
     trend = [s for s in sigs if s["detector"] == "sm_positioning_build"]
     assert len(trend) == 1, [s["detector"] for s in sigs]
-    t = trend[0]
-    assert t["is_change"] is True and t["direction"] == "short"
-    joined = " ".join(t["numbers"])
+    t_ = trend[0]
+    assert t_["is_change"] is True and t_["direction"] == "short"
+    joined = " ".join(t_["numbers"])
     assert "43% of the proven cohort" in joined and "38%" in joined and "up from" in joined, joined
+    assert "~12h ago" in joined, joined                                  # states the REAL window
     assert "one-sided" in joined, joined                                 # carries the positioned split
     # a build outranks a merely-standing divergence on the same name (change + edge both higher)
     div = [s for s in sigs if s["detector"] == "sm_divergence"][0]
-    for s in (t, div):
+    for s in (t_, div):
         s["trade_score"] = score.trade_score(s, 1.0)
-    assert t["trade_score"] > div["trade_score"], (t["trade_score"], div["trade_score"])
-    # a move below the threshold, or a side rotation, does NOT fire
-    assert not [s for s in score.detect_from_metrics(cur, {}, {"HYPE": {"smart_dir": "short", "smart_share": 42}})
+    assert t_["trade_score"] > div["trade_score"], (t_["trade_score"], div["trade_score"])
+    # below the pp threshold, or a side rotation → no fire
+    assert not [s for s in score.detect_from_metrics(cur, {}, {"HYPE": {"smart_dir": "short", "smart_share": 42}}, 720)
                 if s["detector"] == "sm_positioning_build"]              # +1pp < TREND_MIN_PP
-    assert not [s for s in score.detect_from_metrics(cur, {}, {"HYPE": {"smart_dir": "long", "smart_share": 38}})
+    assert not [s for s in score.detect_from_metrics(cur, {}, {"HYPE": {"smart_dir": "long", "smart_share": 38}}, 720)
                 if s["detector"] == "sm_positioning_build"]              # different side = not a build
+
+
+def test_trend_refuses_a_baseline_too_young_to_be_a_trend():
+    """_pick_baseline falls back to the OLDEST snapshot it has, which on a cold ring can be minutes
+    old. Firing then — and narrating it as '~12h ago' — would fabricate the window (golden rule 1)."""
+    cur = {"HYPE": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 43,
+                    "smart_source": "proven_cohort", "notional_vol": 9e8}}
+    slow = {"HYPE": {"smart_dir": "short", "smart_share": 38}}
+    for young in (0, 20, 120, score.TREND_MIN_AGE_MIN - 1):
+        assert not [s for s in score.detect_from_metrics(cur, {}, slow, young)
+                    if s["detector"] == "sm_positioning_build"], f"fired on a {young}min baseline"
+    assert not [s for s in score.detect_from_metrics(cur, {}, slow, None)
+                if s["detector"] == "sm_positioning_build"], "fired with an unknown baseline age"
+    # at/over the minimum it fires — and narrates the ACTUAL age, not the nominal 12h target
+    fired = [s for s in score.detect_from_metrics(cur, {}, slow, 400)
+             if s["detector"] == "sm_positioning_build"]
+    assert len(fired) == 1
+    joined = " ".join(fired[0]["numbers"])
+    assert "~7h ago" in joined, joined                                   # 400min ≈ 7h, not "12h"
+    assert "12h" not in joined, joined
+
+
+def test_smart_source_is_labelled_honestly_and_discounted():
+    """The engine must never assert a provenance it cannot verify. Feeding the 4h leaderboard in and
+    getting back 'the proven cohort' is the overstatement golden rule 12 exists to prevent."""
+    base = {"smart_dir": "short", "crowd_dir": "long", "smart_share": 43, "notional_vol": 9e8}
+
+    def div(extra):
+        m = dict(base); m.update(extra)
+        return [s for s in score.detect_from_metrics({"HYPE": m}, {}) if s["detector"] == "sm_divergence"][0]
+
+    proven = div({"smart_source": "proven_cohort"})
+    board = div({"smart_source": "leaderboard_4h"})
+    unstated = div({})
+
+    assert "the proven cohort" in " ".join(proven["numbers"])
+    assert "live 4h leaderboard" in " ".join(board["numbers"])
+    assert "proven cohort" not in " ".join(board["numbers"]), board["numbers"]
+    assert "SOURCE UNSTATED" in " ".join(unstated["numbers"]), unstated["numbers"]
+
+    # …and provenance discounts the score, exactly as thin liquidity does
+    assert proven["source_trust"] == 1.0 and board["source_trust"] < proven["source_trust"]
+    assert unstated["source_trust"] < proven["source_trust"]
+    assert score.trade_score(board, score.credibility(9e8) * board["source_trust"]) \
+        < score.trade_score(proven, score.credibility(9e8) * proven["source_trust"])
 
 
 def test_whale_move_requires_a_move_not_a_holding():
@@ -156,12 +202,13 @@ PRIOR_STATE = {"ts": NOW, "snapshots": [
 CURRENT = {"asset_metrics": {
     "OIL":  {"oi": 1150, "price": 100.3, "notional_vol": 40_000_000},                    # +15% OI, price flat
     "SPCX": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 42,
+             "smart_source": "proven_cohort",
              "price_change_pct": -3.5, "notional_vol": 20_000_000},                       # smart flips short, price down
     "FUND": {"funding_annualized_pct": -30.0, "funding_pctile": 80, "notional_vol": 30_000_000},  # sign FLIP
     "FEXT": {"funding_pctile": 98, "funding_annualized_pct": 120, "notional_vol": 30_000_000},    # static extreme
     "FEX2": {"funding_pctile": 97, "funding_annualized_pct": 90, "notional_vol": 25_000_000},     # static extreme
     "THIN": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 35,
-             "notional_vol": 4_000_000},                                                  # mid-liquid: social-only band
+             "smart_source": "proven_cohort", "notional_vol": 4_000_000},                                                  # mid-liquid: social-only band
     "MICRO": {"oi": 250, "notional_vol": 200_000},                                        # +150% OI but illiquid → drop
 }, "events": [
     {"asset": "INTC", "detector": "whale_move", "change_usd": 10_000_000, "concrete_entity": "0x1234",
