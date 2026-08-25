@@ -14,11 +14,16 @@ Everything downstream (scoring, framing) consumes this one shape:
   "detector": "oi_surge",             // see families below
   "direction": "long",                // "long" | "short" | null
   "numbers": ["OI +10% (1h)", "price flat"],   // the cited facts, each from a real read
-  "notional_vol": 4200000,            // liquidity, for the credibility filter
+  "notional_vol": 4200000,            // liquidity → the credibility MULTIPLIER (not a filter)
+  "price_change_pct": -3.1,           // 4h % move — powers the trade lens's price-confirmation term
   "concrete_entity": null,            // a public 0x… wallet when the signal is about one trader
   "magnitude": 0.10                   // normalized size the scorer reads (see each detector)
 }
 ```
+`score.py` adds the rest per signal: `detector` (splitting funding into flip/extreme), `conflict`,
+`flip`, `is_change`, and the outputs `credibility`, `freshness`, `trade_score`, `social_score`. You
+supply the metrics; it supplies the scoring.
+
 Diff-based detectors (OI, smart-money, funding) are fired *inside* `score.py` from `asset_metrics` +
 the prior snapshot — you supply the metrics, not the signal. Event-based detectors (whale, momentum,
 cross-asset) you assemble as pre-formed `events[]`.
@@ -72,13 +77,20 @@ cross-asset) you assemble as pre-formed `events[]`.
   sources got mixed — pick one.)
 - **Framing:** `Top traders are <piling into|unwinding> <ASSET> <LONG|SHORT> — concentration <+/−>Npp to <share>%.`
 
-### 4. `funding_dislocation` — funding at an extreme / flipped  *(funding family — the biggest)*
+### 4. funding — split into a CHANGE and a STATE detector  *(funding family — the biggest, and the noisiest)*
+The old single `funding_dislocation` flooded the feed because a *static* extreme re-fires every run.
+Split it: a **flip is a change** (tradeable — the carry regime just turned) and an **extreme is a
+state** (great content, but not a directional edge). `score.py` fires whichever applies.
 - **Source (partly Confirmed):** `market_get_funding_history` (asset) → 8h rate, annualized %,
   funding_direction (who collects), persistence, trend; `market_get_funding_regime`. (Needs a
   market-scoped token — it 401s on an under-scoped one; then skip this detector, don't fake it.)
-- **Metric fields:** `funding_pctile` (0–100), `funding_annualized_pct`, optional prior sign.
-- **Fires when:** `funding_pctile ≥ 95` OR the sign flipped vs prior.
-- **Framing:** `<Shorts|Longs> are paying <annualized%>/yr to hold <ASSET> — <pctile>th-percentile funding.`
+- **Metric fields:** `funding_pctile` (0–100), `funding_annualized_pct`, and the **prior**
+  `funding_annualized_pct` (from the snapshot) so a sign flip is detectable.
+- **`funding_flip`** — fires when `sign(funding_annualized_pct)` flipped vs the prior snapshot. A
+  *change* → high trade + social score. Framing: `Funding on <ASSET> flipped to <±annualized%>/yr — the carry regime turned.`
+- **`funding_extreme`** — fires when `funding_pctile ≥ 95` (and it didn't flip). A *state* → strong
+  **social** score (non-obvious trivia), **low trade** score (carry, not a directional edge). Framing:
+  `<ASSET>: <pctile>th-percentile funding, <±annualized%>/yr — a dislocation most screens never show.`
 
 ## Event-based detectors (assemble as pre-formed `events[]`)
 
@@ -169,26 +181,50 @@ only on the user's confirmation:
 - `sm_divergence` → **align with the smart-money side** (or fade the crowd).
 - `sm_conviction` piling-in → **follow the crowding**; unwinding → **de-risk / fade**.
 - `whale_move` → **mirror the whale** (senpi-trade mirror) at your budget, with a stop.
-- `funding_dislocation` → **harvest the funding** — take the side that *collects*, sized for the carry.
+- `funding_flip` / `funding_extreme` → **harvest the funding** — take the side that *collects*, sized for the carry.
 - `oi_surge` / `cross_asset_laggard` → position for the build / the catch-up.
 Observation stays public; the play stays private.
 
-## Noteworthiness scoring (in score.py — keep in sync)
-`score = 100 × ( 0.35·non_obvious + 0.25·magnitude + 0.20·conflict + 0.10·concrete + 0.10·credibility )`
-- **non_obvious** (per detector): `oi_surge, funding_dislocation, sm_divergence, whale_move` = 1.0;
-  `sm_conviction, cross_asset_laggard` = 0.8; `momentum_event, regime_shift` = 0.6.
-- **magnitude:** normalized 0–1 (OI%/0.25; funding_pctile/100; smart_share/100; whale_$/ $10M; capped 1).
-- **conflict:** divergence detectors (`sm_divergence`, OI-price-divergence flavor of `oi_surge`) = 1, else 0.
+## Dual-lens scoring (in score.py — keep in sync)
+Every signal is scored **twice** — a `trade_score` for users building ideas and a `social_score` for
+the content automation — then each feed is ranked, family-capped, and diffed independently.
+
+```
+social = 100 × credibility × freshness × (0.34·non_obvious + 0.22·magnitude + 0.20·conflict + 0.14·change + 0.10·concrete)
+trade  = 100 × credibility ×            (0.30·edge        + 0.22·confirmation + 0.18·change + 0.16·conflict + 0.14·magnitude)
+```
+The terms:
+- **non_obvious** (social moat, per detector): `oi_surge, funding_flip, sm_divergence, whale_move` = 1.0;
+  `funding_extreme` = 0.9; `sm_conviction` = 0.85; `cross_asset_laggard` = 0.8; `momentum_event, regime_shift` = 0.6.
+- **edge** (trade actionability, per detector): `sm_divergence` = 1.0; `sm_conviction` = 0.9;
+  `whale_move` = 0.85; `oi_surge, cross_asset_laggard` = 0.75; `funding_flip` = 0.7;
+  `momentum_event, regime_shift` = 0.6; **`funding_extreme` = 0.35** (carry, not a directional edge).
+- **magnitude:** normalized 0–1 (OI% ×2; funding_pctile/100; smart_share/100; whale change_$/$10M; capped 1).
+- **conflict:** a divergence (`sm_divergence`; the OI-price-flat flavor of `oi_surge`) = 1, else 0.
+- **change:** the signal fired from a *diff* vs the baseline (a flip / surge / jump / delta), not a
+  static level. `funding_extreme` is the one big state detector (change = 0).
 - **concrete:** `concrete_entity` set (a named wallet) = 1, else 0.3.
-- **credibility:** `notional_vol ≥ VOL_FLOOR` → 1, scaled below; **below HARD_VOL_FLOOR → dropped entirely.**
+- **confirmation** (trade only): is price moving *with* the signal's direction? long+up / short+down
+  → up to 1.0 (a working setup); the opposite → toward 0 (early/contrarian); no direction → 0.5.
+  ~3% 4h move = full confirmation. This is why you pass `price_change_pct`.
+- **credibility** (both, a MULTIPLIER): `notional_vol ≥ $25M` → 1.0, ramping down to 0.45 at the $1M
+  floor; unknown vol → 0.8. A thin book is discounted, never allowed to out-shout a deep one.
+- **freshness** (social only, a MULTIPLIER): 1.0 if this asset+detector wasn't surfaced in the last
+  ~45 min; drops toward 0.3 the more recently it was, then recovers. The anti-repeat engine.
 
-## Anti-noise (drop before ranking)
-- Below `HARD_VOL_FLOOR` notional volume (illiquid micro-cap / wash).
-- Score below `MIN_SCORE`.
-- Duplicate per asset — keep the single highest-scoring signal (a 2nd only if a different detector
-  *and* both high).
-- The obvious — a plain price move with no OI/funding/smart-money/whale angle is not a signal here.
+Badges on the rendered feeds: 🔥 ≥ 80 · 🟠 65–79 · 🟡 < 65 · ⭐ top of feed · ⚑ named wallet.
 
-## Defaults (mirrored in score.py — change in both)
+## Anti-noise (before ranking)
+- **Below the $1M `CRED_FLOOR_VOL`** — dropped entirely. The **trade** feed additionally drops anything
+  below `TRADE_CRED_FLOOR` ($5M) — a book too thin to act on.
+- **Below the feed's floor** — `MIN_SOCIAL` (30, inclusive) / `MIN_TRADE` (45, strict).
+- **Per detector family, cap `FAMILY_CAP` (2)** — no more four-funding floods.
+- **Per asset**, one signal per *family* (near-duplicate angles like divergence+conviction collapse to
+  the strongest); a 2nd, *different*-family angle on the same asset only if it's strong (≥60).
+- **A whale that's a holding, not a move** — dropped in `normalize_event` (needs change/open/flip).
+- **The obvious** — a plain price move with no OI/funding/smart-money/whale angle is not a signal here.
+
+## Defaults (mirrored in score.py — change in BOTH)
 `OI_SURGE_PCT 0.10 · PRICE_FLAT 0.01 · SMART_SHARE_MIN 25 · SMART_JUMP_PP 12 · FUNDING_PCTILE 95 ·
-WHALE_MIN_USD 1_000_000 · VOL_FLOOR 1_000_000 · HARD_VOL_FLOOR 250_000 · MIN_SCORE 45 · TOP_N 6`
+WHALE_MIN_USD 1_000_000 · FULL_CRED_VOL 25_000_000 · CRED_FLOOR_VOL 1_000_000 · TRADE_CRED_FLOOR 5_000_000 ·
+DIFF_TARGET_MIN 60 · FRESH_WINDOW_MIN 45 · MIN_SOCIAL 30 · MIN_TRADE 45 · FAMILY_CAP 2 · TOP_N 6`

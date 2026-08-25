@@ -44,3 +44,11 @@ posting, **refresh the numbers** — funding/OI/price/positioning age fast (stal
 
 **The lesson, generalized:** robust + checkable facts lead; thin positioning is color. Define every
 term (which leaderboard, what "4h", what "% of PnL" means). Observation, never a call.
+
+### How the two lenses handle this one
+WLFI is a **social**-lens story (a market-news observation), not a trade: a $5M book with a 1.23% lean
+is exactly what the **credibility multiplier** discounts and the **$5M trade floor** keeps out of the
+trade feed — so the engine won't hand a user "smart money is short WLFI" as an idea. But the multiplier
+only sizes the *score*; it can't write the sentence. The framing discipline here — lead with the
+pump-and-fade + OI draining, use the short-lean as corroboration — is still yours to apply. The engine
+picks *what's worth saying*; the golden rules govern *how you say it.*
