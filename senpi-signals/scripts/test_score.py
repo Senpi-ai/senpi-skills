@@ -271,6 +271,40 @@ def test_consumer_namespacing_shares_ring_isolates_freshness():
         assert sb2.get("social") and sb2.get("adhoc"), sb2  # both memories now exist, independently
 
 
+def test_snapshot_only_warms_the_ring_without_burning_freshness():
+    """The cheap keep-history-warm job: it must advance the ring but never consume the anti-repeat
+    budget the content run depends on — otherwise a frequent snapshot cron would silently starve the
+    social feed it exists to serve."""
+    with tempfile.TemporaryDirectory() as d:
+        d = pathlib.Path(d)
+        state = d / "state.json"
+        cur = d / "c.json"
+        cur.write_text(json.dumps(CURRENT))
+
+        def snap(now):
+            r = subprocess.run([sys.executable, str(HERE / "score.py"), str(cur), "--state", str(state),
+                                "--now", now, "--consumer", "social", "--snapshot-only"],
+                               capture_output=True, text=True)
+            assert r.returncode == 0, r.stderr
+            return json.loads(r.stdout)
+
+        first = snap("2026-08-24T00:00:00+00:00")
+        assert first["snapshot_only"] is True and first["snapshots"] == 1
+        assert first["trend_ready"] is False, "one snapshot cannot support a 12h lookback"
+
+        later = snap("2026-08-24T12:30:00+00:00")
+        assert later["snapshots"] == 2
+        assert later["trend_ready"] is True, later          # >=12h of history now spans the lookback
+
+        # freshness was NOT consumed — no asset+detector was marked surfaced by a snapshot run
+        st = json.loads(state.read_text())
+        assert not any(st.get("surfaced_by", {}).values()), st.get("surfaced_by")
+
+        # and a real run afterwards still gets its full feed (nothing was pre-suppressed)
+        res, _ = _run(CURRENT, state, "2026-08-24T12:35:00+00:00", extra=["--consumer", "social"])
+        assert res["social"], "snapshot-only must not starve the subsequent content run"
+
+
 def test_quiet_market_is_a_clean_empty():
     # no diffs, no events, no prior → nothing fires, and that's a correct answer (not a crash)
     with tempfile.TemporaryDirectory() as d:

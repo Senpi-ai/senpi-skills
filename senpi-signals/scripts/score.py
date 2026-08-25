@@ -534,6 +534,10 @@ def main():
     ap.add_argument("--now", default=None, help="ISO timestamp (default: now UTC)")
     ap.add_argument("--out", default="signals.md")
     ap.add_argument("--lens", choices=["both", "trade", "social"], default="both")
+    ap.add_argument("--snapshot-only", action="store_true",
+                    help="record this reading into the ring and exit — no detection, no ranking, no "
+                         "output feed, and freshness is NOT touched. The cheap keep-the-history-warm "
+                         "job: sm_positioning_build needs a ~12h-old partner snapshot to diff against.")
     a = ap.parse_args()
     state_path = a.state or _default_state_path()
 
@@ -545,6 +549,23 @@ def main():
     # shared snapshot ring + THIS consumer's freshness memory (migrates older state shapes)
     ring, surfaced_by = _read_state(state_path)
     surfaced = surfaced_by.get(a.consumer, {})
+
+    if a.snapshot_only:
+        # Warm the ring and stop. Passing no social picks leaves the freshness map untouched, so a
+        # frequent snapshot job never burns the anti-repeat budget the content run depends on.
+        _commit_state(state_path, cur_metrics, now, a.consumer, [])
+        ring_after, _ = _read_state(state_path)
+        oldest = min((s.get("ts") for s in ring_after if s.get("ts")), default=None)
+        span_h = None
+        if oldest is not None and _parse_ts(oldest) is not None:
+            span_h = round((now - _parse_ts(oldest)).total_seconds() / 3600.0, 1)
+        print(json.dumps({"snapshot_only": True, "ts": now.isoformat(), "assets": len(cur_metrics),
+                          "snapshots": len(ring_after), "history_span_hours": span_h,
+                          "trend_ready": bool(span_h is not None and span_h >= TREND_LOOKBACK_MIN / 60.0)},
+                         indent=2))
+        print(f"[snapshot · {len(cur_metrics)} assets · ring {len(ring_after)} deep · "
+              f"{span_h}h history · state {state_path}]", file=sys.stderr)
+        return
 
     baseline = _pick_baseline(ring, now)                                  # fast (~1h) — OI/funding/conviction
     prior = (baseline or {}).get("asset_metrics", {})

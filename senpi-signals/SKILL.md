@@ -21,7 +21,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.2.0"
+  version: "1.3.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -241,7 +241,12 @@ python3 scripts/score.py current.json --top 6 --out signals.md
 ## Continuous operation (the social automation)
 The content use case is **runtime-shaped**: don't wait for someone to open a chat. Run the sweep on a
 **schedule** (an agent cron / scheduled job) with `--consumer social` against the durable state — that
-job keeps a warm ~1h baseline populated for *everyone*, including users' on-demand runs. Match the cron
+job keeps a warm ~1h baseline populated for *everyone*, including users' on-demand runs.
+**→ Full setup, cadence, and the cold-start timeline: [`references/scheduling.md`](references/scheduling.md).**
+`--snapshot-only` records a reading into the ring without ranking, emitting, or spending freshness —
+the cheap history-warmer, and it prints `trend_ready` so you can check whether the 12h detector is
+armed. ⚠️ **Any job that writes to the ring must gather the FULL metric set** — a partial snapshot can
+become the ~1h baseline and silently starve `oi_surge` / `funding_flip`. Match the cron
 cadence to the freshness window (~45 min): a name you just posted stays suppressed ~that long, so the
 feed rotates. **An empty feed means nothing new happened — never backfill to hit a quota.**
 
