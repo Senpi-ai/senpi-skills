@@ -47,7 +47,9 @@ TRADE_CRED_FLOOR = 5_000_000  # you can't trade a book this thin → excluded fr
 
 # ── cadence / freshness ──
 DIFF_TARGET_MIN = 60          # diff the change-detectors against the snapshot ~this old (fix 3-min noise)
-SNAP_MAX_AGE_MIN = 360        # prune snapshots older than this from the ring
+TREND_LOOKBACK_MIN = 720      # the SLOW lookback (~12h) for cohort-positioning trend
+TREND_MIN_PP = 3.0            # min move in cohort share (pts) to call it a build/unwind
+SNAP_MAX_AGE_MIN = 1500       # keep ~25h of snapshots so the 12h lookback always has a partner
 SNAP_RING_MAX = 48            # cap the ring length
 FRESH_WINDOW_MIN = 45         # an (asset,detector) shown within this window is penalized, decaying to 1.0
 FRESH_MIN_MULT = 0.30         # freshness multiplier the instant after it was surfaced
@@ -60,12 +62,14 @@ FAMILY_CAP = 2               # max signals per detector FAMILY in a single feed 
 
 # how invisible-on-a-chart each detector is (the social "moat" weight)
 NON_OBVIOUS = {
+    "sm_positioning_build": 1.0,   # needs cohort history — nobody else is tracking this
     "oi_surge": 1.0, "funding_flip": 1.0, "sm_divergence": 1.0, "whale_move": 1.0,
     "funding_extreme": 0.9, "sm_conviction": 0.85, "cross_asset_laggard": 0.8,
     "momentum_event": 0.6, "regime_shift": 0.6,
 }
 # how tradeable each detector is (a clear, actionable directional edge)
 EDGE = {
+    "sm_positioning_build": 1.0,  # proven traders MOVING onto a side — the strongest read we have
     "sm_divergence": 1.0, "sm_conviction": 0.9, "whale_move": 0.85, "oi_surge": 0.75,
     "cross_asset_laggard": 0.75, "funding_flip": 0.7, "momentum_event": 0.6, "regime_shift": 0.6,
     "funding_extreme": 0.35,  # a static extreme is carry, not a directional edge → low trade score
@@ -74,12 +78,14 @@ EDGE = {
 FAMILY = {
     "funding_flip": "funding", "funding_extreme": "funding",
     "sm_divergence": "smart_money", "sm_conviction": "smart_money",
+    "sm_positioning_build": "smart_money",
     "oi_surge": "oi", "whale_move": "whale", "cross_asset_laggard": "cross_asset",
     "momentum_event": "momentum", "regime_shift": "regime",
 }
 # detectors that fire from a CHANGE vs the prior snapshot (vs a static level)
 CHANGE_DETECTORS = {"oi_surge", "sm_conviction", "funding_flip", "whale_move",
-                    "cross_asset_laggard", "momentum_event", "regime_shift"}
+                    "cross_asset_laggard", "momentum_event", "regime_shift",
+                    "sm_positioning_build"}
 
 
 def _num(v):
@@ -127,6 +133,23 @@ def freshness(asset, detector, surfaced, now):
     return round(FRESH_MIN_MULT + (age_min / FRESH_WINDOW_MIN) * (1.0 - FRESH_MIN_MULT), 3)
 
 
+def one_sidedness(m, smart_dir):
+    """Of the traders actually POSITIONED in this name, what fraction sit on the smart side?
+
+    The cohort % alone cannot tell a rout from noise: "43% of the cohort is short" is 429-vs-40
+    (~91% one-sided — real conviction) or 429-vs-380 (~53% — noise). The un-positioned remainder is
+    NOT the other side, so it must not be counted as one. None when the split wasn't supplied.
+    """
+    ln, sn = _num(m.get("smart_long_n")), _num(m.get("smart_short_n"))
+    if ln is None or sn is None:
+        return None
+    total = ln + sn
+    if total <= 0:
+        return None
+    on_side = sn if str(smart_dir).lower() == "short" else ln
+    return round(on_side / total, 3)
+
+
 def confirmation(s):
     """0..1 — is price CONFIRMING the signal's direction (the smart side being proven right)?
     long + price up / short + price down = confirmed (a working setup); opposite = early/contrarian
@@ -163,13 +186,19 @@ def trade_score(s, cred):
     return round(100 * base * cred, 1)
 
 
-def detect_from_metrics(cur, prior):
-    """Fire the diff/threshold detectors from current asset_metrics vs the ~1h-old baseline snapshot."""
+def detect_from_metrics(cur, prior, prior_slow=None):
+    """Fire the diff/threshold detectors from current asset_metrics.
+
+    Two baselines: `prior` ≈ DIFF_TARGET_MIN old (the fast diff — OI, funding, conviction) and
+    `prior_slow` ≈ TREND_LOOKBACK_MIN old (~12h — the cohort-positioning trend, which needs a longer
+    arm to show a real build). `prior_slow` falls back to `prior` when the ring isn't deep enough yet.
+    """
     out = []
     for asset, m in (cur or {}).items():
         if not isinstance(m, dict):
             continue
         p = (prior or {}).get(asset, {}) if isinstance(prior, dict) else {}
+        ps = (prior_slow or {}).get(asset, {}) if isinstance(prior_slow, dict) else {}
         dex = m.get("dex", "")
         vol = _num(m.get("notional_vol")) or _num(m.get("day_notional_volume"))
         pcp = _num(m.get("price_change_pct"))
@@ -202,10 +231,39 @@ def detect_from_metrics(cur, prior):
         sd, cd, share = m.get("smart_dir"), m.get("crowd_dir"), _num(m.get("smart_share"))
         if sd and cd and sd != cd and share is not None and share >= SMART_SHARE_MIN:
             flip = bool(p.get("smart_dir")) and p.get("smart_dir") != sd
-            sig("sm_divergence", sd, share / 100.0,
-                [f"smart money {str(sd).upper()} ({share:.0f}% of top-trader PnL)",
-                 f"crowd {str(cd).upper()}"],
-                conflict=True, flip=flip, is_change=flip)
+            one_sided = one_sidedness(m, sd)
+            ln, sn = _num(m.get("smart_long_n")), _num(m.get("smart_short_n"))
+            # share = % of the PROVEN COHORT on the smart side (never the 4h leaderboard's PnL share)
+            nums = [f"smart money {str(sd).upper()} ({share:.0f}% of the proven cohort)"]
+            if one_sided is not None:   # the split is what separates a rout from noise — always cite it
+                nums.append(f"{sn:.0f} short vs {ln:.0f} long among those positioned "
+                            f"({one_sided * 100:.0f}% one-sided)")
+            else:                        # …and when it's missing, say so — never imply the rest are opposite
+                nums.append("positioned long/short split unknown")
+            nums.append(f"crowd {str(cd).upper()}")
+            # magnitude from one-sidedness when known (50/50 ⇒ 0 directional info), else the cohort share
+            mag = max(0.0, (one_sided - 0.5) * 2) if one_sided is not None else share / 100.0
+            sig("sm_divergence", sd, mag, nums, conflict=True, flip=flip, is_change=flip)
+
+        # cohort POSITIONING TREND (change) — the same cohort's share on a name moving over ~12h.
+        # "43% of the top 1,000 now hold HYPE shorts, up from 38% 12h ago" — change on the best data
+        # we have. A build is a far stronger read than a standing divergence, so it outranks one.
+        sshare = _num(ps.get("smart_share"))
+        if (sd and share is not None and sshare is not None
+                and ps.get("smart_dir") == sd                      # same side — a genuine build, not a rotation
+                and abs(share - sshare) >= TREND_MIN_PP):
+            d_pp = share - sshare
+            building = d_pp > 0
+            hrs = TREND_LOOKBACK_MIN / 60.0
+            nums = [f"{share:.0f}% of the proven cohort now hold {str(sd).upper()} positions"
+                    f" — {'up' if building else 'down'} from {sshare:.0f}% ~{hrs:.0f}h ago",
+                    f"{'+' if building else '−'}{abs(d_pp):.0f}pp over ~{hrs:.0f}h"]
+            os_now = one_sidedness(m, sd)
+            if os_now is not None:
+                nums.append(f"{os_now * 100:.0f}% one-sided among those positioned")
+            # magnitude scales with the size of the move (a 15pp swing in 12h is enormous)
+            sig("sm_positioning_build", sd, min(1.0, abs(d_pp) / 15.0), nums,
+                conflict=bool(cd and cd != sd), is_change=True)
 
         # smart-money conviction jump (change) — fires on a move in EITHER direction (piling in OR unwinding)
         pshare = _num(p.get("smart_share"))
@@ -274,6 +332,8 @@ def frame(s):
         return f"{a}: {nums} — a funding dislocation most screens never show."
     if det == "whale_move":
         return f"{s.get('concrete_entity') or 'A top trader'} on {a}: {nums}."
+    if det == "sm_positioning_build":
+        return f"{a} {d}s are what to watch — {nums}."
     if det == "sm_conviction":
         return f"{nums} on {a}."   # nums already states the flow (piling in / unwinding) + side
     if det == "cross_asset_laggard":
@@ -295,6 +355,8 @@ def trade_read(s):
     tag = "price confirming" if cfm >= 0.66 else ("not yet confirmed by price" if cfm <= 0.4 else "price neutral")
     if det == "sm_divergence":
         return f"Smart-money {d} vs the crowd on {a}, {tag} — a follow-the-smart-money {d} read."
+    if det == "sm_positioning_build":
+        return f"The proven cohort is shifting {d} on {a} ({tag}) — {nums}."
     if det == "sm_conviction":
         return f"{nums} on {a} ({tag}) — a conviction shift to weigh."
     if det == "oi_surge":
@@ -335,14 +397,16 @@ def rank(signals, score_key, min_score, top_n, family_cap):
     return kept
 
 
-def _pick_baseline(ring, now):
-    """The snapshot whose age is closest to DIFF_TARGET_MIN (so a 3-min re-run still diffs against ~1h
-    ago). If everything is younger, the OLDEST available; empty ring → None (first run, no diff)."""
+def _pick_baseline(ring, now, target_min=None):
+    """The most-recent snapshot that is still at least `target_min` old (so a 3-min re-run diffs
+    against ~1h ago, and the trend detector against ~12h ago). If everything is younger, the OLDEST
+    available; empty ring → None (first run, no diff)."""
+    target_min = DIFF_TARGET_MIN if target_min is None else target_min
     dated = [(s, _parse_ts(s.get("ts"))) for s in (ring or [])]
     dated = [(s, t) for s, t in dated if t is not None]
     if not dated:
         return None
-    old_enough = [(s, t) for s, t in dated if (now - t).total_seconds() / 60.0 >= DIFF_TARGET_MIN]
+    old_enough = [(s, t) for s, t in dated if (now - t).total_seconds() / 60.0 >= target_min]
     if old_enough:
         return max(old_enough, key=lambda x: x[1])[0]   # most-recent snapshot that's still ≥ target old
     return min(dated, key=lambda x: x[1])[0]             # else the oldest we have
@@ -482,10 +546,12 @@ def main():
     ring, surfaced_by = _read_state(state_path)
     surfaced = surfaced_by.get(a.consumer, {})
 
-    baseline = _pick_baseline(ring, now)
+    baseline = _pick_baseline(ring, now)                                  # fast (~1h) — OI/funding/conviction
     prior = (baseline or {}).get("asset_metrics", {})
+    slow = _pick_baseline(ring, now, TREND_LOOKBACK_MIN) or baseline      # slow (~12h) — cohort trend
+    prior_slow = (slow or {}).get("asset_metrics", {})
 
-    signals = detect_from_metrics(cur_metrics, prior) + events
+    signals = detect_from_metrics(cur_metrics, prior, prior_slow) + events
     for s in signals:
         cred = credibility(s.get("notional_vol"))
         s["credibility"] = cred
@@ -506,6 +572,7 @@ def main():
     open(a.out, "w").write(_render_md(now, social, trade, a.lens))
     print(json.dumps({"generated": now.isoformat(),
                       "diff_baseline_ts": (baseline or {}).get("ts"),
+                      "trend_baseline_ts": (slow or {}).get("ts"),
                       "trade": trade, "social": social}, indent=2))
     print(f"[wrote {a.out} · trade {len(trade)} · social {len(social)} · baseline "
           f"{(baseline or {}).get('ts', 'none')} · consumer {a.consumer} · state {state_path}]", file=sys.stderr)

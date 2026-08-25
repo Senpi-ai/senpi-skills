@@ -83,6 +83,46 @@ def test_default_state_path_is_durable_and_env_overridable():
             os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
 
 
+def test_one_sidedness_uses_the_positioned_split_not_the_whole_cohort():
+    # "43% of the cohort is short" is a ROUT at 429-vs-40 and NOISE at 429-vs-380. The un-positioned
+    # remainder is not the other side, so it must never be counted as one.
+    rout = score.one_sidedness({"smart_short_n": 429, "smart_long_n": 40}, "short")
+    noise = score.one_sidedness({"smart_short_n": 429, "smart_long_n": 380}, "short")
+    assert rout > 0.9 and 0.5 < noise < 0.55, (rout, noise)
+    # reads the side it's asked about
+    assert score.one_sidedness({"smart_short_n": 429, "smart_long_n": 40}, "long") < 0.1
+    # unknown split → None (caller must say "unknown", never imply a side)
+    assert score.one_sidedness({"smart_short_n": 429}, "short") is None
+    assert score.one_sidedness({}, "short") is None
+    assert score.one_sidedness({"smart_short_n": 0, "smart_long_n": 0}, "short") is None
+
+
+def test_cohort_positioning_trend_fires_on_a_12h_build():
+    # the signal Jason asked for: "43% now vs 38% of the same cohort ~12h ago".
+    now = score._parse_ts("2026-08-25T12:00:00+00:00")
+    cur = {"HYPE": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 43,
+                    "smart_short_n": 429, "smart_long_n": 40, "notional_vol": 9e8}}
+    slow = {"HYPE": {"smart_dir": "short", "smart_share": 38}}          # ~12h ago
+    sigs = score.detect_from_metrics(cur, {}, slow)
+    trend = [s for s in sigs if s["detector"] == "sm_positioning_build"]
+    assert len(trend) == 1, [s["detector"] for s in sigs]
+    t = trend[0]
+    assert t["is_change"] is True and t["direction"] == "short"
+    joined = " ".join(t["numbers"])
+    assert "43% of the proven cohort" in joined and "38%" in joined and "up from" in joined, joined
+    assert "one-sided" in joined, joined                                 # carries the positioned split
+    # a build outranks a merely-standing divergence on the same name (change + edge both higher)
+    div = [s for s in sigs if s["detector"] == "sm_divergence"][0]
+    for s in (t, div):
+        s["trade_score"] = score.trade_score(s, 1.0)
+    assert t["trade_score"] > div["trade_score"], (t["trade_score"], div["trade_score"])
+    # a move below the threshold, or a side rotation, does NOT fire
+    assert not [s for s in score.detect_from_metrics(cur, {}, {"HYPE": {"smart_dir": "short", "smart_share": 42}})
+                if s["detector"] == "sm_positioning_build"]              # +1pp < TREND_MIN_PP
+    assert not [s for s in score.detect_from_metrics(cur, {}, {"HYPE": {"smart_dir": "long", "smart_share": 38}})
+                if s["detector"] == "sm_positioning_build"]              # different side = not a build
+
+
 def test_whale_move_requires_a_move_not_a_holding():
     # round-3 rule: a big HOLDING is not a signal — only a recent move (open/add/flip or PnL swing) is.
     assert score.normalize_event({"asset": "HYPE", "detector": "whale_move", "notional_vol": 5e8,

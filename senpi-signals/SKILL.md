@@ -10,6 +10,9 @@ description: >
   continuously generates HL market-news content). One sweep → two ranked feeds. Use for
   "what's noteworthy in the market right now", "any interesting anomalies to tweet", "signals of
   the day", "build me some trade ideas", OR a focused ask — "anything notable on OIL / the AI basket / trader 0x1234?".
+  Its flagship detector tracks the PROVEN COHORT'S OWN POSITIONING SHIFTING OVER ~12h — "43% of the
+  top 1,000 traders now hold HYPE shorts, up from 38% 12h ago" — change applied to the best data
+  available, which needs kept history nobody else has (run it on a schedule to keep that history warm).
   Examples it produces: "smart money just flipped SHORT on SPCX while the crowd is LONG", "OI +10%
   on OIL longs", "0x1234 grew their INTC short by $10M to $50M". Read-only, observation not advice,
   every number sourced. Composes senpi-smart-money, senpi-market-pulse, senpi-trader-research;
@@ -18,7 +21,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.1.0"
+  version: "1.2.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -84,12 +87,21 @@ ghost town in a top six. Give a **user** the trade feed; give the **content auto
    - **express headcounts as a % of the cohort** — "**44% of the proven traders are short CASHCAT**",
      not "44 traders" (% = `trader_count / source_trader_count`). A % anchors the weight; a raw count
      reads small. Keep this headcount-% **distinct** from the *PnL-concentration* % below.
+   - **⚠️ ALWAYS pair that % with the POSITIONED SPLIT — the cohort % alone is misleading in BOTH
+     directions.** "44% are short" silently invites "so 56% are on the other side" — but most of that
+     56% usually hold **no position in the name at all**. The directional question is only answered by
+     the split *among traders who are actually positioned*: **`N short vs N long`**. The same 43%-short
+     reading is a **rout** at 429-short vs 40-long (~91% one-sided) and **noise** at 429 vs 380. Never
+     characterise a lean without both numbers — and if you can't get the long count, **say the split is
+     unknown** rather than implying one. Two truths to carry at once: a large cohort-% on a *single*
+     name out of ~200 instruments is a genuinely rare concentration (don't dismiss it as "just 43%"),
+     *and* one-sidedness is what makes it directional (don't assert a side without it).
    - **quantify in dollars when you can** — the aggregate notional the cohort is long/short, e.g.
      "**~$204M in notional GOOGL shorts**", summed from their *actual* positions
      (`leaderboard_get_trader_positions`). Dollars make it tangible. Use it for the signals you
      feature. **Only a real summed figure — never estimate a $ number; omit it if you can't sum one.**
-   So a full positioning line reads: *"44% of the proven traders are short CASHCAT — ~$Xm notional —
-   and 2.4% of their open PnL."*
+   So a full positioning line reads: *"44% of the proven traders are short CASHCAT — 44 short vs 6
+   long among the 50 who hold it (88% one-sided) — ~$Xm notional, and 2.4% of their open PnL."*
    - **which leaderboard + window** — `leaderboard_get_top` = Hyperliquid's **live 4-hour rolling**
      leaderboard; `discovery_*` = historical track record. Say which, and that "4h" = the last 4 hours.
    - **what the metric means** — "% of top-trader PnL" = of all the open profit that proven cohort is
@@ -198,8 +210,19 @@ python3 scripts/score.py current.json --top 6 --out signals.md
   `credibility`, `freshness`, `detector`, `direction`, `numbers`.
 - `asset_metrics` per asset: any of `oi`, `price`, **`price_change_pct`** (4h % — powers the trade
   lens's price-*confirmation* term; supply it whenever you have a direction), `smart_share` (0–100),
-  `smart_dir`, `crowd_dir`, `oi_side`, `funding_pctile` (0–100), `funding_annualized_pct`,
-  `notional_vol`, `dex` (`""` main / `"xyz"`), `trader_count`. Missing fields just skip their detectors.
+  **`smart_long_n` / `smart_short_n`** (the positioned split — see below), `smart_dir`, `crowd_dir`,
+  `oi_side`, `funding_pctile` (0–100), `funding_annualized_pct`, `notional_vol`, `dex` (`""` main /
+  `"xyz"`), `trader_count`. Missing fields just skip their detectors.
+  - **`smart_share` is the PROVEN-COHORT share** (% of the cohort positioned on `smart_dir`) — **not**
+    the 4h leaderboard's `pct_of_top_traders_gain`. That one is momentum/survivorship-biased (whoever's
+    short a falling name tops the 4h board); if you carry it, put it in `hot_4h_share` as labelled
+    colour. Mixing them is how you get "smart money is short X" from a number that only says "shorts
+    are winning right now."
+  - **Always supply `smart_long_n` / `smart_short_n` when you can.** The cohort % alone can't tell a
+    rout from noise — 43%-short is 429-vs-40 (~91% one-sided, real) or 429-vs-380 (~53%, noise). The
+    un-positioned rest of the cohort is **not** the other side. score.py uses the split for magnitude
+    and prints the one-sidedness; without it, it prints "split unknown" — which you must repeat, not
+    paper over.
 - `events`: pre-formed signals the diff engine can't derive. A **`whale_move` must be a MOVE, not a
   holding** — pass `change_usd` (or `pnl_swing_usd` / `opened` / `flipped`); a bare holding with no
   change is dropped. Each event: `asset`, `detector`, `notional_vol`, `numbers`, optional `direction` /
@@ -221,6 +244,13 @@ The content use case is **runtime-shaped**: don't wait for someone to open a cha
 job keeps a warm ~1h baseline populated for *everyone*, including users' on-demand runs. Match the cron
 cadence to the freshness window (~45 min): a name you just posted stays suppressed ~that long, so the
 feed rotates. **An empty feed means nothing new happened — never backfill to hit a quota.**
+
+**The strongest reason to schedule it is `sm_positioning_build`** — the flagship detector, which reads
+the *proven cohort's own positioning shifting over ~12h* ("43% of the top 1,000 now hold HYPE shorts,
+up from 38% 12h ago"). That is change applied to the best data we have, and **nobody else keeps the
+history to see it** — a price chart can't, the 4h leaderboard can't, and a single run can't. It needs a
+**warm ring** (a 12h-old snapshot to diff against), so on a cold state file it stays silent. A running
+schedule is what turns it on. Until then, expect standing-state signals only.
 
 ## What the two scores weigh (the moat)
 Per `references/detectors.md` — **social** = non-obvious (needs OI/funding/smart-money data; heaviest)

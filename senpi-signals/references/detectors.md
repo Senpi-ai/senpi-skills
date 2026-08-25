@@ -52,29 +52,62 @@ cross-asset) you assemble as pre-formed `events[]`.
   whoever's long it). Confusing the two is what makes senpi-signals contradict the pulse read (e.g.
   proven cohort net-**short** HYPE while the 4h winners ride HYPE longs). Crowd side: from
   senpi-smart-money, or the funding-sign proxy (positive ⇒ crowd LONG, negative ⇒ crowd SHORT).
-- **Metric fields:** `smart_dir`, `crowd_dir`, `smart_share` (= `pct_of_top_traders_gain`).
+- **Metric fields:** `smart_dir`, `crowd_dir`, `smart_share` — and, whenever you can get them, the
+  **positioned split** `smart_long_n` / `smart_short_n` (+ optional `cohort_n`).
+  **`smart_share` is the PROVEN-COHORT share** (what % of the cohort is positioned on `smart_dir`),
+  **NOT** `pct_of_top_traders_gain`. The leaderboard number is a *different, momentum* metric — if you
+  carry it, put it in **`hot_4h_share`** and label it "what's hot in the last 4h", never as the
+  divergence's headline. (Mixing these is what produces "smart money is short X" when all you have is
+  "whoever's short a falling name is topping the 4h board.")
+- **⚠️ The positioned split is what makes a lean directional.** `smart_share` alone can't tell a rout
+  from noise: 43%-of-cohort short is **429 vs 40** (~91% one-sided → real conviction) or **429 vs 380**
+  (~53% → noise). Pull both sides' counts (the senpi-smart-money engine has them; or sum sides from
+  `leaderboard_get_trader_positions`). `one_sidedness = short_n / (short_n + long_n)` — score.py reads
+  it when both are present and reports it in `numbers`. **Without it, report the split as unknown; do
+  not imply the un-positioned remainder is on the other side** (see SKILL golden rule 8).
 - **Fires when:** `smart_dir != crowd_dir` AND `smart_share ≥ 25`. Flip bonus if `prior.smart_dir`
   existed and differs (smart money *just* shifted). Conflict bonus (it's a divergence).
 - **crowd_dir (how to get it, in order):** (1) HL OI long/short split per asset (VERIFY-LIVE
   `metaAndAssetCtxs`); (2) **funding sign** as a live proxy — positive funding ⇒ crowd LONG, negative
   ⇒ crowd SHORT. **Divergence = the smart dominant direction *opposite* crowd_dir.** Smart-long-while-
   price-*down* is NOT a divergence (that's smart-vs-price) — don't call it one.
-- **Framing:** `Smart money is <SHORT> on <ASSET> — <X>% of the proven cohort, ~$<Nm> notional, <share>% of their open PnL — while the crowd is <LONG>.`
+- **Framing:** `Smart money is <SHORT> on <ASSET> — <X>% of the proven cohort (<S> short vs <L> long
+  among those positioned, <O>% one-sided), ~$<Nm> notional — while the crowd is <LONG>.`
 
-### 3. `sm_conviction` — hot-money crowding (a *momentum* read, fwiw)  *(momentum family)*
-- **This is momentum, not positioning.** It measures the **live-4h leaderboard's** PnL concentration
-  shifting — "what's winning right now" — NOT the proven cohort's direction (that's #2 /
-  senpi-smart-money). Label it as such; don't headline a single 4h wiggle — require persistence
-  across reads or a durable corroborator before featuring it.
-- **Source:** `leaderboard_get_markets` `pct_of_top_traders_gain` / `trader_count`, diffed vs prior.
+### 2b. `sm_positioning_build` — the cohort's positioning MOVING  *(smart-money family — the best signal we have)*
+**This is the flagship read: change, applied to the highest-quality data.** A *standing* divergence is
+a state ("smart money is short X"); this is the **same cohort shifting onto a side over ~12h** — the
+thing that is actually news. It outranks a standing divergence by design (change bonus + top edge).
+- **Source:** the same proven-cohort read as #2, **diffed against the ~12h snapshot in the state ring**
+  (`TREND_LOOKBACK_MIN`). The ring keeps ~25h, so the long arm always has a partner once warm.
+- **Metric fields:** `smart_dir`, `smart_share` (cohort %), plus the same optional `smart_long_n` /
+  `smart_short_n`. **You supply only the current reading** — score.py finds the 12h-ago value itself.
+- **Fires when:** `smart_dir` is UNCHANGED vs ~12h ago (a genuine build on one side, not a rotation)
+  AND `|smart_share − smart_share_12h| ≥ TREND_MIN_PP` (3pp). Rising = building, falling = unwinding.
+- **Magnitude:** `|Δpp| / 15` capped at 1 — a 15pp swing in 12h is enormous.
+- **Why it beats everything else:** it needs *history of the cohort*, which nobody else keeps. A price
+  chart can't show it, the 4h leaderboard can't show it, and a single-run snapshot can't show it.
+- **Framing:** `<ASSET> <side>s are what to watch — <X>% of the proven cohort now hold <SIDE> positions,
+  up from <Y>% ~12h ago (<+Npp>), <O>% one-sided among those positioned.`
+- **Requires a warm ring:** on a cold state file there is no 12h partner, so it stays quiet — that is
+  expected, not a bug. **This is the single strongest argument for running the sweep on a schedule.**
+
+### 3. `sm_conviction` — a SHARP, short-horizon conviction jump  *(smart-money family)*
+- **Same `smart_share` field as #2/#2b (the proven-cohort share), diffed on the FAST (~1h) baseline.**
+  The three smart-money detectors are one metric on three horizons: #2 the standing *state*, **#3 a
+  sharp ~1h move (≥12pp — rare and abrupt)**, #2b the ~12h *trend* (≥3pp — the usual story). Only one
+  per asset survives the per-family dedup, so the strongest horizon wins.
+- **The 4h leaderboard number is NOT this.** If you carry `pct_of_top_traders_gain`, it goes in
+  `hot_4h_share` as labelled color ("what's hot in the last 4h") — never as a conviction claim, and
+  never into `smart_share`. Don't headline a single 4h wiggle: require persistence across reads or a
+  durable corroborator before featuring it.
+- **Source:** the proven-cohort read (senpi-smart-money), diffed vs the fast prior snapshot.
 - **Metric fields:** `smart_share`, `trader_count`.
 - **Fires when:** `|smart_share − prior.smart_share| ≥ 12` points — **both directions**: a jump = top
   traders **piling in**, a drop = top traders **unwinding / exiting** (the BTC-exodus case is a real
   signal, not noise). Always state which flow *and* the side (long/short).
-- **Prefer the API's own `contribution_pct_change_4h`** (percentage-point change vs 4h ago) when
-  present — it fires on the first run with no state and reconciles with the absolute share. Use the
-  state-diff only for longer horizons. (A "+57pp to 56%" that implies a negative prior means the two
-  sources got mixed — pick one.)
+- **One source per field.** If you have a first-run-capable pp-change from the API, use it *or* the
+  state-diff — never both. (A "+57pp to 56%" that implies a negative prior means the two got mixed.)
 - **Framing:** `Top traders are <piling into|unwinding> <ASSET> <LONG|SHORT> — concentration <+/−>Npp to <share>%.`
 
 ### 4. funding — split into a CHANGE and a STATE detector  *(funding family — the biggest, and the noisiest)*
@@ -194,9 +227,11 @@ social = 100 × credibility × freshness × (0.34·non_obvious + 0.22·magnitude
 trade  = 100 × credibility ×            (0.30·edge        + 0.22·confirmation + 0.18·change + 0.16·conflict + 0.14·magnitude)
 ```
 The terms:
-- **non_obvious** (social moat, per detector): `oi_surge, funding_flip, sm_divergence, whale_move` = 1.0;
+- **non_obvious** (social moat, per detector): `sm_positioning_build, oi_surge, funding_flip,
+  sm_divergence, whale_move` = 1.0;
   `funding_extreme` = 0.9; `sm_conviction` = 0.85; `cross_asset_laggard` = 0.8; `momentum_event, regime_shift` = 0.6.
-- **edge** (trade actionability, per detector): `sm_divergence` = 1.0; `sm_conviction` = 0.9;
+- **edge** (trade actionability, per detector): `sm_positioning_build` = 1.0 (proven traders *moving*
+  onto a side — the strongest read we have); `sm_divergence` = 1.0; `sm_conviction` = 0.9;
   `whale_move` = 0.85; `oi_surge, cross_asset_laggard` = 0.75; `funding_flip` = 0.7;
   `momentum_event, regime_shift` = 0.6; **`funding_extreme` = 0.35** (carry, not a directional edge).
 - **magnitude:** normalized 0–1 (OI% ×2; funding_pctile/100; smart_share/100; whale change_$/$10M; capped 1).
@@ -227,4 +262,4 @@ Badges on the rendered feeds: 🔥 ≥ 80 · 🟠 65–79 · 🟡 < 65 · ⭐ to
 ## Defaults (mirrored in score.py — change in BOTH)
 `OI_SURGE_PCT 0.10 · PRICE_FLAT 0.01 · SMART_SHARE_MIN 25 · SMART_JUMP_PP 12 · FUNDING_PCTILE 95 ·
 WHALE_MIN_USD 1_000_000 · FULL_CRED_VOL 25_000_000 · CRED_FLOOR_VOL 1_000_000 · TRADE_CRED_FLOOR 5_000_000 ·
-DIFF_TARGET_MIN 60 · FRESH_WINDOW_MIN 45 · MIN_SOCIAL 30 · MIN_TRADE 45 · FAMILY_CAP 2 · TOP_N 6`
+DIFF_TARGET_MIN 60 · TREND_LOOKBACK_MIN 720 · TREND_MIN_PP 3 · SNAP_MAX_AGE_MIN 1500 · FRESH_WINDOW_MIN 45 · MIN_SOCIAL 30 · MIN_TRADE 45 · FAMILY_CAP 2 · TOP_N 6`
