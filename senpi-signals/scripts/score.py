@@ -214,8 +214,20 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None):
         if not isinstance(m, dict):
             continue
         p = (prior or {}).get(asset, {}) if isinstance(prior, dict) else {}
-        ps = (prior_slow or {}).get(asset, {}) if isinstance(prior_slow, dict) else {}
         src = m.get("smart_source") if m.get("smart_source") in SMART_SOURCE_LABEL else None
+        # The slow partner is resolved PER ASSET and PER SOURCE: comparing a proven-cohort reading
+        # against a leaderboard one 12h ago is apples-to-oranges and would invent a trend out of a
+        # source switch. A callable lets main() search the ring for a genuinely comparable snapshot;
+        # a plain dict (tests / simple callers) keeps the old behaviour with an explicit age.
+        if callable(prior_slow):
+            ps, ps_age = prior_slow(asset, src)
+        else:
+            ps = (prior_slow or {}).get(asset, {}) if isinstance(prior_slow, dict) else {}
+            ps_age = slow_age_min
+            # even in dict mode, refuse a source mismatch rather than diff across provenances
+            if ps and (ps.get("smart_source")
+                       if ps.get("smart_source") in SMART_SOURCE_LABEL else None) != src:
+                ps, ps_age = {}, None
         src_label = SMART_SOURCE_LABEL[src]
         src_trust = SMART_SOURCE_TRUST[src]
         dex = m.get("dex", "")
@@ -272,14 +284,14 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None):
         # The baseline's REAL age — never the nominal target. A fallback baseline can be minutes old,
         # and printing "~12h ago" over it would be a fabricated number (golden rule 1). Too young ⇒
         # this is not a trend at all, so it must not fire.
-        age_h = (slow_age_min / 60.0) if slow_age_min is not None else None
+        age_h = (ps_age / 60.0) if ps_age is not None else None
         if (sd and share is not None and sshare is not None
                 and ps.get("smart_dir") == sd                      # same side — a genuine build, not a rotation
                 and abs(share - sshare) >= TREND_MIN_PP
-                and slow_age_min is not None and slow_age_min >= TREND_MIN_AGE_MIN):
+                and ps_age is not None and ps_age >= TREND_MIN_AGE_MIN):
             d_pp = share - sshare
             building = d_pp > 0
-            window = f"~{age_h:.0f}h" if age_h >= 1 else f"~{slow_age_min:.0f}min"
+            window = f"~{age_h:.0f}h" if age_h >= 1 else f"~{ps_age:.0f}min"
             nums = [f"{share:.0f}% of {src_label} now hold {str(sd).upper()} positions"
                     f" — {'up' if building else 'down'} from {sshare:.0f}% {window} ago",
                     f"{'+' if building else '−'}{abs(d_pp):.0f}pp over {window}"]
@@ -446,6 +458,41 @@ def _pick_baseline(ring, now, target_min=None):
     return min(dated, key=lambda x: x[1])[0]             # else the oldest we have
 
 
+def make_slow_lookup(ring, now):
+    """Per-asset finder for the trend baseline: the snapshot closest to TREND_LOOKBACK_MIN old that is
+    at least TREND_MIN_AGE_MIN old, holds a reading for THIS asset, and carries the SAME
+    `smart_source`. Returns (metrics, age_minutes) or ({}, None).
+
+    Per-asset and per-source rather than one global baseline because the ring is heterogeneous: an
+    asset may be newly listed, and a sweep may or may not have run the proven-cohort engine. Diffing
+    across a source switch would manufacture a trend from a change of instrument, not of positioning.
+    """
+    dated = []
+    for snap in ring or []:
+        ts = _parse_ts(snap.get("ts"))
+        if ts is None:
+            continue
+        dated.append(((now - ts).total_seconds() / 60.0, snap.get("asset_metrics") or {}))
+
+    def lookup(asset, src):
+        best, best_gap = None, None
+        for age, metrics in dated:
+            if age < TREND_MIN_AGE_MIN:
+                continue
+            m = metrics.get(asset)
+            if not isinstance(m, dict) or _num(m.get("smart_share")) is None:
+                continue
+            msrc = m.get("smart_source") if m.get("smart_source") in SMART_SOURCE_LABEL else None
+            if msrc != src:
+                continue
+            gap = abs(age - TREND_LOOKBACK_MIN)      # closest to the intended ~12h arm
+            if best_gap is None or gap < best_gap:
+                best, best_gap = (m, age), gap
+        return best if best else ({}, None)
+
+    return lookup
+
+
 def _prune_ring(ring, now):
     out = []
     for s in ring or []:
@@ -603,14 +650,15 @@ def main():
 
     baseline = _pick_baseline(ring, now)                                  # fast (~1h) — OI/funding/conviction
     prior = (baseline or {}).get("asset_metrics", {})
-    slow = _pick_baseline(ring, now, TREND_LOOKBACK_MIN) or baseline      # slow (~12h) — cohort trend
-    prior_slow = (slow or {}).get("asset_metrics", {})
-    # the slow baseline's ACTUAL age — _pick_baseline falls back to the oldest snapshot it has, which
-    # may be minutes old. The trend detector must know that and refuse, rather than narrate "~12h".
-    slow_ts = _parse_ts((slow or {}).get("ts"))
-    slow_age_min = (now - slow_ts).total_seconds() / 60.0 if slow_ts else None
-
-    signals = detect_from_metrics(cur_metrics, prior, prior_slow, slow_age_min) + events
+    # slow (~12h) arm for the trend detector — resolved per asset AND per source (see make_slow_lookup)
+    slow_lookup = make_slow_lookup(ring, now)
+    signals = detect_from_metrics(cur_metrics, prior, slow_lookup) + events
+    # observability: the best comparable arm we could find for any asset this run
+    ages = [a for a in (slow_lookup(k, (v.get("smart_source")
+                                        if isinstance(v, dict) else None))[1]
+                        for k, v in cur_metrics.items() if isinstance(v, dict)) if a is not None]
+    slow_age_min = max(ages) if ages else None
+    slow = _pick_baseline(ring, now, TREND_LOOKBACK_MIN) or baseline
     for s in signals:
         # two independent reasons to discount a reading: a thin book, and an unverified/momentum source
         cred = round(credibility(s.get("notional_vol")) * float(s.get("source_trust", 1.0)), 3)

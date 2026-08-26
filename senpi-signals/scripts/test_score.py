@@ -102,7 +102,8 @@ def test_cohort_positioning_trend_fires_on_a_12h_build():
     cur = {"HYPE": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 43,
                     "smart_source": "proven_cohort",
                     "smart_short_n": 429, "smart_long_n": 40, "notional_vol": 9e8}}
-    slow = {"HYPE": {"smart_dir": "short", "smart_share": 38}}          # the ~12h-ago reading
+    slow = {"HYPE": {"smart_dir": "short", "smart_share": 38,
+                     "smart_source": "proven_cohort"}}                  # the ~12h-ago reading
     sigs = score.detect_from_metrics(cur, {}, slow, 720)                # baseline genuinely 12h old
     trend = [s for s in sigs if s["detector"] == "sm_positioning_build"]
     assert len(trend) == 1, [s["detector"] for s in sigs]
@@ -118,9 +119,9 @@ def test_cohort_positioning_trend_fires_on_a_12h_build():
         s["trade_score"] = score.trade_score(s, 1.0)
     assert t_["trade_score"] > div["trade_score"], (t_["trade_score"], div["trade_score"])
     # below the pp threshold, or a side rotation → no fire
-    assert not [s for s in score.detect_from_metrics(cur, {}, {"HYPE": {"smart_dir": "short", "smart_share": 42}}, 720)
+    assert not [s for s in score.detect_from_metrics(cur, {}, {"HYPE": {"smart_dir": "short", "smart_share": 42, "smart_source": "proven_cohort"}}, 720)
                 if s["detector"] == "sm_positioning_build"]              # +1pp < TREND_MIN_PP
-    assert not [s for s in score.detect_from_metrics(cur, {}, {"HYPE": {"smart_dir": "long", "smart_share": 38}}, 720)
+    assert not [s for s in score.detect_from_metrics(cur, {}, {"HYPE": {"smart_dir": "long", "smart_share": 38, "smart_source": "proven_cohort"}}, 720)
                 if s["detector"] == "sm_positioning_build"]              # different side = not a build
 
 
@@ -129,7 +130,7 @@ def test_trend_refuses_a_baseline_too_young_to_be_a_trend():
     old. Firing then — and narrating it as '~12h ago' — would fabricate the window (golden rule 1)."""
     cur = {"HYPE": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 43,
                     "smart_source": "proven_cohort", "notional_vol": 9e8}}
-    slow = {"HYPE": {"smart_dir": "short", "smart_share": 38}}
+    slow = {"HYPE": {"smart_dir": "short", "smart_share": 38, "smart_source": "proven_cohort"}}
     for young in (0, 20, 120, score.TREND_MIN_AGE_MIN - 1):
         assert not [s for s in score.detect_from_metrics(cur, {}, slow, young)
                     if s["detector"] == "sm_positioning_build"], f"fired on a {young}min baseline"
@@ -142,6 +143,41 @@ def test_trend_refuses_a_baseline_too_young_to_be_a_trend():
     joined = " ".join(fired[0]["numbers"])
     assert "~7h ago" in joined, joined                                   # 400min ≈ 7h, not "12h"
     assert "12h" not in joined, joined
+
+
+def test_trend_refuses_to_diff_across_a_source_switch():
+    """The ring is heterogeneous: a sweep may or may not have run the proven-cohort engine. Comparing
+    a proven-cohort reading now against a leaderboard reading 12h ago would manufacture a 'trend' out
+    of a change of INSTRUMENT rather than of positioning — the delta would be pure artefact."""
+    cur = {"HYPE": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 43,
+                    "smart_source": "proven_cohort", "notional_vol": 9e8}}
+    mismatched = {"HYPE": {"smart_dir": "short", "smart_share": 38, "smart_source": "leaderboard_4h"}}
+    assert not [s for s in score.detect_from_metrics(cur, {}, mismatched, 720)
+                if s["detector"] == "sm_positioning_build"], "diffed across a source switch"
+    matched = {"HYPE": {"smart_dir": "short", "smart_share": 38, "smart_source": "proven_cohort"}}
+    assert [s for s in score.detect_from_metrics(cur, {}, matched, 720)
+            if s["detector"] == "sm_positioning_build"], "same source should still fire"
+
+
+def test_slow_lookup_finds_the_comparable_snapshot_per_asset():
+    """Picks the snapshot nearest the ~12h arm that (a) is old enough, (b) holds this asset, and
+    (c) shares its provenance — so sparse proven-cohort sweeps still find their partner."""
+    now = score._parse_ts("2026-08-26T00:00:00+00:00")
+    ring = [
+        {"ts": "2026-08-25T12:00:00+00:00",                                    # 12h — right arm, right source
+         "asset_metrics": {"HYPE": {"smart_share": 38, "smart_source": "proven_cohort"}}},
+        {"ts": "2026-08-25T14:00:00+00:00",                                    # 10h — wrong source
+         "asset_metrics": {"HYPE": {"smart_share": 55, "smart_source": "leaderboard_4h"}}},
+        {"ts": "2026-08-25T23:00:00+00:00",                                    # 1h — too young
+         "asset_metrics": {"HYPE": {"smart_share": 41, "smart_source": "proven_cohort"}}},
+    ]
+    lookup = score.make_slow_lookup(ring, now)
+    m, age = lookup("HYPE", "proven_cohort")
+    assert m.get("smart_share") == 38 and round(age / 60) == 12, (m, age)   # skipped young + mismatched
+    lb, lb_age = lookup("HYPE", "leaderboard_4h")                           # each source gets its OWN arm
+    assert lb.get("smart_share") == 55 and round(lb_age / 60) == 10, (lb, lb_age)
+    assert lookup("HYPE", None) == ({}, None)                               # unstated matches neither
+    assert lookup("NOSUCH", "proven_cohort") == ({}, None)                  # asset absent from the ring
 
 
 def test_smart_source_is_labelled_honestly_and_discounted():

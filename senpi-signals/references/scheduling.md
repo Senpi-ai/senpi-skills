@@ -34,6 +34,19 @@ prior to diff against and **go quiet without erroring**.
 `funding_pctile`, `funding_annualized_pct`, `notional_vol`, `dex`. A partial snapshot is worse than
 no snapshot, because it silently displaces a complete one.
 
+## Pick your `smart_source` BEFORE you start the schedule
+
+The trend detector matches its ~12h baseline **per asset and per source**, so switching `smart_source`
+later **restarts that asset's trend history**. A cron laying down `leaderboard_4h` snapshots for 12h
+builds history the proven-cohort read cannot use — and the leaderboard's own trend is momentum-of-
+momentum, close to meaningless.
+
+**Decide first, then schedule.** `proven_cohort` (run senpi-smart-money in the sweep) is what makes
+the flagship detector worth having; keep the leaderboard number alongside in `hot_4h_share` as colour.
+If cost is the reason to skip the cohort engine, run the *sweep* on your content cadence but the
+*cohort read* less often — a 12h arm does not need 45-minute granularity, and the per-source matching
+means sparse cohort snapshots still find their partner.
+
 ## `--snapshot-only` (optional second job)
 
 ```bash

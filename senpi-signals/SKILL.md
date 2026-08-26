@@ -21,7 +21,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.4.0"
+  version: "1.5.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -219,6 +219,11 @@ python3 scripts/score.py current.json --top 6 --out signals.md
     this field and discounts the score by it** (proven 1.0 · leaderboard 0.7 · **unstated 0.8, and it
     prints "SOURCE UNSTATED — do not call this smart money"**). Omit it and every line the skill emits
     carries that warning — by design: *the engine will not assert a provenance you did not give it.*
+  - **Be consistent: the trend detector only diffs like against like.** The ~12h baseline is matched
+    per asset *and per source*, so **switching `smart_source` restarts that asset's trend history**
+    (silently, by design — the alternative is a fake trend manufactured by the switch). If you intend
+    to move to `proven_cohort`, do it **now**, before a schedule lays down hours of history you can't
+    diff against. Carry the leaderboard number alongside in `hot_4h_share` if you still want it.
   - **`smart_share` is the share on `smart_dir` from whichever source you declared** — the cohort %
     for `proven_cohort`, the leaderboard share for `leaderboard_4h`. If you carry the leaderboard
     number alongside a proven-cohort read, put it in `hot_4h_share` as labelled colour. Mixing them is

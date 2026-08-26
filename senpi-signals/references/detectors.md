@@ -97,6 +97,13 @@ thing that is actually news. It outranks a standing divergence by design (change
 - **Fires when:** `smart_dir` is UNCHANGED vs ~12h ago (a genuine build on one side, not a rotation)
   AND `|smart_share − smart_share_12h| ≥ TREND_MIN_PP` (3pp) **AND the baseline is genuinely old —
   `≥ TREND_MIN_AGE_MIN` (6h).** Rising = building, falling = unwinding.
+- **⚠️ The baseline is matched PER ASSET and PER SOURCE.** The ring is heterogeneous — an asset may be
+  newly listed, and a given sweep may or may not have run the proven-cohort engine. So the detector
+  searches the ring for the snapshot nearest the ~12h arm that holds *this asset* with *the same*
+  `smart_source`. **It will not diff across a source switch:** comparing a proven-cohort reading now
+  against a leaderboard reading 12h ago manufactures a "trend" out of a change of *instrument*, not of
+  positioning. Practical consequence: **changing `smart_source` restarts that asset's trend history** —
+  the detector goes quiet until ~12h of the new source accumulates. Pick a source and keep it.
 - **⚠️ It narrates the baseline's REAL age, and refuses a young one.** `_pick_baseline` falls back to
   the oldest snapshot it has, so on a cold ring that can be *minutes* old. Firing then — and printing
   "~12h ago" over a 20-minute diff — fabricates the window (golden rule 1). Below the minimum age it
