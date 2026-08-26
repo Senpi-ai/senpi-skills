@@ -76,6 +76,12 @@ cross-asset) you assemble as pre-formed `events[]`.
   `leaderboard_get_trader_positions`). `one_sidedness = short_n / (short_n + long_n)` — score.py reads
   it when both are present and reports it in `numbers`. **Without it, report the split as unknown; do
   not imply the un-positioned remainder is on the other side** (see SKILL golden rule 8).
+- **⚠️ SAMPLE SIZE governs how much the lean counts.** `4 short vs 1 long` and `400 vs 100` are both
+  "80% one-sided" — one is a fact about the market, the other is four people. The observed ratio is
+  shrunk toward 50/50 by `n/(n + SAMPLE_PRIOR_N)` before it drives magnitude (n=5 → 0.20 weight,
+  n=20 → 0.50, n=469 → 0.96). **The reported figures stay raw and honest** — shrinkage governs the
+  *score*, never the *facts* — and at `n ≤ SMALL_SAMPLE_N` (10) the output appends
+  "**SMALL SAMPLE (n=…), treat as weak evidence**" so the reader sees it without inferring it.
 - **Fires when:** `smart_dir != crowd_dir` AND `smart_share ≥ 25`. Flip bonus if `prior.smart_dir`
   existed and differs (smart money *just* shifted). Conflict bonus (it's a divergence).
 - **crowd_dir (how to get it, in order):** (1) HL OI long/short split per asset (VERIFY-LIVE
@@ -286,5 +292,5 @@ Badges on the rendered feeds: 🔥 ≥ 80 · 🟠 65–79 · 🟡 < 65 · ⭐ to
 
 ## Defaults (mirrored in score.py — change in BOTH)
 `OI_SURGE_PCT 0.10 · PRICE_FLAT 0.01 · SMART_SHARE_MIN 25 · SMART_JUMP_PP 12 · FUNDING_PCTILE 95 ·
-WHALE_MIN_USD 1_000_000 · FULL_CRED_VOL 25_000_000 · CRED_FLOOR_VOL 1_000_000 · TRADE_CRED_FLOOR 5_000_000 ·
+WHALE_MIN_USD 1_000_000 · SAMPLE_PRIOR_N 20 · SMALL_SAMPLE_N 10 · FULL_CRED_VOL 25_000_000 · CRED_FLOOR_VOL 1_000_000 · TRADE_CRED_FLOOR 5_000_000 ·
 DIFF_TARGET_MIN 60 · TREND_LOOKBACK_MIN 720 · TREND_MIN_PP 3 · TREND_MIN_AGE_MIN 360 · SNAP_MAX_AGE_MIN 1500 · FRESH_WINDOW_MIN 45 · MIN_SOCIAL 30 · MIN_TRADE 45 · FAMILY_CAP 2 · TOP_N 6`

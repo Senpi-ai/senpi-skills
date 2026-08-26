@@ -60,6 +60,13 @@ SMART_SOURCE_TRUST = {          # folded into credibility: how much we believe t
     None: 0.8,                  # unstated: don't reward it, don't pretend it's worthless
 }
 
+# ── sample size: an observed ratio from 5 wallets is not the same evidence as one from 500 ──
+# 4-short-vs-1-long and 400-vs-100 are both "80% one-sided", but only one of them is a fact about the
+# market; the other is four people. Shrink the observed ratio toward 50/50 (no information) in
+# proportion to how little data stands behind it — n/(n+SAMPLE_PRIOR_N), a plain Bayesian shrink.
+SAMPLE_PRIOR_N = 20           # a ratio needs ~this many positioned traders before it counts at ~half weight
+SMALL_SAMPLE_N = 10           # at/below this, say so in the output — the reader must see the n
+
 # ── cadence / freshness ──
 DIFF_TARGET_MIN = 60          # diff the change-detectors against the snapshot ~this old (fix 3-min noise)
 TREND_LOOKBACK_MIN = 720      # the SLOW lookback (~12h) for cohort-positioning trend
@@ -166,6 +173,28 @@ def one_sidedness(m, smart_dir):
     return round(on_side / total, 3)
 
 
+def sample_shrink(n):
+    """0..1 — how much of an observed ratio survives, given the sample behind it. n=5 → 0.20,
+    n=20 → 0.50, n=100 → 0.83, n=469 → 0.96. Unknown/zero n → 0 (claim nothing)."""
+    if n is None or n <= 0:
+        return 0.0
+    return round(n / (n + SAMPLE_PRIOR_N), 3)
+
+
+def positioned_n(m):
+    """How many traders are actually positioned in this name (the sample the lean rests on)."""
+    ln, sn = _num(m.get("smart_long_n")), _num(m.get("smart_short_n"))
+    return None if ln is None or sn is None else ln + sn
+
+
+def effective_one_sidedness(raw, n):
+    """The observed lean, shrunk toward 50/50 by how thin the sample is. This is what may drive a
+    score; the RAW figure is what gets reported, alongside its n, so the reader can judge it."""
+    if raw is None:
+        return None
+    return round(0.5 + (raw - 0.5) * sample_shrink(n), 3)
+
+
 def confirmation(s):
     """0..1 — is price CONFIRMING the signal's direction (the smart side being proven right)?
     long + price up / short + price down = confirmed (a working setup); opposite = early/contrarian
@@ -267,14 +296,20 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None):
             ln, sn = _num(m.get("smart_long_n")), _num(m.get("smart_short_n"))
             # share = % of the PROVEN COHORT on the smart side (never the 4h leaderboard's PnL share)
             nums = [f"{str(sd).upper()} lean ({share:.0f}% of {src_label})"]
+            n_pos = positioned_n(m)
             if one_sided is not None:   # the split is what separates a rout from noise — always cite it
-                nums.append(f"{sn:.0f} short vs {ln:.0f} long among those positioned "
-                            f"({one_sided * 100:.0f}% one-sided)")
+                line = (f"{sn:.0f} short vs {ln:.0f} long among those positioned "
+                        f"({one_sided * 100:.0f}% one-sided)")
+                if n_pos is not None and n_pos <= SMALL_SAMPLE_N:
+                    line += f" — SMALL SAMPLE (n={n_pos:.0f}), treat as weak evidence"
+                nums.append(line)
             else:                        # …and when it's missing, say so — never imply the rest are opposite
                 nums.append("positioned long/short split unknown")
             nums.append(f"crowd {str(cd).upper()}")
-            # magnitude from one-sidedness when known (50/50 ⇒ 0 directional info), else the cohort share
-            mag = max(0.0, (one_sided - 0.5) * 2) if one_sided is not None else share / 100.0
+            # magnitude from one-sidedness, SHRUNK by sample size (50/50 ⇒ no directional information;
+            # 4-vs-1 must not score like 400-vs-100), else fall back to the declared share
+            eff = effective_one_sidedness(one_sided, n_pos)
+            mag = max(0.0, (eff - 0.5) * 2) if eff is not None else share / 100.0
             sig("sm_divergence", sd, mag, nums, conflict=True, flip=flip, is_change=flip)
 
         # cohort POSITIONING TREND (change) — the same cohort's share on a name moving over ~12h.
@@ -297,7 +332,11 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None):
                     f"{'+' if building else '−'}{abs(d_pp):.0f}pp over {window}"]
             os_now = one_sidedness(m, sd)
             if os_now is not None:
-                nums.append(f"{os_now * 100:.0f}% one-sided among those positioned")
+                n_pos = positioned_n(m)
+                line = f"{os_now * 100:.0f}% one-sided among those positioned"
+                if n_pos is not None and n_pos <= SMALL_SAMPLE_N:
+                    line += f" — SMALL SAMPLE (n={n_pos:.0f})"
+                nums.append(line)
             # magnitude scales with the size of the move (a 15pp swing in 12h is enormous)
             sig("sm_positioning_build", sd, min(1.0, abs(d_pp) / 15.0), nums,
                 conflict=bool(cd and cd != sd), is_change=True)

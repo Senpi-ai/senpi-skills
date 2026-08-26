@@ -21,7 +21,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.5.0"
+  version: "1.6.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -232,7 +232,9 @@ python3 scripts/score.py current.json --top 6 --out signals.md
     rout from noise — 43%-short is 429-vs-40 (~91% one-sided, real) or 429-vs-380 (~53%, noise). The
     un-positioned rest of the cohort is **not** the other side. score.py uses the split for magnitude
     and prints the one-sidedness; without it, it prints "split unknown" — which you must repeat, not
-    paper over.
+    paper over. **The counts also carry the sample size**, which the engine uses to discount a thin
+    lean: `4 vs 1` is 80% one-sided and so is `400 vs 100`, but only the second is evidence. Below
+    ~10 positioned traders the output says "SMALL SAMPLE" — **repeat that in any copy you write.**
 - `events`: pre-formed signals the diff engine can't derive. A **`whale_move` must be a MOVE, not a
   holding** — pass `change_usd` (or `pnl_swing_usd` / `opened` / `flipped`); a bare holding with no
   change is dropped. Each event: `asset`, `detector`, `notional_vol`, `numbers`, optional `direction` /

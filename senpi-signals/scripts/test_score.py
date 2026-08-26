@@ -97,6 +97,34 @@ def test_one_sidedness_uses_the_positioned_split_not_the_whole_cohort():
     assert score.one_sidedness({"smart_short_n": 0, "smart_long_n": 0}, "short") is None
 
 
+def test_small_samples_do_not_score_like_large_ones():
+    """4-short-vs-1-long and 400-vs-100 are both '80% one-sided', but one is a fact about the market
+    and the other is four people. Without a sample term the engine scored them identically — and a
+    5-wallet lean led the feed at 82."""
+    assert score.sample_shrink(5) < 0.3 and score.sample_shrink(500) > 0.9
+    assert score.sample_shrink(0) == 0.0 and score.sample_shrink(None) == 0.0
+    # the observed ratio is preserved; only the WEIGHT changes
+    assert score.effective_one_sidedness(0.8, 500) > score.effective_one_sidedness(0.8, 5)
+    assert score.effective_one_sidedness(0.8, 5) < 0.6          # 4-vs-1 is barely distinguishable from 50/50
+    assert score.effective_one_sidedness(None, 500) is None
+
+    def mag(sn, ln):
+        m = {"smart_dir": "short", "crowd_dir": "long", "smart_share": 83,
+             "smart_source": "proven_cohort", "smart_short_n": sn, "smart_long_n": ln,
+             "notional_vol": 9e8}
+        return [s for s in score.detect_from_metrics({"X": m}, {})
+                if s["detector"] == "sm_divergence"][0]
+
+    tiny, big = mag(4, 1), mag(447, 79)
+    assert tiny["magnitude"] < big["magnitude"] / 2, (tiny["magnitude"], big["magnitude"])
+    assert score.trade_score(tiny, 1.0) < score.trade_score(big, 1.0)
+    # and the reader is TOLD when the sample is thin, rather than having to infer it
+    assert "SMALL SAMPLE (n=5)" in " ".join(tiny["numbers"]), tiny["numbers"]
+    assert "SMALL SAMPLE" not in " ".join(big["numbers"]), big["numbers"]
+    # the raw observed figure is still reported honestly — shrinkage governs the score, not the facts
+    assert "80% one-sided" in " ".join(tiny["numbers"]), tiny["numbers"]
+
+
 def test_cohort_positioning_trend_fires_on_a_12h_build():
     # the signal Jason asked for: "43% now vs 38% of the same cohort ~12h ago".
     cur = {"HYPE": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 43,
