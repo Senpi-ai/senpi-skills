@@ -7,13 +7,13 @@
 schema_version: 1
 
 id: starling
-version: "1.0.1"
+version: "1.1.0"
 catalog:
   name: "Starling — Smart-Money Rotation Follower"
   emoji: "🐦"
   tagline: "Watches a flock of the most profitable wallets on Hyperliquid and moves when they do — the instant several of them start piling into the SAME trade in the SAME direction at the SAME time, it buys (or shorts) alongside them, betting more the more of them agree. It only acts on a rotation that's just forming, not a crowd that's been standing in a name for hours, and it never sells manually — a trailing stop does all the exiting, so last week's follows wind down on their own as the flock rotates into the next name."
   belief_plain: "The proven winners on Hyperliquid tend to rotate into the same trades at the same time, and the freshest edge is the moment that agreement is FORMING — not once everyone can already see it. Starling keeps a live shortlist of the wallets with the best all-time track record, watches what they're opening, and when enough of them freshly line up on one name in one direction it opens with them, sizing up when the agreement is strongest. It never manually closes — a ratchet stop protects and exits every position, so the book rotates as the smart money does, and a hard drawdown halt is the backstop."
-  thesis: "Cohort copiers average a pool's standing net bias (already priced); Starling instead trades the DERIVATIVE of that bias — the snapshot-to-snapshot change. Each tick it counts, per name and direction, how many proven wallets hold it, and fires only when that count has just crossed the consensus bar or is still rising (newly-formed / growing), never on a stale standing consensus. Conviction sizing scales with the agreement count. It force-closes nothing — turnover is set by the market via DSL (rotate-by-attrition), the same never-close discipline as the gibbon/orangutan rotation riders."
+  thesis: "Cohort copiers average a pool's standing net bias (already priced); Starling instead trades the DERIVATIVE of that bias — the snapshot-to-snapshot change. Each tick it counts, per name and direction, how many proven wallets hold it, takes ONLY the side more of them are on, and fires when that side's NET MARGIN over the other has just become decisive or is still widening — never on the minority side, and never on a margin that is flat or narrowing. Conviction sizing scales with the agreement count. It force-closes nothing — turnover is set by the market via DSL (rotate-by-attrition), the same never-close discipline as the gibbon/orangutan rotation riders."
   group: multi-asset-universe
   archetype: copy_trading
   sub_style: sm_rotation

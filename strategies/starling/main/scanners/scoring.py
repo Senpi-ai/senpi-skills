@@ -168,24 +168,59 @@ def name_map(trader_states):
 
 # ── THE DIFF — fire on newly-formed / rising consensus, never on stale standing ──
 
+def _margin_toward(dirs, direction):
+    """Net cohort agreement on `direction`: how many more wallets hold that side than
+    the other. Signed, so a cohort leaning the OTHER way yields a negative number."""
+    d = dirs or {}
+    lo = int(_f(d.get("LONG"), 0))
+    sh = int(_f(d.get("SHORT"), 0))
+    return (lo - sh) if direction == "LONG" else (sh - lo)
+
+
 def fresh_picks(cur, prev, inputs):
-    """Snapshot diff. A candidate (asset, direction) qualifies iff:
-        cur >= minConsensus  AND  (prev < minConsensus  OR  cur > prev)
-    i.e. consensus has just reached the bar (newly formed) or is still rising —
-    NEVER a name that was already at/above the bar and hasn't grown (prev == cur
-    >= minConsensus => no pick: stale standing consensus is already priced in).
-    Returns [{asset, direction, count}] sorted by count desc. PURE."""
+    """Snapshot diff on the cohort's DOMINANT side, measured by NET MARGIN.
+
+    Per asset we take only the side more wallets are on, and require that side to be
+    decisively ahead (`margin = dominant - opposite >= minMargin`). A candidate then
+    qualifies iff the margin has just become decisive, or is still WIDENING:
+
+        count >= minConsensus AND margin >= minMargin
+        AND (prev_margin < minMargin  OR  margin > prev_margin)
+
+    Two failures this replaces, both of which made the book 100% long while the proven
+    cohort was net SHORT:
+
+      1. Directions were evaluated INDEPENDENTLY, with no reference to each other. With
+         29 wallets short and 13 long, a long leg ticking 10 -> 13 emitted a LONG pick —
+         and 13 even banded it apex, so it sized UP on the minority side. Reading the
+         margin makes the minority side unpickable by construction.
+      2. Freshness was measured per-leg, which systematically selected the NOISY side.
+         A cohort standing 29-short for weeks has a flat short count (prev == cur), so it
+         was discarded as "stale" and never traded, while the long leg churned and fired
+         constantly. Margin-based freshness fixes the asymmetry: wallets piling further
+         onto the dominant side WIDENS the margin and fires; a few defectors to the other
+         side NARROW it and are correctly ignored.
+
+    Returns [{asset, direction, count, margin, opposite}] sorted by margin desc. PURE."""
     min_c = int(_f(inputs.get("minConsensus"), 3))
+    min_margin = int(_f(inputs.get("minMargin"), 3))
     picks = []
     for asset, dirs in (cur or {}).items():
-        for direction in ("LONG", "SHORT"):
-            c = int(_f((dirs or {}).get(direction), 0))
-            if c < min_c:
-                continue
-            pc = int(_f(((prev or {}).get(asset) or {}).get(direction), 0))
-            if pc < min_c or c > pc:
-                picks.append({"asset": asset, "direction": direction, "count": c})
-    picks.sort(key=lambda p: p["count"], reverse=True)
+        d = dirs or {}
+        lo = int(_f(d.get("LONG"), 0))
+        sh = int(_f(d.get("SHORT"), 0))
+        if lo == sh:
+            continue                       # no dominant side — a split cohort says nothing
+        direction = "LONG" if lo > sh else "SHORT"
+        count, opposite = max(lo, sh), min(lo, sh)
+        margin = count - opposite
+        if count < min_c or margin < min_margin:
+            continue
+        prev_margin = _margin_toward((prev or {}).get(asset), direction)
+        if prev_margin < min_margin or margin > prev_margin:
+            picks.append({"asset": asset, "direction": direction, "count": count,
+                          "margin": margin, "opposite": opposite})
+    picks.sort(key=lambda p: (p["margin"], p["count"]), reverse=True)
     return picks
 
 

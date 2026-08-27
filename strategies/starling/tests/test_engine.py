@@ -51,15 +51,16 @@ def test_direction_of_from_szi_then_side_fallback():
 # ── (b) fresh_picks: fires on newly-formed / rising, NOT on stale standing ──
 
 def test_fresh_picks_forming_growing_and_stale():
-    inp = {"minConsensus": 3}
+    inp = {"minConsensus": 3, "minMargin": 3}
     cur = {"BTC": {"LONG": 3, "SHORT": 0}}
     # newly FORMED (prev absent) -> fires
-    assert scoring.fresh_picks(cur, {}, inp) == [{"asset": "BTC", "direction": "LONG", "count": 3}]
+    assert scoring.fresh_picks(cur, {}, inp) == [
+        {"asset": "BTC", "direction": "LONG", "count": 3, "margin": 3, "opposite": 0}]
     # STALE standing consensus (prev == cur >= min) -> NO pick  (the core guarantee)
     assert scoring.fresh_picks(cur, {"BTC": {"LONG": 3, "SHORT": 0}}, inp) == []
     # GROWING (prev 3 -> cur 5) -> fires
     grew = scoring.fresh_picks({"BTC": {"LONG": 5}}, {"BTC": {"LONG": 3}}, inp)
-    assert grew == [{"asset": "BTC", "direction": "LONG", "count": 5}]
+    assert grew[0]["count"] == 5 and grew[0]["margin"] == 5
     # crossing the bar from below (prev 2 < min -> cur 4) -> fires
     assert scoring.fresh_picks({"BTC": {"LONG": 4}}, {"BTC": {"LONG": 2}}, inp)[0]["count"] == 4
     # below the bar -> never
@@ -68,12 +69,61 @@ def test_fresh_picks_forming_growing_and_stale():
     assert scoring.fresh_picks({"BTC": {"LONG": 4}}, {"BTC": {"LONG": 5}}, inp) == []
 
 
-def test_fresh_picks_sorted_by_count_desc():
-    inp = {"minConsensus": 3}
+def test_fresh_picks_never_opens_the_minority_side():
+    """THE REGRESSION. Live cohort read: ETH 29 short / 13 long. The old engine evaluated each
+    direction independently, so a long leg ticking 10 -> 13 emitted a LONG pick — and banded it
+    apex. That is how the book went 97/97 long while the proven cohort was net SHORT.
+
+    Note every pre-existing fixture pinned one side to 0, so the both-sides-populated case was
+    never exercised and the suite could not catch this."""
+    inp = {"minConsensus": 3, "minMargin": 3}
+    cur = {"ETH": {"LONG": 13, "SHORT": 29}}
+    prev = {"ETH": {"LONG": 10, "SHORT": 29}}          # the long leg grew, the short leg stood still
+    picks = scoring.fresh_picks(cur, prev, inp)
+    assert all(p["direction"] != "LONG" for p in picks), picks   # minority side is unpickable
+    # …and the long leg growing does NOT widen the short margin, so nothing fires at all
+    assert picks == [], picks
+    # a split cohort asserts nothing
+    assert scoring.fresh_picks({"ETH": {"LONG": 15, "SHORT": 15}}, {}, inp) == []
+    # a lead too thin to be decisive is ignored even when both counts clear minConsensus
+    assert scoring.fresh_picks({"ETH": {"LONG": 9, "SHORT": 7}}, {}, inp) == []
+
+
+def test_fresh_picks_fires_when_the_dominant_short_side_widens():
+    """The other half of the failure: per-leg freshness discarded a STANDING short cohort as
+    'stale' (flat count), so shorts could never fire while the churning long leg fired constantly.
+    Margin-based freshness fixes the asymmetry."""
+    inp = {"minConsensus": 3, "minMargin": 3}
+    # more wallets pile onto the dominant short side -> margin widens 16 -> 19 -> fires SHORT
+    picks = scoring.fresh_picks({"ETH": {"LONG": 13, "SHORT": 32}},
+                                {"ETH": {"LONG": 13, "SHORT": 29}}, inp)
+    assert len(picks) == 1
+    assert picks[0]["direction"] == "SHORT" and picks[0]["count"] == 32
+    assert picks[0]["margin"] == 19 and picks[0]["opposite"] == 13
+    # defectors to the other side NARROW the margin -> correctly ignored, not treated as news
+    assert scoring.fresh_picks({"ETH": {"LONG": 16, "SHORT": 29}},
+                               {"ETH": {"LONG": 13, "SHORT": 29}}, inp) == []
+
+
+def test_fresh_picks_sorted_by_margin_desc():
+    inp = {"minConsensus": 3, "minMargin": 3}
     cur = {"BTC": {"LONG": 4, "SHORT": 0}, "ETH": {"LONG": 0, "SHORT": 7}, "SOL": {"LONG": 3}}
     picks = scoring.fresh_picks(cur, {}, inp)
-    assert [p["count"] for p in picks] == [7, 4, 3]      # apex ETH first
-    assert picks[0] == {"asset": "ETH", "direction": "SHORT", "count": 7}
+    assert [p["margin"] for p in picks] == [7, 4, 3]      # apex ETH first
+    assert picks[0]["asset"] == "ETH" and picks[0]["direction"] == "SHORT"
+
+
+def test_min_consensus_and_bands_stay_coherent():
+    """Raising the floor without raising the bands would make EVERY pick apex (5x, 14% margin).
+    Guard the shipped config so the sizing ladder keeps three distinct rungs."""
+    import os
+    import yaml
+    rt = os.path.join(os.path.dirname(__file__), "..", "main", "runtime.yaml")
+    inputs = yaml.safe_load(open(rt))["scanners"][1]["inputs"]
+    assert inputs["minConsensus"] < inputs["goodConsensus"] < inputs["apexConsensus"], inputs
+    assert scoring.band_for(inputs["minConsensus"], inputs) == "base"
+    assert scoring.band_for(inputs["goodConsensus"], inputs) == "good"
+    assert scoring.band_for(inputs["apexConsensus"], inputs) == "apex"
 
 
 # ── band + sizing (fleet caps) ──
