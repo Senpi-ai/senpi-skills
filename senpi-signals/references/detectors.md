@@ -101,7 +101,7 @@ cross-asset) you assemble as pre-formed `events[]`.
   n=20 → 0.50, n=469 → 0.96). **The reported figures stay raw and honest** — shrinkage governs the
   *score*, never the *facts* — and at `n ≤ SMALL_SAMPLE_N` (10) the output appends
   "**SMALL SAMPLE (n=…), treat as weak evidence**" so the reader sees it without inferring it.
-- **Fires when:** `smart_dir != crowd_dir` AND `smart_share ≥ 25`. Flip bonus if `prior.smart_dir`
+- **Fires when:** `smart_dir != crowd_dir` AND `smart_share` clears **its basis's gate** (net_bias 40 / cohort_pct 8 / unstated 25). Flip bonus if `prior.smart_dir`
   existed and differs (smart money *just* shifted). Conflict bonus (it's a divergence).
 - **crowd_dir (how to get it, in order):** (1) HL OI long/short split per asset (VERIFY-LIVE
   `metaAndAssetCtxs`); (2) **funding sign** as a live proxy — positive funding ⇒ crowd LONG, negative
