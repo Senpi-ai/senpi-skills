@@ -15,8 +15,9 @@ description: >
   moment several are FRESHLY buying/shorting the same name together — the
   snapshot-to-snapshot diff catches consensus FORMING, not a stale standing
   crowd. Conviction/size scales with how many wallets agree (base/good/apex).
-  One wallet, up to 6 positions, leverage clamped to venue max. DSL is the ONLY
-  exit (15% Phase 1, granular profit-lock ladder to +90%, 48h weak-peak).
+  Opens only on the cohort's DOMINANT side while its net margin widens. One wallet,
+  up to 6 positions, leverage clamped to venue max. DSL is the ONLY exit (15% Phase 1,
+  granular profit-lock ladder to +90%, 48h weak-peak).
 
 strategy:
   wallet: "${STARLING_WALLET}"
@@ -47,10 +48,15 @@ scanners:
       pageSize: 1000
       maxPages: 6
       stateBatch: 50                  # discovery_get_trader_state addresses per call
-      # ── consensus bands ──
-      minConsensus: 3                 # >= this many freshly-agreeing wallets to open
-      goodConsensus: 4
-      apexConsensus: 6
+      # ── consensus bands (of a cohort capped at 120) ──
+      # Picks are taken ONLY on the cohort's dominant side, and only while its NET margin
+      # over the other side is widening — see scoring.fresh_picks.
+      minConsensus: 6                 # >= this many wallets on the DOMINANT side to open (3 was 2.5% of
+                                      # the cohort — inside the noise floor, which is how a 13-vs-29
+                                      # minority long kept firing while the cohort was net short)
+      minMargin: 4                    # dominant must lead the other side by >= this many wallets
+      goodConsensus: 10               # bands rescaled with the floor — at the old 4/6 every pick would
+      apexConsensus: 15               # have banded apex (5x, 14% margin) the moment minConsensus hit 6
       # ── slots + sizing ──
       maxSlots: 6
       recentSignalTtlSeconds: 21600   # 6h per-name signal debounce
@@ -103,13 +109,18 @@ exit:
     phase1:
       enabled: true
       max_loss_pct: 15.0
-      retrace_threshold: 8
+      # 8 cut 27% of all positions at a median high-water ROE of just 3.3% — an 8% retrace
+      # from a ~3% bump is ordinary noise at 3-5x, not a reversal. 71% of positions never
+      # reached the first profit tier because phase 1 killed them first.
+      retrace_threshold: 14
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 8,  lock_hw_pct: 0 }
-        - { trigger_pct: 15, lock_hw_pct: 35 }
+        # trigger_pct is ROE, so at 3-5x the rungs arm on small price moves: the old first
+        # rung locked breakeven after ~1.6-2.7% of price, inside normal HL volatility.
+        - { trigger_pct: 12, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 35 }
         - { trigger_pct: 25, lock_hw_pct: 52 }
         - { trigger_pct: 40, lock_hw_pct: 65 }
         - { trigger_pct: 60, lock_hw_pct: 77 }
