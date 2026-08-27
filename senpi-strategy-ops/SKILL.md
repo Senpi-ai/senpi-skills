@@ -310,10 +310,10 @@ the deployed scanner as it is.
 **Apply it in place — `openclaw senpi update`.** No close, no fresh wallet, no market exit; DSL state,
 scanner stores and action history survive. `senpi validate <instance-dir>` writes the proof `--apply`
 needs; `senpi update <instance-dir> --id <runtime_id>` PLANS, the same with `--apply` commits. **Read the
-plan out first**: exit changes are **forward-only** — a tightened `dsl_preset` governs new entries only and
-never reaches one already open, so never let "I made it tighter" be heard as "my open trades are tighter".
+plan out first**: `dsl_preset` is **forward-only** — new entries only, never one already open (other `exit:`
+fields, e.g. `order_type`, DO reach open positions) — never let "tighter" be heard as "my open trades are tighter".
 
-**Only a changed `strategy.wallet`, a renamed or moved scanner, or a changed `action_type` still need
+**Only a changed `strategy.wallet`, a renamed or moved external scanner, or a changed `action_type` still need
 close-and-redeploy**, which market-exits every open position and drops any custom ratchet ladder — take
 **explicit consent in those words first**. Everything else: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md).
 
