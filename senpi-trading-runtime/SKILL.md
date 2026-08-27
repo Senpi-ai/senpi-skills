@@ -95,9 +95,9 @@ openclaw senpi update ./pkg --apply               # commit (needs the same proof
 openclaw senpi update ./pkg --apply --code-only   # assert only scan.py changed; refuses if not
 ```
 
-It plans by default; `--apply` is the only way to commit. **Exit changes are forward-only** — a new
-`dsl_preset` governs new entries, while every open position keeps a snapshot of the preset it was
-opened under, so a tightened stop does not reach one already running. Refused outright, changing
+It plans by default; `--apply` is the only way to commit. **`dsl_preset` changes are forward-only** — new
+entries only, while every open position keeps a snapshot of the preset it was opened under (other `exit:`
+fields, e.g. `order_type`, are read live and DO reach open positions). Refused outright, changing
 nothing: a different `strategy.wallet` (that is a new deployment, and the old wallet's positions
 would be left unmanaged), an external scanner renamed or moved (state is keyed by name and position
 together, and inserting or removing one moves every external scanner below it — appending at the end
