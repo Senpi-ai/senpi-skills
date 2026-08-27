@@ -66,6 +66,25 @@ cross-asset) you assemble as pre-formed `events[]`.
   Trust multiplies into `credibility`, exactly as thin liquidity does — two independent reasons to
   believe a reading less. This exists because the failure is silent otherwise: feed the 4h board in,
   read "smart money is short HYPE" out, and post a survivorship artefact as conviction.
+- **⚠️ EXACT mapping from `senpi-smart-money` (read from `scripts/smartmoney.py`, do not improvise).**
+  Its `smart_leaning[]` entries carry `bias`, `direction`, `members`, `n_long`, `n_short`, `net_usd`:
+
+  | smartmoney field | what it actually is | maps to |
+  |---|---|---|
+  | `bias` | **`net / gross` NOTIONAL in [−1,+1]** — dollar-weighted and **signed**; `+1` = all long | `smart_share = abs(bias)*100` **with `smart_share_kind: "net_bias"`** |
+  | `direction` | `_dir(bias)` — long/short/flat | `smart_dir` |
+  | `n_long` / `n_short` | **headcounts of positioned traders** | `smart_long_n` / `smart_short_n` |
+  | `members` | `n_long + n_short` — traders *positioned in this coin*, **not** the cohort size | (use for the split) |
+  | `cohorts.smart.members_sampled` | the cohort sample (≤ `SAMPLE_CAP` 150) | denominator for `cohort_pct` |
+
+  **`bias` is NOT a headcount percentage.** Rendering `bias = −0.83` as "83% of the proven cohort hold
+  shorts" is a false claim about a different quantity — the true statement is "net exposure is 83%
+  short-weighted". Declare **`smart_share_kind`** (`"net_bias"` | `"cohort_pct"`) and the engine words
+  it correctly; omit it and every line prints "**BASIS UNSTATED**".
+  **The gates are per-basis and not interchangeable:** `net_bias` must clear **40** (matching
+  smartmoney's own `LEAN_THRESHOLD = 0.40` — never call a lean directional when the engine that
+  computed it wouldn't), while `cohort_pct` clears at **8** (12 of 150 members on one name out of ~200
+  instruments is already rare). Note smartmoney also enforces `MIN_MEMBERS = 5` before it trusts a bias.
 - **`smart_share` is the share on `smart_dir` from the source you declared** — the cohort % for
   `proven_cohort`, the leaderboard share for `leaderboard_4h`. Never carry one and label it the other.
   If you have a proven-cohort read *and* want the 4h number alongside it, put the latter in
@@ -291,6 +310,6 @@ Badges on the rendered feeds: 🔥 ≥ 80 · 🟠 65–79 · 🟡 < 65 · ⭐ to
 - **The obvious** — a plain price move with no OI/funding/smart-money/whale angle is not a signal here.
 
 ## Defaults (mirrored in score.py — change in BOTH)
-`OI_SURGE_PCT 0.10 · PRICE_FLAT 0.01 · SMART_SHARE_MIN 25 · SMART_JUMP_PP 12 · FUNDING_PCTILE 95 ·
+`OI_SURGE_PCT 0.10 · PRICE_FLAT 0.01 · SMART_NET_BIAS_MIN 40 · SMART_COHORT_PCT_MIN 8 · SMART_SHARE_MIN 25 · SMART_JUMP_PP 12 · FUNDING_PCTILE 95 ·
 WHALE_MIN_USD 1_000_000 · SAMPLE_PRIOR_N 20 · SMALL_SAMPLE_N 10 · FULL_CRED_VOL 25_000_000 · CRED_FLOOR_VOL 1_000_000 · TRADE_CRED_FLOOR 5_000_000 ·
 DIFF_TARGET_MIN 60 · TREND_LOOKBACK_MIN 720 · TREND_MIN_PP 3 · TREND_MIN_AGE_MIN 360 · SNAP_MAX_AGE_MIN 1500 · FRESH_WINDOW_MIN 45 · MIN_SOCIAL 30 · MIN_TRADE 45 · FAMILY_CAP 2 · TOP_N 6`

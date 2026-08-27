@@ -21,7 +21,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.6.0"
+  version: "1.7.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -224,6 +224,11 @@ python3 scripts/score.py current.json --top 6 --out signals.md
     (silently, by design — the alternative is a fake trend manufactured by the switch). If you intend
     to move to `proven_cohort`, do it **now**, before a schedule lays down hours of history you can't
     diff against. Carry the leaderboard number alongside in `hot_4h_share` if you still want it.
+  - **`smart_share_kind` — DECLARE THE BASIS TOO.** `"net_bias"` (senpi-smart-money's `bias`, which is
+    **net/gross notional**, dollar-weighted — pass `abs(bias)*100`) or `"cohort_pct"` (headcount share
+    of the cohort). They are different quantities with different gates (40 vs 8); rendering a net-bias
+    as "% of the cohort hold shorts" is a false claim. Omit it → every line prints "BASIS UNSTATED".
+    The exact field-by-field mapping is in `references/detectors.md`.
   - **`smart_share` is the share on `smart_dir` from whichever source you declared** — the cohort %
     for `proven_cohort`, the leaderboard share for `leaderboard_4h`. If you carry the leaderboard
     number alongside a proven-cohort read, put it in `hot_4h_share` as labelled colour. Mixing them is

@@ -97,6 +97,34 @@ def test_one_sidedness_uses_the_positioned_split_not_the_whole_cohort():
     assert score.one_sidedness({"smart_short_n": 0, "smart_long_n": 0}, "short") is None
 
 
+def test_smart_share_basis_must_be_declared_and_is_gated_accordingly():
+    """senpi-smart-money's `bias` is net/gross NOTIONAL in [-1,+1] — dollar-weighted, not a headcount.
+    Rendering bias=-0.83 as "83% of the cohort hold shorts" is a false claim about different people."""
+    def line(kind, share):
+        m = {"smart_dir": "short", "crowd_dir": "long", "smart_share": share,
+             "smart_source": "proven_cohort", "smart_short_n": 10, "smart_long_n": 2,
+             "notional_vol": 9e8}
+        if kind:
+            m["smart_share_kind"] = kind
+        s = [x for x in score.detect_from_metrics({"NVDA": m}, {}) if x["detector"] == "sm_divergence"]
+        return s[0]["numbers"][0] if s else None
+
+    # dollar-weighted net exposure is described as exposure, never as a headcount
+    assert line("net_bias", 83) == "net exposure 83% SHORT-weighted"
+    assert "of the proven cohort" not in line("net_bias", 83)
+    # a genuine headcount share IS described as one
+    assert line("cohort_pct", 12) == "12% of the proven cohort positioned SHORT"
+    # an undeclared basis is flagged rather than guessed
+    assert "BASIS UNSTATED" in line(None, 83)
+
+    # the gates are per-basis and NOT interchangeable: |net/gross| must clear the upstream engine's
+    # own 0.40 bar, while a cohort headcount share of 12% is already notable
+    assert score.SMART_NET_BIAS_MIN == 40.0 and score.SMART_COHORT_PCT_MIN < 25
+    assert line("net_bias", 30) is None                      # below upstream LEAN_THRESHOLD → not a lean
+    assert line("cohort_pct", 6.7) is None                   # 10 of 150 cohort members → not notable
+    assert line("cohort_pct", 12) is not None
+
+
 def test_small_samples_do_not_score_like_large_ones():
     """4-short-vs-1-long and 400-vs-100 are both '80% one-sided', but one is a fact about the market
     and the other is four people. Without a sample term the engine scored them identically — and a
@@ -128,7 +156,7 @@ def test_small_samples_do_not_score_like_large_ones():
 def test_cohort_positioning_trend_fires_on_a_12h_build():
     # the signal Jason asked for: "43% now vs 38% of the same cohort ~12h ago".
     cur = {"HYPE": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 43,
-                    "smart_source": "proven_cohort",
+                    "smart_source": "proven_cohort", "smart_share_kind": "cohort_pct",
                     "smart_short_n": 429, "smart_long_n": 40, "notional_vol": 9e8}}
     slow = {"HYPE": {"smart_dir": "short", "smart_share": 38,
                      "smart_source": "proven_cohort"}}                  # the ~12h-ago reading
@@ -138,7 +166,7 @@ def test_cohort_positioning_trend_fires_on_a_12h_build():
     t_ = trend[0]
     assert t_["is_change"] is True and t_["direction"] == "short"
     joined = " ".join(t_["numbers"])
-    assert "43% of the proven cohort" in joined and "38%" in joined and "up from" in joined, joined
+    assert "43% of the proven cohort positioned SHORT" in joined and "38%" in joined and "up from" in joined, joined
     assert "~12h ago" in joined, joined                                  # states the REAL window
     assert "one-sided" in joined, joined                                 # carries the positioned split
     # a build outranks a merely-standing divergence on the same name (change + edge both higher)
@@ -157,7 +185,8 @@ def test_trend_refuses_a_baseline_too_young_to_be_a_trend():
     """_pick_baseline falls back to the OLDEST snapshot it has, which on a cold ring can be minutes
     old. Firing then — and narrating it as '~12h ago' — would fabricate the window (golden rule 1)."""
     cur = {"HYPE": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 43,
-                    "smart_source": "proven_cohort", "notional_vol": 9e8}}
+                    "smart_source": "proven_cohort", "smart_share_kind": "cohort_pct",
+                    "notional_vol": 9e8}}
     slow = {"HYPE": {"smart_dir": "short", "smart_share": 38, "smart_source": "proven_cohort"}}
     for young in (0, 20, 120, score.TREND_MIN_AGE_MIN - 1):
         assert not [s for s in score.detect_from_metrics(cur, {}, slow, young)
@@ -178,7 +207,7 @@ def test_trend_refuses_to_diff_across_a_source_switch():
     a proven-cohort reading now against a leaderboard reading 12h ago would manufacture a 'trend' out
     of a change of INSTRUMENT rather than of positioning — the delta would be pure artefact."""
     cur = {"HYPE": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 43,
-                    "smart_source": "proven_cohort", "notional_vol": 9e8}}
+                    "smart_source": "proven_cohort", "smart_share_kind": "cohort_pct", "notional_vol": 9e8}}
     mismatched = {"HYPE": {"smart_dir": "short", "smart_share": 38, "smart_source": "leaderboard_4h"}}
     assert not [s for s in score.detect_from_metrics(cur, {}, mismatched, 720)
                 if s["detector"] == "sm_positioning_build"], "diffed across a source switch"
@@ -266,13 +295,14 @@ PRIOR_STATE = {"ts": NOW, "snapshots": [
 CURRENT = {"asset_metrics": {
     "OIL":  {"oi": 1150, "price": 100.3, "notional_vol": 40_000_000},                    # +15% OI, price flat
     "SPCX": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 42,
-             "smart_source": "proven_cohort",
+             "smart_source": "proven_cohort", "smart_share_kind": "cohort_pct",
              "price_change_pct": -3.5, "notional_vol": 20_000_000},                       # smart flips short, price down
     "FUND": {"funding_annualized_pct": -30.0, "funding_pctile": 80, "notional_vol": 30_000_000},  # sign FLIP
     "FEXT": {"funding_pctile": 98, "funding_annualized_pct": 120, "notional_vol": 30_000_000},    # static extreme
     "FEX2": {"funding_pctile": 97, "funding_annualized_pct": 90, "notional_vol": 25_000_000},     # static extreme
     "THIN": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 35,
-             "smart_source": "proven_cohort", "notional_vol": 4_000_000},                                                  # mid-liquid: social-only band
+             "smart_source": "proven_cohort", "smart_share_kind": "cohort_pct",
+             "notional_vol": 4_000_000},                                                  # mid-liquid: social-only band
     "MICRO": {"oi": 250, "notional_vol": 200_000},                                        # +150% OI but illiquid → drop
 }, "events": [
     {"asset": "INTC", "detector": "whale_move", "change_usd": 10_000_000, "concrete_entity": "0x1234",

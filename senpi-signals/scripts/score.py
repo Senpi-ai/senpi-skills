@@ -34,7 +34,21 @@ except ImportError:  # pragma: no cover — non-POSIX fallback is last-writer-wi
 # ── detector thresholds (keep in sync with references/detectors.md) ──
 OI_SURGE_PCT = 0.10
 PRICE_FLAT = 0.01
-SMART_SHARE_MIN = 25.0
+# `smart_share` needs a declared BASIS — the same number means different things per source.
+# senpi-smart-money's `bias` is net/gross NOTIONAL in [-1,+1] (dollar-weighted, signed) — NOT a
+# headcount %. Printing "83% of the cohort hold shorts" for bias=-0.83 is a false claim: the true
+# statement is "net exposure is 83% short-weighted". Declare which one you passed.
+SMART_SHARE_KIND = {
+    "net_bias": "net exposure {v:.0f}% {side}-weighted",        # abs(bias)*100 from senpi-smart-money
+    "cohort_pct": "{v:.0f}% of {src} positioned {side}",        # positioned members / cohort sampled
+    None: "{v:.0f}% lean of {src} (BASIS UNSTATED — net-exposure or headcount?)",
+}
+# Per-basis gates. These are NOT interchangeable: 25% of a 150-member cohort in ONE name out of ~200
+# instruments is extraordinary, while |net/gross| = 0.25 is routine.
+SMART_NET_BIAS_MIN = 40.0     # matches senpi-smart-money's own LEAN_THRESHOLD (0.40) — don't call a
+                              # lean directional when the engine that computed it wouldn't
+SMART_COHORT_PCT_MIN = 8.0    # a single name holding this much of the cohort is already rare
+SMART_SHARE_MIN = 25.0        # fallback when the basis is unstated
 SMART_JUMP_PP = 12.0
 FUNDING_PCTILE = 95.0
 WHALE_MIN_USD = 1_000_000
@@ -259,6 +273,9 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None):
                 ps, ps_age = {}, None
         src_label = SMART_SOURCE_LABEL[src]
         src_trust = SMART_SOURCE_TRUST[src]
+        kind = m.get("smart_share_kind") if m.get("smart_share_kind") in SMART_SHARE_KIND else None
+        share_min = {"net_bias": SMART_NET_BIAS_MIN,
+                     "cohort_pct": SMART_COHORT_PCT_MIN}.get(kind, SMART_SHARE_MIN)
         dex = m.get("dex", "")
         vol = _num(m.get("notional_vol")) or _num(m.get("day_notional_volume"))
         pcp = _num(m.get("price_change_pct"))
@@ -290,12 +307,12 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None):
 
         # smart-money divergence (state; a fresh flip counts as change)
         sd, cd, share = m.get("smart_dir"), m.get("crowd_dir"), _num(m.get("smart_share"))
-        if sd and cd and sd != cd and share is not None and share >= SMART_SHARE_MIN:
+        if sd and cd and sd != cd and share is not None and share >= share_min:
             flip = bool(p.get("smart_dir")) and p.get("smart_dir") != sd
             one_sided = one_sidedness(m, sd)
             ln, sn = _num(m.get("smart_long_n")), _num(m.get("smart_short_n"))
             # share = % of the PROVEN COHORT on the smart side (never the 4h leaderboard's PnL share)
-            nums = [f"{str(sd).upper()} lean ({share:.0f}% of {src_label})"]
+            nums = [SMART_SHARE_KIND[kind].format(v=share, side=str(sd).upper(), src=src_label)]
             n_pos = positioned_n(m)
             if one_sided is not None:   # the split is what separates a rout from noise — always cite it
                 line = (f"{sn:.0f} short vs {ln:.0f} long among those positioned "
@@ -327,8 +344,8 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None):
             d_pp = share - sshare
             building = d_pp > 0
             window = f"~{age_h:.0f}h" if age_h >= 1 else f"~{ps_age:.0f}min"
-            nums = [f"{share:.0f}% of {src_label} now hold {str(sd).upper()} positions"
-                    f" — {'up' if building else 'down'} from {sshare:.0f}% {window} ago",
+            now_txt = SMART_SHARE_KIND[kind].format(v=share, side=str(sd).upper(), src=src_label)
+            nums = [f"{now_txt} — {'up' if building else 'down'} from {sshare:.0f}% {window} ago",
                     f"{'+' if building else '−'}{abs(d_pp):.0f}pp over {window}"]
             os_now = one_sidedness(m, sd)
             if os_now is not None:
