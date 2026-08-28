@@ -1,8 +1,8 @@
 # ── ARMADILLO · Capital-Preservation / Low-Vol ───────────────────────────────
 # The "sleep at night" strategy. For users asking for low-risk / conservative /
 # capital-preservation / impervious-to-volatility. Trades ONLY the most liquid
-# majors (main DEX, HIGH volume floor, top-N), at LOW leverage (1-2x), small
-# per-trade margin (4-8%), behind a HIGH conviction bar (few, high-quality
+# majors (main DEX, HIGH volume floor, top-N), at LOW leverage (2x), modest
+# per-trade margin (10-12%), behind a HIGH conviction bar (few, high-quality
 # entries) and low turnover (12h dedup). Its job is to NOT lose money, not to
 # maximize. The momentum thesis is Bison's validated weighted scorer, ported
 # verbatim; the conservatism is entirely in the CONFIG (high minScore + low
@@ -14,8 +14,8 @@ version: 1.0.0
 description: >
   ARMADILLO — Capital Preservation / Low-Vol. The sleep-at-night book: a
   conservative majors-only momentum strategy (main DEX, high volume floor, top-8
-  most-liquid) that opens few, high-conviction, LOW-leverage positions (1-2x,
-  4-8% margin) only when a 9-factor thesis clears a HIGH score floor (11). Low
+  most-liquid) that opens few, high-conviction, LOW-leverage positions (2x,
+  10-12% margin) only when a 9-factor thesis clears a HIGH score floor (11). Low
   turnover (12h dedup), tight capital-preservation DSL, and a hard 10% drawdown
   halt. Up to 4 positions, leverage clamped to 2x AND venue max. DSL is the ONLY
   exit — tight Phase 1 (6% floor), early profit-lock ladder, 24h weak-peak cut.
@@ -23,8 +23,8 @@ description: >
 strategy:
   wallet: "${ARMADILLO_WALLET}"
   slots: 4
-  margin_pct: 6                           # baseline %; scan emits the per-signal LOW marginPct (4-8%)
-  default_leverage: 2                     # fallback; scan emits 1-2x per signal (clamped to venue max)
+  margin_pct: 10                          # baseline = the scanner's BASE conviction rung
+  default_leverage: 2                    # = the scanner's BASE rung; scan emits per-signal
   trading_risk: conservative
   enabled: true
 
@@ -53,8 +53,8 @@ scanners:
       apexScore: 13
       goodScore: 12
       # ── LOW sizing caps (capital preservation) ──
-      leverageTiers: { apex: 2, good: 2, base: 1 }
-      marginPctTiers: { apex: 8, good: 6, base: 4 }
+      leverageTiers: { apex: 2, good: 2, base: 2 }
+      marginPctTiers: { apex: 12, good: 11, base: 10 }
       maxLeverage: 2
       maxMarginPct: 10
       # ── momentum thesis knobs (bison-ported) ──

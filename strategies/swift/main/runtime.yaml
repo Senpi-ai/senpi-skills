@@ -18,8 +18,8 @@ description: >
 strategy:
   wallet: "${SWIFT_WALLET}"
   slots: 4
-  margin_pct: 6
-  default_leverage: 3
+  margin_pct: 8                          # baseline = the scanner's BASE conviction rung
+  default_leverage: 4                    # = the scanner's BASE rung; scan emits per-signal
   trading_risk: aggressive
   enabled: true
 
@@ -60,8 +60,8 @@ scanners:
       minScore: 4
       goodScore: 8
       apexScore: 12
-      leverageTiers: { apex: 4, good: 3, base: 2 }
-      marginPctTiers: { apex: 8, good: 6, base: 4 }
+      leverageTiers: { apex: 4, good: 4, base: 4 }
+      marginPctTiers: { apex: 10, good: 9, base: 8 }
       maxLeverage: 4
       maxMarginPct: 20
     signal_data_schema:
