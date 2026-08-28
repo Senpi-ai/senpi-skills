@@ -7,7 +7,7 @@
 schema_version: 1
 
 id: otter
-version: "1.0.1"
+version: "1.1.0"
 
 catalog:
   name: "Otter — Open Interest Velocity Hunter"

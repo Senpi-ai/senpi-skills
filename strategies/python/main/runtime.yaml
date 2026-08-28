@@ -113,8 +113,13 @@ exit:
       enabled: true                        # v2: ENABLED — 24h no movement = dead
       interval_in_minutes: 1440
     phase1:
-      enabled: true
-      max_loss_pct: 20.0                    # v2: patient on losers too
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable
+      # move it can still sit BELOW entry and close a WINNER at a loss — churning fees.
+      # The ratchet must only ever lock a GAIN, or the position rides to the stop.
+      # max_loss_pct := the old retrace (10.0% ROE), which is what the trail was already
+      # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
+      enabled: false
+      max_loss_pct: 10.0   # was 20.0 — set to the old retrace so the risk cap is unchanged
       retrace_threshold: 10
       consecutive_breaches_required: 1     # Senpi runtime is single-breach only
     phase2:

@@ -82,14 +82,18 @@ exit:
     execution_timeout_seconds: 30
   dsl_preset:
     phase1:
-      enabled: true
-      max_loss_pct: 20.0
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable
+      # move it can still sit BELOW entry and close a WINNER at a loss — churning fees.
+      # The ratchet must only ever lock a GAIN, or the position rides to the stop.
+      # max_loss_pct := the old retrace (8.0% ROE), which is what the trail was already
+      # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
+      enabled: false
+      max_loss_pct: 8.0   # was 20.0 — set to the old retrace so the risk cap is unchanged
       retrace_threshold: 8
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 10,  lock_hw_pct: 0  }   # confirms working, no lock yet (v2 Bison pattern)
         - { trigger_pct: 20,  lock_hw_pct: 25 }
         - { trigger_pct: 30,  lock_hw_pct: 40 }
         - { trigger_pct: 50,  lock_hw_pct: 60 }

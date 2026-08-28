@@ -12,7 +12,7 @@
 schema_version: 1
 
 id: remora
-version: "1.1.1"
+version: "1.2.0"
 
 catalog:
   name: "Remora — Autonomous Smart-Money Whale Mirror"

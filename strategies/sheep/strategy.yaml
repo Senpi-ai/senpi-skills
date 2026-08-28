@@ -7,7 +7,7 @@
 schema_version: 1
 
 id: sheep
-version: "1.0.1"
+version: "1.1.0"
 catalog:
   name: "Sheep — Triple-EMA Trend Follower"
   emoji: "🐑"

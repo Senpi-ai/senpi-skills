@@ -96,14 +96,18 @@ exit:
       interval_in_minutes: 20160           # 14d — parabolic runs can extend 2-3 weeks
     # weak_peak_cut + dead_weight_cut deliberately OFF — consolidations are NORMAL here
     phase1:
-      enabled: true
-      max_loss_pct: 25.0                    # accept deeper initial drawdown to stay on the bus
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable
+      # move it can still sit BELOW entry and close a WINNER at a loss — churning fees.
+      # The ratchet must only ever lock a GAIN, or the position rides to the stop.
+      # max_loss_pct := the old retrace (18.0% ROE), which is what the trail was already
+      # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
+      enabled: false
+      max_loss_pct: 18.0   # was 25.0 — set to the old retrace so the risk cap is unchanged
       retrace_threshold: 18                 # accommodate 5-8% intraday gyrations
       consecutive_breaches_required: 2      # one bad bar doesn't trip
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 15,  lock_hw_pct: 0  }   # don't lock anything until +15% — let it build (INTENTIONALLY late)
         - { trigger_pct: 30,  lock_hw_pct: 30 }   # light early lock
         - { trigger_pct: 60,  lock_hw_pct: 55 }
         - { trigger_pct: 120, lock_hw_pct: 72 }
