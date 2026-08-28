@@ -1,0 +1,130 @@
+# ── PUFFER · Volatility Squeeze ─────────────────────────────────────────────
+# Markets coil, then release. PUFFER measures compression RELATIVE TO EACH ASSET'S OWN
+# recent history (an absolute band width is meaningless across a universe), waits for
+# the coil, and trades the release — never the coil itself, which is how a strategy
+# dies by a thousand small cuts. NEVER closes — DSL owns every exit.
+name: puffer-main
+group: puffer
+version: 1.0.0
+description: >
+  PUFFER — Volatility Squeeze. Finds names whose volatility has compressed to a
+  fraction of their own trailing median, then enters on the release in the direction of
+  the break, volume-confirmed. Universe derived live over a volume floor. Up to 5
+  positions. DSL is the ONLY exit — a FIXED max-loss floor plus a gains-only profit
+  ratchet that runs to +100% (no trailing stop, no breakeven exits, no time cuts:
+  an expansion is exactly the move you must not cut short).
+
+strategy:
+  wallet: "${PUFFER_WALLET}"
+  slots: 5
+  margin_pct: 8
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: puffer_scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300             # squeezes form over hours; 5m is ample
+    timeout_seconds: 180
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 200
+    inputs:
+      # ── universe (derived live; never hardcoded) ──
+      volFloorUsd: 25000000
+      maxUniverse: 30
+      maxSlots: 5
+      recentSignalTtlSeconds: 21600   # 6h per-name debounce
+      # ── fee gate (NOT verified venue rates — set from HL `userFees`) ──
+      takerFeeBps: 4.5
+      makerFeeBps: 1.5
+      feeCoverMultiple: 2.5
+      atrPeriod: 14
+      atrCaptureFraction: 0.6         # an expansion gives back more of ATR than a scalp
+      # ── the squeeze ──
+      bandPeriod: 20                  # band width measured over 20 x 1h
+      squeezeLookback: 60             # compared against 60h of ITS OWN history — must span a regime
+      maxSqueezeRatio: 0.72           # current width <= 72% of its median = coiled
+      releaseStdev: 2.0               # close beyond 2 sigma of the coil = the release
+      volLookback: 20
+      minVolSurge: 1.4                # a release with no participation is a fake-out
+      minScore: 5
+      goodScore: 9
+      apexScore: 13
+      leverageTiers: { apex: 5, good: 4, base: 3 }
+      marginPctTiers: { apex: 12, good: 9, base: 6 }
+      maxLeverage: 5
+      maxMarginPct: 22
+    signal_data_schema:
+      score: { type: number }
+      band: { type: string, required: false }
+      direction: { type: string }
+      leverage: { type: number }
+      reasons: { type: array, required: false }
+      squeezeRatio: { type: number, required: false }
+      expectedCapturePct: { type: number, required: false }
+      requiredPct: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: puffer_open
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [puffer_scanner]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: puffer_scanner
+  # NO CLOSE_POSITION action — DSL is the only exit.
+
+# EXIT — the `let_winners_run` preset from
+# senpi-strategy-author/references/dsl-presets.yaml, VERBATIM. A volatility expansion is
+# the one move you must not cut short, and that preset is the widest with time-cuts off.
+# Trailing is OFF: the phase-1 floor trails high-water and can close a WINNER at a loss.
+# The ratchet locks gains, or the position rides to the fixed stop.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    phase1:
+      enabled: false
+      max_loss_pct: 8.0
+      retrace_threshold: 8            # INERT while phase1.enabled is false
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 900
+    per_asset_cooldown_seconds: 21600
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true

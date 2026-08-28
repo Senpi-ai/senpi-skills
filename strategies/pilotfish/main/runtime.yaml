@@ -1,0 +1,130 @@
+# ── PILOTFISH · Smart-Money Accumulation ────────────────────────────────────
+# Every other copy strategy reads a STANDING position — who is long what, right now,
+# which the market has already priced. PILOTFISH reads the DERIVATIVE: it snapshots the
+# proven cohort's dollar-weighted net bias per name and enters when that conviction is
+# WIDENING. Dominant side only; a minority leg is unpickable by construction.
+# NEVER closes — DSL owns every exit.
+name: pilotfish-main
+group: pilotfish
+version: 1.0.0
+description: >
+  PILOTFISH — Smart-Money Accumulation. Tracks the net positioning of a cohort of proven
+  Hyperliquid wallets and opens WITH them while their conviction in a name is still
+  building — not once it has been standing for days. Reads the dominant side only,
+  weights by dollars rather than headcount, and discounts a lean that rests on too few
+  wallets. Up to 5 positions. DSL is the ONLY exit — a FIXED max-loss floor plus a
+  gains-only profit ratchet that runs to +100% (no trailing stop, no breakeven exits).
+
+strategy:
+  wallet: "${PILOTFISH_WALLET}"
+  slots: 5
+  margin_pct: 8
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: pilotfish_scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 900             # 15m — accumulation builds over hours, not seconds
+    timeout_seconds: 300
+    default_signal_validity_seconds: 3600
+    state_history_max_count: 200
+    inputs:
+      # ── the proven cohort (SLOW clock) ──
+      cohortRefreshHours: 12
+      minRealizedUsd: 1000000         # "proven" = >= $1M realized
+      cohortCap: 80
+      pageSize: 500
+      maxPages: 4
+      stateBatch: 40
+      # ── the derivative: conviction must be WIDENING, not merely standing ──
+      biasLookbackHours: 6            # compare against the cohort's book ~6h ago
+      minBias: 0.25                   # |net/gross| below this = the cohort is split, no side
+      minBiasDelta: 0.10              # it must have WIDENED by this much since the lookback
+      minMembers: 4                   # fewer positioned wallets than this is not evidence
+      # ── slots + sizing ──
+      maxSlots: 5
+      recentSignalTtlSeconds: 21600
+      minScore: 4
+      goodScore: 6
+      apexScore: 9
+      leverageTiers: { apex: 4, good: 3, base: 2 }
+      marginPctTiers: { apex: 12, good: 9, base: 6 }
+      maxLeverage: 4
+      maxMarginPct: 20
+    signal_data_schema:
+      score: { type: number }
+      band: { type: string, required: false }
+      direction: { type: string }
+      leverage: { type: number }
+      reasons: { type: array, required: false }
+      bias: { type: number, required: false }
+      priorBias: { type: number, required: false }
+      biasDelta: { type: number, required: false }
+      members: { type: number, required: false }
+      conviction: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: pilotfish_open
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [pilotfish_scanner]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: pilotfish_scanner
+  # NO CLOSE_POSITION action — DSL is the only exit.
+
+# EXIT — the `let_winners_run` preset from
+# senpi-strategy-author/references/dsl-presets.yaml, VERBATIM. Following a cohort into an
+# accumulation is a trend bet, and the whole point is to still be there when it works.
+# Trailing is OFF — the phase-1 floor trails high-water and can close a WINNER at a loss.
+# The ratchet locks gains, or the position rides to the fixed stop.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    phase1:
+      enabled: false
+      max_loss_pct: 8.0
+      retrace_threshold: 8            # INERT while phase1.enabled is false
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 5
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 900
+    per_asset_cooldown_seconds: 21600
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true

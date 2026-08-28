@@ -9,6 +9,21 @@
 # NOTE: `max_loss_pct` and `retrace_threshold` are ROE % (margin), NOT price %.
 # The engine converts to a price floor by dividing by leverage. See
 # dsl-configuration.md.
+#
+# ⛔ THE RATCHET LOCKS GAINS, OR THE POSITION RIDES TO ITS STOP. NEVER A LOSS.
+# Every preset below now ships `phase1.enabled: false`. The phase-1 floor TRAILS
+# HIGH-WATER: at entry high-water == entry, so the floor sits retrace/leverage BELOW
+# entry and only rises as price moves our way. If the favourable excursion is smaller
+# than the trail width, the floor is STILL under entry when price turns — so the
+# "ratchet" closes a position that was in profit at a LOSS, and the user pays a round
+# trip of fees for nothing. Live case: a ZEC short reached +8.5% ROE, bounced 2.8% off
+# its low, and closed at -5.9%; max_loss never fired.
+#   `max_loss_pct` is now set to what each preset's `retrace_threshold` already was,
+#   because the trail always bound first — so the per-trade RISK CAP is UNCHANGED and
+#   only the ratchet-into-a-loss behaviour is gone. `retrace_threshold` is retained but
+#   INERT while phase1 is disabled (the parser forces it to 1).
+#   No tier may carry `lock_hw_pct: 0` — a breakeven lock exits flat and still pays
+#   fees, so a "scratch" is a loss. Applied fleet-wide across 129 instances.
 
 default: balanced
 
@@ -22,14 +37,13 @@ presets:
       reversal. Validated on the 2026-05 HYPE run (held winners +40% to +93%).
     dsl_preset:
       phase1:
-        enabled: true
-        max_loss_pct: 20.0
-        retrace_threshold: 8
+        enabled: false          # trailing OFF — see header
+        max_loss_pct: 8.0            # was the trail's effective cap; risk unchanged
+        retrace_threshold: 8             # INERT while phase1.enabled is false
         consecutive_breaches_required: 1
       phase2:
         enabled: true
         tiers:
-          - { trigger_pct: 10,  lock_hw_pct: 0 }
           - { trigger_pct: 20,  lock_hw_pct: 25 }
           - { trigger_pct: 30,  lock_hw_pct: 40 }
           - { trigger_pct: 50,  lock_hw_pct: 60 }
@@ -53,9 +67,9 @@ presets:
         interval_in_minutes: 360        # 6h — gives a slow developer real room; only fires if peak ROE never cleared +3% AND price is declining (Phase 1 only; never cuts a position past T0)
         min_value: 3.0
       phase1:
-        enabled: true
-        max_loss_pct: 15.0
-        retrace_threshold: 8
+        enabled: false          # trailing OFF — see header
+        max_loss_pct: 8.0            # was the trail's effective cap; risk unchanged
+        retrace_threshold: 8             # INERT while phase1.enabled is false
         consecutive_breaches_required: 1
       phase2:
         enabled: true
@@ -81,9 +95,9 @@ presets:
         interval_in_minutes: 120
         min_value: 2.0
       phase1:
-        enabled: true
-        max_loss_pct: 15.0
-        retrace_threshold: 6
+        enabled: false          # trailing OFF — see header
+        max_loss_pct: 6.0            # was the trail's effective cap; risk unchanged
+        retrace_threshold: 6             # INERT while phase1.enabled is false
         consecutive_breaches_required: 1
       phase2:
         enabled: true
@@ -107,9 +121,9 @@ presets:
         enabled: true
         interval_in_minutes: 45
       phase1:
-        enabled: true
-        max_loss_pct: 8.0
-        retrace_threshold: 5
+        enabled: false          # trailing OFF — see header
+        max_loss_pct: 5.0            # was the trail's effective cap; risk unchanged
+        retrace_threshold: 5             # INERT while phase1.enabled is false
         consecutive_breaches_required: 1
       phase2:
         enabled: true
@@ -135,14 +149,13 @@ presets:
         interval_in_minutes: 20160        # 14d — parabolic runs can extend 2-3 weeks
       # weak_peak_cut + dead_weight_cut deliberately OFF — consolidations are NORMAL here
       phase1:
-        enabled: true
-        max_loss_pct: 25.0                # accept deeper initial drawdown to stay on the bus
-        retrace_threshold: 18             # accommodate 5-8% intraday gyrations
+        enabled: false          # trailing OFF — see header
+        max_loss_pct: 18.0            # was the trail's effective cap; risk unchanged
+        retrace_threshold: 18             # INERT while phase1.enabled is false
         consecutive_breaches_required: 2  # one bad bar doesn't trip
       phase2:
         enabled: true
         tiers:
-          - { trigger_pct: 15,  lock_hw_pct: 0  }   # don't lock anything until +15% — let it build
           - { trigger_pct: 30,  lock_hw_pct: 30 }   # light early lock
           - { trigger_pct: 60,  lock_hw_pct: 55 }
           - { trigger_pct: 120, lock_hw_pct: 72 }
