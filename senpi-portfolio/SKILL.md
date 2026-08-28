@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.15.0"
+  version: "1.16.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -423,7 +423,8 @@ directly.)
   `positions[].dsl` (the live tier) — see "DSL — how it works per strategy, and which position is in
   which tier"; never infer "no stop" from the absence of a resting stop order (DSL exits are
   runtime-managed, not resting orders) or from a missing ratchet record (sub-Tier-1 positions have none).
-- **Always end with the two CTAs** (below), verbatim.
+- **Always end with the two CTAs** (below) — verbatim, except the one case the CTA notes carry, where
+  question 2 does not apply.
 
 ## DSL — how it works per strategy, and which position is in which tier
 
@@ -703,6 +704,10 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
 > **1. Want me to rebalance or adjust any of these positions?**
 > **2. Want me to put the idle capital to work in a new strategy?**
 
+Question 2 assumes there is idle capital. When there isn't — see CTA 2b — ask about adding funds
+instead; the verbatim rule is about not dropping the closing, not about asking a question the numbers
+have already answered.
+
 - **CTA 1 → strategy / position management.** For an **autonomous strategy**, route to the
   STRATEGY-level levers (`strategy_pause` / `strategy_update` config / `strategy_close` / `strategy_top_up`)
   and apply them to the **whole strategy (all its wallets)** — never to a single sleeve of a multi-wallet
@@ -714,6 +719,18 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
   which is committed), offer to hand it to **senpi-strategy-discover** / **senpi-strategy-author** — fund
   a new strategy from the embedded idle, or top up an existing *whole* strategy via `strategy_top_up`.
   Propose; never deploy without confirmation.
+- **CTA 2b → when `idle_in_embedded` cannot fund a wallet.** (What "enough" is depends on the package
+  and the platform floor — `senpi-strategy-ops` owns that number; don't quote one from memory.)
+  Closing question 2 is wrong as written in this case: there is no idle capital
+  to put to work, and asking about it reads as though the engine did not look. Ask whether they want to
+  add funds instead, and **show the funding card** (`show_widget`, `widget_type: "fund_user_wallet"`)
+  with the question — the card is the action, so there is nothing to route.
+  Two things to keep straight here:
+  - **Idle $0 does not mean broke.** A user with everything deployed shows `idle_in_embedded: 0` beside
+    a large `total_withdrawable`. Say which it is — new money, or money that has to come out of a
+    strategy first (`strategy_withdraw_funds`, or closing it) — before showing the card.
+  - **The card fills the embedded wallet only.** Funding a strategy from it is a second step
+    (`strategy_top_up`). Never imply the card puts money into a strategy.
 
 ## Resilience (engine handles; narrate honestly)
 

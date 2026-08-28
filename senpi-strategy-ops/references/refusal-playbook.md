@@ -25,8 +25,11 @@ fund), then re-run. **Never lower the budget without asking.**
 
 ### `[E_FUNDS_BELOW_FLOOR]`
 
-**No budget is valid.** Help the user deposit
-(`senpi-deposit-withdraw-transfer`), then re-run. **Never** suggest a lower budget here.
+**No budget is valid.** Depositing is the only way forward, so **show the funding card** —
+`show_widget` with `widget_type: "fund_user_wallet"` — in the same reply that reports the refusal.
+Say what is short, show the card, and re-run once they have funded. **Never** suggest a lower budget
+here. The refusal names the figures; quote those rather than a remembered minimum.
+(Rails, fallback when the card is unavailable, and edge cases: `senpi-deposit-withdraw-transfer`.)
 
 ### `[E_STATE_AMBIGUOUS_WALLETS]`
 
@@ -282,9 +285,18 @@ kinds.
   **Do not close the strategy over the shortfall** (that is a rule about this code; it never overrides
   a close another line on the report instructs — see `[E_ROLLBACK_INCOMPLETE]`). Those figures
   are **as at deploy time** and the note re-renders on every later `deploy status`, so **re-read the
-  current funding first**: `status.py <id>`, then add whatever difference it still shows via the
-  `senpi-deposit-withdraw-transfer` skill (deploy never adds funds to an existing wallet, so
-  re-running at the same `--budget` only adopts it). Acting on the stale figure tops up twice.
+  current funding first**: `status.py <id>`, then add whatever difference it still shows (deploy never
+  adds funds to an existing wallet, so re-running at the same `--budget` only adopts it). Acting on the
+  stale figure tops up twice.
+  **Adding that difference is two steps, in this order**, and saying so is the point — money reaches a
+  strategy through the embedded wallet, never directly:
+  1. If the embedded wallet cannot cover the difference, **show the funding card** (`show_widget`,
+     `widget_type: "fund_user_wallet"`) so the user can fill it. If it already covers the difference,
+     skip this step entirely.
+  2. Move the difference into the strategy with **`strategy_top_up`**.
+  **The card alone does not fund the strategy.** Never show it and imply the strategy is topped up —
+  that is the same mistake as pointing a deposit at a strategy address.
+  (Rails: `senpi-deposit-withdraw-transfer`.)
   Close-and-redeploy is the destructive alternative and this warn carries **no** close command on
   purpose — agree the scope with the user off that same read. On a `failed`/`pending` report the warn
   drops its "nothing is broken" line: read the failed step first, it says what state the deploy left.
