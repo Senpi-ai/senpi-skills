@@ -113,6 +113,50 @@ def test_fresh_picks_sorted_by_margin_desc():
     assert picks[0]["asset"] == "ETH" and picks[0]["direction"] == "SHORT"
 
 
+def test_ratchet_locks_gains_only_and_never_a_loss():
+    """Starling takes longer-term bets, so the exit must never convert a winner into a loser.
+
+    Two invariants, both learned the hard way from live trades:
+      1. phase1 TRAILING must stay disabled. It trails from HIGH-WATER, so once price moved our
+         way the floor followed it and could sit BELOW entry — a ratchet that locks a LOSS. A live
+         ZEC short hit +8.5% ROE, bounced 2.8% off its low, and the trail closed it at -5.9%.
+         With phase1 disabled the only floor beneath entry is the FIXED max-loss.
+      2. No tier may lock 0% of high-water. A breakeven exit still pays fees, so "scratch" is a
+         loss. Every rung must protect a positive ROE or it should not exist.
+    """
+    import os
+    import yaml
+    rt = os.path.join(os.path.dirname(__file__), "..", "main", "runtime.yaml")
+    preset = yaml.safe_load(open(rt))["exit"]["dsl_preset"]
+    p1, tiers = preset["phase1"], preset["phase2"]["tiers"]
+
+    assert p1["enabled"] is False, "phase1 trailing must stay off — it can ratchet into a loss"
+    # the runtime REQUIRES max_loss_pct when phase1 is disabled; it is the only sub-entry floor
+    assert p1.get("max_loss_pct", 0) > 0, "max_loss_pct is the sole downside floor once phase1 is off"
+
+    assert tiers, "a gains-only ratchet still needs rungs"
+    for t_ in tiers:
+        assert t_["lock_hw_pct"] > 0, f"tier {t_} locks breakeven/negative — fees make that a loss"
+    trigs = [t_["trigger_pct"] for t_ in tiers]
+    locks = [t_["lock_hw_pct"] for t_ in tiers]
+    assert trigs == sorted(trigs) and len(set(trigs)) == len(trigs), trigs
+    assert locks == sorted(locks), locks          # never lock LESS at a higher peak
+
+    # NO-SCRATCH INVARIANT: the smallest gain the ratchet can ever exit on must be worth taking.
+    # A floor at +3% ROE is ~$8 on a $260 margin against ~$2 of fees — churn, not a win. The point
+    # of the strategy is longer-term bets, so nothing may exit between the max-loss and a real gain.
+    lowest_lockable = tiers[0]["trigger_pct"] * tiers[0]["lock_hw_pct"] / 100
+    assert lowest_lockable >= 8, (
+        f"first rung can exit at only +{lowest_lockable:.1f}% ROE — that is a scratch after fees")
+
+    # …and the stall cut must be the ONLY way out of the dead zone, with a bar high enough to mean
+    # something: weak_peak's 48h clock resets whenever ROE >= min_value.
+    wp = preset["weak_peak_cut"]
+    assert wp["enabled"] is True and wp["interval_in_minutes"] >= 2880, wp
+    assert wp["min_value"] >= 5, (
+        f"weak_peak min_value {wp['min_value']} is so low any wiggle resets the 48h clock")
+
+
 def test_min_consensus_and_bands_stay_coherent():
     """Raising the floor without raising the bands would make EVERY pick apex (5x, 14% margin).
     Guard the shipped config so the sizing ladder keeps three distinct rungs."""
