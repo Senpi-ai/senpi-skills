@@ -164,37 +164,37 @@ def evaluate_trend_continuation(asset_info, sm, btc_macro, hour, inputs=None):
     p4h_abs = abs(p4h)
     if p4h_abs >= 6.0:
         score += 4
-        reasons.append(f"4H_MOMENTUM_STRONG {p4h:+.1f}%")
+        reasons.append(f"strong 4h momentum, {p4h:+.1f}%")
     elif p4h_abs >= 4.0:
         score += 3
-        reasons.append(f"4H_MOMENTUM {p4h:+.1f}%")
+        reasons.append(f"4h momentum, {p4h:+.1f}%")
     elif p4h_abs >= 2.0:
         score += 2
-        reasons.append(f"4H_TREND_BUILDING {p4h:+.1f}%")
+        reasons.append(f"4h trend building, {p4h:+.1f}%")
     else:
         score += 1
-        reasons.append(f"4H_TREND_LIGHT {p4h:+.1f}%")
+        reasons.append(f"light 4h trend, {p4h:+.1f}%")
 
     # 1h confirmation
     p1h_abs = abs(p1h)
     if p1h_abs >= 1.0:
         score += 2
-        reasons.append(f"1H_STRONG {p1h:+.2f}%")
+        reasons.append(f"strong 1h move, {p1h:+.2f}%")
     elif p1h_abs >= 0.5:
         score += 1
-        reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
+        reasons.append(f"1h move confirms, {p1h:+.2f}%")
 
     # 15m SM velocity
     if c15m >= 2.0:
         score += 2
-        reasons.append(f"15M_SPIKE +{c15m:.2f}")
+        reasons.append(f"smart-money gain share spiking, +{c15m:.2f} in 15m")
     elif c15m >= 1.0:
         score += 1
-        reasons.append(f"15M_BUILDING +{c15m:.2f}")
+        reasons.append(f"smart-money gain share building, +{c15m:.2f} in 15m")
 
     # 3TF alignment bonus
     score += 3
-    reasons.append(f"3TF_ALIGNED_{sm_dir}")
+    reasons.append(f"4h, 1h and 15m all point {sm_dir.lower()}")
 
     # SM concentration tier. Tier boundaries rescaled onto the gain-share scale
     # (v2 used 80/75 on the unreachable 0-100 "consensus" scale, so every scored
@@ -203,35 +203,35 @@ def evaluate_trend_continuation(asset_info, sm, btc_macro, hour, inputs=None):
     gain_share = sm.get("gain_share_pct", 0.0)
     if gain_share >= strongly_tilted:
         score += 4
-        reasons.append(f"SM_STRONGLY_TILTED {gain_share:.1f}%")
+        reasons.append(f"smart money strongly tilted, {gain_share:.1f}% of gains")
     elif gain_share >= convergent:
         score += 3
-        reasons.append(f"SM_CONVERGENT {gain_share:.1f}%")
+        reasons.append(f"smart money converging, {gain_share:.1f}% of gains")
     else:
         score += 2
-        reasons.append(f"SM_ALIGNED {gain_share:.1f}%")
+        reasons.append(f"smart money aligned, {gain_share:.1f}% of gains")
 
     # Trader depth
     if sm["traders"] >= 100:
         score += 1
-        reasons.append(f"DEEP_CONSENSUS ({sm['traders']}t)")
+        reasons.append(f"deep consensus, {sm['traders']} traders positioned")
 
     # Funding alignment
     funding = asset_info.get("funding", 0)
     if (sm_dir == "SHORT" and funding > 0.0002) or (sm_dir == "LONG" and funding < -0.0002):
         score += 1
-        reasons.append(f"FUNDING_PAYS {funding*100:.4f}%")
+        reasons.append(f"funding pays this side, {funding*100:.4f}%")
 
     # BTC macro confirmation bonus
     if btc_macro and coin != "BTC":
         if btc_macro["direction"] == sm_dir and abs(btc_macro["p4h"]) >= 1.5:
             score += 1
-            reasons.append(f"BTC_CONFIRMS {btc_macro['p4h']:+.1f}%")
+            reasons.append(f"BTC agrees, {btc_macro['p4h']:+.1f}% in 4h")
 
     # Peak session bonus (13-19 UTC or 00-05 UTC)
     if (13 <= hour <= 19) or (0 <= hour <= 5):
         score += 1
-        reasons.append(f"PEAK_SESSION_{hour:02d}UTC")
+        reasons.append(f"peak trading hours ({hour:02d}:00 UTC)")
 
     if score < min_score:
         return None

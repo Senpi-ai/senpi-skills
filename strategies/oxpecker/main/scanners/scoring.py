@@ -321,33 +321,33 @@ def score_candidate(cand):
     """
     score = 3
     reasons = [
-        f"{cand['asset']}_{cand['direction']}",
-        f"concentration_{cand['max_concentration']:.0%}",
-        f"traders_{cand['count']}",
-        f"notional_${cand['max_notional']:,.0f}",
+        f"tracked elite traders are {cand['direction']} {cand['asset']}",
+        f"up to {cand['max_concentration']:.0%} of their book in this bet",
+        f"held by {cand['count']} tracked trader(s)",
+        f"largest position ${cand['max_notional']:,.0f}",
     ]
 
     mc = cand["max_concentration"]
     if mc >= 0.9:
         score += 2
-        reasons.append("overwhelming_conviction")
+        reasons.append("overwhelming conviction, 90%+ of book")
     elif mc >= 0.7:
         score += 1
-        reasons.append("high_conviction")
+        reasons.append("high conviction, 70%+ of book")
 
     qc_bonus = min(3, int(round(cand["sum_qc"] * 2)))
     if qc_bonus > 0:
         score += qc_bonus
-        reasons.append(f"quality_x_conc_{qc_bonus}")
+        reasons.append(f"quality-weighted conviction bonus +{qc_bonus}")
 
     cb = consensus_bonus(cand["count"])
     if cb:
         score += cb
-        reasons.append(f"consensus_{cand['count']}_traders")
+        reasons.append(f"{cand['count']} tracked traders agree on this trade")
 
     if cand.get("any_elite"):
         score += 1
-        reasons.append("elite_tier")
+        reasons.append("an elite-tier trader is in this trade")
 
     return score, reasons
 

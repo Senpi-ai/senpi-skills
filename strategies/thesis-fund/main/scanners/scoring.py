@@ -115,51 +115,51 @@ def score_thesis(target_dir, c1, c4, own24h, inputs):
             return None
         if trend4 == "BULLISH":
             score += 3
-            reasons.append(f"4h_bullish_{s4:.0%}")
+            reasons.append(f"4h trend rising, {s4:.0%} higher lows")
         else:
             score += 1
-            reasons.append("4h_neutral")
+            reasons.append("4h trend flat")
         if trend1 == "BULLISH":
             score += 1
-            reasons.append(f"1h_bullish_{s1:.0%}")
+            reasons.append(f"1h trend rising, {s1:.0%} higher lows")
         elif trend1 == "BEARISH":
             score -= 1
-            reasons.append("1h_bearish")
+            reasons.append("1h trend falling")
         if own >= mom:
             score += 2
-            reasons.append(f"mom_{own:+.1f}%")
+            reasons.append(f"24h move {own:+.1f}%")
         elif own >= 0:
             score += 1
-            reasons.append(f"mom_{own:+.1f}%")
+            reasons.append(f"24h move {own:+.1f}%")
         rsi_ob = float(inputs.get("rsiOverbought", 78))
         if rsi < rsi_ob:
             score += 1
-            reasons.append(f"rsi_room_{rsi:.0f}")
+            reasons.append(f"RSI {rsi:.0f}, room before overbought")
     else:  # SHORT
         if trend4 == "BULLISH":
             return None
         if trend4 == "BEARISH":
             score += 3
-            reasons.append(f"4h_bearish_{s4:.0%}")
+            reasons.append(f"4h trend falling, {s4:.0%} lower highs")
         else:
             score += 1
-            reasons.append("4h_neutral")
+            reasons.append("4h trend flat")
         if trend1 == "BEARISH":
             score += 1
-            reasons.append(f"1h_bearish_{s1:.0%}")
+            reasons.append(f"1h trend falling, {s1:.0%} lower highs")
         elif trend1 == "BULLISH":
             score -= 1
-            reasons.append("1h_bullish")
+            reasons.append("1h trend rising")
         if own <= -mom:
             score += 2
-            reasons.append(f"mom_{own:+.1f}%")
+            reasons.append(f"24h move {own:+.1f}%")
         elif own <= 0:
             score += 1
-            reasons.append(f"mom_{own:+.1f}%")
+            reasons.append(f"24h move {own:+.1f}%")
         rsi_os = float(inputs.get("rsiOversold", 22))
         if rsi > rsi_os:
             score += 1
-            reasons.append(f"rsi_room_{rsi:.0f}")
+            reasons.append(f"RSI {rsi:.0f}, room before oversold")
 
     return {
         "coin": None,            # caller fills in the asset name

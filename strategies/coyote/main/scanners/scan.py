@@ -258,7 +258,7 @@ def scan(inputs, ctx):
                 "leverage": float(leverage),
                 "marginPct": round(margin_pct, 4),
                 "direction": direction,
-                "reasons": [f"regime_{regime}", f"btc_7d_{btc_move:+.1f}%", f"vol_{btc_vol:.0f}%"],
+                "reasons": [f"BTC regime {'trending up' if regime == 'TREND_UP' else 'trending down'}", f"BTC {btc_move:+.1f}% over 7 days", f"volatility {btc_vol:.0f}% annualized"],
                 "regime": regime,
                 "btc7dMovePct": float(btc_move),
                 "realizedVolPct": float(btc_vol),

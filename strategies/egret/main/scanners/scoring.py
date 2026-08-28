@@ -136,29 +136,29 @@ def build_thesis(asset, candles_1h, sm, entry_cfg):
 
     # SM crowding (gate-confirmed) + ultra-crowded bonus
     score += 2
-    reasons.append(f"sm_crowded_{sm_dir.lower()}_{sm_pct:.0f}%")
+    reasons.append(f"{sm_pct:.0f}% of smart money crowded {sm_dir.lower()}")
     if sm_pct >= crowd_extreme:
         score += 1
-        reasons.append("sm_ultra_crowded")
+        reasons.append("crowding at extreme levels")
 
     # Divergence magnitude — the further price is from confirming, the stronger
     if (sm_dir == "LONG" and mom <= -0.5) or (sm_dir == "SHORT" and mom >= 0.5):
         score += 3
-        reasons.append(f"price_diverging_{mom:+.2f}%")
+        reasons.append(f"price diverging from the crowd, {mom:+.2f}%")
     else:
         score += 2
-        reasons.append(f"price_stalled_{mom:+.2f}%")
+        reasons.append(f"price stalled at {mom:+.2f}%")
 
     # RSI exhaustion confirms the fade
     if fade_direction == "SHORT" and rsi >= 68:
         score += 2
-        reasons.append(f"rsi_overbought_{rsi:.0f}")
+        reasons.append(f"RSI overbought at {rsi:.0f}")
     elif fade_direction == "LONG" and rsi <= 32:
         score += 2
-        reasons.append(f"rsi_oversold_{rsi:.0f}")
+        reasons.append(f"RSI oversold at {rsi:.0f}")
     elif (fade_direction == "SHORT" and rsi >= 60) or (fade_direction == "LONG" and rsi <= 40):
         score += 1
-        reasons.append(f"rsi_stretched_{rsi:.0f}")
+        reasons.append(f"RSI stretched at {rsi:.0f}")
 
     return {
         "coin": asset,

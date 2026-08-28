@@ -134,20 +134,20 @@ def build_pair_thesis(pair, closes_by_asset, candles_by_asset, sm, entry_cfg):
     leg_vol = volume_trend(candles_by_asset.get(leg, []))
 
     score = 0
-    reasons = [f"{num}/{den}_z_{z:+.2f}"]
+    reasons = [f"{num}/{den} ratio {z:+.2f} std devs from normal"]
     score += 2  # |z| >= z_min gate-confirmed
     if abs(z) >= z_strong:
         score += 2
-        reasons.append(f"z_extreme_{z:+.2f}")
+        reasons.append(f"ratio at an extreme, {z:+.2f} std devs")
     if turning:
         score += 1
-        reasons.append("ratio_turning")
+        reasons.append("ratio starting to snap back")
     if sm_dir == direction and sm_tilt >= sm_min:
         score += 1
-        reasons.append(f"sm_confirms_{sm_tilt:.0f}%")
+        reasons.append(f"smart money {sm_tilt:.0f}% on this side")
     if leg_vol > 10:
         score += 1
-        reasons.append(f"vol_rising_{leg_vol:+.0f}%")
+        reasons.append(f"trading volume up {leg_vol:+.0f}%")
 
     return {
         "coin": leg,

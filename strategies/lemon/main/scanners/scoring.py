@@ -110,74 +110,74 @@ def evaluate_fade(sm, btc_4h, funding, us_session, thresholds=None):
     # SM concentration tiers (+4 / +3 / +2 / +1)
     if pct >= 20:
         score += 4
-        reasons.append(f"DEGEN_PILE {pct:.1f}% ({traders}t) {sm_direction}")
+        reasons.append(f"extreme crowding {sm_direction.lower()}: {pct:.1f}% ({traders} traders)")
     elif pct >= 12:
         score += 3
-        reasons.append(f"HEAVY_CROWD {pct:.1f}% ({traders}t) {sm_direction}")
+        reasons.append(f"heavy crowding {sm_direction.lower()}: {pct:.1f}% ({traders} traders)")
     elif pct >= 7:
         score += 2
-        reasons.append(f"CROWDED {pct:.1f}% ({traders}t) {sm_direction}")
+        reasons.append(f"crowded {sm_direction.lower()}: {pct:.1f}% ({traders} traders)")
     elif pct >= 3:
         score += 1
-        reasons.append(f"LEANING {pct:.1f}% ({traders}t) {sm_direction}")
+        reasons.append(f"crowd leaning {sm_direction.lower()}: {pct:.1f}% ({traders} traders)")
 
     # 15m velocity exhaustion (+3 / +2 / +1)
     if c15m < -2.0:
         score += 3
-        reasons.append(f"15M_COLLAPSING {c15m:.2f}")
+        reasons.append(f"crowd share collapsing, {c15m:.2f} in 15m")
     elif c15m < -0.5:
         score += 2
-        reasons.append(f"15M_FADING {c15m:.2f}")
+        reasons.append(f"crowd share fading, {c15m:.2f} in 15m")
     elif c15m < -0.1:
         score += 1
-        reasons.append(f"15M_COOLING {c15m:.2f}")
+        reasons.append(f"crowd share cooling, {c15m:.2f} in 15m")
 
     # 1h velocity fading (+1)
     if c1h < -0.5:
         score += 1
-        reasons.append(f"1H_FADING {c1h:.2f}")
+        reasons.append(f"crowd share fading, {c1h:.2f} in 1h")
 
     # 4h overextension in SM direction (+2 / +1)
     if sm_direction == "LONG" and p4h > 3.0:
         score += 2
-        reasons.append(f"OVEREXTENDED_LONG +{p4h:.1f}%")
+        reasons.append(f"price overextended, +{p4h:.1f}% in 4h")
     elif sm_direction == "LONG" and p4h > 1.5:
         score += 1
-        reasons.append(f"EXTENDED_LONG +{p4h:.1f}%")
+        reasons.append(f"price stretched, +{p4h:.1f}% in 4h")
     elif sm_direction == "SHORT" and p4h < -3.0:
         score += 2
-        reasons.append(f"OVEREXTENDED_SHORT {p4h:.1f}%")
+        reasons.append(f"price overextended, {p4h:.1f}% in 4h")
     elif sm_direction == "SHORT" and p4h < -1.5:
         score += 1
-        reasons.append(f"EXTENDED_SHORT {p4h:.1f}%")
+        reasons.append(f"price stretched, {p4h:.1f}% in 4h")
 
     # 1h reversing toward the fade direction (+1)
     if fade_direction == "LONG" and p1h > 0.1:
         score += 1
-        reasons.append(f"1H_REVERSING +{p1h:.2f}%")
+        reasons.append(f"price reversing, +{p1h:.2f}% in 1h")
     elif fade_direction == "SHORT" and p1h < -0.1:
         score += 1
-        reasons.append(f"1H_REVERSING {p1h:.2f}%")
+        reasons.append(f"price reversing, {p1h:.2f}% in 1h")
 
     # 4h SM contribution weakening (+1)
     if c4h < -1.0:
         score += 1
-        reasons.append(f"4H_SM_WEAKENING {c4h:.1f}")
+        reasons.append(f"crowd share weakening, {c4h:.1f} in 4h")
 
     # Funding alignment (+1) — funding pays the fade side. None => read failed, skip
     # (v2 wrapped this in try/except: pass, so an unavailable funding never fires it).
     if funding is not None:
         if fade_direction == "SHORT" and funding > 0.0002:
             score += 1
-            reasons.append(f"FUNDING_PAYS_FADE +{funding * 100:.4f}%")
+            reasons.append(f"funding pays the fade, +{funding * 100:.4f}%")
         elif fade_direction == "LONG" and funding < -0.0002:
             score += 1
-            reasons.append(f"FUNDING_PAYS_FADE {funding * 100:.4f}%")
+            reasons.append(f"funding pays the fade, {funding * 100:.4f}%")
 
     # US session (+1) — 13..21 UTC (caller computes from the clock)
     if us_session:
         score += 1
-        reasons.append("US_SESSION")
+        reasons.append("US trading session active")
 
     if score < min_score:
         return None

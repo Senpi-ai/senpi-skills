@@ -159,16 +159,16 @@ def build_thesis(event, config, now, sm, vol_rising):
     sm_aligned = (sm_dir == direction and sm_tilt >= sm_min)
 
     score = event_score(tier, fresh, sm_aligned, vol_rising)
-    reasons = [f"momentum_event_{direction}", f"tier_{tier}", f"mag_{mag:+.1f}%"]
+    reasons = [f"momentum event fired {direction}", f"strength tier {tier} of 3", f"price moved {mag:+.1f}%"]
     if fresh:
-        reasons.append("fresh" if age is None else f"fresh_{age:.0f}min")
+        reasons.append("just fired" if age is None else f"fired {age:.0f} min ago, still fresh")
     if sm_aligned:
-        reasons.append(f"sm_confirms_{sm_tilt:.0f}%")
+        reasons.append(f"smart money {sm_tilt:.0f}% on the same side")
         if sm_tilt >= sm_strong:
             score += 1
-            reasons.append("sm_strong")
+            reasons.append("smart money strongly tilted this way")
     if vol_rising:
-        reasons.append("vol_rising")
+        reasons.append("1h trading volume is rising")
 
     return {
         "coin": asset,

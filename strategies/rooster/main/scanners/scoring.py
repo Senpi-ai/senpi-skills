@@ -188,36 +188,36 @@ def build_thesis(coin, candles_15m, candles_4h, minutes_to_open, inputs):
         return None                                   # no directional read — the common case
 
     direction = "LONG" if drift > 0 else "SHORT"
-    score, reasons = 3, [f"pre-open drift {drift:+.2f}% over {window_bars * 15}m"]
+    score, reasons = 3, [f"price drifted {drift:+.2f}% in the {window_bars * 15}m before the open"]
 
     vol_ratio = volume_expansion(candles_15m, window_bars, baseline_bars)
     if vol_ratio >= min_vol_ratio:
         score += 2
-        reasons.append(f"volume {vol_ratio:.2f}x baseline")
+        reasons.append(f"volume running {vol_ratio:.2f}x its usual pace")
     else:
-        reasons.append(f"volume only {vol_ratio:.2f}x baseline (thin)")
+        reasons.append(f"volume thin at {vol_ratio:.2f}x its usual pace")
 
     pos = prior_range_position(candles_15m, window_bars, prior_bars)
     if pos is not None:
         if direction == "LONG" and pos >= breakout_hi:
             score += 2
-            reasons.append(f"breaking prior range high (pos {pos:.2f})")
+            reasons.append(f"breaking above the prior range high ({pos:.2f} of range)")
         elif direction == "SHORT" and pos <= breakout_lo:
             score += 2
-            reasons.append(f"breaking prior range low (pos {pos:.2f})")
+            reasons.append(f"breaking below the prior range low ({pos:.2f} of range)")
         else:
-            reasons.append(f"mid prior range (pos {pos:.2f})")
+            reasons.append(f"price sits mid-range ({pos:.2f} of prior range)")
 
     t4, _ = trend_structure(candles_4h)
     if (t4 == "UP" and direction == "LONG") or (t4 == "DOWN" and direction == "SHORT"):
         score += 1
-        reasons.append(f"4h trend {t4} agrees")
+        reasons.append(f"4h trend agrees ({t4.lower()})")
     elif t4 != "NEUTRAL":
         score -= 1
-        reasons.append(f"4h trend {t4} opposes")
+        reasons.append(f"4h trend opposes ({t4.lower()})")
 
     if abs(drift) >= strong_drift:
-        reasons.append("drift is strong")
+        reasons.append("an unusually strong pre-open move")
 
     return {
         "coin": coin, "direction": direction, "score": max(0, score),

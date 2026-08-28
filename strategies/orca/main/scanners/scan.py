@@ -356,7 +356,7 @@ def scan(inputs, ctx):
         vol_ratio, vol_strong = _check_asset_volume(ctx, token, dex, min_vol_ratio)
         if not vol_strong:
             continue
-        reasons = list(reasons) + [f"VOL_CONFIRMED {vol_ratio:.1f}x"]
+        reasons = list(reasons) + [f"volume running {vol_ratio:.1f}x normal"]
 
         cand = dict(meta)
         cand["token"] = token

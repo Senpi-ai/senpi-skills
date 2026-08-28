@@ -207,7 +207,7 @@ def scan(inputs, ctx):
             ctx, s["token"], s.get("dex") or "", min_vol_ratio)
         if not vol_strong:
             continue
-        s["reasons"].append(f"VOL_CONFIRMED {vol_ratio:.1f}x")
+        s["reasons"].append(f"volume confirms, {vol_ratio:.1f}x normal")
         s["volRatio"] = round(vol_ratio, 2)
         confirmed.append(s)
 

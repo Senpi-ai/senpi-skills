@@ -201,35 +201,35 @@ def build_thesis(asset, asset_data, prev_oi, sm, inputs):
 
     # OI unwind magnitude (gate-confirmed) + strong bonus
     score += 2
-    reasons.append(f"oi_unwind_{oi_pct:+.1f}%_{oi_src}")
+    reasons.append(f"open interest unwinding, {oi_pct:+.1f}% in 1h (via {oi_src})")
     if oi_pct <= -oi_strong:
         score += 1
-        reasons.append("oi_unwind_strong")
+        reasons.append("open interest unwinding fast")
 
     # Violent move (gate-confirmed) + acceleration
     score += 2
-    reasons.append(f"move_1h_{move_1h:+.2f}%")
+    reasons.append(f"price moved {move_1h:+.2f}% in 1h")
     if abs(move_5m) >= move_min / 2:
         score += 1
-        reasons.append(f"accel_5m_{move_5m:+.2f}%")
+        reasons.append(f"still accelerating, {move_5m:+.2f}% in 5m")
 
     # Thin book on the side price is running into = little resistance left
     thin_into = (direction == "LONG" and ask_depth > 0 and bid_depth > ask_depth * 1.3) or \
                 (direction == "SHORT" and bid_depth > 0 and ask_depth > bid_depth * 1.3)
     if thin_into:
         score += 1
-        reasons.append("book_thin_into_move")
+        reasons.append("thin order book in the move's path")
 
     # Volume spike confirms forced activity
     if vol_pct >= vol_spike:
         score += 1
-        reasons.append(f"vol_spike_{vol_pct:+.0f}%")
+        reasons.append(f"volume spiked {vol_pct:+.0f}%")
 
     # SM aligned with the flow (optional confirm)
     sm_dir, sm_tilt = sm if sm else (None, 0.0)
     if sm_dir == direction and sm_tilt >= 55:
         score += 1
-        reasons.append(f"sm_aligned_{sm_tilt:.0f}%")
+        reasons.append(f"smart money aligned at {sm_tilt:.0f}%")
 
     return {
         "coin": asset,

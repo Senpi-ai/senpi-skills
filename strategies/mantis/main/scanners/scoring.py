@@ -182,14 +182,14 @@ def build_strike(candidate, inputs):
         "leader_asset": candidate.get("_leader_asset"),
         "leader_move_pct": leader_move_pct,
         "reasons": [
-            "SLIPSTREAM {} follows {}".format(
+            "{} historically follows {}".format(
                 candidate.get("asset"), candidate.get("_leader_asset")),
-            "leader_move {:+.2f}% in 4h".format(leader_move_pct),
-            "gap {:+.2f}% behind".format(_f(candidate.get("gap_pct"))),
-            "follow_rate {:.0%}".format(_f(candidate.get("follow_rate"))),
-            "avg_lag {:.0f}+/-{:.0f}min".format(
+            "leader moved {:+.2f}% in 4h".format(leader_move_pct),
+            "still {:+.2f}% behind that move".format(_f(candidate.get("gap_pct"))),
+            "follows the leader {:.0%} of the time".format(_f(candidate.get("follow_rate"))),
+            "usually catches up in {:.0f}±{:.0f} min".format(
                 avg_lag, _f(candidate.get("lag_stddev_minutes"))),
-            "confidence {:.2f}".format(confidence),
-            "sizing_tier margin_pct={:.0f}% lev={}x".format(margin_pct, leverage),
+            "confidence score {:.2f} out of 1".format(confidence),
+            "sized at {:.0f}% margin, {}x leverage".format(margin_pct, leverage),
         ],
     }

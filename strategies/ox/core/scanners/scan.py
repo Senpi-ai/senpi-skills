@@ -304,7 +304,8 @@ def scan(inputs, ctx):
         score, ok = scoring.score_sleeve(trend4, s4, min_score)
         if not ok:
             continue
-        reasons = [f"riskparity_w_{w:.0%}", f"vol_{vols[name]:.4f}", f"4h_{trend4.lower()}"]
+        reasons = [f"risk-balanced weight {w:.0%} of the basket", f"volatility {vols[name]:.4f} per bar",
+                   f"4h trend {trend4.lower()}"]
         data_block = {
             "score": score,
             "leverage": leverage,

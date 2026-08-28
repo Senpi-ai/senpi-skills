@@ -145,27 +145,27 @@ def build_thesis(c1h, c4h, sm, inputs):
 
     # 4h trend aligned
     score += 3
-    reasons.append(f"4h_{trend_4h.lower()}_{str_4h:.0%}")
+    reasons.append(f"4-hour trend {trend_4h.lower()} at {str_4h:.0%} strength")
 
     # 1h confirms 4h
     if (direction == "LONG" and trend_1h == "BULLISH") or (direction == "SHORT" and trend_1h == "BEARISH"):
         score += 2
-        reasons.append(f"1h_confirms_{trend_1h.lower()}")
+        reasons.append(f"1-hour trend confirms, also {trend_1h.lower()}")
 
     # SM aligned (gate-confirmed, always scores)
     score += 2
-    reasons.append(f"sm_aligned_{sm_tilt:.0f}%")
+    reasons.append(f"smart money {sm_tilt:.0f}% on the same side")
 
     # SM strongly tilted
     if sm_tilt >= sm_strong_pct:
         score += 1
-        reasons.append("sm_strongly_tilted")
+        reasons.append("smart money is strongly one-sided")
 
     # Volume rising
     vol_pct = volume_trend(c1h)
     if vol_pct > 10:
         score += 1
-        reasons.append(f"vol_rising_{vol_pct:+.0f}%")
+        reasons.append(f"volume rising {vol_pct:+.0f}%")
 
     return {
         "direction": direction,

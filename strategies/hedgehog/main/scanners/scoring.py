@@ -85,15 +85,15 @@ def build_thesis(coin, candles_1h, candles_4h, sm, inputs):
     #   +2 SM aligned (always granted once the SM gate passes)
     #   +1 SM strongly tilted (>= smStrongTiltPct)
     score = 3
-    reasons = [f"4h_{t4.lower()}_{s4:.0%}"]
+    reasons = [f"4-hour trend {t4.lower()} at {s4:.0%} strength"]
     if (direction == "LONG" and t1 == "BULLISH") or (direction == "SHORT" and t1 == "BEARISH"):
         score += 2
-        reasons.append(f"1h_confirms_{t1.lower()}")
+        reasons.append(f"1-hour trend confirms, also {t1.lower()}")
     score += 2
-    reasons.append(f"sm_aligned_{sm_tilt:.0f}%")
+    reasons.append(f"smart money {sm_tilt:.0f}% on the same side")
     if sm_tilt >= sm_strong:
         score += 1
-        reasons.append("sm_strongly_tilted")
+        reasons.append("smart money is strongly one-sided")
 
     return {
         "coin": coin, "direction": direction, "score": score, "reasons": reasons,

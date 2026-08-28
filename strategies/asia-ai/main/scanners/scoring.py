@@ -62,4 +62,5 @@ def confirm_trend(c4, c1d, want, inputs):
     score = 3 + (1 if strength > 0.06 else 0) + (1 if room else 0)
     return {"score": score,
             "direction": "LONG" if want == "UP" else "SHORT",
-            "reasons": [f"4h_{want.lower()}_{strength:.0%}", f"1d_{want.lower()}", f"rsi_{rsi:.0f}"]}
+            "reasons": [f"4h trend {want.lower()} {strength:.0%}",
+                        f"daily trend also {want.lower()}", f"RSI at {rsi:.0f}"]}

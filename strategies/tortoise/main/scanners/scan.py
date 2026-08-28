@@ -32,7 +32,7 @@ FIDELITY NOTES vs the v2 producer (tortoise-producer.py v1.0.1):
     the read-sanity-guarded clearinghouse read (ported verbatim).
   - v2 data block: score=5 (producer-fixed), wire score=0.7 (static — DCA
     conviction comes from cadence, not scoring), leverage, direction LONG,
-    reasons [dca_cadence, elapsed_Ns, interval_Ns], intervalSec, elapsedSec,
+    reasons [DCA due / elapsed / interval, in plain words], intervalSec, elapsedSec,
     heldAssets. Preserved (the `data.score` slot carries the v2 producer-fixed 5).
   - v2 push_signal hard-skipped if the chosen asset was already held; here that
     asset is already excluded from the candidate set, so the guard is redundant
@@ -196,7 +196,8 @@ def scan(inputs, ctx):
     history[chosen] = now
     signaled[chosen] = now
 
-    reasons = ["dca_cadence", f"elapsed_{int(elapsed_sec)}s", f"interval_{int(interval_sec)}s"]
+    reasons = ["regular DCA buy is due", f"{int(elapsed_sec)}s since the last buy",
+               f"buys every {int(interval_sec)}s"]
     result = {"ts": now, "emitted": True, "coin": chosen, "direction": _DIRECTION,
               "leverage": leverage, "marginPct": round(margin_pct, 4),
               "elapsed_hours": round(elapsed_sec / 3600.0, 2), "interval_hours": interval_hours,

@@ -84,7 +84,7 @@ def score_confluence(market, quality_positions, rank_climb, thresholds=None):
     if sm_pct < sm_min_pct or sm_traders < sm_min_traders:
         return 0, []
     score += 4
-    reasons.append(f"SM_STRONG {sm_pct:.1f}%/{sm_traders}t")
+    reasons.append(f"drives {sm_pct:.1f}% of top-trader gains, {sm_traders} traders")
 
     # Hard gate: at least one velocity axis must pass
     c15m = market["contrib_15m"]
@@ -93,12 +93,12 @@ def score_confluence(market, quality_positions, rank_climb, thresholds=None):
         return 0, []
     if c15m >= vel_min_15m or c1h >= vel_min_1h:
         score += 2
-        reasons.append(f"VELOCITY 15m={c15m:.2f}/1h={c1h:.2f}")
+        reasons.append(f"gain share up {c15m:.2f} pts in 15m, {c1h:.2f} in 1h")
 
     # Accelerating: 15m > 1h > 0
     if c15m > 0 and c1h > 0 and c15m > c1h:
         score += 2
-        reasons.append(f"ACCEL 15m({c15m:.2f})>1h({c1h:.2f})")
+        reasons.append(f"gain share accelerating, 15m {c15m:.2f} beats 1h {c1h:.2f}")
 
     # Dual price confirmation (4h + 1h aligned)
     p4h = market["price_chg_4h"]
@@ -106,29 +106,29 @@ def score_confluence(market, quality_positions, rank_climb, thresholds=None):
     if direction == "LONG":
         if p4h >= price_min_4h and p1h > 0:
             score += 2
-            reasons.append(f"DUAL_PRICE +{p4h:.1f}/+{p1h:.2f}%")
+            reasons.append(f"price +{p4h:.1f}% in 4h and +{p1h:.2f}% in 1h")
     else:
         if p4h <= -price_min_4h and p1h < 0:
             score += 2
-            reasons.append(f"DUAL_PRICE {p4h:.1f}/{p1h:.2f}%")
+            reasons.append(f"price {p4h:.1f}% in 4h and {p1h:.2f}% in 1h")
 
     # Volume spike
     vol = market["volume"]
     avg_vol = market["avg_volume_6h"]
     if avg_vol > 0 and vol >= avg_vol * vol_min_ratio:
         score += 1
-        reasons.append(f"VOL {vol/avg_vol:.1f}x")
+        reasons.append(f"volume {vol/avg_vol:.1f}x its 6h average")
 
     # Quality trader alignment
     key = f"{market['token']}:{direction}"
     aligned_traders = quality_positions.get(key, [])
     if aligned_traders:
         score += 3
-        reasons.append(f"QUALITY_ALIGN {len(aligned_traders)}_traders")
+        reasons.append(f"{len(aligned_traders)} quality traders on the same side")
 
     # Rank climb (rank_climb precomputed by caller from scan-history)
     if rank_climb >= rank_climb_min and market["rank"] <= rank_climb_topn:
         score += 1
-        reasons.append(f"RANK_CLIMB +{rank_climb}->#{market['rank']}")
+        reasons.append(f"jumped {rank_climb} leaderboard spots to #{market['rank']}")
 
     return score, reasons

@@ -186,44 +186,44 @@ def score_trend(asset, candles_4h, candles_1d, own24h, leg, inputs):
         if trend4 != "BULLISH":                              # v2-quirk: 4h uptrend is the hard gate
             return None
         score += 3
-        reasons.append(f"4h_uptrend_{s4:.0%}")
+        reasons.append(f"4h uptrend at {s4:.0%} strength")
         if trendd == "BULLISH":
             score += 2
-            reasons.append(f"1d_uptrend_{sd:.0%}")
+            reasons.append(f"daily uptrend at {sd:.0%} strength")
         elif trendd == "BEARISH":
             score -= 2
-            reasons.append("1d_conflict")
+            reasons.append("daily trend disagrees with the 4h")
         if own > 0:
             score += 1
-            reasons.append(f"mom_{own:+.1f}%")
+            reasons.append(f"momentum {own:+.1f}% in 24h")
         if own >= strong:
             score += 1
-            reasons.append("mom_strong")
+            reasons.append("strong 24h momentum")
         rsi_ob = float(inputs.get("rsiOverbought", DEFAULTS["rsiOverbought"]))
         if rsi > rsi_ob:                                     # v2-quirk: don't chase a blow-off
             score -= 2
-            reasons.append(f"rsi_blowoff_{rsi:.0f}")
+            reasons.append(f"RSI stretched at {rsi:.0f}, blow-off risk")
     else:  # short
         if trend4 != "BEARISH":                              # v2-quirk: 4h downtrend is the hard gate
             return None
         score += 3
-        reasons.append(f"4h_downtrend_{s4:.0%}")
+        reasons.append(f"4h downtrend at {s4:.0%} strength")
         if trendd == "BEARISH":
             score += 2
-            reasons.append(f"1d_downtrend_{sd:.0%}")
+            reasons.append(f"daily downtrend at {sd:.0%} strength")
         elif trendd == "BULLISH":
             score -= 2
-            reasons.append("1d_conflict")
+            reasons.append("daily trend disagrees with the 4h")
         if own < 0:
             score += 1
-            reasons.append(f"mom_{own:+.1f}%")
+            reasons.append(f"momentum {own:+.1f}% in 24h")
         if own <= -strong:
             score += 1
-            reasons.append("mom_strong")
+            reasons.append("strong 24h momentum")
         rsi_os = float(inputs.get("rsiOversold", DEFAULTS["rsiOversold"]))
         if rsi < rsi_os:                                     # v2-quirk: don't short a capitulation
             score -= 2
-            reasons.append(f"rsi_capitulation_{rsi:.0f}")
+            reasons.append(f"RSI washed out at {rsi:.0f}, capitulation risk")
 
     return {
         "coin": asset,

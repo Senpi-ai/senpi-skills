@@ -205,15 +205,15 @@ def score_candidate(cand):
     count = cand["count"]
     score = 3  # a tracked whale's top conviction position
     reasons = [
-        f"{cand['asset']}_{cand['direction']}",
-        f"whales_{count}",
-        f"notional_${cand['max_notional']:,.0f}",
+        f"tracked whales are {cand['direction']} {cand['asset']}",
+        f"held by {count} tracked whale(s)",
+        f"largest whale position ${cand['max_notional']:,.0f}",
     ]
     cb = consensus_bonus(count)
     if cb:
         score += cb
-        reasons.append(f"consensus_{count}_whales")
+        reasons.append(f"{count} whales agree on this trade")
     if cand.get("quality"):
         score += 1
-        reasons.append("elite_tier")
+        reasons.append("a top-rated whale is in this trade")
     return score, reasons

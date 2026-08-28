@@ -79,7 +79,7 @@ def quality(c4, c1d, inputs):
     min_strength = float(inputs.get("minTrendStrength", 0.6))
     ok = (t4 == "BULLISH" and s4 >= min_strength and t1d in ("BULLISH", "NEUTRAL"))
     score = 5 + (1 if t4 == "BULLISH" else 0) + (1 if t1d == "BULLISH" else 0) + (1 if s4 >= 0.8 else 0)
-    return ok, score, s4, [f"4h {t4} ({s4:.0%})", f"1d {t1d} ({s1d:.0%})"]
+    return ok, score, s4, [f"4h trend {t4.lower()} ({s4:.0%} of bars)", f"daily trend {t1d.lower()} ({s1d:.0%} of bars)"]
 
 
 def passes_fee_hurdle(edge_pct, inputs):

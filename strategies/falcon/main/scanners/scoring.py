@@ -156,21 +156,21 @@ def build_thesis(name, scan_info, candles, sm_dir, sm_tilt, inputs=None):
     vol_trend = volume_trend(candles)
 
     score = 0
-    reasons = ["converted_ipop_to_equity", f"mom_{mom:+.1f}%"]
+    reasons = ["just converted from pre-IPO to a live equity perp", f"price momentum {mom:+.1f}%"]
     score += 3  # inside conversion window + momentum >= min (gate-confirmed)
     if abs(mom) >= strong_mom:
         score += 2
-        reasons.append(f"mom_strong_{mom:+.1f}%")
+        reasons.append(f"strong momentum of {mom:+.1f}%")
     # SM is often sparse on a freshly-listed name — agreement is a bonus, not a gate.
     if sm_dir == direction and sm_tilt >= sm_min:
         score += 1
-        reasons.append(f"sm_confirms_{sm_tilt:.0f}%")
+        reasons.append(f"smart money agrees, {sm_tilt:.0f}% tilted this way")
         if sm_tilt >= sm_strong:
             score += 1
-            reasons.append("sm_strong")
+            reasons.append("smart-money tilt is strong")
     if vol_trend > 15:
         score += 1
-        reasons.append(f"vol_rising_{vol_trend:+.0f}%")
+        reasons.append(f"volume rising {vol_trend:+.0f}%")
 
     return {
         "coin": name,

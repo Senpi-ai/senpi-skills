@@ -109,50 +109,50 @@ def score_swing(asset, candles_1h, candles_4h, ctx_meta, sm_ratio, config):
     # 4h trend structure: the multi-day backbone. Bearish kills it.
     if trend4 == "BULLISH":
         score += 3
-        reasons.append(f"4h_bullish_{s4:.0%}")
+        reasons.append(f"4h uptrend ({s4:.0%} higher lows)")
     elif trend4 == "BEARISH":
         score -= 4
-        reasons.append("4h_bearish")
+        reasons.append("4h trend is down")
 
     # 1h trend confirmation
     if trend1 == "BULLISH":
         score += 2
-        reasons.append(f"1h_bullish_{s1:.0%}")
+        reasons.append(f"1h uptrend ({s1:.0%} higher lows)")
     elif trend1 == "BEARISH":
         score -= 1
-        reasons.append("1h_bearish")
+        reasons.append("1h trend is down")
 
     # 24h relative-strength proxy
     if rs24 >= 8:
         score += 3
-        reasons.append(f"rs_{rs24:+.1f}%")
+        reasons.append(f"price {rs24:+.1f}% over the last 24h")
     elif rs24 >= 4:
         score += 2
-        reasons.append(f"rs_{rs24:+.1f}%")
+        reasons.append(f"price {rs24:+.1f}% over the last 24h")
     elif rs24 >= 1:
         score += 1
-        reasons.append(f"rs_{rs24:+.1f}%")
+        reasons.append(f"price {rs24:+.1f}% over the last 24h")
     elif rs24 < 0:
         score -= 1
-        reasons.append(f"rs_neg_{rs24:+.1f}%")
+        reasons.append(f"price fading, {rs24:+.1f}% over the last 24h")
 
     # RSI room (overbought penalty / room bonus)
     rsi_max = config.get("rsiMaxLong", 78)
     if rsi > rsi_max:
         score -= 2
-        reasons.append(f"rsi_overbought_{rsi:.0f}")
+        reasons.append(f"RSI {rsi:.0f}, overbought")
     elif rsi < 50:
         score += 1
-        reasons.append(f"rsi_room_{rsi:.0f}")
+        reasons.append(f"RSI {rsi:.0f}, room to run")
 
     # Funding: negative funding (shorts pay) favors a LONG; very crowded
     # long funding is a small penalty.
     if funding < 0:
         score += 1
-        reasons.append(f"funding_neg_{funding:+.4f}")
+        reasons.append(f"shorts paying longs, funding {funding:+.4f}")
     elif funding > 0.0002:
         score -= 1
-        reasons.append("funding_crowded")
+        reasons.append("funding elevated, longs crowded")
 
     # Smart-money consensus bonus (crypto alts only; XYZ has none)
     sm_pct = 0.0
@@ -160,10 +160,10 @@ def score_swing(asset, candles_1h, candles_4h, ctx_meta, sm_ratio, config):
         sm_pct = sm_ratio
         if sm_ratio > 58:
             score += 2
-            reasons.append(f"sm_long_{sm_ratio:.0f}%")
+            reasons.append(f"smart money {sm_ratio:.0f}% long")
         elif sm_ratio < 42:
             score -= 2
-            reasons.append(f"sm_short_{sm_ratio:.0f}%")
+            reasons.append(f"smart money only {sm_ratio:.0f}% long")
 
     return {
         "coin": asset, "direction": direction, "score": score,

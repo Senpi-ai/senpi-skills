@@ -124,10 +124,10 @@ def blended_score(lg, regime, ev_per, ev_total, inputs):
     ev = event_boost(lg["coin"], lg["direction"], ev_per, ev_total, inputs)
     score = round(flow + fund + ev, 3)
     reasons = [
-        f"{lg['coin']} lags leader {lg['leader_move']:+.2f}% (gap {lg['gap']:+.2f}%, "
-        f"follow {lg['follow']:.0%}, conf {lg['conf']:.2f})",
-        f"funding {regime or 'NEUTRAL'} tilt {fund:+.2f}",
-        f"momentum-event boost {ev:+.2f} ({ev_total} tier2+ events)",
+        f"{lg['coin']} trails the leader's {lg['leader_move']:+.2f}% move by {lg['gap']:+.2f}% "
+        f"(follows it {lg['follow']:.0%} of the time, confidence {lg['conf']:.2f})",
+        f"funding regime {(regime or 'NEUTRAL').replace('_', ' ').lower()}, score tilt {fund:+.2f}",
+        f"top-trader momentum adds {ev:+.2f} ({ev_total} recent events)",
     ]
     return {"coin": lg["coin"], "direction": lg["direction"], "score": score,
             "gap": lg["gap"], "follow": lg["follow"], "conf": lg["conf"], "reasons": reasons}

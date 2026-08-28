@@ -228,7 +228,7 @@ def scan(inputs, ctx):
                     "score": _FIXED_SCORE,      # fixed — Koala has no scoring (verbatim v2)
                     "leverage": float(leverage),
                     "direction": "LONG",
-                    "reasons": ["hodl_first_entry"],
+                    "reasons": ["first entry of a long-term hold"],
                     "heldAssets": held,
                     "firstEntryAt": scoring._f(koala.get("first_entry_at")),
                     "totalEntries": float(koala.get("total_entries", 0)),

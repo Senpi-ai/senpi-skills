@@ -235,23 +235,23 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_velocity, sm,
 
     # 4h trend (3 pts — the foundation)
     score += 3
-    reasons.append(f"4h_{trend_4h.lower()}_{ts_4h:.0%}")
+    reasons.append(f"4h trend {trend_4h.lower()} ({ts_4h:.0%} of bars)")
 
     # 1h trend agreement (2 pts)
     score += 2
-    reasons.append(f"1h_confirms_{mom_1h:+.2f}%")
+    reasons.append(f"1h trend confirms, {mom_1h:+.2f}%")
 
     # 15m momentum strength (1 pt if strong)
     if strong_15m:
         score += 1
-        reasons.append(f"15m_strong_{mom_15m:+.2f}%")
+        reasons.append(f"strong 15m momentum of {mom_15m:+.2f}%")
     else:
-        reasons.append(f"15m_{mom_15m:+.2f}%")
+        reasons.append(f"15m momentum {mom_15m:+.2f}%")
 
     # 5m alignment (1 pt — all 4 timeframes agree)
     if aligned_5m:
         score += 1
-        reasons.append("4TF_aligned")
+        reasons.append("all four timeframes aligned")
 
     # SM positioning — HARD BLOCK if opposes (BTC has strongest SM signal)
     sm_dir = sm_pct = sm_count = sm_cc_15m = None
@@ -266,49 +266,49 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_velocity, sm,
         sm_dir, sm_pct, sm_count, sm_cc_15m = None, 0.0, 0, 0.0
     if sm_dir == direction:
         score += 2
-        reasons.append(f"sm_aligned_{sm_pct:.0f}%_{sm_count}traders")
+        reasons.append(f"smart money aligned at {sm_pct:.0f}% ({sm_count} traders)")
         if sm_pct > 65:
             score += 1
-            reasons.append("sm_strongly_tilted")
+            reasons.append("smart money strongly tilted this way")
     elif sm_dir and sm_dir != "NEUTRAL" and sm_dir != direction:
         return None  # sm_opposes — HARD BLOCK
 
     # 15m velocity freshness
     if sm_cc_15m <= 0:
         score -= 3
-        reasons.append(f"15M_STALE_PENALTY ({sm_cc_15m:.2f})")
+        reasons.append(f"smart-money flow gone stale ({sm_cc_15m:.2f})")
     elif sm_cc_15m > 0.5:
         score += 1
-        reasons.append(f"15M_FRESH +{sm_cc_15m:.2f}")
+        reasons.append(f"fresh smart-money flow, +{sm_cc_15m:.2f} in 15m")
 
     # Funding alignment
     if direction == "LONG" and funding < 0:
         score += 2
-        reasons.append(f"funding_pays_longs_{funding:+.4f}")
+        reasons.append(f"funding pays longs at {funding:+.4f}")
     elif direction == "SHORT" and funding > 0:
         score += 2
-        reasons.append(f"funding_pays_shorts_{funding:+.4f}")
+        reasons.append(f"funding pays shorts at {funding:+.4f}")
     elif (direction == "LONG" and funding > funding_crowded) or \
          (direction == "SHORT" and funding < -funding_crowded):
         score -= 1
-        reasons.append(f"funding_crowded_{funding:+.4f}")
+        reasons.append(f"funding crowded at {funding:+.4f}")
 
     # Funding regime
     regime = funding_regime
     if regime == "LONG_CROWDED" and direction == "LONG":
         score += 1
-        reasons.append("REGIME_LONG_CROWDED_aligned")
+        reasons.append("crowd leans long, with the trade")
     elif regime == "SHORT_CROWDED" and direction == "SHORT":
         score += 1
-        reasons.append("REGIME_SHORT_CROWDED_aligned")
+        reasons.append("crowd leans short, with the trade")
     elif regime == "LONG_CROWDED" and direction == "SHORT":
         score -= 1
-        reasons.append("REGIME_LONG_CROWDED_fighting")
+        reasons.append("crowd leans long, against the trade")
     elif regime == "SHORT_CROWDED" and direction == "LONG":
         score -= 1
-        reasons.append("REGIME_SHORT_CROWDED_fighting")
+        reasons.append("crowd leans short, against the trade")
     elif regime is not None:
-        reasons.append(f"REGIME_{regime}")
+        reasons.append(f"funding regime {regime.replace('_', ' ').lower()}")
 
     # Funding persistence
     persistence_h = None
@@ -319,21 +319,21 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_velocity, sm,
             persistence_h = None
         if persistence_h is not None and persistence_h >= 6:
             score += 1
-            reasons.append(f"FUNDING_PERSISTENT_{persistence_h:.0f}h")
+            reasons.append(f"funding skew held for {persistence_h:.0f}h")
 
     # Volume confirmation
     vol_1h = volume_ratio(c1h)
     if vol_1h >= min_vol_ratio:
         score += 1
-        reasons.append(f"vol_{vol_1h:.1f}x")
+        reasons.append(f"volume {vol_1h:.1f}x its average")
     elif vol_1h < 0.7:
         score -= 1
-        reasons.append("vol_weak")
+        reasons.append("volume weak")
 
     vt = volume_trend(c1h)
     if vt > 15:
         score += 1
-        reasons.append(f"vol_rising_{vt:+.0f}%")
+        reasons.append(f"volume rising {vt:+.0f}%")
 
     # OI growth proxy (legacy fallback if OI velocity missing)
     vol_recent = sum(_volume(c) for c in c1h[-3:])
@@ -341,7 +341,7 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_velocity, sm,
     oi_proxy = ((vol_recent - vol_earlier) / vol_earlier * 100) if vol_earlier > 0 else 0
     if oi_proxy > 10:
         score += 1
-        reasons.append(f"oi_growing_{oi_proxy:+.0f}%")
+        reasons.append(f"trading activity up {oi_proxy:+.0f}%")
 
     # OI velocity (real OI data when available)
     oi_vel = oi_velocity if isinstance(oi_velocity, dict) else {}
@@ -353,13 +353,13 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_velocity, sm,
             oi_change = float(oi_vel_change)
             if oi_change > 5:
                 score += 2
-                reasons.append(f"OI_ACCELERATING_{oi_change:+.1f}%")
+                reasons.append(f"open interest accelerating, {oi_change:+.1f}% in 1h")
             elif oi_change > 2:
                 score += 1
-                reasons.append(f"OI_rising_{oi_change:+.1f}%")
+                reasons.append(f"open interest rising {oi_change:+.1f}% in 1h")
             elif oi_change < -3:
                 score -= 1
-                reasons.append(f"OI_draining_{oi_change:+.1f}%")
+                reasons.append(f"open interest draining {oi_change:+.1f}% in 1h")
         except (TypeError, ValueError):
             oi_change = None
 
@@ -372,22 +372,22 @@ def build_thesis(c5, c15, c1h, c4h, funding, oi_velocity, sm,
         return None  # rsi_oversold — HARD BLOCK
     if (direction == "LONG" and r < 55) or (direction == "SHORT" and r > 45):
         score += 1
-        reasons.append(f"rsi_room_{r:.0f}")
+        reasons.append(f"RSI {r:.0f} leaves room to run")
 
     # 4h momentum bonus
     if abs(mom_4h) > strong_4h_pct:
         score += 1
-        reasons.append(f"4h_strong_{mom_4h:+.1f}%")
+        reasons.append(f"strong 4h move of {mom_4h:+.1f}%")
 
     # Move-exhaustion / tiring penalty
     if abs(mom_4h) >= move_exhaustion_pct:
         if (direction == "LONG" and mom_4h > 0) or (direction == "SHORT" and mom_4h < 0):
             score -= 2
-            reasons.append(f"MOVE_EXHAUSTION_{mom_4h:+.1f}%")
+            reasons.append(f"move looks exhausted after {mom_4h:+.1f}%")
     elif abs(mom_4h) >= move_tiring_pct:
         if (direction == "LONG" and mom_4h > 0) or (direction == "SHORT" and mom_4h < 0):
             score -= 1
-            reasons.append(f"MOVE_TIRING_{mom_4h:+.1f}%")
+            reasons.append(f"move tiring after {mom_4h:+.1f}%")
 
     return {
         "direction": direction,
@@ -419,11 +419,11 @@ def all_confirmations_present(reasons):
     Ported verbatim from v2 all_confirmations_present. Returns (ok, missing)."""
     reasons = reasons or []
     needed = {
-        "4TF_ALIGNED": ("4TF_aligned",),
-        "SM_ALIGNED": ("sm_aligned_",),
-        "FUNDING_OK": ("funding_pays_",),
-        "VOLUME": ("vol_",),
-        "OI_ACCELERATING": ("OI_ACCELERATING_", "OI_rising_", "oi_growing_"),
+        "4TF_ALIGNED": ("all four timeframes aligned",),
+        "SM_ALIGNED": ("smart money aligned",),
+        "FUNDING_OK": ("funding pays",),
+        "VOLUME": ("volume",),
+        "OI_ACCELERATING": ("open interest accelerating", "open interest rising", "trading activity up"),
     }
     missing = []
     for label, prefixes in needed.items():

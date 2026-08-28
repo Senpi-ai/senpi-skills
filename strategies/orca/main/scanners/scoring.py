@@ -58,7 +58,7 @@ def time_of_day_modifier(hour_utc):
     The v2 producer read the wall clock inside detect_signals; here the caller passes
     the current UTC hour so this module stays pure / unit-testable. Arithmetic verbatim."""
     if 13 <= hour_utc <= 21:
-        return 1, "US_SESSION"
+        return 1, "during US trading hours"
     return 0, None
 
 
@@ -113,17 +113,17 @@ def score_market(market, latest_prev, oldest_available, prev_top50_tokens,
 
     if rank_jump >= 10 and prev_market["rank"] >= STRIKER_MIN_PREV_RANK:
         is_immediate = True
-        reasons.append(f"IMMEDIATE_MOVER +{rank_jump} from #{prev_market['rank']}")
+        reasons.append(f"climbed {rank_jump} spots from #{prev_market['rank']}")
         was_in_prev = (token, dex) in prev_top50_tokens
         if not was_in_prev or prev_market["rank"] >= 30:
             is_first_jump = True
-            reasons.append(f"FIRST_JUMP #{prev_market['rank']}->#{current_rank}")
+            reasons.append(f"first big jump, from #{prev_market['rank']} to #{current_rank}")
 
     if prev_market["contribution"] > 0:
         contrib_ratio = current_contrib / prev_market["contribution"]
         if contrib_ratio >= 3.0:
             is_contrib_explosion = True
-            reasons.append(f"CONTRIB_EXPLOSION {contrib_ratio:.1f}x")
+            reasons.append(f"share of top-trader gains up {contrib_ratio:.1f}x")
 
     # Hard gates: must be at least a first-jump OR immediate mover, and clear the rank-jump floor.
     if not is_first_jump and not is_immediate:
@@ -148,15 +148,15 @@ def score_market(market, latest_prev, oldest_available, prev_top50_tokens,
         score += 2
     if abs(contrib_velocity) > 10:
         score += 2
-        reasons.append(f"HIGH_VELOCITY {abs(contrib_velocity):.1f}")
+        reasons.append(f"gain share shifting {abs(contrib_velocity):.1f} pts per scan")
     if prev_market["rank"] >= 40:
         score += 1
-        reasons.append("DEEP_CLIMBER")
+        reasons.append("started from rank #40 or lower")
     if old_market:
         total_climb = old_market["rank"] - current_rank
         if total_climb >= 10:
             score += 1
-            reasons.append(f"CLIMBING +{total_climb} over scans")
+            reasons.append(f"up {total_climb} ranks over recent scans")
 
     tod_mod, tod_reason = time_of_day_modifier(hour_utc)
     score += tod_mod

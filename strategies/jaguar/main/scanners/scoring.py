@@ -170,12 +170,12 @@ def detect_striker_signals(current_scan, prev_scans):
 
         if rank_jump >= STRIKER_MIN_RANK_JUMP and prev_rank >= STRIKER_MIN_PREV_RANK:
             is_immediate = True
-            reasons.append(f"IMMEDIATE_MOVER +{rank_jump} from #{prev_rank}")
+            reasons.append(f"jumped {rank_jump} spots from rank #{prev_rank}")
 
             was_in_prev = (token, dex) in prev_top50_tokens
             if not was_in_prev or prev_rank >= 30:
                 is_first_jump = True
-                reasons.append(f"FIRST_JUMP #{prev_rank}->#{current_rank}")
+                reasons.append(f"first jump from #{prev_rank} to #{current_rank}")
 
         if not is_first_jump and not is_immediate:
             continue
@@ -187,7 +187,7 @@ def detect_striker_signals(current_scan, prev_scans):
         if prev_market.get("contribution", 0) > 0:
             contrib_ratio = current_contrib / prev_market["contribution"]
             if contrib_ratio >= 3.0:
-                reasons.append(f"CONTRIB_EXPLOSION {contrib_ratio:.1f}x")
+                reasons.append(f"smart-money share exploded {contrib_ratio:.1f}x")
 
         # Contribution velocity from history
         contrib_velocity = 0
@@ -211,21 +211,21 @@ def detect_striker_signals(current_scan, prev_scans):
 
         if abs(contrib_velocity) > 10:
             score += 2
-            reasons.append(f"HIGH_VELOCITY {abs(contrib_velocity):.1f}")
+            reasons.append(f"smart-money share moving fast ({abs(contrib_velocity):.1f})")
 
         if prev_rank >= 40:
             score += 1
-            reasons.append("DEEP_CLIMBER")
+            reasons.append("climbed from rank #40 or deeper")
 
         # 4H strength bonus
         if abs(price_chg_4h) > 3:
             score += 1
-            reasons.append(f"STRONG_4H {price_chg_4h:+.1f}%")
+            reasons.append(f"price moved {price_chg_4h:+.1f}% in 4h")
 
         # Trader count (SM depth)
         if traders >= 30:
             score += 1
-            reasons.append(f"DEEP_SM ({traders}t)")
+            reasons.append(f"{traders} smart-money traders on board")
 
         # Hyperfeed 15m/1h contribution velocity + freshness gate
         contrib_15m = market.get("contrib_15m", 0)
@@ -237,22 +237,22 @@ def detect_striker_signals(current_scan, prev_scans):
 
         if contrib_15m > 2.0:
             score += 3
-            reasons.append(f"15M_STRONG_SPIKE +{contrib_15m:.2f}")
+            reasons.append(f"smart-money share spiked +{contrib_15m:.2f} in 15m")
         elif contrib_15m > 0.5:
             score += 2
-            reasons.append(f"15M_SPIKE +{contrib_15m:.2f}")
+            reasons.append(f"smart-money share up +{contrib_15m:.2f} in 15m")
         elif contrib_15m > 0.1:
             score += 1
-            reasons.append(f"15M_BUILDING +{contrib_15m:.2f}")
+            reasons.append(f"smart-money share building +{contrib_15m:.2f} in 15m")
 
         if contrib_1h > 1.0:
             score += 1
-            reasons.append(f"1H_ACCEL +{contrib_1h:.2f}")
+            reasons.append(f"smart-money share up +{contrib_1h:.2f} in 1h")
 
         # Acceleration pattern
         if contrib_15m > 0 and contrib_1h > 0 and contrib_15m > contrib_1h:
             score += 1
-            reasons.append(f"ACCEL_PATTERN 15m({contrib_15m:.2f})>1h({contrib_1h:.2f})")
+            reasons.append(f"accelerating: 15m {contrib_15m:.2f} beats 1h {contrib_1h:.2f}")
 
         if score < MIN_SCORE or len(reasons) < STRIKER_MIN_REASONS:
             continue
@@ -274,9 +274,9 @@ def detect_striker_signals(current_scan, prev_scans):
             if avg_volume > 0:
                 vol_ratio = volume / avg_volume
         if vol_ratio >= STRIKER_MIN_VOLUME_RATIO:
-            reasons.append(f"VOL {vol_ratio:.1f}x")
+            reasons.append(f"volume running {vol_ratio:.1f}x its average")
         elif day_notional > 0:
-            reasons.append(f"LIQUID ${day_notional/1e6:.1f}M")
+            reasons.append(f"${day_notional/1e6:.1f}M traded in 24h")
 
         signals.append({
             "token": token,

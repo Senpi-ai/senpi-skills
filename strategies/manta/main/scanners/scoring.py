@@ -261,7 +261,7 @@ def build_thesis(coin, daily, h4, h1, m15, inputs):
     if bias is None:
         return None                          # step 1 failed: no agreed direction
     direction = "LONG" if bias == "UP" else "SHORT"
-    reasons = [f"D/4h/1h all {bias} ({'/'.join(seen)})"]
+    reasons = [f"daily, 4h and 1h all point {bias} ({'/'.join(seen)})"]
 
     aoi = find_aoi(h4, bias, inputs)
     if aoi is None:
@@ -270,21 +270,21 @@ def build_thesis(coin, daily, h4, h1, m15, inputs):
     touched, bars_ago = touched_aoi(m15, aoi, int(inputs.get("aoiTouchWindowBars", 8)))
     if not touched:
         return None                          # never came back to the level — the common stand-aside
-    reasons.append(f"price tagged the 4h AOI [{aoi[0]:.6g}, {aoi[1]:.6g}] "
+    reasons.append(f"price retested the 4h zone {aoi[0]:.6g} to {aoi[1]:.6g} "
                    f"{'this bar' if bars_ago == 0 else f'{bars_ago} bars ago'}")
 
     broke, level, kind = structure_break(m15, bias, inputs)
     if not broke:
         return None                          # step 3 failed: at the level but no trigger yet
-    reasons.append(f"15m {kind} break of {level:.6g}")
+    reasons.append(f"15m {kind} break through {level:.6g}")
 
     score = 4 + 3 + 2
     disp = displacement_pct(m15)
     if disp >= min_disp:
         score += 1
-        reasons.append(f"displacement {disp:.3f}% confirms the break")
+        reasons.append(f"a {disp:.3f}% push confirms the break")
     else:
-        reasons.append(f"weak displacement {disp:.3f}%")
+        reasons.append(f"only a {disp:.3f}% push behind the break")
 
     return {"coin": coin, "direction": direction, "score": score,
             "bias": bias, "biases": list(seen), "aoi_low": aoi[0], "aoi_high": aoi[1],

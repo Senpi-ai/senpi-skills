@@ -126,40 +126,40 @@ def score_candidate(name, ctx_block, fh, regime, sm, volume_24h):
     annualized = abs_funding * 8760 * 100   # HL funding is HOURLY -> *24*365
     if abs_funding >= 0.001:
         score += 4
-        reasons.append(f"EXTREME_FUNDING {funding*100:.4f}% ({annualized:.0f}% ann)")
+        reasons.append(f"funding extreme at {funding*100:.4f}% ({annualized:.0f}% a year)")
     elif abs_funding >= 0.0006:
         score += 3
-        reasons.append(f"HIGH_FUNDING {funding*100:.4f}% ({annualized:.0f}% ann)")
+        reasons.append(f"funding high at {funding*100:.4f}% ({annualized:.0f}% a year)")
     elif abs_funding >= 0.0003:
         score += 2
-        reasons.append(f"ELEVATED_FUNDING {funding*100:.4f}% ({annualized:.0f}% ann)")
+        reasons.append(f"funding elevated at {funding*100:.4f}% ({annualized:.0f}% a year)")
 
     # v2-quirk: Persistence
     if persistence_hours >= 12:
         score += 3
-        reasons.append(f"MATURE_CROWDING {persistence_hours:.0f}h")
+        reasons.append(f"crowded trade mature, {persistence_hours:.0f}h old")
     elif persistence_hours >= 6:
         score += 2
-        reasons.append(f"STABLE_CROWDING {persistence_hours:.0f}h")
+        reasons.append(f"crowding steady for {persistence_hours:.0f}h")
     else:
         score += 1
-        reasons.append(f"FRESH_CROWDING {persistence_hours:.0f}h")
+        reasons.append(f"crowding fresh, {persistence_hours:.0f}h old")
 
     # v2-quirk: Trend
     trend = fh.get("trend", "").upper() if fh.get("trend") else ""
     if trend == "INCREASING":
         score += 1
-        reasons.append("CROWDING_INCREASING")
+        reasons.append("crowding still building")
     elif trend == "DECREASING":
         score -= 1
-        reasons.append("CROWDING_DECREASING")
+        reasons.append("crowding easing off")
 
     # v2-quirk: Regime confirmation
     if regime_confirms is True:
         score += 2
-        reasons.append(f"REGIME_CONFIRMS_{regime}")
+        reasons.append(f"funding regime backs the fade ({regime})")
     elif regime_confirms is None and regime is not None:
-        reasons.append(f"REGIME_{regime}")
+        reasons.append(f"funding regime is {regime}")
 
     # v2-quirk: SM concentration
     sm_pct = 0.0
@@ -173,25 +173,25 @@ def score_candidate(name, ctx_block, fh, regime, sm, volume_24h):
         if sm_dir == fade_direction:
             if sm_pct >= 10:
                 score += 3
-                reasons.append(f"SM_FADING_CROWD {sm_pct:.1f}% ({sm_traders}t)")
+                reasons.append(f"smart money fading the crowd, {sm_pct:.1f}% ({sm_traders} traders)")
             elif sm_pct >= 5:
                 score += 2
-                reasons.append(f"SM_ALIGNED_FADE {sm_pct:.1f}% ({sm_traders}t)")
+                reasons.append(f"smart money leans our way, {sm_pct:.1f}% ({sm_traders} traders)")
             else:
                 score += 1
-                reasons.append(f"SM_CONFIRMS {sm_pct:.1f}% ({sm_traders}t)")
+                reasons.append(f"smart money agrees, {sm_pct:.1f}% ({sm_traders} traders)")
         elif sm_dir == crowd_direction:
             if sm_pct >= 10:
                 score -= 2
-                reasons.append(f"SM_WITH_CROWD {sm_pct:.1f}% (dangerous)")
+                reasons.append(f"careful: smart money with the crowd, {sm_pct:.1f}%")
             else:
                 score -= 1
-                reasons.append(f"SM_SLIGHT_CROWD {sm_pct:.1f}%")
+                reasons.append(f"smart money slightly with the crowd, {sm_pct:.1f}%")
 
         cc_15m = _f(sm.get("contribution_pct_change_15m", 0))
         if sm_dir == crowd_direction and cc_15m < -0.5:
             score += 1
-            reasons.append(f"SM_MOMENTUM_FADING {cc_15m:.2f}")
+            reasons.append(f"smart-money momentum fading ({cc_15m:.2f})")
 
     # v2-quirk: OI turnover bonus (sticky positions)
     oi_turnover = 0.0
@@ -199,19 +199,19 @@ def score_candidate(name, ctx_block, fh, regime, sm, volume_24h):
         oi_turnover = volume_24h / oi
         if oi_turnover < 0.5:
             score += 1
-            reasons.append(f"STICKY_OI (turnover {oi_turnover:.2f}x)")
+            reasons.append(f"positions look sticky, turnover {oi_turnover:.2f}x")
 
     # v2-quirk: Price already reversing
     p4h = _f(sm.get("token_price_change_pct_4h", 0)) if sm else 0
     if crowd_direction == "LONG" and p4h < -0.5:
         score += 1
-        reasons.append(f"PRICE_REVERSING {p4h:+.1f}%")
+        reasons.append(f"price already turning, {p4h:+.1f}% in 4h")
     elif crowd_direction == "SHORT" and p4h > 0.5:
         score += 1
-        reasons.append(f"PRICE_REVERSING {p4h:+.1f}%")
+        reasons.append(f"price already turning, {p4h:+.1f}% in 4h")
 
     # v2-quirk: lead reason
-    reasons.insert(0, f"FADE_FUNDING {name} (crowd is {crowd_direction})")
+    reasons.insert(0, f"betting against the {crowd_direction} crowd on {name}")
 
     return {
         "token": name,

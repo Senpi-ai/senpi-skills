@@ -130,13 +130,13 @@ def score_hedge_one(asset, c1, c4, config):
         return None                                   # capitulation guard
     vol = atr_pct(c4) or float(config.get("referenceVolPct", 3.0))
 
-    sc, reasons = 3, [f"4h_downtrend_{s4:.0%}"]
+    sc, reasons = 3, [f"4-hour downtrend at {s4:.0%} strength"]
     if dd >= stress:
         sc += 2
-        reasons.append(f"drawdown_{dd:.1f}%")
+        reasons.append(f"price down {dd:.1f}% from its recent high")
     if trend1 == "BEARISH":
         sc += 1
-        reasons.append("1h_breaking_down")
+        reasons.append("1-hour trend breaking down")
     return {"coin": asset, "direction": "SHORT", "score": sc, "reasons": reasons,
             "price": price, "rsi": round(rsi, 1), "trend4h": trend4, "vol_pct": round(vol, 3)}
 

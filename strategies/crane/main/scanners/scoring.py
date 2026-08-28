@@ -103,7 +103,7 @@ def decide_pair_action(z, a_held, b_held, inputs):
     if z is None:
         return HOLD, "z unavailable (window not full)"
     if abs(z) >= entry_z:
-        return OPEN_BOTH, f"dislocated |z|={abs(z):.2f}≥{entry_z:g}"
+        return OPEN_BOTH, f"pair spread stretched {abs(z):.2f} std devs (entry {entry_z:g})"
     return HOLD, f"in-band |z|={abs(z):.2f}"
 
 

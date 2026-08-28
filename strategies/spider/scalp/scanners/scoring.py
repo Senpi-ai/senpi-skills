@@ -113,53 +113,53 @@ def score_scalp(asset, candles_15m, candles_1h, ctx_meta, config):
     if direction == "LONG":
         if rsi <= 20:
             score += 3
-            reasons.append(f"rsi_{rsi:.0f}_deep_oversold")
+            reasons.append(f"RSI {rsi:.0f}, deeply oversold")
         elif rsi <= 25:
             score += 2
-            reasons.append(f"rsi_{rsi:.0f}_oversold")
+            reasons.append(f"RSI {rsi:.0f}, oversold")
         elif rsi <= rsi_os:
             score += 1
-            reasons.append(f"rsi_{rsi:.0f}_oversold")
+            reasons.append(f"RSI {rsi:.0f}, oversold")
         if -stretch >= 2 * stretch_thresh:
             score += 2
-            reasons.append(f"stretch_{stretch:+.2f}%")
+            reasons.append(f"price stretched {stretch:+.2f}% from its average")
         elif -stretch >= stretch_thresh:
             score += 1
-            reasons.append(f"stretch_{stretch:+.2f}%")
+            reasons.append(f"price stretched {stretch:+.2f}% from its average")
         if trend1 == "BULLISH":
             score += 1
-            reasons.append("1h_uptrend_dip")
+            reasons.append("buying a dip in a 1h uptrend")
         elif trend1 == "BEARISH":
             score -= 2
-            reasons.append("1h_downtrend_knife")
+            reasons.append("1h downtrend, risk of a falling knife")
         if funding < 0:
             score += 1
-            reasons.append(f"funding_neg_{funding:+.4f}")
+            reasons.append(f"shorts paying longs, funding {funding:+.4f}")
     else:  # SHORT
         if rsi >= 80:
             score += 3
-            reasons.append(f"rsi_{rsi:.0f}_deep_overbought")
+            reasons.append(f"RSI {rsi:.0f}, deeply overbought")
         elif rsi >= 75:
             score += 2
-            reasons.append(f"rsi_{rsi:.0f}_overbought")
+            reasons.append(f"RSI {rsi:.0f}, overbought")
         elif rsi >= rsi_ob:
             score += 1
-            reasons.append(f"rsi_{rsi:.0f}_overbought")
+            reasons.append(f"RSI {rsi:.0f}, overbought")
         if stretch >= 2 * stretch_thresh:
             score += 2
-            reasons.append(f"stretch_{stretch:+.2f}%")
+            reasons.append(f"price stretched {stretch:+.2f}% from its average")
         elif stretch >= stretch_thresh:
             score += 1
-            reasons.append(f"stretch_{stretch:+.2f}%")
+            reasons.append(f"price stretched {stretch:+.2f}% from its average")
         if trend1 == "BEARISH":
             score += 1
-            reasons.append("1h_downtrend_rip")
+            reasons.append("shorting a pop in a 1h downtrend")
         elif trend1 == "BULLISH":
             score -= 2
-            reasons.append("1h_uptrend_knife")
+            reasons.append("1h uptrend, risky to short against")
         if funding > 0:
             score += 1
-            reasons.append(f"funding_pos_{funding:+.4f}")
+            reasons.append(f"longs paying shorts, funding {funding:+.4f}")
 
     return {
         "coin": asset, "direction": direction, "score": score,

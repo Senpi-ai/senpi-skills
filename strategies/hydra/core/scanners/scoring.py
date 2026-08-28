@@ -96,27 +96,27 @@ def score_core(c1, c4, cd, ctx_block, config):
     if require_daily and len(cd) >= 6 and trendd != ("BULLISH" if direction == "LONG" else "BEARISH"):
         return None
     sc += 3
-    reasons.append(f"4h_{trend4.lower()}_{s4:.0%}_1d_{trendd.lower()}")
+    reasons.append(f"4-hour trend {trend4.lower()} at {s4:.0%}, daily {trendd.lower()}")
     if (direction == "LONG" and trend1 == "BULLISH") or (direction == "SHORT" and trend1 == "BEARISH"):
         sc += 2
-        reasons.append(f"1h_confirms_{trend1.lower()}")
+        reasons.append(f"1-hour trend confirms, also {trend1.lower()}")
     elif (direction == "LONG" and trend1 == "BEARISH") or (direction == "SHORT" and trend1 == "BULLISH"):
         sc -= 1
-        reasons.append("1h_against")
+        reasons.append("1-hour trend runs against this move")
     ob = float(config.get("rsiOverbought", 80))
     os_ = float(config.get("rsiOversold", 20))
     if direction == "LONG" and rsi > ob:
         sc -= 2
-        reasons.append(f"rsi_blowoff_{rsi:.0f}")
+        reasons.append(f"RSI overheated at {rsi:.0f}")
     if direction == "SHORT" and rsi < os_:
         sc -= 2
-        reasons.append(f"rsi_capitulation_{rsi:.0f}")
+        reasons.append(f"RSI deeply oversold at {rsi:.0f}")
     if direction == "LONG" and fund < 0:
         sc += 1
-        reasons.append("funding_pays_long")
+        reasons.append("funding pays longs here")
     if direction == "SHORT" and fund > 0:
         sc += 1
-        reasons.append("funding_pays_short")
+        reasons.append("funding pays shorts here")
     leverage = max_lev if sc >= int(config.get("apexScore", 7)) else std_lev
 
     leverage = clamp_lev(leverage, max_lev)

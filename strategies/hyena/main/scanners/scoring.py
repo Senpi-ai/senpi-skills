@@ -198,44 +198,44 @@ def score_short(token, candles_4h, sm, regime, asset_funding, inputs):
     # ── Funding regime (master risk-off confirmation, +3 / +1) ──
     if regime == "LONG_CROWDED":
         score += 3
-        reasons.append("REGIME_LONG_CROWDED (squeeze fuel)")
+        reasons.append("market funding shows crowded longs (squeeze fuel)")
     elif regime is None or regime == "NEUTRAL":
         # scan.py reached here via the per-asset funding fallback (no usable
         # market-wide regime). Smaller, asset-local confirmation.
         score += 1
-        reasons.append("REGIME_FALLBACK (per-asset crowded-long funding)")
+        reasons.append("funding on this asset shows crowded longs")
 
     # ── Smart-money short tilt magnitude (+2 / +1) ──
     if sm_tilt >= strong_sm_tilt:
         score += 2
-        reasons.append(f"SM_STRONG_SHORT {sm_tilt:.0f}%")
+        reasons.append(f"smart money strongly short at {sm_tilt:.0f}%")
     else:
         score += 1
-        reasons.append(f"SM_SHORT {sm_tilt:.0f}%")
+        reasons.append(f"smart money net short at {sm_tilt:.0f}%")
 
     # ── 4h downtrend strength (+2 / +1) ──
     if down_strength >= 0.8:
         score += 2
-        reasons.append(f"4H_DOWNTREND_STRONG {down_strength:.0%}")
+        reasons.append(f"strong 4-hour downtrend ({down_strength:.0%} strength)")
     else:
         score += 1
-        reasons.append(f"4H_DOWNTREND {down_strength:.0%}")
+        reasons.append(f"4-hour downtrend at {down_strength:.0%} strength")
 
     # ── 4h price already falling, momentum confirmation (+1) ──
     p4h = price_change_pct(candles_4h, 1)
     if p4h < 0:
         score += 1
-        reasons.append(f"4H_FALLING {p4h:+.1f}%")
+        reasons.append(f"price already falling, {p4h:+.1f}% last 4h")
 
     # ── Per-asset funding: positive funding into a crowded long pays the short
     #    (squeeze pressure) (+1). Negative funding (shorts already paying) -1. ──
     af = safe_float(asset_funding)
     if af > crowded_funding:
         score += 1
-        reasons.append(f"FUNDING_PAYS_SHORT {af * 100:.4f}%")
+        reasons.append(f"funding pays shorts ({af * 100:.4f}% per 8h)")
     elif af < -crowded_funding:
         score -= 1
-        reasons.append(f"FUNDING_CROWDED_SHORT {af * 100:.4f}%")
+        reasons.append(f"funding works against shorts ({af * 100:.4f}%)")
 
     leverage = leverage_for(
         token,

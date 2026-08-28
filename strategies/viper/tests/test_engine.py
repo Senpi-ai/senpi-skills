@@ -116,7 +116,8 @@ def test_score_structure_directional_and_none():
     assert th["structure"] == "BOS"
     assert th["score"] >= 5                                             # 3 BOS +2 sweep +1 fvg +2 4h = 8
     joined = " ".join(th["reasons"])
-    assert "sweep_aligned" in joined and "fvg_aligned" in joined and "4h_agrees" in joined
+    assert ("stop-hunt wick backs" in joined and "fair value gap backs" in joined
+            and "4h structure agrees" in joined)
     # CHoCH short with agreeing 4h resolves a directional SHORT
     ths = scoring.score_structure(CHOCH, CHOCH, {})
     assert ths is not None and ths["direction"] == "SHORT" and ths["structure"] == "CHoCH"

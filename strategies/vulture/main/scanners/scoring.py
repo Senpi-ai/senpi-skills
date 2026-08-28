@@ -122,86 +122,86 @@ def score_market(m, regime, persistence_map, whitelist, tiers, inputs):
     # ─── SM CONCENTRATION TIER (0-4) ───
     if pct >= 18:
         score += 4
-        reasons.append(f"HEAVY_FLOW {pct:.1f}% ({traders}t) {direction}")
+        reasons.append(f"heavy smart money flow {pct:.1f}% ({traders} traders) {direction.lower()}")
     elif pct >= 12:
         score += 3
-        reasons.append(f"STRONG_FLOW {pct:.1f}% ({traders}t) {direction}")
+        reasons.append(f"strong smart money flow {pct:.1f}% ({traders} traders) {direction.lower()}")
     elif pct >= 7:
         score += 2
-        reasons.append(f"MODERATE_FLOW {pct:.1f}% ({traders}t) {direction}")
+        reasons.append(f"moderate smart money flow {pct:.1f}% ({traders} traders) {direction.lower()}")
     else:
         score += 1
-        reasons.append(f"LIGHT_FLOW {pct:.1f}% ({traders}t) {direction}")
+        reasons.append(f"light smart money flow {pct:.1f}% ({traders} traders) {direction.lower()}")
 
     # ─── 4H PRICE MOMENTUM (0-3) ───
     if p4h_aligned >= 8.0:
         score += 3
-        reasons.append(f"TREND_RUNNING {p4h:+.1f}%")
+        reasons.append(f"price {p4h:+.1f}% in 4h, trend running hot")
     elif p4h_aligned >= 4.0:
         score += 2
-        reasons.append(f"TREND_STRONG {p4h:+.1f}%")
+        reasons.append(f"price {p4h:+.1f}% in 4h, trend strong")
     elif p4h_aligned >= 2.0:
         score += 1
-        reasons.append(f"TREND_BUILDING {p4h:+.1f}%")
+        reasons.append(f"price {p4h:+.1f}% in 4h, trend building")
 
     # ─── 15M VELOCITY TIER (0-3) ───
     if c15m >= 3.0:
         score += 3
-        reasons.append(f"15M_EXPLOSIVE +{c15m:.2f}")
+        reasons.append(f"smart money share surging +{c15m:.2f} in 15m")
     elif c15m >= 1.0:
         score += 2
-        reasons.append(f"15M_STRONG +{c15m:.2f}")
+        reasons.append(f"smart money share rising +{c15m:.2f} in 15m")
     elif c15m >= 0.5:
         score += 1
-        reasons.append(f"15M_BUILDING +{c15m:.2f}")
+        reasons.append(f"smart money share building +{c15m:.2f} in 15m")
 
     # ─── 1H ACCELERATION (0-2) ───
     if c15m > 0 and c1h > 0 and c15m > c1h:
         score += 2
-        reasons.append(f"ACCELERATING 15m({c15m:.2f})>1h({c1h:.2f})")
+        reasons.append(f"accelerating: 15m pace {c15m:.2f} tops 1h pace {c1h:.2f}")
     elif c1h >= 1.0:
         score += 1
-        reasons.append(f"1H_POSITIVE +{c1h:.2f}")
+        reasons.append(f"smart money share up +{c1h:.2f} in 1h")
 
     # ─── 4H CONTRIBUTION (0-1) ───
     if c4h >= 2.0:
         score += 1
-        reasons.append(f"4H_CONTINUATION +{c4h:.1f}")
+        reasons.append(f"smart money share up +{c4h:.1f} over 4h")
 
     # ─── TRADER DEPTH (0-1) ───
     if traders >= 50:
         score += 1
-        reasons.append(f"DEEP_DEPTH ({traders}t)")
+        reasons.append(f"deep backing: {traders} traders in the trade")
 
     # ─── MOVE EXHAUSTION PENALTY ───
     if p4h_aligned >= 15.0:
         score -= 3
-        reasons.append(f"LATE_ENTRY_PENALTY {p4h:+.1f}%")
+        reasons.append(f"late entry risk: already {p4h:+.1f}% in 4h")
     elif p4h_aligned >= 12.0:
         score -= 2
-        reasons.append(f"MOVE_EXTENDED {p4h:+.1f}%")
+        reasons.append(f"move stretched at {p4h:+.1f}% in 4h")
 
     # ─── REGIME ALIGNMENT (-1, 0, +1) ───
     if regime == "LONG_CROWDED" and direction == "LONG":
         score += 1
-        reasons.append("REGIME_LONG_CROWDED_aligned")
+        reasons.append("market crowd leans long, trade agrees")
     elif regime == "SHORT_CROWDED" and direction == "SHORT":
         score += 1
-        reasons.append("REGIME_SHORT_CROWDED_aligned")
+        reasons.append("market crowd leans short, trade agrees")
     elif regime == "LONG_CROWDED" and direction == "SHORT":
         score -= 1
-        reasons.append("REGIME_LONG_CROWDED_fighting")
+        reasons.append("market crowd leans long, trade fights it")
     elif regime == "SHORT_CROWDED" and direction == "LONG":
         score -= 1
-        reasons.append("REGIME_SHORT_CROWDED_fighting")
+        reasons.append("market crowd leans short, trade fights it")
     elif regime is not None:
-        reasons.append(f"REGIME_{regime}")
+        reasons.append(f"market regime: {regime.replace('_', ' ').lower()}")
 
     # ─── PERSISTENCE (0-1) ───
     ph_val = persistence_map.get(matched) if persistence_map else None
     if ph_val is not None and ph_val >= 6:
         score += 1
-        reasons.append(f"TREND_PERSISTENT_{ph_val:.0f}h")
+        reasons.append(f"trend has held for {ph_val:.0f}h")
 
     if score < min_score:
         return None
@@ -210,7 +210,7 @@ def score_market(m, regime, persistence_map, whitelist, tiers, inputs):
     if not tier:
         return None
 
-    reasons.insert(0, f"LONG_TAIL_MOMENTUM {matched} {direction}")
+    reasons.insert(0, f"smart money momentum on {matched}, going {direction.lower()}")
 
     return {
         "asset": matched,

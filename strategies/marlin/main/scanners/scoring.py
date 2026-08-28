@@ -162,31 +162,31 @@ def build_thesis(coin, asset_data, candles_5m, candles_15m, sm, inputs):
 
     # Imbalance magnitude (gate-confirmed) + strong bonus
     score += 2
-    reasons.append(f"book_imbalance_{disp_ratio}x")
+    reasons.append(f"buy orders total {disp_ratio}x the sell orders")
     strong = (ratio == float("inf")) or (direction == "LONG" and ratio >= imb_strong) or \
              (direction == "SHORT" and ratio <= (1.0 / imb_strong))
     if strong:
         score += 1
-        reasons.append("imbalance_strong")
+        reasons.append("order book heavily one-sided")
 
     # Momentum confirms (gate) + 5m alignment
     score += 2
-    reasons.append(f"mom_15m_{mom_15m:+.2f}%")
+    reasons.append(f"price {mom_15m:+.2f}% over the last 15m")
     if (direction == "LONG" and mom_5m > 0) or (direction == "SHORT" and mom_5m < 0):
         score += 1
-        reasons.append(f"mom_5m_aligned_{mom_5m:+.2f}%")
+        reasons.append(f"5m move of {mom_5m:+.2f}% points the same way")
 
     # SM aligned (gate) + strong
     score += 2
-    reasons.append(f"sm_aligned_{sm_tilt:.0f}%")
+    reasons.append(f"smart money {sm_tilt:.0f}% on the same side")
     if sm_tilt >= 70:
         score += 1
-        reasons.append("sm_strongly_tilted")
+        reasons.append("smart money strongly tilted this way")
 
     # Volume rising
     if vol_pct > 10:
         score += 1
-        reasons.append(f"vol_rising_{vol_pct:+.0f}%")
+        reasons.append(f"trading volume up {vol_pct:+.0f}%")
 
     return {
         "coin": coin,

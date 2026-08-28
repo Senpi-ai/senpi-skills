@@ -200,35 +200,35 @@ def score_directional(c1, c4, ctx_block, want, inputs):
         return None
 
     score = 2
-    reasons = [f"4h_{trend4.lower()}_{s4:.0%}"]
+    reasons = [f"4h trend {trend4.lower()}, {s4:.0%} strength"]
 
     if trend1 == want_struct:
         score += 2
-        reasons.append(f"1h_confirm_{s1:.0%}")
+        reasons.append(f"1h trend confirms, {s1:.0%} strength")
     elif trend1 == opp_struct:
         score -= 1
-        reasons.append("1h_against")
+        reasons.append("1h trend disagrees")
 
     if want == "LONG":
         if own >= mom:
             score += 2
-            reasons.append(f"mom_{own:+.1f}%")
+            reasons.append(f"24h move {own:+.1f}%")
         elif own >= 0:
             score += 1
-            reasons.append(f"mom_{own:+.1f}%")
+            reasons.append(f"24h move {own:+.1f}%")
         if rsi < rsi_ob:
             score += 1
-            reasons.append(f"rsi_room_{rsi:.0f}")
+            reasons.append(f"RSI at {rsi:.0f}, room to run")
     else:
         if own <= -mom:
             score += 2
-            reasons.append(f"mom_{own:+.1f}%")
+            reasons.append(f"24h move {own:+.1f}%")
         elif own <= 0:
             score += 1
-            reasons.append(f"mom_{own:+.1f}%")
+            reasons.append(f"24h move {own:+.1f}%")
         if rsi > rsi_os:
             score += 1
-            reasons.append(f"rsi_room_{rsi:.0f}")
+            reasons.append(f"RSI at {rsi:.0f}, room to run")
 
     return {
         "coin": "", "direction": want, "score": score,

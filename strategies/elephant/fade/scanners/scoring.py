@@ -116,48 +116,48 @@ def score_fade(asset, candles_1h, candles_4h, inputs):
     if direction == "LONG":
         if rsi <= 20:
             score += 3
-            reasons.append(f"rsi_{rsi:.0f}_deep_os")
+            reasons.append(f"RSI {rsi:.0f} deeply oversold")
         elif rsi <= 25:
             score += 2
-            reasons.append(f"rsi_{rsi:.0f}_os")
+            reasons.append(f"RSI {rsi:.0f} oversold")
         elif rsi <= rsi_os:
             score += 1
-            reasons.append(f"rsi_{rsi:.0f}_os")
+            reasons.append(f"RSI {rsi:.0f} oversold")
         if -stretch >= 2 * st:
             score += 2
-            reasons.append(f"stretch_{stretch:+.2f}%")
+            reasons.append(f"price {stretch:+.2f}% from its 1h average")
         elif -stretch >= st:
             score += 1
-            reasons.append(f"stretch_{stretch:+.2f}%")
+            reasons.append(f"price {stretch:+.2f}% from its 1h average")
         # v2-quirk: regime knife guard — never fade a strong macro downtrend (knife guard).
         if trend4 == "BULLISH":
             score += 1
-            reasons.append("macro_uptrend_dip")
+            reasons.append("dip within a 4h uptrend")
         elif trend4 == "BEARISH":
             score -= 2
-            reasons.append("macro_downtrend_knife")
+            reasons.append("fighting a 4h downtrend")
     else:
         if rsi >= 80:
             score += 3
-            reasons.append(f"rsi_{rsi:.0f}_deep_ob")
+            reasons.append(f"RSI {rsi:.0f} deeply overbought")
         elif rsi >= 75:
             score += 2
-            reasons.append(f"rsi_{rsi:.0f}_ob")
+            reasons.append(f"RSI {rsi:.0f} overbought")
         elif rsi >= rsi_ob:
             score += 1
-            reasons.append(f"rsi_{rsi:.0f}_ob")
+            reasons.append(f"RSI {rsi:.0f} overbought")
         if stretch >= 2 * st:
             score += 2
-            reasons.append(f"stretch_{stretch:+.2f}%")
+            reasons.append(f"price {stretch:+.2f}% from its 1h average")
         elif stretch >= st:
             score += 1
-            reasons.append(f"stretch_{stretch:+.2f}%")
+            reasons.append(f"price {stretch:+.2f}% from its 1h average")
         if trend4 == "BEARISH":
             score += 1
-            reasons.append("macro_downtrend_rip")
+            reasons.append("bounce within a 4h downtrend")
         elif trend4 == "BULLISH":
             score -= 2
-            reasons.append("macro_uptrend_knife")
+            reasons.append("fighting a 4h uptrend")
 
     return {
         "coin": asset,

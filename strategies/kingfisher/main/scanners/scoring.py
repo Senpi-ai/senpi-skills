@@ -156,45 +156,47 @@ def build_thesis(coin, candles_1h, candles_4h, inputs):
     core = 4 if fresh else 2
     source = f"macd_{'bull' if direction == 'LONG' else 'bear'}_{'cross' if fresh else 'state'}"
 
-    score, reasons = core, [source]
+    score, reasons = core, [
+        f"MACD {'crossed' if fresh else 'holding'} {'bullish' if direction == 'LONG' else 'bearish'}"
+    ]
 
     # MACD zero-line context (+1 when the histogram side agrees with the MACD line's sign)
     if (direction == "LONG" and macd_now > 0) or (direction == "SHORT" and macd_now < 0):
         score += 1
-        reasons.append("macd_" + ("above" if macd_now > 0 else "below") + "_zero")
+        reasons.append("MACD " + ("above" if macd_now > 0 else "below") + " the zero line")
 
     # RSI as MOMENTUM confirmation (not a mean-reversion fade): a long wants RSI above 50, a short
     # below 50 — that CONFIRMS the MACD direction. Only a TRUE extreme (>= rsi_overbought /
     # <= rsi_oversold) is a mild caution, because a strong MACD trend legitimately runs RSI hot.
     if direction == "LONG":
         if rsi >= rsi_ob:
-            score -= 1; reasons.append(f"rsi_extreme_{rsi:.0f}")
+            score -= 1; reasons.append(f"RSI overbought at {rsi:.0f}")
         elif rsi >= 50:
-            score += 2; reasons.append(f"rsi_confirms_{rsi:.0f}")
+            score += 2; reasons.append(f"RSI confirms at {rsi:.0f}")
         else:
-            reasons.append(f"rsi_weak_{rsi:.0f}")
+            reasons.append(f"RSI weak at {rsi:.0f}")
     else:
         if rsi <= rsi_os:
-            score -= 1; reasons.append(f"rsi_extreme_{rsi:.0f}")
+            score -= 1; reasons.append(f"RSI oversold at {rsi:.0f}")
         elif rsi <= 50:
-            score += 2; reasons.append(f"rsi_confirms_{rsi:.0f}")
+            score += 2; reasons.append(f"RSI confirms at {rsi:.0f}")
         else:
-            reasons.append(f"rsi_weak_{rsi:.0f}")
+            reasons.append(f"RSI weak at {rsi:.0f}")
 
     # histogram strength, normalised by price (+1)
     price = closes[-1]
     hist_pct = (hist_now / price * 100.0) if price else 0.0
     if abs(hist_pct) >= hist_min_pct:
         score += 1
-        reasons.append(f"hist_{hist_pct:+.3f}pct")
+        reasons.append(f"MACD histogram {hist_pct:+.3f}% of price")
 
     # 4h trend structure context (+2 aligned / -1 opposing)
     trend_4h, ts = trend_structure(candles_4h)
     if trend_4h != "NEUTRAL":
         if (direction == "LONG" and trend_4h == "BULLISH") or (direction == "SHORT" and trend_4h == "BEARISH"):
-            score += 2; reasons.append(f"4h_{trend_4h.lower()}_{ts:.0%}")
+            score += 2; reasons.append(f"4h trend {trend_4h.lower()} ({ts:.0%} of bars)")
         else:
-            score -= 1; reasons.append(f"4h_opposing_{trend_4h.lower()}")
+            score -= 1; reasons.append(f"4h trend {trend_4h.lower()} opposes this trade")
 
     return {
         "coin": coin, "direction": direction, "score": score, "reasons": reasons,

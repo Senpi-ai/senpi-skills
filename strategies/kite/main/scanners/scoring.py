@@ -174,10 +174,10 @@ def smc_thesis(coin, htf, ltf, inputs):
     if bool(inputs.get("requireDivergence", True)) and not div:
         return None
     score = 4 + (1 if div else 0) + (1 if zone["risk_pct"] >= float(inputs.get("strongRiskPct", 1.0)) else 0)
-    reasons = [f"{bos['dir']} BOS — impulse leg {bos['leg_low']:.6g}->{bos['leg_high']:.6g}",
-               f"retraced into 0.618 entry {zone['entry']:.6g} (stop 0.786 {zone['stop']:.6g})",
-               f"risk {zone['risk_pct']:.2f}% · targets 1R/2R/3R {['%.6g' % t for t in zone['targets']]}",
-               f"RSI divergence {'CONFIRMED' if div else 'absent'}"]
+    reasons = [f"{bos['dir'].lower()} break of structure, leg {bos['leg_low']:.6g} to {bos['leg_high']:.6g}",
+               f"pulled back to the 0.618 entry {zone['entry']:.6g} (stop {zone['stop']:.6g})",
+               f"risk {zone['risk_pct']:.2f}%, targets {', '.join('%.6g' % t for t in zone['targets'])}",
+               f"RSI divergence {'confirmed' if div else 'not seen'}"]
     return {"coin": coin, "direction": bos["dir"], "score": max(0, score), "entry": zone["entry"],
             "stop": zone["stop"], "targets": zone["targets"], "risk_pct": zone["risk_pct"],
             "divergence": div, "reasons": reasons}

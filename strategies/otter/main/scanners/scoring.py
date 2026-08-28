@@ -62,9 +62,9 @@ def time_of_day_modifier(hour):
     """UTC time-of-day adjustment (caller owns the clock — keeps this pure).
     Verbatim from v2 time_of_day_modifier (same logic as Roach/Bloodhound)."""
     if 4 <= hour < 14:
-        return 1, "tod_active_window"
+        return 1, "during the most active trading hours"
     elif hour >= 18 or hour < 2:
-        return -2, "tod_chop_zone"
+        return -2, "in the quiet choppy hours, score docked"
     return 0, None
 
 
@@ -176,39 +176,39 @@ def evaluate_oi_velocity(asset_info, samples, sm, hour, inputs=None):
     # ─── SCORING (verbatim v2 tables) ───
     score = 0.0
     reasons = [
-        f"OI_DELTA_1H {oi_d_1h:+.1f}%",
-        f"PRICE_DELTA_1H {px_d_1h:+.2f}%",
+        f"open interest {oi_d_1h:+.1f}% in 1h",
+        f"price {px_d_1h:+.2f}% in 1h",
     ]
 
     # 1h OI delta tier (4-6 points)
     abs_oi_d = abs(oi_d_1h)
     if abs_oi_d > 20:
         score += 6
-        reasons.append("OI_TIER_EXTREME")
+        reasons.append("extreme open-interest build-up")
     elif abs_oi_d > 10:
         score += 5
-        reasons.append("OI_TIER_HIGH")
+        reasons.append("heavy open-interest build-up")
     else:
         score += 4
-        reasons.append("OI_TIER_BASE")
+        reasons.append("solid open-interest build-up")
 
     # 4h confirmation (+2) or contradiction (-2)
     if oi_d_4h is not None:
         if oi_d_4h >= 10:
             score += 2
-            reasons.append(f"OI_4H_CONFIRMS {oi_d_4h:+.1f}%")
+            reasons.append(f"4h open interest agrees ({oi_d_4h:+.1f}%)")
         elif oi_d_4h < 0:
             score -= 2
-            reasons.append(f"OI_4H_CONTRADICTS {oi_d_4h:+.1f}%")
+            reasons.append(f"4h open interest disagrees ({oi_d_4h:+.1f}%)")
 
     # 1h price magnitude
     abs_px_d = abs(px_d_1h)
     if abs_px_d > 2:
         score += 2
-        reasons.append("PRICE_STRONG")
+        reasons.append("price moving strongly with the flow")
     elif abs_px_d > 1:
         score += 1
-        reasons.append("PRICE_MODERATE")
+        reasons.append("moderate price move with the flow")
 
     # SM concentration alignment
     sm_aligned = False
@@ -219,7 +219,7 @@ def evaluate_oi_velocity(asset_info, samples, sm, hour, inputs=None):
         if sm_dir == flow_direction and sm_pct >= 5:
             score += 2
             sm_aligned = True
-            reasons.append(f"SM_ALIGNED {sm_pct:.1f}%")
+            reasons.append(f"smart money aligned ({sm_pct:.1f}%)")
 
     # Time-of-day modifier
     tod_mod, tod_reason = time_of_day_modifier(hour)
@@ -252,12 +252,12 @@ def apply_spread_bonus(candidate, spread_bps, max_spread_bps=MAX_SPREAD_BPS):
     measured orderbook spread or None (None -> skip, as in v2)."""
     candidate["spread_bps"] = spread_bps
     if spread_bps is None or spread_bps > max_spread_bps:
-        candidate["reasons"].append(f"SKIP_SPREAD {spread_bps}")
+        candidate["reasons"].append(f"skipped: spread too wide ({spread_bps} bps)")
         return False
     if spread_bps <= 2:
         candidate["score"] += 2
-        candidate["reasons"].append(f"SPREAD_TIGHT {spread_bps:.1f}bps")
+        candidate["reasons"].append(f"very tight spread ({spread_bps:.1f} bps)")
     else:
         candidate["score"] += 1
-        candidate["reasons"].append(f"SPREAD_OK {spread_bps:.1f}bps")
+        candidate["reasons"].append(f"spread acceptable at {spread_bps:.1f} bps")
     return True

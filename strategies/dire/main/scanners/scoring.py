@@ -149,11 +149,11 @@ def score_oi_velocity(oi_vel_change):
     if oi_vel_change is None:
         return 0, None
     if oi_vel_change > 5:
-        return 2, f"OI_ACCELERATING_{oi_vel_change:+.1f}%"
+        return 2, f"open interest accelerating, {oi_vel_change:+.1f}% in 1h"
     if oi_vel_change > 2:
-        return 1, f"OI_rising_{oi_vel_change:+.1f}%"
+        return 1, f"open interest rising {oi_vel_change:+.1f}% in 1h"
     if oi_vel_change < -3:
-        return -1, f"OI_draining_{oi_vel_change:+.1f}%"
+        return -1, f"open interest draining {oi_vel_change:+.1f}% in 1h"
     return 0, None
 
 
@@ -174,9 +174,9 @@ def volume_spike_score(candles_15m, candles_1h, threshold=2.5, strong_threshold=
         return 0, None
     ratio = last_15m_vol / avg_15m_equiv
     if ratio > strong_threshold:
-        return 2, f"VOL_EXTREME_{ratio:.1f}x"
+        return 2, f"volume surged {ratio:.1f}x above average"
     if ratio > threshold:
-        return 1, f"VOL_SPIKE_{ratio:.1f}x"
+        return 1, f"volume spiked {ratio:.1f}x above average"
     return 0, None
 
 
@@ -192,9 +192,9 @@ def sm_conviction_score(premium_pct_abs, moderate_threshold=0.001, strong_thresh
     if premium_pct_abs is None:
         return 0, None
     if premium_pct_abs > strong_threshold:
-        return 2, f"SM_EXTREME_{premium_pct_abs * 100:.3f}%"
+        return 2, f"smart-money premium extreme at {premium_pct_abs * 100:.3f}%"
     if premium_pct_abs > moderate_threshold:
-        return 1, f"SM_STRONG_{premium_pct_abs * 100:.3f}%"
+        return 1, f"smart-money premium strong at {premium_pct_abs * 100:.3f}%"
     return 0, None
 
 
@@ -229,7 +229,7 @@ def get_sm_direction(asset_data, config=None):
         )
 
     direction = "LONG" if premium > 0 else "SHORT"
-    return direction, abs(premium), f"premium_{premium * 100:+.4f}%"
+    return direction, abs(premium), f"mark price {premium * 100:+.4f}% vs oracle"
 
 
 # ── price cleanliness (adverse-wick filter — oil news overshoots leave wicks) ──
@@ -255,8 +255,8 @@ def price_cleanliness_score(candles_5m, direction, max_wick_pct=1.5, lookback_mi
         else:  # SHORT
             wick = (h - max(o, cl)) / o * 100
         if wick > max_wick_pct:
-            return 0, f"DIRTY_wick_{wick:.2f}%"
-    return 1, "CLEAN_PX"
+            return 0, f"adverse wick of {wick:.2f}% in recent bars"
+    return 1, "clean price action, no adverse wicks"
 
 
 # ── FP-003 require-all-confirmations (ported verbatim) ──
@@ -267,11 +267,10 @@ def all_confirmations_present(reasons):
     Returns (ok: bool, missing: list[str]). `reasons` is the thesis reason list."""
     reasons = reasons or []
     needed = {
-        "VOLUME": ("VOL_SPIKE", "VOL_EXTREME", "VOL_STRONG"),
-        "OI_VELOCITY": ("OI_ACCELERATING", "OI_rising", "OI_VEL_BUILDING", "OI_VEL_ACCEL",
-                        "OI_VEL_FAST", "OI_VEL"),
-        "SM_PREMIUM": ("SM_EXTREME", "SM_STRONG", "SM_PREMIUM_MOD", "SM_PREMIUM_STRONG", "SM_PREMIUM"),
-        "PRICE_CLEAN": ("CLEAN_PX",),
+        "VOLUME": ("volume surged", "volume spiked"),
+        "OI_VELOCITY": ("open interest accelerating", "open interest rising"),
+        "SM_PREMIUM": ("smart-money premium",),
+        "PRICE_CLEAN": ("clean price action",),
     }
     missing = []
     for label, prefixes in needed.items():
@@ -340,7 +339,7 @@ def build_thesis(candles_by_tf, asset_context, oi_velocity_1h, config):
     direction, aligned, trends, align_detail = check_4tf_alignment(candles_by_tf)
     if not aligned:
         return None
-    reasons.append(f"4TF_aligned_{direction}_{align_detail}")
+    reasons.append(f"all four timeframes aligned {direction.lower()}")
 
     # Gate 2: SM HARD BLOCK (premium direction must match the 4TF direction)
     asset_data_for_sm = {"asset_context": asset_context or {}}
@@ -349,7 +348,7 @@ def build_thesis(candles_by_tf, asset_context, oi_velocity_1h, config):
         return None
     if sm_dir != direction:
         return None
-    reasons.append(f"SM_aligned_{sm_dir}_{sm_detail}")
+    reasons.append(f"smart money positioned {sm_dir.lower()}, {sm_detail}")
 
     # Base score for any aligned setup
     score = 6  # v2-quirk: baseline 6 for 4TF + SM alignment
