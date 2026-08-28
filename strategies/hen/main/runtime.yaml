@@ -115,14 +115,17 @@ exit:
       enabled: false
       interval_in_minutes: 60
     phase1:
-      enabled: true
-      max_loss_pct: 15.0                    # tighter than a swing: an open that goes wrong goes fast
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
+      # retrace (8% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
+      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      enabled: false
+      max_loss_pct: 8.0   # was 15.0 — set to the old retrace so the risk cap is unchanged
       retrace_threshold: 8
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:                                # bank the open move early, then let a real trend breathe
-        - { trigger_pct: 6, lock_hw_pct: 0 }
         - { trigger_pct: 12, lock_hw_pct: 30 }
         - { trigger_pct: 20, lock_hw_pct: 50 }
         - { trigger_pct: 35, lock_hw_pct: 65 }

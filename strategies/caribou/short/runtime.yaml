@@ -117,14 +117,17 @@ exit:
       enabled: false
       interval_in_minutes: 1440
     phase1:
-      enabled: true
-      max_loss_pct: 14.0
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
+      # retrace (8% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
+      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      enabled: false
+      max_loss_pct: 8
       retrace_threshold: 8
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 12, lock_hw_pct: 0 }     # priming tier (arms the trail; no lock yet)
         - { trigger_pct: 25, lock_hw_pct: 35 }    # first LOCK — reachable
         - { trigger_pct: 50, lock_hw_pct: 55 }
         - { trigger_pct: 90, lock_hw_pct: 72 }

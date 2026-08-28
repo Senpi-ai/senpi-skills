@@ -7,7 +7,7 @@
 schema_version: 1
 
 id: cheetah
-version: "1.0.0"
+version: "1.1.0"
 
 catalog:
   name: "Cheetah — Multi-Signal Confluence Sniper"

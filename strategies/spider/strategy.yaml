@@ -5,7 +5,7 @@
 schema_version: 1
 
 id: spider                  # == package dir name; == every leg's runtime.yaml `group`
-version: "6.0.3"            # single source for catalog + MCP attribution (skillName/skillVersion)
+version: "6.1.0"            # single source for catalog + MCP attribution (skillName/skillVersion)
 
 catalog:                    # discovery surface. `group` here is the discovery TAXONOMY bucket —
                             # distinct from each runtime.yaml's `group: spider` linkage key.

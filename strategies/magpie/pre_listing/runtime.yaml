@@ -83,8 +83,12 @@ exit:
     execution_timeout_seconds: 60
   dsl_preset:
     phase1:
-      enabled: true
-      max_loss_pct: 10.0
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
+      # retrace (7% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
+      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      enabled: false
+      max_loss_pct: 7
       retrace_threshold: 7
       consecutive_breaches_required: 1
     phase2:

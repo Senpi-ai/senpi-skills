@@ -114,14 +114,17 @@ exit:
       enabled: false                       # v2: disabled
       interval_in_minutes: 60
     phase1:
-      enabled: true
-      max_loss_pct: 20.0                    # v2 phase1.max_loss_pct
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
+      # retrace (12% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
+      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      enabled: false
+      max_loss_pct: 12.0   # was 20.0 — set to the old retrace so the risk cap is unchanged
       retrace_threshold: 12                 # v2 phase1.retrace_threshold
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:                               # v2 phase2 ladder (verbatim) — first lock at +10% ROE
-        - { trigger_pct: 10,  lock_hw_pct: 0 }
         - { trigger_pct: 20,  lock_hw_pct: 25 }
         - { trigger_pct: 35,  lock_hw_pct: 50 }
         - { trigger_pct: 60,  lock_hw_pct: 70 }

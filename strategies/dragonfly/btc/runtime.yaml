@@ -116,14 +116,17 @@ exit:
       interval_in_minutes: 480          # spec weak_peak_cut_minutes
       min_value: 3.0
     phase1:
-      enabled: true
-      max_loss_pct: 15.0                # spec max_loss_pct
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
+      # retrace (8% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
+      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      enabled: false
+      max_loss_pct: 8.0   # was 15.0 — set to the old retrace so the risk cap is unchanged
       retrace_threshold: 8              # spec retrace_threshold
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:                            # spec triggers 5/15/50/100; locks per BTC vol ladder
-        - { trigger_pct: 5, lock_hw_pct: 0 }
         - { trigger_pct: 15, lock_hw_pct: 25 }
         - { trigger_pct: 50, lock_hw_pct: 60 }
         - { trigger_pct: 100, lock_hw_pct: 80 }

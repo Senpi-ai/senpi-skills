@@ -8,7 +8,7 @@
 schema_version: 1
 
 id: meerkat
-version: "1.0.1"
+version: "1.1.0"
 catalog:
   name: "Meerkat — Momentum-Event Sniper"
   emoji: "🦦"

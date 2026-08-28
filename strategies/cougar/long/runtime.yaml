@@ -93,14 +93,17 @@ exit:
       enabled: true
       interval_in_minutes: 960            # 16h — recycle a position going nowhere into a fresher leader
     phase1:
-      enabled: true
-      max_loss_pct: 14.0
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
+      # retrace (8% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
+      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      enabled: false
+      max_loss_pct: 8
       retrace_threshold: 8
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 8,   lock_hw_pct: 0 }    # priming tier (arms the trail; no lock yet)
         - { trigger_pct: 18,  lock_hw_pct: 40 }   # first LOCK — reachable (never +60-80%)
         - { trigger_pct: 35,  lock_hw_pct: 60 }
         - { trigger_pct: 60,  lock_hw_pct: 78 }

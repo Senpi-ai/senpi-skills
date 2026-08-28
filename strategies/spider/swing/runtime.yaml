@@ -107,8 +107,12 @@ exit:
       enabled: false                # patience leg
       interval_in_minutes: 1440
     phase1:
-      enabled: true
-      max_loss_pct: 22.0            # source tolerates deep drawdowns
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
+      # retrace (12% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
+      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      enabled: false
+      max_loss_pct: 12.0   # was 22.0 — set to the old retrace so the risk cap is unchanged
       retrace_threshold: 12
       consecutive_breaches_required: 1
     phase2:
@@ -119,7 +123,6 @@ exit:
         # +150% tier cannot be expressed. Dropped; the +100% tier (lock 80%) is now the
         # top of the ladder. All tiers <= 100 are carried verbatim. This is the single
         # threshold that does not map cleanly to the v2 schema.
-        - { trigger_pct: 15, lock_hw_pct: 0 }
         - { trigger_pct: 30, lock_hw_pct: 45 }
         - { trigger_pct: 60, lock_hw_pct: 68 }
         - { trigger_pct: 100, lock_hw_pct: 80 }

@@ -111,14 +111,17 @@ exit:
       enabled: true
       interval_in_minutes: 720            # 12h — recycle a short going nowhere
     phase1:
-      enabled: true
-      max_loss_pct: 12.0                  # tighter than long book — squeeze protection
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
+      # retrace (7% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
+      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      enabled: false
+      max_loss_pct: 7.0   # was 12.0 — set to the old retrace so the risk cap is unchanged
       retrace_threshold: 7
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 8,   lock_hw_pct: 0 }    # priming tier (arms the trail; no lock yet)
         - { trigger_pct: 18,  lock_hw_pct: 45 }   # first LOCK — reachable
         - { trigger_pct: 35,  lock_hw_pct: 65 }
         - { trigger_pct: 60,  lock_hw_pct: 80 }
