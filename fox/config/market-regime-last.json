@@ -1,0 +1,227 @@
+{
+  "time": "2026-03-08T18:00:17.902701+00:00",
+  "market_regime": "BEARISH",
+  "market_bull": 0.0,
+  "market_bear": 79.6,
+  "assets": [
+    {
+      "asset": "BTC",
+      "dex": null,
+      "overall_bias": "BEARISH",
+      "overall_confidence": 70,
+      "aligned": true,
+      "composite_bull": 0.0,
+      "composite_bear": 69.8,
+      "timeframes": {
+        "1h": {
+          "bias": "BEARISH",
+          "confidence": 44.22812856103924,
+          "bull_score": 0,
+          "bear_score": 44.22812856103924,
+          "ema9": 67144.7961,
+          "ema21": 67287.0452,
+          "ema_diff_pct": -0.2114,
+          "current_price": 67011.0,
+          "signals": {
+            "ema_cross": {
+              "bias": "BEARISH",
+              "weight": 4.228128561039239
+            },
+            "price_vs_ema": {
+              "bias": "BEARISH",
+              "weight": 15
+            },
+            "structure": {
+              "bias": "BEARISH",
+              "weight": 25
+            },
+            "momentum": {
+              "bias": "NEUTRAL",
+              "weight": 5
+            },
+            "candle_color": {
+              "bias": "NEUTRAL",
+              "weight": 3
+            }
+          }
+        },
+        "4h": {
+          "bias": "BEARISH",
+          "confidence": 62.19781718485595,
+          "bull_score": 0,
+          "bear_score": 62.19781718485595,
+          "ema9": 67480.2417,
+          "ema21": 68237.6046,
+          "ema_diff_pct": -1.1099,
+          "current_price": 67011.0,
+          "signals": {
+            "ema_cross": {
+              "bias": "BEARISH",
+              "weight": 22.197817184855953
+            },
+            "price_vs_ema": {
+              "bias": "BEARISH",
+              "weight": 15
+            },
+            "structure": {
+              "bias": "BEARISH",
+              "weight": 25
+            },
+            "momentum": {
+              "bias": "NEUTRAL",
+              "weight": 5
+            },
+            "candle_color": {
+              "bias": "NEUTRAL",
+              "weight": 3
+            }
+          }
+        },
+        "1d": {
+          "bias": "BEARISH",
+          "confidence": 51.22190241764042,
+          "bull_score": 0,
+          "bear_score": 51.22190241764042,
+          "ema9": 68126.0073,
+          "ema21": 68702.8632,
+          "ema_diff_pct": -0.8396,
+          "current_price": 67011.0,
+          "signals": {
+            "ema_cross": {
+              "bias": "BEARISH",
+              "weight": 16.79277461196245
+            },
+            "price_vs_ema": {
+              "bias": "BEARISH",
+              "weight": 15
+            },
+            "structure": {
+              "bias": "NEUTRAL",
+              "weight": 5
+            },
+            "momentum": {
+              "bias": "BEARISH",
+              "weight": 9.429127805677975
+            },
+            "candle_color": {
+              "bias": "BEARISH",
+              "weight": 10
+            }
+          }
+        }
+      }
+    },
+    {
+      "asset": "ETH",
+      "dex": null,
+      "overall_bias": "BEARISH",
+      "overall_confidence": 94,
+      "aligned": true,
+      "composite_bull": 0.0,
+      "composite_bear": 94.2,
+      "timeframes": {
+        "1h": {
+          "bias": "BEARISH",
+          "confidence": 59.13377961774601,
+          "bull_score": 0,
+          "bear_score": 59.13377961774601,
+          "ema9": 1941.8705,
+          "ema21": 1950.7795,
+          "ema_diff_pct": -0.4567,
+          "current_price": 1933.9,
+          "signals": {
+            "ema_cross": {
+              "bias": "BEARISH",
+              "weight": 9.133779617746008
+            },
+            "price_vs_ema": {
+              "bias": "BEARISH",
+              "weight": 15
+            },
+            "structure": {
+              "bias": "BEARISH",
+              "weight": 25
+            },
+            "momentum": {
+              "bias": "NEUTRAL",
+              "weight": 5
+            },
+            "candle_color": {
+              "bias": "BEARISH",
+              "weight": 10
+            }
+          }
+        },
+        "4h": {
+          "bias": "BEARISH",
+          "confidence": 87.08757685520243,
+          "bull_score": 0,
+          "bear_score": 87.08757685520243,
+          "ema9": 1957.8162,
+          "ema21": 1986.0418,
+          "ema_diff_pct": -1.4212,
+          "current_price": 1933.9,
+          "signals": {
+            "ema_cross": {
+              "bias": "BEARISH",
+              "weight": 28.423958969023587
+            },
+            "price_vs_ema": {
+              "bias": "BEARISH",
+              "weight": 15
+            },
+            "structure": {
+              "bias": "BEARISH",
+              "weight": 25
+            },
+            "momentum": {
+              "bias": "BEARISH",
+              "weight": 8.663617886178839
+            },
+            "candle_color": {
+              "bias": "BEARISH",
+              "weight": 10
+            }
+          }
+        },
+        "1d": {
+          "bias": "BEARISH",
+          "confidence": 67.08497325663535,
+          "bull_score": 0,
+          "bear_score": 67.08497325663535,
+          "ema9": 1988.2705,
+          "ema21": 2022.057,
+          "ema_diff_pct": -1.6709,
+          "current_price": 1933.9,
+          "signals": {
+            "ema_cross": {
+              "bias": "BEARISH",
+              "weight": 30
+            },
+            "price_vs_ema": {
+              "bias": "BEARISH",
+              "weight": 15
+            },
+            "structure": {
+              "bias": "NEUTRAL",
+              "weight": 5
+            },
+            "momentum": {
+              "bias": "BEARISH",
+              "weight": 12.084973256635347
+            },
+            "candle_color": {
+              "bias": "BEARISH",
+              "weight": 10
+            }
+          }
+        }
+      }
+    }
+  ],
+  "direction_recommendation": {
+    "LONG": "CAUTION",
+    "SHORT": "ALLOWED",
+    "note": "Market regime is BEARISH. Counter-trend trades need 2x score threshold."
+  }
+}

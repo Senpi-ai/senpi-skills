@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "defaultStrategy": "fox-primary",
+  "strategies": {
+    "fox-primary": {
+      "name": "FOX Primary",
+      "wallet": "",
+      "strategyId": "",
+      "xyzWallet": "",
+      "xyzStrategyId": "",
+      "embeddedWallet": "",
+      "senpiUserId": "",
+      "budget": 3010,
+      "slots": 1,
+      "marginPerSlot": 1500,
+      "defaultLeverage": 10,
+      "dailyLossLimit": 450,
+      "autoDeleverThreshold": 2200,
+      "dsl": {
+        "preset": "aggressive-v2",
+        "tiers": [
+          {
+            "triggerPct": 5,
+            "lockPct": 2,
+            "breaches": 2
+          },
+          {
+            "triggerPct": 10,
+            "lockPct": 5,
+            "breaches": 2
+          },
+          {
+            "triggerPct": 20,
+            "lockPct": 14,
+            "breaches": 2
+          },
+          {
+            "triggerPct": 30,
+            "lockPct": 24,
+            "breaches": 2
+          },
+          {
+            "triggerPct": 40,
+            "lockPct": 34,
+            "breaches": 1
+          },
+          {
+            "triggerPct": 50,
+            "lockPct": 44,
+            "breaches": 1
+          },
+          {
+            "triggerPct": 65,
+            "lockPct": 56,
+            "breaches": 1
+          },
+          {
+            "triggerPct": 80,
+            "lockPct": 72,
+            "breaches": 1
+          },
+          {
+            "triggerPct": 100,
+            "lockPct": 90,
+            "breaches": 1
+          }
+        ]
+      },
+      "enabled": true
+    }
+  },
+  "global": {
+    "telegramChatId": "",
+    "workspace": "/data/workspace",
+    "notifications": {
+      "provider": "telegram",
+      "alertDedupeMinutes": 15
+    }
+  },
+  "wallet": "",
+  "strategyId": ""
+}
