@@ -108,8 +108,13 @@ exit:
       enabled: true
       interval_in_minutes: 60              # v4.1: 30 → 60 (oil consolidates 1h+ before moving)
     phase1:
-      enabled: true
-      max_loss_pct: 15.0
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable
+      # move it can still sit BELOW entry and close a WINNER at a loss — churning fees.
+      # The ratchet must only ever lock a GAIN, or the position rides to the stop.
+      # max_loss_pct := the old retrace (10.0% ROE), which is what the trail was already
+      # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
+      enabled: false
+      max_loss_pct: 10.0   # was 15.0 — set to the old retrace so the risk cap is unchanged
       retrace_threshold: 10                # v2 2026-05-14: 6 → 10 (was firing on normal 2-3% pullbacks)
       consecutive_breaches_required: 1
     phase2:
@@ -118,7 +123,6 @@ exit:
         # v2 2026-05-21 Bison "let winners run" ladder. T0 lock=0 gives room before
         # any profit lock — first NON-ZERO lock reachable at +20% (lock 25%). First
         # tier triggers at a reachable +10% (NOT +60-80%).
-        - { trigger_pct: 10,  lock_hw_pct: 0 }
         - { trigger_pct: 20,  lock_hw_pct: 25 }
         - { trigger_pct: 30,  lock_hw_pct: 40 }
         - { trigger_pct: 50,  lock_hw_pct: 60 }

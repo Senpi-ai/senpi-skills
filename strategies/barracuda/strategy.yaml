@@ -1,7 +1,7 @@
 # strategy.yaml — barracuda (the manifest: identity + catalog facets + instance)
 schema_version: 1
 id: barracuda
-version: "1.0.0"                  # the ONE strategy semver (catalog + MCP attribution derive from it)
+version: "1.1.0"                  # the ONE strategy semver (catalog + MCP attribution derive from it)
 
 catalog:
   name: "Barracuda"
