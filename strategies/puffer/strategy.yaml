@@ -1,0 +1,39 @@
+# Puffer — Volatility Squeeze. Single-wallet PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/ (scan.py does the MCP orchestration;
+# scoring.py is the pure engine — the fee gate plus the squeeze/release math).
+# NEVER closes — the DSL owns every exit.
+schema_version: 1
+
+id: puffer
+version: "1.0.0"
+catalog:
+  name: "Puffer — Volatility Squeeze"
+  emoji: "🐡"
+  tagline: "Waits for a market to go quiet — unusually quiet for that particular coin — and then trades the move when it finally breaks out. Quiet stretches tend to end in a big move; the trick is being positioned for the break rather than getting chopped up inside the calm. It sits on its hands until the release, and then gives the winner a long leash."
+  belief_plain: "When a coin's price action tightens up far more than is normal for it, pressure is building and the next move is usually a big one. Puffer measures how compressed each market is against its own history, ignores the quiet itself, and enters only when price finally breaks out with volume behind it. Then it holds on: a profit ratchet locks gains as they build, and a fixed stop caps the downside if the break fails."
+  thesis: "Volatility is mean-reverting: compression precedes expansion. The edge is in the reference frame — compression is measured against each asset's OWN trailing median, so a coil is detected on a sleepy index and a violent alt alike, which an absolute threshold can never do. Trades the release, never the coil, and runs the widest exit in the catalog because cutting an expansion short forfeits the entire reason for taking it."
+  group: multi-asset-universe
+  archetype: breakout_momentum
+  sub_style: volatility_squeeze
+  asset_classes: [btc_eth, major_alts, universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 5
+  assets: []                 # DERIVED live from market_list_instruments (vol floor + top-N)
+  tags: [volatility, squeeze, compression, expansion, breakout, bollinger, coil, universe, long-short, dsl-only, no-close]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name puffer-main, group puffer
+    wallet_env: PUFFER_WALLET
+    funding_share: 1.0

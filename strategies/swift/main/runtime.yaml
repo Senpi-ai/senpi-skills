@@ -1,0 +1,136 @@
+# ── SWIFT · Fee-Aware Crypto Scalper ────────────────────────────────────────
+# The most-requested strategy shape from users, built the only way a scalper can
+# work: cost-first. At 5-15 trades a day the round trip is charged every time, so
+# SWIFT refuses to even score a market that isn't moving enough to pay for being
+# traded (scoring.clears_fees runs BEFORE the thesis). Aligned 5m/15m momentum with
+# volume confirmation; NEVER closes — DSL owns every exit.
+name: swift-main
+group: swift
+version: 1.0.0
+description: >
+  SWIFT — Fee-Aware Crypto Scalper. Short-horizon momentum on the most liquid crypto
+  names, gated by an explicit fee model: a setup is only considered when the move it
+  expects to capture (a fraction of ATR) exceeds the round-trip cost by a stated
+  multiple. Entries rest as maker first. Up to 4 positions, leverage clamped to venue
+  max. DSL is the ONLY exit — a FIXED max-loss floor plus a gains-only profit ratchet
+  (no trailing stop, no breakeven exits), 90m hard timeout.
+
+strategy:
+  wallet: "${SWIFT_WALLET}"
+  slots: 4
+  margin_pct: 6
+  default_leverage: 3
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: swift_scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 60              # scalp cadence — also what derives time_horizon: scalp
+    timeout_seconds: 120
+    default_signal_validity_seconds: 300
+    state_history_max_count: 200
+    inputs:
+      # ── universe (derived live; never hardcoded) ──
+      volFloorUsd: 50000000
+      maxUniverse: 20
+      maxSlots: 4
+      recentSignalTtlSeconds: 1800    # 30m per-name debounce — the anti-churn brake
+      # ── THE FEE GATE (the reason this template exists) ──
+      # These are NOT verified venue rates. The exact per-wallet schedule is on HL's
+      # Info API (`userFees`) and moves with volume tier + Senpi points. Set them from
+      # a real read; they are inputs so nobody edits code to correct them.
+      takerFeeBps: 4.5
+      makerFeeBps: 1.5
+      feeCoverMultiple: 3.0           # expected capture must be >= 3x the round trip
+      atrPeriod: 14
+      atrCaptureFraction: 0.5         # a scalp takes a FRACTION of ATR, never all of it
+      # ── thesis ──
+      rsiPeriod: 14
+      rsiMaxLong: 78
+      rsiMinShort: 22
+      volLookback: 20
+      minVolSurge: 1.2
+      minScore: 4
+      goodScore: 8
+      apexScore: 12
+      leverageTiers: { apex: 4, good: 3, base: 2 }
+      marginPctTiers: { apex: 8, good: 6, base: 4 }
+      maxLeverage: 4
+      maxMarginPct: 20
+    signal_data_schema:
+      score: { type: number }
+      band: { type: string, required: false }
+      direction: { type: string }
+      leverage: { type: number }
+      reasons: { type: array, required: false }
+      expectedCapturePct: { type: number, required: false }
+      requiredPct: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: swift_open
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [swift_scanner]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45   # rest as MAKER first — the entry side of the fee model
+    context:
+      - type: signal
+        scanner: swift_scanner
+  # NO CLOSE_POSITION action — DSL is the only exit.
+
+# EXIT — the `scalp` preset from senpi-strategy-author/references/dsl-presets.yaml,
+# unchanged. Trailing is OFF: the phase-1 floor trails HIGH-WATER and can sit below
+# entry after a small favourable move, which closes a WINNER at a loss and charges the
+# user a round trip for nothing. The ratchet locks gains, or the position rides to the
+# fixed stop. Nothing in between.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 90
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 45
+    phase1:
+      enabled: false
+      max_loss_pct: 5.0
+      retrace_threshold: 5            # INERT while phase1.enabled is false
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 50 }
+        - { trigger_pct: 10, lock_hw_pct: 70 }
+        - { trigger_pct: 15, lock_hw_pct: 85 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 8
+    max_entries_per_day: 15
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 5
+    cooldown_seconds: 300
+    per_asset_cooldown_seconds: 1800
+    drawdown_halt_pct: 15
+    drawdown_reset_on_day_rollover: true

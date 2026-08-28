@@ -1,0 +1,39 @@
+# Oryx — XYZ Intraday Breakout. Single-wallet PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/ (scan.py does the MCP orchestration and the
+# xyz: venue naming; scoring.py is the pure engine — fee gate + opening-range math).
+# NEVER closes — the DSL owns every exit.
+schema_version: 1
+
+id: oryx
+version: "1.0.0"
+catalog:
+  name: "Oryx — XYZ Intraday Breakout"
+  emoji: "🦌"
+  tagline: "Trades gold, crude oil, metals and the stock indices during the day rather than holding for weeks. It waits for a market to settle into an opening range, then takes the break when real volume backs it — and skips it if price has already run too far to be worth chasing. These markets trade around the clock, so there is no waiting for a bell."
+  belief_plain: "Commodities and indices spend the start of a session finding a range, and the move that breaks that range with volume behind it tends to keep going for a few hours. Oryx watches the range form, buys the break up or sells the break down, and refuses the ones that are already extended or too quiet to cover trading costs. It never sells manually — a profit ratchet locks gains and a fixed stop caps the loss."
+  thesis: "You want to trade gold, oil, or the indices on an intraday clock rather than holding a swing position for weeks. Every XYZ template we ship is swing or position; this is the intraday one. Opening-range break, volume-confirmed, chase-capped, and refused outright when the market is too quiet to pay its own round trip."
+  group: multi-asset-universe
+  archetype: breakout_momentum
+  sub_style: range_break
+  asset_classes: [commodities, indices, xyz_equities]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: scalp
+  leverage_max: 4
+  max_slots: 4
+  assets: []                 # DERIVED live from market_list_instruments(dex="xyz")
+  tags: [intraday, breakout, opening-range, gold, oil, commodities, indices, equities, xyz, session, fee-aware, long-short, dsl-only, no-close]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name oryx-main, group oryx
+    wallet_env: ORYX_WALLET
+    funding_share: 1.0

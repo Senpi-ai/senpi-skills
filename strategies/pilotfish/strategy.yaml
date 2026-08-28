@@ -1,0 +1,39 @@
+# Pilotfish — Smart-Money Accumulation. Single-wallet PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/ (scan.py does the cohort orchestration;
+# scoring.py is the pure engine — net/gross bias, the derivative, and sample shrinkage).
+# NEVER closes — the DSL owns every exit.
+schema_version: 1
+
+id: pilotfish
+version: "1.0.0"
+catalog:
+  name: "Pilotfish — Smart-Money Accumulation"
+  emoji: "🐟"
+  tagline: "Follows the wallets with a real track record — but only while they are still building a position, not after everyone can see it. It watches how hard that group is leaning on each coin and buys in when the leaning is actively getting stronger, which is the part of the move that has not been priced in yet."
+  belief_plain: "Most copy strategies show you what good traders already hold, which is old news by the time you see it. Pilotfish watches the same group of proven wallets and measures whether their commitment to a coin is still growing. When they are actively piling in, it goes with them; when they have simply been sitting on a position for days, it leaves it alone. It never sells manually — a profit ratchet locks gains and a fixed stop caps the loss."
+  thesis: "You want to be early to where proven money is going, not late to where it already is. A standing position is priced; the DERIVATIVE of that positioning is not. Pilotfish reads the cohort's dollar-weighted net bias per name and fires only while it widens — dominant side only, so a minority leg can never be traded, and discounted when the lean rests on too few wallets to mean anything."
+  group: multi-asset-universe
+  archetype: copy_trading
+  sub_style: sm_crowding
+  asset_classes: [btc_eth, major_alts, universe_crypto]
+  asset_scope: follows_traders
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 4
+  max_slots: 5
+  assets: []                 # DERIVED from where the proven cohort is accumulating
+  tags: [smart-money, copy-trading, accumulation, early, cohort, conviction, follows-traders, derivative, universe, long-short, dsl-only, no-close]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name pilotfish-main, group pilotfish
+    wallet_env: PILOTFISH_WALLET
+    funding_share: 1.0

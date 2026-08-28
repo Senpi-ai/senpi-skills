@@ -1,0 +1,137 @@
+# ── WEAVER · Range Harvester ─────────────────────────────────────────────
+# The template for the market where nothing is trending — the state in which most of the
+# catalog goes silent and users ask "why isn't it firing?". WEAVER works a contained
+# band: buy the floor, sell the ceiling. A trend is the one thing that kills a harvester,
+# so the efficiency-ratio veto is a HARD gate. NEVER closes — DSL owns every exit.
+name: weaver-main
+group: weaver
+version: 1.0.0
+description: >
+  WEAVER — Range Harvester. Fades the edges of well-contained ranges: buys the floor,
+  sells the ceiling, and REFUSES anything trending (Kaufman efficiency ratio veto) —
+  gridding a trend is how a harvester averages into a loss. Built for the chop, which is
+  when most of the catalog has nothing to do. Up to 5 positions. DSL is the ONLY exit —
+  a FIXED max-loss floor plus a gains-only profit ratchet that banks the snapback fast.
+
+strategy:
+  wallet: "${WEAVER_WALLET}"
+  slots: 5
+  margin_pct: 8
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: weaver_scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300             # squeezes form over hours; 5m is ample
+    timeout_seconds: 180
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 200
+    inputs:
+      # ── universe (derived live; never hardcoded) ──
+      volFloorUsd: 25000000
+      maxUniverse: 30
+      maxSlots: 5
+      recentSignalTtlSeconds: 21600   # 6h per-name debounce
+      # ── fee gate (NOT verified venue rates — set from HL `userFees`) ──
+      takerFeeBps: 4.5
+      makerFeeBps: 1.5
+      feeCoverMultiple: 2.5
+      atrPeriod: 14
+      atrCaptureFraction: 0.4         # a fade takes only part of the band, never the whole swing
+      # ── the range ──
+      rangePeriod: 48                 # the band is measured over 48 x 1h
+      minRangeWidthPct: 1.5           # narrower than this and there is nothing to harvest
+      maxEfficiencyRatio: 0.35        # THE TREND VETO: 0 = pure range, 1 = pure trend
+      edgeFraction: 0.2               # only trade the outer 20% at each end of the band
+      minScore: 5
+      goodScore: 8
+      apexScore: 12
+      leverageTiers: { apex: 3, good: 2, base: 2 }
+      marginPctTiers: { apex: 9, good: 7, base: 5 }
+      maxLeverage: 3
+      maxMarginPct: 18
+    signal_data_schema:
+      score: { type: number }
+      band: { type: string, required: false }
+      direction: { type: string }
+      leverage: { type: number }
+      reasons: { type: array, required: false }
+      rangePos: { type: number, required: false }
+      widthPct: { type: number, required: false }
+      efficiencyRatio: { type: number, required: false }
+      expectedCapturePct: { type: number, required: false }
+      requiredPct: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: weaver_open
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [weaver_scanner]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: weaver_scanner
+  # NO CLOSE_POSITION action — DSL is the only exit.
+
+# EXIT — the `mean_reversion` preset from
+# senpi-strategy-author/references/dsl-presets.yaml, VERBATIM. A fade is a bounded move:
+# bank the snapback quickly and use the time cuts, because a range trade that has not
+# worked in two days is a thesis that failed. Trailing is OFF — the phase-1 floor trails
+# high-water and can close a WINNER at a loss. The ratchet locks gains, or the position
+# rides to the fixed stop.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 2880       # 48h
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 120
+      min_value: 2.0
+    phase1:
+      enabled: false
+      max_loss_pct: 6.0
+      retrace_threshold: 6            # INERT while phase1.enabled is false
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 30 }
+        - { trigger_pct: 10, lock_hw_pct: 50 }
+        - { trigger_pct: 15, lock_hw_pct: 65 }
+        - { trigger_pct: 25, lock_hw_pct: 80 }
+        - { trigger_pct: 40, lock_hw_pct: 90 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 12
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 900
+    per_asset_cooldown_seconds: 21600
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true

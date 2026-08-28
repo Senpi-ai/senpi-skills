@@ -1,0 +1,39 @@
+# Swift — Fee-Aware Crypto Scalper. Single-wallet PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/ (scan.py does the MCP orchestration;
+# scoring.py is the pure engine — the fee gate, ATR/EMA/RSI math and sizing).
+# NEVER closes — the DSL owns every exit.
+schema_version: 1
+
+id: swift
+version: "1.0.0"
+catalog:
+  name: "Swift — Fee-Aware Crypto Scalper"
+  emoji: "🐦"
+  tagline: "Trades the fast money on the most liquid crypto names — but only when the market is actually moving enough to be worth the fees. Before it even looks at a setup it asks a blunt question: will this move pay for the cost of trading it? If not, it doesn't trade. Most scalpers lose to their own costs; this one refuses the trades that would."
+  belief_plain: "Short bursts of momentum on big crypto names are tradeable, but at this speed you pay a fee every single time you go in and out — so the only setups worth taking are the ones moving enough to cover that cost several times over. Swift measures how much a market is actually moving, compares it to what a round trip costs, and skips everything that doesn't clear the bar. It never sells manually — a profit ratchet locks gains and a fixed stop caps the downside."
+  thesis: "You want to trade fast, and you have watched fees quietly eat a scalper alive. The edge here is not a cleverer indicator — it is a hard cost floor applied BEFORE the signal: expected capture (a fraction of ATR) must exceed the round-trip fee by a configured multiple, or the name is never scored. Entries rest as maker first. The ratchet locks gains only; it can never close a winner at a loss."
+  group: multi-asset-universe
+  archetype: breakout_momentum
+  sub_style: market_structure
+  asset_classes: [btc_eth, major_alts, universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: scalp
+  leverage_max: 4
+  max_slots: 4
+  assets: []                 # DERIVED live from market_list_instruments (vol floor + top-N)
+  tags: [scalp, scalping, intraday, fast, fee-aware, low-fee, crypto, momentum, universe, long-short, dsl-only, no-close]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name swift-main, group swift
+    wallet_env: SWIFT_WALLET
+    funding_share: 1.0

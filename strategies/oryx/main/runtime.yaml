@@ -1,0 +1,140 @@
+# ── ORYX · XYZ Intraday Breakout ────────────────────────────────────────────
+# Gold, crude and the indices are the most-requested markets after crypto, and every
+# XYZ template we ship is swing or position — there is no intraday one. ORYX breaks the
+# session's opening range on the 24/7 XYZ venue, confirmed by volume, capped on chase,
+# and gated by the same fee model Swift uses (XYZ books are thinner, so cost matters
+# more here, not less). NEVER closes — DSL owns every exit.
+name: oryx-main
+group: oryx
+version: 1.0.0
+description: >
+  ORYX — XYZ Intraday Breakout. Trades gold, crude, metals and the indices intraday:
+  takes the break of the session's opening range when volume confirms it and price has
+  not already run away from the level. Universe derived live from the xyz DEX over a
+  volume floor; every instrument addressed by its `xyz:` prefixed name. Up to 4
+  positions. DSL is the ONLY exit — a FIXED max-loss floor plus a gains-only profit
+  ratchet (no trailing stop, no breakeven exits), 8h session timeout.
+
+strategy:
+  wallet: "${ORYX_WALLET}"
+  slots: 4
+  margin_pct: 6
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: oryx_scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 60              # catch the break promptly; also derives time_horizon: scalp
+    timeout_seconds: 120
+    default_signal_validity_seconds: 300
+    state_history_max_count: 200
+    inputs:
+      # ── universe (derived live from the xyz DEX; never hardcoded) ──
+      volFloorUsd: 3000000            # XYZ books are thinner than crypto majors
+      maxUniverse: 20
+      maxSlots: 4
+      recentSignalTtlSeconds: 7200    # 2h per-name debounce — one break per name per session
+      # ── fee gate (carried from Swift; NOT verified venue rates — set from `userFees`) ──
+      takerFeeBps: 4.5
+      makerFeeBps: 1.5
+      feeCoverMultiple: 3.0
+      atrPeriod: 14
+      atrCaptureFraction: 0.5
+      # ── opening-range breakout ──
+      openingRangeCandles: 12         # 12 x 15m = the first 3h of the session forms the range
+      breakBufferPct: 0.05            # must clear the level by this much to count as a break
+      maxChasePct: 1.5                # already this far past the level = chasing, skip it
+      volLookback: 20
+      minVolSurge: 1.3                # a break on no volume is a fake-out
+      rsiPeriod: 14
+      # Deliberately loose for a BREAKOUT system. At a genuine break RSI is *supposed*
+      # to be extreme — a momentum-style 80/20 guard refuses nearly every real breakdown
+      # and double-counts `maxChasePct`, which is the correct "don't chase" control.
+      # These only catch the absurd.
+      rsiMaxLong: 92
+      rsiMinShort: 8
+      minScore: 4
+      goodScore: 8
+      apexScore: 12
+      leverageTiers: { apex: 4, good: 3, base: 2 }
+      marginPctTiers: { apex: 8, good: 6, base: 4 }
+      maxLeverage: 4
+      maxMarginPct: 20
+    signal_data_schema:
+      score: { type: number }
+      band: { type: string, required: false }
+      direction: { type: string }
+      leverage: { type: number }
+      reasons: { type: array, required: false }
+      expectedCapturePct: { type: number, required: false }
+      requiredPct: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: oryx_open
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [oryx_scanner]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: oryx_scanner
+  # NO CLOSE_POSITION action — DSL is the only exit.
+
+# EXIT — the `scalp` preset from senpi-strategy-author/references/dsl-presets.yaml with
+# ONE field changed: hard_timeout 90m -> 480m, because an opening-range break is a
+# session trade, not a 90-minute one. Trailing stays OFF — the phase-1 floor trails
+# high-water and can close a WINNER at a loss; the ratchet locks gains or the position
+# rides to the fixed stop.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 480        # 8h — one session (the single change from `scalp`)
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 45
+    phase1:
+      enabled: false
+      max_loss_pct: 5.0
+      retrace_threshold: 5            # INERT while phase1.enabled is false
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 50 }
+        - { trigger_pct: 10, lock_hw_pct: 70 }
+        - { trigger_pct: 15, lock_hw_pct: 85 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 8
+    max_entries_per_day: 10
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 600
+    per_asset_cooldown_seconds: 7200
+    drawdown_halt_pct: 15
+    drawdown_reset_on_day_rollover: true

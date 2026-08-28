@@ -1,0 +1,39 @@
+# Weaver — Range Harvester. Single-wallet PACKAGE: this manifest + one self-contained
+# runtime.yaml + scanners/ (scan.py does the MCP orchestration; scoring.py is the pure
+# engine — fee gate, range bounds, and the efficiency-ratio trend veto).
+# NEVER closes — the DSL owns every exit.
+schema_version: 1
+
+id: weaver
+version: "1.0.0"
+catalog:
+  name: "Weaver — Range Harvester"
+  emoji: "🕸️"
+  tagline: "Built for the sideways market, which is when most strategies have nothing to do. It finds coins stuck in a well-defined band, buys near the bottom of it and sells near the top, and takes small, quick profits. Crucially, it refuses to touch anything that has started trending — that is the one market that turns a range trader into a bagholder."
+  belief_plain: "Plenty of the time a market isn't going anywhere — it just swings between a floor and a ceiling. Weaver measures whether a coin is genuinely range-bound or quietly trending, and only trades the ones that are truly stuck: buying near the low end, selling near the high end, banking the bounce quickly. If a range starts to break into a trend, it stops trading that name rather than averaging into the move."
+  thesis: "You have watched a trend book sit on its hands through a week of chop and wondered why nothing fired. This is the strategy for that week. Fades the outer fifth of a contained band, and applies a hard Kaufman efficiency-ratio veto so it never grids a trend — the single failure mode that kills range traders. Small, frequent, bounded wins with a fast profit lock."
+  group: multi-asset-universe
+  archetype: contrarian_fade
+  sub_style: mean_reversion
+  asset_classes: [btc_eth, major_alts, universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: starter
+  time_horizon: swing
+  leverage_max: 3
+  max_slots: 5
+  assets: []                 # DERIVED live from market_list_instruments (vol floor + top-N)
+  tags: [range, range-bound, mean-reversion, chop, sideways, grid, fade, harvester, always-on, universe, long-short, dsl-only, no-close]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name weaver-main, group weaver
+    wallet_env: WEAVER_WALLET
+    funding_share: 1.0
