@@ -18,8 +18,8 @@ description: >
 strategy:
   wallet: "${PILOTFISH_WALLET}"
   slots: 5
-  margin_pct: 8
-  default_leverage: 3
+  margin_pct: 10                          # baseline = the scanner's BASE conviction rung
+  default_leverage: 3                    # = the scanner's BASE rung; scan emits per-signal
   trading_risk: moderate
   enabled: true
 
@@ -55,8 +55,8 @@ scanners:
       minScore: 4
       goodScore: 6
       apexScore: 9
-      leverageTiers: { apex: 4, good: 3, base: 2 }
-      marginPctTiers: { apex: 12, good: 9, base: 6 }
+      leverageTiers: { apex: 4, good: 4, base: 3 }
+      marginPctTiers: { apex: 12, good: 11, base: 10 }
       maxLeverage: 4
       maxMarginPct: 20
     signal_data_schema:

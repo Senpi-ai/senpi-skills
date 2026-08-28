@@ -17,8 +17,8 @@ description: >
 strategy:
   wallet: "${PUFFER_WALLET}"
   slots: 5
-  margin_pct: 8
-  default_leverage: 3
+  margin_pct: 10                          # baseline = the scanner's BASE conviction rung
+  default_leverage: 4                    # = the scanner's BASE rung; scan emits per-signal
   trading_risk: moderate
   enabled: true
 
@@ -57,8 +57,8 @@ scanners:
       minScore: 5
       goodScore: 9
       apexScore: 13
-      leverageTiers: { apex: 5, good: 4, base: 3 }
-      marginPctTiers: { apex: 12, good: 9, base: 6 }
+      leverageTiers: { apex: 5, good: 4, base: 4 }
+      marginPctTiers: { apex: 12, good: 11, base: 10 }
       maxLeverage: 5
       maxMarginPct: 22
     signal_data_schema:

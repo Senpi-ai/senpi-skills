@@ -16,8 +16,8 @@ description: >
 strategy:
   wallet: "${WEAVER_WALLET}"
   slots: 5
-  margin_pct: 8
-  default_leverage: 3
+  margin_pct: 9                          # baseline = the scanner's BASE conviction rung
+  default_leverage: 3                    # = the scanner's BASE rung; scan emits per-signal
   trading_risk: moderate
   enabled: true
 
@@ -54,8 +54,8 @@ scanners:
       minScore: 5
       goodScore: 8
       apexScore: 12
-      leverageTiers: { apex: 3, good: 2, base: 2 }
-      marginPctTiers: { apex: 9, good: 7, base: 5 }
+      leverageTiers: { apex: 3, good: 3, base: 3 }
+      marginPctTiers: { apex: 11, good: 10, base: 9 }
       maxLeverage: 3
       maxMarginPct: 18
     signal_data_schema:
