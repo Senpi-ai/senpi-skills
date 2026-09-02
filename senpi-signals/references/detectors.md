@@ -142,6 +142,34 @@ thing that is actually news. It outranks a standing divergence by design (change
 - **Requires a warm ring:** on a cold state file there is no 12h partner, so it stays quiet — that is
   expected, not a bug. **This is the single strongest argument for running the sweep on a schedule.**
 
+### 2c. `sm_flow` — money that actually MOVED IN, in BASE UNITS  *(smart-money family — the cleanest read)*
+**Everything above measures HOLDINGS. This measures DECISIONS.** It is the only detector immune to
+the circularity that contaminates every other smart-money read.
+
+**⚠️ Why it exists — read this before using any smart-money signal.** The 4h gain leaderboard is
+*circular*: if SPCX falls, every wallet short SPCX is mechanically at the top. The board is a
+**consequence** of the move, never evidence anyone predicted it. And a *notional* lean (`net_bias` =
+net/gross notional) carries the same bug one level down — if a name falls 10% and **nobody trades at
+all**, every short's notional grows and every long's shrinks, so the lean drifts toward the winning
+side on price alone. Base units cannot do that: a wallet either opened the position or it didn't.
+
+- **Source:** the same proven-cohort fan-out as #2 / #2b, but keep the **position sizes**, not just
+  the direction. Diffed against the ~12h snapshot in the ring, resolved per asset and per source
+  exactly as #2b is.
+- **Metric field:** **`smart_positions` = `{wallet: signed BASE size}`** — coins/contracts,
+  `+` long / `−` short. **NOT notional, and not USD.** If the venue gives you notional, divide by
+  the mark before you pass it. You supply only the current reading; score.py finds the 12h-ago one.
+- **Fires when:** `opened + added ≥ FLOW_MIN_WALLETS` (3 distinct wallets) **AND** base units held
+  on the side grew by `≥ FLOW_MIN_BASE_PCT` (+10%) **AND** the baseline is `≥ TREND_MIN_AGE_MIN` old.
+- **Reports:** wallets that **OPENED** (flat → positioned), **ADDED** (size grew), **CLOSED**
+  (positioned → flat), and the % growth in base units on the side. Every one of those is a decision.
+- **Missing `smart_positions` ⇒ it cannot fire at all** — and that is *not* the same as finding
+  nothing. Check `coverage.flow_lens` (`ok` / `thin` / `NO DATA`) in the run JSON before reporting a
+  quiet result as a null result.
+- **Voice:** *"4 wallets OPENED and 1 ADDED SHORT in the last ~14h; base size on the side +408%
+  (units, not notional — immune to the price move); crowd still LONG."* Not who is winning right
+  now — who is buying in.
+
 ### 3. `sm_conviction` — a SHARP, short-horizon conviction jump  *(smart-money family)*
 - **Same `smart_share` field as #2/#2b (the proven-cohort share), diffed on the FAST (~1h) baseline.**
   The three smart-money detectors are one metric on three horizons: #2 the standing *state*, **#3 a
