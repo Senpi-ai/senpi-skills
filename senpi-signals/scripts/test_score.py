@@ -34,12 +34,68 @@ def test_credibility_multiplier_bands():
     assert 0.45 < mid < 1.0                                # ramps monotonically between floor and full
 
 
-def test_confirmation_rewards_price_agreeing_with_the_side():
-    assert score.confirmation({"direction": "short", "price_change_pct": -3.0}) == 1.0   # short + down = working
-    assert score.confirmation({"direction": "long", "price_change_pct": 3.0}) == 1.0     # long + up = working
-    assert score.confirmation({"direction": "short", "price_change_pct": 3.0}) == 0.0    # short + up = contra
-    assert score.confirmation({"direction": None, "price_change_pct": -3.0}) == 0.5      # no side = neutral
-    assert score.confirmation({"direction": "short", "price_change_pct": None}) == 0.5   # no price = neutral
+def test_earliness_rewards_flow_before_the_move_not_after():
+    """Replaces the old `confirmation` term, which paid a signal for price having already moved its
+    way. That double-counts one move — a "who gained over 4h" read IS a statement that price moved —
+    and it systematically preferred LATE signals. Early (flow in, price flat) is the valuable state."""
+    e = score.earliness
+    assert e({"direction": "short", "price_change_pct": 0.0}) == 1.0     # flat = early = the alpha
+    assert e({"direction": "short", "price_change_pct": -3.0}) == 0.5    # already ran = real but late
+    assert e({"direction": "long", "price_change_pct": 3.0}) == 0.5      # ditto long
+    assert e({"direction": "short", "price_change_pct": 3.0}) == 0.15    # price disproving it
+    assert e({"direction": "short", "price_change_pct": 0.0}) > \
+           e({"direction": "short", "price_change_pct": -3.0})           # EARLY OUTRANKS CONFIRMED
+    assert e({"direction": None, "price_change_pct": -3.0}) == 0.30      # no side is NOT half-evidence
+    assert e({"direction": "short", "price_change_pct": None}) == 0.5    # no price data = neutral
+
+
+def test_base_flow_is_immune_to_the_price_move():
+    """The 4h gain leaderboard is circular: if a name falls, everyone short it tops the board. A
+    NOTIONAL lean carries the same bug one level down — short notional grows on a fall with zero
+    trading. Base units (coins/contracts) cannot move on price, so this is the honest flow read."""
+    prior = {"w1": 10.0, "w2": -5.0}
+    assert score.base_flow(dict(prior), prior, "short")["base_delta_pct"] == 0.0   # no trades = no flow
+    grew = {"w1": 10.0, "w2": -9.0, "w3": -4.0, "w4": -3.0}
+    f = score.base_flow(grew, prior, "short")
+    assert f["opened"] == 2 and f["added"] == 1 and f["base_delta_pct"] > 0.10
+    assert score.base_flow({}, prior, "short") is None                             # no data != no flow
+
+
+def test_net_bias_build_is_suppressed_once_price_has_moved():
+    """A net/gross NOTIONAL lean drifts toward the winning side on mark-to-market alone, so a
+    "build" on that basis is unreadable after a real move. Headcount is immune and still fires."""
+    def dets(kind, pcp):
+        cur = {"X": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 55.0,
+                     "smart_share_kind": kind, "smart_source": "proven_cohort",
+                     "price_change_pct": pcp, "notional_vol": 5e7,
+                     "smart_long_n": 10, "smart_short_n": 90}}
+        old = {"X": dict(cur["X"], smart_share=45.0)}
+        return [d["detector"] for d in score.detect_from_metrics(cur, {}, lambda a, s: (old["X"], 720))]
+    assert "sm_positioning_build" not in dets("net_bias", -8.0)     # contaminated by the move
+    assert "sm_positioning_build" in dets("net_bias", -0.3)         # flat: drift negligible
+    assert "sm_positioning_build" in dets("cohort_pct", -8.0)       # headcount: immune
+
+
+def test_coverage_reports_a_dark_lens_as_no_data():
+    """"Missing fields just skip their detectors" makes a never-fed detector look identical to one
+    that ran and found nothing. Those mean opposite things, so the run must say which."""
+    c = score.coverage({"A": {"oi": 1, "funding_annualized_pct": 2.0, "notional_vol": 5e7}})
+    assert c["smart_money_lens"] == "NO DATA" and c["flow_lens"] == "NO DATA"
+    full = score.coverage({"A": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 50.0,
+                                 "smart_positions": {"w": -1.0}, "smart_source": "proven_cohort"}})
+    assert full["smart_money_lens"] == "ok" and full["flow_lens"] == "ok"
+
+
+def test_funding_flip_magnitude_scales_with_the_distance_past_zero():
+    """A flip is a zero-crossing, so it is always near zero when it fires; magnitude was hardcoded to
+    1.0, which made a −0.09%/yr flip score identically to a −8.2%/yr one."""
+    def sc_of(rate):
+        s_ = [x for x in score.detect_from_metrics({"E": {"funding_annualized_pct": rate,
+                                                          "notional_vol": 8e7}},
+                                                   {"E": {"funding_annualized_pct": 2.0}})
+              if x["detector"] == "funding_flip"][0]
+        return score.social_score(s_, 1.0, 1.0)
+    assert sc_of(-8.2) > sc_of(-0.09)
 
 
 def test_freshness_penalizes_recent_repeats_and_recovers():
@@ -351,7 +407,7 @@ def test_end_to_end():
         # …but funding_flip (the regime change) does earn a trade slot
         assert "FUND" in trade
 
-        # confirmation pays: smart-short with price falling outranks the OI coil on the trade lens
+        # earliness pays: the coil (price still flat) is not penalised for having not moved yet
         assert trade["SPCX"]["trade_score"] > trade["OIL"]["trade_score"]
 
         # family cap: at most 2 funding-family items in each feed (no more 4-funding floods)

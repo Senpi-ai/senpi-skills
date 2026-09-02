@@ -52,6 +52,23 @@ SMART_SHARE_MIN = 25.0        # fallback when the basis is unstated
 SMART_JUMP_PP = 12.0
 FUNDING_PCTILE = 95.0
 WHALE_MIN_USD = 1_000_000
+FUNDING_FLIP_FULL_PCT = 10.0  # post-flip |rate| that counts as a full-magnitude carry turn. A "flip"
+                              # is a ZERO-CROSSING, so it is near zero by construction — the size of
+                              # the move PAST zero is the story. Without this every flip scored 1.0
+                              # and −0.09%/yr tied −8.2%/yr.
+
+# ── flow: "money MOVED IN", never "holdings look bigger" ──────────────────────
+# The 4h gain leaderboard is CIRCULAR: if a name falls, everyone short it is mechanically at the top.
+# It identifies who benefited from a move that already happened — never who saw it coming.
+# A notional-weighted lean carries the same circularity one level down: `bias` = net/gross NOTIONAL,
+# so if a name falls 10% and NOBODY TRADES, every short's notional grows and every long's shrinks and
+# the lean drifts toward the winning side on price alone. Mark-to-market drift scales with the price
+# move, so a net_bias "build" is only readable when price barely moved.
+# Headcount (`cohort_pct`) and BASE-UNIT size are immune by construction: neither changes with price.
+MTM_SAFE_PCT = 1.5            # |4h move| above which a net_bias build is unreadable → suppressed
+FLOW_MIN_WALLETS = 3          # distinct wallets opening/adding before it is flow rather than noise
+FLOW_MIN_BASE_PCT = 0.10      # min growth in BASE UNITS held on the side (+10%)
+FLOW_EPS = 1e-9
 
 # ── credibility: a MULTIPLIER on the whole score, not a 10% additive term ──
 FULL_CRED_VOL = 25_000_000    # notional vol at/above which liquidity is a non-issue (mult 1.0)
@@ -99,6 +116,7 @@ FAMILY_CAP = 2               # max signals per detector FAMILY in a single feed 
 
 # how invisible-on-a-chart each detector is (the social "moat" weight)
 NON_OBVIOUS = {
+    "sm_flow": 1.0,                # base-unit position flow — the cleanest read we have
     "sm_positioning_build": 1.0,   # needs cohort history — nobody else is tracking this
     "oi_surge": 1.0, "funding_flip": 1.0, "sm_divergence": 1.0, "whale_move": 1.0,
     "funding_extreme": 0.9, "sm_conviction": 0.85, "cross_asset_laggard": 0.8,
@@ -106,6 +124,7 @@ NON_OBVIOUS = {
 }
 # how tradeable each detector is (a clear, actionable directional edge)
 EDGE = {
+    "sm_flow": 1.0,               # wallets actually OPENED/ADDED size — immune to mark-to-market
     "sm_positioning_build": 1.0,  # proven traders MOVING onto a side — the strongest read we have
     "sm_divergence": 1.0, "sm_conviction": 0.9, "whale_move": 0.85, "oi_surge": 0.75,
     "cross_asset_laggard": 0.75, "funding_flip": 0.7, "momentum_event": 0.6, "regime_shift": 0.6,
@@ -115,14 +134,14 @@ EDGE = {
 FAMILY = {
     "funding_flip": "funding", "funding_extreme": "funding",
     "sm_divergence": "smart_money", "sm_conviction": "smart_money",
-    "sm_positioning_build": "smart_money",
+    "sm_positioning_build": "smart_money", "sm_flow": "smart_money",
     "oi_surge": "oi", "whale_move": "whale", "cross_asset_laggard": "cross_asset",
     "momentum_event": "momentum", "regime_shift": "regime",
 }
 # detectors that fire from a CHANGE vs the prior snapshot (vs a static level)
 CHANGE_DETECTORS = {"oi_surge", "sm_conviction", "funding_flip", "whale_move",
                     "cross_asset_laggard", "momentum_event", "regime_shift",
-                    "sm_positioning_build"}
+                    "sm_positioning_build", "sm_flow"}
 
 
 def _num(v):
@@ -170,6 +189,45 @@ def freshness(asset, detector, surfaced, now):
     return round(FRESH_MIN_MULT + (age_min / FRESH_WINDOW_MIN) * (1.0 - FRESH_MIN_MULT), 3)
 
 
+def base_flow(cur_pos, prior_pos, side):
+    """Did money actually MOVE IN, in BASE UNITS, on `side`?
+
+    `smart_positions` is {wallet: signed base size} — coins/contracts, NOT notional. Base units do
+    not change when price changes, so every number below is a decision somebody made:
+
+        opened  wallets that were flat/absent and are now on this side
+        added   wallets already on this side whose size grew
+        closed  wallets that were on this side and are now flat
+        base_delta_pct  growth in total base units held on the side
+
+    This is the only measure immune to the mark-to-market circularity — cf. MTM_SAFE_PCT.
+    Returns None when either side of the diff is missing (no data ≠ no flow).
+    """
+    if not isinstance(cur_pos, dict) or not isinstance(prior_pos, dict) or not cur_pos:
+        return None
+    want = 1 if str(side).lower() == "long" else -1
+    def on_side(d, w):
+        v = _num(d.get(w))
+        return abs(v) if (v is not None and _sign(v) == want) else 0.0
+    wallets = set(cur_pos) | set(prior_pos)
+    opened = added = closed = 0
+    now_base = then_base = 0.0
+    for w in wallets:
+        c, b = on_side(cur_pos, w), on_side(prior_pos, w)
+        now_base += c
+        then_base += b
+        if c > FLOW_EPS and b <= FLOW_EPS:
+            opened += 1
+        elif c > b + FLOW_EPS:
+            added += 1
+        elif b > FLOW_EPS and c <= FLOW_EPS:
+            closed += 1
+    delta = ((now_base - then_base) / then_base) if then_base > FLOW_EPS else (
+        1.0 if now_base > FLOW_EPS else 0.0)
+    return {"opened": opened, "added": added, "closed": closed,
+            "base_delta_pct": delta, "now_base": now_base, "then_base": then_base}
+
+
 def one_sidedness(m, smart_dir):
     """Of the traders actually POSITIONED in this name, what fraction sit on the smart side?
 
@@ -209,17 +267,33 @@ def effective_one_sidedness(raw, n):
     return round(0.5 + (raw - 0.5) * sample_shrink(n), 3)
 
 
-def confirmation(s):
-    """0..1 — is price CONFIRMING the signal's direction (the smart side being proven right)?
-    long + price up / short + price down = confirmed (a working setup); opposite = early/contrarian
-    (weaker as a trade); unknown/non-directional = neutral 0.5. ~3% move = full confirmation."""
+def earliness(s):
+    """0..1 — is this signal EARLY (flow is there, the move is not) or LATE (price already ran)?
+
+    This REPLACES the old `confirmation` term, which rewarded price for having already moved the
+    signal's way. That double-counts one price move: a leaderboard-sourced read is *itself* a
+    statement that price already moved, so confirming it with the same move scores the same
+    evidence twice — and it systematically prefers late signals. For "spot it as it emerges",
+    flat price is the valuable state: the positioning is in and the move has not happened.
+
+        price contradicts the side   → 0.15   being disproven
+        price already ran with it    → 0.50   real, but you are late
+        price flat                   → 1.00   early — this is the whole point
+        no direction at all          → 0.30   absence of a read is NOT half-evidence
+
+    (The old function scored "no direction" at 0.50 — the exact median — so a signal with no side
+    outranked every signal price was disproving, and tied a half-confirmed one. That is why a
+    non-directional momentum_event could rank #1 in the trade feed.)
+    """
     d = s.get("direction")
     pc = _num(s.get("price_change_pct"))
-    if not d or pc is None:
-        return 0.5
+    if not d:
+        return 0.30
+    if pc is None:
+        return 0.50
+    ran = min(1.0, abs(pc) / 3.0)
     aligned = (d == "long" and pc > 0) or (d == "short" and pc < 0)
-    strength = min(1.0, abs(pc) / 3.0)
-    return round(0.5 + (0.5 * strength if aligned else -0.5 * strength), 3)
+    return round(1.0 - (0.50 if aligned else 0.85) * ran, 3)
 
 
 def social_score(s, cred, fresh):
@@ -234,10 +308,10 @@ def social_score(s, cred, fresh):
 
 
 def trade_score(s, cred):
-    """Trade lens: directional EDGE · price CONFIRMATION · CHANGE · a divergence · size. cred multiplies.
+    """Trade lens: directional EDGE · EARLINESS · CHANGE · a divergence · size. cred multiplies.
     NOT freshness-gated — a standing edge is still an edge even if it showed last run."""
     edge = EDGE.get(s["detector"], 0.5)
-    cfm = confirmation(s)
+    cfm = earliness(s)
     mag = max(0.0, min(1.0, _num(s.get("magnitude")) or 0.0))
     conf = 1.0 if s.get("conflict") else 0.0
     change = 1.0 if s.get("is_change") else 0.0
@@ -354,9 +428,38 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None):
                 if n_pos is not None and n_pos <= SMALL_SAMPLE_N:
                     line += f" — SMALL SAMPLE (n={n_pos:.0f})"
                 nums.append(line)
-            # magnitude scales with the size of the move (a 15pp swing in 12h is enormous)
-            sig("sm_positioning_build", sd, min(1.0, abs(d_pp) / 15.0), nums,
-                conflict=bool(cd and cd != sd), is_change=True)
+            # A net_bias lean drifts toward the winning side on PRICE ALONE (mark-to-market), so a
+            # "build" on that basis is unreadable once price has moved. Headcount cannot drift.
+            mtm_unreadable = (kind == "net_bias" and pcp is not None and abs(pcp) >= MTM_SAFE_PCT)
+            if mtm_unreadable:
+                nums.append(f"SUPPRESSED — net-exposure basis with price {pcp:+.1f}%: this lean grows "
+                            f"on mark-to-market alone, so it cannot be called money moving in")
+            else:
+                if kind == "net_bias" and pcp is not None:
+                    nums.append(f"net-exposure basis, price {pcp:+.1f}% — flat enough that "
+                                f"mark-to-market drift is negligible")
+                # magnitude scales with the size of the move (a 15pp swing in 12h is enormous)
+                sig("sm_positioning_build", sd, min(1.0, abs(d_pp) / 15.0), nums,
+                    conflict=bool(cd and cd != sd), is_change=True)
+
+        # ── FLOW (base units) — the honest "has more money moved in?" read ──────────────
+        # Everything above measures HOLDINGS (a share, a lean). This measures DECISIONS: wallets
+        # that opened or added size, counted in coins/contracts. Price cannot manufacture it.
+        flow = base_flow(m.get("smart_positions"), ps.get("smart_positions"), sd) if sd else None
+        if flow is not None and ps_age is not None and ps_age >= TREND_MIN_AGE_MIN:
+            movers = flow["opened"] + flow["added"]
+            if movers >= FLOW_MIN_WALLETS and flow["base_delta_pct"] >= FLOW_MIN_BASE_PCT:
+                w = f"~{age_h:.0f}h" if (age_h or 0) >= 1 else f"~{ps_age:.0f}min"
+                fnums = [f"{flow['opened']} wallets OPENED and {flow['added']} ADDED "
+                         f"{str(sd).upper()} in the last {w}",
+                         f"base size held on the side +{flow['base_delta_pct'] * 100:.0f}% "
+                         f"(units, not notional — immune to the price move)"]
+                if flow["closed"]:
+                    fnums.append(f"{flow['closed']} closed out")
+                if cd and cd != sd:
+                    fnums.append(f"crowd still {str(cd).upper()}")
+                sig("sm_flow", sd, min(1.0, flow["base_delta_pct"] / 0.5), fnums,
+                    conflict=bool(cd and cd != sd), is_change=True)
 
         # smart-money conviction jump (change) — fires on a move in EITHER direction (piling in OR unwinding)
         pshare = _num(p.get("smart_share"))
@@ -374,14 +477,39 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None):
         flipped = (fa is not None and pfa is not None
                    and _sign(fa) != _sign(pfa) and _sign(pfa) != 0)
         if flipped:
-            sig("funding_flip", None, 1.0,
-                [f"funding flipped to {fa:+.0f}%/yr (was {pfa:+.0f})"], flip=True, is_change=True)
+            # magnitude = how far PAST zero it went. A flip is a zero-crossing, so it is always
+            # near zero at the moment it fires; the distance travelled is the whole story.
+            sig("funding_flip", None, min(1.0, abs(fa) / FUNDING_FLIP_FULL_PCT),
+                [f"funding flipped to {fa:+.2f}%/yr (was {pfa:+.2f})"], flip=True, is_change=True)
         elif fp is not None and fp >= FUNDING_PCTILE:
             nums = [f"funding {fp:.0f}th pctile"]
             if fa is not None:
                 nums.append(f"{fa:+.0f}%/yr")
             sig("funding_extreme", None, fp / 100.0, nums, is_change=False)
     return out
+
+
+def coverage(cur):
+    """Which lenses actually had DATA this run — so a dark detector is never reported as
+    "looked and found nothing".
+
+    `SKILL.md`: "Missing fields just skip their detectors." That silence is indistinguishable from a
+    genuine null result, and the two mean opposite things. Without the proven-cohort fan-out the
+    smart-money detectors cannot fire at all, and the sweep quietly degrades into OI + funding +
+    price — i.e. into market-pulse. This makes that visible.
+    """
+    tot = sum(1 for v in (cur or {}).values() if isinstance(v, dict))
+    def pct(f):
+        if not tot:
+            return 0.0
+        return round(100.0 * sum(1 for v in cur.values() if isinstance(v, dict) and f(v)) / tot, 1)
+    div = pct(lambda v: v.get("smart_dir") and v.get("crowd_dir") and v.get("smart_share") is not None)
+    flow = pct(lambda v: isinstance(v.get("smart_positions"), dict) and v.get("smart_positions"))
+    proven = pct(lambda v: v.get("smart_source") == "proven_cohort")
+    return {"assets": tot, "smart_divergence_inputs_pct": div, "base_flow_inputs_pct": flow,
+            "proven_cohort_pct": proven,
+            "smart_money_lens": ("ok" if div >= 25.0 else ("thin" if div > 0 else "NO DATA")),
+            "flow_lens": ("ok" if flow >= 25.0 else ("thin" if flow > 0 else "NO DATA"))}
 
 
 def normalize_event(e):
@@ -434,6 +562,9 @@ def frame(s):
         return f"{a}: {nums} — a funding dislocation most screens never show."
     if det == "whale_move":
         return f"{s.get('concrete_entity') or 'A top trader'} on {a}: {nums}."
+    if det == "sm_flow":
+        return (f"Money is moving into {a} {d}s while the chart is quiet — {nums}. "
+                f"Not who is winning right now; who is buying in.")
     if det == "sm_positioning_build":
         return f"{a} {d}s are what to watch — {nums}."
     if det == "sm_conviction":
@@ -453,10 +584,13 @@ def trade_read(s):
     a, d = s["asset"], (s.get("direction") or "")
     nums = "; ".join(s.get("numbers") or [])
     det = s["detector"]
-    cfm = confirmation(s)
-    tag = "price confirming" if cfm >= 0.66 else ("not yet confirmed by price" if cfm <= 0.4 else "price neutral")
+    early = earliness(s)
+    tag = ("price hasn't moved yet — early" if early >= 0.8
+           else ("price already ran — late" if early >= 0.45 else "price is going against it"))
     if det == "sm_divergence":
         return f"{_smart_lead(s)} {d} vs the crowd on {a}, {tag}."
+    if det == "sm_flow":
+        return (f"Proven wallets are OPENING and ADDING {d} size on {a} ({tag}) — {nums}.")
     if det == "sm_positioning_build":
         return f"Top-trader positioning is shifting {d} on {a} ({tag}) — {nums}."
     if det == "sm_conviction":
@@ -567,11 +701,23 @@ def _prune_surfaced(surfaced, now):
     return out
 
 
-def _render_md(now, social, trade, lens):
+def _render_md(now, social, trade, lens, cov=None):
     """Two badged, ranked feeds. Badges (🔥/🟠/🟡), ⭐ top-of-feed, ⚑ named-wallet — keep them."""
     ts = now.isoformat()[:16]
     out = [f"# 🔭 Senpi Signals — {ts} UTC", "",
            "_Observation, not advice. Every number is from a live read this run — verify before posting._", ""]
+    cov = cov or {}
+    if cov.get("smart_money_lens") == "NO DATA" and cov.get("flow_lens") == "NO DATA":
+        out += ["> ⛔ **Smart-money lens UNAVAILABLE this run — no cohort positioning was supplied.**",
+                "> Everything below is OI, funding and price: the same inputs as market-pulse. The",
+                "> divergence and flow detectors did not find nothing — they were never fed. Run the",
+                "> proven-cohort fan-out (`senpi-smart-money`) and re-run before reading this as a",
+                "> smart-money report.", ""]
+    elif "thin" in (cov.get("smart_money_lens"), cov.get("flow_lens")):
+        out += [f"> ⚠️ **Partial smart-money coverage** — divergence inputs on "
+                f"{cov.get('smart_divergence_inputs_pct')}% of the universe, base-unit flow on "
+                f"{cov.get('base_flow_inputs_pct')}%. Absence of a signal on an uncovered name means "
+                f"nothing was measured, not that nothing is happening.", ""]
     if lens in ("both", "trade") and trade:
         out += ["## Tradeable dislocations — for building ideas", ""]
         for i, s in enumerate(trade):
@@ -733,14 +879,20 @@ def main():
     # advance state: locked read-merge-write into the SHARED ring + THIS consumer's freshness map
     _commit_state(state_path, cur_metrics, now, a.consumer, social)
 
-    open(a.out, "w").write(_render_md(now, social, trade, a.lens))
+    cov = coverage(cur_metrics)
+    open(a.out, "w").write(_render_md(now, social, trade, a.lens, cov))
     print(json.dumps({"generated": now.isoformat(),
                       "diff_baseline_ts": (baseline or {}).get("ts"),
                       "trend_baseline_ts": (slow or {}).get("ts"),
                       "trend_baseline_age_hours": (round(slow_age_min / 60.0, 1)
                                                    if slow_age_min is not None else None),
                       "trend_ready": bool(slow_age_min is not None and slow_age_min >= TREND_MIN_AGE_MIN),
+                      "coverage": cov,
                       "trade": trade, "social": social}, indent=2))
+    if cov["smart_money_lens"] == "NO DATA" and cov["flow_lens"] == "NO DATA":
+        print("[warn] NO cohort positioning supplied — the smart-money and flow detectors could not "
+              "fire. This run is OI/funding/price only (i.e. market-pulse). Do not report it as a "
+              "smart-money read.", file=sys.stderr)
     print(f"[wrote {a.out} · trade {len(trade)} · social {len(social)} · baseline "
           f"{(baseline or {}).get('ts', 'none')} · consumer {a.consumer} · state {state_path}]", file=sys.stderr)
 

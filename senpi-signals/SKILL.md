@@ -34,6 +34,25 @@ open-interest, funding, smart-money, or whale data to see at all — then rank t
 and credible they are, and frame the best into a post. Senpi sees the market through its agents'
 eyes, so it spots what a chart can't, and says it first.
 
+## ⚠️ The circularity trap (the single easiest way to get this wrong)
+
+**The 4h gain leaderboard cannot tell you who saw a move coming.** If SPCX falls, every wallet
+short SPCX is mechanically at the top of the 4h board. The board is a *consequence* of the move,
+not evidence anyone predicted it — so "smart money is short SPCX" read off 4h gains is just the
+price move handed back to you. That is why `leaderboard_4h` is discounted and must never be
+called smart money.
+
+**A notional lean carries the same bug one level down.** `net_bias` = net/gross **notional**. If a
+name falls 10% and *nobody trades at all*, every short's notional grows and every long's shrinks,
+so the lean drifts toward the winning side on price alone. `sm_positioning_build` therefore
+**suppresses itself** on a `net_bias` basis once |4h move| ≥ `MTM_SAFE_PCT` (1.5%), and says so.
+
+**Two measures are immune, because price cannot change them:**
+- **headcount** (`smart_share_kind: "cohort_pct"`) — a wallet either holds the position or it doesn't
+- **base units** (`smart_positions`) — coins/contracts opened or added, which is a *decision*
+
+Prefer them. `sm_flow` is built on the second and is the strongest read the skill has.
+
 ## The core idea (read this or the rest won't make sense)
 **Almost every noteworthy development is a *change*** — "OI **up** 10%", smart money "**just
 shifted** short", a whale "**increased by** $10M". You cannot detect a change without remembering the
@@ -182,6 +201,12 @@ public/tweet copy** — public output stays observation-only; "play it" is a pri
    - Reuse the engines we already have rather than re-deriving: **senpi-smart-money** (cohort +
      divergence), **senpi-market-pulse** (funding / movers / cross-asset), **senpi-trader-research**
      (trader reads). Only the **OI-tracker** and the **whale-watch** deltas are new here.
+   **The cohort fan-out is a PRECONDITION of a sweep, not an optimisation.** `sm_divergence`,
+   `sm_positioning_build` and `sm_flow` — the three detectors that produce the insight this skill
+   exists for — all need per-asset cohort positioning (`smart_dir` + `crowd_dir` + `smart_share`,
+   plus `smart_positions` for flow). Skip it and the sweep silently degrades into OI + funding +
+   price, i.e. into market-pulse with extra steps. Check `coverage` in the output before you report
+   anything as a smart-money read.
 3. **Rank + diff** — pass the current per-asset metrics (and any pre-formed events) to
    `scripts/score.py` with the state file. It diffs against the **~1h-old** snapshot in the state
    ring, fires the threshold detectors, scores each signal on **both lenses**, drops noise (illiquid
@@ -212,7 +237,14 @@ python3 scripts/score.py current.json --top 6 --out signals.md
   lens's price-*confirmation* term; supply it whenever you have a direction), `smart_share` (0–100),
   **`smart_long_n` / `smart_short_n`** (the positioned split — see below), `smart_dir`, `crowd_dir`,
   `oi_side`, `funding_pctile` (0–100), `funding_annualized_pct`, `notional_vol`, `dex` (`""` main /
-  `"xyz"`), `trader_count`. Missing fields just skip their detectors.
+  `"xyz"`), `trader_count`, **`smart_positions`**. Missing fields skip their detectors — and the
+  engine now REPORTS that: `coverage` in the JSON gives `smart_money_lens` / `flow_lens` as
+  `ok` / `thin` / `NO DATA`, and a fully dark lens prints a banner at the top of the feed. A
+  detector that was never fed must never be reported as one that looked and found nothing.
+  - **`smart_positions` — `{wallet: signed BASE size}`** (coins/contracts, + long / − short; NOT
+    notional). This powers **`sm_flow`**, the only detector that answers *"has more money moved in?"*
+    rather than *"do the holdings look bigger?"* — see the circularity note below. Supply it from the
+    same cohort fan-out that gives you `smart_dir`; without it `sm_flow` cannot fire at all.
   - **`smart_source` — DECLARE WHERE THE READ CAME FROM. This is not optional.**
     `"proven_cohort"` (senpi-smart-money, ≥$1M lifetime realized — track record) or `"leaderboard_4h"`
     (`leaderboard_get_markets` — momentum, survivorship-biased). The engine **labels the output from
