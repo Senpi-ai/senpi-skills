@@ -8,6 +8,9 @@ Two contracts live here, both of them about not answering a question the surface
     fail-closed pair (`find_list_or_none` / `list_strategies_or_none`) keeps the two apart.
   * **a requested amount is never a funded one.** `strategy_funded` reports the backend's own
     figure or nothing at all.
+  * **…and empty != unreadable, the same contract inverted.** `_parse_runtime_list` must call a box
+    with no runtimes EMPTY, not unreadable — otherwise `verify` cannot answer on exactly the boxes
+    where the answer is "nothing is running".
 
 Run:  python3 senpi-strategy-ops/tests/test_cli_reads.py
 """
@@ -15,6 +18,7 @@ Run:  python3 senpi-strategy-ops/tests/test_cli_reads.py
 import json
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
@@ -366,6 +370,59 @@ class RunCliSpawnFailures(unittest.TestCase):
         self.assertEqual((rc, out), (-1, ""))
         self.assertFalse(err.startswith(_cli.SPAWN_FAILED_PREFIX))
         self.assertIn("timed out", err)
+
+
+class ParseRuntimeListEmptyVsUnreadable(unittest.TestCase):
+    """`_parse_runtime_list` -> (rows, valid). `valid` is what `list_runtimes_or_none` turns into the
+    []-vs-None distinction, so it decides whether a caller is told "no runtimes" or "I could not read
+    the inventory". A box with NO runtimes prints "No runtimes installed." and no header row, and that
+    has to come back valid: `deploy.py verify` raises ReadFailed ("COULD NOT CHECK") on None, which
+    made it structurally unable to answer for a strategy whose runtime was never installed."""
+
+    EMPTY = ("[senpi-core][redact-pii] [info] PII redaction ready\n"
+             "No runtimes installed.\n")
+
+    POPULATED = ("[senpi-core][redact-pii] [info] PII redaction ready\n"
+                 "id\t\twallet\t\tsource\t\tstatus\n"
+                 "badger-main\t\t0x74b4...5a41\t\t(inline)\t\trunning\n"
+                 "otter-main\t\t0x56fc...0ea2\t\t(inline)\t\trunning\n")
+
+    def test_an_empty_inventory_is_readable_and_empty(self):
+        rows, valid = _cli._parse_runtime_list(self.EMPTY)
+        self.assertEqual(rows, [])
+        self.assertTrue(valid, "a box with no runtimes is an ANSWER, not a failed read")
+
+    def test_an_empty_inventory_reaches_the_or_none_caller_as_a_list(self):
+        # The regression that mattered: None here is "unreadable", and `verify` refuses to answer.
+        with mock.patch.object(_cli, "run_cli", return_value=(0, self.EMPTY, "")):
+            self.assertEqual(_cli.list_runtimes_or_none(), [])
+
+    def test_a_populated_inventory_still_parses_every_row(self):
+        rows, valid = _cli._parse_runtime_list(self.POPULATED)
+        self.assertTrue(valid)
+        self.assertEqual([r["name"] for r in rows], ["badger-main", "otter-main"])
+        self.assertEqual(rows[0]["status"], "running")
+
+    def test_a_banner_only_read_is_still_unreadable(self):
+        # The guard the parser was built for must survive: no header, no rows, no empty-marker line
+        # is a garbled read, and it must stay None rather than becoming a confident "no runtimes".
+        rows, valid = _cli._parse_runtime_list("some unrelated banner\nand another line\n")
+        self.assertEqual(rows, [])
+        self.assertFalse(valid)
+        with mock.patch.object(_cli, "run_cli", return_value=(0, "garbled\n", "")):
+            self.assertIsNone(_cli.list_runtimes_or_none())
+
+    def test_the_marker_is_anchored_not_a_loose_substring(self):
+        # The marker test runs before the header gate, so it sees every line. A line that merely
+        # MENTIONS the phrase must not be promoted to a confident empty inventory — that is the
+        # fail-open direction. No header, no rows, no anchored marker => unreadable.
+        rows, valid = _cli._parse_runtime_list("warning: there are no runtimes to report here\n")
+        self.assertEqual(rows, [])
+        self.assertFalse(valid)
+
+    def test_a_failed_read_is_still_unreadable(self):
+        with mock.patch.object(_cli, "run_cli", return_value=(1, self.EMPTY, "boom")):
+            self.assertIsNone(_cli.list_runtimes_or_none())
 
 
 if __name__ == "__main__":
