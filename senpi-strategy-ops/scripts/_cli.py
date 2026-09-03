@@ -207,13 +207,19 @@ def _parse_runtime_list(out):
         if not line:
             continue
         low = line.lower()
+        # The empty-inventory line is tested BEFORE the header gate. A box with no runtimes prints
+        # "No runtimes installed." and NO header row, so looking for it only after a header is seen
+        # means it is never seen at all: the `continue` below skips it. The (rows=[], valid=False)
+        # that falls out is read as "inventory unreadable" by `list_runtimes_or_none`, inverting the
+        # very contract this parser exists to hold — and it does so precisely on the boxes whose
+        # honest answer is "nothing is running", which is the broken-deploy case `verify` is for.
+        if "no runtimes" in low:
+            empty_marker = True
+            break
         if not seen_header:
             if low.startswith("id") and "status" in low and "wallet" in low:
                 seen_header = True
             continue
-        if "no runtimes" in low:
-            empty_marker = True
-            break
         parts = [p for p in re.split(r"\s{2,}|\t+", line) if p]
         if len(parts) >= 2:
             rows.append({"name": parts[0], "wallet": parts[1],
