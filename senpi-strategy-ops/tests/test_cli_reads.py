@@ -412,6 +412,14 @@ class ParseRuntimeListEmptyVsUnreadable(unittest.TestCase):
         with mock.patch.object(_cli, "run_cli", return_value=(0, "garbled\n", "")):
             self.assertIsNone(_cli.list_runtimes_or_none())
 
+    def test_the_marker_is_anchored_not_a_loose_substring(self):
+        # The marker test runs before the header gate, so it sees every line. A line that merely
+        # MENTIONS the phrase must not be promoted to a confident empty inventory — that is the
+        # fail-open direction. No header, no rows, no anchored marker => unreadable.
+        rows, valid = _cli._parse_runtime_list("warning: there are no runtimes to report here\n")
+        self.assertEqual(rows, [])
+        self.assertFalse(valid)
+
     def test_a_failed_read_is_still_unreadable(self):
         with mock.patch.object(_cli, "run_cli", return_value=(1, self.EMPTY, "boom")):
             self.assertIsNone(_cli.list_runtimes_or_none())

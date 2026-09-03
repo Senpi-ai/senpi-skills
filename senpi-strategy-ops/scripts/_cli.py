@@ -213,7 +213,16 @@ def _parse_runtime_list(out):
         # that falls out is read as "inventory unreadable" by `list_runtimes_or_none`, inverting the
         # very contract this parser exists to hold — and it does so precisely on the boxes whose
         # honest answer is "nothing is running", which is the broken-deploy case `verify` is for.
-        if "no runtimes" in low:
+        #
+        # ANCHORED, because this now runs before the header gate and so sees every stdout line: an
+        # unanchored substring would let any future line merely CONTAINING the phrase short-circuit
+        # to a confident "empty", which is the fail-OPEN direction this parser exists to prevent.
+        # The only stdout emission today is `console.log("No runtimes installed.")`
+        # (senpi-trading-runtime `src/cli/senpi-commands.ts`); the near-miss
+        # "…No runtimes were read." is an UNREADABLE state, but it goes to stderr with rc!=0, which
+        # `list_runtimes_or_none` rejects before parsing. Anchoring keeps it excluded a third time,
+        # and errs toward None (fail-closed) if the wording ever drifts.
+        if low.startswith("no runtimes"):
             empty_marker = True
             break
         if not seen_header:

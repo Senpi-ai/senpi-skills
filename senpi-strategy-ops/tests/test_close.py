@@ -99,6 +99,66 @@ class CloseRuntimeDeleteConfirm(unittest.TestCase):
         self.assertIn("(already closed)", rec["plan"])
 
 
+class CloseLastRuntimeOnTheBox(unittest.TestCase):
+    """The teardown money path, driven through the REAL `runtime list` parser rather than a stubbed
+    `list_runtimes_or_none`, because that parser is what decides empty-vs-unreadable here.
+
+    Deleting the LAST runtime on a box leaves an inventory that prints "No runtimes installed." and
+    NO header row. While `_parse_runtime_list` only looked for that line after seeing a header it
+    returned (rows=[], valid=False) -> None -> `_runtime_gone` False (fail-closed, correctly), so
+    `close_one` retried the delete and then reported `status: "failed"` — "still in (or unreadable
+    from) `runtime list` after delete" — on a teardown that had actually succeeded. The strategy_close
+    was still fired for the operator to retry, but the record lied about the outcome."""
+
+    def setUp(self):
+        self._orig = (_cli.run_cli, close.MCPClient)
+        self.deletes, self.closed = [], []
+        outer = self
+
+        def fake_run_cli(args, timeout=60):
+            if "list" in args:
+                # what the CLI really prints on a box with nothing installed: banner, no header row
+                return (0, "[senpi-core][redact-pii] [info] PII redaction ready\n"
+                           "No runtimes installed.\n", "")
+            outer.deletes.append(args)
+            return (1, "", "[⚡HyperDX] banner…")     # delete rc is unreliable, as the class above pins
+        _cli.run_cli = fake_run_cli
+
+        class _FakeMCP:
+            def mcp_call(self, name, timeout=None, **kw):
+                if name == "strategy_close":
+                    outer.closed.append(kw.get("strategyId"))
+                return {"success": True}
+        close.MCPClient = _FakeMCP
+
+    def tearDown(self):
+        _cli.run_cli, close.MCPClient = self._orig
+
+    _STRAT = {"strategyId": "s1", "strategyWalletAddress": "0xabc", "status": "ACTIVE"}
+    _RUNTIMES = [{"name": "pkg-main", "wallet": "0xabc"}]
+
+    def test_the_empty_inventory_left_behind_reads_as_gone(self):
+        self.assertEqual(_cli.list_runtimes_or_none(), [])
+        self.assertTrue(close._runtime_gone("pkg-main"))
+
+    def test_tearing_down_the_last_runtime_reports_success_not_failure(self):
+        rec = close.close_one("main", self._STRAT, self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(rec["status"], "closing")     # was "failed" on a delete that worked
+        self.assertEqual(rec["runtime"], "stopped")
+        self.assertEqual(self.closed, ["s1"])
+        self.assertEqual(len(self.deletes), 1)         # gone on the first read => no redundant retry
+
+    def test_an_unreadable_inventory_on_the_same_path_still_fails_closed(self):
+        # The guard must survive: a garbled read is NOT an empty box.
+        _cli.run_cli = lambda args, timeout=60: (
+            (0, "garbled banner only\n", "") if "list" in args
+            else (self.deletes.append(args) or (1, "", "")))
+        rec = close.close_one("main", self._STRAT, self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(rec["status"], "failed")
+        self.assertEqual(self.closed, [])
+        self.assertEqual(len(self.deletes), 2)
+
+
 class SelectDirectTarget(unittest.TestCase):
     """`--strategy-id`/`--address` address ONE specific strategy directly — unlike `--all`/`<package>`,
     which answer a SET question ("what's open for X"), where an empty result is a legitimate true
