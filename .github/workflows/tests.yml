@@ -27,5 +27,9 @@ jobs:
 
       # pytest collects every test regardless of a __main__ runner — bare `python3 <file>` exits 0
       # without running anything on a runner-less file (test_default_catalog.py), a silent green.
-      - name: full suites (ops + discover + trading-runtime)
-        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-trading-runtime/tests senpi-trader-research/tests senpi-market-pulse/tests senpi-portfolio/tests -q
+      # `strategies/tests` holds catalog-wide contract guards (no null optional signal keys).
+      # Named explicitly rather than `strategies`: a module-level sys.exit() in
+      # strategies/chimp/tests/test_package_shape.py aborts collection for that whole tree
+      # (pre-existing, unrelated).
+      - name: full suites (ops + discover + trading-runtime + catalog guards)
+        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-trading-runtime/tests senpi-trader-research/tests senpi-market-pulse/tests senpi-portfolio/tests strategies/tests -q

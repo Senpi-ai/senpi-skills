@@ -246,7 +246,10 @@ def scan(inputs, ctx):
                 "direction": th["direction"],
                 "marginPct": margin_pct,          # SIZING INTENT — runtime sizes the dollars
                 "leverage": leverage,             # conviction-tiered (7/10/10); runtime applies it
-                "data": {
+                # `required: false` in signal_data_schema permits an ABSENT key, never a present-and-null:
+                # the intake discards the WHOLE candidate on a null optional. Drop them here rather than
+                # coercing to 0/"" — a coerced value would assert a measurement that was never taken.
+                "data": {k: v for k, v in {
                     "score": th["score"], "tier": tier_label, "leverage": leverage,
                     "direction": th["direction"],
                     "trend4h": th["trend_4h"], "trendStrength4h": th["trend_strength_4h"],
@@ -258,7 +261,7 @@ def scan(inputs, ctx):
                     "priceChange5m": th["mom_5m"], "priceChange15m": th["mom_15m"],
                     "priceChange1h": th["mom_1h"], "priceChange4h": th["mom_4h"],
                     "reasons": th["reasons"],
-                },
+                }.items() if v is not None},
             }]
 
     # ── persist dedup map + this tick's result EVERY tick; self-trims at

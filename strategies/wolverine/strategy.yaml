@@ -7,7 +7,7 @@
 schema_version: 1
 
 id: wolverine
-version: "1.1.0"
+version: "1.1.1"
 catalog:
   name: "Wolverine — HYPE Alpha Hunter"
   emoji: "🦡"
