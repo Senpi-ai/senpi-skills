@@ -11,7 +11,7 @@
 schema_version: 1
 
 id: dragonfly               # == package dir name; == every leg's runtime.yaml `group`
-version: "1.1.0"            # single source for catalog + MCP attribution (skillName/skillVersion)
+version: "1.2.0"            # single source for catalog + MCP attribution (skillName/skillVersion)
 
 catalog:                    # discovery surface
   name: "Dragonfly — BTC + HYPE Composite Momentum"

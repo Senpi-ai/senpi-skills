@@ -4,7 +4,7 @@
 schema_version: 1
 
 id: manta
-version: "1.1.0"
+version: "1.2.0"
 
 catalog:
   name: "Manta — Multi-Timeframe Structure (FX)"
