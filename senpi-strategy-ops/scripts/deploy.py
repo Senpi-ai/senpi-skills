@@ -76,7 +76,9 @@ the verdict, never the invariant.
 import argparse
 import json
 import re
+import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -123,38 +125,127 @@ EXIT_PENDING = 6
 
 # ---------- package resolution (unchanged — discovery stays in skills) ----------
 
+def _pkg_version(pkg_dir):
+    """Declared version of a package on disk, or None. Text-scanned so it still reports on a
+    package that does not load."""
+    try:
+        m = re.search(r'^version:\s*"([^"]+)"', (Path(pkg_dir) / "strategy.yaml").read_text(), re.M)
+        return m.group(1) if m else None
+    except OSError:
+        return None
+
+
+def _stage_aside(dest_root, sid, log, why):
+    """Move <dest_root>/<sid> out of the way, to a name that cannot already exist. Returns the
+    backup path, or None if there was nothing there.
+
+    EVERY existing directory is moved, not just a loadable one. A dir holding files but no
+    strategy.yaml — the shape a pre-3.7.0 interrupted fetch leaves — used to skip this and then
+    take `shutil.move(fresh, local)`, which moves the package INSIDE it: BadPackage on this run,
+    and on the next one a `shutil.Error` because the nested copy is already there. The durable root
+    stayed wedged until a human cleared it."""
+    local = dest_root / sid
+    if not local.exists():
+        return None
+    stamp = time.strftime("%Y%m%dT%H%M%S")
+    backup = dest_root / f"{sid}.bak-{stamp}"
+    n = 1
+    while backup.exists():                       # two refreshes in one second must not collide
+        backup = dest_root / f"{sid}.bak-{stamp}-{n}"
+        n += 1
+    shutil.move(str(local), str(backup))
+    log(f"{why} — previous copy kept at {backup}")
+    return backup
+
+
+def _fetch_fresh(sid, ref, log, dest_root):
+    """Fetch <sid> into a staging dir INSIDE the durable root, and return it, or None if the remote
+    lacks it / is unreachable. Staging first is the safety property: a failed download can never
+    leave the durable root without a package. Staging *inside* dest_root (not /tmp) keeps the final
+    swap on one filesystem, so it is a rename rather than a cross-device copy+delete that could
+    fail half-way on a full disk."""
+    dest_root.mkdir(parents=True, exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(prefix=f".senpi-fetch-{sid}-", dir=dest_root))
+    try:
+        _fetch.fetch_package(sid, tmp, ref=ref)      # contract: writes <dest_root>/<id>
+        if not (tmp / sid / "strategy.yaml").is_file():
+            raise _fetch.FetchError("fetched tree has no strategy.yaml")
+        return tmp / sid
+    except Exception as e:                            # noqa — a fetch failure must not sink a deploy
+        shutil.rmtree(tmp, ignore_errors=True)
+        log(f"remote fetch of {sid!r} unavailable ({e})")
+        return None
+
+
 def ensure_pkg(arg, ref, log):
-    # A package that EXISTS on disk is authoritative — load it and let any BadPackage surface as the
-    # real, fixable error. NEVER fall through to a (possibly stale) remote fetch just because a local
-    # package is invalid: that silently deploys the wrong version and discards the author's local fixes.
-    # Only a bare id that isn't a local directory triggers the catalog fetch from remote.
-    if (_pkg.resolve_pkg_dir(arg) / "strategy.yaml").is_file():
+    """Resolve `arg` (package PATH or bare catalog id) to a Package, REFRESHING a bare id from the
+    remote so a deploy installs the current version.
+
+    Until 2026-09-04 an on-disk package was used verbatim and the remote never consulted, so a box
+    that had ever fetched a strategy was pinned to that copy forever — every later catalog fix
+    invisible to it. Observed live: a box deployed stingray v1.0.0 while the catalog was at v1.2.1,
+    funded the wallet, and reported success.
+
+    Three cases still do NOT refresh:
+      - an explicit PATH is an author's working copy — never second-guessed (an invalid one raises
+        its own error rather than falling through to a fetch: the GLM footgun)
+      - `.deploy-state.json` means a legacy DEPLOYED package — grafting catalog files onto live
+        deploy state is money-adjacent
+      - a bare id the remote does not have is LOCALLY AUTHORED — the 404 keeps the local copy, which
+        is what protects authored work without a marker file
+    A refresh renames the old copy to <id>.bak-<ts> rather than deleting it; any other fetch failure
+    keeps local and warns rather than blocking the deploy.
+    """
+    if (Path(arg) / "strategy.yaml").is_file():       # explicit path = explicit intent
         return _pkg.load(arg)
+
     sid = Path(arg).name
-    # Fetch to the DURABLE root (absolute, CWD-independent), never a CWD-relative path: a relative
-    # dest resolved inside a managed skill dir gets wiped on the next SKILL.md version bump.
+    # The DURABLE root (absolute, CWD-independent): a relative dest inside a managed skill dir gets
+    # wiped on the next SKILL.md version bump.
     dest_root = _pkg.strategies_root()
-    # A dest dir carrying deploy state but no loadable strategy.yaml is a partially-wiped DEPLOYED
-    # package — fetching would graft pristine catalog files onto a live deploy's remains. Refuse; this
-    # needs eyes, not a fetch. (This script no longer WRITES `.deploy-state.json`, but boxes deployed
-    # before the verb still carry one, and `_pkg.resolve_pkg_dir` still reads it as the tie-break.)
-    if (dest_root / sid / ".deploy-state.json").is_file():
+    local = dest_root / sid
+    has_state = (local / ".deploy-state.json").is_file()
+    loadable = (local / "strategy.yaml").is_file()
+
+    if has_state and not loadable:                    # partially-wiped deployed package — needs eyes
         raise SystemExit(
-            f"error: {dest_root / sid} carries deploy state (.deploy-state.json) but no loadable "
+            f"error: {local} carries deploy state (.deploy-state.json) but no loadable "
             f"strategy.yaml — refusing to fetch the catalog copy over a deployed package's remains.\n"
             f"  Inspect the directory and restore its files (or move the state aside) first.")
-    log(f"package {sid!r} not on disk — fetching from remote into {dest_root}…")
-    try:
-        _fetch.fetch_package(sid, dest_root, ref=ref)
-        return _pkg.load(dest_root / sid)
-    except (_fetch.FetchError, _pkg.BadPackage) as e:
+    if has_state:
+        log(f"{sid!r} carries deploy state — using the deployed copy ({_pkg_version(local)}), not refreshing")
+        return _pkg.load(local)
+
+    fresh = _fetch_fresh(sid, ref, log, dest_root)
+    if fresh is None:
+        if loadable:
+            log(f"WARNING: could not refresh {sid!r} — deploying the LOCAL copy ({_pkg_version(local)}), "
+                f"which may be stale if this id is in the catalog")
+            return _pkg.load(local)
         raise SystemExit(
-            f"error: {e}\n"
-            f"  {arg!r} is not a package on disk (tried {arg!r}, {dest_root / sid}, and "
+            f"error: {arg!r} is not a package on disk (tried {arg!r}, {local}, and "
             f"'strategies/{sid}' relative to the current directory) and could not be fetched as a "
             f"catalog id.\n"
             f"  Deploying a locally-authored package? Pass its DIRECTORY path instead of a bare id, "
             f"e.g.: deploy.py validate /data/workspace/strategies/{sid}")
+
+    old_v, new_v = _pkg_version(local), _pkg_version(fresh)
+    # Nothing to do when the versions already agree. The documented flow is `validate` then
+    # `create`, so without this an ordinary deploy leaves TWO .bak dirs — unbounded, never pruned,
+    # and picked up by validate_universe's root.glob("*") as if they were real packages. It also
+    # meant a forked template was backed up and replaced on EVERY command rather than once.
+    if loadable and new_v is not None and new_v == old_v:
+        log(f"{sid!r} already current at {new_v} — not refreshing")
+        shutil.rmtree(fresh.parent, ignore_errors=True)
+        return _pkg.load(local)
+
+    why = (f"{sid!r} refreshed: {old_v} -> {new_v}" if loadable
+           else f"{sid!r} on disk but unloadable — replacing with fetched {new_v}")
+    if _stage_aside(dest_root, sid, log, why) is None:   # unconditional: see the docstring there
+        log(f"{sid!r} not on disk — fetched {new_v} into {dest_root}")
+    shutil.move(str(fresh), str(local))
+    shutil.rmtree(fresh.parent, ignore_errors=True)
+    return _pkg.load(local)
 
 
 def local_pkg(arg):
