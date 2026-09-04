@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.6.24"
+  version: "3.7.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -68,7 +68,7 @@ remote fetch. Mechanics + state machine: [`references/lifecycle.md`](references/
 > **`status` is the gate, not a suggestion.** A strategy is LIVE only when the deploy report's `overall`
 > is **`live`** — every instance created + installed + a **verified scanner tick observed**.
 > `installed-unobserved` means the tick was NOT seen inside the wait window — not failure and not
-> success; say exactly that. Never report "live" off a started job, a running phase, or an install alone.
+> success; say exactly that. Never report "live" off a started job, a running phase, or an install alone — nor a VERSION off the catalog; quote deploy's own `package <id> vX.Y.Z`.
 
 **Step 0 — resolve which strategy.** The user's word ("spider") is a strategy **`id`**. Confirm it
 exists against the registry (`curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/strategies/catalog.json`);

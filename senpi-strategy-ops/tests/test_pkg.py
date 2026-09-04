@@ -322,6 +322,74 @@ def test_resolve_pkg_dir_path_form_finds_durable_package(monkeypatch, tmp_path):
     assert _pkg.resolve_pkg_dir("strategies/spider") == tmp_path / "durable" / "spider"
 
 
+def _fake_fetch(version):
+    """A fetch_package stand-in that writes a flat package at <version> into <dest_root>/<id>."""
+    def _f(sid, dest_root, ref=None, **kw):
+        make_flat(Path(dest_root), pkg_id=sid, version=version)
+    return _f
+
+
+def test_ensure_pkg_refreshes_a_stale_local_copy_and_backs_it_up(monkeypatch, tmp_path):
+    """THE BUG: an on-disk package used to win forever, so a box that had ever fetched a strategy
+    was pinned to that copy and every later catalog fix was invisible. Live: a box deployed
+    stingray v1.0.0 while the catalog was at v1.2.1, funded the wallet, and reported success."""
+    deploy = _import_deploy()
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    make_flat(tmp_path / "durable", pkg_id="spider", version="1.0.0")     # the stale local copy
+    monkeypatch.setattr(deploy._fetch, "fetch_package", _fake_fetch("1.2.1"))
+    pkg = deploy.ensure_pkg("spider", None, lambda m: None)
+    assert deploy._pkg_version(pkg.dir) == "1.2.1"                        # the CURRENT version deploys
+    baks = list((tmp_path / "durable").glob("spider.bak-*"))
+    assert len(baks) == 1 and deploy._pkg_version(baks[0]) == "1.0.0"     # old copy kept, not deleted
+
+
+def test_ensure_pkg_keeps_local_when_the_remote_has_no_such_package(monkeypatch, tmp_path):
+    """A locally AUTHORED package is not in the catalog, so the fetch 404s — that is what protects
+    authored work, with no marker file needed."""
+    deploy = _import_deploy()
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    make_flat(tmp_path / "durable", pkg_id="my-own", version="0.1.0")
+
+    def _404(*a, **k):
+        raise deploy._fetch.FetchError("strategy 'my-own' not found under strategies/")
+
+    monkeypatch.setattr(deploy._fetch, "fetch_package", _404)
+    msgs = []
+    pkg = deploy.ensure_pkg("my-own", None, msgs.append)
+    assert deploy._pkg_version(pkg.dir) == "0.1.0"                        # untouched
+    assert not list((tmp_path / "durable").glob("my-own.bak-*"))          # and not backed up
+    assert any("WARNING" in m for m in msgs)
+
+
+def test_ensure_pkg_failed_fetch_never_leaves_the_root_without_a_package(monkeypatch, tmp_path):
+    """Temp-first: a download that dies partway must not destroy the copy already on disk."""
+    deploy = _import_deploy()
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    make_flat(tmp_path / "durable", pkg_id="spider", version="1.0.0")
+
+    def _boom(sid, dest_root, ref=None, **kw):
+        make_flat(Path(dest_root), pkg_id=sid, version="9.9.9")           # half-written…
+        raise OSError("connection reset")                                 # …then dies
+
+    monkeypatch.setattr(deploy._fetch, "fetch_package", _boom)
+    pkg = deploy.ensure_pkg("spider", None, lambda m: None)
+    assert deploy._pkg_version(pkg.dir) == "1.0.0"                        # local survives intact
+    assert not list((tmp_path / "durable").glob("spider.bak-*"))
+
+
+def test_ensure_pkg_does_not_refresh_a_package_carrying_deploy_state(monkeypatch, tmp_path):
+    """A legacy DEPLOYED package stays pinned — grafting catalog files onto live deploy state is
+    money-adjacent."""
+    deploy = _import_deploy()
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    make_flat(tmp_path / "durable", pkg_id="spider", version="1.0.0")
+    (tmp_path / "durable" / "spider" / ".deploy-state.json").write_text("{}")
+    called = []
+    monkeypatch.setattr(deploy._fetch, "fetch_package", lambda *a, **k: called.append(a))
+    pkg = deploy.ensure_pkg("spider", None, lambda m: None)
+    assert deploy._pkg_version(pkg.dir) == "1.0.0" and not called
+
+
 def test_ensure_pkg_never_fetches_over_deploy_state(monkeypatch, tmp_path):
     """A dest dir carrying .deploy-state.json but no loadable strategy.yaml (partially wiped
     deployed package) must REFUSE the catalog fetch, not overwrite in place: the fetch would
@@ -394,9 +462,14 @@ def test_ensure_pkg_fetches_into_durable_root_regardless_of_cwd(monkeypatch, tmp
     skill_dir.mkdir(parents=True)
     monkeypatch.chdir(skill_dir)  # the CWD-lottery losing position
     pkg = deploy.ensure_pkg("tech-breakout", None, lambda m: None)
-    assert fetched["dest_root"] == tmp_path / "durable"
+    # The invariant the incident fix protects is WHERE THE PACKAGE ENDS UP, not which directory the
+    # download passed through. ensure_pkg now fetches to a temp root and only moves into the durable
+    # root once the download is complete, so a failed fetch can never leave the durable root without
+    # a package — but the resting place, and the CWD-independence, are unchanged.
     assert pkg.dir == (tmp_path / "durable" / "tech-breakout").resolve()
+    assert (tmp_path / "durable" / "tech-breakout" / "strategy.yaml").is_file()
     assert not (skill_dir / "strategies").exists()  # nothing landed in the skill dir
+    assert Path(fetched["dest_root"]) != skill_dir  # and never the CWD/skill dir
 
 
 def test_fetch_out_path_refuses_traversal(tmp_path):
