@@ -23,11 +23,15 @@ import re
 import sys
 
 import pytest
+import yaml
 
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-# Optional keys observed to arrive as None from an upstream read that has no row for the asset.
-# Any scanner emitting one of these must drop it when it is None rather than emit a null.
+# REGISTRY, not a detector. These are optional keys OBSERVED to arrive as None from an upstream
+# read with no row for the asset. Whether a key can be null is a property of its upstream, which no
+# static check can know — the fleet declares 310 distinct `required: false` keys and almost none of
+# them ever go null. So this list grows when a new nullable key is found in the wild; it does not
+# pretend to enumerate them in advance. `test_registry_keys_are_really_optional` keeps it honest.
 _NULLABLE_OPTIONAL_KEYS = (
     "persistenceHours",
     "fundingPersistenceHours",
@@ -152,13 +156,33 @@ def _scanners_emitting_nullable_keys():
 
 @pytest.mark.parametrize("rel", _scanners_emitting_nullable_keys())
 def test_every_scanner_emitting_a_nullable_optional_key_drops_nulls(rel):
-    """Fleet guard: any scanner that emits one of the known-nullable optional keys must
-    filter None out of the emitted `data` map. Catches the next package to hit this."""
+    """Fleet guard: a scanner emitting a known-nullable optional key must filter None out of
+    EVERY `data` map it emits.
+
+    Counted per emission site, not once per file: a file-wide substring search passes a scanner
+    that filters one site and forgets a second one added later, which is the regression shape to
+    expect here. Today every one of these scanners has exactly one site — this keeps that true.
+    """
     src = open(os.path.join(os.path.dirname(_ROOT), rel), encoding="utf-8").read()
-    assert re.search(r"if v is not None", src), (
-        f"{rel} emits a nullable optional key but never drops None from `data` — "
-        "the intake will discard every such candidate"
+    sites = len(re.findall(r'"data":\s*\{', src))
+    filtered = len(re.findall(r"\}\.items\(\) if v is not None\}", src))
+    assert sites and filtered == sites, (
+        f"{rel} emits a nullable optional key from {sites} `data` site(s) but only {filtered} "
+        f"drop None — the intake discards every candidate carrying a null optional"
     )
+
+
+def test_registry_keys_are_really_optional_somewhere_in_the_catalog():
+    """A typo in _NULLABLE_OPTIONAL_KEYS would silently select nothing and pass everything. Each
+    registry key must actually be declared `required: false` by some instance."""
+    declared = set()
+    for path in glob.glob(os.path.join(_ROOT, "*", "*", "runtime.yaml")):
+        for sc in (yaml.safe_load(open(path, encoding="utf-8")) or {}).get("scanners") or []:
+            for k, v in (sc.get("signal_data_schema") or {}).items():
+                if isinstance(v, dict) and v.get("required") is False:
+                    declared.add(k)
+    unknown = sorted(set(_NULLABLE_OPTIONAL_KEYS) - declared)
+    assert not unknown, f"registry keys not declared optional anywhere: {unknown} (typo?)"
 
 
 if __name__ == "__main__":
