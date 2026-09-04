@@ -600,12 +600,25 @@ def frame(s):
     return f"{a}: {nums}."
 
 
-SCORE_LEGEND = ("Score = a 0-100 weighted checklist, not a probability. TRADE = directional edge · "
-                "earliness (flow in, price still flat) · is it a change · does it contradict the crowd "
-                "· size, times a credibility multiplier for book depth and source. NEWS = how "
-                "invisible it is on a chart · size · contradiction · change · a named wallet, times "
-                "credibility and freshness. It ranks; it does not predict.  "
-                "🔥 80+ act-worthy · 🟠 65-79 worth a look · 🟡 45-64 context")
+# Printed at the TOP of every run, including a quiet one. A reader should never have to ask what a
+# number or a marker means — and the honest answer to "what does 88.7 mean" is short enough to say
+# every time. Keep it scannable: bands first (that is what the eye lands on), caveat last.
+HOW_TO_READ = [
+    "**How to read this**",
+    "",
+    "🔥 **80+** act on it · 🟠 **65–79** worth a look · 🟡 **45–64** context",
+    "⭐ top of feed · ⚑ a named wallet · **early** = positioning is in, the price move hasn't happened yet",
+    "",
+    "The score is a **0–100 weighted checklist, not a probability** — it ranks what to look at, "
+    "it does not predict. *Trade* weighs directional edge · earliness · is it a change · does it cut "
+    "against the crowd · size. *News* weighs how invisible it is on a chart · size · contradiction · "
+    "change · a named wallet. Both are multiplied by credibility (book depth + how trustworthy the "
+    "source is) and news also by freshness.",
+    "",
+    "Every claim is dated and priced where we have it — `[2h ago · from $41.20]`. No bracket means "
+    "we could not date it, not that it is fresh.",
+]
+SCORE_LEGEND = " ".join(x for x in HOW_TO_READ if x and not x.startswith("**How"))
 
 
 def badge(sc):
@@ -758,7 +771,7 @@ def _render_md(now, social, trade, lens, cov=None):
     ts = now.isoformat()[:16]
     out = [f"# 🔭 Senpi Signals — {ts} UTC", "",
            "_Observation, not advice. Every number is from a live read this run — verify before posting._",
-           "", f"_{SCORE_LEGEND}_", ""]
+           ""] + HOW_TO_READ + ["", "---", ""]
     cov = cov or {}
     if cov.get("smart_money_lens") == "NO DATA" and cov.get("flow_lens") == "NO DATA":
         out += ["> ⛔ **Smart-money lens UNAVAILABLE this run — no cohort positioning was supplied.**",
@@ -946,7 +959,7 @@ def main():
                       "trend_baseline_age_hours": (round(slow_age_min / 60.0, 1)
                                                    if slow_age_min is not None else None),
                       "trend_ready": bool(slow_age_min is not None and slow_age_min >= TREND_MIN_AGE_MIN),
-                      "coverage": cov,
+                      "coverage": cov, "how_to_read": SCORE_LEGEND,
                       "trade": trade, "social": social}, indent=2))
     if cov["smart_money_lens"] == "NO DATA" and cov["flow_lens"] == "NO DATA":
         print("[warn] NO cohort positioning supplied — the smart-money and flow detectors could not "

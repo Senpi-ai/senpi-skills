@@ -21,7 +21,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.9.0"
+  version: "1.9.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -160,6 +160,10 @@ ghost town in a top six. Give a **user** the trade feed; give the **content auto
     feature it. Durable + structural leads; transient 4h momentum is color.
 
 ## Output conventions
+- **A "How to read this" block prints at the TOP of every run — including a quiet one.** Bands, the
+  ⭐/⚑/early markers, what the score is (a 0-100 weighted checklist, *not* a probability), and what a
+  missing `[age · basis]` bracket means. Never strip it: a reader should not have to ask what 88.7
+  means, and the honest answer is short enough to repeat every run. `score.py` emits it — keep it.
 - **The engine titles the sweep `🔭 Senpi Signals — <YYYY-MM-DD HH:MM> UTC`** and renders **two badged
   sections** — *Tradeable dislocations* (trade feed) and *Market news* (social feed). Present the feed
   that fits the audience; don't relabel it "Signals of the Day."
