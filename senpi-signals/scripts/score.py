@@ -52,6 +52,8 @@ SMART_SHARE_MIN = 25.0        # fallback when the basis is unstated
 SMART_JUMP_PP = 12.0
 FUNDING_PCTILE = 95.0
 WHALE_MIN_USD = 1_000_000
+WHALE_MOVE_MAX_AGE_MIN = 720  # a "change" older than this is not news — it is a holding. Without a
+                              # timestamp at all we cannot date it, so it is treated as a holding too.
 FUNDING_FLIP_FULL_PCT = 10.0  # post-flip |rate| that counts as a full-magnitude carry turn. A "flip"
                               # is a ZERO-CROSSING, so it is near zero by construction — the size of
                               # the move PAST zero is the story. Without this every flip scored 1.0
@@ -517,11 +519,18 @@ def normalize_event(e):
         return None
     det = e["detector"]
     if det == "whale_move":
-        # MOVES, not holdings. A big position held from an old entry with no recent change is NOT a
-        # signal — a whale sitting on $78M from a months-old entry is holdings. Require a recent size
-        # change (opened/added/flipped) or a large 4h PnL swing; magnitude from the CHANGE, not size.
-        chg = _num(e.get("change_usd")) or _num(e.get("pnl_swing_usd"))
+        # MOVES, not holdings — and a P&L SWING IS NOT A MOVE.
+        # `pnl_swing_usd` used to qualify here, which readmitted holdings through the back door: a
+        # months-old position printing hard because price moved is precisely the case SKILL.md warns
+        # about ("a months-old $38.68 entry is holdings, not a move"). Price acting on a static
+        # position is not a decision by the whale. Only a SIZE change is: opened, added, flipped.
+        chg = _num(e.get("change_usd"))
         if not (chg or e.get("opened") or e.get("flipped")):
+            return None
+        # …and it must be DATEABLE and RECENT. An undated change cannot be distinguished from an old
+        # one, so absent a timestamp we assume holdings and drop it.
+        age = _num(e.get("age_minutes"))
+        if age is None or age > WHALE_MOVE_MAX_AGE_MIN:
             return None
         mag = min(1.0, (abs(chg) if chg else WHALE_MIN_USD) / (10 * WHALE_MIN_USD))
     else:
@@ -536,7 +545,24 @@ def normalize_event(e):
         "price_change_pct": _num(e.get("price_change_pct")),
         "magnitude": max(0.0, min(1.0, mag)), "conflict": bool(e.get("conflict")),
         "flip": bool(e.get("flip")), "is_change": bool(e.get("is_change", True)),
+        # WHEN, and FROM WHAT — every claim should be dateable and priceable by the reader
+        "age_minutes": _num(e.get("age_minutes")), "basis_price": _num(e.get("basis_price")),
+        "basis_at": e.get("basis_at"), "as_of": e.get("as_of"),
     }
+
+
+def when(s):
+    """"…as of 2h ago, from $38.68" — a signal the reader cannot date or price is not verifiable.
+    Returns "" when we have neither, so the line degrades honestly instead of implying freshness."""
+    bits = []
+    age = _num(s.get("age_minutes"))
+    if age is not None:
+        bits.append(f"{age / 60.0:.0f}h ago" if age >= 60 else f"{age:.0f}min ago")
+    bp = _num(s.get("basis_price"))
+    if bp is not None:
+        frm = f"from ${bp:,.4f}".rstrip("0").rstrip(".") if bp < 1 else f"from ${bp:,.2f}"
+        bits.append(frm + (f" ({s['basis_at']})" if s.get("basis_at") else ""))
+    return f" [{' · '.join(bits)}]" if bits else ""
 
 
 def _smart_lead(s):
@@ -574,6 +600,14 @@ def frame(s):
     return f"{a}: {nums}."
 
 
+SCORE_LEGEND = ("Score = a 0-100 weighted checklist, not a probability. TRADE = directional edge · "
+                "earliness (flow in, price still flat) · is it a change · does it contradict the crowd "
+                "· size, times a credibility multiplier for book depth and source. NEWS = how "
+                "invisible it is on a chart · size · contradiction · change · a named wallet, times "
+                "credibility and freshness. It ranks; it does not predict.  "
+                "🔥 80+ act-worthy · 🟠 65-79 worth a look · 🟡 45-64 context")
+
+
 def badge(sc):
     """Severity flag by score — so the eye lands on the biggest first (a round-3 output convention)."""
     return "🔥" if sc >= 80 else ("🟠" if sc >= 65 else "🟡")
@@ -607,6 +641,24 @@ def trade_read(s):
     if det == "cross_asset_laggard":
         return f"{a} is the rotation laggard — a catch-up watch."
     return f"{a}: {'; '.join(s.get('numbers') or [])}."
+
+
+def dedupe_feeds(trade, social, pool, top_n, family_cap):
+    """The two feeds were ranking the SAME small signal pool, so with ~6 survivors both lenses chose
+    the same six and the news section became a restatement of the trade section.
+
+    Keep the trade feed whole (it is the primary read), drop anything from the news feed that is
+    already in it, and BACKFILL from the rest of the pool. Net effect: the run surfaces up to 2x the
+    distinct signals instead of printing one set twice."""
+    # Keyed on ASSET, not (asset, detector): the same name surfacing in both sections reads as
+    # repetition to a human even when the angle differs, which is the complaint this fixes.
+    seen = {x["asset"] for x in trade}
+    kept = [x for x in social if x["asset"] not in seen]
+    if len(kept) < top_n:
+        used = seen | {x["asset"] for x in kept}
+        spare = [x for x in pool if x["asset"] not in used]
+        kept += rank(spare, "social_score", MIN_SOCIAL, top_n - len(kept), family_cap)
+    return kept[:top_n]
 
 
 def rank(signals, score_key, min_score, top_n, family_cap):
@@ -705,7 +757,8 @@ def _render_md(now, social, trade, lens, cov=None):
     """Two badged, ranked feeds. Badges (🔥/🟠/🟡), ⭐ top-of-feed, ⚑ named-wallet — keep them."""
     ts = now.isoformat()[:16]
     out = [f"# 🔭 Senpi Signals — {ts} UTC", "",
-           "_Observation, not advice. Every number is from a live read this run — verify before posting._", ""]
+           "_Observation, not advice. Every number is from a live read this run — verify before posting._",
+           "", f"_{SCORE_LEGEND}_", ""]
     cov = cov or {}
     if cov.get("smart_money_lens") == "NO DATA" and cov.get("flow_lens") == "NO DATA":
         out += ["> ⛔ **Smart-money lens UNAVAILABLE this run — no cohort positioning was supplied.**",
@@ -725,7 +778,7 @@ def _render_md(now, social, trade, lens, cov=None):
             out.append(f"{star}{badge(s['trade_score'])} **{s['trade_score']}** · `{s['asset']}` — "
                        f"{s['detector']} · {s.get('credibility', 0):.2f} cred"
                        + ("  ⚑" if s.get("concrete_entity") else ""))
-            out.append(f"  {trade_read(s)}")
+            out.append(f"  {trade_read(s)}{when(s)}")
             out.append(f"  _{'; '.join(s.get('numbers') or [])}_")
             out.append("")
     if lens in ("both", "social") and social:
@@ -734,7 +787,7 @@ def _render_md(now, social, trade, lens, cov=None):
             star = "⭐ " if i == 0 else ""
             out.append(f"{star}{badge(s['social_score'])} **{s['social_score']}** · `{s['asset']}` — "
                        f"{s['detector']}" + ("  ⚑" if s.get("concrete_entity") else ""))
-            out.append(f"  {frame(s)}")
+            out.append(f"  {frame(s)}{when(s)}")
             out.append("")
     if not social and not trade:
         out += ["_Nothing notable stands out right now — a quiet read is a correct answer._", ""]
@@ -779,6 +832,11 @@ def _read_state(path):
 
 
 def _commit_state(path, cur_metrics, now, consumer, social_picks):
+    # `social_picks` is every signal that was SHOWN this run (both feeds). It used to be the social
+    # feed alone, which was correct while the feeds overlapped — a trade pick was almost always also
+    # a social pick, so it got recorded anyway. Once dedupe_feeds started promoting items into the
+    # trade feed and out of news, those items stopped being marked as surfaced and would come back
+    # looking fresh forever. Mark what the reader actually saw.
     """Locked read-merge-write: re-read under an exclusive lock and MERGE this snapshot into whatever
     ring is current, so a concurrent cron/user run never clobbers the other's baseline; update only
     THIS consumer's freshness map; prune; write. Best-effort — never sinks the run."""
@@ -793,7 +851,7 @@ def _commit_state(path, cur_metrics, now, consumer, social_picks):
             by_ts[now.isoformat()] = {"ts": now.isoformat(), "asset_metrics": cur_metrics}
             ring = _prune_ring(sorted(by_ts.values(), key=lambda s: s.get("ts") or ""), now)
             seen = dict(sb.get(consumer) or {})
-            for s in social_picks:                       # only the social feed drives anti-repeat
+            for s in social_picks:                       # everything RENDERED drives anti-repeat
                 seen[f"{s['asset']}|{s['detector']}"] = now.isoformat()
             sb[consumer] = _prune_surfaced(seen, now)
             json.dump({"ts": now.isoformat(), "snapshots": ring, "surfaced_by": sb}, open(path, "w"))
@@ -873,11 +931,12 @@ def main():
     live = [s for s in signals if (_num(s.get("notional_vol")) or CRED_FLOOR_VOL) >= CRED_FLOOR_VOL]
     tradeable = [s for s in live if (_num(s.get("notional_vol")) or TRADE_CRED_FLOOR) >= TRADE_CRED_FLOOR]
 
-    social = rank(live, "social_score", MIN_SOCIAL, a.top, FAMILY_CAP)
     trade = rank(tradeable, "trade_score", MIN_TRADE, a.top, FAMILY_CAP)
+    social = dedupe_feeds(trade, rank(live, "social_score", MIN_SOCIAL, a.top, FAMILY_CAP),
+                          live, a.top, FAMILY_CAP)
 
     # advance state: locked read-merge-write into the SHARED ring + THIS consumer's freshness map
-    _commit_state(state_path, cur_metrics, now, a.consumer, social)
+    _commit_state(state_path, cur_metrics, now, a.consumer, social + trade)
 
     cov = coverage(cur_metrics)
     open(a.out, "w").write(_render_md(now, social, trade, a.lens, cov))

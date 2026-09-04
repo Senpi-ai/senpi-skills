@@ -318,15 +318,31 @@ def test_smart_source_is_labelled_honestly_and_discounted():
         < score.trade_score(proven, score.credibility(9e8) * proven["source_trust"])
 
 
-def test_whale_move_requires_a_move_not_a_holding():
-    # round-3 rule: a big HOLDING is not a signal — only a recent move (open/add/flip or PnL swing) is.
-    assert score.normalize_event({"asset": "HYPE", "detector": "whale_move", "notional_vol": 5e8,
-                                  "numbers": ["holds $78M HYPE from an old entry"]}) is None
-    ev = score.normalize_event({"asset": "INTC", "detector": "whale_move", "change_usd": 10_000_000,
-                                "concrete_entity": "0x1234", "notional_vol": 8e6})
-    assert ev is not None and ev["magnitude"] > 0 and ev["concrete_entity"] == "0x1234"   # a real add fires
-    assert score.normalize_event({"asset": "SOL", "detector": "whale_move", "opened": True}) is not None
-    assert score.normalize_event({"asset": "ETH", "detector": "whale_move", "pnl_swing_usd": 4e6}) is not None
+def test_whale_move_requires_a_dated_SIZE_move_not_a_holding_or_a_pnl_swing():
+    """A big HOLDING is not a signal, and neither is a P&L swing on one.
+
+    This test previously asserted `pnl_swing_usd` fires. That was the loophole: price acting on a
+    static position is not a decision by the whale, so admitting it readmitted exactly the case
+    SKILL.md names — "a months-old $38.68 entry is holdings, not a move". Live proof: a $3.4M 4h P&L
+    swing on a months-old $38.68 HYPE long was ranked as a whale_move.
+
+    Only a SIZE change counts (opened / added / flipped), and it must be DATEABLE and recent —
+    an undated change cannot be told apart from an old one, so it is treated as a holding."""
+    W = lambda **kw: score.normalize_event(dict(asset="HYPE", detector="whale_move", **kw))
+    assert W(notional_vol=5e8, numbers=["holds $78M from an old entry"]) is None   # holding
+    assert W(pnl_swing_usd=3_400_000, age_minutes=60) is None                      # P&L swing != move
+    assert W(change_usd=5_000_000) is None                                         # undated -> holding
+    assert W(change_usd=5_000_000, age_minutes=score.WHALE_MOVE_MAX_AGE_MIN + 1) is None   # old news
+
+    ev = W(change_usd=10_000_000, age_minutes=45, basis_price=38.68,
+           concrete_entity="0x1234", notional_vol=8e6)
+    assert ev is not None and ev["magnitude"] > 0 and ev["concrete_entity"] == "0x1234"
+    assert ev["age_minutes"] == 45 and ev["basis_price"] == 38.68
+    assert W(opened=True, age_minutes=10) is not None                              # a fresh open fires
+
+    # when(): the reader can date and price every claim — and gets nothing rather than a fake one
+    assert "45min ago" in score.when(ev) and "38.68" in score.when(ev)
+    assert score.when({}) == ""
 
 
 # ── end-to-end ──
@@ -397,9 +413,13 @@ def test_end_to_end():
         # the thin ($3M) market is content-worthy but excluded from the TRADE feed (liquidity floor)
         assert "THIN" in social and "THIN" not in trade
 
+        # THE TWO FEEDS DO NOT REPEAT EACH OTHER. Both lenses rank the same small pool, so without
+        # this the news feed was a restatement of the trade feed — the same six assets printed twice.
+        assert not (set(trade) & set(social)), f"cross-listed: {set(trade) & set(social)}"
+
         # detectors classified right; the funding sign-flip is a CHANGE, the static levels are not
-        assert social["OIL"]["detector"] == "oi_surge" and social["OIL"]["conflict"] is True
-        assert social["SPCX"]["detector"] == "sm_divergence" and social["SPCX"]["flip"] is True
+        assert trade["OIL"]["detector"] == "oi_surge" and trade["OIL"]["conflict"] is True
+        assert trade["SPCX"]["detector"] == "sm_divergence" and trade["SPCX"]["flip"] is True
         assert trade["FUND"]["detector"] == "funding_flip" and trade["FUND"]["is_change"] is True
 
         # change>state: a static funding_extreme is carry, not a trade — it never clears the trade floor
@@ -415,9 +435,10 @@ def test_end_to_end():
             fams = [score.FAMILY[s["detector"]] for s in feed]
             assert fams.count("funding") <= 2, fams
 
-        # credibility is a multiplier: same detector (sm_divergence), the fatter book scores higher
-        assert social["SPCX"]["social_score"] > social["THIN"]["social_score"]
-        assert social["SPCX"]["credibility"] > social["THIN"]["credibility"]
+        # credibility is a multiplier: same detector (sm_divergence), the fatter book scores higher.
+        # SPCX now lands in the TRADE feed and is deduped out of news, so compare across the feeds.
+        assert trade["SPCX"]["social_score"] > social["THIN"]["social_score"]
+        assert trade["SPCX"]["credibility"] > social["THIN"]["credibility"]
         assert social["THIN"]["credibility"] < 1.0   # thin book is discounted, not full-credibility
 
         # both lenses ranked descending, each within its floor
