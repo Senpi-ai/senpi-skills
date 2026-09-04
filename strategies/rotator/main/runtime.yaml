@@ -90,7 +90,11 @@ exit:
     execution_timeout_seconds: 45
   dsl_preset:
     hard_timeout: { enabled: true, interval_in_minutes: 2880 }              # 48h — full turnover
-    weak_peak_cut: { enabled: true, interval_in_minutes: 1440, min_value: 2.5 }  # free a stalled slot in ~1d
+    # DISABLED - this cut closes at MARKET at whatever price is there, with no floor, so on a
+    # longer-hold book it realises a small LOSS on a position that simply hadn't moved yet
+    # (Ignas, M408027, xyz:PLTR on cougar). Same defect we removed from phase1. weak_peak is
+    # a CHOP tool only: it belongs where the strategy already intends to be out within hours.
+    weak_peak_cut: { enabled: false, interval_in_minutes: 1440, min_value: 2.5 }  # free a stalled slot in ~1d
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable
       # move it can still sit BELOW entry and close a WINNER at a loss — churning fees.

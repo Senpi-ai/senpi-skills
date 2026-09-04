@@ -89,7 +89,11 @@ exit:
       enabled: true
       interval_in_minutes: 4320            # 3d (ported verbatim)
     weak_peak_cut:
-      enabled: true
+      # DISABLED - this cut closes at MARKET at whatever price is there, with no floor, so on a
+      # longer-hold book it realises a small LOSS on a position that simply hadn't moved yet
+      # (Ignas, M408027, xyz:PLTR on cougar). Same defect we removed from phase1. weak_peak is
+      # a CHOP tool only: it belongs where the strategy already intends to be out within hours.
+      enabled: false
       interval_in_minutes: 240             # 4h (ported verbatim)
       min_value: 1.5
     dead_weight_cut:

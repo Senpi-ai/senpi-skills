@@ -108,7 +108,11 @@ exit:
       # follow must clear to prove it is still working. At 2.5 (= 0.5% of price at 5x) any wiggle reset
       # the clock and this fired ONCE in 179 closes. At 10 (= 2% of price at 5x) a position that never
       # gets 2% our way in two days is correctly declared dead and frees its slot.
-      enabled: true
+      # DISABLED - this cut closes at MARKET at whatever price is there, with no floor, so on a
+      # longer-hold book it realises a small LOSS on a position that simply hadn't moved yet
+      # (Ignas, M408027, xyz:PLTR on cougar). Same defect we removed from phase1. weak_peak is
+      # a CHOP tool only: it belongs where the strategy already intends to be out within hours.
+      enabled: false
       interval_in_minutes: 2880        # 48h
       min_value: 10
     phase1:
