@@ -4,20 +4,31 @@
      "strategyWalletAddress": "0xKODIAK00000000000000000000000000000kdk", "status": "ACTIVE"}
   ]},
 
+  "account_get_historical_info": {"historical_info": {
+    "day":     {"totalPnlByValue": "12.00",  "totalPnlByPercentage": "1.2",
+                "accountValueHistory": [{"timestamp": "1782700000000", "value": "1012.00"}]},
+    "week":    {"totalPnlByValue": "340.00", "totalPnlByPercentage": "34.0",
+                "accountValueHistory": [{"timestamp": "1782700000000", "value": "1012.00"}]},
+    "month":   {"totalPnlByValue": "340.00", "totalPnlByPercentage": "34.0",
+                "accountValueHistory": [{"timestamp": "1782700000000", "value": "1012.00"}]},
+    "allTime": {"totalPnlByValue": "460.00", "totalPnlByPercentage": "46.0",
+                "accountValueHistory": [{"timestamp": "1782700000000", "value": "1012.00"}]}
+  }},
+
   "discovery_get_trader_history::0xkodiak00000000000000000000000000000kdk": {"closedPositions": [
     {"closedOrderId": "0xSOL", "coin": "SOL", "coinDisplayName": "SOL", "szi": "3.0",
      "entryPx": "120.00", "exitPx": "150.00", "leverage": {"type": "cross", "value": 5},
-     "realizedPnl": "90.00", "marginUsed": "90.00",
+     "realizedPnl": "90.00", "marginUsed": "90.00", "totalFees": "1.50",
      "openTime": 1782500000000, "closeTime": 1782700000000},
 
     {"closedOrderId": "0xETH", "coin": "ETH", "coinDisplayName": "ETH", "szi": "0.5",
      "entryPx": "1900.00", "exitPx": "2000.00", "leverage": {"type": "cross", "value": 4},
-     "realizedPnl": "50.00", "marginUsed": "250.00",
+     "realizedPnl": "50.00", "marginUsed": "250.00", "totalFees": "2.25",
      "openTime": 1782600000000, "closeTime": 1782750000000},
 
     {"closedOrderId": "0xBTC", "coin": "BTC", "coinDisplayName": "BTC", "szi": "-0.05",
      "entryPx": "104000.00", "exitPx": "100000.00", "leverage": {"type": "cross", "value": 3},
-     "realizedPnl": "200.00", "marginUsed": "1666.00",
+     "realizedPnl": "200.00", "marginUsed": "1666.00", "totalFees": "3.00",
      "openTime": 1782650000000, "closeTime": 1782800000000}
   ]},
 
@@ -26,14 +37,13 @@
     {"asset": "ETH", "status": "ACTIVE", "currentTierIndex": 0, "highWaterRoe": 6.0}
   ]},
 
-  "strategy_get_clearinghouse_state::0xkodiak00000000000000000000000000000kdk": {
-    "main": {"assetPositions": [
-      {"position": {"coin": "SOL", "szi": "10.0", "entryPx": "120.00", "unrealizedPnl": "120.00",
-                    "returnOnEquity": "0.10", "positionValue": "1300.00",
-                    "leverage": {"type": "cross", "value": 5}}}
-    ]},
-    "xyz": {"assetPositions": []}
-  },
+  "discovery_get_trader_state": {"traders": [
+    {"address": "0xkodiak00000000000000000000000000000kdk", "openOrders": [], "openPositions": [
+      {"coin": "SOL", "coinDisplayName": "SOL", "szi": "10.0", "entryPx": "120.00",
+       "unrealizedPnl": "120.00", "returnOnEquity": "0.10", "positionValue": "1300.00",
+       "leverage": {"type": "cross", "value": 5}}
+    ]}
+  ]},
 
   "market_get_asset_data::sol": {"asset_context": {"markPx": "130.00", "prevDayPx": "148.0"}},
   "market_get_asset_data::eth": {"asset_context": {"markPx": "2200.00", "prevDayPx": "2010.0"}},

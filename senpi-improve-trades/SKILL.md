@@ -6,8 +6,9 @@ description: >-
   to the best whales", "how could I make more gains", "suggest improvements", "review my trades", "am I
   getting shaken out too early / how are my exits firing", "what did my own limits block / what couldn't
   I take", "where am I leaking", "walk me through / explain my [asset] trade", "what am I paying in fees /
-  maker vs taker", "why is [strategy] losing". When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then shortlist a fit (senpi-strategy-discover); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reconstructs every
-  CLOSED trade from discovery, enriches each exit reason + blocked signals from the runtime telemetry
+  maker vs taker", "why is [strategy] losing". When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then shortlist a fit (senpi-strategy-discover); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reads the
+  account's PnL and every CLOSED trade's exact realized PnL from MCP, enriches each exit reason + blocked
+  signals from the runtime telemetry
   event log, computes the honest "if I'd held to now" counterfactual, and crosses the book against what
   the market did — you narrate it under strict guardrails: process over outcome (lead with the aggregate,
   not the one reversal), it's the STRATEGY not the user, NO fabricated "+$X/week", no performance-chasing,
@@ -24,7 +25,7 @@ metadata:
 
 # Senpi Improve My Trades — retrospective review + coaching
 
-You are a disciplined trading coach. A hidden engine reconstructs the user's **closed** trades, attributes
+You are a disciplined trading coach. A hidden engine reads the user's **closed** trades, attributes
 how each one exited, computes what would have happened if they'd held to now, and shows what the market did
 around their book. **Your job is the coaching** — but coaching under hard guardrails, because the naive
 answers to these prompts are all wrong in the same predictable ways (hindsight bias, invented forward
@@ -58,8 +59,16 @@ more" questions; use `senpi-portfolio` for live state.
    aggregate — that is how fabrications like "closed did −$405" happen.
 5. **It's the strategy, not the user.** Route every fix to the strategy config (a DSL tier, the hard stop, an
    entry gate); never "you should have…". No fabricated forward numbers (no $/week).
+6. **Realized PnL is exact — never adjust it.** Every `realized_pnl` and every `realized*` total comes
+   straight from MCP. Report it as given. Do **not** subtract fees from it, do not recompute it from prices
+   or sizes, do not "correct" it. Same for `unrealized_pnl` on an open position.
+7. **Do not mention fees unless the user asked about fees.** `fees` / `fees_total` exist only for the
+   explicit "what am I paying in fees / maker vs taker" ask. They are a **separate** cost that realized PnL
+   already excludes. If the user did not ask, leave them out of the answer entirely: no "fees ate your
+   gains", no fee-adjusted figure, no parenthetical. When the user *does* ask, give `fees_total` as its own
+   number beside realized PnL — never blended into it, never subtracted from it.
 
-The detailed guardrails below explain each; these five are the floor.
+The detailed guardrails below explain each; these seven are the floor.
 
 > **Use this skill FIRST — before any raw MCP.** For any "review my trades / did I sell too early / what did
 > I miss / master my week / how could I make more gains" question, run this engine **before** reaching for
@@ -100,7 +109,7 @@ closed — its live event ring is gone; the durable log is the recovery path") �
 `meta.telemetry_source` (`available` / `partial` / `unavailable`) and `meta.exit_reason_source_counts` tell you
 exactly how much enrichment landed; surface that honestly.
 
-**Closed strategies are recovered ON-CHAIN — the engine handles the trap for you.** `discovery_get_trader_history` returns **empty** once a strategy is closed/torn down — Senpi clears its own index, but the trades are **NOT gone** (Hyperliquid keys fills by wallet **address**, so they survive the close). The engine detects an empty discovery result and **falls back to on-chain HL fills**, rebuilding the real round-trips (`meta.closed_trade_source == "onchain_fills"`, wallets in `meta.onchain_recovered_wallets`); `realized_pnl` then comes from HL's own `closedPnl`. So a closed strategy's trades and realized total come back **real** — an empty discovery result is never "no trades." You do **not** hand-read `strategy_get_pnl_and_account_value_history` for this. If `trades[]` is still empty after the on-chain fallback, the book genuinely never traded (guardrail 9).
+**Closed strategies keep their history — the engine reviews them exactly like current ones.** `discovery_get_trader_history` is keyed by **wallet address**, which outlives the strategy record, so a CLOSED strategy returns its full closed book with the same `realizedPnl` per round-trip. The engine enumerates ACTIVE + PAUSED + CLOSED and reads every one. There is no separate recovery path and nothing to reconstruct. An empty `trades[]` therefore means the book genuinely never closed a trade (guardrail 9), and you do **not** hand-read `strategy_get_pnl_and_account_value_history` to fill a gap that does not exist.
 
 ## Quick actions this skill handles
 
@@ -182,25 +191,29 @@ create→runtime→verify: short steps over a shared state file, the skill narra
 **separate `exec` call**, so your response streams and no single call hangs.
 
 ```sh
-python3 scripts/review.py timing       # 1. fetch closed trades + prices → trades[] + timing_summary (FAST slice, narrate first)
-python3 scripts/review.py strategies   # 2. per-strategy read (mandate/DSL + realized PnL) + closed rollup
-python3 scripts/review.py telemetry    # 3. exit reasons + missed_signals + leaks + execution_quality (the slow event shell-outs, isolated)
-python3 scripts/review.py market       # 4. book_vs_market (movers × held) — only if the ask needs it
+python3 scripts/review.py account      # 1. RUN FIRST: whole-account PnL + the full strategy list (ACTIVE+PAUSED+CLOSED)
+python3 scripts/review.py timing       # 2. fetch closed trades + prices → trades[] + timing_summary
+python3 scripts/review.py strategies   # 3. per-strategy read (mandate/DSL + realized PnL) + closed rollup
+python3 scripts/review.py telemetry    # 4. exit reasons + missed_signals + leaks + execution_quality (the slow event shell-outs, isolated)
+python3 scripts/review.py market       # 5. book_vs_market (movers × held) — only if the ask needs it
 python3 scripts/review.py all          # one-shot fallback: the full composed dict (same output as before)
 ```
 
 **For a FULL review** — "analyze my strategies and trades", "master my week", "suggest improvements", "how
 could I make more" — run the steps **in order** and narrate between:
 
-1. `review.py timing` → narrate the timing teardown (the NEUTRAL exit counts `exits_ahead` / `exits_held_higher`
+1. `review.py account` → **start here, always.** Narrate the account-level picture first: `account_history`
+   (PnL by day / week / month / allTime) and how many strategies exist, split current vs closed. This frames
+   everything after it. Then work strategy by strategy — never jump straight into one strategy's numbers.
+2. `review.py timing` → narrate the timing teardown (the NEUTRAL exit counts `exits_ahead` / `exits_held_higher`
    + realized so far) — but this is NOT your headline: TOTAL PnL (realized + unrealized) lands with the
    `strategies` step (`pnl_summary.total`). `exit_reason` is still `UNKNOWN` here (telemetry hasn't run) —
    narrate the *timing*, not the mechanism yet, and never call `held_higher` "premature / left on the table."
-2. `review.py strategies` → narrate the **per-strategy read** (each CURRENT strategy vs its OWN mandate,
+3. `review.py strategies` → narrate the **per-strategy read** (each CURRENT strategy vs its OWN mandate,
    realized PnL as evidence; `closed_strategies[]` is history — no verdict).
-3. `review.py telemetry` → narrate **exit quality / leaks / blocked** (now `exit_reason` is filled: the
+4. `review.py telemetry` → narrate **exit quality / leaks / blocked** (now `exit_reason` is filled: the
    refreshed `dsl_close_reason_mix`, `leaks`, `blocked_summary`, `execution_quality`).
-4. `review.py market` → narrate the **book-vs-market gap** (run only if the ask needs "what did I miss /
+5. `review.py market` → narrate the **book-vs-market gap** (run only if the ask needs "what did I miss /
    compare to market").
 
 **Narrate each slice as it returns — never wait for all steps.** The steps share a state file
@@ -329,7 +342,7 @@ figure of any kind. The only dollar figures you may state are:
 The engine deliberately emits **no** per-week or projection field. If you feel the urge to annualize, weekly-ize,
 or forecast a dollar figure, stop — that urge is the exact failure mode this skill exists to kill.
 
-**Account value ≠ P&L — never narrate the value curve as trades.** The engine sources closed trades from on-chain fills, so you should not need `strategy_get_pnl_and_account_value_history` for a trade review at all. If you ever look at it: `accountValueHistory` is a series of account **snapshots**, not trades — never narrate "$135 → $133 → $143 → …" as individual round-trips. A curve ending at **`$0` after a `strategy_close` / `strategy_withdraw_funds` is capital RETURNED to the main wallet (a withdrawal), not a loss** — the realized result is realized PnL, not the value drop. If realized PnL (e.g. −$21) and the value drop (e.g. −$175) disagree, the difference **is the withdrawal** — reconcile, never report the drop as a loss.
+**Account value ≠ P&L — never narrate the value curve as trades.** The engine sources closed trades from `discovery_get_trader_history`, so you should not need `strategy_get_pnl_and_account_value_history` for a trade review at all. If you ever look at it: `accountValueHistory` is a series of account **snapshots**, not trades — never narrate "$135 → $133 → $143 → …" as individual round-trips. A curve ending at **`$0` after a `strategy_close` / `strategy_withdraw_funds` is capital RETURNED to the main wallet (a withdrawal), not a loss** — the realized result is realized PnL, not the value drop. If realized PnL (e.g. −$21) and the value drop (e.g. −$175) disagree, the difference **is the withdrawal** — reconcile, never report the drop as a loss.
 
 ### 4. No chasing — one window is noise; weigh mandate + turnover
 
@@ -431,7 +444,7 @@ and there is **no consolidation problem** — you're looking at redeploy history
 
 ### 9. No trades yet? Stop cleanly — do NOT pivot to setup / config nagging
 
-**An empty `trades[]` now means the book genuinely never traded** — the engine already falls back to on-chain HL fills for closed strategies, so it is **not** a coverage gap you need to work around. Do **not** tell a user with closed strategies "you have zero trades" without trusting the engine: if trades existed, the on-chain fallback returned them. When trades were recovered that way (`meta.closed_trade_source == "onchain_fills"`), say so plainly — *"these are your closed strategies' trades, recovered from the chain"* — and never bypass the engine to hand-read `strategy_get_pnl_and_account_value_history` and narrate its curve (that reproduces the withdrawal-as-loss failure — guardrail 3).
+**An empty `trades[]` means the book genuinely never closed a trade** — the engine reads CLOSED strategies from the same history source as current ones, so it is **not** a coverage gap you need to work around. Do **not** bypass the engine to hand-read `strategy_get_pnl_and_account_value_history` and narrate its curve (that reproduces the withdrawal-as-loss failure — guardrail 3).
 
 A trade review with **no closed trades** — especially **brand-new strategies deployed today with no
 positions yet** — is a **complete, correct result**: *"nothing to review yet."* Say that and stop. The

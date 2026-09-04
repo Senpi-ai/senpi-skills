@@ -3,7 +3,7 @@
 
 The agent (LLM) runs this via the OpenClaw `exec` tool, reads the JSON on stdout, and NARRATES a
 disciplined trade review + improvement coaching under the SKILL.md guardrails. This script does the
-precise, deterministic data work — reconstruct every CLOSED trade, attribute its exit mechanism, compute
+precise, deterministic data work — read the account ledger and every CLOSED trade, attribute its exit mechanism, compute
 the honest "if I'd held to now" counterfactual, and cross the book against what the market did — and the
 LLM does the prose, the process-framing, and the fix-depth CTAs.
 
@@ -45,8 +45,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CLOSED_HISTORY_PULL = 100    # closed positions to pull per wallet before the window filter
 WINDOW_DEFAULT_DAYS = 7      # the default review window
 TOP_MOVERS_CAP = 12          # cap the book-vs-market movers surfaced
-HL_INFO_URL = "https://api.hyperliquid.xyz/info"   # public, no-auth — durable closed-trade recovery
-HL_FILLS_CAP = 2000          # userFills returns the most recent N fills; ample for any review window
+TRADER_STATE_BATCH = 50      # discovery_get_trader_state accepts at most 50 addresses per call
 
 # The runtime registers every deployed strategy in installed_runtimes.json in the state dir — the
 # UNIVERSAL source of a strategy's mandate (the runtime.yaml `description`) + its DSL ladder. Reused
@@ -756,120 +755,33 @@ def _direction(rec, szi, entry_px, exit_px, pnl):
     return None
 
 
-# ───────────────────── on-chain fill recovery (durable across strategy_close) ─────────────────────
-def _hl_info(payload, meta, client=None, timeout=12):
-    """POST the Hyperliquid Info API (public, no auth) — the same transport the DSL scripts use. Recovers a
-    CLOSED strategy's trades that Senpi's discovery index has dropped: HL keys fills by wallet ADDRESS, so
-    they survive a `strategy_close` (which only clears Senpi's own record). Offline/fixture-aware for tests
-    (`_FixtureClient` serves a recorded `hl::<type>::<wallet>` entry). Fails OPEN → None."""
-    if client is not None and hasattr(client, "_r"):          # _FixtureClient — serve recorded HL response
-        u = str(payload.get("user", "")).lower()
-        return client._r.get(f"hl::{payload.get('type')}::{u}") or client._r.get(f"hl::{payload.get('type')}")
-    try:
-        p = subprocess.run(
-            ["curl", "-s", "-m", str(timeout), "-X", "POST", HL_INFO_URL,
-             "-H", "Content-Type: application/json", "-d", json.dumps(payload)],
-            capture_output=True, text=True, timeout=timeout + 3)
-        if p.returncode != 0 or not (p.stdout or "").strip():
-            return None
-        return json.loads(p.stdout)
-    except Exception as e:  # noqa
-        meta.setdefault("warnings", []).append(f"hl_info {payload.get('type')} failed: {e}")
-        return None
-
-
-def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
-    """Rebuild round-trip CLOSED trades from raw HL fills — the durable, close-independent source. HL gives
-    per-fill `dir` ('Open/Close Long/Short'), px, sz, closedPnl, fee, time, oid. Walk fills per coin
-    oldest→newest, FIFO-match each Close against prior Opens, and emit one trade per closed chunk with a
-    size-weighted entry price. `realized_pnl` = HL's own closedPnl (authoritative — correct even when the
-    matching open predates the window). Same trade shape as discovery, tagged source='onchain_fills'."""
-    if not isinstance(fills, list):
-        return []
-    import collections
-    fl = sorted((f for f in fills if isinstance(f, dict)), key=lambda f: _num(f.get("time")) or 0)
-    lots = collections.defaultdict(collections.deque)   # coin -> deque of open lots {px, sz, time}
-    trades = []
-    for f in fl:
-        coin = f.get("coin")
-        d = str(f.get("dir") or "")
-        sz = abs(_num(f.get("sz")) or 0.0)
-        px = _num(f.get("px"))
-        t = _ms(f.get("time"))
-        if not coin or sz <= 0:
-            continue
-        if d.startswith("Open"):
-            lots[coin].append({"px": px, "sz": sz, "time": t})
-        elif d.startswith("Close"):
-            side = "long" if "Long" in d else ("short" if "Short" in d else None)
-            remaining, entry_notional, matched, open_time = sz, 0.0, 0.0, t
-            q = lots[coin]
-            while remaining > 1e-9 and q:                # FIFO-match the closed size against open lots
-                lot = q[0]
-                take = min(remaining, lot["sz"])
-                entry_notional += take * (lot["px"] or 0.0)
-                matched += take
-                open_time = lot["time"] or open_time
-                lot["sz"] -= take
-                remaining -= take
-                if lot["sz"] <= 1e-9:
-                    q.popleft()
-            trades.append({
-                "asset": coin,
-                "direction": side,
-                "size": sz,
-                "leverage": None,                        # not carried on HL fills
-                "entry_px": (entry_notional / matched) if matched > 0 else None,
-                "exit_px": px,
-                "realized_pnl": round(_num(f.get("closedPnl")) or 0.0, 2),   # HL's own realized — authoritative
-                "margin_used": None,
-                "open_time": open_time,
-                "close_time": t,
-                "closed_order_id": f.get("oid"),
-                "fee": _num(f.get("fee")),
-                "source": "onchain_fills",
-            })
-    out = []
-    for tr in trades:
-        ct = tr["close_time"]
-        if since_ms is not None and ct is not None and ct < since_ms:
-            continue
-        if until_ms is not None and ct is not None and ct > until_ms:
-            continue
-        out.append(tr)
-    out.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
-    return out[:cap] if cap else out
-
-
+# ─────────────────────────── closed trades: realized PnL comes from discovery, as-is ───────────────────────────
 def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
-    """Read-guarded closed-trade list for one strategy wallet, filtered to the review window.
+    """Closed round-trips for ONE strategy wallet, filtered to the review window.
 
-    PRIMARY: `discovery_get_trader_history` (closedPositions[] round-trips — works for CURRENT strategies).
-    FALLBACK — the closed-strategy trap: `strategy_close` clears Senpi's discovery index, so a CLOSED
-    strategy returns EMPTY here even though it traded. The fills still exist ON-CHAIN (HL keys them by
-    wallet ADDRESS, not by Senpi's strategy record), so on an empty discovery result we recover the real
-    round-trips from HL `userFills` and tag them source='onchain_fills'. `realized_pnl` then comes from HL's
-    own closedPnl — so a closed book is never misread as "no trades" or "drained to $0" (that $0 is the
-    withdrawal on close). Empty HL fills too ⇒ genuinely no trades. Fails OPEN → []."""
+    `realizedPnl` on each row IS the exact realized PnL of that round-trip. Emit it unchanged. Never
+    recompute it, never derive it from fills, never net anything into it.
+    `totalFees` is that round-trip's fee (builder fee already included). It is a SEPARATE cost that
+    realizedPnl already excludes. Carry it for the "what am I paying in fees" ask only.
+    Works for CLOSED strategies as well as current ones: history is keyed by wallet address, which
+    outlives the strategy record. Fails OPEN -> [] (an empty list, never a fabricated trade)."""
     try:
         h = _ok(client.mcp_call("discovery_get_trader_history", trader_address=wallet,
                                 sort_by="CLOSED_TIME", sort_direction="DESC",
                                 limit=CLOSED_HISTORY_PULL, timeout=12))
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"trader_history {wallet[:8]} failed: {e}")
-        h = None
-    rows = []
-    if h is not None:
-        rows = h if isinstance(h, list) else _field(h, "closedPositions", "closed_positions", "positions", default=[])
-        if not isinstance(rows, list):
-            rows = []
+        return []
+    rows = h if isinstance(h, list) else _field(h, "closedPositions", "closed_positions", "positions", default=[])
+    if not isinstance(rows, list):
+        return []
     trades = []
     for p in rows:
         if not isinstance(p, dict):
             continue
         close_ms = _ms(_field(p, "closeTime", "closed_time", "closeTimeMs"))
         if since_ms is not None and close_ms is not None and close_ms < since_ms:
-            continue                        # older than the window — skip
+            continue
         if until_ms is not None and close_ms is not None and close_ms > until_ms:
             continue
         szi = _f(p, "szi", "size", default=0.0)
@@ -877,32 +789,24 @@ def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
         entry_px = _num(_field(p, "entryPx", "entry_px"))
         exit_px = _num(_field(p, "exitPx", "exit_px"))
         pnl = round(_f(p, "realizedPnl", "realized_pnl", default=0.0), 2)
+        open_ms = _ms(_field(p, "openTime", "open_time"))
         trades.append({
             "asset": _field(p, "coin", "coinDisplayName", "asset"),
-            "direction": _direction(p, szi, entry_px, exit_px, pnl),   # robust: field → szi → pnl-vs-move
+            "direction": _direction(p, szi, entry_px, exit_px, pnl),
             "size": abs(szi),
             "leverage": _f(lev, "value", default=None) if isinstance(lev, dict) else _num(lev),
             "entry_px": entry_px,
             "exit_px": exit_px,
             "realized_pnl": pnl,
+            "fees": round(_f(p, "totalFees", "total_fees", default=0.0), 4),
             "margin_used": _f(p, "marginUsed", "margin_used", default=None),
-            "open_time": _ms(_field(p, "openTime", "open_time")),
+            "open_time": open_ms or None,   # discovery sends 0 for "no open time"; 0 is not epoch
             "close_time": close_ms,
             "closed_order_id": _field(p, "closedOrderId", "closed_order_id"),
             "source": "discovery",
         })
-    if trades:
-        trades.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
-        return trades[:cap] if cap else trades
-
-    # DISCOVERY EMPTY → recover on-chain. This is the closed-strategy trap: the trades exist, just not in
-    # Senpi's index. Empty HL fills too ⇒ genuinely no trades (a brand-new book) → [].
-    fills = _hl_info({"type": "userFills", "user": wallet}, meta, client)
-    recon = _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap)
-    if recon:
-        meta.setdefault("onchain_recovered_wallets", []).append(wallet)
-        meta["closed_trade_source"] = "onchain_fills"
-    return recon
+    trades.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
+    return trades[:cap] if cap else trades
 
 
 # ──────────────────────────────────────────────────────────────── current price (market_get_asset_data)
@@ -923,86 +827,44 @@ def _price_now(client, asset, dex, meta):
     return _num(mark)
 
 
-# ──────────────────────────────────────────────── open book (unrealized PnL — the TOTAL-ledger read)
-_CLEARINGHOUSE_ATTEMPTS = 2   # bounded retries on the open-book read — transient blips only
-_CLEARINGHOUSE_BACKOFF_S = 0.4
+# ──────────────── account ledger + open book (both read straight from MCP, nothing derived) ────────────────
+def fetch_account_history(client, meta):
+    """Account-level PnL — the FIRST read of any review, before per-strategy detail.
 
-
-def _is_transient(exc):
-    """Retry the open-book read ONLY on a transient transport/5xx/429/timeout blip — never on a definitive
-    answer. An MCPError carrying an HTTP 4xx (other than 429), a JSON-RPC error, a tool isError, or an
-    app-level {success:false} is the server SAYING something real; retrying just repeats it (and could hide a
-    genuine 'no'). A raw transport error (socket timeout / connection reset / DNS) is a blip worth one more
-    try. Retries only REDUCE the frequency of a `None` read — they never remove it, so a still-failed read
-    stays UNKNOWN (never a fabricated 0) and partial coverage stays flagged."""
-    from mcp_client import MCPError
-    if isinstance(exc, MCPError):
-        m = re.search(r"HTTP (\d{3})", str(exc))
-        return bool(m) and (int(m.group(1)) == 429 or 500 <= int(m.group(1)) < 600)
-    return True
-
-
-def fetch_open_positions(client, wallet, meta):
-    """Open positions + unrealized PnL for ONE current strategy wallet (strategy_get_clearinghouse_state,
-    main+xyz). This is what makes the review a TOTAL ledger (realized closed trades + unrealized open) rather
-    than realized-only — closing the biggest distortion: a book RIDING open winners looks like a loser on
-    realized PnL alone, and a realized-only read biases against hold-strategies. Read-guarded + fail-open with
-    a bounded retry on transient blips (transport/5xx/429/timeout): a still-unreadable read → (None, []) so
-    unrealized reads UNKNOWN (never a fabricated 0); a clean read with no open positions → (0.0, []) — a REAL
-    zero. Returns (unrealized_pnl_total | None, positions[])."""
-    ch, err, attempts = None, None, 0
-    for attempt in range(1, _CLEARINGHOUSE_ATTEMPTS + 1):
-        attempts = attempt
-        try:
-            ch = _ok(client.mcp_call("strategy_get_clearinghouse_state", strategy_wallet=wallet, timeout=12))
-            err = None
-            break
-        except Exception as e:  # noqa — fail-open: unrealized becomes UNKNOWN, never guessed 0
-            err = e
-            if attempt < _CLEARINGHOUSE_ATTEMPTS and _is_transient(e):
-                time.sleep(_CLEARINGHOUSE_BACKOFF_S * attempt)
-                continue
-            break
-    if err is not None:
-        meta.setdefault("warnings", []).append(
-            f"clearinghouse {str(wallet)[:8]} failed after {attempts} attempt(s): {err}; "
-            f"unrealized PnL unavailable for it")
-        return None, []
-    if not isinstance(ch, dict):
-        return None, []
-    positions, unrealized = [], 0.0
-    for section in ("main", "xyz"):
-        s = ch.get(section) if isinstance(ch.get(section), dict) else {}
-        for ap in (s.get("assetPositions") or []):
-            pos = ap.get("position", ap) if isinstance(ap, dict) else {}
-            if not isinstance(pos, dict):
-                continue
-            szi = _num(pos.get("szi"))
-            if not szi:
-                continue
-            up = _num(_field(pos, "unrealizedPnl", "unrealized_pnl")) or 0.0
-            unrealized += up
-            roe = _num(_field(pos, "returnOnEquity", "return_on_equity"))
-            lev = pos.get("leverage")
-            positions.append({
-                "asset": _field(pos, "coin", "asset"),
-                "direction": "long" if szi > 0 else "short",
-                "size": abs(szi),
-                "entry_px": _num(_field(pos, "entryPx", "entry_px")),
-                "unrealized_pnl": round(up, 2),
-                "return_on_equity_pct": round(roe * 100, 2) if roe is not None else None,
-                "position_value": _num(_field(pos, "positionValue", "position_value")),
-                "leverage": _f(lev, "value", default=None) if isinstance(lev, dict) else _num(lev),
-            })
-    return round(unrealized, 2), positions
+    Emits one entry per period with that period's total PnL and latest account value. The raw
+    pnlHistory / accountValueHistory series are deliberately NOT emitted: they are account-value
+    SNAPSHOTS, not trades, and a drop in them is usually a withdrawal rather than a loss.
+    Fails OPEN -> None (UNKNOWN, never 0)."""
+    try:
+        h = _ok(client.mcp_call("account_get_historical_info", timeout=25))
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"account_historical_info failed: {e}")
+        return None
+    info = _field(h, "historical_info", "historicalInfo", default=None) if isinstance(h, dict) else None
+    if not isinstance(info, dict):
+        return None
+    out = {}
+    for period in ("day", "week", "month", "allTime"):
+        blk = info.get(period)
+        if not isinstance(blk, dict):
+            continue
+        values = _field(blk, "accountValueHistory", "account_value_history", default=[]) or []
+        last = values[-1] if isinstance(values, list) and values and isinstance(values[-1], dict) else {}
+        out[period] = {
+            "pnl": _num(_field(blk, "totalPnlByValue", "total_pnl_by_value")),
+            "pnl_pct": _num(_field(blk, "totalPnlByPercentage", "total_pnl_by_percentage")),
+            "account_value": _num(last.get("value")),
+        }
+    return out or None
 
 
 def fetch_open_book(client, strategies, meta):
-    """wallet_lower → {unrealized_pnl, positions[]} for the CURRENT (active/paused) strategies only — the live
-    book whose UNREALIZED PnL completes the total-ledger picture (closed strategies have no open positions).
-    Parallel clearinghouse fetches (dedup by wallet), each fail-open. A wallet whose read failed is kept with
-    `unrealized_pnl: None` (UNKNOWN) — the caller must NOT treat that as 0. {} when there are no current
-    wallets."""
+    """wallet_lower -> {unrealized_pnl, positions[]} for the CURRENT strategies.
+
+    ONE discovery_get_trader_state call per 50 wallets. That tool merges the main perp dex AND the
+    HIP-3 `xyz:` dexes into a single openPositions list, so an `xyz:` position is never missed.
+    Each position's `unrealizedPnl` IS the exact live PnL. Emit it unchanged.
+    A wallet whose read failed is ABSENT from the result. Absent means UNKNOWN, never 0."""
     wallets, seen = [], set()
     for s in strategies:
         if not _is_current(s.get("status")):
@@ -1012,20 +874,41 @@ def fetch_open_book(client, strategies, meta):
         if w and wl not in seen:
             seen.add(wl)
             wallets.append(w)
-    if not wallets:
-        return {}
-
-    def _worker(w):
-        priv = {}
-        unreal, positions = fetch_open_positions(client, w, priv)
-        return str(w).lower(), unreal, positions, priv
-
     out = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(wallets))) as ex:
-        for wl, unreal, positions, priv in ex.map(_worker, wallets):
-            out[wl] = {"unrealized_pnl": unreal, "positions": positions}
-            if priv.get("warnings"):
-                meta.setdefault("warnings", []).extend(priv["warnings"])
+    for i in range(0, len(wallets), TRADER_STATE_BATCH):
+        chunk = wallets[i:i + TRADER_STATE_BATCH]
+        try:
+            st = _ok(client.mcp_call("discovery_get_trader_state", trader_addresses=chunk, timeout=25))
+        except Exception as e:  # noqa
+            meta.setdefault("warnings", []).append(
+                f"trader_state failed for {len(chunk)} wallet(s): {e}; unrealized PnL UNKNOWN for them")
+            continue
+        traders = _field(st, "traders", default=[]) if isinstance(st, dict) else []
+        for t in (traders or []):
+            if not isinstance(t, dict):
+                continue
+            positions, unrealized = [], 0.0
+            for pos in (t.get("openPositions") or []):
+                if not isinstance(pos, dict):
+                    continue
+                up = _num(_field(pos, "unrealizedPnl", "unrealized_pnl")) or 0.0
+                unrealized += up
+                roe = _num(_field(pos, "returnOnEquity", "return_on_equity"))
+                lev = pos.get("leverage")
+                szi = _num(pos.get("szi")) or 0.0
+                positions.append({
+                    "asset": _field(pos, "coinDisplayName", "coin", "asset"),
+                    "direction": "long" if szi > 0 else "short",
+                    "size": abs(szi),
+                    "entry_px": _num(_field(pos, "entryPx", "entry_px")),
+                    "unrealized_pnl": round(up, 2),
+                    "return_on_equity_pct": round(roe * 100, 2) if roe is not None else None,
+                    "position_value": _num(_field(pos, "positionValue", "position_value")),
+                    "leverage": _f(lev, "value", default=None) if isinstance(lev, dict) else _num(lev),
+                })
+            addr = str(t.get("address") or "").lower()
+            if addr:
+                out[addr] = {"unrealized_pnl": round(unrealized, 2), "positions": positions}
     return out
 
 
@@ -1377,6 +1260,7 @@ def _timing_summary(trades):
     flat = sum(1 for t in trades if t.get("exit_vs_hold") == "flat")
     unknown = sum(1 for t in trades if t.get("exit_vs_hold") == "unknown")
     realized_total = round(sum(_num(t.get("realized_pnl")) or 0.0 for t in trades), 2)
+    fees_total = round(sum(_num(t.get("fees")) or 0.0 for t in trades), 2)
     if_deltas = [_num(t.get("if_held_delta_usd")) for t in trades]
     if_deltas = [d for d in if_deltas if d is not None]
     if_all = round(sum(if_deltas), 2) if if_deltas else None
@@ -1399,7 +1283,9 @@ def _timing_summary(trades):
         "exits_held_higher": held_higher,      # holding to now would be higher — NEUTRAL, NOT 'premature'
         "exits_flat": flat,
         "exits_unknown": unknown,              # price missing → couldn't compare (honest sourcing)
-        "realized_pnl_total": realized_total,
+        "realized_pnl_total": realized_total,   # EXACT realized PnL — report as-is, do not adjust it
+        "fees_total": fees_total,              # separate cost, already excluded from realized_pnl_total.
+                                               # Mention ONLY if the user asked about fees. Never subtract.
         "if_all_reclosed_now_total": if_all,   # counterfactual aggregate — CONTEXT, NEVER a projection/target
         "by_asset_class": by_class,
     }
@@ -1726,19 +1612,26 @@ def _telemetry_source(source_counts, telemetry_warned):
 
 
 # ──────────────────────────────────────────────── total-ledger PnL + the 'undetermined ≠ all-clear' signal
-def _pnl_summary(realized_total, strat_reads):
+def _pnl_summary(realized_total, strat_reads, fees_total=None):
     """The TOTAL-ledger headline the narrator LEADS with — realized (closed trades) + unrealized (current
     open positions) + total — PLUS the current-vs-closed realized split (so the narrator QUOTES it and never
-    re-derives a wrong closed-book figure). `realized_total` is ALL closed trades; current-book realized = the
-    current strategies' realized sum; closed-book = the remainder (reconciles by construction). `unrealized`
-    sums only the current strategies whose open book was READABLE → None when none were, so `total` stays an
-    honest UNKNOWN rather than collapsing to a realized-only headline."""
+    re-derives a wrong closed-book figure).
+
+    `realized` is the EXACT realized PnL: the sum of each closed round-trip's own realizedPnl. It is final.
+    Do not adjust it, do not net fees into it, do not recompute it from anything else.
+    `fees` is a SEPARATE cost that `realized` already excludes. Report it ONLY when the user asked about
+    fees. It is not part of the headline and it is never subtracted from `realized`.
+    `unrealized` sums only the current strategies whose open book was READABLE → None when none were, so
+    `total` stays an honest UNKNOWN rather than collapsing to a realized-only headline."""
     realized = round(_num(realized_total) or 0.0, 2)
     current_realized = round(sum(_num(s.get("realized_pnl")) or 0.0 for s in strat_reads), 2)
     closed_realized = round(realized - current_realized, 2)
     known = [u for u in (s.get("unrealized_pnl") for s in strat_reads)
              if isinstance(u, (int, float)) and not isinstance(u, bool)]
-    unrealized = round(sum(known), 2) if known else None
+    if not strat_reads:
+        unrealized = 0.0          # no current strategies ⇒ no open book ⇒ a REAL zero, not UNKNOWN
+    else:
+        unrealized = round(sum(known), 2) if known else None
     total = round(realized + unrealized, 2) if unrealized is not None else None
     # PARTIAL coverage: some current wallets were readable, some were NOT — so `unrealized` (and therefore
     # `total`) sums only the readable ones: a FLOOR, not a complete number. Flag it so the narrator says
@@ -1746,16 +1639,20 @@ def _pnl_summary(realized_total, strat_reads):
     # readable is the all-UNKNOWN case: unrealized/total = None above, not a floor.)
     partial = unrealized is not None and len(known) < len(strat_reads)
     return {
-        "realized": realized,
+        "realized": realized,                     # EXACT — the headline. Never adjusted, never fee-netted.
+        "fees": round(_num(fees_total) or 0.0, 2) if fees_total is not None else None,
         "realized_by_book": {"current": current_realized, "closed": closed_realized},
         "unrealized": unrealized,                 # None → no current open book readable (UNKNOWN, not 0)
         "unrealized_coverage": {"read": len(known), "current_strategies": len(strat_reads)},
         "unrealized_partial": partial,            # True → unrealized/total are a FLOOR (some wallets UNKNOWN)
         "total": total,                           # realized + unrealized; None when UNKNOWN; a FLOOR when partial
         "note": ("TOTAL = realized (closed trades) + unrealized (current open positions). LEAD with TOTAL, "
-                 "not realized alone. unrealized None = the open book couldn't be read (UNKNOWN, not 0). "
-                 "unrealized_partial True = only some current wallets read, so unrealized/total are a FLOOR "
-                 "('at least $X, N of M wallets readable') — never present them as complete."),
+                 "not realized alone. `realized` and every position's `unrealized` are EXACT values read "
+                 "from MCP — quote them, never recompute or adjust them. `fees` is a separate cost already "
+                 "excluded from `realized`: mention it ONLY if the user asked about fees, and never "
+                 "subtract it from any PnL number. unrealized None = the open book couldn't be read "
+                 "(UNKNOWN, not 0). unrealized_partial True = only some current wallets read, so "
+                 "unrealized/total are a FLOOR ('at least $X, N of M wallets readable')."),
     }
 
 
@@ -1847,9 +1744,11 @@ def _save_state(path, state):
 def _fresh_meta():
     """A meta skeleton seeded like run()'s — the same `sources` list + fail-open scaffolding, so every step's
     meta reads consistently whether it ran standalone or off state."""
-    return {"warnings": [], "sources": ["discovery_get_trader_history", "ratchet_stop_list",
-                                        "market_get_asset_data", "leaderboard_get_markets",
-                                        "openclaw senpi events"], "degraded": None}
+    return {"warnings": [], "sources": ["account_get_historical_info", "strategy_list",
+                                        "discovery_get_trader_history", "discovery_get_trader_state",
+                                        "ratchet_stop_list", "market_get_asset_data",
+                                        "leaderboard_get_markets", "openclaw senpi events"],
+            "degraded": None}
 
 
 def _window_for(window_days, last_n, now_ms=None):
@@ -1885,6 +1784,39 @@ def _ensure_trades_in_state(client, state, window_days, last_n, want_market, now
 
 
 # ──────────────────────────────────────────────────────────── step subcommands (fast, resumable, standalone)
+def step_account(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True,
+                 state_path=None, now_ms=None):
+    """STEP 1 `account` — RUN THIS FIRST. Whole-account PnL (account_get_historical_info) plus the full
+    strategy list (ACTIVE + PAUSED + CLOSED). Narrate the account number, then go strategy by strategy.
+    Persists the strategy list so the later steps do not re-fetch it."""
+    if state_path is None:
+        state_path = _default_state_path(window_days, last_n)
+    state = _load_state(state_path)
+    meta = _fresh_meta()
+    window, _since, _until = _window_for(window_days, last_n, now_ms=now_ms)
+    meta["window"] = window
+    account = fetch_account_history(client, meta)
+    strategies = fetch_strategies(client, meta)
+    current = [s for s in strategies if _is_current(s.get("status"))]
+    meta["strategy_count"] = len(strategies)
+    meta["current_strategy_count"] = len(current)
+    meta["closed_strategy_count"] = len(strategies) - len(current)
+    if not strategies:
+        meta["degraded"] = ("strategy list unreadable — check the token is USER-scoped"
+                            if any("strategy_list failed" in str(w) for w in (meta.get("warnings") or []))
+                            else "no strategies deployed yet (not a fault — see meta.book_state)")
+    state["window"] = window
+    state["account_history"] = account
+    state["strategies"] = strategies
+    state["meta_warnings"] = meta.get("warnings", [])
+    state["registry_source"] = meta.get("registry_source")
+    _save_state(state_path, state)
+    return {"window": window, "account_history": account,
+            "strategies": [{"label": s.get("label"), "wallet": s.get("wallet"),
+                            "status": s.get("status")} for s in strategies],
+            "meta": meta}
+
+
 def step_timing(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True,
                 state_path=None, now_ms=None):
     """STEP 1 `timing` — the bottleneck-but-headline slice the agent NARRATES FIRST. Fetch strategies +
@@ -1941,7 +1873,8 @@ def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_m
     strat_reads = _strategy_reads(trades, strategies, open_book)
     closed_reads = _closed_strategy_rollup(trades, strategies)
     realized_total = round(sum(_num(t.get("realized_pnl")) or 0.0 for t in trades), 2)
-    pnl_summary = _pnl_summary(realized_total, strat_reads)
+    fees_total = round(sum(_num(t.get("fees")) or 0.0 for t in trades), 2)
+    pnl_summary = _pnl_summary(realized_total, strat_reads, fees_total)
     dsl_mix = _dsl_close_reason_mix(trades)   # from whatever exit_reason is in state (UNKNOWN until telemetry)
     current_count = sum(1 for s in strategies if _is_current(s.get("status")))
     closed_count = len(strategies) - current_count
@@ -2038,20 +1971,24 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     """Orchestrate the review. Everything read-guarded + fail-open: partial data → valid JSON +
     meta.warnings/meta.degraded. `last_n` (a trade-count cap) coexists with the window — 'last N trades'
     still respects the window as the outer bound."""
-    meta = {"warnings": [], "sources": ["discovery_get_trader_history", "ratchet_stop_list",
-                                        "market_get_asset_data", "leaderboard_get_markets",
-                                        "openclaw senpi events"], "degraded": None}
+    meta = {"warnings": [], "sources": ["account_get_historical_info", "strategy_list",
+                                        "discovery_get_trader_history", "discovery_get_trader_state",
+                                        "ratchet_stop_list", "market_get_asset_data",
+                                        "leaderboard_get_markets", "openclaw senpi events"],
+            "degraded": None}
     since_ms, until_ms = _window_bounds(window_days, now_ms=now_ms)
     label = f"last {last_n} closed trades" if last_n else f"last ~{window_days}d"
     window = {"from": since_ms, "to": until_ms, "label": label, "window_days": window_days,
               "last_n": last_n}
     meta["window"] = window
 
+    # ACCOUNT FIRST — the whole account's PnL, before any per-strategy detail.
+    account_history = fetch_account_history(client, meta)
     # ALL statuses are enumerated (so a churned book's CLOSED trades stay in trades[]) — but the per-strategy
     # verdict is CURRENT-only. Closed/historical strategies get a minimal rollup, never a verdict.
     strategies = fetch_strategies(client, meta)
-    # OPEN BOOK — current strategies' unrealized PnL (strategy_get_clearinghouse_state), so the review is a
-    # TOTAL ledger (realized closed + unrealized open), not realized-only. Fail-open per wallet → None (UNKNOWN).
+    # OPEN BOOK — current strategies' unrealized PnL (discovery_get_trader_state, batched), so the review is a
+    # TOTAL ledger (realized closed + unrealized open), not realized-only.
     open_book = fetch_open_book(client, strategies, meta)
     # DISCOVERY owns trades[] (onchain facts); TELEMETRY enriches exit_reason + yields the standalone streams
     # (missed_signals + the leak/fill rollups), all from ONE per-runtime event fetch (no re-fetch downstream).
@@ -2065,7 +2002,8 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     bvm = book_vs_market(client, trades, strategies, meta, want_market)
     strat_reads = _strategy_reads(trades, strategies, open_book)   # CURRENT book — now with unrealized/total/open
     closed_reads = _closed_strategy_rollup(trades, strategies) # HISTORY: closed/inactive, rollup only
-    pnl_summary = _pnl_summary(timing["realized_pnl_total"], strat_reads)   # realized + unrealized = TOTAL ledger
+    pnl_summary = _pnl_summary(timing["realized_pnl_total"], strat_reads,   # realized + unrealized = TOTAL ledger
+                               timing.get("fees_total"))
 
     current_count = sum(1 for s in strategies if _is_current(s.get("status")))
     closed_count = len(strategies) - current_count
@@ -2093,6 +2031,7 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
 
     return {
         "window": window,
+        "account_history": account_history,  # WHOLE-ACCOUNT PnL by period — the first thing to narrate
         "trades": trades,                 # DISCOVERY-owned onchain facts + telemetry-enriched exit_reason
         "timing_summary": timing,         # PROCESS-framed counts — LEAD with these
         "dsl_close_reason_mix": dsl_mix,  # 'shaken out too early / how exits fire' → DSL preset lever
@@ -2121,8 +2060,8 @@ def _dry(client):
     return out
 
 
-_STEPS = ("timing", "strategies", "telemetry", "market", "all")
-_STEP_FNS = {"timing": step_timing, "strategies": step_strategies,
+_STEPS = ("account", "timing", "strategies", "telemetry", "market", "all")
+_STEP_FNS = {"account": step_account, "timing": step_timing, "strategies": step_strategies,
              "telemetry": step_telemetry, "market": step_market}
 
 
@@ -2163,7 +2102,7 @@ def _all_and_persist(client, window_days, last_n, want_market, state_path, now_m
 # the COMPLETE arrays for the stepped path. `--full` restores everything (debug / "the whole ledger").
 STDOUT_TRADES_SAMPLE = 12
 STDOUT_MISSED_SAMPLE = 10
-_TRADE_STDOUT_FIELDS = ("asset", "direction", "strategy_label", "realized_pnl", "close_time",
+_TRADE_STDOUT_FIELDS = ("asset", "direction", "strategy_label", "realized_pnl", "fees", "close_time",
                         "exit_vs_hold", "price_since_exit_pct", "if_held_delta_usd", "exit_reason")
 
 

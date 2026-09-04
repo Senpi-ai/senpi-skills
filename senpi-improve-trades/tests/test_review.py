@@ -191,7 +191,7 @@ def test_open_book_unreadable_is_unknown_not_zero():
     None — NEVER a fabricated 0. Guards a realized-only headline from masquerading as total."""
     with open(FIXTURE) as f:
         raw = json.load(f)
-    raw.pop("strategy_get_clearinghouse_state::0xkodiak00000000000000000000000000000kdk", None)
+    raw.pop("discovery_get_trader_state", None)
     old = os.environ.get("SENPI_STATE_DIR")
     os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
     try:
@@ -242,51 +242,55 @@ def test_pnl_summary_all_unreadable_is_none_not_partial():
     assert ps["unrealized_partial"] is False                # None ≠ floor
 
 
-def test_is_transient_classifies_retryable_vs_definitive():
-    """Retry policy: transport blips + 5xx/429 retry; a definitive answer (4xx, {success:false}, JSON-RPC,
-    tool error) does NOT — retrying a real 'no' just repeats it."""
-    from mcp_client import MCPError
-    assert review._is_transient(TimeoutError("timed out")) is True
-    assert review._is_transient(ConnectionResetError()) is True
-    assert review._is_transient(MCPError("strategy_get_clearinghouse_state HTTP 503")) is True
-    assert review._is_transient(MCPError("x HTTP 429")) is True
-    assert review._is_transient(MCPError("x HTTP 404")) is False
-    assert review._is_transient(MCPError("tool failed: SERR001: no access")) is False
-    assert review._is_transient(MCPError("JSON-RPC error -32601: method not found")) is False
+def test_open_book_is_one_batched_call_and_merges_xyz():
+    """The open book is ONE discovery_get_trader_state call for all current wallets, and an `xyz:` (HIP-3)
+    position counts the same as a main-perp one — that tool returns both in a single openPositions list."""
+    calls = []
 
+    class Batched:
+        def mcp_call(self, tool, timeout=12, **kw):
+            calls.append((tool, tuple(kw.get("trader_addresses") or ())))
+            return {"traders": [
+                {"address": "0xaaa", "openPositions": [
+                    {"coin": "xyz:GOLD", "coinDisplayName": "GOLD", "szi": "1", "unrealizedPnl": "4.0"},
+                    {"coin": "BTC", "coinDisplayName": "BTC", "szi": "-1", "unrealizedPnl": "-1.5"}]},
+                {"address": "0xbbb", "openPositions": []}]}
 
-def test_fetch_open_positions_retries_transient_then_succeeds():
-    """A transient blip is retried; the second attempt's clean read is used — no fabricated None."""
-    calls = {"n": 0}
-    ok = {"main": {"assetPositions": [{"position": {"coin": "SOL", "szi": "1", "unrealizedPnl": "25.0"}}]}}
-
-    class Flaky:
-        def mcp_call(self, tool, **kw):
-            calls["n"] += 1
-            if calls["n"] == 1:
-                raise TimeoutError("blip")
-            return ok
+    strategies = [{"wallet": "0xAAA", "status": "ACTIVE"}, {"wallet": "0xBBB", "status": "ACTIVE"},
+                  {"wallet": "0xAAA", "status": "ACTIVE"},            # duplicate wallet — deduped
+                  {"wallet": "0xCCC", "status": "CLOSED"}]            # closed — has no open book
     meta = {}
-    unreal, positions = review.fetch_open_positions(Flaky(), "0xabc", meta)
-    assert calls["n"] == 2                          # retried once
-    assert unreal == 25.0 and len(positions) == 1
-    assert not meta.get("warnings")                 # succeeded → no failure warning
+    book = review.fetch_open_book(Batched(), strategies, meta)
+    assert calls == [("discovery_get_trader_state", ("0xAAA", "0xBBB"))]   # ONE call, current + deduped
+    assert book["0xaaa"]["unrealized_pnl"] == 2.5                          # 4.0 + (-1.5), xyz included
+    assert [p["asset"] for p in book["0xaaa"]["positions"]] == ["GOLD", "BTC"]
+    assert book["0xaaa"]["positions"][1]["direction"] == "short"
+    assert book["0xbbb"]["unrealized_pnl"] == 0.0                          # read fine, genuinely flat
+    assert "0xccc" not in book
 
 
-def test_fetch_open_positions_does_not_retry_definitive_failure():
-    """A definitive {success:false} is NOT retried (it's a real answer) → one call, unrealized UNKNOWN."""
-    from mcp_client import MCPError
-    calls = {"n": 0}
-
-    class Denied:
-        def mcp_call(self, tool, **kw):
-            calls["n"] += 1
-            raise MCPError("tool failed: SERR001: no access")
+def test_open_book_failure_leaves_wallet_absent_not_zero():
+    """A failed state read must leave the wallet ABSENT (UNKNOWN downstream), never a fabricated 0."""
+    class Down:
+        def mcp_call(self, tool, timeout=12, **kw):
+            raise RuntimeError("upstream down")
     meta = {}
-    unreal, positions = review.fetch_open_positions(Denied(), "0xabc", meta)
-    assert calls["n"] == 1                           # NOT retried
-    assert unreal is None and positions == []        # UNKNOWN, never a fabricated 0
-    assert meta["warnings"]                          # a warning was recorded
+    assert review.fetch_open_book(Down(), [{"wallet": "0xAAA", "status": "ACTIVE"}], meta) == {}
+    assert meta["warnings"]
+
+
+def test_open_book_batches_in_chunks_of_fifty():
+    """discovery_get_trader_state takes at most 50 addresses, so 120 wallets is 3 calls — never 120."""
+    sizes = []
+
+    class Counting:
+        def mcp_call(self, tool, timeout=12, **kw):
+            sizes.append(len(kw.get("trader_addresses") or ()))
+            return {"traders": []}
+
+    strategies = [{"wallet": f"0x{i:040x}", "status": "ACTIVE"} for i in range(120)]
+    review.fetch_open_book(Counting(), strategies, {})
+    assert sizes == [50, 50, 20]
 
 
 def test_last_n_caps_trade_count():
@@ -803,64 +807,78 @@ def test_default_state_path_uses_tempdir_and_window_key():
     assert review._default_state_path(30.0, 20).endswith("state-30d-last20.json")
 
 
-# ── on-chain fill recovery (closed-strategy trap: discovery clears on close, HL fills persist) ──
-def test_reconstruct_closed_from_fills_fifo_direction_pnl():
-    base = 1784000000000
-    fills = [
-        {"coin": "HYPE", "dir": "Open Long",   "sz": "2",  "px": "100", "closedPnl": "0",   "fee": "0.1",  "time": base + 1000, "oid": 1},
-        {"coin": "HYPE", "dir": "Open Long",   "sz": "1",  "px": "110", "closedPnl": "0",   "fee": "0.05", "time": base + 2000, "oid": 2},
-        {"coin": "HYPE", "dir": "Close Long",  "sz": "2",  "px": "120", "closedPnl": "40",  "fee": "0.12", "time": base + 3000, "oid": 3},
-        {"coin": "HYPE", "dir": "Close Long",  "sz": "1",  "px": "130", "closedPnl": "20",  "fee": "0.06", "time": base + 4000, "oid": 4},
-        {"coin": "SOL",  "dir": "Open Short",  "sz": "10", "px": "200", "closedPnl": "0",   "fee": "0.2",  "time": base + 1500, "oid": 5},
-        {"coin": "SOL",  "dir": "Close Short", "sz": "10", "px": "190", "closedPnl": "100", "fee": "0.19", "time": base + 9000, "oid": 6},
-    ]
-    tr = review._reconstruct_closed_from_fills(fills, None, None, None)
-    assert len(tr) == 3
-    by = {(t["asset"], t["exit_px"]): t for t in tr}
-    # FIFO: first HYPE close (2) matches the 2@100 lot; the second (1) matches the 1@110 lot
-    assert by[("HYPE", 120.0)]["entry_px"] == 100.0 and by[("HYPE", 120.0)]["direction"] == "long"
-    assert by[("HYPE", 130.0)]["entry_px"] == 110.0
-    assert by[("SOL", 190.0)]["direction"] == "short" and by[("SOL", 190.0)]["entry_px"] == 200.0
-    assert round(sum(t["realized_pnl"] for t in tr), 2) == 160.0    # HL closedPnl — authoritative
-    assert all(t["source"] == "onchain_fills" for t in tr)
-    assert tr[0]["asset"] == "SOL"                                  # newest close first
-    assert [t["asset"] for t in review._reconstruct_closed_from_fills(fills, base + 5000, None, None)] == ["SOL"]
-    assert review._reconstruct_closed_from_fills(fills, None, None, 1)[0]["asset"] == "SOL"
-    assert review._reconstruct_closed_from_fills(None, None, None, None) == []
-
-
-def test_closed_strategy_falls_back_to_onchain_fills():
-    """The bug this fixes: CLOSED strategy → discovery empty → recover REAL trades on-chain; never report
-    'no trades', and realized PnL comes from HL closedPnl (the $0-after-close is a withdrawal, not a loss)."""
+# ── closed trades: realized PnL is read from discovery, never reconstructed ──
+def test_closed_strategy_history_comes_from_discovery():
+    """A CLOSED strategy still has history — it is keyed by wallet address, which outlives the strategy
+    record. No fill reconstruction, no on-chain fallback: the rows are read and reported as-is."""
     w = "0xclosed00000000000000000000000000000closed"
-    fills = [
-        {"coin": "SMSN", "dir": "Open Long",  "sz": "1", "px": "180", "closedPnl": "0",  "time": 1784000001000, "oid": 11},
-        {"coin": "SMSN", "dir": "Close Long", "sz": "1", "px": "188", "closedPnl": "8",  "time": 1784000002000, "oid": 12},
-        {"coin": "SOL",  "dir": "Open Long",  "sz": "1", "px": "78",  "closedPnl": "0",  "time": 1784000003000, "oid": 13},
-        {"coin": "SOL",  "dir": "Close Long", "sz": "1", "px": "77",  "closedPnl": "-1", "time": 1784000004000, "oid": 14},
-    ]
-    client = review._FixtureClient({
-        f"discovery_get_trader_history::{w.lower()}": {"closedPositions": []},   # Senpi index cleared on close
-        f"hl::userFills::{w.lower()}": fills,                                     # HL retains fills by address
-    })
-    meta = {}
-    trades = review.fetch_closed_trades(client, w, None, None, None, meta)
-    assert len(trades) == 2                                     # real trades recovered, not "zero"
-    assert round(sum(t["realized_pnl"] for t in trades), 2) == 7.0
-    assert meta.get("closed_trade_source") == "onchain_fills"
-    assert w in meta.get("onchain_recovered_wallets", [])
+    client = review._FixtureClient({f"discovery_get_trader_history::{w.lower()}": {"closedPositions": [
+        {"closedOrderId": "a", "coin": "SMSN", "szi": "1", "entryPx": "180", "exitPx": "188",
+         "realizedPnl": "8.00", "totalFees": "0.40", "openTime": 1784000001000, "closeTime": 1784000002000},
+        {"closedOrderId": "b", "coin": "SOL", "szi": "1", "entryPx": "78", "exitPx": "77",
+         "realizedPnl": "-1.00", "totalFees": "0.10", "openTime": 1784000003000, "closeTime": 1784000004000},
+    ]}})
+    trades = review.fetch_closed_trades(client, w, None, None, None, {})
+    assert len(trades) == 2
+    assert round(sum(t["realized_pnl"] for t in trades), 2) == 7.0     # exactly what discovery reported
+    assert all(t["source"] == "discovery" for t in trades)
+    assert trades[0]["asset"] == "SOL"                                 # newest close first
 
 
-def test_no_trades_when_both_sources_empty():
-    """Empty discovery AND empty on-chain fills ⇒ genuinely no trades (a brand-new book) → []."""
+def test_realized_pnl_is_never_reduced_by_fees():
+    """The bug this fixes: fees are a SEPARATE cost that realizedPnl already excludes. `realized_pnl` must
+    stay exactly what discovery reported, with `fees` carried alongside for the fee question only."""
+    w = "0xfee0000000000000000000000000000000000fee"
+    client = review._FixtureClient({f"discovery_get_trader_history::{w.lower()}": {"closedPositions": [
+        {"closedOrderId": "a", "coin": "BTC", "szi": "1", "entryPx": "100", "exitPx": "110",
+         "realizedPnl": "19.00", "totalFees": "16.99", "closeTime": 1784000002000}]}})
+    t = review.fetch_closed_trades(client, w, None, None, None, {})[0]
+    assert t["realized_pnl"] == 19.0                     # NOT 19.00 - 16.99
+    assert t["fees"] == 16.99
+    assert review._timing_summary([t])["realized_pnl_total"] == 19.0
+    assert review._timing_summary([t])["fees_total"] == 16.99
+    assert review._pnl_summary(19.0, [], 16.99)["realized"] == 19.0
+
+
+def test_zero_open_time_is_missing_not_epoch():
+    """discovery sends openTime 0 for "no open time". 0 is a missing-value sentinel, not 1970."""
+    w = "0xzero000000000000000000000000000000000zer"
+    client = review._FixtureClient({f"discovery_get_trader_history::{w.lower()}": {"closedPositions": [
+        {"closedOrderId": "a", "coin": "BTC", "szi": "1", "realizedPnl": "1.00",
+         "openTime": 0, "closeTime": 1784000002000}]}})
+    assert review.fetch_closed_trades(client, w, None, None, None, {})[0]["open_time"] is None
+
+
+def test_no_trades_when_discovery_is_empty():
+    """An empty discovery result is a real answer: a book that has not closed anything → []."""
     w = "0xbrandnew0000000000000000000000000000new"
-    client = review._FixtureClient({
-        f"discovery_get_trader_history::{w.lower()}": {"closedPositions": []},
-        f"hl::userFills::{w.lower()}": [],
-    })
+    client = review._FixtureClient({f"discovery_get_trader_history::{w.lower()}": {"closedPositions": []}})
+    assert review.fetch_closed_trades(client, w, None, None, None, {}) == []
+
+
+def test_account_history_is_periods_only_no_raw_series():
+    """account_get_historical_info is the FIRST read. Emit the per-period totals only — the raw
+    accountValueHistory series are snapshots, not trades, and must not reach the narrator."""
+    client = review._FixtureClient({"account_get_historical_info": {"historical_info": {
+        "day": {"totalPnlByValue": "12.00", "totalPnlByPercentage": "1.2",
+                "accountValueHistory": [{"timestamp": "1", "value": "900"},
+                                        {"timestamp": "2", "value": "1012.00"}]},
+        "allTime": {"totalPnlByValue": "-460.00", "totalPnlByPercentage": "-46.0",
+                    "accountValueHistory": [{"timestamp": "2", "value": "1012.00"}]}}}})
+    acc = review.fetch_account_history(client, {})
+    assert acc["day"] == {"pnl": 12.0, "pnl_pct": 1.2, "account_value": 1012.0}
+    assert acc["allTime"]["pnl"] == -460.0
+    assert "accountValueHistory" not in json.dumps(acc)
+    assert "pnlHistory" not in json.dumps(acc)
+
+
+def test_account_history_failure_is_unknown_not_zero():
+    class Down:
+        def mcp_call(self, tool, timeout=12, **kw):
+            raise RuntimeError("upstream down")
     meta = {}
-    assert review.fetch_closed_trades(client, w, None, None, None, meta) == []
-    assert "closed_trade_source" not in meta
+    assert review.fetch_account_history(Down(), meta) is None      # UNKNOWN, never 0.0
+    assert meta["warnings"]
 
 
 # ────────────────────────────── scope + fast-fail (the "telemetry unavailable" live-run fix) ──
@@ -1039,7 +1057,7 @@ def _two_sleeve_fixture():
     with open(FIXTURE) as f:
         base = json.load(f)
     hist = base["discovery_get_trader_history::0xkodiak00000000000000000000000000000kdk"]["closedPositions"]
-    ch = base["strategy_get_clearinghouse_state::0xkodiak00000000000000000000000000000kdk"]
+    pos = base["discovery_get_trader_state"]["traders"][0]["openPositions"]
     fx = {k: v for k, v in base.items() if k.startswith(("market_get_asset_data::", "leaderboard_"))}
     fx["strategy_list"] = {"strategies": [
         {"strategyName": "cougar-long", "tradingStrategyName": "cougar",
@@ -1055,8 +1073,9 @@ def _two_sleeve_fixture():
         {"asset": "SOL", "status": "SL_TRIGGERED", "currentTierIndex": 2, "highWaterRoe": 41.0}]}
     fx[f"ratchet_stop_list::{COUGAR_SHORT.lower()}"] = {"configs": [
         {"asset": "BTC", "status": "SL_TRIGGERED", "currentTierIndex": 0, "highWaterRoe": 5.0}]}
-    fx[f"strategy_get_clearinghouse_state::{COUGAR_LONG.lower()}"] = ch
-    fx[f"strategy_get_clearinghouse_state::{COUGAR_SHORT.lower()}"] = ch
+    fx["discovery_get_trader_state"] = {"traders": [
+        {"address": COUGAR_LONG.lower(), "openPositions": pos, "openOrders": []},
+        {"address": COUGAR_SHORT.lower(), "openPositions": pos, "openOrders": []}]}
     return fx
 
 
@@ -1141,3 +1160,15 @@ if __name__ == "__main__":
         fn()
         print(f"  ok {fn.__name__}")
     print(f"\n{len(fns)}/{len(fns)} passed")
+
+
+def test_closed_only_book_has_a_real_zero_unrealized_not_unknown():
+    """A book with NO current strategies has no open positions at all, so unrealized is a REAL 0 and TOTAL
+    equals realized. Returning None there left a fully-closed book with no headline (HARD RULE 1)."""
+    ps = review._pnl_summary(17.05, [], 17.23)
+    assert ps["unrealized"] == 0.0 and ps["total"] == 17.05
+    assert ps["unrealized_partial"] is False
+    assert ps["realized"] == 17.05 and ps["fees"] == 17.23      # fees never netted into realized
+    # current strategies that exist but are ALL unreadable stay UNKNOWN — that is a different case
+    unreadable = review._pnl_summary(17.05, [{"unrealized_pnl": None}], 17.23)
+    assert unreadable["unrealized"] is None and unreadable["total"] is None
