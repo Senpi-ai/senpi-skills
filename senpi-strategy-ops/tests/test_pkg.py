@@ -343,6 +343,54 @@ def test_ensure_pkg_refreshes_a_stale_local_copy_and_backs_it_up(monkeypatch, tm
     assert len(baks) == 1 and deploy._pkg_version(baks[0]) == "1.0.0"     # old copy kept, not deleted
 
 
+def test_ensure_pkg_recovers_a_dir_with_no_strategy_yaml(monkeypatch, tmp_path):
+    """A <durable>/<id>/ holding files but no strategy.yaml — the shape a pre-3.7.0 interrupted
+    fetch leaves — used to skip the backup and then move the fetched package INSIDE it: BadPackage
+    on that run, shutil.Error on the next, and the root stayed wedged until cleared by hand."""
+    deploy = _import_deploy()
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    junk = tmp_path / "durable" / "spider"
+    junk.mkdir(parents=True)
+    (junk / "scan.py").write_text("# leftover from an interrupted fetch")
+    monkeypatch.setattr(deploy._fetch, "fetch_package", _fake_fetch("1.2.1"))
+
+    pkg = deploy.ensure_pkg("spider", None, lambda m: None)
+    assert deploy._pkg_version(pkg.dir) == "1.2.1"
+    assert not (tmp_path / "durable" / "spider" / "spider").exists()     # not nested
+    deploy.ensure_pkg("spider", None, lambda m: None)                    # 2nd run used to raise
+    baks = list((tmp_path / "durable").glob("spider.bak-*"))
+    assert len(baks) == 1 and (baks[0] / "scan.py").is_file()            # junk preserved, not deleted
+
+
+def test_ensure_pkg_does_not_churn_backups_when_already_current(monkeypatch, tmp_path):
+    """The documented flow is `validate` then `create`, so an unconditional swap left TWO .bak dirs
+    per deploy — unbounded, never pruned, and picked up by validate_universe's root.glob("*") as if
+    they were real packages. A forked template was also replaced on every command, not once."""
+    deploy = _import_deploy()
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    make_flat(tmp_path / "durable", pkg_id="spider", version="1.2.1")
+    monkeypatch.setattr(deploy._fetch, "fetch_package", _fake_fetch("1.2.1"))
+
+    msgs = []
+    for _ in range(3):
+        deploy.ensure_pkg("spider", None, msgs.append)
+    assert not list((tmp_path / "durable").glob("spider.bak-*"))
+    assert any("already current at 1.2.1" in m for m in msgs)
+
+
+def test_ensure_pkg_backups_are_unique_within_one_second(monkeypatch, tmp_path):
+    """The stamp is 1-second granularity and shutil.move into an existing dir moves INSIDE it, so
+    two refreshes in the same second silently nested and a third raised shutil.Error."""
+    deploy = _import_deploy()
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path / "durable"))
+    make_flat(tmp_path / "durable", pkg_id="spider", version="1.0.0")
+    for v in ("1.1.0", "1.2.0", "1.2.1"):
+        monkeypatch.setattr(deploy._fetch, "fetch_package", _fake_fetch(v))
+        deploy.ensure_pkg("spider", None, lambda m: None)
+    assert len(list((tmp_path / "durable").glob("spider.bak-*"))) == 3
+    assert not (tmp_path / "durable" / "spider" / "spider").exists()
+
+
 def test_ensure_pkg_keeps_local_when_the_remote_has_no_such_package(monkeypatch, tmp_path):
     """A locally AUTHORED package is not in the catalog, so the fetch 404s — that is what protects
     authored work, with no marker file needed."""

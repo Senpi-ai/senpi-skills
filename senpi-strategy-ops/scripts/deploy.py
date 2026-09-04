@@ -135,11 +135,37 @@ def _pkg_version(pkg_dir):
         return None
 
 
-def _fetch_fresh(sid, ref, log):
-    """Fetch <sid> into a TEMP root; return that path, or None if the remote lacks it / is
-    unreachable. Temp-first is the safety property: a failed download can never leave the durable
-    root without a package."""
-    tmp = Path(tempfile.mkdtemp(prefix=f"senpi-pkg-{sid}-"))
+def _stage_aside(dest_root, sid, log, why):
+    """Move <dest_root>/<sid> out of the way, to a name that cannot already exist. Returns the
+    backup path, or None if there was nothing there.
+
+    EVERY existing directory is moved, not just a loadable one. A dir holding files but no
+    strategy.yaml — the shape a pre-3.7.0 interrupted fetch leaves — used to skip this and then
+    take `shutil.move(fresh, local)`, which moves the package INSIDE it: BadPackage on this run,
+    and on the next one a `shutil.Error` because the nested copy is already there. The durable root
+    stayed wedged until a human cleared it."""
+    local = dest_root / sid
+    if not local.exists():
+        return None
+    stamp = time.strftime("%Y%m%dT%H%M%S")
+    backup = dest_root / f"{sid}.bak-{stamp}"
+    n = 1
+    while backup.exists():                       # two refreshes in one second must not collide
+        backup = dest_root / f"{sid}.bak-{stamp}-{n}"
+        n += 1
+    shutil.move(str(local), str(backup))
+    log(f"{why} — previous copy kept at {backup}")
+    return backup
+
+
+def _fetch_fresh(sid, ref, log, dest_root):
+    """Fetch <sid> into a staging dir INSIDE the durable root, and return it, or None if the remote
+    lacks it / is unreachable. Staging first is the safety property: a failed download can never
+    leave the durable root without a package. Staging *inside* dest_root (not /tmp) keeps the final
+    swap on one filesystem, so it is a rename rather than a cross-device copy+delete that could
+    fail half-way on a full disk."""
+    dest_root.mkdir(parents=True, exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(prefix=f".senpi-fetch-{sid}-", dir=dest_root))
     try:
         _fetch.fetch_package(sid, tmp, ref=ref)      # contract: writes <dest_root>/<id>
         if not (tmp / sid / "strategy.yaml").is_file():
@@ -190,7 +216,7 @@ def ensure_pkg(arg, ref, log):
         log(f"{sid!r} carries deploy state — using the deployed copy ({_pkg_version(local)}), not refreshing")
         return _pkg.load(local)
 
-    fresh = _fetch_fresh(sid, ref, log)
+    fresh = _fetch_fresh(sid, ref, log, dest_root)
     if fresh is None:
         if loadable:
             log(f"WARNING: could not refresh {sid!r} — deploying the LOCAL copy ({_pkg_version(local)}), "
@@ -203,14 +229,20 @@ def ensure_pkg(arg, ref, log):
             f"  Deploying a locally-authored package? Pass its DIRECTORY path instead of a bare id, "
             f"e.g.: deploy.py validate /data/workspace/strategies/{sid}")
 
-    if loadable:
-        backup = dest_root / f"{sid}.bak-{time.strftime('%Y%m%dT%H%M%S')}"
-        old_v = _pkg_version(local)
-        shutil.move(str(local), str(backup))
-        log(f"{sid!r} refreshed: {old_v} -> {_pkg_version(fresh)} (previous copy kept at {backup})")
-    else:
-        log(f"{sid!r} not on disk — fetched {_pkg_version(fresh)} into {dest_root}")
-    dest_root.mkdir(parents=True, exist_ok=True)
+    old_v, new_v = _pkg_version(local), _pkg_version(fresh)
+    # Nothing to do when the versions already agree. The documented flow is `validate` then
+    # `create`, so without this an ordinary deploy leaves TWO .bak dirs — unbounded, never pruned,
+    # and picked up by validate_universe's root.glob("*") as if they were real packages. It also
+    # meant a forked template was backed up and replaced on EVERY command rather than once.
+    if loadable and new_v is not None and new_v == old_v:
+        log(f"{sid!r} already current at {new_v} — not refreshing")
+        shutil.rmtree(fresh.parent, ignore_errors=True)
+        return _pkg.load(local)
+
+    why = (f"{sid!r} refreshed: {old_v} -> {new_v}" if loadable
+           else f"{sid!r} on disk but unloadable — replacing with fetched {new_v}")
+    if _stage_aside(dest_root, sid, log, why) is None:   # unconditional: see the docstring there
+        log(f"{sid!r} not on disk — fetched {new_v} into {dest_root}")
     shutil.move(str(fresh), str(local))
     shutil.rmtree(fresh.parent, ignore_errors=True)
     return _pkg.load(local)
