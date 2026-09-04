@@ -5,7 +5,7 @@
 schema_version: 1
 
 id: kingfisher
-version: "1.1.0"
+version: "1.2.0"
 
 catalog:
   name: "Kingfisher — Classic Indicators (RSI + MACD)"
