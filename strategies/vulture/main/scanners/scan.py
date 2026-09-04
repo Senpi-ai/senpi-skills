@@ -204,7 +204,10 @@ def scan(inputs, ctx):
             "direction": c["direction"],
             "marginPct": margin_pct,          # SIZING INTENT (PERCENT) — runtime sizes the dollars
             "leverage": c["leverage"],        # conviction-tiered (5/7); runtime applies it
-            "data": {
+            # `required: false` in signal_data_schema permits an ABSENT key, never a present-and-null:
+            # the intake discards the WHOLE candidate on a null optional. Drop them here rather than
+            # coercing to 0/"" — a coerced value would assert a measurement that was never taken.
+            "data": {k: v for k, v in {
                 "score": c["score"],
                 "tier": c["tier_label"],
                 "leverage": c["leverage"],
@@ -220,7 +223,7 @@ def scan(inputs, ctx):
                 "contribChange4h": c["c4h"],
                 "fundingRegime": c["regime"],
                 "persistenceHours": c["persistence_hours"],
-            },
+            }.items() if v is not None},
         })
         recent[cu] = now
 

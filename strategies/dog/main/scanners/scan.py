@@ -264,7 +264,10 @@ def scan(inputs, ctx):
             "direction": c["direction"],          # the FADE direction (post contrarian flip)
             "marginPct": margin_pct,              # FLAT PERCENT (0,100] — runtime sizes the dollars
             "leverage": c["leverage"],            # conviction-tiered 7/10x; runtime applies + clamps
-            "data": {
+            # `required: false` in signal_data_schema permits an ABSENT key, never a present-and-null:
+            # the intake discards the WHOLE candidate on a null optional. Drop them here rather than
+            # coercing to 0/"" — a coerced value would assert a measurement that was never taken.
+            "data": {k: v for k, v in {
                 "score": c["score"],
                 "smDirection": c["sm_direction"],
                 "leverage": c["leverage"],
@@ -281,7 +284,7 @@ def scan(inputs, ctx):
                 "crowdingTrend": c["crowding_trend"],
                 "assetFunding": float(c["asset_funding"]),
                 "heldAssets": sorted(held_set),
-            },
+            }.items() if v is not None},
         })
         emitted.append({"asset": c["asset"], "direction": c["direction"],
                         "score": c["score"], "leverage": c["leverage"]})

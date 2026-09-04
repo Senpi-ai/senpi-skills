@@ -469,7 +469,10 @@ def scan(inputs, ctx):
         "direction": best["fade_direction"],            # OPPOSITE of the crowd — Owl is contrarian
         "marginPct": margin_pct,                         # SIZING INTENT — PERCENT (0,100]; runtime sizes USD
         "leverage": leverage,                            # conviction-scaled 7/8/10 (10x cap); runtime clamps
-        "data": {
+        # `required: false` in signal_data_schema permits an ABSENT key, never a present-and-null:
+        # the intake discards the WHOLE candidate on a null optional. Drop them here rather than
+        # coercing to 0/"" — a coerced value would assert a measurement that was never taken.
+        "data": {k: v for k, v in {
             "score": best["combined_score"],
             "leverage": leverage,
             "crowdDirection": best["crowd_direction"],
@@ -485,5 +488,5 @@ def scan(inputs, ctx):
             "peakCrowdingScore": best["peak_crowding_score"],
             "exhaustionSignals": " | ".join(best.get("exhaustion_signals", [])),
             "reasons": best["reasons"],
-        },
+        }.items() if v is not None},
     }]

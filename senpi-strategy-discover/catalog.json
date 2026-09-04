@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-09-03",
+  "_updated": "2026-09-04",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -283,7 +283,7 @@
       "emoji": "🦉",
       "tagline": "Scans every liquid Hyperliquid crypto perp (OI > $3M) for one-sided crowding — extreme funding + lopsided smart money + concentrated OI — then waits for that crowding to persist 1h+ AND for exhaustion to fire (volume fading, price stalling, RSI divergence) before fading the crowd. Conviction-scaled leverage (7/8/10) at 25% margin, with a macro gate that stands down when BTC's 4h move is extreme.",
       "belief_plain": "The crowd is wrong at the extremes. When everyone piles onto one side of a coin — paying punishing funding, the best traders all leaning the same way, open interest stacking up — and the price then stops following through, the unwind is violent and predictable. Owl waits for both the crowded state AND the exhaustion trigger, then takes the other side. Most days it does nothing, because most days one or both is missing.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "Crowded trades unwind violently. Owl's edge is timing the unwind: it never fades on crowding alone (which can persist and grind), it waits for crowding to PERSIST 1h+ and for distinct exhaustion signals (declining volume under extreme funding, price stalling against the crowd, capitulation wicks, 4h RSI divergence) to confirm the move is dying. Mean reversion fails in trending macro, so a hard gate blocks all fades when |BTC 4h| > 3%. XYZ banned — the funding/smart-money scoring is calibrated on crypto data shape.",
       "tags": [
         "contrarian",
@@ -3836,7 +3836,7 @@
       "emoji": "🦅",
       "tagline": "Scans a whitelist of ~25 small/mid-cap Hyperliquid perps that no other agent covers (majors and XYZ are banned), and enters when smart-money concentration aligns with a fresh 4h trend, the 1h confirms it isn't a false breakout, and 15m velocity is accelerating — then sizes leverage to conviction (5x, 7x apex), cuts losers fast and rides the right-tail winners for days on a trailing stop.",
       "belief_plain": "Hunts the small coins the rest of the fleet ignores. It only buys (or shorts) one when the best traders are crowding in, the 4-hour trend agrees, the 1-hour isn't already rolling over, and short-term momentum is building — then goes in harder on the strongest setups and trails a stop. Most trades are tiny losses cut fast; the occasional big winner pays for everything.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "The biggest blind spot on Hyperliquid is the small/mid-cap long tail — every other agent is locked to the majors or a single asset, so nobody is reading smart-money flow on HEMI, WLD, XPL, AIXBT and the rest. Small caps have a thicker trader-count signal-to-noise ratio than the majors: when smart-money concentration on one aligns with a fresh 4h trend and accelerating 15m velocity, that's a momentum entry with a long right tail. A low win rate is fine when the winners are several times the size of the losers.",
       "tags": [
         "small-cap",
@@ -4272,7 +4272,7 @@
       "emoji": "🐻",
       "tagline": "A single-asset BTC specialist: enters only when 4h and 1h trend structure agree, 15m momentum confirms, smart money leans the same way, and a macro V-recovery gate proves the move isn't a fade right off the 24h extreme — then sizes leverage to conviction (7/10/10x) and lets the DSL ride the winner.",
       "belief_plain": "Trades only BTC. It waits for the 4-hour and 1-hour trend to agree, momentum to confirm, and the best traders to be leaning the same way — and it refuses to short right off a 24h low (or long right off a 24h high) because those fades whipsaw. It goes in harder when more factors line up, and trails a stop instead of guessing the exit.",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "thesis": "BTC has the deepest liquidity on Hyperliquid and the cleanest trend structure. An agent that watches only BTC can read its multi-timeframe structure, smart-money flow, and funding far more tightly than a broad scanner — and BTC's 4h structure metric lags V-recoveries, so a distance-from-24h-extreme gate stops it from fading a reversal that the candle structure hasn't caught up to yet.",
       "tags": [
         "btc",
@@ -4800,7 +4800,7 @@
       "emoji": "🦡",
       "tagline": "A single-asset HYPE specialist: six-gate trend entry (4h structure, 1h non-opposition, 15m momentum, base-tech floor, 4h magnitude) layered with a market-wide funding-regime + funding-persistence macro gate and a smart-money HARD BLOCK — then sizes leverage to conviction (3/5x) and lets the DSL ride the winner.",
       "belief_plain": "Trades only HYPE. It waits for the 4-hour trend to be strong, the 1-hour to not be fighting it, and short-term momentum to confirm — then checks the broader funding 'crowding' regime and refuses to trade when the best traders are leaning the other way. It goes in harder when more factors line up, and trails a stop instead of guessing the exit.",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "thesis": "HYPE is one of the highest-volatility majors on Hyperliquid. A specialist that watches only HYPE can read its trend structure, smart-money flow, funding regime and persistence far more tightly than a broad scanner — and the macro funding-regime gate keeps it out of crowded, liquidation-prone setups that single-asset momentum alone would walk into.",
       "tags": [
         "hype",
@@ -4994,7 +4994,7 @@
       "emoji": "🐕",
       "tagline": "A patient contrarian on BTC/ETH/SOL/HYPE: waits for a major to move 3%+ in 4h while smart money piles in heavily, then fades the crowded, exhausted side — but only when the funding regime confirms the unwind and the move is still fresh. Conservative 7-10x leverage, wide DSL to let the reversal develop.",
       "belief_plain": "When a big coin runs hard and the best traders are all crowded onto the same side, the crowd is maximum exposed and the unwind is the trade. Dog bets against that exhausted consensus on BTC, ETH, SOL and HYPE — but only when the move has genuinely overextended, the crowding is still building, and market-wide funding shows the crowd really is one-sided. Most of the time it waits.",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "thesis": "Hyperliquid is dominated by leverage traders chasing momentum. When a major moves 3%+ in four hours and smart-money consensus piles in 15%+, the late entrants are maximally exposed and funding pressure plus mean reversion force the unwind. Dog's edge is being on the unwind side before capitulation accelerates — so it scores the smart-money direction, hard-gates on exhaustion (>=3% 4h move), freshness (15m contribution still rising), trader depth (>=30), and a funding regime that confirms the crowd is one-sided, then emits the OPPOSITE direction at conservative leverage and lets a wide ratcheting stop ride the reversal rather than banking too early.",
       "tags": [
         "smart-money",

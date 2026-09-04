@@ -7,7 +7,7 @@
 schema_version: 1
 
 id: vulture                  # == package dir name; == the instance runtime.yaml `group`
-version: "1.2.0"             # single source for catalog + MCP attribution (skillName/skillVersion)
+version: "1.2.1"             # single source for catalog + MCP attribution (skillName/skillVersion)
 
 catalog:                     # discovery surface. `group` here is the discovery TAXONOMY bucket.
   name: "Vulture — Small-Cap Momentum Rider"
