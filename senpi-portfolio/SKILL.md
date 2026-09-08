@@ -178,6 +178,8 @@ so is the useful reply.
 | `position_already_exists` | It already holds that asset; it will not double up. | no |
 | `strategy_backend_paused` | The strategy is paused — it will not open anything until it is resumed. | **yes** — unpause it |
 | `position_open_failed` | It tried to open and the exchange rejected the order. Give the exchange's own message, which rides the outcome. | depends on the message |
+| `timeout` | **Not a rejection — the order may have filled.** The runtime recorded a failure after the send timed out, so the user can be holding a position it does not know about. Check live positions before saying anything, and never suggest retrying until you have. | check positions first |
+| `exception` | An unexpected error on the open path, with the message on the outcome. Contact Senpi Support if it repeats. | if it repeats |
 | `invalid_direction` | A defect — the signal carried neither LONG nor SHORT. Contact Senpi Support. | **yes** |
 
 **Do not offer "close and relaunch" for `withdrawable_unavailable`.** It reads like the obvious fix
@@ -190,36 +192,32 @@ nothing.
 
 ### No signals at all — the scanner is alive but producing nothing
 
-The table above only applies to signals that were **evaluated**. A scanner that has gone blind
-produces none, so there is no reason code to read and the codes above will tell you nothing. Its
-fingerprint is in `senpi runtime list`, and the CLI already flags it in plain words:
+The table above only covers signals that were **evaluated**. A scanner producing none has no reason
+code at all, so the codes tell you nothing.
 
-```
-scanner ext mode=external health=healthy runs=3 errors=0 consec_errors=0 signals=0 alive=1700 last=ok (no signals yet)
-```
+Two commands, and they answer different questions — `senpi runtime list` prints only id, source and
+status, so it will show you `running` and leave you stuck. It does carry the sibling failure,
+`running — NO ENTRY SCANNERS`. The per-scanner view is **`senpi scanner`**, which flags a barren one
+in plain words (`(no signals yet)` = it has run and emitted nothing). For anything deeper, hand off to
+`senpi-strategy-ops` `diagnose.py <id> --run-scan` as below — this skill interprets, it does not
+re-derive.
 
-`(no signals yet)` means `runs > 0` and `signals == 0` — wired, ticking, emitting nothing. **Note
-`health=healthy` and `errors=0`**: a blind scanner looks perfect on every other field, which is why
-users find it by noticing their strategy has been quiet, not by anything we showed them.
-
-Two things produce that shape, and you must not conflate them:
+**The interpretation is the part that is yours**, because both of these look identical on every field:
 
 - **Nothing qualified.** Normal, and the right answer for a selective strategy — the entry bar simply
   has not been met. Judge against the mandate: a slow, high-conviction design is *supposed* to sit.
-- **The scanner is wedged.** Its market-data connection broke and every read has failed since, while
-  it kept reporting `ok`. The tell is a scanner that **used to** produce signals and has produced
-  none for hours while `alive` keeps advancing and `errors` stays 0.
+- **The scanner is blind.** Its market-data connection broke and every read has failed since, while it
+  kept reporting healthy. The tell is a scanner that **used to** produce signals and has produced none
+  for hours with no errors.
 
-You usually cannot separate these from one read. Say which one you are looking at, and if it is the
-second, say so plainly and give the action:
+**Never call it healthy on the strength of `health=healthy`.** For this failure that field is exactly
+the thing that is wrong — which is why users find it by noticing the quiet, not from anything we show
+them. When it is the second one, say so and give the action:
 
-> "Your scanner has been running for the last 9 hours but hasn't produced a single candidate, and it
-> was producing them before. That pattern usually means its market-data connection dropped — the
-> strategy isn't broken and your funds aren't affected, but it isn't looking at the market either.
-> Restarting the strategy clears it. If it comes back, contact Senpi Support."
-
-Never tell the user "everything looks healthy" on the strength of `health=healthy` alone — for this
-failure that field is exactly the thing that is wrong.
+> "Your scanner has been running for the last 9 hours without producing a single candidate, and it was
+> producing them before. That usually means its market-data connection dropped — the strategy isn't
+> broken and your funds aren't affected, but it isn't looking at the market either. Restarting clears
+> it. If it comes back, contact Senpi Support."
 
 ### No reason codes at all — read it the right way round
 
