@@ -98,8 +98,13 @@ _BREAKEVEN = re.compile(r"lock_hw_pct:\s*0(\.0+)?\b")
 # `phase2: {enabled: true}` at the same indent is not swallowed into the match. The \1
 # backreference is load-bearing — without it the naive version matches that sibling in the
 # real presets file and fails CI on a clean tree (Sarvesh hit exactly that).
+# The whitespace-only alternative is load-bearing: _config_text strips comments to BLANK lines,
+# and every shipped runtime.yaml explains the trailing-off decision between `phase1:` and
+# `enabled:`. Requiring \S on every line ended the capture at the first stripped comment, so
+# phase1 came back '' for 129 of 134 packages and the check silently passed on all of them.
 _PHASE1 = re.compile(
-    r"^([ \t]*)phase1:[ \t]*(?:#[^\n]*)?(\{[^}]*\}|(?:\n\1[ \t]+\S[^\n]*)*)", re.M)
+    r"^([ \t]*)phase1:[ \t]*(?:#[^\n]*)?"
+    r"(\{[^}]*\}|(?:\n(?:\1[ \t]+\S[^\n]*|[ \t]*))*)", re.M)
 _ENABLED_TRUE = re.compile(r"\benabled:\s*true\b", re.I)
 
 
