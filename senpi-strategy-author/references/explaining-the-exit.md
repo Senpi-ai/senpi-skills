@@ -1,27 +1,20 @@
 # Explaining the exit — the preview you show before you build
 
-The exit is the part users misread most, and the misreading costs them money. The classic shape:
-someone sets `lock 10% at +100%` believing it means *take 10% profit at +100%*. It actually means
-*once you are up 100%, put the stop at 10% of your best*. A trade that peaks at +93% never reaches
-that only rung, so nothing is ever locked and the entire gain round-trips to the stop. The config is
-valid, the strategy reports healthy, and the user finds out afterwards.
+`lock 10% at +100%` reads as *take 10% profit at +100%*. It means *once you are up 100%, put the
+stop at 10% of your best*. A trade peaking at +93% never reaches that only rung, so nothing is ever
+locked and the whole gain round-trips. The config is valid and reports healthy the entire way down.
 
-Say what the exit does, in their words, before you build it.
+## The sentence
 
-## The one sentence, every time
+Lives in SKILL.md decision 7 — one copy, said every time. Don't restate it here; two copies of a
+sentence is the exact drift this file exists to stop.
 
-> Your Dynamic Stop Loss (DSL) moves your stop loss up as the price moves in your favor (up for long,
-> down for short). As the trade gains it follows behind, locking more of the gain in. It never sells
-> while the trade is still going your way.
+The parenthetical ("up for long, down for short") is doing real work on a short book: the stop always
+climbs in **ROE** terms, but in **price** terms a short's floor sits above entry and falls as the
+trade wins (`roeToPriceFloor` branches on direction).
 
-The parenthetical is doing real work on a short book. The stop always climbs in **ROE** terms, but in
-**price** terms a short's floor sits above entry and falls as the trade wins — `roeToPriceFloor`
-branches on direction. Keep it; a short-seller told "your stop moves up as the price increases" will
-read it as backwards and lose confidence in the whole preview.
-
-**It is a stop-loss that climbs, not profit-taking.** Nothing is sold on the way up. No rung ever
-closes a winner. A rung only raises the price at which a *reversal* closes you. If the user says
-"take profit at X" anywhere in the conversation, correct the framing before you set a number.
+**It is a stop-loss that follows, not profit-taking.** Nothing is sold on the way up; no rung ever
+closes a winner. If the user says "take profit at X", correct the framing before you set a number.
 
 ## The arithmetic (from the engine, not from memory)
 
