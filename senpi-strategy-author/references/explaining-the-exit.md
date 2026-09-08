@@ -10,9 +10,15 @@ Say what the exit does, in their words, before you build it.
 
 ## The one sentence, every time
 
-> Your stop starts below your entry and only ever moves up. As the trade gains it follows behind,
-> locking more of the gain in — so if the price dips you keep most of what you made instead of
-> giving it back. It never sells while the trade is still going your way.
+> Your Dynamic Stop Loss (DSL) moves your stop loss up as the price moves in your favor (up for long,
+> down for short). As the trade gains it follows behind, locking more of the gain in — so if the price
+> dips you keep most of what you made instead of giving it back. It never sells while the trade is
+> still going your way.
+
+The parenthetical is doing real work on a short book. The stop always climbs in **ROE** terms, but in
+**price** terms a short's floor sits above entry and falls as the trade wins — `roeToPriceFloor`
+branches on direction. Keep it; a short-seller told "your stop moves up as the price increases" will
+read it as backwards and lose confidence in the whole preview.
 
 **It is a stop-loss that climbs, not profit-taking.** Nothing is sold on the way up. No rung ever
 closes a winner. A rung only raises the price at which a *reversal* closes you. If the user says
@@ -34,13 +40,14 @@ Two consequences worth saying out loud, because both surprise people:
 
 ## The template
 
-Three or four rungs, the downside, how it behaves, then the preset's own time cuts.
+Lead with where the trade is now — the downside floor — then climb. Rungs, then how it
+behaves, then the preset's own time cuts.
 
-> **What your exit will actually do**
+> **Here's the DSL settings on this strategy**
+> • Below +20% → nothing is locked in yet; your only floor is the **−8% max loss**.
 > • Up 20% → your stop moves to **+5%**. From here the trade can't lose money.
 > • Up 50% → your stop moves to **+30%**.
 > • Up 100% → your stop moves to **+85%**.
-> • Below +20% → nothing is locked in yet; your only floor is the **−8% max loss**.
 >
 > The stop follows the **best** price the trade ever hit, not where it is now — peak at +50%, drift
 > back to +35%, and that +30% stop is still the one holding. It only moves up, never down, and

@@ -184,13 +184,13 @@ For each: ask the question, offer the options as plain choices, then map the ans
    (`interval_seconds`). **Never hand-roll stops — copy a preset from
    `senpi-strategy-author/references/dsl-presets.yaml`** (full path — it lives in THIS skill, not the
    runtime package).
-   **Say what the exit DOES before you name a preset**, in plain words: *"Your stop starts below your
-   entry and only ever moves up. As the trade gains it follows behind, locking more of the gain in — so
-   if the price dips you keep most of what you made instead of giving it back. It never sells while the
-   trade is still going your way."* It is **a stop-loss that climbs, not profit-taking**: nothing is
-   sold on the way up and no rung ever closes a winner — a rung only raises the price at which a
-   REVERSAL closes you. Users hear "lock 30% at +20%" as *sell 30% at +20%*, and act on it.
-   Say it every time.
+   **Say what the exit DOES before you name a preset**, in plain words: *"Your Dynamic Stop Loss (DSL)
+   moves your stop loss up as the price moves in your favor (up for long, down for short). As the trade
+   gains it follows behind, locking more of the gain in — so if the price dips you keep most of what you
+   made instead of giving it back. It never sells while the trade is still going your way."* It is
+   **a stop-loss that follows, not profit-taking**: nothing is sold on the way up and no rung ever
+   closes a winner — a rung only raises the price at which a REVERSAL closes you. Users hear "lock 30%
+   at +20%" as *sell 30% at +20%*. Say it every time.
 
 ## After the 7 — build it in STAGES, narrating as you go
 
@@ -211,8 +211,8 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
    **Part of that replay is an EXIT PREVIEW — the ladder as outcomes, never as YAML.** Nobody reads
    `{trigger_pct: 50, lock_hw_pct: 60}`; everybody reads what it does to their money. Each rung is
    **floor ROE = the best ROE the trade ever reached × `lock_hw_pct` ÷ 100**, at the highest tier whose
-   `trigger_pct` has been passed. Three or four rungs, the downside floor, and the preset's own time
-   cuts if it has any. Template + worked example + the wording for each mismatch:
+   `trigger_pct` has been passed. Lead with the downside floor — where the trade is now — then climb,
+   and add the preset's own time cuts if it has any. Template + worked example + the wording for each mismatch:
    [`references/explaining-the-exit.md`](references/explaining-the-exit.md).
    **Sanity-check the ladder first and say so when it doesn't fit** — never silently build what the
    user can't get, and always offer a concrete alternative rather than a warning: **first rung above
