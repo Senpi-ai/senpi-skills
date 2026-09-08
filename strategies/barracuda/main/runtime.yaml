@@ -42,8 +42,14 @@ scanners:
     type: external_scanner
     path: ./scanners
     entrypoint: scan.py
-    interval_seconds: 60
-    timeout_seconds: 90
+    # Cadence sized from telemetry, not intuition (2026-09-08): over 24 h the worst tick across
+    # live users was 95,046 ms — i.e. this scan ALREADY exceeded a 90 s budget and was killed by it,
+    # which permanently poisons the MCP session (see close_all_scanner below). p90 worst was 85,916 ms
+    # and the average tick 27,472 ms. A universe-wide screener simply cannot finish inside 60 s on a
+    # bad tick, so the old 60 s interval was fiction whenever the scan was slow.
+    # timeout MUST stay below interval: a tick has to be cut off before the next one is due.
+    interval_seconds: 180
+    timeout_seconds: 150
     default_signal_validity_seconds: 300
     state_history_max_count: 200
     inputs:
@@ -97,8 +103,15 @@ scanners:
     type: external_scanner
     path: ./scanners
     entrypoint: close_all.py
-    interval_seconds: 30
-    timeout_seconds: 30
+    # 30/30 gave this scanner ZERO headroom: a budget it was expected to consume. On 2026-09-08 a
+    # user's close_all ran 3,231 clean ticks over 17.4 h, then one tick hit exactly 30,000 ms and the
+    # next 9.5 h produced 2,284 ClosedResourceError with no recovery — the tick timeout fires SIGALRM
+    # mid-MCP-call, the in-flight request is never cancelled and the client's _connected latch never
+    # resets, so only a fresh process clears it. Four users were sitting at ~68% of this budget.
+    # Telemetry: p90 worst tick 25,139 ms, average 2,007 ms — so 45 s is ~1.8x the realistic worst
+    # case while staying below the interval. The breaker now checks every 60 s instead of 30 s.
+    interval_seconds: 60
+    timeout_seconds: 45
     default_signal_validity_seconds: 60
     state_history_max_count: 50
     inputs:
