@@ -76,14 +76,16 @@ actions:
 exit:                            # DSL trailing-stop engine (optional but typical)
   engine: dsl
   interval_seconds: 60           # DSL poll cadence (integer, 5–3600)
-  dsl_preset:
+  dsl_preset:                    # trailing is OFF fleet-wide and no tier locks 0 — a floor that
+                                 # starts below entry can ratchet a WINNING trade into a loss, and a
+                                 # breakeven rung exits flat while still paying both fees. Copy a
+                                 # real ladder from senpi-strategy-author/references/dsl-presets.yaml.
     hard_timeout:  { enabled: true, interval_in_minutes: 2880 }
     weak_peak_cut: { enabled: true, interval_in_minutes: 480, min_value: 3.0 }
-    phase1: { enabled: true, max_loss_pct: 12.0, retrace_threshold: 8, consecutive_breaches_required: 1 }
+    phase1: { enabled: false, max_loss_pct: 8.0, retrace_threshold: 8, consecutive_breaches_required: 1 }
     phase2:
       enabled: true
       tiers:                     # MUST be sorted ascending by trigger_pct
-        - { trigger_pct: 5,  lock_hw_pct: 0 }
         - { trigger_pct: 10, lock_hw_pct: 40 }
         - { trigger_pct: 50, lock_hw_pct: 85 }
 

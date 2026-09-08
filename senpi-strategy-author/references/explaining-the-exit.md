@@ -16,6 +16,9 @@ trade wins (`roeToPriceFloor` branches on direction).
 **It is a stop-loss that follows, not profit-taking.** Nothing is sold on the way up; no rung ever
 closes a winner. If the user says "take profit at X", correct the framing before you set a number.
 
+Field-by-field behaviour — close reasons, DSL events, how the exchange stop relates to the
+floor — is in [`dsl-configuration.md`](dsl-configuration.md).
+
 ## The arithmetic (from the engine, not from memory)
 
 `src/dsl/engine/floors.ts` in senpi-trading-runtime:
