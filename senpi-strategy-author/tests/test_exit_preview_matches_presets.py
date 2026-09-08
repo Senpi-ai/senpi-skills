@@ -78,5 +78,17 @@ def test_the_time_cut_table_names_every_cut_and_its_real_duration(name):
         assert f"`{cut} " not in text, f"{name} row names {cut}, but the preset does not enable it"
 
 
+@pytest.mark.parametrize("doc", sorted(_REFS.glob("*.md")), ids=lambda p: p.name)
+def test_no_reference_teaches_a_dropped_default(doc):
+    """Every YAML example an agent might copy. dsl-configuration.md drifted for weeks teaching
+    `phase1.enabled: true` and breakeven rungs after the fleet dropped both; the presets file said
+    so and nothing checked. One grep beats re-reading five files."""
+    text = doc.read_text(encoding="utf-8")
+    assert "lock_hw_pct: 0 " not in text and "lock_hw_pct: 0}" not in text, \
+        f"{doc.name} shows a `lock_hw_pct: 0` rung — exits flat, still pays fees, dropped fleet-wide"
+    assert "enabled: true, max_loss_pct" not in text and "phase1:\n  enabled: true" not in text, \
+        f"{doc.name} shows `phase1.enabled: true` — trailing is off fleet-wide (ratchets into a loss)"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
