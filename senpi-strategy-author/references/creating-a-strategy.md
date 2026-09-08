@@ -411,11 +411,9 @@ exit:
     phase1: { enabled: false, max_loss_pct: 8.0, retrace_threshold: 8, consecutive_breaches_required: 1 }
     phase2:
       enabled: true
-      tiers:                                  # copy a real ladder from references/dsl-presets.yaml
+      tiers:                                  # shape only — copy a real ladder from
+                                              # references/dsl-presets.yaml
         - { trigger_pct: 20,  lock_hw_pct: 25 }
-        - { trigger_pct: 30,  lock_hw_pct: 40 }
-        - { trigger_pct: 50,  lock_hw_pct: 60 }
-        - { trigger_pct: 75,  lock_hw_pct: 75 }
         - { trigger_pct: 100, lock_hw_pct: 85 }
 risk:
   guard_rails: { drawdown_halt_pct: 22, daily_loss_limit_pct: 12, max_entries_per_day: 9, cooldown_seconds: 3600, drawdown_reset_on_day_rollover: true }

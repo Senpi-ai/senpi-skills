@@ -21,25 +21,6 @@ and breakeven rungs that the presets had already dropped.
 
 ---
 
-## Table of Contents
-
-- [Presets](#presets)
-- [Exit block](#exit-block)
-- [Preset configuration](#preset-configuration)
-- [Phase 1 configuration](#phase-1-configuration)
-- [Time-based cuts](#time-based-cuts)
-- [Phase 2 configuration](#phase-2-configuration)
-- [Tier definition](#tier-definition)
-- [How phases and tiers combine](#how-phases-and-tiers-combine)
-- [Exchange stop-loss vs DSL floor](#exchange-stop-loss-vs-dsl-floor)
-- [Retrace convention](#retrace-convention)
-- [Consecutive breaches](#consecutive-breaches)
-- [Close reasons](#close-reasons)
-- [DSL events](#dsl-events)
-- [Full YAML example](#full-yaml-example)
-
----
-
 ## Exit block
 
 Configured under the `exit` key in the recipe YAML.
@@ -178,17 +159,6 @@ Phase 2 is exchange-SL driven. It starts when the first tier is reached (always 
 
 **Constraint:** `phase1.enabled` and `phase2.enabled` cannot both be false.
 
-```yaml
-phase2:
-  enabled: true
-  tiers:                                  # illustrative only — real ladders live in dsl-presets.yaml
-    - { trigger_pct: 10,  lock_hw_pct: 30 }
-    - { trigger_pct: 20,  lock_hw_pct: 30 }
-    - { trigger_pct: 35,  lock_hw_pct: 50 }
-    - { trigger_pct: 60,  lock_hw_pct: 70 }
-    - { trigger_pct: 100, lock_hw_pct: 85 }
-```
-
 ---
 
 ## Tier definition
@@ -316,12 +286,10 @@ exit:
       consecutive_breaches_required: 1
     phase2:
       enabled: true
-      tiers:                      # illustrative only — real ladders live in dsl-presets.yaml
-        - { trigger_pct: 10,  lock_hw_pct: 30 }
-        - { trigger_pct: 20,  lock_hw_pct: 30 }
-        - { trigger_pct: 35,  lock_hw_pct: 50 }
-        - { trigger_pct: 60,  lock_hw_pct: 70 }
-        - { trigger_pct: 100, lock_hw_pct: 85 }
+      tiers:                      # shape only, NOT a preset — copy a real ladder from
+                                  # dsl-presets.yaml. Ascending trigger_pct, no rung locks 0.
+        - { trigger_pct: 10, lock_hw_pct: 40 }
+        - { trigger_pct: 50, lock_hw_pct: 85 }
 ```
 
 > The block above shows every time-cut key for reference. Which cuts each preset actually enables is in [`dsl-presets.yaml`](dsl-presets.yaml), and the per-preset summary an agent reads to the user is in [`explaining-the-exit.md`](explaining-the-exit.md).

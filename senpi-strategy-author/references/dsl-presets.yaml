@@ -32,7 +32,7 @@ presets:
   let_winners_run:
     use_for: Trend / breakout / momentum / trader-follower (most directional strategies)
     character: >-
-      Widest. No profit lock until +10% ROE, lock ramps slowly to a +100%
+      Widest. No profit lock until +20% ROE, lock ramps slowly to a +100%
       tier, time-cuts off. Captures fat-tail trends; gives back more on a
       reversal. Validated on the 2026-05 HYPE run (held winners +40% to +93%).
     dsl_preset:
@@ -54,7 +54,7 @@ presets:
     use_for: General-purpose / unsure (the default)
     character: >-
       Breathes early (no lock until +10%), locks gradually, runner tier to
-      +100%, 15% margin floor. Smart auto-close: weak_peak_cut frees a
+      +100%, 8% margin floor. Smart auto-close: weak_peak_cut frees a
       position that is BOTH flat (never reached +3% ROE in 6h) AND fading — it
       never touches a winner or a position still near its high — and a 72h
       hard_timeout is a true outer bound that won't cap a multi-day trend.
@@ -137,7 +137,7 @@ presets:
     character: >-
       Widest in the catalog. Built for asymmetric parabolic moves (the HYPE
       2026-05 +60% run is the reference) where standard DSL trails would chop
-      out on 5-8% intraday gyrations. Late first lock (+15%, no early tier),
+      out on 5-8% intraday gyrations. Late first lock (+30%, no early tier),
       lighter early ratchet, wide retrace_threshold (18), requires 2
       consecutive breaches so a single volatile bar doesn't trip Phase 1, and
       a 14d hard_timeout outer bound to accommodate multi-week runs.

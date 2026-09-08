@@ -78,16 +78,44 @@ def test_the_time_cut_table_names_every_cut_and_its_real_duration(name):
         assert f"`{cut} " not in text, f"{name} row names {cut}, but the preset does not enable it"
 
 
-@pytest.mark.parametrize("doc", sorted(_REFS.glob("*.md")), ids=lambda p: p.name)
-def test_no_reference_teaches_a_dropped_default(doc):
-    """Every YAML example an agent might copy. dsl-configuration.md drifted for weeks teaching
-    `phase1.enabled: true` and breakeven rungs after the fleet dropped both; the presets file said
-    so and nothing checked. One grep beats re-reading five files."""
-    text = doc.read_text(encoding="utf-8")
-    assert "lock_hw_pct: 0 " not in text and "lock_hw_pct: 0}" not in text, \
-        f"{doc.name} shows a `lock_hw_pct: 0` rung — exits flat, still pays fees, dropped fleet-wide"
-    assert "enabled: true, max_loss_pct" not in text and "phase1:\n  enabled: true" not in text, \
-        f"{doc.name} shows `phase1.enabled: true` — trailing is off fleet-wide (ratchets into a loss)"
+# Every doc an agent copies a config out of — plus the preset file itself, which is the "one home"
+# and was therefore unguarded by a *.md glob.
+_COPYABLE = sorted(
+    p for p in (_REFS.parents[1]).rglob("*")
+    if p.suffix in (".md", ".yaml") and (p.name == "dsl-presets.yaml" or p.parent.name == "references")
+)
+
+# Scoped to fenced yaml blocks so PROSE may name a banned pattern in order to ban it.
+# senpi-portfolio/SKILL.md explains what `lock_hw_pct: 0` means; documenting the rule is not
+# breaking it, and a bare substring check fails that file.
+_YAML_BLOCK = re.compile(r"```ya?ml\n(.*?)```", re.S)
+_BREAKEVEN = re.compile(r"lock_hw_pct:\s*0(\.0+)?\b")
+_TRAILING_ON = re.compile(r"phase1:[^}\n]*\n?\s*enabled:\s*true")
+
+
+def _config_text(path):
+    """The parts an agent would copy: fenced yaml in a doc, or a .yaml file minus its comments.
+
+    Comments are stripped for the same reason markdown is narrowed to fenced blocks — the preset
+    file's own header states the ban ("No tier may carry `lock_hw_pct: 0`"), and a checker that
+    cannot tell a rule from a violation makes writing the rule down a CI failure.
+    """
+    body = path.read_text(encoding="utf-8")
+    if path.suffix != ".yaml":
+        return "\n".join(_YAML_BLOCK.findall(body))
+    return "\n".join(re.sub(r"#.*$", "", line) for line in body.splitlines())
+
+
+@pytest.mark.parametrize("doc", _COPYABLE, ids=lambda p: f"{p.parent.name}/{p.name}")
+def test_no_copyable_config_teaches_a_dropped_default(doc):
+    """`lock_hw_pct: 0` exits flat and still pays fees; `phase1.enabled: true` ratchets a winning
+    trade into a loss. Both were dropped across 129 instances, the preset file says so, and three
+    separate docs kept teaching them because nothing checked."""
+    text = _config_text(doc)
+    assert not _BREAKEVEN.search(text), \
+        f"{doc.name} has a `lock_hw_pct: 0` rung — exits flat, still pays fees, dropped fleet-wide"
+    assert not _TRAILING_ON.search(text), \
+        f"{doc.name} has `phase1.enabled: true` — trailing is off fleet-wide (ratchets into a loss)"
 
 
 if __name__ == "__main__":
