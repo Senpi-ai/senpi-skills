@@ -186,11 +186,10 @@ For each: ask the question, offer the options as plain choices, then map the ans
    runtime package).
    **Say what the exit DOES before you name a preset**, in plain words: *"Your Dynamic Stop Loss (DSL)
    moves your stop loss up as the price moves in your favor (up for long, down for short). As the trade
-   gains it follows behind, locking more of the gain in — so if the price dips you keep most of what you
-   made instead of giving it back. It never sells while the trade is still going your way."* It is
-   **a stop-loss that follows, not profit-taking**: nothing is sold on the way up and no rung ever
-   closes a winner — a rung only raises the price at which a REVERSAL closes you. Users hear "lock 30%
-   at +20%" as *sell 30% at +20%*. Say it every time.
+   gains it follows behind, locking more of the gain in. It never sells while the trade is still going
+   your way."* It is **a stop-loss that follows, not profit-taking**: nothing is sold on the way up and
+   no rung ever closes a winner — a rung only raises the price at which a REVERSAL closes you. Users
+   hear "lock 30% at +20%" as *sell 30% at +20%*. Say it every time.
 
 ## After the 7 — build it in STAGES, narrating as you go
 

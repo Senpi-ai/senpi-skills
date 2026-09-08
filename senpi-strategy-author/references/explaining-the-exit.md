@@ -11,9 +11,8 @@ Say what the exit does, in their words, before you build it.
 ## The one sentence, every time
 
 > Your Dynamic Stop Loss (DSL) moves your stop loss up as the price moves in your favor (up for long,
-> down for short). As the trade gains it follows behind, locking more of the gain in — so if the price
-> dips you keep most of what you made instead of giving it back. It never sells while the trade is
-> still going your way.
+> down for short). As the trade gains it follows behind, locking more of the gain in. It never sells
+> while the trade is still going your way.
 
 The parenthetical is doing real work on a short book. The stop always climbs in **ROE** terms, but in
 **price** terms a short's floor sits above entry and falls as the trade wins — `roeToPriceFloor`
