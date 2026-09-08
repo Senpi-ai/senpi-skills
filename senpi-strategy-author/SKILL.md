@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.1.0"
+  version: "3.2.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -184,6 +184,13 @@ For each: ask the question, offer the options as plain choices, then map the ans
    (`interval_seconds`). **Never hand-roll stops — copy a preset from
    `senpi-strategy-author/references/dsl-presets.yaml`** (full path — it lives in THIS skill, not the
    runtime package).
+   **Say what the exit DOES before you name a preset**, in plain words: *"Your stop starts below your
+   entry and only ever moves up. As the trade gains it follows behind, locking more of the gain in — so
+   if the price dips you keep most of what you made instead of giving it back. It never sells while the
+   trade is still going your way."* It is **a stop-loss that climbs, not profit-taking**: nothing is
+   sold on the way up and no rung ever closes a winner — a rung only raises the price at which a
+   REVERSAL closes you. Users hear "lock 30% at +20%" as *sell 30% at +20%*, and act on it.
+   Say it every time.
 
 ## After the 7 — build it in STAGES, narrating as you go
 
@@ -201,6 +208,18 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
 
 1. **Confirm the spec.** Replay name + thesis + all 7 + opening constraints → get a "yes." *("You said
    rotate the cohort every 3 days — that's in.")* Nothing is written before this yes.
+   **Part of that replay is an EXIT PREVIEW — the ladder as outcomes, never as YAML.** Nobody reads
+   `{trigger_pct: 50, lock_hw_pct: 60}`; everybody reads what it does to their money. Each rung is
+   **floor ROE = the best ROE the trade ever reached × `lock_hw_pct` ÷ 100**, at the highest tier whose
+   `trigger_pct` has been passed. Three or four rungs, the downside floor, and the preset's own time
+   cuts if it has any. Template + worked example + the wording for each mismatch:
+   [`references/explaining-the-exit.md`](references/explaining-the-exit.md).
+   **Sanity-check the ladder first and say so when it doesn't fit** — never silently build what the
+   user can't get, and always offer a concrete alternative rather than a warning: **first rung above
+   ~40% ROE** (most trades never reach it, so nothing is ever locked) · **`lock_hw_pct: 0`** (exits
+   flat, still pays fees) · **locks that shrink as triggers rise** (usually a typo) · **preset against
+   the thesis** (a fader on `let_winners_run`). If they keep their choice after you've explained it,
+   build what they asked for.
 2. **Scaffold.** Match the idea to an archetype row in `references/creating-a-strategy.md`, create the
    package dirs **under the durable strategies root** — `/data/workspace/strategies/<id>/`
    (`SENPI_STRATEGIES_DIR` overrides), **NEVER inside a managed skill directory** (skill updates

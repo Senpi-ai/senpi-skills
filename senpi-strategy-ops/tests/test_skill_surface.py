@@ -29,7 +29,14 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # 51 blocks were bucket-1/rationale (docs/specs/2026-08-12-classification-table.md:176-232) and all
 # seven are gone. Cutting further means deleting a conversation rule, which this budget exists to
 # make visible, not to force.
-BODY_BUDGET = {"senpi-strategy-ops": 300, "senpi-strategy-author": 368}
+# author 368 -> 387 (2026-09-08): the exit-preview conversation rule. `lock N% at +M%` reads as
+# "take N% profit at +M%" to most users, so a ladder whose first rung sits above what the trade
+# reaches locks nothing while looking configured. The 19 resident lines are the parts that must fire on every
+# build and cannot be deferred to a pay-per-read file: the plain-English "a stop that climbs, not
+# profit-taking" sentence, the instruction to render the ladder as outcomes, and the four
+# doesn't-fit checks. The worked example, the template and the per-mismatch wording went to
+# references/explaining-the-exit.md, which is where this budget says depth belongs.
+BODY_BUDGET = {"senpi-strategy-ops": 300, "senpi-strategy-author": 387}
 
 
 def _skill_body(path):
