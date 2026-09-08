@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.15.0"
+  version: "1.16.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -153,6 +153,38 @@ capital to redeploy elsewhere, and never "dead money."** That capital is *commit
 it's the dry powder the other half of the design needs to do its job. Only truly-free
 `idle_in_embedded` (and, with care, a *whole* strategy's idle) is redeployable — a flat sleeve of a
 live multi-wallet strategy is not.
+
+### "Why hasn't it traded?" / "why didn't it open that position?" — answer from the outcome codes
+
+A running, healthy strategy that has not traded is the single most common "is it broken?" question,
+and the answer is almost never "it's broken". Every evaluated signal carries a
+`senpi.outcome.reason_code`, so **say which one, how many, and whether the user needs to do
+anything** — never "I'm not sure why."
+
+**Two rules before you answer.** Count the signals rather than describing one, and name the assets
+that were skipped, because "3 eligible entries were skipped" is the part the user actually feels.
+And lead with whether they need to act: for most of these the honest answer is *nothing*, and saying
+so is the useful reply.
+
+| reason code | what to tell the user | do they act? |
+|---|---|---|
+| `withdrawable_unavailable` | "Your available balance was not available during **N** recent scans, resulting in these eligible positions being skipped. If this problem persists, I'd recommend closing the strategy and relaunching it. If that doesn't fix it, contact Senpi Support." | only if it persists |
+| `insufficient_margin` | "Your available balance is fully deployed, resulting in these eligible positions being skipped." It opens on its own as soon as a position closes. | no |
+| `no_margin_configured` | The strategy has no way to size a position, so it can never open one. Redeploy it, or contact Senpi Support if redeploying doesn't fix it. | **yes** |
+| `no_slots` | Every slot is already holding a position — working as designed. | no |
+| `below_min_notional` | The position would be smaller than the $10 exchange minimum. More budget, or higher leverage, would clear it. | their call |
+| `risk_gate_COOLDOWN` | A guard rail is holding it back — the per-asset or global cooldown from its own config. | no |
+| `risk_gate_CLOSED` / `risk_gate_OPEN` | A daily loss limit, drawdown halt or consecutive-loss brake tripped. Name **which**, from the strategy's `risk` block. | no, until it resets |
+| `position_already_exists` | It already holds that asset; it will not double up. | no |
+
+**`no_margin_configured` is the only one that is a defect**, and it is the only one where the user
+should be sent to redeploy. Do not send them to redeploy for the others — a fully deployed balance
+and a missed balance read both resolve on their own, and telling someone to tear down a working
+strategy over either is worse than saying nothing.
+
+**Never say "it isn't trading" without a reason code to hand.** If the engine surfaces no evaluated
+signals at all, that is a different answer — the scanner is not producing candidates, which is the
+"ACTIVE ≠ running" case below, not a sizing one.
 
 ### "ACTIVE" ≠ running — a strategy with no runtime registered is NOT alive, and NOT protected
 

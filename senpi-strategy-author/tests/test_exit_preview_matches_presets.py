@@ -78,11 +78,15 @@ def test_the_time_cut_table_names_every_cut_and_its_real_duration(name):
         assert f"`{cut} " not in text, f"{name} row names {cut}, but the preset does not enable it"
 
 
-# Every doc an agent copies a config out of — plus the preset file itself, which is the "one home"
-# and was therefore unguarded by a *.md glob.
+# Every doc an agent copies a config out of, the preset file itself (the "one home", unguarded by a
+# *.md glob), AND every shipped package. The docs are where the rot lived, but a breakeven rung in a
+# runtime.yaml is where it would cost someone money.
+_ROOT = _REFS.parents[1]
 _COPYABLE = sorted(
-    p for p in (_REFS.parents[1]).rglob("*")
-    if p.suffix in (".md", ".yaml") and (p.name == "dsl-presets.yaml" or p.parent.name == "references")
+    p for p in _ROOT.rglob("*")
+    if (p.suffix in (".md", ".yaml")
+        and (p.name == "dsl-presets.yaml" or p.parent.name == "references"))
+    or (p.name == "runtime.yaml" and p.relative_to(_ROOT).parts[0] == "strategies")
 )
 
 # Scoped to fenced yaml blocks so PROSE may name a banned pattern in order to ban it.
@@ -90,7 +94,13 @@ _COPYABLE = sorted(
 # breaking it, and a bare substring check fails that file.
 _YAML_BLOCK = re.compile(r"```ya?ml\n(.*?)```", re.S)
 _BREAKEVEN = re.compile(r"lock_hw_pct:\s*0(\.0+)?\b")
-_TRAILING_ON = re.compile(r"phase1:[^}\n]*\n?\s*enabled:\s*true")
+# Indent-anchored: capture only the lines nested UNDER this phase1, so a sibling
+# `phase2: {enabled: true}` at the same indent is not swallowed into the match. The \1
+# backreference is load-bearing — without it the naive version matches that sibling in the
+# real presets file and fails CI on a clean tree (Sarvesh hit exactly that).
+_PHASE1 = re.compile(
+    r"^([ \t]*)phase1:[ \t]*(?:#[^\n]*)?(\{[^}]*\}|(?:\n\1[ \t]+\S[^\n]*)*)", re.M)
+_ENABLED_TRUE = re.compile(r"\benabled:\s*true\b", re.I)
 
 
 def _config_text(path):
@@ -106,7 +116,9 @@ def _config_text(path):
     return "\n".join(re.sub(r"#.*$", "", line) for line in body.splitlines())
 
 
-@pytest.mark.parametrize("doc", _COPYABLE, ids=lambda p: f"{p.parent.name}/{p.name}")
+# 134 packages all ship a file called runtime.yaml, most under a dir called main — an id of
+# "main/runtime.yaml81" tells a reader nothing. Name the package.
+@pytest.mark.parametrize("doc", _COPYABLE, ids=lambda p: str(p.relative_to(_ROOT)))
 def test_no_copyable_config_teaches_a_dropped_default(doc):
     """`lock_hw_pct: 0` exits flat and still pays fees; `phase1.enabled: true` ratchets a winning
     trade into a loss. Both were dropped across 129 instances, the preset file says so, and three
@@ -114,7 +126,7 @@ def test_no_copyable_config_teaches_a_dropped_default(doc):
     text = _config_text(doc)
     assert not _BREAKEVEN.search(text), \
         f"{doc.name} has a `lock_hw_pct: 0` rung — exits flat, still pays fees, dropped fleet-wide"
-    assert not _TRAILING_ON.search(text), \
+    assert not any(_ENABLED_TRUE.search(block) for _, block in _PHASE1.findall(text)), \
         f"{doc.name} has `phase1.enabled: true` — trailing is off fleet-wide (ratchets into a loss)"
 
 
