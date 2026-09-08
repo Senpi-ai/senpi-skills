@@ -46,15 +46,15 @@ behaves, then the preset's own time cuts.
 > nothing is sold while the trade is still climbing.
 
 That worked example is `let_winners_run`, which carries **no time cuts**. Add a line for the ones the
-chosen preset actually has — read them out of `dsl-presets.yaml`, do not recall them:
+chosen preset actually has — each row names the cut and its real duration, checked against `dsl-presets.yaml` by the test:
 
 | preset | time cuts to mention |
 |---|---|
 | `let_winners_run` | none |
-| `balanced` | flat-and-fading for 6h → out · 72h → out |
-| `mean_reversion` | flat-and-fading for 6h → out · hard timeout |
-| `scalp` | dead weight after 8h → out · hard timeout |
-| `parabolic_runner` | hard timeout only (14d) |
+| `balanced` | flat-and-fading `weak_peak_cut 6h` · outer bound `hard_timeout 72h` |
+| `mean_reversion` | flat-and-fading `weak_peak_cut 2h` · outer bound `hard_timeout 48h` |
+| `scalp` | flat-since-entry `dead_weight_cut 45m` · outer bound `hard_timeout 90m` |
+| `parabolic_runner` | outer bound `hard_timeout 336h` |
 
 ## When the ladder doesn't fit — offer, don't just warn
 
