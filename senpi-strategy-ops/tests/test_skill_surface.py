@@ -29,7 +29,14 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # 51 blocks were bucket-1/rationale (docs/specs/2026-08-12-classification-table.md:176-232) and all
 # seven are gone. Cutting further means deleting a conversation rule, which this budget exists to
 # make visible, not to force.
-BODY_BUDGET = {"senpi-strategy-ops": 300, "senpi-strategy-author": 368}
+# author 368 -> 386 (2026-09-08): the exit-preview conversation rule. `lock N% at +M%` reads as
+# "take N% profit at +M%" to most users, so a ladder whose first rung sits above what the trade
+# reaches locks nothing while looking configured. The 18 resident lines are the parts that must fire on every
+# build and cannot be deferred to a pay-per-read file: the plain-English "a stop that climbs, not
+# profit-taking" sentence, the instruction to render the ladder as outcomes, and the four
+# doesn't-fit checks. The worked example, the template and the per-mismatch wording went to
+# references/explaining-the-exit.md, which is where this budget says depth belongs.
+BODY_BUDGET = {"senpi-strategy-ops": 300, "senpi-strategy-author": 386}
 
 
 def _skill_body(path):
@@ -176,6 +183,26 @@ class CodesAreNamedNotExplained(unittest.TestCase):
                     counts[code] = counts.get(code, 0) + 1
                 over = {c: n for c, n in counts.items() if n > 2}
                 self.assertEqual(over, {}, f"codes explained rather than named: {over}")
+
+
+class ReadmeVersionsMatchSkills(unittest.TestCase):
+    """README's version column is hand-maintained and drifts silently. It sat at 2.4.2 for
+    senpi-strategy-author against a shipped 3.1.0, and senpi-trading-runtime was a whole major
+    behind. One assert is cheaper than noticing."""
+
+    def test_every_readme_row_matches_its_skill(self):
+        readme = (REPO / "README.md").read_text()
+        rows = re.findall(r"\| \[`(senpi-[a-z-]+)`\]\([^)]+\) \| ([0-9]+\.[0-9]+\.[0-9]+) \|", readme)
+        self.assertGreater(len(rows), 8, "README version table not found — did the format change?")
+        for name, shown in rows:
+            skill = REPO / name / "SKILL.md"
+            if not skill.is_file():
+                continue
+            with self.subTest(skill=name):
+                m = re.search(r'^\s*version:\s*"([^"]+)"', skill.read_text(), re.M)
+                self.assertIsNotNone(m, f"{name}/SKILL.md has no metadata.version")
+                self.assertEqual(m.group(1), shown,
+                                 f"README says {name} is {shown}; SKILL.md says {m.group(1)}")
 
 
 class SkillBodyWithinBudget(unittest.TestCase):

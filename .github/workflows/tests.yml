@@ -28,8 +28,11 @@ jobs:
       # pytest collects every test regardless of a __main__ runner — bare `python3 <file>` exits 0
       # without running anything on a runner-less file (test_default_catalog.py), a silent green.
       # `strategies/tests` holds catalog-wide contract guards (no null optional signal keys).
+      # `senpi-strategy-author/tests` was never listed here, so its suite had never run in CI —
+      # added 2026-09-08 along with the exit-preview guard that keeps SKILL.md's worked ladder
+      # arithmetically true to dsl-presets.yaml.
       # Named explicitly rather than `strategies`: a module-level sys.exit() in
       # strategies/chimp/tests/test_package_shape.py aborts collection for that whole tree
       # (pre-existing, unrelated).
-      - name: full suites (ops + discover + trading-runtime + catalog guards)
-        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-trading-runtime/tests senpi-trader-research/tests senpi-market-pulse/tests senpi-portfolio/tests strategies/tests -q
+      - name: full suites (ops + discover + author + trading-runtime + catalog guards)
+        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-strategy-author/tests senpi-trading-runtime/tests senpi-trader-research/tests senpi-market-pulse/tests senpi-portfolio/tests strategies/tests -q
