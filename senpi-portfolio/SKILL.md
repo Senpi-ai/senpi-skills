@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.16.0"
+  version: "1.17.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -257,13 +257,21 @@ SCANNERS**, not a clean "running." When `runtime_registered` (or `not_running` /
 `null`, the registry read did not answer — say **"could not verify on this host,"** never "running" and
 never "not running."
 
-**Telemetry-verified liveness — `runtime_health`.** Beyond "is a runtime registered," the engine asks the
+**Runtime-verified liveness — `runtime_health`.** ("Telemetry" here is `openclaw senpi status` on the
+user's own box — the runtime's own view of itself, not the internal telemetry stack. Don't say
+"telemetry reports…" to a user; it sounds like we are reading something they cannot see.) Beyond "is a
+runtime registered," the engine asks the
 runtime itself (`openclaw senpi status`) whether it's actually *working*, and sets `runtime_health` per
 strategy and per group. Narrate it honestly — a registered runtime is not automatically a healthy one:
 - **`live`** — registered and telemetry reports healthy. Only this earns "running / protected."
-- **`degraded`** — registered but telemetry reports **unhealthy** (scanner erroring, monitor stalled), or
-  `running_blind` (up, no entry scanners). Say **"⚠ runtime degraded — running but not healthy; check
-  `openclaw senpi status`,"** not a clean all-clear. Flagged in `meta.warnings` too.
+- **`recovering`** — the engine's own `degraded`: **the last scan errored, once.** `consecutiveErrorCount`
+  is 1, and the next successful tick zeroes it — this is a blip clearing itself, not a fault. **Do not
+  warn on it.** Do not put a ⚠ on the strategy, and do not send the user to a diagnostic. If they ask,
+  say the last scan hit an error and the next one retries. If the strategy is opening or closing
+  positions, that is the answer to "is it working" — a stale `lastRunStatus` is not.
+- **`degraded`** — the engine reports **unhealthy**: **two or more consecutive** scan errors, or
+  `running_blind` (up, no entry scanners). This is the one that always deserved the warning. Say
+  **"⚠ runtime degraded — running but not healthy,"** not a clean all-clear. Flagged in `meta.warnings`.
 - **`not_running`** — no runtime at all (above). ⛔ NOT RUNNING / UNPROTECTED.
 - **`unknown`** — registered, but health **not yet proven**: a scanner it has never heard from, a runtime
   just restarted, or a `senpi status` document that carried no health verdict this engine recognises. Say
@@ -277,7 +285,7 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
   `meta.warnings` names the failed command; quote it, never invent a cause. This is the honest bar:
   **only `live` means "confirmed working."**
 - **`mirror`** — a **copy-trade** strategy: no runtime BY DESIGN (see **Copy-trade / mirror strategies** below).
-  Never `live` / `degraded` / `not_running` / `unverified` — those don't apply to it. Judge it on `mirror_of` +
+  Never `live` / `recovering` / `degraded` / `not_running` / `unverified` — those don't apply to it. Judge it on `mirror_of` +
   `mirror_multiplier` + `stop_loss_pct` / `take_profit_pct`, never on a runtime it was never meant to have.
 
 **Minimum runtime — `openclaw senpi runtime list --json`.** The engine asks the runtime for its own
@@ -294,10 +302,12 @@ genuinely unattributed.) The fix is a runtime upgrade on the box, not a redeploy
 
 This health check owns **liveness triage** (registered + running + healthy) via telemetry, and **references
 `diagnose.py` as the confirmation step** — it does not re-derive the deep checks. A thorough health check
-does not stop at the verdict: for **any** strategy that isn't cleanly `live` (`not_running` / `degraded` /
-`unknown`), running **`senpi-strategy-ops` `diagnose.py <id>`** (registered? ticked? no signals yet? erroring?
-`--run-scan` for the literal scan output) is how you **confirm what's actually wrong and fix it** — surface
-it as the required next step (and its verdict, if you can run it), then close.py → redeploy as needed. For
+does not stop at the verdict: for a strategy that is `not_running`, `degraded` or `unknown` — **never for
+`recovering`** — running **`senpi-strategy-ops` `diagnose.py <id>`** (registered? ticked? no signals yet?
+erroring? `--run-scan` for the literal scan output) is how you **confirm what's actually wrong and fix it**
+— run it yourself and give the verdict, then close.py → redeploy as needed. **`diagnose.py` is your tool,
+not a step you hand the user.** Never write "worth running `diagnose.py`" into a portfolio answer; either
+run it, or say what you know without it. For
 **"where am I leaking / did a stop fail / any halts / exit quality"**, hand to `senpi-improve-trades` (it
 reads the runtime event log for protection gaps, risk halts, failed orders, and exit quality). Reference the
 right tool to *confirm* — never re-derive its analysis here.

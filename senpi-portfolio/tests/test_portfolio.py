@@ -485,10 +485,26 @@ def test_registered_runtime_healthy_status_is_live():
     assert "degraded_runtimes" not in res["meta"]
 
 
-def test_registered_runtime_degraded_status_is_flagged():
-    """Registered runtime whose telemetry reports degraded/unhealthy → runtime_health 'degraded' + warning
-    (running, but not cleanly — distinct from not_running and from live)."""
+def test_one_errored_tick_is_recovering_not_a_fault():
+    """The runtime's own 'degraded' is `lastRunStatus == "error"` with consecutiveErrorCount 1, and
+    `recordRunComplete` zeroes that counter — so it is already clearing on the next successful tick.
+    Reporting it as a fault put a red warning on strategies that were visibly opening and closing
+    positions, and sent users to an ops script. It is carried, never alarmed on."""
     res = _run_with_status({"kodiak-main": status_doc({"health": "degraded"})})
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["runtime_health"] == "recovering"
+    assert res["meta"].get("recovering_runtimes") == ["kodiak"]
+    assert "degraded_runtimes" not in res["meta"]
+    assert not any("degraded" in w.lower() for w in res["meta"].get("warnings", [])), \
+        "one bad tick may not raise a warning"
+    # …and it still may not read as clean: fail-closed is unchanged.
+    assert strat["runtime_health"] != "live"
+
+
+def test_two_consecutive_errors_is_a_real_fault_and_warns():
+    """>=2 consecutive scan errors is the engine's 'unhealthy' — the signal that always deserved the
+    warning. Unchanged."""
+    res = _run_with_status({"kodiak-main": status_doc({"health": "unhealthy"})})
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_health"] == "degraded"
     assert res["meta"].get("degraded_runtimes") == ["kodiak"]
@@ -561,14 +577,20 @@ def test_unrecognised_health_verdict_is_not_live():
 
 def test_liveness_mapping_table():
     """Pin the whole `_liveness_from_status` mapping in one place, against the REAL document shape:
-    healthy→live, degraded/unhealthy→degraded, unknown/disabled→unknown, empty `statuses[]`→unknown,
+    healthy→live, unhealthy→degraded, the engine's own degraded→recovering, unknown/disabled→unknown,
+    empty `statuses[]`→unknown,
     a run state→unknown (never promoted) unless it is a broken one (→degraded), and a document with no
     verdict we recognise→unknown. Nothing but a health verdict earns 'live'."""
     doc = status_doc
     assert portfolio._liveness_from_status(doc({"health": "healthy"})) == "live"
     assert portfolio._liveness_from_status(doc({"health": "ok"})) == "live"
-    assert portfolio._liveness_from_status(doc({"health": "degraded"})) == "degraded"
+    assert portfolio._liveness_from_status(doc({"health": "degraded"})) == "recovering"
     assert portfolio._liveness_from_status(doc({"health": "unhealthy"})) == "degraded"
+    # worst wins: a real fault is not softened by a recovering sibling, and vice versa
+    assert portfolio._liveness_from_status(
+        doc({"health": "degraded"}, {"health": "unhealthy"})) == "degraded"
+    assert portfolio._liveness_from_status(
+        doc({"health": "degraded"}, {"health": "healthy"})) == "recovering"
     assert portfolio._liveness_from_status(doc({"health": "unknown"})) == "unknown"
     assert portfolio._liveness_from_status(doc({"health": "disabled"})) == "unknown"
     assert portfolio._liveness_from_status(doc({"health": "sparkling"})) == "unknown"
