@@ -276,16 +276,17 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
 
 #### Corroborate the verdict before you assert it — in either direction
 
-`runtime_health` is one field, and it can be wrong both ways. **Check it against what the strategy is
-actually doing before you tell the user anything**, using what the engine already attaches to the row:
-`positions` (open now), `trade_count` and `recent` (closed trades), `unrealized_pnl`.
+**The two sources measure different windows, which is why they disagree without either being wrong.**
+`runtime_health` describes the **most recent tick**. `positions` / `trade_count` / `recent` describe the
+**last several hours**. A strategy can hold 13 positions opened by earlier scans *and* have had its latest
+scan error — both facts true at once. So read them as a grid, not a single verdict:
 
-| verdict says | evidence says | what you say |
-|---|---|---|
-| `degraded` | positions opening / closing recently | **"running, one or more scans errored"** — not "your strategy is broken." Confirm with `status.py <id>` before going further. |
-| `degraded` | no fills, no recent closes | The verdict and the evidence agree. Report it as broken and act (below). |
-| `live` | no fills, no signals, for a long stretch | **Do not report a clean all-clear.** A scanner can read `healthy` and still be blind — see "No signals at all" above. Say it is running but has not found a trade, and give that section's answer. |
-| `live` | trading normally | Clean. Say so. |
+|                          | **strategy IS trading** (open positions / recent closes) | **strategy is NOT trading** (no fills, no recent closes) |
+|--------------------------|---|---|
+| **field says `degraded`** | **They disagree.** The last scans errored; the book is live and managed. Say *"running — some scans errored"*, never *"your strategy is broken."* Confirm with `status.py <id>` before going further. | **They agree.** It really is broken. Report it and work the ladder below. |
+| **field says `live`**     | **They agree.** Clean. Say so. | **They disagree.** Do **not** give a clean all-clear — a scanner can read `healthy` and still be blind. Say it is running but has not found a trade, and use "No signals at all" above. |
+
+The two disagreeing cells are the ones that produced this rule, one in each direction.
 
 **When the two disagree, say which one you are trusting and why.** The failure that produced this rule was
 an agent that wrote *"the scanner is clearly working (13 positions, recent closes), but something in the
