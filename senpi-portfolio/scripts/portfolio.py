@@ -931,7 +931,7 @@ def fetch_strategies(client, meta):
             f"{len(not_running)} strategy(ies) show status ACTIVE but have NO runtime registered — NOT "
             f"running: no scanner, no DSL, no guardrails despite 'ACTIVE'. Report as UNPROTECTED / not "
             f"running, never as live or 'waiting for a setup': {', '.join(str(n) for n in not_running)}. "
-            f"Confirm + fix with senpi-strategy-ops `diagnose.py <id>` (then close.py → redeploy).")
+            f"Confirm + fix with senpi-strategy-ops `status.py <id>` (then close.py → redeploy).")
     # Up, and CANNOT ENTER: the runtime reports `running — NO ENTRY SCANNERS`. Broken wiring, not a quiet
     # market — a strategy that will never take a position no matter what its scanners would have found.
     # Kept out of the degraded roll-up below so the cause the agent relays is the real one.
@@ -942,7 +942,7 @@ def fetch_strategies(client, meta):
             f"{len(blind)} strategy(ies) are RUNNING WITH NO ENTRY SCANNERS — the runtime is up but has no "
             f"scanner wired to produce entry signals, so it can never open a position (this is broken "
             f"wiring, NOT 'waiting for a setup'): {', '.join(str(b) for b in blind)}. Confirm + fix with "
-            f"senpi-strategy-ops `diagnose.py <id>` (then close.py → redeploy).")
+            f"senpi-strategy-ops `status.py <id>` (then close.py → redeploy).")
     # Registered but telemetry says the runtime is DEGRADED/unhealthy — running, but not cleanly (scanner
     # erroring, monitor stalled, etc.). Distinct from not_running (no runtime) and from live (healthy).
     degraded = [s["name"] for s in strategies
@@ -952,7 +952,7 @@ def fetch_strategies(client, meta):
         meta.setdefault("warnings", []).append(
             f"{len(degraded)} strategy(ies) have a runtime the engine reports UNHEALTHY (degraded) — two or more "
             f"consecutive scan errors, not a blip. Confirm the cause with senpi-strategy-ops "
-            f"`diagnose.py <id>` (scanner registered? ticked? no signals yet? erroring?): "
+            f"`status.py <id>` (runtime verdict + position count; `openclaw senpi scanner -r <rt>` for runs/errors/signals): "
             f"{', '.join(str(d) for d in degraded)}")
     # NOT a warning: one errored tick that the next successful one clears. Carried so the narration can
     # mention it if the user asks, never so it can be read back as a fault on a strategy that is trading.

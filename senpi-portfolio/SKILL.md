@@ -199,7 +199,7 @@ Two commands, and they answer different questions — `senpi runtime list` print
 status, so it will show you `running` and leave you stuck. It does carry the sibling failure,
 `running — NO ENTRY SCANNERS`. The per-scanner view is **`senpi scanner`**, which flags a barren one
 in plain words (`(no signals yet)` = it has run and emitted nothing). For anything deeper, hand off to
-`senpi-strategy-ops` `diagnose.py <id> --run-scan` as below — this skill interprets, it does not
+`senpi-strategy-ops` `status.py <id>` as below — this skill interprets, it does not
 re-derive.
 
 **The interpretation is the part that is yours**, because both of these look identical on every field:
@@ -273,6 +273,41 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
   `running_blind` (up, no entry scanners). This is the one that always deserved the warning. Say
   **"⚠ runtime degraded — running but not healthy,"** not a clean all-clear. Flagged in `meta.warnings`.
 - **`not_running`** — no runtime at all (above). ⛔ NOT RUNNING / UNPROTECTED.
+
+#### Corroborate the verdict before you assert it — in either direction
+
+`runtime_health` is one field, and it can be wrong both ways. **Check it against what the strategy is
+actually doing before you tell the user anything**, using what the engine already attaches to the row:
+`positions` (open now), `trade_count` and `recent` (closed trades), `unrealized_pnl`.
+
+| verdict says | evidence says | what you say |
+|---|---|---|
+| `degraded` | positions opening / closing recently | **"running, one or more scans errored"** — not "your strategy is broken." Confirm with `status.py <id>` before going further. |
+| `degraded` | no fills, no recent closes | The verdict and the evidence agree. Report it as broken and act (below). |
+| `live` | no fills, no signals, for a long stretch | **Do not report a clean all-clear.** A scanner can read `healthy` and still be blind — see "No signals at all" above. Say it is running but has not found a trade, and give that section's answer. |
+| `live` | trading normally | Clean. Say so. |
+
+**When the two disagree, say which one you are trusting and why.** The failure that produced this rule was
+an agent that wrote *"the scanner is clearly working (13 positions, recent closes), but something in the
+monitoring is off"* — and then led its answer with a red ⚠ anyway. It had the right read and buried it. If
+the money is moving, that is the headline; the field is the footnote.
+
+#### When it IS genuinely broken, act — don't hand the user a to-do
+
+For `degraded` corroborated by no activity, or `not_running`, work the ladder yourself and report what you
+found. Only the last step touches their money, and only that one needs their consent:
+
+1. **`python3 senpi-strategy-ops/scripts/status.py <id>`** — re-ask the runtime. Verdict + position count.
+2. **`openclaw senpi scanner -r <rt>`** — is it ticking at all? `runs` / `errors` / `consec_errors` /
+   `signals` / `alive`. High `runs` with `signals=0` is a different problem from `errors` climbing.
+3. **Re-run the deploy** — a deploy interrupted by a gateway restart does not resume on its own, and
+   re-running reconciles rather than duplicating. This is the fix for `not_running` after a broken deploy.
+4. **`close.py` → redeploy** — **last resort, and ask first.** It is a market exit of every open position
+   and a fresh wallet. Never reach for it to clear an error you have not diagnosed.
+
+**There is no restart verb.** If the runtime is up, ticking, erroring every read and steps 1–3 show nothing
+wrong with the recipe, the remedy is on our side, not theirs — say so plainly and point them at Senpi
+Support rather than inventing a step they can take.
 - **`unknown`** — registered, but health **not yet proven**: a scanner it has never heard from, a runtime
   just restarted, or a `senpi status` document that carried no health verdict this engine recognises. Say
   **"runtime liveness unverified — not confirmed running"** — never upgrade to "healthy/protected" or
@@ -301,13 +336,17 @@ run. (A *single* strategy reading null while others read fine is a different thi
 genuinely unattributed.) The fix is a runtime upgrade on the box, not a redeploy of the strategies.
 
 This health check owns **liveness triage** (registered + running + healthy) via telemetry, and **references
-`diagnose.py` as the confirmation step** — it does not re-derive the deep checks. A thorough health check
+`status.py` as the confirmation step** — it does not re-derive the deep checks. A thorough health check
 does not stop at the verdict: for a strategy that is `not_running`, `degraded` or `unknown` — **never for
-`recovering`** — running **`senpi-strategy-ops` `diagnose.py <id>`** (registered? ticked? no signals yet?
-erroring? `--run-scan` for the literal scan output) is how you **confirm what's actually wrong and fix it**
-— run it yourself and give the verdict, then close.py → redeploy as needed. **`diagnose.py` is your tool,
-not a step you hand the user.** Never write "worth running `diagnose.py`" into a portfolio answer; either
-run it, or say what you know without it. For
+`recovering`** — **`python3 senpi-strategy-ops/scripts/status.py <id>`** re-asks the runtime directly and
+returns its verdict **beside a position count**, which is the corroboration below. Run it yourself and give
+the answer. **It is your tool, not a step you hand the user** — never write "worth running …" into a
+portfolio answer; either run it, or say what you know without it.
+
+> **There is no `diagnose.py`.** This skill named one for five versions and no such script exists in
+> `senpi-strategy-ops` — so the agent it sent for confirmation found nothing, and fell back to repeating an
+> unconfirmed verdict as fact. `status.py` is the tool. `openclaw senpi scanner -r <rt>` is the per-scanner
+> detail (runs / errors / signals / liveness) when you need to know whether it is ticking at all. For
 **"where am I leaking / did a stop fail / any halts / exit quality"**, hand to `senpi-improve-trades` (it
 reads the runtime event log for protection gaps, risk halts, failed orders, and exit quality). Reference the
 right tool to *confirm* — never re-derive its analysis here.
