@@ -1,0 +1,56 @@
+{
+  "mode": "COPY_TRADING",
+  "deployedAt": "2026-03-08T14:38:00Z",
+  "totalAllocated": 1200,
+  "reserve": 1340,
+  "strategies": [
+    {
+      "id": "",
+      "name": "Copy#1 \u2014 The Consistent",
+      "traderAddress": "",
+      "wallet": "",
+      "budget": 500,
+      "mirrorMultiplier": 1,
+      "traderStats": {
+        "winRate": 99.3,
+        "maxDrawdown": -0.87,
+        "gainToPainRatio": 147.6,
+        "weeklyPnl": 2997967,
+        "style": "Multi-short, low leverage, patient"
+      },
+      "stopLoss": null
+    },
+    {
+      "id": "",
+      "name": "Copy#2 \u2014 The Diversified",
+      "traderAddress": "",
+      "wallet": "",
+      "budget": 400,
+      "mirrorMultiplier": 1,
+      "traderStats": {
+        "winRate": 90.9,
+        "maxDrawdown": -6.25,
+        "gainToPainRatio": 100.2,
+        "weeklyPnl": 2701527,
+        "style": "Mixed long/short, moderate leverage"
+      },
+      "stopLoss": null
+    },
+    {
+      "id": "",
+      "name": "Copy#3 \u2014 The Bear",
+      "traderAddress": "",
+      "wallet": "",
+      "budget": 300,
+      "mirrorMultiplier": 1,
+      "traderStats": {
+        "winRate": 100,
+        "maxDrawdown": -68.6,
+        "gainToPainRatio": 0,
+        "weeklyROI": 312.4,
+        "style": "Mega-bear, high leverage shorts (BTC 40x, ETH 25x)"
+      },
+      "stopLoss": 25
+    }
+  ]
+}
