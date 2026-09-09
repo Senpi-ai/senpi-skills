@@ -386,6 +386,10 @@ _HEALTH_LIVE = ("healthy", "ok")
 # single "degraded" is already clearing itself on the next successful tick. Collapsing the two turned a
 # transient blip into the same red verdict as a dead scanner, on strategies that were visibly trading.
 _HEALTH_RECOVERING = ("degraded", "warn", "warning")
+# Severity for rolling a multi-wallet strategy's sleeves into one verdict, worst first. `recovering`
+# sits ABOVE `live` (a sleeve whose last tick errored is not a clean all-clear) and BELOW `unknown`
+# (an unproven sleeve is a bigger gap than a measured blip — fail-closed outranks informative).
+_GROUP_HEALTH_WORST_FIRST = ("not_running", "degraded", "unverified", "unknown", "recovering", "live")
 _HEALTH_BROKEN = ("unhealthy", "failed", "error", "down", "false", "stopped")
 # The keys that carry a HEALTH VERDICT the runtime computed about ITSELF (`RuntimeHealthStatus.health`;
 # `overallHealth` is the older spelling this skill has always accepted). ONLY these may promote to 'live'.
@@ -469,8 +473,9 @@ def _liveness_from_status(status):
     recognisable verdict in is 'unknown'; an empty `statuses[]` is 'unknown'. None ⇒ 'unknown' too.
     A real fault (unhealthy/failed/stopped/…) → 'degraded'; the runtime's own 'degraded' — one errored
     tick, already clearing — → 'recovering'. Worst wins across records
-    (degraded > recovering > unknown > live) — an id that answers with several runtimes cannot have the
-    sick one averaged away.
+    (degraded > unknown > recovering > live) — an id that answers with several runtimes cannot have the
+    sick one averaged away. `unknown` outranks `recovering` for the same reason it outranks `live`: an
+    unproven record must not be painted over by a proven one, even a proven-slightly-bad one.
 
     'unknown' is NOT PROVEN LIVE — telemetry unavailable, or the runtime itself says it can't vouch for
     the runtime yet (never-heard scanners, right after a restart, a scanner-only runtime whose overall
@@ -488,7 +493,7 @@ def _liveness_from_status(status):
     if status.get("ok") is False:                     # the document itself says it could not answer
         return "unknown"
     verdicts = [_entry_verdict(e) for e in _status_entries(status)]
-    for worst in ("degraded", "recovering", "unknown", "live"):
+    for worst in ("degraded", "unknown", "recovering", "live"):
         if worst in verdicts:
             return worst
     return "unknown"                                  # no records at all (empty `statuses[]`)
@@ -890,7 +895,7 @@ def fetch_strategies(client, meta):
     #   recovering  — the runtime's own "degraded": the LAST scan errored, once. It clears on the next
     #                 successful tick. Not a fault, and not a reason to alarm a user whose strategy is
     #                 opening and closing positions
-    #   live        — registered and telemetry reports healthy. Only this earns "running"
+    #   live        — registered and the runtime reports itself healthy. Only this earns "running"
     #   unknown     — NOT PROVEN LIVE (telemetry unavailable, or the runtime won't vouch for it yet)
     # Fail-open + short-circuited by _telemetry_dead; sequential (few per user).
     for s in strategies:
@@ -1373,8 +1378,13 @@ def group_strategies(strategies, meta):
             "running_blind": _rollup_any(insts, "running_blind"),
             "runtime_registered": _rollup_flag(insts, "runtime_registered"),
             # runtime_health = the WORST across instances (not_running > degraded > unverified > unknown >
-            # live) — one dead/degraded/unverifiable sleeve makes the whole strategy not-fully-live.
-            "runtime_health": next((v for v in ("not_running", "degraded", "unverified", "unknown", "live")
+            # recovering > live) — one dead/degraded/unverifiable sleeve makes the whole strategy
+            # not-fully-live. `recovering` sits ABOVE live (a sleeve that errored its last tick is not a
+            # clean all-clear) and BELOW unknown (an unproven sleeve is a bigger gap than a known blip,
+            # and fail-closed outranks informative). Omitting it entirely made a both-sleeves-recovering
+            # strategy roll up to the default 'unknown' — telling the user we could not check something
+            # we had in fact measured — and a recovering+live pair report a clean 'live'.
+            "runtime_health": next((v for v in _GROUP_HEALTH_WORST_FIRST
                                     if any(s.get("runtime_health") == v for s in insts)), "unknown"),
             "flat_instances": flat_instances,
             "profile_source": prof.get("source"),

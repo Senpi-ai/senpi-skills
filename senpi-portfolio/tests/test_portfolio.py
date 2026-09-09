@@ -501,6 +501,24 @@ def test_one_errored_tick_is_recovering_not_a_fault():
     assert strat["runtime_health"] != "live"
 
 
+def test_group_rollup_carries_recovering_rather_than_swallowing_it():
+    """A multi-wallet strategy (ox = core + ballast) rolls its sleeves up to one verdict. `recovering`
+    was missing from that ordering, so BOTH-recovering fell through to the default 'unknown' — telling
+    the user we could not check something we had measured — and recovering+live reported a clean 'live'.
+    Severity: not_running > degraded > unverified > unknown > recovering > live."""
+    order = portfolio._GROUP_HEALTH_WORST_FIRST   # the engine's own tuple, not a copy of it
+
+    def rollup(*healths):
+        insts = [{"runtime_health": h} for h in healths]
+        return next((v for v in order if any(s["runtime_health"] == v for s in insts)), "unknown")
+
+    assert rollup("recovering", "recovering") == "recovering"   # was 'unknown'
+    assert rollup("recovering", "live") == "recovering"         # was 'live'
+    assert rollup("recovering", "degraded") == "degraded"       # a real fault still wins
+    assert rollup("recovering", "unknown") == "unknown"         # unproven outranks a known blip
+    assert rollup("live", "live") == "live"
+
+
 def test_two_consecutive_errors_is_a_real_fault_and_warns():
     """>=2 consecutive scan errors is the engine's 'unhealthy' — the signal that always deserved the
     warning. Unchanged."""

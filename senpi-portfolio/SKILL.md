@@ -263,7 +263,7 @@ user's own box — the runtime's own view of itself, not the internal telemetry 
 runtime registered," the engine asks the
 runtime itself (`openclaw senpi status`) whether it's actually *working*, and sets `runtime_health` per
 strategy and per group. Narrate it honestly — a registered runtime is not automatically a healthy one:
-- **`live`** — registered and telemetry reports healthy. Only this earns "running / protected."
+- **`live`** — registered, and the runtime reports itself healthy. Only this earns "running / protected."
 - **`recovering`** — the engine's own `degraded`: **the last scan errored, once.** `consecutiveErrorCount`
   is 1, and the next successful tick zeroes it — this is a blip clearing itself, not a fault. **Do not
   warn on it.** Do not put a ⚠ on the strategy, and do not send the user to a diagnostic. If they ask,
@@ -299,6 +299,10 @@ For `degraded` corroborated by no activity, or `not_running`, work the ladder yo
 found. Only the last step touches their money, and only that one needs their consent:
 
 1. **`python3 senpi-strategy-ops/scripts/status.py <id>`** — re-ask the runtime. Verdict + position count.
+   **Mind the vocabulary:** `status.py` reports the engine's raw words, and they do not line up with this
+   skill's. Its **`degraded`** is this skill's **`recovering`** (one errored tick); its **`unhealthy`** is
+   this skill's **`degraded`** (the real fault). Reading its "degraded" as ours is how a confirmation step
+   confirms the wrong thing.
 2. **`openclaw senpi scanner -r <rt>`** — is it ticking at all? `runs` / `errors` / `consec_errors` /
    `signals` / `alive`. High `runs` with `signals=0` is a different problem from `errors` climbing.
 3. **Re-run the deploy** — a deploy interrupted by a gateway restart does not resume on its own, and
