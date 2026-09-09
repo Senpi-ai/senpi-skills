@@ -55,7 +55,9 @@ RUNTIMES_FIXTURE_ENV = "SENPI_RUNTIMES_FIXTURE"     # offline test hook (see loa
 # The producer's exact blind-runtime status is `running — NO ENTRY SCANNERS` (em dash, U+2014). Matched
 # on the phrase, not the whole string, so a dash/spacing drift cannot silently repaint blind as healthy.
 RUNTIME_BLIND_MARK = "NO ENTRY SCANNERS"
-# Telemetry liveness (health check): `openclaw senpi status -r <runtime_id> --json` says whether a
+# Runtime liveness (health check): `openclaw senpi status -r <runtime_id> --json` — the runtime's own
+# view of itself, read from the user's own box. NOT the internal telemetry stack; do not narrate it
+# to a user as "telemetry reports", which sounds like something they cannot see. It says whether a
 # REGISTERED runtime is actually WORKING (healthy vs degraded), not just present in the registry. Same
 # fail-open + fixture pattern as senpi-improve-trades' event-log read. Offline test hook: a JSON file at
 # $SENPI_STATUS_FIXTURE keyed {"<runtime_id>": {status payload}} is read instead of shelling out.
@@ -378,7 +380,17 @@ def _fetch_runtime_status(runtime_id, meta):
 # `ComponentHealth`). Only the HEALTHY family earns 'live'; the broken family earns 'degraded'; everything
 # else (`unknown`, `disabled`, and any verdict we don't recognise) is UNPROVEN, not confirmed working.
 _HEALTH_LIVE = ("healthy", "ok")
-_HEALTH_BROKEN = ("degraded", "warn", "warning", "unhealthy", "failed", "error", "down", "false", "stopped")
+# The runtime separates ONE bad tick from a real fault, and so must we. `derivePushDrivenScannerHealth`
+# (senpi-trading-runtime scanners/runtime-module.ts): `lastRunStatus === "error"` yields "unhealthy" at
+# consecutiveErrorCount >= 2 and "degraded" at 1 — and `recordRunComplete` zeroes that counter, so a
+# single "degraded" is already clearing itself on the next successful tick. Collapsing the two reports a
+# transient blip with the same verdict as a dead scanner.
+_HEALTH_RECOVERING = ("degraded", "warn", "warning")
+# Severity for rolling a multi-wallet strategy's sleeves into one verdict, worst first. `recovering`
+# sits ABOVE `live` (a sleeve whose last tick errored is not a clean all-clear) and BELOW `unknown`
+# (an unproven sleeve is a bigger gap than a measured blip — fail-closed outranks informative).
+_GROUP_HEALTH_WORST_FIRST = ("not_running", "degraded", "unverified", "unknown", "recovering", "live")
+_HEALTH_BROKEN = ("unhealthy", "failed", "error", "down", "false", "stopped")
 # The keys that carry a HEALTH VERDICT the runtime computed about ITSELF (`RuntimeHealthStatus.health`;
 # `overallHealth` is the older spelling this skill has always accepted). ONLY these may promote to 'live'.
 _HEALTH_KEYS = ("overallHealth", "health")
@@ -391,10 +403,19 @@ _RUN_STATE_KEYS = ("overall", "status")
 
 
 def _classify_health(raw, allow_live):
-    """One verdict string → live / degraded / unknown. `allow_live=False` for a run state: it can say
-    the process is stopped (→ degraded), it can never say the runtime is working."""
+    """One verdict string → live / degraded / recovering / unknown. `allow_live=False` for a run state:
+    it can say the process is stopped (→ degraded), it can never say the runtime is working.
+
+    Neither broken verdict may promote to 'live' — fail-closed is unchanged. The split is only in how
+    bad 'not live' is, because 'the last tick errored' and 'this scanner is dead' are not the same fact.
+    A run state never yields 'recovering': a stopped process is not mid-recovery.
+    """
     h = str(raw).strip().lower()
     if h in _HEALTH_BROKEN:
+        return "degraded"
+    if allow_live and h in _HEALTH_RECOVERING:
+        return "recovering"
+    if h in _HEALTH_RECOVERING:
         return "degraded"
     if allow_live and h in _HEALTH_LIVE:
         return "live"
@@ -450,9 +471,11 @@ def _liveness_from_status(status):
     'live' has to be EARNED by a health verdict the runtime computed about itself (healthy/ok). A run
     state ("running") is not that verdict and cannot promote; a document we could read but found no
     recognisable verdict in is 'unknown'; an empty `statuses[]` is 'unknown'. None ⇒ 'unknown' too.
-    Broken verdicts (degraded/unhealthy/…) and a stopped run state → 'degraded'. Worst wins across
-    records (degraded > unknown > live) — an id that answers with several runtimes cannot have the sick
-    one averaged away.
+    A real fault (unhealthy/failed/stopped/…) → 'degraded'; the runtime's own 'degraded' — one errored
+    tick, already clearing — → 'recovering'. Worst wins across records
+    (degraded > unknown > recovering > live) — an id that answers with several runtimes cannot have the
+    sick one averaged away. `unknown` outranks `recovering` for the same reason it outranks `live`: an
+    unproven record must not be painted over by a proven one, even a proven-slightly-bad one.
 
     'unknown' is NOT PROVEN LIVE — telemetry unavailable, or the runtime itself says it can't vouch for
     the runtime yet (never-heard scanners, right after a restart, a scanner-only runtime whose overall
@@ -470,7 +493,7 @@ def _liveness_from_status(status):
     if status.get("ok") is False:                     # the document itself says it could not answer
         return "unknown"
     verdicts = [_entry_verdict(e) for e in _status_entries(status)]
-    for worst in ("degraded", "unknown", "live"):
+    for worst in ("degraded", "unknown", "recovering", "live"):
         if worst in verdicts:
             return worst
     return "unknown"                                  # no records at all (empty `statuses[]`)
@@ -867,8 +890,12 @@ def fetch_strategies(client, meta):
     # status) whether it's actually healthy, not just registered. runtime_health:
     #   unverified  — the runtime read FAILED; we could not ask ANY of it (never say running/protected)
     #   not_running — the read succeeded and there is no runtime behind an ACTIVE + funded strategy
-    #   degraded    — up but broken: no entry scanners, stopped, or telemetry reports unhealthy
-    #   live        — registered and telemetry reports healthy. Only this earns "running"
+    #   degraded    — up but broken: no entry scanners, stopped, or the runtime reports unhealthy
+    #                 (>=2 consecutive scan errors)
+    #   recovering  — the runtime's own "degraded": the LAST scan errored, once. It clears on the next
+    #                 successful tick. Not a fault, and not a reason to alarm a user whose strategy is
+    #                 opening and closing positions
+    #   live        — registered and the runtime reports itself healthy. Only this earns "running"
     #   unknown     — NOT PROVEN LIVE (telemetry unavailable, or the runtime won't vouch for it yet)
     # Fail-open + short-circuited by _telemetry_dead; sequential (few per user).
     for s in strategies:
@@ -909,7 +936,7 @@ def fetch_strategies(client, meta):
             f"{len(not_running)} strategy(ies) show status ACTIVE but have NO runtime registered — NOT "
             f"running: no scanner, no DSL, no guardrails despite 'ACTIVE'. Report as UNPROTECTED / not "
             f"running, never as live or 'waiting for a setup': {', '.join(str(n) for n in not_running)}. "
-            f"Confirm + fix with senpi-strategy-ops `diagnose.py <id>` (then close.py → redeploy).")
+            f"Confirm + fix with senpi-strategy-ops `status.py <id>` (then close.py → redeploy).")
     # Up, and CANNOT ENTER: the runtime reports `running — NO ENTRY SCANNERS`. Broken wiring, not a quiet
     # market — a strategy that will never take a position no matter what its scanners would have found.
     # Kept out of the degraded roll-up below so the cause the agent relays is the real one.
@@ -920,7 +947,7 @@ def fetch_strategies(client, meta):
             f"{len(blind)} strategy(ies) are RUNNING WITH NO ENTRY SCANNERS — the runtime is up but has no "
             f"scanner wired to produce entry signals, so it can never open a position (this is broken "
             f"wiring, NOT 'waiting for a setup'): {', '.join(str(b) for b in blind)}. Confirm + fix with "
-            f"senpi-strategy-ops `diagnose.py <id>` (then close.py → redeploy).")
+            f"senpi-strategy-ops `status.py <id>` (then close.py → redeploy).")
     # Registered but telemetry says the runtime is DEGRADED/unhealthy — running, but not cleanly (scanner
     # erroring, monitor stalled, etc.). Distinct from not_running (no runtime) and from live (healthy).
     degraded = [s["name"] for s in strategies
@@ -928,10 +955,15 @@ def fetch_strategies(client, meta):
     if degraded:
         meta["degraded_runtimes"] = degraded
         meta.setdefault("warnings", []).append(
-            f"{len(degraded)} strategy(ies) have a runtime that telemetry reports DEGRADED/unhealthy — "
-            f"registered but not working cleanly. Confirm the cause with senpi-strategy-ops "
-            f"`diagnose.py <id>` (scanner registered? ticked? no signals yet? erroring?): "
+            f"{len(degraded)} strategy(ies) have a runtime the engine reports UNHEALTHY (degraded) — two or more "
+            f"consecutive scan errors, not a blip. Confirm the cause with senpi-strategy-ops "
+            f"`status.py <id>` (runtime verdict + position count; `openclaw senpi scanner -r <rt>` for runs/errors/signals): "
             f"{', '.join(str(d) for d in degraded)}")
+    # NOT a warning: one errored tick that the next successful one clears. Carried so the narration can
+    # mention it if the user asks, never so it can be read back as a fault on a strategy that is trading.
+    recovering = [s["name"] for s in strategies if s.get("runtime_health") == "recovering"]
+    if recovering:
+        meta["recovering_runtimes"] = recovering
     return strategies
 
 
@@ -1346,8 +1378,13 @@ def group_strategies(strategies, meta):
             "running_blind": _rollup_any(insts, "running_blind"),
             "runtime_registered": _rollup_flag(insts, "runtime_registered"),
             # runtime_health = the WORST across instances (not_running > degraded > unverified > unknown >
-            # live) — one dead/degraded/unverifiable sleeve makes the whole strategy not-fully-live.
-            "runtime_health": next((v for v in ("not_running", "degraded", "unverified", "unknown", "live")
+            # recovering > live) — one dead/degraded/unverifiable sleeve makes the whole strategy
+            # not-fully-live. `recovering` sits ABOVE live (a sleeve that errored its last tick is not a
+            # clean all-clear) and BELOW unknown (an unproven sleeve is a bigger gap than a known blip,
+            # and fail-closed outranks informative). Omit it and a both-recovering strategy falls through
+            # to the default 'unknown' — claiming we could not check what we had measured — while a
+            # recovering+live pair reports a clean 'live'.
+            "runtime_health": next((v for v in _GROUP_HEALTH_WORST_FIRST
                                     if any(s.get("runtime_health") == v for s in insts)), "unknown"),
             "flat_instances": flat_instances,
             "profile_source": prof.get("source"),
