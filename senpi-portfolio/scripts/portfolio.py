@@ -383,8 +383,8 @@ _HEALTH_LIVE = ("healthy", "ok")
 # The runtime separates ONE bad tick from a real fault, and so must we. `derivePushDrivenScannerHealth`
 # (senpi-trading-runtime scanners/runtime-module.ts): `lastRunStatus === "error"` yields "unhealthy" at
 # consecutiveErrorCount >= 2 and "degraded" at 1 — and `recordRunComplete` zeroes that counter, so a
-# single "degraded" is already clearing itself on the next successful tick. Collapsing the two turned a
-# transient blip into the same red verdict as a dead scanner, on strategies that were visibly trading.
+# single "degraded" is already clearing itself on the next successful tick. Collapsing the two reports a
+# transient blip with the same verdict as a dead scanner.
 _HEALTH_RECOVERING = ("degraded", "warn", "warning")
 # Severity for rolling a multi-wallet strategy's sleeves into one verdict, worst first. `recovering`
 # sits ABOVE `live` (a sleeve whose last tick errored is not a clean all-clear) and BELOW `unknown`
@@ -1381,9 +1381,9 @@ def group_strategies(strategies, meta):
             # recovering > live) — one dead/degraded/unverifiable sleeve makes the whole strategy
             # not-fully-live. `recovering` sits ABOVE live (a sleeve that errored its last tick is not a
             # clean all-clear) and BELOW unknown (an unproven sleeve is a bigger gap than a known blip,
-            # and fail-closed outranks informative). Omitting it entirely made a both-sleeves-recovering
-            # strategy roll up to the default 'unknown' — telling the user we could not check something
-            # we had in fact measured — and a recovering+live pair report a clean 'live'.
+            # and fail-closed outranks informative). Omit it and a both-recovering strategy falls through
+            # to the default 'unknown' — claiming we could not check what we had measured — while a
+            # recovering+live pair reports a clean 'live'.
             "runtime_health": next((v for v in _GROUP_HEALTH_WORST_FIRST
                                     if any(s.get("runtime_health") == v for s in insts)), "unknown"),
             "flat_instances": flat_instances,

@@ -278,7 +278,7 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
 
 **The two sources measure different windows, which is why they disagree without either being wrong.**
 `runtime_health` describes the **most recent tick**. `positions` / `trade_count` / `recent` describe the
-**last several hours**. A strategy can hold 13 positions opened by earlier scans *and* have had its latest
+**last several hours**. A strategy can hold positions opened by earlier scans *and* have had its latest
 scan error — both facts true at once. So read them as a grid, not a single verdict:
 
 |                          | **strategy IS trading** (open positions / recent closes) | **strategy is NOT trading** (no fills, no recent closes) |
@@ -286,12 +286,9 @@ scan error — both facts true at once. So read them as a grid, not a single ver
 | **field says `degraded`** | **They disagree.** The last scans errored; the book is live and managed. Say *"running — some scans errored"*, never *"your strategy is broken."* Confirm with `status.py <id>` before going further. | **They agree.** It really is broken. Report it and work the ladder below. |
 | **field says `live`**     | **They agree.** Clean. Say so. | **They disagree.** Do **not** give a clean all-clear — a scanner can read `healthy` and still be blind. Say it is running but has not found a trade, and use "No signals at all" above. |
 
-The two disagreeing cells are the ones that produced this rule, one in each direction.
 
-**When the two disagree, say which one you are trusting and why.** The failure that produced this rule was
-an agent that wrote *"the scanner is clearly working (13 positions, recent closes), but something in the
-monitoring is off"* — and then led its answer with a red ⚠ anyway. It had the right read and buried it. If
-the money is moving, that is the headline; the field is the footnote.
+**When the two disagree, say which one you are trusting and why.** If the money is moving, that is the
+headline and the field is the footnote — do not report the field and bury the evidence.
 
 #### When it IS genuinely broken, act — don't hand the user a to-do
 
@@ -346,12 +343,7 @@ does not stop at the verdict: for a strategy that is `not_running`, `degraded` o
 `recovering`** — **`python3 senpi-strategy-ops/scripts/status.py <id>`** re-asks the runtime directly and
 returns its verdict **beside a position count**, which is the corroboration below. Run it yourself and give
 the answer. **It is your tool, not a step you hand the user** — never write "worth running …" into a
-portfolio answer; either run it, or say what you know without it.
-
-> **There is no `diagnose.py`.** This skill named one for five versions and no such script exists in
-> `senpi-strategy-ops` — so the agent it sent for confirmation found nothing, and fell back to repeating an
-> unconfirmed verdict as fact. `status.py` is the tool. `openclaw senpi scanner -r <rt>` is the per-scanner
-> detail (runs / errors / signals / liveness) when you need to know whether it is ticking at all. For
+portfolio answer; either run it, or say what you know without it. For
 **"where am I leaking / did a stop fail / any halts / exit quality"**, hand to `senpi-improve-trades` (it
 reads the runtime event log for protection gaps, risk halts, failed orders, and exit quality). Reference the
 right tool to *confirm* — never re-derive its analysis here.
