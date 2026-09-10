@@ -62,6 +62,10 @@ RUNTIME_BLIND_MARK = "NO ENTRY SCANNERS"
 # fail-open + fixture pattern as senpi-improve-trades' event-log read. Offline test hook: a JSON file at
 # $SENPI_STATUS_FIXTURE keyed {"<runtime_id>": {status payload}} is read instead of shelling out.
 STATUS_FIXTURE_ENV = "SENPI_STATUS_FIXTURE"
+# ONE call for every runtime's health — the document `senpi-strategy-ops/scripts/_cli.py`'s
+# `runtime_health_map` reads. A per-runtime `status -r <id>` costs a plugin start each (~2-3 s) and
+# ran sequentially, so the `strategies` step grew with the runtime count and blew the exec window.
+FLEET_STATUS_CMD = ["openclaw", "senpi", "status", "--json"]
 
 CATALOG_REF = os.environ.get("SENPI_SKILLS_REF", "main")
 CATALOG_URL = f"https://raw.githubusercontent.com/Senpi-ai/senpi-skills/{CATALOG_REF}/strategies/catalog.json"
@@ -335,6 +339,42 @@ def _note_telemetry_unavailable(meta, msg):
         meta["_telemetry_warned"] = True
 
 
+def _fleet_statuses(meta):
+    """Every `RuntimeHealthStatus` the runtime publishes, from ONE `openclaw senpi status --json`,
+    cached on `meta` for the run. `None` = the read failed or answered nothing (the gateway is
+    flaky-empty, so it is retried once) — the caller then falls back to the per-id read for that
+    runtime, so a box where the fleet call misbehaves loses nothing it had before. Fixture-driven
+    runs never come here (the per-id fixture keeps its contract). Progress goes to stderr, flushed,
+    so a streaming exec shows what the step is waiting on."""
+    if "_fleet_statuses" in meta:
+        return meta["_fleet_statuses"]
+    meta["_fleet_statuses"] = None
+    if meta.get("_telemetry_dead"):
+        return None
+    print("reading runtime health (one status call for the whole fleet)…", file=sys.stderr, flush=True)
+    for _ in range(2):
+        rc, out, err = _run_cli(FLEET_STATUS_CMD, timeout=30)
+        if rc != 0:
+            head = (err or "")[:200]
+            if head.startswith(SPAWN_FAILED_PREFIX) or "unknown method" in head.lower():
+                return None                        # a dead host; the per-id path says so once and stops
+            continue
+        data = _extract_json(out)
+        recs = _status_entries(data) if isinstance(data, dict) else []
+        if recs:
+            meta["_fleet_statuses"] = recs
+            return recs
+    return None
+
+
+def _record_is(rec, runtime_id):
+    """Does this fleet record describe `runtime_id`? The `-r` address is the registry's `id`;
+    a record carries it as `runtimeId` (optional) and `runtimeName` (always)."""
+    want = str(runtime_id)
+    return isinstance(rec, dict) and any(
+        str(rec.get(k)) == want for k in ("runtimeId", "runtimeName", "id", "name") if rec.get(k) is not None)
+
+
 def _fetch_runtime_status(runtime_id, meta):
     """`openclaw senpi status -r <id> --json` → parsed dict or None. FAIL-OPEN: no `openclaw` / a
     fork-or-exec failure / timeout / non-zero exit / unknown method / parse error → None + a one-time
@@ -355,6 +395,13 @@ def _fetch_runtime_status(runtime_id, meta):
         except Exception as e:  # noqa — a bad fixture is fail-open too
             _note_telemetry_unavailable(meta, f"status fixture unreadable ({e})")
             return None
+    fleet = _fleet_statuses(meta)
+    if fleet:
+        # The per-runtime slice of the fleet document, in the shape the `-r <id>` call prints, so
+        # `_liveness_from_status` / `_risk_pause_from_status` read both paths identically. An id the
+        # fleet document does not list gets an EMPTY `statuses` — the same answer the per-id call
+        # gives for a runtime that is registered but not running — which maps to 'unknown'.
+        return {"ok": True, "statuses": [r for r in fleet if _record_is(r, runtime_id)]}
     rc, out, err = _run_cli(["openclaw", "senpi", "status", "-r", str(runtime_id), "--json"], timeout=20)
     if rc != 0:
         err = (err or "")[:200]
@@ -500,6 +547,51 @@ def _liveness_from_status(status):
 
 
 # ──────────────────────────────────────────────────────────────── strategy profile (catalog enrichment)
+# The runtime's own entry-gate vocabulary (senpi-trading-runtime src/health/types.ts: `RiskGateStatus`,
+# `RiskGateId`). When each gate lets entries resume is the reader's next question, so it rides the field.
+_RISK_PAUSED = ("CLOSED", "COOLDOWN")
+_RISK_GATE_RESET = {
+    "max_entries_day": "resets at 00:00 UTC",
+    "daily_loss_halt": "resets at 00:00 UTC",
+    "drawdown_halt": "holds until PnL recovers from its peak (or the day rollover, if configured)",
+    "consecutive_loss": "expires on its own after the cooldown",
+    "per_asset_cooldown": "expires on its own, for that asset",
+}
+
+
+def _risk_pause_from_status(status):
+    """The runtime's OWN entry gate, read off the same document `_liveness_from_status` reads:
+    `{"eligibility": "CLOSED"|"COOLDOWN", "gates": [{gate, id, reason, reset}]}` while a guard rail
+    holds entries, else None — OPEN, or no risk component at all ("cannot tell" is not "paused").
+
+    NOT a health downgrade, and that is the whole point: a runtime held by its daily entry cap reports
+    `health: healthy` — it ticks, it manages what it holds, it opens nothing. Reported only as `live`,
+    that quiet reads as a dead strategy and the user's next move is a redeploy that market-exits the
+    book and starts the same gate again from zero. Worst pause wins across records (CLOSED > COOLDOWN)."""
+    if not isinstance(status, dict) or status.get("ok") is False:
+        return None
+    found = None
+    for rec in _status_entries(status):
+        comps = rec.get("components") if isinstance(rec, dict) else None
+        risk = comps.get("risk") if isinstance(comps, dict) else None
+        if not isinstance(risk, dict):
+            continue
+        elig = str(risk.get("eligibility") or "").upper()
+        if elig not in _RISK_PAUSED:
+            continue
+        gates = []
+        for g in risk.get("gates") or []:
+            if not isinstance(g, dict) or str(g.get("status") or "").upper() not in _RISK_PAUSED:
+                continue
+            gid = str(g.get("gateId") or "") or None
+            gates.append({"gate": g.get("gateName") or gid or "risk gate", "id": gid,
+                          "reason": g.get("reason"), "reset": _RISK_GATE_RESET.get(gid or "")})
+        cand = {"eligibility": elig, "gates": gates}
+        if found is None or (elig == "CLOSED" and found["eligibility"] != "CLOSED"):
+            found = cand
+    return found
+
+
 def _catalog_facets(rec):
     """The OPTIONAL template-only enrichment facets, pulled from a strategy's catalog record (its
     strategy.yaml). None if the strategy isn't in the catalog (e.g. a user-authored/custom strategy)."""
@@ -918,7 +1010,15 @@ def fetch_strategies(client, meta):
             s["runtime_health"] = "degraded"       # the inventory itself says the process is stopped
         else:
             rid = runtime_id_map.get(str(s.get("wallet")).lower())
-            s["runtime_health"] = _liveness_from_status(_fetch_runtime_status(rid, meta) if rid else None)
+            doc = _fetch_runtime_status(rid, meta) if rid else None
+            s["runtime_health"] = _liveness_from_status(doc)
+            # A second fact off the same document, never a downgrade of the first (see the reader).
+            s["risk_pause"] = _risk_pause_from_status(doc)
+    for s in strategies:
+        s.setdefault("risk_pause", None)     # mirror / unverified / not_running rows: not asked, not paused
+    paused = [s["name"] for s in strategies if s.get("risk_pause")]
+    if paused:
+        meta["paused_by_risk_gate"] = paused
     # Roll up any strategy reported ACTIVE but holding $0 (empty wallet) — status/clearinghouse mismatch.
     dormant = [s["name"] for s in strategies if s.get("empty")]
     if dormant:
@@ -1386,6 +1486,9 @@ def group_strategies(strategies, meta):
             # recovering+live pair reports a clean 'live'.
             "runtime_health": next((v for v in _GROUP_HEALTH_WORST_FIRST
                                     if any(s.get("runtime_health") == v for s in insts)), "unknown"),
+            # risk_pause: ANY sleeve held by its own risk gate → the strategy is (partly) paused by its
+            # rule. The first paused sleeve's gate is carried; per-sleeve detail is on each instance.
+            "risk_pause": next((s.get("risk_pause") for s in insts if s.get("risk_pause")), None),
             "flat_instances": flat_instances,
             "profile_source": prof.get("source"),
         })
