@@ -362,24 +362,36 @@ def scanner_health_in_status(status_entry, scanner_name):
     health verdict for us here. Returns None both when status is unreadable and when the scanner isn't
     (yet) in the list — the caller treats both the same (a running runtime supervises the scanner
     regardless), so there is intentionally no 'was the list populated?' distinction to return."""
+    for r in scanner_rows(status_entry):
+        if dig(r, "scannerId", "name", "scanner") == scanner_name:
+            return str(dig(r, "health") or "").lower() or None
+    return None
+
+
+def scanner_rows(status_entry):
+    """`components.scanners.scanners[]` of a `senpi status` entry, tolerant of a flatter/rewrapped
+    shape; [] when the entry carries none."""
     comp = None
     comps = dig(status_entry, "components")
     if isinstance(comps, dict):
         comp = comps.get("scanners")
     if not isinstance(comp, dict):
-        comp = _deep_first(status_entry, ["scanners"])  # tolerate a flatter/rewrapped shape
+        comp = _deep_first(status_entry, ["scanners"])
     if isinstance(comp, dict):
         rows = comp.get("scanners")
     elif isinstance(comp, list):
         rows = comp
     else:
         rows = None
-    if not isinstance(rows, list):
-        return None
-    for r in rows:
-        if dig(r, "scannerId", "name", "scanner") == scanner_name:
-            return str(dig(r, "health") or "").lower() or None
-    return None
+    return rows if isinstance(rows, list) else []
+
+
+def scanner_reasons(status_entry):
+    """The runtime's own words for why a scanner is not healthy — each row's `degradedReason`
+    (runtime >= 3.0.105: the supervisor's crash-loop cause, else the last tick error while it errors).
+    ['<scanner>: <reason>', …] for QUOTING; [] when the runtime carried none."""
+    return [f"{dig(r, 'scannerId', 'name', 'scanner') or 'scanner'}: {r['degradedReason']}"
+            for r in scanner_rows(status_entry) if isinstance(r, dict) and r.get("degradedReason")]
 
 
 def runtime_health_map(timeout=15):

@@ -21,6 +21,20 @@ import _cli    # noqa: E402
 import status  # noqa: E402
 
 
+class TestScannerReasons(unittest.TestCase):
+    def test_quotes_each_rows_degraded_reason_by_scanner_name(self):
+        entry = {"health": "unhealthy", "components": {"scanners": {"scanners": [
+            {"scannerId": "jackal_main_signals", "health": "unhealthy",
+             "degradedReason": "candidates_rejected: all 2 candidates this tick were rejected"},
+            {"scannerId": "position_tracker", "health": "healthy"}]}}}
+        self.assertEqual(_cli.scanner_reasons(entry),
+                         ["jackal_main_signals: candidates_rejected: all 2 candidates this tick were rejected"])
+
+    def test_no_rows_or_no_reason_is_an_empty_list_not_none(self):
+        self.assertEqual(_cli.scanner_reasons({"health": "healthy"}), [])
+        self.assertEqual(_cli.scanner_reasons({"components": {"scanners": {"scanners": []}}}), [])
+
+
 class TestHealthVerdict(unittest.TestCase):
     def test_unknown_passes_through(self):
         self.assertEqual(_cli.health_verdict({"health": "unknown"}), "unknown")

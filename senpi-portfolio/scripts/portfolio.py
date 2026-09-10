@@ -499,6 +499,22 @@ def _liveness_from_status(status):
     return "unknown"                                  # no records at all (empty `statuses[]`)
 
 
+def _scanner_reasons(status):
+    """The runtime's own words for WHY a scanner is not healthy: each `components.scanners.scanners[]`
+    row's `degradedReason` (runtime >= 3.0.105 — the supervisor's crash-loop cause, else the last tick
+    error while the scanner is erroring). ['<scanner>: <reason>', …] in document order; [] when the
+    runtime carried none. Quoted to the user, never interpreted here."""
+    out = []
+    for entry in (_status_entries(status) if isinstance(status, dict) else []):
+        comps = entry.get("components") if isinstance(entry, dict) else None
+        comp = comps.get("scanners") if isinstance(comps, dict) else None
+        rows = comp.get("scanners") if isinstance(comp, dict) else (comp if isinstance(comp, list) else None)
+        for r in rows or []:
+            if isinstance(r, dict) and r.get("degradedReason"):
+                out.append(f"{r.get('scannerId') or r.get('name') or 'scanner'}: {r['degradedReason']}")
+    return out
+
+
 # ──────────────────────────────────────────────────────────────── strategy profile (catalog enrichment)
 def _catalog_facets(rec):
     """The OPTIONAL template-only enrichment facets, pulled from a strategy's catalog record (its
@@ -918,7 +934,11 @@ def fetch_strategies(client, meta):
             s["runtime_health"] = "degraded"       # the inventory itself says the process is stopped
         else:
             rid = runtime_id_map.get(str(s.get("wallet")).lower())
-            s["runtime_health"] = _liveness_from_status(_fetch_runtime_status(rid, meta) if rid else None)
+            doc = _fetch_runtime_status(rid, meta) if rid else None
+            s["runtime_health"] = _liveness_from_status(doc)
+            reasons = _scanner_reasons(doc)
+            if reasons:
+                s["runtime_reason"] = "; ".join(reasons)   # the runtime's own words — quote them
     # Roll up any strategy reported ACTIVE but holding $0 (empty wallet) — status/clearinghouse mismatch.
     dormant = [s["name"] for s in strategies if s.get("empty")]
     if dormant:
@@ -952,13 +972,17 @@ def fetch_strategies(client, meta):
     # erroring, monitor stalled, etc.). Distinct from not_running (no runtime) and from live (healthy).
     degraded = [s["name"] for s in strategies
                 if s.get("runtime_health") == "degraded" and not s.get("running_blind")]
+    degraded_text = ", ".join(
+        f"{s['name']} ({s['runtime_reason']})" if s.get("runtime_reason") else str(s["name"])
+        for s in strategies if s.get("runtime_health") == "degraded" and not s.get("running_blind"))
     if degraded:
         meta["degraded_runtimes"] = degraded
         meta.setdefault("warnings", []).append(
             f"{len(degraded)} strategy(ies) have a runtime the engine reports UNHEALTHY (degraded) — two or more "
             f"consecutive scan errors, not a blip. Confirm the cause with senpi-strategy-ops "
             f"`status.py <id>` (runtime verdict + position count; `openclaw senpi scanner -r <rt>` for runs/errors/signals): "
-            f"{', '.join(str(d) for d in degraded)}")
+            f"{degraded_text}. A reason in parentheses is the runtime's own last error — tell the user "
+            f"that, in those words, before anything else.")
     # NOT a warning: one errored tick that the next successful one clears. Carried so the narration can
     # mention it if the user asks, never so it can be read back as a fault on a strategy that is trading.
     recovering = [s["name"] for s in strategies if s.get("runtime_health") == "recovering"]
