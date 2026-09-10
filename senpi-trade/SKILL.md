@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.0.0"
+  version: "1.1.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -232,7 +232,7 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
 | Mirror a whale whose account dwarfs the budget | A small budget on a whale-sized account = **dust** — positions round below the $10 floor | Check trader-account ÷ budget up front; if ~100×+, raise the multiplier or pick a closer-sized trader |
 | Call `ratchet_stop_add` on a raw position "DSL protection", or say it "can't be protected" | It's **profit-lock only** (no downside floor — Phase-1 is dropped); integrated two-phase DSL is runtime-only | Offer profit-lock **+ a static SL** on a raw position; steer to a **managed template** for real two-sided DSL |
 | Say funds are "stuck" / "lost" / "file a ticket" | `PENDING_FUNDING` **self-completes**; `FAILED` **auto-refunds** to the embedded wallet | Poll transient states with backoff; check the on-chain balance before any alarm |
-| Explain a failure with an "approval gateway / approve again" step | No such step exists — the user clicked a phantom control | Surface the **verbatim** tool error; poll `strategy_list` for the real status |
+| Report a trade as placed off an EMPTY tool result, or keep polling for it | Trade tools run behind the agent's **approval gate**: a call the user does not approve in time is **denied** and comes back empty — nothing reached the venue, so there is nothing to poll for. (An errored call is different: it carries its own message.) | Say the approval timed out and **nothing was placed**; offer to re-run it for approval. On an error, surface the **verbatim** tool text; read `strategy_list` / positions only to confirm what actually exists |
 | Fire a fund-movement tool on partial args | A bridge call with `{amount:0.01}` errored `nan` | Build fund calls from a validated template; never proceed as if funds moved when it errored |
 | Rank copy targets by raw ROI | Surfaced 100%-win / −100%-drawdown / 99.6%-margin wallets as "best" | Filter on drawdown + margin + closed-trade count + copyability first |
 | Recommend a "top" trader without checking their book is mirrorable | The best track record is often the worst mirror *today* — the winners already ran, so the mirror opens **nothing** | Read current-position **distance-from-entry** first; if it's run, steer to a fresh-entry template |
@@ -281,7 +281,7 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
 ## Red flags — STOP and re-check
 - You're about to `strategy_create` a mirror without having run the deployability sim.
 - You're about to call `ratchet_stop_add` on a raw position "DSL protection" — it's **profit-lock only** (no downside floor without a runtime); offer a static SL and/or a managed template for real two-sided DSL.
-- You're about to tell the user funds are "stuck" or to "approve again."
+- You're about to tell the user funds are "stuck", or to treat an EMPTY tool result as a placed trade — an unapproved (timed-out) call is denied and executes nothing; say so and offer the re-run.
 - You're about to open a manual position into a wallet a runtime is managing.
 - You're about to close+recreate a mirror that "isn't trading."
 - You're quoting a trader's ROI/win-rate with no drawdown beside it.
