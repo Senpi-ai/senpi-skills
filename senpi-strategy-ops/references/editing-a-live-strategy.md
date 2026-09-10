@@ -23,6 +23,17 @@ openclaw senpi update <recipe-dir> --id <runtime_id>
 openclaw senpi update <recipe-dir> --id <runtime_id> --apply
 ```
 
+**The wrapper — `python3 senpi-strategy-ops/scripts/deploy.py update <pkg> --id <runtime_id> [--apply] [--code-only] [--json]`.**
+Same verb, three things around it: the structural preflight `create` runs (a package the deployer would
+refuse is refused here too, before the verb is called); the instance dir resolved from `--id` on a
+multi-instance package; and a clear stop when the box's runtime has no `update` verb yet — exit `1`,
+"the edit is on disk and NOT applied" — instead of a Commander parse error that reads like nothing.
+It never deletes or re-creates a runtime: there is no path from this command to a fresh wallet. Its
+exit codes are the verb's (`0` planned/applied · `1` failed during apply · `2` refused, nothing changed
+· `3` bad invocation). `status.py` prints **✎ running recipe ≠ disk** for a runtime whose rendered
+descriptor differs from the package on disk — that is the "did my edit ever land?" check, and its fix
+is this command.
+
 `--id` names which runtime; on a multi-instance package each arm is its own runtime, so this is how
 you re-tune one sleeve and leave its siblings untouched. `--address <wallet>` works too. Changed only
 `scan.py`/`scoring.py`? Add `--code-only` and it refuses if the recipe moved as well.

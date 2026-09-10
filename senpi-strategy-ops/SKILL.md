@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.7.0"
+  version: "3.8.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -210,9 +210,7 @@ in [`references/refusal-playbook.md`](references/refusal-playbook.md):
 
 ### Report from the structured output, not raw logs
 
-Then always close with the **How it runs** block below. `funded` is the backend's `totalFunded` and the
-tick line is the scanner row's own fields — **quote both verbatim** (the document's shape:
-[`references/lifecycle.md`](references/lifecycle.md)).
+Then always close with the **How it runs** block below. `funded` is the backend's `totalFunded` and the tick line is the scanner row's own fields — **quote both verbatim** (the document's shape: [`references/lifecycle.md`](references/lifecycle.md)).
 
 ### The funded path — `deploy.py create|runtime`
 
@@ -238,11 +236,8 @@ one resumes, adopting whatever already exists.
 > [`references/refusal-playbook.md`](references/refusal-playbook.md).
 
 ### Host prerequisites
-`openclaw` + the `@senpi-ai/runtime` plugin running, and a plugin **new enough to carry the `senpi
-deploy` verb** — on a skewed box the start fails at exit `1` saying which side is behind, with
-**nothing dispatched**: no job, no wallet, no funds ([`references/lifecycle.md`](references/lifecycle.md)
-has both directions and the fix). Also: `SENPI_AUTH_TOKEN` exported (the same token the MCP session
-uses); **Python 3 only — no PyYAML/pip needed**. Smoke with `deploy.py validate <id>` first.
+`openclaw` + the `@senpi-ai/runtime` plugin running, **new enough to carry the `senpi deploy` verb** — on a skewed box the start fails at exit `1` saying which side is behind, with **nothing dispatched**: no job, no wallet, no funds ([`references/lifecycle.md`](references/lifecycle.md) has both directions and the fix).
+Also `SENPI_AUTH_TOKEN` exported (the same token the MCP session uses); **Python 3 only — no PyYAML/pip needed**. Smoke with `deploy.py validate <id>` first.
 
 ### Final step — tell the user HOW each strategy runs (REQUIRED on every deploy)
 
@@ -252,7 +247,9 @@ The user just funded a strategy; the last thing they see must explain **how the 
 - **Scoring — what it grades and the entry bar.** One or two sentences: the catalog `belief_plain`/`thesis` (what signal it scores) + the runtime `inputs` gate (`minScore` and the conviction bands, `leverageTiers`/`marginPctTiers`). e.g. "ranks the book by relative strength + smart-money lean; opens a name only above its score threshold, sizing bigger at higher conviction (leverage steps up base→apex)."
 - **Protection — the DSL exit ladder.** From `exit.dsl_preset`: the hard stop (`phase1.max_loss_pct`), the profit-lock ladder (`phase2.tiers`: first `trigger_pct` → top `lock_hw_pct`), and any time cut (`weak_peak_cut`/`hard_timeout`). State whether it has a manual close action or is **DSL-only** (no `CLOSE_POSITION` action → "no manual exits — the stop does all the selling"). e.g. "hard stop at −18% from entry; as a winner runs, a trailing floor ratchets up, locking profit from +8% to +80%; a stalled position is cut at 48h."
 
-Keep it to ~3 short lines per strategy. Multi-instance packages whose legs differ (e.g. a long book vs a short book, core vs ballast) get one block each **or** a shared block that names the per-side difference. This is what turns "it's live" into "here's exactly how it trades" — required even when the user didn't ask.
+- **Cap — how many entries a day.** From `risk.guard_rails.max_entries_per_day`: say the number, and that once it is hit the runtime logs `Runtime paused: Max Entries/Day` and opens nothing until 00:00 UTC — its own rule, not a fault. While it holds, `status.py` shows the row as **⏸ paused** (health stays ✅).
+
+Keep it to ~4 short lines per strategy. Multi-instance packages whose legs differ (e.g. a long book vs a short book, core vs ballast) get one block each **or** a shared block that names the per-side difference. This is what turns "it's live" into "here's exactly how it trades" — required even when the user didn't ask.
 
 ## Monitor — what am I running? / is it actually live?
 
@@ -264,6 +261,8 @@ ephemeral deploy state — so **don't hand-compose `strategy_list`**. A strategy
 "broken"**: it is just not autonomous, and `status.py` labels how it is managed (copy, manual, …) — never
 call it idle. The one real anomaly is an autonomous package strategy missing its runtime
 (**no-runtime**). Full label set: [`references/lifecycle.md`](references/lifecycle.md).
+Two more facts ride every deep row, because health alone misleads on both: **⏸ paused** — the runtime's OWN risk gate (`components.risk`) holds entries (daily cap, loss halt, cooldown), printed with the gate's reason and reset verbatim; health stays ✅, nothing is broken, and closing/redeploying resets nothing but the book. **✎ running recipe ≠ disk** — the descriptor the runtime renders differs from the package on disk: an edit that was never applied → `deploy.py update` (below).
+When YOU call a trade tool (`ratchet_stop_add`, `strategy_close`, `create_position`…) it runs behind the user's trade-approval gate: an unapproved call times out, is **denied**, and returns an **EMPTY** result. Empty = not executed — say the approval timed out and nothing was placed; never report it as done, never re-issue it in a loop.
 
 **"Are my open positions protected? / do they have a stop-loss?"** → the DSL coverage verdict (PROTECTED
 / UNPROTECTED / STOP-NOT-ON-VENUE) — a separate read, not the runtime list above. Key trap: an
@@ -309,7 +308,7 @@ the deployed scanner as it is.
 
 **Apply it in place — `openclaw senpi update`.** No close, no fresh wallet, no market exit; DSL state,
 scanner stores and action history survive. `senpi validate <instance-dir>` writes the proof `--apply`
-needs; `senpi update <instance-dir> --id <runtime_id>` PLANS, the same with `--apply` commits. **Read the
+needs; `python3 senpi-strategy-ops/scripts/deploy.py update <pkg> --id <runtime_id>` PLANS (the structural preflight, then the verb; add `--apply` to commit — it stops if the box has no `update` verb yet: then STOP too, never close-and-redeploy). **Read the
 plan out first**: `dsl_preset` is **forward-only** — new entries only, never one already open (other `exit:`
 fields, e.g. `order_type`, DO reach open positions) — never let "tighter" be heard as "my open trades are tighter".
 
@@ -325,6 +324,4 @@ close-and-redeploy**, which market-exits every open position and drops any custo
 
 ## Install — include the MCP helper
 
-The scripts in `scripts/` import a vendored MCP helper, `scripts/mcp_client.py`, at runtime.
-**Install the whole `scripts/` directory** — omitting `mcp_client.py` fails with `No module named
-'mcp_client'`. Stdlib only, no other runtime dependencies.
+The scripts import a vendored MCP helper, `scripts/mcp_client.py`, at runtime — **install the whole `scripts/` directory** (omitting `mcp_client.py` fails with `No module named 'mcp_client'`). Stdlib only, no other runtime dependencies.
