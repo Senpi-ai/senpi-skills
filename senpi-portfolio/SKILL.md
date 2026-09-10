@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.17.0"
+  version: "1.18.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -294,6 +294,12 @@ headline and the field is the footnote — do not report the field and bury the 
 
 For `degraded` corroborated by no activity, or `not_running`, work the ladder yourself and report what you
 found. Only the last step touches their money, and only that one needs their consent:
+
+**Before the ladder: if the row carries `runtime_reason`, say it.** It is the runtime's own last error,
+read off `senpi status --json`'s scanner rows (runtime ≥ 3.0.105) — e.g. `jackal_main_signals:
+candidates_rejected: all 2 candidates this tick were rejected at the delivery boundary (last: data key
+'persistenceHours' has wrong type …); nothing delivered`. Quote it in those words; it usually answers
+"why hasn't it traded" before step 1 is needed.
 
 1. **`python3 senpi-strategy-ops/scripts/status.py <id>`** — re-ask the runtime. Verdict + position count.
    **Mind the vocabulary:** `status.py` reports the engine's raw words, and they do not line up with this
