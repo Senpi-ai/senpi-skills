@@ -67,7 +67,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-improve-trades`](senpi-improve-trades/) | 1.9.0 | Retrospective review + health checks off the **telemetry event log**: exit quality, missed signals, leaks, crashes, "if I'd held" counterfactual |
 | [`senpi-account-status`](senpi-account-status/) | 1.2.0 | Points, loyalty tier, fees, referrals |
 | **Run a strategy** | | |
-| [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.22.0 | Conversational picker — rank the catalog against your worldview |
+| [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.23.0 | Conversational picker — rank the catalog against your worldview |
 | [`senpi-strategy-author`](senpi-strategy-author/) | 3.5.0 | Build/edit a DSL-protected strategy package, one decision at a time |
 | [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.12.0 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
 | [`senpi-trade`](senpi-trade/) | 1.3.0 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
