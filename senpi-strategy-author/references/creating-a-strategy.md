@@ -275,12 +275,16 @@ Discovery matches your strategy to users by the `catalog:` block. **Validation o
 ## 9. Prove it runs, then deploy, then confirm it *operates*
 
 ```
-python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>   # advisory lint
+python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>   # advisory lint + warns (stop distance, sizing, daily cap) — relay them
 openclaw senpi validate /data/workspace/strategies/<id>                         # THE GATE — must be PASS. The package root (flat, §2)
 python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # the whole path: wallet(s) ($10/wallet floor) → install → observed tick
 openclaw senpi deploy status                                                    # read-only: the report; `overall: live` is the gate
 # teardown / redeploy:  close.py <id>  (flattens positions, returns funds)
 ```
+Want to *watch* it before funding? `senpi validate` is the shadow run, and the runtime watches a funded
+strategy for free — **never schedule agent turns to poll it** (each firing is a model call):
+[`shadow-testing.md`](shadow-testing.md).
+
 **"running" ≠ "operating."** Don't trust `status: running`. Confirm the scanner has a **positive run count + a fresh `lastRunFinishedAt`** (`openclaw senpi state -r <id>-main --json`, or `openclaw senpi scanner -r <id>-main` — `-r` is the runtime id, so `<id>-<leg>` per leg on §2's exception), and that it **emits a non-empty set on a tick where it should** — a `live` report proves it *ticked*, not that it produced a signal. Those reads are read-only, and so is `deploy.py verify <id>` (it composes them into a per-instance verdict and deploys nothing); the command that moves money is the resume, `deploy.py runtime <id>` / `create <id> --budget <usd>`. This is an **agent-side check** — run it yourself; never ask the user "is it working?".
 
 ### The gate — `senpi validate`, before any wallet exists

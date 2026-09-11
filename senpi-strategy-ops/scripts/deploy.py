@@ -1473,6 +1473,120 @@ def _verify_unreadable(pkg_id, reasons, as_json, tail=None, job_running=None):
     return VERIFY_UNREADABLE
 
 
+# ---------- update: an edit applied IN PLACE ----------
+
+UPDATE_TIMEOUT = 180   # an --apply reloads scanner code and re-registers; a plan is seconds
+
+
+def update_target(pkg, runtime_id=None, address=None):
+    """Which instance dir `senpi update` is pointed at, and the selector it is handed. Returns
+    `(instance, selector_args, refusal_text)` — exactly one of instance / refusal_text is set.
+
+    `--id` names the runtime (`<id>-<instance>`), and a multi-instance package MUST name one: each
+    arm is its own runtime, and pointing the verb at the wrong arm's dir re-tunes the wrong sleeve.
+    A one-instance package implies it. The selector is ALWAYS sent (the verb needs one whenever
+    several runtimes are installed on the box — which has nothing to do with how many this package
+    has); `--address` passes through only where it cannot be ambiguous."""
+    insts = list(pkg.instances)
+    ids = ", ".join(str(i.runtime_name) for i in insts) or "(none)"
+    if runtime_id:
+        inst = next((i for i in insts if i.runtime_name == runtime_id), None)
+        if inst is None:
+            return None, [], (f"✗ {pkg.id}: no instance of this package runs as {runtime_id!r} — its "
+                              f"runtime ids are: {ids}. Nothing was changed.")
+        return inst, ["--id", runtime_id], None
+    if len(insts) == 1:
+        inst = insts[0]
+        return inst, (["--address", address] if address else ["--id", str(inst.runtime_name)]), None
+    return None, [], (f"✗ {pkg.id}: {len(insts)} instances — name the one to update with --id "
+                      f"(one of: {ids}). Each arm is its own runtime; nothing was changed.")
+
+
+def cmd_update(a):
+    """Apply an edit to a LIVE strategy IN PLACE — `openclaw senpi update` — plan by default,
+    `--apply` commits. Around the verb, three things: the same structural preflight `create` runs
+    (a package the deployer would refuse is refused here, before the verb is called); the instance
+    dir resolved from `--id`; and a clear stop when the box's runtime has no `update` verb yet.
+
+    What it will never do: delete a runtime, create one, fund a wallet, or close anything. There is
+    no path from this command to a fresh wallet — an edit that `update` refuses (a changed
+    `strategy.wallet`, a renamed/moved external scanner, a changed `action_type`) is a close-and-
+    redeploy CONVERSATION with the user, not a fallback this wrapper takes on its own.
+
+    Exit codes are the verb's: 0 planned/applied · 1 FAILED DURING APPLY (the runtime may not be
+    where you left it — read the message) · 2 refused, nothing changed (also this wrapper's own
+    refusals) · 3 bad invocation. A box with no `update` verb exits 1 with the edit left on disk."""
+    try:
+        pkg = local_pkg(a.package)
+    except _pkg.BadPackage as e:
+        print(f"✗ {a.package}: could not be read as a package — {e}. Nothing was changed.",
+              file=sys.stderr)
+        return EXIT_CODES["refused"]
+    if pkg is None:
+        print(f"✗ {a.package!r} is not a package on disk here — `update` applies an EDITED package, "
+              f"so it never fetches one; pass the directory you edited. Nothing was changed.",
+              file=sys.stderr)
+        return EXIT_CODES["refused"]
+    gate = full_validate(pkg)
+    if gate:
+        print(f"✗ {pkg.id}: {len(gate)} issue(s) to fix before it can be applied — the verb was not "
+              f"called, nothing was changed:", file=sys.stderr)
+        for e in gate:
+            print(f"    - {e}", file=sys.stderr)
+        return EXIT_CODES["refused"]
+    inst, selector, refusal = update_target(pkg, getattr(a, "runtime_id", None),
+                                            getattr(a, "address", None))
+    if refusal:
+        print(refusal, file=sys.stderr)
+        return EXIT_CODES["refused"]
+    target = inst.runtime_path.parent
+    if a.apply and not (target / PROOF_FILE).is_file():
+        # The verb refuses this too (`E_UPDATE_PROOF_REQUIRED`); saying it here saves the round-trip
+        # and names the exact command. A STALE proof is the verb's call, not ours — it knows the bytes.
+        print(f"✗ {pkg.id}: no proof in {target} — `--apply` needs a PASS from\n"
+              f"    openclaw senpi validate {target}\n"
+              f"  first (it records the proof `update --apply` requires). The verb was not called; "
+              f"nothing was changed.", file=sys.stderr)
+        return EXIT_CODES["refused"]
+    argv = ["openclaw", "senpi", "update", str(target)] + list(selector)
+    if a.apply:
+        argv.append("--apply")
+    if getattr(a, "code_only", False):
+        argv.append("--code-only")
+    if a.json:
+        argv.append("--json")
+    rc, out, err = _cli.run_cli(argv, timeout=UPDATE_TIMEOUT)
+    tail = _cli.error_tail(err, out)
+    if rc != 0 and _cli_rejected_the_command(tail, ours=argv):
+        # A parser answered, not the verb: this runtime build predates `senpi update`. The edit is
+        # on disk, unapplied — and the ONE thing not to do about that is close and redeploy.
+        print(tail, file=sys.stderr)
+        print(f"✗ {pkg.id}: this runtime has no `senpi update` verb yet, so the edit in {target} is "
+              f"on disk and NOT applied — nothing was changed. Do NOT close and redeploy to apply it "
+              f"(that market-exits every open position and drops their stops): tell the user the "
+              f"runtime plugin needs the release that carries `senpi update`, and leave the running "
+              f"strategy as it is.", file=sys.stderr)
+        return EXIT_INTERNAL
+    if out:
+        sys.stdout.write(out if out.endswith("\n") else out + "\n")
+    if err and err.strip():
+        sys.stderr.write(err if err.endswith("\n") else err + "\n")
+    if rc == 0 and not a.json:
+        if a.apply:
+            print(f"applied. Re-read what is running now: python3 {Path(__file__).with_name('status.py').name}"
+                  f" {pkg.id}   — and remember `dsl_preset` is forward-only: positions already open "
+                  f"keep the ladder they were opened under (the plan named them).", file=sys.stderr)
+        else:
+            print(f"PLAN only — nothing changed. Read it to the user, then commit with:\n"
+                  f"    python3 {Path(__file__).name} update {a.package} {' '.join(selector)} --apply",
+                  file=sys.stderr)
+    if rc in (0, 1, 2, 3):
+        return rc
+    print(f"✗ {pkg.id}: `senpi update` did not answer (rc {rc}) — {tail or 'no output'}. Read the "
+          f"runtime before retrying: openclaw senpi runtime list --json", file=sys.stderr)
+    return EXIT_INTERNAL
+
+
 # ---------- cli ----------
 
 def main(argv):
@@ -1540,6 +1654,21 @@ def main(argv):
     pval = sub.add_parser("validate",
                           help="Preflight: is the package structurally deploy-ready? (structure + render — no money moved, nothing installed; a bare catalog id IS fetched to disk)")
     common(pval)
+
+    # `update` is the in-place edit path: the same preflight as `create`, then `openclaw senpi
+    # update`. Plans by default; `--apply` commits. It fetches nothing (it applies the package you
+    # EDITED) and it can never delete, create, fund or close — see `cmd_update`.
+    pu = sub.add_parser("update",
+                        help="Apply an edit to a LIVE strategy IN PLACE via `openclaw senpi update` — plans by default, --apply commits. Never closes or re-creates anything.")
+    pu.add_argument("package", help="The edited package: its directory, or an id already on disk. Fetches nothing.")
+    pu.add_argument("--id", dest="runtime_id", default=None,
+                    help="Runtime to update (<id>-<instance>). Required on a multi-instance package; implied on a one-instance one.")
+    pu.add_argument("--address", default=None, help="Alternative to --id (one-instance packages only).")
+    pu.add_argument("--apply", action="store_true",
+                    help="Commit the change. Needs a PASS proof in the instance dir (openclaw senpi validate <dir>). Without it: plan only.")
+    pu.add_argument("--code-only", dest="code_only", action="store_true",
+                    help="Assert only scanner code changed; the verb refuses if the recipe moved too.")
+    pu.add_argument("--json", action="store_true", help="The verb's report as one JSON document on stdout.")
 
     a = ap.parse_args(argv[1:])
     log = (lambda m: None) if a.json else (lambda m: print(m))
@@ -1627,6 +1756,9 @@ def main(argv):
                       f"  (`create`/`runtime` DO fetch a bare catalog id, and so does `validate` — "
                       f"this check is the one that does not.)")))
         sys.exit(cmd_verify(pkg, a))
+
+    if a.cmd == "update":
+        sys.exit(cmd_update(a))
 
     pkg = ensure_pkg(a.package, a.ref, log)
 
