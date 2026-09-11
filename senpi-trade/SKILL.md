@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.2.0"
+  version: "1.3.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -76,7 +76,9 @@ top strategies).
 *Smart-money by signal* (position by where the whole cohort leans — **many traders at once, not 1:1**):
 **Stingray** (ranks the entire smart-money board and rotates long/short by net conviction) · **Starling**
 (buys when a flock of top wallets pile into the same name at once) · **Whalehunter** (with the smart cohort,
-against the crowd). These are the answer for *"follow the smart money"* rather than one specific trader.
+against the crowd) · **Phalanx** (follows the proven cohort's headcount flow — enters only while conviction is
+growing, boosted when the cohort diverges from the 4h crowd, wide stops that let winners run). These are the
+answer for *"follow the smart money"* rather than one specific trader.
 
 Offer the managed option **once**, then respect a "no." For mirror, the templates fix the exact pains
 a raw mirror causes (tiny size, stale entries) — offer one before you reach for a raw `strategy_create`.
