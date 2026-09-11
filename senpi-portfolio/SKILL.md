@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.19.0"
+  version: "1.20.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -295,6 +295,11 @@ scan error — both facts true at once. So read them as a grid, not a single ver
 
 **When the two disagree, say which one you are trusting and why.** If the money is moving, that is the
 headline and the field is the footnote — do not report the field and bury the evidence.
+
+**Fees are read, never estimated.** A P&L claim about a strategy — "it is up", "it is not losing" —
+quotes the wallet's **signed** fees from its fills (`totalFees` / the closed-trade history), net of
+them, with the fee figure beside the PnL. "About $7 on 41 trades" is a guess, and it once turned a −$3
+wallet into a +$1.69 one in the user's ear. If the fee read fails, say the number is gross and why.
 
 **Paper is not live.** A `senpi validate` tick, a scanner signal, a simulation or an estimate is not a
 trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narrate a shadow run as
