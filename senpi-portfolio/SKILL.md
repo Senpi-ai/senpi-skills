@@ -83,7 +83,7 @@ Every dollar is in exactly one of **three buckets** — and the #1 mistake is co
 
 | Bucket | What it is | Engine field |
 |---|---|---|
-| **Idle in embedded** | Truly free cash in the main wallet — HL perps USDC + HL spot USDC + EVM USDC (all three legs; the funding waterfall deploys from all of them). Deploy it into a strategy or withdraw it to your bank. | `totals.idle_in_embedded` |
+| **Idle in embedded** | Truly free cash in the main wallet — HL perps USDC + HL spot USDC + EVM USDC (all three legs). Only the Hyperliquid legs can fund strategies — EVM USDC does not bridge in (deposit via the funding card lands on Hyperliquid). Withdraw any of it to your bank. | `totals.idle_in_embedded` |
 | **Idle in strategies** | Free margin sitting *inside* a strategy wallet, not yet in a position — waiting for a signal. | `totals.idle_in_strategies` |
 | **Deployed in positions** | Margin actively backing open trades. | `totals.deployed_in_positions` |
 
