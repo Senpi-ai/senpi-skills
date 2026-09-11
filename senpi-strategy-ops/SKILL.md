@@ -1,7 +1,9 @@
 ---
 name: senpi-strategy-ops
 description: >-
-  Deploy / monitor / close a NAMED Senpi trading strategy.
+  Deploy / monitor / close a NAMED Senpi trading strategy. Monitoring is on demand:
+  never an agent-turn cron to watch a strategy (a model call per firing) — the runtime
+  supervises it at zero model cost, and there is no paper-trading mode ($10 floor = the test).
   Use when the user names a strategy to run — "install spider", "deploy polar",
   "set up kodiak", "run the spider strategy", "is my strategy live?", "what am I
   running", "list my strategies" (→ status.py),
@@ -22,7 +24,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.8.0"
+  version: "3.9.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -284,6 +286,7 @@ above) and nothing here is it:
 
 `runtime_id` = each instance's `runtime.yaml` top-level `name` (`spider-swing`); they all carry
 `group: <id>`, so `openclaw senpi runtime list` matching `group == <id>` rediscovers them ledger-free.
+**Never schedule an agent-turn cron to watch a strategy** — every `openclaw cron` firing is a full model call (a 5-minute job is ~288 a day), and the runtime already supervises the strategy at zero model cost; read it here on demand. A check-in the user asks for: at most once or twice a day, cost stated first, and a yes before creating it.
 
 ## Close — stop → trigger → (agent polls)
 

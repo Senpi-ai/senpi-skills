@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.18.0"
+  version: "1.19.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -629,6 +629,8 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
   says nothing about protection. Use the `dsl` objects, not the order book.
 
 ## Run it in steps — narrate as you go
+
+**Asked to run this on a schedule? Say the cost first.** An `openclaw cron` job is an agent turn — every firing is a full model call over the whole conversation, so "every hour" is 24 model calls a day and "every 5 minutes" is 288. Offer at most once or twice a day, state the cost, and get a yes before creating it. Never a cron to watch a strategy: the runtime supervises it at zero model cost, and this skill reads it on demand.
 
 A full portfolio read is several MCP round-trips (embedded wallet + a live clearinghouse pull per strategy
 wallet + the live DSL/ratchet reads + the per-asset market fan-out). Run as **ONE** call it can take

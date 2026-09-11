@@ -10,7 +10,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.2.0"
+  version: "1.3.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -38,6 +38,7 @@ surfacing.
 
 ## Golden rules
 
+- **Asked to run this on a schedule? Say the cost first.** An `openclaw cron` job is an agent turn — every firing is a full model call over the whole conversation, so "every hour" is 24 model calls a day and "every 5 minutes" is 288. Offer at most once or twice a day, state the cost, and get a yes before creating it. Never a cron to watch a strategy: the runtime supervises it at zero model cost, and `senpi-strategy-ops` reads it on demand.
 - **Run the engine; never hand-build cohorts.** `python3 scripts/smartmoney.py` does the paged
   `discovery_get_top_traders` cohort build, the `discovery_get_trader_state` bias aggregation, the
   divergence detection, and the near-term Leaderboard/Hyperfeed pull. Read its JSON.

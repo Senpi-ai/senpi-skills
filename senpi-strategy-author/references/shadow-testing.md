@@ -4,7 +4,12 @@
 skip. The expensive way — scheduling the agent to *watch* the strategy — is how an AI-credit balance
 disappears in days while the strategy itself does nothing.
 
-## Two levels of shadow, cheapest first
+**There is no paper-trading mode.** Senpi cannot simulate a strategy over time, and nothing you schedule
+can stand in for one: a cron-driven "shadow" scanner is a model call per tick, not a simulation, and
+it never sees fills, slippage, funding or the DSL. Say that plainly when the user asks to paper trade,
+backtest or "run it in shadow" — then offer the two real tests below.
+
+## Two real tests, cheapest first
 
 **1. A tick with no wallet — `openclaw senpi validate`.** One real scan against live, read-only market
 data: no wallet, no funding, no model call. It prints what the scanner *would have emitted* and
