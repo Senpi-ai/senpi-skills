@@ -345,7 +345,12 @@ def _fleet_statuses(meta):
     flaky-empty, so it is retried once) — the caller then falls back to the per-id read for that
     runtime, so a box where the fleet call misbehaves loses nothing it had before. Fixture-driven
     runs never come here (the per-id fixture keeps its contract). Progress goes to stderr, flushed,
-    so a streaming exec shows what the step is waiting on."""
+    so a streaming exec shows what the step is waiting on.
+
+    Reached only for a runtime the registry lists, so a user with no runtimes never pays for the call.
+    An EMPTY `statuses[]` while the registry lists runtimes is the gateway's known flaky-empty answer
+    (see `senpi-strategy-ops/scripts/_cli.py` `list_runtimes`), not "no runtimes" — that is what the
+    single retry is for, and after it the per-id read gets its own chance at each runtime."""
     if "_fleet_statuses" in meta:
         return meta["_fleet_statuses"]
     meta["_fleet_statuses"] = None
@@ -368,11 +373,13 @@ def _fleet_statuses(meta):
 
 
 def _record_is(rec, runtime_id):
-    """Does this fleet record describe `runtime_id`? The `-r` address is the registry's `id`;
-    a record carries it as `runtimeId` (optional) and `runtimeName` (always)."""
+    """Does this fleet record describe `runtime_id`? A `RuntimeHealthStatus` carries the registry id as
+    `runtimeId` (optional) and its name as `runtimeName` (always) — senpi-trading-runtime
+    src/health/types.ts. Only those two keys: this decides a FUNDED strategy's health, and a looser
+    match (`id`, `name`) would let an unrelated record shaped `{name: …}` claim it."""
     want = str(runtime_id)
     return isinstance(rec, dict) and any(
-        str(rec.get(k)) == want for k in ("runtimeId", "runtimeName", "id", "name") if rec.get(k) is not None)
+        str(rec.get(k)) == want for k in ("runtimeId", "runtimeName") if rec.get(k) is not None)
 
 
 def _fetch_runtime_status(runtime_id, meta):
