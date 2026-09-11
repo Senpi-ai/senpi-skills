@@ -305,5 +305,143 @@ class ReadOrRefuse(unittest.TestCase):
         self.assertNotEqual(ctx.exception.code, 0)
 
 
+class MainPackagePollReportsClosed(unittest.TestCase):
+    """`close.py <pkg>` is the POLL the module docstring documents: "reports `closed` once the strategy
+    leaves the active set".
+
+    It could never print it. The package read is filtered server-side by `LIVE_STATUSES`, so the moment
+    `strategy_close` settles the row becomes `CLOSED` (a `DEAD_STATUSES` member), the read returns zero
+    rows, and `main` falls through to the generic `"no OPEN strategies to close."` + exit 0 — byte
+    identical to "this package was never deployed here". An agent polling for `closed` reads that
+    all-clear as completion and runs `deploy.py create`, which mints a fresh wallet. A close/redeploy
+    loop therefore leaks one wallet per pass, each carrying whatever funding it was given.
+
+    `--strategy-id`/`--address` was already fixed for exactly this (it reads UNFILTERED by status,
+    because "a status-filtered read cannot tell 'no such id' from 'already closed'"). This is that same
+    fix on the package path."""
+
+    def setUp(self):
+        self._orig = (close.MCPClient, _cli.strategies_for_or_none, _cli.list_runtimes,
+                      _cli.list_runtimes_or_none, _cli.run_cli, close._pkg.load)
+        self.closed = []
+        self.rows = []
+        self.unreadable = False
+        outer = self
+
+        class _FakeMCP:
+            def mcp_call(self, name, timeout=None, **kw):
+                if name == "strategy_close":
+                    outer.closed.append(kw.get("strategyId"))
+                    return {"success": True}
+                raise AssertionError(f"unexpected mcp_call {name!r}")
+        close.MCPClient = _FakeMCP
+
+        def _fake_strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15,
+                                 statuses=None, why=None):
+            # The point of the test: HONOUR `statuses`, the way the real server-side filter does.
+            if statuses is None and outer.unreadable:
+                return None                      # unreadable second read -> must fail closed
+            rows = list(outer.rows)
+            if statuses is not None:
+                want = {str(s).upper() for s in statuses}
+                rows = [s for s in rows if str(_cli.strategy_status(s) or "").upper() in want]
+            return rows
+        _cli.strategies_for_or_none = _fake_strategies_for
+        _cli.list_runtimes = lambda: []
+        _cli.list_runtimes_or_none = lambda: []
+        _cli.run_cli = lambda args, timeout=60: (0, "", "")
+
+        class _FakeInst:
+            name = "main"
+
+        class _FakePkg:
+            id = "omega"
+            version = "1.0.0"
+            instances = [_FakeInst()]
+            dir = Path("/nonexistent-close-py-test-path")   # .deploy-state.json unlink is OSError-guarded
+        close._pkg.load = lambda _p: _FakePkg()
+
+    def tearDown(self):
+        (close.MCPClient, _cli.strategies_for_or_none, _cli.list_runtimes,
+         _cli.list_runtimes_or_none, _cli.run_cli, close._pkg.load) = self._orig
+
+    def _run(self, *args):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            with self.assertRaises(SystemExit) as ctx:
+                close.main(["close.py", *args])
+        return buf.getvalue(), ctx.exception.code
+
+    _CLOSED_ROW = {"strategyId": "s1", "strategyWalletAddress": "0xabc", "status": "CLOSED"}
+    _ACTIVE_ROW = {"strategyId": "s1", "strategyWalletAddress": "0xabc", "status": "ACTIVE"}
+
+    def test_poll_after_a_completed_close_reports_closed(self):
+        """THE defect: this is the terminal poll and it must say `closed`, not the all-clear."""
+        self.rows = [self._CLOSED_ROW]
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertIn("closed", out.lower())
+        self.assertNotIn("no OPEN strategies to close", out)
+
+    def test_a_package_never_deployed_here_does_not_claim_closed(self):
+        """The other half of the ambiguity — absence must not render as a completed close."""
+        self.rows = []
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertNotIn("closed.", out)
+        self.assertIn("no strategies", out.lower())
+
+    def test_the_two_outcomes_do_not_print_the_same_thing(self):
+        """Whatever the wording, a caller must be able to tell them apart — that is the whole bug."""
+        self.rows = [self._CLOSED_ROW]
+        closed_out, _ = self._run("omega")
+        self.rows = []
+        never_out, _ = self._run("omega")
+        self.assertNotEqual(closed_out.strip(), never_out.strip())
+
+    def test_a_live_strategy_still_closes_normally(self):
+        """Regression guard: the fix must not touch the path that actually has work to do."""
+        self.rows = [self._ACTIVE_ROW]
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.closed, ["s1"])
+        self.assertIn("closing", out.lower())
+
+    def test_an_unreadable_second_read_refuses_rather_than_claiming_closed(self):
+        """Money-path guard, same rule as `_read_or_refuse`: "couldn't read it" must never render as a
+        finished close, or the agent redeploys over a strategy that may still be live and funded."""
+        self.rows = [self._CLOSED_ROW]
+        self.unreadable = True
+        out, code = self._run("omega")
+        self.assertNotEqual(code, 0)
+        self.assertNotIn("closed.", out)
+
+    def test_a_never_closed_dead_package_names_its_statuses(self):
+        """Rows exist, none LIVE — but FAILED/TERMINATED means no close ever ran here.
+
+        Printing a bare `closed.` would read as "the close you polled for just completed" to an
+        agent that never issued one. Naming the terminal statuses keeps the two distinguishable.
+        """
+        self.rows = [{"strategyId": "s1", "strategyWalletAddress": "0xabc", "status": "FAILED"},
+                     {"strategyId": "s2", "strategyWalletAddress": "0xdef", "status": "TERMINATED"}]
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertIn("FAILED", out)
+        self.assertIn("TERMINATED", out)
+        self.assertNotIn("no strategies", out.lower())   # they DO exist — not the absent case
+
+    def test_a_settled_close_says_so_without_inventing_a_status(self):
+        self.rows = [self._CLOSED_ROW]
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertIn("CLOSED", out)
+        self.assertNotIn("FAILED", out)
+
+    def test_dry_run_still_touches_no_mcp(self):
+        self.rows = [self._CLOSED_ROW]
+        self._run("omega", "--dry-run")
+        self.assertEqual(self.closed, [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
