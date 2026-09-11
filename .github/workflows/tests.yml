@@ -35,4 +35,4 @@ jobs:
       # strategies/chimp/tests/test_package_shape.py aborts collection for that whole tree
       # (pre-existing, unrelated).
       - name: full suites (ops + discover + author + trading-runtime + catalog guards)
-        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-strategy-author/tests senpi-trading-runtime/tests senpi-trader-research/tests senpi-market-pulse/tests senpi-portfolio/tests strategies/tests -q
+        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-strategy-author/tests senpi-trading-runtime/tests senpi-trader-research/tests senpi-market-pulse/tests senpi-portfolio/tests senpi-quant/tests strategies/tests -q
