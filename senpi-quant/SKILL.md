@@ -105,8 +105,10 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
   leverage per trade) and the smart-money cohort from Senpi's ALL_TIME realized-PnL ranking (≥ $1M
   realized). Without one, the cohort is the largest profitable accounts on the public leaderboard, and the
   read carries no entry timing.
-- **Whale median:** `references/benchmark.json`, computed by the same engine over the public cohort
-  (`scripts/benchmark.py`), dated in the table.
+- **Whale median:** `references/benchmark.json`, computed by `scripts/benchmark.py` — from Senpi discovery
+  with a token (whales are TWAP-heavy, so the public endpoints cannot rebuild their round trips). The table
+  renders only when the benchmark holds ≥ 5 members with ≥ 10 trades; until that file ships, the smart-money
+  tab shows the per-position cohort reads alone.
 
 ## Mandatory closing (verbatim structure, after any full desk or `--section edge/next`)
 

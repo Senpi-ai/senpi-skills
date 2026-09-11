@@ -107,8 +107,10 @@ Quant score = Σ weight × dimension, rounded.
 Cohort bias per coin = net ÷ gross signed notional over cohort members holding it ([−1, +1]); a read needs
 ≥ 3 members; |bias| < 0.2 is `COHORT SPLIT`. `WITH — BUT LATE (+h)` when your entry sits more than 4h after
 the cohort's median entry on your side (Senpi source only — the public source carries no entry times).
-Whale median table: `benchmark.json`, medians over the public cohort computed by `scripts/benchmark.py`
-with this same engine (members with ≥ 10 trades).
+Whale median table: `benchmark.json`, medians computed by `scripts/benchmark.py` with this same engine over
+the Senpi discovery cohort (members with ≥ 10 trades); rendered only when the benchmark holds ≥ 5 such
+members. A public-leaderboard run is diagnostic only — whales are TWAP-heavy and their public round trips
+come back nearly empty.
 
 ## Market fit
 
