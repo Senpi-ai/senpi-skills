@@ -7,12 +7,55 @@ holding positions. `senpi-strategy-ops/SKILL.md` routes here; this file is the p
 `senpi-strategy-author`** (the only skill that knows the scanner / yaml / DSL schema). Ops APPLIES the
 edited package; it does not write it.
 
-**There is no in-place scanner reload, and no single verb for this today.** Re-running `create` will
-NOT apply the edit: the deploy verb is idempotent, so it adopts the wallet that already exists and
-leaves the deployed scanner as it is. Applying an edit means **closing the strategy and redeploying it
-on a fresh wallet** — which market-exits its open positions and returns the funds to main.
+**Most edits now apply IN PLACE — `openclaw senpi update`. Do not close a live book to re-tune it.**
+No wallet is created, nothing is funded, no position is market-exited, and DSL state, scanner stores
+and action history all survive. Re-running `create` still will NOT apply an edit — the deploy verb is
+idempotent, so it adopts the wallet that already exists and leaves the deployed scanner as it is.
 
-**So this is a money conversation before it is a command:**
+```bash
+# 1. Prove the edit runs, and write the proof `--apply` requires.
+openclaw senpi validate <recipe-dir>
+
+# 2. PLAN it — what changes, and what it leaves alone. Changes nothing; show this to the user.
+openclaw senpi update <recipe-dir> --id <runtime_id>
+
+# 3. Apply.
+openclaw senpi update <recipe-dir> --id <runtime_id> --apply
+```
+
+`--id` names which runtime; on a multi-instance package each arm is its own runtime, so this is how
+you re-tune one sleeve and leave its siblings untouched. `--address <wallet>` works too. Changed only
+`scan.py`/`scoring.py`? Add `--code-only` and it refuses if the recipe moved as well.
+
+Always point `update` at the **directory**, as above — never hand it the recipe as bare text. The
+proof is a claim about a package on disk, so a recipe with no package behind it has nothing to
+verify against and `--apply` refuses it rather than swapping in unvalidated bytes. The proof must
+also cover the recipe actually being applied, not merely some recipe sitting in that directory.
+
+**Read the plan to the user before applying — one thing in it will surprise them.** Exit changes are
+**forward-only**: a new `dsl_preset` governs NEW entries, while every position already open keeps a
+snapshot of the preset it was opened under. A tightened stop does **not** reach a position that is
+already running, and the only way to move one onto the new exits is to close and re-open it. The plan
+names the affected positions. Do not let "I made it tighter" be heard as "my open trades are now
+tighter".
+
+Exit `2` means it refused and the runtime was never touched. Exit `1` means an apply was attempted
+and the runtime may not be where you left it — read the message rather than retrying; it says whether
+the runtime was restored to its previous recipe or is down with positions unmanaged and needs a human.
+
+## When the edit CANNOT be applied in place
+
+`senpi update` refuses these outright, because each would silently orphan state the runtime keys on:
+
+| Change | Why it needs a new deployment |
+|---|---|
+| a different `strategy.wallet` | That is a different deployment. The old wallet's positions would be left with nothing managing them. |
+| an external scanner **renamed**, **moved**, **inserted** or **removed** | External scanner state is keyed by name and by position among the external scanners, so both matter. A rename starts it from empty; moving one — or inserting or removing one **above** it, which shifts every external scanner below — points it at another scanner's directory. **Appending at the end moves nobody and is allowed**, as is moving an internal scanner, which no state directory is keyed on. |
+| a changed `action_type` under a stable `name` | The new action class would inherit the previous one's execution history. |
+
+Only for those does applying mean **closing the strategy and redeploying it on a fresh wallet** —
+which market-exits its open positions and returns the funds to main. That is the procedure below, and
+it is a money conversation before it is a command:
 
 1. **Confirm the edited package is on disk** in the durable root (`/data/workspace/strategies/<id>/…`),
    authored via `senpi-strategy-author`, not hand-guessed here.
@@ -44,6 +87,9 @@ on a fresh wallet** — which market-exits its open positions and returns the fu
 
 **NEVER, when applying an edit:**
 
+- close a live strategy to apply a change `senpi update` would have made in place. Flattening a book
+  costs the user spread, fees and their open P&L; reach for the close/redeploy path only for the
+  three changes in the table above.
 - hand-render a `runtime.yaml` or run raw `openclaw senpi runtime create` on a hand-built file — the
   `./scanners` "NO ENTRY SCANNERS" trap, and it skips the funds preflight, the attribution and the
   verified tick.
