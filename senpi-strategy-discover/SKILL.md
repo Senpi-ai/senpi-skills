@@ -15,7 +15,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.20.0"
+  version: "2.21.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -156,7 +156,7 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
       picks a window.** For the **hands-off** route, managed copy templates come in **two flavors — surface
       both, don't show only one**: *copy specific traders* (**Shadow / Remora / Raptor / Cuckoo / Oxpecker /
       Jackal** — mirror a trader's fresh entries or book) **and** *follow the smart money by signal* (**Stingray
-      / Starling / Whalehunter** — position by where the whole proven cohort leans, many traders at once, not
+      / Starling / Whalehunter / Phalanx** — position by where the whole proven cohort leans, many traders at once, not
       1:1). All auto-apply DSL + budget-relative sizing. (`senpi-trade` carries the full flavor breakdown.)
    5. 🏆 "Just run what's set up best right now?" → *read the market*, lead with the best current setup
       (be honest — see "What's winning" in Special paths; there's no per-package performance board).
@@ -168,7 +168,7 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
    | a fund — a style | "AI/tech, market-neutral, income, or macro?" → rank by `tags`/`thesis`. |
    | trend / contrarian | "On one name, a basket, or the whole board?" (one name → `--assets <ticker>`; else rank on `asset_scope`). |
    | a specific market | "Which — a stock, pre-IPO name, commodity, index, or coin?" → `--assets`. |
-   | copy | **Don't make them pick a window** — "proven vs hot" is exactly what the `senpi-trader-research` blend unions for them (that's the whole point of the blend). Ask only: *"a specific wallet you already have in mind, or should I find the best to copy?"* — a named wallet → `senpi-trader-research --trader <addr>` (vet, then mirror); "find the best" → hand to `senpi-trader-research` (blended shortlist, ranked by copyability); prefer hands-off → a managed copy template — **surface both flavors**: *copy specific traders* (Shadow / Remora / Raptor / Cuckoo / Oxpecker / Jackal) **and** *follow the smart money by signal* (Stingray / Starling / Whalehunter — many traders at once, not 1:1). |
+   | copy | **Don't make them pick a window** — "proven vs hot" is exactly what the `senpi-trader-research` blend unions for them (that's the whole point of the blend). Ask only: *"a specific wallet you already have in mind, or should I find the best to copy?"* — a named wallet → `senpi-trader-research --trader <addr>` (vet, then mirror); "find the best" → hand to `senpi-trader-research` (blended shortlist, ranked by copyability); prefer hands-off → a managed copy template — **surface both flavors**: *copy specific traders* (Shadow / Remora / Raptor / Cuckoo / Oxpecker / Jackal) **and** *follow the smart money by signal* (Stingray / Starling / Whalehunter / Phalanx — many traders at once, not 1:1). |
    | breakout / structural | the one drill-down that matters for that branch. |
 3. **Size & lock in (Layer 3)** — pick the DSL preset and size the budget. **`min_budget` on each card is
    the FLOOR to run it, not a recommended amount** — never just parrot it as "Suggested: $X". Size from
