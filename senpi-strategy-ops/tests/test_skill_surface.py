@@ -249,9 +249,11 @@ class CronCostArithmeticAgreesEverywhere(unittest.TestCase):
         return found
 
     def test_the_per_day_model_call_counts_agree(self):
-        five = self._numbers(r"(?:every 5 minutes|5-minute job|five-minute (?:job|producer))[^0-9\n]{0,40}?(\d+)")
-        hourly = self._numbers(r"every hour[^0-9\n]{0,30}?(\d+)")
-        ten = self._numbers(r"10-minute job[^0-9\n]{0,30}?(\d+)")
+        # Anchored on the cost sentence ("… is 288"), not on the cadence alone: the How-it-runs
+        # template also says "every 5 minutes" next to an `interval_seconds` that is not a cost.
+        five = self._numbers(r"(?:every 5 minutes|5-minute job|five-minute (?:job|producer))\"?(?: job)? is \**~?(\d+)")
+        hourly = self._numbers(r"every hour\"? is \**~?(\d+)")
+        ten = self._numbers(r"10-minute job is \**~?(\d+)")
         self.assertTrue(five, "no skill quotes the five-minute cost — the rule is gone")
         self.assertEqual(set(five), {"288"}, five)
         self.assertEqual(set(hourly), {"24"}, hourly)
