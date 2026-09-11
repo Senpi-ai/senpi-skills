@@ -43,7 +43,13 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # the two consents (below the design budget; a guardrail removed), the post-live ownership line and
 # "update, never redeploy". The lever ranking, the name rules, the cost classes and the fork-on-disk
 # mechanics went to references/walkthrough.md. Set at the post-edit count with no slack.
-BODY_BUDGET = {"senpi-strategy-ops": 317, "senpi-strategy-author": 386}
+# author 386 -> 425 (2026-09-11): the four peer routes with cost classes (the product change — the route is
+# the user's choice, its cost class a fact, never a downsell), budget-never-before-build, pre-fill from the
+# thesis, the proven-cohort source rule, let-winners-run exits stated in price terms, the user names it,
+# protection removal as consent. Every one is a what-to-ASK / what-to-CLAIM rule that fires in the
+# interview, which this file says has nowhere else to live; the fork mechanics live in ops'
+# references/walkthrough.md and are named here, not repeated. Set at the post-edit count with no slack.
+BODY_BUDGET = {"senpi-strategy-ops": 317, "senpi-strategy-author": 425}
 
 
 def _skill_body(path):
