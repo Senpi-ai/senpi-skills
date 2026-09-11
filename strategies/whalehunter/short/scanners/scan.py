@@ -6,7 +6,8 @@ passes direction=SHORT. Each sleeve runs on its OWN wallet and its OWN ctx.state
 the cohort cache + daily ledger are per-sleeve (the v2 daemon shared them on disk;
 3.0 instances are isolated — signals are identical, only the cache is duplicated).
 
-Per tick: refresh the smart/crowd cohorts (cached daily in ctx.state), aggregate each
+Per tick: refresh the smart/crowd cohorts (cached daily in ctx.state, built a few pages
+per tick so the refresh never has to fit one timeout), aggregate each
 cohort's net positioning (discovery_get_trader_state), update the daily ledger to get
 the 'adding daily' growth, score the divergences for THIS direction, and emit a
 conviction-scaled marginPct INTENT (the runtime sizes, owns slots/dedup, trails DSL).
@@ -18,7 +19,7 @@ import time
 
 import scoring
 
-CACHE_VERSION = 1     # bump if the cohort-BUILDING logic changes (busts a stale cache)
+CACHE_VERSION = 2     # bump if the cohort-BUILDING logic changes (busts a stale cache) — 2: chunked build
 _DEFAULT_TTL = 3600   # 60m signal-dedup: don't re-fire a coin while a signal is in flight
 
 
@@ -36,10 +37,21 @@ def _read(ctx, name, args):
 def _build_cohorts(ctx, cached, inputs, now):
     """Smart cohort (lifetime realized >= smartMinRealizedUsd) + crowd cohort
     (crowdMin..crowdMax) from the ALL_TIME realized-PnL ranking, PAGED by offset to
-    reach the deep crowd band, each capped. Cached daily in ctx.state."""
+    reach the deep crowd band, each capped. Cached daily in ctx.state.
+
+    The build is CHUNKED across ticks: at most `cohortPagesPerTick` pages are read per
+    tick and the progress (pages done, members so far) is carried in the cache under
+    `build`, so a refresh that cannot fit one tick's timeout completes over several ticks
+    instead of timing out on every tick forever — and a tick killed mid-build loses only
+    that tick's pages. While a build is in progress the LAST COMPLETE cohort is served."""
     refresh_h = float(inputs.get("cohortRefreshHours", 24))
-    if (cached.get("smart") and cached.get("cache_version") == CACHE_VERSION
-            and (now - cached.get("refreshed_at", 0)) / 3600 < refresh_h):
+    pages_per_tick = max(1, int(inputs.get("cohortPagesPerTick", 2)))
+    fresh = bool(cached.get("smart")) and cached.get("cache_version") == CACHE_VERSION \
+        and (now - cached.get("refreshed_at", 0)) / 3600 < refresh_h
+    build = cached.get("build") if isinstance(cached.get("build"), dict) else None
+    if build and (now - float(build.get("started_at", now))) / 3600 >= refresh_h:
+        build = None                                        # a build older than a refresh: start over
+    if fresh and not build:
         return cached                                       # fresh cache — no fetch
     smin = float(inputs.get("smartMinRealizedUsd", 1_000_000))
     cmin = float(inputs.get("crowdMinRealizedUsd", 10_000))
@@ -47,17 +59,23 @@ def _build_cohorts(ctx, cached, inputs, now):
     cap = int(inputs.get("cohortSampleCap", 250))
     page_size = int(inputs.get("cohortFetchLimit", 1000))
     max_pages = int(inputs.get("cohortMaxPages", 6))
-    smart, crowd, seen = [], [], set()
-    for page in range(max_pages):
+    if build is None:
+        build = {"started_at": now, "next_page": 0, "smart": [], "crowd": [], "seen": []}
+    smart, crowd, seen = list(build["smart"]), list(build["crowd"]), set(build["seen"])
+    page = int(build["next_page"])
+    done, fetched = page >= max_pages, 0
+    while page < max_pages and fetched < pages_per_tick:
         resp = _read(ctx, "discovery_get_top_traders", {
             "time_frame": "ALL_TIME", "sort_by": "PROFIT_AND_LOSS_REALIZED",
             "open_position_filter": False, "limit": page_size, "offset": page * page_size})
+        fetched += 1
         if not resp:
-            break
+            break                                           # transient: keep progress, resume next tick
         raw = resp.get("data", resp) if isinstance(resp, dict) else resp
         if isinstance(raw, dict):
             raw = raw.get("traders", raw.get("data", []))
         if not isinstance(raw, list) or not raw:
+            done = True
             break
         page_top = None
         for t in raw:
@@ -76,13 +94,26 @@ def _build_cohorts(ctx, cached, inputs, now):
                 if len(crowd) < cap:
                     crowd.append(addr)
                     seen.add(addr)
+        page += 1
         if len(smart) >= cap and len(crowd) >= cap:
+            done = True
             break
         if page_top is not None and page_top < cmin:        # whole page below the crowd floor
+            done = True
             break
-    if not smart and not crowd:
-        return cached                                       # failed refresh — keep the old cache
-    return {"refreshed_at": now, "cache_version": CACHE_VERSION, "smart": smart, "crowd": crowd}
+    if page >= max_pages:
+        done = True
+    if done:
+        if not smart and not crowd:                         # failed refresh — keep the old cache
+            return {k: v for k, v in cached.items() if k != "build"}
+        return {"refreshed_at": now, "cache_version": CACHE_VERSION, "smart": smart, "crowd": crowd}
+    out = {k: v for k, v in cached.items() if k != "build"}
+    out["build"] = {"started_at": build["started_at"], "next_page": page,
+                    "smart": smart, "crowd": crowd, "seen": sorted(seen)}
+    if fetched:
+        print(f"[whalehunter.scan] cohort build in progress: page {page}/{max_pages}, "
+              f"smart={len(smart)} crowd={len(crowd)} — serving the last complete cohort", file=sys.stderr)
+    return out
 
 
 def _fetch_states(ctx, addrs):
