@@ -15,7 +15,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.19.0"
+  version: "2.20.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -179,6 +179,9 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
      buffer — then **confirm before install** ("you've got ~$X free; I'd put ~$Y in Rhino, ~$Z in Spider —
      good?"). Never invent a number the user hasn't confirmed, and never default everyone to the floor.
    - If funds are unavailable (`user_context` missing/errored), ask for the budget rather than assuming.
+   - **"Can I try it first / paper trade it?"** — there is no paper-trading mode. The trial IS a live run at
+     the floor (`min_budget`, about $10 per wallet), after `senpi validate` proves it runs; say so, and never
+     offer to watch it on a timer — an `openclaw cron` job is a model call per firing, not a simulation.
 
    Optionally `discover.py --context-only` to reference holdings (confirm first; never silently infer).
    Then run the engine with the FULL concrete flag set (this run does the live market read), **rank the

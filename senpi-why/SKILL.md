@@ -10,7 +10,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.0.3"
+  version: "1.1.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -66,6 +66,9 @@ public and verifiable onchain — no black box.
 
 ## Supporting facts (proof, not the lead — only after the pillars)
 
+- **No paper-trading mode, by design** — every strategy runs on a real, isolated sub-wallet; the $10 floor is the
+  trial, and `senpi validate` proves a strategy runs before a cent moves. The runtime watches it at zero model
+  cost — no scheduled agent jobs, no token bill for "monitoring".
 - **Multi-strategy isolation** — each strategy runs in its own sub-wallet, so one can't liquidate another.
 - **Dual market** — 200+ crypto perps plus US equities, metals, and indices, from one account.
 - **Cross-chain funding** — USDC bridges automatically; no pre-funding the "right" chain.

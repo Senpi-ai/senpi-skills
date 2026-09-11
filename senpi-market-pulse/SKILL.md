@@ -10,7 +10,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.2.0"
+  version: "1.3.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -25,6 +25,7 @@ they couldn't get from a price screen on their own.
 
 ## Golden rules
 
+- **Asked to run this on a schedule? Say the cost first.** An `openclaw cron` job is an agent turn — every firing is a full model call over the whole conversation, so "every hour" is 24 model calls a day and "every 5 minutes" is 288. Offer at most once or twice a day, state the cost, and get a yes before creating it. Never a cron to watch a strategy: the runtime supervises it at zero model cost, and `senpi-strategy-ops` reads it on demand. The daily read is one run, when asked.
 - **Run the engine; never hand-pull the market.** `python3 scripts/pulse.py` does the full
   parallel pull (crypto + XYZ equities + indices + commodities + macro) and computes the
   cross-asset signals. Read its JSON — don't fire `market_*` calls yourself. For a full read, run it as
