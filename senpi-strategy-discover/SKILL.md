@@ -6,16 +6,18 @@ description: >-
   a strategy", "help me pick a strategy", "what's winning?", "set me up", "I have
   a view on the world (a war, the economy, one coin winning) — trade it", "run a
   hedge fund / all-weather / tail-risk book", or wants a strategy but has NOT
-  named a specific one. Surface the closest matching TEMPLATE first — the fastest
-  on-ramp, which the user can then fork/customize — passing their worldview as
-  `--theme` to rank the closest fits. You talk and RANK; a hidden engine
+  named a specific one. Surface the closest matching TEMPLATE first — the quick start
+  to the user's OWN strategy (every template deploys as `<User>'s <Template>` — or a
+  name of their own — as-is or with levers moved, after ops walks them through it) — passing their
+  worldview as `--theme` to rank the closest fits; offer building one as a peer with
+  its cost class, never a downsell. You talk and RANK; a hidden engine
   (scripts/discover.py) fetches data + filters. NOT for installing a NAMED
   strategy (that's senpi-strategy-ops), or building/designing one from scratch or
   with a custom DSL (that's senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.22.0"
+  version: "2.23.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -38,6 +40,15 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
 
 ## Golden rules
 
+- **It's their strategy.** A template is a quick start to the user's own strategy, never "our strategy"
+  deployed for them. Say *"a starting point you can fork"*; never "our strategies", "Senpi's Starling",
+  "I'll deploy our template". Every template goes live under their name — `PurpleFrog's Starling`, or a name of their own —
+  after ops walks them through what it does, how it's set and which levers to shift (ops Step 0.75).
+  Building one from scratch is a peer route, not a downsell: state the four cost classes as facts —
+  template as-is ≈ the cheapest thing the agent does · a lever fork (values only) adds a little · a
+  bespoke edit of a template (a new universe, a different signal — author's edit path) adds more ·
+  scratch ≈ 2–3× a template — and let them choose. The same four rungs appear in ops, author and the
+  workspace guardrail; the menu must read identically everywhere.
 - **You talk and rank; the engine only filters.** Run `scripts/discover.py` for data + the eligible
   set — never fetch the catalog or filter strategies yourself.
 - **Only ever name strategies the engine returned** (in `MatchResult.candidates`). Copy the `id`/`name`
@@ -60,7 +71,7 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
 - **Don't re-ask what they've told you.** If they named an asset/direction, use it; only ask real gaps.
 - **Never say "safe."** Be honest about risk; surface **EVERY** entry in a candidate's `caveats[]`
   **verbatim** — never omit, merge, or soften them.
-- **Always offer build-custom; never dead-end.**
+- **Always offer build-custom as a peer; never dead-end, never downsell.** Say its cost class beside it.
 
 ## How to run the engine
 
@@ -97,7 +108,7 @@ python3 scripts/discover.py
   rank the thesis matches. Read `meta.theme_matches` first, then rank the rest. Add `--no-market` to keep
   early runs cheap.
 - The engine returns valid JSON even on bad input; if it ever errors/empties, fall back to a generic
-  "here are our strategies" message.
+  "here's what you can start from" message.
 
 ## What the engine returns (and how you use each field)
 
@@ -194,7 +205,9 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
   `--no-market`; say "give me a sec to read the market." **Never pre-fetch on entry.**
 - **Orient / browse** — a short plain-English menu of what's possible (the style families + the funds +
   the non-crypto markets); never force a pick. From here they pick a belief, read the market, or build custom.
-- **Build custom** — hand to **senpi-strategy-author** at any time; a real choice, not a dead-end.
+- **Build custom** — hand to **senpi-strategy-author** at any time; a peer route with its cost class
+  stated (a bespoke edit of a template adds more than a lever fork; scratch ≈ 2–3× a template), never a
+  dead-end and never a downsell.
 - **Mirror a specific trader** — to copy an individual Hyperliquid wallet (not a managed template), hand to
   **senpi-trader-research** (find + vet) → **senpi-trade** (mirror). It blends the windows so the user never
   picks proven-vs-hot; a wallet they name goes straight to `--trader`.
@@ -246,9 +259,10 @@ They lack the vocabulary; recommend *without* making them self-classify:
 🦏  Rhino — Tail-Risk / Crisis-Alpha   [{tier}]
     {thesis}.   Minimum ~${min_budget}{ + funding_split if multi-instance}
 {2nd / 3rd card}.   {caveats, verbatim}.
-"You've got ~${user_context.budget} free — set up {top} with ~$Y, add a hedge alongside it, or build something custom?"
+"You've got ~${user_context.budget} free — start from {top} (I'll walk you through how it's set and the levers before we fund it; it deploys as {user}'s {top} — or a name of your own), add a hedge alongside it, or build your own?"
 ```
-Show the STARTER badge iff `tier == "starter"`; show `archetype_label`; lead with `thesis` for the
+Every card is a starting point — say so once (*"each of these is a starting point you can fork"*), and
+never present a pick as our strategy the user adopts. Show the STARTER badge iff `tier == "starter"`; show `archetype_label`; lead with `thesis` for the
 worldview/fund picks; offer the stack on single-wallet picks only.
 
 ## Special paths
@@ -264,7 +278,9 @@ worldview/fund picks; offer the stack on single-wallet picks only.
 ## Handoffs
 
 - **Deploy** → **senpi-strategy-ops** with the chosen **`id` + `version`** (ops creates the wallet(s)
-  and runs the install; it re-reads `strategy.yaml` for budget/`funding_split`).
+  and runs the install; it re-reads `strategy.yaml` for budget/`funding_split`). **Ops owes the
+  walkthrough first** (its Step 0.75: what it does, how it's set, two levers, the fork name) — hand over
+  before any budget question, not after it.
 - **Build-custom** → **senpi-strategy-author** with a **structured intent brief** (the `meta.intent_echo`
   + a one-line summary of what they wanted, including the worldview if they gave one).
 
