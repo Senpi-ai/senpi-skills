@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.2.1"
+  version: "3.3.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -245,7 +245,7 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
 8. **Lint — advisory, instant, no credentials** (pass the package's absolute path,
    `/data/workspace/strategies/<id>`, so they hit the authored copy from any CWD):
    (a) **authoring lint** → `python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>`
-   (candle keys, null-in-schema, mandate description, retention/cooldown bounds);
+   (candle keys, null-in-schema, mandate description, retention/cooldown bounds) **+ advisory warns you relay to the user**: the stop's distance in price at the recipe's leverage, multi-slot sizing with no free-margin gate, a daily entry cap at or below the slot count;
    (b) **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>`
    — every hardcoded ticker you TRADE must be a live HL instrument (derived universes, and names under an exclusion key, pass trivially);
    (c) **deploy contract** → `python3 senpi-strategy-ops/scripts/deploy.py validate /data/workspace/strategies/<id>`
@@ -358,7 +358,7 @@ makes one new wallet per instance). Authoring just designs the package; **concur
 
 Same references; usually no rebuild: tune `runtime.yaml` `inputs` (universe/thresholds/sizing), swap
 the `dsl_preset`, adjust `risk.guard_rails`, or change the `scoring.py` math. Re-validate, then
-re-smoke-test if you touched `scan.py`/`runtime.yaml`.
+re-smoke-test if you touched `scan.py`/`runtime.yaml` — on the runtime (`senpi validate`, or a floor-budget wallet), **never by scheduling agent turns to watch it**: an `openclaw cron` job is a model call every time it fires, and a 5-minute one is 288 a day — [`references/shadow-testing.md`](references/shadow-testing.md).
 
 ## Handoff & the live gate — deploy is `senpi-strategy-ops` (NEVER raw MCP); "done" means verified LIVE
 
