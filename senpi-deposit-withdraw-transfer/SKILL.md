@@ -87,8 +87,8 @@ with no crypto at all is not stuck — never tell them they need an exchange acc
 - **Strategy funding draws on the funding wallet only.** Create / top-up pulls from the user's funding
   wallet balance on Hyperliquid (perps, then spot USDC). There is **no bridging from EVM chains** —
   USDC on other networks cannot fund strategies. Don't pre-empt a shortfall; only act if the operation
-  actually returns one (`SERR037`) — then show the funding card, and `strategy_top_up` / retry once the
-  deposit lands.
+  actually returns one — `SERR151` (the USDC is on an EVM chain), or `SERR158`/`SERR037` (genuinely
+  short) — then show the funding card, and `strategy_top_up` / retry once the deposit lands.
 
 ## Buying USDC — the "I have no crypto" path (the card's Buy USDC tab)
 
