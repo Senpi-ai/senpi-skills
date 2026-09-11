@@ -262,7 +262,7 @@ ephemeral deploy state — so **don't hand-compose `strategy_list`**. A strategy
 call it idle. The one real anomaly is an autonomous package strategy missing its runtime
 (**no-runtime**). Full label set: [`references/lifecycle.md`](references/lifecycle.md).
 Two more facts ride every deep row, because health alone misleads on both: **⏸ paused** — the runtime's OWN risk gate (`components.risk`) holds entries (daily cap, loss halt, cooldown), printed with the gate's reason and reset verbatim; health stays ✅, nothing is broken, and closing/redeploying resets nothing but the book. **✎ running recipe ≠ disk** — the descriptor the runtime renders differs from the package on disk: an edit that was never applied → `deploy.py update` (below).
-When YOU call a trade tool (`ratchet_stop_add`, `strategy_close`, `create_position`…) it runs behind the user's trade-approval gate: an unapproved call times out, is **denied**, and returns an **EMPTY** result. Empty = not executed — say the approval timed out and nothing was placed; never report it as done, never re-issue it in a loop.
+When YOU call a trade tool (`ratchet_stop_add`, `strategy_close`, `create_position`…) it runs behind the user's trade-approval gate: an unapproved call times out, is **denied**, and returns an **EMPTY** result. Empty = not executed — say the approval timed out and nothing was placed; never report it as done, never re-issue it in a loop (the same rule senpi-trade's guardrail row carries — keep the two in sync).
 
 **"Are my open positions protected? / do they have a stop-loss?"** → the DSL coverage verdict (PROTECTED
 / UNPROTECTED / STOP-NOT-ON-VENUE) — a separate read, not the runtime list above. Key trap: an
