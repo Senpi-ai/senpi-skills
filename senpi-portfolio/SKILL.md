@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.17.0"
+  version: "1.18.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -273,6 +273,12 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
   `running_blind` (up, no entry scanners). This is the one that always deserved the warning. Say
   **"⚠ runtime degraded — running but not healthy,"** not a clean all-clear. Flagged in `meta.warnings`.
 - **`not_running`** — no runtime at all (above). ⛔ NOT RUNNING / UNPROTECTED.
+- **`risk_pause`** (beside `runtime_health`, never instead of it) — the runtime's OWN entry gate says
+  `CLOSED` or `COOLDOWN`: the strategy is **healthy and paused by its own rule** (daily entry cap, daily
+  loss halt, drawdown halt, a cooldown). Name the gate and quote its `reason` verbatim ("Max Entries/Day —
+  Max entries: 4/4 entries today"), say when it lets go (`reset`: daily gates at 00:00 UTC, cooldowns on
+  their own), and that nothing is broken. **Never send the user to redeploy over it** — a fresh wallet
+  market-exits the book and starts the same gate again from zero. `meta.paused_by_risk_gate` lists them.
 
 #### Corroborate the verdict before you assert it — in either direction
 
@@ -289,6 +295,10 @@ scan error — both facts true at once. So read them as a grid, not a single ver
 
 **When the two disagree, say which one you are trusting and why.** If the money is moving, that is the
 headline and the field is the footnote — do not report the field and bury the evidence.
+
+**Paper is not live.** A `senpi validate` tick, a scanner signal, a simulation or an estimate is not a
+trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narrate a shadow run as
+"live", "running" or "a trade" — the user then manages a position that does not exist.
 
 #### When it IS genuinely broken, act — don't hand the user a to-do
 
@@ -626,6 +636,8 @@ minutes, blow the `exec` timeout, and push you to raw MCP — which loses every 
 **fast, resumable STEPS** and **narrate each slice the moment it returns** (this mirrors
 `senpi-improve-trades` / `senpi-strategy-ops` — short steps over a shared state file, the skill narrates
 between). Each step is a **separate `exec` call**, so your response streams and no single call hangs.
+Runtime health inside `strategies` is **one** `openclaw senpi status --json` for the whole fleet (a
+progress line goes to stderr), so that step's cost does not grow with the number of runtimes.
 
 ```sh
 python3 scripts/portfolio.py money        # 1. the FAST money map: embedded idle + each wallet's value → the three buckets (narrate FIRST)
