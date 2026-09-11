@@ -73,7 +73,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-trade`](senpi-trade/) | 1.0.0 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
 | [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.0.1 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
 | **Move money / positioning** | | |
-| [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.1.0 | The money-movement rails (funds in via embedded wallet or in-app USDC purchase; out via the app) |
+| [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.2.0 | The money-movement rails (funds in via the funding card — deposit address or in-card USDC purchase; out via the app) |
 | [`senpi-why`](senpi-why/) | 1.0.3 | "Why Senpi / vs. other tools" — the positioning answer |
 
 Skills **compose**: `improve-trades` pulls in `market-pulse` + `smart-money` + `portfolio`; `discover` hands a chosen package to `ops`; `author` hands a built package to `ops`. The agent routes by **intent**, not keywords, and never re-implements one skill inside another.

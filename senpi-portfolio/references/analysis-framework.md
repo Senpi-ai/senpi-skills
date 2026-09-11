@@ -11,7 +11,8 @@ sits, so anchor on this:
 ```
 grand_total
 ├── idle_in_embedded      ← truly free. HL USDC + EVM USDC in the MAIN wallet.
-│                            Deploy into a strategy, or withdraw to your bank.
+│                            Only the HL legs fund strategies (EVM USDC does not
+│                            bridge in); any of it can be withdrawn to your bank.
 ├── idle_in_strategies     ← free margin sitting INSIDE strategy wallets, between trades.
 │                            Withdrawable back to main, but currently committed to a strategy.
 └── deployed_in_positions  ← margin actively backing open trades.

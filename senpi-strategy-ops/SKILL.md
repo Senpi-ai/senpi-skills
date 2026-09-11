@@ -170,7 +170,7 @@ build or pick one; the refusal names the offending instances and computes its ow
 > `deploy.py create|runtime`. Never substitute a raw `strategy_create_custom_strategy` MCP call: that
 > makes an **empty** custom-position strategy, not the running scanner, and it carries no attribution.
 > Never reach for `openclaw senpi runtime create` — it is internal and skips the funds preflight, the
-> attribution and the verified tick. Funding is **automatic** (HL perps → HL spot → EVM bridge).
+> attribution and the verified tick. Funding is **automatic**, drawn from the funding wallet on Hyperliquid (perps, then spot) — EVM balances do not bridge in.
 > **Follow the refusal's code, exactly**: [`references/refusal-playbook.md`](references/refusal-playbook.md).
 
 ### Refusals and warns — the relay contract
