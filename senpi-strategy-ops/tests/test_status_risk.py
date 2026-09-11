@@ -84,7 +84,21 @@ exit:
 """
 
 
+# Pinned IDENTICALLY in senpi-trading-runtime `src/runtime/__tests__/runtime-descriptor.test.ts`
+# (`AUTHORED` / `PARITY_DIGEST`). The runtime publishes `recipeHash` over its stored recipe and
+# `config_drift` compares it with `recipe_hash` over the file on disk: widen the drop regex or change
+# the join on ONE side and every runtime in the fleet reads "✎ an edit that was never applied". Both
+# constants must move together, so both suites assert the same digest.
+_PARITY_TEXT = ('name: kodiak-main\ngroup: kodiak\n# a comment the hash must ignore\ndescription: >\n'
+                '  SOL alpha hunter\nstrategy:\n  wallet: "${KODIAK_WALLET}"\n  slots: 2   \n\nexit:\n'
+                '  dsl_preset: balanced\n')
+_PARITY_DIGEST = "0ee8ddd8870febccca803a23bb959b98556dbbd93fc26fbeb80af522600fbbb4"
+
+
 class TestRecipeHashAndDrift(unittest.TestCase):
+    def test_recipe_hash_matches_the_digest_the_runtime_pins(self):
+        self.assertEqual(_cli.recipe_hash(_PARITY_TEXT), _PARITY_DIGEST)
+
     def test_hash_ignores_comments_blank_lines_trailing_space_and_the_wallet_line(self):
         rendered = _RECIPE.replace('"${SPIDER_WALLET}"', "0xabc").replace("# a comment the hash must ignore\n", "")
         rendered = rendered.replace("slots: 2", "slots: 2   ") + "\n\n"
