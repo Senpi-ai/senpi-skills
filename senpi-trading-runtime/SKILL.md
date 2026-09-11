@@ -34,7 +34,7 @@ division of labor is fixed:
   and *returns* a `list[dict]` of candidate signals. It does not open, close, size, schedule, or
   execute anything.
 - **Zero model cost, and the only loop there is.** The runtime ticks every `interval_seconds` without a
-  model call. Never put an agent-turn cron beside it — a producer, a "shadow" scan, a watcher — each
+  model call. Never put an agent-turn cron beside it — a producer, a re-check, a watcher — each
   firing is a full model call. There is no paper-trading mode: a strategy is tested with `senpi validate`
   (one real tick, no wallet) and then run live at the $10 floor.
 - **The runtime owns everything downstream:** scheduling (`interval_seconds`), spawning +

@@ -181,7 +181,7 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
    - If funds are unavailable (`user_context` missing/errored), ask for the budget rather than assuming.
    - **"Can I try it first / paper trade it?"** — there is no paper-trading mode. The trial IS a live run at
      the floor (`min_budget`, about $10 per wallet), after `senpi validate` proves it runs; say so, and never
-     offer a scheduled "shadow" run — an `openclaw cron` job is a model call per firing, not a simulation.
+     offer to watch it on a timer — an `openclaw cron` job is a model call per firing, not a simulation.
 
    Optionally `discover.py --context-only` to reference holdings (confirm first; never silently infer).
    Then run the engine with the FULL concrete flag set (this run does the live market read), **rank the

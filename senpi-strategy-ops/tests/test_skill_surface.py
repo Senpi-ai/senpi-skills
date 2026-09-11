@@ -232,3 +232,27 @@ class ReferencePointersResolve(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CronCostArithmeticAgreesEverywhere(unittest.TestCase):
+    """The cron-cost rule is repeated per skill ON PURPOSE — skills load independently, so text absent
+    from one skill does not exist for an agent working there. The price is that a correction has to
+    land in every copy, and the first divergence is silent. This pins the numbers every copy quotes."""
+
+    _FILES = list(REPO.glob("senpi-*/SKILL.md")) + list(REPO.glob("senpi-*/references/*.md"))
+
+    def _numbers(self, pattern):
+        found = {}
+        for f in self._FILES:
+            for n in re.findall(pattern, f.read_text()):
+                found.setdefault(n, []).append(f.relative_to(REPO).as_posix())
+        return found
+
+    def test_the_per_day_model_call_counts_agree(self):
+        five = self._numbers(r"(?:every 5 minutes|5-minute job|five-minute (?:job|producer))[^0-9\n]{0,40}?(\d+)")
+        hourly = self._numbers(r"every hour[^0-9\n]{0,30}?(\d+)")
+        ten = self._numbers(r"10-minute job[^0-9\n]{0,30}?(\d+)")
+        self.assertTrue(five, "no skill quotes the five-minute cost — the rule is gone")
+        self.assertEqual(set(five), {"288"}, five)
+        self.assertEqual(set(hourly), {"24"}, hourly)
+        self.assertEqual(set(ten), {"144"}, ten)

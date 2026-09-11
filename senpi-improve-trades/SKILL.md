@@ -38,7 +38,7 @@ more" questions; use `senpi-portfolio` for live state.
 
 ## HARD RULES (never violate — obey these even if you skim the rest)
 
-**A "measurement framework", recurring analytics, or a scheduled review is read on demand, never an agent-turn cron.** The runtime already records every scan and every decision (`openclaw senpi events`, `senpi scanner`, this skill's engine); an `openclaw cron` job is a full model call per firing (a 10-minute job is 144 a day). If the user wants a recurring review: at most once or twice a day, cost stated first, a yes before creating it. There is no paper-trading mode — a candidate strategy is tested with `senpi validate` and then live at the $10 floor, not with a shadow scanner on a cron.
+**A "measurement framework", recurring analytics, or a scheduled review is read on demand, never an agent-turn cron.** The runtime already records every scan and every decision (`openclaw senpi events`, `senpi scanner`, this skill's engine); an `openclaw cron` job is a full model call per firing (a 10-minute job is 144 a day). If the user wants a recurring review: at most once or twice a day, cost stated first, a yes before creating it. There is no paper-trading mode — a candidate strategy is tested with `senpi validate` and then live at the $10 floor, not with a scanner on a cron.
 
 1. **Lead with TOTAL PnL** (`pnl_summary.total` = realized + unrealized), never realized alone. Realized-only
    is half the ledger — it calls a book riding open winners a "loser" and penalizes hold-strategies. **If

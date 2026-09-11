@@ -196,7 +196,7 @@ protection** (none / static strategy-level SL/TP on total PnL / per-position DSL
 
 ### The hero check — simulate BEFORE funding (a one-shot sizing estimate, not paper trading)
 Senpi has no paper-trading mode; the estimate below says what would open *right now*, and the only live test
-is running the mirror at the $10 floor. Never offer a scheduled "shadow" of a trader — a cron is a model call per firing.
+is running the mirror at the $10 floor. Never offer to watch a trader on a timer — a cron is a model call per firing.
 Run `execution_estimate_position_opening` at the user's budget × multiplier × slippage **before** creating
 anything. It returns, per position, `open` / `skipped(slippage)` / `skipped(budget)` + `minimumBudgetRequired`
 — i.e. **exactly what would open for them and at what size.** Show the real **$ and %**. If little would

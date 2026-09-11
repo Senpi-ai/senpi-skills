@@ -3,7 +3,7 @@ name: senpi-strategy-author
 description: >-
   Build or edit a Senpi trading strategy — interactively, ONE decision at a time.
   There is no paper-trading mode: a strategy is tested with `senpi validate` and a
-  $10-floor live run, never with a cron-driven "shadow" scan (a model call per firing).
+  $10-floor live run, never with a scanner re-run on a timer (a model call per firing).
   Use for "build a strategy", "create a strategy from scratch", "design a
   strategy", "I have a trading idea", or ANY strategy that needs DSL (a
   runtime-supervised exit: stop-loss, trailing stop, profit-lock ladder) — a
@@ -119,7 +119,7 @@ Before the template offer / Decision 1, read the user's accessible balance ONCE:
 `account_get_portfolio` → `data.portfolio.total_in_hyperliquid` (fall back to
 `total_withdrawable`). Deploy needs a little **over $10 USDC per wallet (~$11.50, to cover
 the ~$1.50 creation fee)** — `deploy.py create` reserves the fee first, so a wallet funded
-to exactly $10 still refuses with `[E_FUNDS_BELOW_FLOOR]`. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scheduled "shadow" scan is a model call per tick, not a simulation — [`references/shadow-testing.md`](references/shadow-testing.md).
+to exactly $10 still refuses with `[E_FUNDS_BELOW_FLOOR]`. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scan re-run on a timer is a model call per tick, not a simulation — [`references/shadow-testing.md`](references/shadow-testing.md).
 
 - **Balance ≥ ~$11.50/wallet, or unreadable** → say nothing about funding and move on. Unreadable
   means move on too — no retry loop, no blocking; funding is re-checked at deploy anyway.

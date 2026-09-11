@@ -4,10 +4,12 @@
 skip. The expensive way — scheduling the agent to *watch* the strategy — is how an AI-credit balance
 disappears in days while the strategy itself does nothing.
 
-**There is no paper-trading mode.** Senpi cannot simulate a strategy over time, and nothing you schedule
-can stand in for one: a cron-driven "shadow" scanner is a model call per tick, not a simulation, and
-it never sees fills, slippage, funding or the DSL. Say that plainly when the user asks to paper trade,
-backtest or "run it in shadow" — then offer the two real tests below.
+**There is no paper-trading mode.** Senpi cannot run a strategy forward in simulated time, and nothing you
+schedule can stand in for that: a scanner re-run on a timer is a model call per tick, not a simulation, and
+it never sees fills, slippage, funding or the DSL. A one-shot offline backtest over historical candles is
+fine — no scheduler, no model call per tick, no venue contact — as long as it never wires to a trade tool.
+Say that plainly when the user asks to paper trade or to "watch it on a timer", then offer the two real
+tests below; "shadow" means exactly one thing here — the `senpi validate` run.
 
 ## Two real tests, cheapest first
 
