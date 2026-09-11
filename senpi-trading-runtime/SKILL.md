@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "4.0.3"
+  version: "4.1.0"
   platform: senpi
   exchange: hyperliquid
 ---
