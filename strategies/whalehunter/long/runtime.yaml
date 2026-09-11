@@ -28,7 +28,7 @@ scanners:
     path: ./scanners
     entrypoint: scan.py
     interval_seconds: 300                  # v2 cohort cadence (5 min); ~10 trader_state reads/tick
-    timeout_seconds: 180
+    timeout_seconds: 240                   # under the 300 s interval (a timeout >= the interval regenerates a wedge)
     default_signal_validity_seconds: 1800
     state_history_max_count: 12            # holds the cohort cache + daily ledger + dedup map
     inputs:
@@ -38,7 +38,8 @@ scanners:
       crowdMaxRealizedUsd: 100000
       cohortFetchLimit: 1000
       cohortMaxPages: 6
-      cohortSampleCap: 250
+      cohortPagesPerTick: 2                # the refresh is chunked: 2 pages per tick, progress carried in the cache
+      cohortSampleCap: 150                # 3 state batches per cohort per tick instead of 5
       cohortRefreshHours: 24
       cohortMinMembers: 5
       biasThreshold: 0.5
