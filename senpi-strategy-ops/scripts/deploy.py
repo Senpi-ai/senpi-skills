@@ -1642,6 +1642,8 @@ def main(argv):
     # `status` reports the agent's LAST deploy job — one record, not package-addressed — so it needs
     # no package and never resolves (or fetches) one. An id may still be given: it is checked against
     # the job, so a mismatch refuses instead of printing another package's verdict under it.
+    sub.add_parser("where", help="Print the durable strategies root — where fetched packages and forks live "
+                                  "(SENPI_STRATEGIES_DIR > $OPENCLAW_WORKSPACE_DIR/strategies > /data/workspace/strategies).")
     ps = sub.add_parser("status", help="Show the last deploy job for this agent.")
     ps.add_argument("package", nargs="?", default=None,
                     help="Optional: the package you expect this job to be. A mismatch is refused.")
@@ -1671,6 +1673,14 @@ def main(argv):
     pu.add_argument("--json", action="store_true", help="The verb's report as one JSON document on stdout.")
 
     a = ap.parse_args(argv[1:])
+
+    # `where` answers one question — the durable strategies root, the only directory a fork or a
+    # fetched package may be written to — and takes no flags, so it is answered before the flag-
+    # reading code below (which assumes every other verb declared --json).
+    if a.cmd == "where":
+        print(_pkg.strategies_root())
+        return 0
+
     log = (lambda m: None) if a.json else (lambda m: print(m))
 
     if getattr(a, "dry_run", False) and a.json:
