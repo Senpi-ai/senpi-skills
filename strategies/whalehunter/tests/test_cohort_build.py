@@ -45,7 +45,7 @@ class _Ctx:
         return {}
 
 
-_INPUTS = {"cohortMaxPages": 6, "cohortPagesPerTick": 2, "cohortSampleCap": 5000, "cohortFetchLimit": 1000,
+_INPUTS = {"cohortMaxPages": 6, "cohortPagesPerTick": 2, "cohortSampleCap": 6000, "cohortFetchLimit": 1000,
            "cohortRefreshHours": 24, "smartMinRealizedUsd": 1_000_000, "crowdMinRealizedUsd": 10_000,
            "crowdMaxRealizedUsd": 100_000}
 
@@ -62,7 +62,7 @@ def test_a_six_page_refresh_completes_over_three_ticks_serving_nothing_stale():
     assert c2["build"]["next_page"] == 4 and _pages(ctx) == 4
     c3 = scan._build_cohorts(ctx, c2, _INPUTS, now=1600)
     assert "build" not in c3 and c3["refreshed_at"] == 1600 and _pages(ctx) == 6
-    assert len(c3["smart"]) == 5001 and len(c3["crowd"]) == 91   # 6,000,000..1,000,000 step 1000 ; 100,000..10,000
+    assert len(c3["smart"]) == 5001 and len(c3["crowd"]) == 91   # realized 6,000,000..1,000,000 step 1,000 → 5,001 smart; 100,000..10,000 → 91 crowd
     # fresh now: no further reads
     c4 = scan._build_cohorts(ctx, c3, _INPUTS, now=1900)
     assert c4 is c3 and _pages(ctx) == 6
