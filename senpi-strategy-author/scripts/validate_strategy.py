@@ -255,6 +255,44 @@ def validate(pkg: Path) -> list:
         # Deploy would fund a fresh wallet and install the strategy, exit engine included, against
         # the pinned one. The runtime refuses that (`E_VALIDATE_WALLET_UNBOUND`) off this same field,
         # so asking a weaker question here is how author-green stops meaning deploy-green.
+        # An OPEN_POSITION action with the taker fallback OFF is accepted by every static check and
+        # cannot be executed: the executor does not rest maker orders, so it fails every order or —
+        # worse — a partial maker fill is reconciled as a foreign position and DSL-closed, fees both
+        # ways for no position (five days on a live book, 68 of 79 signals). Decidable here, so it is
+        # an error here, not prose.
+        if isinstance(rt_doc, dict):
+            for act in rt_doc.get("actions") or []:
+                if not isinstance(act, dict) or act.get("action_type") != "OPEN_POSITION":
+                    continue
+                params = act.get("params") if isinstance(act.get("params"), dict) else {}
+                aname = act.get("name", "?")
+                ot = params.get("order_type")
+                # The action-path `params` is an open record in the runtime schema, so `order_type` is
+                # checked nowhere before the executor — and the executor does not refuse an unknown one,
+                # it falls back to MARKET with a warning: full taker fees on every entry while the recipe
+                # says otherwise. A LIMIT open needs a price the runtime's open action never supplies.
+                if ot is not None and (not isinstance(ot, str) or ot not in OPEN_ORDER_TYPES):
+                    errs.append(
+                        f"instance {name}: [exec] action {aname!r} has `params.order_type: {ot!r}` — not an "
+                        f"order type the runtime knows ({', '.join(OPEN_ORDER_TYPES)}). It would not fail: the "
+                        f"runtime logs a warning and falls back to MARKET, so every entry pays full taker fees "
+                        f"while the recipe says otherwise. Write `FEE_OPTIMIZED_LIMIT` (a maker window, then "
+                        f"taker) or `MARKET`")
+                elif ot == "LIMIT":
+                    errs.append(
+                        f"instance {name}: [exec] action {aname!r} opens with `params.order_type: LIMIT` — a "
+                        f"LIMIT order needs a `limitPrice`, and the runtime's open action never supplies one, "
+                        f"so the order cannot be placed as written. Use `FEE_OPTIMIZED_LIMIT` for a maker-first "
+                        f"entry, or `MARKET`")
+                folo = params.get("fee_optimized_limit_options")
+                if ot == "FEE_OPTIMIZED_LIMIT" and isinstance(folo, dict) and folo.get("ensure_execution_as_taker") is False:
+                    errs.append(
+                        f"instance {name}: [exec] action {aname!r} opens with "
+                        f"`ensure_execution_as_taker: false` — a maker-only entry. The executor cannot rest "
+                        f"a maker order: it fails every order, or a partial fill is reconciled as a foreign "
+                        f"position and closed (fees both ways, no position). Set "
+                        f"`ensure_execution_as_taker: true` and keep `execution_timeout_seconds` as the maker "
+                        f"window before the taker fallback")
         if not wenv:
             errs.append(f"instance {name}: missing wallet_env in strategy.yaml")
         elif isinstance(rt_doc, dict):
@@ -321,6 +359,15 @@ def validate(pkg: Path) -> list:
 # the user then reads a string of small losses as "the strategy is broken". `max_loss_pct` is ROE %,
 # so the price distance is max_loss_pct ÷ leverage — more leverage is a TIGHTER stop.
 WARN_STOP_PRICE_PCT = 1.0
+# [fees] — fee spend as % of the budget per DAY above which we warn. An ESTIMATE from the recipe's own
+# cadence / cap / slots / margin / leverage at an ASSUMED 0.05% per side (taker + builder, stated in the
+# message, never a quote): 1,314 fills on a $200 book paid $59 in fees against −$46 of PnL — fees, not
+# direction, took the money, and nothing said so before the user funded it.
+WARN_FEE_PCT_PER_DAY = 0.5
+# The order types the runtime's open path accepts (its constants/order-types.ts VALID_OPEN_ORDER_TYPES).
+# Anything else is not refused by the runtime: it logs a warning and falls back to MARKET.
+OPEN_ORDER_TYPES = ("MARKET", "LIMIT", "FEE_OPTIMIZED_LIMIT")
+FEE_RATE_PER_SIDE = 0.0005
 
 _PRESETS_FILE = Path(__file__).resolve().parent.parent / "references" / "dsl-presets.yaml"
 # The free-margin reads a multi-slot scanner makes before it emits (the camel `_get_positions` gate):
@@ -388,10 +435,43 @@ def max_leverage(rt_doc):
     for sc in (rt_doc.get("scanners") or []) if isinstance(rt_doc, dict) else []:
         inp = sc.get("inputs") if isinstance(sc, dict) else None
         if isinstance(inp, dict):
-            for k in ("leverage", "maxLeverage", "max_leverage", "leverageCap", "leverageTiers"):
+            for k in ("leverage", "maxLeverage", "max_leverage", "leverageCap"):
                 found += _nums(inp.get(k))
+            found += tier_leverages(inp.get("leverageTiers"))
     found = [v for v in found if v > 0]
     return max(found) if found else None
+
+
+def tier_leverages(tiers):
+    """The LEVERAGE column of `leverageTiers`, in the two shapes the catalog uses. A list of rows is
+    documented as `[[min_score, lev, margin_pct], ...]` (condor: `[[15, 10, 80], ...]`) — flattening it
+    reads a score threshold or a margin percentage as leverage (condor came out as 80x). A map is
+    `{apex: 5, good: 4, base: 3}` — every value is a leverage."""
+    if isinstance(tiers, dict):
+        return _nums(tiers)
+    if isinstance(tiers, list):
+        out = []
+        for row in tiers:
+            if isinstance(row, (list, tuple)) and len(row) >= 2:
+                v = _num(row[1])
+                if v is not None:
+                    out.append(v)
+            else:
+                out += _nums(row)
+        return out
+    return []
+
+
+def tier_margins(tiers):
+    """The MARGIN column (index 2) of row-shaped `leverageTiers`; a map carries no margin."""
+    out = []
+    if isinstance(tiers, list):
+        for row in tiers:
+            if isinstance(row, (list, tuple)) and len(row) >= 3:
+                v = _num(row[2])
+                if v is not None:
+                    out.append(v)
+    return out
 
 
 def slot_plan(rt_doc):
@@ -409,7 +489,7 @@ def slot_plan(rt_doc):
         if slots is None:
             slots = _num(inp.get("maxSlots"))
         if margin is None:
-            ms = _nums(inp.get("marginPct")) + _nums(inp.get("marginPctBase"))
+            ms = _nums(inp.get("marginPct")) + _nums(inp.get("marginPctBase")) + tier_margins(inp.get("leverageTiers"))
             margin = max(ms) if ms else None
     return (int(slots) if slots and slots >= 1 else 1), margin
 
@@ -418,6 +498,43 @@ def _daily_cap(rt_doc):
     risk = rt_doc.get("risk") if isinstance(rt_doc, dict) else None
     rails = risk.get("guard_rails") if isinstance(risk, dict) else None
     return _num(rails.get("max_entries_per_day")) if isinstance(rails, dict) else None
+
+
+def _interval_seconds(rt_doc):
+    """The fastest external scanner cadence in the recipe, or None."""
+    best = None
+    for sc in (rt_doc.get("scanners") or []) if isinstance(rt_doc, dict) else []:
+        if isinstance(sc, dict) and sc.get("type") == "external_scanner":
+            v = _num(sc.get("interval_seconds"))
+            if v and v > 0 and (best is None or v < best):
+                best = v
+    return best
+
+
+def fee_drag_pct_per_day(rt_doc):
+    """(pct_of_budget_per_day, entries_per_day, basis) or None — an ESTIMATE of fee spend:
+    entries/day × margin × leverage × 2 sides × FEE_RATE_PER_SIDE. Entries/day is the daily cap when
+    the recipe has one; else the slots turning 3×/day at a cadence ≤ 15 min, 1×/day up to 4 h, ½×/day
+    beyond. No margin or no leverage in the recipe → None (nothing to size)."""
+    slots, margin = slot_plan(rt_doc)
+    lev = max_leverage(rt_doc)
+    if not margin or not lev:
+        return None
+    cap, interval = _daily_cap(rt_doc), _interval_seconds(rt_doc)
+    if cap:
+        entries, basis = float(cap), "the daily cap"
+    elif interval:
+        turns = 3.0 if interval <= 900 else (1.0 if interval <= 4 * 3600 else 0.5)
+        entries = slots * turns
+        basis = "%d slot(s) turning %g×/day at a %s cadence" % (slots, turns, _cadence(interval))
+    else:
+        return None
+    pct = entries * (margin / 100.0) * lev * 2 * FEE_RATE_PER_SIDE * 100.0
+    return pct, entries, basis
+
+
+def _cadence(seconds):
+    return "%gm" % (seconds / 60) if seconds < 3600 else "%gh" % (seconds / 3600)
 
 
 def _instances(pkg: Path):
@@ -446,6 +563,22 @@ def warnings(pkg: Path) -> list:
         if not isinstance(rt_doc, dict):
             continue
         tag = f"instance {name}"
+
+        # [exec] fee options under an order type that never reads them: the runtime forwards
+        # `fee_optimized_limit_options` only for FEE_OPTIMIZED_LIMIT, so under MARKET (the default when
+        # order_type is absent) or LIMIT the maker window is configured and never used — every entry is
+        # a taker order while the recipe reads as maker-first.
+        for act in rt_doc.get("actions") or []:
+            if not isinstance(act, dict) or act.get("action_type") != "OPEN_POSITION":
+                continue
+            params = act.get("params") if isinstance(act.get("params"), dict) else {}
+            ot = params.get("order_type")
+            if isinstance(params.get("fee_optimized_limit_options"), dict) and ot != "FEE_OPTIMIZED_LIMIT":
+                out.append(
+                    f"{tag}: [exec] action {act.get('name', '?')!r} sets `fee_optimized_limit_options` under "
+                    f"`order_type: {ot if ot is not None else 'MARKET (the default)'}` — the runtime reads those "
+                    f"options only for FEE_OPTIMIZED_LIMIT, so the maker window is never used and every entry "
+                    f"is a taker order. Set `order_type: FEE_OPTIMIZED_LIMIT`, or drop the options")
 
         # [stop] the hard stop's distance in PRICE, at the leverage the recipe can reach
         ml, lev = resolved_max_loss_pct(rt_doc), max_leverage(rt_doc)
@@ -483,6 +616,17 @@ def warnings(pkg: Path) -> list:
         # [cap] a daily entry cap is normal practice (most catalog packages set one) and the How-it-runs
         # summary already says it; only a cap AT OR BELOW the slot count is worth a warning — the book
         # fills once, and every re-entry after a stop-out waits for UTC midnight.
+        # [fees] the recipe's own turnover, priced: what the book pays before direction earns anything
+        fd = fee_drag_pct_per_day(rt_doc)
+        if fd and fd[0] >= WARN_FEE_PCT_PER_DAY:
+            pct, entries, basis = fd
+            out.append(
+                f"{tag}: [fees] at {entries:g} entries/day ({basis}), {margin:g}% margin at {lev:g}x, fees "
+                f"run ≈{pct:.2f}% of the budget per day (≈{pct * 30:.0f}%/month) at an assumed 0.05% per "
+                f"side — direction has to beat that before the book makes anything, and on a small budget "
+                f"that is the whole edge. Lengthen the cadence, cut slots or leverage, or say the number to "
+                f"the user before they fund it")
+
         cap = _daily_cap(rt_doc)
         if cap and cap <= slots:
             out.append(
