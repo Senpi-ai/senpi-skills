@@ -8,7 +8,8 @@ Three findings a green package does not surface and a user learns from their fil
 * multi-slot sizing the runtime cannot fund: slots × margin over 100%, or a scanner that emits
   several signals per tick with no free-margin gate (every open after the first lands
   `position_open_failed`);
-* a daily entry cap, which pauses the runtime by design — unsaid, the quiet reads as a dead strategy.
+* a daily entry cap at or below the slot count — the book fills once, then every re-entry waits for
+  UTC midnight; a cap with room to spare is normal practice and stays silent.
 
 None of them may ever fail validation: the exit code belongs to `validate()` alone.
 
@@ -125,19 +126,27 @@ def test_single_slot_never_raises_sizing_warnings(tmp_path):
 
 # ---- [cap] ----
 
-def test_daily_cap_is_surfaced_and_a_cap_at_or_below_slots_says_so(tmp_path):
+def test_daily_cap_at_or_below_slots_warns(tmp_path):
     risk = "risk:\n  guard_rails:\n    max_entries_per_day: 4\n"
     w = vs.warnings(_package(tmp_path, slots=4, margin=20, scan=_GATED_SCAN, risk=risk))
     cap = [x for x in w if "[cap]" in x]
     assert len(cap) == 1
-    assert "Runtime paused: Max Entries/Day" in cap[0] and "fills the book once" in cap[0]
+    assert "Runtime paused: Max Entries/Day" in cap[0] and "book fills once" in cap[0]
 
 
-def test_daily_cap_above_slots_is_a_plain_note(tmp_path):
+def test_daily_cap_with_room_to_spare_is_silent(tmp_path):
+    # Setting a cap is normal practice (most catalog packages do); the How-it-runs summary names it.
+    # A channel that fires on every package stops being read, so only cap <= slots is a warning.
     risk = "risk:\n  guard_rails:\n    max_entries_per_day: 12\n"
     w = vs.warnings(_package(tmp_path, slots=2, margin=20, scan=_GATED_SCAN, risk=risk))
-    cap = [x for x in w if "[cap]" in x]
-    assert len(cap) == 1 and "fills the book once" not in cap[0]
+    assert not [x for x in w if "[cap]" in x]
+
+
+def test_free_margin_idiom_in_a_sibling_module_counts(tmp_path):
+    # Authored packages split the balance read into scoring.py or a helper; the gate is still there.
+    d = _package(tmp_path, slots=3, margin=20, scan=_BLIND_SCAN)
+    (d / "scanners" / "sizing.py").write_text("def free(ctx):\n    return float(ctx.clearinghouse()['withdrawable'])\n")
+    assert not any("no free-margin gate" in x for x in vs.warnings(d))
 
 
 def test_no_cap_no_note(tmp_path):
