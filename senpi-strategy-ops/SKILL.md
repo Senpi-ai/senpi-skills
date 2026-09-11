@@ -19,12 +19,15 @@ description: >-
   create <id> --budget <usd>` takes a package live end to end (it gates the package,
   then runs the runtime's detached deploy job; watch with `senpi deploy status`);
   close.py tears down (stop runtime + strategy_close → flattens positions,
-  returns funds). The id (spider, polar, kodiak) is the package folder. NOT for choosing WHICH strategy
+  returns funds). Before the budget question ops runs THE WALKTHROUGH (Step 0.75):
+  what the template does, how it is set, the two levers worth shifting, and its
+  name — every template deploys as the user's own version
+  (`PurpleFrog's Starling`, or a name of their own), as-is or with levers moved. The id (spider, polar, kodiak) is the package folder. NOT for choosing WHICH strategy
   (senpi-strategy-discover) or authoring / editing the strategy files themselves (senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.11.0"
+  version: "3.12.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -92,8 +95,24 @@ fresh `openclaw senpi validate` before the next `create`. **`UNPROVEN` (exit 2) 
 `deploy.py validate <id>` answers the other question, **is the package well formed**. Do not deploy a
 package that has not returned `PASS`. The proof: [`references/lifecycle.md`](references/lifecycle.md).
 
+**Step 0.75 — the walkthrough (REQUIRED before the budget question).** The package is on disk (Step 0.5).
+Before you ask for a dollar, read `strategy.yaml` (`catalog:`) and each instance's `runtime.yaml` and say —
+plain language, no YAML — **what it does and how it is set** (the post-live block's four lines, before the
+money moves), **two levers** worth a look (one for `tier: starter`; each with default, range and effect),
+the **fee load and the design budget**, and **the name**: every template deploys under the user's name,
+levers moved or not — propose **`<User>'s <Template>`** (`PurpleFrog's Starling`); their own word wins.
+Then one question: *"Run it as-is, or shift one of these and make it yours?"* One word skips it; never a
+gate, never re-asked; the budget question comes after the answer. Cost class is a fact beside the choice,
+never a discouragement; named installs get the walkthrough too. Below the design budget, a guardrail
+removed or a threshold lowered: the consequence in one line and an explicit yes — never "done". Which
+levers, the name rules, and **making the fork on disk** — a copy at `<strategies root>/<template>-<user-slug>/`
+(`deploy.py where` prints the root, never a CWD-relative `strategies/`; `.deploy-state.json` left out;
+`id`, `catalog.name`, `forked_from`, linkage, the mandate prefix; then the unchanged gate on the
+**directory**): [`references/walkthrough.md`](references/walkthrough.md).
+
 **Step 1 — start the deploy.** Budget splits across instances by `funding_share`, **min $10 each** (the
-platform wallet floor) — **confirm the amount with the user first**. Two tiers, and only the first
+platform wallet floor) — **ask for the amount now — after the walkthrough, never before it — and confirm
+it**. Two tiers, and only the first
 stops anything: below the $10/wallet floor the deploy **refuses**; a wallet left with less than **its
 own** sizing needs still **deploys**, with a `[W_BUDGET_BELOW_STRATEGY_MIN]` warn to relay.
 ```
@@ -250,8 +269,10 @@ The user just funded a strategy; the last thing they see must explain **how the 
 - **Protection — the DSL exit ladder.** From `exit.dsl_preset`: the hard stop (`phase1.max_loss_pct`), the profit-lock ladder (`phase2.tiers`: first `trigger_pct` → top `lock_hw_pct`), and any time cut (`weak_peak_cut`/`hard_timeout`). State whether it has a manual close action or is **DSL-only** (no `CLOSE_POSITION` action → "no manual exits — the stop does all the selling"). e.g. "hard stop at −18% from entry; as a winner runs, a trailing floor ratchets up, locking profit from +8% to +80%; a stalled position is cut at 48h."
 
 - **Cap — how many entries a day.** From `risk.guard_rails.max_entries_per_day`: say the number, and that once it is hit the runtime logs `Runtime paused: Max Entries/Day` and opens nothing until 00:00 UTC — its own rule, not a fault. While it holds, `status.py` shows the row as **⏸ paused** (health stays ✅).
+- **Ownership — one line.** *"This is your strategy — `PurpleFrog's Starling`, saved at `/data/workspace/strategies/starling-purplefrog/`.
+  Say 'widen the stop' any time; it applies in place — no close, no new wallet."* (the update path below).
 
-Keep it to ~4 short lines per strategy. Multi-instance packages whose legs differ (e.g. a long book vs a short book, core vs ballast) get one block each **or** a shared block that names the per-side difference. This is what turns "it's live" into "here's exactly how it trades" — required even when the user didn't ask.
+Keep it to ~5 short lines per strategy. Multi-instance packages whose legs differ (e.g. a long book vs a short book, core vs ballast) get one block each **or** a shared block that names the per-side difference. This is what turns "it's live" into "here's exactly how it trades" — required even when the user didn't ask.
 
 ## Monitor — what am I running? / is it actually live?
 
@@ -313,7 +334,8 @@ the deployed scanner as it is.
 scanner stores and action history survive. `senpi validate <instance-dir>` writes the proof `--apply`
 needs; `python3 senpi-strategy-ops/scripts/deploy.py update <pkg> --id <runtime_id>` PLANS (the structural preflight, then the verb; add `--apply` to commit — it stops if the box has no `update` verb yet: then STOP too, never close-and-redeploy). **Read the
 plan out first**: `dsl_preset` is **forward-only** — new entries only, never one already open (other `exit:`
-fields, e.g. `order_type`, DO reach open positions) — never let "tighter" be heard as "my open trades are tighter".
+fields, e.g. `order_type`, DO reach open positions) — never let "tighter" be heard as "my open trades are tighter". Call it an **update** to the user, never a
+"redeploy" — that word is the market-exit path below; an edit that closes nothing must never sound like one.
 
 **Only a changed `strategy.wallet`, a renamed or moved external scanner, or a changed `action_type` still need
 close-and-redeploy**, which market-exits every open position and drops any custom ratchet ladder — take
