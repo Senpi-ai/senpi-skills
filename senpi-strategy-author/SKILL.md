@@ -245,7 +245,7 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
 8. **Lint — advisory, instant, no credentials** (pass the package's absolute path,
    `/data/workspace/strategies/<id>`, so they hit the authored copy from any CWD):
    (a) **authoring lint** → `python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>`
-   (candle keys, null-in-schema, mandate description, retention/cooldown bounds) **+ advisory warns you relay to the user**: the stop's distance in price at the recipe's leverage, multi-slot sizing with no free-margin gate, the daily entry cap and what it does;
+   (candle keys, null-in-schema, mandate description, retention/cooldown bounds) **+ advisory warns you relay to the user**: the stop's distance in price at the recipe's leverage, multi-slot sizing with no free-margin gate, a daily entry cap at or below the slot count;
    (b) **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>`
    — every hardcoded ticker you TRADE must be a live HL instrument (derived universes, and names under an exclusion key, pass trivially);
    (c) **deploy contract** → `python3 senpi-strategy-ops/scripts/deploy.py validate /data/workspace/strategies/<id>`

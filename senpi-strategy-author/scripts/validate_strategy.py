@@ -8,8 +8,7 @@ relies on. Exit 0 = all packages valid; exit 1 = at least one error.
 
 Two channels. `validate()` returns ERRORS (the exit code); `warnings()` returns ADVISORY findings —
 things a green package will still make the user feel in their first week (a stop inside intraday
-noise, multi-slot sizing that the second open cannot fund, a daily entry cap that reads like a dead
-strategy). Warnings never change the exit code; the author relays them.
+noise, multi-slot sizing that the second open cannot fund, a daily entry cap at or below the slot count, a daily entry cap at or below the slot count). Warnings never change the exit code; the author relays them.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import ast
@@ -326,6 +325,7 @@ WARN_STOP_PRICE_PCT = 1.0
 _PRESETS_FILE = Path(__file__).resolve().parent.parent / "references" / "dsl-presets.yaml"
 # The free-margin reads a multi-slot scanner makes before it emits (the camel `_get_positions` gate):
 # without one, every signal in a tick is sized off the same balance and only the first can fund.
+# Searched across every module in `scanners/` — authored packages split the read into a sibling file.
 _FREE_MARGIN_RE = re.compile(
     r"withdrawable|free_margin|freeMargin|available_margin|availableMargin|marginSummary|totalMarginUsed")
 
@@ -454,10 +454,11 @@ def warnings(pkg: Path) -> list:
             if price <= WARN_STOP_PRICE_PCT:
                 out.append(
                     f"{tag}: [stop] the hard stop is {price:.2f}% of price from entry (`max_loss_pct` "
-                    f"{ml:g}% ROE at {lev:g}x) — inside ordinary intraday movement, so expect stop-outs "
-                    f"on wicks rather than on the thesis failing, each paying a round trip of fees. "
-                    f"Widen `max_loss_pct`, lower the leverage, or tell the user this is a known cost "
-                    f"before they fund it (a run of small losses will otherwise read as 'broken')")
+                    f"{ml:g}% ROE at {lev:g}x). For a crypto perp that is inside ordinary intraday "
+                    f"movement, so expect stop-outs on wicks rather than on the thesis failing, each paying "
+                    f"a round trip of fees; for an `xyz:` equity, index or commodity, judge it against that "
+                    f"market's own daily range. Widen `max_loss_pct`, lower the leverage, or tell the user "
+                    f"this is a known cost before they fund it (a run of small losses otherwise reads as 'broken')")
 
         # [sizing] multi-slot: every slot must be fundable, and emits must be gated on free margin
         slots, margin = slot_plan(rt_doc)
@@ -469,8 +470,8 @@ def warnings(pkg: Path) -> list:
                     f"account — the last {short} slot(s) can never fund, and every tick the scanner "
                     f"emits for them the runtime logs a failed open (`position_open_failed`). Size so "
                     f"slots × margin ≤ 100, or run fewer slots")
-            scan = rt.parent / "scanners" / "scan.py"
-            src = scan.read_text() if scan.is_file() else ""
+            scn = rt.parent / "scanners"
+            src = "\n".join(f.read_text() for f in sorted(scn.glob("*.py"))) if scn.is_dir() else ""
             if src and not _FREE_MARGIN_RE.search(src):
                 out.append(
                     f"{tag}: [sizing] a {slots}-slot scanner with no free-margin gate — every signal "
@@ -479,17 +480,17 @@ def warnings(pkg: Path) -> list:
                     f"`withdrawable` (free margin) in scan.py and emit only what it funds — the camel "
                     f"`_get_positions` gate")
 
-        # [cap] the daily entry cap is the strategy's own rule; unsaid, it reads as a dead strategy
+        # [cap] a daily entry cap is normal practice (most catalog packages set one) and the How-it-runs
+        # summary already says it; only a cap AT OR BELOW the slot count is worth a warning — the book
+        # fills once, and every re-entry after a stop-out waits for UTC midnight.
         cap = _daily_cap(rt_doc)
-        if cap:
-            msg = (f"{tag}: [cap] `max_entries_per_day: {cap:g}` — after {cap:g} opens in a UTC day "
-                   f"the runtime logs `Runtime paused: Max Entries/Day` and opens nothing until 00:00 "
-                   f"UTC. That is the strategy's own rule, not a fault: say it in the How-it-runs "
-                   f"summary, or the quiet reads as a dead strategy")
-            if cap <= slots:
-                msg += (f". At {slots} slots the cap fills the book once — every re-entry after a "
-                        f"stop-out waits for UTC midnight")
-            out.append(msg)
+        if cap and cap <= slots:
+            out.append(
+                f"{tag}: [cap] `max_entries_per_day: {cap:g}` is at or below the {slots} slot(s): the "
+                f"book fills once, then every re-entry after a stop-out waits for 00:00 UTC — the runtime "
+                f"logs `Runtime paused: Max Entries/Day` until then. That is the strategy's own rule, not "
+                f"a fault: say it in the How-it-runs summary, or the quiet reads as a dead strategy; raise "
+                f"the cap or lower the slots if re-entries are meant to happen")
     return out
 
 
