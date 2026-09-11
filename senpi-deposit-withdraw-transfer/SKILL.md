@@ -14,7 +14,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.2.0"
+  version: "1.3.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -77,6 +77,9 @@ with no crypto at all is not stuck — never tell them they need an exchange acc
   list there is identity data, not a deposit target.
 - **Where deposits land:** as USDC on Hyperliquid in the user's own funding (embedded) wallet, ready to
   trade — no separate transfer step afterwards.
+- **Two different minimums — don't merge them.** The **deposit** floor is **$8** (the card's own `MIN $8`);
+  a **strategy** still needs **$10** to open. So "what's the minimum deposit?" is $8, but "what do I need
+  to start trading?" is $10 — quote the $10 whenever the goal is running something.
 - **NEVER present a strategy wallet address as a deposit target — on any chain, for any reason.** A
   direct send to a `strategyWalletAddress` bypasses accounting, corrupts PnL, and may be unrecoverable.
   `strategy_top_up` is the **only** way to add funds to a strategy — and the funding card is **only**
