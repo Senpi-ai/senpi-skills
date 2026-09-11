@@ -160,7 +160,7 @@
       "emoji": "🦅",
       "tagline": "A contrarian fader on the 6 deepest XYZ macro markets (oil, brent, gold, silver, SP500, XYZ100): when smart money is piled into one side AND the 4h move is exhausting, it takes the OPPOSITE side and lets a wide DSL ride the mean-reversion for hours.",
       "belief_plain": "Trades only macro markets — oil, gold, silver, and the big stock indices — that run around the clock. When the best traders have all crowded into one direction and the move over the last few hours is already stretched, it bets on the snap-back the other way, sizes up when more signals agree, and trails a wide stop so a slow reversal has hours to play out.",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "thesis": "Macro assets on Hyperliquid attract directional momentum traders who load up after a clean 1-3% intraday move. By the time smart-money concentration crosses 10-20% on a 4h-extended move, the trade is usually exhausted — mean reversion is the positive-edge play. Bald Eagle scores SM crowding + contribution velocity + move exhaustion, hard-gates on tight book spread, fades the crowd, and gives commodities the wide exit they need to revert.",
       "tags": [
         "xyz",
@@ -283,7 +283,7 @@
       "emoji": "🦉",
       "tagline": "Scans every liquid Hyperliquid crypto perp (OI > $3M) for one-sided crowding — extreme funding + lopsided smart money + concentrated OI — then waits for that crowding to persist 1h+ AND for exhaustion to fire (volume fading, price stalling, RSI divergence) before fading the crowd. Conviction-scaled leverage (7/8/10) at 25% margin, with a macro gate that stands down when BTC's 4h move is extreme.",
       "belief_plain": "The crowd is wrong at the extremes. When everyone piles onto one side of a coin — paying punishing funding, the best traders all leaning the same way, open interest stacking up — and the price then stops following through, the unwind is violent and predictable. Owl waits for both the crowded state AND the exhaustion trigger, then takes the other side. Most days it does nothing, because most days one or both is missing.",
-      "version": "1.2.1",
+      "version": "1.3.0",
       "thesis": "Crowded trades unwind violently. Owl's edge is timing the unwind: it never fades on crowding alone (which can persist and grind), it waits for crowding to PERSIST 1h+ and for distinct exhaustion signals (declining volume under extreme funding, price stalling against the crowd, capitulation wicks, 4h RSI divergence) to confirm the move is dying. Mean reversion fails in trending macro, so a hard gate blocks all fades when |BTC 4h| > 3%. XYZ banned — the funding/smart-money scoring is calibrated on crypto data shape.",
       "tags": [
         "contrarian",
@@ -329,7 +329,7 @@
       "emoji": "🦔",
       "tagline": "Scans every liquid perp for funding that has stayed extreme for hours — the crowd piled onto one side and is paying to hold it — then fades that crowd at exhaustion, collecting funding while the over-stretched position mean-reverts.",
       "belief_plain": "When everyone crowds the same side of a trade and keeps paying a steep funding fee to stay there for hours, that crowd usually unwinds. Pangolin waits for the crowding to actually persist, checks the smartest traders aren't on the crowd's side, then takes the OTHER side and gets paid funding while it waits for the snap-back.",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "thesis": "Persistent extreme funding is a crowding signal, not noise. A fresh funding spike means nothing — but funding that stays extreme for 3+ hours means real positioning that has to unwind. Fade the crowd only once the regime confirms (or is at least neutral), size conservatively because crowded unwinds are violent, and let the funding you collect pay you to be patient through a 24-48h mean reversion.",
       "tags": [
         "funding-fade",
@@ -418,7 +418,7 @@
       "emoji": "🐢",
       "tagline": "A time-triggered dollar-cost-averaging scheduler on a small basket (BTC/ETH/SOL): no price prediction, no scoring, no timing — each tick it buys a fixed % of budget on whichever asset is most overdue past its DCA interval, always LONG, and lets a wide DSL ratchet ride the accumulation for days.",
       "belief_plain": "Buys a fixed slice of your budget on a strict schedule — by default every 24 hours, one of BTC, ETH or SOL at a time. It predicts nothing; it just keeps accumulating on cadence and trails a wide stop so the position can run instead of getting churned. The most-overdue coin goes first.",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "thesis": "Dollar-cost averaging is the single most accessible trade in crypto and needs zero prediction skill. Every other agent makes a directional call; Tortoise makes none — it buys on a clock. Cadence IS the signal: when an asset has gone longer than the interval since its last buy it is due, never-bought assets are always due, and the most-overdue wins. A very wide let-winners-run DSL (30d hard_timeout) lets the accumulated longs compound while Phase-2 locks bank gains gradually.",
       "tags": [
         "btc",
@@ -940,7 +940,7 @@
       "emoji": "🐇",
       "tagline": "A fast BTC/ETH scalper that only trades inside the Asia, London, and US high-volume windows — scoring a 30-minute momentum burst backed by real volume, targeting roughly 1:3 risk-reward at 5-10x. Maker-only entries and a hard per-name cooldown keep it from churning into fees.",
       "belief_plain": "This trades only the two most liquid coins, Bitcoin and Ethereum, and only during the hours when the market is actually busy — the Asia, London, and US sessions. It waits for a quick burst of momentum backed by a real jump in volume, takes a leveraged position aiming to make about three times what it risks, and gets out fast if it's wrong. Crucially, it posts its orders to earn the maker rebate instead of paying to chase, and it refuses to re-enter the same coin for 45 minutes — because at this speed, fees are what kill a scalper.",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "thesis": "A sub-hourly scalper lives or dies on cost. The edge — a volume-backed momentum burst at a session open — is real but small, so the whole design is built to protect it: session gating means it only trades when moves are large enough to matter, a volume floor rejects fee-bait bursts on thin tape, maker-only entries turn the fee from a cost into a rebate, and a hard per-name cooldown plus a daily entry cap make churning structurally impossible. The DSL is tuned for asymmetry — a tight stop, a profit-lock that arms at ~3x the risk — so the winners pay for the losers.",
       "tags": [
         "scalp",
@@ -1480,7 +1480,7 @@
       "emoji": "🦦",
       "tagline": "Watches the rate of change of open interest across every liquid Hyperliquid crypto perp and fires at most a couple of positions — only when 1h OI jumps >=5% while price moves >=0.5% the same way (fresh leveraged money entering with conviction), 4h isn't unwinding, and the spread is tight. Sizes margin to conviction at 5/7/10x, then rides the flow 1-3h on a tight DSL.",
       "belief_plain": "Open interest only grows when new leveraged money enters a perp. When that money piles in fast (OI up 5%+ in an hour) AND price moves the same direction, that's real conviction — not just a wick. Otter rides that fresh flow for an hour or three, then trails a tight stop. It does nothing on the much more common days when no coin shows that burst, and it never trades unwinds.",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "thesis": "OI velocity — the delta of open interest over time — is a perp-native conviction signal nobody else in the fleet trades (others read OI only as a static size filter). Fresh OI growth aligned with price (the top two quadrants of the OI/price matrix) is new leveraged positioning with direction; unwinds (the bottom two) are exhaustion and get skipped. Confluence scoring (OI tier, 4h confirmation, price magnitude, smart-money lean, spread, time-of-day) at a high floor keeps it a sniper, and a tight DSL locks profit early because the flow edge is in the first 1-3 hours.",
       "tags": [
         "open-interest",
@@ -3250,7 +3250,7 @@
       "emoji": "🪁",
       "tagline": "Trades the ICT/SMC playbook on BTC, ETH, SOL and FARTCOIN: it maps 3-bar fractal swings, waits for a break of structure, then enters on the 0.618 fibonacci retracement of that move with invalidation behind 0.786 — only when an RSI divergence confirms. Every entry carries its stop and 1R/2R/3R targets.",
       "belief_plain": "This speaks the language of smart-money-concept traders. It watches for the market to break its own structure — taking out a prior swing high or low — which signals a real shift. Then, instead of chasing, it waits for price to pull back to the 0.618 fibonacci level of that move, checks that momentum (RSI) is diverging in its favour, and enters there with a clear invalidation just beyond the 0.786 level. It works out its 1x, 2x and 3x reward targets up front and manages the trade with a ladder that locks in gains in thirds as each target is reached.",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "thesis": "A break of structure marks where order flow shifted; the 0.618 retracement is where that move offers the best risk-reward to rejoin, and the 0.786 is where the idea is simply wrong. Requiring an RSI divergence at the retracement filters the continuations that have already exhausted. The result is a defined-risk, defined-target structure trade — the exact methodology a whole trader subculture uses by hand — automated across a few liquid names. The step-up profit ladder approximates a 33/33/33 scale-out; true partial take-profit lands with the native DSL scale-out capability.",
       "tags": [
         "smc",
@@ -3395,7 +3395,7 @@
       "emoji": "🏛️",
       "tagline": "A diversified, long-only, NO-LEVERAGE basket across crypto blue chips, equity indices and blue-chip names, metals, and energy — sized to a hard per-position cap, gated by a fee hurdle so it only trades when the expected move beats the cost, and diversified with a per-class limit. Capital preservation first.",
       "belief_plain": "This is a conservative, institution-style portfolio, not a punt. It holds a diversified spread of blue-chip crypto and real-world assets (stock indices, big-cap names, gold, silver, oil), never uses leverage, and never puts more than a small capped slice into any one position. It only opens a position when the trend is genuinely there on both the 4-hour and daily view AND the expected move is large enough to be worth the trading cost — otherwise it does nothing. Doing nothing is a valid decision.",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "thesis": "For capital preservation, what you DON'T do matters more than what you do. No leverage means a bad position can't wipe the book; hard per-position and per-class caps mean no single name or theme can sink it; a fee hurdle means small, cost-eroding edges are declined rather than churned. The result is a low-volatility diversified compounder across crypto and RWA that trades rarely and holds patiently, cutting a real breakdown early and locking gains before giving them back.",
       "tags": [
         "capital-preservation",
@@ -4458,7 +4458,7 @@
       "emoji": "🐨",
       "tagline": "The simplest agent in the catalog: pick one asset (default BTC), fire LONG once on deploy, then hold with an ultra-wide DSL trail (max_loss 30%, retrace, 90-day timeout). No scoring, no scheduling — the choice to deploy Koala IS the bet.",
       "belief_plain": "Trades only the one coin you pick (BTC by default). It buys once when you turn it on, then just holds — never adding, never trading around it — with a very wide safety stop that only releases on a catastrophic reversal or after three months. The whole idea is to own the coin and have a net under it.",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "thesis": "Some users do not want a market-reading agent at all — they just want to own one asset and have a safety net. Koala is that answer in code: one asset, one entry, one stop. Fire-once by default (a true buy-and-forget), with an optional re-entry cycle for operators who want 'buy / DSL-exits / buy again' on a long cooldown.",
       "tags": [
         "btc",
@@ -5049,7 +5049,7 @@
       "emoji": "🐦",
       "tagline": "Fades an exhausted crowd: when 70%+ of top traders are piled onto one side of BTC/ETH/SOL/HYPE but price refuses to follow (it stalls or rolls over against the crowd), the crowded side is out of fuel — Egret takes the other side, sized flat at 15% / <=5x, and banks the bounded snapback with a tight ratchet.",
       "belief_plain": "When almost everyone good is leaning the same way on a coin but the price won't move with them, the trade is crowded and out of buyers (or sellers). Egret bets on the snap-back the other way, and because that bounce is small and quick, it locks in profit fast instead of holding for a big trend.",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "thesis": "Smart-money concentration is usually a confirmation signal — but at an extreme, with price refusing to confirm, it flips contrarian: a maximally-crowded side with no one left to push has only one way to resolve, the unwind. The edge is the bounded snapback, so the right design is the inverse of a momentum holder: maker-only non-urgent entry, a tight ratchet that banks the bounce, and time-cuts that exit a fade that didn't resolve quickly.",
       "tags": [
         "btc",
@@ -5640,7 +5640,7 @@
       "emoji": "🦝",
       "tagline": "Trades only the weekend, only on tokenized stocks & commodities (XYZ): while the underlying markets are closed and XYZ runs on an internal oracle, Raccoon positions in the direction sentiment has been pushing the price — and captures the snap-back when real external pricing resumes Monday open. Sizes 15% / 3x and rides a tight DSL with a 48h Monday-exit cap.",
       "belief_plain": "From Friday evening to Sunday evening the real stock and commodity markets are closed, so tokenized versions on XYZ drift on an internal estimate instead of a live price. When trading resumes Monday, that estimate snaps to the true market price. Raccoon bets in the direction the weekend drift (plus the best traders) is leaning, and exits into that Monday snap — and only ever runs on the weekend.",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "thesis": "Fri 17:00 ET -> Sun 18:00 ET, trade.xyz has no external price feed for equities/commodities and runs a 30-min EWMA internal oracle that drifts on impact-price activity. Accumulated weekend sentiment (>= 2% move + volume + smart-money agreement) shows up as directional oracle drift; when external pricing resumes Sunday evening the implied price reconciles to the real value. Positioning into that gap and exiting at the Monday-open snap is the edge — and confining all activity to the weekend window avoids weekday false signals and Lemur's 24/7 IPOP territory.",
       "tags": [
         "xyz",

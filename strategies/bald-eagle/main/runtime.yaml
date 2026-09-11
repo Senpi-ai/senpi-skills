@@ -74,7 +74,7 @@ actions:
     params:
       order_type: FEE_OPTIMIZED_LIMIT      # v2: contrarian fades can wait — MAKER entry
       fee_optimized_limit_options:
-        ensure_execution_as_taker: false   # v2 entry: maker-only (contrarian fades wait)
+        ensure_execution_as_taker: true    # maker window first, then taker fallback — a maker-only entry (fallback off) passes validation and fails or phantom-fills at the executor
         execution_timeout_seconds: 60      # v2 entry execution_timeout_seconds
     context:
       - type: signal
