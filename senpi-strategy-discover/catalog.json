@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-09-08",
+  "_updated": "2026-09-11",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -5263,6 +5263,56 @@
       "sort_order": 7
     },
     {
+      "id": "phalanx",
+      "name": "Phalanx — Proven-Cohort Rotation",
+      "emoji": "🛡️",
+      "tagline": "Follows the proven cohort's headcount flow — not the 4h leaderboard's state — with delta-gated entries, divergence boosting, and wide stops that let winners run.",
+      "belief_plain": "The 4h gain leaderboard is a consequence of price moves, not a predictor — by the time 58% of the board is long ETH, ETH already moved. Phalanx instead tracks the proven cohort (traders with >=$1M lifetime realized PnL) and follows where their headcount is shifting: long the assets they're crowding into, short the ones they're fleeing — but only when conviction is growing (delta gate), and with a divergence booster when the cohort disagrees with the 4h crowd. Wide stops and reachable profit locks on 3x leverage let winners run through noise to pay back losers.",
+      "version": "1.0.0",
+      "thesis": "Smart money doesn't just pick coins, it rotates capital across the whole board. But the 4h gain leaderboard — which state-based followers read — is mechanically biased toward whatever side of the trade is currently winning, making it a lagging indicator. Phalanx reads the proven cohort's actual positioning (headcount, not notional) and requires conviction to be growing (delta >= +2 since last tick), not just already high. A divergence booster multiplies conviction when the cohort disagrees with the 4h crowd (the proven cohort has historically been right when they disagree), and an overcrowding gate requires a 12h price breakout before entering trades that are >85% one-sided. Per-class hit-rate tracking auto-tunes the tilt threshold so the strategy learns which crowd to trust. The exit philosophy: on 3x leverage, a 15% margin stop (3.75% price) is wide enough to survive normal noise, and a first profit lock at +20% ROE (6.67% price) only engages on real moves — letting winners run far enough to pay for multiple losers.",
+      "tags": [
+        "smart-money",
+        "rotation",
+        "proven-cohort",
+        "headcount",
+        "delta-gated",
+        "divergence",
+        "cross-asset",
+        "long-short",
+        "let-winners-run",
+        "wide-stops"
+      ],
+      "group": "smart-money",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "sm_rotation",
+      "sub_style_label": "Follows where smart money is rotating across asset classes — long the crowded-into, short the fled.",
+      "asset_classes": [
+        "universe_crypto",
+        "xyz_equities",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "follows_traders",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 4,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 30,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "branch": "main",
+      "sort_order": 8
+    },
+    {
       "id": "raptor",
       "name": "Raptor — Hot-Streak Follower",
       "emoji": "🦅",
@@ -5303,7 +5353,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 9
     },
     {
       "id": "remora",
@@ -5349,7 +5399,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 10
     },
     {
       "id": "roach",
@@ -5395,7 +5445,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 11
     },
     {
       "id": "shadow",
@@ -5439,7 +5489,7 @@
       ],
       "max_slots": 5,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "stingray",
@@ -5488,7 +5538,7 @@
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "whalehunter",
@@ -5533,7 +5583,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 14
     },
     {
       "id": "osprey",

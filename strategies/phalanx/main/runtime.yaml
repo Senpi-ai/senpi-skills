@@ -1,0 +1,143 @@
+# ── PHALANX · single instance — proven-cohort rotation ───────────────────────
+# Follows the PROVEN COHORT (>=$1M lifetime realized PnL) — not the 4h gain
+# leaderboard (which is a consequence of price, not a predictor). Reads the
+# cohort's headcount positioning per asset, requires conviction to be GROWING
+# (delta gate), boosts conviction when the cohort diverges from the 4h crowd,
+# and gates overcrowded trades on a 12h breakout. Wide stops + reachable locks
+# on 3x leverage so winners can run through noise to pay back losers.
+name: phalanx-main
+group: phalanx
+version: 3.0.0
+description: >
+  PHALANX — proven-cohort rotation. Reads the proven cohort (>=$1M lifetime
+  realized PnL via discovery_get_top_traders ALL_TIME) and tracks where their
+  headcount is shifting each tick. Goes LONG the assets the cohort is crowding
+  into (one_sidedness >= 65%, delta >= +2) and SHORT the ones they're fleeing,
+  with a divergence booster when the cohort disagrees with the 4h leaderboard
+  and an overcrowding breakout gate at 85%. 3x leverage with wide stops (15%
+  margin) and reachable profit locks (first at +20% ROE) so winners run through
+  noise to pay back losers. Per-class hit-rate tracking auto-tunes the tilt
+  threshold so the strategy learns which crowd to trust.
+
+strategy:
+  wallet: "${PHALANX_WALLET}"
+  slots: 3
+  margin_pct: 15
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: phalanx_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300
+    timeout_seconds: 180
+    default_signal_validity_seconds: 600
+    state_history_max_count: 200
+    inputs:
+      tiltThreshold: 65
+      deltaMin: 2
+      overcrowdThreshold: 85
+      marginPctBase: 15
+      marginPctMax: 0
+      leverageDefault: 3
+      maxLong: 2
+      maxShort: 2
+      recentSignalTtlSeconds: 240
+      leaderboardLimit: 100
+      smartMinRealizedUsd: 1000000
+      cohortCap: 100
+      stateBatch: 50
+      pageSize: 1000
+      maxPages: 6
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      longRatio: { type: number, required: false }
+      netTilt: { type: number, required: false }
+      conviction: { type: number, required: false }
+      delta: { type: number, required: false }
+      divergence: { type: boolean, required: false }
+      oneSidedness: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: phalanx_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [phalanx_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      # Maker-first with taker fallback after 30s: gives a window for maker
+      # fills (lower fees) but guarantees execution so signals don't miss.
+      # (A pure maker-only entry — taker fallback off — passes validation and
+      # then fails every order at the executor; keep the fallback on.)
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: phalanx_main_signals
+
+# ── EXIT (DSL — wide stops, reachable locks, 48h outer bound) ─────────────────
+# Hard stop at 15% margin loss (3.75% price on 3x) — wide enough that normal
+# noise doesn't trigger it. First profit lock at +20% ROE (6.67% price on 3x),
+# floor at 25% of high-water (~+5% ROE). Escalating ladder with wide gaps so
+# a position at +25% that pulls back to +18% hits no floor and keeps running.
+# Weak-peak cut at 12h: only fires if peak ROE never cleared +5% AND price is
+# fading — a dead-position detector, not a "didn't move fast enough" cutter.
+# 48h hard timeout: outer bound, closes at market.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 2880       # 48h — outer bound for a swing rotation
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 720        # 12h — only cuts positions that never reached +5% ROE and are fading
+      min_value: 5.0
+    phase1:
+      enabled: false                  # trailing OFF — a floor below entry can ratchet a winner into a loss
+      max_loss_pct: 15.0              # 15% margin loss cap (3.75% price on 3x) — wide for noise
+      retrace_threshold: 15           # INERT while phase1.enabled is false
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                          # trend-following ladder; first lock at +20% ROE (reachable)
+        - { trigger_pct: 20, lock_hw_pct: 25 }
+        - { trigger_pct: 35, lock_hw_pct: 45 }
+        - { trigger_pct: 60, lock_hw_pct: 65 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+# ── RISK guard rails ──────────────────────────────────────────────────────────
+risk:
+  data_retention_seconds: 259200      # 72h
+  guard_rails:
+    daily_loss_limit_pct: 5            # tight — a bad regime day stops the book early
+    max_entries_per_day: 12
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 43200            # 12h regime pause after 3 consecutive losses
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400  # 4h per-asset re-entry cooldown
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
