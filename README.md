@@ -65,7 +65,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-smart-money`](senpi-smart-money/) | 1.3.0 | Where the most-profitable wallets are positioned vs. the crowd |
 | [`senpi-trader-research`](senpi-trader-research/) | 1.4.0 | Rank + vet Hyperliquid traders before copying them (mirror-aware: copyability, min-budget, live book) |
 | [`senpi-improve-trades`](senpi-improve-trades/) | 1.9.0 | Retrospective review + health checks off the **telemetry event log**: exit quality, missed signals, leaks, crashes, "if I'd held" counterfactual |
-| [`senpi-quant`](senpi-quant/) | 1.0.0 | Hire your AI quant: paste **any** Hyperliquid address → the desk — 90 days of fills, fees, funding; six 0–100 dimensions, a quant score, leaks priced as counterfactuals, protection audit, you vs the whale cohort, market fit, where your edge is. Public data, read-only; Senpi discovery when a token is present |
+| [`quant-desk`](quant-desk/) | 1.0.0 | Hire your AI quant: paste **any** Hyperliquid address → the desk — 90 days of fills, fees, funding; six 0–100 dimensions, a quant score, leaks priced as counterfactuals, protection audit, you vs the whale cohort, market fit, where your edge is. Public data, read-only; Senpi discovery when a token is present |
 | [`senpi-account-status`](senpi-account-status/) | 1.2.0 | Points, loyalty tier, fees, referrals |
 | **Run a strategy** | | |
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.23.0 | Conversational picker — rank the catalog against your worldview |

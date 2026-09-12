@@ -2,7 +2,7 @@
 """Hyperliquid public Info API — every read the desk needs for ANY address, no auth.
 
 `POST https://api.hyperliquid.xyz/info` with `{"type": ..., "user": "0x..."}`. Stdlib only. Every call
-is cached on disk (default: <tempdir>/senpi-quant/cache) so a re-run inside the TTL costs nothing, and
+is cached on disk (default: <tempdir>/quant-desk/cache) so a re-run inside the TTL costs nothing, and
 a `HLFixture` serves recorded responses for tests and `--fixture` runs. Paging: `userFillsByTime`
 returns at most 2000 fills and `userFunding` at most 500 rows per call — both are paged by
 `startTime = last.time + 1` until a short page.
@@ -27,7 +27,7 @@ MAX_TWAP_PAGES = 25           # TWAP slices are tiny and numerous; 50k of them i
 MAX_FUNDING_PAGES = 40
 RETRIES = 4                   # on HTTP 429 only
 BACKOFF_S = 1.5
-DEFAULT_CACHE = os.path.join(tempfile.gettempdir(), "senpi-quant", "cache")
+DEFAULT_CACHE = os.path.join(tempfile.gettempdir(), "quant-desk", "cache")
 TTL = {"metaAndAssetCtxs::xyz": 120, "clearinghouseState": 120, "frontendOpenOrders": 120, "metaAndAssetCtxs": 120, "candleSnapshot": 900,
        "userFees": 3600, "portfolio": 600, "userNonFundingLedgerUpdates": 600, "userFillsByTime": 600,
        "userFunding": 600, "leaderboard": 6 * 3600}

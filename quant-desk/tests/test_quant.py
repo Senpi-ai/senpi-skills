@@ -1,4 +1,4 @@
-"""senpi-quant — offline tests: synthetic fills for the engine's rules, the recorded public fixture for the
+"""quant-desk — offline tests: synthetic fills for the engine's rules, the recorded public fixture for the
 whole pipeline. No network."""
 import json
 import os

@@ -1,4 +1,4 @@
-# senpi-quant — methodology
+# quant-desk — methodology
 
 Every number on the desk is a function of public on-chain data (or Senpi discovery when a token is
 present). This file is the formula sheet. Nothing here is a prediction; every dollar figure on a leak is a

@@ -1,5 +1,5 @@
 ---
-name: senpi-quant
+name: quant-desk
 description: >-
   Hire your AI quant: paste ANY Hyperliquid address (0x…) and get the desk — what the trader has actually
   been doing (a strategy read with a critique), a quant score with six explained dimensions, the market
@@ -24,11 +24,11 @@ metadata:
   exchange: hyperliquid
 ---
 
-# senpi-quant — the desk for any Hyperliquid address
+# quant-desk — the desk for any Hyperliquid address
 
 **HARD RULES — obey these even if you skim the rest.**
 
-1. **One command, then relay.** `python3 senpi-quant/scripts/desk.py <0xaddress>` prints the desk as
+1. **One command, then relay.** `python3 quant-desk/scripts/desk.py <0xaddress>` prints the desk as
    Markdown. Relay it; do not recompute, reorder or "improve" its numbers. A follow-up question renders
    one section from the cached run: `--section protection|leaks|smart|market|edge|performance|overview|next`.
 2. **Never invent a number.** Every figure on the desk is computed from public on-chain data (or Senpi

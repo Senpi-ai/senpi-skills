@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""senpi-quant — paste any Hyperliquid address, get the desk.
+"""quant-desk — paste any Hyperliquid address, get the desk.
 
   python3 desk.py 0x<address>                      # the full desk as Markdown
   python3 desk.py 0x<address> --section protection # one section, from the cached run if fresh
@@ -40,7 +40,7 @@ from roundtrips import episodes_from_fills  # noqa: E402
 
 ADDR_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
-DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "senpi-quant")
+DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
 PUBLIC_COHORT_N = 80          # live books read for the public smart-money cohort (parallel, cached 2 min)
 
@@ -246,7 +246,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="senpi-quant: the desk for any Hyperliquid address")
+    ap = argparse.ArgumentParser(description="quant-desk: the desk for any Hyperliquid address")
     ap.add_argument("address")
     ap.add_argument("--days", type=int, default=90)
     ap.add_argument("--json", action="store_true", help="print the analysis document instead of Markdown")
@@ -283,14 +283,14 @@ def main(argv=None):
             if a.dry:
                 print(json.dumps({"error": "--dry needs --fixture"})); return 2
             hl = hl_api.HL(cache_dir=a.cache or None); mcp = _mcp_client(meta)
-        log(f"[senpi-quant] reading {addr[:6]}…{addr[-4:]}: fills, funding, fees, book, orders, equity …")
+        log(f"[quant-desk] reading {addr[:6]}…{addr[-4:]}: fills, funding, fees, book, orders, equity …")
         try:
             r = analyze(addr, hl, days=a.days, mcp=mcp, want_rank=not a.no_rank, want_cohort=not a.no_cohort, bench=bench, meta=meta)
         except hl_api.HLError as e:
             print(json.dumps({"error": f"Hyperliquid read failed: {e}", "address": addr})); return 1
         if not r["activity"]["fills"] and not r["book"]["positions"]:
             print(json.dumps({"error": "no perp activity in the window and no open positions — nothing to read", "address": addr, "days": a.days})); return 3
-        log(f"[senpi-quant] done in {meta['timings']['total']}s ({meta.get('hl_calls')} public reads)")
+        log(f"[quant-desk] done in {meta['timings']['total']}s ({meta.get('hl_calls')} public reads)")
         with open(state_path, "w") as fh:
             json.dump(r, fh, default=float)
     if a.deep:
@@ -305,7 +305,7 @@ def main(argv=None):
             try:
                 candles = timing_mod.load_candles(hl.candles(coins, days=a.days + 1))
             except Exception as e:  # noqa: BLE001
-                log(f"[senpi-quant] candles unavailable for the deep dive: {e}")
+                log(f"[quant-desk] candles unavailable for the deep dive: {e}")
         data = {"protect": lambda: deep_mod.protect(r, candles), "replay": lambda: deep_mod.replay(r, candles), "funding": lambda: deep_mod.funding_forecast(r),
                 "compare": lambda: deep_mod.compare_windows(r), "rules": lambda: deep_mod.rules(r), "regime": lambda: deep_mod.regime(r), "watch": lambda: deep_mod.watch(r),
                 "smart": lambda: dict(cohorts=r.get("cohorts") or []), "scout": lambda: dict(opportunities=r.get("opportunities") or [], setups=r.get("setups")),

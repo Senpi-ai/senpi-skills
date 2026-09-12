@@ -80,7 +80,7 @@ def main(argv=None):
         return statistics.median(xs) if xs else None
     bench = {k: med(k) for k in KEYS}
     bench.update(n=len(valid), cohort=("Senpi discovery — wallets with ≥ $1M realized" if mcp is not None else f"top-{a.n} profitable accounts ≥ $1M on Hyperliquid's public leaderboard"),
-                 computed_at=time.strftime("%Y-%m-%d"), window_days=a.days, engine="senpi-quant roundtrips/metrics", seconds=round(time.time() - t0))
+                 computed_at=time.strftime("%Y-%m-%d"), window_days=a.days, engine="quant-desk roundtrips/metrics", seconds=round(time.time() - t0))
     with open(a.out, "w") as fh:
         json.dump({"benchmark": bench, "members": members}, fh, indent=1)
     print(json.dumps(bench, indent=1))
