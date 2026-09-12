@@ -133,7 +133,8 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         fb = metrics.track_record(fb_closed, fb_open, tr_raw["userFunding"], tr_raw["userFees"], win_start)
         track["taker_share"], track["fee_recoverable"], track["volume"] = fb["taker_share"], fb["fee_recoverable"], fb["volume"]
     book = metrics.open_book(cs, oo, ctxs, ages, tr_raw.get("clearinghouseState_xyz"), tr_raw.get("frontendOpenOrders_xyz"), ctx_xyz,
-                             metrics.whole_account_value(tr_raw.get("portfolio"), tr_raw.get("spotClearinghouseState")))
+                             metrics.whole_account_value(tr_raw.get("portfolio"), tr_raw.get("spotClearinghouseState")),
+                             metrics.spot_free_usdc(tr_raw.get("spotClearinghouseState")))
     pnl_curve = metrics.pnl_series(tr_raw["portfolio"], win_start)
     fl = metrics.flows(tr_raw["ledger"], addr)
     eq = metrics.equity_curve(tr_raw["portfolio"], [], win_start)          # raw account value over the window

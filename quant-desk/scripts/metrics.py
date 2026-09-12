@@ -103,7 +103,15 @@ def _size_buckets(complete):
 DUST_USD = 10.0
 
 
-def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=None, ctxs_xyz=None, total_account_value=None):
+def spot_free_usdc(spot):
+    """USDC in spot not on hold as perps margin — withdrawable on a unified account."""
+    for b in (spot or {}).get("balances") or []:
+        if b.get("coin") == "USDC":
+            return max(0.0, _f(b.get("total")) - _f(b.get("hold")))
+    return 0.0
+
+
+def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=None, ctxs_xyz=None, total_account_value=None, spot_free=0.0):
     """Every open position with liquidation distance, funding per day at the current rate, and its stop
     coverage from resting trigger orders: a stop for a long is a sell trigger below the mark, for a short
     a buy trigger above it. Coverage is the stop-covered fraction of the size. The xyz dex is its own
@@ -147,7 +155,8 @@ def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=Non
     av = total_account_value if (total_account_value and total_account_value > 0) else perps_av
     gross_exp = sum(p["notional"] for p in out)
     net_exp = sum(p["notional"] * (1 if p["side"] == "LONG" else -1) for p in out)
-    return dict(positions=out, account_value=av, margin_used=mu, margin_utilization=(mu / av) if av else None, withdrawable=_f(cs.get("withdrawable")) + _f((cs_xyz or {}).get("withdrawable")),
+    return dict(positions=out, account_value=av, margin_used=mu, margin_utilization=(mu / av) if av else None,
+                withdrawable=_f(cs.get("withdrawable")) + _f((cs_xyz or {}).get("withdrawable")) + (spot_free or 0.0),
                 account_value_main=_f(ms.get("accountValue")), account_value_xyz=_f(mx.get("accountValue")), account_value_perps=perps_av,
                 unrealized=sum(p["unrealized"] for p in out), naked=[p["coin"] for p in out if p["stop_covered_share"] == 0],
                 partial=[p["coin"] for p in out if 0 < p["stop_covered_share"] < 0.9], gross_exposure=gross_exp, net_exposure=net_exp,

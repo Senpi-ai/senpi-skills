@@ -498,3 +498,4 @@ def test_account_value_is_the_whole_account_not_the_perps_view():
     b = metrics.open_book(cs, oo, ctxs, total_account_value=total)
     assert abs(b["account_value"] - 2221.31) < 1e-9 and b["account_value_perps"] == 1000 and abs(b["margin_utilization"] - 700 / 2221.31) < 1e-9
     assert metrics.whole_account_value(None, spot) == 2221.31 and metrics.whole_account_value(None, None) is None
+    assert abs(metrics.spot_free_usdc(spot) - 1521.31) < 1e-9 and metrics.open_book(cs, oo, ctxs, spot_free=1521.31)["withdrawable"] == 300 + 1521.31
