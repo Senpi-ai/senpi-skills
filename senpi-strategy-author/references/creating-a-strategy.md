@@ -162,6 +162,7 @@ def scan(inputs, ctx):
         data = ctx.senpi_mcp.call_tool("market_get_asset_data",   # (2) DATA — READ-ONLY
             {"asset": asset, "candle_intervals": ["4h", "1d"],
              "dex": "xyz" if asset.lower().startswith("xyz:") else ""})
+        if not isinstance(data, dict): continue                   # raw-text payload — see scan-contract
         th = scoring.score(asset, data, None, inputs)             # (3) EDGE
         if th and th["score"] >= inputs.get("minScore", 5):
             picks.append({**th, "asset": asset})
@@ -186,6 +187,7 @@ def scan(inputs, ctx):
 - **`ctx` is frozen:** `ctx.senpi_mcp.call_tool(name, args)` (read-only), `ctx.state` (`.last()/.recent(n)/.append()/len()`), `ctx.wallet`, `ctx.scanner_name`, `ctx.interval_seconds`. No logging handle — `print(..., file=sys.stderr)`.
 - **Signal dict keys:** `asset`✅, `direction`✅ (LONG/SHORT), `marginPct` (intent), `leverage` (optional), `data{}` (validated against `signal_data_schema`), optional `valid_for_seconds` / `signal_id`. The scaffold owns `produced_at`/`valid_until`/dedup — don't set them.
 - **Anchor every `call_tool` on the published MCP I/O reference** (`read_senpi_guide`). A guessed tool name, interval string, or output field = a silent dead scanner.
+- **A response is not guaranteed to be a dict.** When a tool's text payload is not JSON, `call_tool` returns it as a **raw string** (by design — it mirrors `producer.mjs`). `if not resp:` does NOT catch that, because a non-empty string is truthy. Guard with `isinstance(resp, dict)` before any `.get()`, or the tick dies on `AttributeError: 'str' object has no attribute 'get'`. It is intermittent, so it passes `validate` and surfaces hours later.
 
 ### `runtime.yaml` — the deterministic spec
 At the package root (§2). Multi-instance: one per `<instance>/` dir, with `<instance>` in place of `main`.
@@ -459,7 +461,8 @@ def scan(inputs, ctx):
         md = ctx.senpi_mcp.call_tool("market_get_asset_data",
             {"asset": asset, "candle_intervals": ["4h", "1d"],
              "dex": "xyz" if asset.lower().startswith("xyz:") else ""})
-        if not md: continue
+        if not isinstance(md, dict): continue   # non-JSON payload comes back as RAW TEXT, and a
+                                               # non-empty str passes `if not md` then dies on .get()
         c = (md.get("data", md) or {}).get("candles", {})
         th = scoring.confirm_rebound(c.get("4h", []), c.get("1d", []), inputs)
         if th and th["score"] >= min_score:
