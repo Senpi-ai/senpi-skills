@@ -450,3 +450,40 @@ def test_cli_compare_offline(tmp_path):
     out = subprocess.run([sys.executable, d, "--compare", addr, addr, "--fixture", FIXTURE, "--dry", "--state-dir", str(tmp_path)], capture_output=True, text=True, env=env, timeout=180)
     assert out.returncode == 0, out.stderr
     assert "Side by side" in out.stdout and out.stdout.count("Quant score") == 1
+
+
+# ---------------------------------------------------------------- a fresh senpi sub-wallet: direction from P&L, two collateral pools, a tiny sample
+def test_closed_row_direction_comes_from_pnl_vs_price_not_the_sign_of_szi():
+    short_won = {"coin": "ETH", "entryPx": "2545.6", "exitPx": "2500", "szi": "0.8", "realizedPnl": "36.5", "totalFees": "1.2", "openTime": 1, "closeTime": 3_600_001, "leverage": {"value": 3}}
+    assert senpi_history.episode(short_won)["direction"] == "SHORT"                     # price fell, P&L positive → a short, whatever szi says
+    long_lost = dict(short_won, realizedPnl="-36.5")
+    assert senpi_history.episode(long_lost)["direction"] == "LONG"
+    flat = dict(short_won, exitPx="2545.6", realizedPnl="0", side="short")
+    assert senpi_history.episode(flat)["direction"] == "SHORT"                          # no move: the explicit side decides
+
+
+def test_book_adds_the_xyz_collateral_pool():
+    cs, oo, ctxs = _book_inputs()
+    cs_xyz = {"marginSummary": {"accountValue": "1180", "totalMarginUsed": "0"}, "withdrawable": "1180", "assetPositions": []}
+    b = metrics.open_book(cs, oo, ctxs, None, cs_xyz, [], None)
+    assert b["account_value"] == 2180 and b["account_value_xyz"] == 1180 and abs(b["margin_utilization"] - 700 / 2180) < 1e-9 and b["withdrawable"] == 1480
+    b0 = metrics.open_book(cs, oo, ctxs)
+    assert b0["account_value"] == 1000 and abs(b0["margin_utilization"] - 0.7) < 1e-9
+
+
+def test_cohort_read_against_a_long_held_position_is_with_not_late():
+    per = {"NEAR": {"net": -3000.0, "gross": 3000.0, "n_long": 0, "n_short": 3, "bias": -1.0, "members": 3,
+                    "entries_long": [], "entries_short": [1_700_000_000_000] * 3}}
+    book = {"positions": [{"coin": "NEAR", "side": "SHORT", "leverage": 3}]}
+    now = 1_700_000_000_000 + 70 * 24 * H
+    late = smart_money.compare(per, book, [], {"NEAR": now - 24 * H}, now)
+    assert late["rows"][0]["read"].startswith("WITH — they've held it 70d") and late["entry_lag_h"] is None
+    recent = smart_money.compare(per, book, [], {"NEAR": 1_700_000_000_000 + 10 * H}, 1_700_000_000_000 + 12 * H)
+    assert recent["rows"][0]["read"] == "WITH — BUT LATE (+10h)"
+
+
+def test_tiny_sample_reads_as_early_days():
+    cs, oo, ctxs = _book_inputs()
+    book = metrics.open_book(cs, oo, ctxs)
+    tr = dict(trades=1, complete_trades=1, long_share=0.0, hold_winners_h=None, hold_losers_h=None, adds_per_trade=0)
+    assert "early days (1 closed trade)" in score.archetype(tr, book, {"chased_share": 1.0}, {"active_days": 2})

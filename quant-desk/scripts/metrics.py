@@ -103,14 +103,19 @@ def _size_buckets(complete):
 DUST_USD = 10.0
 
 
-def open_book(cs, open_orders, ctxs, ages=None):
+def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=None, ctxs_xyz=None):
     """Every open position with liquidation distance, funding per day at the current rate, and its stop
     coverage from resting trigger orders: a stop for a long is a sell trigger below the mark, for a short
-    a buy trigger above it. Coverage is the stop-covered fraction of the size."""
+    a buy trigger above it. Coverage is the stop-covered fraction of the size. The xyz dex is its own
+    collateral pool on the public API: its positions, orders, margin and account value are added in."""
     marks = {u["name"]: _f(c["markPx"]) for u, c in zip(ctxs[0]["universe"], ctxs[1])}
     rates = {u["name"]: _f(c["funding"]) for u, c in zip(ctxs[0]["universe"], ctxs[1])}
+    if ctxs_xyz:
+        marks.update({u["name"]: _f(c["markPx"]) for u, c in zip(ctxs_xyz[0]["universe"], ctxs_xyz[1])})
+        rates.update({u["name"]: _f(c["funding"]) for u, c in zip(ctxs_xyz[0]["universe"], ctxs_xyz[1])})
     out = []
-    for ap in cs.get("assetPositions") or []:
+    open_orders = list(open_orders or []) + list(open_orders_xyz or [])
+    for ap in (cs.get("assetPositions") or []) + ((cs_xyz or {}).get("assetPositions") or []):
         p = ap["position"]; szi = _f(p["szi"]); coin = p["coin"]; side = "LONG" if szi > 0 else "SHORT"
         size = abs(szi); mark = marks.get(coin) or _f(p["entryPx"])
         if size * mark < DUST_USD:
@@ -137,11 +142,12 @@ def open_book(cs, open_orders, ctxs, ages=None):
                         funding_rate_hourly=rate, funding_per_day=-(rate * notional * 24) * (1 if side == "LONG" else -1),
                         funding_since_open=_f((p.get("cumFunding") or {}).get("sinceOpen")),
                         opened_ms=(ages or {}).get(coin)))
-    ms = cs.get("marginSummary") or {}
-    av = _f(ms.get("accountValue")); mu = _f(ms.get("totalMarginUsed"))
+    ms = cs.get("marginSummary") or {}; mx = (cs_xyz or {}).get("marginSummary") or {}
+    av = _f(ms.get("accountValue")) + _f(mx.get("accountValue")); mu = _f(ms.get("totalMarginUsed")) + _f(mx.get("totalMarginUsed"))
     gross_exp = sum(p["notional"] for p in out)
     net_exp = sum(p["notional"] * (1 if p["side"] == "LONG" else -1) for p in out)
-    return dict(positions=out, account_value=av, margin_used=mu, margin_utilization=(mu / av) if av else None, withdrawable=_f(cs.get("withdrawable")),
+    return dict(positions=out, account_value=av, margin_used=mu, margin_utilization=(mu / av) if av else None, withdrawable=_f(cs.get("withdrawable")) + _f((cs_xyz or {}).get("withdrawable")),
+                account_value_main=_f(ms.get("accountValue")), account_value_xyz=_f(mx.get("accountValue")),
                 unrealized=sum(p["unrealized"] for p in out), naked=[p["coin"] for p in out if p["stop_covered_share"] == 0],
                 partial=[p["coin"] for p in out if 0 < p["stop_covered_share"] < 0.9], gross_exposure=gross_exp, net_exposure=net_exp,
                 exposure_over_equity=(gross_exp / av) if av else None, funding_per_day=sum(p["funding_per_day"] for p in out),

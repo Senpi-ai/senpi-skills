@@ -61,6 +61,21 @@ def fetch(client, addr, window_start_ms, meta):
     return sorted(out, key=lambda e: e["close_time"])
 
 
+def _direction(r, szi, ent, ext, realized):
+    """The sign of `szi` on a closed row is not a reliable side (a closed short has come back positive), so:
+    the price move against the P&L decides when both are non-zero, then an explicit side field, then szi."""
+    if ent and ext and ext != ent and realized:
+        return "LONG" if ((ext > ent) == (realized > 0)) else "SHORT"
+    side = str(r.get("direction") or r.get("side") or r.get("positionSide") or "").upper()
+    if side in ("LONG", "SHORT"):
+        return side
+    if side in ("BUY", "B"):
+        return "LONG"
+    if side in ("SELL", "A", "S"):
+        return "SHORT"
+    return "LONG" if szi > 0 else "SHORT"
+
+
 def episode(r):
     coin = r.get("coin") or r.get("coinDisplayName")
     szi = _num(r.get("szi"))
@@ -73,7 +88,9 @@ def episode(r):
         return None
     size = abs(szi); notional = size * ent
     realized = _num(r.get("realizedPnl")); fees = _num(r.get("totalFees"))
-    return dict(coin=coin, signed=szi, direction="LONG" if szi > 0 else "SHORT", open_time=open_t, close_time=close_t, last_time=close_t,
+    direction = _direction(r, szi, ent, ext, realized)
+    signed = size if direction == "LONG" else -size
+    return dict(coin=coin, signed=signed, direction=direction, open_time=open_t, close_time=close_t, last_time=close_t,
                 realized=realized, fees=fees, net=realized - fees, volume=size * (ent + ext), taker_volume=0.0, twap_volume=0.0,
                 adds=None, partial_closes=0, entry_qty=size, entry_val=notional, exit_qty=size,
                 exit_val=size * ext, peak_size=size, peak_notional=notional, liquidated=False, truncated=False, n_fills=int(_num(r.get("totalFills"), 0)),

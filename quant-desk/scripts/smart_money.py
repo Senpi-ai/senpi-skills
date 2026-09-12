@@ -20,6 +20,7 @@ STATE_BATCH = 50
 MIN_MEMBERS = 3
 LEAN = 0.2            # |bias| below this = the cohort is split
 LATE_H = 4.0          # entering this much after the cohort's median entry = "late"
+RECENT_H = 14 * 24.0  # a cohort entry older than this is a hold, not a move: no lag is read against it
 
 
 def _ok(resp):
@@ -161,7 +162,7 @@ def public_positions(states):
 
 
 # ---------------------------------------------------------------- the reads
-def compare(per, book, opened_episodes, ages=None):
+def compare(per, book, opened_episodes, ages=None, now_ms=None):
     """One row per open position: your side vs the cohort's bias on that coin, and the read. Your entry
     time comes from Senpi's position age when present; from fills only when the open was actually observed."""
     opens = {e["coin"]: e["open_time"] for e in opened_episodes or [] if not e.get("truncated") and not e.get("unobserved_qty")}
@@ -180,9 +181,13 @@ def compare(per, book, opened_episodes, ages=None):
             read = "WITH"
             ent = d["entries_long" if p["side"] == "LONG" else "entries_short"]
             if ent and p["coin"] in opens:
-                lag = (opens[p["coin"]] - statistics.median(ent)) / 3.6e6
-                lags.append(lag)
-                read = f"WITH — BUT LATE (+{lag:.0f}h)" if lag > LATE_H else ("WITH — AHEAD" if lag < -LATE_H else "WITH")
+                med_entry = statistics.median(ent); age_h = (now_ms - med_entry) / 3.6e6 if now_ms else None
+                if age_h is not None and age_h > RECENT_H:
+                    read = f"WITH — they've held it {age_h / 24:.0f}d"
+                else:
+                    lag = (opens[p["coin"]] - med_entry) / 3.6e6
+                    lags.append(lag)
+                    read = f"WITH — BUT LATE (+{lag:.0f}h)" if lag > LATE_H else ("WITH — AHEAD" if lag < -LATE_H else "WITH")
         else:
             read = "AGAINST SMART MONEY"
         if not d:
@@ -314,11 +319,11 @@ def user_tilt(book, majors, large):
     return {cls: dict(label=taxonomy.label(cls), bias=(net[cls] / gross[cls]) if gross[cls] else 0.0, weight=gross[cls] / tot) for cls in gross}
 
 
-def cohort_view(name, bks, book, opened, majors, large, ages=None):
+def cohort_view(name, bks, book, opened, majors, large, ages=None, now_ms=None):
     """Everything the desk says about one cohort: per-position reads (with ages), class tilt vs yours,
     coins they hold that you don't (by headcount), coins you hold that none of them touch."""
     per = per_from_books(bks)
-    cmp_ = compare(per, book, opened, ages)
+    cmp_ = compare(per, book, opened, ages, now_ms)
     tilt = class_tilt(bks, majors, large); yours = user_tilt(book, majors, large)
     mine = {p["coin"] for p in book["positions"]}
     theirs = sorted(((d["members"], coin, d) for coin, d in per.items() if coin not in mine and d["members"] >= MIN_MEMBERS and abs(d["bias"]) >= LEAN), reverse=True)

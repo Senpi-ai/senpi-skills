@@ -221,7 +221,7 @@ def critique(fp, tr, book, mf, sm, cohorts=None):
         out.append("A directional book lives or dies with the tape, and most of it is against the trend right now. Directional needs a regime filter; you are running it without one.")
     if fp["pnl_beta"] and fp["pnl_beta"]["corr"] >= 0.6:
         out.append("If the P&L is mostly BTC, the leverage and the fees are the only things you are adding. Either the picks need to diverge from BTC, or the same exposure is cheaper with one position and a stop.")
-    if fp["outcome_concentration"] is not None and fp["outcome_concentration"] >= 0.6:
+    if fp["outcome_concentration"] is not None and fp["outcome_concentration"] >= 0.6 and (tr.get("trades") or 0) >= 10:
         out.append("An edge that lives in three trades is a story, not a system. The question your record asks is whether the process that found those three is repeatable — the size-vs-outcome and hold-time tables say where.")
     for d in fp["dead_sides"][:1]:
         out.append(f"Stop trading {d['label']} {d['side'].lower()}s until you can say what would make one work; the sample says nothing has.")

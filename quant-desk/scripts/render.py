@@ -137,12 +137,14 @@ def performance(r):
 def leaks(r):
     out = ["## Leaks — ranked by $ impact · counterfactual, not history", ""]
     if not r["leaks"]:
-        out.append("No leak clears the bar on this window: every counterfactual the desk tests came out flat or negative, which means the process is not where the money is going.")
+        out.append("Not enough closed trades to price a leak yet — the desk needs a handful of round trips before a counterfactual means anything." if (r["track"].get("trades") or 0) < 5
+                   else "No leak clears the bar on this window: every counterfactual the desk tests came out flat or negative, which means the process is not where the money is going.")
     for i, l in enumerate(r["leaks"], 1):
         out += [f"**{i:02d} · {l['title']}** — _{l['agent']}_ · **~{usd(l['usd'])} / {l['window']}**", f"{l['evidence']} {l['counterfactual']}", f"→ {l['cta']}", ""]
     tm = r.get("timing") or {}
     if tm.get("n"):
-        neg = [k for k, g in (("time-cut on losers", tm.get("cut")), ("trailing lock on winners", tm.get("lock"))) if g and g.get("settings") and all(s["total"] <= 0 for s in g["settings"].values() if s["n"])]
+        neg = [k for k, g in (("time-cut on losers", tm.get("cut")), ("trailing lock on winners", tm.get("lock")))
+               if g and g.get("settings") and any(s["n"] for s in g["settings"].values()) and all(s["total"] <= 0 for s in g["settings"].values() if s["n"])]
         if neg:
             out.append(f"Tested and **rejected** for this book: a {' and a '.join(neg)} — each would have cost money on your biggest runs. Your edge is letting those run; don't fix what isn't leaking.")
     return "\n".join(out)

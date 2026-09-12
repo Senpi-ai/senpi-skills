@@ -198,6 +198,8 @@ def archetype(tr, book, tm, act, opened=None):
         noun = "trend rider"
     else:
         noun = "opportunist"
+    if (tr.get("trades") or 0) < 5:
+        noun = f"early days ({tr.get('trades') or 0} closed trade{'s' if (tr.get('trades') or 0) != 1 else ''})"
     bias = ""
     n_closed = tr.get("trades") or 0; n_open = len(book["positions"])
     longs = (tr.get("long_share") or 0) * n_closed + sum(1 for p in book["positions"] if p["side"] == "LONG")

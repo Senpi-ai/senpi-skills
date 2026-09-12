@@ -140,12 +140,20 @@ class HL:
             "address": addr, "now_ms": self.now_ms, "window_start_ms": win_start, "fetch_start_ms": start, "days": days,
             "clearinghouseState": self.info({"type": "clearinghouseState", "user": addr}),
             "frontendOpenOrders": self.info({"type": "frontendOpenOrders", "user": addr}),
+            "clearinghouseState_xyz": self._optional({"type": "clearinghouseState", "user": addr, "dex": "xyz"}),
+            "frontendOpenOrders_xyz": self._optional({"type": "frontendOpenOrders", "user": addr, "dex": "xyz"}) or [],
             "fills": merge_fills(self.fills(addr, start), self.twap_slices(addr, start)),
             "userFunding": self.funding(addr, win_start),
             "userFees": self.info({"type": "userFees", "user": addr}),
             "portfolio": self.info({"type": "portfolio", "user": addr}),
             "ledger": self.info({"type": "userNonFundingLedgerUpdates", "user": addr, "startTime": win_start}),
         }
+
+    def _optional(self, body):
+        try:
+            return self.info(body)
+        except HLError:
+            return None
 
     # ---- market-level reads ----
     def meta(self, dex=""):
@@ -201,8 +209,13 @@ class HLFixture(HL):
     def info(self, body):
         t = body.get("type")
         req = body.get("req") or {}
-        for key in (f"hl::{t}::{str(body.get('user', '')).lower()}", f"hl::{t}::{req.get('coin', '')}::{req.get('interval', '')}", f"hl::{t}::{req.get('coin', '')}",
-                    f"hl::{t}::{body.get('dex', '')}", f"hl::{t}"):
+        user = str(body.get("user", "")).lower(); dex = body.get("dex", "")
+        if user and dex and f"hl::{t}::{user}::{dex}" not in self._r and t in ("clearinghouseState", "frontendOpenOrders"):
+            raise HLError(f"fixture has no {t} for dex {dex}")          # a fixture without an xyz view = an account with no xyz collateral
+        for key in (f"hl::{t}::{user}::{dex}" if dex else "", f"hl::{t}::{user}", f"hl::{t}::{req.get('coin', '')}::{req.get('interval', '')}", f"hl::{t}::{req.get('coin', '')}",
+                    f"hl::{t}::{dex}", f"hl::{t}"):
+            if not key:
+                continue
             if key in self._r:
                 data = self._r[key]
                 if t in ("userFillsByTime", "userTwapSliceFillsByTime", "userFunding") and isinstance(data, list):

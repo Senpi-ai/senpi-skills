@@ -93,6 +93,11 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     fills, cs, oo = tr_raw["fills"], tr_raw["clearinghouseState"], tr_raw["frontendOpenOrders"]
     win_start, now = tr_raw["window_start_ms"], tr_raw["now_ms"]
     ctxs = hl.meta()
+    ctx_xyz = None
+    try:
+        ctx_xyz = hl.meta("xyz")
+    except Exception as e:  # noqa: BLE001
+        meta["warnings"].append(f"xyz contexts unavailable: {e}")
     closed, opened = episodes_from_fills(fills)
     ages = {}
     if mcp is not None:
@@ -127,22 +132,18 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         fb_closed, fb_open = episodes_from_fills(fills)
         fb = metrics.track_record(fb_closed, fb_open, tr_raw["userFunding"], tr_raw["userFees"], win_start)
         track["taker_share"], track["fee_recoverable"], track["volume"] = fb["taker_share"], fb["fee_recoverable"], fb["volume"]
-    book = metrics.open_book(cs, oo, ctxs, ages)
+    book = metrics.open_book(cs, oo, ctxs, ages, tr_raw.get("clearinghouseState_xyz"), tr_raw.get("frontendOpenOrders_xyz"), ctx_xyz)
     pnl_curve = metrics.pnl_series(tr_raw["portfolio"], win_start)
     fl = metrics.flows(tr_raw["ledger"], addr)
     eq = metrics.equity_curve(tr_raw["portfolio"], [], win_start)          # raw account value over the window
     pnl_pts = metrics.pnl_series(tr_raw["portfolio"], win_start)
     dd = metrics.drawdown(pnl_pts, eq)
-    avg_eq = (sum(v for _, v in eq) / len(eq)) if eq else None
+    funded = [v for _, v in eq if v > 0]
+    avg_eq = (sum(funded) / len(funded)) if funded else None
     equity = dict(points=len(eq), start=eq[0][1] if eq else None, end=eq[-1][1] if eq else None, avg=avg_eq,
                   return_on_avg_equity=((track["ledger_net"] if track.get("ledger_net") is not None else track["net"]) / avg_eq) if avg_eq else None,
                   net_flows=sum(a for _, a in fl))
     act = metrics.activity(fills, win_start)
-    ctx_xyz = None
-    try:
-        ctx_xyz = hl.meta("xyz")
-    except Exception as e:  # noqa: BLE001
-        meta["warnings"].append(f"xyz contexts unavailable: {e}")
     majors, large = taxonomy.crypto_tiers(ctxs)
     breadth = market_mod.breadth(ctxs, ctx_xyz)
     # ---- cohorts + attention first (they name coins the candle pull must cover)
@@ -168,7 +169,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
                     addrs = fetch(mcp, meta)
                     bks = smart_money.books(mcp, addrs, meta) if addrs else []
                     if bks:
-                        cv = smart_money.cohort_view(name, bks, book, opened, majors, large, ages)
+                        cv = smart_money.cohort_view(name, bks, book, opened, majors, large, ages, now)
                         cv["source"] = ("Senpi discovery — top traders by all-time realized P&L, ≥ $1M realized" if name == "proven"
                                         else "Senpi discovery — the most profitable traders of the last 30 days, holding positions now")
                         cohorts.append(cv)
@@ -179,7 +180,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
             states = hl.states(addrs)
             bks = smart_money.public_books(states)
             if bks:
-                cv = smart_money.cohort_view("proven", bks, book, opened, majors, large, ages)
+                cv = smart_money.cohort_view("proven", bks, book, opened, majors, large, ages, now)
                 cv["source"] = f"public leaderboard — {len(bks)} large profitable accounts with a live book (no entry timing without Senpi)"
                 cohorts.append(cv)
         meta["timings"]["cohort"] = round(time.time() - t3, 1)
