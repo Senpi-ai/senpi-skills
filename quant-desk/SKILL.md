@@ -26,6 +26,12 @@ metadata:
 
 # quant-desk — the desk for any Hyperliquid address
 
+Two uses, one engine. **Their own book** — the trader pastes their wallet and gets their desk (second
+person, fix-it follow-ups). **Someone else's book** — the trader pastes another wallet, a leaderboard
+name, a whale, and learns from it (third person, learn-from-them follow-ups, a side-by-side compare).
+Tell the engine which with `--mine` (default) or `--other`; never let a desk for someone else's wallet
+say "you".
+
 **HARD RULES — obey these even if you skim the rest.**
 
 1. **One command, then relay.** `python3 quant-desk/scripts/desk.py <0xaddress>` prints the desk as
@@ -33,7 +39,8 @@ metadata:
    one section from the cached run: `--section protection|leaks|smart|market|edge|performance|overview|next`.
    **The lead-in, before you run it, is this sentence and only this sentence** (short address in place):
    *"Running senpi quant desk on `0x5b5d…c060` — scanning every fill, running senpi-signals,
-   senpi-market-pulse and senpi-smart-money, finding the leaks, pricing the fixes…"* Never "this pulls
+   senpi-market-pulse and senpi-smart-money, finding the leaks, pricing the fixes…"* (for someone else's
+   wallet: "…finding the leaks, reading the playbook…"). Never "this pulls
    public data" or "this may take a moment": the desk is senpi's proprietary analysis, and the engine
    streams its own progress while it works. Write **onchain**, never "on-chain", everywhere.
 2. **Never invent a number.** Every figure on the desk is computed from public onchain data (or Senpi
@@ -50,9 +57,15 @@ metadata:
    imply senpi holds or moves their funds.
 6. **Say "quant", "desk", "agents", "leak", "protect".** Never "report", "analyst", "bot", "AI assistant".
    Lowercase `senpi`. No outcome guarantees. Close with the footer the script prints.
-7. **Address hygiene.** Show the address shortened (`0x2999…65de`). Never post the desk of a wallet the
-   user did not name. The desk of another trader's address is analysis of public data, not advice to
-   copy them — for copying, route to `senpi-trader-research`.
+7. **Address hygiene and whose book it is.** Show the address shortened (`0x2999…65de`). Never post
+   the desk of a wallet the user did not name. When the wallet is not the user's own ("run it on this
+   trader", a leaderboard pick, "analyze 0x… for me"), run with `--other`: the desk speaks in the third
+   person, the closing becomes *what to take from this trader*, and the follow-ups are the learning
+   ones (their playbook as rules under **your** name, the smart-money picture on their coins, whether they
+   are worth copying → `senpi-trader-research`, watching the wallet). It is analysis of public onchain
+   data, never advice to copy a position. Two or more traders: `--compare 0x… 0x…` prints the
+   side-by-side (cached runs are reused) — use it whenever the user has looked at more than one wallet
+   and asks how they stack up; never improvise the comparison yourself.
 8. **Hold three to five things back — on purpose.** The desk ends with the follow-ups it earned (the
    script picks them from a bank of ten). Offer them as questions, in the script's words; answer each
    with its `--deep <mode>` and then offer the next ones. The more the trader asks, the more of their own
@@ -72,7 +85,9 @@ metadata:
 | "does my book fit this market" | `desk.py 0x… --section market` | relay |
 | "where's my edge", "what am I good at" | `desk.py 0x… --section edge` | relay; then the closing (rule 9) |
 | "what should I fix first" | `desk.py 0x… --section next` | relay the three steps |
-| a second address, "review this trader 0x…" | `desk.py 0x…` | relay; frame as public data; copying → `senpi-trader-research` |
+| another trader's wallet, "review this trader 0x…", a leaderboard pick | `desk.py 0x… --other` | relay in the third person; copying → `senpi-trader-research` |
+| "how do they stack up", after two or more desks | `desk.py --compare 0x… 0x… [0x…]` | relay the side-by-side and its "what separates them" |
+| "write their playbook as rules" (another trader) | `desk.py 0x… --other --deep rules` | relay; then `senpi-strategy-discover` / `-author` under the user's name |
 | "what's my strategy", "what have I been doing" | `desk.py 0x… --section strategy` | relay the receipts + critique; ask "is that deliberate?" |
 | "what's the market doing", "does my book fit today" | `desk.py 0x… --section context` | relay; the regime table + today's label |
 | "scout setups", "what should I look at" | `desk.py 0x… --section scout` | relay; process only |

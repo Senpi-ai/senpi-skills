@@ -414,3 +414,39 @@ def test_deep_modes_run_on_a_cached_analysis():
                 "smart": {"cohorts": r["cohorts"]}, "scout": {"opportunities": r["opportunities"]}, "strategy": r["strategy"]}[mode]
         md = __import__("render").render_deep(mode, data, r)
         assert "Not financial advice" in md
+
+
+# ---------------------------------------------------------------- someone else's book: voice, follow-ups, compare
+import voice  # noqa: E402
+
+
+def test_third_person_voice_keeps_the_quant_persona():
+    md = "# Your desk — `0xab…cd`\n> You hold losers 3× longer than winners. You're paying to hold.\nYour quant is ready to go deeper — say *hire my quant*. Yours: majors long.\n"
+    out = voice.third_person(md, "0xab…cd")
+    assert out.startswith("# The desk for `0xab…cd`") and "They hold losers" in out and "They're paying" in out and "Theirs: majors long" in out
+    assert "Your quant is ready" in out and "hire my quant" in out and "you" not in out.replace("your quant", "").replace("Your quant", "").lower().replace("hire my quant", "")
+
+
+def test_other_book_follow_ups_and_compare_render():
+    with open(FIXTURE) as fh:
+        rec = json.load(fh)
+    import desk
+    r = desk.analyze(rec["address"], hl_api.HLFixture(rec), days=90, mcp=None, bench=None, whose="other")
+    assert r["whose"] == "other" and r["followups"] and all(f["mode"] in followups.BANK_OTHER for f in r["followups"])
+    assert r["followups"][0]["mode"] == "rules"                                            # the playbook comes first for someone else's book
+    md = __import__("render").render(r)
+    assert md.startswith("# The desk for") and "What to take from this trader" in md and "you hold" not in md.lower().replace("you hold", "")
+    assert "Your quant is ready to go deeper" in md
+    r2 = dict(r, address="0x" + "9" * 40, quant_score=r["quant_score"] + 7)
+    cmp_ = __import__("render").render_compare([r, r2])
+    assert "Side by side" in cmp_ and "Quant score" in cmp_ and "Verdicts" in cmp_ and "Not financial advice" in cmp_
+
+
+def test_cli_compare_offline(tmp_path):
+    env = dict(os.environ, TMPDIR=str(tmp_path))
+    d = os.path.join(HERE, "..", "scripts", "desk.py")
+    with open(FIXTURE) as fh:
+        addr = json.load(fh)["address"]
+    out = subprocess.run([sys.executable, d, "--compare", addr, addr, "--fixture", FIXTURE, "--dry", "--state-dir", str(tmp_path)], capture_output=True, text=True, env=env, timeout=180)
+    assert out.returncode == 0, out.stderr
+    assert "Side by side" in out.stdout and out.stdout.count("Quant score") == 1

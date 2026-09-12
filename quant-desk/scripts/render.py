@@ -212,6 +212,8 @@ def edge(r):
 
 
 def next_steps(r):
+    if r.get("whose") == "other":
+        return next_steps_other(r)
     b = r["book"]; out = ["## What your quant would do next", ""]
     i = 1
     at_risk = [p for p in b["positions"] if (p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5 and p["stop_covered_share"] < 0.9) or p["stop_covered_share"] == 0]
@@ -397,6 +399,78 @@ def render_deep(mode, d, r):
     return FOOTER
 
 
+def next_steps_other(r):
+    bs = (r.get("setups") or {}).get("best") or []
+    fam = r.get("families") or []
+    b = r["book"]
+    out = ["## What to take from this trader", ""]
+    if bs:
+        x = bs[0]
+        out.append(f"1. **The playbook.** {x['label']} — {x['wins']} of {x['n']} wins, profit factor {num(x['profit_factor'], 'x')}. Say *write their playbook as rules* and your quant turns it into a rule set you run under **your** name — the {' / '.join(f.replace('_', ' ') for f in fam) if fam else 'closest'} templates are the quick start.")
+    else:
+        out.append("1. **The playbook.** No setup clears the bar on this window — what works here is not yet repeatable enough to copy.")
+    warn = []
+    if b["naked"]:
+        warn.append(f"{len(b['naked'])} of {len(b['positions'])} open positions have no stop")
+    against = [c for c in (r.get("cohorts") or []) if c.get("agreement") is not None and c["agreement"] <= -0.5]
+    if against:
+        warn.append("the " + " and the ".join({"proven": "proven cohort", "hot": "hot 30-day cohort"}.get(c["name"], c["name"]) for c in against) + " sit on the other side of this book")
+    out.append("2. **Before copying anything.** " + ("; ".join(warn) + ". Mirroring inherits all of that." if warn else "The book is protected and the cohorts are with it — the process is copyable; the timing is not.") + " Say *is this trader worth copying* for the copyability read.")
+    out.append("3. **Learn the pattern, not the position.** The regime table says which tape they win in; the size-vs-outcome table says how they size. Those transfer. Their entries do not — by the time you see them, the move is theirs.")
+    return "\n".join(out)
+
+
+COMPARE_ROWS = (("Weekly rank", lambda r: f"#{r['rank']['rank']:,}" if r.get("rank") else "—"), ("Archetype", lambda r: r["archetype"]),
+                ("Quant score", lambda r: str(r["quant_score"])), ("Net P&L (ledger)", lambda r: usd(r["track"].get("ledger_net"), signed=True)),
+                ("Return on avg equity", lambda r: pct(r["equity"].get("return_on_avg_equity"), 1, signed=True)), ("Max drawdown", lambda r: pct(-(r["drawdown"].get("dd_pct") or 0), 0, signed=True)),
+                ("Trades / win rate", lambda r: f"{r['track']['trades']} / {pct(r['track'].get('win_rate'))}"), ("Profit factor", lambda r: num(r["track"].get("profit_factor"), "x")),
+                ("Taker share", lambda r: pct(r["track"].get("taker_share"))), ("Fees + funding ÷ gross", lambda r: pct(r["track"].get("cost_ratio"))),
+                ("Open positions · unprotected", lambda r: f"{len(r['book']['positions'])} · {len(r['book']['naked'])}"), ("Margin used", lambda r: pct(r["book"].get("margin_utilization"))),
+                ("vs proven cohort", lambda r: _agree(r, "proven")), ("vs hot 30-day cohort", lambda r: _agree(r, "hot")),
+                ("Biggest leak", lambda r: f"{r['leaks'][0]['title']} (~{usd(r['leaks'][0]['usd'])})" if r["leaks"] else "—"),
+                ("Best setup", lambda r: (lambda b: f"{b['label']} ({b['wins']}/{b['n']}, PF {num(b['profit_factor'], 'x')})")(r["setups"]["best"][0]) if (r.get("setups") or {}).get("best") else "—"))
+
+
+def _agree(r, name):
+    c = next((c for c in r.get("cohorts") or [] if c["name"] == name), None)
+    if not c or c.get("agreement") is None:
+        return "—"
+    a = c["agreement"]
+    return ("with" if a > 0.3 else ("against" if a < -0.3 else "split")) + f" ({a:+.2f})"
+
+
+def render_compare(rs):
+    heads = [f"`{short(r['address'])}`" for r in rs]
+    out = ["# Side by side — " + " · ".join(heads), "", "| | " + " | ".join(heads) + " |", "|---|" + "---|" * len(rs)]
+    for label, fn in COMPARE_ROWS:
+        cells = []
+        for r in rs:
+            try:
+                cells.append(fn(r))
+            except Exception:  # noqa: BLE001
+                cells.append("—")
+        out.append(f"| {label} | " + " | ".join(cells) + " |")
+    out += ["", "**Verdicts**"] + [f"- `{short(r['address'])}`: {r['verdict']}" for r in rs]
+    # what separates them: the widest gaps on the things that transfer
+    def val(r, k):
+        return r["track"].get(k)
+    seps = []
+    for k, label, better_low in (("profit_factor", "profit factor", False), ("taker_share", "taker share", True), ("cost_ratio", "cost share of gross", True), ("win_rate", "win rate", False)):
+        vals = [(val(r, k), short(r["address"])) for r in rs if val(r, k) not in (None, float("inf"))]
+        if len(vals) >= 2:
+            lo, hi = min(vals), max(vals)
+            if hi[0] and lo[0] is not None and (hi[0] - lo[0]) > (0.15 if k in ("taker_share", "cost_ratio", "win_rate") else 0.8):
+                best = lo if better_low else hi
+                seps.append(f"{label}: `{best[1]}` leads ({num(best[0], 'x') if k == 'profit_factor' else pct(best[0])} vs {num((hi if better_low else lo)[0], 'x') if k == 'profit_factor' else pct((hi if better_low else lo)[0])})")
+    naked = [(len(r["book"]["naked"]), short(r["address"])) for r in rs]
+    if max(n for n, _ in naked) != min(n for n, _ in naked):
+        seps.append("protection: " + ", ".join(f"`{a}` {n} unprotected" for n, a in naked))
+    if seps:
+        out += ["", "**What separates them**"] + [f"- {s}" for s in seps]
+    out += ["", "_Analysis of public onchain data. Not financial advice._"]
+    return "\n".join(out)
+
+
 RENDERERS = {"overview": overview, "strategy": strategy, "context": context, "protection": protection, "performance": performance, "leaks": leaks, "smart": smart_v2,
              "market": market, "edge": edge, "scout": scout, "next": next_steps, "followups": followups_section}
 
@@ -409,4 +483,8 @@ def render(r, sections=None):
     if meta.get("warnings"):
         parts.append("_Notes: " + " · ".join(meta["warnings"]) + "_\n")
     parts.append(FOOTER)
-    return "\n".join(parts)
+    md = "\n".join(parts)
+    if r.get("whose") == "other":
+        import voice
+        md = voice.third_person(md, short(r["address"]))
+    return md

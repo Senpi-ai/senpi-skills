@@ -17,9 +17,26 @@ BANK = {
 }
 ORDER = ["protect", "smart", "scout", "replay", "regime", "funding", "compare", "rules", "strategy", "watch"]
 
+# the same ten modes, asked about SOMEONE ELSE's book — learning from a trader, not fixing your own
+BANK_OTHER = {
+    "rules":    "Want their playbook written up as a rule set — the setups, the holds, the sizing — that your quant could run under your name?",
+    "smart":    "Want the full smart-money picture on their coins — where the proven cohort and the hot 30-day cohort agree and disagree with them, and when they moved?",
+    "strategy": "Want the long version of what they've been doing — position by position, and where the thesis holds and breaks?",
+    "scout":    "Want me to scout today's market for setups that match how they win?",
+    "regime":   "Want to see how they trade risk-off tape versus risk-on — and whether today is their kind of day?",
+    "replay":   "Want me to replay their worst week and show what a time-cut and a trailing lock would have done to it?",
+    "compare":  "Want their last 30 days against the 60 before — are they getting better or worse?",
+    "protect":  "Want the stop ladder their book is missing — what each open position would look like protected?",
+    "funding":  "Want their funding bill for the next 30 days at today's rates — is the carry paying them or costing them?",
+    "watch":    "Want me to keep watching this wallet — a new position, a flip, a size change — and tell you when they move?",
+}
+ORDER_OTHER = ["rules", "smart", "strategy", "scout", "regime", "replay", "compare", "protect", "funding", "watch"]
 
-def offer(r, n=4):
+
+def offer(r, n=4, whose="mine"):
     """Pick the follow-ups this desk earned, most relevant first."""
+    if whose == "other":
+        return _offer_other(r, n)
     book, tr, tm = r["book"], r["track"], r.get("timing") or {}
     score = {k: 0.0 for k in BANK}
     naked = len(book["naked"]) + len(book["partial"])
@@ -40,3 +57,21 @@ def offer(r, n=4):
     score["watch"] += 1 + (1 if naked else 0)
     ranked = sorted(BANK, key=lambda k: (-score[k], ORDER.index(k)))
     return [dict(mode=k, prompt=BANK[k]) for k in ranked[:n]]
+
+
+def _offer_other(r, n):
+    score = {k: 0.0 for k in BANK_OTHER}
+    setups = (r.get("setups") or {}).get("best") or []
+    cohorts = r.get("cohorts") or []
+    score["rules"] += 3 + (1 if setups else 0)
+    score["smart"] += 2 + sum(len(c.get("against") or []) for c in cohorts)
+    score["strategy"] += 2 + (1 if (r.get("strategy") or {}).get("critique") else 0)
+    score["scout"] += 1 + (1 if r.get("opportunities") else 0)
+    score["regime"] += 1 + (1 if ((r.get("context") or {}).get("regime_performance") or {}).get("cells") else 0)
+    score["replay"] += 1 + (1 if any("losers" in l["title"] or "give back" in l["title"] for l in r["leaks"]) else 0)
+    score["compare"] += 1 + (1 if (r["track"].get("trades") or 0) >= 30 else 0)
+    score["protect"] += 1 + (1 if r["book"]["naked"] else 0)
+    score["funding"] += 1 + (1 if abs(r["book"].get("funding_per_day") or 0) > 0.001 * max(1, r["book"].get("account_value") or 1) else 0)
+    score["watch"] += 2
+    ranked = sorted(BANK_OTHER, key=lambda k: (-score[k], ORDER_OTHER.index(k)))
+    return [dict(mode=k, prompt=BANK_OTHER[k]) for k in ranked[:n]]

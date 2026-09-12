@@ -83,7 +83,7 @@ class _MCPFixture:
         raise RuntimeError(f"fixture has no {tool}")
 
 
-def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench=None, meta=None):
+def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench=None, meta=None, whose="mine"):
     meta = meta if meta is not None else {}
     meta.setdefault("warnings", []); meta["timings"] = {}; meta["sources"] = {}
     t0 = time.time()
@@ -253,15 +253,20 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
              setups=setups, families=score.families(closed, tm, track), strategy=strategy, context=context, opportunities=opps,
              benchmark=bench, benchmark_table=smart_money.benchmark_table(track, bench) if bench else None,
              episodes=[{k: v for k, v in e.items()} for e in in_win][-300:], meta=meta)
+    r["whose"] = whose
     r["verdict"] = score.verdict(track, book, dims, lk)
-    r["followups"] = followups.offer(r)
+    r["followups"] = followups.offer(r, whose=whose)
     meta["timings"]["total"] = round(time.time() - t0, 1); meta["hl_calls"] = hl.calls
     return r
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="quant-desk: the desk for any Hyperliquid address")
-    ap.add_argument("address")
+    ap.add_argument("address", nargs="?", help="the wallet; omit with --compare")
+    g = ap.add_mutually_exclusive_group()
+    g.add_argument("--mine", action="store_true", help="the reader's own book (second person) — the default")
+    g.add_argument("--other", action="store_true", help="someone else's book: third person, learn-from-them follow-ups")
+    ap.add_argument("--compare", nargs="+", metavar="0x", help="two or more addresses side by side (cached runs are reused)")
     ap.add_argument("--days", type=int, default=90)
     ap.add_argument("--json", action="store_true", help="print the analysis document instead of Markdown")
     ap.add_argument("--section", choices=render.SECTIONS, action="append", help="render only these sections (repeatable)")
@@ -273,11 +278,31 @@ def main(argv=None):
     ap.add_argument("--state-dir", default=DEFAULT_STATE_DIR)
     ap.add_argument("--fresh", action="store_true", help="ignore a cached analysis")
     a = ap.parse_args(argv)
+    whose = "other" if a.other else "mine"
+    os.makedirs(a.state_dir, exist_ok=True)
+    if a.compare:
+        rs = []
+        for x in a.compare:
+            x = x.strip().lower()
+            if not ADDR_RE.match(x):
+                print(json.dumps({"error": f"not a Hyperliquid address: {x}"})); return 2
+            sp = os.path.join(a.state_dir, f"desk-{x}.json")
+            if os.path.exists(sp) and time.time() - os.path.getmtime(sp) < 6 * FRESH_S and not a.fresh:
+                with open(sp) as fh:
+                    rs.append(json.load(fh)); continue
+            sub = [x, "--json", "--state-dir", a.state_dir, "--cache", a.cache, "--other"] + (["--fixture", a.fixture] if a.fixture else []) + (["--dry"] if a.dry else []) + (["--days", str(a.days)] if a.days != 90 else [])
+            rc = main(sub if not a.no_cohort else sub + ["--no-cohort"])
+            if rc != 0:
+                return rc
+            with open(sp) as fh:
+                rs.append(json.load(fh))
+        print(render.render_compare(rs)); return 0
+    if not a.address:
+        print(json.dumps({"error": "an address is required (or --compare 0x… 0x…)"})); return 2
     addr = a.address.strip()
     if not ADDR_RE.match(addr):
         print(json.dumps({"error": "not a Hyperliquid address — expected 0x followed by 40 hex characters"})); return 2
     addr = addr.lower()
-    os.makedirs(a.state_dir, exist_ok=True)
     state_path = os.path.join(a.state_dir, f"desk-{addr}.json")
     meta = {}
     bench = None
@@ -299,7 +324,7 @@ def main(argv=None):
             hl = hl_api.HL(cache_dir=a.cache or None); mcp = _mcp_client(meta)
         log(f"[quant-desk] running senpi quant desk on {addr[:6]}…{addr[-4:]}")
         try:
-            r = analyze(addr, hl, days=a.days, mcp=mcp, want_rank=not a.no_rank, want_cohort=not a.no_cohort, bench=bench, meta=meta)
+            r = analyze(addr, hl, days=a.days, mcp=mcp, want_rank=not a.no_rank, want_cohort=not a.no_cohort, bench=bench, meta=meta, whose=whose)
         except hl_api.HLError as e:
             print(json.dumps({"error": f"Hyperliquid read failed: {e}", "address": addr})); return 1
         if not r["activity"]["fills"] and not r["book"]["positions"]:
@@ -324,8 +349,17 @@ def main(argv=None):
                 "compare": lambda: deep_mod.compare_windows(r), "rules": lambda: deep_mod.rules(r), "regime": lambda: deep_mod.regime(r), "watch": lambda: deep_mod.watch(r),
                 "smart": lambda: dict(cohorts=r.get("cohorts") or []), "scout": lambda: dict(opportunities=r.get("opportunities") or [], setups=r.get("setups")),
                 "strategy": lambda: r.get("strategy") or {}}[a.deep]()
-        print(json.dumps(data, default=float) if a.json else render.render_deep(a.deep, data, r))
+        if a.json:
+            print(json.dumps(data, default=float))
+        else:
+            md = render.render_deep(a.deep, data, r)
+            if r.get("whose") == "other":
+                import voice
+                md = voice.third_person(md, f"{addr[:6]}…{addr[-4:]}")
+            print(md)
         return 0
+    if (a.other or a.mine) and r.get("whose") != whose:
+        r["whose"] = whose; r["followups"] = followups.offer(r, whose=whose)     # a cached run re-voiced
     if a.json:
         print(json.dumps({k: v for k, v in r.items() if k != "episodes"}, default=float))
     else:
