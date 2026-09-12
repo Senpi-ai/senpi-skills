@@ -28,7 +28,7 @@ MAX_FUNDING_PAGES = 40
 RETRIES = 4                   # on HTTP 429 only
 BACKOFF_S = 1.5
 DEFAULT_CACHE = os.path.join(tempfile.gettempdir(), "senpi-quant", "cache")
-TTL = {"clearinghouseState": 120, "frontendOpenOrders": 120, "metaAndAssetCtxs": 120, "candleSnapshot": 900,
+TTL = {"metaAndAssetCtxs::xyz": 120, "clearinghouseState": 120, "frontendOpenOrders": 120, "metaAndAssetCtxs": 120, "candleSnapshot": 900,
        "userFees": 3600, "portfolio": 600, "userNonFundingLedgerUpdates": 600, "userFillsByTime": 600,
        "userFunding": 600, "leaderboard": 6 * 3600}
 
@@ -148,8 +148,8 @@ class HL:
         }
 
     # ---- market-level reads ----
-    def meta(self):
-        return self.info({"type": "metaAndAssetCtxs"})
+    def meta(self, dex=""):
+        return self.info({"type": "metaAndAssetCtxs", "dex": dex} if dex else {"type": "metaAndAssetCtxs"})
 
     def candles(self, coins, days=91, interval="1h", workers=6):
         """Hourly candles per coin over `days`, fetched in parallel; a coin that fails maps to None."""
@@ -200,7 +200,9 @@ class HLFixture(HL):
 
     def info(self, body):
         t = body.get("type")
-        for key in (f"hl::{t}::{str(body.get('user', '')).lower()}", f"hl::{t}::{(body.get('req') or {}).get('coin', '')}", f"hl::{t}"):
+        req = body.get("req") or {}
+        for key in (f"hl::{t}::{str(body.get('user', '')).lower()}", f"hl::{t}::{req.get('coin', '')}::{req.get('interval', '')}", f"hl::{t}::{req.get('coin', '')}",
+                    f"hl::{t}::{body.get('dex', '')}", f"hl::{t}"):
             if key in self._r:
                 data = self._r[key]
                 if t in ("userFillsByTime", "userTwapSliceFillsByTime", "userFunding") and isinstance(data, list):

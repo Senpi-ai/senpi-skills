@@ -125,3 +125,89 @@ Groups of complete episodes (≥ 3): coin × side, side × hold bucket (< 4h, 4�
 before vs after a ≥ 3% move. Best = profit factor ≥ 1.5 and positive realized, by realized; worst = profit
 factor < 1. Catalog families: buys strength and keeps the peak → trend_following, gives it back →
 breakout_momentum; buys weakness → contrarian_fade; one coin ≥ 50% of volume → single_market.
+
+---
+
+# v2 — the strategy read, the market context, two cohorts, live matches, follow-ups
+
+## Asset classes (`taxonomy.py`)
+
+Crypto tiers come from live open interest on the main dex: **majors** = top 3 by OI, **large caps** =
+the next 12, **alts** = the rest. **Memecoins** = every 1000×-denominated `k…` name plus a short documented
+list (a taxonomy, never a trading whitelist). xyz assets use senpi-market-pulse's own groups verbatim
+(equities, indices, commodities, FX/macro).
+
+## The strategy read (`strategy_read.py`)
+
+* **Where the trades went** — trades, wins, realized and profit factor by class × side.
+* **Simultaneity** — the share of the window with at least one long AND one short open, and the class
+  pairs most often held together.
+* **Leg correlation** — correlation of hourly log returns between the equal-weight basket of coins the
+  trader went long and the basket they went short (≥ 100 common hours). Above +0.6: "the hedge is mostly a
+  fee"; below +0.3: genuinely different bets.
+* **P&L beta to BTC** — correlation and slope of P&L changes (as a share of equity) against BTC returns
+  over the same intervals of the ledger's P&L series. Reported as "a 1% BTC move swings your equity by
+  about X%".
+* **Outcome concentration** — the three best trades ÷ total realized (> 100% means the rest nets
+  negative).
+* **Dead sides** — class × side with ≥ 3 trades and no winner.
+* **Style** — buys strength (≥ 50% of entries after a ≥ 3% move) or weakness (median pre-entry move
+  < −2%); pyramids (≥ 1 add per trade); works orders (> 20% of fills are TWAP slices).
+* **Critique rules** — hedged with correlated legs; directional and mostly against the trend; P&L is BTC;
+  edge in three trades; a dead side; losers outliving winners; against the proven cohort. Each is one
+  paragraph; the agent relays and asks "is that deliberate?".
+
+## The market context (`market.py`)
+
+* **Breadth** — 24h change per asset (mark vs previous day) from the live contexts of both dexes, grouped
+  by class; the day is `risk_off` when ≥ 3 groups are down ≥ 0.5% and at least twice as many groups are down
+  as up, `risk_on` symmetric, else `mixed` (senpi-market-pulse's rule).
+* **Daily regimes** — one label per UTC day over the window from daily candles of a basket (BTC, ETH and
+  the ten largest by OI): `risk_on` when BTC closed > +1% or ≥ 65% of the basket closed up; `risk_off`
+  symmetric; else `mixed`.
+* **How you trade the tape** — the trader's trades split by the regime of the day they were opened
+  (and by side): trades, win rate, realized, profit factor; today's label against the best cell.
+* **Senpi layers** — `market_get_funding_regime` (LONG_CROWDED / SHORT_CROWDED / NEUTRAL, extreme count),
+  `leaderboard_get_markets` (dominant direction per token, share of the top traders' 4h gains, headcount;
+  overlap with the trader's book as WITH / AGAINST), `leaderboard_get_momentum_events` (coin × direction
+  counts in the last 4h; with / against the trader's positions).
+
+## Two cohorts (`smart_money.py`)
+
+* **Proven** — `discovery_get_top_traders(ALL_TIME, sort PROFIT_AND_LOSS_REALIZED)`, members with ≥ $1M
+  realized, top 100. **Hot** — `MONTHLY, sort PROFIT_AND_LOSS, open_position_filter`, top 100. Books via
+  `discovery_get_trader_state` with position ages. Public fallback: the leaderboard's large profitable
+  accounts with a live book (no ages).
+* Per coin: bias = net ÷ gross signed notional, headcount by side; reads as in v1 (`WITH — BUT LATE (+h)`
+  when the trader's entry sits more than 4h after the cohort's median entry on that side).
+* **Book-level agreement** — over the classes the trader holds, weight × sign agreement × min(1, |cohort
+  bias| ÷ 0.2), in [−1, +1]. **Tilt** — cohort net ÷ gross and long/short headcount per class, against the
+  trader's own. **They hold, you don't** — coins with ≥ 3 members and |bias| ≥ 0.2 the trader is not in,
+  by headcount. **You alone** — coins the trader holds that no cohort member does.
+
+## Live matches (`opportunities.py`)
+
+Candidates: coins a cohort leans on (≥ 5 members: proven +2, hot +1), coins the cohort is with the
+trader on (+1), the top traders' gain markets (≥ 5 traders, +1), momentum events (+0.5), and the trader's
+own winning coin × side (+3). Adjustments: fits the trader's best class × side pattern (≥ 4 trades, profit
+factor ≥ 1.5, +2); trend with (+2) / against (−2.5); funding the side would pay above 10 bp/8h (−1) or
+collect below −3 (+0.5); already moved ≥ 5% today in that direction (−1, "a chase"). Top six with a
+positive score, each with its reasons. Process only.
+
+## Follow-ups (`followups.py`, `deep.py`)
+
+A bank of ten, scored for relevance (naked or near-liquidation positions → `protect` first; against the
+cohort → `smart`; a funding bill → `funding`; a losers leak → `replay`; regime cells present → `regime`;
+≥ 30 trades → `compare`; a best setup → `rules`/`scout`). Three to five are offered; each maps to
+`--deep <mode>`:
+* `protect` — hard stop = the further of 1.5 × the 24h average true range and 40% of the way to
+  liquidation; the trailing lock arms two ranges in the money and trails at half the peak gain; dollars at
+  risk before (margin at risk to liquidation) vs after (distance to the stop × size).
+* `replay` — the worst 7-day window by realized, its trades, and the time-cut / trailing-lock grid on
+  exactly those trades.
+* `funding` — funding per day at today's rates × 30 per position, total as a share of equity.
+* `compare` — last 30 days vs the 60 before on trades, win rate, profit factor, realized, fees, size,
+  holds, taker share.
+* `rules` — entries (best setups), entry timing (chased vs calm profit factors), holding, sizing, risk,
+  catalog families, and the discover/author handoff.
+* `regime`, `smart`, `scout`, `strategy`, `watch` — the corresponding sections in full.

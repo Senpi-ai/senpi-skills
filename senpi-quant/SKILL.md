@@ -1,17 +1,21 @@
 ---
 name: senpi-quant
 description: >-
-  Hire your AI quant: paste ANY Hyperliquid address (0x…) and get the desk — a read of the last 90 days
-  of fills, fees and funding, the live book with a protection audit, six 0–100 dimensions behind one
-  quant score, the leaks ranked by counterfactual dollars, you vs the whale cohort on your coins, market
-  fit, and where your edge actually is. Works for wallets that have never touched senpi (public on-chain
-  data, no deposit, read-only); with a Senpi token the closed-trade history comes from Senpi discovery
-  (complete where the public API is not) and the smart-money cohort from Senpi. Use for "analyze my
-  wallet / my Hyperliquid address", "how am I doing", "where am I leaking money", "am I on the right side
-  of smart money", "are my positions protected", "what should I fix first", "rate my trading", "compare me
-  to the whales", "review this trader 0x…". Hidden engine: scripts/desk.py. NOT for choosing or
-  deploying a strategy (senpi-strategy-discover / -ops), reviewing a Senpi strategy's own trades
-  (senpi-improve-trades), or vetting a trader to copy (senpi-trader-research).
+  Hire your AI quant: paste ANY Hyperliquid address (0x…) and get the desk — what the trader has actually
+  been doing (a strategy read with a critique), a quant score with six explained dimensions, the market
+  they are trading in right now and how they trade each regime, the live book with a protection audit,
+  leaks priced as counterfactual dollars, their book against the PROVEN cohort (top traders by all-time
+  realized P&L, ≥ $1M) and the HOT 30-day cohort — side, headcount, when they moved, what they hold that
+  the trader doesn't — live matches where the tape, the cohorts and the trader's own pattern agree, and
+  a bank of ten follow-ups the quant is prepared to go deeper on. Works for wallets that never touched
+  senpi (public on-chain data, read-only); with a Senpi token the closed-trade history, both cohorts, the
+  funding regime and the Hyperfeed attention layer come from Senpi's own data. Use for "analyze my
+  wallet / my Hyperliquid address", "how am I doing", "what's my strategy", "where am I leaking money",
+  "am I on the right side of smart money", "are my positions protected", "what should I fix first",
+  "rate my trading", "compare me to the whales", "scout setups for me", "review this trader 0x…".
+  Hidden engine: scripts/desk.py. NOT for choosing or deploying a strategy (senpi-strategy-discover /
+  -ops), reviewing a Senpi strategy's own trades (senpi-improve-trades), or vetting a trader to copy
+  (senpi-trader-research).
 license: Apache-2.0
 metadata:
   author: Senpi
@@ -44,6 +48,13 @@ metadata:
 7. **Address hygiene.** Show the address shortened (`0x2999…65de`). Never post the desk of a wallet the
    user did not name. The desk of another trader's address is analysis of public data, not advice to
    copy them — for copying, route to `senpi-trader-research`.
+8. **Hold three to five things back — on purpose.** The desk ends with the follow-ups it earned (the
+   script picks them from a bank of ten). Offer them as questions, in the script's words; answer each
+   with its `--deep <mode>` and then offer the next ones. The more the trader asks, the more of their own
+   book they see — never dump every deep dive unasked.
+9. **The strategy read is theirs to argue with.** Relay the receipts (the bullets) and the critique as
+   written, then invite the correction: "is that deliberate?" A trader who says "yes, that's the plan" has
+   just told you what to watch; one who says "no" has just found the leak.
 
 ## Quick actions
 
@@ -57,6 +68,19 @@ metadata:
 | "where's my edge", "what am I good at" | `desk.py 0x… --section edge` | relay; then the closing (rule 9) |
 | "what should I fix first" | `desk.py 0x… --section next` | relay the three steps |
 | a second address, "review this trader 0x…" | `desk.py 0x…` | relay; frame as public data; copying → `senpi-trader-research` |
+| "what's my strategy", "what have I been doing" | `desk.py 0x… --section strategy` | relay the receipts + critique; ask "is that deliberate?" |
+| "what's the market doing", "does my book fit today" | `desk.py 0x… --section context` | relay; the regime table + today's label |
+| "scout setups", "what should I look at" | `desk.py 0x… --section scout` | relay; process only |
+| **a follow-up the desk offered** | `desk.py 0x… --deep <mode>` | relay; then offer the next follow-ups |
+
+**The ten deep modes** (each answers one bank question; all read the cached run, `protect` and `replay`
+refetch candles): `protect` (a stop ladder per position with levels and dollars at risk before/after) ·
+`smart` (both cohorts in full, tilt by class, what they hold that you don't, when they moved) · `scout`
+(live matches) · `replay` (your worst week, trade by trade, with the counterfactuals on exactly those
+trades) · `funding` (the next 30 days at today's rates, position by position) · `regime` (how you trade
+risk-on vs risk-off, and which one today is) · `compare` (last 30 days vs the 60 before) · `rules` (your
+strategy as a rule set + the handoff to discover/author) · `strategy` (the long strategy read) · `watch`
+(what the agents would alert on → *hire my quant*).
 
 `--json` prints the analysis document instead of Markdown (for your own follow-up arithmetic — never
 to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days N` changes the window.
@@ -64,12 +88,21 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
 ## What the desk is (the output contract, in render order)
 
 1. **Header** — short address · window · fills · coins · **YOUR QUANT — LIVE · READ-ONLY** · weekly rank
-   on Hyperliquid's leaderboard (`#545 of 45,105 · top 1.2%`) · **archetype** (`Aggressive long-only trend
-   rider`) · **verdict** (one sentence: strength — weakness. imperative) · flag chips (`NO STOPS (1/3)`,
-   `NEAR LIQUIDATION 3.7%`, `HIGH MARGIN 122%`, `IN DRAWDOWN`, `LIQUIDATED ×1`, `CHASING`, `PAYING FUNDING`).
+   on Hyperliquid's leaderboard (`#545 of 45,105 · top 1.2%`) · Senpi's labels when present (`RELIABLE ·
+   AGGRESSIVE · ACTIVE`) · **archetype** (`Aggressive long-only trend rider`) · **verdict** (one sentence:
+   strength — weakness. imperative) · flag chips (`NO STOPS (1/3)`, `NEAR LIQUIDATION 3.7%`, `HIGH MARGIN
+   122%`, `IN DRAWDOWN`, `LIQUIDATED ×1`, `CHASING`, `PAYING FUNDING`).
 2. **Quant score /100** and the **six dimensions** with one line each: timing/edge, risk management,
    cost efficiency, sizing/conviction, consistency, market fit. Weights and formulas:
    `references/methodology.md`.
+2b. **What you've been doing** — the strategy read: receipts (what share of trades are which class and
+   side; whether longs and shorts were held at once and whether those legs actually diverge; how much of
+   the P&L is just BTC; how concentrated the outcome is; sides that never paid; buys strength or weakness;
+   TWAP use), a where-the-trades-went table by class × side, and the critique.
+2c. **The market you're trading in — right now** — today's label (risk-on / risk-off / mixed) from the
+   whole venue by class, Senpi's funding regime, where the top traders' gains sit (Hyperfeed) and whether
+   you are with or against them, momentum events, and **how you trade the tape**: your own record by the
+   regime of the day you entered, with today's label against your best tape.
 3. **Track record** — net P&L per Hyperliquid's own ledger, return on average equity, realized on
    observed trades, win rate, max drawdown (transfer-adjusted), profit factor, trades, active days —
    and a coverage line when the public API returned less than 90% of the wallet's executed volume.
@@ -82,14 +115,19 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
 7. **Performance** — per-coin table, long/short split, hold time winners vs losers, execution
    (taker share, fee rates, liquidations), size-vs-outcome bands.
 8. **Leaks** — ranked by $ impact, each counterfactual; then the rules **tested and rejected**.
-9. **You vs smart money** — per open position: your side, the cohort's bias and headcount, the read
-   (`WITH`, `WITH — BUT LATE (+6h)`, `AGAINST SMART MONEY`, `COHORT SPLIT`, `NO COHORT VIEW`); then you vs
-   the whale median on holds, costs, win rate, profit factor.
+9. **You vs smart money** — two cohorts (Senpi: the proven cohort — top traders by all-time realized
+   P&L with ≥ $1M — and the hot 30-day cohort; public fallback: the leaderboard's large live books). Per
+   open position: your side, the cohort's side and headcount, the read (`WITH`, `WITH — BUT LATE (+6h)`,
+   `AGAINST SMART MONEY`, `COHORT SPLIT`, `NO COHORT VIEW`); book-level agreement; their book by class vs
+   yours; what they hold that you don't; what you hold that none of them do; your entry lag vs theirs.
 10. **Market fit** — regime headline, funding across your coins, your stance and its daily funding
     cost, BTC trend; per position: trend, funding, open interest, fit.
 11. **Where your edge actually is** — best setups (coin × side, hold bucket, entries before vs after the
     move) with wins/n and profit factor; the catalog families it maps to.
+11b. **Live matches** — coins where the cohorts lean, the tape agrees, funding is not punitive and the
+    setup fits how this trader wins, ranked and explained; "already moved today — a chase" is a demerit.
 12. **What your quant would do next** — protect first · fix the biggest leak · keep the agents on.
+12b. **Your quant is ready to go deeper** — three to five follow-ups from the bank of ten.
 13. Footer: _Analysis of public on-chain data. Not financial advice._
 
 ## Reading the sources (what to say when asked "where does this come from")
@@ -102,9 +140,11 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
   fills (`startPosition` is the position before each fill) and prints the share of executed volume it
   could see; ledger figures (net P&L, equity, funding) are complete regardless.
 - **With a Senpi token:** closed positions come from Senpi discovery (the complete stream, with
-  leverage per trade) and the smart-money cohort from Senpi's ALL_TIME realized-PnL ranking (≥ $1M
-  realized). Without one, the cohort is the largest profitable accounts on the public leaderboard, and the
-  read carries no entry timing.
+  leverage per trade); the proven cohort from Senpi's ALL_TIME realized-PnL ranking (≥ $1M realized, top
+  100) and the hot cohort from the MONTHLY PnL ranking with open positions, both with position ages;
+  Senpi's funding regime; and the Hyperfeed attention layer (where the top traders' gains sit, momentum
+  events). Without one, the cohort is the largest profitable accounts on the public leaderboard, the read
+  carries no entry timing, and the attention layer is absent.
 - **Whale median:** `references/benchmark.json`, computed by `scripts/benchmark.py` — from Senpi discovery
   with a token (whales are TWAP-heavy, so the public endpoints cannot rebuild their round trips). The table
   renders only when the benchmark holds ≥ 5 members with ≥ 10 trades; until that file ships, the smart-money

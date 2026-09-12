@@ -339,10 +339,13 @@ HOLD_BUCKETS = (("< 4h", 0, 4), ("4–24h", 4, 24), ("1–3d", 24, 72), ("> 3d",
 
 
 def best_setups(closed, tm_rows):
+    """Coin × side on every closed trade (realized is realized); hold buckets and entry style only on
+    fully observed ones (they need the true open and close)."""
     comp = [e for e in closed if e.get("complete")]
     groups = collections.defaultdict(list)
-    for e in comp:
+    for e in closed:
         groups[("coin", f"{e['coin']} {e['direction'].lower()}s")].append(e)
+    for e in comp:
         for label, lo, hi in HOLD_BUCKETS:
             if lo <= e["hold_h"] < hi:
                 groups[("hold", f"{e['direction'].lower()}s held {label}")].append(e)

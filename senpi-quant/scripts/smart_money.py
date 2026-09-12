@@ -209,3 +209,127 @@ def benchmark_table(tr, bench):
         rows.append(dict(metric=label, you=you, whale=whale, unit=unit,
                          better="lower" if key in ("hold_losers_h", "hold_ratio", "cost_ratio", "taker_share") else "higher"))
     return rows
+
+
+# ================================================================ v2: two cohorts, entry ages, the whole book
+import collections  # noqa: E402
+
+import taxonomy  # noqa: E402
+
+HOT_N = 100
+PROVEN_N = 100
+
+
+def hot_cohort(client, meta, n=HOT_N):
+    """The most profitable traders of the last 30 days that hold positions now — a hot streak, not a record."""
+    try:
+        resp = client.mcp_call("discovery_get_top_traders", time_frame="MONTHLY", sort_by="PROFIT_AND_LOSS", open_position_filter=True, limit=n, offset=0, timeout=20)
+    except Exception as e:  # noqa: BLE001
+        meta.setdefault("warnings", []).append(f"hot cohort failed: {e}")
+        return []
+    out = []
+    for t in _traders_of(_ok(resp)):
+        a = str(_field(t, "address", "trader_address", "wallet", default="")).lower()
+        if a:
+            out.append(a)
+    return out
+
+
+def proven_cohort(client, meta, n=PROVEN_N):
+    """Top traders by ALL-TIME realized PnL with ≥ $1M realized — a demonstrated record."""
+    global SAMPLE_CAP
+    keep = SAMPLE_CAP
+    SAMPLE_CAP = n
+    try:
+        return senpi_cohort(client, meta)
+    finally:
+        SAMPLE_CAP = keep
+
+
+def books(client, addrs, meta):
+    """Per-wallet live books (coin, signed notional, entry ms) for a cohort, batched."""
+    out = []
+    for i in range(0, len(addrs), STATE_BATCH):
+        batch = addrs[i:i + STATE_BATCH]
+        try:
+            resp = client.mcp_call("discovery_get_trader_state", trader_addresses=batch, include_position_age=True, timeout=25)
+        except Exception as e:  # noqa: BLE001
+            meta.setdefault("warnings", []).append(f"trader_state batch failed: {e}")
+            continue
+        for t in _traders_of(_ok(resp)):
+            rows = []
+            for p in (t.get("openPositions") or t.get("open_positions") or []):
+                if not isinstance(p, dict):
+                    continue
+                coin = p.get("coin") or p.get("asset"); sn = _signed_notional(p) if coin else 0.0
+                if not coin or not sn:
+                    continue
+                st = _f(p, "startTime", "start_time", default=0.0)
+                rows.append((coin, sn, (st * 1000.0 if st < 1e12 else st) if st else None))
+            out.append(dict(address=str(_field(t, "address", "trader_address", "wallet", default="")).lower(), positions=rows))
+    return out
+
+
+def public_books(states):
+    out = []
+    for a, cs in (states or {}).items():
+        rows = []
+        for ap in (cs or {}).get("assetPositions") or []:
+            p = ap.get("position") or {}; sn = _signed_notional(p)
+            if p.get("coin") and sn:
+                rows.append((p["coin"], sn, None))
+        if rows:
+            out.append(dict(address=a, positions=rows))
+    return out
+
+
+def per_from_books(bks):
+    per = {}
+    for b in bks:
+        for coin, sn, entry_ms in b["positions"]:
+            _add(per, coin, sn, entry_ms)
+    return _finish(per)
+
+
+def class_tilt(bks, majors, large):
+    """Net ÷ gross signed notional per asset class across the cohort's books, plus headcount per class-side."""
+    net = collections.defaultdict(float); gross = collections.defaultdict(float); heads = collections.Counter()
+    for b in bks:
+        for coin, sn, _ in b["positions"]:
+            cls = taxonomy.classify(coin, majors, large)
+            net[cls] += sn; gross[cls] += abs(sn); heads[(cls, "LONG" if sn > 0 else "SHORT")] += 1
+    tot = sum(gross.values()) or 1.0
+    return {cls: dict(label=taxonomy.label(cls), bias=(net[cls] / gross[cls]) if gross[cls] else 0.0, weight=gross[cls] / tot,
+                      long=heads[(cls, "LONG")], short=heads[(cls, "SHORT")]) for cls in gross}
+
+
+def user_tilt(book, majors, large):
+    net = collections.defaultdict(float); gross = collections.defaultdict(float)
+    for p in book["positions"]:
+        cls = taxonomy.classify(p["coin"], majors, large); sn = p["notional"] * (1 if p["side"] == "LONG" else -1)
+        net[cls] += sn; gross[cls] += abs(sn)
+    tot = sum(gross.values()) or 1.0
+    return {cls: dict(label=taxonomy.label(cls), bias=(net[cls] / gross[cls]) if gross[cls] else 0.0, weight=gross[cls] / tot) for cls in gross}
+
+
+def cohort_view(name, bks, book, opened, majors, large):
+    """Everything the desk says about one cohort: per-position reads (with ages), class tilt vs yours,
+    coins they hold that you don't (by headcount), coins you hold that none of them touch."""
+    per = per_from_books(bks)
+    cmp_ = compare(per, book, opened)
+    tilt = class_tilt(bks, majors, large); yours = user_tilt(book, majors, large)
+    mine = {p["coin"] for p in book["positions"]}
+    theirs = sorted(((d["members"], coin, d) for coin, d in per.items() if coin not in mine and d["members"] >= MIN_MEMBERS and abs(d["bias"]) >= LEAN), reverse=True)
+    orphans = [c for c in mine if c not in per]
+    # book-level agreement: weight-averaged sign agreement over the classes you hold
+    agree = 0.0; wsum = 0.0
+    for cls, y in yours.items():
+        t = tilt.get(cls)
+        if t and t["weight"] > 0:
+            agree += y["weight"] * (1 if (y["bias"] > 0) == (t["bias"] > 0) else -1) * min(1.0, abs(t["bias"]) / LEAN)
+            wsum += y["weight"]
+    return dict(name=name, wallets=len(bks), coins=len(per), rows=cmp_["rows"], against=cmp_["against"], entry_lag_h=cmp_["entry_lag_h"],
+                tilt=sorted(tilt.values(), key=lambda t: -t["weight"])[:6], yours=sorted(yours.values(), key=lambda t: -t["weight"]),
+                agreement=(agree / wsum) if wsum else None,
+                they_hold=[dict(coin=c, members=m, bias=d["bias"], side="LONG" if d["bias"] > 0 else "SHORT", n_long=d["n_long"], n_short=d["n_short"]) for m, c, d in theirs[:8]],
+                you_alone=orphans)

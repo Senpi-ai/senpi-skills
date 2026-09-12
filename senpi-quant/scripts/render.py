@@ -4,7 +4,7 @@
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import datetime
 
-SECTIONS = ("overview", "protection", "performance", "leaks", "smart", "market", "edge", "next")
+SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
 FOOTER = "_Analysis of public on-chain data. Not financial advice._"
 
 
@@ -48,6 +48,10 @@ def header(r):
         tp = rank["top_pct"]
         lines.append(f"**#{rank['rank']:,} of {rank['of']:,}** on Hyperliquid's leaderboard this week · " + (f"top {tp:.1f}%" if tp <= 50 else f"bottom {100 - tp:.0f}%"))
     lines.append(f"**{r['archetype']}**")
+    lab = r.get("labels") or {}
+    if any(lab.get(k) for k in ("consistency", "risk", "activity")):
+        lines.append("Senpi's read: " + " · ".join(str(lab[k]).upper() for k in ("consistency", "risk", "activity") if lab.get(k))
+                     + (f" · consistency score {lab['tcs']}" if lab.get("tcs") is not None else ""))
     lines.append(f"> **{r['verdict']}**")
     if r["flags"]:
         lines.append(" ".join(f"`{f}`" for f in r["flags"]))
@@ -214,7 +218,180 @@ def next_steps(r):
     return "\n".join(out)
 
 
-RENDERERS = {"overview": overview, "protection": protection, "performance": performance, "leaks": leaks, "smart": smart, "market": market, "edge": edge, "next": next_steps}
+def strategy(r):
+    st = r.get("strategy") or {}
+    out = ["## What you've been doing", ""]
+    if not st.get("statements"):
+        out.append("Not enough trades in the window to read a strategy.")
+        return "\n".join(out)
+    out += [f"- {x[0].upper() + x[1:]}." for x in st["statements"]]
+    fp = st.get("fingerprint") or {}
+    rows = [x for x in fp.get("class_side") or [] if x["trades"] >= 2][:6]
+    if rows:
+        out += ["", "| Where the trades went | Trades | Wins | Realized | Profit factor |", "|---|---:|---:|---:|---:|"]
+        out += [f"| {x['label']} {x['side'].lower()}s ({', '.join(x['coins'][:3])}) | {x['trades']} | {x['wins']} | {usd(x['realized'], signed=True)} | {num(x['pf'], 'x')} |" for x in rows]
+    if st.get("critique"):
+        out += ["", "**The critique:**"] + [f"- {c}" for c in st["critique"]]
+    return "\n".join(out)
+
+
+def context(r):
+    c = r.get("context") or {}; b = c.get("breadth") or {}
+    out = ["## The market you're trading in — right now", ""]
+    if b:
+        day = {"risk_on": "RISK-ON", "risk_off": "RISK-OFF", "mixed": "MIXED"}.get(b.get("day"), "UNKNOWN")
+        head = f"**{day}** — BTC {pct((b.get('btc_change_pct') or 0) / 100, 1, signed=True)} on the day, {pct(b.get('share_up'))} of perps up"
+        if b.get("memes_vs_majors") is not None:
+            head += f", memes {pct(b['memes_vs_majors'] / 100, 1, signed=True)} vs majors"
+        out.append(head + ".")
+        fr = c.get("funding_regime")
+        if fr and fr.get("regime"):
+            out.append(f"Funding regime (Senpi): **{fr['regime']}**" + (f" — {fr['extreme_count']} extreme-funding assets" if fr.get("extreme_count") is not None else "") + ".")
+        groups = sorted((g for g in b.get("groups", {}).values()), key=lambda g: -g["oi_usd"])[:8]
+        if groups:
+            out += ["", "| Class | Avg 24h | Up / down | Median funding |", "|---|---:|---:|---:|"]
+            out += [f"| {g['label']} | {pct(g['avg_change_pct'] / 100, 1, signed=True)} | {g['up']} / {g['down']} | {g['median_funding_bp_8h']:+.1f} bp/8h |" for g in groups]
+    at = c.get("attention")
+    if at and at.get("markets"):
+        out += ["", "**Where the top traders' gains are right now** (Senpi Hyperfeed, 4h): " + "; ".join(f"{m['coin']} {m['direction'].lower()}s {m['share_of_gains']:.0f}% ({m['traders']} traders)" for m in at["markets"][:5]) + "."]
+        if at.get("overlap"):
+            out.append("You: " + ", ".join(f"{o['coin']} **{o['read']}** the top traders" for o in at["overlap"]) + ".")
+        if at.get("momentum"):
+            out.append("Momentum events in the last 4h: " + ", ".join(f"{m['coin']} {m['direction'].lower()} ×{m['events']}" for m in at["momentum"][:5])
+                       + (f" — with you on {', '.join(at['with_momentum'])}" if at.get("with_momentum") else "") + (f"; against you on {', '.join(at['against_momentum'])}" if at.get("against_momentum") else "") + ".")
+    rp = c.get("regime_performance") or {}
+    cells = rp.get("cells") or {}
+    if cells:
+        out += ["", f"**How you trade the tape** — your record by the regime of the day you entered (last {r['days']} days: " + ", ".join(f"{v} {k.replace('_', '-')} days" for k, v in (rp.get('days') or {}).items()) + "):", "",
+                "| Entered on | Trades | Win rate | Realized | Profit factor |", "|---|---:|---:|---:|---:|"]
+        for key in ("risk_on/ALL", "risk_off/ALL", "mixed/ALL", "risk_on/LONG", "risk_off/LONG", "risk_on/SHORT", "risk_off/SHORT"):
+            x = cells.get(key)
+            if x and x["trades"] >= 3:
+                out.append(f"| {x['regime'].replace('_', '-')} days · {x['side'].lower() if x['side'] != 'ALL' else 'all'} | {x['trades']} | {pct(x['wins'] / x['trades'])} | {usd(x['realized'], signed=True)} | {num(x['pf'], 'x')} |")
+        today = b.get("day")
+        best = max((x for x in cells.values() if x["side"] == "ALL" and x["trades"] >= 3), key=lambda x: (x["pf"] if x["pf"] not in (None, float("inf")) else 99), default=None)
+        if today and best:
+            same = best["regime"] == today
+            out.append(f"\nToday is **{today.replace('_', '-')}** — " + ("your best tape." if same else f"your best tape is {best['regime'].replace('_', '-')}; size accordingly."))
+    return "\n".join(out)
+
+
+def smart_v2(r):
+    cohorts = r.get("cohorts") or []
+    out = ["## You vs smart money", ""]
+    if not cohorts:
+        out.append("No cohort view was available for this run.")
+        return "\n".join(out)
+    for cv in cohorts:
+        title = {"proven": "The proven cohort", "hot": "The hot 30-day cohort"}.get(cv["name"], cv["name"])
+        out += [f"**{title}** — _{cv['source']}_ · {cv['wallets']} wallets, {cv['coins']} coins held", ""]
+        if cv["rows"]:
+            out += ["| Coin | You | Cohort | Read |", "|---|---|---|---|"]
+            out += ["| {} | {} | {} | **{}** |".format(x["coin"], x["you"], x["cohort"], x["read"]) for x in cv["rows"]]
+        ag = cv.get("agreement")
+        if ag is not None:
+            out.append(f"\nBook-level agreement with this cohort: **{ag:+.2f}** (+1 = same side everywhere, −1 = opposite).")
+        if cv.get("tilt"):
+            out.append("Their book by class: " + "; ".join(f"{t['label']} {'long' if t['bias'] > 0 else 'short'} {abs(t['bias']):.0%} net ({t['long']}L/{t['short']}S)" for t in cv["tilt"][:4]) + ".")
+        if cv.get("yours"):
+            out.append("Yours: " + "; ".join(f"{t['label']} {'long' if t['bias'] > 0 else 'short'} {abs(t['bias']):.0%} net, {t['weight']:.0%} of the book" for t in cv["yours"][:4]) + ".")
+        if cv.get("they_hold"):
+            out.append("They hold, you don't: " + ", ".join(f"{h['coin']} ({h['side'].lower()}, {h['members']} wallets)" for h in cv["they_hold"][:6]) + ".")
+        if cv.get("you_alone"):
+            out.append("You hold, none of them do: " + ", ".join(cv["you_alone"]) + ".")
+        if cv.get("entry_lag_h") is not None:
+            out.append(f"Entry timing: you are {abs(cv['entry_lag_h']):.0f}h {'behind' if cv['entry_lag_h'] > 0 else 'ahead of'} this cohort's median entry on the coins you share.")
+        out.append("")
+    bt = r.get("benchmark_table")
+    if bt and (r.get("benchmark") or {}).get("n", 0) >= 5:
+        out += [f"**You vs whale median** _(n={r['benchmark']['n']}, {r['benchmark'].get('computed_at', '')})_", "", "| Metric | You | Whale median |", "|---|---:|---:|"]
+        for row in bt:
+            you = num(row["you"], row["unit"]); wh = num(row["whale"], row["unit"]); mark = ""
+            if row["you"] is not None and row["whale"] is not None and row["you"] != float("inf"):
+                worse = (row["you"] > row["whale"]) if row["better"] == "lower" else (row["you"] < row["whale"])
+                mark = " 🔴" if worse else " 🟢"
+            out.append(f"| {row['metric']} | {you}{mark} | {wh} |")
+    return "\n".join(out)
+
+
+def scout(r):
+    opps = r.get("opportunities") or []
+    out = ["## Live matches — where today's market and your pattern agree", ""]
+    if not opps:
+        out.append("Nothing clears the bar right now: no coin has the cohorts, the tape and your own pattern on the same side. That is a read, not a gap.")
+    for o in opps:
+        held = f" — you already hold it {o['held'].lower()}" if o.get("held") else ""
+        out.append(f"- **{o['coin']} {o['side'].lower()}** ({o['cls']}, score {o['score']:.1f}){held}: " + "; ".join(o["why"]) + ".")
+    out.append("\n_Process only — rules, risk and timing. Never a call to buy a coin._")
+    return "\n".join(out)
+
+
+def followups_section(r):
+    fu = r.get("followups") or []
+    if not fu:
+        return ""
+    out = ["## Your quant is ready to go deeper", ""] + [f"{i}. {f['prompt']}" for i, f in enumerate(fu, 1)]
+    return "\n".join(out)
+
+
+def render_deep(mode, d, r):
+    if mode == "protect":
+        out = ["## Stop ladder — every open position", "", f"Dollars at risk before: **{usd(d['total_risk_now'])}** → after: **{usd(d['total_risk_after'])}**", "",
+               "| Coin | Side | Mark | Hard stop | Distance | 24h range | Lock arms at | Covered today | Note |", "|---|---|---:|---:|---:|---:|---:|---:|---|"]
+        for x in d["rows"]:
+            atr = "—" if x["atr_pct"] is None else "{:.1f}%".format(x["atr_pct"])
+            out.append("| {} | {} | {:,.4g} | {:,.4g} | {:.1f}% | {} | {:,.4g} | {} | {} |".format(x["coin"], x["side"], x["mark"], x["hard_stop"], x["hard_stop_pct"], atr, x["lock_arms_at"], pct(x["covered_now"]), x["note"]))
+        out += ["", "The hard stop sits beyond one and a half days of normal range and above the liquidation price; the lock trails at half the peak gain once the trade is two ranges in the money. One signature on positions you already hold — no deposit."]
+        return "\n".join(out) + "\n\n" + FOOTER
+    if mode == "replay":
+        if not d or d.get("empty"):
+            return "No losing week in the window.\n\n" + FOOTER
+        out = ["## Your worst week", "", f"Week of {datetime.datetime.utcfromtimestamp(d['start'] / 1000).strftime('%Y-%m-%d')}: **{usd(d['realized'], signed=True)}** over {d['trades']} trades ({d['losers']} losers).", "",
+               "| Coin | Side | Hold | Realized |", "|---|---|---:|---:|"]
+        out += [f"| {e['coin']} | {e['direction']} | {hrs(e['hold_h'])} | {usd(e['realized'], signed=True)} |" for e in d["biggest"]]
+        for label, g in (("A time-cut on losers", d.get("cut")), ("A trailing lock on winners", d.get("lock"))):
+            if g and g.get("settings"):
+                out.append(f"\n**{label}** on exactly these trades: " + ", ".join(f"{k}: {usd(v['total'], signed=True)}" for k, v in g["settings"].items() if v["n"]) + (f" → robust {usd(g['robust'], signed=True)}" if g.get("robust") else " → not robust; would not have helped"))
+        if d.get("green_first") is not None:
+            out.append(f"\n{pct(d['green_first'])} of that week's losers were green first.")
+        return "\n".join(out) + "\n\n" + FOOTER
+    if mode == "funding":
+        out = ["## Funding — next 30 days at today's rates", "", "| Coin | Side | Notional | Rate | Per day | 30 days | Paid since open |", "|---|---|---:|---:|---:|---:|---:|"]
+        out += [f"| {x['coin']} | {x['side']} | {usd(x['notional'])} | {x['rate_bp_8h']:+.1f} bp/8h | {usd(x['per_day'], signed=True)} | {usd(x['thirty_days'], signed=True)} | {usd(x['since_open'], signed=True)} |" for x in d["rows"]]
+        out.append(f"\nTotal: **{usd(d['thirty_days'], signed=True)}** over 30 days" + (f" — {pct(d['share_of_equity'])} of your equity" if d.get("share_of_equity") is not None else "") + (f". The payers: {', '.join(d['payers'])}." if d.get("payers") else "."))
+        return "\n".join(out) + "\n\n" + FOOTER
+    if mode == "compare":
+        rc, pr = d.get("recent"), d.get("prior")
+        if not rc or not pr:
+            return "Not enough trades in both windows to compare.\n\n" + FOOTER
+        rows = [("Trades", rc["trades"], pr["trades"], None), ("Win rate", rc["win_rate"], pr["win_rate"], "%"), ("Profit factor", rc["pf"], pr["pf"], "x"), ("Realized", rc["realized"], pr["realized"], "$"),
+                ("Fees", rc["fees"], pr["fees"], "$"), ("Avg size", rc["avg_size"], pr["avg_size"], "$"), ("Median hold — winners", rc["hold_w"], pr["hold_w"], "h"), ("Median hold — losers", rc["hold_l"], pr["hold_l"], "h"), ("Taker share", rc["taker"], pr["taker"], "%")]
+        out = ["## Last 30 days vs the 60 before", "", "| Metric | Last 30d | Prior 60d |", "|---|---:|---:|"]
+        for m, a, b, u in rows:
+            f = (lambda v: "—" if v is None else (f"{v:,.0f}" if u is None else (usd(v) if u == "$" else num(v, u))))
+            out.append(f"| {m} | {f(a)} | {f(b)} |")
+        return "\n".join(out) + "\n\n" + FOOTER
+    if mode == "rules":
+        out = ["## Your strategy as a rule set", ""]
+        out += [f"- **Entry setups:** {'; '.join(d['entries']) if d['entries'] else 'no setup clears the bar yet'}", f"- **Entry timing:** {d['entry_rule']}", f"- **Holding:** {d['hold_rule']}", f"- **Sizing:** {d['size_rule']}", f"- **Risk:** {d['risk_rule']}", f"- **Catalog families:** {', '.join(f.replace('_', ' ') for f in d['families'])}", "", d["handoff"] + "."]
+        return "\n".join(out) + "\n\n" + FOOTER
+    if mode == "regime":
+        rr = dict(r); rr["context"] = dict(r.get("context") or {}, breadth=dict((r.get("context") or {}).get("breadth") or {}, day=d.get("today")))
+        return context(rr) + "\n\n" + FOOTER
+    if mode == "watch":
+        out = ["## What your agents would watch", ""] + [f"- {x}" for x in d["items"]] + ["", "Say *hire my quant* to keep them on your book."]
+        return "\n".join(out) + "\n\n" + FOOTER
+    if mode == "smart":
+        return smart_v2(dict(r, cohorts=d.get("cohorts"))) + "\n\n" + FOOTER
+    if mode == "scout":
+        return scout(dict(r, opportunities=d.get("opportunities"))) + "\n\n" + FOOTER
+    if mode == "strategy":
+        return strategy(dict(r, strategy=d)) + "\n\n" + FOOTER
+    return FOOTER
+
+
+RENDERERS = {"overview": overview, "strategy": strategy, "context": context, "protection": protection, "performance": performance, "leaks": leaks, "smart": smart_v2,
+             "market": market, "edge": edge, "scout": scout, "next": next_steps, "followups": followups_section}
 
 
 def render(r, sections=None):

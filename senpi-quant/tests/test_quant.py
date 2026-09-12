@@ -225,7 +225,8 @@ def test_fixture_pipeline_end_to_end():
     hl = hl_api.HLFixture(rec)
     import desk
     r = desk.analyze(rec["address"], hl, days=90, mcp=None, bench={"cost_ratio": 0.12, "n": 1, "computed_at": "test"})
-    assert r["track"]["trades"] > 30 and r["book"]["positions"] and r["rank"]["rank"] == 61 and r["rank"]["of"] == len(rec["hl::leaderboard"]["leaderboardRows"])
+    assert r["track"]["trades"] > 30 and r["book"]["positions"] and r["rank"]["rank"] == hl_api.weekly_rank(rec["hl::leaderboard"], rec["address"])["rank"]
+    assert r["rank"]["of"] == len(rec["hl::leaderboard"]["leaderboardRows"])
     assert 0.3 < r["track"]["coverage"]["overall"] < 0.9                                            # the TWAP-slice gap, measured
     assert r["quant_score"] and r["archetype"] and r["verdict"] and r["flags"] and r["leaks"] and r["smart"]["rows"]
     assert any("returned" in w for w in r["meta"]["warnings"])                                         # the coverage caveat is stated
@@ -263,16 +264,149 @@ def test_senpi_path_uses_discovery_history_and_cohort():
         "pageInfo": {"totalCount": 24, "hasNextPage": False}}}
     rec = dict(rec)
     rec[f"discovery_get_trader_history::{addr}"] = history
-    rec["discovery_get_top_traders::0"] = {"success": True, "data": {"traders": [{"address": f"0x{i:040x}", "realizedProfitAndLoss": 5_000_000, "tcsLabel": "ELITE"} for i in range(6)]}}
-    rec["discovery_get_top_traders::1000"] = {"success": True, "data": {"traders": []}}
+    rec["discovery_get_top_traders::ALL_TIME::0"] = {"success": True, "data": {"traders": [{"address": f"0x{i:040x}", "realizedProfitAndLoss": 5_000_000, "tcsLabel": "ELITE"} for i in range(6)]}}
+    rec["discovery_get_top_traders::ALL_TIME::1000"] = {"success": True, "data": {"traders": []}}
+    rec["discovery_get_top_traders::MONTHLY::0"] = {"success": True, "data": {"traders": [{"address": f"0x{i:040x}", "profitAndLoss": 900_000} for i in range(3, 9)]}}
+    rec["market_get_funding_regime"] = {"success": True, "data": {"regime": "LONG_CROWDED", "extreme_count": 4, "regime_duration_hours": 12}}
+    rec["leaderboard_get_markets"] = {"success": True, "data": {"markets": [{"token": "ETH", "dex": "", "direction": "short", "pct_of_top_traders_gain": 31.0, "trader_count": 9, "is_dominant_direction": True},
+                                                                              {"token": "ZEC", "dex": "", "direction": "long", "pct_of_top_traders_gain": 12.0, "trader_count": 7, "is_dominant_direction": True}], "source_trader_count": 100, "window": "4h"}}
+    rec["leaderboard_get_momentum_events"] = {"success": True, "data": {"events": [{"tier": 1, "tier_label": "Exceptional", "top_positions": [{"token": "ZEC", "direction": "long"}]}]}}
     rec[f"discovery_get_top_traders::{addr}"] = {"success": True, "data": {"traders": [{"address": addr, "tcsLabel": "CHOPPY", "riskLabel": "AGGRESSIVE", "activityLabel": "DEGEN"}]}}
-    rec["discovery_get_trader_state::0x" + "0" * 40] = {"success": True, "data": {"traders": [{"openPositions": [{"coin": "ETH", "szi": "-4", "positionValue": "10000", "startTime": (now - 40 * H) // 1000}]}] * 6}}
+    rec["discovery_get_trader_state::0x" + "0" * 40] = {"success": True, "data": {"traders": [{"address": f"0x{i:040x}", "openPositions": [{"coin": "ETH", "szi": "-4", "positionValue": "10000", "startTime": (now - 40 * H) // 1000}]} for i in range(6)]}}
+    rec["discovery_get_trader_state::0x" + "0" * 39 + "3"] = {"success": True, "data": {"traders": [{"address": f"0x{i:040x}", "openPositions": [{"coin": "ZEC", "szi": "10", "positionValue": "12000", "startTime": (now - 3 * H) // 1000}]} for i in range(3, 9)]}}
     import desk
     hl = hl_api.HLFixture(rec)
     r = desk.analyze(addr, hl, days=90, mcp=desk._MCPFixture(rec), bench=None)
     assert r["meta"]["sources"]["trades"].startswith("Senpi discovery (24")
     assert r["track"]["trades"] == 24 and r["track"]["complete_trades"] == 24 and r["track"]["hold_winners_h"] is not None
     assert r["track"]["taker_share"] is not None                              # execution read stays fill-level
-    assert r["labels"] == {"consistency": "CHOPPY", "risk": "AGGRESSIVE", "activity": "DEGEN"} and "CHOPPY" in r["flags"]
+    assert {k: r["labels"][k] for k in ("consistency", "risk", "activity")} == {"consistency": "CHOPPY", "risk": "AGGRESSIVE", "activity": "DEGEN"} and "CHOPPY" in r["flags"]
     eth = next(x for x in r["smart"]["rows"] if x["coin"] == "ETH")
     assert eth["read"] == "AGAINST SMART MONEY" and r["smart"]["source"].startswith("Senpi discovery")
+    assert [c["name"] for c in r["cohorts"]] == ["proven", "hot"]
+    hot = r["cohorts"][1]; zec = next(x for x in hot["rows"] if x["coin"] == "ZEC")
+    assert zec["read"].startswith("WITH") and hot["wallets"] == 6
+    ctx = r["context"]
+    assert ctx["funding_regime"]["regime"] == "LONG_CROWDED" and ctx["attention"]["markets"][0]["coin"] == "ETH" and ctx["attention"]["overlap"][0]["read"] == "AGAINST"
+    assert "ZEC" in ctx["attention"]["with_momentum"]
+    assert any(o["coin"] == "ZEC" for o in r["opportunities"]) and r["followups"] and r["strategy"]["statements"]
+    md = __import__("render").render(r)
+    assert "The proven cohort" in md and "The hot 30-day cohort" in md and "LONG_CROWDED" in md and "Your quant is ready to go deeper" in md
+
+
+# ---------------------------------------------------------------- v2: taxonomy, strategy read, market context, cohorts, matches, follow-ups, deep modes
+import deep  # noqa: E402
+import followups  # noqa: E402
+import opportunities  # noqa: E402
+import strategy_read  # noqa: E402
+import taxonomy  # noqa: E402
+
+
+def _ctxs(names_oi):
+    return [{"universe": [{"name": n} for n, _ in names_oi]}, [{"openInterest": str(oi), "markPx": "1", "prevDayPx": "1", "funding": "0", "dayNtlVlm": "1"} for _, oi in names_oi]]
+
+
+def test_taxonomy_tiers_and_memes():
+    ctxs = _ctxs([("BTC", 100), ("ETH", 90), ("HYPE", 80), ("SOL", 50), ("XRP", 40), ("kPEPE", 30), ("FARTCOIN", 20)] + [(f"MID{i}", 10 - i * 0.1) for i in range(14)] + [("OBSCURE", 1)])
+    majors, large = taxonomy.crypto_tiers(ctxs)
+    assert majors == {"BTC", "ETH", "HYPE"} and "SOL" in large
+    assert taxonomy.classify("kPEPE", majors, large) == "memes" and taxonomy.classify("FARTCOIN", majors, large) == "memes"
+    assert taxonomy.classify("OBSCURE", majors, large) == "alts" and taxonomy.classify("xyz:NVDA", majors, large) == "xyz_equities" and taxonomy.classify("xyz:GOLD", majors, large) == "xyz_commodities"
+
+
+def _ep(coin, side, open_h, close_h, realized, win=None, notional=1000.0):
+    return dict(coin=coin, direction=side, open_time=open_h * H, close_time=close_h * H, last_time=close_h * H, realized=realized, win=(realized > 0) if win is None else win,
+                fees=1.0, volume=notional, taker_volume=notional, peak_notional=notional, complete=True, truncated=False, hold_h=close_h - open_h, adds=0, entry_vwap=1.0)
+
+
+def test_strategy_read_hedged_book_and_receipts():
+    ctxs = _ctxs([("BTC", 100), ("ETH", 90), ("SOL", 80), ("kPEPE", 10), ("WIF", 9)])
+    closed = [_ep("kPEPE", "SHORT", 0, 30, -50), _ep("WIF", "SHORT", 5, 40, -20), _ep("kPEPE", "SHORT", 50, 60, -10), _ep("ETH", "LONG", 0, 35, 300), _ep("SOL", "LONG", 10, 45, 200), _ep("ETH", "LONG", 50, 70, 100)]
+    book = {"positions": [{"coin": "ETH", "side": "LONG", "notional": 800.0}, {"coin": "kPEPE", "side": "SHORT", "notional": 200.0}], "net_exposure": 600.0, "account_value": 1000.0}
+    tr = dict(long_share=0.5, adds_per_trade=0.0, hold_winners_h=30, hold_losers_h=20, trades=6)
+    act = dict(active_days=10, twap_share=0.0)
+    fp = strategy_read.fingerprint(closed, [], book, tr, act, None, {}, ctxs, [], 0, 80 * H)
+    assert fp["simultaneity"]["both_share"] > 0.5 and fp["dead_sides"] and fp["dead_sides"][0]["label"] == "memecoins"
+    assert fp["net_over_gross"] == 0.6 and fp["outcome_concentration"] > 1.0      # the three winners exceed the net: the rest is negative
+    st = strategy_read.statements(fp, tr, book)
+    assert any("longs and shorts at once" in x for x in st) and any("memecoins shorts have never paid" in x for x in st)
+    cr = strategy_read.critique(fp, tr, book, None, None)
+    assert any("Stop trading memecoins shorts" in c for c in cr)
+
+
+def test_breadth_day_classification_and_regimes():
+    names = [("BTC", 100), ("ETH", 90), ("HYPE", 80)] + [(f"ALT{i}", 10) for i in range(12)] + [("kPEPE", 5), ("WIF", 4), ("PUMP", 3)]
+    ctxs = _ctxs(names)
+    for c in ctxs[1]:
+        c["prevDayPx"] = "1"; c["markPx"] = "0.97"       # everything down 3%
+    b = market.breadth(ctxs, None)
+    assert b["day"] == "risk_off" and b["share_up"] == 0.0 and b["groups"]["memes"]["down"] == 3
+    daily = {"BTC": [[i * market.DAY_MS, 100 - i, 100 - i, 100 - i, 100 - i, 1] for i in range(6)], "ETH": [[i * market.DAY_MS, 50 - i, 50 - i, 50 - i, 50 - i, 1] for i in range(6)]}
+    reg = market.daily_regimes(daily, ["BTC", "ETH"])
+    assert all(v["label"] == "risk_off" for d, v in reg.items() if d > 0)
+    closed = [_ep("BTC", "LONG", 30, 40, -10), _ep("BTC", "SHORT", 54, 60, 30)]
+    rp = market.regime_performance(closed, reg)
+    assert rp["cells"]["risk_off/SHORT"]["wins"] == 1 and rp["cells"]["risk_off/ALL"]["trades"] == 2
+
+
+def test_attention_and_funding_regime_parsers():
+    mk = {"success": True, "data": {"markets": [{"token": "ETH", "dex": "", "direction": "long", "pct_of_top_traders_gain": 38.0, "trader_count": 12, "is_dominant_direction": True},
+                                                {"token": "ETH", "dex": "", "direction": "short", "pct_of_top_traders_gain": 0.2, "trader_count": 1, "is_dominant_direction": False},
+                                                {"token": "GOLD", "dex": "xyz", "direction": "long", "pct_of_top_traders_gain": 9.0, "trader_count": 6, "is_dominant_direction": True}]}}
+    mo = {"success": True, "data": {"events": [{"tier": 1, "top_positions": [{"token": "ETH", "direction": "long"}, {"token": "ZEC", "direction": "short"}]}]}}
+    book = {"positions": [{"coin": "ETH", "side": "SHORT"}, {"coin": "ZEC", "side": "SHORT"}]}
+    at = market.attention(mk, mo, book)
+    assert at["markets"][0]["coin"] == "ETH" and at["markets"][1]["coin"] == "xyz:GOLD" and at["overlap"][0]["read"] == "AGAINST"
+    assert at["with_momentum"] == ["ZEC"] and at["against_momentum"] == ["ETH"]
+    assert market.funding_regime({"success": True, "data": {"regime": "LONG_CROWDED", "extreme_count": 7}})["regime"] == "LONG_CROWDED"
+    assert market.funding_regime("NEUTRAL")["regime"] == "NEUTRAL"
+
+
+def test_cohort_view_tilt_and_they_hold():
+    ctxs = _ctxs([("BTC", 100), ("ETH", 90), ("HYPE", 80), ("SOL", 50), ("kPEPE", 5)])
+    majors, large = taxonomy.crypto_tiers(ctxs)
+    bks = [dict(address=f"0x{i:040x}", positions=[("ETH", 1000.0, None), ("kPEPE", -200.0, None)]) for i in range(5)] + [dict(address="0xz", positions=[("SOL", 500.0, None)])]
+    book = {"positions": [{"coin": "kPEPE", "side": "LONG", "notional": 300.0, "leverage": 5}, {"coin": "SOL", "side": "LONG", "notional": 100.0, "leverage": 2}], "net_exposure": 400.0}
+    cv = smart_money.cohort_view("proven", bks, book, [], majors, large)
+    assert cv["wallets"] == 6 and cv["against"] == ["kPEPE"] and cv["they_hold"][0]["coin"] == "ETH" and cv["they_hold"][0]["members"] == 5
+    assert cv["agreement"] is not None and cv["agreement"] < 0
+    assert any(t["label"] == "memecoins" and t["bias"] < 0 for t in cv["tilt"])
+
+
+def test_scout_ranks_by_cohort_tape_and_pattern():
+    ctxs = _ctxs([("BTC", 100), ("ETH", 90), ("HYPE", 80), ("SOL", 50)])
+    majors, large = taxonomy.crypto_tiers(ctxs)
+    closed = [_ep("ETH", "LONG", i * 10, i * 10 + 5, 100) for i in range(5)]
+    setups = {"best": [{"label": "ETH longs", "n": 5, "wins": 5, "realized": 500, "profit_factor": float("inf")}]}
+    book = {"positions": []}
+    breadth = {"assets": {"ETH": {"funding_bp_8h": -4.0, "change_pct": 1.0}, "SOL": {"funding_bp_8h": 25.0, "change_pct": 9.0}}}
+    regimes = {"ETH": {"trend": "UP"}, "SOL": {"trend": "UP"}}
+    cohorts = [{"name": "proven", "they_hold": [{"coin": "ETH", "members": 12, "bias": 0.9, "side": "LONG"}, {"coin": "SOL", "members": 8, "bias": 0.8, "side": "LONG"}], "rows": []}]
+    opps = opportunities.scout(closed, setups, book, breadth, regimes, cohorts, None, majors, large)
+    assert opps and opps[0]["coin"] == "ETH" and opps[0]["score"] > (opps[1]["score"] if len(opps) > 1 else 0)
+    assert any("chase" in w for o in opps if o["coin"] == "SOL" for w in o["why"])
+
+
+def test_followups_offer_protect_first_when_naked():
+    r = {"book": {"naked": ["ETH"], "partial": [], "positions": [{"liq_distance_pct": 3.0}], "account_value": 1000, "funding_per_day": -5}, "track": {"trades": 40, "largest_loss": -100},
+         "timing": {}, "leaks": [{"title": "You hold losers 3× longer"}], "cohorts": [{"against": ["ETH"], "they_hold": [1]}], "opportunities": [1], "setups": {"best": [1]}, "context": {}, "strategy": {"critique": ["x"]}}
+    fu = followups.offer(r, n=4)
+    assert fu[0]["mode"] == "protect" and len(fu) == 4 and all(f["prompt"].endswith("?") for f in fu)
+
+
+def test_deep_modes_run_on_a_cached_analysis():
+    with open(FIXTURE) as fh:
+        rec = json.load(fh)
+    import desk
+    r = desk.analyze(rec["address"], hl_api.HLFixture(rec), days=90, mcp=None, bench=None)
+    candles = timing.load_candles(hl_api.HLFixture(rec).candles(sorted({p["coin"] for p in r["book"]["positions"]}), days=91))
+    p = deep.protect(r, candles)
+    assert p["rows"] and all(x["hard_stop_pct"] > 0 for x in p["rows"]) and p["total_risk_after"] < p["total_risk_now"]
+    assert deep.funding_forecast(r)["rows"] and deep.compare_windows(r)["recent"] and deep.rules(r)["families"]
+    rp = deep.replay(r, candles)
+    assert rp is None or rp.get("empty") or rp["trades"] >= 1
+    for mode in ("protect", "funding", "compare", "rules", "watch", "regime", "smart", "scout", "strategy"):
+        data = {"protect": p, "funding": deep.funding_forecast(r), "compare": deep.compare_windows(r), "rules": deep.rules(r), "watch": deep.watch(r), "regime": deep.regime(r),
+                "smart": {"cohorts": r["cohorts"]}, "scout": {"opportunities": r["opportunities"]}, "strategy": r["strategy"]}[mode]
+        md = __import__("render").render_deep(mode, data, r)
+        assert "Not financial advice" in md
