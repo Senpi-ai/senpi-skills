@@ -5,7 +5,7 @@
 import datetime
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-FOOTER = "_Analysis of public on-chain data. Not financial advice._"
+FOOTER = "_Analysis of public onchain data. Not financial advice._"
 
 
 def usd(x, signed=False):

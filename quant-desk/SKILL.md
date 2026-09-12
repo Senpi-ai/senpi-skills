@@ -8,7 +8,7 @@ description: >-
   realized P&L, ≥ $1M) and the HOT 30-day cohort — side, headcount, when they moved, what they hold that
   the trader doesn't — live matches where the tape, the cohorts and the trader's own pattern agree, and
   a bank of ten follow-ups the quant is prepared to go deeper on. Works for wallets that never touched
-  senpi (public on-chain data, read-only); with a Senpi token the closed-trade history, both cohorts, the
+  senpi (public onchain data, read-only); with a Senpi token the closed-trade history, both cohorts, the
   funding regime and the Hyperfeed attention layer come from Senpi's own data. Use for "analyze my
   wallet / my Hyperliquid address", "how am I doing", "what's my strategy", "where am I leaking money",
   "am I on the right side of smart money", "are my positions protected", "what should I fix first",
@@ -31,7 +31,12 @@ metadata:
 1. **One command, then relay.** `python3 quant-desk/scripts/desk.py <0xaddress>` prints the desk as
    Markdown. Relay it; do not recompute, reorder or "improve" its numbers. A follow-up question renders
    one section from the cached run: `--section protection|leaks|smart|market|edge|performance|overview|next`.
-2. **Never invent a number.** Every figure on the desk is computed from public on-chain data (or Senpi
+   **The lead-in, before you run it, is this sentence and only this sentence** (short address in place):
+   *"Running senpi quant desk on `0x5b5d…c060` — scanning every fill, running senpi-signals,
+   senpi-market-pulse and senpi-smart-money, finding the leaks, pricing the fixes…"* Never "this pulls
+   public data" or "this may take a moment": the desk is senpi's proprietary analysis, and the engine
+   streams its own progress while it works. Write **onchain**, never "on-chain", everywhere.
+2. **Never invent a number.** Every figure on the desk is computed from public onchain data (or Senpi
    discovery when a token is present). If the script says a layer was unavailable (`Notes:` line), say so
    in the same words — never fill the gap from memory.
 3. **Counterfactual, not history, on every leak.** "A 24h cap on funding-paying holds would have kept
@@ -128,7 +133,7 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
     setup fits how this trader wins, ranked and explained; "already moved today — a chase" is a demerit.
 12. **What your quant would do next** — protect first · fix the biggest leak · keep the agents on.
 12b. **Your quant is ready to go deeper** — three to five follow-ups from the bank of ten.
-13. Footer: _Analysis of public on-chain data. Not financial advice._
+13. Footer: _Analysis of public onchain data. Not financial advice._
 
 ## Reading the sources (what to say when asked "where does this come from")
 

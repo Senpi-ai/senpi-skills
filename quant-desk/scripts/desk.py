@@ -87,6 +87,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     meta = meta if meta is not None else {}
     meta.setdefault("warnings", []); meta["timings"] = {}; meta["sources"] = {}
     t0 = time.time()
+    log("[quant-desk] scanning every fill, funding payment, transfer and resting order …")
     tr_raw = hl.trader(addr, days=days)
     meta["timings"]["trader"] = round(time.time() - t0, 1)
     fills, cs, oo = tr_raw["fills"], tr_raw["clearinghouseState"], tr_raw["frontendOpenOrders"]
@@ -160,6 +161,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
             meta["warnings"].append("address is not on Hyperliquid's leaderboard this week (no rank)")
     if want_cohort:
         t3 = time.time()
+        log("[quant-desk] running senpi-smart-money: the proven cohort and the hot 30-day cohort against this book …")
         if mcp is not None:
             for name, fetch in (("proven", smart_money.proven_cohort), ("hot", smart_money.hot_cohort)):
                 try:
@@ -183,9 +185,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         meta["timings"]["cohort"] = round(time.time() - t3, 1)
         meta["sources"]["cohort"] = [c["source"] for c in cohorts]
     if mcp is not None:
-        for key, call in (("funding_regime", lambda: market_mod.funding_regime(mcp.mcp_call("market_get_funding_regime", timeout=10))),
-                          ("labels", None)):
-            pass
+        log("[quant-desk] running senpi-market-pulse: funding regime, where the top traders' gains sit, momentum …")
         try:
             fregime = market_mod.funding_regime(mcp.mcp_call("market_get_funding_regime", timeout=10))
         except Exception as e:  # noqa: BLE001
@@ -212,6 +212,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
             meta["warnings"].append(f"senpi labels unavailable: {e}")
     # ---- candles: every coin the trader touched or holds, BTC, and what the cohorts and top traders are in
     t1 = time.time()
+    log("[quant-desk] reading the tape: 90 days of candles for every coin touched, the regime by day …")
     coins = {e["coin"] for e in closed + opened if metrics.in_window(e, win_start)} | {p["coin"] for p in book["positions"]} | {"BTC"}
     for cv in cohorts:
         coins |= {h["coin"] for h in cv.get("they_hold") or []}
@@ -238,6 +239,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     if ctx_xyz:
         ctx_by.update({u["name"]: c for u, c in zip(ctx_xyz[0]["universe"], ctx_xyz[1])})
     coin_regimes = {c: market_mod.coin_regime(c, candles, ctx_by.get(c)) for c in coins}
+    log("[quant-desk] finding the leaks, pricing the fixes, running senpi-signals for live matches …")
     dims, quant = score.dimensions(track, book, dd, tm, mf, sm, closed, pnl_curve)
     lk = score.leaks(track, book, tm, tr_raw["userFunding"], in_win, win_start, days)
     setups = score.best_setups(in_win, tm_rows)
@@ -295,7 +297,7 @@ def main(argv=None):
             if a.dry:
                 print(json.dumps({"error": "--dry needs --fixture"})); return 2
             hl = hl_api.HL(cache_dir=a.cache or None); mcp = _mcp_client(meta)
-        log(f"[quant-desk] reading {addr[:6]}…{addr[-4:]}: fills, funding, fees, book, orders, equity …")
+        log(f"[quant-desk] running senpi quant desk on {addr[:6]}…{addr[-4:]}")
         try:
             r = analyze(addr, hl, days=a.days, mcp=mcp, want_rank=not a.no_rank, want_cohort=not a.no_cohort, bench=bench, meta=meta)
         except hl_api.HLError as e:
