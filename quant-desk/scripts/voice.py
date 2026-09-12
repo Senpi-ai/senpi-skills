@@ -5,8 +5,9 @@ pronoun rewrite. The product persona ("your quant") stays addressed to the reade
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import re
 
-KEEP = ("YOUR QUANT — LIVE", "Your quant", "your quant", "hire my quant", "your own book", "under your name", "your name", "you could run",
-        "you can run", "Say *hire", "you hired", "you want", "Want me", "Want the", "Want their", "Want to", "your say-so", "on your side", "you already hold")
+KEEP = ("YOUR QUANT — LIVE", "Your quant", "your quant", "hire my quant", "your own book", "under **your** name", "under your name", "your name",
+        "you could run", "you can run", "you run under", "by the time you see them", "you see them", "Say *hire", "you hired", "you want", "Want me", "Want the",
+        "Want their", "Want to", "your say-so", "on your side", "you already hold", "for you")
 PAIRS = (
     (r"\bYou're\b", "They're"), (r"\byou're\b", "they're"), (r"\bYou've\b", "They've"), (r"\byou've\b", "they've"),
     (r"\bYou'd\b", "They'd"), (r"\byou'd\b", "they'd"), (r"\bYou'll\b", "They'll"), (r"\byou'll\b", "they'll"),

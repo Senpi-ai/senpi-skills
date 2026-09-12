@@ -468,7 +468,8 @@ def render_compare(rs):
     if seps:
         out += ["", "**What separates them**"] + [f"- {s}" for s in seps]
     out += ["", "_Analysis of public onchain data. Not financial advice._"]
-    return "\n".join(out)
+    import voice
+    return voice.third_person("\n".join(out))
 
 
 RENDERERS = {"overview": overview, "strategy": strategy, "context": context, "protection": protection, "performance": performance, "leaks": leaks, "smart": smart_v2,
