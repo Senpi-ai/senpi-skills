@@ -71,7 +71,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-strategy-author`](senpi-strategy-author/) | 3.7.0 | Build/edit a DSL-protected strategy package, one decision at a time |
 | [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.12.0 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
 | [`senpi-trade`](senpi-trade/) | 1.3.0 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
-| [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.2.0 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
+| [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.1 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
 | **Move money / positioning** | | |
 | [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.1.0 | The money-movement rails (funds in via embedded wallet or in-app USDC purchase; out via the app) |
 | [`senpi-why`](senpi-why/) | 1.1.0 | "Why Senpi / vs. other tools" — the positioning answer |

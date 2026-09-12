@@ -163,7 +163,8 @@ knob. As an author: **assume you cannot mutate anything.** Produce signals; the 
 `call_tool` normalizes a tool result in the order `isError` → `structuredContent` → first text
 content parsed as JSON → **the raw text**. That last step is deliberate (it mirrors
 `producer.mjs`), and it means a successful call can hand back a plain `str` — typically when the
-upstream answers with a message rather than a payload.
+upstream answers with a message rather than a payload — or a `list`, when the payload is a bare
+JSON array.
 
 Truthiness does not catch it. A non-empty string passes `if not resp:` and then raises
 `AttributeError: 'str' object has no attribute 'get'`, which is **unhandled and kills the whole
@@ -180,7 +181,7 @@ candles = (md.get("data", md) or {}).get("candles", {}) or {}
 This is intermittent by nature — it depends on what the upstream returned on that tick — so a
 package passes `senpi validate` and then fails hours later, on some ticks and not others. It has
 cost four users a dead scanner in the last fortnight. A JSON payload that parses to a scalar
-(`"text"`, `123`) lands in the same trap, so test the type, never the truthiness.
+(`"text"`, `123`) or to a list lands in the same trap, so test the type, never the truthiness.
 
 **Read every numeric field through the fleet-standard `_f()` helper** (author guide's scoring
 template) — `float` of a number is a no-op, so it is correct on every runtime version and every
