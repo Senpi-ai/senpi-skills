@@ -125,7 +125,8 @@ tiers / the stop / the DSL" request:
 2. **Show the drift, in a table**: position · ladder it carries · matches the file? · current floor.
 3. **Price each open position's change in its own numbers** before asking. Semantics: `trigger_pct` is ROE
    (price move × leverage), `lock_hw_pct` is the share of the high-water ROE kept. Floor ROE = high-water
-   ROE × lock; floor price = entry × (1 − floor ROE ÷ leverage ÷ 100) for a long, + for a short. Example
+   ROE × lock; floor price = entry × (1 + floor ROE ÷ leverage ÷ 100) for a long, − for a short — a profit lock sits on the
+   winning side of entry (entry 100, 3x, floor 7.6% ROE → 102.53 for a long). Example
    from a live book at 3x: high-water 30.5% ROE; lock 25% → floor 7.6% ROE; lock 55% → floor 16.8% ROE —
    "the new ladder keeps twice as much of this position's peak". Say the retrace room too: room to the
    floor in price = (high-water ROE − floor ROE) ÷ leverage.
@@ -141,6 +142,4 @@ tiers / the stop / the DSL" request:
    doesn't, by the user's choice), the new floor price and stop order per position, and which positions
    were left on the old ladder because the user said so.
 
-Two failure modes this section exists to stop: editing only the file and telling the user "the change is
-in" while every open position runs the old ladder; and editing open positions the user only wanted the file
-changed for. The approval gate catches the second; only the question catches the first.
+The approval gate catches an open position edited by mistake; only the question catches a file edited alone.

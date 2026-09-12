@@ -337,9 +337,9 @@ plan out first**: `dsl_preset` is **forward-only** — new entries only, never o
 fields, e.g. `order_type`, DO reach open positions) — never let "tighter" be heard as "my open trades are tighter".
 **A DSL change has two targets, and the user picks which: (a) future positions — the file, via `update`;
 (b) the positions open now — `ratchet_stop_edit`, one call and one approval per position; (c) both.** Read
-both first (`ratchet_stop_list` shows the ladder each open position actually carries, which can differ from
-the file), show the drift and each position's new floor in numbers, then ask (a), (b) or (c) — never assume
-(a), never touch an open position without its own approval: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md). Call it an **update** to the user, never a
+both first (the file and `ratchet_stop_list`), show the drift and each position's new floor in numbers, then
+ask (a), (b) or (c) — never assume (a), never touch an open position without its own approval:
+[`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md). Call it an **update** to the user, never a
 "redeploy" — that word is the market-exit path below; an edit that closes nothing must never sound like one.
 
 **Only a changed `strategy.wallet`, a renamed or moved external scanner, or a changed `action_type` still need
