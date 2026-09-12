@@ -27,7 +27,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.12.0"
+  version: "3.13.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -334,7 +334,12 @@ the deployed scanner as it is.
 scanner stores and action history survive. `senpi validate <instance-dir>` writes the proof `--apply`
 needs; `python3 senpi-strategy-ops/scripts/deploy.py update <pkg> --id <runtime_id>` PLANS (the structural preflight, then the verb; add `--apply` to commit — it stops if the box has no `update` verb yet: then STOP too, never close-and-redeploy). **Read the
 plan out first**: `dsl_preset` is **forward-only** — new entries only, never one already open (other `exit:`
-fields, e.g. `order_type`, DO reach open positions) — never let "tighter" be heard as "my open trades are tighter". Call it an **update** to the user, never a
+fields, e.g. `order_type`, DO reach open positions) — never let "tighter" be heard as "my open trades are tighter".
+**A DSL change has two targets, and the user picks which: (a) future positions — the file, via `update`;
+(b) the positions open now — `ratchet_stop_edit`, one call and one approval per position; (c) both.** Read
+both first (the file and `ratchet_stop_list`), show the drift and each position's new floor in numbers, then
+ask (a), (b) or (c) — never assume (a), never touch an open position without its own approval:
+[`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md). Call it an **update** to the user, never a
 "redeploy" — that word is the market-exit path below; an edit that closes nothing must never sound like one.
 
 **Only a changed `strategy.wallet`, a renamed or moved external scanner, or a changed `action_type` still need

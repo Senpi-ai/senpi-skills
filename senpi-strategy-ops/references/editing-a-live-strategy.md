@@ -106,3 +106,40 @@ it is a money conversation before it is a command:
   verified tick.
 - raw `strategy_create_custom_strategy` — that is a naked wallet with no runtime.
 - claim "upgraded / live" before the deploy report says `overall: live`.
+
+# DSL changes — the file and the open positions are two different edits
+
+The runtime **snapshots the exit ladder when a position is created**. Editing `exit.dsl_preset` in
+`runtime.yaml` and applying it with `update` therefore reaches every position opened **after** the apply
+— and none of the ones open now. Those keep the ladder they were born with until they close, unless each
+one is edited on its own with `ratchet_stop_edit`, which runs behind the trade-approval gate: one call, one
+approve-or-deny in the app, per position. That gate IS the user's yes. Never pre-empt it, never re-issue a
+denied call, never say "done" for a position whose call returned empty.
+
+Both paths exist, so the agent's job is to make the choice visible, not to pick one. On any "change the
+tiers / the stop / the DSL" request:
+
+1. **Read both.** The file's `exit.dsl_preset` (what future positions get) and `ratchet_stop_list` for the
+   strategy's wallet (what each open position actually carries). They drift the moment the file changes
+   after a position opened, and a package can carry three ladders at once.
+2. **Show the drift, in a table**: position · ladder it carries · matches the file? · current floor.
+3. **Price each open position's change in its own numbers** before asking. Semantics: `trigger_pct` is ROE
+   (price move × leverage), `lock_hw_pct` is the share of the high-water ROE kept. Floor ROE = high-water
+   ROE × lock; floor price = entry × (1 + floor ROE ÷ leverage ÷ 100) for a long, − for a short — a profit lock sits on the
+   winning side of entry (entry 100, 3x, floor 7.6% ROE → 102.53 for a long). Example
+   from a live book at 3x: high-water 30.5% ROE; lock 25% → floor 7.6% ROE; lock 55% → floor 16.8% ROE —
+   "the new ladder keeps twice as much of this position's peak". Say the retrace room too: room to the
+   floor in price = (high-water ROE − floor ROE) ÷ leverage.
+4. **Ask exactly this:** *"Apply it to (a) future positions only — the file; (b) the N positions open now
+   — one approval each; or (c) both?"* Never assume (a). "Change the config" without more is ambiguous:
+   ask, don't guess.
+5. **(a)/(c):** edit the file, `senpi validate`, `deploy.py update … --apply`. **(b)/(c):** one
+   `ratchet_stop_edit` per position with the new ladder, args per `read_senpi_guide
+   senpi://guides/ratchet_stop` (never from memory). An edit **re-evaluates the ladder immediately**
+   against the current high-water: a position already past a trigger tiers up on the spot and a new stop
+   order is placed — say that before the call, and expect the high-water to refresh.
+6. **Verify and report**: `ratchet_stop_list` again — each position's ladder now matches the file (or
+   doesn't, by the user's choice), the new floor price and stop order per position, and which positions
+   were left on the old ladder because the user said so.
+
+The approval gate catches an open position edited by mistake; only the question catches a file edited alone.
