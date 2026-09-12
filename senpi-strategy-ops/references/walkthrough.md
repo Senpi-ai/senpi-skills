@@ -5,18 +5,34 @@ two levers, the fee load and design budget, and the name; asks as-is-or-fork onc
 after the answer. This file is the depth: which levers, the name rules, the cost classes, the consent
 sentences, and the mechanics of the fork on disk.
 
+## 0. Every block is bullets
+
+A paragraph on the walkthrough gets skipped — the eye lands on the bullets beside it. Nothing here is
+prose: **what it does** is three bullets (the signal it reads · when it enters · how it exits), **how it
+is set** is the four lines, each lever is one bullet, the name is one line. No config keys anywhere in
+the chat — a key is for the edit, and a user cannot know what `marginPctBase` means.
+
 ## 1. What it does and how it is set by default
 
-The same four lines as the post-live "How it runs" block (cadence · scoring and the entry bar · protection
-as outcomes · daily cap), read from `strategy.yaml` (`catalog:`) and each instance's `runtime.yaml` — plain
-language, no YAML. Say it here, before the money moves, then again after it is live.
+Three bullets for what it does, then the same four lines as the post-live "How it runs" block (cadence ·
+scoring and the entry bar · protection as outcomes · daily cap), read from `strategy.yaml` (`catalog:`) and
+each instance's `runtime.yaml` — plain language, no YAML. Say it here, before the money moves, then again
+after it is live.
 
 ## 2. Two levers (one for a `tier: starter` template)
 
-Each with its default, a sensible range, and what moving it changes. Pick the two that matter for THIS
-template from `scanners[].inputs` (the template-specific knobs: an agreement bar, a threshold, a cohort
-size, a basket) and from the universal ones every runtime.yaml has — **read these keys first, they are in
-100% of the catalog**:
+Each lever is one bullet in the user's words — **what it controls**, what it is set to now in their
+terms, what moving it down and up does to trades, fees and risk, and what it means at the budget on the
+table. The key never appears in the chat; it is what you edit on the fork afterwards. The shape:
+
+- *"**How picky it is about crowding** — now: 65% of the cohort on one side before it counts. Lower =
+  more trades (and more fees); higher = fewer, stronger ones."* (`tiltThreshold: 65`)
+- *"**How much of the wallet each position uses** — now 15%: about $95 of margin per position on your
+  $635, $285 of exposure at 3×. Higher = bigger positions, fewer of them at once."* (`marginPctBase: 15`)
+
+Pick the two that matter for THIS template from `scanners[].inputs` (the template-specific knobs: an
+agreement bar, a threshold, a cohort size, a basket) and from the universal ones every runtime.yaml has —
+**read these keys first, they are in 100% of the catalog**:
 
 | Lever | Key | Say it as |
 |---|---|---|
@@ -31,19 +47,25 @@ the stop — offer it where it exists. Scanner-side `maxSlots` / `maxLeverage` /
 minority of templates: read them where present, never look for them first. A static universe is a lever
 where there is one. Name the rest in one line.
 
-## 3. The name
+## 3. The name — two spellings, one fact
 
-Every template deploys under the user's name, moved levers or not. Propose the possessive —
-**`<User>'s <Template>`**, `PurpleFrog's Starling` — and invite their own name in the same sentence; their
-word wins. `<User>` is the name they use with you or their Senpi username (`user_get_me`), never an id or
-an email; ask once if you don't have it. A second fork of the same template needs a name that tells them
-apart — ask.
+Every template deploys under the user's name, moved levers or not. Read their Senpi username first
+(`user_get_me`) — never an id or an email. The name is **stated, never asked**:
+
+*"It deploys as **Ignas's Phalanx** (`ignas-phalanx` in your strategy list) — say a different name if you
+want one."*
+
+Two spellings because the platform has two places: the spoken possessive (`Ignas's Phalanx`) lives in the
+fork's `catalog.name` and the runtime description — it is what you say, before and after; the strategy
+list shows the id the deploy verb derives from the package (`<owner>-<template>`, lowercase, no spaces:
+`ignas-phalanx`). Their own words win: `--name "Shield Wall"` → `shield-wall`. A second fork of the same
+template needs a name that tells them apart — ask.
 
 ## 4. The question
 
-*"Run it as-is, or shift one of these and make it yours? Either way it deploys as PurpleFrog's Starling — or
-give it a name of your own."* One word skips it — "as-is" means the defaults, still under their name. Never
-a gate, never re-asked; the budget question comes after the answer.
+*"Run it as-is, or shift one of these first? Say **go** and it deploys as-is."* A bare "go", "deploy",
+"yes" or "as-is" = the defaults, under their name. A status check — "did you finish?", "how's it going?" —
+is not a yes: answer it and wait. Never a gate, never re-asked; the budget question comes after the answer.
 
 ## 5. Fee load and the design budget
 
@@ -67,27 +89,24 @@ more; a strategy written from scratch is roughly two to three times a template. 
 install spider") get the walkthrough too — one turn, skippable — the user who names a strategy is the one
 most likely to fork it.
 
-## Making the fork on disk (until a `fork` verb ships)
+## The fork — the verb makes it
 
-Copy the fetched package to `<strategies root>/<template>-<user-slug>/`. The root is what
-`python3 senpi-strategy-ops/scripts/deploy.py where` prints — `SENPI_STRATEGIES_DIR`, else
-`$OPENCLAW_WORKSPACE_DIR/strategies`, else `/data/workspace/strategies` — e.g.
-`/data/workspace/strategies/starling-purplefrog/`. **Never a CWD-relative `strategies/`**: the
-skills-manager wipes that on the next version bump (the 2026-07-30 incident). Copy the package files only:
-leave out `.deploy-state.json` (a legacy marker that would make the fresh fork look like a previously
-deployed package) and any `__pycache__`. Then:
+`deploy.py create <template> --owner <username> --budget <usd>` does the fork and the deploy in one go:
+it copies the fetched template to `<strategies root>/<owner>-<template>/` (the root `deploy.py where`
+prints — never a CWD-relative `strategies/`), leaving out `.deploy-state.json`, any proof and any
+`__pycache__`; rewrites `id`, `catalog.name` (the spoken name), each runtime's `name`/`group` linkage and
+the first line of its `description` (`Ignas's Phalanx — forked from Phalanx 1.1.0.` — the mandate
+`senpi-portfolio` reads back); records `forked_from: {id, version}`; validates the copy; proves it
+(`openclaw senpi validate --stage live`); then deploys **the fork**. `--name "<their words>"` names it their
+way. A second `create` with the same owner reuses the same fork. A bare template id with neither flag is
+refused — nothing is created. From then on the id is the fork's (`ignas-phalanx`) for `status`, `verify`,
+`update` and `close`.
 
-- `strategy.yaml` → `id: starling-purplefrog`, `catalog.name: "PurpleFrog's Starling"` (or the user's own
-  words), add `forked_from: { id: starling, version: "1.3.0" }` — the loader ignores keys it doesn't know;
-  this one is the lineage.
-- every instance `runtime.yaml` → `group: starling-purplefrog`, `name: starling-purplefrog-<instance>` (the
-  schema's linkage rule), and prefix its `description` with `PurpleFrog's Starling — forked from Starling
-  1.3.0. ` (the mandate `senpi-portfolio` reads back).
-- apply the moved levers with `edit` — values only, never structure; `wallet_env` names stay as they are.
-- the normal gate: `python3 senpi-strategy-author/scripts/validate_strategy.py <dir>` (it warns on a stop
-  that is too tight at the leverage, sizing with no free-margin gate, a daily cap at or below the slots, a
-  fee load above 0.5% of the budget a day, and refuses a maker-only entry — relay every warn),
-  `openclaw senpi validate <recipe-dir>`, `deploy.py validate <dir>`, then
-  `deploy.py create <dir> --budget <usd>` — pass the **directory**, not the template id.
+When levers move first: `deploy.py fork <template> --owner <username>` makes the copy and stops; apply the
+moved levers with the edit path — values only, never structure; `wallet_env` names stay as they are — run
+the normal gate (`python3 senpi-strategy-author/scripts/validate_strategy.py <dir>` — it warns on a stop
+that is too tight at the leverage, sizing with no free-margin gate, a daily cap at or below the slots, a
+fee load above 0.5% of the budget a day, and refuses a maker-only entry — relay every warn; then
+`openclaw senpi validate <dir>`), and `deploy.py create <dir> --budget <usd>` — the **directory**.
 
 A fork is a copy: a later fix to the template does not reach it — say so if asked.
