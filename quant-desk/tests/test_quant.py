@@ -499,3 +499,14 @@ def test_account_value_is_the_whole_account_not_the_perps_view():
     assert abs(b["account_value"] - 2221.31) < 1e-9 and b["account_value_perps"] == 1000 and abs(b["margin_utilization"] - 700 / 2221.31) < 1e-9
     assert metrics.whole_account_value(None, spot) == 2221.31 and metrics.whole_account_value(None, None) is None
     assert abs(metrics.spot_free_usdc(spot) - 1521.31) < 1e-9 and metrics.open_book(cs, oo, ctxs, spot_free=1521.31)["withdrawable"] == 300 + 1521.31
+
+
+def test_the_live_history_row_shape_reads_as_a_short():
+    # the exact shape Senpi discovery returns today: szi is the absolute size, the side lives in `type`, times are seconds
+    row = {"closedOrderId": "542928624893", "coin": "ETH", "coinDisplayName": "ETH", "entryPx": "2545.6", "exitPx": "2511.2", "leverage": {"type": "", "value": 3},
+           "maxLeverage": 3, "openTime": 1789150736, "closeTime": 1789193981, "szi": "0.2099", "realizedPnl": "7.22056", "marginUsed": "178.12114",
+           "type": "Close Short", "totalFills": "2", "totalFees": "0.678225"}
+    e = senpi_history.episode(row)
+    assert e["direction"] == "SHORT" and e["signed"] < 0 and e["leverage"] == 3 and abs(e["hold_h"] - 12.0) < 0.05 and e["open_time"] == 1789150736000
+    flat = dict(row, exitPx="2545.6", realizedPnl="0")
+    assert senpi_history.episode(flat)["direction"] == "SHORT"                          # no move, no P&L: `type` decides

@@ -62,10 +62,16 @@ def fetch(client, addr, window_start_ms, meta):
 
 
 def _direction(r, szi, ent, ext, realized):
-    """The sign of `szi` on a closed row is not a reliable side (a closed short has come back positive), so:
-    the price move against the P&L decides when both are non-zero, then an explicit side field, then szi."""
+    """`szi` on a closed row is the absolute size on the live API (a closed short arrives as "0.2099", not
+    "-0.2099"), so the sign is the last resort: the price move against the P&L decides when both are
+    non-zero, then the row's `type` ("Close Short" / "Close Long"), then an explicit side field, then szi."""
     if ent and ext and ext != ent and realized:
         return "LONG" if ((ext > ent) == (realized > 0)) else "SHORT"
+    typ = str(r.get("type") or "").upper()
+    if "SHORT" in typ:
+        return "SHORT"
+    if "LONG" in typ:
+        return "LONG"
     side = str(r.get("direction") or r.get("side") or r.get("positionSide") or "").upper()
     if side in ("LONG", "SHORT"):
         return side
