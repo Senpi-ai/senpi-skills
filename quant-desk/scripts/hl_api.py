@@ -142,6 +142,7 @@ class HL:
             "frontendOpenOrders": self.info({"type": "frontendOpenOrders", "user": addr}),
             "clearinghouseState_xyz": self._optional({"type": "clearinghouseState", "user": addr, "dex": "xyz"}),
             "frontendOpenOrders_xyz": self._optional({"type": "frontendOpenOrders", "user": addr, "dex": "xyz"}) or [],
+            "spotClearinghouseState": self._optional({"type": "spotClearinghouseState", "user": addr}),
             "fills": merge_fills(self.fills(addr, start), self.twap_slices(addr, start)),
             "userFunding": self.funding(addr, win_start),
             "userFees": self.info({"type": "userFees", "user": addr}),

@@ -487,3 +487,14 @@ def test_tiny_sample_reads_as_early_days():
     book = metrics.open_book(cs, oo, ctxs)
     tr = dict(trades=1, complete_trades=1, long_share=0.0, hold_winners_h=None, hold_losers_h=None, adds_per_trade=0)
     assert "early days (1 closed trade)" in score.archetype(tr, book, {"chased_share": 1.0}, {"active_days": 2})
+
+
+def test_account_value_is_the_whole_account_not_the_perps_view():
+    cs, oo, ctxs = _book_inputs()
+    portfolio = [["day", {"accountValueHistory": [[1, "2221.31"]], "pnlHistory": [[1, "0"]], "vlm": "0"}]]
+    spot = {"balances": [{"coin": "USDC", "total": "2221.31", "hold": "700"}]}
+    total = metrics.whole_account_value(portfolio, spot)
+    assert abs(total - 2221.31) < 1e-9
+    b = metrics.open_book(cs, oo, ctxs, total_account_value=total)
+    assert abs(b["account_value"] - 2221.31) < 1e-9 and b["account_value_perps"] == 1000 and abs(b["margin_utilization"] - 700 / 2221.31) < 1e-9
+    assert metrics.whole_account_value(None, spot) == 2221.31 and metrics.whole_account_value(None, None) is None

@@ -103,7 +103,7 @@ def _size_buckets(complete):
 DUST_USD = 10.0
 
 
-def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=None, ctxs_xyz=None):
+def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=None, ctxs_xyz=None, total_account_value=None):
     """Every open position with liquidation distance, funding per day at the current rate, and its stop
     coverage from resting trigger orders: a stop for a long is a sell trigger below the mark, for a short
     a buy trigger above it. Coverage is the stop-covered fraction of the size. The xyz dex is its own
@@ -143,15 +143,34 @@ def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=Non
                         funding_since_open=_f((p.get("cumFunding") or {}).get("sinceOpen")),
                         opened_ms=(ages or {}).get(coin)))
     ms = cs.get("marginSummary") or {}; mx = (cs_xyz or {}).get("marginSummary") or {}
-    av = _f(ms.get("accountValue")) + _f(mx.get("accountValue")); mu = _f(ms.get("totalMarginUsed")) + _f(mx.get("totalMarginUsed"))
+    perps_av = _f(ms.get("accountValue")) + _f(mx.get("accountValue")); mu = _f(ms.get("totalMarginUsed")) + _f(mx.get("totalMarginUsed"))
+    av = total_account_value if (total_account_value and total_account_value > 0) else perps_av
     gross_exp = sum(p["notional"] for p in out)
     net_exp = sum(p["notional"] * (1 if p["side"] == "LONG" else -1) for p in out)
     return dict(positions=out, account_value=av, margin_used=mu, margin_utilization=(mu / av) if av else None, withdrawable=_f(cs.get("withdrawable")) + _f((cs_xyz or {}).get("withdrawable")),
-                account_value_main=_f(ms.get("accountValue")), account_value_xyz=_f(mx.get("accountValue")),
+                account_value_main=_f(ms.get("accountValue")), account_value_xyz=_f(mx.get("accountValue")), account_value_perps=perps_av,
                 unrealized=sum(p["unrealized"] for p in out), naked=[p["coin"] for p in out if p["stop_covered_share"] == 0],
                 partial=[p["coin"] for p in out if 0 < p["stop_covered_share"] < 0.9], gross_exposure=gross_exp, net_exposure=net_exp,
                 exposure_over_equity=(gross_exp / av) if av else None, funding_per_day=sum(p["funding_per_day"] for p in out),
                 largest_share=(max(p["notional"] for p in out) / gross_exp) if gross_exp else None)
+
+
+def whole_account_value(portfolio, spot):
+    """Hyperliquid's own account value: the last point of the portfolio series (spot balances plus the perps
+    equity — on a unified account the perps margin is USDC on hold in spot). Falls back to the spot USDC
+    total when the series is missing. None when neither is readable, so the caller uses the perps view."""
+    for name in ("day", "week", "month", "allTime"):
+        w = dict(portfolio or []).get(name) or {}
+        pts = w.get("accountValueHistory") or []
+        if pts:
+            v = _f(pts[-1][1])
+            if v > 0:
+                return v
+    for b in (spot or {}).get("balances") or []:
+        if b.get("coin") == "USDC":
+            v = _f(b.get("total"))
+            return v if v > 0 else None
+    return None
 
 
 def flows(ledger, addr):

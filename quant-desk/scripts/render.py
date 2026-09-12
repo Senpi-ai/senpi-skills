@@ -91,7 +91,8 @@ def protection(r):
     b = r["book"]; sm = {x["coin"]: x for x in (r.get("smart") or {}).get("rows", [])}
     n = len(b["positions"])
     out = ["## Live positions — protection audit", "",
-           f"Account value **{usd(b['account_value'])}** · margin used **{pct(b['margin_utilization'])}** · withdrawable **{usd(b['withdrawable'])}** · net uPnL **{usd(b['unrealized'], signed=True)}**",
+           f"Account value **{usd(b['account_value'])}**" + (f" (perps equity {usd(b['account_value_perps'])})" if b.get("account_value_perps") and abs(b["account_value_perps"] - b["account_value"]) > 1 else "")
+           + f" · margin used **{pct(b['margin_utilization'])}** · withdrawable **{usd(b['withdrawable'])}** · net uPnL **{usd(b['unrealized'], signed=True)}**",
            f"{n} open position{'s' if n != 1 else ''} · {len(b['naked'])} with no stop · {len(b['partial'])} partly covered · {r['market']['stance'] if r.get('market') else ''}" + (f" · paying {usd(-b['funding_per_day'])}/day in funding" if b['funding_per_day'] < 0 else (f" · collecting {usd(b['funding_per_day'])}/day in funding" if b['funding_per_day'] > 0 else ""))]
     if n:
         out += ["", "| Coin | Side | Lev | Held | Notional | uPnL | ROE | Funding/day | To liq. | Stop cover | Status | Your quant would… |", "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|"]
