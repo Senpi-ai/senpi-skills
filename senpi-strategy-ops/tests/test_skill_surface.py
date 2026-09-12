@@ -49,7 +49,12 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # protection removal as consent. Every one is a what-to-ASK / what-to-CLAIM rule that fires in the
 # interview, which this file says has nowhere else to live; the fork mechanics live in ops'
 # references/walkthrough.md and are named here, not repeated. Set at the post-edit count with no slack.
-BODY_BUDGET = {"senpi-strategy-ops": 317, "senpi-strategy-author": 425}
+# ops 317 -> 322 (2026-09-12): a DSL change has two targets — the file (future positions) and the ladders the
+# open positions carry (ratchet_stop_edit, one approval each) — and the agent must read both, show the drift
+# and ask (a)/(b)/(c). Five resident lines: the rule fires on every live-edit request and an agent that
+# skims lands on exactly one of the two failure modes it prevents. The protocol, the math and the example
+# live in references/editing-a-live-strategy.md.
+BODY_BUDGET = {"senpi-strategy-ops": 322, "senpi-strategy-author": 425}
 
 
 def _skill_body(path):
@@ -271,3 +276,16 @@ class CronCostArithmeticAgreesEverywhere(unittest.TestCase):
         self.assertEqual(set(five), {"288"}, five)
         self.assertEqual(set(hourly), {"24"}, hourly)
         self.assertEqual(set(ten), {"144"}, ten)
+
+
+class DslChangeHasTwoTargets(unittest.TestCase):
+    """A DSL edit reaches future positions through the file and open positions only through ratchet_stop_edit;
+    the skill must name both and the question."""
+
+    def test_rule_is_resident_and_the_protocol_is_in_the_reference(self):
+        body = _skill_body(REPO / "senpi-strategy-ops" / "SKILL.md")
+        for needle in ("ratchet_stop_edit", "ratchet_stop_list", "(a), (b) or (c)", "never assume"):
+            self.assertIn(needle, body)
+        ref = (REPO / "senpi-strategy-ops" / "references" / "editing-a-live-strategy.md").read_text()
+        for needle in ("two different edits", "snapshots the exit ladder", "one approval each", "re-evaluates the ladder immediately", "senpi://guides/ratchet_stop"):
+            self.assertIn(needle, ref)
