@@ -679,8 +679,8 @@ def test_progress_streams_inside_the_long_fetches():
     class C:
         def mcp_call(self, *a, **k):
             return {"traders": []}
-    smart_money.books(C(), ["0x1", "0x2"], {}, progress=msgs.append)
-    assert msgs[-1].startswith("[quant-desk]   · senpi-smart-money: 2 of 2 wallets read")
+    smart_money.books(C(), ["0x1", "0x2"], {}, progress=msgs.append, label="the proven cohort, ")
+    assert msgs[-1] == "[quant-desk]   · senpi-smart-money: the proven cohort, 2 of 2 wallets read …"
 
 
 def test_desk_is_chat_shaped_and_never_apologises_for_its_sources():

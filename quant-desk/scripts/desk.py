@@ -166,7 +166,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
             for name, fetch in (("proven", smart_money.proven_cohort), ("hot", smart_money.hot_cohort)):
                 try:
                     addrs = fetch(mcp, meta)
-                    bks = smart_money.books(mcp, addrs, meta, progress=log) if addrs else []
+                    bks = smart_money.books(mcp, addrs, meta, progress=log, label={"proven": "the proven cohort, ", "hot": "the hot 30-day cohort, "}.get(name, "")) if addrs else []
                     if bks:
                         cv = smart_money.cohort_view(name, bks, book, opened, majors, large, ages, now)
                         cv["source"] = ("senpi discovery — top traders by all-time realized P&L, ≥ $1M realized" if name == "proven"

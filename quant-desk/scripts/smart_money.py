@@ -253,7 +253,7 @@ def proven_cohort(client, meta, n=PROVEN_N):
         SAMPLE_CAP = keep
 
 
-def books(client, addrs, meta, progress=None):
+def books(client, addrs, meta, progress=None, label=""):
     """Per-wallet live books (coin, signed notional, entry ms) for a cohort, batched."""
     out = []
     for i in range(0, len(addrs), STATE_BATCH):
@@ -264,7 +264,7 @@ def books(client, addrs, meta, progress=None):
             meta.setdefault("warnings", []).append(f"trader_state batch failed: {e}")
             continue
         if progress:
-            progress(f"[quant-desk]   · senpi-smart-money: {min(i + STATE_BATCH, len(addrs))} of {len(addrs)} wallets read …")
+            progress(f"[quant-desk]   · senpi-smart-money: {label}{min(i + STATE_BATCH, len(addrs))} of {len(addrs)} wallets read …")
         for t in _traders_of(_ok(resp)):
             rows = []
             for p in (t.get("openPositions") or t.get("open_positions") or []):

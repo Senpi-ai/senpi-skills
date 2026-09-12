@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.2.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.3.0"     # shown in the header line, so a stale install is visible at a glance
 FOOTER = "_Analysis of onchain data. Not financial advice._"
 
 
