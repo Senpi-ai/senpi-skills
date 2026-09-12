@@ -33,6 +33,8 @@ def num(x, unit):
         return "—"
     if x == float("inf"):
         return "∞"
+    if unit == "x" and x > 100:
+        return ">100×"
     return {"h": hrs(x), "%": pct(x), "x": f"{x:.1f}×"}[unit]
 
 
@@ -46,7 +48,7 @@ def header(r):
              f"{r['days']} days · {act['fills']:,} fills · {act['coins']} coins · updated {datetime.datetime.utcfromtimestamp(r['now_ms'] / 1000).strftime('%Y-%m-%d %H:%M UTC')} · **YOUR QUANT — LIVE · READ-ONLY**"]
     if rank:
         tp = rank["top_pct"]
-        lines.append(f"**#{rank['rank']:,} of {rank['of']:,}** on Hyperliquid's leaderboard this week · " + (f"top {tp:.1f}%" if tp <= 50 else f"bottom {100 - tp:.0f}%"))
+        lines.append(f"**#{rank['rank']:,} of {rank['of']:,}** on Hyperliquid's leaderboard this week · " + (f"top {tp:.1f}%" if tp <= 50 else f"bottom {max(0.1, 100 - tp):.1f}%"))
     lines.append(f"**{r['archetype']}**")
     lab = r.get("labels") or {}
     if any(lab.get(k) for k in ("consistency", "risk", "activity")):

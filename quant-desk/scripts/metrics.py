@@ -200,10 +200,11 @@ def drawdown(pnl_pts, av_pts):
             peak, peak_t = v, t
         fall = peak - v
         if fall > dd:
-            base = av_at(peak_t) or 0.0
+            # the equity the fall came out of = equity at the trough + the fall (no transfer assumed between)
+            base = (av_at(t) or 0.0) + fall
             dd, dd_pct, span = fall, min(1.0, fall / base) if base > 0 else 0.0, (peak_t, t)
-    last = pnl_pts[-1][1]; base_now = av_at(peak_t) or 0.0
-    cur = min(1.0, (peak - last) / base_now) if base_now > 0 else None
+    last_t, last = pnl_pts[-1]; base_now = (av_at(last_t) or 0.0) + (peak - last)
+    cur = min(1.0, (peak - last) / base_now) if base_now > 0 and peak > last else 0.0
     return dict(dd=dd, dd_pct=dd_pct, span=span, in_drawdown=bool(cur and cur > 0.05), current_dd_pct=cur)
 
 

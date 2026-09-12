@@ -90,7 +90,10 @@ def dim_cost(tr):
             line = f"Fees + funding ate {_pct(cr)} of gross P&L ({_usd(tr['fees'])} fees, {_usd(-tr['funding'])} funding on {_usd(tr['gross_realized'])} gross)."
     else:
         s = 90 - min(60, (ts or 0) * 50)
-        line = f"Gross P&L is not positive over the window; fees {_usd(tr['fees'])} and funding {_usd(-tr['funding'])} came on top."
+        if (tr.get("funding") or 0) > 0:
+            line = f"The trades themselves did not make money over the window (gross {_usd(tr['gross_realized'])}); funding paid you {_usd(tr['funding'])}, which is where the result came from, against {_usd(tr['fees'])} of fees."
+        else:
+            line = f"Gross P&L is not positive over the window; fees {_usd(tr['fees'])} and funding {_usd(-tr['funding'])} came on top."
     if ts is not None and ts > 0.6:
         s -= 10
         line += f" {_pct(ts)} of your volume crossed the spread as a taker."
@@ -240,8 +243,10 @@ def verdict(tr, book, dims, leaks):
         strength = f"You let winners run ({pr:.1f}× payoff)"
     elif tr.get("win_rate") and tr["win_rate"] >= 0.55 and (tr.get("trades") or 0) >= 10:
         strength = f"You pick well — {_pct(tr['win_rate'])} win rate"
+    elif (tr.get("ledger_net") is not None and tr["ledger_net"] > 0 and abs(tr["ledger_net"]) > 2 * abs(tr.get("net") or 0)):
+        strength = f"Net {_usd(tr['ledger_net'])} on the ledger over the window (open book and funding included)"
     elif (tr.get("net") or 0) > 0:
-        strength = f"Net positive ({_usd(tr['net'])} over the window)"
+        strength = f"Net positive ({_usd(tr['net'])} realized over the window)"
     else:
         strength = "No edge shows up in this window"
     weakest = min(dims, key=lambda k: dims[k]["score"])
@@ -269,7 +274,7 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days):
     out = []
     yr = 365.0 / days
     # 1. costs — resting instead of crossing the spread
-    if tr.get("fee_recoverable", 0) >= 50 and tr.get("taker_share"):
+    if tr.get("fee_recoverable", 0) >= 50 and (tr.get("taker_share") or 0) >= 0.25:
         out.append(dict(agent="Leak finder", title=f"{_pct(tr['taker_share'])} of your volume crossed the spread as a taker",
                         evidence=f"{_usd(tr['fees'])} in fees on {_usd(tr['volume'])} of volume at {tr['fee_rate_taker'] * 1e4:.1f} bp taker / {tr['fee_rate_maker'] * 1e4:.1f} bp maker.",
                         counterfactual=f"Resting maker orders for the same fills would have kept ~{_usd(tr['fee_recoverable'])} over {days} days (≈{_usd(tr['fee_recoverable'] * yr)}/yr).",
