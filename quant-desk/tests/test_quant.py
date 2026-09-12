@@ -510,3 +510,128 @@ def test_the_live_history_row_shape_reads_as_a_short():
     assert e["direction"] == "SHORT" and e["signed"] < 0 and e["leverage"] == 3 and abs(e["hold_h"] - 12.0) < 0.05 and e["open_time"] == 1789150736000
     flat = dict(row, exitPx="2545.6", realizedPnl="0")
     assert senpi_history.episode(flat)["direction"] == "SHORT"                          # no move, no P&L: `type` decides
+
+
+# ---------------------------------------------------------------- 1.1.0: wording the first live runs exposed — object case, thin samples, the traded side
+def test_voice_object_case_headers_and_persona():
+    import voice
+    md = ("funding paid you $1 on top. The proven cohort sits with you. Your quant can run this for you. Top 3 things your agents found\n"
+          "| Coin | You | Cohort | Read |\nYou: ZEC **WITH** the top traders.\nYou hold, none of the cohort do: X. The cohort holds, you don't: Y. "
+          "Want me to keep watching this wallet and tell you when they move? Entries after strength are fine for you.\n")
+    out = voice.third_person(md, "0xab…cd")
+    for want in ("paid them $1", "sits with them", "run this for you", "your agents found", "| Coin | Trader | Cohort | Read |", "This trader: ZEC",
+                 "They hold, none of the cohort do", "The cohort holds, they don't", "tell you when they move", "fine for them"):
+        assert want in out, (want, out)
+    assert "paid they" not in out and "with they" not in out
+
+
+def test_verdict_headline_is_material():
+    book = {"positions": [], "naked": [], "account_value": 2222.0, "unrealized": 216.0}
+    dims = {k: {"score": v, "line": ""} for k, v in dict(timing=60, risk=84, cost=52, sizing=85, consistency=55, market_fit=60).items()}
+    thin = dict(trades=1, profit_factor=float("inf"), payoff_ratio=None, win_rate=1.0, ledger_net=222.0, net=6.0, fees=2.0, funding=1.0)
+    v = score.verdict(thin, book, dims, [])
+    assert "Cut the costs" not in v and "only 1 closed trade in the window" in v and v.startswith("Net $222 on the ledger"), v
+    dims["consistency"]["score"] = 70
+    many = dict(thin, trades=20, profit_factor=1.2, win_rate=0.5, net=200.0, ledger_net=222.0, fees=2.0)     # $2 of fees on $222 is not a leak
+    v = score.verdict(many, book, dims, [])
+    assert "Cut the costs" not in v and "nothing in the record is leaking badly" in v, v
+    dims["cost"]["score"] = 40
+    real = dict(many, fees=80.0, funding=5.0)
+    v = score.verdict(real, book, dims, [])
+    assert "execution is eating the gains" in v and "and funding" not in v and v.endswith("Cut the costs first."), v
+    under = {"positions": [{"coin": "ZEC", "liq_distance_pct": 24.5, "stop_covered_share": 0.13}, {"coin": "xyz:MSTR", "liq_distance_pct": 14.3, "stop_covered_share": 0.0}],
+             "naked": ["xyz:MSTR"], "account_value": 6430977.0, "unrealized": -3987321.0}
+    v = score.verdict(real, under, dims, [])
+    assert "the open book is $3,987,321 under water (62% of equity) with 1 of 2 positions unprotected" in v and "-$3,987,321" not in v, v
+
+
+def test_dimension_lines_read_right_on_one_trade():
+    _, line = score.dim_consistency(dict(trades=1, win_rate=1.0, profit_factor=float("inf")), [])
+    assert "across 1 trade." in line and "Only 1 trade:" in line and "1 trades" not in line, line
+    book = {"positions": [{"coin": "NEAR", "side": "SHORT"}], "account_value": 2222.0, "net_exposure": -1212.0}
+    mf = {"rows": [{"coin": "NEAR", "side": "SHORT", "trend": "UP", "fit": "AGAINST THE MARKET"}], "with_market": 0, "against": 1, "funding_per_day": 0.0, "stance": "net short"}
+    assert score.dim_market(book, mf)[1] == "NEAR — short into an up-trend."
+    mf["rows"][0].update(trend="DOWN", side="LONG")
+    assert score.dim_market(book, mf)[1] == "NEAR — long into a down-trend."
+    assert score._pct_cost(0.0035) == "0.4%" and score._pct_cost(0.0001) == "<0.1%" and score._pct_cost(0.32) == "32%"
+
+
+def test_sizing_credits_big_winners():
+    book = {"positions": [], "exposure_over_equity": None, "largest_share": None}
+    tr = dict(size_cv=0.9, size_max_over_median=17.0)
+    small = [dict(truncated=False, peak_notional=1.0, win=True) for _ in range(6)]
+    big_win = [dict(truncated=False, peak_notional=10.0, win=True) for _ in range(3)]
+    big_mixed = big_win[:2] + [dict(truncated=False, peak_notional=10.0, win=False)]
+    a, _ = score.dim_sizing(tr, book, small + big_win)
+    b, _ = score.dim_sizing(tr, book, small + big_mixed)
+    assert a == b + 10
+
+
+def test_entry_style_speaks_the_traded_side():
+    fade = dict(chased_share=0.1, pre24_median=-0.05)
+    assert strategy_read.entry_style(fade, dict(long_share=1.0)).startswith("buys weakness")
+    assert strategy_read.entry_style(fade, dict(long_share=0.0)).startswith("sells strength")
+    assert strategy_read.entry_style(fade, dict(long_share=0.41)).startswith("fades the move")
+    assert strategy_read.entry_style(dict(chased_share=0.6, pre24_median=0.04), dict(long_share=0.2)).startswith("sells weakness")
+    assert strategy_read.entry_style(dict(chased_share=0.1, pre24_median=0.0), dict(long_share=0.5)) is None
+
+
+def _fp_min(**kw):
+    fp = {"simultaneity": {"both_share": 0.0, "pairs": []}, "leg_correlation": None, "net_over_gross": 1.0, "pnl_beta": None, "outcome_concentration": None, "dead_sides": []}
+    fp.update(kw)
+    return fp
+
+
+def test_critique_squeeze_and_directional_wording_follow_the_book():
+    book = {"positions": [{"coin": "SOL", "notional": 1336.0, "stop_covered_share": 1.0}, {"coin": "NEAR", "notional": 1212.0, "stop_covered_share": 1.0},
+                          {"coin": "PONS", "notional": 517.0, "stop_covered_share": 1.0}], "naked": []}
+    mf = {"against": 1, "rows": [{"coin": "SOL", "fit": "NEUTRAL — ranging"}, {"coin": "NEAR", "fit": "AGAINST THE MARKET"}, {"coin": "PONS", "fit": "WITH THE MARKET"}]}
+    cohorts = [{"name": "proven", "agreement": 1.0, "against": [], "rows": [1, 2, 3]}, {"name": "hot", "agreement": -1.0, "against": ["NEAR"], "rows": [1, 2, 3]}]
+    cr = strategy_read.critique(_fp_min(), dict(trades=1), book, mf, None, cohorts)
+    assert any(c.startswith("On NEAR you sit with the proven cohort") and "survivable" in c and "without" not in c for c in cr), cr
+    assert any("40% of it by notional (NEAR)" in c for c in cr), cr
+    book["positions"][1]["stop_covered_share"] = 0.13
+    cr = strategy_read.critique(_fp_min(), dict(trades=1), book, mf, None, cohorts)
+    assert any("without a full stop on NEAR" in c for c in cr), cr
+    book["positions"][1]["notional"] = 5000.0
+    cohorts[1]["against"] = ["NEAR", "SOL"]
+    cr = strategy_read.critique(_fp_min(), dict(trades=1), book, mf, None, cohorts)
+    assert any(c.startswith("You are positioned with the record") and "2 of 3 coins" in c for c in cr), cr
+    assert any("most of it (73% by notional)" in c for c in cr), cr
+
+
+def test_rank_carries_three_windows_and_render_helpers():
+    import render
+    with open(FIXTURE) as fh:
+        rec = json.load(fh)
+    rk = hl_api.weekly_rank(rec["hl::leaderboard"], rec["address"])
+    assert rk["ranks"]["week"] == rk["rank"] and set(rk["ranks"]) >= {"week", "month", "allTime"}
+    line = render.rank_line(rk)
+    assert line.startswith(f"**#{rk['rank']:,} of {rk['of']:,}** on Hyperliquid's leaderboard this week (") and "on the month (" in line and "all-time (" in line, line
+    tr = {"coverage": {"overall": 0.27, "episodes_incomplete": 23, "episodes": 24}}
+    assert render.coverage_note(tr, None).startswith("_Hyperliquid's public API returned about 27% of your executed volume")
+    n = render.coverage_note(tr, {"sources": {"trades": "Senpi discovery (17 closed positions)"}})
+    assert n.startswith("_Trade history from Senpi discovery (17 closed positions) — complete.") and "27%" in n
+    assert render.coverage_note({"coverage": {"overall": 0.95}}, None) is None
+    hf = render.hold_fallback({"hold_n": {"winners": 14, "losers": 3}})
+    assert "14 winning and 3 losing" in hf and "too few losers" in hf and "wants 5 of each" in hf
+    assert "too few of either" in render.hold_fallback({"hold_n": {"winners": 0, "losers": 1}})
+    assert render.copy_warnings({"naked": ["X"], "positions": [1, 2]}, [{"name": "hot", "agreement": -1.0}]) == ["1 of 2 open positions has no stop", "the hot 30-day cohort sits on the other side of this book"]
+    w = render.copy_warnings({"naked": ["X", "Y"], "positions": [1, 2, 3]}, [{"name": "proven", "agreement": -0.6}, {"name": "hot", "agreement": -1.0}])
+    assert w[0].startswith("2 of 3 open positions have no stop") and w[1].endswith("cohort sit on the other side of this book")
+    assert render.pct_cost(0.0035) == "0.4%" and render.pct_cost(0.0001) == "<0.1%" and render.pct_cost(0.32) == "32%"
+
+
+def test_compare_names_the_coins_behind_the_entry_lag():
+    now = 400 * H
+    per = {"PONS": {"bias": -0.62, "members": 12, "entries_long": [], "entries_short": [now - 200 * H]},
+           "SOL": {"bias": -0.73, "members": 23, "entries_long": [], "entries_short": [0.0]}}       # SOL: a hold older than RECENT_H, not a move
+    book = {"positions": [{"coin": "PONS", "side": "SHORT", "leverage": 3}, {"coin": "SOL", "side": "SHORT", "leverage": 3}]}
+    out = smart_money.compare(per, book, [], ages={"PONS": now - 11 * H, "SOL": now - 27 * H}, now_ms=now)
+    assert out["lag_coins"] == ["PONS"] and out["entry_lag_h"] == 189.0, out
+    assert [r["read"] for r in out["rows"]] == ["WITH — BUT LATE (+189h)", "WITH — they've held it 17d"]
+
+
+def test_analyst_is_an_alias_for_other():
+    out = subprocess.run([sys.executable, os.path.join(HERE, "..", "scripts", "desk.py"), "-h"], capture_output=True, text=True, timeout=60).stdout
+    assert "--other, --analyst" in out

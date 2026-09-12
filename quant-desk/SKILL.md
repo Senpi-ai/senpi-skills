@@ -9,28 +9,34 @@ description: >-
   the trader doesn't — live matches where the tape, the cohorts and the trader's own pattern agree, and
   a bank of ten follow-ups the quant is prepared to go deeper on. Works for wallets that never touched
   senpi (public onchain data, read-only); with a Senpi token the closed-trade history, both cohorts, the
-  funding regime and the Hyperfeed attention layer come from Senpi's own data. Use for "analyze my
-  wallet / my Hyperliquid address", "how am I doing", "what's my strategy", "where am I leaking money",
-  "am I on the right side of smart money", "are my positions protected", "what should I fix first",
-  "rate my trading", "compare me to the whales", "scout setups for me", "review this trader 0x…".
+  funding regime and the Hyperfeed attention layer come from Senpi's own data. The default is the
+  user's OWN book: "run quant desk on 0x…" means the user is 0x… — the desk speaks to them and
+  recommends their next steps. "Run quant desk analyst on 0x…" (or "review this trader 0x…") means
+  the user is analyzing someone else. Use for "analyze my wallet / my Hyperliquid address", "how am I
+  doing", "what's my strategy", "where am I leaking money", "am I on the right side of smart money",
+  "are my positions protected", "what should I fix first", "rate my trading", "compare me to the
+  whales", "scout setups for me", "quant desk analyst on 0x…", "review this trader 0x…".
   Hidden engine: scripts/desk.py. NOT for choosing or deploying a strategy (senpi-strategy-discover /
   -ops), reviewing a Senpi strategy's own trades (senpi-improve-trades), or vetting a trader to copy
   (senpi-trader-research).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.0.0"
+  version: "1.1.0"
   platform: senpi
   exchange: hyperliquid
 ---
 
 # quant-desk — the desk for any Hyperliquid address
 
-Two uses, one engine. **Their own book** — the trader pastes their wallet and gets their desk (second
-person, fix-it follow-ups). **Someone else's book** — the trader pastes another wallet, a leaderboard
-name, a whale, and learns from it (third person, learn-from-them follow-ups, a side-by-side compare).
-Tell the engine which with `--mine` (default) or `--other`; never let a desk for someone else's wallet
-say "you".
+Built for one thing first: **the user's own book.** A trader joins senpi, pastes their Hyperliquid
+wallet, and gets their desk — the book they actually run, scored, protected and improved, in the second
+person, with the next steps recommended to them. That is the default and the experience to design for:
+**"run quant desk on 0x…" means the user is 0x…**, whoever the address belongs to. The same engine
+also reads **someone else's book** — **"run quant desk analyst on 0x…"**, "review this trader", a
+leaderboard pick, a whale — to learn from it (third person, learn-from-them follow-ups, a side-by-side
+compare). Run it plain (`--mine`) unless the user asks for the analyst read; then `--other` (alias
+`--analyst`), and never let that desk say "you".
 
 **HARD RULES — obey these even if you skim the rest.**
 
@@ -39,10 +45,11 @@ say "you".
    one section from the cached run: `--section protection|leaks|smart|market|edge|performance|overview|next`.
    **The lead-in, before you run it, is this sentence and only this sentence** (short address in place):
    *"Running senpi quant desk on `0x5b5d…c060` — scanning every fill, running senpi-signals,
-   senpi-market-pulse and senpi-smart-money, finding the leaks, pricing the fixes…"* (for someone else's
-   wallet: "…finding the leaks, reading the playbook…"). Never "this pulls
-   public data" or "this may take a moment": the desk is senpi's proprietary analysis, and the engine
-   streams its own progress while it works. Write **onchain**, never "on-chain", everywhere.
+   senpi-market-pulse and senpi-smart-money, finding the leaks, reading the playbook, running quant,
+   scoring the book, comparing to top traders, developing recommendations…"* — the same sentence for
+   someone else's wallet. Never "this pulls public data" or "this may take a moment": the desk is
+   senpi's proprietary analysis, and the engine streams its own progress while it works. Write
+   **onchain**, never "on-chain", everywhere.
 2. **Never invent a number.** Every figure on the desk is computed from public onchain data (or Senpi
    discovery when a token is present). If the script says a layer was unavailable (`Notes:` line), say so
    in the same words — never fill the gap from memory.
@@ -58,8 +65,10 @@ say "you".
 6. **Say "quant", "desk", "agents", "leak", "protect".** Never "report", "analyst", "bot", "AI assistant".
    Lowercase `senpi`. No outcome guarantees. Close with the footer the script prints.
 7. **Address hygiene and whose book it is.** Show the address shortened (`0x2999…65de`). Never post
-   the desk of a wallet the user did not name. When the wallet is not the user's own ("run it on this
-   trader", a leaderboard pick, "analyze 0x… for me"), run with `--other`: the desk speaks in the third
+   the desk of a wallet the user did not name. A bare address is the user's own book: "run quant desk on
+   0x…" means the user is 0x… — run it plain and speak to them. "Run quant desk analyst on 0x…" (or
+   "this trader", "their wallet", a leaderboard pick) means the user is analyzing 0x…: run with
+   `--other` (alias `--analyst`): the desk speaks in the third
    person, the closing becomes *what to take from this trader*, and the follow-ups are the learning
    ones (their playbook as rules under **your** name, the smart-money picture on their coins, whether they
    are worth copying → `senpi-trader-research`, watching the wallet). It is analysis of public onchain
@@ -78,14 +87,14 @@ say "you".
 
 | User says | Run | Then |
 |---|---|---|
-| "analyze my wallet 0x…", "how am I doing", "rate my trading" | `desk.py 0x…` | relay the full desk |
+| "run quant desk on 0x…", "analyze my wallet 0x…", "how am I doing", "rate my trading" | `desk.py 0x…` | relay the full desk — the user is 0x… |
 | "are my positions protected", "am I at risk" | `desk.py 0x… --section protection` | relay; the AT RISK rows first |
 | "where am I leaking money", "what's costing me" | `desk.py 0x… --section leaks` | relay, biggest first, with the rejected rules |
 | "am I with or against smart money", "compare me to whales" | `desk.py 0x… --section smart` | relay both tables |
 | "does my book fit this market" | `desk.py 0x… --section market` | relay |
 | "where's my edge", "what am I good at" | `desk.py 0x… --section edge` | relay; then the closing (rule 9) |
 | "what should I fix first" | `desk.py 0x… --section next` | relay the three steps |
-| another trader's wallet, "review this trader 0x…", a leaderboard pick | `desk.py 0x… --other` | relay in the third person; copying → `senpi-trader-research` |
+| "run quant desk analyst on 0x…", "review this trader 0x…", a leaderboard pick | `desk.py 0x… --other` (alias `--analyst`) | relay in the third person; copying → `senpi-trader-research` |
 | "how do they stack up", after two or more desks | `desk.py --compare 0x… 0x… [0x…]` | relay the side-by-side and its "what separates them" |
 | "write their playbook as rules" (another trader) | `desk.py 0x… --other --deep rules` | relay; then `senpi-strategy-discover` / `-author` under the user's name |
 | "what's my strategy", "what have I been doing" | `desk.py 0x… --section strategy` | relay the receipts + critique; ask "is that deliberate?" |
@@ -108,7 +117,7 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
 ## What the desk is (the output contract, in render order)
 
 1. **Header** — short address · window · fills · coins · **YOUR QUANT — LIVE · READ-ONLY** · weekly rank
-   on Hyperliquid's leaderboard (`#545 of 45,105 · top 1.2%`) · Senpi's labels when present (`RELIABLE ·
+   on Hyperliquid's leaderboard (`#545 of 45,105 this week · top 1.2% · #1,020 on the month · #3,300 all-time`) · Senpi's labels when present (`RELIABLE ·
    AGGRESSIVE · ACTIVE`) · **archetype** (`Aggressive long-only trend rider`) · **verdict** (one sentence:
    strength — weakness. imperative) · flag chips (`NO STOPS (1/3)`, `NEAR LIQUIDATION 3.7%`, `HIGH MARGIN
    122%`, `IN DRAWDOWN`, `LIQUIDATED ×1`, `CHASING`, `PAYING FUNDING`).

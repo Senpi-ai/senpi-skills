@@ -243,13 +243,15 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         ctx_by.update({u["name"]: c for u, c in zip(ctx_xyz[0]["universe"], ctx_xyz[1])})
     coin_regimes = {c: market_mod.coin_regime(c, candles, ctx_by.get(c)) for c in coins}
     log("[quant-desk] finding the leaks, pricing the fixes, running senpi-signals for live matches …")
-    dims, quant = score.dimensions(track, book, dd, tm, mf, sm, closed, pnl_curve)
     lk = score.leaks(track, book, tm, tr_raw["userFunding"], in_win, win_start, days)
     setups = score.best_setups(in_win, tm_rows)
+    log("[quant-desk] reading the playbook: what the book actually does — by class, side and size — and where it breaks …")
     fp = strategy_read.fingerprint(in_win, opened, book, track, act, tm, candles, ctxs, pnl_curve, win_start, now)
     strategy = dict(fingerprint=fp, statements=strategy_read.statements(fp, track, book), critique=strategy_read.critique(fp, track, book, mf, sm, cohorts))
     context = dict(breadth=breadth, funding_regime=fregime, attention=attention, regime_days=regimes_days, regime_performance=rperf)
     opps = opportunities.scout(in_win, setups, book, breadth, coin_regimes, cohorts, attention, majors, large)
+    log("[quant-desk] running quant: scoring the book on six dimensions, comparing it to the top traders, developing the recommendations …")
+    dims, quant = score.dimensions(track, book, dd, tm, mf, sm, closed, pnl_curve)
     r = dict(address=addr, days=days, now_ms=now, window_start_ms=win_start, activity=act, track=track, book=book, equity=equity, drawdown=dd,
              pnl_curve=pnl_curve[-120:], timing=tm, market=mf, rank=rank, smart=sm, cohorts=cohorts, labels=labels, dimensions=dims, quant_score=quant,
              archetype=score.archetype(track, book, tm, act, opened), flags=score.flags(track, book, dd, tm, mf, labels), leaks=lk,
@@ -268,7 +270,7 @@ def main(argv=None):
     ap.add_argument("address", nargs="?", help="the wallet; omit with --compare")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--mine", action="store_true", help="the reader's own book (second person) — the default")
-    g.add_argument("--other", action="store_true", help="someone else's book: third person, learn-from-them follow-ups")
+    g.add_argument("--other", "--analyst", dest="other", action="store_true", help="someone else's book (analyst mode): third person, learn-from-them follow-ups")
     ap.add_argument("--compare", nargs="+", metavar="0x", help="two or more addresses side by side (cached runs are reused)")
     ap.add_argument("--days", type=int, default=90)
     ap.add_argument("--json", action="store_true", help="print the analysis document instead of Markdown")

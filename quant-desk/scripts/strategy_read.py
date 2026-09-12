@@ -139,10 +139,9 @@ def fingerprint(closed, opened, book, tr, act, tm, candles, ctxs, pnl_curve, win
     top_coins = sorted(collections.Counter(e["coin"] for e in closed).items(), key=lambda kv: -kv[1])[:3]
     hold = tr.get("hold_winners_h") if tr.get("hold_winners_h") is not None else None
     style = []
-    if tm and (tm.get("chased_share") or 0) >= 0.5:
-        style.append("buys strength — half or more of your entries come after a ≥3% move")
-    elif tm and tm.get("pre24_median") is not None and tm["pre24_median"] < -0.02:
-        style.append("buys weakness — you enter after the move against you, a fader")
+    es = entry_style(tm, tr)
+    if es:
+        style.append(es)
     if tr.get("adds_per_trade") is not None and tr["adds_per_trade"] >= 1:
         style.append(f"pyramids — {tr['adds_per_trade']:.1f} added orders per trade on average")
     if act.get("twap_share", 0) > 0.2:
@@ -153,6 +152,23 @@ def fingerprint(closed, opened, book, tr, act, tm, candles, ctxs, pnl_curve, win
                 net_over_gross=net_ratio, simultaneity=sim, leg_correlation=corr, pnl_beta=beta, outcome_concentration=conc,
                 dead_sides=dead, coins_traded=coins_traded, top_coins=top_coins, trades_per_active_day=tpd, style=style,
                 long_share=tr.get("long_share"))
+
+
+def entry_style(tm, tr):
+    """Chaser or fader, in the words of the side the trader actually trades: a short seller does not "buy weakness"."""
+    if not tm:
+        return None
+    ls = tr.get("long_share")
+    lean = "long" if ls is None or ls >= 0.7 else ("short" if ls <= 0.3 else "mixed")
+    if (tm.get("chased_share") or 0) >= 0.5:
+        return {"long": "buys strength — half or more of your entries come after a ≥3% move up, a chaser",
+                "short": "sells weakness — half or more of your shorts come after a ≥3% drop, a chaser",
+                "mixed": "chases the move — half or more of your entries come after a ≥3% move in their direction"}[lean]
+    if tm.get("pre24_median") is not None and tm["pre24_median"] < -0.02:
+        return {"long": "buys weakness — you enter after the move against you, a fader",
+                "short": "sells strength — you short after the move against you, a fader",
+                "mixed": "fades the move — you enter after the move against you, on both sides"}[lean]
+    return None
 
 
 def statements(fp, tr, book):
@@ -211,14 +227,27 @@ def critique(fp, tr, book, mf, sm, cohorts=None):
     by = {c["name"]: c for c in (cohorts or [])}
     pv, ht = by.get("proven"), by.get("hot")
     if pv and ht and pv.get("agreement") is not None and ht.get("agreement") is not None and pv["agreement"] >= 0.5 and ht["agreement"] <= -0.5:
-        out.append(f"You are positioned with the record and against the momentum: the proven cohort sits with you, the last 30 days' winners are on the other side on {len(ht['against'])} of {len(ht['rows'])} coins. That is the shape of a squeeze — it pays until it doesn't, and without stops the day it doesn't is the whole book.")
+        ag, n_rows = list(ht["against"]), len(ht["rows"])
+        cover = {p["coin"]: p.get("stop_covered_share", 1.0) for p in book["positions"]}
+        thin = [x for x in ag if (cover.get(x) or 0.0) < 1.0]      # the squeeze line only says "without stops" when that is true
+        tail = (f"without a full stop on {', '.join(thin)} the day it doesn't is the whole book." if thin else "the stops are what make the day it doesn't survivable.")
+        if len(ag) * 2 >= max(1, n_rows):
+            out.append(f"You are positioned with the record and against the momentum: the proven cohort sits with you, the last 30 days' winners are on the other side on {len(ag)} of {n_rows} coins. That is the shape of a squeeze — it pays until it doesn't, and {tail}")
+        elif ag:
+            out.append(f"On {', '.join(ag)} you sit with the proven cohort and against the last 30 days' winners. That is the shape of a squeeze on {'that coin' if len(ag) == 1 else 'those coins'} — it pays until it doesn't, and {tail}")
     elif pv and ht and pv.get("agreement") is not None and ht.get("agreement") is not None and pv["agreement"] <= -0.5 and ht["agreement"] >= 0.5:
         out.append(f"You are riding the momentum against the record: the hot cohort is with you, the proven cohort is on the other side on {len(pv['against'])} of {len(pv['rows'])} coins. Momentum books need the exit decided in advance.")
     sim = fp["simultaneity"]; corr = fp["leg_correlation"]
     if sim["both_share"] >= 0.3 and corr is not None and corr > 0.6:
         out.append("A long/short book only earns its funding and fees if the legs diverge. Yours are correlated — you are paying two spreads for one bet. Either pick the side or hedge with something that actually moves differently.")
-    if fp["net_over_gross"] is not None and fp["net_over_gross"] > 0.7 and mf and mf.get("against", 0) >= max(1, len(book["positions"]) // 2):
-        out.append("A directional book lives or dies with the tape, and most of it is against the trend right now. Directional needs a regime filter; you are running it without one.")
+    if fp["net_over_gross"] is not None and fp["net_over_gross"] > 0.7 and mf and mf.get("against", 0):
+        ag_coins = [x["coin"] for x in mf.get("rows") or [] if str(x.get("fit", "")).startswith("AGAINST")]
+        gross = sum(p.get("notional", 0.0) for p in book["positions"]) or 1.0
+        share = sum(p.get("notional", 0.0) for p in book["positions"] if p["coin"] in ag_coins) / gross
+        if share >= 0.5:
+            out.append(f"A directional book lives or dies with the tape, and most of it ({100 * share:.0f}% by notional) is against the trend right now. Directional needs a regime filter; you are running it without one.")
+        elif share >= 0.2:
+            out.append(f"A directional book lives or dies with the tape, and {100 * share:.0f}% of it by notional ({', '.join(ag_coins)}) is against the trend right now. Directional needs a regime filter; you are running it without one.")
     if fp["pnl_beta"] and fp["pnl_beta"]["corr"] >= 0.6:
         out.append("If the P&L is mostly BTC, the leverage and the fees are the only things you are adding. Either the picks need to diverge from BTC, or the same exposure is cheaper with one position and a stop.")
     if fp["outcome_concentration"] is not None and fp["outcome_concentration"] >= 0.6 and (tr.get("trades") or 0) >= 10:

@@ -21,6 +21,13 @@ def _usd(x):
     return f"-${abs(x):,.0f}" if x < 0 else f"${x:,.0f}"
 
 
+def _pct_cost(x):
+    """Cost shares under 1% keep a decimal — "0%" is a claim, "0.4%" is a measurement."""
+    if 0 < x < 0.01:
+        return f"{100 * x:.1f}%" if x >= 0.0005 else "<0.1%"
+    return _pct(x)
+
+
 # ---------------------------------------------------------------- six dimensions
 def dim_timing(tm, sm, cov=None):
     s, lines = 70.0, []
@@ -61,7 +68,7 @@ def dim_risk(tr, book, dd):
     if n:
         naked = len(book["naked"]); s -= 25 * naked / n
         if naked:
-            lines.append((3, f"{naked} of {n} open positions have no stop at all — {', '.join(book['naked'])}."))
+            lines.append((3, f"{naked} of {n} open positions {'has' if naked == 1 else 'have'} no stop at all — {', '.join(book['naked'])}."))
         near = [p for p in book["positions"] if p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5]
         if near:
             s -= 15; p = min(near, key=lambda p: p["liq_distance_pct"])
@@ -85,9 +92,9 @@ def dim_cost(tr):
     if cr is not None:
         s = 100 - min(70, cr * 150)
         if (tr.get("funding") or 0) > 0:
-            line = f"Fees took {_pct(cr)} of gross P&L ({_usd(tr['fees'])} on {_usd(tr['gross_realized'])} gross); funding paid you {_usd(tr['funding'])} on top."
+            line = f"Fees took {_pct_cost(cr)} of gross P&L ({_usd(tr['fees'])} on {_usd(tr['gross_realized'])} gross); funding paid you {_usd(tr['funding'])} on top."
         else:
-            line = f"Fees + funding ate {_pct(cr)} of gross P&L ({_usd(tr['fees'])} fees, {_usd(-tr['funding'])} funding on {_usd(tr['gross_realized'])} gross)."
+            line = f"Fees + funding ate {_pct_cost(cr)} of gross P&L ({_usd(tr['fees'])} fees, {_usd(-tr['funding'])} funding on {_usd(tr['gross_realized'])} gross)."
     else:
         s = 90 - min(60, (ts or 0) * 50)
         if (tr.get("funding") or 0) > 0:
@@ -115,6 +122,11 @@ def dim_sizing(tr, book, closed):
             s -= 15; lines.append((3, f"Your losers are {r:.1f}× the size of your winners — conviction lands on the wrong trades."))
         elif r < 0.8:
             lines.append((1, f"Your winners are {1 / r:.1f}× the size of your losers — sizing is doing real work."))
+    if comp:
+        med = statistics.median(e["peak_notional"] for e in comp)
+        big = [e for e in comp if e["peak_notional"] > 2 * med]
+        if len(big) >= 3 and all(e["win"] for e in big):      # conviction sizing that pays is the point of this dimension
+            s += 10; lines.append((1, f"Your biggest positions are your best — {len(big)} of {len(big)} above 2× the median size were winners."))
     ex = book.get("exposure_over_equity")
     if ex and ex > 5:
         s -= min(20, (ex - 5) * 3); lines.append((2, f"Gross exposure is {ex:.1f}× account value right now."))
@@ -134,12 +146,12 @@ def dim_consistency(tr, pnl_curve):
     s = 50 + (pf_ - 1) * 20 + (((wr or 0.5) - 0.5) * 40 if wr is not None else 0)
     s = 50 + (s - 50) * (n / (n + 10.0)) if n else 50.0
     pfs = "∞" if pf == float("inf") else (f"{pf:.1f}" if pf is not None else "n/a")
-    line = f"Win rate {_pct(wr)}, profit factor {pfs} across {tr['trades']} trades"
+    line = f"Win rate {_pct(wr)}, profit factor {pfs} across {n} trade{'s' if n != 1 else ''}"
     if tr.get("payoff_ratio"):
         line += f" — average winner {tr['payoff_ratio']:.1f}× the average loser"
     line += "."
     if n and n < 15:
-        line += f" Only {n} trades: read this loosely."
+        line += f" Only {n} trade{'s' if n != 1 else ''}: read this loosely."
     return clamp(s), line
 
 
@@ -150,7 +162,7 @@ def dim_market(book, mf):
     s += min(25, 10 * mf["with_market"]) - min(45, 15 * mf["against"])
     ag = [r for r in mf["rows"] if r["fit"].startswith("AGAINST")]
     if ag:
-        lines.append((3, f"{', '.join(r['coin'] for r in ag)} — {ag[0]['side'].lower()} into a {ag[0]['trend'].lower()}-trend."))
+        lines.append((3, f"{', '.join(r['coin'] for r in ag)} — {ag[0]['side'].lower()} into {'an' if str(ag[0]['trend']).upper() == 'UP' else 'a'} {str(ag[0]['trend']).lower()}-trend."))
     av = book.get("account_value") or 0
     fpd = mf.get("funding_per_day") or 0.0
     if fpd < 0 and av:
@@ -237,13 +249,17 @@ def flags(tr, book, dd, tm, mf, labels):
     return out
 
 
+MIN_VERDICT_TRADES = 5   # below this, cost / timing / consistency cannot carry the headline
+
+
 def verdict(tr, book, dims, leaks):
     pf, pr = tr.get("profit_factor"), tr.get("payoff_ratio")
-    if pf and pf != float("inf") and pf >= 1.5 and (tr.get("trades") or 0) >= 10:
-        strength = f"Real edge — profit factor {pf:.1f} on {tr['trades']} trades"
-    elif pr and pr >= 2 and (tr.get("trades") or 0) >= 10:
+    n = tr.get("trades") or 0
+    if pf and pf != float("inf") and pf >= 1.5 and n >= 10:
+        strength = f"Real edge — profit factor {pf:.1f} on {n} trades"
+    elif pr and pr >= 2 and n >= 10:
         strength = f"You let winners run ({pr:.1f}× payoff)"
-    elif tr.get("win_rate") and tr["win_rate"] >= 0.55 and (tr.get("trades") or 0) >= 10:
+    elif tr.get("win_rate") and tr["win_rate"] >= 0.55 and n >= 10:
         strength = f"You pick well — {_pct(tr['win_rate'])} win rate"
     elif (tr.get("ledger_net") is not None and tr["ledger_net"] > 0 and abs(tr["ledger_net"]) > 2 * abs(tr.get("net") or 0)):
         strength = f"Net {_usd(tr['ledger_net'])} on the ledger over the window (open book and funding included)"
@@ -251,14 +267,28 @@ def verdict(tr, book, dims, leaks):
         strength = f"Net positive ({_usd(tr['net'])} realized over the window)"
     else:
         strength = "No edge shows up in this window"
-    weakest = min(dims, key=lambda k: dims[k]["score"])
-    weak_line = {
-        "risk": "you're carrying unprotected risk" if book["naked"] else "the risk side is where it leaks",
-        "cost": "execution and funding are eating the gains", "timing": "your entries are late or chased",
-        "sizing": "sizing is working against you", "consistency": "the results are not repeatable yet",
-        "market_fit": "the book is fighting the market it sits in"}[weakest]
-    imperative = {"risk": "Fix the risk first.", "cost": "Cut the costs first.", "timing": "Fix the entries first.", "sizing": "Fix the sizing first.",
-                  "consistency": "Build the sample before scaling.", "market_fit": "Get on the right side of the regime first."}[weakest]
+    # the weakest dimension carries the headline only when it is material: enough trades behind it, and costs
+    # that are a real share of the result — $2 of fees on a $222 window is not a leak
+    costs = abs(tr.get("fees") or 0) + max(0.0, -(tr.get("funding") or 0))
+    base = abs(tr["ledger_net"] if tr.get("ledger_net") is not None else (tr.get("net") or 0))
+
+    def material(k):
+        if k in ("cost", "timing", "consistency") and n < MIN_VERDICT_TRADES:
+            return False
+        if k == "cost" and base and costs < 0.05 * base:
+            return False
+        return True
+    ranked = [k for k in sorted(dims, key=lambda k: dims[k]["score"]) if material(k)]
+    weakest = ranked[0] if ranked else None
+    weak_line = imperative = None
+    if weakest is not None and dims[weakest]["score"] < 60:
+        weak_line = {
+            "risk": "you're carrying unprotected risk" if book["naked"] else "the risk side is where it leaks",
+            "cost": "execution and funding are eating the gains" if (tr.get("funding") or 0) < 0 else "execution is eating the gains",
+            "timing": "your entries are late or chased", "sizing": "sizing is working against you", "consistency": "the results are not repeatable yet",
+            "market_fit": "the book is fighting the market it sits in"}[weakest]
+        imperative = {"risk": "Fix the risk first.", "cost": "Cut the costs first.", "timing": "Fix the entries first.", "sizing": "Fix the sizing first.",
+                      "consistency": "Build the sample before scaling.", "market_fit": "Get on the right side of the regime first."}[weakest]
     near = [p for p in book["positions"] if p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5]
     if near:
         p = min(near, key=lambda p: p["liq_distance_pct"])
@@ -266,9 +296,13 @@ def verdict(tr, book, dims, leaks):
         imperative = "Protect that position today."
     av = book.get("account_value") or 0
     if av and (book.get("unrealized") or 0) < -0.2 * av:
-        weak_line = f"the open book is {_usd(book['unrealized'])} under water ({_pct(-book['unrealized'] / av)} of equity) with {len(book['naked'])} of {len(book['positions'])} positions unprotected"
+        weak_line = f"the open book is {_usd(-book['unrealized'])} under water ({_pct(-book['unrealized'] / av)} of equity) with {len(book['naked'])} of {len(book['positions'])} positions unprotected"
         imperative = "Decide the exits before the market does."
-    return f"{strength} — but {weak_line}. {imperative}"
+    if weak_line:
+        return f"{strength} — but {weak_line}. {imperative}"
+    if n < MIN_VERDICT_TRADES:
+        return f"{strength} — only {n} closed trade{'s' if n != 1 else ''} in the window, so the record is too thin to grade; the live book is where the desk earns its keep today."
+    return f"{strength} — nothing in the record is leaking badly; the gains are in the details below."
 
 
 # ---------------------------------------------------------------- leaks

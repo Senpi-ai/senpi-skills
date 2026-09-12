@@ -4,8 +4,65 @@
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import datetime
 
+import metrics
+
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
 FOOTER = "_Analysis of public onchain data. Not financial advice._"
+
+
+def pct_cost(x):
+    """Cost shares under 1% keep a decimal — "0%" is a claim, "0.4%" is a measurement."""
+    if x is None:
+        return "—"
+    if 0 < x < 0.01:
+        return f"{100 * x:.1f}%" if x >= 0.0005 else "<0.1%"
+    return pct(x)
+
+
+def rank_line(rank):
+    """Three windows, so one bad week (or one good one) cannot pass for the trader."""
+    tp = rank["top_pct"]
+    w = rank.get("windows") or {}
+    wk = w.get("week") or {}
+    s = (f"**#{rank['rank']:,} of {rank['of']:,}** on Hyperliquid's leaderboard this week" + (f" ({usd(wk['pnl'], signed=True)})" if wk.get("pnl") is not None else "")
+         + " · " + (f"top {tp:.1f}%" if tp <= 50 else f"bottom {max(0.1, 100 - tp):.1f}%"))
+    extra = []
+    for key, label in (("month", "on the month"), ("allTime", "all-time")):
+        rk = (rank.get("ranks") or {}).get(key)
+        if rk and (w.get(key) or {}).get("pnl") is not None:
+            extra.append(f"**#{rk:,}** {label} ({usd(w[key]['pnl'], signed=True)})")
+    return s + (" · " + " · ".join(extra) if extra else "")
+
+
+def coverage_note(tr, meta=None):
+    """Which record the trade-level reads come from. Senpi's history is complete; the public API alone is not."""
+    cov = tr.get("coverage") or {}
+    if cov.get("overall") is None or cov["overall"] >= 0.9:
+        return None
+    src = ((meta or {}).get("sources") or {}).get("trades") or "public fills"
+    gaps = f"{cov['episodes_incomplete']} of {cov['episodes']} round trips have gaps — TWAP slices older than a day aren't kept"
+    if src == "public fills":
+        return f"_Hyperliquid's public API returned about {pct(cov['overall'])} of your executed volume ({gaps}). Ledger figures are complete; trade-level patterns are read from the fills it returned._"
+    return f"_Trade history from {src} — complete. Hyperliquid's public API alone returned about {pct(cov['overall'])} of the executed volume ({gaps})._"
+
+
+def hold_fallback(tr):
+    w, l = tr["hold_n"]["winners"], tr["hold_n"]["losers"]
+    few = "of either" if (w < metrics.MIN_HOLD_N and l < metrics.MIN_HOLD_N) else ("losers" if l < metrics.MIN_HOLD_N else "winners")
+    return f"**Hold time:** {w} winning and {l} losing round trips with a clean open and close — too few {few} for a hold-time read (the desk wants {metrics.MIN_HOLD_N} of each)."
+
+
+def copy_warnings(book, cohorts):
+    """What a copier inherits: naked positions and cohorts on the other side — grammar follows the counts."""
+    warn = []
+    if book["naked"]:
+        n = len(book["naked"])
+        warn.append(f"{n} of {len(book['positions'])} open positions {'has' if n == 1 else 'have'} no stop")
+    against = [x for x in (cohorts or []) if x.get("agreement") is not None and x["agreement"] <= -0.5]
+    if against:
+        names = [{"proven": "proven cohort", "hot": "hot 30-day cohort"}.get(x["name"], x["name"]) for x in against]
+        warn.append("the " + " and the ".join(names) + (" sits" if len(names) == 1 else " sit") + " on the other side of this book")
+    return warn
 
 
 def usd(x, signed=False):
@@ -47,8 +104,7 @@ def header(r):
     lines = [f"# Your desk — `{short(a)}`",
              f"{r['days']} days · {act['fills']:,} fills · {act['coins']} coins · updated {datetime.datetime.utcfromtimestamp(r['now_ms'] / 1000).strftime('%Y-%m-%d %H:%M UTC')} · **YOUR QUANT — LIVE · READ-ONLY**"]
     if rank:
-        tp = rank["top_pct"]
-        lines.append(f"**#{rank['rank']:,} of {rank['of']:,}** on Hyperliquid's leaderboard this week · " + (f"top {tp:.1f}%" if tp <= 50 else f"bottom {max(0.1, 100 - tp):.1f}%"))
+        lines.append(rank_line(rank))
     lines.append(f"**{r['archetype']}**")
     lab = r.get("labels") or {}
     if any(lab.get(k) for k in ("consistency", "risk", "activity")):
@@ -70,16 +126,16 @@ def overview(r):
     ledger = tr.get("ledger_net")
     out += ["", f"## Track record ({r['days']} days)", "", "| Net P&L (ledger, incl. unrealized) | Return on avg equity | Net realized on closed trades | Win rate | Max drawdown | Profit factor | Trades | Active days |", "|---:|---:|---:|---:|---:|---:|---:|---:|",
             f"| {usd(ledger, signed=True)} | {pct(eq.get('return_on_avg_equity'), 1, signed=True)} | {usd(tr['net'], signed=True)} | {pct(tr['win_rate'])} | {pct(-r['drawdown']['dd_pct'], 0, signed=True) if r['drawdown'].get('dd_pct') else '—'} | {num(tr['profit_factor'], 'x')} | {tr['trades']} | {r['activity']['active_days']} |"]
-    cov = tr.get("coverage") or {}
-    if cov.get("overall") is not None and cov["overall"] < 0.9:
-        out.append(f"_Hyperliquid's public API returned about {pct(cov['overall'])} of your executed volume ({cov['episodes_incomplete']} of {cov['episodes']} round trips have gaps — TWAP slices older than a day aren't kept). Ledger figures are complete; trade-level patterns are read from the fills it returned._")
+    note = coverage_note(tr, r.get("meta"))
+    if note:
+        out.append(note)
     cr = tr.get("cost_ratio"); wb = (r.get("benchmark") or {}).get("cost_ratio")
     out += ["", "## Where your P&L went", "", f"Gross **{usd(tr['gross_realized'], signed=True)}** → fees **{usd(-tr['fees'], signed=True)}** → funding **{usd(tr['funding'], signed=True)}** → net **{usd(tr['net'], signed=True)}**."]
     if cr is not None:
         if (tr.get("funding") or 0) > 0:
-            out.append(f"Fees took **{pct(cr)}** of your gross; funding paid you **{usd(tr['funding'])}** on top.")
+            out.append(f"Fees took **{pct_cost(cr)}** of your gross; funding paid you **{usd(tr['funding'])}** on top.")
         else:
-            out.append(f"Fees + funding took **{pct(cr)}** of your gross" + (f" — the whale median is {pct(wb)}." if wb is not None else "."))
+            out.append(f"Fees + funding took **{pct_cost(cr)}** of your gross" + (f" — the whale median is {pct(wb)}." if wb is not None else "."))
     if r["leaks"]:
         out += ["", "## Top 3 things your agents found", ""]
         for i, l in enumerate(r["leaks"][:3], 1):
@@ -126,7 +182,7 @@ def performance(r):
         out.append(f"| {k} | {v['trades']} | {pct(v['win_rate'])} | {usd(v['realized'], signed=True)} | {usd(-v['fees'], signed=True)} | {usd(v['funding'], signed=True)} | {pct(v['volume_share'])} | {hrs(v['hold_median_h'])} |")
     L, S = tr["long"], tr["short"]
     out += ["", f"**Long / short:** longs {L['trades']} trades · win {pct(L['wins'] / L['trades']) if L['trades'] else '—'} · {usd(L['realized'], signed=True)}; shorts {S['trades']} trades · win {pct(S['wins'] / S['trades']) if S['trades'] else '—'} · {usd(S['realized'], signed=True)}",
-            (f"**Hold time (median):** winners {hrs(tr['hold_winners_h'])} · losers {hrs(tr['hold_losers_h'])}" + (f" — you hold losers {tr['hold_ratio']:.1f}× longer" if tr.get('hold_ratio') and tr['hold_ratio'] > 1.2 else (f" — you cut losers {1 / tr['hold_ratio']:.1f}× faster than you let winners run" if tr.get('hold_ratio') and 0 < tr['hold_ratio'] < 0.8 else ""))) if (tr.get('hold_winners_h') is not None and tr.get('hold_losers_h') is not None) else f"**Hold time:** only {tr['hold_n']['winners']} winning and {tr['hold_n']['losers']} losing round trips were fully observed — no hold-time claim on that sample.",
+            (f"**Hold time (median):** winners {hrs(tr['hold_winners_h'])} · losers {hrs(tr['hold_losers_h'])}" + (f" — you hold losers {tr['hold_ratio']:.1f}× longer" if tr.get('hold_ratio') and tr['hold_ratio'] > 1.2 else (f" — you cut losers {1 / tr['hold_ratio']:.1f}× faster than you let winners run" if tr.get('hold_ratio') and 0 < tr['hold_ratio'] < 0.8 else ""))) if (tr.get('hold_winners_h') is not None and tr.get('hold_losers_h') is not None) else hold_fallback(tr),
             f"**Execution:** {pct(tr['taker_share'])} taker · {tr['fee_rate_taker'] * 1e4:.1f} bp taker / {tr['fee_rate_maker'] * 1e4:.1f} bp maker · {tr['liquidations']} liquidation(s)"]
     sb = tr.get("size_buckets") or {}
     if sb.get("bands"):
@@ -304,15 +360,15 @@ def smart_v2(r):
         if ag is not None:
             out.append(f"\nBook-level agreement with this cohort: **{ag:+.2f}** (+1 = same side everywhere, −1 = opposite).")
         if cv.get("tilt"):
-            out.append("Their book by class: " + "; ".join(f"{t['label']} {'long' if t['bias'] > 0 else 'short'} {abs(t['bias']):.0%} net ({t['long']}L/{t['short']}S)" for t in cv["tilt"][:4]) + ".")
+            out.append("The cohort's book by class: " + "; ".join(f"{t['label']} {'long' if t['bias'] > 0 else 'short'} {abs(t['bias']):.0%} net ({t['long']}L/{t['short']}S)" for t in cv["tilt"][:4]) + ".")
         if cv.get("yours"):
-            out.append("Yours: " + "; ".join(f"{t['label']} {'long' if t['bias'] > 0 else 'short'} {abs(t['bias']):.0%} net, {t['weight']:.0%} of the book" for t in cv["yours"][:4]) + ".")
+            out.append("Your book: " + "; ".join(f"{t['label']} {'long' if t['bias'] > 0 else 'short'} {abs(t['bias']):.0%} net, {t['weight']:.0%} of the book" for t in cv["yours"][:4]) + ".")
         if cv.get("they_hold"):
-            out.append("They hold, you don't: " + ", ".join(f"{h['coin']} ({h['side'].lower()}, {h['members']} wallets)" for h in cv["they_hold"][:6]) + ".")
+            out.append("The cohort holds, you don't: " + ", ".join(f"{h['coin']} ({h['side'].lower()}, {h['members']} wallets)" for h in cv["they_hold"][:6]) + ".")
         if cv.get("you_alone"):
-            out.append("You hold, none of them do: " + ", ".join(cv["you_alone"]) + ".")
+            out.append("You hold, none of the cohort do: " + ", ".join(cv["you_alone"]) + ".")
         if cv.get("entry_lag_h") is not None:
-            out.append(f"Entry timing: you are {abs(cv['entry_lag_h']):.0f}h {'behind' if cv['entry_lag_h'] > 0 else 'ahead of'} this cohort's median entry on the coins you share.")
+            out.append(f"Entry timing: you are {abs(cv['entry_lag_h']):.0f}h {'behind' if cv['entry_lag_h'] > 0 else 'ahead of'} this cohort's median entry on {', '.join(cv.get('lag_coins') or []) or 'the coins you share'}.")
         out.append("")
     bt = r.get("benchmark_table")
     if bt and (r.get("benchmark") or {}).get("n", 0) >= 5:
@@ -412,12 +468,7 @@ def next_steps_other(r):
         out.append(f"1. **The playbook.** {x['label']} — {x['wins']} of {x['n']} wins, profit factor {num(x['profit_factor'], 'x')}. Say *write their playbook as rules* and your quant turns it into a rule set that runs under **your** name — the {' / '.join(f.replace('_', ' ') for f in fam) if fam else 'closest'} templates are the quick start.")
     else:
         out.append("1. **The playbook.** No setup clears the bar on this window — what works here is not yet repeatable enough to copy.")
-    warn = []
-    if b["naked"]:
-        warn.append(f"{len(b['naked'])} of {len(b['positions'])} open positions have no stop")
-    against = [c for c in (r.get("cohorts") or []) if c.get("agreement") is not None and c["agreement"] <= -0.5]
-    if against:
-        warn.append("the " + " and the ".join({"proven": "proven cohort", "hot": "hot 30-day cohort"}.get(c["name"], c["name"]) for c in against) + " sit on the other side of this book")
+    warn = copy_warnings(b, r.get("cohorts"))
     out.append("2. **Before copying anything.** " + ("; ".join(warn) + ". Mirroring inherits all of that." if warn else "The book is protected and the cohorts are with it — the process is copyable; the timing is not.") + " Say *is this trader worth copying* for the copyability read.")
     out.append("3. **Learn the pattern, not the position.** The regime table says which tape they win in; the size-vs-outcome table says how they size. Those transfer. Their entries do not — by the time you see them, the move is theirs.")
     return "\n".join(out)

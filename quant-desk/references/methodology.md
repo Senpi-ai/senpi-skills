@@ -15,7 +15,7 @@ counterfactual of a process rule applied to the trades that happened.
 | Transfers | `userNonFundingLedgerUpdates` | sends (`user` = sender, `destination` = receiver), deposits, withdrawals |
 | Live book | `clearinghouseState`, `frontendOpenOrders` | positions with leverage, liquidation price, cumulative funding; resting trigger orders |
 | Market | `metaAndAssetCtxs`, `candleSnapshot` 1h | funding, open interest, mark; 91 days of hourly candles per coin touched |
-| Rank | `stats-data.hyperliquid.xyz/Mainnet/leaderboard` | weekly PnL rank among every account listed |
+| Rank | `stats-data.hyperliquid.xyz/Mainnet/leaderboard` | PnL rank among every account listed — week, month and all-time, so one window cannot pass for the trader |
 | Senpi (optional) | `discovery_get_trader_history`, `discovery_get_top_traders`, `discovery_get_trader_state` | complete closed positions with leverage; the ≥ $1M-realized cohort with position ages |
 
 ## Round trips

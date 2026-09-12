@@ -260,8 +260,14 @@ def weekly_rank(leaderboard, addr):
         return None
     rank = 1 + sum(1 for _, p in pnls if p > mine)
     me = next(r for r in rows if r["ethAddress"].lower() == addr)
-    return {"rank": rank, "of": len(pnls), "top_pct": 100.0 * rank / len(pnls), "week_pnl": mine,
-            "windows": {w: _window(me, w) for w in ("day", "week", "month", "allTime")}, "account_value": float(me.get("accountValue") or 0)}
+    windows = {w: _window(me, w) for w in ("day", "week", "month", "allTime")}
+    ranks = {"week": rank}
+    for w in ("month", "allTime"):     # one bad week must not pass for the trader: the month and all-time ranks ride along
+        mv = windows[w].get("pnl")
+        if mv is not None:
+            ranks[w] = 1 + sum(1 for r in rows if _window(r, w).get("pnl", 0.0) > mv)
+    return {"rank": rank, "of": len(pnls), "top_pct": 100.0 * rank / len(pnls), "week_pnl": mine, "ranks": ranks,
+            "windows": windows, "account_value": float(me.get("accountValue") or 0)}
 
 
 def public_cohort(leaderboard, n=40, min_account_value=1_000_000.0, min_month_roi=0.05, min_month_volume=1_000_000.0):

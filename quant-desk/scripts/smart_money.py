@@ -167,7 +167,7 @@ def compare(per, book, opened_episodes, ages=None, now_ms=None):
     time comes from Senpi's position age when present; from fills only when the open was actually observed."""
     opens = {e["coin"]: e["open_time"] for e in opened_episodes or [] if not e.get("truncated") and not e.get("unobserved_qty")}
     opens.update({c: t for c, t in (ages or {}).items() if t})
-    rows, lags = [], []
+    rows, lags, lag_coins = [], [], []
     for p in book["positions"]:
         d = per.get(p["coin"])
         bias = d["bias"] if d else None
@@ -186,7 +186,7 @@ def compare(per, book, opened_episodes, ages=None, now_ms=None):
                     read = f"WITH — they've held it {age_h / 24:.0f}d"
                 else:
                     lag = (opens[p["coin"]] - med_entry) / 3.6e6
-                    lags.append(lag)
+                    lags.append(lag); lag_coins.append(p["coin"])
                     read = f"WITH — BUT LATE (+{lag:.0f}h)" if lag > LATE_H else ("WITH — AHEAD" if lag < -LATE_H else "WITH")
         else:
             read = "AGAINST SMART MONEY"
@@ -201,7 +201,7 @@ def compare(per, book, opened_episodes, ages=None, now_ms=None):
         rows.append(dict(coin=p["coin"], you=f"{p['side']} {p['leverage']}x" if p.get("leverage") else p["side"], cohort=cohort,
                          bias=bias, members=members, read=read, lag_h=lag))
     return dict(rows=rows, against=[r["coin"] for r in rows if r["read"].startswith("AGAINST")],
-                entry_lag_h=statistics.median(lags) if lags else None)
+                entry_lag_h=statistics.median(lags) if lags else None, lag_coins=lag_coins)
 
 
 BENCH_ROWS = (("Median hold — winners", "hold_winners_h", "h"), ("Median hold — losers", "hold_losers_h", "h"), ("Losers held ÷ winners held", "hold_ratio", "x"),
@@ -335,7 +335,7 @@ def cohort_view(name, bks, book, opened, majors, large, ages=None, now_ms=None):
         if t and t["weight"] > 0:
             agree += y["weight"] * (1 if (y["bias"] > 0) == (t["bias"] > 0) else -1) * min(1.0, abs(t["bias"]) / LEAN)
             wsum += y["weight"]
-    return dict(name=name, wallets=len(bks), coins=len(per), rows=cmp_["rows"], against=cmp_["against"], entry_lag_h=cmp_["entry_lag_h"],
+    return dict(name=name, wallets=len(bks), coins=len(per), rows=cmp_["rows"], against=cmp_["against"], entry_lag_h=cmp_["entry_lag_h"], lag_coins=cmp_.get("lag_coins") or [],
                 tilt=sorted(tilt.values(), key=lambda t: -t["weight"])[:6], yours=sorted(yours.values(), key=lambda t: -t["weight"]),
                 agreement=(agree / wsum) if wsum else None,
                 they_hold=[dict(coin=c, members=m, bias=d["bias"], side="LONG" if d["bias"] > 0 else "SHORT", n_long=d["n_long"], n_short=d["n_short"]) for m, c, d in theirs[:8]],
