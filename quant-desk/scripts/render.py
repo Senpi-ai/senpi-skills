@@ -406,7 +406,7 @@ def next_steps_other(r):
     out = ["## What to take from this trader", ""]
     if bs:
         x = bs[0]
-        out.append(f"1. **The playbook.** {x['label']} — {x['wins']} of {x['n']} wins, profit factor {num(x['profit_factor'], 'x')}. Say *write their playbook as rules* and your quant turns it into a rule set you run under **your** name — the {' / '.join(f.replace('_', ' ') for f in fam) if fam else 'closest'} templates are the quick start.")
+        out.append(f"1. **The playbook.** {x['label']} — {x['wins']} of {x['n']} wins, profit factor {num(x['profit_factor'], 'x')}. Say *write their playbook as rules* and your quant turns it into a rule set that runs under **your** name — the {' / '.join(f.replace('_', ' ') for f in fam) if fam else 'closest'} templates are the quick start.")
     else:
         out.append("1. **The playbook.** No setup clears the bar on this window — what works here is not yet repeatable enough to copy.")
     warn = []
