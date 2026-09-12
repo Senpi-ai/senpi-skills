@@ -112,6 +112,14 @@ def fingerprint(closed, opened, book, tr, act, tm, candles, ctxs, pnl_curve, win
     majors, large = taxonomy.crypto_tiers(ctxs)
     rows = by_class_side(closed, majors, large)
     live = [dict(coin=p["coin"], side=p["side"], cls=taxonomy.classify(p["coin"], majors, large), notional=p["notional"]) for p in book["positions"]]
+    # where the MONEY went, closed and open together, by notional — the count-based table can hide a book of held shorts
+    money = collections.defaultdict(float)
+    for e in closed:
+        money[(taxonomy.label(taxonomy.classify(e["coin"], majors, large)), e["direction"], "closed")] += e["peak_notional"]
+    for p in live:
+        money[(taxonomy.label(p["cls"]), p["side"], "open")] += p["notional"]
+    tot_money = sum(money.values()) or 1.0
+    money_rows = sorted((dict(cls=k[0], side=k[1], state=k[2], share=v / tot_money) for k, v in money.items()), key=lambda r: -r["share"])
     gross = sum(p["notional"] for p in live) or 1.0
     live_cls = collections.defaultdict(float)
     for p in live:
@@ -135,12 +143,13 @@ def fingerprint(closed, opened, book, tr, act, tm, candles, ctxs, pnl_curve, win
         style.append("buys strength — half or more of your entries come after a ≥3% move")
     elif tm and tm.get("pre24_median") is not None and tm["pre24_median"] < -0.02:
         style.append("buys weakness — you enter after the move against you, a fader")
-    if tr.get("adds_per_trade") and tr["adds_per_trade"] >= 1:
-        style.append(f"pyramids — {tr['adds_per_trade']:.1f} adds per trade on average")
+    if tr.get("adds_per_trade") is not None and tr["adds_per_trade"] >= 1:
+        style.append(f"pyramids — {tr['adds_per_trade']:.1f} added orders per trade on average")
     if act.get("twap_share", 0) > 0.2:
         style.append(f"works orders — {100 * act['twap_share']:.0f}% of fills are TWAP slices")
     tpd = (tr.get("trades") or 0) / max(1, act.get("active_days") or 1)
-    return dict(class_side=rows, live=live, live_mix=[dict(cls=k[0], side=k[1], share=v) for k, v in sorted(live_cls.items(), key=lambda kv: -kv[1])],
+    return dict(class_side=rows, live=live, money=money_rows[:4], open_shorts=sum(1 for p in live if p["side"] == "SHORT"), open_longs=sum(1 for p in live if p["side"] == "LONG"),
+                live_mix=[dict(cls=k[0], side=k[1], share=v) for k, v in sorted(live_cls.items(), key=lambda kv: -kv[1])],
                 net_over_gross=net_ratio, simultaneity=sim, leg_correlation=corr, pnl_beta=beta, outcome_concentration=conc,
                 dead_sides=dead, coins_traded=coins_traded, top_coins=top_coins, trades_per_active_day=tpd, style=style,
                 long_share=tr.get("long_share"))
@@ -150,16 +159,22 @@ def statements(fp, tr, book):
     """The receipts, as sentences the agent can quote. Ordered: what you do → where the money is → what's off."""
     s = []
     rows = fp["class_side"]
+    money = fp.get("money") or []
+    if money and money[0]["share"] >= 0.5:
+        m = money[0]
+        s.append(f"by notional, {100 * m['share']:.0f}% of your activity is {m['cls']} {m['side'].lower()}s" + (" you are still holding" if m["state"] == "open" else " you have closed"))
     if rows:
         head = rows[0]
         n_short = sum(r["trades"] for r in rows if r["side"] == "SHORT"); n_all = sum(r["trades"] for r in rows)
-        if n_short == 0:
+        if n_short == 0 and not fp.get("open_shorts"):
             tail = "you never short"
+        elif n_short == 0 and fp.get("open_shorts"):
+            tail = f"every closed trade was a long, but the open book is {fp['open_shorts']} short{'s' if fp['open_shorts'] != 1 else ''}"
         elif n_short / n_all < 0.1:
             tail = f"you almost never short ({n_short} of {n_all})"
         else:
             tail = "your shorts are " + ", ".join(dict.fromkeys(r["label"] for r in rows if r["side"] == "SHORT"))
-        s.append(f"{100 * head['share']:.0f}% of your trades are {head['label']} {head['side'].lower()}s ({', '.join(head['coins'][:3])}); {tail}")
+        s.append(f"{100 * head['share']:.0f}% of your closed trades are {head['label']} {head['side'].lower()}s ({', '.join(head['coins'][:3])}); {tail}")
     sim = fp["simultaneity"]
     if sim["both_share"] >= 0.3 and sim["pairs"]:
         p = sim["pairs"][0]
@@ -173,7 +188,8 @@ def statements(fp, tr, book):
     if fp["pnl_beta"]:
         b = fp["pnl_beta"]
         if abs(b["corr"]) >= 0.5:
-            s.append(f"your P&L tracks BTC (correlation {b['corr']:+.2f}): a 1% BTC move swings your equity by about {abs(b['beta']):.1f}% — a lot of the result is the market and the leverage, not the picks")
+            rel = "tracks BTC" if b["corr"] > 0 else "is inverse BTC"
+            s.append(f"your P&L {rel} (correlation {b['corr']:+.2f}): a 1% BTC move swings your equity by about {abs(b['beta']):.1f}% — a lot of the result is the market and the leverage, not the picks")
         else:
             s.append(f"your P&L is largely independent of BTC (correlation {b['corr']:+.2f}) — the picks, not the tape, drive it")
     if fp["outcome_concentration"] is not None and fp["outcome_concentration"] >= 0.6 and (tr.get("trades") or 0) >= 10:
@@ -189,9 +205,15 @@ def statements(fp, tr, book):
     return s
 
 
-def critique(fp, tr, book, mf, sm):
+def critique(fp, tr, book, mf, sm, cohorts=None):
     """Rule-based: what this way of trading needs to work, and where the data says it isn't getting it."""
     out = []
+    by = {c["name"]: c for c in (cohorts or [])}
+    pv, ht = by.get("proven"), by.get("hot")
+    if pv and ht and pv.get("agreement") is not None and ht.get("agreement") is not None and pv["agreement"] >= 0.5 and ht["agreement"] <= -0.5:
+        out.append(f"You are positioned with the record and against the momentum: the proven cohort sits with you, the last 30 days' winners are on the other side on {len(ht['against'])} of {len(ht['rows'])} coins. That is the shape of a squeeze — it pays until it doesn't, and without stops the day it doesn't is the whole book.")
+    elif pv and ht and pv.get("agreement") is not None and ht.get("agreement") is not None and pv["agreement"] <= -0.5 and ht["agreement"] >= 0.5:
+        out.append(f"You are riding the momentum against the record: the hot cohort is with you, the proven cohort is on the other side on {len(pv['against'])} of {len(pv['rows'])} coins. Momentum books need the exit decided in advance.")
     sim = fp["simultaneity"]; corr = fp["leg_correlation"]
     if sim["both_share"] >= 0.3 and corr is not None and corr > 0.6:
         out.append("A long/short book only earns its funding and fees if the legs diverge. Yours are correlated — you are paying two spreads for one bet. Either pick the side or hedge with something that actually moves differently.")
@@ -205,7 +227,7 @@ def critique(fp, tr, book, mf, sm):
         out.append(f"Stop trading {d['label']} {d['side'].lower()}s until you can say what would make one work; the sample says nothing has.")
     if tr.get("hold_ratio") and tr["hold_ratio"] > 2:
         out.append("The strategy's exits are asymmetric the wrong way: losers get time, winners don't. That is the single most expensive habit in the record.")
-    if sm and sm.get("against"):
+    if sm and sm.get("against") and not (pv and ht):
         out.append(f"On {', '.join(sm['against'])} you are on the other side of the proven cohort. Being contrarian is a strategy only if it is deliberate — is it?")
     if not out:
         out.append("The structure is coherent: the book does what the record says it does. The improvements are in execution and risk, not in the thesis.")

@@ -66,7 +66,7 @@ def overview(r):
         out.append(f"| {names[k]} | {d[k]['score']} | {d[k]['line']} |")
     eq = r["equity"]
     ledger = tr.get("ledger_net")
-    out += ["", f"## Track record ({r['days']} days)", "", "| Net P&L (ledger) | Return on avg equity | Realized on trades | Win rate | Max drawdown | Profit factor | Trades | Active days |", "|---:|---:|---:|---:|---:|---:|---:|---:|",
+    out += ["", f"## Track record ({r['days']} days)", "", "| Net P&L (ledger, incl. unrealized) | Return on avg equity | Net realized on closed trades | Win rate | Max drawdown | Profit factor | Trades | Active days |", "|---:|---:|---:|---:|---:|---:|---:|---:|",
             f"| {usd(ledger, signed=True)} | {pct(eq.get('return_on_avg_equity'), 1, signed=True)} | {usd(tr['net'], signed=True)} | {pct(tr['win_rate'])} | {pct(-r['drawdown']['dd_pct'], 0, signed=True) if r['drawdown'].get('dd_pct') else '—'} | {num(tr['profit_factor'], 'x')} | {tr['trades']} | {r['activity']['active_days']} |"]
     cov = tr.get("coverage") or {}
     if cov.get("overall") is not None and cov["overall"] < 0.9:
@@ -74,7 +74,10 @@ def overview(r):
     cr = tr.get("cost_ratio"); wb = (r.get("benchmark") or {}).get("cost_ratio")
     out += ["", "## Where your P&L went", "", f"Gross **{usd(tr['gross_realized'], signed=True)}** → fees **{usd(-tr['fees'], signed=True)}** → funding **{usd(tr['funding'], signed=True)}** → net **{usd(tr['net'], signed=True)}**."]
     if cr is not None:
-        out.append(f"Fees + funding took **{pct(cr)}** of your gross" + (f" — the whale median is {pct(wb)}." if wb is not None else "."))
+        if (tr.get("funding") or 0) > 0:
+            out.append(f"Fees took **{pct(cr)}** of your gross; funding paid you **{usd(tr['funding'])}** on top.")
+        else:
+            out.append(f"Fees + funding took **{pct(cr)}** of your gross" + (f" — the whale median is {pct(wb)}." if wb is not None else "."))
     if r["leaks"]:
         out += ["", "## Top 3 things your agents found", ""]
         for i, l in enumerate(r["leaks"][:3], 1):
@@ -89,10 +92,12 @@ def protection(r):
            f"Account value **{usd(b['account_value'])}** · margin used **{pct(b['margin_utilization'])}** · withdrawable **{usd(b['withdrawable'])}** · net uPnL **{usd(b['unrealized'], signed=True)}**",
            f"{n} open position{'s' if n != 1 else ''} · {len(b['naked'])} with no stop · {len(b['partial'])} partly covered · {r['market']['stance'] if r.get('market') else ''}" + (f" · paying {usd(-b['funding_per_day'])}/day in funding" if b['funding_per_day'] < 0 else (f" · collecting {usd(b['funding_per_day'])}/day in funding" if b['funding_per_day'] > 0 else ""))]
     if n:
-        out += ["", "| Coin | Side | Lev | Notional | uPnL | ROE | Funding/day | To liq. | Stop cover | Status | Your quant would… |", "|---|---|---:|---:|---:|---:|---:|---:|---:|---|---|"]
+        out += ["", "| Coin | Side | Lev | Held | Notional | uPnL | ROE | Funding/day | To liq. | Stop cover | Status | Your quant would… |", "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|"]
         for p in b["positions"]:
             status, note = _protection_note(p, sm.get(p["coin"]))
-            out.append(f"| {p['coin']} | {p['side']} | {p['leverage'] or '—'}x | {usd(p['notional'])} | {usd(p['unrealized'], signed=True)} | {pct(p['roe'], 0, signed=True)} | {usd(p['funding_per_day'], signed=True)} | {pct(p['liq_distance_pct'] / 100, 1) if p['liq_distance_pct'] is not None else '—'} | {pct(p['stop_covered_share'])} | {status} | {note} |")
+            liq = "—" if p["liq_distance_pct"] is None else (">100%" if p["liq_distance_pct"] > 100 else pct(p["liq_distance_pct"] / 100, 1))
+            held = hrs((r["now_ms"] - p["opened_ms"]) / 3.6e6) if p.get("opened_ms") else "—"
+            out.append(f"| {p['coin']} | {p['side']} | {p['leverage'] or '—'}x | {held} | {usd(p['notional'])} | {usd(p['unrealized'], signed=True)} | {pct(p['roe'], 0, signed=True)} | {usd(p['funding_per_day'], signed=True)} | {liq} | {pct(p['stop_covered_share'])} | {status} | {note} |")
     else:
         out.append("\nNo open positions right now.")
     return "\n".join(out)

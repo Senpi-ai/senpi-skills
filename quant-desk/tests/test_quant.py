@@ -33,6 +33,10 @@ def test_open_add_partial_close_close_is_one_episode():
     assert len(closed) == 1 and not opened
     e = closed[0]
     assert e["direction"] == "LONG" and e["adds"] == 1 and e["partial_closes"] == 1 and e["complete"] and e["win"]
+    # a TWAP of 50 slices is ONE order: no adds
+    sl = [fill("SOL", "B", 0.1, 10, i * 1000, i * 0.1, 100 + i, twap=7) for i in range(50)] + [fill("SOL", "A", 5, 11, H, 5, 999, pnl=5)]
+    c2, _ = episodes_from_fills(sl)
+    assert c2[0]["adds"] == 0 and c2[0]["n_fills"] == 51
     assert abs(e["entry_vwap"] - 105) < 1e-9 and abs(e["exit_vwap"] - 125) < 1e-9 and abs(e["realized"] - 40) < 1e-9
     assert e["hold_h"] == 3 and e["peak_size"] == 2 and e["peak_notional"] == 240      # peak size 2 at the $120 fill
 
@@ -108,15 +112,15 @@ def test_track_record_and_costs():
     assert tr["coins"]["ETH"]["trades"] == 2 and tr["long"]["trades"] == 2 and tr["short"]["trades"] == 0
 
 
-def test_drawdown_is_transfer_adjusted():
-    portfolio = [["allTime", {"accountValueHistory": [[0, "1000"], [1, "1100"], [2, "600"], [3, "650"]], "pnlHistory": [[0, "0"], [1, "100"], [2, "100"], [3, "150"]], "vlm": "0"}]]
-    ledger = [{"time": 2, "delta": {"type": "withdraw", "amount": "500"}}]
-    eq = metrics.equity_curve(portfolio, metrics.flows(ledger, "0xabc"), 0)
-    assert [v for _, v in eq] == [1000, 1100, 1100, 1150]
-    assert metrics.drawdown(eq)["dd"] == 0
-    eq2 = metrics.equity_curve(portfolio, [], 0)
-    dd = metrics.drawdown(eq2)
-    assert dd["dd"] == 500 and abs(dd["dd_pct"] - 500 / 1100) < 1e-9
+def test_drawdown_comes_from_the_ledgers_pnl_series_not_equity():
+    # a $500 withdrawal drops account value but not P&L: no drawdown; a real $150 P&L fall is one, sized to the account at the peak
+    portfolio = [["allTime", {"accountValueHistory": [[0, "1000"], [1, "1100"], [2, "600"], [3, "650"], [4, "500"]],
+                              "pnlHistory": [[0, "0"], [1, "100"], [2, "100"], [3, "150"], [4, "0"]], "vlm": "0"}]]
+    eq = metrics.equity_curve(portfolio, [], 0); pnl = metrics.pnl_series(portfolio, 0)
+    dd = metrics.drawdown(pnl, eq)
+    assert dd["dd"] == 150 and abs(dd["dd_pct"] - 150 / 650) < 1e-9 and dd["in_drawdown"]
+    assert metrics.drawdown(pnl[:3], eq)["dd"] == 0
+    assert metrics.flows([{"time": 2, "delta": {"type": "withdraw", "amount": "500"}}], "0xabc") == [(2, -500.0)]
 
 
 def test_coverage_reads_the_wallets_own_daily_volume():
@@ -353,7 +357,7 @@ def test_attention_and_funding_regime_parsers():
     mk = {"success": True, "data": {"markets": [{"token": "ETH", "dex": "", "direction": "long", "pct_of_top_traders_gain": 38.0, "trader_count": 12, "is_dominant_direction": True},
                                                 {"token": "ETH", "dex": "", "direction": "short", "pct_of_top_traders_gain": 0.2, "trader_count": 1, "is_dominant_direction": False},
                                                 {"token": "GOLD", "dex": "xyz", "direction": "long", "pct_of_top_traders_gain": 9.0, "trader_count": 6, "is_dominant_direction": True}]}}
-    mo = {"success": True, "data": {"events": [{"tier": 1, "top_positions": [{"token": "ETH", "direction": "long"}, {"token": "ZEC", "direction": "short"}]}]}}
+    mo = {"success": True, "data": {"window": "4h", "items": [{"tier": 1, "top_positions": [{"token": "ETH", "direction": "long"}, {"token": "ZEC", "direction": "short"}]}]}}
     book = {"positions": [{"coin": "ETH", "side": "SHORT"}, {"coin": "ZEC", "side": "SHORT"}]}
     at = market.attention(mk, mo, book)
     assert at["markets"][0]["coin"] == "ETH" and at["markets"][1]["coin"] == "xyz:GOLD" and at["overlap"][0]["read"] == "AGAINST"

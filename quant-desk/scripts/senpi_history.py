@@ -75,7 +75,7 @@ def episode(r):
     realized = _num(r.get("realizedPnl")); fees = _num(r.get("totalFees"))
     return dict(coin=coin, signed=szi, direction="LONG" if szi > 0 else "SHORT", open_time=open_t, close_time=close_t, last_time=close_t,
                 realized=realized, fees=fees, net=realized - fees, volume=size * (ent + ext), taker_volume=0.0, twap_volume=0.0,
-                adds=max(0, int(_num(r.get("totalFills"), 1)) - 2), partial_closes=0, entry_qty=size, entry_val=notional, exit_qty=size,
+                adds=None, partial_closes=0, entry_qty=size, entry_val=notional, exit_qty=size,
                 exit_val=size * ext, peak_size=size, peak_notional=notional, liquidated=False, truncated=False, n_fills=int(_num(r.get("totalFills"), 0)),
                 unobserved_qty=0.0, close_observed=True, entry_vwap=ent or None, exit_vwap=ext or None, hold_h=(close_t - open_t) / 3.6e6,
                 taker_share=None, complete=True, win=realized > 0, leverage=_num(lev.get("value")) if isinstance(lev, dict) else _num(lev),

@@ -67,7 +67,7 @@ def track_record(closed, opened, funding_rows, fee_sched, window_start):
         trades=len(closed), complete_trades=len(complete), truncated_trades=sum(1 for e in closed if e["truncated"]),
         wins=len(wins), losses=len(losses), win_rate=len(wins) / len(closed) if closed else None, profit_factor=pf,
         gross_realized=gross, fees=fees, funding=funding, net=gross - fees + funding,
-        cost_ratio=((fees - funding) / gross) if gross > 0 else None,
+        cost_ratio=((fees + max(0.0, -funding)) / gross) if gross > 0 else None,     # what costs took; collected funding is income, not a negative cost
         avg_win=win_sum / len(wins) if wins else None, avg_loss=-loss_sum / len(losses) if losses else None,
         payoff_ratio=((win_sum / len(wins)) / (loss_sum / len(losses))) if (wins and losses and loss_sum) else None,
         largest_win=max((e["realized"] for e in closed), default=None), largest_loss=min((e["realized"] for e in closed), default=None),
@@ -83,7 +83,7 @@ def track_record(closed, opened, funding_rows, fee_sched, window_start):
         long_share=len(longs) / len(closed) if closed else None,
         long=dict(trades=len(longs), wins=sum(1 for e in longs if e["win"]), realized=sum(e["realized"] for e in longs)),
         short=dict(trades=len(shorts), wins=sum(1 for e in shorts if e["win"]), realized=sum(e["realized"] for e in shorts)),
-        adds_per_trade=statistics.mean([e["adds"] for e in complete]) if complete else None,
+        adds_per_trade=statistics.mean([e["adds"] for e in complete if e.get("adds") is not None]) if any(e.get("adds") is not None for e in complete) else None,
         size_buckets=_size_buckets([e for e in closed if not e["truncated"]]), coins=coins)
 
 
@@ -100,7 +100,10 @@ def _size_buckets(complete):
     return dict(median_notional=m, bands=out)
 
 
-def open_book(cs, open_orders, ctxs):
+DUST_USD = 10.0
+
+
+def open_book(cs, open_orders, ctxs, ages=None):
     """Every open position with liquidation distance, funding per day at the current rate, and its stop
     coverage from resting trigger orders: a stop for a long is a sell trigger below the mark, for a short
     a buy trigger above it. Coverage is the stop-covered fraction of the size."""
@@ -110,6 +113,8 @@ def open_book(cs, open_orders, ctxs):
     for ap in cs.get("assetPositions") or []:
         p = ap["position"]; szi = _f(p["szi"]); coin = p["coin"]; side = "LONG" if szi > 0 else "SHORT"
         size = abs(szi); mark = marks.get(coin) or _f(p["entryPx"])
+        if size * mark < DUST_USD:
+            continue                                            # dust left behind by a partial close: not a position
         liq_px = _f(p["liquidationPx"]) if p.get("liquidationPx") else None
         exit_side = "A" if side == "LONG" else "B"
         stops, tps = [], []
@@ -130,7 +135,8 @@ def open_book(cs, open_orders, ctxs):
                         stop_covered_share=(covered / size) if size else 0.0, stop_px=nearest,
                         stop_distance_pct=(abs(mark - nearest) / mark * 100) if (nearest and mark) else None, take_profit=bool(tps),
                         funding_rate_hourly=rate, funding_per_day=-(rate * notional * 24) * (1 if side == "LONG" else -1),
-                        funding_since_open=_f((p.get("cumFunding") or {}).get("sinceOpen"))))
+                        funding_since_open=_f((p.get("cumFunding") or {}).get("sinceOpen")),
+                        opened_ms=(ages or {}).get(coin)))
     ms = cs.get("marginSummary") or {}
     av = _f(ms.get("accountValue")); mu = _f(ms.get("totalMarginUsed"))
     gross_exp = sum(p["notional"] for p in out)
@@ -179,16 +185,26 @@ def equity_curve(portfolio, flow_list, window_start):
     return adj
 
 
-def drawdown(adj):
-    """Max drawdown on an adjusted equity curve: ($, fraction of the peak, (peak_ts, trough_ts))."""
+def drawdown(pnl_pts, av_pts):
+    """Max drawdown from Hyperliquid's own P&L series (transfer-immune by construction): the deepest
+    peak-to-trough fall in cumulative P&L, as a share of the account value at the peak. Capped at 100%."""
+    if not pnl_pts:
+        return dict(dd=0.0, dd_pct=0.0, span=None, in_drawdown=False, current_dd_pct=None)
+    av = dict(av_pts or [])
+    def av_at(t):
+        ks = [k for k in av if k <= t]
+        return av[max(ks)] if ks else (av[min(av)] if av else 0.0)
     peak, peak_t, dd, dd_pct, span = -1e18, None, 0.0, 0.0, None
-    for t, v in adj:
+    for t, v in pnl_pts:
         if v > peak:
             peak, peak_t = v, t
-        if peak > 0 and peak - v > dd:
-            dd, dd_pct, span = peak - v, (peak - v) / peak, (peak_t, t)
-    in_dd = bool(adj) and peak > 0 and (peak - adj[-1][1]) / peak > 0.05
-    return dict(dd=dd, dd_pct=dd_pct, span=span, in_drawdown=in_dd, current_dd_pct=((peak - adj[-1][1]) / peak) if (adj and peak > 0) else None)
+        fall = peak - v
+        if fall > dd:
+            base = av_at(peak_t) or 0.0
+            dd, dd_pct, span = fall, min(1.0, fall / base) if base > 0 else 0.0, (peak_t, t)
+    last = pnl_pts[-1][1]; base_now = av_at(peak_t) or 0.0
+    cur = min(1.0, (peak - last) / base_now) if base_now > 0 else None
+    return dict(dd=dd, dd_pct=dd_pct, span=span, in_drawdown=bool(cur and cur > 0.05), current_dd_pct=cur)
 
 
 def pnl_series(portfolio, window_start):

@@ -161,9 +161,11 @@ def public_positions(states):
 
 
 # ---------------------------------------------------------------- the reads
-def compare(per, book, opened_episodes):
-    """One row per open position: your side vs the cohort's bias on that coin, and the read."""
-    opens = {e["coin"]: e["open_time"] for e in opened_episodes or []}
+def compare(per, book, opened_episodes, ages=None):
+    """One row per open position: your side vs the cohort's bias on that coin, and the read. Your entry
+    time comes from Senpi's position age when present; from fills only when the open was actually observed."""
+    opens = {e["coin"]: e["open_time"] for e in opened_episodes or [] if not e.get("truncated") and not e.get("unobserved_qty")}
+    opens.update({c: t for c, t in (ages or {}).items() if t})
     rows, lags = [], []
     for p in book["positions"]:
         d = per.get(p["coin"])
@@ -312,11 +314,11 @@ def user_tilt(book, majors, large):
     return {cls: dict(label=taxonomy.label(cls), bias=(net[cls] / gross[cls]) if gross[cls] else 0.0, weight=gross[cls] / tot) for cls in gross}
 
 
-def cohort_view(name, bks, book, opened, majors, large):
+def cohort_view(name, bks, book, opened, majors, large, ages=None):
     """Everything the desk says about one cohort: per-position reads (with ages), class tilt vs yours,
     coins they hold that you don't (by headcount), coins you hold that none of them touch."""
     per = per_from_books(bks)
-    cmp_ = compare(per, book, opened)
+    cmp_ = compare(per, book, opened, ages)
     tilt = class_tilt(bks, majors, large); yours = user_tilt(book, majors, large)
     mine = {p["coin"] for p in book["positions"]}
     theirs = sorted(((d["members"], coin, d) for coin, d in per.items() if coin not in mine and d["members"] >= MIN_MEMBERS and abs(d["bias"]) >= LEAN), reverse=True)

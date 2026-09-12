@@ -222,7 +222,10 @@ def attention(markets_resp, momentum_resp, book):
     in what (momentum events, last 4h) — against the trader's own book."""
     out = dict(markets=[], overlap=[], momentum=[], with_momentum=[], against_momentum=[])
     m = _ok(markets_resp) or {}
-    rows = m.get("markets") if isinstance(m, dict) else (m if isinstance(m, list) else [])
+    for _ in range(3):
+        if isinstance(m, dict):
+            m = _field(m, "markets", "data", "results", default=None) or next((v for v in m.values() if isinstance(v, list)), [])
+    rows = m if isinstance(m, list) else []
     dom = [r for r in rows or [] if isinstance(r, dict) and r.get("is_dominant_direction")]
     dom.sort(key=lambda r: -_f(r.get("pct_of_top_traders_gain")))
     mine = {p["coin"]: p["side"] for p in book["positions"]}
@@ -234,8 +237,11 @@ def attention(markets_resp, momentum_resp, book):
         if coin in mine:
             out["overlap"].append(dict(coin=coin, you=mine[coin], top=row["direction"], read="WITH" if mine[coin] == row["direction"] else "AGAINST"))
     ev = _ok(momentum_resp) or []
-    if isinstance(ev, dict):
-        ev = _field(ev, "events", "data", "results", default=[]) or []
+    for _ in range(3):                      # unwrap {data:{events:[...]}} however deep it comes
+        if isinstance(ev, dict):
+            ev = _field(ev, "events", "data", "results", "items", default=None) or next((v for v in ev.values() if isinstance(v, list)), [])
+    if not isinstance(ev, list):
+        ev = []
     seen = collections.Counter()
     for e in ev[:50]:
         if not isinstance(e, dict):

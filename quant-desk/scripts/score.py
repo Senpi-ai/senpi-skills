@@ -84,7 +84,10 @@ def dim_cost(tr):
     cr, ts = tr.get("cost_ratio"), tr.get("taker_share")
     if cr is not None:
         s = 100 - min(70, cr * 150)
-        line = f"Fees + funding ate {_pct(cr)} of gross P&L ({_usd(tr['fees'])} fees, {_usd(-tr['funding'])} funding on {_usd(tr['gross_realized'])} gross)."
+        if (tr.get("funding") or 0) > 0:
+            line = f"Fees took {_pct(cr)} of gross P&L ({_usd(tr['fees'])} on {_usd(tr['gross_realized'])} gross); funding paid you {_usd(tr['funding'])} on top."
+        else:
+            line = f"Fees + funding ate {_pct(cr)} of gross P&L ({_usd(tr['fees'])} fees, {_usd(-tr['funding'])} funding on {_usd(tr['gross_realized'])} gross)."
     else:
         s = 90 - min(60, (ts or 0) * 50)
         line = f"Gross P&L is not positive over the window; fees {_usd(tr['fees'])} and funding {_usd(-tr['funding'])} came on top."
@@ -169,7 +172,7 @@ def dimensions(tr, book, dd, tm, mf, sm, closed, pnl_curve):
 
 
 # ---------------------------------------------------------------- archetype, flags, verdict
-def archetype(tr, book, tm, act):
+def archetype(tr, book, tm, act, opened=None):
     ex = book.get("exposure_over_equity") or 0; mu = book.get("margin_utilization") or 0
     levs = [p["leverage"] for p in book["positions"] if p.get("leverage")]
     adj = "Aggressive" if (ex > 5 or mu > 0.6 or (levs and max(levs) >= 10)) else ("Careful" if (ex < 2 and mu < 0.3) else "Balanced")
@@ -193,8 +196,10 @@ def archetype(tr, book, tm, act):
     else:
         noun = "opportunist"
     bias = ""
-    ls = tr.get("long_share")
-    if ls is not None and tr.get("trades", 0) >= 5:
+    n_closed = tr.get("trades") or 0; n_open = len(book["positions"])
+    longs = (tr.get("long_share") or 0) * n_closed + sum(1 for p in book["positions"] if p["side"] == "LONG")
+    if n_closed + n_open >= 5:
+        ls = longs / (n_closed + n_open)
         bias = "long-only " if ls >= 0.9 else ("short-only " if ls <= 0.1 else "")
     return f"{adj} {bias}{noun}"
 
@@ -252,6 +257,10 @@ def verdict(tr, book, dims, leaks):
         p = min(near, key=lambda p: p["liq_distance_pct"])
         weak_line = f"{p['coin']} sits {p['liq_distance_pct']:.1f}% from liquidation with {'no' if p['stop_covered_share'] == 0 else 'a partial'} stop"
         imperative = "Protect that position today."
+    av = book.get("account_value") or 0
+    if av and (book.get("unrealized") or 0) < -0.2 * av:
+        weak_line = f"the open book is {_usd(book['unrealized'])} under water ({_pct(-book['unrealized'] / av)} of equity) with {len(book['naked'])} of {len(book['positions'])} positions unprotected"
+        imperative = "Decide the exits before the market does."
     return f"{strength} — but {weak_line}. {imperative}"
 
 

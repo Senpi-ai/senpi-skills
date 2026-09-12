@@ -93,6 +93,17 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     win_start, now = tr_raw["window_start_ms"], tr_raw["now_ms"]
     ctxs = hl.meta()
     closed, opened = episodes_from_fills(fills)
+    ages = {}
+    if mcp is not None:
+        try:
+            resp = mcp.mcp_call("discovery_get_trader_state", trader_addresses=[addr], include_position_age=True, timeout=20)
+            for t in smart_money._traders_of(smart_money._ok(resp)):
+                for p in (t.get("openPositions") or t.get("open_positions") or []):
+                    st = smart_money._f(p, "startTime", "start_time", default=0.0)
+                    if isinstance(p, dict) and p.get("coin") and st:
+                        ages[p["coin"]] = st * 1000.0 if st < 1e12 else st
+        except Exception as e:  # noqa: BLE001
+            meta["warnings"].append(f"own position ages unavailable: {e}")
     source = "public fills"
     cov = metrics.coverage(closed, opened, fills, tr_raw["userFees"])
     if mcp is not None:
@@ -115,11 +126,12 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         fb_closed, fb_open = episodes_from_fills(fills)
         fb = metrics.track_record(fb_closed, fb_open, tr_raw["userFunding"], tr_raw["userFees"], win_start)
         track["taker_share"], track["fee_recoverable"], track["volume"] = fb["taker_share"], fb["fee_recoverable"], fb["volume"]
-    book = metrics.open_book(cs, oo, ctxs)
+    book = metrics.open_book(cs, oo, ctxs, ages)
     pnl_curve = metrics.pnl_series(tr_raw["portfolio"], win_start)
     fl = metrics.flows(tr_raw["ledger"], addr)
-    eq = metrics.equity_curve(tr_raw["portfolio"], fl, win_start)
-    dd = metrics.drawdown(eq)
+    eq = metrics.equity_curve(tr_raw["portfolio"], [], win_start)          # raw account value over the window
+    pnl_pts = metrics.pnl_series(tr_raw["portfolio"], win_start)
+    dd = metrics.drawdown(pnl_pts, eq)
     avg_eq = (sum(v for _, v in eq) / len(eq)) if eq else None
     equity = dict(points=len(eq), start=eq[0][1] if eq else None, end=eq[-1][1] if eq else None, avg=avg_eq,
                   return_on_avg_equity=((track["ledger_net"] if track.get("ledger_net") is not None else track["net"]) / avg_eq) if avg_eq else None,
@@ -154,7 +166,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
                     addrs = fetch(mcp, meta)
                     bks = smart_money.books(mcp, addrs, meta) if addrs else []
                     if bks:
-                        cv = smart_money.cohort_view(name, bks, book, opened, majors, large)
+                        cv = smart_money.cohort_view(name, bks, book, opened, majors, large, ages)
                         cv["source"] = ("Senpi discovery — top traders by all-time realized P&L, ≥ $1M realized" if name == "proven"
                                         else "Senpi discovery — the most profitable traders of the last 30 days, holding positions now")
                         cohorts.append(cv)
@@ -165,7 +177,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
             states = hl.states(addrs)
             bks = smart_money.public_books(states)
             if bks:
-                cv = smart_money.cohort_view("proven", bks, book, opened, majors, large)
+                cv = smart_money.cohort_view("proven", bks, book, opened, majors, large, ages)
                 cv["source"] = f"public leaderboard — {len(bks)} large profitable accounts with a live book (no entry timing without Senpi)"
                 cohorts.append(cv)
         meta["timings"]["cohort"] = round(time.time() - t3, 1)
@@ -230,12 +242,12 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     lk = score.leaks(track, book, tm, tr_raw["userFunding"], in_win, win_start, days)
     setups = score.best_setups(in_win, tm_rows)
     fp = strategy_read.fingerprint(in_win, opened, book, track, act, tm, candles, ctxs, pnl_curve, win_start, now)
-    strategy = dict(fingerprint=fp, statements=strategy_read.statements(fp, track, book), critique=strategy_read.critique(fp, track, book, mf, sm))
+    strategy = dict(fingerprint=fp, statements=strategy_read.statements(fp, track, book), critique=strategy_read.critique(fp, track, book, mf, sm, cohorts))
     context = dict(breadth=breadth, funding_regime=fregime, attention=attention, regime_days=regimes_days, regime_performance=rperf)
     opps = opportunities.scout(in_win, setups, book, breadth, coin_regimes, cohorts, attention, majors, large)
     r = dict(address=addr, days=days, now_ms=now, window_start_ms=win_start, activity=act, track=track, book=book, equity=equity, drawdown=dd,
              pnl_curve=pnl_curve[-120:], timing=tm, market=mf, rank=rank, smart=sm, cohorts=cohorts, labels=labels, dimensions=dims, quant_score=quant,
-             archetype=score.archetype(track, book, tm, act), flags=score.flags(track, book, dd, tm, mf, labels), leaks=lk,
+             archetype=score.archetype(track, book, tm, act, opened), flags=score.flags(track, book, dd, tm, mf, labels), leaks=lk,
              setups=setups, families=score.families(closed, tm, track), strategy=strategy, context=context, opportunities=opps,
              benchmark=bench, benchmark_table=smart_money.benchmark_table(track, bench) if bench else None,
              episodes=[{k: v for k, v in e.items()} for e in in_win][-300:], meta=meta)

@@ -27,7 +27,7 @@ def _new(coin, f, signed, truncated=False):
     return dict(coin=coin, signed=signed, open_time=f["time"], close_time=None, last_time=f["time"], realized=0.0, fees=0.0,
                 volume=0.0, taker_volume=0.0, twap_volume=0.0, adds=0, partial_closes=0, entry_qty=0.0, entry_val=0.0, exit_qty=0.0,
                 exit_val=0.0, peak_size=0.0, peak_notional=0.0, liquidated=False, truncated=truncated, n_fills=0, unobserved_qty=0.0, unobserved_notional=0.0,
-                close_observed=True)
+                close_observed=True, entry_orders=set())
 
 
 def _sign(x):
@@ -73,8 +73,7 @@ def episodes_from_fills(fills):
             if after != 0.0 and not flipped:
                 ep["partial_closes"] += 1
         else:
-            if ep["n_fills"] > 1:
-                ep["adds"] += 1
+            ep["entry_orders"].add(f.get("twapId") if f.get("twapId") is not None else f.get("oid"))
             ep["entry_qty"] += sz; ep["entry_val"] += sz * px
         ep["peak_size"] = max(ep["peak_size"], abs(after), abs(before))
         ep["peak_notional"] = max(ep["peak_notional"], max(abs(after), abs(before)) * px)
@@ -92,6 +91,7 @@ def episodes_from_fills(fills):
 
 
 def _finish(ep):
+    ep["adds"] = max(0, len(ep.pop("entry_orders", ()) or ()) - 1)     # distinct opening orders beyond the first; a TWAP is one order
     ep["direction"] = "LONG" if ep["signed"] > 0 else "SHORT"
     ep["entry_vwap"] = ep["entry_val"] / ep["entry_qty"] if ep["entry_qty"] else None
     ep["exit_vwap"] = ep["exit_val"] / ep["exit_qty"] if ep["exit_qty"] else None
