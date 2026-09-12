@@ -67,7 +67,8 @@ def track_record(closed, opened, funding_rows, fee_sched, window_start):
         trades=len(closed), complete_trades=len(complete), truncated_trades=sum(1 for e in closed if e["truncated"]),
         wins=len(wins), losses=len(losses), win_rate=len(wins) / len(closed) if closed else None, profit_factor=pf,
         gross_realized=gross, fees=fees, funding=funding, net=gross - fees + funding,
-        cost_ratio=((fees + max(0.0, -funding)) / gross) if gross > 0 else None,     # what costs took; collected funding is income, not a negative cost
+        gross_income=gross + max(0.0, funding),
+        cost_ratio=((fees + max(0.0, -funding)) / (gross + max(0.0, funding))) if (gross + max(0.0, funding)) > 0 else None,     # costs over what was made: trade P&L plus funding collected
         avg_win=win_sum / len(wins) if wins else None, avg_loss=-loss_sum / len(losses) if losses else None,
         payoff_ratio=((win_sum / len(wins)) / (loss_sum / len(losses))) if (wins and losses and loss_sum) else None,
         largest_win=max((e["realized"] for e in closed), default=None), largest_loss=min((e["realized"] for e in closed), default=None),

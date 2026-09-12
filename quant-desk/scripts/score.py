@@ -32,8 +32,7 @@ def _pct_cost(x):
 def dim_timing(tm, sm, cov=None):
     s, lines = 70.0, []
     if not tm or (tm.get("n") or 0) < 5:
-        why = f" — the public API returned about {_pct(cov['overall'])} of your executed volume; connect senpi for the full history" if cov and cov.get("overall") is not None and cov["overall"] < 0.9 else ""
-        return 60.0, f"Not enough fully observed trades to judge timing{why}."
+        return 60.0, "Not enough fully observed trades to judge timing."
     if tm and tm.get("n"):
         cs = tm.get("chased_share") or 0.0
         s -= cs * 40
@@ -91,8 +90,11 @@ def dim_cost(tr):
     cr, ts = tr.get("cost_ratio"), tr.get("taker_share")
     if cr is not None:
         s = 100 - min(70, cr * 150)
-        if (tr.get("funding") or 0) > 0:
-            line = f"Fees took {_pct_cost(cr)} of gross P&L ({_usd(tr['fees'])} on {_usd(tr['gross_realized'])} gross); funding paid you {_usd(tr['funding'])} on top."
+        if cr > 1:
+            costs = abs(tr.get("fees") or 0) + max(0.0, -(tr.get("funding") or 0))
+            line = f"Costs exceeded what you made: {_usd(costs)} against {_usd(tr.get('gross_income') or tr['gross_realized'])} of trade P&L{' and funding' if (tr.get('funding') or 0) > 0 else ''}."
+        elif (tr.get("funding") or 0) > 0:
+            line = f"Fees took {_pct_cost(cr)} of what you made ({_usd(tr['fees'])} on {_usd(tr['gross_realized'])} of trade P&L plus {_usd(tr['funding'])} of funding collected)."
         else:
             line = f"Fees + funding ate {_pct_cost(cr)} of gross P&L ({_usd(tr['fees'])} fees, {_usd(-tr['funding'])} funding on {_usd(tr['gross_realized'])} gross)."
     else:
@@ -211,13 +213,17 @@ def archetype(tr, book, tm, act, opened=None):
     else:
         noun = "opportunist"
     if (tr.get("trades") or 0) < 5:
-        noun = f"early days ({tr.get('trades') or 0} closed trade{'s' if (tr.get('trades') or 0) != 1 else ''})"
+        n_t = tr.get("trades") or 0; fills = act.get("fills") or 0
+        noun = (f"thin record ({n_t} closed trade{'s' if n_t != 1 else ''}, {fills:,} fills)" if fills >= 500       # a whale with one round trip is not "early days"
+                else f"early days ({n_t} closed trade{'s' if n_t != 1 else ''})")
     bias = ""
     n_closed = tr.get("trades") or 0; n_open = len(book["positions"])
     longs = (tr.get("long_share") or 0) * n_closed + sum(1 for p in book["positions"] if p["side"] == "LONG")
     if n_closed + n_open >= 5:
         ls = longs / (n_closed + n_open)
         bias = "long-only " if ls >= 0.9 else ("short-only " if ls <= 0.1 else "")
+    if noun.startswith(("thin record", "early days")):
+        return f"{adj} book · {bias}{noun}"
     return f"{adj} {bias}{noun}"
 
 
@@ -250,11 +256,13 @@ def flags(tr, book, dd, tm, mf, labels):
 
 
 MIN_VERDICT_TRADES = 5   # below this, cost / timing / consistency cannot carry the headline
+MIN_PATTERN_TRADES = 5   # a hold-time or give-back leak is a pattern claim: it needs a sample
 
 
 def verdict(tr, book, dims, leaks):
     pf, pr = tr.get("profit_factor"), tr.get("payoff_ratio")
     n = tr.get("trades") or 0
+    negative = False     # a negative strength joins its weakness with "and", not "but"
     if pf and pf != float("inf") and pf >= 1.5 and n >= 10:
         strength = f"Real edge — profit factor {pf:.1f} on {n} trades"
     elif pr and pr >= 2 and n >= 10:
@@ -263,10 +271,12 @@ def verdict(tr, book, dims, leaks):
         strength = f"You pick well — {_pct(tr['win_rate'])} win rate"
     elif (tr.get("ledger_net") is not None and tr["ledger_net"] > 0 and abs(tr["ledger_net"]) > 2 * abs(tr.get("net") or 0)):
         strength = f"Net {_usd(tr['ledger_net'])} on the ledger over the window (open book and funding included)"
+    elif tr.get("ledger_net") is not None and tr["ledger_net"] < 0:
+        strength = f"Down {_usd(-tr['ledger_net'])} on the ledger over the window (open book and funding included)"; negative = True
     elif (tr.get("net") or 0) > 0:
         strength = f"Net positive ({_usd(tr['net'])} realized over the window)"
     else:
-        strength = "No edge shows up in this window"
+        strength = "No edge shows up in this window"; negative = True
     # the weakest dimension carries the headline only when it is material: enough trades behind it, and costs
     # that are a real share of the result — $2 of fees on a $222 window is not a leak
     costs = abs(tr.get("fees") or 0) + max(0.0, -(tr.get("funding") or 0))
@@ -299,7 +309,7 @@ def verdict(tr, book, dims, leaks):
         weak_line = f"the open book is {_usd(-book['unrealized'])} under water ({_pct(-book['unrealized'] / av)} of equity) with {len(book['naked'])} of {len(book['positions'])} positions unprotected"
         imperative = "Decide the exits before the market does."
     if weak_line:
-        return f"{strength} — but {weak_line}. {imperative}"
+        return f"{strength} — {'and' if negative else 'but'} {weak_line}. {imperative}"
     if n < MIN_VERDICT_TRADES:
         return f"{strength} — only {n} closed trade{'s' if n != 1 else ''} in the window, so the record is too thin to grade; the live book is where the desk earns its keep today."
     return f"{strength} — nothing in the record is leaking badly; the gains are in the details below."
@@ -325,14 +335,14 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days):
                         usd=paid_late, window=f"{days}d", cta="A funding-aware hold rule caps the cost without changing the thesis."))
     # 3. losers held too long — only when the time cut is robust
     cut = ((tm or {}).get("cut") or {}).get("robust")
-    if cut and cut > 50 and tr.get("hold_ratio", 0) and tr["hold_ratio"] > 1.2:
+    if cut and cut > 50 and tr.get("hold_ratio", 0) and tr["hold_ratio"] > 1.2 and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES:
         out.append(dict(agent="Leak finder", title=f"You hold losers {tr['hold_ratio']:.1f}× longer than winners",
                         evidence=f"Median loser {tr['hold_losers_h']:.1f}h vs winner {tr['hold_winners_h']:.1f}h across {tr['complete_trades']} complete trades.",
                         counterfactual=f"A time-cut on losers (12–48h, whichever) would have kept roughly ~{_usd(cut)} over {days} days (approximate: peak size × price move).",
                         usd=cut, window=f"{days}d", cta="A time-cut is a rule your quant can run for you."))
     # 4. giving back winners — only when the lock is robust
     lock = ((tm or {}).get("lock") or {}).get("robust")
-    if lock and lock > 50:
+    if lock and lock > 50 and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES:
         out.append(dict(agent="Leak finder", title=f"You give back a median {_pct(tm['give_back_median'])} of a winner's peak",
                         evidence=f"Winners reach a median +{_pct(tm['mfe_median_winners'], 1)} before exit; {_pct(tm['losers_that_were_green'])} of losers were green first." if tm.get("losers_that_were_green") is not None else "",
                         counterfactual=f"A trailing lock on peak gains would have kept roughly ~{_usd(lock)} over {days} days (approximate: peak size × price move).",

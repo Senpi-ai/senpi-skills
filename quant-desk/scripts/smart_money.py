@@ -205,7 +205,7 @@ def compare(per, book, opened_episodes, ages=None, now_ms=None):
 
 
 BENCH_ROWS = (("Median hold — winners", "hold_winners_h", "h"), ("Median hold — losers", "hold_losers_h", "h"), ("Losers held ÷ winners held", "hold_ratio", "x"),
-              ("Fees + funding ÷ gross P&L", "cost_ratio", "%"), ("Taker share of volume", "taker_share", "%"), ("Win rate", "win_rate", "%"),
+              ("Costs ÷ gross income", "cost_ratio", "%"), ("Taker share of volume", "taker_share", "%"), ("Win rate", "win_rate", "%"),
               ("Profit factor", "profit_factor", "x"), ("Avg winner ÷ avg loser", "payoff_ratio", "x"))
 
 
@@ -253,7 +253,7 @@ def proven_cohort(client, meta, n=PROVEN_N):
         SAMPLE_CAP = keep
 
 
-def books(client, addrs, meta):
+def books(client, addrs, meta, progress=None):
     """Per-wallet live books (coin, signed notional, entry ms) for a cohort, batched."""
     out = []
     for i in range(0, len(addrs), STATE_BATCH):
@@ -263,6 +263,8 @@ def books(client, addrs, meta):
         except Exception as e:  # noqa: BLE001
             meta.setdefault("warnings", []).append(f"trader_state batch failed: {e}")
             continue
+        if progress:
+            progress(f"[quant-desk]   · senpi-smart-money: {min(i + STATE_BATCH, len(addrs))} of {len(addrs)} wallets read …")
         for t in _traders_of(_ok(resp)):
             rows = []
             for p in (t.get("openPositions") or t.get("open_positions") or []):

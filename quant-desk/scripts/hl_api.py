@@ -15,6 +15,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 INFO_URL = os.environ.get("HL_INFO_URL", "https://api.hyperliquid.xyz/info")
@@ -44,6 +45,8 @@ def is_perp(coin):
 
 class HL:
     """Live client with a disk cache. `cache_dir=None` disables caching."""
+
+    progress = None      # optional callable(str): the desk streams sub-steps of the long fetches through it
 
     def __init__(self, cache_dir=DEFAULT_CACHE, timeout=60, now_ms=None):
         self.cache_dir = cache_dir
@@ -91,10 +94,15 @@ class HL:
             if not page:
                 break
             out += page
+            self._tick(f"[quant-desk]   · {len(out):,} fills scanned …")
             if len(page) < FILLS_PAGE:
                 break
             t = page[-1]["time"] + 1
         return out
+
+    def _tick(self, msg):
+        if self.progress:
+            self.progress(msg)
 
     def twap_slices(self, addr, start_ms, end_ms=None):
         """TWAP executions are NOT in `userFillsByTime` — Hyperliquid reports them separately, one record
@@ -113,6 +121,7 @@ class HL:
                 f = dict(x.get("fill") or x)
                 f["twapId"] = x.get("twapId", f.get("twapId"))
                 out.append(f)
+            self._tick(f"[quant-desk]   · {len(out):,} TWAP slices scanned …")
             if len(page) < FILLS_PAGE:
                 break
             t = max(f["time"] for f in out) + 1
@@ -163,14 +172,20 @@ class HL:
     def candles(self, coins, days=91, interval="1h", workers=6):
         """Hourly candles per coin over `days`, fetched in parallel; a coin that fails maps to None."""
         start = self.now_ms - days * DAY_MS
+        todo = sorted(set(coins)); done = [0]; lock = threading.Lock()
         def one(c):
             try:
                 rows = self.info({"type": "candleSnapshot", "req": {"coin": c, "interval": interval, "startTime": start, "endTime": self.now_ms}})
-                return c, [[r["t"], float(r["o"]), float(r["h"]), float(r["l"]), float(r["c"]), float(r["v"])] for r in rows]
+                out = c, [[r["t"], float(r["o"]), float(r["h"]), float(r["l"]), float(r["c"]), float(r["v"])] for r in rows]
             except Exception:  # noqa: BLE001
-                return c, None
+                out = c, None
+            with lock:
+                done[0] += 1; k = done[0]
+            if k % 40 == 0 or k == len(todo):
+                self._tick(f"[quant-desk]   · reading the tape: {k} of {len(todo)} coins{' · daily' if interval != '1h' else ''} …")
+            return out
         with ThreadPoolExecutor(max_workers=workers) as ex:
-            return dict(ex.map(one, sorted(set(coins))))
+            return dict(ex.map(one, todo))
 
     def states(self, addrs, workers=6):
         def one(a):

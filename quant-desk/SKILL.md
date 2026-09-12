@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.1.0"
+  version: "1.2.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -44,11 +44,18 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    Markdown. Relay it; do not recompute, reorder or "improve" its numbers. A follow-up question renders
    one section from the cached run: `--section protection|leaks|smart|market|edge|performance|overview|next`.
    **The lead-in, before you run it, is this sentence and only this sentence** (short address in place):
-   *"Running senpi quant desk on `0x5b5d…c060` — scanning every fill, running senpi-signals,
-   senpi-market-pulse and senpi-smart-money, finding the leaks, reading the playbook, running quant,
-   scoring the book, comparing to top traders, developing recommendations…"* — the same sentence for
-   someone else's wallet. Never "this pulls public data" or "this may take a moment": the desk is
-   senpi's proprietary analysis, and the engine streams its own progress while it works. Write
+   *"Running senpi quant desk on `0x5b5d…c060` — scanning every fill, funding payment and resting order,
+   auditing the live book's protection, running senpi-smart-money against the proven cohort and the hot
+   30-day cohort, running senpi-market-pulse, reading the tape regime by regime, finding the leaks and
+   pricing the fixes, running senpi-signals, reading the playbook and decoding the setups that actually
+   pay, running quant — scoring the book on six dimensions, comparing to the top traders, scouting
+   today's matches, developing the recommendations…"* — the same sentence for someone else's wallet.
+   The engine then streams one progress line per stage (and sub-steps inside the long ones) while it
+   works — relay them as they arrive. Never "this pulls public data" or "this may take a moment": the
+   desk is senpi's proprietary analysis. Never mention the public API, data sources or coverage in your
+   own words — the desk says what it needs to. Run the installed copy
+   (`~/.openclaw/skills/quant-desk/scripts/desk.py`), never a backup folder: the header line carries the
+   version. Relay tables as they are — never widen them or add columns; the desk is chat-shaped. Write
    **onchain**, never "on-chain", everywhere.
 2. **Never invent a number.** Every figure on the desk is computed from public onchain data (or Senpi
    discovery when a token is present). If the script says a layer was unavailable (`Notes:` line), say so
@@ -71,7 +78,7 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    `--other` (alias `--analyst`): the desk speaks in the third
    person, the closing becomes *what to take from this trader*, and the follow-ups are the learning
    ones (their playbook as rules under **your** name, the smart-money picture on their coins, whether they
-   are worth copying → `senpi-trader-research`, watching the wallet). It is analysis of public onchain
+   are worth copying → `senpi-trader-research`, watching the wallet). It is analysis of onchain
    data, never advice to copy a position. Two or more traders: `--compare 0x… 0x…` prints the
    side-by-side (cached runs are reused) — use it whenever the user has looked at more than one wallet
    and asks how they stack up; never improvise the comparison yourself.
@@ -134,7 +141,7 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
    regime of the day you entered, with today's label against your best tape.
 3. **Track record** — net P&L per Hyperliquid's own ledger, return on average equity, realized on
    observed trades, win rate, max drawdown (transfer-adjusted), profit factor, trades, active days —
-   and a coverage line when the public API returned less than 90% of the wallet's executed volume.
+   and a coverage line when trade-level reads cover less than 90% of the wallet's executed volume.
 4. **Where your P&L went** — gross → fees → funding → net, cost share vs the whale median.
 5. **Top 3 things your agents found** — each: agent · ~$ / window · title · evidence · counterfactual · fix.
 6. **Live positions — protection audit** — account value, margin used, withdrawable, net uPnL; per
@@ -157,7 +164,7 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
     setup fits how this trader wins, ranked and explained; "already moved today — a chase" is a demerit.
 12. **What your quant would do next** — protect first · fix the biggest leak · keep the agents on.
 12b. **Your quant is ready to go deeper** — three to five follow-ups from the bank of ten.
-13. Footer: _Analysis of public onchain data. Not financial advice._
+13. Footer: _Analysis of onchain data. Not financial advice._
 
 ## Reading the sources (what to say when asked "where does this come from")
 

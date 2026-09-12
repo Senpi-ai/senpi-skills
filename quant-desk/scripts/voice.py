@@ -7,7 +7,7 @@ import re
 
 KEEP = ("YOUR QUANT — LIVE", "Your quant", "your quant", "hire my quant", "your own book", "under **your** name", "under your name", "your name",
         "you could run", "you can run", "you run under", "by the time you see them", "you see them", "Say *hire", "you hired", "you want", "Want me", "Want the",
-        "Want their", "Want to", "your say-so", "on your side", "you already hold", "run for you", "run this for you", "tell you", "your agents")
+        "Want their", "Want to", "your say-so", "on your side", "run for you", "run this for you", "tell you", "your agents")
 # object case first: "paid you", "sits with you", "against you" → them. English second person hides the case; third person does not.
 OBJECT = re.compile(r"\b(against|with|behind|ahead of|beside|from|of|by|to|at|on|for|between|around|near|over|under|toward|towards|without|into|onto|off|past|"
                     r"paid|pays|paying|pay|cost|costs|costing|tells|tell|telling|told|shows|show|showing|showed|lets|let|letting|gives|give|gave|giving|"

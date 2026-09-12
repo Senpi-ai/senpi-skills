@@ -233,7 +233,7 @@ def test_fixture_pipeline_end_to_end():
     assert r["rank"]["of"] == len(rec["hl::leaderboard"]["leaderboardRows"])
     assert 0.3 < r["track"]["coverage"]["overall"] < 0.9                                            # the TWAP-slice gap, measured
     assert r["quant_score"] and r["archetype"] and r["verdict"] and r["flags"] and r["leaks"] and r["smart"]["rows"]
-    assert any("returned" in w for w in r["meta"]["warnings"])                                         # the coverage caveat is stated
+    assert not any("public API" in w for w in r["meta"]["warnings"])                                   # coverage is measured, never apologised for
     md = __import__("render").render(r)
     for s in ("Quant score", "protection audit", "Leaks", "You vs smart money", "Market fit", "Where your edge", "Not financial advice"):
         assert s in md
@@ -281,12 +281,12 @@ def test_senpi_path_uses_discovery_history_and_cohort():
     import desk
     hl = hl_api.HLFixture(rec)
     r = desk.analyze(addr, hl, days=90, mcp=desk._MCPFixture(rec), bench=None)
-    assert r["meta"]["sources"]["trades"].startswith("Senpi discovery (24")
+    assert r["meta"]["sources"]["trades"].startswith("senpi discovery (24")
     assert r["track"]["trades"] == 24 and r["track"]["complete_trades"] == 24 and r["track"]["hold_winners_h"] is not None
     assert r["track"]["taker_share"] is not None                              # execution read stays fill-level
     assert {k: r["labels"][k] for k in ("consistency", "risk", "activity")} == {"consistency": "CHOPPY", "risk": "AGGRESSIVE", "activity": "DEGEN"} and "CHOPPY" in r["flags"]
     eth = next(x for x in r["smart"]["rows"] if x["coin"] == "ETH")
-    assert eth["read"] == "AGAINST SMART MONEY" and r["smart"]["source"].startswith("Senpi discovery")
+    assert eth["read"] == "AGAINST SMART MONEY" and r["smart"]["source"].startswith("senpi discovery")
     assert [c["name"] for c in r["cohorts"]] == ["proven", "hot"]
     hot = r["cohorts"][1]; zec = next(x for x in hot["rows"] if x["coin"] == "ZEC")
     assert zec["read"].startswith("WITH") and hot["wallets"] == 6
@@ -609,9 +609,8 @@ def test_rank_carries_three_windows_and_render_helpers():
     line = render.rank_line(rk)
     assert line.startswith(f"**#{rk['rank']:,} of {rk['of']:,}** on Hyperliquid's leaderboard this week (") and "on the month (" in line and "all-time (" in line, line
     tr = {"coverage": {"overall": 0.27, "episodes_incomplete": 23, "episodes": 24}}
-    assert render.coverage_note(tr, None).startswith("_Hyperliquid's public API returned about 27% of your executed volume")
-    n = render.coverage_note(tr, {"sources": {"trades": "Senpi discovery (17 closed positions)"}})
-    assert n.startswith("_Trade history from Senpi discovery (17 closed positions) — complete.") and "27%" in n
+    assert render.coverage_note(tr, None) == "_Trade-level reads cover about 27% of executed volume; ledger figures are complete._"
+    assert render.coverage_note(tr, {"sources": {"trades": "senpi discovery (17 closed positions)"}}) == "_Trade history: senpi discovery (17 closed positions)._"
     assert render.coverage_note({"coverage": {"overall": 0.95}}, None) is None
     hf = render.hold_fallback({"hold_n": {"winners": 14, "losers": 3}})
     assert "14 winning and 3 losing" in hf and "too few losers" in hf and "wants 5 of each" in hf
@@ -635,3 +634,66 @@ def test_compare_names_the_coins_behind_the_entry_lag():
 def test_analyst_is_an_alias_for_other():
     out = subprocess.run([sys.executable, os.path.join(HERE, "..", "scripts", "desk.py"), "-h"], capture_output=True, text=True, timeout=60).stdout
     assert "--other, --analyst" in out
+
+
+# ---------------------------------------------------------------- 1.2.0: costs over what was made, the ledger leads, chat-shaped tables, no data-source apologies
+def test_costs_are_measured_against_what_was_made():
+    tr = dict(cost_ratio=4533 / 21219, fees=4533.0, gross_realized=9.15, funding=21210.0, gross_income=21219.15, taker_share=0.56)
+    s, line = score.dim_cost(tr)
+    assert line.startswith("Fees took 21% of what you made ($4,533 on $9 of trade P&L plus $21,210 of funding collected)") and s > 60, (s, line)
+    s, line = score.dim_cost(dict(cost_ratio=4.0, fees=400.0, gross_realized=100.0, funding=0.0, gross_income=100.0, taker_share=0.2))
+    assert line.startswith("Costs exceeded what you made: $400 against $100 of trade P&L.") and s == 30, (s, line)
+
+
+def test_verdict_leads_with_a_negative_ledger():
+    book = {"positions": [{"coin": "ZEC", "liq_distance_pct": 44.2, "stop_covered_share": 0.0}, {"coin": "PONS", "liq_distance_pct": 150.0, "stop_covered_share": 0.0}],
+            "naked": ["ZEC", "PONS"], "account_value": 7941488.0, "unrealized": 315976.0}
+    dims = {k: {"score": v, "line": ""} for k, v in dict(timing=60, risk=38, cost=68, sizing=85, consistency=55, market_fit=60).items()}
+    tr = dict(trades=1, ledger_net=-765140.0, net=16686.0, fees=4533.0, funding=21210.0, win_rate=1.0, profit_factor=float("inf"))
+    v = score.verdict(tr, book, dims, [])
+    assert v == "Down $765,140 on the ledger over the window (open book and funding included) — and you're carrying unprotected risk. Fix the risk first.", v
+
+
+def test_pattern_leaks_need_a_sample():
+    tm = {"lock": {"robust": 63716.0}, "cut": {"robust": 0.0}, "give_back_median": 1.0, "mfe_median_winners": 0.016, "losers_that_were_green": None}
+    base = dict(fee_recoverable=0.0, taker_share=0.1, funding=0.0, hold_ratio=None, coins={}, fees=0.0, volume=0.0, fee_rate_taker=0.0, fee_rate_maker=0.0)
+    book = {"positions": [], "naked": [], "funding_per_day": 0.0}
+    assert score.leaks(dict(base, trades=1), book, tm, [], [], 0, 90) == []
+    assert len(score.leaks(dict(base, trades=5), book, tm, [], [], 0, 90)) == 1
+
+
+def test_archetype_calls_a_whale_with_one_round_trip_a_thin_record():
+    book = {"positions": [], "exposure_over_equity": 1.0, "margin_utilization": 0.75}
+    assert score.archetype(dict(trades=1), book, None, {"active_days": 7, "fills": 9380}) == "Aggressive book · thin record (1 closed trade, 9,380 fills)"
+    assert "early days (1 closed trade)" in score.archetype(dict(trades=1), book, None, {"active_days": 2, "fills": 12})
+
+
+def test_progress_streams_inside_the_long_fetches():
+    hl = hl_api.HL(cache_dir=None)
+    msgs = []; hl.progress = msgs.append
+    hl.info = lambda body: []
+    hl.candles(["A", "B"], days=1)
+    assert msgs == ["[quant-desk]   · reading the tape: 2 of 2 coins …"], msgs
+    hl.candles(["A"], days=1, interval="1d")
+    assert msgs[-1] == "[quant-desk]   · reading the tape: 1 of 1 coins · daily …"
+    class C:
+        def mcp_call(self, *a, **k):
+            return {"traders": []}
+    smart_money.books(C(), ["0x1", "0x2"], {}, progress=msgs.append)
+    assert msgs[-1].startswith("[quant-desk]   · senpi-smart-money: 2 of 2 wallets read")
+
+
+def test_desk_is_chat_shaped_and_never_apologises_for_its_sources():
+    import desk, render, voice
+    with open(FIXTURE) as fh:
+        rec = json.load(fh)
+    r = desk.analyze(rec["address"], hl_api.HLFixture(rec), days=90, mcp=None, bench=None)
+    md = render.render(r)
+    prot = render.protection(r)
+    hdr = next(l for l in prot.splitlines() if l.startswith("| Coin |"))
+    assert hdr.count("|") == 10 and "Your quant would" not in hdr and "**Your quant would…**" in prot and "\n- **" in prot
+    for bad in ("public API", "connect senpi", "public reads", "Senpi's read", "public onchain"):
+        assert bad not in md and bad not in voice.third_person(md, "0xab…cd"), bad
+    assert f"· v{render.VERSION}" in md and "Ledger over 90 days:" in md and "Closed trades (" in md
+    skill = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
+    assert f'version: "{render.VERSION}"' in skill

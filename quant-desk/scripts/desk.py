@@ -117,12 +117,8 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         rows = senpi_history.fetch(mcp, addr, win_start, meta)
         meta["timings"]["senpi_history"] = round(time.time() - t_h, 1)
         if rows:
-            closed, source = rows, f"Senpi discovery ({len(rows)} closed positions)"
+            closed, source = rows, f"senpi discovery ({len(rows)} closed position{'s' if len(rows) != 1 else ''})"
     meta["sources"]["trades"] = source
-    if source == "public fills" and cov and cov.get("overall") is not None and cov["overall"] < 0.9:
-        meta["warnings"].append(f"Hyperliquid's public API returned about {100 * cov['overall']:.0f}% of your executed volume "
-                                f"(TWAP executions older than a day aren't kept) — ledger totals are complete, trade-level patterns are read from the "
-                                f"fills it did return; connect a Senpi account for the complete trade history")
     track = metrics.track_record(closed, opened, tr_raw["userFunding"], tr_raw["userFees"], win_start)
     track["coverage"] = cov
     track["ledger_net"] = metrics.ledger_pnl(tr_raw["portfolio"], win_start)
@@ -132,6 +128,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         fb_closed, fb_open = episodes_from_fills(fills)
         fb = metrics.track_record(fb_closed, fb_open, tr_raw["userFunding"], tr_raw["userFees"], win_start)
         track["taker_share"], track["fee_recoverable"], track["volume"] = fb["taker_share"], fb["fee_recoverable"], fb["volume"]
+    log("[quant-desk] auditing the live book: every position's stop, liquidation distance and funding …")
     book = metrics.open_book(cs, oo, ctxs, ages, tr_raw.get("clearinghouseState_xyz"), tr_raw.get("frontendOpenOrders_xyz"), ctx_xyz,
                              metrics.whole_account_value(tr_raw.get("portfolio"), tr_raw.get("spotClearinghouseState")),
                              metrics.spot_free_usdc(tr_raw.get("spotClearinghouseState")))
@@ -169,11 +166,11 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
             for name, fetch in (("proven", smart_money.proven_cohort), ("hot", smart_money.hot_cohort)):
                 try:
                     addrs = fetch(mcp, meta)
-                    bks = smart_money.books(mcp, addrs, meta) if addrs else []
+                    bks = smart_money.books(mcp, addrs, meta, progress=log) if addrs else []
                     if bks:
                         cv = smart_money.cohort_view(name, bks, book, opened, majors, large, ages, now)
-                        cv["source"] = ("Senpi discovery — top traders by all-time realized P&L, ≥ $1M realized" if name == "proven"
-                                        else "Senpi discovery — the most profitable traders of the last 30 days, holding positions now")
+                        cv["source"] = ("senpi discovery — top traders by all-time realized P&L, ≥ $1M realized" if name == "proven"
+                                        else "senpi discovery — the most profitable traders of the last 30 days, holding positions now")
                         cohorts.append(cv)
                 except Exception as e:  # noqa: BLE001
                     meta["warnings"].append(f"{name} cohort failed: {e}")
@@ -183,7 +180,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
             bks = smart_money.public_books(states)
             if bks:
                 cv = smart_money.cohort_view("proven", bks, book, opened, majors, large, ages, now)
-                cv["source"] = f"public leaderboard — {len(bks)} large profitable accounts with a live book (no entry timing without Senpi)"
+                cv["source"] = f"Hyperliquid leaderboard — {len(bks)} large profitable accounts with a live book"
                 cohorts.append(cv)
         meta["timings"]["cohort"] = round(time.time() - t3, 1)
         meta["sources"]["cohort"] = [c["source"] for c in cohorts]
@@ -215,7 +212,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
             meta["warnings"].append(f"senpi labels unavailable: {e}")
     # ---- candles: every coin the trader touched or holds, BTC, and what the cohorts and top traders are in
     t1 = time.time()
-    log("[quant-desk] reading the tape: 90 days of candles for every coin touched, the regime by day …")
+    log("[quant-desk] reading the tape: 90 days of candles for every coin touched, regime by regime …")
     coins = {e["coin"] for e in closed + opened if metrics.in_window(e, win_start)} | {p["coin"] for p in book["positions"]} | {"BTC"}
     for cv in cohorts:
         coins |= {h["coin"] for h in cv.get("they_hold") or []}
@@ -245,12 +242,12 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     log("[quant-desk] finding the leaks, pricing the fixes, running senpi-signals for live matches …")
     lk = score.leaks(track, book, tm, tr_raw["userFunding"], in_win, win_start, days)
     setups = score.best_setups(in_win, tm_rows)
-    log("[quant-desk] reading the playbook: what the book actually does — by class, side and size — and where it breaks …")
+    log("[quant-desk] reading the playbook: what the book actually does, by class, side and size — decoding the setups that actually pay …")
     fp = strategy_read.fingerprint(in_win, opened, book, track, act, tm, candles, ctxs, pnl_curve, win_start, now)
     strategy = dict(fingerprint=fp, statements=strategy_read.statements(fp, track, book), critique=strategy_read.critique(fp, track, book, mf, sm, cohorts))
     context = dict(breadth=breadth, funding_regime=fregime, attention=attention, regime_days=regimes_days, regime_performance=rperf)
     opps = opportunities.scout(in_win, setups, book, breadth, coin_regimes, cohorts, attention, majors, large)
-    log("[quant-desk] running quant: scoring the book on six dimensions, comparing it to the top traders, developing the recommendations …")
+    log("[quant-desk] running quant: scoring the book on six dimensions, comparing it to the top traders, scouting today's matches, developing the recommendations …")
     dims, quant = score.dimensions(track, book, dd, tm, mf, sm, closed, pnl_curve)
     r = dict(address=addr, days=days, now_ms=now, window_start_ms=win_start, activity=act, track=track, book=book, equity=equity, drawdown=dd,
              pnl_curve=pnl_curve[-120:], timing=tm, market=mf, rank=rank, smart=sm, cohorts=cohorts, labels=labels, dimensions=dims, quant_score=quant,
@@ -326,7 +323,7 @@ def main(argv=None):
         else:
             if a.dry:
                 print(json.dumps({"error": "--dry needs --fixture"})); return 2
-            hl = hl_api.HL(cache_dir=a.cache or None); mcp = _mcp_client(meta)
+            hl = hl_api.HL(cache_dir=a.cache or None); hl.progress = log; mcp = _mcp_client(meta)
         log(f"[quant-desk] running senpi quant desk on {addr[:6]}…{addr[-4:]}")
         try:
             r = analyze(addr, hl, days=a.days, mcp=mcp, want_rank=not a.no_rank, want_cohort=not a.no_cohort, bench=bench, meta=meta, whose=whose)
@@ -334,7 +331,7 @@ def main(argv=None):
             print(json.dumps({"error": f"Hyperliquid read failed: {e}", "address": addr})); return 1
         if not r["activity"]["fills"] and not r["book"]["positions"]:
             print(json.dumps({"error": "no perp activity in the window and no open positions — nothing to read", "address": addr, "days": a.days})); return 3
-        log(f"[quant-desk] done in {meta['timings']['total']}s ({meta.get('hl_calls')} public reads)")
+        log(f"[quant-desk] done in {meta['timings']['total']}s ({meta.get('hl_calls')} reads)")
         with open(state_path, "w") as fh:
             json.dump(r, fh, default=float)
     if a.deep:
@@ -344,7 +341,7 @@ def main(argv=None):
                 with open(a.fixture) as fh:
                     hl = hl_api.HLFixture(json.load(fh))
             else:
-                hl = hl_api.HL(cache_dir=a.cache or None)
+                hl = hl_api.HL(cache_dir=a.cache or None); hl.progress = log
             coins = sorted({p["coin"] for p in r["book"]["positions"]} | {e["coin"] for e in r["episodes"]})
             try:
                 candles = timing_mod.load_candles(hl.candles(coins, days=a.days + 1))

@@ -7,7 +7,8 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-FOOTER = "_Analysis of public onchain data. Not financial advice._"
+VERSION = "1.2.0"     # shown in the header line, so a stale install is visible at a glance
+FOOTER = "_Analysis of onchain data. Not financial advice._"
 
 
 def pct_cost(x):
@@ -35,15 +36,14 @@ def rank_line(rank):
 
 
 def coverage_note(tr, meta=None):
-    """Which record the trade-level reads come from. Senpi's history is complete; the public API alone is not."""
+    """Which record the trade-level reads come from, in the desk's own words — never a data-source apology."""
     cov = tr.get("coverage") or {}
+    src = ((meta or {}).get("sources") or {}).get("trades") or "public fills"
+    if src != "public fills":
+        return f"_Trade history: {src}._"
     if cov.get("overall") is None or cov["overall"] >= 0.9:
         return None
-    src = ((meta or {}).get("sources") or {}).get("trades") or "public fills"
-    gaps = f"{cov['episodes_incomplete']} of {cov['episodes']} round trips have gaps — TWAP slices older than a day aren't kept"
-    if src == "public fills":
-        return f"_Hyperliquid's public API returned about {pct(cov['overall'])} of your executed volume ({gaps}). Ledger figures are complete; trade-level patterns are read from the fills it returned._"
-    return f"_Trade history from {src} — complete. Hyperliquid's public API alone returned about {pct(cov['overall'])} of the executed volume ({gaps})._"
+    return f"_Trade-level reads cover about {pct(cov['overall'])} of executed volume; ledger figures are complete._"
 
 
 def hold_fallback(tr):
@@ -102,13 +102,13 @@ def short(addr):
 def header(r):
     a, tr, act, rank = r["address"], r["track"], r["activity"], r.get("rank")
     lines = [f"# Your desk — `{short(a)}`",
-             f"{r['days']} days · {act['fills']:,} fills · {act['coins']} coins · updated {datetime.datetime.utcfromtimestamp(r['now_ms'] / 1000).strftime('%Y-%m-%d %H:%M UTC')} · **YOUR QUANT — LIVE · READ-ONLY**"]
+             f"{r['days']} days · {act['fills']:,} fills · {act['coins']} coins · updated {datetime.datetime.utcfromtimestamp(r['now_ms'] / 1000).strftime('%Y-%m-%d %H:%M UTC')} · **YOUR QUANT — LIVE · READ-ONLY** · v{VERSION}"]
     if rank:
         lines.append(rank_line(rank))
     lines.append(f"**{r['archetype']}**")
     lab = r.get("labels") or {}
     if any(lab.get(k) for k in ("consistency", "risk", "activity")):
-        lines.append("Senpi's read: " + " · ".join(str(lab[k]).upper() for k in ("consistency", "risk", "activity") if lab.get(k))
+        lines.append("senpi's read: " + " · ".join(str(lab[k]).upper() for k in ("consistency", "risk", "activity") if lab.get(k))
                      + (f" · consistency score {lab['tcs']}" if lab.get("tcs") is not None else ""))
     lines.append(f"> **{r['verdict']}**")
     if r["flags"]:
@@ -124,16 +124,24 @@ def overview(r):
         out.append(f"| {names[k]} | {d[k]['score']} | {d[k]['line']} |")
     eq = r["equity"]
     ledger = tr.get("ledger_net")
-    out += ["", f"## Track record ({r['days']} days)", "", "| Net P&L (ledger, incl. unrealized) | Return on avg equity | Net realized on closed trades | Win rate | Max drawdown | Profit factor | Trades | Active days |", "|---:|---:|---:|---:|---:|---:|---:|---:|",
+    out += ["", f"## Track record ({r['days']} days)", "", "| Net P&L (ledger, incl. unrealized) | Return on avg equity | Realized (trades + funding − fees) | Win rate | Max drawdown | Profit factor | Trades | Active days |", "|---:|---:|---:|---:|---:|---:|---:|---:|",
             f"| {usd(ledger, signed=True)} | {pct(eq.get('return_on_avg_equity'), 1, signed=True)} | {usd(tr['net'], signed=True)} | {pct(tr['win_rate'])} | {pct(-r['drawdown']['dd_pct'], 0, signed=True) if r['drawdown'].get('dd_pct') else '—'} | {num(tr['profit_factor'], 'x')} | {tr['trades']} | {r['activity']['active_days']} |"]
     note = coverage_note(tr, r.get("meta"))
     if note:
         out.append(note)
     cr = tr.get("cost_ratio"); wb = (r.get("benchmark") or {}).get("cost_ratio")
-    out += ["", "## Where your P&L went", "", f"Gross **{usd(tr['gross_realized'], signed=True)}** → fees **{usd(-tr['fees'], signed=True)}** → funding **{usd(tr['funding'], signed=True)}** → net **{usd(tr['net'], signed=True)}**."]
+    n_tr = tr.get("trades") or 0
+    out += ["", "## Where your P&L went", ""]
+    if ledger is not None:
+        out.append(f"Ledger over {r['days']} days: **{usd(ledger, signed=True)}** — every fill, funding payment and the open book included.")
+    out.append(f"Closed trades ({n_tr}): gross **{usd(tr['gross_realized'], signed=True)}** → fees **{usd(-tr['fees'], signed=True)}** → funding **{usd(tr['funding'], signed=True)}** → net **{usd(tr['net'], signed=True)}**.")
+    if ledger is not None and n_tr < 5 and (ledger < 0) != ((tr.get("net") or 0) < 0):
+        out.append(f"The closed-trade record is thin ({n_tr} trade{'s' if n_tr != 1 else ''}); the ledger is the number to trust.")
     if cr is not None:
-        if (tr.get("funding") or 0) > 0:
-            out.append(f"Fees took **{pct_cost(cr)}** of your gross; funding paid you **{usd(tr['funding'])}** on top.")
+        if cr > 1:
+            out.append("Costs exceeded what the trades and funding made over the window.")
+        elif (tr.get("funding") or 0) > 0:
+            out.append(f"Fees took **{pct_cost(cr)}** of what you made — trade P&L plus **{usd(tr['funding'])}** of funding collected.")
         else:
             out.append(f"Fees + funding took **{pct_cost(cr)}** of your gross" + (f" — the whale median is {pct(wb)}." if wb is not None else "."))
     if r["leaks"]:
@@ -151,12 +159,17 @@ def protection(r):
            + f" · margin used **{pct(b['margin_utilization'])}** · withdrawable **{usd(b['withdrawable'])}** · net uPnL **{usd(b['unrealized'], signed=True)}**",
            f"{n} open position{'s' if n != 1 else ''} · {len(b['naked'])} with no stop · {len(b['partial'])} partly covered · {r['market']['stance'] if r.get('market') else ''}" + (f" · paying {usd(-b['funding_per_day'])}/day in funding" if b['funding_per_day'] < 0 else (f" · collecting {usd(b['funding_per_day'])}/day in funding" if b['funding_per_day'] > 0 else ""))]
     if n:
-        out += ["", "| Coin | Side | Lev | Held | Notional | uPnL | ROE | Funding/day | To liq. | Stop cover | Status | Your quant would… |", "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|"]
+        # chat-shaped: nine short columns; the prose lives under the table, one line per position that needs a hand
+        out += ["", "| Coin | Side | Held | Notional | uPnL · ROE | Funding/day | To liq. | Stop | Status |", "|---|---|---:|---:|---:|---:|---:|---:|---|"]
+        todo = []
         for p in b["positions"]:
             status, note = _protection_note(p, sm.get(p["coin"]))
             liq = "—" if p["liq_distance_pct"] is None else (">100%" if p["liq_distance_pct"] > 100 else pct(p["liq_distance_pct"] / 100, 1))
             held = hrs((r["now_ms"] - p["opened_ms"]) / 3.6e6) if p.get("opened_ms") else "—"
-            out.append(f"| {p['coin']} | {p['side']} | {p['leverage'] or '—'}x | {held} | {usd(p['notional'])} | {usd(p['unrealized'], signed=True)} | {pct(p['roe'], 0, signed=True)} | {usd(p['funding_per_day'], signed=True)} | {liq} | {pct(p['stop_covered_share'])} | {status} | {note} |")
+            out.append(f"| {p['coin']} | {p['side']} {p['leverage'] or '—'}x | {held} | {usd(p['notional'])} | {usd(p['unrealized'], signed=True)} · {pct(p['roe'], 0, signed=True)} | {usd(p['funding_per_day'], signed=True)} | {liq} | {pct(p['stop_covered_share'])} | {status} |")
+            if status != "PROTECTED":
+                todo.append(f"- **{p['coin']}** — {note}.")
+        out += ["", "**Your quant would…**"] + (todo or ["- nothing here — every position carries a full stop."])
     else:
         out.append("\nNo open positions right now.")
     return "\n".join(out)
@@ -217,7 +230,7 @@ def smart(r):
             out.append("| {} | {} | {} | **{}** |".format(x["coin"], x["you"], x["cohort"], x["read"]))
     bt = r.get("benchmark_table")
     if bt and (r.get("benchmark") or {}).get("n", 0) >= 5:
-        out += ["", f"**You vs whale median** _(top-{(r.get('benchmark') or {}).get('n', '?')} public cohort, {(r.get('benchmark') or {}).get('computed_at', '')})_", "", "| Metric | You | Whale median |", "|---|---:|---:|"]
+        out += ["", f"**You vs whale median** _(top-{(r.get('benchmark') or {}).get('n', '?')} whale cohort, {(r.get('benchmark') or {}).get('computed_at', '')})_", "", "| Metric | You | Whale median |", "|---|---:|---:|"]
         for row in bt:
             you = num(row["you"], row["unit"]); wh = num(row["whale"], row["unit"])
             mark = ""
@@ -314,14 +327,14 @@ def context(r):
         out.append(head + ".")
         fr = c.get("funding_regime")
         if fr and fr.get("regime"):
-            out.append(f"Funding regime (Senpi): **{fr['regime']}**" + (f" — {fr['extreme_count']} extreme-funding assets" if fr.get("extreme_count") is not None else "") + ".")
+            out.append(f"Funding regime (senpi): **{fr['regime']}**" + (f" — {fr['extreme_count']} extreme-funding assets" if fr.get("extreme_count") is not None else "") + ".")
         groups = sorted((g for g in b.get("groups", {}).values()), key=lambda g: -g["oi_usd"])[:8]
         if groups:
             out += ["", "| Class | Avg 24h | Up / down | Median funding |", "|---|---:|---:|---:|"]
             out += [f"| {g['label']} | {pct(g['avg_change_pct'] / 100, 1, signed=True)} | {g['up']} / {g['down']} | {g['median_funding_bp_8h']:+.1f} bp/8h |" for g in groups]
     at = c.get("attention")
     if at and at.get("markets"):
-        out += ["", "**Where the top traders' gains are right now** (Senpi Hyperfeed, 4h): " + "; ".join(f"{m['coin']} {m['direction'].lower()}s {m['share_of_gains']:.0f}% ({m['traders']} traders)" for m in at["markets"][:5]) + "."]
+        out += ["", "**Where the top traders' gains are right now** (senpi Hyperfeed, 4h): " + "; ".join(f"{m['coin']} {m['direction'].lower()}s {m['share_of_gains']:.0f}% ({m['traders']} traders)" for m in at["markets"][:5]) + "."]
         if at.get("overlap"):
             out.append("You: " + ", ".join(f"{o['coin']} **{o['read']}** the top traders" for o in at["overlap"]) + ".")
         if at.get("momentum"):
@@ -330,12 +343,15 @@ def context(r):
     rp = c.get("regime_performance") or {}
     cells = rp.get("cells") or {}
     if cells:
-        out += ["", f"**How you trade the tape** — your record by the regime of the day you entered (last {r['days']} days: " + ", ".join(f"{v} {k.replace('_', '-')} days" for k, v in (rp.get('days') or {}).items()) + "):", "",
-                "| Entered on | Trades | Win rate | Realized | Profit factor |", "|---|---:|---:|---:|---:|"]
+        hdr = ["", f"**How you trade the tape** — your record by the regime of the day you entered (last {r['days']} days: " + ", ".join(f"{v} {k.replace('_', '-')} days" for k, v in (rp.get('days') or {}).items()) + "):", "",
+               "| Entered on | Trades | Win rate | Realized | Profit factor |", "|---|---:|---:|---:|---:|"]
+        rows = []
         for key in ("risk_on/ALL", "risk_off/ALL", "mixed/ALL", "risk_on/LONG", "risk_off/LONG", "risk_on/SHORT", "risk_off/SHORT"):
             x = cells.get(key)
             if x and x["trades"] >= 3:
-                out.append(f"| {x['regime'].replace('_', '-')} days · {x['side'].lower() if x['side'] != 'ALL' else 'all'} | {x['trades']} | {pct(x['wins'] / x['trades'])} | {usd(x['realized'], signed=True)} | {num(x['pf'], 'x')} |")
+                rows.append(f"| {x['regime'].replace('_', '-')} days · {x['side'].lower() if x['side'] != 'ALL' else 'all'} | {x['trades']} | {pct(x['wins'] / x['trades'])} | {usd(x['realized'], signed=True)} | {num(x['pf'], 'x')} |")
+        if rows:      # a header with no rows is a table that says nothing
+            out += hdr + rows
         today = b.get("day")
         best = max((x for x in cells.values() if x["side"] == "ALL" and x["trades"] >= 3), key=lambda x: (x["pf"] if x["pf"] not in (None, float("inf")) else 99), default=None)
         if today and best:
@@ -368,7 +384,9 @@ def smart_v2(r):
         if cv.get("you_alone"):
             out.append("You hold, none of the cohort do: " + ", ".join(cv["you_alone"]) + ".")
         if cv.get("entry_lag_h") is not None:
-            out.append(f"Entry timing: you are {abs(cv['entry_lag_h']):.0f}h {'behind' if cv['entry_lag_h'] > 0 else 'ahead of'} this cohort's median entry on {', '.join(cv.get('lag_coins') or []) or 'the coins you share'}.")
+            on = ', '.join(cv.get('lag_coins') or []) or 'the coins you share'
+            out.append(f"Entry timing: you entered in step with this cohort's median entry on {on}." if abs(cv['entry_lag_h']) < 1
+                       else f"Entry timing: you are {abs(cv['entry_lag_h']):.0f}h {'behind' if cv['entry_lag_h'] > 0 else 'ahead of'} this cohort's median entry on {on}.")
         out.append("")
     bt = r.get("benchmark_table")
     if bt and (r.get("benchmark") or {}).get("n", 0) >= 5:
@@ -478,7 +496,7 @@ COMPARE_ROWS = (("Weekly rank", lambda r: f"#{r['rank']['rank']:,}" if r.get("ra
                 ("Quant score", lambda r: str(r["quant_score"])), ("Net P&L (ledger)", lambda r: usd(r["track"].get("ledger_net"), signed=True)),
                 ("Return on avg equity", lambda r: pct(r["equity"].get("return_on_avg_equity"), 1, signed=True)), ("Max drawdown", lambda r: pct(-(r["drawdown"].get("dd_pct") or 0), 0, signed=True)),
                 ("Trades / win rate", lambda r: f"{r['track']['trades']} / {pct(r['track'].get('win_rate'))}"), ("Profit factor", lambda r: num(r["track"].get("profit_factor"), "x")),
-                ("Taker share", lambda r: pct(r["track"].get("taker_share"))), ("Fees + funding ÷ gross", lambda r: pct(r["track"].get("cost_ratio"))),
+                ("Taker share", lambda r: pct(r["track"].get("taker_share"))), ("Costs ÷ gross income", lambda r: pct(r["track"].get("cost_ratio"))),
                 ("Open positions · unprotected", lambda r: f"{len(r['book']['positions'])} · {len(r['book']['naked'])}"), ("Margin used", lambda r: pct(r["book"].get("margin_utilization"))),
                 ("vs proven cohort", lambda r: _agree(r, "proven")), ("vs hot 30-day cohort", lambda r: _agree(r, "hot")),
                 ("Biggest leak", lambda r: f"{r['leaks'][0]['title']} (~{usd(r['leaks'][0]['usd'])})" if r["leaks"] else "—"),
@@ -509,7 +527,7 @@ def render_compare(rs):
     def val(r, k):
         return r["track"].get(k)
     seps = []
-    for k, label, better_low in (("profit_factor", "profit factor", False), ("taker_share", "taker share", True), ("cost_ratio", "cost share of gross", True), ("win_rate", "win rate", False)):
+    for k, label, better_low in (("profit_factor", "profit factor", False), ("taker_share", "taker share", True), ("cost_ratio", "cost share of income", True), ("win_rate", "win rate", False)):
         vals = [(val(r, k), short(r["address"])) for r in rs if val(r, k) not in (None, float("inf"))]
         if len(vals) >= 2:
             lo, hi = min(vals), max(vals)
@@ -521,7 +539,7 @@ def render_compare(rs):
         seps.append("protection: " + ", ".join(f"`{a}` {n} unprotected" for n, a in naked))
     if seps:
         out += ["", "**What separates them**"] + [f"- {s}" for s in seps]
-    out += ["", "_Analysis of public onchain data. Not financial advice._"]
+    out += ["", FOOTER]
     import voice
     return voice.third_person("\n".join(out))
 
