@@ -1592,16 +1592,32 @@ def cmd_update(a):
 
 def _ownership_flags(p):
     p.add_argument("--owner", default=None, metavar="USERNAME",
-                   help="Whose strategy this becomes: their Senpi username (user_get_me). The template is forked to "
-                        "<owner>-<template> and deployed as that — `ignas-phalanx`, spoken as \"Ignas's Phalanx\".")
+                   help="Override whose name the fork carries. Default: the user's Senpi username, read from user_get_me — "
+                        "`ignas-phalanx`, spoken as \"Ignas's Phalanx\". Never their user ID.")
     p.add_argument("--name", default=None, metavar="WORDS",
                    help="A name of the user's own instead (\"Shield Wall\" → id shield-wall). Wins over --owner.")
 
 
+def _username():
+    """The user's Senpi username (`user_get_me` → data.user.userName), or None when it cannot be read — no
+    token, a failed call, or no username on the account. The caller then asks the user; it never falls back
+    to the id, because an id is not a name."""
+    mcp = MCPClient()
+    if not mcp.token:
+        return None
+    try:
+        doc = mcp.mcp_call("user_get_me")
+    except Exception:  # noqa: BLE001 — unreadable means ask, never guess
+        return None
+    user = _cli.dig(_cli.dig(doc, "data") or {}, "user") or {}
+    return str(_cli.dig(user, "userName") or "").strip() or None
+
+
 def _fork_for_deploy(pkg, a, log):
-    """`create`/`runtime` with --owner/--name: fork the template and deploy THE FORK. A bare template id
-    with neither is refused — every template deploys under the user's name (ops Step 0.75); an explicit
-    directory is the author's own package and is never second-guessed."""
+    """`create`/`runtime` of a template: fork it under the user's name and deploy THE FORK — their Senpi
+    username unless --owner/--name says otherwise. When the username cannot be read, a bare template id is
+    refused and the agent asks what to call it; an explicit directory is the author's own package and is never
+    second-guessed."""
     owner, name = getattr(a, "owner", None), getattr(a, "name", None)
     explicit_dir = (Path(a.package) / "strategy.yaml").is_file()
     manifest = getattr(pkg, "manifest", None) or {}
@@ -1610,14 +1626,15 @@ def _fork_for_deploy(pkg, a, log):
     # carry either but deploys by DIRECTORY — the refusal names that path
     is_template = bool(catalog.get("tier")) and not manifest.get("forked_from")
     if not (owner or name):
-        if a.cmd == "create" and not explicit_dir and is_template:
-            print(f"✗ {pkg.id}: a template deploys under the user's name, never as the bare template. Re-run with\n"
-                  f"    python3 {Path(__file__).name} create {a.package} --owner <their Senpi username> --budget <usd>\n"
-                  f"  (or --name <a name of their own>). The fork is made for you: {pkg.id} → <owner>-{pkg.id}, spoken as "
-                  f"\"<Owner>'s {_fork.short_title(catalog.get('name'), pkg.id)}\". Deploy the fork by "
-                  f"directory, or an authored package by its own path. Nothing was created, funded or installed.", file=sys.stderr)
+        if not (a.cmd == "create" and not explicit_dir and is_template):
+            return pkg
+        owner = _username()
+        if not owner:
+            print(f"✗ {pkg.id}: a template deploys under the user's name, never as the bare template, and their Senpi "
+                  f"username could not be read. Ask what to call it, then re-run with\n"
+                  f"    python3 {Path(__file__).name} create {a.package} --name \"<their words>\" --budget <usd>\n"
+                  f"  A user ID is never a name. Nothing was created, funded or installed.", file=sys.stderr)
             sys.exit(EXIT_CODES["refused"])
-        return pkg
     try:
         dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=name, log=log)
     except _fork.ForkError as e:
@@ -1642,8 +1659,9 @@ def _fork_for_deploy(pkg, a, log):
 
 
 def cmd_fork(pkg, a, log):
+    owner = a.owner or (None if a.name else _username())
     try:
-        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=a.owner, name=a.name, log=log)
+        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=a.name, log=log)
     except _fork.ForkError as e:
         print(f"✗ {pkg.id}: {e}. Nothing was written.", file=sys.stderr)
         return EXIT_CODES["refused"]

@@ -44,6 +44,10 @@ def short_title(catalog_name, pkg_id):
 
 def names_for(pkg, owner=None, name=None):
     """`(id, display)` for a fork of `pkg`: `--name` (their words) wins; else `<owner>-<template>`."""
+    for given in (name, owner):                     # a user ID is never a name, whichever flag it arrives in
+        if re.fullmatch(r"m\d+(-[0-9a-z]+)?", str(given or "").strip(), re.IGNORECASE):
+            raise ForkError(f"{given!r} is the user's Senpi ID, not a name: leave --owner off and their username is "
+                            f"read for you, or ask what to call it and pass --name <their words>")
     if name and str(name).strip():
         fid, display = slug(name), str(name).strip()
     elif owner and str(owner).strip():
@@ -52,8 +56,8 @@ def names_for(pkg, owner=None, name=None):
             raise ForkError(f"owner {owner!r} leaves nothing usable in a strategy id — pass --name <their words> instead")
         fid, display = f"{o}-{pkg.id}"[:MAX_ID].strip("-"), f"{str(owner).strip()}'s {short_title((pkg.catalog or {}).get('name'), pkg.id)}"
     else:
-        raise ForkError("a template deploys under the user's name: pass --owner <their Senpi username> "
-                        "(user_get_me) or --name <a name of their own>")
+        raise ForkError("a template deploys under the user's name, and their Senpi username could not be read: "
+                        "ask what to call it and pass --name <their words>")
     if len(fid) < MIN_ID:
         raise ForkError(f"{fid!r} is shorter than the {MIN_ID} characters a strategy name needs — pass --name <their words>")
     return fid, display
