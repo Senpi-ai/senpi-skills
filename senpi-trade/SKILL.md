@@ -8,7 +8,10 @@ description: >-
   paths can carry protection and it is OPTIONAL: bare, a static stop/TP, or a profit-lock
   trailing ladder (`ratchet_stop_add`, no runtime) — but that ladder is profit-lock ONLY (no
   downside floor); the full two-phase DSL (a ratcheting max-loss floor + the profit locks) is
-  runtime-only, so route to a managed mirror template for real two-sided protection. Steer users to a MANAGED strategy when they want ongoing autonomy —
+  runtime-only, so route to a managed mirror template for real two-sided protection. Any question
+  about a stop or a ladder, and any change to one, runs the protection protocol: read it in the same
+  turn, quote the engine's floor (never compute one), say what a change replaces and get a yes, read
+  it back. Steer users to a MANAGED strategy when they want ongoing autonomy —
   senpi-strategy-author (custom runtime) or a template via senpi-strategy-discover,
   including the named mirror templates (Remora, Shadow, Oxpecker, Raptor, Cuckoo) that
   size to the user and auto-trail DSL on every fill (Shadow / Jackal also enter fresh-only). Pairs with senpi-trader-research, which finds and vets the trader
@@ -17,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.3.0"
+  version: "1.4.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -40,15 +43,55 @@ it, execute it, and confirm the **real** returned result — never firing a mone
 > triggers.** (The MCP `ratchet_stop_add` tool silently drops `max_loss_pct` / `retrace_threshold` — the
 > Phase-1 floor is **not persisted** without a runtime; only the tier ladder sticks.)
 >
-> So without a runtime, "protection" is **two separate, uncoordinated stops**: the profit-lock ladder
-> (ratchets up as you win) **plus**, for a downside cap, a **static SL** (`edit_position` — fixed, does
-> **not** ratchet, and won't cancel/replace at tier crossings). Offer both; don't call the pair "DSL."
+> So without a runtime, "protection" is one of two things, never a pair you can promise: the profit-lock
+> ladder (ratchets up as you win) **or** a **static SL** (`edit_position` — fixed, does **not** ratchet).
+> **A position has one stop order, and once a ratchet is active the engine owns it: `ratchet_stop_add`
+> REPLACES a static SL.** Name the stop the user gives up, get a yes, then read `strategy_get_open_orders`
+> back and report what actually rests. Don't call either one "DSL."
 >
 > **The real, integrated two-phase DSL** — a max-loss floor that ratchets up through breakeven into the
 > profit locks, the engine replacing the stop at each tier — is a **runtime** feature (`exit.dsl_preset`);
 > a **managed mirror template** has it built in and auto-applies it on every fill. **Don't** tell a user a
 > raw position "can't be protected" (it can — profit-lock + a static SL), **but don't oversell it as DSL**
 > either. When they want a true two-sided ratcheting stop → managed template.
+
+## The protection protocol — reading and changing a stop on a position
+
+Every question about a stop or a ladder ("show my DSL levels", "is it protected", "which is tighter") and
+every change to one runs the same six rules. Each one was broken on a live short, and it was the user's own
+arithmetic that caught it.
+
+1. **Read in the same turn, or say you haven't.** A claim about a live stop or ladder needs
+   `ratchet_stop_get` (the ratchet) and `strategy_get_open_orders` (what actually rests) in the turn that
+   makes the claim. Never describe a ladder from memory, from an earlier turn, or from a rule that says one
+   "should" exist. `status: DELETED` (or no row) means no ratchet protection: no tier, no floor, no
+   order — say exactly that; `PAUSED` means the engine has stopped updating it — what still rests is
+   whatever `strategy_get_open_orders` shows.
+2. **Quote, never compute.** The floor is `tierFloorPrice`. `lockRoe` is a share of the **high-water** ROE
+   (`floorRoe = highWaterRoe × lockRoe / 100`) — never a share of margin, never an absolute ROE. Dollars
+   kept at a stop are `(entry − stop) × size` for a short and `(stop − entry) × size` for a long, nothing
+   else. If the engine did not print a number, do not print it either.
+3. **A short's stop sits above the price.** Closer to the price is tighter, so for a short a LOWER trigger
+   is tighter and keeps more; a higher trigger is looser and keeps less. A long is the mirror image. Before
+   any "tighter / looser / locks more" sentence, work out which trigger the price reaches first.
+4. **Leverage is the exchange's.** `strategy_get_clearinghouse_state` → `leverage.value` and `.type`, never
+   the strategy's name or a stale ratchet record; say it when they differ. The engine's ROE is on
+   notional ÷ that leverage, not on the margin actually posted — name the base whenever you quote ROE.
+5. **A change is read → say → yes → act → read back.** State what will change and what it replaces (a
+   ratchet replaces a static SL; a leverage change does not move a stop), get an explicit yes, act, then
+   read `strategy_get_open_orders` and `ratchet_stop_get` again and quote them. The read-back is the
+   confirmation; a tool's `success: true` is not.
+6. **Consent comes from this conversation.** A saved instruction ("always add the ratchet", "mandatory on
+   every position") is neither evidence a ratchet exists nor consent to add one — it is a reminder to ask.
+   A spoken "no DSL" / "forget about it unless I ask" stands until the user says otherwise, in any later
+   session. A status check ("did you finish?", "how's it going?", "run a health check") is not a yes, and
+   a health check never changes protection.
+
+Worked example, a short: entry $80,890, price $77,300, manual stop $77,500, ratchet floor $78,370. The
+price reaches $77,500 first, so the manual stop is the tighter one and it keeps `(80,890 − 77,500) × size`;
+the floor keeps less. Adding the ratchet would replace that stop — say so before it happens. The four
+regression cases behind these rules, with the expected answers, are in
+[`references/protection-cases.md`](references/protection-cases.md).
 
 **When a managed strategy / template IS the better answer** — steer there for the real reasons, which now
 explicitly include **integrated two-phase DSL** (a raw position gets only profit-lock + an uncoordinated
@@ -92,6 +135,10 @@ On "go long HYPE 10x" / "buy BTC" / "short NVDA", do **not** just place it. Ask 
 - **(A) A managed strategy** — named, supervised, auto-DSL. → hand to **senpi-strategy-author**. Stop here.
 - **(B) A one-off position** — you place it, protection is your call. → proceed below.
 
+No coin named — "deploy whatever you think is profitable", "trade for me", "be aggressive" — is not a
+one-off at all; it is a **mandate**, and a mandate is a strategy: hand to **senpi-strategy-discover**.
+Never pick the coins yourself and open them here.
+
 > **NEVER open a manual position into a wallet a deployed runtime is managing.** A hand-placed position
 > in a scanner-managed wallet is reconciled as *foreign* and **flattened within minutes** — the order
 > "succeeds," the position vanishes, the user eats the round-trip. A one-off goes into its own fresh
@@ -108,7 +155,7 @@ On "go long HYPE 10x" / "buy BTC" / "short NVDA", do **not** just place it. Ask 
 4. **Protection — OPTIONAL, offer all three:** (a) none, (b) a **static** stop/TP (`stopLoss`/`takeProfit`,
    `percentage` XOR `price`; margin-relative %; one fixed trigger, won't trail), or (c) a **profit-lock
    ladder** via `ratchet_stop_add` (tiered locks that trail up as you gain — **profit-lock only; NO downside
-   floor without a runtime**, pair with (b) for a cap). Explain the
+   floor without a runtime**; it replaces (b) if one exists — say so). Explain the
    difference in one line; let them pick.
 
 Then **replay the full spec, get an explicit "yes"**, and place.
@@ -216,8 +263,8 @@ window, **tell the user** and adjust target / budget / multiplier — **do not**
 
 ### DSL on the mirror
 `ratchet_stop_add` per opened position adds the **profit-lock ladder** (no runtime) — but that's
-**profit-lock only**; for a downside cap pair it with a **static SL** (`edit_position`), and be clear the
-two don't coordinate. The **real two-phase DSL** (a ratcheting max-loss floor + the locks, integrated) needs
+**profit-lock only**, and it takes over the position's stop order: a **static SL** (`edit_position`) is the
+other option, not a companion — adding the ratchet replaces it, so say which one the user keeps. The **real two-phase DSL** (a ratcheting max-loss floor + the locks, integrated) needs
 a **runtime** → a managed template (**Shadow / Remora**) that auto-applies it on **every** fill. Don't
 hand-wrap 40 fills a day.
 
@@ -243,6 +290,7 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
 | Leave slippage at a silent / too-tight default | 1% on a trader whose positions already moved opens **nothing** — the mirror sits flat and looks broken | Set slippage against the trader's current distance-from-entry; warn before funding if nothing would open |
 | Close + recreate a mirror to "fix" it not trading | Each round-trip skims ~$1.50 in fees; funds fragment | The fix is **target / budget / multiplier**, not re-create |
 | Re-derive state fresh each session and misread it | User had to repeat "you didn't do what I asked" 3× | Persist intent + strategy IDs; **reconcile intended-vs-actual** before replying |
+| Say anything about a stop or ladder, or change one, outside the protection protocol | Every rule in it was broken on a live short — the user caught each one | The six rules above, in order |
 
 > **State machine is transient, not terminal — *up to a point*.** `CREATE_WALLET` → `FUND_WALLET` /
 > `PENDING_FUNDING` are normal in-progress states (bridging can take 30s+); don't read a fresh one as
@@ -288,6 +336,7 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
 - You're about to tell the user funds are "stuck", or to treat an EMPTY tool result as a placed trade — an unapproved (timed-out) call is denied and executes nothing; say so and offer the re-run.
 - You're about to open a manual position into a wallet a runtime is managing.
 - You're about to close+recreate a mirror that "isn't trading."
+- You're about to say anything about a stop or ladder — or change one — without the protection protocol's same-turn read and yes.
 - You're quoting a trader's ROI/win-rate with no drawdown beside it.
 - You're about to recommend mirroring a trader whose current positions have already run past their entry — the mirror would open **nothing**.
 - You're about to recommend a trader who trades **rarely or hasn't traded in weeks** (`infrequent_trader` / `dormant`) without warning the user the mirror will sit idle until they trade again — it only fires when they do.

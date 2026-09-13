@@ -37,6 +37,8 @@ _CASES = [
     ("phalanx",   _intent(), "follow the proven cohort headcount"),
     ("phalanx",   _intent(), "proven cohort rotation divergence crowd"),
     ("phalanx",   _intent(assets=[("class", "xyz_equities")]), "follow the proven cohort headcount"),
+    ("aegis",     _intent(), "dynamic hedge regime adaptive risk off"),
+    ("aegis",     _intent(), "hedge for phalanx"),
     ("ant",       _intent(), "funding carry cash and carry harvest"),
     ("raven",     _intent(), "adaptive self tuning momentum learns"),
     ("ram",       _intent(assets=[("class", "commodities")]), "gold xauusd metals"),

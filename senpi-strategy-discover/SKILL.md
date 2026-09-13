@@ -6,7 +6,10 @@ description: >-
   a strategy", "help me pick a strategy", "what's winning?", "set me up", "I have
   a view on the world (a war, the economy, one coin winning) — trade it", "run a
   hedge fund / all-weather / tail-risk book", or wants a strategy but has NOT
-  named a specific one. Surface the closest matching TEMPLATE first — the quick start
+  named a specific one — and every discretionary mandate: "deploy whatever you think is
+  profitable", "trade for me", "be aggressive", "put it to work", "you decide". A mandate is a
+  strategy request even when it names no strategy and no coin; it is never answered with
+  hand-picked raw positions. Surface the closest matching TEMPLATE first — the quick start
   to the user's OWN strategy (every template deploys as `<User>'s <Template>` — or a
   name of their own — as-is or with levers moved, after ops walks them through it) — passing their
   worldview as `--theme` to rank the closest fits; offer building one as a peer with
@@ -17,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.23.0"
+  version: "2.26.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -227,7 +230,8 @@ They lack the vocabulary; recommend *without* making them self-classify:
   alongside it to cut drawdown?"* To find the complement, **re-run the engine broadly** (drop the
   narrowing, or flip `--direction`) and offer a candidate that *complements* the pick — a fader/defensive
   or tail-risk one for a momentum pick (read `archetype_label`/`tags`/`direction` to choose), à la
-  Spider + Dog. Size ~70/30 toward the primary — it's a cushion, not a co-bet.
+  Spider + Dog. Phalanx has one built as its pair: **Aegis** (reads the tape where Phalanx reads the
+  crowd). Size ~70/30 toward the primary — it's a cushion, not a co-bet.
 - **Fund pick** (`funding_split` present → already a multi-wallet long/short book): **don't push
   stacking — it's internally hedged.** Just show the funding split when you present it.
 
