@@ -6,7 +6,10 @@ description: >-
   a strategy", "help me pick a strategy", "what's winning?", "set me up", "I have
   a view on the world (a war, the economy, one coin winning) — trade it", "run a
   hedge fund / all-weather / tail-risk book", or wants a strategy but has NOT
-  named a specific one. Surface the closest matching TEMPLATE first — the quick start
+  named a specific one — and every discretionary mandate: "deploy whatever you think is
+  profitable", "trade for me", "be aggressive", "put it to work", "you decide". A mandate is a
+  strategy request even when it names no strategy and no coin; it is never answered with
+  hand-picked raw positions. Surface the closest matching TEMPLATE first — the quick start
   to the user's OWN strategy (every template deploys as `<User>'s <Template>` — or a
   name of their own — as-is or with levers moved, after ops walks them through it) — passing their
   worldview as `--theme` to rank the closest fits; offer building one as a peer with
@@ -17,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.25.0"
+  version: "2.26.0"
   platform: senpi
   exchange: hyperliquid
 ---
