@@ -64,8 +64,9 @@ arithmetic that caught it.
 1. **Read in the same turn, or say you haven't.** A claim about a live stop or ladder needs
    `ratchet_stop_get` (the ratchet) and `strategy_get_open_orders` (what actually rests) in the turn that
    makes the claim. Never describe a ladder from memory, from an earlier turn, or from a rule that says one
-   "should" exist. `status: DELETED` (or `PAUSED`, or no row) means no ratchet protection: no tier, no
-   floor, no order — say exactly that.
+   "should" exist. `status: DELETED` (or no row) means no ratchet protection: no tier, no floor, no
+   order — say exactly that; `PAUSED` means the engine has stopped updating it — what still rests is
+   whatever `strategy_get_open_orders` shows.
 2. **Quote, never compute.** The floor is `tierFloorPrice`. `lockRoe` is a share of the **high-water** ROE
    (`floorRoe = highWaterRoe × lockRoe / 100`) — never a share of margin, never an absolute ROE. Dollars
    kept at a stop are `(entry − stop) × size` for a short and `(stop − entry) × size` for a long, nothing
@@ -285,10 +286,7 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
 | Leave slippage at a silent / too-tight default | 1% on a trader whose positions already moved opens **nothing** — the mirror sits flat and looks broken | Set slippage against the trader's current distance-from-entry; warn before funding if nothing would open |
 | Close + recreate a mirror to "fix" it not trading | Each round-trip skims ~$1.50 in fees; funds fragment | The fix is **target / budget / multiplier**, not re-create |
 | Re-derive state fresh each session and misread it | User had to repeat "you didn't do what I asked" 3× | Persist intent + strategy IDs; **reconcile intended-vs-actual** before replying |
-| Describe a ratchet or its tiers without reading it this turn | A `DELETED` record got narrated as "tier 3 active, floor set" — the ladder did not exist | `ratchet_stop_get` + `strategy_get_open_orders` in the same turn; `DELETED` = no protection |
-| Compute a floor or "profit locked" yourself | Floors landed below the price on a short, and "locked" three times the true amount | Quote `tierFloorPrice`; kept $ = (entry − stop) × size on a short |
-| Promise a static SL and a ratchet together | The engine owns the stop order once a ratchet is active — it replaces the static SL | Name the stop they give up, get a yes, read the orders back |
-| Add or replace protection from a saved rule, or inside a "health check" | A memory "always" re-added a ratchet minutes after the user said "no DSL" | A saved rule is a reminder to ask; a check only reports |
+| Say anything about a stop or ladder, or change one, outside the protection protocol | Every rule in it was broken on a live short — the user caught each one | The six rules above, in order |
 
 > **State machine is transient, not terminal — *up to a point*.** `CREATE_WALLET` → `FUND_WALLET` /
 > `PENDING_FUNDING` are normal in-progress states (bridging can take 30s+); don't read a fresh one as
@@ -334,9 +332,7 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
 - You're about to tell the user funds are "stuck", or to treat an EMPTY tool result as a placed trade — an unapproved (timed-out) call is denied and executes nothing; say so and offer the re-run.
 - You're about to open a manual position into a wallet a runtime is managing.
 - You're about to close+recreate a mirror that "isn't trading."
-- You're about to state a floor, a tier or "protected" without a `ratchet_stop_get` + `strategy_get_open_orders` read in this turn — or to compute a floor price yourself.
-- You're about to say a higher stop is "tighter" on a **short**, or to promise a static SL and a ratchet "both active."
-- You're about to call `ratchet_stop_add` because a memory file says protection is mandatory, or inside a health check, without a yes in this conversation.
+- You're about to say anything about a stop or ladder — or change one — without the protection protocol's same-turn read and yes.
 - You're quoting a trader's ROI/win-rate with no drawdown beside it.
 - You're about to recommend mirroring a trader whose current positions have already run past their entry — the mirror would open **nothing**.
 - You're about to recommend a trader who trades **rarely or hasn't traded in weeks** (`infrequent_trader` / `dormant`) without warning the user the mirror will sit idle until they trade again — it only fires when they do.

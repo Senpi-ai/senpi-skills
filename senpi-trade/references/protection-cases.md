@@ -94,6 +94,4 @@ minutes after the user said to leave DSL alone — and the user had to say "no D
 
 ## Using these as evals
 
-One case = one prompt, the tool fixtures above, and the must / must-not strings. A run passes when every
-must string (or its numeric equivalent) appears and no must-not string does. Cases 2 and 3 are the ones a
-model gets wrong by reasoning instead of reading; case 4 is the one a standing instruction gets wrong.
+One case = the prompt, the tool state above, the must / must-not strings. Pass = every must (or its number) present, no must-not.
