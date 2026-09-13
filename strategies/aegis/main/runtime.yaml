@@ -1,0 +1,129 @@
+# ── AEGIS · single instance — regime-adaptive dynamic hedge ──────────────────
+# Reads the TAPE (funding regime, haven flows, OI velocity, trend structure)
+# — not the crowd. Graduated regime score (-2.0 .. +2.0) drives direction:
+# risk-off -> short risk assets + long defensives; risk-on -> long risk +
+# fade defensives; neutral -> cash. Tighter DSL than Phalanx (first lock at
+# +12% ROE, 10% margin stop) because regime calls can reverse. Designed as
+# the 30% hedge leg paired with Phalanx at 70%.
+name: aegis-main
+group: aegis
+version: 3.0.0
+description: >
+  AEGIS — regime-adaptive dynamic hedge. Reads market structure (market-wide
+  funding crowding, haven-asset trends in gold and the yen, per-asset OI
+  velocity and trend) to compute a graduated regime score from -2.0 (severe
+  risk-off) to +2.0 (strong risk-on). In risk-off: shorts risk assets
+  (BTC/ETH/SOL/HYPE/SP500/XYZ100), buys the yen (short USD/JPY) and longs
+  defensives (GOLD/BRENTOIL/NATGAS). In risk-on: the mirror. In neutral
+  (|score| < 0.5): goes to cash — doesn't bleed funding or take drawdowns in
+  chop. 3x leverage with 10% margin stops and early profit locks (first at
+  +12% ROE) so regime calls bank gains before they reverse. Built as
+  Phalanx's companion: Aegis reads the tape, Phalanx reads the crowd.
+
+strategy:
+  wallet: "${AEGIS_WALLET}"
+  slots: 4
+  margin_pct: 12
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: aegis_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300
+    timeout_seconds: 180
+    default_signal_validity_seconds: 600
+    state_history_max_count: 200
+    inputs:
+      marginPctBase: 12
+      marginPctMax: 15
+      leverageDefault: 3
+      maxSlots: 4
+      minScore: 25
+      recentSignalTtlSeconds: 300
+      neutralThreshold: 0.5
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      regimeScore: { type: number, required: false }
+      regimeLabel: { type: string, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: aegis_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [aegis_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: aegis_main_signals
+
+# ── EXIT (DSL — tighter than Phalanx, banks regime gains before reversal) ────
+# Hard stop at 10% margin loss (3.33% price on 3x) — tighter than Phalanx's
+# 15% because a hedge that gives back gains defeats its purpose. First profit
+# lock at +12% ROE (4.0% price on 3x) — banks early since regime calls can
+# reverse violently (a ceasefire dumps oil/gold, a headline flips risk-on).
+# Weak-peak cut at 8h: only fires if peak ROE never cleared +4% AND price is
+# fading — a dead-position detector for hedge positions that aren't working.
+# No hard_timeout: it counts from entry and fires in either phase, so any fixed
+# deadline closes a ratchet-armed winner mid-run. The weak-peak cut retires
+# positions that never developed; the ladder manages the ones that did.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 480        # 8h — cuts positions that never reached +4% ROE and are fading
+      min_value: 4.0
+    phase1:
+      enabled: false                  # trailing OFF — a floor below entry can ratchet a winner into a loss
+      max_loss_pct: 10.0              # 10% margin loss cap (3.33% price on 3x)
+      retrace_threshold: 10           # INERT while phase1.enabled is false
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                          # banks early — regime calls reverse fast
+        - { trigger_pct: 12, lock_hw_pct: 40 }   # 40% lock = 2.4% price retrace room at 3x
+        - { trigger_pct: 25, lock_hw_pct: 60 }   # 60% lock = 3.3% price retrace room at 3x
+        - { trigger_pct: 50, lock_hw_pct: 75 }   # 75% lock = 4.2% price retrace room at 3x
+        - { trigger_pct: 100, lock_hw_pct: 85 }  # 85% lock = 5.0% price retrace room at 3x
+
+# ── RISK guard rails ──────────────────────────────────────────────────────────
+risk:
+  data_retention_seconds: 259200      # 72h
+  guard_rails:
+    daily_loss_limit_pct: 5            # tight — a bad regime day stops the book early
+    max_entries_per_day: 8
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 14400            # 4h regime pause after 3 consecutive losses
+    drawdown_halt_pct: 18
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 7200   # 2h per-asset re-entry cooldown
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
