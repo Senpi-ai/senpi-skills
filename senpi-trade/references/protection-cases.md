@@ -44,8 +44,8 @@ is the tighter one; exiting at $77,500 keeps `(80,890 − 77,500) × 0.618 = $2,
 keeps `(80,890 − 78,370) × 0.618 = $1,557`.
 
 **Must not say:** a floor below the mark (e.g. $75,023 or $72,673); "the DSL at $78,370 is tighter";
-"locks $3,626 / $4,528" (those are `lockRoe × margin`, the wrong formula); any ROE that treats `lockRoe`
-as an absolute percentage.
+"locks $1,750 / $2,125" (that is `lockRoe × margin`, 70% and 85% of the $2,499.50 margin, the wrong
+formula); any ROE that treats `lockRoe` as an absolute percentage.
 
 **Why it exists:** all four of those wrong statements were made, and the user had to correct the
 direction twice ("this is a short position not a long", "higher BTC price would decrease short profits").
