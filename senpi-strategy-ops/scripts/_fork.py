@@ -38,15 +38,8 @@ def slug(text, cap=MAX_ID):
 
 def short_title(catalog_name, pkg_id):
     """`Phalanx — Proven-Cohort Rotation` → `Phalanx`: the name before the tagline separator."""
-    t = str(catalog_name or pkg_id or "").strip()
-    for sep in (" — ", " – ", " - ", ": "):
-        if sep in t:
-            t = t.split(sep, 1)[0].strip()
+    t = re.split(r"\s[—–-]\s|:\s", str(catalog_name or pkg_id or "").strip(), 1)[0].strip()
     return t or str(pkg_id)
-
-
-def display_name(owner, catalog_name, pkg_id):
-    return f"{str(owner).strip()}'s {short_title(catalog_name, pkg_id)}"
 
 
 def names_for(pkg, owner=None, name=None):
@@ -57,7 +50,7 @@ def names_for(pkg, owner=None, name=None):
         o = slug(owner, MAX_OWNER)
         if not o:
             raise ForkError(f"owner {owner!r} leaves nothing usable in a strategy id — pass --name <their words> instead")
-        fid, display = f"{o}-{pkg.id}"[:MAX_ID].strip("-"), display_name(owner, (pkg.catalog or {}).get("name"), pkg.id)
+        fid, display = f"{o}-{pkg.id}"[:MAX_ID].strip("-"), f"{str(owner).strip()}'s {short_title((pkg.catalog or {}).get('name'), pkg.id)}"
     else:
         raise ForkError("a template deploys under the user's name: pass --owner <their Senpi username> "
                         "(user_get_me) or --name <a name of their own>")
@@ -83,7 +76,7 @@ def _set_catalog_name(text, display):
     quoted = '"' + display.replace('"', '\\"') + '"'
     start = next((i for i, l in enumerate(lines) if re.match(r"^catalog:\s*(#.*)?$", l)), None)
     if start is None:
-        return text.rstrip("\n") + f"\n\ncatalog:\n  name: {quoted}\n"
+        raise ForkError("strategy.yaml has no `catalog:` block to name the fork in")
     for i in range(start + 1, len(lines)):
         l = lines[i]
         if l.strip() and not l.startswith((" ", "\t")):
@@ -99,9 +92,7 @@ def _set_catalog_name(text, display):
 def _add_forked_from(text, template_id, version):
     block = f'forked_from:\n  id: {template_id}\n  version: "{version}"'
     lines = text.split("\n")
-    at = next((i for i, l in enumerate(lines) if re.match(r"^version:", l)), None)
-    if at is None:
-        at = next((i for i, l in enumerate(lines) if re.match(r"^id:", l)), 0)
+    at = next(i for i, l in enumerate(lines) if re.match(r"^version:", l))     # validate requires `version`
     lines.insert(at + 1, block)
     return "\n".join(lines)
 

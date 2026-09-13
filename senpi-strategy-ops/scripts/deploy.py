@@ -1614,8 +1614,8 @@ def _fork_for_deploy(pkg, a, log):
             print(f"✗ {pkg.id}: a template deploys under the user's name, never as the bare template. Re-run with\n"
                   f"    python3 {Path(__file__).name} create {a.package} --owner <their Senpi username> --budget <usd>\n"
                   f"  (or --name <a name of their own>). The fork is made for you: {pkg.id} → <owner>-{pkg.id}, spoken as "
-                  f"\"<Owner>'s {_fork.short_title(catalog.get('name'), pkg.id)}\". Their own authored package "
-                  f"deploys by DIRECTORY path instead. Nothing was created, funded or installed.", file=sys.stderr)
+                  f"\"<Owner>'s {_fork.short_title(catalog.get('name'), pkg.id)}\". Deploy the fork by "
+                  f"directory, or an authored package by its own path. Nothing was created, funded or installed.", file=sys.stderr)
             sys.exit(EXIT_CODES["refused"])
         return pkg
     try:
