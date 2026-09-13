@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.20.0"
+  version: "1.21.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -60,6 +60,15 @@ dump when the user asked about their **strategies** — is a failure. The user w
 > "unprotected" when it isn't. The engine reads BOTH the config ladder (`profile.dsl`) and the live tier
 > (`positions[].dsl`) and frames every position correctly; run it. (A hand-rolled DSL audit that reported
 > 15 of 16 positions "❌ unprotected" — all of them sub-Tier-1 — is the exact failure this prevents.)
+>
+> **This skill reads. It never changes protection.** A portfolio read, a health check or an "are my
+> positions protected?" answer never calls `ratchet_stop_add` / `ratchet_stop_edit` / `ratchet_stop_delete`
+> / `edit_position` — not to "fix" a missing ladder, not because a memory file says protection is
+> mandatory, not because the last session had one. Report what is there and what is missing (or what
+> replaced what), then offer the change as its own question; the change itself runs `senpi-trade`'s
+> protection protocol (read → say what it replaces → yes → act → read back). A user's "no DSL" / "forget
+> about it unless I ask" stands across sessions; a status question ("how's it going?", "did you finish?",
+> "run a health check") is never a yes.
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
 > authoritative read for what the user holds and what closed. **Before any statement about a position —

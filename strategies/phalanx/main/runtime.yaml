@@ -88,14 +88,16 @@ actions:
       - type: signal
         scanner: phalanx_main_signals
 
-# ── EXIT (DSL — wide stops, reachable locks, 48h outer bound) ─────────────────
+# ── EXIT (DSL — wide stops, reachable locks, no deadline on winners) ──────────
 # Hard stop at 15% margin loss (3.75% price on 3x) — wide enough that normal
 # noise doesn't trigger it. First profit lock at +20% ROE (6.67% price on 3x),
-# floor at 25% of high-water (~+5% ROE). Escalating ladder with wide gaps so
+# floor at 40% of high-water (+8% ROE). Escalating ladder with wide gaps so
 # a position at +25% that pulls back to +18% hits no floor and keeps running.
 # Weak-peak cut at 12h: only fires if peak ROE never cleared +5% AND price is
 # fading — a dead-position detector, not a "didn't move fast enough" cutter.
-# 48h hard timeout: outer bound, closes at market.
+# No hard_timeout: it counts from entry and fires in either phase, so any fixed
+# deadline closes a ratchet-armed winner mid-run. The weak-peak cut retires
+# positions that never developed; the ladder manages the ones that did.
 exit:
   engine: dsl
   interval_seconds: 60
@@ -105,8 +107,7 @@ exit:
     execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: true
-      interval_in_minutes: 2880       # 48h — outer bound for a swing rotation
+      enabled: false
     weak_peak_cut:
       enabled: true
       interval_in_minutes: 720        # 12h — only cuts positions that never reached +5% ROE and are fading
