@@ -92,9 +92,11 @@ def test_names_follow_the_decided_shape():
         _fork.names_for(pkg, owner="!!!")
     with pytest.raises(_fork.ForkError):
         _fork.names_for(pkg, name="ab")
-    for uid in ("M123456", "m123456", " M42 "):       # a user ID is never a name
-        with pytest.raises(_fork.ForkError, match="Senpi ID, not a name"):
-            _fork.names_for(pkg, owner=uid)
+    for uid in ("M123456", "m123456", " M42 ", "M123456-7a611", "m123456-7A611"):   # a user ID is never a name,
+        for flag in ("owner", "name"):                                           # whichever flag carries it
+            with pytest.raises(_fork.ForkError, match="Senpi ID, not a name"):
+                _fork.names_for(pkg, **{flag: uid})
+    assert _fork.names_for(pkg, name="Mars Base")[0] == "mars-base"        # an M-word is still a name
 
 
 def test_fork_rewrites_identity_and_nothing_else(tmp_path):
@@ -164,6 +166,9 @@ def test_cli_fork_verb_and_the_bare_template_refusal(tmp_path):
     # a user ID passed as the owner is refused, not turned into `m123456-phalanx`
     out = _run(["fork", "phalanx", "--owner", "M123456"], tmp_path)
     assert out.returncode == 2 and "Senpi ID, not a name" in out.stderr and not (tmp_path / "m123456-phalanx").exists()
+    # the path the refusal above points at: an ID put in --name is refused too
+    out = _run(["create", "phalanx", "--budget", "100", "--dry-run", "--name", "M123456"], tmp_path)
+    assert out.returncode == 2 and "Senpi ID, not a name" in out.stderr and not (tmp_path / "m123456").exists()
     # with an owner the plan is for the fork
     out = _run(["create", "phalanx", "--budget", "100", "--dry-run", "--owner", "Ignas"], tmp_path)
     assert out.returncode == 0, out.stderr
