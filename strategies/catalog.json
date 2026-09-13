@@ -3966,6 +3966,71 @@
       "sort_order": 18
     },
     {
+      "id": "aegis",
+      "name": "Aegis — Regime-Adaptive Dynamic Hedge",
+      "emoji": "🛡️",
+      "tagline": "Reads the tape — funding crowding, haven flows, OI velocity — to dynamically hedge across risk-off and risk-on regimes. Cash in neutral. Built as Phalanx's companion — its signal is independent of Phalanx's cohort read.",
+      "belief_plain": "A hedge that's always long is foolish — it bleeds in risk-off and misses the downside. Aegis reads market structure itself (funding regime, gold and yen haven trends, per-asset OI velocity) to compute a graduated regime score, then positions defensively: shorting risk assets and longing defensives when the tape says risk-off, going long risk when it says risk-on, and sitting in cash when it says neutral. The signal sources are independent of Phalanx's proven-cohort reads — Aegis reads the tape, Phalanx reads the crowd — so when the cohort hasn't rotated yet but the tape has, Aegis is hedging while Phalanx is still long.",
+      "version": "1.0.0",
+      "thesis": "You want a dynamic hedge that adapts to regime, not a static long book. Aegis reads market-wide funding crowding, haven-asset trends (gold and the yen), and per-asset OI velocity to compute a graduated regime score from -2.0 (severe risk-off) to +2.0 (strong risk-on). In risk-off it shorts risk assets (BTC/ETH/SOL/HYPE/SP500/XYZ100) buys the yen (short USD/JPY) and longs defensives (GOLD/BRENTOIL/NATGAS). In risk-on it longs risk and fades defensives. In neutral it goes to cash — no funding bleed, no drawdowns in chop. The DSL banks gains early (first lock at +12% ROE) because regime calls can reverse violently — a ceasefire dumps oil, a headline flips risk-on. Tighter stops (10% margin) than Phalanx (15%) because a hedge that gives back gains defeats its purpose. Paired with Phalanx at 70/30: Phalanx provides alpha via cohort rotation, Aegis provides dynamic hedging via regime adaptation.",
+      "tags": [
+        "hedge",
+        "dynamic-hedge",
+        "regime-adaptive",
+        "risk-off",
+        "funding-regime",
+        "haven-flows",
+        "gold",
+        "yen",
+        "oi-velocity",
+        "cross-asset",
+        "long-short",
+        "cash-in-neutral",
+        "phalanx-companion"
+      ],
+      "group": "regime",
+      "archetype": "tail_risk",
+      "archetype_label": "Tail-Risk / Crisis-Alpha",
+      "sub_style": "crisis_alpha",
+      "sub_style_label": "Convex crisis hedge that pays off in tail / vol events.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "indices",
+        "commodities",
+        "fx"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "HYPE",
+        "xyz:SP500",
+        "xyz:XYZ100",
+        "xyz:GOLD",
+        "xyz:JPY",
+        "xyz:BRENTOIL",
+        "xyz:NATGAS"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 40,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 4,
+      "branch": "main",
+      "sort_order": 1
+    },
+    {
       "id": "coyote",
       "name": "Coyote — Regime Classifier (BTC)",
       "emoji": "🐺",
@@ -4011,7 +4076,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 1
+      "sort_order": 2
     },
     {
       "id": "chameleon",
