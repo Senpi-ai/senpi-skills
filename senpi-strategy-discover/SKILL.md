@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.23.0"
+  version: "2.25.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -227,7 +227,8 @@ They lack the vocabulary; recommend *without* making them self-classify:
   alongside it to cut drawdown?"* To find the complement, **re-run the engine broadly** (drop the
   narrowing, or flip `--direction`) and offer a candidate that *complements* the pick — a fader/defensive
   or tail-risk one for a momentum pick (read `archetype_label`/`tags`/`direction` to choose), à la
-  Spider + Dog. Size ~70/30 toward the primary — it's a cushion, not a co-bet.
+  Spider + Dog. Phalanx has one built as its pair: **Aegis** (reads the tape where Phalanx reads the
+  crowd). Size ~70/30 toward the primary — it's a cushion, not a co-bet.
 - **Fund pick** (`funding_split` present → already a multi-wallet long/short book): **don't push
   stacking — it's internally hedged.** Just show the funding split when you present it.
 
