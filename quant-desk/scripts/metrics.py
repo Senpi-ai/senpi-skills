@@ -279,7 +279,7 @@ def _daily_ratio(fills, fee_sched):
     for f in fills:
         if not is_perp(f["coin"]):
             continue
-        d = datetime.datetime.utcfromtimestamp(f["time"] / 1000).strftime("%Y-%m-%d")
+        d = datetime.datetime.fromtimestamp(f["time"] / 1000, datetime.timezone.utc).strftime("%Y-%m-%d")
         seen[d][1 if f.get("crossed") else 0] += _f(f["sz"]) * _f(f["px"])
     hl_t = sum(_f(d.get("userCross")) for d in days); hl_m = sum(_f(d.get("userAdd")) for d in days)
     ob_t = sum(seen[d["date"]][1] for d in days); ob_m = sum(seen[d["date"]][0] for d in days)

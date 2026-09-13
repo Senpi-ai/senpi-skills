@@ -138,7 +138,7 @@ class MCPClient:
             return
         body = {"jsonrpc": "2.0", "id": next(self._id), "method": "initialize",
                 "params": {"protocolVersion": _PROTOCOL, "capabilities": {},
-                           "clientInfo": {"name": "senpi-smart-money", "version": "2.0.0"}}}
+                           "clientInfo": {"name": "quant-desk", "version": "2.0.0"}}}
         status, _raw, _ct, sid = _post(self.url, body, self._headers(), timeout)
         if status >= 400:
             raise MCPError(f"initialize HTTP {status}")

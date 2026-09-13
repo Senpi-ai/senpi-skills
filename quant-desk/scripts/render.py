@@ -102,7 +102,7 @@ def short(addr):
 def header(r):
     a, tr, act, rank = r["address"], r["track"], r["activity"], r.get("rank")
     lines = [f"# Your desk — `{short(a)}`",
-             f"{r['days']} days · {act['fills']:,} fills · {act['coins']} coins · updated {datetime.datetime.utcfromtimestamp(r['now_ms'] / 1000).strftime('%Y-%m-%d %H:%M UTC')} · **YOUR QUANT — LIVE · READ-ONLY** · v{VERSION}"]
+             f"{r['days']} days · {act['fills']:,} fills · {act['coins']} coins · updated {datetime.datetime.fromtimestamp(r['now_ms'] / 1000, datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} · **YOUR QUANT — LIVE · READ-ONLY** · v{VERSION}"]
     if rank:
         lines.append(rank_line(rank))
     lines.append(f"**{r['archetype']}**")
@@ -432,7 +432,7 @@ def render_deep(mode, d, r):
     if mode == "replay":
         if not d or d.get("empty"):
             return "No losing week in the window.\n\n" + FOOTER
-        out = ["## Your worst week", "", f"Week of {datetime.datetime.utcfromtimestamp(d['start'] / 1000).strftime('%Y-%m-%d')}: **{usd(d['realized'], signed=True)}** over {d['trades']} trades ({d['losers']} losers).", "",
+        out = ["## Your worst week", "", f"Week of {datetime.datetime.fromtimestamp(d['start'] / 1000, datetime.timezone.utc).strftime('%Y-%m-%d')}: **{usd(d['realized'], signed=True)}** over {d['trades']} trades ({d['losers']} losers).", "",
                "| Coin | Side | Hold | Realized |", "|---|---|---:|---:|"]
         out += [f"| {e['coin']} | {e['direction']} | {hrs(e['hold_h'])} | {usd(e['realized'], signed=True)} |" for e in d["biggest"]]
         for label, g in (("A time-cut on losers", d.get("cut")), ("A trailing lock on winners", d.get("lock"))):
