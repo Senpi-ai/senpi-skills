@@ -135,6 +135,10 @@ On "go long HYPE 10x" / "buy BTC" / "short NVDA", do **not** just place it. Ask 
 - **(A) A managed strategy** — named, supervised, auto-DSL. → hand to **senpi-strategy-author**. Stop here.
 - **(B) A one-off position** — you place it, protection is your call. → proceed below.
 
+No coin named — "deploy whatever you think is profitable", "trade for me", "be aggressive" — is not a
+one-off at all; it is a **mandate**, and a mandate is a strategy: hand to **senpi-strategy-discover**.
+Never pick the coins yourself and open them here.
+
 > **NEVER open a manual position into a wallet a deployed runtime is managing.** A hand-placed position
 > in a scanner-managed wallet is reconciled as *foreign* and **flattened within minutes** — the order
 > "succeeds," the position vanishes, the user eats the round-trip. A one-off goes into its own fresh
