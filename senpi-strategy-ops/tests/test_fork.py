@@ -2,6 +2,7 @@
 """A template deploys under the user's name: `_fork.fork` makes `<owner>-<template>` with the identity
 rewritten and everything else untouched; `deploy.py create <template>` without an owner is refused."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import argparse
 import json
 import os
 import subprocess
@@ -91,6 +92,9 @@ def test_names_follow_the_decided_shape():
         _fork.names_for(pkg, owner="!!!")
     with pytest.raises(_fork.ForkError):
         _fork.names_for(pkg, name="ab")
+    for uid in ("M123456", "m123456", " M42 "):       # a user ID is never a name
+        with pytest.raises(_fork.ForkError, match="Senpi ID, not a name"):
+            _fork.names_for(pkg, owner=uid)
 
 
 def test_fork_rewrites_identity_and_nothing_else(tmp_path):
@@ -141,7 +145,8 @@ def test_fork_handles_a_quoted_description_and_a_flat_package(tmp_path):
 
 
 def _run(args, root):
-    env = dict(os.environ, SENPI_STRATEGIES_DIR=str(root))
+    env = {k: v for k, v in os.environ.items() if k != "SENPI_AUTH_TOKEN"}   # offline: no username to read
+    env["SENPI_STRATEGIES_DIR"] = str(root)
     return subprocess.run([sys.executable, DEPLOY] + args, env=env, capture_output=True, text=True, timeout=120)
 
 
@@ -152,9 +157,13 @@ def test_cli_fork_verb_and_the_bare_template_refusal(tmp_path):
     doc = json.loads(out.stdout.strip().splitlines()[-1])
     assert doc["id"] == "ignas-phalanx" and doc["display"] == "Ignas's Phalanx" and doc["errors"] == [] and doc["dir"] == str(tmp_path / "ignas-phalanx")
     assert (tmp_path / "ignas-phalanx" / "strategy.yaml").is_file()
-    # a bare template id through create with no owner: refused (2), nothing planned
+    # a bare template id through create when no username can be read: refused (2), the agent asks for a name
     out = _run(["create", "phalanx", "--budget", "100", "--dry-run"], tmp_path)
-    assert out.returncode == 2 and "deploys under the user's name" in out.stderr and "--owner" in out.stderr and "planned:" not in out.stdout
+    assert out.returncode == 2 and "deploys under the user's name" in out.stderr and "could not be read" in out.stderr
+    assert "--name" in out.stderr and "planned:" not in out.stdout
+    # a user ID passed as the owner is refused, not turned into `m123456-phalanx`
+    out = _run(["fork", "phalanx", "--owner", "M123456"], tmp_path)
+    assert out.returncode == 2 and "Senpi ID, not a name" in out.stderr and not (tmp_path / "m123456-phalanx").exists()
     # with an owner the plan is for the fork
     out = _run(["create", "phalanx", "--budget", "100", "--dry-run", "--owner", "Ignas"], tmp_path)
     assert out.returncode == 0, out.stderr
@@ -165,3 +174,45 @@ def test_cli_fork_verb_and_the_bare_template_refusal(tmp_path):
     # the fork itself deploys by directory with no owner needed
     out = _run(["create", str(tmp_path / "ignas-phalanx"), "--budget", "100", "--dry-run"], tmp_path)
     assert out.returncode == 0 and str(tmp_path / "ignas-phalanx") in out.stdout
+
+
+def _deploy():
+    try:
+        import deploy  # noqa
+        return deploy
+    except Exception as e:  # noqa — mcp_client deps may be absent in a bare test env
+        pytest.skip(f"deploy.py not importable in this env ({e})")
+
+
+class _FakeMCP:
+    token = "t"
+
+    def __init__(self, doc):
+        self.doc = doc
+
+    def mcp_call(self, tool, **_):
+        assert tool == "user_get_me"
+        return self.doc
+
+
+def test_the_username_comes_from_user_get_me_and_never_falls_back_to_the_id(monkeypatch):
+    deploy = _deploy()
+    me = {"success": True, "data": {"user": {"id": "M123456", "userName": "PurpleFrog"}}}
+    monkeypatch.setattr(deploy, "MCPClient", lambda: _FakeMCP(me))
+    assert deploy._username() == "PurpleFrog"
+    me["data"]["user"]["userName"] = None
+    assert deploy._username() is None                 # no username: the agent asks, never "M123456"
+    tokenless = _FakeMCP(me)
+    tokenless.token = ""
+    monkeypatch.setattr(deploy, "MCPClient", lambda: tokenless)
+    assert deploy._username() is None
+
+
+def test_create_of_a_bare_template_forks_under_the_username(tmp_path, monkeypatch):
+    deploy = _deploy()
+    _template(tmp_path)
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path))
+    monkeypatch.setattr(deploy, "_username", lambda: "PurpleFrog")
+    a = argparse.Namespace(cmd="create", package="phalanx", owner=None, name=None, dry_run=True)
+    forked = deploy._fork_for_deploy(_pkg.load(tmp_path / "phalanx"), a, log=lambda m: None)
+    assert forked.id == "purplefrog-phalanx" and forked.catalog["name"] == "PurpleFrog's Phalanx"

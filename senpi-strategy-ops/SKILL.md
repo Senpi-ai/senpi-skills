@@ -22,13 +22,13 @@ description: >-
   returns funds). Before the budget question ops runs THE WALKTHROUGH (Step 0.75):
   what the template does, how it is set, the two levers worth shifting — all in
   bullets and plain words, never a config key — and its name: every template deploys
-  as the user's own fork (`deploy.py create <template> --owner <username>` → `ignas-phalanx`,
+  as the user's own fork, named after their Senpi username (`deploy.py create <template>` → `ignas-phalanx`,
   spoken as "Ignas's Phalanx"; `--name` for their own words), as-is or with levers moved. The id (spider, polar, kodiak) is the package folder. NOT for choosing WHICH strategy
   (senpi-strategy-discover) or authoring / editing the strategy files themselves (senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.14.0"
+  version: "3.15.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -48,8 +48,8 @@ and you poll until it is terminal.
 ```
 openclaw senpi validate <recipe-dir>                                    # 0a. does it RUN? records the proof create needs
 python3 senpi-strategy-ops/scripts/deploy.py validate <id>              # 0b. preflight — structurally deploy-ready? (no money, nothing installed; a bare id is fetched to disk)
-python3 senpi-strategy-ops/scripts/deploy.py fork <id> --owner <username>   # 0c. their copy on disk — only when levers move before funding
-python3 senpi-strategy-ops/scripts/deploy.py create <id> --owner <username> --budget <usd> # 1. THE FUNDED PATH: forks it under their name, proves it, starts the deploy
+python3 senpi-strategy-ops/scripts/deploy.py fork <id>                  # 0c. their copy on disk — only when levers move before funding
+python3 senpi-strategy-ops/scripts/deploy.py create <id> --budget <usd> # 1. THE FUNDED PATH: forks it under their username, proves it, starts the deploy
 openclaw senpi deploy status                                            # 2. poll until terminal; read the verified report
 python3 senpi-strategy-ops/scripts/status.py                            # what am I running? (+ health)
 python3 senpi-strategy-ops/scripts/close.py <id> | --all                # teardown one strategy | EVERY open strategy
@@ -98,7 +98,7 @@ fresh `openclaw senpi validate` before the next `create`. **`UNPROVEN` (exit 2) 
 package that has not returned `PASS`. The proof: [`references/lifecycle.md`](references/lifecycle.md).
 
 **Step 0.75 — the walkthrough (REQUIRED before the budget question).** The package is on disk (Step 0.5).
-Read their username first (`user_get_me`). Before you ask for a dollar, read `strategy.yaml` (`catalog:`)
+Read their username first (`user_get_me` → `userName`; none → ask what to call it). Before you ask for a dollar, read `strategy.yaml` (`catalog:`)
 and each instance's `runtime.yaml` and say it **all in bullets — plain words, no YAML, no config keys**:
 **what it does** (three bullets: the signal · when it enters · how it exits), **how it is set** (the
 post-live block's four lines), **two levers** worth a look (one for `tier: starter`) — each named by what
@@ -112,11 +112,11 @@ check ("did you finish?", "how's it going?") is not a yes. Never a gate, never r
 question comes after the answer. Cost class is a fact beside the choice, never a discouragement; named
 installs get the walkthrough too. Below the design budget, a guardrail removed or a threshold lowered:
 the consequence in one line and an explicit yes — never "done". **The fork is the verb's job:**
-`deploy.py create <template> --owner <username> --budget <usd>` copies the template to
-`<owner>-<template>` under the durable root, rewrites its identity (`id`, `catalog.name`, runtime
+`deploy.py create <template> --budget <usd>` reads their username itself, copies the template to
+`<username>-<template>` under the durable root, rewrites its identity (`id`, `catalog.name`, runtime
 name/group/description, `forked_from`), proves it and deploys it; `--name "<their words>"` for a name of
-their own; `deploy.py fork <template> --owner <username>` makes the copy first when levers move (the
-edit path on the fork, then `create <dir>`). A bare template id without an owner is **refused**. The
+their own; `deploy.py fork <template>` makes the copy first when levers move (the edit path on the fork,
+then `create <dir>`). A user ID is never a name; with no username to read, a bare template id is **refused**. The
 lever language, the name rules and the fork: [`references/walkthrough.md`](references/walkthrough.md).
 
 **Step 1 — start the deploy.** Budget splits across instances by `funding_share`, **min $10 each** (the
@@ -125,7 +125,7 @@ it**. Two tiers, and only the first
 stops anything: below the $10/wallet floor the deploy **refuses**; a wallet left with less than **its
 own** sizing needs still **deploys**, with a `[W_BUDGET_BELOW_STRATEGY_MIN]` warn to relay.
 ```
-python3 senpi-strategy-ops/scripts/deploy.py create spider --owner purplefrog --budget 300   # → purplefrog-spider, "PurpleFrog's Spider"
+python3 senpi-strategy-ops/scripts/deploy.py create spider --budget 300   # username PurpleFrog → purplefrog-spider, "PurpleFrog's Spider"
 ```
 It validates locally, starts the job — which itself refuses pre-money on a dead universe — then polls
 `deploy status` and prints the verb's report verbatim. Flags: `--decision-model <model>` (only for a
@@ -245,8 +245,8 @@ Then always close with the **How it runs** block below. `funded` is the backend'
 ### The funded path — `deploy.py create|runtime`
 
 `deploy.py` no longer deploys anything itself. Each of its **two** money-moving subcommands resolves the
-package (forking a template under the user's name first — `--owner`/`--name`, required for a bare
-template id on `create`), runs the structural preflight, then starts the **same** verb — which holds the live-universe
+package (forking a template under the user's Senpi username first — `--name` for words of their own on
+`create`), runs the structural preflight, then starts the **same** verb — which holds the live-universe
 gate itself, pre-money — polls it, and prints its report verbatim. Both keep the same flags and the
 verb's exit codes. **The old `== 2` habit no longer catches a failure**: the pre-verb script exited 2 on
 failure, this one exits 3, so anything branching on `== 2` alone silently treats every failed deploy as

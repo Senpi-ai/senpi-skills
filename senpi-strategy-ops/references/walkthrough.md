@@ -50,7 +50,8 @@ where there is one. Name the rest in one line.
 ## 3. The name — two spellings, one fact
 
 Every template deploys under the user's name, moved levers or not. Read their Senpi username first
-(`user_get_me`) — never an id or an email. The name is **stated, never asked**:
+(`user_get_me` → `userName`) — never an id or an email; ops reads the same field when it forks. The name is
+**stated, never asked** — unless the account has no username, and then you ask what to call it:
 
 *"It deploys as **Ignas's Phalanx** (`ignas-phalanx` in your strategy list) — say a different name if you
 want one."*
@@ -91,18 +92,18 @@ most likely to fork it.
 
 ## The fork — the verb makes it
 
-`deploy.py create <template> --owner <username> --budget <usd>` does the fork and the deploy in one go:
-it copies the fetched template to `<strategies root>/<owner>-<template>/` (the root `deploy.py where`
+`deploy.py create <template> --budget <usd>` does the fork and the deploy in one go: it reads the user's
+username (`--owner` only overrides it) and copies the fetched template to `<strategies root>/<username>-<template>/` (the root `deploy.py where`
 prints — never a CWD-relative `strategies/`), leaving out `.deploy-state.json`, any proof and any
 `__pycache__`; rewrites `id`, `catalog.name` (the spoken name), each runtime's `name`/`group` linkage and
 the first line of its `description` (`Ignas's Phalanx — forked from Phalanx 1.1.0.` — the mandate
 `senpi-portfolio` reads back); records `forked_from: {id, version}`; validates the copy; proves it
 (`openclaw senpi validate --stage live`); then deploys **the fork**. `--name "<their words>"` names it their
-way. A second `create` with the same owner reuses the same fork. A bare template id with neither flag is
-refused — nothing is created. From then on the id is the fork's (`ignas-phalanx`) for `status`, `verify`,
+way. A second `create` reuses the same fork. A user ID passed as a name is refused, and so is a bare template
+id when no username can be read — nothing is created; ask what to call it and pass `--name`. From then on the id is the fork's (`ignas-phalanx`) for `status`, `verify`,
 `update` and `close`.
 
-When levers move first: `deploy.py fork <template> --owner <username>` makes the copy and stops; apply the
+When levers move first: `deploy.py fork <template>` makes the copy and stops; apply the
 moved levers with the edit path — values only, never structure; `wallet_env` names stay as they are — run
 the normal gate (`python3 senpi-strategy-author/scripts/validate_strategy.py <dir>` — it warns on a stop
 that is too tight at the leverage, sizing with no free-margin gate, a daily cap at or below the slots, a

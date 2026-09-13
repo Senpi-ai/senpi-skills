@@ -292,7 +292,7 @@ class TemplatesDeployUnderTheUsersName(unittest.TestCase):
 
     def test_rule_is_resident_and_the_language_is_in_the_reference(self):
         body = _skill_body(REPO / "senpi-strategy-ops" / "SKILL.md")
-        for needle in ("--owner", "never by its key", "is not a yes", "as a fact, never a question", "ignas-phalanx"):
+        for needle in ("A user ID is never a name", "never by its key", "is not a yes", "as a fact, never a question", "ignas-phalanx"):
             self.assertIn(needle, body)
         ref = (REPO / "senpi-strategy-ops" / "references" / "walkthrough.md").read_text()
         for needle in ("Every block is bullets", "marginPctBase", "ignas-phalanx", "deploy.py fork", "is not a yes"):
