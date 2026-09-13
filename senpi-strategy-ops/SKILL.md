@@ -20,14 +20,15 @@ description: >-
   then runs the runtime's detached deploy job; watch with `senpi deploy status`);
   close.py tears down (stop runtime + strategy_close → flattens positions,
   returns funds). Before the budget question ops runs THE WALKTHROUGH (Step 0.75):
-  what the template does, how it is set, the two levers worth shifting, and its
-  name — every template deploys as the user's own version
-  (`PurpleFrog's Starling`, or a name of their own), as-is or with levers moved. The id (spider, polar, kodiak) is the package folder. NOT for choosing WHICH strategy
+  what the template does, how it is set, the two levers worth shifting — all in
+  bullets and plain words, never a config key — and its name: every template deploys
+  as the user's own fork (`deploy.py create <template> --owner <username>` → `ignas-phalanx`,
+  spoken as "Ignas's Phalanx"; `--name` for their own words), as-is or with levers moved. The id (spider, polar, kodiak) is the package folder. NOT for choosing WHICH strategy
   (senpi-strategy-discover) or authoring / editing the strategy files themselves (senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.13.0"
+  version: "3.14.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -47,7 +48,8 @@ and you poll until it is terminal.
 ```
 openclaw senpi validate <recipe-dir>                                    # 0a. does it RUN? records the proof create needs
 python3 senpi-strategy-ops/scripts/deploy.py validate <id>              # 0b. preflight — structurally deploy-ready? (no money, nothing installed; a bare id is fetched to disk)
-python3 senpi-strategy-ops/scripts/deploy.py create <id> --budget <usd> # 1. THE FUNDED PATH: validates, then starts the deploy
+python3 senpi-strategy-ops/scripts/deploy.py fork <id> --owner <username>   # 0c. their copy on disk — only when levers move before funding
+python3 senpi-strategy-ops/scripts/deploy.py create <id> --owner <username> --budget <usd> # 1. THE FUNDED PATH: forks it under their name, proves it, starts the deploy
 openclaw senpi deploy status                                            # 2. poll until terminal; read the verified report
 python3 senpi-strategy-ops/scripts/status.py                            # what am I running? (+ health)
 python3 senpi-strategy-ops/scripts/close.py <id> | --all                # teardown one strategy | EVERY open strategy
@@ -96,19 +98,26 @@ fresh `openclaw senpi validate` before the next `create`. **`UNPROVEN` (exit 2) 
 package that has not returned `PASS`. The proof: [`references/lifecycle.md`](references/lifecycle.md).
 
 **Step 0.75 — the walkthrough (REQUIRED before the budget question).** The package is on disk (Step 0.5).
-Before you ask for a dollar, read `strategy.yaml` (`catalog:`) and each instance's `runtime.yaml` and say —
-plain language, no YAML — **what it does and how it is set** (the post-live block's four lines, before the
-money moves), **two levers** worth a look (one for `tier: starter`; each with default, range and effect),
-the **fee load and the design budget**, and **the name**: every template deploys under the user's name,
-levers moved or not — propose **`<User>'s <Template>`** (`PurpleFrog's Starling`); their own word wins.
-Then one question: *"Run it as-is, or shift one of these and make it yours?"* One word skips it; never a
-gate, never re-asked; the budget question comes after the answer. Cost class is a fact beside the choice,
-never a discouragement; named installs get the walkthrough too. Below the design budget, a guardrail
-removed or a threshold lowered: the consequence in one line and an explicit yes — never "done". Which
-levers, the name rules, and **making the fork on disk** — a copy at `<strategies root>/<template>-<user-slug>/`
-(`deploy.py where` prints the root, never a CWD-relative `strategies/`; `.deploy-state.json` left out;
-`id`, `catalog.name`, `forked_from`, linkage, the mandate prefix; then the unchanged gate on the
-**directory**): [`references/walkthrough.md`](references/walkthrough.md).
+Read their username first (`user_get_me`). Before you ask for a dollar, read `strategy.yaml` (`catalog:`)
+and each instance's `runtime.yaml` and say it **all in bullets — plain words, no YAML, no config keys**:
+**what it does** (three bullets: the signal · when it enters · how it exits), **how it is set** (the
+post-live block's four lines), **two levers** worth a look (one for `tier: starter`) — each named by what
+it controls, never by its key (*"How picky it is about crowding — now 65% of the cohort on one side; lower
+= more trades and more fees, higher = fewer, stronger ones"*; *"How much of the wallet each position uses —
+15%: about $95 of margin per position on your $635"*), the **fee load and the design budget**, and **the
+name as a fact, never a question**: *"It deploys as **Ignas's Phalanx** (`ignas-phalanx` in your strategy
+list) — say a different name if you want one."* Then one question: *"Run it as-is, or shift one of these
+first? Say **go** and it deploys as-is."* A bare "go" / "deploy" / "yes" = as-is under their name; a status
+check ("did you finish?", "how's it going?") is not a yes. Never a gate, never re-asked; the budget
+question comes after the answer. Cost class is a fact beside the choice, never a discouragement; named
+installs get the walkthrough too. Below the design budget, a guardrail removed or a threshold lowered:
+the consequence in one line and an explicit yes — never "done". **The fork is the verb's job:**
+`deploy.py create <template> --owner <username> --budget <usd>` copies the template to
+`<owner>-<template>` under the durable root, rewrites its identity (`id`, `catalog.name`, runtime
+name/group/description, `forked_from`), proves it and deploys it; `--name "<their words>"` for a name of
+their own; `deploy.py fork <template> --owner <username>` makes the copy first when levers move (the
+edit path on the fork, then `create <dir>`). A bare template id without an owner is **refused**. The
+lever language, the name rules and the fork: [`references/walkthrough.md`](references/walkthrough.md).
 
 **Step 1 — start the deploy.** Budget splits across instances by `funding_share`, **min $10 each** (the
 platform wallet floor) — **ask for the amount now — after the walkthrough, never before it — and confirm
@@ -116,7 +125,7 @@ it**. Two tiers, and only the first
 stops anything: below the $10/wallet floor the deploy **refuses**; a wallet left with less than **its
 own** sizing needs still **deploys**, with a `[W_BUDGET_BELOW_STRATEGY_MIN]` warn to relay.
 ```
-python3 senpi-strategy-ops/scripts/deploy.py create spider --budget 300
+python3 senpi-strategy-ops/scripts/deploy.py create spider --owner purplefrog --budget 300   # → purplefrog-spider, "PurpleFrog's Spider"
 ```
 It validates locally, starts the job — which itself refuses pre-money on a dead universe — then polls
 `deploy status` and prints the verb's report verbatim. Flags: `--decision-model <model>` (only for a
@@ -236,7 +245,8 @@ Then always close with the **How it runs** block below. `funded` is the backend'
 ### The funded path — `deploy.py create|runtime`
 
 `deploy.py` no longer deploys anything itself. Each of its **two** money-moving subcommands resolves the
-package, runs the structural preflight, then starts the **same** verb — which holds the live-universe
+package (forking a template under the user's name first — `--owner`/`--name`, required for a bare
+template id on `create`), runs the structural preflight, then starts the **same** verb — which holds the live-universe
 gate itself, pre-money — polls it, and prints its report verbatim. Both keep the same flags and the
 verb's exit codes. **The old `== 2` habit no longer catches a failure**: the pre-verb script exited 2 on
 failure, this one exits 3, so anything branching on `== 2` alone silently treats every failed deploy as
@@ -269,8 +279,8 @@ The user just funded a strategy; the last thing they see must explain **how the 
 - **Protection — the DSL exit ladder.** From `exit.dsl_preset`: the hard stop (`phase1.max_loss_pct`), the profit-lock ladder (`phase2.tiers`: first `trigger_pct` → top `lock_hw_pct`), and any time cut (`weak_peak_cut`/`hard_timeout`). State whether it has a manual close action or is **DSL-only** (no `CLOSE_POSITION` action → "no manual exits — the stop does all the selling"). e.g. "hard stop at −18% from entry; as a winner runs, a trailing floor ratchets up, locking profit from +8% to +80%; a stalled position is cut at 48h."
 
 - **Cap — how many entries a day.** From `risk.guard_rails.max_entries_per_day`: say the number, and that once it is hit the runtime logs `Runtime paused: Max Entries/Day` and opens nothing until 00:00 UTC — its own rule, not a fault. While it holds, `status.py` shows the row as **⏸ paused** (health stays ✅).
-- **Ownership — one line.** *"This is your strategy — `PurpleFrog's Starling`, saved at `/data/workspace/strategies/starling-purplefrog/`.
-  Say 'widen the stop' any time; it applies in place — no close, no new wallet."* (the update path below).
+- **Ownership — one line, the name first.** *"**PurpleFrog's Starling** is live — `purplefrog-starling` in your strategy list, saved at `/data/workspace/strategies/purplefrog-starling/`.
+  Say 'widen the stop' any time; it applies in place — no close, no new wallet."* Never "Starling is live" — the template's name is not theirs (the update path below).
 
 Keep it to ~5 short lines per strategy. Multi-instance packages whose legs differ (e.g. a long book vs a short book, core vs ballast) get one block each **or** a shared block that names the per-side difference. This is what turns "it's live" into "here's exactly how it trades" — required even when the user didn't ask.
 
