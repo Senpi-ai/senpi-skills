@@ -41,7 +41,6 @@ agreement bar, a threshold, a cohort size, a basket) and from the universal ones
 | Risk per trade | `exit.dsl_preset.phase1.max_loss_pct` | in ROE **and** in price at the leverage: 15% ROE at 5× is 3% of price |
 | Daily entry cap, drawdown halt | `risk.guard_rails` | "at most N entries a day; halts at −X%" |
 | Cadence | the scanner's `interval_seconds` | "looks every N minutes" |
-| Sleeve weighting (multi-wallet funds) | `instances[].funding_share` in `strategy.yaml` | "65/35 alpha/hedge" — the shares must total 100% and each wallet keeps the $10 floor; on a fund it is the first lever |
 
 Position size (`strategy.margin_pct`, present in about half the catalog) is the biggest *felt* lever after
 the stop — offer it where it exists. Scanner-side `maxSlots` / `maxLeverage` / `leverageTiers` exist in a
