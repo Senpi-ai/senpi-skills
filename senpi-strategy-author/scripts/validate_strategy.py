@@ -96,6 +96,36 @@ def null_signal_field_offenders(scan_src, scoring_src, schema):
     return sorted(set(out))
 
 
+# ── close-signal wiring ────────────────────────────────────────────────────────
+# The runtime routes a signal only to the actions whose `scanners:` name its scanner; a signal from a
+# scanner no action lists is dropped without a log line. And a close is not a direction: the open
+# action refuses anything but LONG/SHORT (`invalid_direction`), so a "force-flat" `direction: CLOSE`
+# is refused or, from an unlisted scanner, silently dropped. The shipped pattern (barracuda's
+# close_all) is a dedicated scanner emitting the position's asset + side, consumed by its own
+# CLOSE_POSITION action. Both halves are decidable here, before a wallet exists.
+_DIRECTION_LITERAL = re.compile(r"""["']direction["']\s*:\s*["']([A-Za-z_]+)["']""")
+_SIDES = {"LONG", "SHORT"}
+
+
+def unconsumed_scanners(rt_doc):
+    """Names of external scanners no action lists in `scanners:` or `context[].scanner`."""
+    consumed = set()
+    for a in (rt_doc.get("actions") or []) if isinstance(rt_doc, dict) else []:
+        if not isinstance(a, dict):
+            continue
+        consumed.update(str(s) for s in (a.get("scanners") or []) if s)
+        consumed.update(str(c.get("scanner")) for c in (a.get("context") or [])
+                        if isinstance(c, dict) and c.get("scanner"))
+    return [str(sc.get("name")) for sc in ((rt_doc.get("scanners") or []) if isinstance(rt_doc, dict) else [])
+            if isinstance(sc, dict) and sc.get("type") == "external_scanner"
+            and str(sc.get("name")) not in consumed]
+
+
+def direction_literal_offenders(src):
+    """`"direction": "<X>"` literals in scanner source that are not a side: CLOSE, FLAT, EXIT, …"""
+    return sorted({m.group(1) for m in _DIRECTION_LITERAL.finditer(src) if m.group(1).upper() not in _SIDES})
+
+
 def _runtime_docs(pkg: Path):
     """Every parsed runtime.yaml in the package (flat or nested)."""
     out = []
@@ -304,6 +334,13 @@ def validate(pkg: Path) -> list:
                 errs.append(f"instance {name}: set runtime `strategy.wallet: \"${{{wenv}}}\"` in "
                             f"{rt_rel} (found {_found}) — deploy substitutes the wallet it creates, "
                             f"so a literal address there funds one wallet and trades another")
+        if isinstance(rt_doc, dict) and rt_doc.get("actions"):   # a recipe with no actions at all is another defect
+            for scn in unconsumed_scanners(rt_doc):
+                errs.append(
+                    f"instance {name}: scanner {scn!r} feeds no action — the runtime routes a signal only to "
+                    f"the actions whose `scanners:` name its scanner, and a signal with no consumer is dropped "
+                    f"without a log line. List it under an OPEN_POSITION action (entries) or a CLOSE_POSITION "
+                    f"action (closes), or remove it")
         seen_wallet_envs.add(wenv)
 
     # multi-instance must use distinct wallets
@@ -320,6 +357,13 @@ def validate(pkg: Path) -> list:
         for lng, sht in candle_key_bug(src):
             errs.append(f"{py.name}: candles are keyed `o/h/l/c/v` — use `candle['{sht}']`, not `{lng}` "
                         f"(no such key → always None → the scan emits nothing).")
+        if "scanners" in py.parts:
+            for lit in direction_literal_offenders(src):
+                errs.append(
+                    f"{py.name}: emits `direction: {lit!r}` — a direction is LONG or SHORT, nothing else; the "
+                    f"open action refuses anything else (`invalid_direction`). To close from a signal, emit the "
+                    f"position's asset and its side (LONG/SHORT) from a dedicated scanner and consume it with a "
+                    f"CLOSE_POSITION action (creating-a-strategy.md §6)")
 
     # null-in-typed-schema: an optional signal field set to None is REJECTED by the runtime
     # (candidate_rejected, silently) — omit it instead. Checked per scanner dir so scan.py,
