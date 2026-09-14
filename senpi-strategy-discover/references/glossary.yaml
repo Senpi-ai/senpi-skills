@@ -79,6 +79,7 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   copy_the_copiers: { gloss: "Follows the best-performing strategies automatically." }
   cohort_divergence: { gloss: "Acts when a smart-money cohort diverges from price." }
   sm_rotation: { gloss: "Follows where smart money is rotating across asset classes — long the crowded-into, short the fled." }
+  sm_hedge_fund: { gloss: "A smart-money alpha sleeve paired with an independent regime-hedge sleeve in one fund — two wallets, user-weighted." }
   elite_conviction: { gloss: "Mirrors only top-tier (elite/reliable) traders' concentrated, high-conviction positions." }
   fresh_entry_mirror: { gloss: "Mirrors only the FRESHLY-opened positions of a small vetted cohort — never inherits an existing book — with an entry-slippage guard so you don't chase a fill that already ran." }
   # single_market
