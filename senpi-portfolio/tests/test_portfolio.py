@@ -1456,3 +1456,85 @@ if __name__ == "__main__":
         print(f"\n{len(fns)}/{len(fns)} passed")
     finally:
         _restore_path()
+
+
+# ─────────────────────────────────────────── fleet status: one call, and the risk-gate pause
+
+_CAP_GATE = {"gateId": "max_entries_day", "gateName": "Max Entries/Day", "status": "CLOSED",
+             "reason": "Max entries: 4/4 entries today", "evaluationOk": True}
+
+
+def _paused_record(health="healthy"):
+    return {"runtimeName": "kodiak-main", "health": health, "activePositions": 1,
+            "components": {"risk": {"component": "risk", "enabled": True, "eligibility": "CLOSED",
+                                    "gates": [{"gateId": "daily_loss_halt", "gateName": "Daily Loss Halt",
+                                               "status": "OPEN"}, _CAP_GATE]}}}
+
+
+def _run_with_cli(reply_for):
+    """Run the engine against the kodiak fixture with `portfolio._run_cli` replaced by `reply_for(args)`
+    — the ONE place a status read leaves the process — and return (result, the argv list of every call)."""
+    calls = []
+    orig = portfolio._run_cli
+
+    def fake(args, timeout=60):
+        calls.append(list(args))
+        return reply_for(list(args))
+    portfolio._run_cli = fake
+    try:
+        res = run_engine(status_fixture=None, mcp_fixture=_kodiak_only_fixture())
+    finally:
+        portfolio._run_cli = orig
+    return res, calls
+
+
+def test_runtime_health_is_one_fleet_status_call_not_one_per_runtime():
+    """The `strategies` step used to shell out `status -r <id>` per runtime, sequentially, at a plugin
+    start each — the step's cost grew with the runtime count until it blew the exec window. One
+    `status --json` now serves every runtime; the per-id form is never called when it answers."""
+    fleet = json.dumps(status_doc({"runtimeName": "kodiak-main", "health": "healthy", "activePositions": 0}))
+    res, calls = _run_with_cli(lambda a: (0, fleet, "") if a[:4] == ["openclaw", "senpi", "status", "--json"]
+                               else (1, "", "unexpected call"))
+    assert by_wallet(res, KODIAK_WALLET)["runtime_health"] == "live"
+    assert [c for c in calls if "-r" in c] == [], calls           # never the per-runtime form
+    assert sum(1 for c in calls if c[:4] == ["openclaw", "senpi", "status", "--json"]) == 1
+
+
+def test_a_failed_fleet_read_falls_back_to_the_per_id_read():
+    """The gateway is flaky-empty and older builds may not answer the fleet form at all; a box that
+    cannot answer it loses nothing it had — the per-id read still runs for that runtime."""
+    per_id = json.dumps(status_doc({"runtimeName": "kodiak-main", "health": "healthy"}))
+    res, calls = _run_with_cli(lambda a: (0, per_id, "") if "-r" in a else (1, "", "no fleet form here"))
+    assert by_wallet(res, KODIAK_WALLET)["runtime_health"] == "live"
+    assert any("-r" in c and "kodiak-main" in c for c in calls)
+
+
+def test_a_runtime_the_fleet_document_does_not_list_is_unknown_never_live():
+    fleet = json.dumps(status_doc({"runtimeName": "someone-else", "health": "healthy"}))
+    res, _calls = _run_with_cli(lambda a: (0, fleet, ""))
+    assert by_wallet(res, KODIAK_WALLET)["runtime_health"] == "unknown"
+
+
+def test_risk_gate_pause_is_reported_beside_health_never_instead_of_it():
+    """A runtime held by its own daily cap is HEALTHY and opens nothing. Reported only as `live`, the
+    quiet reads as a dead strategy; reported as broken, the user redeploys over a rule. So it is a
+    second field: the gate, its reason verbatim, and when it lets go."""
+    res = _run_with_status({"kodiak-main": status_doc(_paused_record())})
+    strat = by_wallet(res, KODIAK_WALLET)
+    assert strat["runtime_health"] == "live"
+    assert strat["risk_pause"]["eligibility"] == "CLOSED"
+    assert [g["gate"] for g in strat["risk_pause"]["gates"]] == ["Max Entries/Day"]   # OPEN gates are not listed
+    assert strat["risk_pause"]["gates"][0]["reason"] == "Max entries: 4/4 entries today"
+    assert strat["risk_pause"]["gates"][0]["reset"] == "resets at 00:00 UTC"
+    assert res["strategy_groups"][0]["risk_pause"]["eligibility"] == "CLOSED"
+    assert res["meta"]["paused_by_risk_gate"] == ["kodiak"]
+    assert "degraded_runtimes" not in res["meta"]
+
+
+def test_open_gates_and_older_runtimes_are_not_paused():
+    res = _run_with_status({"kodiak-main": status_doc({"health": "healthy", "components": {
+        "risk": {"eligibility": "OPEN", "gates": [{"gateId": "max_entries_day", "status": "OPEN"}]}}})})
+    assert by_wallet(res, KODIAK_WALLET)["risk_pause"] is None
+    res = _run_with_status({"kodiak-main": status_doc({"health": "healthy"})})      # no risk component
+    assert by_wallet(res, KODIAK_WALLET)["risk_pause"] is None
+    assert "paused_by_risk_gate" not in res["meta"]

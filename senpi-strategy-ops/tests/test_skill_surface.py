@@ -36,7 +36,22 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # profit-taking" sentence, the instruction to render the ladder as outcomes, and the four
 # doesn't-fit checks. The worked example, the template and the per-mismatch wording went to
 # references/explaining-the-exit.md, which is where this budget says depth belongs.
-BODY_BUDGET = {"senpi-strategy-ops": 300, "senpi-strategy-author": 386}
+# ops 300 -> 317 (2026-09-11): the walkthrough-before-the-budget rule (Step 0.75). The resident lines are
+# what must fire on EVERY template deploy before money moves and cannot be deferred to a pay-per-read
+# file: that the walkthrough comes before the budget question, the four things it says (what it does, two
+# levers, fee load and design budget, the name — `<User>'s <Template>`), the one as-is-or-fork question,
+# the two consents (below the design budget; a guardrail removed), the post-live ownership line and
+# "update, never redeploy". The lever ranking, the name rules, the cost classes and the fork-on-disk
+# mechanics went to references/walkthrough.md. Set at the post-edit count with no slack.
+# author 386 -> 425 (2026-09-11): the four peer routes with cost classes (the product change — the route is
+# the user's choice, its cost class a fact, never a downsell), budget-never-before-build, pre-fill from the
+# thesis, the proven-cohort source rule, let-winners-run exits stated in price terms, the user names it,
+# protection removal as consent. Every one is a what-to-ASK / what-to-CLAIM rule that fires in the
+# interview, which this file says has nowhere else to live; the fork mechanics live in ops'
+# references/walkthrough.md and are named here, not repeated. Set at the post-edit count with no slack.
+# ops 322: DSL two-target rule, four resident lines (2026-09-12)
+# ops 331: templates deploy under the user's name — the walkthrough rule in bullets, plain words, the name as a fact (2026-09-12)
+BODY_BUDGET = {"senpi-strategy-ops": 331, "senpi-strategy-author": 425}
 
 
 def _skill_body(path):
@@ -232,3 +247,53 @@ class ReferencePointersResolve(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CronCostArithmeticAgreesEverywhere(unittest.TestCase):
+    """The cron-cost rule is repeated per skill ON PURPOSE — skills load independently, so text absent
+    from one skill does not exist for an agent working there. The price is that a correction has to
+    land in every copy, and the first divergence is silent. This pins the numbers every copy quotes."""
+
+    _FILES = list(REPO.glob("senpi-*/SKILL.md")) + list(REPO.glob("senpi-*/references/*.md"))
+
+    def _numbers(self, pattern):
+        found = {}
+        for f in self._FILES:
+            for n in re.findall(pattern, f.read_text()):
+                found.setdefault(n, []).append(f.relative_to(REPO).as_posix())
+        return found
+
+    def test_the_per_day_model_call_counts_agree(self):
+        # Anchored on the cost sentence ("… is 288"), not on the cadence alone: the How-it-runs
+        # template also says "every 5 minutes" next to an `interval_seconds` that is not a cost.
+        five = self._numbers(r"(?:every 5 minutes|5-minute job|five-minute (?:job|producer))\"?(?: job)? is \**~?(\d+)")
+        hourly = self._numbers(r"every hour\"? is \**~?(\d+)")
+        ten = self._numbers(r"10-minute job is \**~?(\d+)")
+        self.assertTrue(five, "no skill quotes the five-minute cost — the rule is gone")
+        self.assertEqual(set(five), {"288"}, five)
+        self.assertEqual(set(hourly), {"24"}, hourly)
+        self.assertEqual(set(ten), {"144"}, ten)
+
+
+class DslChangeHasTwoTargets(unittest.TestCase):
+    """A DSL edit reaches future positions through the file and open positions only through ratchet_stop_edit;
+    the skill must name both and the question."""
+
+    def test_rule_is_resident_and_the_protocol_is_in_the_reference(self):
+        body = _skill_body(REPO / "senpi-strategy-ops" / "SKILL.md")
+        for needle in ("ratchet_stop_edit", "ratchet_stop_list"):
+            self.assertIn(needle, body)
+        self.assertIn("senpi://guides/ratchet_stop", (REPO / "senpi-strategy-ops" / "references" / "editing-a-live-strategy.md").read_text())
+
+
+class TemplatesDeployUnderTheUsersName(unittest.TestCase):
+    """A template never deploys as the bare template: the verb forks it under the user's name, the walkthrough
+    is bullets in plain words (no config keys), the name is stated, and a status check is not a yes."""
+
+    def test_rule_is_resident_and_the_language_is_in_the_reference(self):
+        body = _skill_body(REPO / "senpi-strategy-ops" / "SKILL.md")
+        for needle in ("A user ID is never a name", "never by its key", "is not a yes", "as a fact, never a question", "ignas-phalanx"):
+            self.assertIn(needle, body)
+        ref = (REPO / "senpi-strategy-ops" / "references" / "walkthrough.md").read_text()
+        for needle in ("Every block is bullets", "marginPctBase", "ignas-phalanx", "deploy.py fork", "is not a yes"):
+            self.assertIn(needle, ref)

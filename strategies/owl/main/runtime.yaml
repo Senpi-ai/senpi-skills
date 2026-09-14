@@ -77,7 +77,7 @@ actions:
     params:
       order_type: FEE_OPTIMIZED_LIMIT
       fee_optimized_limit_options:
-        ensure_execution_as_taker: false    # ENTRIES: cancel-and-skip if maker can't fill in 60s. Contrarian unwinds aren't urgent at detection.
+        ensure_execution_as_taker: true    # maker window first, then taker fallback — a maker-only entry (fallback off) passes validation and fails or phantom-fills at the executor
         execution_timeout_seconds: 60       # v2 owl_entry execution_timeout_seconds
     context:
       - type: signal

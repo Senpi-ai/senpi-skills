@@ -68,7 +68,7 @@ actions:
     params:
       order_type: FEE_OPTIMIZED_LIMIT
       fee_optimized_limit_options:
-        ensure_execution_as_taker: false # patient: prefer the maker rebate, don't chase (cost-aware)
+        ensure_execution_as_taker: true    # maker window first, then taker fallback — a maker-only entry (fallback off) passes validation and fails or phantom-fills at the executor
         execution_timeout_seconds: 120
     context:
       - type: signal

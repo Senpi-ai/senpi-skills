@@ -34,6 +34,14 @@ _CASES = [
     ("salmon",    _intent(), "mean reversion rsi oversold buy the dip"),
     ("armadillo", _intent(), "low risk capital preservation conservative"),
     ("starling",  _intent(), "follow smart money rotation"),
+    ("phalanx",   _intent(), "follow the proven cohort headcount"),
+    ("phalanx",   _intent(), "proven cohort rotation divergence crowd"),
+    ("phalanx",   _intent(assets=[("class", "xyz_equities")]), "follow the proven cohort headcount"),
+    ("aegis",     _intent(), "dynamic hedge regime adaptive risk off"),
+    ("aegis",     _intent(), "hedge for phalanx"),
+    ("athena",    _intent(), "smart money hedge fund"),
+    ("athena",    _intent(), "run a hedge fund"),
+    ("athena",    _intent(), "follow the smart money and hedge it"),
     ("ant",       _intent(), "funding carry cash and carry harvest"),
     ("raven",     _intent(), "adaptive self tuning momentum learns"),
     ("ram",       _intent(assets=[("class", "commodities")]), "gold xauusd metals"),
@@ -54,6 +62,13 @@ def test_each_new_strategy_ranks_top3_for_its_prompt():
         rank = _rank(target, itn, theme)
         assert rank is not None, f"{target} was filtered OUT for its own query"
         assert rank <= 3, f"{target} ranked {rank} (>3) for its query — discoverability regressed"
+
+
+def test_athena_is_the_first_pick_for_smart_money_and_hedge_fund():
+    # the smart-money hedge fund template must lead both asks outright, not just place
+    for theme in ("smart money hedge fund", "hedge fund", "smart money", "run a hedge fund",
+                  "follow the smart money and hedge it"):
+        assert _rank("athena", _intent(), theme) == 1, f"athena is not rank 1 for {theme!r}"
 
 
 def test_gecko_survives_any_named_asset():

@@ -84,6 +84,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _cli  # noqa: E402
+import _fork  # noqa: E402
 import _fetch  # noqa: E402
 import _pkg  # noqa: E402
 from mcp_client import MCPClient  # noqa: E402
@@ -1473,7 +1474,212 @@ def _verify_unreadable(pkg_id, reasons, as_json, tail=None, job_running=None):
     return VERIFY_UNREADABLE
 
 
+# ---------- update: an edit applied IN PLACE ----------
+
+UPDATE_TIMEOUT = 180   # an --apply reloads scanner code and re-registers; a plan is seconds
+
+
+def update_target(pkg, runtime_id=None, address=None):
+    """Which instance dir `senpi update` is pointed at, and the selector it is handed. Returns
+    `(instance, selector_args, refusal_text)` — exactly one of instance / refusal_text is set.
+
+    `--id` names the runtime (`<id>-<instance>`), and a multi-instance package MUST name one: each
+    arm is its own runtime, and pointing the verb at the wrong arm's dir re-tunes the wrong sleeve.
+    A one-instance package implies it. The selector is ALWAYS sent (the verb needs one whenever
+    several runtimes are installed on the box — which has nothing to do with how many this package
+    has); `--address` passes through only where it cannot be ambiguous."""
+    insts = list(pkg.instances)
+    ids = ", ".join(str(i.runtime_name) for i in insts) or "(none)"
+    if runtime_id:
+        inst = next((i for i in insts if i.runtime_name == runtime_id), None)
+        if inst is None:
+            return None, [], (f"✗ {pkg.id}: no instance of this package runs as {runtime_id!r} — its "
+                              f"runtime ids are: {ids}. Nothing was changed.")
+        return inst, ["--id", runtime_id], None
+    if len(insts) == 1:
+        inst = insts[0]
+        return inst, (["--address", address] if address else ["--id", str(inst.runtime_name)]), None
+    return None, [], (f"✗ {pkg.id}: {len(insts)} instances — name the one to update with --id "
+                      f"(one of: {ids}). Each arm is its own runtime; nothing was changed.")
+
+
+def cmd_update(a):
+    """Apply an edit to a LIVE strategy IN PLACE — `openclaw senpi update` — plan by default,
+    `--apply` commits. Around the verb, three things: the same structural preflight `create` runs
+    (a package the deployer would refuse is refused here, before the verb is called); the instance
+    dir resolved from `--id`; and a clear stop when the box's runtime has no `update` verb yet.
+
+    What it will never do: delete a runtime, create one, fund a wallet, or close anything. There is
+    no path from this command to a fresh wallet — an edit that `update` refuses (a changed
+    `strategy.wallet`, a renamed/moved external scanner, a changed `action_type`) is a close-and-
+    redeploy CONVERSATION with the user, not a fallback this wrapper takes on its own.
+
+    Exit codes are the verb's: 0 planned/applied · 1 FAILED DURING APPLY (the runtime may not be
+    where you left it — read the message) · 2 refused, nothing changed (also this wrapper's own
+    refusals) · 3 bad invocation. A box with no `update` verb exits 1 with the edit left on disk."""
+    try:
+        pkg = local_pkg(a.package)
+    except _pkg.BadPackage as e:
+        print(f"✗ {a.package}: could not be read as a package — {e}. Nothing was changed.",
+              file=sys.stderr)
+        return EXIT_CODES["refused"]
+    if pkg is None:
+        print(f"✗ {a.package!r} is not a package on disk here — `update` applies an EDITED package, "
+              f"so it never fetches one; pass the directory you edited. Nothing was changed.",
+              file=sys.stderr)
+        return EXIT_CODES["refused"]
+    gate = full_validate(pkg)
+    if gate:
+        print(f"✗ {pkg.id}: {len(gate)} issue(s) to fix before it can be applied — the verb was not "
+              f"called, nothing was changed:", file=sys.stderr)
+        for e in gate:
+            print(f"    - {e}", file=sys.stderr)
+        return EXIT_CODES["refused"]
+    inst, selector, refusal = update_target(pkg, getattr(a, "runtime_id", None),
+                                            getattr(a, "address", None))
+    if refusal:
+        print(refusal, file=sys.stderr)
+        return EXIT_CODES["refused"]
+    target = inst.runtime_path.parent
+    if a.apply and not (target / PROOF_FILE).is_file():
+        # The verb refuses this too (`E_UPDATE_PROOF_REQUIRED`); saying it here saves the round-trip
+        # and names the exact command. A STALE proof is the verb's call, not ours — it knows the bytes.
+        print(f"✗ {pkg.id}: no proof in {target} — `--apply` needs a PASS from\n"
+              f"    openclaw senpi validate {target}\n"
+              f"  first (it records the proof `update --apply` requires). The verb was not called; "
+              f"nothing was changed.", file=sys.stderr)
+        return EXIT_CODES["refused"]
+    argv = ["openclaw", "senpi", "update", str(target)] + list(selector)
+    if a.apply:
+        argv.append("--apply")
+    if getattr(a, "code_only", False):
+        argv.append("--code-only")
+    if a.json:
+        argv.append("--json")
+    rc, out, err = _cli.run_cli(argv, timeout=UPDATE_TIMEOUT)
+    tail = _cli.error_tail(err, out)
+    if rc != 0 and _cli_rejected_the_command(tail, ours=argv):
+        # A parser answered, not the verb: this runtime build predates `senpi update`. The edit is
+        # on disk, unapplied — and the ONE thing not to do about that is close and redeploy.
+        print(tail, file=sys.stderr)
+        print(f"✗ {pkg.id}: this runtime has no `senpi update` verb yet, so the edit in {target} is "
+              f"on disk and NOT applied — nothing was changed. Do NOT close and redeploy to apply it "
+              f"(that market-exits every open position and drops their stops): tell the user the "
+              f"runtime plugin needs the release that carries `senpi update`, and leave the running "
+              f"strategy as it is.", file=sys.stderr)
+        return EXIT_INTERNAL
+    if out:
+        sys.stdout.write(out if out.endswith("\n") else out + "\n")
+    if err and err.strip():
+        sys.stderr.write(err if err.endswith("\n") else err + "\n")
+    if rc == 0 and not a.json:
+        if a.apply:
+            print(f"applied. Re-read what is running now: python3 {Path(__file__).with_name('status.py').name}"
+                  f" {pkg.id}   — and remember `dsl_preset` is forward-only: positions already open "
+                  f"keep the ladder they were opened under (the plan named them).", file=sys.stderr)
+        else:
+            print(f"PLAN only — nothing changed. Read it to the user, then commit with:\n"
+                  f"    python3 {Path(__file__).name} update {a.package} {' '.join(selector)} --apply",
+                  file=sys.stderr)
+    if rc in (0, 1, 2, 3):
+        return rc
+    print(f"✗ {pkg.id}: `senpi update` did not answer (rc {rc}) — {tail or 'no output'}. Read the "
+          f"runtime before retrying: openclaw senpi runtime list --json", file=sys.stderr)
+    return EXIT_INTERNAL
+
+
 # ---------- cli ----------
+
+def _ownership_flags(p):
+    p.add_argument("--owner", default=None, metavar="USERNAME",
+                   help="Override whose name the fork carries. Default: the user's Senpi username, read from user_get_me — "
+                        "`ignas-phalanx`, spoken as \"Ignas's Phalanx\". Never their user ID.")
+    p.add_argument("--name", default=None, metavar="WORDS",
+                   help="A name of the user's own instead (\"Shield Wall\" → id shield-wall). Wins over --owner.")
+
+
+def _username():
+    """The user's Senpi username (`user_get_me` → data.user.userName), or None when it cannot be read — no
+    token, a failed call, or no username on the account. The caller then asks the user; it never falls back
+    to the id, because an id is not a name."""
+    mcp = MCPClient()
+    if not mcp.token:
+        return None
+    try:
+        doc = mcp.mcp_call("user_get_me")
+    except Exception:  # noqa: BLE001 — unreadable means ask, never guess
+        return None
+    user = _cli.dig(_cli.dig(doc, "data") or {}, "user") or {}
+    return str(_cli.dig(user, "userName") or "").strip() or None
+
+
+def _fork_for_deploy(pkg, a, log):
+    """`create`/`runtime` of a template: fork it under the user's name and deploy THE FORK — their Senpi
+    username unless --owner/--name says otherwise. When the username cannot be read, a bare template id is
+    refused and the agent asks what to call it; an explicit directory is the author's own package and is never
+    second-guessed."""
+    owner, name = getattr(a, "owner", None), getattr(a, "name", None)
+    explicit_dir = (Path(a.package) / "strategy.yaml").is_file()
+    manifest = getattr(pkg, "manifest", None) or {}
+    catalog = getattr(pkg, "catalog", None) or {}
+    # a catalog template carries a `catalog.tier`; a fork carries `forked_from`; an authored package may
+    # carry either but deploys by DIRECTORY — the refusal names that path
+    is_template = bool(catalog.get("tier")) and not manifest.get("forked_from")
+    if not (owner or name):
+        if not (a.cmd == "create" and not explicit_dir and is_template):
+            return pkg
+        owner = _username()
+        if not owner:
+            print(f"✗ {pkg.id}: a template deploys under the user's name, never as the bare template, and their Senpi "
+                  f"username could not be read. Ask what to call it, then re-run with\n"
+                  f"    python3 {Path(__file__).name} create {a.package} --name \"<their words>\" --budget <usd>\n"
+                  f"  A user ID is never a name. Nothing was created, funded or installed.", file=sys.stderr)
+            sys.exit(EXIT_CODES["refused"])
+    try:
+        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=name, log=log)
+    except _fork.ForkError as e:
+        print(f"✗ {pkg.id}: {e}. Nothing was created, funded or installed.", file=sys.stderr)
+        sys.exit(EXIT_CODES["refused"])
+    log(f"  deploying the fork: {info['id']} — \"{info['display']}\" (from {info['forked_from']['id']} "
+        f"{info['forked_from']['version']}); use the id {info['id']} for status, verify and close")
+    forked = _pkg.load(dest)
+    if a.cmd == "create" and not getattr(a, "dry_run", False):
+        # A fresh fork carries no proof and the verb refuses an unproven package: record it now — the same
+        # `openclaw senpi validate --stage live` the agent would otherwise be sent to run by hand.
+        unproven = [d for _n, st, d in proof_state(forked) if st == "no_proof"]
+        if unproven:
+            ok, text = revalidate(unproven, log)
+            if not ok:
+                print(text, file=sys.stderr)
+                print(f"✗ {info['id']}: `openclaw senpi validate` did not PASS on the fork, so no proof was recorded and "
+                      f"the deploy was not started. The fork is on disk at {dest}; fix what validate reported, then re-run "
+                      f"this command. Nothing was created, funded or installed.", file=sys.stderr)
+                sys.exit(EXIT_CODES["refused"])
+    return forked
+
+
+def cmd_fork(pkg, a, log):
+    owner = a.owner or (None if a.name else _username())
+    try:
+        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=a.name, log=log)
+    except _fork.ForkError as e:
+        print(f"✗ {pkg.id}: {e}. Nothing was written.", file=sys.stderr)
+        return EXIT_CODES["refused"]
+    gate = full_validate(_pkg.load(dest))
+    if a.json:
+        print(json.dumps({**info, "errors": gate}))
+        return 0 if not gate else EXIT_CODES["refused"]
+    print(f"{'reusing' if info['reused'] else 'forked'} {pkg.id} → {dest}")
+    print(f"  id {info['id']} · \"{info['display']}\" · runtimes {', '.join(info['runtimes'])} · from {pkg.id} {pkg.version}")
+    if gate:
+        print(f"✗ {info['id']}: {len(gate)} issue(s):", file=sys.stderr)
+        for e in gate:
+            print(f"    - {e}", file=sys.stderr)
+        return EXIT_CODES["refused"]
+    print(f"  move levers on it with the normal edit path, then:\n"
+          f"    python3 {Path(__file__).name} create {dest} --budget <usd>   # proves it (openclaw senpi validate) and deploys it")
+    return 0
+
 
 def main(argv):
     ap = argparse.ArgumentParser(
@@ -1496,6 +1702,7 @@ def main(argv):
     pc.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
     pc.add_argument("--dry-run", action="store_true")
+    _ownership_flags(pc)
 
     pr = sub.add_parser("runtime", help="Resume/complete the same deploy (installs the runtime(s)).")
     common(pr)
@@ -1508,6 +1715,16 @@ def main(argv):
     pr.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
     pr.add_argument("--dry-run", action="store_true")
+    _ownership_flags(pr)
+
+    # `fork` makes the user's copy of a template and stops there — no money, nothing installed. It is
+    # what `create <template> --owner` runs first; on its own it lets the agent move levers on the fork
+    # (the normal edit path) before funding it.
+    pf = sub.add_parser("fork", help="Make the user's copy of a template under the durable root (<owner>-<template>, or "
+                                     "--name <their words>): id, catalog.name, runtime name/group/description rewritten, "
+                                     "forked_from recorded. No money moves, nothing is installed.")
+    common(pf)
+    _ownership_flags(pf)
 
     # `verify` is the READ-ONLY check. NONE of the deploy flags does anything here — a check that
     # honours `--budget` is a check that can fund a wallet, which is exactly the trap this command is
@@ -1528,6 +1745,8 @@ def main(argv):
     # `status` reports the agent's LAST deploy job — one record, not package-addressed — so it needs
     # no package and never resolves (or fetches) one. An id may still be given: it is checked against
     # the job, so a mismatch refuses instead of printing another package's verdict under it.
+    sub.add_parser("where", help="Print the durable strategies root — where fetched packages and forks live "
+                                  "(SENPI_STRATEGIES_DIR > $OPENCLAW_WORKSPACE_DIR/strategies > /data/workspace/strategies).")
     ps = sub.add_parser("status", help="Show the last deploy job for this agent.")
     ps.add_argument("package", nargs="?", default=None,
                     help="Optional: the package you expect this job to be. A mismatch is refused.")
@@ -1541,7 +1760,30 @@ def main(argv):
                           help="Preflight: is the package structurally deploy-ready? (structure + render — no money moved, nothing installed; a bare catalog id IS fetched to disk)")
     common(pval)
 
+    # `update` is the in-place edit path: the same preflight as `create`, then `openclaw senpi
+    # update`. Plans by default; `--apply` commits. It fetches nothing (it applies the package you
+    # EDITED) and it can never delete, create, fund or close — see `cmd_update`.
+    pu = sub.add_parser("update",
+                        help="Apply an edit to a LIVE strategy IN PLACE via `openclaw senpi update` — plans by default, --apply commits. Never closes or re-creates anything.")
+    pu.add_argument("package", help="The edited package: its directory, or an id already on disk. Fetches nothing.")
+    pu.add_argument("--id", dest="runtime_id", default=None,
+                    help="Runtime to update (<id>-<instance>). Required on a multi-instance package; implied on a one-instance one.")
+    pu.add_argument("--address", default=None, help="Alternative to --id (one-instance packages only).")
+    pu.add_argument("--apply", action="store_true",
+                    help="Commit the change. Needs a PASS proof in the instance dir (openclaw senpi validate <dir>). Without it: plan only.")
+    pu.add_argument("--code-only", dest="code_only", action="store_true",
+                    help="Assert only scanner code changed; the verb refuses if the recipe moved too.")
+    pu.add_argument("--json", action="store_true", help="The verb's report as one JSON document on stdout.")
+
     a = ap.parse_args(argv[1:])
+
+    # `where` answers one question — the durable strategies root, the only directory a fork or a
+    # fetched package may be written to — and takes no flags, so it is answered before the flag-
+    # reading code below (which assumes every other verb declared --json).
+    if a.cmd == "where":
+        print(_pkg.strategies_root())
+        return 0
+
     log = (lambda m: None) if a.json else (lambda m: print(m))
 
     if getattr(a, "dry_run", False) and a.json:
@@ -1628,7 +1870,15 @@ def main(argv):
                       f"this check is the one that does not.)")))
         sys.exit(cmd_verify(pkg, a))
 
+    if a.cmd == "update":
+        sys.exit(cmd_update(a))
+
     pkg = ensure_pkg(a.package, a.ref, log)
+
+    if a.cmd == "fork":
+        sys.exit(cmd_fork(pkg, a, log))
+    if a.cmd in ("create", "runtime"):
+        pkg = _fork_for_deploy(pkg, a, log)
 
     # `validate` is the standalone preflight — no money moves and nothing is installed, but it is not
     # side-effect-free: `ensure_pkg` above fetches a bare catalog id and writes it under the durable

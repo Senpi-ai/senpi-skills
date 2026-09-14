@@ -74,7 +74,7 @@ actions:
     params:
       order_type: FEE_OPTIMIZED_LIMIT
       fee_optimized_limit_options:
-        ensure_execution_as_taker: false   # FADER: maker-only is correct. A fade is non-urgent and
+        ensure_execution_as_taker: true    # maker window first, then taker fallback — a maker-only entry (fallback off) passes validation and fails or phantom-fills at the executor
                                            # fee-sensitive — if the maker can't fill, the trade wasn't
                                            # ripe. (Verbatim from v2; the taker-fallback rule is for
                                            # MOMENTUM agents that must catch a move; a fader is the opposite.)

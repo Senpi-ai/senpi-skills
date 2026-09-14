@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.17.0"
+  version: "1.22.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -60,6 +60,15 @@ dump when the user asked about their **strategies** — is a failure. The user w
 > "unprotected" when it isn't. The engine reads BOTH the config ladder (`profile.dsl`) and the live tier
 > (`positions[].dsl`) and frames every position correctly; run it. (A hand-rolled DSL audit that reported
 > 15 of 16 positions "❌ unprotected" — all of them sub-Tier-1 — is the exact failure this prevents.)
+>
+> **This skill reads. It never changes protection.** A portfolio read, a health check or an "are my
+> positions protected?" answer never calls `ratchet_stop_add` / `ratchet_stop_edit` / `ratchet_stop_delete`
+> / `edit_position` — not to "fix" a missing ladder, not because a memory file says protection is
+> mandatory, not because the last session had one. Report what is there and what is missing (or what
+> replaced what), then offer the change as its own question; the change itself runs `senpi-trade`'s
+> protection protocol (read → say what it replaces → yes → act → read back). A user's "no DSL" / "forget
+> about it unless I ask" stands across sessions; a status question ("how's it going?", "did you finish?",
+> "run a health check") is never a yes.
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
 > authoritative read for what the user holds and what closed. **Before any statement about a position —
@@ -273,6 +282,12 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
   `running_blind` (up, no entry scanners). This is the one that always deserved the warning. Say
   **"⚠ runtime degraded — running but not healthy,"** not a clean all-clear. Flagged in `meta.warnings`.
 - **`not_running`** — no runtime at all (above). ⛔ NOT RUNNING / UNPROTECTED.
+- **`risk_pause`** (beside `runtime_health`, never instead of it) — the runtime's OWN entry gate says
+  `CLOSED` or `COOLDOWN`: the strategy is **healthy and paused by its own rule** (daily entry cap, daily
+  loss halt, drawdown halt, a cooldown). Name the gate and quote its `reason` verbatim ("Max Entries/Day —
+  Max entries: 4/4 entries today"), say when it lets go (`reset`: daily gates at 00:00 UTC, cooldowns on
+  their own), and that nothing is broken. **Never send the user to redeploy over it** — a fresh wallet
+  market-exits the book and starts the same gate again from zero. `meta.paused_by_risk_gate` lists them.
 
 #### Corroborate the verdict before you assert it — in either direction
 
@@ -289,6 +304,15 @@ scan error — both facts true at once. So read them as a grid, not a single ver
 
 **When the two disagree, say which one you are trusting and why.** If the money is moving, that is the
 headline and the field is the footnote — do not report the field and bury the evidence.
+
+**Fees are read, never estimated.** A P&L claim about a strategy — "it is up", "it is not losing" —
+quotes the wallet's **signed** fees from its fills (`totalFees` / the closed-trade history), net of
+them, with the fee figure beside the PnL. "About $7 on 41 trades" is a guess, and it once turned a −$3
+wallet into a +$1.69 one in the user's ear. If the fee read fails, say the number is gross and why.
+
+**Paper is not live.** A `senpi validate` tick, a scanner signal, a simulation or an estimate is not a
+trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narrate a shadow run as
+"live", "running" or "a trade" — the user then manages a position that does not exist.
 
 #### When it IS genuinely broken, act — don't hand the user a to-do
 
@@ -620,12 +644,16 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
 
 ## Run it in steps — narrate as you go
 
+**Asked to run this on a schedule? Say the cost first.** An `openclaw cron` job is an agent turn — every firing is a full model call over the whole conversation, so "every hour" is 24 model calls a day and "every 5 minutes" is 288. Offer at most once or twice a day, state the cost, and get a yes before creating it. Never a cron to watch a strategy: the runtime supervises it at zero model cost, and this skill reads it on demand.
+
 A full portfolio read is several MCP round-trips (embedded wallet + a live clearinghouse pull per strategy
 wallet + the live DSL/ratchet reads + the per-asset market fan-out). Run as **ONE** call it can take
 minutes, blow the `exec` timeout, and push you to raw MCP — which loses every guardrail. So run the read as
 **fast, resumable STEPS** and **narrate each slice the moment it returns** (this mirrors
 `senpi-improve-trades` / `senpi-strategy-ops` — short steps over a shared state file, the skill narrates
 between). Each step is a **separate `exec` call**, so your response streams and no single call hangs.
+Runtime health inside `strategies` is **one** `openclaw senpi status --json` for the whole fleet (a
+progress line goes to stderr), so that step's cost does not grow with the number of runtimes.
 
 ```sh
 python3 scripts/portfolio.py money        # 1. the FAST money map: embedded idle + each wallet's value → the three buckets (narrate FIRST)

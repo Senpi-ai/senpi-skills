@@ -6,16 +6,21 @@ description: >-
   a strategy", "help me pick a strategy", "what's winning?", "set me up", "I have
   a view on the world (a war, the economy, one coin winning) — trade it", "run a
   hedge fund / all-weather / tail-risk book", or wants a strategy but has NOT
-  named a specific one. Surface the closest matching TEMPLATE first — the fastest
-  on-ramp, which the user can then fork/customize — passing their worldview as
-  `--theme` to rank the closest fits. You talk and RANK; a hidden engine
+  named a specific one — and every discretionary mandate: "deploy whatever you think is
+  profitable", "trade for me", "be aggressive", "put it to work", "you decide". A mandate is a
+  strategy request even when it names no strategy and no coin; it is never answered with
+  hand-picked raw positions. Surface the closest matching TEMPLATE first — the quick start
+  to the user's OWN strategy (every template deploys as `<User>'s <Template>` — or a
+  name of their own — as-is or with levers moved, after ops walks them through it) — passing their
+  worldview as `--theme` to rank the closest fits; offer building one as a peer with
+  its cost class, never a downsell. You talk and RANK; a hidden engine
   (scripts/discover.py) fetches data + filters. NOT for installing a NAMED
   strategy (that's senpi-strategy-ops), or building/designing one from scratch or
   with a custom DSL (that's senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.19.0"
+  version: "2.27.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -38,6 +43,15 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
 
 ## Golden rules
 
+- **It's their strategy.** A template is a quick start to the user's own strategy, never "our strategy"
+  deployed for them. Say *"a starting point you can fork"*; never "our strategies", "Senpi's Starling",
+  "I'll deploy our template". Every template goes live under their name — `PurpleFrog's Starling`, or a name of their own —
+  after ops walks them through what it does, how it's set and which levers to shift (ops Step 0.75).
+  Building one from scratch is a peer route, not a downsell: state the four cost classes as facts —
+  template as-is ≈ the cheapest thing the agent does · a lever fork (values only) adds a little · a
+  bespoke edit of a template (a new universe, a different signal — author's edit path) adds more ·
+  scratch ≈ 2–3× a template — and let them choose. The same four rungs appear in ops, author and the
+  workspace guardrail; the menu must read identically everywhere.
 - **You talk and rank; the engine only filters.** Run `scripts/discover.py` for data + the eligible
   set — never fetch the catalog or filter strategies yourself.
 - **Only ever name strategies the engine returned** (in `MatchResult.candidates`). Copy the `id`/`name`
@@ -60,7 +74,7 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
 - **Don't re-ask what they've told you.** If they named an asset/direction, use it; only ask real gaps.
 - **Never say "safe."** Be honest about risk; surface **EVERY** entry in a candidate's `caveats[]`
   **verbatim** — never omit, merge, or soften them.
-- **Always offer build-custom; never dead-end.**
+- **Always offer build-custom as a peer; never dead-end, never downsell.** Say its cost class beside it.
 
 ## How to run the engine
 
@@ -97,7 +111,7 @@ python3 scripts/discover.py
   rank the thesis matches. Read `meta.theme_matches` first, then rank the rest. Add `--no-market` to keep
   early runs cheap.
 - The engine returns valid JSON even on bad input; if it ever errors/empties, fall back to a generic
-  "here are our strategies" message.
+  "here's what you can start from" message.
 
 ## What the engine returns (and how you use each field)
 
@@ -147,7 +161,9 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
    1. 🏦 "A ready-made **fund** — either a *view* on the world (a war, the economy, AI, one coin beating
       the rest), or a *return style* (AI/tech, market-neutral, income, macro)?" → rank up candidates
       whose `tags` include `hedge-fund`/`thesis-fund`/`all-weather`/`tail-risk`/… and whose `thesis`
-      fits. **No `--assets` for a fuzzy view** — run broad and rank.
+      fits. **Athena** is the smart-money hedge fund (a Phalanx alpha sleeve + an Aegis hedge sleeve, 65/35
+      by default — the weighting is theirs): lead with it for a "hedge fund" or "smart money" ask.
+      **No `--assets` for a fuzzy view** — run broad and rank.
    2. "Ride what's moving, or fade the crowd?" → rank `archetype_label` Trend-Follower vs Contrarian/Fade.
    3. "A **specific market** — a stock (NVDA), a pre-IPO name (SpaceX), a commodity (gold/oil), an index,
       or a coin?" → this IS concrete → `--assets xyz_equities|pre_ipo|commodities|indices|<class/ticker>`.
@@ -155,9 +171,9 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
       mirror — it blends proven + hot and ranks by who you can actually copy *right now*, so **the user never
       picks a window.** For the **hands-off** route, managed copy templates come in **two flavors — surface
       both, don't show only one**: *copy specific traders* (**Shadow / Remora / Raptor / Cuckoo / Oxpecker /
-      Jackal** — mirror a trader's fresh entries or book) **and** *follow the smart money by signal* (**Stingray
-      / Starling / Whalehunter** — position by where the whole proven cohort leans, many traders at once, not
-      1:1). All auto-apply DSL + budget-relative sizing. (`senpi-trade` carries the full flavor breakdown.)
+      Jackal** — mirror a trader's fresh entries or book) **and** *follow the smart money by signal* (**Athena / Stingray
+      / Starling / Whalehunter / Phalanx** — position by where the whole proven cohort leans, many traders at once, not
+      1:1; Athena is Phalanx with its Aegis hedge as one fund). All auto-apply DSL + budget-relative sizing. (`senpi-trade` carries the full flavor breakdown.)
    5. 🏆 "Just run what's set up best right now?" → *read the market*, lead with the best current setup
       (be honest — see "What's winning" in Special paths; there's no per-package performance board).
    6. "Catch breakouts early, or earn from market structure?" → rank Breakout / Structural up.
@@ -168,7 +184,7 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
    | a fund — a style | "AI/tech, market-neutral, income, or macro?" → rank by `tags`/`thesis`. |
    | trend / contrarian | "On one name, a basket, or the whole board?" (one name → `--assets <ticker>`; else rank on `asset_scope`). |
    | a specific market | "Which — a stock, pre-IPO name, commodity, index, or coin?" → `--assets`. |
-   | copy | **Don't make them pick a window** — "proven vs hot" is exactly what the `senpi-trader-research` blend unions for them (that's the whole point of the blend). Ask only: *"a specific wallet you already have in mind, or should I find the best to copy?"* — a named wallet → `senpi-trader-research --trader <addr>` (vet, then mirror); "find the best" → hand to `senpi-trader-research` (blended shortlist, ranked by copyability); prefer hands-off → a managed copy template — **surface both flavors**: *copy specific traders* (Shadow / Remora / Raptor / Cuckoo / Oxpecker / Jackal) **and** *follow the smart money by signal* (Stingray / Starling / Whalehunter — many traders at once, not 1:1). |
+   | copy | **Don't make them pick a window** — "proven vs hot" is exactly what the `senpi-trader-research` blend unions for them (that's the whole point of the blend). Ask only: *"a specific wallet you already have in mind, or should I find the best to copy?"* — a named wallet → `senpi-trader-research --trader <addr>` (vet, then mirror); "find the best" → hand to `senpi-trader-research` (blended shortlist, ranked by copyability); prefer hands-off → a managed copy template — **surface both flavors**: *copy specific traders* (Shadow / Remora / Raptor / Cuckoo / Oxpecker / Jackal) **and** *follow the smart money by signal* (Stingray / Starling / Whalehunter / Phalanx — many traders at once, not 1:1). |
    | breakout / structural | the one drill-down that matters for that branch. |
 3. **Size & lock in (Layer 3)** — pick the DSL preset and size the budget. **`min_budget` on each card is
    the FLOOR to run it, not a recommended amount** — never just parrot it as "Suggested: $X". Size from
@@ -179,6 +195,9 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
      buffer — then **confirm before install** ("you've got ~$X free; I'd put ~$Y in Rhino, ~$Z in Spider —
      good?"). Never invent a number the user hasn't confirmed, and never default everyone to the floor.
    - If funds are unavailable (`user_context` missing/errored), ask for the budget rather than assuming.
+   - **"Can I try it first / paper trade it?"** — there is no paper-trading mode. The trial IS a live run at
+     the floor (`min_budget`, about $10 per wallet), after `senpi validate` proves it runs; say so, and never
+     offer to watch it on a timer — an `openclaw cron` job is a model call per firing, not a simulation.
 
    Optionally `discover.py --context-only` to reference holdings (confirm first; never silently infer).
    Then run the engine with the FULL concrete flag set (this run does the live market read), **rank the
@@ -191,7 +210,9 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
   `--no-market`; say "give me a sec to read the market." **Never pre-fetch on entry.**
 - **Orient / browse** — a short plain-English menu of what's possible (the style families + the funds +
   the non-crypto markets); never force a pick. From here they pick a belief, read the market, or build custom.
-- **Build custom** — hand to **senpi-strategy-author** at any time; a real choice, not a dead-end.
+- **Build custom** — hand to **senpi-strategy-author** at any time; a peer route with its cost class
+  stated (a bespoke edit of a template adds more than a lever fork; scratch ≈ 2–3× a template), never a
+  dead-end and never a downsell.
 - **Mirror a specific trader** — to copy an individual Hyperliquid wallet (not a managed template), hand to
   **senpi-trader-research** (find + vet) → **senpi-trade** (mirror). It blends the windows so the user never
   picks proven-vs-hot; a wallet they name goes straight to `--trader`.
@@ -211,7 +232,9 @@ They lack the vocabulary; recommend *without* making them self-classify:
   alongside it to cut drawdown?"* To find the complement, **re-run the engine broadly** (drop the
   narrowing, or flip `--direction`) and offer a candidate that *complements* the pick — a fader/defensive
   or tail-risk one for a momentum pick (read `archetype_label`/`tags`/`direction` to choose), à la
-  Spider + Dog. Size ~70/30 toward the primary — it's a cushion, not a co-bet.
+  Spider + Dog. Phalanx has one built as its pair: **Aegis** (reads the tape where Phalanx reads the
+  crowd) — and **Athena** is the two as one fund (65/35 by default, the weighting is theirs). Stacking by
+  hand, size ~70/30 toward the primary — it's a cushion, not a co-bet.
 - **Fund pick** (`funding_split` present → already a multi-wallet long/short book): **don't push
   stacking — it's internally hedged.** Just show the funding split when you present it.
 
@@ -230,7 +253,8 @@ They lack the vocabulary; recommend *without* making them self-classify:
 - "gold vs bitcoin" → run broad (or `--assets commodities,btc_eth`) → pick the matching `thesis-*` fund by which side wins
 - "I think there's going to be a war" → *(no asset cut)* run broad → rank up war / tail-risk / oil-gold
   theses (`thesis-war-escalation`, `rhino`)
-- "run a hedge fund / all-weather book" → run broad → rank up `hedge-fund`/`all-weather`/`risk-parity` tags (`ox`, `spider`, `rhino`)
+- "run a hedge fund / all-weather book" → run broad → rank up `hedge-fund`/`all-weather`/`risk-parity` tags (`athena` first — the smart-money hedge fund — then `ox`, `spider`, `rhino`)
+- "a smart money hedge fund" / "follow the smart money, hedged" → `--theme "smart money hedge fund proven cohort regime hedge"` → `athena` (65/35 Phalanx/Aegis by default; the weighting is theirs)
 - "copy good traders, nothing crazy" → **hand to `senpi-trader-research`** for the blended shortlist (steady names surface by copyability — no window for the user to pick); or a managed **Copy-Trader template** if they want it hands-off. Keep risk=moderate in head.
 - "trade stocks not crypto" → `--assets xyz_equities --exclude crypto`
 - "I don't want to short" → `--direction long_only`
@@ -243,9 +267,10 @@ They lack the vocabulary; recommend *without* making them self-classify:
 🦏  Rhino — Tail-Risk / Crisis-Alpha   [{tier}]
     {thesis}.   Minimum ~${min_budget}{ + funding_split if multi-instance}
 {2nd / 3rd card}.   {caveats, verbatim}.
-"You've got ~${user_context.budget} free — set up {top} with ~$Y, add a hedge alongside it, or build something custom?"
+"You've got ~${user_context.budget} free — start from {top} (I'll walk you through how it's set and the levers before we fund it; it deploys as {user}'s {top} — or a name of your own), add a hedge alongside it, or build your own?"
 ```
-Show the STARTER badge iff `tier == "starter"`; show `archetype_label`; lead with `thesis` for the
+Every card is a starting point — say so once (*"each of these is a starting point you can fork"*), and
+never present a pick as our strategy the user adopts. Show the STARTER badge iff `tier == "starter"`; show `archetype_label`; lead with `thesis` for the
 worldview/fund picks; offer the stack on single-wallet picks only.
 
 ## Special paths
@@ -261,7 +286,9 @@ worldview/fund picks; offer the stack on single-wallet picks only.
 ## Handoffs
 
 - **Deploy** → **senpi-strategy-ops** with the chosen **`id` + `version`** (ops creates the wallet(s)
-  and runs the install; it re-reads `strategy.yaml` for budget/`funding_split`).
+  and runs the install; it re-reads `strategy.yaml` for budget/`funding_split`). **Ops owes the
+  walkthrough first** (its Step 0.75: what it does, how it's set, two levers, the fork name) — hand over
+  before any budget question, not after it.
 - **Build-custom** → **senpi-strategy-author** with a **structured intent brief** (the `meta.intent_echo`
   + a one-line summary of what they wanted, including the worldview if they gave one).
 

@@ -23,6 +23,12 @@ OPEN strategy it classifies the runtime:
                      NOT a diagnosis (run status.py on the runtime host for the real verdict)
   copy             — copy-trading strategy (follows a traderAddress) — run by Senpi's copy engine, no runtime
   manual           — manual / app-managed strategy — you manage it in the app, no runtime
+Two more facts ride every deep row, because health alone misleads on both:
+  paused           — the runtime's OWN risk gate holds entries (daily cap, loss halt, cooldown) — health
+                     stays healthy, nothing opens, and the gate's reason + reset are printed verbatim.
+                     By design, not a fault; never redeploy to clear it.
+  config_drift     — the recipe the runtime is RUNNING (its rendered descriptor) differs from the
+                     package on disk: an edit that was never applied. Printed with the in-place fix.
 and separately flags orphan runtimes (a runtime with no open strategy). A strategy off the runtime is NOT
 broken — it's just not autonomous; status.py says how it's managed. Scanner health is fail-closed: an
 external scanner never proven by a tick reads `unknown`, not `healthy` — prove it on a READ-ONLY surface
@@ -41,6 +47,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _cli  # noqa: E402
+import _pkg  # noqa: E402
 from mcp_client import MCPClient  # noqa: E402
 
 _ICON = {"healthy": "✅", "running": "✅", "degraded": "⚠", "unhealthy": "❌", "unknown": "❔",
@@ -105,6 +112,30 @@ def _read_or_refuse(rows, why):
         "run. Fix the cause and re-run:  python3 status.py")
 
 
+def _config_drift(pkg_id, rt_name, descriptors):
+    """The running recipe vs the package on disk — `{"diffs": [...], "dir", "package_dir"}` when
+    they differ, None when they agree or nothing can be compared (package not on disk here, no
+    descriptor, unreadable YAML). Read-only and fail-open: a status surface may not crash on a
+    package it cannot find, and "could not compare" renders as nothing, never as "current"."""
+    desc = descriptors.get(rt_name) if (descriptors and rt_name) else None
+    if not desc or not pkg_id:
+        return None
+    try:
+        if not (_pkg.resolve_pkg_dir(pkg_id) / "strategy.yaml").is_file():
+            return None
+        pkg = _pkg.load(pkg_id)
+        inst = next((i for i in pkg.instances if i.runtime_name == rt_name), None)
+        if inst is None or inst.runtime_doc is None:
+            return None
+        diffs = _cli.config_drift(desc, inst.runtime_text, inst.runtime_doc)
+    except Exception:  # noqa: BLE001 — fail-open on a read-only surface
+        return None
+    if not diffs:
+        return None
+    return {"diffs": [{"field": f, "running": a, "on_disk": b} for f, a, b in diffs],
+            "dir": str(inst.runtime_path.parent), "package_dir": str(pkg.dir)}
+
+
 def build(mcp, only_pkg=None, deep=True):
     why = []
     strategies = _read_or_refuse(
@@ -117,6 +148,8 @@ def build(mcp, only_pkg=None, deep=True):
     runtimes = _cli.list_runtimes() if cli_ok else []
     # ONE status --json for the whole fleet — only when runtimes actually exist (skip the flaky call otherwise)
     health_by_name = _cli.runtime_health_map() if (deep and runtimes) else {}
+    # ONE `runtime list --json` for the rendered descriptors — what each runtime is actually running.
+    descriptors = _cli.runtime_descriptors() if (deep and runtimes) else {}
     matched_rt = set()  # runtime names already matched to a strategy
     rows = []
     for s in opens:
@@ -134,13 +167,17 @@ def build(mcp, only_pkg=None, deep=True):
         # strategy. Explain it by type: copy-trading (follows a trader, run by the copy engine) or manual
         # (managed in the app). Only an autonomous PACKAGE strategy (skillName, no trader) is expected to
         # have a runtime — a missing one there is the real anomaly.
-        positions = None
+        positions, paused, drift = None, None, None
         if rt and _cli.runtime_running(rt):
             health = "running"
             entry = health_by_name.get(_cli.runtime_name(rt))  # from the single fleet-wide status --json
             if entry:  # upgrade process-level "running" to the runtime's own verdict (+ positions)
                 health = _cli.health_verdict(entry) or "running"
                 positions = _cli.active_positions(entry)
+                # The runtime's own entry gate — separate from health, because a paused runtime is
+                # healthy: it ticks, it manages what it holds, and it opens nothing.
+                paused = _cli.risk_pause(entry)
+            drift = _config_drift(skill, _cli.runtime_name(rt), descriptors)
             if _cli.runtime_no_entry_scanners(rt):
                 # positive wiring-failure evidence from the inventory itself ("running — NO ENTRY
                 # SCANNERS"): the runtime is up but cannot produce entry signals — own class, not
@@ -166,7 +203,7 @@ def build(mcp, only_pkg=None, deep=True):
                      "name": name, "name_source": name_source,
                      "strategyId": _cli.strategy_id_of(s), "wallet": wallet,
                      "status": _cli.strategy_status(s), "funded": _cli.strategy_funded(s),
-                     "positions": positions,
+                     "positions": positions, "paused": paused, "config_drift": drift,
                      "runtime": _cli.runtime_name(rt) if rt else None, "health": health})
     # runtimes with no matching OPEN strategy (orphans — trading nothing / on a gone wallet)
     orphans = [{"runtime": _cli.runtime_name(r), "wallet": _cli.runtime_wallet(r),
@@ -208,9 +245,13 @@ def main(argv):
     unproven = [r for r in rows if r["health"] == "unknown"]
     sick = [r for r in rows if r["health"] in ("degraded", "unhealthy", "runtime-stopped", "no-entry-scanners")]
     off = [r for r in rows if r["health"] in _OFF_RUNTIME]
+    paused = [r for r in rows if r.get("paused")]
+    drifted = [r for r in rows if r.get("config_drift")]
     bits = [f"{running} autonomous (on runtime)"]
     if sick:
         bits.append(f"{len(sick)} degraded")
+    if paused:
+        bits.append(f"{len(paused)} paused by a risk gate")
     if unproven:
         bits.append(f"{len(unproven)} unknown (not proven live)")
     if idle:
@@ -229,8 +270,10 @@ def main(argv):
             # the one that maps to a wallet. Of the two ids the runtime id is the one a human needs least
             # here — the triage lines below hand it back, with the command it belongs to.
             rt = f"  · runtime {r['runtime']}" if r["runtime"] else ""
+            # The pause rides the row itself: a reader skimming a ✅ row must see that it opens nothing.
+            hold = f"  ⏸ {r['paused']['eligibility']}" if r.get("paused") else ""
             print(f"  {_ICON.get(r['health'], ' ')} {r['health']:<15} {_name_cell(r):<22} "
-                  f"{r['wallet'][:10]}…  {_funded(r):>8}  [{(r['strategyId'] or '')[:8]}]{pos}{rt}")
+                  f"{r['wallet'][:10]}…  {_funded(r):>8}  [{(r['strategyId'] or '')[:8]}]{pos}{rt}{hold}")
     if any(r.get("name_source") != "strategyName" for r in rows):
         print("\nℹ `*` after a name means the strategy record carried NO name of its own — what's shown "
               "is its package id (every instance of that package renders the same), not a name this "
@@ -252,6 +295,22 @@ def main(argv):
         print("  Deliberately resuming/reinstalling one? That is `deploy.py runtime <id>` — it runs the "
               "deploy verb and can move money (install + start trading; create+fund with --budget). "
               "Triage first.")
+    if paused:
+        print("\n⏸ Entries paused by the strategy's OWN risk gate — by design, not a fault (health above is "
+              "unchanged; it manages what it holds and opens nothing until the gate lets go):")
+        for r in paused:
+            print(f"  - {_pkg_label(r)} {r['runtime'] or ''}: {_cli.describe_pause(r['paused'])}")
+        print("  Say it to the user as the strategy's rule. Never close/redeploy to clear it: a fresh wallet "
+              "market-exits the book and starts the same gate again from zero.")
+    if drifted:
+        print("\n✎ Running recipe differs from the package on disk — an edit that was never applied:")
+        for r in drifted:
+            d = r["config_drift"]
+            for x in d["diffs"]:
+                print(f"  - {_pkg_label(r)} {r['runtime']}: {x['field']} running {x['running']!r}, "
+                      f"on disk {x['on_disk']!r}")
+            print(f"    → apply it in place (plans first; nothing is closed): python3 deploy.py update "
+                  f"{d['package_dir']} --id {r['runtime']}   (add --apply to commit)")
     if unproven:
         print("\n❔ Unknown (fail-closed — not proven live: scanner not yet proven by a tick, or reporting disabled; verify, don't assume):")
         for r in unproven:

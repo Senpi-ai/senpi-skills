@@ -248,6 +248,32 @@ def main(argv):
         strategy_label = pkg.id
 
     if not targets and not a.dry_run:
+        # A LIVE-filtered read that came back empty has TWO causes and they are not the same answer:
+        # the close we are being polled for has completed, or this package was never deployed here.
+        # `close.py`'s contract is that this poll "reports `closed` once the strategy leaves the
+        # active set" (module docstring), and the poll hint printed above tells the agent to re-run
+        # for exactly that. But `LIVE_STATUSES` excludes `CLOSED`, so a settled close reads as zero
+        # rows and used to print the same all-clear as "nothing here". An agent that reads absence
+        # as completion goes on to `deploy.py create`, which mints a fresh wallet — one per pass of
+        # any loop that closes and redeploys.
+        # Editing a live strategy no longer takes that path (`deploy.py update` applies in place),
+        # but the changes `update` refuses — a different wallet, a renamed/moved external scanner,
+        # a changed `action_type` — still close and redeploy, and every plain `close.py <id>` still
+        # polls right here.
+        # `--strategy-id`/`--address` already re-reads UNFILTERED for this reason; so does this now.
+        if pkg is not None:
+            ever = _read_or_refuse(
+                _cli.strategies_for_or_none(mcp, skill_name=pkg.id, why=why), why, pkg.id)
+            if ever:
+                # Rows exist but none is LIVE, so every one is terminal. Name the statuses rather
+                # than printing a bare `closed.`: this branch also fires for a package whose only
+                # records are old FAILED/TERMINATED strategies, where no close ever ran.
+                seen = sorted({str(_cli.strategy_status(r) or "?").upper() for r in ever})
+                noun = "strategy" if len(ever) == 1 else "strategies"
+                print(f"{hdr}: closed — {len(ever)} {noun}, all {'/'.join(seen)}.")
+            else:
+                print(f"{hdr}: no strategies for this package on this account — nothing to close.")
+            sys.exit(0)
         print(f"{hdr}: no OPEN strategies to close.")
         sys.exit(0)
 

@@ -542,6 +542,14 @@ own verdict + active-position count. Classes:
   verdict). The money path near this surface is the RESUME, `deploy.py runtime <id>` — that one starts
   the deploy verb and can fund/install; degraded/unknown print a read-only triage hint.
 - **runtime-stopped** — ACTIVE + runtime exists but not running.
+- **⏸ paused** (a second fact beside health, never a health class) — the runtime's OWN risk gate
+  (`status --json` → `components.risk.eligibility` `CLOSED`/`COOLDOWN`) holds entries; the row shows
+  `⏸ CLOSED`, and a section prints each gate's `reason` verbatim plus when it lets go (daily cap and
+  daily loss halt: 00:00 UTC; cooldowns: on their own). Health stays `healthy`: it ticks, it manages what
+  it holds, it opens nothing. By design — say so; never close/redeploy to clear it.
+- **✎ running recipe ≠ disk** — the descriptor the runtime renders (`runtime list --json`) differs from
+  the package on disk (`dsl_preset` name, `description`, or the recipe hash when the runtime publishes
+  one): an edit that was never applied. Printed with `deploy.py update <pkg> --id <rt>`.
 - **no-runtime** — autonomous *package* strategy (`skillName`, no `traderAddress`) with **no runtime** →
   the only no-runtime anomaly (funded but not running, likely an interrupted deploy); printed with the fix
   (`deploy.py runtime <id>` to start, or `close.py <id>` to recover funds).

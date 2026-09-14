@@ -6,6 +6,7 @@ The openclaw/MCP JSON shapes are not strictly pinned, so every extractor tries a
 spellings and degrades gracefully (returns None / []) rather than throwing on a missing field.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import hashlib
 import json
 import os
 import re
@@ -460,6 +461,134 @@ def active_positions(status_json):
     if isinstance(n, list):
         return len(n)
     return None
+
+
+# ---- risk-gate pause: the runtime's own entry eligibility ----
+
+RISK_PAUSED = ("CLOSED", "COOLDOWN")
+# When each gate lets entries resume — the reader's next question. Ids are the runtime's `RiskGateId`
+# (senpi-trading-runtime src/health/types.ts); an id this table does not know prints without a reset.
+RISK_GATE_RESET = {
+    "max_entries_day": "resets at 00:00 UTC",
+    "daily_loss_halt": "resets at 00:00 UTC",
+    "drawdown_halt": "holds until PnL recovers from its peak (or the day rollover, if configured)",
+    "consecutive_loss": "expires on its own after the cooldown",
+    "per_asset_cooldown": "expires on its own, for that asset",
+}
+
+
+def risk_pause(status_entry):
+    """The runtime's own verdict on whether it may OPEN anything — `components.risk` of a
+    `RuntimeHealthStatus` — as `{"eligibility": "CLOSED"|"COOLDOWN", "gates": [{gate, id, status,
+    reason, reset}]}` while a guard rail holds entries, else None. None also when the record carries
+    no risk component (older runtime, risk disabled): "cannot tell" is not "paused".
+
+    This is NOT health, and it is why health alone misleads: a runtime paused by its own daily cap
+    reports `health: healthy` — the scanner ticks, the DSL runs, and nothing opens. Left unsaid, the
+    quiet reads as a dead strategy, and the wrong fix (close + redeploy) market-exits the book and
+    starts the same gate again from zero."""
+    comps = dig(status_entry, "components") if isinstance(status_entry, dict) else None
+    risk = dig(comps, "risk") if isinstance(comps, dict) else None
+    if not isinstance(risk, dict):
+        return None
+    elig = str(risk.get("eligibility") or "").upper()
+    if elig not in RISK_PAUSED:
+        return None
+    gates = []
+    for g in risk.get("gates") or []:
+        if not isinstance(g, dict) or str(g.get("status") or "").upper() not in RISK_PAUSED:
+            continue
+        gid = str(g.get("gateId") or "") or None
+        gates.append({"gate": g.get("gateName") or gid or "risk gate", "id": gid,
+                      "status": str(g.get("status")).upper(), "reason": g.get("reason"),
+                      "reset": RISK_GATE_RESET.get(gid or "")})
+    return {"eligibility": elig, "gates": gates}
+
+
+def describe_pause(pause):
+    """One line for a `risk_pause` value — the gate's OWN words, then when it lets go:
+    `CLOSED — Max Entries/Day: Max entries: 4/4 entries today (resets at 00:00 UTC)`."""
+    if not pause:
+        return ""
+    bits = []
+    for g in pause.get("gates") or []:
+        s = str(g.get("gate") or "risk gate")
+        if g.get("reason"):
+            s += f": {g['reason']}"
+        if g.get("reset"):
+            s += f" ({g['reset']})"
+        bits.append(s)
+    return f"{pause['eligibility']} — " + ("; ".join(bits) if bits else "a risk gate holds entries")
+
+
+# ---- the running recipe vs the package on disk ----
+
+def runtime_descriptors(timeout=15):
+    """`runtime list --json` → {runtime name: descriptor} for every runtime that carries one. The
+    engine renders the descriptor from the recipe it is actually RUNNING (senpi-trading-runtime
+    `describeRuntimeEntry`), so it is the one read that can say whether an edit on disk ever reached
+    the runtime. Fail-open `{}`: older builds print no JSON here, and a status surface must not
+    crash on that."""
+    obj = cli_json(["openclaw", "senpi", "runtime", "list", "--json"], timeout)
+    out = {}
+    for e in (find_list(obj, "runtimes") if obj else []):
+        if isinstance(e, dict) and isinstance(e.get("descriptor"), dict):
+            name = e["descriptor"].get("name") or e.get("id") or e.get("name")
+            if name:
+                out[str(name)] = e["descriptor"]
+    return out
+
+
+# Recipe lines deploy REWRITES between the authored file and the running text: the wallet it
+# creates, and the decision model it injects for an `llm` action. Dropped on both sides before
+# hashing, so equal digests mean "the running recipe is this file" and nothing else differs.
+RECIPE_HASH_DROP_KEYS = ("wallet", "model", "decision_model")
+_RECIPE_DROP_LINE = re.compile(r"^\s*(%s)\s*:" % "|".join(RECIPE_HASH_DROP_KEYS))
+
+
+def recipe_hash(text):
+    """sha256 of a recipe's NORMALIZED text: blank and comment-only lines out, trailing whitespace
+    off, `RECIPE_HASH_DROP_KEYS` lines out. The runtime publishes the same digest as the descriptor's
+    `recipeHash` (when its build carries it); `config_drift` compares the two."""
+    lines = []
+    for ln in str(text or "").splitlines():
+        s = ln.rstrip()
+        if not s.strip() or s.lstrip().startswith("#") or _RECIPE_DROP_LINE.match(s):
+            continue
+        lines.append(s)
+    return hashlib.sha256(("\n".join(lines) + "\n").encode("utf-8")).hexdigest()
+
+
+def _collapse(s):
+    return re.sub(r"\s+", " ", str(s or "")).strip()
+
+
+def config_drift(descriptor, runtime_text, runtime_doc):
+    """What differs between the RUNNING recipe (the descriptor) and the package ON DISK, as
+    `[(field, running, on_disk)]`. `[]` = nothing this read can see differs; None = cannot compare
+    (no descriptor, unparseable file). Compares only what the descriptor renders: the recipe hash
+    when the runtime publishes one, the NAMED `dsl_preset`, and the collapsed `description` — an
+    edited inline ladder with an unchanged name is invisible here until the hash ships, and this
+    says "no drift seen", never "current"."""
+    if not isinstance(descriptor, dict) or not isinstance(runtime_doc, dict):
+        return None
+    diffs = []
+    rh = descriptor.get("recipeHash")
+    if isinstance(rh, str) and rh:
+        local = recipe_hash(runtime_text)
+        if local != rh:
+            diffs.append(("recipe", rh[:12], local[:12]))
+    ex = runtime_doc.get("exit")
+    local_preset = ex.get("dsl_preset") if isinstance(ex, dict) else None
+    running_preset = descriptor.get("dslPreset")
+    if isinstance(local_preset, str) and isinstance(running_preset, str) \
+            and local_preset != running_preset:
+        diffs.append(("dsl_preset", running_preset, local_preset))
+    ld, rd = _collapse(runtime_doc.get("description")), _collapse(descriptor.get("description"))
+    if ld and rd and ld != rd:
+        short = lambda s: s if len(s) <= 48 else s[:48] + "…"  # noqa: E731
+        diffs.append(("description", short(rd), short(ld)))
+    return diffs
 
 
 # ---- strategy lookups (MCP strategy_list) ----

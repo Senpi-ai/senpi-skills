@@ -1,7 +1,9 @@
 {
+  "aegis": 40,
   "ant": 125,
   "armadillo": 75,
   "asia-ai": 125,
+  "athena": 100,
   "badger": 15,
   "bald-eagle": 10,
   "barnacle": 25,
@@ -72,6 +74,7 @@
   "ox": 275,
   "oxpecker": 30,
   "pangolin": 20,
+  "phalanx": 30,
   "pilotfish": 50,
   "piranha": 25,
   "polar": 10,

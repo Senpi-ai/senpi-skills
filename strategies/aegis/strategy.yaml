@@ -1,0 +1,42 @@
+# Aegis — regime-adaptive dynamic hedge. A single-instance PACKAGE: this manifest +
+# one self-contained runtime.yaml + scanners/. Reads the TAPE (funding regime,
+# haven flows, OI velocity, trend) — not the crowd — to compute a graduated
+# regime score that drives direction: risk-off shorts risk + longs defensives,
+# risk-on longs risk + fades defensives, neutral goes to cash. Designed as the
+# 30% hedge leg paired with Phalanx at 70%. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: aegis
+version: "1.1.0"
+
+catalog:
+  name: "Aegis — Regime-Adaptive Dynamic Hedge"
+  emoji: "🛡️"
+  tagline: "Reads the tape — funding crowding, haven flows, OI velocity — to dynamically hedge across risk-off and risk-on regimes. Cash in neutral. Built as Phalanx's companion — its signal is independent of Phalanx's cohort read."
+  belief_plain: "A hedge that's always long is foolish — it bleeds in risk-off and misses the downside. Aegis reads market structure itself (funding regime, gold and yen haven trends, per-asset OI velocity) to compute a graduated regime score, then positions defensively: shorting risk assets and longing defensives when the tape says risk-off, going long risk when it says risk-on, and sitting in cash when it says neutral. The signal sources are independent of Phalanx's proven-cohort reads — Aegis reads the tape, Phalanx reads the crowd — so when the cohort hasn't rotated yet but the tape has, Aegis is hedging while Phalanx is still long."
+  thesis: "You want a dynamic hedge that adapts to regime, not a static long book. Aegis reads market-wide funding crowding, haven-asset trends (gold and the yen), and per-asset OI velocity to compute a graduated regime score from -2.0 (severe risk-off) to +2.0 (strong risk-on). In risk-off it shorts risk assets (BTC/ETH/SOL/HYPE/SP500/XYZ100) buys the yen (short USD/JPY) and longs defensives (GOLD/BRENTOIL/NATGAS). In risk-on it longs risk and fades defensives. In neutral it goes to cash — no funding bleed, no drawdowns in chop. The DSL banks gains early (first lock at +12% ROE) because regime calls can reverse violently — a ceasefire dumps oil, a headline flips risk-on. Tighter stops (10% margin) than Phalanx (15%) because a hedge that gives back gains defeats its purpose. Paired with Phalanx at 70/30: Phalanx provides alpha via cohort rotation, Aegis provides dynamic hedging via regime adaptation."
+  group: regime
+  archetype: tail_risk
+  sub_style: crisis_alpha
+  asset_classes: [btc_eth, major_alts, indices, commodities, fx]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 4
+  assets: [BTC, ETH, SOL, HYPE, "xyz:SP500", "xyz:XYZ100", "xyz:GOLD", "xyz:JPY", "xyz:BRENTOIL", "xyz:NATGAS"]
+  tags: [hedge, dynamic-hedge, regime-adaptive, risk-off, funding-regime, haven-flows, gold, yen, oi-velocity, cross-asset, long-short, cash-in-neutral, phalanx-companion]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name aegis-main, group aegis
+    wallet_env: AEGIS_WALLET
+    funding_share: 1.0
