@@ -245,7 +245,7 @@ consumed by its own action:
     params: { order_type: MARKET }
     context: [ { type: signal, scanner: <id>_close_signals } ]
 ```
-The lint refuses a scanner no action lists and a `direction` literal that is not a side.
+The lint refuses a scanner no action lists and a `direction` literal that names a close (`CLOSE`, `FLAT`, `EXIT`).
 
 ### `strategy.yaml` — the manifest
 ```yaml

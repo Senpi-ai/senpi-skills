@@ -104,7 +104,9 @@ def null_signal_field_offenders(scan_src, scoring_src, schema):
 # close_all) is a dedicated scanner emitting the position's asset + side, consumed by its own
 # CLOSE_POSITION action. Both halves are decidable here, before a wallet exists.
 _DIRECTION_LITERAL = re.compile(r"""["']direction["']\s*:\s*["']([A-Za-z_]+)["']""")
-_SIDES = {"LONG", "SHORT"}
+# Only the close-intent words: analysis dicts legitimately carry `direction: NEUTRAL` / `UP` and are
+# never emitted as signals (eleven catalog scanners do this).
+_CLOSE_WORDS = {"CLOSE", "FLAT", "EXIT", "CLOSE_ALL", "FORCE_FLAT", "FORCE_CLOSE"}
 
 
 def unconsumed_scanners(rt_doc):
@@ -122,8 +124,8 @@ def unconsumed_scanners(rt_doc):
 
 
 def direction_literal_offenders(src):
-    """`"direction": "<X>"` literals in scanner source that are not a side: CLOSE, FLAT, EXIT, …"""
-    return sorted({m.group(1) for m in _DIRECTION_LITERAL.finditer(src) if m.group(1).upper() not in _SIDES})
+    """`"direction": "<X>"` literals in scanner source that name a close: CLOSE, FLAT, EXIT, …"""
+    return sorted({m.group(1) for m in _DIRECTION_LITERAL.finditer(src) if m.group(1).upper() in _CLOSE_WORDS})
 
 
 def _runtime_docs(pkg: Path):

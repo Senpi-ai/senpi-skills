@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A close is a scanner plus a CLOSE_POSITION action, never a direction. Two silent failures the lint
 now refuses: an external scanner no action lists (its signals are dropped with no log line) and a
-`direction` literal that is not LONG/SHORT (the open action refuses it as `invalid_direction`). A user
+`direction` literal that names a close (the open action refuses it as `invalid_direction`). A user
 built exactly this — force-flat signals with `direction: CLOSE` that nothing consumed — then ripped the
 feature out by hand.
 
@@ -108,4 +108,5 @@ def test_helpers_are_pure():
     assert vs.unconsumed_scanners({"scanners": [{"name": "a", "type": "external_scanner"}], "actions": []}) == ["a"]
     assert vs.unconsumed_scanners({"scanners": [{"name": "a", "type": "external_scanner"}],
                                    "actions": [{"context": [{"type": "signal", "scanner": "a"}]}]}) == []
-    assert vs.direction_literal_offenders('"direction": "FLAT"; "direction": "SHORT"; \'direction\': \'long\'') == ["FLAT"]
+    assert vs.direction_literal_offenders('"direction": "FLAT"; "direction": "SHORT"; \'direction\': \'exit\'') == ["FLAT", "exit"]
+    assert vs.direction_literal_offenders('{"direction": "NEUTRAL"}  # an analysis dict, not a signal') == []
