@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-09-13",
+  "_updated": "2026-09-14",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -4966,6 +4966,62 @@
       "sort_order": 1
     },
     {
+      "id": "athena",
+      "name": "Athena — Smart-Money Hedge Fund",
+      "emoji": "🏛️",
+      "tagline": "The smart-money hedge fund in one package: a Phalanx sleeve follows the proven cohort's rotation for alpha, an Aegis sleeve reads the tape to hedge the regime. 65/35 by default — you set the weighting.",
+      "belief_plain": "One strategy is one bet. A fund is two that disagree on purpose. Athena runs Phalanx and Aegis side by side in two wallets: Phalanx follows where the proven cohort (traders with >=$1M lifetime realized PnL) is moving its headcount — the smart money — and Aegis reads market structure itself (funding crowding, gold and yen haven flows, OI velocity) to short risk and buy defensives when the tape turns risk-off, go long risk when it turns risk-on, and sit in cash in between. The two read different things, so when the cohort hasn't rotated yet but the tape has, the hedge is already on. You choose the weighting; 65% alpha / 35% hedge is the default.",
+      "version": "1.0.0",
+      "thesis": "A smart-money hedge fund needs an alpha engine and a hedge that doesn't share its blind spot. Phalanx supplies the alpha: it reads the proven cohort's positioning (headcount, not notional), requires conviction to be growing, boosts on divergence from the 4h crowd, and lets winners run on 3x with wide stops. Aegis supplies the hedge: a graduated regime score from funding regime, haven trends and OI velocity drives it short risk and long defensives in risk-off, long risk in risk-on, and flat in neutral — with tighter stops and earlier profit locks because regime calls reverse fast. The signals are independent by construction (crowd vs tape), which is what makes the second sleeve a real hedge rather than a second alpha bet. Each sleeve carries its own DSL protection and guard rails. The weighting is the user's lever: 65/35 alpha/hedge by default, moved in the fork before funding; every other number is each sleeve's own template, unchanged.",
+      "tags": [
+        "smart-money",
+        "hedge-fund",
+        "smart-money-hedge-fund",
+        "alpha-plus-hedge",
+        "proven-cohort",
+        "rotation",
+        "regime-hedge",
+        "dynamic-hedge",
+        "cross-asset",
+        "long-short",
+        "phalanx",
+        "aegis"
+      ],
+      "group": "smart-money",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "sm_hedge_fund",
+      "sub_style_label": "A smart-money alpha sleeve paired with an independent regime-hedge sleeve in one fund — two wallets, user-weighted.",
+      "asset_classes": [
+        "universe_crypto",
+        "btc_eth",
+        "major_alts",
+        "xyz_equities",
+        "commodities",
+        "indices",
+        "fx"
+      ],
+      "asset_scope": "follows_traders",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "aegis",
+      "instance_count": 2,
+      "funding_split": [
+        0.65,
+        0.35
+      ],
+      "max_slots": 7,
+      "branch": "main",
+      "sort_order": 1
+    },
+    {
       "id": "cheetah",
       "name": "Cheetah — Multi-Signal Confluence Sniper",
       "emoji": "🐆",
@@ -5007,7 +5063,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 1
+      "sort_order": 2
     },
     {
       "id": "cuckoo",
@@ -5051,7 +5107,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 2
+      "sort_order": 3
     },
     {
       "id": "dog",
@@ -5106,7 +5162,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 3
+      "sort_order": 4
     },
     {
       "id": "egret",
@@ -5161,7 +5217,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 4
+      "sort_order": 5
     },
     {
       "id": "hyena",
@@ -5225,7 +5281,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 5
+      "sort_order": 6
     },
     {
       "id": "marlin",
@@ -5278,7 +5334,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 6
+      "sort_order": 7
     },
     {
       "id": "oxpecker",
@@ -5325,7 +5381,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 7
+      "sort_order": 8
     },
     {
       "id": "phalanx",
@@ -5375,7 +5431,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 9
     },
     {
       "id": "raptor",
@@ -5418,7 +5474,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 10
     },
     {
       "id": "remora",
@@ -5464,7 +5520,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 11
     },
     {
       "id": "roach",
@@ -5510,7 +5566,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "shadow",
@@ -5554,7 +5610,7 @@
       ],
       "max_slots": 5,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "stingray",
@@ -5603,7 +5659,7 @@
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 14
     },
     {
       "id": "whalehunter",
@@ -5648,7 +5704,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 15
     },
     {
       "id": "osprey",
