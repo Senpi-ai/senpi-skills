@@ -10,7 +10,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.1.0"
+  version: "1.2.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -71,7 +71,7 @@ public and verifiable onchain — no black box.
   cost — no scheduled agent jobs, no token bill for "monitoring".
 - **Multi-strategy isolation** — each strategy runs in its own sub-wallet, so one can't liquidate another.
 - **Dual market** — 200+ crypto perps plus US equities, metals, and indices, from one account.
-- **Cross-chain funding** — USDC bridges automatically; no pre-funding the "right" chain.
+- **Deposit from anywhere** — the Fund Your Wallet flow takes USDC from any supported network (or a card) and lands it on Hyperliquid, ready to trade.
 - **Fees + loyalty** — a transparent builder fee that drops through a loyalty-tier system; refer and earn a share.
 - **Open source** — the strategy engine, risk gates, and exit presets are public and auditable.
 
