@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.26.0"
+  version: "2.27.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -161,7 +161,9 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
    1. 🏦 "A ready-made **fund** — either a *view* on the world (a war, the economy, AI, one coin beating
       the rest), or a *return style* (AI/tech, market-neutral, income, macro)?" → rank up candidates
       whose `tags` include `hedge-fund`/`thesis-fund`/`all-weather`/`tail-risk`/… and whose `thesis`
-      fits. **No `--assets` for a fuzzy view** — run broad and rank.
+      fits. **Athena** is the smart-money hedge fund (a Phalanx alpha sleeve + an Aegis hedge sleeve, 65/35
+      by default — the weighting is theirs): lead with it for a "hedge fund" or "smart money" ask.
+      **No `--assets` for a fuzzy view** — run broad and rank.
    2. "Ride what's moving, or fade the crowd?" → rank `archetype_label` Trend-Follower vs Contrarian/Fade.
    3. "A **specific market** — a stock (NVDA), a pre-IPO name (SpaceX), a commodity (gold/oil), an index,
       or a coin?" → this IS concrete → `--assets xyz_equities|pre_ipo|commodities|indices|<class/ticker>`.
@@ -169,9 +171,9 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
       mirror — it blends proven + hot and ranks by who you can actually copy *right now*, so **the user never
       picks a window.** For the **hands-off** route, managed copy templates come in **two flavors — surface
       both, don't show only one**: *copy specific traders* (**Shadow / Remora / Raptor / Cuckoo / Oxpecker /
-      Jackal** — mirror a trader's fresh entries or book) **and** *follow the smart money by signal* (**Stingray
+      Jackal** — mirror a trader's fresh entries or book) **and** *follow the smart money by signal* (**Athena / Stingray
       / Starling / Whalehunter / Phalanx** — position by where the whole proven cohort leans, many traders at once, not
-      1:1). All auto-apply DSL + budget-relative sizing. (`senpi-trade` carries the full flavor breakdown.)
+      1:1; Athena is Phalanx with its Aegis hedge as one fund). All auto-apply DSL + budget-relative sizing. (`senpi-trade` carries the full flavor breakdown.)
    5. 🏆 "Just run what's set up best right now?" → *read the market*, lead with the best current setup
       (be honest — see "What's winning" in Special paths; there's no per-package performance board).
    6. "Catch breakouts early, or earn from market structure?" → rank Breakout / Structural up.
@@ -231,7 +233,8 @@ They lack the vocabulary; recommend *without* making them self-classify:
   narrowing, or flip `--direction`) and offer a candidate that *complements* the pick — a fader/defensive
   or tail-risk one for a momentum pick (read `archetype_label`/`tags`/`direction` to choose), à la
   Spider + Dog. Phalanx has one built as its pair: **Aegis** (reads the tape where Phalanx reads the
-  crowd). Size ~70/30 toward the primary — it's a cushion, not a co-bet.
+  crowd) — and **Athena** is the two as one fund (65/35 by default, the weighting is theirs). Stacking by
+  hand, size ~70/30 toward the primary — it's a cushion, not a co-bet.
 - **Fund pick** (`funding_split` present → already a multi-wallet long/short book): **don't push
   stacking — it's internally hedged.** Just show the funding split when you present it.
 
@@ -250,7 +253,8 @@ They lack the vocabulary; recommend *without* making them self-classify:
 - "gold vs bitcoin" → run broad (or `--assets commodities,btc_eth`) → pick the matching `thesis-*` fund by which side wins
 - "I think there's going to be a war" → *(no asset cut)* run broad → rank up war / tail-risk / oil-gold
   theses (`thesis-war-escalation`, `rhino`)
-- "run a hedge fund / all-weather book" → run broad → rank up `hedge-fund`/`all-weather`/`risk-parity` tags (`ox`, `spider`, `rhino`)
+- "run a hedge fund / all-weather book" → run broad → rank up `hedge-fund`/`all-weather`/`risk-parity` tags (`athena` first — the smart-money hedge fund — then `ox`, `spider`, `rhino`)
+- "a smart money hedge fund" / "follow the smart money, hedged" → `--theme "smart money hedge fund proven cohort regime hedge"` → `athena` (65/35 Phalanx/Aegis by default; the weighting is theirs)
 - "copy good traders, nothing crazy" → **hand to `senpi-trader-research`** for the blended shortlist (steady names surface by copyability — no window for the user to pick); or a managed **Copy-Trader template** if they want it hands-off. Keep risk=moderate in head.
 - "trade stocks not crypto" → `--assets xyz_equities --exclude crypto`
 - "I don't want to short" → `--direction long_only`
