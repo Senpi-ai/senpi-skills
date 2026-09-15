@@ -1,16 +1,24 @@
 """MEERKAT — pure momentum-event thesis math (no I/O, no MCP, no clock).
 
 A faithful Runtime 3.0 port of the v2 Meerkat producer's pure functions
-(event_age_minutes, event_direction, momentum_tier, event_score) plus the
-defensive event-shape accessors. The math is reproduced VERBATIM from
+(event_age_minutes, event_direction, event_score) plus the defensive
+event-shape accessors. The math is reproduced VERBATIM from
 meerkat-producer.py v1.0.1 so a fidelity harness can diff this against the v2
 producer on the same momentum-event feed snapshot.
+
+THE FEED (leaderboard_get_momentum_events) is TRADER profit-threshold crossings,
+not per-coin moves: each event carries the feed's own `tier` (1 = $2M+, 2 = $5.5M+,
+3 = $10M+ 4h delta-PnL), `detected_at` (ISO-8601) and the markets driving the
+crossing nested in `top_positions` [{market, direction, delta_pnl}]. `flatten_events`
+turns each event into one record per market so the accessors below can read it.
 
 All functions are pure: they take plain dicts / numbers (the caller in scan.py
 does the MCP reads + clock) so they remain unit-testable exactly as the v2
 tests/test_signal.py exercised them. The `now` timestamp and the smart-money
 tuple are passed IN, never read here.
 """
+
+from datetime import datetime, timezone
 
 
 def safe_float(v, default=0.0):
@@ -24,23 +32,58 @@ def safe_float(v, default=0.0):
 # ── defensive event-shape accessors (verbatim v2) ──
 
 def event_asset(event):
+    """The market as the feed names it — casing kept (xyz:NVDA / kPEPE are venue names);
+    callers upper() only to COMPARE."""
     if not isinstance(event, dict):
         return ""
-    return str(event.get("token", event.get("coin", event.get("asset", event.get("symbol", ""))))).upper()
+    return str(event.get("market", event.get("token", event.get("coin", event.get("asset", event.get("symbol", ""))))))
 
 
 def event_magnitude(event):
+    """The market's share (%) of the crossing's delta PnL (flatten_events), else the legacy keys."""
     if not isinstance(event, dict):
         return 0.0
     return safe_float(
-        event.get("momentum", event.get("change_pct", event.get("changePct", event.get("delta", 0))))
+        event.get("pnl_share_pct", event.get("momentum", event.get("change_pct", event.get("changePct", event.get("delta", 0)))))
     )
+
+
+def _iso_to_epoch(s):
+    """ISO-8601 (the feed's `detected_at`, e.g. 2026-09-15T20:22:06Z) -> epoch seconds, None if unparseable."""
+    try:
+        dt = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
 
 
 def event_timestamp(event):
     if not isinstance(event, dict):
         return None
+    if event.get("detected_at") is not None:                 # the feed's field (ISO-8601 string)
+        return _iso_to_epoch(event["detected_at"])
     return event.get("ts", event.get("timestamp", event.get("time", event.get("created_at"))))
+
+
+def flatten_events(events):
+    """One record per (event, top_position): the position's market/direction/delta_pnl tagged with
+    the event's tier + detected_at, plus pnl_share_pct = this market's share of the crossing's
+    delta PnL (the tie-break magnitude). `top_positions` is null on some blocked events -> nothing."""
+    out = []
+    for ev in events or []:
+        if not isinstance(ev, dict):
+            continue
+        total = safe_float(ev.get("delta_pnl"))
+        for pos in ev.get("top_positions") or []:
+            if not isinstance(pos, dict) or not pos.get("market"):
+                continue
+            share = safe_float(pos.get("delta_pnl")) / total * 100.0 if total else 0.0
+            out.append({"market": pos["market"], "direction": pos.get("direction"),
+                        "delta_pnl": pos.get("delta_pnl"), "tier": ev.get("tier"),
+                        "detected_at": ev.get("detected_at"), "pnl_share_pct": round(share, 2)})
+    return out
 
 
 # ── pure momentum-event logic (unit-tested in v2 tests/test_signal.py) ──
@@ -77,17 +120,6 @@ def event_direction(event):
     if mag < 0:
         return "SHORT"
     return None
-
-
-def momentum_tier(magnitude_pct, tier2_min, tier3_min):
-    """Classify |momentum| into a tier: 3 (strongest) >= tier3_min,
-    2 >= tier2_min, else 1. Verbatim v2."""
-    m = abs(safe_float(magnitude_pct))
-    if m >= tier3_min:
-        return 3
-    if m >= tier2_min:
-        return 2
-    return 1
 
 
 def event_score(tier, fresh, sm_aligned, vol_rising):
@@ -131,6 +163,7 @@ def build_thesis(event, config, now, sm, vol_rising):
 
     Returns None when: no asset, no resolvable direction, tier < minTier, or the
     event is stale (age > maxEventAgeMinutes). minScore is applied by the CALLER.
+    The tier is the feed's own `tier` field (1/2/3), never re-derived from a magnitude.
     """
     asset = event_asset(event)
     if not asset:
@@ -140,9 +173,7 @@ def build_thesis(event, config, now, sm, vol_rising):
         return None
 
     mag = event_magnitude(event)
-    tier2 = float(config.get("tier2MinPct", 5.0))
-    tier3 = float(config.get("tier3MinPct", 10.0))
-    tier = momentum_tier(mag, tier2, tier3)
+    tier = int(safe_float(event.get("tier")))
     if tier < int(config.get("minTier", 2)):
         return None
 
@@ -159,7 +190,7 @@ def build_thesis(event, config, now, sm, vol_rising):
     sm_aligned = (sm_dir == direction and sm_tilt >= sm_min)
 
     score = event_score(tier, fresh, sm_aligned, vol_rising)
-    reasons = [f"momentum_event_{direction}", f"tier_{tier}", f"mag_{mag:+.1f}%"]
+    reasons = [f"momentum_event_{direction}", f"tier_{tier}", f"pnl_share_{mag:.0f}%"]
     if fresh:
         reasons.append("fresh" if age is None else f"fresh_{age:.0f}min")
     if sm_aligned:
