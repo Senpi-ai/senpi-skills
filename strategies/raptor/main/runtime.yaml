@@ -101,7 +101,7 @@ actions:
 # closed follows that had not yet reached the first tier (+8% ROE is ~1.1% of price at 7x)
 # and tier-armed winners mid-run alike; the 60m weak-peak cut and the 40m dead-weight cut
 # closed follows that had merely not moved yet. The whale not having been paid yet is not
-# the whale being wrong. Removed 2026-09-15 (Raptor 1.1.1).
+# the whale being wrong. Removed 2026-09-15 (Raptor 1.1.2).
 exit:
   engine: dsl
   interval_seconds: 30
