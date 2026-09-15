@@ -5,7 +5,7 @@
 schema_version: 1
 
 id: kodiak
-version: "1.1.0"
+version: "1.1.1"
 
 catalog:
   name: "Kodiak — SOL Alpha Hunter"
