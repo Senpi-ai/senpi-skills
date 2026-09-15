@@ -4337,7 +4337,7 @@
       "emoji": "🐻",
       "tagline": "A single-asset BTC specialist: enters only when 4h and 1h trend structure agree, 15m momentum confirms, smart money leans the same way, and a macro V-recovery gate proves the move isn't a fade right off the 24h extreme — then sizes leverage to conviction (7/10/10x) and lets the DSL ride the winner.",
       "belief_plain": "Trades only BTC. It waits for the 4-hour and 1-hour trend to agree, momentum to confirm, and the best traders to be leaning the same way — and it refuses to short right off a 24h low (or long right off a 24h high) because those fades whipsaw. It goes in harder when more factors line up, and trails a stop instead of guessing the exit.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "thesis": "BTC has the deepest liquidity on Hyperliquid and the cleanest trend structure. An agent that watches only BTC can read its multi-timeframe structure, smart-money flow, and funding far more tightly than a broad scanner — and BTC's 4h structure metric lags V-recoveries, so a distance-from-24h-extreme gate stops it from fading a reversal that the candle structure hasn't caught up to yet.",
       "tags": [
         "btc",
@@ -4570,7 +4570,7 @@
       "emoji": "🐻",
       "tagline": "A single-asset SOL specialist: enters only when 4h and 1h trend structure agree, 15m momentum confirms, and smart-money lean, funding, and BTC all line up — then sizes leverage to conviction (5/6/7x) and lets the DSL ride the winner.",
       "belief_plain": "Trades only SOL. It waits for the 4-hour and 1-hour trend to agree, momentum to confirm, and the best traders to be leaning the same way — then goes in harder when more of those line up, and trails a stop instead of guessing the exit.",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "thesis": "You want one coin done really well, not a scattergun across the market. SOL has the liquidity and the moves, and an agent that watches only SOL can read its structure, smart-money flow, and funding far more tightly than a broad universe scanner ever could.",
       "tags": [
         "sol",
