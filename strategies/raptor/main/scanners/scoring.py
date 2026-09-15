@@ -63,10 +63,11 @@ def select_best_position(positions, inputs):
                                     pos.get("unrealized_pnl",
                                             pos.get("pnl", 0)))))
         )
+        szi = safe_float(pos.get("szi", pos.get("size", 0)))     # signed size: + long / - short
         direction = str(
             pos.get("direction",
                     pos.get("side",
-                            "LONG" if delta_pnl >= 0 else "SHORT"))  # v2-quirk: sign-of-pnl fallback
+                            "LONG" if szi > 0 else "SHORT" if szi < 0 else ""))  # the side — never the PnL sign
         ).upper()
         if direction not in ("LONG", "SHORT"):
             continue
