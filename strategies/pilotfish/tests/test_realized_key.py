@@ -9,13 +9,15 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "main", "scanners"))
+for _m in ("scoring", "scan"):          # never inherit another package's module of the same name
+    sys.modules.pop(_m, None)
 import scan  # noqa: E402
 
 A1 = "0x" + "0" * 39 + "1"
 A2 = "0x" + "0" * 39 + "2"
 A3 = "0x" + "0" * 39 + "3"
 
-# discovery_get_top_traders(time_frame=MONTHLY, sort_by=PROFIT_AND_LOSS_REALIZED) — live envelope
+# discovery_get_top_traders(time_frame=ALL_TIME, sort_by=PROFIT_AND_LOSS_REALIZED) — live envelope
 _TOP_TRADERS = {"success": True, "data": {"traders": [
     {"address": A1, "shortAddress": "0x0000...0001", "returnOnInvestment": 62.0,
      "profitAndLoss": 1700000, "unRealizedProfitAndLoss": 200000,
@@ -67,15 +69,16 @@ class _Ctx:
 
 
 _INPUTS = {"cohortRefreshHours": 12, "minRealizedUsd": 1e6, "cohortCap": 80, "pageSize": 500,
-           "maxPages": 4, "stateBatch": 40, "biasLookbackHours": 6, "minBias": 0.25,
-           "minBiasDelta": 0.10, "minMembers": 4, "maxSlots": 5, "recentSignalTtlSeconds": 21600,
-           "minScore": 4, "leverageTiers": {"apex": 4, "good": 4, "base": 3},
+           "maxPages": 4, "stateBatch": 40, "tiltThreshold": 65, "deltaMin": 2,
+           "goodConsensus": 10, "apexConsensus": 15, "maxSlots": 5, "recentSignalTtlSeconds": 21600,
+           "leverageTiers": {"apex": 4, "good": 4, "base": 3},
            "marginPctTiers": {"apex": 12, "good": 11, "base": 10}, "maxLeverage": 4, "maxMarginPct": 20}
 
 
 def test_the_cohort_filter_reads_realizedProfitAndLoss():
     """The two >= $1M wallets are in (page order), the $250k wallet is out — and a cold-start
-    scan() carries that cohort into the persisted state instead of 'no cohort'."""
+    scan() carries that cohort into the persisted state (the first read seeds the headcount
+    baseline) instead of 'no cohort'."""
     assert scan._refresh_cohort(_Ctx(_MCP()), _INPUTS) == [A1, A3]
     ctx = _Ctx(_MCP())
     assert scan.scan(dict(_INPUTS), ctx) == []                 # cold start: history only, no opens
@@ -88,4 +91,5 @@ def test_the_legacy_spellings_are_not_read():
                           {"address": A2, "realized_profit_and_loss": 5e6}]))
     assert scan._refresh_cohort(ctx, _INPUTS) == []
     tool, args = ctx.senpi_mcp.calls[0]
-    assert (tool, args["sort_by"], args["offset"]) == ("discovery_get_top_traders", "PROFIT_AND_LOSS_REALIZED", 0)
+    assert (tool, args["time_frame"], args["sort_by"], args["offset"]) == (
+        "discovery_get_top_traders", "ALL_TIME", "PROFIT_AND_LOSS_REALIZED", 0)

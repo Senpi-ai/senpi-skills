@@ -1,19 +1,26 @@
 # ── PILOTFISH · Smart-Money Accumulation ────────────────────────────────────
 # Every other copy strategy reads a STANDING position — who is long what, right now,
-# which the market has already priced. PILOTFISH reads the DERIVATIVE: it snapshots the
-# proven cohort's dollar-weighted net bias per name and enters when that conviction is
-# WIDENING. Dominant side only; a minority leg is unpickable by construction.
-# NEVER closes — DSL owns every exit.
+# which the market has already priced. PILOTFISH reads the DERIVATIVE: it follows the
+# PROVEN COHORT (>= $1M lifetime realized PnL) and opens WITH it only when its headcount
+# on a name is one-sided AND still growing: >= 65% of the positioned wallets (at least
+# 10 of them) on one side, and that side's net headcount up by >= 2 since the last read.
+# That is Phalanx's engine — scanners/scoring.py is byte-identical to phalanx's — with
+# Pilotfish's own sizing and exits. The first tick only seeds the baseline. Dominant side
+# only; a minority leg is unpickable by construction. NEVER closes — DSL owns every exit.
 name: pilotfish-main
 group: pilotfish
 version: 1.0.0
 description: >
-  PILOTFISH — Smart-Money Accumulation. Tracks the net positioning of a cohort of proven
-  Hyperliquid wallets and opens WITH them while their conviction in a name is still
-  building — not once it has been standing for days. Reads the dominant side only,
-  weights by dollars rather than headcount, and discounts a lean that rests on too few
-  wallets. Up to 5 positions. DSL is the ONLY exit — a FIXED max-loss floor plus a
-  gains-only profit ratchet that runs to +100% (no trailing stop, no breakeven exits).
+  PILOTFISH — Smart-Money Accumulation. Tracks a cohort of proven Hyperliquid wallets
+  (>= $1M all-time realized) and opens WITH them while their conviction in a name is
+  still building — not once it has been standing for days: >= 65% of the positioned
+  wallets on one side (at least 10 of them) and that side's net headcount up by >= 2
+  since the last read — never a 54% split, never one wallet's move. One vote per
+  wallet, dominant side only. A hit-rate ledger marks each signal right or wrong an
+  hour later and raises the bar for an asset class that keeps missing. Size scales
+  with how many wallets agree (base/good/apex). Up to 5 positions. DSL is the ONLY
+  exit — a FIXED max-loss floor plus a gains-only profit ratchet that runs to +100%
+  (no trailing stop, no breakeven exits).
 
 strategy:
   wallet: "${PILOTFISH_WALLET}"
@@ -39,37 +46,37 @@ scanners:
     inputs:
       # ── the proven cohort (SLOW clock) ──
       cohortRefreshHours: 12
-      minRealizedUsd: 1000000         # "proven" = >= $1M realized
+      minRealizedUsd: 1000000         # "proven" = >= $1M all-time realized
       cohortCap: 80
       pageSize: 500
       maxPages: 4
       stateBatch: 40
-      # ── the derivative: conviction must be WIDENING, not merely standing ──
-      biasLookbackHours: 6            # compare against the cohort's book ~6h ago
-      minBias: 0.25                   # |net/gross| below this = the cohort is split, no side
-      minBiasDelta: 0.10              # it must have WIDENED by this much since the lookback
-      minMembers: 4                   # fewer positioned wallets than this is not evidence
+      # ── the gate (Phalanx's engine — scan.fresh_picks over scoring.py) ──
+      # A name qualifies on its dominant side only when >= tiltThreshold % of the positioned
+      # wallets are on that side (scoring.one_sidedness: 0 below 10 wallets, so a thin name never
+      # counts) AND that side's net headcount grew by >= deltaMin since the last tick
+      # (scoring.directional_delta: one wallet is noise, two is an accumulation). The hit-rate
+      # ledger moves the threshold per asset class: +4 under a 40% hit rate, -2 over 55%, floor 52.
+      tiltThreshold: 65
+      deltaMin: 2
+      # ── sizing bands (dominant-side headcount) ──
+      goodConsensus: 10               # 7 is the smallest side that can clear the gate (65% of 10) -> base
+      apexConsensus: 15
       # ── slots + sizing ──
       maxSlots: 5
       recentSignalTtlSeconds: 21600
-      minScore: 4
-      goodScore: 6
-      apexScore: 9
       leverageTiers: { apex: 4, good: 4, base: 3 }
       marginPctTiers: { apex: 12, good: 11, base: 10 }
       maxLeverage: 4
       maxMarginPct: 20
     signal_data_schema:
-      score: { type: number }
+      consensusCount: { type: number }
       band: { type: string, required: false }
       direction: { type: string }
       leverage: { type: number }
       reasons: { type: array, required: false }
-      bias: { type: number, required: false }
-      priorBias: { type: number, required: false }
-      biasDelta: { type: number, required: false }
-      members: { type: number, required: false }
-      conviction: { type: number, required: false }
+      oneSidedness: { type: number }
+      delta: { type: number }
 
 actions:
   - name: position_tracker_action
