@@ -92,11 +92,13 @@ actions:
 # noise doesn't trigger it. First profit lock at +20% ROE (6.67% price on 3x),
 # floor at 40% of high-water (+8% ROE). Escalating ladder with wide gaps so
 # a position at +25% that pulls back to +18% hits no floor and keeps running.
-# Weak-peak cut at 12h: only fires if peak ROE never cleared +5% AND price is
-# fading — a dead-position detector, not a "didn't move fast enough" cutter.
-# No hard_timeout: it counts from entry and fires in either phase, so any fixed
-# deadline closes a ratchet-armed winner mid-run. The weak-peak cut retires
-# positions that never developed; the ladder manages the ones that did.
+# No time-based cuts: Phalanx holds and follows the smart-money divergence, so a
+# position exits on the hard stop (phase1.max_loss_pct) or the profit-lock ladder
+# (phase2.tiers) — never because a clock ran out. The 12h weak-peak cut closed
+# positions that were inside the stop and had hit no tier: the cohort not having
+# moved yet is not the thesis being wrong. Removed 2026-09-15 (Phalanx 1.3.0,
+# Athena 1.1.0). No hard_timeout either: it counts from entry and fires in either
+# phase, so any fixed deadline closes a ratchet-armed winner mid-run.
 exit:
   engine: dsl
   interval_seconds: 60
@@ -108,9 +110,7 @@ exit:
     hard_timeout:
       enabled: false
     weak_peak_cut:
-      enabled: true
-      interval_in_minutes: 720        # 12h — only cuts positions that never reached +5% ROE and are fading
-      min_value: 5.0
+      enabled: false
     phase1:
       enabled: false                  # trailing OFF — a floor below entry can ratchet a winner into a loss
       max_loss_pct: 15.0              # 15% margin loss cap (3.75% price on 3x) — wide for noise
