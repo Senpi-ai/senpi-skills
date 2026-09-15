@@ -2552,7 +2552,7 @@
       "emoji": "🔁",
       "tagline": "On a fixed clock (default every 3 hours) it re-reads the market and rebalances a deliberately concentrated book — never more than two positions, long OR short — ranking candidates on a blended score of cross-asset flows, the funding regime, and live leaderboard momentum events.",
       "belief_plain": "Every few hours this strategy re-underwrites its whole book from scratch. It looks at which alts are lagging a big Bitcoin move and should catch up, whether the crowd is dangerously one-sided on funding (a contrarian warning), and which coins the best traders are piling into right now — then blends those into a single conviction score and holds only the one or two best long-or-short ideas. Weak positions retire on their stop and the next rebalance fills the freed slot.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "Concentration plus a fixed re-underwrite clock beats a sprawling always-on book: a small number of high-conviction positions, re-scored every few hours against the freshest short-horizon data, keeps the book aligned with current conditions instead of yesterday's. The three inputs are deliberately short-horizon (4h flows, live funding, 4h momentum events) — not a long-lookback cohort — so the reads match the timescale of the trades. It rotates by attrition rather than force-closing, so it never fights its own DSL.",
       "tags": [
         "rebalance",

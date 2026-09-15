@@ -6,6 +6,8 @@ leaderboard momentum events (winners entering strong phases) — and it blends t
 conviction score per candidate, in the direction the leader moved. scan.py owns the
 reads/state; this module is the numbers, unit-testable in isolation."""
 
+from datetime import datetime, timezone
+
 
 def _f(x, *keys, default=0.0):
     """Float from x. If keys given, x is a dict and we try each key in order."""
@@ -35,11 +37,27 @@ def unwrap_flow(raw):
     return d if isinstance(d, dict) else {}
 
 
+def leader_move_from_flow(flow_data):
+    """Read the leader's current 4h move from an unwrapped flow dict.
+
+    v2-quirk: producer reads `data['leader']['move_pct']` (a `leader` BLOCK with a
+    `move_pct` field). The cross-asset-flow-guide documents the alternate shape
+    with TOP-LEVEL `leader_move_pct`. We honour the producer's primary path first
+    (leader block) then fall back to the top-level field, so either tool shape
+    yields the same number. Returns float (0.0 if absent)."""
+    if not isinstance(flow_data, dict):
+        return 0.0
+    leader_block = flow_data.get("leader") or {}
+    if isinstance(leader_block, dict) and "move_pct" in leader_block:
+        return _f(leader_block.get("move_pct"))
+    return _f(flow_data.get("leader_move_pct"))
+
+
 def laggards(flow, inputs):
     """Filtered catch-up candidates, each tagged with the direction the LEADER moved
     (leader up => laggards should catch up => LONG; leader down => SHORT). Gates on the
     tool's pre-computed follow_rate, confidence, |gap_pct|."""
-    lead = _f(flow.get("leader_move_pct"))
+    lead = leader_move_from_flow(flow)
     if lead == 0:
         return []
     direction = "LONG" if lead > 0 else "SHORT"
@@ -72,9 +90,22 @@ def funding_tilt(regime, direction, weight):
     return 0.0
 
 
+def _iso_epoch(s):
+    """ISO-8601 (the feed's `detected_at`, e.g. 2026-09-15T20:22:06Z) -> epoch seconds, None if unparseable."""
+    try:
+        dt = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
 def events_by_coin(events, now, inputs):
-    """Aggregate fresh (within eventWindowMin) tier>=minTier momentum events per coin,
-    with the net side lean. Returns ({COIN: {count, longs, shorts}}, market_wide_count)."""
+    """Aggregate fresh (within eventWindowMin of `detected_at`) tier>=minTier momentum events
+    per coin, with the net side lean. An event is a TRADER crossing a 4h delta-PnL tier; the
+    markets driving it are nested in `top_positions` [{market, direction, delta_pnl}], so each
+    position counts for its bare-upper market. Returns ({COIN: {count, longs, shorts}}, event_count)."""
     win = float(inputs.get("eventWindowMin", 240)) * 60.0
     min_tier = int(inputs.get("minEventTier", 2))
     per, total = {}, 0
@@ -83,21 +114,23 @@ def events_by_coin(events, now, inputs):
             continue
         if int(_f(e, "tier", default=1)) < min_tier:
             continue
-        ts = _f(e, "ts", "timestamp", "time", "created_at", default=0.0)
-        ts = ts / 1000.0 if ts > 1e12 else ts            # ms -> s if needed
+        ts = _iso_epoch(e.get("detected_at"))
         if ts and now and (now - ts) > win:
             continue
         total += 1
-        coin = str(e.get("token") or e.get("coin") or e.get("asset") or e.get("symbol") or "").upper()
-        if not coin:
-            continue
-        side = str(e.get("direction") or e.get("side") or "").upper()
-        d = per.setdefault(coin, {"count": 0, "longs": 0, "shorts": 0})
-        d["count"] += 1
-        if side == "LONG":
-            d["longs"] += 1
-        elif side == "SHORT":
-            d["shorts"] += 1
+        for p in e.get("top_positions") or []:
+            if not isinstance(p, dict):
+                continue
+            coin = str(p.get("market") or "").split(":", 1)[-1].upper()
+            if not coin:
+                continue
+            side = str(p.get("direction") or "").upper()
+            d = per.setdefault(coin, {"count": 0, "longs": 0, "shorts": 0})
+            d["count"] += 1
+            if side == "LONG":
+                d["longs"] += 1
+            elif side == "SHORT":
+                d["shorts"] += 1
     return per, total
 
 

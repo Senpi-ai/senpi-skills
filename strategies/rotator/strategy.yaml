@@ -6,7 +6,7 @@
 schema_version: 1
 
 id: rotator
-version: "1.2.0"
+version: "1.2.1"
 
 catalog:
   name: "Rotator — Scheduled Conviction Rebalance"
