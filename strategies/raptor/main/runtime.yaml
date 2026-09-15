@@ -93,8 +93,15 @@ actions:
       - type: signal
         scanner: raptor_main_signals
 
-# EXIT — follow-the-streak DSL (ported VERBATIM from v2 runtime.yaml): wide disaster
-# stop, let winners compound, first lock already reachable at +8%.
+# EXIT — follow-the-streak DSL: wide disaster stop, let winners compound, first lock
+# already reachable at +8%. No time-based cuts: Raptor rides one proven trader's live
+# conviction bet, and a whale's position runs for hours to days, so a follow exits on the
+# hard stop (phase1.max_loss_pct) or the profit-lock ladder (phase2.tiers) — never because
+# a clock ran out. The 6h hard_timeout counts from entry and fires in either phase, so it
+# closed follows that had not yet reached the first tier (+8% ROE is ~1.1% of price at 7x)
+# and tier-armed winners mid-run alike; the 60m weak-peak cut and the 40m dead-weight cut
+# closed follows that had merely not moved yet. The whale not having been paid yet is not
+# the whale being wrong. Removed 2026-09-15 (Raptor 1.1.2).
 exit:
   engine: dsl
   interval_seconds: 30
@@ -104,15 +111,11 @@ exit:
     execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: true
-      interval_in_minutes: 360
+      enabled: false
     weak_peak_cut:
-      enabled: true
-      interval_in_minutes: 60
-      min_value: 2.5
+      enabled: false
     dead_weight_cut:
-      enabled: true
-      interval_in_minutes: 40
+      enabled: false
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable
       # move it can still sit BELOW entry and close a WINNER at a loss — churning fees.
