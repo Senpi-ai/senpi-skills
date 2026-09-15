@@ -13,7 +13,8 @@ TAXONOMY = OPS.parent / "docs" / "error-code-taxonomy.md"
 
 def _playbook_section():
     text = PLAYBOOK.read_text()
-    start = text.index("### `SERR124`")
+    start = text.find("### `SERR124`")
+    assert start >= 0, "the playbook lost its SERR124 section"
     rest = text[start:]
     end = rest.find("\n## ")
     return rest if end < 0 else rest[:end]
@@ -21,7 +22,8 @@ def _playbook_section():
 
 class Serr124IsAnOutageNotARetry(unittest.TestCase):
     def test_the_failed_row_names_the_pool_outage_as_an_exception_to_fix_and_rerun(self):
-        row = next(l for l in SKILL.read_text().splitlines() if l.startswith("| `3` |"))
+        row = next((l for l in SKILL.read_text().splitlines() if l.startswith("| `3` |")), None)
+        assert row is not None, "the outcome table lost its exit-3 row"
         self.assertIn("`SERR124`", row)
         self.assertIn("nothing was created or debited", row)
         self.assertIn("ONCE more after ~30 minutes", row)
