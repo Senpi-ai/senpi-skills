@@ -1,0 +1,43 @@
+# Signals — the senpi-signals sweep on the runtime's clock. THIS PACKAGE TRADES NOTHING.
+# It exists so the market sweep (universe → proven cohort → 4h board → events → score.py)
+# runs every 45 minutes under the runtime supervisor at zero model cost, instead of as an
+# agent cron that spent a model call per firing and timed out. Its scanner always returns
+# []; `slots: 0`; the $10 floor wallet is never used. The content automation READS
+# $SENPI_STATE_DIR/signals/signals.md — it never gathers. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: signals
+version: "1.0.0"
+
+catalog:
+  name: "Signals — Market Sweep Host (trades nothing)"
+  emoji: "🔭"
+  tagline: "Not a trading strategy: runs the senpi-signals market sweep on the runtime's clock every 45 minutes and writes the ranked trade + news feeds to disk. Opens no positions — ever."
+  belief_plain: "This is infrastructure, not a bet. Every noteworthy market development is a change — open interest building, the proven cohort shifting onto a side, funding flipping — and you cannot see a change without a warm history. This package keeps that history warm: it sweeps the whole Hyperliquid universe every 45 minutes, diffs it against the ring, and writes the two ranked feeds. It never trades; the $10 wallet is a formality the runtime requires."
+  thesis: "senpi-signals used to run as an agent cron: the model gathered the universe as tool calls every ~45 minutes, at a model call per firing, and the firings timed out. The runtime already owns a zero-model-cost clock and a read-only MCP client, so the sweep runs here as an external scanner that always returns an empty signal list. Deploy it once at the $10 floor; read $SENPI_STATE_DIR/signals/signals.md."
+  group: tooling
+  archetype: structural_neutral
+  sub_style: dynamic_screener
+  asset_classes: [none]
+  asset_scope: universe
+  direction: long_short
+  risk_level: conservative
+  tier: advanced
+  time_horizon: position
+  leverage_max: 1
+  max_slots: 0
+  assets: []
+  tags: [signals, tooling, sweep, no-trade, smart-money, open-interest, funding, content]
+  deployable: false          # deploy by id (deploy.py create signals --budget 10); hidden from the picker — a host, not a strategy
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name signals-main, group signals
+    wallet_env: SIGNALS_WALLET
+    funding_share: 1.0
