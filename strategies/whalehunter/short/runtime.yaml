@@ -1,16 +1,24 @@
-# ── WHALEHUNTER · SHORT sleeve — position WITH a net-short smart-money cohort ──
+# ── WHALEHUNTER · SHORT sleeve — opens WITH the proven cohort's freshly-forming shorts ──
+# Phalanx's smart-money engine (scanners/scoring.py is byte-identical to phalanx's): a name
+# qualifies when >= 65% of the smart wallets positioned in it (at least 10 of them) are short
+# AND that side's net headcount is up by >= 2 since the last read. One vote per wallet — a
+# headcount that price cannot drift, unlike the notional bias this replaces. The crowd
+# ($10k–100k lifetime realized) is read only to size a pick UP when it leans the other way.
 name: whalehunter-short
 group: whalehunter
 version: 3.0.0
 description: >
-  WHALEHUNTER SHORT — smart-money-vs-crowd cohort divergence (Runtime 3.0 port of v2.0).
-  Segments Hyperliquid traders into a SMART cohort (lifetime realized >= $1M) and a
-  CROWD cohort ($10k-$100k), aggregates each cohort's NET positioning per coin, and
-  emits a SHORT when the smart cohort is heavily net-short a coin AND adding to it daily
-  while the crowd is buying it (e.g. the crowd piling into a rally the winners are
-  selling). Derived universe (coins come from the cohort's positions). Rides a WIDE
-  conviction DSL. Pairs with the LONG sleeve on a separate wallet so conflicting
-  same-coin positions can coexist. ~1-day warmup before requireGrowing can pass.
+  WHALEHUNTER SHORT — smart-money rotation, on Phalanx's engine. Buckets Hyperliquid traders
+  by lifetime realized PnL into a SMART cohort (>= $1M) and a CROWD ($10k–100k), counts how
+  many smart wallets are long vs short each coin (one vote per wallet), and goes SHORT the
+  moment a coin is one-sided AND still filling: >= 65% of the positioned smart wallets short
+  (at least 10 of them) and that side's net headcount up by >= 2 since the last read — never
+  a thin lean, never one wallet's move, never a position that merely grew in dollars as price
+  moved. Sizes up when the smart side is >= 85% one-sided and again when the crowd is buying
+  what the winners are selling. A hit-rate ledger raises the bar for an asset class that
+  keeps missing. The first read only seeds the baseline. Derived universe (coins come from
+  the cohort's positions). Rides a WIDE conviction DSL. Pairs with the LONG sleeve on a
+  separate wallet.
 
 strategy:
   wallet: "${WHALEHUNTER_SHORT_WALLET}"
@@ -33,21 +41,29 @@ scanners:
     state_history_max_count: 12
     inputs:
       direction: "SHORT"
+      # ── cohorts (SLOW clock — cached daily, built a few pages per tick) ──
       smartMinRealizedUsd: 1000000
       crowdMinRealizedUsd: 10000
       crowdMaxRealizedUsd: 100000
       cohortFetchLimit: 1000
       cohortMaxPages: 6
       cohortPagesPerTick: 2                # the refresh is chunked: 2 pages per tick, progress carried in the cache
-      cohortSampleCap: 150                # 3 state batches per cohort per tick instead of 5
+      cohortSampleCap: 150                 # 3 state batches per cohort per tick
       cohortRefreshHours: 24
       cohortMinMembers: 5
-      biasThreshold: 0.5
-      crowdDivergenceMin: 0.2
-      requireGrowing: true
-      cohortMinScore: 4
+      # ── the gate (Phalanx's engine — scan.fresh_picks over scoring.py) ──
+      # A name qualifies on its dominant side only when >= tiltThreshold % of the positioned smart
+      # wallets are on that side (scoring.one_sidedness: 0 below 10 wallets, so a thin name never
+      # counts) AND that side's net headcount grew by >= deltaMin since the last tick
+      # (scoring.directional_delta: one wallet is noise, two is a rotation). This sleeve keeps its
+      # own direction only. The hit-rate ledger moves the threshold per asset class: +4 under a
+      # 40% hit rate, -2 over 55%, floor 52.
+      tiltThreshold: 65
+      deltaMin: 2
+      # ── sizing (Whalehunter's own): score 4 for a gated name, +1 at >= 85% one-sided, +1 when the
+      # crowd's headcount leans the other way -> marginPct x1 / x1.25 / x1.5, capped at maxMarginPct ──
       marginPct: 12                        # PERCENT of withdrawable (0,100], not a fraction
-      maxMarginPct: 25                      # conviction-scale cap, percent of withdrawable
+      maxMarginPct: 25                     # conviction-scale cap, percent of withdrawable
       maxConvictionScale: 2.0
       stdLeverage: 3
       maxLeverage: 5
@@ -55,11 +71,10 @@ scanners:
     signal_data_schema:
       score: { type: number }
       direction: { type: string }
-      signalKind: { type: string, required: false }
-      smartBias: { type: number, required: false }
-      crowdBias: { type: number, required: false }
-      smartGrowth: { type: number, required: false }
       smartMembers: { type: number, required: false }
+      oneSidedness: { type: number }
+      delta: { type: number }
+      divergence: { type: boolean, required: false }
       reasons: { type: array, required: false }
 
 actions:
