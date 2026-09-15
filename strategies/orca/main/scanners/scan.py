@@ -122,7 +122,7 @@ def _get_account(ctx):
 
 # ── MARKET FETCHING (v2 fetch_markets + parse_scan, verbatim) ──
 
-def _fetch_markets(ctx, limit, top_n, xyz_banned):
+def _fetch_markets(ctx, limit, top_n, xyz_banned, min_traders=10):
     """Top-N normalized SM markets (rank = list index+1). v2 parse_scan verbatim:
     XYZ banned by dex OR `xyz:` token prefix; slice to TOP_N after filtering."""
     raw = _read(ctx, "leaderboard_get_markets", {"limit": limit})
@@ -149,6 +149,8 @@ def _fetch_markets(ctx, limit, top_n, xyz_banned):
         if xyz_banned and (dex == "xyz" or token.lower().startswith("xyz:")):
             continue
         if not token:
+            continue
+        if int(m.get("trader_count", 0) or 0) < min_traders:   # a thin side never enters the rank order
             continue
         markets.append({
             "token": token,
@@ -289,7 +291,8 @@ def scan(inputs, ctx):
         return []
 
     # ── fetch + parse top-N SM markets ──
-    markets = _fetch_markets(ctx, leaderboard_limit, top_n, xyz_banned)
+    markets = _fetch_markets(ctx, leaderboard_limit, top_n, xyz_banned,
+                             int(inputs.get("minTraderCount", 10)))
     if markets is None:
         print("[orca.scan] failed to fetch leaderboard_get_markets; skip tick", file=sys.stderr)
         _persist({"result": {"emitted": False, "gate": "no_markets"}})

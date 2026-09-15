@@ -158,10 +158,10 @@
       "id": "bald-eagle",
       "name": "Bald Eagle — XYZ Macro Fader",
       "emoji": "🦅",
-      "tagline": "A contrarian fader on the 6 deepest XYZ macro markets (oil, brent, gold, silver, SP500, XYZ100): when smart money is piled into one side AND the 4h move is exhausting, it takes the OPPOSITE side and lets a wide DSL ride the mean-reversion for hours.",
-      "belief_plain": "Trades only macro markets — oil, gold, silver, and the big stock indices — that run around the clock. When the best traders have all crowded into one direction and the move over the last few hours is already stretched, it bets on the snap-back the other way, sizes up when more signals agree, and trails a wide stop so a slow reversal has hours to play out.",
-      "version": "1.3.0",
-      "thesis": "Macro assets on Hyperliquid attract directional momentum traders who load up after a clean 1-3% intraday move. By the time smart-money concentration crosses 10-20% on a 4h-extended move, the trade is usually exhausted — mean reversion is the positive-edge play. Bald Eagle scores SM crowding + contribution velocity + move exhaustion, hard-gates on tight book spread, fades the crowd, and gives commodities the wide exit they need to revert.",
+      "tagline": "A contrarian fader on the 6 deepest XYZ macro markets (oil, brent, gold, silver, SP500, XYZ100): when the 4h leaders (the traders winning the last four hours on the board) are piled into one side AND the 4h move is exhausting, it fades the 4h leaders' crowded side (takes the OPPOSITE side) and lets a wide DSL ride the mean-reversion for hours.",
+      "belief_plain": "Trades only macro markets — oil, gold, silver, and the big stock indices — that run around the clock. When the traders who have been winning over the last four hours have all crowded into one direction and the move is already stretched, it bets on the snap-back the other way, sizes up when more signals agree, and trails a wide stop so a slow reversal has hours to play out.",
+      "version": "1.3.1",
+      "thesis": "Macro assets on Hyperliquid attract directional momentum traders who load up after a clean 1-3% intraday move. By the time the 4h leaders' concentration (their share of the board's 4h gains — a momentum read, not a proven cohort) crosses 10-20% on a 4h-extended move, the trade is usually exhausted — mean reversion is the positive-edge play. Bald Eagle scores 4h-leader crowding + contribution velocity + move exhaustion, hard-gates on tight book spread, fades the crowd, and gives commodities the wide exit they need to revert.",
       "tags": [
         "xyz",
         "commodities",
@@ -172,7 +172,7 @@
         "sp500",
         "contrarian",
         "fade",
-        "smart-money",
+        "leader-momentum",
         "mean-reversion",
         "24-7"
       ],
@@ -210,6 +210,61 @@
       "max_slots": 2,
       "branch": "main",
       "sort_order": 1
+    },
+    {
+      "id": "dog",
+      "name": "Dog — Contrarian Pup (4h Leader Exhaustion Fader)",
+      "emoji": "🐕",
+      "tagline": "A patient contrarian on BTC/ETH/SOL/HYPE: waits for a major to move 3%+ in 4h while the 4h leaders (the traders winning the last four hours on the board) pile in heavily, then fades the 4h leaders' crowded, exhausted side — but only when the funding regime confirms the unwind and the move is still fresh. Conservative 7-10x leverage, wide DSL to let the reversal develop.",
+      "belief_plain": "When a big coin runs hard and the traders winning the last four hours are all crowded onto the same side, the crowd is maximum exposed and the unwind is the trade. Dog bets against that exhausted consensus on BTC, ETH, SOL and HYPE — but only when the move has genuinely overextended, the crowding is still building, and market-wide funding shows the crowd really is one-sided. Most of the time it waits.",
+      "version": "1.1.2",
+      "thesis": "Hyperliquid is dominated by leverage traders chasing momentum. When a major moves 3%+ in four hours and the 4h leaders' concentration (their share of the board's 4h gains — a momentum read, not a proven cohort) piles in 15%+, the late entrants are maximally exposed and funding pressure plus mean reversion force the unwind. Dog's edge is being on the unwind side before capitulation accelerates — so it scores the 4h leaders' side, hard-gates on exhaustion (>=3% 4h move), freshness (15m contribution still rising), trader depth (>=30), and a funding regime that confirms the crowd is one-sided, then emits the OPPOSITE direction at conservative leverage and lets a wide ratcheting stop ride the reversal rather than banking too early.",
+      "tags": [
+        "leader-momentum",
+        "contrarian",
+        "fade",
+        "exhaustion",
+        "funding-regime",
+        "multi-asset",
+        "btc",
+        "eth",
+        "sol",
+        "hype",
+        "conservative",
+        "let-winners-run"
+      ],
+      "group": "contrarian",
+      "archetype": "contrarian_fade",
+      "archetype_label": "Contrarian / Fade",
+      "sub_style": "crowd_exhaustion",
+      "sub_style_label": "Fades a crowded one-sided move once it shows exhaustion.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "HYPE"
+      ],
+      "direction": "long_short",
+      "risk_level": "conservative",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 180,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 2
     },
     {
       "id": "egret",
@@ -264,7 +319,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 2
+      "sort_order": 3
     },
     {
       "id": "hyena",
@@ -328,20 +383,20 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 3
+      "sort_order": 4
     },
     {
       "id": "lemon",
       "name": "Lemon — Degen Fader",
       "emoji": "🍋",
-      "tagline": "Watches where the worst, most crowded traders are piling in across a fixed basket of 12 crypto majors and 4 commodity/index names — and once that one-sided crowd stops following through (its 15-minute momentum rolls over), takes the OTHER side at conviction-scaled leverage and lets a wide ratcheting stop ride the snap-back.",
-      "belief_plain": "When a lot of low-quality traders crowd hard onto one side of a coin and the move starts running out of steam, that crowd usually gets unwound. Lemon waits for the crowding to actually start fading on the 15-minute clock, blocks the trade if it's really a genuine trend (big BTC move or the asset itself ripping), then bets the OPPOSITE direction and trails a wide stop while the over-stretched move mean-reverts.",
-      "version": "1.2.1",
-      "thesis": "Hyperliquid is full of high-leverage retail that piles into exhausted moves. A crowded smart-money consensus is only a fade setup once it STOPS following through — so Lemon gates on 15m exhaustion, not just crowding, and refuses to fade a real run (crypto MACRO gate on |BTC 4h|>3%, per-asset gate on |4h|>5%) because fading genuine trend is how a contrarian dies. Concentration + velocity-fade + overextension + reversal compound into a score; it fires the single best fade at score >=9, sizes leverage to conviction, and lets a wide DSL ride the mean reversion since reversals take hours, not minutes.",
+      "tagline": "Watches where the 4h leaders (the traders winning the last four hours on the board) are most crowded across a fixed basket of 12 crypto majors and 4 commodity/index names — and once that one-sided crowd stops following through (its 15-minute momentum rolls over), fades the 4h leaders' crowded side at conviction-scaled leverage and lets a wide ratcheting stop ride the snap-back.",
+      "belief_plain": "When the traders winning the last four hours crowd hard onto one side of a coin and the move starts running out of steam, that crowd usually gets unwound. Lemon waits for the crowding to actually start fading on the 15-minute clock, blocks the trade if it's really a genuine trend (big BTC move or the asset itself ripping), then bets the OPPOSITE direction and trails a wide stop while the over-stretched move mean-reverts.",
+      "version": "1.2.2",
+      "thesis": "Hyperliquid is full of high-leverage retail that piles into exhausted moves. A crowded 4h-leader consensus — the side the traders winning the last four hours are piled on, a momentum read of the board, not a proven cohort — is only a fade setup once it STOPS following through — so Lemon gates on 15m exhaustion, not just crowding, and refuses to fade a real run (crypto MACRO gate on |BTC 4h|>3%, per-asset gate on |4h|>5%) because fading genuine trend is how a contrarian dies. Concentration + velocity-fade + overextension + reversal compound into a score; it fires the single best fade at score >=9, sizes leverage to conviction, and lets a wide DSL ride the mean reversion since reversals take hours, not minutes.",
       "tags": [
         "degen-fader",
         "contrarian",
-        "smart-money",
+        "leader-momentum",
         "crowd-exhaustion",
         "mean-reversion",
         "fade",
@@ -353,8 +408,8 @@
       "group": "contrarian",
       "archetype": "contrarian_fade",
       "archetype_label": "Contrarian / Fade",
-      "sub_style": "sm_crowding",
-      "sub_style_label": "Fades the crowded smart-money side once price stops following.",
+      "sub_style": "crowd_exhaustion",
+      "sub_style_label": "Fades a crowded one-sided move once it shows exhaustion.",
       "asset_classes": [
         "major_alts",
         "commodities",
@@ -394,7 +449,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 4
+      "sort_order": 5
     },
     {
       "id": "owl",
@@ -440,7 +495,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 5
+      "sort_order": 6
     },
     {
       "id": "pangolin",
@@ -484,7 +539,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 6
+      "sort_order": 7
     },
     {
       "id": "jackal",
@@ -1055,15 +1110,15 @@
       "id": "condor",
       "name": "Condor — One Amazing Trade per Day",
       "emoji": "🦅",
-      "tagline": "Scans the top 50 Hyperliquid crypto assets by volume and fires at most one position at a time — only when 4h, 1h and 15m momentum all align, the smart-money leaderboard is leaning the same way on a market it is actually concentrated in, and the move isn't a runaway counter-trend. Sizes margin to conviction (50/70/80%) at 10x, then rides a wide DSL.",
-      "belief_plain": "Watches every liquid coin on Hyperliquid and waits, doing nothing until ONE setup is near-perfect: the trend, the momentum and the best traders all pointing the same direction at once. Then it takes a single, well-sized swing and trails a stop instead of guessing the top.",
-      "version": "1.2.1",
-      "thesis": "The biggest swings happen when 4h + 1h + 15m momentum are perfectly unified AND the smart-money leaderboard is leaning that same way on a market it has meaningful skin in — a runaway trend's continuation, not a reversal. One amazing trade a day beats a scattergun: scan broadly, fire rarely, size to conviction, and never fight a trend already up >10% on the 4h.",
+      "tagline": "Scans the top 50 Hyperliquid crypto assets by volume and fires at most one position at a time — only when 4h, 1h and 15m momentum all align, the 4h leaders (the traders winning the last four hours on the board) are leaning the same way on a market they are actually concentrated in, and the move isn't a runaway counter-trend. Sizes margin to conviction (50/70/80%) at 10x, then rides a wide DSL.",
+      "belief_plain": "Watches every liquid coin on Hyperliquid and waits, doing nothing until ONE setup is near-perfect: the trend, the momentum and the traders winning the last four hours all pointing the same direction at once. Then it rides the 4h leaders' side with a single, well-sized swing and trails a stop instead of guessing the top.",
+      "version": "1.2.2",
+      "thesis": "The biggest swings happen when 4h + 1h + 15m momentum are perfectly unified AND the 4h leaderboard (a momentum read of who is winning right now, not a proven cohort) is leaning that same way on a market its leaders have meaningful skin in — a runaway trend's continuation, not a reversal. One amazing trade a day beats a scattergun: scan broadly, fire rarely, size to conviction, and never fight a trend already up >10% on the 4h.",
       "tags": [
         "momentum",
         "trend-continuation",
         "universe",
-        "smart-money",
+        "leader-momentum",
         "apex-sniper",
         "one-trade-per-day",
         "conviction-sizing"
@@ -1692,12 +1747,12 @@
       "id": "orca",
       "name": "Orca — Gen-1 Vanilla Striker",
       "emoji": "🐋",
-      "tagline": "A universe rank-jump sniper: watches the top-50 smart-money leaderboard every tick and fires only on a fresh FIRST_JUMP — a coin exploding 15+ ranks out of the deep field with 4h trend, 15m freshness, and a volume spike all confirming — then strikes ONE position at a fixed 7x and lets the DSL ride the breakout.",
-      "belief_plain": "Watches which coins the best traders are suddenly piling into and only acts when a name rockets up the leaderboard from deep in the pack — a fresh jump, not an already-crowded top name. It wants the move to be young (climbing fast in the last 15 minutes), going the same way the price is, and backed by a real volume spike before it takes a single shot.",
-      "version": "1.1.0",
-      "thesis": "The edge is in the FIRST jump, not the established leader. By the time a coin sits at the top of the smart-money board the move is priced in; the asymmetric entry is the moment a name explodes 15+ ranks out of the deep field (prev-rank >= 25) while its 4h trend, 15m contribution velocity, and 24h volume all confirm the same direction at once. That confluence is rare and decays fast, so the right move is to scan often (90s), strike once at a fixed 7x the instant it fires, skip the already-top names, and let a ratcheting DSL — not a fixed target — decide the exit so the occasional big breakout pays for the quiet weeks.",
+      "tagline": "A universe rank-jump sniper that trades jumps in the 4h leaderboard: watches its top-50 rows every tick and fires only on a fresh FIRST_JUMP — a coin exploding 15+ ranks out of the deep field with 4h trend, 15m freshness, and a volume spike all confirming — then strikes ONE position at a fixed 7x and lets the DSL ride the breakout.",
+      "belief_plain": "Watches which coins the traders winning the last four hours are suddenly piling into and only acts when a name rockets up the leaderboard from deep in the pack — a fresh jump, not an already-crowded top name. It wants the move to be young (climbing fast in the last 15 minutes), going the same way the price is, and backed by a real volume spike before it takes a single shot.",
+      "version": "1.1.1",
+      "thesis": "The edge is in the FIRST jump, not the established leader. By the time a coin sits at the top of the 4h leaderboard (a momentum read of who is winning right now, not a proven cohort) the move is priced in; the asymmetric entry is the moment a name explodes 15+ ranks out of the deep field (prev-rank >= 25) while its 4h trend, 15m contribution velocity, and 24h volume all confirm the same direction at once. That confluence is rare and decays fast, so the right move is to scan often (90s), strike once at a fixed 7x the instant it fires, skip the already-top names, and let a ratcheting DSL — not a fixed target — decide the exit so the occasional big breakout pays for the quiet weeks.",
       "tags": [
-        "smart-money",
+        "leader-momentum",
         "momentum",
         "breakout",
         "rank-jump",
@@ -1880,6 +1935,52 @@
       "sort_order": 22
     },
     {
+      "id": "roach",
+      "name": "Roach — Striker Rank-Jump Sniper",
+      "emoji": "🪳",
+      "tagline": "A patient striker that trades jumps in the 4h leaderboard: watches its top-50 rows and fires only on violent FIRST_JUMP / IMMEDIATE_MOVER rank explosions confirmed by 4h trend, 1h price, fresh 15m velocity, and a 1.5x volume spike — then sizes one bet and lets a tight ratchet ride it. Long silences are expected and correct.",
+      "belief_plain": "Cockroaches survive by not moving when there's nothing to chase. Roach watches which coins the traders winning the last four hours are suddenly piling into — a coin violently jumping up the leaderboard — and only buys when that rank-jump is backed by the 4-hour trend, the last hour's price, fresh momentum, and a real volume spike all agreeing. Most of the time it does nothing; the patience is the edge.",
+      "version": "1.1.1",
+      "thesis": "Most leaderboard movement is noise. Real edge is a violent, fresh rank-jump — a coin exploding from #25+ into the top of the 4h leaderboard (a momentum read of who is winning right now, not a proven cohort) in a single scan — but only when it's confirmed by trend, price, fresh velocity, and volume at the same instant. Those explosions are rare, so the right move is to ban equities, demand a high composite score with multiple confirmations, take the few that qualify at fixed 7x sizing, and let a ratcheting DSL stop bank the move. Stalker-style accumulation entries were removed — fewer, higher-quality strikes beat more, mixed ones.",
+      "tags": [
+        "leader-momentum",
+        "breakout",
+        "rank-jump",
+        "first-jump",
+        "immediate-mover",
+        "universe-scanner",
+        "striker",
+        "volume-confirmed",
+        "patient"
+      ],
+      "group": "momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "rank_jump",
+      "sub_style_label": "Catches leaderboard rank-jumps early.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 7,
+      "time_horizon": "swing",
+      "cadence_seconds": 90,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "main",
+      "sort_order": 23
+    },
+    {
       "id": "rooster",
       "name": "Rooster — The Opener",
       "emoji": "🐓",
@@ -1927,7 +2028,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 23
+      "sort_order": 24
     },
     {
       "id": "sailfish",
@@ -1979,7 +2080,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 24
+      "sort_order": 25
     },
     {
       "id": "salamander",
@@ -2031,7 +2132,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 25
+      "sort_order": 26
     },
     {
       "id": "sheep",
@@ -2086,19 +2187,19 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 26
+      "sort_order": 27
     },
     {
       "id": "jaguar",
       "name": "Jaguar — Striker Rank-Jump Detector",
       "emoji": "🐆",
-      "tagline": "A patient momentum sniper across the whole crypto market: it watches the smart-money leaderboard tick-over-tick and pounces only on a violent rank explosion — an asset rocketing from rank 20+ into the top 10 in one move while 15m smart-money flow is actively building and 4h price agrees — then sizes leverage to conviction (7/10x) and trails a DSL stop.",
-      "belief_plain": "Most of the time it does nothing. It only acts when an asset suddenly leaps up the smart-money rankings — from far down into the top 10 in a single step — with fresh money still piling in and price moving the same way. One amazing trade per day, not a stream of mediocre ones.",
-      "version": "1.1.1",
-      "thesis": "The best traders rotate violently. When a coin jumps from rank 20+ into the top 10 in one tick with 15m contribution still accelerating, that's smart money piling in fast — a rare, high-conviction setup worth a concentrated strike. Chasing every hot coin bleeds fees; waiting for the violent first jump is the edge.",
+      "tagline": "A patient momentum sniper across the whole crypto market: it watches the 4h leaderboard tick-over-tick and trades jumps in it, pouncing only on a violent rank explosion — an asset rocketing from rank 20+ into the top 10 in one move while 15m leader flow is actively building and 4h price agrees — then sizes leverage to conviction (7/10x) and trails a DSL stop.",
+      "belief_plain": "Most of the time it does nothing. It only acts when an asset suddenly leaps up the 4h leaderboard (the ranking of who is winning over the last four hours — a momentum read, not a proven cohort) — from far down into the top 10 in a single step — with fresh money still piling in and price moving the same way. One amazing trade per day, not a stream of mediocre ones.",
+      "version": "1.1.2",
+      "thesis": "The 4h leaders rotate violently. When a coin jumps from rank 20+ into the top 10 in one tick with 15m contribution still accelerating, that's the 4h leaders piling in fast — a rare, high-conviction setup worth a concentrated strike. Chasing every hot coin bleeds fees; waiting for the violent first jump is the edge.",
       "tags": [
         "momentum",
-        "smart-money",
+        "leader-momentum",
         "rank-jump",
         "striker",
         "conviction-leverage",
@@ -3445,10 +3546,10 @@
       "id": "kestrel",
       "name": "Kestrel — XYZ Macro Breakout Rider",
       "emoji": "🦅",
-      "tagline": "A multi-asset non-crypto XYZ breakout rider: scans 12 macro names (oil, gold, S&P/Nasdaq, mega-cap tech) for a >=1.5% 1H breakout, confirms with 4H trend, volume surge, smart-money lean and funding, then sizes leverage to score (3x/5x) and rides the move with a DSL trailing exit. Holds up to 2 positions; trades 24/7 incl weekends.",
+      "tagline": "A multi-asset non-crypto XYZ breakout rider: scans 12 macro names (oil, gold, S&P/Nasdaq, mega-cap tech) for a >=1.5% 1H breakout, confirms with 4H trend, volume surge, the 4h leaders' lean and funding, then sizes leverage to score (3x/5x) and rides the move with a DSL trailing exit. Holds up to 2 positions; trades 24/7 incl weekends.",
       "belief_plain": "Watches a basket of macro markets — crude and Brent oil, gold, the S&P and Nasdaq, and the biggest US tech stocks — and pounces when one breaks out more than 1.5% in an hour with volume behind it. It goes in harder (5x vs 3x) on the cleanest breakouts and trails a stop instead of guessing the exit. These markets trade around the clock, weekends included, so there's no market-hours gate.",
-      "version": "1.1.1",
-      "thesis": "Macro assets move on discrete catalysts — an inventory print, a Fed headline, an earnings beat — and a sharp 1H breakout with volume confirmation usually continues for one to three hours before the move matures. A scanner watching a focused 12-name macro universe can catch that breakout early across commodities, indices and mega-cap equities, weight the 1H magnitude heaviest, confirm with the 4H trend, smart-money lean and funding, and let a trailing DSL lock the move before it fades.",
+      "version": "1.1.2",
+      "thesis": "Macro assets move on discrete catalysts — an inventory print, a Fed headline, an earnings beat — and a sharp 1H breakout with volume confirmation usually continues for one to three hours before the move matures. A scanner watching a focused 12-name macro universe can catch that breakout early across commodities, indices and mega-cap equities, weight the 1H magnitude heaviest, confirm with the 4H trend, the 4h leaders' lean (the side the traders winning the last four hours are on — a momentum read of the board, not a proven cohort) and funding, and let a trailing DSL lock the move before it fades.",
       "tags": [
         "xyz",
         "macro",
@@ -3900,14 +4001,14 @@
       "id": "scorpion",
       "name": "Scorpion — Multi-Market Momentum Trader",
       "emoji": "🦂",
-      "tagline": "Hunts trend-following entries across a curated crypto + XYZ basket (BTC/ETH/majors, mid-caps, plus crude oil, Brent, gold and the S&P): enters only when smart money is concentrated in a direction AND 4h price agrees, scores SM dominance + multi-timeframe momentum, and rides maker-optimized exits with a let-winners-run trailing ladder.",
-      "belief_plain": "Trades a hand-picked set of coins and commodities/indices. It only acts when the best traders are crowded on one side and the 4-hour price is already moving that way, then trails a profit-locking stop and pays cheaper maker fees on the way out.",
-      "version": "1.1.0",
-      "thesis": "The strongest, lowest-noise trends show up where smart-money concentration and 4h price direction agree — across BOTH crypto and the XYZ commodities/indices that most agents ignore. Score that agreement, gate hard on it, and let the DSL ride the winners while maker-preferred exits claw back the fee drag that kills high-turnover active traders.",
+      "tagline": "Hunts trend-following entries across a curated crypto + XYZ basket (BTC/ETH/majors, mid-caps, plus crude oil, Brent, gold and the S&P): enters only when the 4h leaders (the traders winning the last four hours on the board) are concentrated in a direction AND 4h price agrees, rides the 4h leaders' side, scores leader dominance + multi-timeframe momentum, and rides maker-optimized exits with a let-winners-run trailing ladder.",
+      "belief_plain": "Trades a hand-picked set of coins and commodities/indices. It only acts when the traders winning the last four hours are crowded on one side and the 4-hour price is already moving that way, then trails a profit-locking stop and pays cheaper maker fees on the way out.",
+      "version": "1.1.1",
+      "thesis": "The strongest, lowest-noise trends show up where the 4h leaders' concentration (a momentum read of the board, not a proven cohort) and 4h price direction agree — across BOTH crypto and the XYZ commodities/indices that most agents ignore. Score that agreement, gate hard on it, and let the DSL ride the winners while maker-preferred exits claw back the fee drag that kills high-turnover active traders.",
       "tags": [
         "momentum",
         "trend-following",
-        "smart-money",
+        "leader-momentum",
         "multi-asset",
         "xyz",
         "commodities",
@@ -4093,14 +4194,14 @@
       "id": "vulture",
       "name": "Vulture — Small-Cap Momentum Rider",
       "emoji": "🦅",
-      "tagline": "Scans a whitelist of ~25 small/mid-cap Hyperliquid perps that no other agent covers (majors and XYZ are banned), and enters when smart-money concentration aligns with a fresh 4h trend, the 1h confirms it isn't a false breakout, and 15m velocity is accelerating — then sizes leverage to conviction (5x, 7x apex), cuts losers fast and rides the right-tail winners for days on a trailing stop.",
-      "belief_plain": "Hunts the small coins the rest of the fleet ignores. It only buys (or shorts) one when the best traders are crowding in, the 4-hour trend agrees, the 1-hour isn't already rolling over, and short-term momentum is building — then goes in harder on the strongest setups and trails a stop. Most trades are tiny losses cut fast; the occasional big winner pays for everything.",
-      "version": "1.2.1",
-      "thesis": "The biggest blind spot on Hyperliquid is the small/mid-cap long tail — every other agent is locked to the majors or a single asset, so nobody is reading smart-money flow on HEMI, WLD, XPL, AIXBT and the rest. Small caps have a thicker trader-count signal-to-noise ratio than the majors: when smart-money concentration on one aligns with a fresh 4h trend and accelerating 15m velocity, that's a momentum entry with a long right tail. A low win rate is fine when the winners are several times the size of the losers.",
+      "tagline": "Scans a whitelist of ~25 small/mid-cap Hyperliquid perps that no other agent covers (majors and XYZ are banned), and rides the 4h leaders' side: enters when the 4h leaders' concentration (the traders winning the last four hours on the board) aligns with a fresh 4h trend, the 1h confirms it isn't a false breakout, and 15m velocity is accelerating — then sizes leverage to conviction (5x, 7x apex), cuts losers fast and rides the right-tail winners for days on a trailing stop.",
+      "belief_plain": "Hunts the small coins the rest of the fleet ignores. It only buys (or shorts) one when the traders winning the last four hours are crowding in, the 4-hour trend agrees, the 1-hour isn't already rolling over, and short-term momentum is building — then goes in harder on the strongest setups and trails a stop. Most trades are tiny losses cut fast; the occasional big winner pays for everything.",
+      "version": "1.2.2",
+      "thesis": "The biggest blind spot on Hyperliquid is the small/mid-cap long tail — every other agent is locked to the majors or a single asset, so nobody is reading the 4h leaders' flow on HEMI, WLD, XPL, AIXBT and the rest. Small caps have a thicker trader-count signal-to-noise ratio than the majors: when the 4h leaders' concentration on one (a momentum read of who is winning right now, not a proven cohort) aligns with a fresh 4h trend and accelerating 15m velocity, that's a momentum entry with a long right tail. A low win rate is fine when the winners are several times the size of the losers.",
       "tags": [
         "small-cap",
         "momentum",
-        "smart-money",
+        "leader-momentum",
         "long-tail",
         "whitelist",
         "conviction-leverage",
@@ -5325,61 +5426,6 @@
       "sort_order": 2
     },
     {
-      "id": "dog",
-      "name": "Dog — Contrarian Pup (SM Exhaustion Fader)",
-      "emoji": "🐕",
-      "tagline": "A patient contrarian on BTC/ETH/SOL/HYPE: waits for a major to move 3%+ in 4h while smart money piles in heavily, then fades the crowded, exhausted side — but only when the funding regime confirms the unwind and the move is still fresh. Conservative 7-10x leverage, wide DSL to let the reversal develop.",
-      "belief_plain": "When a big coin runs hard and the best traders are all crowded onto the same side, the crowd is maximum exposed and the unwind is the trade. Dog bets against that exhausted consensus on BTC, ETH, SOL and HYPE — but only when the move has genuinely overextended, the crowding is still building, and market-wide funding shows the crowd really is one-sided. Most of the time it waits.",
-      "version": "1.1.1",
-      "thesis": "Hyperliquid is dominated by leverage traders chasing momentum. When a major moves 3%+ in four hours and smart-money consensus piles in 15%+, the late entrants are maximally exposed and funding pressure plus mean reversion force the unwind. Dog's edge is being on the unwind side before capitulation accelerates — so it scores the smart-money direction, hard-gates on exhaustion (>=3% 4h move), freshness (15m contribution still rising), trader depth (>=30), and a funding regime that confirms the crowd is one-sided, then emits the OPPOSITE direction at conservative leverage and lets a wide ratcheting stop ride the reversal rather than banking too early.",
-      "tags": [
-        "smart-money",
-        "contrarian",
-        "fade",
-        "exhaustion",
-        "funding-regime",
-        "multi-asset",
-        "btc",
-        "eth",
-        "sol",
-        "hype",
-        "conservative",
-        "let-winners-run"
-      ],
-      "group": "smart-money",
-      "archetype": "contrarian_fade",
-      "archetype_label": "Contrarian / Fade",
-      "sub_style": "sm_crowding",
-      "sub_style_label": "Fades the crowded smart-money side once price stops following.",
-      "asset_classes": [
-        "btc_eth",
-        "major_alts"
-      ],
-      "asset_scope": "basket",
-      "assets": [
-        "BTC",
-        "ETH",
-        "SOL",
-        "HYPE"
-      ],
-      "direction": "long_short",
-      "risk_level": "conservative",
-      "tier": "advanced",
-      "leverage_max": 10,
-      "time_horizon": "swing",
-      "cadence_seconds": 180,
-      "min_budget": 10,
-      "wallet_count": 1,
-      "min_budget_binding_wallet": "main",
-      "instance_count": 1,
-      "funding_split": [
-        1.0
-      ],
-      "max_slots": 1,
-      "branch": "main",
-      "sort_order": 3
-    },
-    {
       "id": "oxpecker",
       "name": "Oxpecker — Elite-Conviction Concentrated Mirror",
       "emoji": "🐦",
@@ -5424,7 +5470,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 4
+      "sort_order": 3
     },
     {
       "id": "phalanx",
@@ -5474,7 +5520,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 5
+      "sort_order": 4
     },
     {
       "id": "remora",
@@ -5520,53 +5566,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 6
-    },
-    {
-      "id": "roach",
-      "name": "Roach — Striker Rank-Jump Sniper",
-      "emoji": "🪳",
-      "tagline": "A patient striker: watches the top-50 smart-money leaderboard and fires only on violent FIRST_JUMP / IMMEDIATE_MOVER rank explosions confirmed by 4h trend, 1h price, fresh 15m velocity, and a 1.5x volume spike — then sizes one bet and lets a tight ratchet ride it. Long silences are expected and correct.",
-      "belief_plain": "Cockroaches survive by not moving when there's nothing to chase. Roach watches which coins the best traders are suddenly piling into — a coin violently jumping up the leaderboard — and only buys when that rank-jump is backed by the 4-hour trend, the last hour's price, fresh momentum, and a real volume spike all agreeing. Most of the time it does nothing; the patience is the edge.",
-      "version": "1.1.0",
-      "thesis": "Most leaderboard movement is noise. Real edge is a violent, fresh rank-jump — a coin exploding from #25+ into the top of the smart-money board in a single scan — but only when it's confirmed by trend, price, fresh velocity, and volume at the same instant. Those explosions are rare, so the right move is to ban equities, demand a high composite score with multiple confirmations, take the few that qualify at fixed 7x sizing, and let a ratcheting DSL stop bank the move. Stalker-style accumulation entries were removed — fewer, higher-quality strikes beat more, mixed ones.",
-      "tags": [
-        "smart-money",
-        "breakout",
-        "rank-jump",
-        "first-jump",
-        "immediate-mover",
-        "universe-scanner",
-        "striker",
-        "volume-confirmed",
-        "patient"
-      ],
-      "group": "smart-money",
-      "archetype": "breakout_momentum",
-      "archetype_label": "Breakout / Momentum",
-      "sub_style": "rank_jump",
-      "sub_style_label": "Catches leaderboard rank-jumps early.",
-      "asset_classes": [
-        "universe_crypto"
-      ],
-      "asset_scope": "universe",
-      "assets": [],
-      "direction": "long_short",
-      "risk_level": "moderate",
-      "tier": "advanced",
-      "leverage_max": 7,
-      "time_horizon": "swing",
-      "cadence_seconds": 90,
-      "min_budget": 10,
-      "wallet_count": 1,
-      "min_budget_binding_wallet": "main",
-      "instance_count": 1,
-      "funding_split": [
-        1.0
-      ],
-      "max_slots": 2,
-      "branch": "main",
-      "sort_order": 7
+      "sort_order": 5
     },
     {
       "id": "shadow",
@@ -5610,7 +5610,7 @@
       ],
       "max_slots": 5,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 6
     },
     {
       "id": "whalehunter",
@@ -5655,7 +5655,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 7
     },
     {
       "id": "osprey",
@@ -5711,9 +5711,9 @@
       "name": "Raccoon — Weekend XYZ Reconciliation",
       "emoji": "🦝",
       "tagline": "Trades only the weekend, only on tokenized stocks & commodities (XYZ): while the underlying markets are closed and XYZ runs on an internal oracle, Raccoon positions in the direction sentiment has been pushing the price — and captures the snap-back when real external pricing resumes Monday open. Sizes 15% / 3x and rides a tight DSL with a 48h Monday-exit cap.",
-      "belief_plain": "From Friday evening to Sunday evening the real stock and commodity markets are closed, so tokenized versions on XYZ drift on an internal estimate instead of a live price. When trading resumes Monday, that estimate snaps to the true market price. Raccoon bets in the direction the weekend drift (plus the best traders) is leaning, and exits into that Monday snap — and only ever runs on the weekend.",
-      "version": "1.2.1",
-      "thesis": "Fri 17:00 ET -> Sun 18:00 ET, trade.xyz has no external price feed for equities/commodities and runs a 30-min EWMA internal oracle that drifts on impact-price activity. Accumulated weekend sentiment (>= 2% move + volume + smart-money agreement) shows up as directional oracle drift; when external pricing resumes Sunday evening the implied price reconciles to the real value. Positioning into that gap and exiting at the Monday-open snap is the edge — and confining all activity to the weekend window avoids weekday false signals and Lemur's 24/7 IPOP territory.",
+      "belief_plain": "From Friday evening to Sunday evening the real stock and commodity markets are closed, so tokenized versions on XYZ drift on an internal estimate instead of a live price. When trading resumes Monday, that estimate snaps to the true market price. Raccoon bets in the direction the weekend drift (plus the 4h leaders, the traders winning the last four hours on the board) is leaning, and exits into that Monday snap — and only ever runs on the weekend.",
+      "version": "1.2.2",
+      "thesis": "Fri 17:00 ET -> Sun 18:00 ET, trade.xyz has no external price feed for equities/commodities and runs a 30-min EWMA internal oracle that drifts on impact-price activity. Accumulated weekend sentiment (>= 2% move + volume + 4h-leader agreement — a momentum read of the board, not a proven cohort) shows up as directional oracle drift; when external pricing resumes Sunday evening the implied price reconciles to the real value. Positioning into that gap and exiting at the Monday-open snap is the edge — and confining all activity to the weekend window avoids weekday false signals and Lemur's 24/7 IPOP territory.",
       "tags": [
         "xyz",
         "equities",
@@ -5721,7 +5721,7 @@
         "weekend",
         "reconciliation",
         "oracle-gap",
-        "smart-money",
+        "leader-momentum",
         "snap-back",
         "hard-timeout"
       ],

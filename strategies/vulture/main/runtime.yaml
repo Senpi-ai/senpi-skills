@@ -5,8 +5,8 @@ version: 3.0.0
 description: >
   VULTURE — multi-asset small-cap momentum rider. Scans a 27-coin whitelist of
   small/mid-cap Hyperliquid perps that no other predator covers (BTC/ETH/SOL + XYZ
-  banned) via leaderboard_get_markets, and enters when smart-money concentration
-  ALIGNS with a fresh 4h trend, the 1h confirms (the v2.4 false-breakout gate), and
+  banned) via leaderboard_get_markets, and enters when 4h-leader concentration (a
+  momentum read of the board, not a proven cohort) ALIGNS with a fresh 4h trend, the 1h confirms (the v2.4 false-breakout gate), and
   15m velocity is accelerating. LONG_TAIL_MOMENTUM scoring with conviction-scaled
   leverage (5x at score 10, 7x apex at >=11). Cut losers fast (90m dead_weight),
   ride winners for days (7-day hard_timeout). DSL is the ONLY exit. Faithful port of

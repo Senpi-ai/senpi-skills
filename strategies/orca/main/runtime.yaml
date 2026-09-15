@@ -1,5 +1,5 @@
 # ── ORCA · single instance — Gen-1 Vanilla Striker (Runtime 3.0 port of v2 ORCA v4.0.1) ──
-# UNIVERSE scanner. Scans the top-50 smart-money leaderboard markets (leaderboard_get_markets)
+# UNIVERSE scanner. Scans the top-50 rows of the 4h leaderboard (leaderboard_get_markets)
 # every tick, detects FIRST_JUMP / IMMEDIATE_MOVER rank explosions (rank-jump >= 15 off a
 # prev-rank >= 25), scores the base Striker model (score >= 9 with a 4-reason floor: first-jump,
 # immediate, contrib-explosion, velocity, deep-climber, climbing, US-session), confirms the 15m
@@ -11,8 +11,9 @@ name: orca-main
 group: orca
 version: 3.0.0
 description: >
-  ORCA — Gen-1 Vanilla Striker. Universe rank-jump sniper: scans the top-50 smart-money
-  leaderboard markets every tick and fires only on a fresh FIRST_JUMP / IMMEDIATE_MOVER
+  ORCA — Gen-1 Vanilla Striker. Universe rank-jump sniper: scans the top-50 rows of the 4h
+  leaderboard (leaderboard_get_markets — a momentum read of who is winning right now, not a
+  proven cohort) every tick and fires only on a fresh FIRST_JUMP / IMMEDIATE_MOVER
   explosion (rank-jump >= 15 off a prev-rank >= 25, 4h-aligned, 15m-fresh, volume >=1.5x)
   that clears the base Striker score 9 with a 4-reason floor. Emits ONE signal for the single
   strongest candidate at a FIXED 7x and 18% margin. XYZ banned, max 3 positions. DSL is the
@@ -48,6 +49,7 @@ scanners:
       marginPct: 18                         # PERCENT of withdrawable (0,100]; v2 MARGIN_PCT=0.18 (fraction) -> 18%
       minVolRatio: 1.5                      # v2 STRIKER_MIN_VOL_RATIO (volume confirmation)
       xyzBanned: true                       # v2 XYZ_BANNED — drop dex==xyz / xyz: markets
+      minTraderCount: 10                    # skip a board side thinner than this many traders at the read — a thin side never enters the rank order
       # ── cooldowns (v2 assetCooldownMinutes=120; runtime per-asset gate is primary) ──
       perAssetCooldownSeconds: 7200         # v2 assetCooldownMinutes=120 -> 7200s (emit-time analogue)
       recentSignalTtlSeconds: 7200          # signal-dedup TTL (mirrors per-asset cooldown)

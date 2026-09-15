@@ -7,8 +7,8 @@ description: >
   no-external-price window (Fri 22:00 UTC -> Mon 00:00 UTC) when XYZ runs on its
   internal 30-min EWMA oracle. Scans the live XYZ universe (non-delisted, 24h vol
   >= $1M, max_leverage >= 10 to exclude 5x IPOPs which are Lemur's territory),
-  detects a >= 2% 48h directional move with volume confirmation + smart-money
-  agreement (tilt >= 55%), and positions in that direction to capture the Monday-
+  detects a >= 2% 48h directional move with volume confirmation + 4h-leader
+  agreement (leaderboard_get_markets — a momentum read, not a proven cohort; tilt >= 55%), and positions in that direction to capture the Monday-
   open snap-back when external pricing resumes. Emits ONE best candidate at 15%
   margin / 3x (5x cap). Tight DSL: Phase 1 12% max_loss, Phase 2 locks fast at
   +5%, hard_timeout 48h forces a Monday-open exit. Faithful port of the v2 thesis.
@@ -41,6 +41,7 @@ scanners:
       minMoveAbsPct: 2.0                    # 48h directional-move gate
       smTiltMinPct: 55                      # SM-agreement floor (gate)
       smStrongTiltPct: 70                   # SM strongly-tilted scoring bonus
+      minTraderCount: 10                    # refuse the lean when the side the long/short ratio picks has fewer 4h leaders than this — the ratio itself is never altered
       marginPct: 15                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
       leverage: 3                           # v2 DEFAULT_LEVERAGE (clamped to 5 in scan)
       recentSignalTtlSeconds: 240           # v2 RECENT_SIGNAL_TTL_SEC race-window dedup

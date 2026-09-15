@@ -3,11 +3,12 @@ name: jaguar-main
 group: jaguar
 version: 3.0.0
 description: >
-  JAGUAR — multi-asset Striker. A derived-universe rank-jump detector: reads the live
-  smart-money concentration feed (leaderboard_get_markets) every 3 min, compares it tick-
+  JAGUAR — multi-asset Striker. A derived-universe rank-jump detector: reads the live 4h
+  leaderboard concentration feed (leaderboard_get_markets — a momentum read of who is
+  winning right now, not a proven cohort) every 3 min, compares it tick-
   over-tick, and fires only on a violent FIRST_JUMP — an asset rocketing from rank 20+ into
-  the top 10 with a >=10 rank jump while 15m SM contribution velocity is actively building and
-  4h price is aligned with the SM direction. "One amazing trade per day." Conviction-tiered
+  the top 10 with a >=10 rank jump while 15m leader contribution velocity is actively building and
+  4h price is aligned with the leaders' direction. "One amazing trade per day." Conviction-tiered
   leverage (7x conviction / 10x apex), MIN_SCORE 9, $3M day-notional liquidity floor, XYZ ban.
   Entry FEE_OPTIMIZED_LIMIT with taker fallback (a violent jump must fill). DSL is the only
   exit. Faithful port of the v2 producer thesis (detect-then-append contract preserved).
@@ -37,6 +38,7 @@ scanners:
       marginPct: 50                         # PERCENT of withdrawable (0,100] — v2 MARGIN_PCT 0.50 as a percent
       leverageTiers: [[10, 10], [9, 7]]     # per-signal conviction tiers: >=10 -> 10x apex, >=9 -> 7x conviction
       scanHistoryLen: 60                    # how many prior snapshots to compare velocity across
+      minTraderCount: 10                    # skip a board side thinner than this many traders at the read — a thin side never enters the rank order
     signal_data_schema:
       score: { type: number }
       tier: { type: string, required: false }

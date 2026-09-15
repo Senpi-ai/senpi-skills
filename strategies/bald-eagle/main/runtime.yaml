@@ -1,7 +1,7 @@
 # ── BALD EAGLE · single instance — XYZ macro Contrarian Fader ────────────────
 # Runtime 3.0 port of the v2 Bald Eagle (SKILL.md v5.0.0 / eagle-producer.py v5.0.1).
-# Fades smart-money consensus on 6 high-liquidity XYZ macro assets (CL, BRENTOIL,
-# GOLD, SILVER, SP500, XYZ100) when SM is overcrowded + the 4h move is exhausting.
+# Fades the 4h leaders' crowded side on 6 high-liquidity XYZ macro assets (CL, BRENTOIL,
+# GOLD, SILVER, SP500, XYZ100) when that side is overcrowded + the 4h move is exhausting.
 # Conviction-scaled leverage (5x/7x; XYZ caps lower than crypto). Spread hard-gate
 # (<0.1%). Wide DSL gives macro reversals hours, not minutes, to develop. Faithful
 # port of the v2 thesis — see scanners/scoring.py (math reproduced verbatim).
@@ -9,10 +9,11 @@ name: bald-eagle-main
 group: bald-eagle
 version: 3.0.0
 description: >
-  BALD EAGLE — XYZ macro Contrarian Fader. Counter-trades smart-money consensus on 6
-  high-liquidity XYZ macro assets (CL, BRENTOIL, GOLD, SILVER, SP500, XYZ100) when SM
-  concentration is high AND the 4h move is exhausting. Scores every contributor (SM
-  concentration, trader depth, contribution velocity 1h/4h, 4h price alignment, XYZ-
+  BALD EAGLE — XYZ macro Contrarian Fader. Fades the 4h leaders' crowded side (the
+  leaderboard_get_markets 4h board — a momentum read, not a proven cohort) on 6
+  high-liquidity XYZ macro assets (CL, BRENTOIL, GOLD, SILVER, SP500, XYZ100) when
+  leader concentration is high AND the 4h move is exhausting. Scores every contributor
+  (leader concentration, trader depth, contribution velocity 1h/4h, 4h price alignment, XYZ-
   tuned move-exhaustion 1-2% bands, 4h trend structure, 1h momentum, volume trend,
   funding alignment) at/above MIN_SCORE 8, hard-gates on book spread <0.1%, then emits
   the OPPOSITE direction (fade). Conviction-scaled leverage (5x/7x). Wide XYZ-tuned DSL
@@ -45,6 +46,7 @@ scanners:
       maxSpreadPct: 0.001                  # v2 MAX_SPREAD_PCT (0.1% book spread hard gate)
       maxLeverage: 7                       # v2 MAX_LEVERAGE (XYZ caps lower than crypto)
       recentSignalTtlSeconds: 21600        # v2 is_asset_cooled_down(360min) -> 21600s anti re-fire
+      minTraderCount: 10                   # skip a board side thinner than this many traders at the read — a thin side never sets the lean
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }

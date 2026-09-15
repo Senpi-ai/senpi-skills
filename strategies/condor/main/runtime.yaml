@@ -5,8 +5,9 @@ version: 3.0.0
 description: >
   CONDOR — multi-asset trend-continuation apex sniper ("One Amazing Trade per Day").
   Scans the top 50 HL crypto assets by 24h notional volume and fires ONLY when 4h +
-  1h + 15m momentum are perfectly aligned, smart-money consensus is >=70% in that same
-  direction, OI >= $1M and trader depth >= 50, and the move isn't a runaway counter-trend
+  1h + 15m momentum are perfectly aligned, the 4h leaders' dominant side (leaderboard_get_markets
+  — a momentum read, not a proven cohort) points the same way and holds a meaningful share of
+  their gains, OI >= $1M and trader depth >= 50, and the move isn't a runaway counter-trend
   (MACRO_TREND_GATE). Score-scaled sizing (50%/70%/80% margin) at a 10x leverage cap;
   one position at a time; a wide DSL lets apex setups breathe. Faithful port of the v2
   producer thesis (XYZ + stablecoins banned). NOTE: XYZ is filtered by the 'XYZ:' name

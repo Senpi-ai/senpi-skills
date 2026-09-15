@@ -1,6 +1,6 @@
 # Bald Eagle — XYZ macro Contrarian Fader. A single-instance PACKAGE: this manifest +
 # one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2
-# Bald Eagle (SKILL.md v5.0.0): contrarian fade of smart-money consensus on a fixed
+# Bald Eagle (SKILL.md v5.0.0): contrarian fade of the 4h leaders' crowded side on a fixed
 # 6-asset XYZ macro basket (CL, BRENTOIL, GOLD, SILVER, SP500, XYZ100; Hyperliquid
 # HIP-3 DEX), conviction-scaled leverage, spread hard-gate, wide DSL-only exits.
 # The only Senpi agent trading commodities + indices + equities macro. Install/teardown
@@ -8,14 +8,14 @@
 schema_version: 1
 
 id: bald-eagle
-version: "1.3.0"
+version: "1.3.1"
 
 catalog:
   name: "Bald Eagle — XYZ Macro Fader"
   emoji: "🦅"
-  tagline: "A contrarian fader on the 6 deepest XYZ macro markets (oil, brent, gold, silver, SP500, XYZ100): when smart money is piled into one side AND the 4h move is exhausting, it takes the OPPOSITE side and lets a wide DSL ride the mean-reversion for hours."
-  belief_plain: "Trades only macro markets — oil, gold, silver, and the big stock indices — that run around the clock. When the best traders have all crowded into one direction and the move over the last few hours is already stretched, it bets on the snap-back the other way, sizes up when more signals agree, and trails a wide stop so a slow reversal has hours to play out."
-  thesis: "Macro assets on Hyperliquid attract directional momentum traders who load up after a clean 1-3% intraday move. By the time smart-money concentration crosses 10-20% on a 4h-extended move, the trade is usually exhausted — mean reversion is the positive-edge play. Bald Eagle scores SM crowding + contribution velocity + move exhaustion, hard-gates on tight book spread, fades the crowd, and gives commodities the wide exit they need to revert."
+  tagline: "A contrarian fader on the 6 deepest XYZ macro markets (oil, brent, gold, silver, SP500, XYZ100): when the 4h leaders (the traders winning the last four hours on the board) are piled into one side AND the 4h move is exhausting, it fades the 4h leaders' crowded side (takes the OPPOSITE side) and lets a wide DSL ride the mean-reversion for hours."
+  belief_plain: "Trades only macro markets — oil, gold, silver, and the big stock indices — that run around the clock. When the traders who have been winning over the last four hours have all crowded into one direction and the move is already stretched, it bets on the snap-back the other way, sizes up when more signals agree, and trails a wide stop so a slow reversal has hours to play out."
+  thesis: "Macro assets on Hyperliquid attract directional momentum traders who load up after a clean 1-3% intraday move. By the time the 4h leaders' concentration (their share of the board's 4h gains — a momentum read, not a proven cohort) crosses 10-20% on a 4h-extended move, the trade is usually exhausted — mean reversion is the positive-edge play. Bald Eagle scores 4h-leader crowding + contribution velocity + move exhaustion, hard-gates on tight book spread, fades the crowd, and gives commodities the wide exit they need to revert."
   group: contrarian
   archetype: contrarian_fade
   sub_style: xyz_overextended
@@ -27,7 +27,7 @@ catalog:
   leverage_max: 7
   max_slots: 2
   assets: ["xyz:CL", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SILVER", "xyz:SP500", "xyz:XYZ100"]
-  tags: [xyz, commodities, indices, oil, gold, silver, sp500, contrarian, fade, smart-money, mean-reversion, 24-7]
+  tags: [xyz, commodities, indices, oil, gold, silver, sp500, contrarian, fade, leader-momentum, mean-reversion, 24-7]
 
 requires:
   runtime: ">=3.0.0"

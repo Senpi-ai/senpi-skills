@@ -102,7 +102,7 @@ def _account_and_held(ctx, wallet):
     return account_value, pos_count, held
 
 
-def _fetch_sm_xyz_map(ctx):
+def _fetch_sm_xyz_map(ctx, min_traders=10):
     """READ-GUARD: build a {token -> SM market record} map, XYZ dex only.
     VERBATIM port of v2 `fetch_sm_xyz_map`. Degrades to {} on any error."""
     try:
@@ -124,7 +124,8 @@ def _fetch_sm_xyz_map(ctx):
                 token = str(m.get("token", "")).upper()
                 dex = str(m.get("dex", "")).lower()
                 # LONG and SHORT are separate rows per token: keep the dominant side, never the last row.
-                if dex == "xyz" and token and m.get("is_dominant_direction", False):
+                if dex == "xyz" and token and m.get("is_dominant_direction", False) \
+                        and int(m.get("trader_count", 0) or 0) >= min_traders:   # a thin side never sets the lean
                     sm_map[token] = m
     return sm_map
 
@@ -179,7 +180,7 @@ def scan(inputs, ctx):
     recent = (ctx.state.last() or {}).get("recent", {}) if ctx.state else {}
 
     # ── SM data (XYZ-filtered), one read per tick ──
-    sm_map = _fetch_sm_xyz_map(ctx)
+    sm_map = _fetch_sm_xyz_map(ctx, int(inputs.get("minTraderCount", 10)))
 
     # ── score every name in the universe ──
     candidates = []
