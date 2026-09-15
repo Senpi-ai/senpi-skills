@@ -1082,8 +1082,8 @@ def fetch_closed(client, wallet, meta):
     (senpi://guides/trader-closed-positions): a `closedPositions[]` of records with `coin`, signed `szi`
     (>0 closed long / <0 closed short), string `realizedPnl`, Unix-ms `closeTime`, `entryPx`/`exitPx`.
     Fails OPEN — any read/parse error → empty closed block + a meta.warning, never crashes."""
-    empty = {"realized_pnl": None, "trade_count": 0, "winners": None, "losers": None, "win_rate_pct": None,
-             "longs": None, "shorts": None, "recent": []}
+    empty = {"realized_pnl": None, "trade_count": None, "winners": None, "losers": None, "win_rate_pct": None,
+             "longs": None, "shorts": None, "unknown_side": None, "recent": []}
     try:
         h = _ok(client.mcp_call("discovery_get_trader_history", trader_address=wallet,
                                 sort_by="CLOSED_TIME", sort_direction="DESC",
@@ -1099,36 +1099,40 @@ def fetch_closed(client, wallet, meta):
     if not isinstance(rows, list):
         rows = []
     realized_total = 0.0
-    winners = losers = longs = shorts = 0
+    winners = losers = longs = shorts = unknown_side = 0
+    parsed = 0                   # the denominator is the rows actually read, never len(rows)
     recent = []
     for p in rows:
         if not isinstance(p, dict):
             continue
+        parsed += 1
         pnl = _f(p, "realizedPnl", "realized_pnl", default=0.0)   # often a string → _f coerces
         realized_total += pnl
-        szi = _f(p, "szi", "size", default=0.0)
+        szi = _f(p, "szi", "size", default=None)   # None = no readable size: neither side, and the gap stays visible
         if pnl > 0:
             winners += 1
         elif pnl < 0:
             losers += 1              # a flat close counts as neither, so winners + losers <= trade_count
-        if szi >= 0:
+        if szi is None:
+            unknown_side += 1
+        elif szi >= 0:
             longs += 1
         else:
             shorts += 1
         if len(recent) < CLOSED_HISTORY_CAP:
             recent.append({
                 "asset": _field(p, "coin", "coinDisplayName", "asset"),
-                "direction": "long" if szi >= 0 else "short",   # closed-side sign (szi>0 closed a long)
+                "direction": (("long" if szi >= 0 else "short") if szi is not None else None),   # closed-side sign (szi>0 closed a long)
                 "realized_pnl": round(pnl, 2),
                 "entry_px": _field(p, "entryPx", "entry_px"),
                 "exit_px": _field(p, "exitPx", "exit_px"),
                 "closed_time": _field(p, "closeTime", "closed_time", "closeTimeMs"),
             })
-    n = len(rows)
+    n = parsed
     return {"realized_pnl": round(realized_total, 2), "trade_count": n,
             "winners": winners, "losers": losers,
             "win_rate_pct": round(100.0 * winners / n, 1) if n else None,
-            "longs": longs, "shorts": shorts, "recent": recent}
+            "longs": longs, "shorts": shorts, "unknown_side": unknown_side, "recent": recent}
 
 
 # ──────────────────────────────────────────────────────────────── live per-position DSL / ratchet tier
@@ -1468,7 +1472,7 @@ def group_strategies(strategies, meta):
             vals = [_num((s.get("closed") or {}).get(field)) for s in insts]
             vals = [v for v in vals if v is not None]
             return int(sum(vals)) if vals else None
-        closed_counts = {f: _closed_count(f) for f in ("trade_count", "winners", "losers", "longs", "shorts")}
+        closed_counts = {f: _closed_count(f) for f in ("trade_count", "winners", "losers", "longs", "shorts", "unknown_side")}
         n_closed = closed_counts["trade_count"] or 0
         totals = {
             "account_value": _sum("account_value"),

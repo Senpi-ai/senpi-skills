@@ -515,7 +515,7 @@ directly.)
   that actually reflects the position — a 1% price move at 10x is a 10% return on margin.
 - **Report realized PnL + closed trades, not only open ones.** Each strategy carries a `closed` block —
   `realized_pnl` (total booked PnL over the recent history pull), the record over that pull
-  (`trade_count`, `winners`, `losers`, `win_rate_pct`, `longs`, `shorts`) and `recent[]` (last few
+  (`trade_count`, `winners`, `losers`, `win_rate_pct`, `longs`, `shorts`, `unknown_side`) and `recent[]` (last few
   closed trades: asset, direction, realized pnl, closed time). Quote the record; never work a win rate
   or a long/short split out of `recent[]`. A strategy flat right now may have *already booked* real
   gains; report both realized and unrealized. If `closed.realized_pnl` is `null`, the history read
@@ -771,7 +771,7 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
     stamp alone no longer counts. `null` = the runtime read did not answer — say "could not verify on
     this host," never "protected" or "not protected." Config-level posture, not a live per-position
     check — see the tri-state rule above.
-  - `closed` — `{realized_pnl, trade_count, winners, losers, win_rate_pct, longs, shorts, recent[]}`
+  - `closed` — `{realized_pnl, trade_count, winners, losers, win_rate_pct, longs, shorts, unknown_side, recent[]}`
     from a read-guarded `discovery_get_trader_history` on the strategy wallet: `realized_pnl` (total
     booked PnL over the recent pull), the record over that pull (a flat close is neither a winner nor
     a loser; `win_rate_pct` = winners / trade_count), and `recent[]` (last few closed trades: `asset`,
