@@ -142,14 +142,14 @@ def build_thesis(coin, candles_1h, candles_4h, sm, inputs):
         tilt < smTiltMinPct).
     minScore is NOT applied here — the caller gates on thesis['score'].
 
-    `sm` is the smart-money tuple (direction, tilt_pct) from the caller; when SM
-    data is unavailable the CALLER passes (None, 0.0) and this function applies
-    the v2 fallback: assume aligned at the minimum tilt (sm_data_sparse).
+    `sm` is the smart-money tuple (direction, tilt_pct) from the caller; when the
+    board has NO row for the name (the normal pre-IPO case) the CALLER passes
+    (None, 0.0) and the SM component is NEUTRAL: no gate, no points.
 
-    Score components (max ~9; verbatim v2):
+    Score components (max ~9):
       +3  4h trend aligned (always added once 4h non-neutral gate passes)
       +2  1h trend confirms the 4h direction
-      +2  SM aligned (or sm_data_sparse_assumed_aligned)
+      +2  SM aligned (a present row that agrees — a missing row scores 0)
       +1  SM strongly tilted (tilt >= smStrongTiltPct)"""
     sm_min = float(inputs.get("smTiltMinPct", DEFAULT_SM_TILT_MIN))
     sm_strong = float(inputs.get("smStrongTiltPct", DEFAULT_SM_STRONG))
@@ -165,10 +165,9 @@ def build_thesis(coin, candles_1h, candles_4h, sm, inputs):
     direction = "LONG" if t4 == "BULLISH" else "SHORT"
 
     sm_dir, sm_tilt = sm if sm else (None, 0.0)
-    # Note: IPOP SM data may be sparse pre-listing — fall back to 4h-trend-only.
+    # No board row for this name (the normal pre-IPO case): neutral — trend-only, no SM points.
     if sm_dir is None:
-        sm_dir = direction      # fallback: assume aligned (SM data not available)
-        sm_tilt = sm_min        # minimum tilt for scoring purposes
+        sm_dir, sm_tilt = "NONE", 0.0
     elif sm_dir == "NEUTRAL" or sm_dir != direction:
         return None
     elif sm_tilt < sm_min:
@@ -181,16 +180,14 @@ def build_thesis(coin, candles_1h, candles_4h, sm, inputs):
     if (direction == "LONG" and t1 == "BULLISH") or (direction == "SHORT" and t1 == "BEARISH"):
         score += 2
         reasons.append(f"1h_confirms_{t1.lower()}")
-    score += 2
-    # v2-quirk: the "sm_aligned" reason uses strict > DEFAULT_SM_TILT_MIN (55),
-    # NOT the configurable sm_min — reproduced exactly.
-    reasons.append(
-        f"sm_aligned_{sm_tilt:.0f}%" if sm_tilt > DEFAULT_SM_TILT_MIN
-        else "sm_data_sparse_assumed_aligned"
-    )
-    if sm_tilt >= sm_strong:
-        score += 1
-        reasons.append("sm_strongly_tilted")
+    if sm_dir == direction:                  # a board row that agrees — never an absent one
+        score += 2
+        reasons.append(f"sm_aligned_{sm_tilt:.0f}%")
+        if sm_tilt >= sm_strong:
+            score += 1
+            reasons.append("sm_strongly_tilted")
+    else:
+        reasons.append("sm_no_board_row")
 
     return {
         "coin": coin,
