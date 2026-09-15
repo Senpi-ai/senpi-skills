@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.23.0"
+  version: "1.24.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -531,7 +531,7 @@ directly.)
   position's live tier** (`positions[].dsl`). This config-level field is NOT the per-position tier — see
   "DSL — how it works per strategy, and which position is in which tier" below. **Never call a live
   position "unprotected" just because it has no ratchet record — sub-Tier-1 positions have none by
-  design.**
+  design.** For a raw position with no runtime, `false` means **no ratchet** — see the HARD rule below.
 - **Don't infer "wiped out" from a low balance.** Check `total_funded` / `total_withdrawn` — a
   strategy can show a small balance because profits were withdrawn (`netFunded` can be negative). That
   is not a loss.
@@ -636,6 +636,13 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
   means it has no name at all. When
   `name_source != "strategyName"`, call it by `strategy_id` + wallet and say which package it came from —
   never "the cub strategy", and never tell one sleeve from another by that string.
+- **A raw position (no runtime, `protected: false`) is "no ratchet," not "no stop."** A one-off
+  position the user placed by hand carries its protection as resting orders, which this engine does not
+  read. Before saying it has no stop, read them — `strategy_get_open_orders` on that wallet; a
+  reduce-only trigger order (`isTrigger`, `triggerPx`) whose `orderType` is a Stop (`Stop Market` /
+  `Stop Limit`) is its stop, a Take Profit order is not — and say what you found: "no ratchet;
+  a static stop rests at $X" or "no ratchet and no stop order." The direct question ("do I have a
+  stop?") is `senpi-trade`'s protection protocol, which reads the same orders; this is the portfolio view.
 - **Config-level `protected` ≠ live per-position tier.** `strategy.protected` / `group.protected`
   (`true`/`false`/`null`) is the **config posture** — `true` only when the deployed `runtime.yaml`'s
   `exit:` block was actually READ by the engine; `null` means the read didn't happen, never assume `true`
@@ -645,9 +652,10 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
 - **`SL_TRIGGERED` is history, not current exposure.** A `SL_TRIGGERED` (or `MANUALLY_CLOSED` /
   `LIQUIDATED`) record on a **closed** position means the DSL **did its job** — it locked profit / cut the
   loss. Present it as history ("DSL locked profit on the ETH short last week"), never as current risk.
-- **Never infer "no stop" from the absence of a resting stop order.** DSL exits are **runtime-managed**,
-  not resting venue orders — you won't see them as open orders. Absence of a resting SL is expected and
-  says nothing about protection. Use the `dsl` objects, not the order book.
+- **For a runtime-managed position, never infer "no stop" from the absence of a resting stop order.** DSL
+  exits are **runtime-managed**, not resting venue orders — you won't see them as open orders. Absence of a
+  resting SL is expected and says nothing about protection. Use the `dsl` objects, not the order book. A
+  raw position is the reverse case — the bullet above.
 
 ## Run it in steps — narrate as you go
 
