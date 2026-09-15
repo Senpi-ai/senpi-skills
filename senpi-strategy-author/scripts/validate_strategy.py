@@ -128,6 +128,55 @@ def direction_literal_offenders(src):
     return sorted({m.group(1) for m in _DIRECTION_LITERAL.finditer(src) if m.group(1).upper() in _CLOSE_WORDS})
 
 
+# ── momentum is not smart money ────────────────────────────────────────────────
+# `leaderboard_get_markets` is the 4h board: its `pct_of_top_traders_gain` / `longPct` say which side was
+# winning over the last four hours, so a direction taken from them is a momentum read of the board —
+# whoever was on the winning side is at the top, and calling that "smart money" is circular (SKILL.md,
+# decision 2). A smart-money thesis reads the proven cohort, `discovery_get_trader_state`; a package that
+# never does may not describe itself as smart money in anything a user reads. And a PnL sign is not a
+# side: a short is green when the price falls — the side is the sign of `szi`. Grep-level on purpose.
+_BOARD_SIDE = re.compile(r"pct_of_top_traders_gain|longPct|long_pct")
+_SMART_MONEY = re.compile(r"smart[ _-]money", re.I)
+# `"LONG" if … pnl … >= 0 else "SHORT"` (either order): a direction from the sign of a PnL field.
+_PNL_SIGN = re.compile(
+    r"""["'](?:LONG|SHORT)["']\s+if\s+[^\n]*?(\w*[Pp][Nn][Ll]\w*)[^\n<>=!]*?(?:[<>]=?|[!=]=)\s*0(?:\.0+)?(?![.\d])[^\n]*?\s+else\s+["'](?:LONG|SHORT)["']""")
+
+
+def pnl_sign_directions(src):
+    """The PnL fields whose sign picks LONG/SHORT in `src` (`"LONG" if delta_pnl >= 0 else "SHORT"`)."""
+    return sorted({m.group(1) for m in _PNL_SIGN.finditer(src)})
+
+
+def _strings(obj, path=""):
+    """(dotted_path, text) for every string in a parsed YAML value."""
+    if isinstance(obj, str):
+        yield path, obj
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            yield from _strings(v, f"{path}.{k}" if path else str(k))
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _strings(v, path)
+
+
+def smart_money_mentions(pkg: Path):
+    """[(file, field, phrase)] — "smart money" in the text a user reads: strategy.yaml `catalog` (name,
+    tagline, belief_plain, thesis, tags — what discover ranks on) and `description`, each runtime.yaml's
+    registered `description` (the mandate portfolio reads back), and README.md."""
+    docs = []
+    for f in [pkg / "strategy.yaml", *sorted(pkg.rglob("runtime.yaml"))]:
+        try:
+            d = yaml.safe_load(f.read_text()) or {}
+        except Exception:  # noqa: BLE001 — unparseable YAML is reported elsewhere
+            continue
+        keys = ("catalog", "description") if f.name == "strategy.yaml" else ("description",)
+        docs.append((str(f.relative_to(pkg)), {k: d.get(k) for k in keys} if isinstance(d, dict) else {}))
+    if (pkg / "README.md").is_file():
+        docs.append(("README.md", {"text": (pkg / "README.md").read_text(errors="ignore")}))
+    return [(f, field, m.group(0)) for f, d in docs for field, s in _strings(d)
+            for m in [_SMART_MONEY.search(s)] if m]
+
+
 def _runtime_docs(pkg: Path):
     """Every parsed runtime.yaml in the package (flat or nested)."""
     out = []
@@ -366,6 +415,19 @@ def validate(pkg: Path) -> list:
                     f"open action refuses anything else (`invalid_direction`). To close from a signal, emit the "
                     f"position's asset and its side (LONG/SHORT) from a dedicated scanner and consume it with a "
                     f"CLOSE_POSITION action (creating-a-strategy.md §6)")
+            for fld in pnl_sign_directions(src):
+                errs.append(f"{py.name}: direction from a PnL sign (`{fld}`) is not a direction — use the "
+                            f"position's side (szi sign)")
+
+    # momentum is not smart money: a side taken from the 4h board, no proven-cohort read in any of the
+    # package's scanners, and text that says smart money. One line per package, naming the first mention.
+    scn = {str(p.relative_to(pkg)): p.read_text() for p in sorted(pkg.rglob("*.py")) if "scanners" in p.parts}
+    board = [f for f, s in scn.items() if _BOARD_SIDE.search(s)]
+    if board and not any("discovery_get_trader_state" in s for s in scn.values()):
+        for f, field, phrase in smart_money_mentions(pkg)[:1]:
+            errs.append(f"{', '.join(board)}: momentum read of the 4h board described as smart money "
+                        f"({f} {field}: {phrase!r}) — rename to 4h leader momentum, or read the proven "
+                        f"cohort via discovery_get_trader_state")
 
     # null-in-typed-schema: an optional signal field set to None is REJECTED by the runtime
     # (candidate_rejected, silently) — omit it instead. Checked per scanner dir so scan.py,
