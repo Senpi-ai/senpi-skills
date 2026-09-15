@@ -1,18 +1,31 @@
-"""WHALEHUNTER — supervised scanner (Runtime 3.0 port of the v2 cohort engine).
+"""WHALEHUNTER — supervised scanner (Runtime 3.0), on Phalanx's smart-money engine.
 
-Direction-parametrized and shared verbatim by both sleeves: the `long` instance
-passes direction=LONG (positions with a net-long smart cohort); the `short` instance
-passes direction=SHORT. Each sleeve runs on its OWN wallet and its OWN ctx.state, so
-the cohort cache + daily ledger are per-sleeve (the v2 daemon shared them on disk;
-3.0 instances are isolated — signals are identical, only the cache is duplicated).
+Direction-parametrized and shared verbatim by both sleeves: the `long` instance passes
+direction=LONG and opens WITH the proven cohort's freshly-forming longs; the `short` instance
+passes direction=SHORT. Each sleeve runs on its OWN wallet and its OWN ctx.state, so the cohort
+cache, the headcount baseline and the hit-rate ledger are per-sleeve. scanners/scoring.py is
+phalanx's, byte-identical (tests/test_engine_verbatim.py pins it); this file is the orchestration
+around it plus Whalehunter's own sizing. NEVER closes — the DSL owns every exit.
 
-Per tick: refresh the smart/crowd cohorts (cached daily in ctx.state, built a few pages
-per tick so the refresh never has to fit one timeout), aggregate each
-cohort's net positioning (discovery_get_trader_state), update the daily ledger to get
-the 'adding daily' growth, score the divergences for THIS direction, and emit a
-conviction-scaled marginPct INTENT (the runtime sizes, owns slots/dedup, trails DSL).
-Read-only, single-pass. Derived universe — the coins come from the cohort's positions,
-not a fixed list. NOTE: ~1 UTC-day warmup before requireGrowing can pass."""
+Each tick:
+  1) COHORTS — the SMART cohort (lifetime realized >= smartMinRealizedUsd) and the CROWD
+     (crowdMin..crowdMax) from the ALL_TIME realized ranking, cached daily in ctx.state and
+     built a few pages per tick (_build_cohorts, unchanged).
+  2) HEADCOUNT — one vote per (wallet, asset, direction) from discovery_get_trader_state
+     (batched) -> {ASSET: {long_n, short_n}}. The FIRST read only seeds the baseline.
+  3) LEDGER — a signal emitted >= 1h ago is marked right or wrong against price; an asset
+     class (crypto / xyz) under a 40% hit rate has its threshold raised by 4, over 55%
+     lowered by 2 (floor 52).
+  4) GATE — the dominant side of a name qualifies iff one_sidedness >= tiltThreshold (65%,
+     0 below 10 positioned wallets) AND its net headcount grew by >= deltaMin (+2) since
+     the last tick (fresh_picks — pure); this sleeve keeps its own direction only.
+  5) EMIT — not held, not signalled within recentSignalTtlSeconds, sized by Whalehunter's
+     conviction score: 4 for a gated name, +1 at >= 85% one-sided, +1 when the crowd's
+     headcount leans the other way (scoring.is_divergent — the crowd is read only when a
+     name cleared the gate) -> marginPct x1 / x1.25 / x1.5.
+
+Read-only + single-pass. marginPct is a PERCENT in (0,100]. No daemon.
+"""
 
 import sys
 import time
@@ -21,17 +34,55 @@ import scoring
 
 CACHE_VERSION = 2     # bump if the cohort-BUILDING logic changes (busts a stale cache) — 2: chunked build
 _DEFAULT_TTL = 3600   # 60m signal-dedup: don't re-fire a coin while a signal is in flight
+_DEFAULT_TILT_THRESHOLD = 65.0   # min one_sidedness to qualify (scoring: 0 below 10 wallets)
+_DEFAULT_DELTA_MIN = 2.0          # min net-headcount growth since last tick (one wallet is noise)
+_STRONG_TILT = 85.0   # the old "|bias| >= 0.7" size step, in headcount: 85% of the positioned wallets on one side
 
 
-def _read(ctx, name, args):
-    """Guarded MCP read: a transient/permission error on a read must NOT roll back the
-    whole tick. Returns None on failure so the existing degrade paths apply (cohort
-    falls back to its daily cache; a failed state batch is skipped)."""
+def _read(ctx, name, args, label):
+    """Guarded MCP read — a transient error degrades, never crashes the tick."""
     try:
-        return ctx.senpi_mcp.call_tool(name, args)
+        raw = ctx.senpi_mcp.call_tool(name, args)
     except Exception as exc:  # noqa: BLE001
-        print(f"[whalehunter.scan] {name} read failed: {exc!r}", file=sys.stderr)
+        print(f"[whalehunter.scan] {label} read failed: {exc!r}", file=sys.stderr)
         return None
+    if not raw:
+        return None
+    return raw.get("data", raw) if isinstance(raw, dict) else raw
+
+
+# ── PROVEN COHORT — record readers verbatim from phalanx/main/scanners/scan.py ──
+
+def _traders_of(d):
+    """Unwrap discovery_get_top_traders response."""
+    if isinstance(d, list):
+        return d
+    if isinstance(d, dict):
+        for k in ("traders", "data", "results"):
+            if isinstance(d.get(k), list):
+                return d[k]
+    return []
+
+
+def _trader_address(t):
+    """Extract a lower-cased address from a trader record."""
+    if not isinstance(t, dict):
+        return ""
+    for k in ("traderAddress", "trader_address", "address", "wallet"):
+        v = t.get(k)
+        if v:
+            return str(v).lower()
+    return ""
+
+
+def _realized(t):
+    """Realized PnL from a top-trader record (tries every spelling)."""
+    for k in ("realizedProfitAndLoss", "realized_profit_and_loss",
+              "profit_and_loss_realized", "realizedPnl", "realized_pnl"):
+        v = t.get(k) if isinstance(t, dict) else None
+        if v is not None:
+            return scoring._f(v)
+    return 0.0
 
 
 def _build_cohorts(ctx, cached, inputs, now):
@@ -67,24 +118,23 @@ def _build_cohorts(ctx, cached, inputs, now):
     while page < max_pages and fetched < pages_per_tick:
         resp = _read(ctx, "discovery_get_top_traders", {
             "time_frame": "ALL_TIME", "sort_by": "PROFIT_AND_LOSS_REALIZED",
-            "open_position_filter": False, "limit": page_size, "offset": page * page_size})
+            "open_position_filter": False, "limit": page_size, "offset": page * page_size},
+            f"discovery_get_top_traders(p{page})")
         fetched += 1
-        if not resp:
+        if resp is None:
             break                                           # transient: keep progress, resume next tick
-        raw = resp.get("data", resp) if isinstance(resp, dict) else resp
-        if isinstance(raw, dict):
-            raw = raw.get("traders", raw.get("data", []))
-        if not isinstance(raw, list) or not raw:
+        raw = _traders_of(resp)
+        if not raw:
             done = True
             break
         page_top = None
         for t in raw:
             if not isinstance(t, dict):
                 continue
-            addr = (t.get("address") or t.get("trader_address") or "").lower()
+            addr = _trader_address(t)
             if not addr or addr in seen:
                 continue
-            rp = scoring.realized(t)
+            rp = _realized(t)
             page_top = rp if page_top is None else max(page_top, rp)
             if rp >= smin:
                 if len(smart) < cap:
@@ -116,71 +166,328 @@ def _build_cohorts(ctx, cached, inputs, now):
     return out
 
 
-def _fetch_states(ctx, addrs):
-    """discovery_get_trader_state in batches of 50 -> flat list of trader-state dicts."""
-    traders = []
-    for i in range(0, len(addrs), 50):
-        resp = _read(ctx, "discovery_get_trader_state",
-                                       {"trader_addresses": addrs[i:i + 50]})
-        if not resp:
+# ── COHORT POSITIONING (headcount per asset) — verbatim from phalanx/main/scanners/scan.py ──
+
+def _state_wallet(st):
+    return str((st or {}).get("traderAddress") or (st or {}).get("trader_address")
+               or (st or {}).get("address") or (st or {}).get("wallet") or "").lower()
+
+
+def _positions_of(st):
+    if not isinstance(st, dict):
+        return []
+    pos = st.get("openPositions") or st.get("open_positions") or st.get("positions") or []
+    return pos if isinstance(pos, list) else []
+
+
+def _direction_of(pos):
+    """LONG / SHORT from szi sign."""
+    szi = scoring._f((pos or {}).get("szi"))
+    if szi > 0:
+        return "LONG"
+    if szi < 0:
+        return "SHORT"
+    return None
+
+
+def _cohort_headcount(ctx, cohort, inputs):
+    """Aggregate per-asset headcount from the cohort's open positions.
+
+    Returns {BARE_UPPER: {"long_n": int, "short_n": int, "raw_coin": str}}
+    where raw_coin carries the venue prefix (xyz:NVDA) for the first sighting.
+    """
+    batch = int(scoring._f(inputs.get("stateBatch"), 50))
+    states, any_ok = [], False
+    for i in range(0, len(cohort), batch):
+        d = _read(ctx, "discovery_get_trader_state",
+                  {"trader_addresses": cohort[i:i + batch]},
+                  f"discovery_get_trader_state(b{i // batch})")
+        if d is None:
             continue
-        data = resp.get("data", resp) if isinstance(resp, dict) else resp
-        if isinstance(data, dict):
-            traders.extend(data.get("traders", []) or [])
-    return traders
+        any_ok = True
+        # d might be a list of trader states or a dict wrapping one
+        if isinstance(d, list):
+            states.extend(d)
+        elif isinstance(d, dict):
+            for k in ("traders", "data", "results"):
+                if isinstance(d.get(k), list):
+                    states.extend(d[k])
+                    break
+            else:
+                states.append(d)  # single trader state
+
+    if not any_ok:
+        print("[whalehunter.scan] all trader_state batches failed — no headcount this tick",
+              file=sys.stderr)
+        return {}
+
+    counts = {}
+    seen = set()  # (wallet, asset, direction) dedup across batches
+    for st in states:
+        if not isinstance(st, dict):
+            continue
+        wallet = _state_wallet(st)
+        for pos in _positions_of(st):
+            if not isinstance(pos, dict):
+                continue
+            coin = (pos.get("coin") or pos.get("asset") or "")
+            if not coin:
+                continue
+            direction = _direction_of(pos)
+            if direction is None:
+                continue
+            asset_key = scoring.bare_upper(coin)
+            wkey = wallet or f"_anon_{id(pos)}"
+            dkey = (wkey, asset_key, direction)
+            if dkey in seen:
+                continue
+            seen.add(dkey)
+            rec = counts.setdefault(asset_key, {
+                "long_n": 0, "short_n": 0, "raw_coin": coin,
+            })
+            if direction == "LONG":
+                rec["long_n"] += 1
+            else:
+                rec["short_n"] += 1
+            # prefer a prefixed raw_coin for venue correctness
+            if str(coin).lower().startswith("xyz:") and not str(rec["raw_coin"]).lower().startswith("xyz:"):
+                rec["raw_coin"] = coin
+
+    return counts
+
+
+# ── PRICE READ — the ledger's entry / evaluation price, verbatim from phalanx ──
+
+def _dex_for(asset):
+    """XYZ (HIP-3) assets need dex='xyz' for market reads."""
+    return "xyz" if str(asset).lower().startswith("xyz:") else ""
+
+
+def _asset_data(ctx, coin):
+    """Read 1h + 4h candles for an asset. Returns (candles_1h, candles_4h) or (None, None)."""
+    md = _read(ctx, "market_get_asset_data", {
+        "asset": coin,
+        "candle_intervals": ["1h", "4h"],
+        "include_funding": False,
+        "include_order_book": False,
+        "dex": _dex_for(coin),
+    }, f"market_get_asset_data({coin})")
+    if not isinstance(md, dict):
+        return None, None
+    candles = md.get("candles", {}) or {}
+    c1h = candles.get("1h", []) or []
+    c4h = candles.get("4h", []) or []
+    return c1h, c4h
+
+
+def _current_price(candles_1h):
+    """Latest close from 1h candles, or 0.0."""
+    if not candles_1h:
+        return 0.0
+    last = candles_1h[-1]
+    if isinstance(last, dict):
+        return scoring._f(last.get("c", last.get("close", 0)))
+    if isinstance(last, (list, tuple)) and len(last) >= 5:
+        return scoring._f(last[4])
+    return 0.0
+
+
+# ── THIS WALLET ──
+
+def _held(ctx):
+    """Bare-uppercase set of coins with an open position on this wallet, or None on
+    read failure. Ported verbatim from raven (clearinghouse assetPositions unwrap)."""
+    d = _read(ctx, "strategy_get_clearinghouse_state",
+              {"strategy_wallet": ctx.wallet}, "strategy_get_clearinghouse_state")
+    if not isinstance(d, dict):
+        return None
+    out = set()
+    # dual-DEX: strategy_get_clearinghouse_state returns {"main": ..., "xyz": ...} —
+    # two views of ONE cross-margined wallet, each with its own assetPositions.
+    # Reading assetPositions off the TOP level silently yields NOTHING held, so a
+    # scanner re-opens names it already holds (pyramiding / failed duplicate opens).
+    _rows = []
+    for _sec in ("main", "xyz"):
+        _s = d.get(_sec)
+        if isinstance(_s, dict):
+            _rows.extend(_s.get("assetPositions", _s.get("asset_positions", [])) or [])
+    if not _rows:  # legacy/flat shape
+        _rows = d.get("assetPositions", d.get("asset_positions", [])) or []
+    for e in _rows:
+        pos = e.get("position", e) if isinstance(e, dict) else {}
+        coin = str(pos.get("coin", "")).strip()
+        if coin and scoring._f(pos.get("szi")) != 0:
+            out.add(coin.split(":", 1)[-1].upper())
+    return out
+
+
+# ── THE GATE — on the engine's functions. PURE (dicts in, picks out) ──
+
+def fresh_picks(headcount, prev_tilts, accuracy_state, inputs):
+    """Per name, the dominant side qualifies iff
+
+        scoring.one_sidedness(long_n, short_n) >= threshold     (0 below 10 wallets positioned)
+        scoring.directional_delta(prev, cur, direction) >= deltaMin
+
+    where threshold is tiltThreshold moved per asset class by the hit-rate ledger
+    (scoring.adjusted_threshold). So a 30L/26S split (54%) never trades however fast it grew,
+    and a +1 delta — one wallet — never trades however one-sided the name is. Returns
+    [{asset, bare, direction, count, conviction, delta}] ranked by one-sidedness
+    (scoring.rank_signals). PURE — no I/O."""
+    tilt = scoring._f(inputs.get("tiltThreshold"), _DEFAULT_TILT_THRESHOLD)
+    delta_min = scoring._f(inputs.get("deltaMin"), _DEFAULT_DELTA_MIN)
+    picks = []
+    for bare, rec in (headcount or {}).items():
+        rec = rec or {}
+        long_n = int(scoring._f(rec.get("long_n")))
+        short_n = int(scoring._f(rec.get("short_n")))
+        raw_coin = rec.get("raw_coin", bare)
+        sided = scoring.one_sidedness(long_n, short_n)
+        if sided < scoring.adjusted_threshold(tilt, scoring.asset_class_for(raw_coin), accuracy_state):
+            continue
+        direction = "LONG" if long_n >= short_n else "SHORT"
+        p = (prev_tilts or {}).get(bare) or {}
+        delta = scoring.directional_delta(p.get("long_n", 0), p.get("short_n", 0),
+                                          long_n, short_n, direction)
+        if delta < delta_min:
+            continue
+        picks.append({"asset": raw_coin, "bare": bare, "direction": direction,
+                      "count": max(long_n, short_n), "conviction": round(sided, 1),
+                      "delta": round(delta, 1)})
+    return scoring.rank_signals(picks)
+
+
+# ── SIZING — Whalehunter's own conviction score -> marginPct ──
+
+def crowd_diverges(smart_rec, crowd_rec):
+    """True when the crowd's headcount on this name leans against the smart cohort's
+    (scoring.is_divergent over each cohort's long share, scoring.net_tilt). No crowd position
+    on the name -> no divergence claim (an absent crowd would otherwise read as SHORT)."""
+    if not crowd_rec:
+        return False
+    smart_lr, _ = scoring.net_tilt(smart_rec.get("long_n", 0), smart_rec.get("short_n", 0))
+    crowd_lr, _ = scoring.net_tilt(crowd_rec.get("long_n", 0), crowd_rec.get("short_n", 0))
+    return scoring.is_divergent(smart_lr, crowd_lr)
+
+
+def score_for(one_sidedness, divergent):
+    """Whalehunter's conviction score on the engine's reads: 4 for any name that cleared the gate
+    (the old 3 + the 'adding' point, which the delta gate now makes mandatory), +1 when the smart
+    side holds >= 85% of the positioned wallets, +1 when the crowd leans the other way."""
+    return 4 + (1 if one_sidedness >= _STRONG_TILT else 0) + (1 if divergent else 0)
+
+
+def margin_pct_for(score, config):
+    """Conviction-scaled marginPct INTENT as a PERCENT of withdrawable in (0,100]
+    (the runtime sizes (marginPct/100)*withdrawable). Scales +25% per point above 4 (the
+    score every gated name starts at), capped at maxMarginPct. Whalehunter's own sizing,
+    moved here from the old scoring.py."""
+    base = float(config.get("marginPct", 12))
+    cap = float(config.get("maxMarginPct", 25))
+    smax = float(config.get("maxConvictionScale", 2.0))
+    scale = min(smax, 1.0 + 0.25 * max(0, score - 4))
+    return round(min(base * scale, cap), 4)
 
 
 def scan(inputs, ctx):
     direction = (inputs.get("direction", "LONG") or "LONG").upper()
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
-    std_lev = int(inputs.get("stdLeverage", 3))
-    max_lev = int(inputs.get("maxLeverage", 5))
+    leverage = min(int(inputs.get("stdLeverage", 3)), int(inputs.get("maxLeverage", 5)))
     min_members = int(inputs.get("cohortMinMembers", 5))
     now = time.time()
-    today = time.strftime("%Y-%m-%d", time.gmtime(now))
 
     last = (ctx.state.last() or {}) if ctx.state else {}
-    ledger_days = (last.get("ledger") or {}).get("days", {})
+    prev = dict(last.get("prev_tilts") or {})
+    accuracy = last.get("accuracy")
+    if not isinstance(accuracy, dict):
+        accuracy = scoring.new_accuracy_state()
     recent = {k: v for k, v in (last.get("recent") or {}).items() if (now - v) < ttl}
 
     cohorts = _build_cohorts(ctx, last.get("cohorts", {}), inputs, now)
     smart, crowd = cohorts.get("smart", []), cohorts.get("crowd", [])
 
-    def _persist():
+    def _persist(tilts, opened=0, held_n=None):
         if ctx.state is None:
             return
         try:
-            ctx.state.append({"cohorts": cohorts, "ledger": {"days": ledger_days}, "recent": recent})
+            ctx.state.append({
+                "cohorts": cohorts, "prev_tilts": tilts, "accuracy": accuracy, "recent": recent,
+                "result": {"ts": now, "opened": opened, "held": held_n,
+                           "cohort_size": len(smart), "names": len(tilts or {})},
+            })
         except Exception as exc:  # noqa: BLE001
             print(f"[whalehunter.scan] WARNING: state append failed: {exc!r}", file=sys.stderr)
 
-    if len(smart) < min_members:                            # cohort too small — cache & bail
-        _persist()
+    if len(smart) < min_members:                            # cohort too small (or still building) — cache & bail
+        _persist(prev)
         return []
 
-    smart_per = scoring.aggregate_bias(_fetch_states(ctx, smart))
-    crowd_per = scoring.aggregate_bias(_fetch_states(ctx, crowd))
-    ledger_days, growth = scoring.update_ledger(ledger_days, smart_per, today)
-    strikes = scoring.cohort_signals(smart_per, crowd_per, growth, direction, inputs)
+    # ── headcount: one vote per (wallet, asset, direction) ──
+    cur = _cohort_headcount(ctx, smart, inputs)
+    if not cur:
+        print("[whalehunter.scan] no headcount this tick — holding the prior baseline", file=sys.stderr)
+        _persist(prev)
+        return []
+    tilts = {a: {"long_n": r["long_n"], "short_n": r["short_n"]} for a, r in cur.items()}
 
-    leverage = min(std_lev, max_lev)
+    # ── cold start: the first read is the baseline, not a signal (delta needs a last tick) ──
+    if not prev:
+        print(f"[whalehunter.scan] baseline seeded: {len(tilts)} names across {len(smart)} smart "
+              f"wallets — no opens on the first tick", file=sys.stderr)
+        _persist(tilts)
+        return []
+
+    # ── ledger: mark signals emitted >= 1h ago right or wrong against price ──
+    def _price_lookup(asset):
+        c1h, _ = _asset_data(ctx, asset)
+        return _current_price(c1h)
+
+    for cls in ("crypto", "xyz"):
+        accuracy = scoring.update_accuracy(accuracy, cls, now, _price_lookup)
+
+    fresh = [p for p in fresh_picks(cur, prev, accuracy, inputs) if p["direction"] == direction]
+
+    held = _held(ctx)
+    if held is None:
+        # clearinghouse unreadable — do NOT advance the baseline (keep the growth actionable
+        # next tick), emit nothing this tick.
+        print("[whalehunter.scan] clearinghouse unreadable — no opens this tick", file=sys.stderr)
+        _persist(prev)
+        return []
+    # the crowd only ever sizes a pick UP, so it is read only when a name cleared the gate
+    crowd_hc = _cohort_headcount(ctx, crowd, inputs) if fresh and crowd else {}
+
     out = []
-    for s in strikes:
-        cu = s["coin"].upper()
-        if recent.get(cu) is not None and (now - recent[cu]) < ttl:   # signal-dedup
+    for pick in fresh:
+        bare, asset, count = pick["bare"], pick["asset"], int(pick["count"])
+        if bare in held:
             continue
+        if recent.get(bare) is not None and (now - recent[bare]) < ttl:   # signal-dedup
+            continue
+        divergent = crowd_diverges(cur[bare], crowd_hc.get(bare))
+        score = score_for(pick["conviction"], divergent)
+        mgn = margin_pct_for(score, inputs)
+        recent[bare] = now
+        reasons = [f"{count}_smart_wallets_{direction}", f"{pick['conviction']:.0f}%_one_sided",
+                   f"delta_+{pick['delta']:.0f}"] + (["crowd_diverges"] if divergent else [])
         out.append({
-            "asset": s["coin"],
-            "direction": direction,
-            "marginPct": scoring.margin_pct_for(s["score"], inputs),  # conviction-scaled INTENT
-            "leverage": leverage,                                     # std, runtime clamps to venue max
-            "data": {
-                "score": s["score"], "direction": direction, "signalKind": "COHORT_DIVERGENCE",
-                "smartBias": s["smart_bias"], "crowdBias": s["crowd_bias"],
-                "smartGrowth": s["growth"], "smartMembers": s["n_confirm"], "reasons": s["reasons"],
-            },
+            "asset": asset, "direction": direction, "marginPct": mgn, "leverage": leverage,
+            "data": {"score": score, "direction": direction, "smartMembers": count,
+                     "oneSidedness": pick["conviction"], "delta": pick["delta"],
+                     "divergence": divergent, "reasons": reasons},
         })
-        recent[cu] = now
+        entry_px = _price_lookup(asset)          # the ledger marks this signal in 1h
+        if entry_px > 0:
+            scoring.add_pending_signal(accuracy, scoring.asset_class_for(asset),
+                                       asset, direction, entry_px, now)
+        print(f"[whalehunter.scan] OPEN {direction} {asset}: {count} smart wallets agree "
+              f"({pick['conviction']:.0f}% one-sided, delta +{pick['delta']:.0f}"
+              f"{', crowd diverges' if divergent else ''}) score {score} {leverage}x {mgn}%",
+              file=sys.stderr)
 
-    _persist()
+    if not out:
+        print(f"[whalehunter.scan] no opens: cohort={len(smart)} held={len(held)} "
+              f"names={len(cur)} fresh={len(fresh)}", file=sys.stderr)
+
+    _persist(tilts, len(out), len(held))
     return out
