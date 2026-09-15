@@ -184,7 +184,7 @@ def ensure_pkg(arg, ref, log):
 
     Until 2026-09-04 an on-disk package was used verbatim and the remote never consulted, so a box
     that had ever fetched a strategy was pinned to that copy forever — every later catalog fix
-    invisible to it. Observed live: a box deployed stingray v1.0.0 while the catalog was at v1.2.1,
+    invisible to it. Observed live: a box deployed a template at v1.0.0 while the catalog was at v1.2.1,
     funded the wallet, and reported success.
 
     Three cases still do NOT refresh:
