@@ -74,3 +74,19 @@ def test_skill_says_quote_the_record_and_route_other_templates_through_discover(
     for needle in ("Numbers come from the engine; other strategies come from discover",
                    "from memory"):
         assert needle in text, needle
+
+
+def test_malformed_rows_are_not_in_the_denominator():
+    # two losing trades plus two rows the loop cannot read: the record is 0 of 2, never 0 of 4
+    meta = {}
+    closed = portfolio.fetch_closed(_Client(ROWS[:2] + ["junk", None]), "0x" + "b" * 40, meta)
+    assert closed["trade_count"] == 2 and closed["losers"] == 2 and closed["winners"] == 0
+    assert closed["win_rate_pct"] == 0.0
+
+
+def test_a_missing_size_is_neither_long_nor_short():
+    row = _row("BTC", 1, 2.0)
+    del row["szi"]
+    closed = portfolio.fetch_closed(_Client([row, _row("ETH", -1, 1.0)]), "0x" + "c" * 40, {})
+    assert closed["longs"] == 0 and closed["shorts"] == 1 and closed["unknown_side"] == 1
+    assert closed["recent"][0]["direction"] is None and closed["recent"][1]["direction"] == "short"
