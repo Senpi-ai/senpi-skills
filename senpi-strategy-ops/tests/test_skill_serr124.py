@@ -1,6 +1,8 @@
-"""A backend `SERR124` (the platform's pool of approved strategy wallets is empty) is not a cause the
-agent can fix. The outcome table's generic "read the quoted cause, fix it, re-run" is exactly the
-sentence that turned it into a 30-second retry loop, so the skill names it as the exception it is."""
+"""A backend `SERR124` (this account's pool of approved strategy wallets is empty — pools are per
+account, and the code is seen on some migrated older accounts) is not a cause the agent can fix. The
+outcome table's generic "read the quoted cause, fix it, re-run" is exactly the sentence that turned it
+into a 30-second retry loop, so the skill names it as the exception it is: tell the user, route it to
+Senpi support, one later attempt after they confirm, never a loop, never a platform alert."""
 
 import unittest
 from pathlib import Path
@@ -20,20 +22,22 @@ def _playbook_section():
     return rest if end < 0 else rest[:end]
 
 
-class Serr124IsAnOutageNotARetry(unittest.TestCase):
-    def test_the_failed_row_names_the_pool_outage_as_an_exception_to_fix_and_rerun(self):
+class Serr124IsThisAccountsPoolNotARetry(unittest.TestCase):
+    def test_the_failed_row_names_the_empty_pool_as_an_exception_to_fix_and_rerun(self):
         row = next((l for l in SKILL.read_text().splitlines() if l.startswith("| `3` |")), None)
         assert row is not None, "the outcome table lost its exit-3 row"
         self.assertIn("`SERR124`", row)
         self.assertIn("nothing was created or debited", row)
-        self.assertIn("ONCE more after ~30 minutes", row)
+        self.assertIn("route it to Senpi support", row)
         self.assertIn("never a retry loop", row)
 
-    def test_the_playbook_says_nothing_was_created_and_forbids_the_loop(self):
+    def test_the_playbook_says_per_account_and_forbids_the_loop(self):
         section = _playbook_section()
         for needle in (
-            "Nothing was created or debited",
-            "Try ONCE more after ~30 minutes",
+            "Nothing was created or\ndebited",
+            "per account",
+            "not a platform outage",
+            "Try ONCE more only after support confirms",
             "re-run every 30 seconds",
             "lower the budget",
             "strategy_create_custom_strategy",
