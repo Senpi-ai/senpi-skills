@@ -198,19 +198,18 @@ price_retrace = retrace_threshold / 100 / leverage
 Configured at the **preset root** (siblings of `phase1`/`phase2`), each runs every tick alongside the
 phase logic, after Phase 1 floor-breach counting. Their phase behavior:
 
-- **`hard_timeout` is Phase 1 only.** If the position enters Phase 2 before the interval elapses, it
-  never fires.
-- **`weak_peak_cut` and `dead_weight_cut` are evaluated in any phase** while the position is open
-  (though `weak_peak_cut`'s guard usually only holds in Phase 1 — see below).
+- **All three fire in either phase.** The preset-root cuts have no phase guard: entering Phase 2 does
+  not disarm `hard_timeout`, and `weak_peak_cut` / `dead_weight_cut` are evaluated while the position
+  is open (though `weak_peak_cut`'s guard usually only holds in Phase 1 — see below).
 
-#### `hard_timeout` — Phase 1 only
+#### `hard_timeout` — either phase
 
-> "Close a position that has stayed in Phase 1 for at least N minutes."
+> "Close a position that has been open for at least N minutes."
 
-Fires only **while the position is still in Phase 1**. If the position **enters Phase 2** (first tier
-crossed) before the interval elapses, `hard_timeout` **never fires** for that position — in Phase 2,
-elapsed time is ignored for this cut. On the exact tick where the interval has elapsed *and* price
-crosses into the first tier, **tier/phase advance wins** and no `hard_timeout` is emitted.
+Counts wall-clock minutes **from open** and fires in **either phase**: a position that crossed into
+Phase 2 (first tier armed) is still closed when the interval elapses. There is no phase guard and the
+clock never resets, so a `hard_timeout` is a profit-taker on a winner as much as a give-up on a
+laggard — which is why let-winners-run templates disable it and leave exits to the ladder.
 
 **Field:** `interval_in_minutes` — wall-clock minutes since open. Must be > 0 (clamped to ≥ the cron
 interval).
@@ -290,7 +289,7 @@ Telegram notification (if dsl_lifecycle enabled)
 | `max_loss_pct` | Hard absolute floor — never lose more than this ROE% from entry. Positive number. |
 | `trigger_pct` (tier) | ROE% that activates this tier and enters Phase 2. Strictly ascending across tiers. |
 | `lock_hw_pct` (tier) | % of peak high-water ROE to protect as the Phase 2 trailing floor. Higher = tighter. |
-| `hard_timeout` | Max minutes in Phase 1 before giving up on an undeveloped position. Phase 1 only. |
+| `hard_timeout` | Max minutes since open before the position is closed, whatever its phase. |
 | `weak_peak_cut` | Exits faded positions whose peak never reached `min_value` ROE. |
 | `dead_weight_cut` | Exits positions held continuously non-positive past the interval. |
 | `interval_seconds` (exit) | How often the DSL evaluates open positions. Integer, 5–3600. |
