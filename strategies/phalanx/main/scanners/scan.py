@@ -395,15 +395,6 @@ def scan(inputs, ctx):
     ttl = scoring._f(inputs.get("recentSignalTtlSeconds"), _DEFAULT_RECENT_TTL)
     lb_limit = int(scoring._f(inputs.get("leaderboardLimit"), _DEFAULT_LEADERBOARD_LIMIT))
 
-    # ── account + held ──
-    account_value, positions = _get_account(ctx)
-    if account_value <= 0:
-        print("[phalanx.scan] cannot read account value; skip tick", file=sys.stderr)
-        _persist_state(ctx, prev_state=None, signaled={}, result={"ts": now, "emitted": False, "gate": "no_account"})
-        return []
-    held_assets = [p["coin"] for p in positions if p.get("coin")]
-    held_set = {scoring.bare_upper(h) for h in held_assets}
-
     # ── load previous state ──
     prev = (ctx.state.last() or {}) if ctx.state else {}
     prev_tilts = prev.get("prev_tilts", {})
@@ -416,6 +407,16 @@ def scan(inputs, ctx):
 
     # prune expired dedup entries
     signaled = {k: v for k, v in signaled.items() if (now - v) < ttl * 3}
+
+    # ── account + held ──
+    account_value, positions = _get_account(ctx)
+    if account_value <= 0:
+        print("[phalanx.scan] cannot read account value; skip tick", file=sys.stderr)
+        _persist_state(ctx, prev, None, [], {}, accuracy_state, signaled,
+                       {"ts": now, "emitted": False, "gate": "no_account"})
+        return []
+    held_assets = [p["coin"] for p in positions if p.get("coin")]
+    held_set = {scoring.bare_upper(h) for h in held_assets}
 
     # ── proven cohort (daily cache) ──
     cohort, cohort_refreshed = _get_cohort(ctx, inputs, prev)
