@@ -114,9 +114,9 @@ class _MCP:
         if tool == "discovery_get_top_traders":
             if (args or {}).get("offset", 0) > 0:
                 return {"data": {"traders": []}}
-            return {"data": {"traders": [{"address": f"0xs{i}", "realizedPnl": 5e6}
+            return {"data": {"traders": [{"address": f"0xs{i}", "realizedProfitAndLoss": 5e6}
                                          for i in range(self.shorts)] +
-                                        [{"address": f"0xl{i}", "realizedPnl": 5e6}
+                                        [{"address": f"0xl{i}", "realizedProfitAndLoss": 5e6}
                                          for i in range(self.longs)]}}
         if tool == "discovery_get_trader_state":
             addrs = set((args or {}).get("trader_addresses") or [])

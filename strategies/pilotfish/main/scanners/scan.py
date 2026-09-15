@@ -80,7 +80,7 @@ def _refresh_cohort(ctx, inputs):
         for t in rows:
             if not isinstance(t, dict):
                 continue
-            realized = scoring._f(t.get("realizedPnl", t.get("realized_profit_and_loss")), 0.0)
+            realized = scoring._f(t.get("realizedProfitAndLoss"), 0.0)
             addr = scoring._trader_address(t)
             if addr and realized >= min_real:
                 addrs.append(addr)
