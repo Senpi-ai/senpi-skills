@@ -230,6 +230,26 @@ killed call still says what it was doing. Deploy needs **every**
 instance proven and stops at the first that is not, so on a multi-instance package expect to be
 sent back for the next sleeve; validating every instance dir up front avoids the round trip.
 
+## Backend rejections the box cannot fix
+
+### `SERR124` — no approved strategy wallet in the pool
+
+Reaches you as a **`failed` report (exit 3)** on `create` with the backend's text quoted
+(`No approved strategy wallet available in the pool (free=0, …)`), or as the raw MCP error if a
+create was called directly. Senpi keeps a pool of pre-approved strategy wallets and it is empty —
+an outage on Senpi's side, not this account and not this package. **Nothing was created or debited**;
+the budget never left the funding wallet.
+
+- **Tell the user in one sentence**: the platform is out of strategy wallets right now, nothing was
+  created, their funds are untouched, and you will try again in about 30 minutes.
+- **Try ONCE more after ~30 minutes** — the same `deploy.py create` command. It resumes cleanly
+  because nothing exists.
+- **Never**: re-run every 30 seconds (a refill takes minutes to hours, and an identical request refuses
+  identically until it lands); lower the budget or switch templates (the budget is not the problem);
+  call `strategy_create` / `strategy_create_custom_strategy` directly to route around the verb (same
+  pool, same refusal, and a raw create is not a runtime strategy); or close another strategy to
+  "free a wallet" (that is a live strategy with the user's money in it, and it does nothing for the pool).
+
 ## Budget warnings (`W_`)
 
 **The `W_` prefix means WARNING — it blocked nothing.** Every `E_` code stops something; a `W_`

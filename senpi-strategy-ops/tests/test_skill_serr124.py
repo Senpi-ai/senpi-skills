@@ -1,0 +1,49 @@
+"""A backend `SERR124` (the platform's pool of approved strategy wallets is empty) is not a cause the
+agent can fix. The outcome table's generic "read the quoted cause, fix it, re-run" is exactly the
+sentence that turned it into a 30-second retry loop, so the skill names it as the exception it is."""
+
+import unittest
+from pathlib import Path
+
+OPS = Path(__file__).resolve().parent.parent
+SKILL = OPS / "SKILL.md"
+PLAYBOOK = OPS / "references" / "refusal-playbook.md"
+TAXONOMY = OPS.parent / "docs" / "error-code-taxonomy.md"
+
+
+def _playbook_section():
+    text = PLAYBOOK.read_text()
+    start = text.index("### `SERR124`")
+    rest = text[start:]
+    end = rest.find("\n## ")
+    return rest if end < 0 else rest[:end]
+
+
+class Serr124IsAnOutageNotARetry(unittest.TestCase):
+    def test_the_failed_row_names_the_pool_outage_as_an_exception_to_fix_and_rerun(self):
+        row = next(l for l in SKILL.read_text().splitlines() if l.startswith("| `3` |"))
+        self.assertIn("`SERR124`", row)
+        self.assertIn("nothing was created or debited", row)
+        self.assertIn("ONCE more after ~30 minutes", row)
+        self.assertIn("never a retry loop", row)
+
+    def test_the_playbook_says_nothing_was_created_and_forbids_the_loop(self):
+        section = _playbook_section()
+        for needle in (
+            "Nothing was created or debited",
+            "Try ONCE more after ~30 minutes",
+            "re-run every 30 seconds",
+            "lower the budget",
+            "strategy_create_custom_strategy",
+            "close another strategy",
+        ):
+            self.assertIn(needle, section)
+
+    def test_the_taxonomy_carries_the_row(self):
+        if not TAXONOMY.is_file():
+            self.skipTest("taxonomy not present (installed skill layout)")
+        self.assertIn("| `SERR124` (backend) |", TAXONOMY.read_text())
+
+
+if __name__ == "__main__":
+    unittest.main()
