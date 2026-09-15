@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.8.0"
+  version: "3.9.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -176,8 +176,8 @@ For each: ask the question, offer the options as plain choices, then map the ans
    package — a ticker that isn't a live instrument silently no-trades. The broad index is `xyz:XYZ100`,
    not `xyz:NASDAQ`; check, don't assume.**
 2. **Data — "What does it read to decide?"**
-   candles (`market_get_asset_data`) · funding/OI (`market_get_funding_*`) · smart-money
-   (`leaderboard_*` / `discovery_*`) · cross-asset flow. → the `call_tool`s in `scan()`.
+   candles (`market_get_asset_data`) · funding/OI (`market_get_funding_*`) · 4h-board momentum
+   (`leaderboard_*`) · smart-money (`discovery_*`) · cross-asset flow. → the `call_tool`s in `scan()`.
    **A smart-money thesis reads the proven cohort, never the 4h board as its source of "who is smart":**
    the 4h gain leaderboard is a consequence of the move (whoever was on the winning side is at the top),
    so following it is circular. Use `discovery_get_top_traders` (ALL_TIME) + `discovery_get_trader_state`

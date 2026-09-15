@@ -92,7 +92,7 @@ Two invariants fall out of this:
 Decide these in prose first; the files just encode them.
 
 1. **Universe** — single asset · static basket · **dynamic** (rebuilt from `market_list_instruments`, volume floor + fresh-listing) · **derived** (names come from a leaderboard/cohort, not a list).
-2. **Data** — candles (`market_get_asset_data`) · funding/OI (`market_get_funding_*`) · smart-money (`leaderboard_get_markets`, `discovery_*`) · cross-asset flow (`market_get_cross_asset_flows`).
+2. **Data** — candles (`market_get_asset_data`) · funding/OI (`market_get_funding_*`) · 4h-board momentum (`leaderboard_get_markets`) · smart-money (`discovery_get_trader_state` on the proven cohort — a board read is momentum, never smart money) · cross-asset flow (`market_get_cross_asset_flows`).
 3. **Edge** — trend-follow · mean-revert · breakout · relative-strength · copy/follow · cohort-divergence · event/new-listing · macro-thesis.
 4. **Shape** — long-only / short-only / mixed-on-one-wallet = **1 instance** (build flat, §2) · independent long+short or distinct cadences = **multiple instances** (each its own wallet + `funding_share`) — that is §2's exception, and the only decision here that changes the layout.
 5. **Cardinality** — one best pick (`slots: 1`) · all gated qualifiers (runtime caps via `slots`).
@@ -359,6 +359,7 @@ Two things it deliberately does *not* prove, so don't over-claim on its behalf: 
 - Emit a **`marginPct` intent**, not dollars; `marginPct`/`leverage` top-level, not in `data{}`.
 - Declare every `data{}` key in `signal_data_schema`.
 - **A close is a dedicated scanner plus a `CLOSE_POSITION` action, never `direction: CLOSE`** (§6). Every external scanner must be listed by an action; the lint refuses both.
+- **A 4h-board read is momentum, not smart money.** A side taken from `pct_of_top_traders_gain` / `longPct` with no `discovery_get_trader_state` read is *4h leader momentum* — say so in every text a user reads (catalog fields, runtime `description`, README). A PnL sign is not a side: use the position's `szi` sign. The lint refuses both.
 - **Anchor on the references:** MCP fields → I/O guide; exit → a named preset; catalog facets → the glossary.
 - Linkage: `group: <id>`, `name: <id>-main` (`<id>-<instance>` per leg when multi-instance), package is `@senpi-ai/runtime`. `funding_share` sums to 1.0 only when `instances:` is declared.
 - **`strategy.wallet` must be the WHOLE value and UPPERCASE** — `"${MY_WALLET}"`, `[A-Z0-9_]` only. A lowercase (`${my_wallet}`) or mid-string (`pre${FOO}`) token passes **every** python lint, `deploy.py validate` included, and is then refused by the runtime when it loads the flat package.
