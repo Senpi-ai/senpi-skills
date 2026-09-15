@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.30.0"
+  version: "2.31.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -171,8 +171,8 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
       mirror — it blends proven + hot and ranks by who you can actually copy *right now*, so **the user never
       picks a window.** For the **hands-off** route, managed copy templates come in **two flavors — surface
       both, don't show only one**: *copy specific traders* (**Shadow / Remora / Raptor / Cuckoo / Oxpecker /
-      Jackal** — mirror a trader's fresh entries or book) **and** *follow the smart money by signal* (**Athena / Stingray
-      / Starling / Whalehunter / Phalanx** — position by where the whole proven cohort leans, many traders at once, not
+      Jackal** — mirror a trader's fresh entries or book) **and** *follow the smart money by signal* (**Athena / Phalanx
+      / Starling / Whalehunter / Pilotfish** — position by where the whole proven cohort leans, many wallets at once, not
       1:1; Athena is Phalanx with its Aegis hedge as one fund). All auto-apply DSL + budget-relative sizing. (`senpi-trade` carries the full flavor breakdown.)
    5. 🏆 "Just run what's set up best right now?" → *read the market*, lead with the best current setup
       (be honest — see "What's winning" in Special paths; there's no per-package performance board).
