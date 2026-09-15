@@ -130,7 +130,6 @@ def test_helpers_are_pure():
     assert vs.pnl_sign_directions('"LONG" if pnl_rank > 3 else "SHORT"') == []           # a rank, not a sign
 
 
-@pytest.mark.xfail(strict=True, reason="lands with the rename pass: the catalog still describes 4h-board reads as smart money")
 def test_catalog_has_no_board_read_sold_as_smart_money():
     bad = {}
     for man in sorted(_STRATEGIES.glob("*/strategy.yaml")):
