@@ -7,13 +7,13 @@
 schema_version: 1
 
 id: pangolin
-version: "1.2.0"
+version: "1.2.1"
 
 catalog:
   name: "Pangolin — Funding-Rate Fader"
   emoji: "🦔"
   tagline: "Scans every liquid perp for funding that has stayed extreme for hours — the crowd piled onto one side and is paying to hold it — then fades that crowd at exhaustion, collecting funding while the over-stretched position mean-reverts."
-  belief_plain: "When everyone crowds the same side of a trade and keeps paying a steep funding fee to stay there for hours, that crowd usually unwinds. Pangolin waits for the crowding to actually persist, checks the smartest traders aren't on the crowd's side, then takes the OTHER side and gets paid funding while it waits for the snap-back."
+  belief_plain: "When everyone crowds the same side of a trade and keeps paying a steep funding fee to stay there for hours, that crowd usually unwinds. Pangolin waits for the crowding to actually persist, checks the 4h leaders (the last four hours' winners) aren't on the crowd's side, then takes the OTHER side and gets paid funding while it waits for the snap-back."
   thesis: "Persistent extreme funding is a crowding signal, not noise. A fresh funding spike means nothing — but funding that stays extreme for 3+ hours means real positioning that has to unwind. Fade the crowd only once the regime confirms (or is at least neutral), size conservatively because crowded unwinds are violent, and let the funding you collect pay you to be patient through a 24-48h mean reversion."
   group: contrarian
   archetype: contrarian_fade
@@ -26,7 +26,7 @@ catalog:
   leverage_max: 5
   max_slots: 2
   assets: []
-  tags: [funding-fade, contrarian, crowd-exhaustion, mean-reversion, universe, smart-money, funding-carry]
+  tags: [funding-fade, contrarian, crowd-exhaustion, mean-reversion, universe, leader-momentum, funding-carry]
 
 requires:
   runtime: ">=3.0.0"

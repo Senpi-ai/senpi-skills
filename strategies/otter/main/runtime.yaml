@@ -10,7 +10,8 @@ description: >
   quadrant of the OI/price matrix: fresh leveraged positioning with directional
   conviction. 4h OI must not be net unwinding; OI >= $1M; spread <= 5 bps;
   per-asset 240min cooldown. Multi-factor confluence scoring (OI tier + 4h confirm
-  + price magnitude + smart-money alignment + spread + time-of-day); MIN_SCORE 9
+  + price magnitude + 4h-leader alignment (which side the last four hours' winners sit
+  on) + spread + time-of-day); MIN_SCORE 9
   to fire. Score-scaled leverage (5/7/10) at 25% margin; rides 1-3h then a tight
   DSL locks profit early. Faithful port of the v2 producer thesis (XYZ banned).
   NOTE: XYZ is filtered by the 'xyz:' name prefix (the live combined instruments
@@ -44,6 +45,7 @@ scanners:
       assetCooldownMinutes: 240             # v2 ASSET_COOLDOWN_MINUTES (defense-in-depth)
       minSamplesToFire: 12                  # v2 MIN_SAMPLES_TO_FIRE (12 samples = 1h @ 5min)
       smLimit: 100                          # leaderboard_get_markets aggregation depth
+      minTraderCount: 10                    # 4h leader board: a side with fewer traders than this never sets the lean
       spreadCheckTopN: 3                    # v2 main() spread-checked the top 3 eligible
       marginPct: 25                         # PERCENT of withdrawable (v2 fraction 0.25 ×100); runtime sizes (marginPct/100)*withdrawable
       recentSignalTtlSeconds: 240           # per-tick race-window dedup

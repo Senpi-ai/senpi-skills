@@ -175,8 +175,9 @@ def fetch_instruments(ctx):
 
 def fetch_sm_map(ctx, inputs):
     """{asset: {direction, pct, traders}} for the SM concentration bonus.
-    READ-GUARDED. Verbatim port of v2 fetch_sm_map (XYZ skipped, pct ×100)."""
+    READ-GUARDED. Port of v2 fetch_sm_map (XYZ skipped); pct is the board's own percent share."""
     limit = int(inputs.get("smLimit", 100))
+    min_traders = int(inputs.get("minTraderCount", 10))
     raw = _read(ctx, "leaderboard_get_markets", {"limit": limit})
     if not raw:
         return {}
@@ -195,11 +196,11 @@ def fetch_sm_map(ctx, inputs):
         dex = str(m.get("dex", "")).lower()
         if dex == "xyz":
             continue
-        if not token:
+        if not token or int(m.get("trader_count", 0) or 0) < min_traders:   # thin side: never sets the lean
             continue
         out[token] = {
             "direction": str(m.get("direction", "")).upper(),
-            "pct": scoring._f(m.get("pct_of_top_traders_gain", 0)) * 100,
+            "pct": scoring._f(m.get("pct_of_top_traders_gain", 0)),   # already a percent of the board's 4h gains
             "traders": int(m.get("trader_count", 0) or 0),
         }
     return out

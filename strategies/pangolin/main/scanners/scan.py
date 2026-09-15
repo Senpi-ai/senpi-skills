@@ -103,7 +103,7 @@ def _get_regime(ctx):
     return data.get("regime") if isinstance(data, dict) else None
 
 
-def _get_sm_map(ctx):
+def _get_sm_map(ctx, min_traders=10):
     """{COIN: market_row} of the smart-money lean per asset (leaderboard_get_markets, limit=100).
     Read-guarded — {} on failure (smart-money scoring then contributes 0, never crashes)."""
     raw = _read(ctx, "leaderboard_get_markets", {"limit": 100})
@@ -121,7 +121,7 @@ def _get_sm_map(ctx):
                 continue
             token = str(m.get("token", "")).upper()
             dex = str(m.get("dex", "")).lower()
-            if dex != "xyz" and token:                     # v2-quirk: skip xyz SM rows
+            if dex != "xyz" and token and int(m.get("trader_count", 0) or 0) >= min_traders:   # v2-quirk: skip xyz rows; a thin side never sets the lean
                 sm_map[token] = m
     return sm_map
 
@@ -209,7 +209,7 @@ def scan(inputs, ctx):
         return []
 
     regime = _get_regime(ctx)
-    sm_map = _get_sm_map(ctx)
+    sm_map = _get_sm_map(ctx, int(inputs.get("minTraderCount", 10)))
 
     candidates = []
     for u in universe:

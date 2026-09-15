@@ -163,7 +163,7 @@ def _fetch_candles(ctx, asset):
     return candles.get("1h", []) if isinstance(candles, dict) else []
 
 
-def _get_sm_direction(ctx, asset):
+def _get_sm_direction(ctx, asset, min_traders=10):
     """Net smart-money lean for `asset` from leaderboard_get_markets.
     Returns (direction, pct) or (None, 0.0). READ-GUARDED. Ported verbatim from
     v2 fetch_sm_direction: long_ratio >= 50 -> LONG else SHORT (NEUTRAL/50 when
@@ -191,6 +191,8 @@ def _get_sm_direction(ctx, asset):
             continue
         token = str(m.get("token", m.get("coin", m.get("asset", "")))).upper()
         if not _sm_row_matches(m, token, asset):
+            continue
+        if int(m.get("trader_count", 0) or 0) < min_traders:   # thin side: never sets the lean
             continue
         found = True
         d = str(m.get("direction", "")).upper()
@@ -276,6 +278,7 @@ def scan(inputs, ctx):
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
     lev_default = int(inputs.get("leverage", _DEFAULT_LEVERAGE))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
+    min_traders = int(inputs.get("minTraderCount", 10))
 
     # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value <= 1
     # (an operator who pasted the v2 FRACTION 0.15) into a PERCENT so it never
@@ -333,7 +336,7 @@ def scan(inputs, ctx):
         if len(proxy_candles) <= lookback:
             continue
         proxy_closes = [scoring._close(c) for c in proxy_candles]
-        sm = _get_sm_direction(ctx, proxy)
+        sm = _get_sm_direction(ctx, proxy, min_traders)
         th = scoring.build_thesis(proxy_cfg, leader_move, proxy_closes, proxy_candles, sm, inputs)
         if th and th["score"] >= min_score:
             candidates.append(th)

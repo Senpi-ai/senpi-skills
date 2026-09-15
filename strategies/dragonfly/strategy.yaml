@@ -11,13 +11,13 @@
 schema_version: 1
 
 id: dragonfly               # == package dir name; == every leg's runtime.yaml `group`
-version: "1.2.0"            # single source for catalog + MCP attribution (skillName/skillVersion)
+version: "1.2.1"            # single source for catalog + MCP attribution (skillName/skillVersion)
 
 catalog:                    # discovery surface
   name: "Dragonfly — BTC + HYPE Composite Momentum"
   emoji: "🐉"
-  tagline: "A two-leg BTC + HYPE book that fuses a dozen weighted signals — trend, volume, OI, funding crowding, smart-money lean, cross-asset flow — into one 0-10 conviction score per asset, and only strikes when the composite is loud."
-  belief_plain: "No single indicator is trustworthy, but when many independent ones agree — price trend, volume, open interest, funding, what the best traders hold, and BTC pulling HYPE — that agreement is the signal. Bet bigger the louder the agreement, protect every position with a ratchet stop, and stand aside when the picture is mixed."
+  tagline: "A two-leg BTC + HYPE book that fuses a dozen weighted signals — trend, volume, OI, funding crowding, the 4h leaders' lean, cross-asset flow — into one 0-10 conviction score per asset, and only strikes when the composite is loud."
+  belief_plain: "No single indicator is trustworthy, but when many independent ones agree — price trend, volume, open interest, funding, which side the last four hours' winners sit on, and BTC pulling HYPE — that agreement is the signal. Bet bigger the louder the agreement, protect every position with a ratchet stop, and stand aside when the picture is mixed."
   group: multi-asset-whitelist
   archetype: trend_following
   sub_style: alpha_hunter
@@ -30,7 +30,7 @@ catalog:                    # discovery surface
   leverage_max: 10
   max_slots: 2              # one position per leg
   assets: [BTC, HYPE]
-  tags: [composite, multi_factor, momentum, funding, smart_money, cross_asset, btc, hype]
+  tags: [composite, multi_factor, momentum, funding, leader-momentum, cross_asset, btc, hype]
 
 requires:
   runtime: ">=2.0.0"        # @senpi-ai/runtime semver range

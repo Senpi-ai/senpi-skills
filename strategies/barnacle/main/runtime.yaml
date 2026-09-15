@@ -25,8 +25,9 @@ description: >
   (bought) dips, a relentless-accumulation grind rather than a one-bar spike. Per
   tick it scans the live liquid xyz board, reads the benchmark once, and scores
   each name: +excess tier (|name return - benchmark| >= 3%, sign sets direction),
-  +volume persistence, +shallow-dip grind, +4h/1h trend structure, +/- smart-money
-  nudge; floor minScore 5. Emits the top 1-2 by score. LONG up-accumulation, SHORT
+  +volume persistence, +shallow-dip grind, +4h/1h trend structure, +/- 4h-leader
+  nudge (which side the last four hours' winners sit on); floor minScore 5. Emits the top
+  1-2 by score. LONG up-accumulation, SHORT
   down-distribution. Flat 15% margin / 4x (clamped [1,5] + venue max). DSL is the
   ONLY exit — trend-following let-winners-run ladder (first lock at +10%),
   hard_timeout 48h (equity perps have a weekend pricing gap). Net-new — sub_style
@@ -68,6 +69,7 @@ scanners:
       leverage: 4                          # clamped to [1,5] and to the instrument venue max in scan.py
       maxEmit: 2                           # emit the top 1-2 by score per tick
       recentSignalTtlSeconds: 240          # 4min signal-dedup (don't re-fire a name in flight)
+      minTraderCount: 10                   # 4h leader board: a side with fewer traders than this never sets the lean
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }

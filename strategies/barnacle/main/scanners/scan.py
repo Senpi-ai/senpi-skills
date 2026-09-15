@@ -199,7 +199,7 @@ def _fetch_candles(ctx, asset, inputs):
     return candles.get("1h", []) or [], candles.get("4h", []) or []
 
 
-def _get_sm_direction(ctx, coin):
+def _get_sm_direction(ctx, coin, min_traders=10):
     """Net smart-money lean for `coin` from leaderboard_get_markets. Returns
     (direction, tilt_pct) or (None, 0.0). READ-GUARDED -> a read error degrades to
     (None, 0.0), which the scorer treats as a NEUTRAL nudge (no gate). Token match
@@ -225,6 +225,8 @@ def _get_sm_direction(ctx, coin):
             continue
         token = str(m.get("token", m.get("coin", m.get("asset", "")))).upper()
         if token not in (target, bare):
+            continue
+        if int(m.get("trader_count", 0) or 0) < min_traders:   # thin side: never sets the lean
             continue
         found = True
         d = str(m.get("direction", "")).upper()
@@ -277,6 +279,7 @@ def scan(inputs, ctx):
     lev_cfg = int(inputs.get("leverage", _DEFAULT_LEVERAGE))
     max_emit = int(inputs.get("maxEmit", _DEFAULT_MAX_EMIT))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
+    min_traders = int(inputs.get("minTraderCount", 10))
     universe_max_names = int(inputs.get("universeMaxNames", 50))
 
     # marginPct: PERCENT in (0,100]. Defensive fraction guard (dire/koala pattern):
@@ -347,7 +350,7 @@ def scan(inputs, ctx):
         c1, c4 = _fetch_candles(ctx, coin, inputs)
         if len(c4) < excess_bars + 1 or len(c1) < 6:
             continue
-        sm = _get_sm_direction(ctx, coin)
+        sm = _get_sm_direction(ctx, coin, min_traders)
         th = scoring.build_thesis(coin, c1, c4, benchmark_ret, sm, inputs)
         if th and th["score"] >= min_score:
             th["_venue_max"] = u.get("venue_max")

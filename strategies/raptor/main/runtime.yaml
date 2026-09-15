@@ -5,8 +5,9 @@ version: 3.0.0
 description: >
   RAPTOR — quality-first hot-streak follower. Pulls ELITE/RELIABLE traders winning the
   WEEKLY window (discovery_get_top_traders, unrealized >= $500k), isolates each one's
-  strongest open position, confirms a smart-money lean in the same direction
-  (leaderboard_get_markets, >= 2% of top-trader gain, >= 10 traders), applies whale
+  strongest open position, confirms the 4h leaders' side agrees (leaderboard_get_markets —
+  which side the last four hours' winners sit on; >= 2% of top-trader gain, >= 10
+  traders), applies whale
   entry-price discipline (skip if price already ran > 5% past the whale's entry in the
   whale's favor), scores, and follows ONLY the single best candidate. Conviction-tiered
   leverage: 7x base, 8x at score >= 8, 10x apex at >= 10; conviction-scaled margin (25%
@@ -41,7 +42,7 @@ scanners:
       tier3Threshold: 3000000               # scoring tier-3 trader-delta floor (USD)
       minConcentration: 0.35                # min |pnl| concentration of the strongest position
       minPositionPnl: 100000                # min |delta_pnl| on the strongest position (USD)
-      # ── smAlignment (smart-money confirmation) — verbatim from v2 ──
+      # ── smAlignment (4h-leader confirmation) — verbatim from v2 ──
       minSmPct: 2.0                         # min pct_of_top_traders_gain on the asset
       minSmTraders: 10                      # min trader_count on the asset
       requireDirectionMatch: true

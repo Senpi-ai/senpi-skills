@@ -68,6 +68,7 @@ scanners:
       weekendLeverageCap: 5             # spec sat_sun hype_max_leverage
       spreadMaxPct: 0.003               # thinner book than BTC (0.3%)
       recentSignalTtlSeconds: 1800
+      minTraderCount: 10                # 4h leader board: a side with fewer traders than this never sets the lean
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }
