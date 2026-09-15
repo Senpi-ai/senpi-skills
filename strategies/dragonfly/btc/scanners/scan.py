@@ -53,7 +53,7 @@ def _funding_regime(ctx):
     return data.get("regime"), scoring._f(data.get("regime_duration_hours"))
 
 
-def _sm_for_asset(ctx, asset):
+def _sm_for_asset(ctx, asset, min_traders=10):
     """Net smart-money lean for `asset` from leaderboard_get_markets (kodiak port).
     Returns {direction, pct, traders, cc_15m} or None."""
     data = _read(ctx, "leaderboard_get_markets", {"limit": 100}, "leaderboard_get_markets")
@@ -69,6 +69,8 @@ def _sm_for_asset(ctx, asset):
     traders, cc_15m, found = 0, 0.0, False
     for m in markets:
         if not isinstance(m, dict) or str(m.get("token", "")).upper() != want:
+            continue
+        if int(m.get("trader_count", m.get("traderCount", 0)) or 0) < min_traders:   # thin side: never sets the lean
             continue
         found = True
         d = str(m.get("direction", "")).lower()
@@ -130,7 +132,7 @@ def scan(inputs, ctx):
             pair_candles = pdata.get("candles", {}) or {}
 
     regime, regime_hours = _funding_regime(ctx)
-    sm = _sm_for_asset(ctx, asset)
+    sm = _sm_for_asset(ctx, asset, int(inputs.get("minTraderCount", 10)))
     flow = None
     if use_flow:
         flow = _read(ctx, "market_get_cross_asset_flows",

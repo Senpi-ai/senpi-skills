@@ -7,17 +7,17 @@
 schema_version: 1
 
 id: owl
-version: "1.3.0"
+version: "1.3.1"
 
 catalog:
   name: "Owl — Contrarian Crowding-Unwind Hunter"
   emoji: "🦉"
-  tagline: "Scans every liquid Hyperliquid crypto perp (OI > $3M) for one-sided crowding — extreme funding + lopsided smart money + concentrated OI — then waits for that crowding to persist 1h+ AND for exhaustion to fire (volume fading, price stalling, RSI divergence) before fading the crowd. Conviction-scaled leverage (7/8/10) at 25% margin, with a macro gate that stands down when BTC's 4h move is extreme."
-  belief_plain: "The crowd is wrong at the extremes. When everyone piles onto one side of a coin — paying punishing funding, the best traders all leaning the same way, open interest stacking up — and the price then stops following through, the unwind is violent and predictable. Owl waits for both the crowded state AND the exhaustion trigger, then takes the other side. Most days it does nothing, because most days one or both is missing."
-  thesis: "Crowded trades unwind violently. Owl's edge is timing the unwind: it never fades on crowding alone (which can persist and grind), it waits for crowding to PERSIST 1h+ and for distinct exhaustion signals (declining volume under extreme funding, price stalling against the crowd, capitulation wicks, 4h RSI divergence) to confirm the move is dying. Mean reversion fails in trending macro, so a hard gate blocks all fades when |BTC 4h| > 3%. XYZ banned — the funding/smart-money scoring is calibrated on crypto data shape."
+  tagline: "Scans every liquid Hyperliquid crypto perp (OI > $3M) for one-sided crowding — extreme funding + the 4h leaders lopsided to one side (where the last four hours' winners sit) + concentrated OI — then waits for that crowding to persist 1h+ AND for exhaustion to fire (volume fading, price stalling, RSI divergence) before fading the crowd. Conviction-scaled leverage (7/8/10) at 25% margin, with a macro gate that stands down when BTC's 4h move is extreme."
+  belief_plain: "The crowd is wrong at the extremes. When everyone piles onto one side of a coin — paying punishing funding, the last four hours' winners all leaning the same way, open interest stacking up — and the price then stops following through, the unwind is violent and predictable. Owl waits for both the crowded state AND the exhaustion trigger, then takes the other side. Most days it does nothing, because most days one or both is missing."
+  thesis: "Crowded trades unwind violently. Owl's edge is timing the unwind: it never fades on crowding alone (which can persist and grind), it waits for crowding to PERSIST 1h+ and for distinct exhaustion signals (declining volume under extreme funding, price stalling against the crowd, capitulation wicks, 4h RSI divergence) to confirm the move is dying. Mean reversion fails in trending macro, so a hard gate blocks all fades when |BTC 4h| > 3%. XYZ banned — the funding/4h-leader scoring is calibrated on crypto data shape."
   group: contrarian
   archetype: contrarian_fade
-  sub_style: sm_crowding
+  sub_style: crowd_exhaustion
   asset_classes: [universe_crypto]
   asset_scope: universe
   direction: long_short
@@ -26,7 +26,7 @@ catalog:
   leverage_max: 10
   max_slots: 2
   assets: []
-  tags: [contrarian, fade, crowding, funding-extreme, smart-money, exhaustion, mean-reversion, universe, macro-gate]
+  tags: [contrarian, fade, crowding, funding-extreme, leader-momentum, exhaustion, mean-reversion, universe, macro-gate]
 
 requires:
   runtime: ">=3.0.0"

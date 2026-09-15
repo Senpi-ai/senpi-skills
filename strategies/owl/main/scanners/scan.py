@@ -145,6 +145,7 @@ def fetch_sm_positioning_map(ctx, inputs):
     Ported verbatim from v2 fetch_sm_positioning_map (v7.0/v7.1): ONE call per
     scan; BTC 4h move extracted from the same response (no extra MCP cost)."""
     limit = int(inputs.get("smLimit", 200))
+    min_traders = int(inputs.get("minTraderCount", 10))
     raw = _read(ctx, "leaderboard_get_markets", {"limit": limit})
     if not raw:
         return {}, 0.0
@@ -171,6 +172,8 @@ def fetch_sm_positioning_map(ctx, inputs):
         direction = str(m.get("direction", "")).lower()
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         trader_count = int(m.get("trader_count", m.get("traderCount", 0)) or 0)
+        if trader_count < min_traders:                 # thin side: never sets the lean
+            continue
         if direction == "long":
             out[token] = (pct * 100, trader_count)
         elif direction == "short":

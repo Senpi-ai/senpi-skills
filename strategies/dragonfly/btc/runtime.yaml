@@ -1,6 +1,6 @@
 # ── DRAGONFLY · BTC leg — composite momentum, user-spec port ────────────────
 # Directional 0-10 composite over 12 weighted factors (4h return, 1h alignment,
-# volume, OI velocity, funding + regime + persistence, smart-money lean +
+# volume, OI velocity, funding + regime + persistence, 4h-leader lean +
 # winners-pressing, mark/oracle premium, HYPE pair-confirmation, volume trend).
 # LONG >= 7, SHORT <= 4; conviction-banded leverage/margin scaled by session
 # windows. Paired with the HYPE leg on a separate wallet (group: dragonfly).
@@ -66,6 +66,7 @@ scanners:
       weekendLeverageCap: 8             # spec sat_sun btc_max_leverage
       spreadMaxPct: 0.002               # order-book quality hard gate (0.2%)
       recentSignalTtlSeconds: 1800
+      minTraderCount: 10                # 4h leader board: a side with fewer traders than this never sets the lean
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }
