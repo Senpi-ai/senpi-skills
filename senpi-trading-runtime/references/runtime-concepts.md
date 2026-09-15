@@ -209,7 +209,9 @@ phase logic, after Phase 1 floor-breach counting. Their phase behavior:
 Counts wall-clock minutes **from open** and fires in **either phase**: a position that crossed into
 Phase 2 (first tier armed) is still closed when the interval elapses. There is no phase guard and the
 clock never resets, so a `hard_timeout` is a profit-taker on a winner as much as a give-up on a
-laggard — which is why let-winners-run templates disable it and leave exits to the ladder.
+laggard — which is why let-winners-run templates disable it and leave exits to the ladder. The one
+exception is the single tick that first enters Phase 2: there the tier advance wins and no
+`hard_timeout` is emitted; from the next tick the clock applies again.
 
 **Field:** `interval_in_minutes` — wall-clock minutes since open. Must be > 0 (clamped to ≥ the cron
 interval).
