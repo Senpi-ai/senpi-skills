@@ -158,7 +158,7 @@ def _fetch_momentum_events(ctx):
 
 # ── SMART-MONEY LEAN (port of v2 fetch_sm_direction, verbatim) ──
 
-def _get_sm_direction(ctx, asset):
+def _get_sm_direction(ctx, asset, min_traders=10):
     """Net smart-money lean for `asset` from leaderboard_get_markets. Returns
     (direction, pct) or (None, 0). READ-GUARDED. Verbatim v2 thresholds:
     long_ratio >= 50 -> LONG else SHORT; tilt is the dominant-side ratio."""
@@ -173,6 +173,7 @@ def _get_sm_direction(ctx, asset):
     if not isinstance(markets, list):
         return None, 0.0
     long_pct, short_pct, found = 0.0, 0.0, False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -181,6 +182,7 @@ def _get_sm_direction(ctx, asset):
             continue
         found = True
         d = str(m.get("direction", "")).upper()
+        side_n[d] = int(m.get("trader_count", 0) or 0)
         pct = scoring.safe_float(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         if d == "LONG":
             long_pct = pct
@@ -192,6 +194,8 @@ def _get_sm_direction(ctx, asset):
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
+    if side_n.get("LONG" if long_ratio >= 50 else "SHORT", 0) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     return ("LONG", long_ratio) if long_ratio >= 50 else ("SHORT", 100 - long_ratio)
 
 
@@ -256,6 +260,7 @@ def scan(inputs, ctx):
     sm_tilt_min = float(inputs.get("smTiltMinPct", _DEFAULT_SM_TILT_MIN))
     sm_strong = float(inputs.get("smStrongTiltPct", _DEFAULT_SM_STRONG))
     min_score = int(inputs.get("minScore", _DEFAULT_MIN_SCORE))
+    min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
     margin_pct = _resolve_margin_pct(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))  # PERCENT (0,100]
     leverage = min(int(inputs.get("leverage", _DEFAULT_LEVERAGE)), _MAX_LEVERAGE)
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
@@ -304,7 +309,7 @@ def scan(inputs, ctx):
 
     candidates = []
     for asset, (_, rec) in best.items():
-        sm = _get_sm_direction(ctx, asset)
+        sm = _get_sm_direction(ctx, asset, min_traders)
         vol_rising = _volume_rising(ctx, asset)
         th = scoring.build_thesis(rec, th_config, now, sm, vol_rising)
         if th and th["score"] >= min_score:

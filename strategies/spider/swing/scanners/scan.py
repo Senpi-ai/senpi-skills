@@ -81,7 +81,7 @@ def _get_universe_meta(ctx):
     return out
 
 
-def _get_sm_map(ctx):
+def _get_sm_map(ctx, min_traders=10):
     """{NAME: long_ratio_pct} from the smart-money board, keyed the way the universe names a
     market (`XYZ:NVDA` for the xyz row, `SUI` for main)."""
     try:
@@ -112,15 +112,20 @@ def _get_sm_map(ctx):
             token = "XYZ:" + token
         direction = m.get("direction", "").lower()
         pct = float(m.get("pct_of_top_traders_gain", m.get("longPct", 0)) or 0)
-        a = agg.setdefault(token, {"long": 0.0, "short": 0.0})
+        a = agg.setdefault(token, {"long": 0.0, "short": 0.0, "long_n": 0, "short_n": 0})
         if direction == "long":
             a["long"] = pct
+            a["long_n"] = int(m.get("trader_count", 0) or 0)
         elif direction == "short":
             a["short"] = pct
+            a["short_n"] = int(m.get("trader_count", 0) or 0)
     for tok, a in agg.items():
         total = a["long"] + a["short"]
         if total > 0:
-            out[tok] = a["long"] / total * 100
+            ratio = a["long"] / total * 100
+            if a["long_n" if ratio >= 50 else "short_n"] < min_traders:
+                continue   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
+            out[tok] = ratio
     return out
 
 
@@ -272,6 +277,7 @@ def _build_universe(inputs, meta_map, first_seen, now):
 def scan(inputs, ctx):
     now = time.time()
     min_score = inputs.get("minScore", 5)
+    min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
     # margin PERCENT of equity in (0,100] (source fraction 0.28 -> 28). Defensive
     # guard: a value <=1.0 is a pasted FRACTION -> x100.
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
@@ -305,7 +311,7 @@ def scan(inputs, ctx):
     signaled = _prune_signaled(signaled, ttl, now)
 
     meta_map = _get_universe_meta(ctx)
-    sm_map = _get_sm_map(ctx) if inputs.get("useSmBonus", True) else {}
+    sm_map = _get_sm_map(ctx, min_traders) if inputs.get("useSmBonus", True) else {}
     allowed, first_seen = _build_universe(inputs, meta_map, first_seen, now)
 
     candidates = []

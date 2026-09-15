@@ -5,14 +5,14 @@
 schema_version: 1
 
 id: spider                  # == package dir name; == every leg's runtime.yaml `group`
-version: "6.1.1"            # single source for catalog + MCP attribution (skillName/skillVersion)
+version: "6.1.2"            # single source for catalog + MCP attribution (skillName/skillVersion)
 
 catalog:                    # discovery surface. `group` here is the discovery TAXONOMY bucket —
                             # distinct from each runtime.yaml's `group: spider` linkage key.
   name: "Spider — AI/Tech Hedge Fund"
   emoji: "🕷️"
   tagline: "An AI/Tech momentum long book plus a macro/majors mean-reversion book — two legs, two wallets, one package."
-  belief_plain: "AI/tech equities and crypto majors trend over days, while majors and energy snap back from short-term extremes — run both books side by side."
+  belief_plain: "AI/tech equities and crypto majors trend over days, while majors and energy snap back from short-term extremes — run both books side by side; the swing book adds a bonus when 4h leader momentum (which side the last four hours' winners sit on) agrees."
   group: multi-asset-whitelist
   archetype: trend_following
   sub_style: basket

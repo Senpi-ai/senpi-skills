@@ -513,8 +513,8 @@
       "emoji": "🐦",
       "tagline": "Trades the full pre-IPO → listing → graduation arc of tokenized equities on Hyperliquid XYZ: a pre-listing book accumulates pre-IPO perpetuals (IPOPs) into the IPO, and a graduation book rides the explosive post-conversion price discovery — the SpaceX $1.4B-day-1 pattern.",
       "belief_plain": "Auto-finds brand-new pre-IPO contracts (like a SpaceX-before-it-lists perp) by their tell-tale tiny funding and low leverage cap, rides the trend into the IPO, then detects the moment they convert to a full equity perp and rides the fireworks of the first few days of free price discovery.",
-      "version": "1.1.1",
-      "thesis": "You think the biggest, most repeatable edge on Hyperliquid right now is the new-listing EVENT itself, not the ongoing equity market. Pre-IPO perpetuals trade throttled and quiet; the instant they graduate to a standard equity perp the funding jumps ~100x, the leverage cap lifts and price discovery goes vertical. Capture both halves of that arc with two books on two wallets so the slow accumulation and the explosive pop never fight over the same margin.",
+      "version": "1.1.2",
+      "thesis": "You think the biggest, most repeatable edge on Hyperliquid right now is the new-listing EVENT itself, not the ongoing equity market. Pre-IPO perpetuals trade throttled and quiet; the instant they graduate to a standard equity perp the funding jumps ~100x, the leverage cap lifts and price discovery goes vertical. Capture both halves of that arc with two books on two wallets so the slow accumulation and the explosive pop never fight over the same margin. Both books take direction from 4h structure and add conviction when 4h leader momentum — which side of the name the last four hours' winners sit on — agrees.",
       "tags": [
         "ipo",
         "new-listing",
@@ -1423,8 +1423,8 @@
       "emoji": "🐯",
       "tagline": "A multi-asset momentum holder on liquid majors (BTC/ETH/SOL/HYPE) that learns its own conviction floor: every 6 hours it audits its own closed trades, buckets them by entry score, and ratchets its MIN_SCORE up above any score band that has been losing money — then enters only candidates that clear the learned floor and lets a wide DSL ride the move.",
       "belief_plain": "Trades the big, liquid coins (BTC, ETH, SOL, HYPE) on a simple momentum score. Every six hours it looks back at its own finished trades, figures out which score levels have actually been making money and which have been losing, and raises its own bar so it stops taking the kinds of trades that bled — it only ever raises the bar, never lowers it. When a coin clears the current bar it bets and trails a wide stop so a real move can run.",
-      "version": "1.1.0",
-      "thesis": "A fixed entry threshold is a guess that goes stale: the market regime that made score-6 trades profitable last month may make them losers this month. Instead of an operator hand-tuning MIN_SCORE off a 30-trade table, Lynx bakes that loop into a scheduled audit — it reads its own closed-trade history, buckets by the entry score it logged, and raises the floor above any band whose realized ROE has turned negative with enough samples to trust. It ratchets up only (a floor that worked is never relaxed), caps at a hard ceiling, and otherwise runs a plain momentum scorer so the audit always has clean data to learn from.",
+      "version": "1.1.1",
+      "thesis": "A fixed entry threshold is a guess that goes stale: the market regime that made score-6 trades profitable last month may make them losers this month. Instead of an operator hand-tuning MIN_SCORE off a 30-trade table, Lynx bakes that loop into a scheduled audit — it reads its own closed-trade history, buckets by the entry score it logged, and raises the floor above any band whose realized ROE has turned negative with enough samples to trust. It ratchets up only (a floor that worked is never relaxed), caps at a hard ceiling, and otherwise runs a plain momentum scorer (4h/1h trend, 4h leader momentum — which side the last four hours' winners sit on — and rising volume) so the audit always has clean data to learn from.",
       "tags": [
         "btc",
         "eth",
@@ -1432,7 +1432,7 @@
         "hype",
         "multi-asset",
         "momentum",
-        "smart-money",
+        "leader-momentum",
         "self-tuning",
         "adaptive-threshold",
         "let-winners-run"
@@ -1471,20 +1471,73 @@
       "sort_order": 16
     },
     {
+      "id": "marlin",
+      "name": "Marlin — Order-Book Imbalance Momentum",
+      "emoji": "🐟",
+      "tagline": "Reads the L2 order book on BTC/ETH/SOL/HYPE — when resting depth is lopsided (bids far heavier than asks, or the reverse) that's directional pressure, but it only fires when 15m momentum and 4h leader momentum (which side the last four hours' winners sit on) agree, then hands the position to a wide DSL and lets the move run (it does not scalp).",
+      "belief_plain": "Looks at how much resting buy vs sell interest is stacked in the order book of the big, liquid coins. A heavily one-sided book signals pressure in that direction — but a lopsided book alone is noise, so it only acts when short-term price momentum and the traders leading the last four hours are pointing the same way. Then it holds the trade with a wide trailing stop instead of flipping in and out.",
+      "version": "1.1.1",
+      "thesis": "Order-book imbalance is a genuine microstructure edge, but trading it as a per-tick scalp just bleeds fees. Marlin uses the imbalance differently — as the entry-timing signal on a momentum thesis: the book says which side has pressure right now, momentum and the 4h leaders' side confirm the move is real, and then you hold it with a wide ratchet and let it work. Restricting the universe to four liquid majors keeps the imbalance reading reliable (thin books give garbage ratios), and a 24h hard timeout caps the short-horizon thesis without choking a real run.",
+      "tags": [
+        "btc",
+        "eth",
+        "sol",
+        "hype",
+        "order-book",
+        "imbalance",
+        "microstructure",
+        "momentum",
+        "leader-momentum",
+        "let-winners-run",
+        "single-slot"
+      ],
+      "group": "momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "orderbook_pressure",
+      "sub_style_label": "Trades order-book depth skew.",
+      "asset_classes": [
+        "major_alts"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "HYPE"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 180,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 17
+    },
+    {
       "id": "meerkat",
       "name": "Meerkat — Momentum-Event Sniper",
       "emoji": "🦦",
-      "tagline": "A sentry that watches the momentum-event feed and snipes the freshest, highest-tier move the instant it fires: tier (the crossing's size) + freshness gate the entry, smart-money alignment and rising volume add conviction, then it takes ONE position in the momentum direction and lets a wide DSL ride the burst.",
+      "tagline": "A sentry that watches the momentum-event feed and snipes the freshest, highest-tier move the instant it fires: tier (the crossing's size) + freshness gate the entry, 4h leader momentum alignment and rising volume add conviction, then it takes ONE position in the momentum direction and lets a wide DSL ride the burst.",
       "belief_plain": "Watches the live feed of top traders crossing big profit thresholds — and the markets driving each crossing — and pounces only on the strongest, freshest ones, before the move is widely known. It sizes one bet in the direction of the move and trails a wide stop so a real burst can keep running, but cuts it loose after about a day and a half if it stalls.",
-      "version": "1.1.1",
-      "thesis": "Fresh momentum is the earliest, cleanest edge, and it decays fast — an event that's already 30+ minutes old is half-known and somebody else's trade. So the whole job is speed plus selectivity: only the strongest tiers, only while they're fresh, one position at a time. Smart-money lean and rising volume are confirmation bonuses, not gates, because the event fires faster than that data updates — waiting for confirmation forfeits the edge. A momentum burst pays out fast or it's stale, so a short hard timeout cuts a trade that hasn't moved.",
+      "version": "1.1.2",
+      "thesis": "Fresh momentum is the earliest, cleanest edge, and it decays fast — an event that's already 30+ minutes old is half-known and somebody else's trade. So the whole job is speed plus selectivity: only the strongest tiers, only while they're fresh, one position at a time. The 4h leaders' lean and rising volume are confirmation bonuses, not gates, because the event fires faster than that data updates — waiting for confirmation forfeits the edge. A momentum burst pays out fast or it's stale, so a short hard timeout cuts a trade that hasn't moved.",
       "tags": [
         "momentum",
         "momentum-event",
         "sniper",
         "freshness",
         "tier",
-        "smart-money",
+        "leader-momentum",
         "universe-scanner",
         "single-slot",
         "let-winners-run"
@@ -1514,7 +1567,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 17
+      "sort_order": 18
     },
     {
       "id": "orca",
@@ -1559,7 +1612,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 18
+      "sort_order": 19
     },
     {
       "id": "otter",
@@ -1605,15 +1658,15 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 19
+      "sort_order": 20
     },
     {
       "id": "piranha",
       "name": "Piranha — Liquidation-Cascade / Forced-Flow Hunter",
       "emoji": "🐟",
       "tagline": "Rides forced flow on crypto majors (BTC/ETH/SOL/HYPE): when open interest is unwinding fast (positions being force-closed) AND price is moving violently AND the 5-minute candle is still pushing the same way, it takes ONE position in the direction of the flow, sized 1-5x, and lets a wide DSL ratchet ride the squeeze with a 24h outer bound.",
-      "belief_plain": "A liquidation cascade is the cleanest momentum in crypto — it's forced flow, not opinion. When lots of positions are being force-closed at once, price gets shoved hard in one direction and the move feeds on itself until the leverage is flushed. Piranha reads the order flow underneath price (open-interest velocity + order-book depth) to confirm the move is forced, then rides it: OI down + price up = shorts squeezed, go long; OI down + price down = longs liquidated, go short.",
-      "version": "1.1.0",
+      "belief_plain": "A liquidation cascade is the cleanest momentum in crypto — it's forced flow, not opinion. When lots of positions are being force-closed at once, price gets shoved hard in one direction and the move feeds on itself until the leverage is flushed. Piranha reads the order flow underneath price (open-interest velocity + order-book depth) to confirm the move is forced — 4h leader momentum (which side the last four hours' winners sit on) and a volume spike only add conviction — then rides it: OI down + price up = shorts squeezed, go long; OI down + price down = longs liquidated, go short.",
+      "version": "1.1.1",
       "thesis": "Most agents react to price; the edge is reading the forced flow beneath it. Open interest dropping fast means positions are closing under duress, and when that coincides with a violent move and a thinning book on the side price is running into, there is little resistance left and the cascade continues. That signature is short-horizon and self-resolving, so the right move is one conviction entry in the flow direction, a wide ratchet that lets a squeeze extend, and a 24h hard timeout because if the cascade hasn't paid in a day it's over.",
       "tags": [
         "btc",
@@ -1659,23 +1712,23 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 20
+      "sort_order": 21
     },
     {
       "id": "python",
       "name": "Python — The Patience Hunter",
       "emoji": "🐍",
-      "tagline": "Scans the top 50 Hyperliquid crypto assets by volume and waits for one multi-day setup — 4h trend with macro direction, 1h agreeing, 15m confirming, smart money not opposing, RSI not extreme — then takes a single LONG-biased swing at 3-7x, sizes margin to conviction (25/30/40%), and holds for days behind a wide DSL (96h cap).",
-      "belief_plain": "Watches every liquid coin on Hyperliquid and does nothing until one setup lines up across the 4-hour, 1-hour and 15-minute timeframes with the best traders on the same side. Then it takes one well-sized, mostly-long swing and holds it for days behind a wide trailing stop, because the money is in the rare multi-day winner — not in trading often.",
-      "version": "1.1.0",
-      "thesis": "Every other agent strikes and rotates within hours; none hold for days, and that's the blind spot. The edge isn't a high win rate — it's NOT MISSING the one big multi-day move: a low win rate with a 3:1 win/loss ratio beats a high win rate with a thin one. So scan broadly, demand a real macro trend confirmed across three timeframes (never fighting a runaway counter-trend or a crowded smart-money side), tilt LONG, size to conviction, and let a wide DSL ride the move for days instead of getting chopped out early.",
+      "tagline": "Scans the top 50 Hyperliquid crypto assets by volume and waits for one multi-day setup — 4h trend with macro direction, 1h agreeing, 15m confirming, the 4h leaders not opposing, RSI not extreme — then takes a single LONG-biased swing at 3-7x, sizes margin to conviction (25/30/40%), and holds for days behind a wide DSL (96h cap).",
+      "belief_plain": "Watches every liquid coin on Hyperliquid and does nothing until one setup lines up across the 4-hour, 1-hour and 15-minute timeframes with the last four hours' winners on the same side. Then it takes one well-sized, mostly-long swing and holds it for days behind a wide trailing stop, because the money is in the rare multi-day winner — not in trading often.",
+      "version": "1.1.1",
+      "thesis": "Every other agent strikes and rotates within hours; none hold for days, and that's the blind spot. The edge isn't a high win rate — it's NOT MISSING the one big multi-day move: a low win rate with a 3:1 win/loss ratio beats a high win rate with a thin one. So scan broadly, demand a real macro trend confirmed across three timeframes (never fighting a runaway counter-trend or the 4h leaders' crowded side), tilt LONG, size to conviction, and let a wide DSL ride the move for days instead of getting chopped out early.",
       "tags": [
         "momentum",
         "trend-following",
         "universe",
         "multi-day-hold",
         "patience",
-        "smart-money",
+        "leader-momentum",
         "long-biased",
         "conviction-margin",
         "let-winners-run"
@@ -1705,7 +1758,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 21
+      "sort_order": 22
     },
     {
       "id": "rooster",
@@ -1755,7 +1808,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 22
+      "sort_order": 23
     },
     {
       "id": "sailfish",
@@ -1807,16 +1860,16 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 23
+      "sort_order": 24
     },
     {
       "id": "salamander",
       "name": "Salamander — Pullback Catcher",
       "emoji": "🦎",
-      "tagline": "An onboarding-grade pullback trader on the liquid majors (BTC/ETH/SOL): buys a 3-7% dip inside an established bullish 4h trend (and shorts a 3-7% rally inside a bearish one) only when the smart-money leaderboard agrees with the trend direction, then gives the entry room on a wide Phase 1 while a wide Phase 2 ratchet lets the resumed trend run.",
-      "belief_plain": "Watches BTC, ETH and SOL. When one is in a clear up-trend on the 4-hour chart and dips 3-7% on the 1-hour chart while the best traders are still leaning long, it buys the dip; in a down-trend it shorts a 3-7% bounce. It needs all three to line up — trend, dip-in-the-band, and smart money agreeing — then it gives the trade room to work and trails a wide stop so the trend can keep running.",
-      "version": "1.2.0",
-      "thesis": "Pullbacks inside an established trend are one of the highest-edge setups: the trend has already proved itself, the counter-move offers a better entry, and a smart-money agreement filter screens out trend-break risk. The 3-7% band is the sweet spot — shallower is noise, deeper means the trend may be breaking, so you don't catch a falling knife. Because a resolved pullback resumes a trend that can run far, the exit is asymmetric: a wide Phase 1 floor lets the dip develop without a premature cut, and a wide Phase 2 ratchet (first lock only at +10% ROE) keeps the continuation that pays for the quiet weeks.",
+      "tagline": "An onboarding-grade pullback trader on the liquid majors (BTC/ETH/SOL): buys a 3-7% dip inside an established bullish 4h trend (and shorts a 3-7% rally inside a bearish one) only when 4h leader momentum (which side the last four hours' winners sit on) agrees with the trend direction, then gives the entry room on a wide Phase 1 while a wide Phase 2 ratchet lets the resumed trend run.",
+      "belief_plain": "Watches BTC, ETH and SOL. When one is in a clear up-trend on the 4-hour chart and dips 3-7% on the 1-hour chart while the last four hours' winners are still leaning long, it buys the dip; in a down-trend it shorts a 3-7% bounce. It needs all three to line up — trend, dip-in-the-band, and the 4h leaders agreeing — then it gives the trade room to work and trails a wide stop so the trend can keep running.",
+      "version": "1.2.1",
+      "thesis": "Pullbacks inside an established trend are one of the highest-edge setups: the trend has already proved itself, the counter-move offers a better entry, and a 4h-leader agreement filter screens out trend-break risk. The 3-7% band is the sweet spot — shallower is noise, deeper means the trend may be breaking, so you don't catch a falling knife. Because a resolved pullback resumes a trend that can run far, the exit is asymmetric: a wide Phase 1 floor lets the dip develop without a premature cut, and a wide Phase 2 ratchet (first lock only at +10% ROE) keeps the continuation that pays for the quiet weeks.",
       "tags": [
         "btc",
         "eth",
@@ -1825,7 +1878,7 @@
         "pullback",
         "buy-the-dip",
         "short-the-rally",
-        "smart-money",
+        "leader-momentum",
         "trend-continuation",
         "onboarding",
         "let-winners-run"
@@ -1859,15 +1912,15 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 24
+      "sort_order": 25
     },
     {
       "id": "sheep",
       "name": "Sheep — Triple-EMA Trend Follower",
       "emoji": "🐑",
       "tagline": "A long-only trend follower for beginners: buys a crypto major (BTC/ETH/SOL/HYPE) only when its fast EMA is above its slow EMA on all three timeframes (15m, 1h, 4h) at once, never shorts, and trails a balanced stop so a clean uptrend can run.",
-      "belief_plain": "Only buys when a coin is clearly going up by any chart reader's standard — the fast moving average has to be above the slow one on the 15-minute, 1-hour, AND 4-hour chart simultaneously. It never shorts (so there's no 'what's a short?' to learn), bets a little bigger when the trend is wider and the best traders agree, and then trails a stop so a real uptrend can keep running.",
-      "version": "1.2.0",
+      "belief_plain": "Only buys when a coin is clearly going up by any chart reader's standard — the fast moving average has to be above the slow one on the 15-minute, 1-hour, AND 4-hour chart simultaneously. It never shorts (so there's no 'what's a short?' to learn), bets a little bigger when the trend is wider and the 4h leaders (the last four hours' winners) agree, and then trails a stop so a real uptrend can keep running.",
+      "version": "1.2.1",
       "thesis": "Most trend agents pick a single timeframe; Sheep insists on agreement across three before firing. That is a stricter filter (fewer trades) but each entry is 'obviously up' to any chart reader, which is exactly the property a beginner needs to trust the agent. Long-only by design removes the cognitive load of shorting, making this the onboarding-grade entry point into the fleet.",
       "tags": [
         "btc",
@@ -1880,7 +1933,7 @@
         "triple-timeframe",
         "long-only",
         "onboarding",
-        "smart-money",
+        "leader-momentum",
         "let-winners-run"
       ],
       "group": "momentum",
@@ -1914,7 +1967,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 25
+      "sort_order": 26
     },
     {
       "id": "jaguar",
@@ -3798,8 +3851,8 @@
       "name": "Spider — AI/Tech Hedge Fund",
       "emoji": "🕷️",
       "tagline": "An AI/Tech momentum long book plus a macro/majors mean-reversion book — two legs, two wallets, one package.",
-      "belief_plain": "AI/tech equities and crypto majors trend over days, while majors and energy snap back from short-term extremes — run both books side by side.",
-      "version": "6.1.1",
+      "belief_plain": "AI/tech equities and crypto majors trend over days, while majors and energy snap back from short-term extremes — run both books side by side; the swing book adds a bonus when 4h leader momentum (which side the last four hours' winners sit on) agrees.",
+      "version": "6.1.2",
       "thesis": null,
       "tags": [
         "ai",
@@ -4171,8 +4224,8 @@
       "emoji": "🦎",
       "tagline": "A relative-value pairs trader on correlated crypto majors: for each pair (ETH/BTC, SOL/ETH, SOL/BTC) it z-scores the latest price ratio vs its 48-bar (1h) mean, and when the ratio stretches >=2 sigma AND starts reverting, it takes a directional bet on the high-beta leg in the snap-back direction — sizing one slot and letting a tight mean-reversion DSL bank the reversion.",
       "belief_plain": "Trades the spread between two coins, not the market. When ETH gets expensive relative to BTC (or SOL vs ETH), the ratio stretches far from its usual level — and ratios snap back more reliably than outright prices. Chameleon measures how stretched a pair is, waits until the ratio starts turning back, then bets on the high-beta coin (ETH or SOL) in the direction that profits from the snap-back, and trails a tight stop to bank the reversion.",
-      "version": "1.2.0",
-      "thesis": "Correlated majors trade as a pack, but their ratios oscillate around a mean. A 3-sigma ETH/BTC extension is a cleaner edge than guessing ETH's absolute direction — the pair's correlation does the work. The Senpi runtime is single-position, so instead of a two-leg market-neutral spread Chameleon takes a directional bet on the high-beta leg; it captures most of the reversion edge without spread-level position management, and the move is bounded, so a tight ladder banks the snap-back rather than holding for a trend.",
+      "version": "1.2.1",
+      "thesis": "Correlated majors trade as a pack, but their ratios oscillate around a mean. A 3-sigma ETH/BTC extension is a cleaner edge than guessing ETH's absolute direction — the pair's correlation does the work. The Senpi runtime is single-position, so instead of a two-leg market-neutral spread Chameleon takes a directional bet on the high-beta leg (4h leader momentum on that leg — which side the last four hours' winners sit on — adds a point of conviction, never a gate); it captures most of the reversion edge without spread-level position management, and the move is bounded, so a tight ladder banks the snap-back rather than holding for a trend.",
       "tags": [
         "eth",
         "sol",
@@ -4755,14 +4808,14 @@
       "id": "polar",
       "name": "Polar — ETH Alpha Hunter",
       "emoji": "🧊",
-      "tagline": "A single-asset ETH specialist: smart-money concentration picks the side first, then 4h and 1h trend structure must agree, 15m momentum confirms, and funding, open interest, BTC and RSI all add conviction — then sizes leverage to score (5/7/10x) and lets the DSL ride the winner.",
-      "belief_plain": "Trades only ETH. It first looks at which way the best traders are leaning hard, then only takes it if the 4-hour and 1-hour trend agree and momentum confirms — going in harder when more factors line up, and trailing a stop instead of guessing the exit.",
-      "version": "1.1.0",
-      "thesis": "You want one coin done really well, not a scattergun across the market. ETH has the liquidity and smart-money depth, and a hybrid agent that watches only ETH can read the leaderboard's net lean, candle structure, funding and open interest far more tightly than a broad universe scanner ever could.",
+      "tagline": "A single-asset ETH specialist: 4h leader momentum (how concentrated the last four hours' winners are on ETH) picks the side first, then 4h and 1h trend structure must agree, 15m momentum confirms, and funding, open interest, BTC and RSI all add conviction — then sizes leverage to score (5/7/10x) and lets the DSL ride the winner.",
+      "belief_plain": "Trades only ETH. It first looks at which way the traders leading the last four hours are leaning hard, then only takes it if the 4-hour and 1-hour trend agree and momentum confirms — going in harder when more factors line up, and trailing a stop instead of guessing the exit.",
+      "version": "1.1.1",
+      "thesis": "You want one coin done really well, not a scattergun across the market. ETH has the liquidity and leaderboard depth, and a hybrid agent that watches only ETH can read the 4h leaders' net lean, candle structure, funding and open interest far more tightly than a broad universe scanner ever could.",
       "tags": [
         "eth",
         "single-asset",
-        "smart-money",
+        "leader-momentum",
         "hyperfeed",
         "momentum",
         "conviction-leverage",
@@ -4847,15 +4900,15 @@
       "id": "stag",
       "name": "Stag — Parabolic-Run Hunter",
       "emoji": "🦌",
-      "tagline": "Watches a small whitelist of large-cap crypto for a real parabolic setup — established uptrend, a 7-day move of 25%+ on surging volume that's still accelerating, with smart money piled long — then goes long and hands the trade to the widest stop in the catalog so it can ride the whole run through the violent intraday pullbacks.",
-      "belief_plain": "Only buys when a coin is genuinely going parabolic, not just trending. It waits for a big multi-week move that's still speeding up on heavy volume with the best traders leaning long, then uses a very loose trailing stop so the position survives the 5-8% dips that would shake out a normal trend trade.",
-      "version": "1.1.0",
+      "tagline": "Watches a small whitelist of large-cap crypto for a real parabolic setup — established uptrend, a 7-day move of 25%+ on surging volume that's still accelerating, with the 4h leaders piled long — then goes long and hands the trade to the widest stop in the catalog so it can ride the whole run through the violent intraday pullbacks.",
+      "belief_plain": "Only buys when a coin is genuinely going parabolic, not just trending. It waits for a big multi-week move that's still speeding up on heavy volume with the last four hours' winners leaning long, then uses a very loose trailing stop so the position survives the 5-8% dips that would shake out a normal trend trade.",
+      "version": "1.1.1",
       "thesis": "The hard part of a parabolic run isn't entering — it's not getting chopped out. A standard trend trail makes local-volatility decisions and exits on the first 5-8% pullback, missing the rest of a +60% move. Stag pairs a strict entry filter (so it only fires on a real parabolic) with the deliberately wide parabolic_runner DSL (so the trade survives the gyrations). The trade-off is honest: it bleeds in chop, which is exactly why the filter is strict.",
       "tags": [
         "parabolic",
         "momentum",
         "runner",
-        "smart-money",
+        "leader-momentum",
         "long-only",
         "wide-dsl",
         "regime-selective",
@@ -4950,15 +5003,15 @@
       "id": "wolverine",
       "name": "Wolverine — HYPE Alpha Hunter",
       "emoji": "🦡",
-      "tagline": "A single-asset HYPE specialist: six-gate trend entry (4h structure, 1h non-opposition, 15m momentum, base-tech floor, 4h magnitude) layered with a market-wide funding-regime + funding-persistence macro gate and a smart-money HARD BLOCK — then sizes leverage to conviction (3/5x) and lets the DSL ride the winner.",
-      "belief_plain": "Trades only HYPE. It waits for the 4-hour trend to be strong, the 1-hour to not be fighting it, and short-term momentum to confirm — then checks the broader funding 'crowding' regime and refuses to trade when the best traders are leaning the other way. It goes in harder when more factors line up, and trails a stop instead of guessing the exit.",
-      "version": "1.1.1",
-      "thesis": "HYPE is one of the highest-volatility majors on Hyperliquid. A specialist that watches only HYPE can read its trend structure, smart-money flow, funding regime and persistence far more tightly than a broad scanner — and the macro funding-regime gate keeps it out of crowded, liquidation-prone setups that single-asset momentum alone would walk into.",
+      "tagline": "A single-asset HYPE specialist: six-gate trend entry (4h structure, 1h non-opposition, 15m momentum, base-tech floor, 4h magnitude) layered with a market-wide funding-regime + funding-persistence macro gate and a HARD BLOCK when 4h leader momentum (which side the last four hours' winners sit on) opposes — then sizes leverage to conviction (3/5x) and lets the DSL ride the winner.",
+      "belief_plain": "Trades only HYPE. It waits for the 4-hour trend to be strong, the 1-hour to not be fighting it, and short-term momentum to confirm — then checks the broader funding 'crowding' regime and refuses to trade when the traders leading the last four hours are leaning the other way. It goes in harder when more factors line up, and trails a stop instead of guessing the exit.",
+      "version": "1.1.2",
+      "thesis": "HYPE is one of the highest-volatility majors on Hyperliquid. A specialist that watches only HYPE can read its trend structure, the 4h leaders' flow, funding regime and persistence far more tightly than a broad scanner — and the macro funding-regime gate keeps it out of crowded, liquidation-prone setups that single-asset momentum alone would walk into.",
       "tags": [
         "hype",
         "single-asset",
         "momentum",
-        "smart-money",
+        "leader-momentum",
         "funding-regime",
         "macro-gate",
         "conviction-leverage",
@@ -5327,59 +5380,6 @@
       "sort_order": 5
     },
     {
-      "id": "marlin",
-      "name": "Marlin — Order-Book Imbalance Momentum",
-      "emoji": "🐟",
-      "tagline": "Reads the L2 order book on BTC/ETH/SOL/HYPE — when resting depth is lopsided (bids far heavier than asks, or the reverse) that's directional pressure, but it only fires when 15m momentum and smart money agree, then hands the position to a wide DSL and lets the move run (it does not scalp).",
-      "belief_plain": "Looks at how much resting buy vs sell interest is stacked in the order book of the big, liquid coins. A heavily one-sided book signals pressure in that direction — but a lopsided book alone is noise, so it only acts when short-term price momentum and the best traders are pointing the same way. Then it holds the trade with a wide trailing stop instead of flipping in and out.",
-      "version": "1.1.0",
-      "thesis": "Order-book imbalance is a genuine microstructure edge, but trading it as a per-tick scalp just bleeds fees. Marlin uses the imbalance differently — as the entry-timing signal on a momentum thesis: the book says which side has pressure right now, momentum and smart money confirm the move is real, and then you hold it with a wide ratchet and let it work. Restricting the universe to four liquid majors keeps the imbalance reading reliable (thin books give garbage ratios), and a 24h hard timeout caps the short-horizon thesis without choking a real run.",
-      "tags": [
-        "btc",
-        "eth",
-        "sol",
-        "hype",
-        "order-book",
-        "imbalance",
-        "microstructure",
-        "momentum",
-        "smart-money",
-        "let-winners-run",
-        "single-slot"
-      ],
-      "group": "smart-money",
-      "archetype": "breakout_momentum",
-      "archetype_label": "Breakout / Momentum",
-      "sub_style": "orderbook_pressure",
-      "sub_style_label": "Trades order-book depth skew.",
-      "asset_classes": [
-        "major_alts"
-      ],
-      "asset_scope": "basket",
-      "assets": [
-        "BTC",
-        "ETH",
-        "SOL",
-        "HYPE"
-      ],
-      "direction": "long_short",
-      "risk_level": "moderate",
-      "tier": "advanced",
-      "leverage_max": 5,
-      "time_horizon": "swing",
-      "cadence_seconds": 180,
-      "min_budget": 25,
-      "wallet_count": 1,
-      "min_budget_binding_wallet": "main",
-      "instance_count": 1,
-      "funding_split": [
-        1.0
-      ],
-      "max_slots": 1,
-      "branch": "main",
-      "sort_order": 6
-    },
-    {
       "id": "oxpecker",
       "name": "Oxpecker — Elite-Conviction Concentrated Mirror",
       "emoji": "🐦",
@@ -5424,7 +5424,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 7
+      "sort_order": 6
     },
     {
       "id": "phalanx",
@@ -5474,7 +5474,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 7
     },
     {
       "id": "remora",
@@ -5520,7 +5520,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 8
     },
     {
       "id": "roach",
@@ -5566,7 +5566,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 9
     },
     {
       "id": "shadow",
@@ -5610,7 +5610,7 @@
       ],
       "max_slots": 5,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 10
     },
     {
       "id": "whalehunter",
@@ -5655,7 +5655,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 11
     },
     {
       "id": "osprey",
