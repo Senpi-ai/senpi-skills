@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.28.0"
+  version: "2.29.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -255,6 +255,7 @@ They lack the vocabulary; recommend *without* making them self-classify:
   theses (`thesis-war-escalation`, `rhino`)
 - "run a hedge fund / all-weather book" → run broad → rank up `hedge-fund`/`all-weather`/`risk-parity` tags (`athena` first — the smart-money hedge fund — then `ox`, `spider`, `rhino`)
 - "a smart money hedge fund" / "follow the smart money, hedged" → `--theme "smart money hedge fund proven cohort regime hedge"` → `athena` (65/35 Phalanx/Aegis by default; the weighting is theirs)
+- "which of your templates are proven?" / "did you backtest this?" → no engine call; the honest line under *Special paths*, then the pick they asked about
 - "copy good traders, nothing crazy" → **hand to `senpi-trader-research`** for the blended shortlist (steady names surface by copyability — no window for the user to pick); or a managed **Copy-Trader template** if they want it hands-off. Keep risk=moderate in head.
 - "trade stocks not crypto" → `--assets xyz_equities --exclude crypto`
 - "I don't want to short" → `--direction long_only`
@@ -278,6 +279,11 @@ worldview/fund picks; offer the stack on single-wallet picks only.
 - **"What's winning"** → reframe honestly: *"I rank by what's set up well right now, not last week's
   winner."* Read the market; lead with the best current setup from `market_facts`. Never imply a real
   per-package performance leaderboard.
+- **"Proven / backtested / track record" templates** → say it plainly: a template has no backtest and no
+  per-template performance board. "Validated" means it runs (`senpi validate`) and forward-tests at the
+  $10 floor. Never answer a templates question with a mirror-strategy ranking: `discovery_get_top_strategies`
+  is mirror-only, and swapping it in reads as a bait-and-switch. Copy-trading is the one thing on Senpi with
+  a track record today; offer it as an alternative, never as the answer.
 - **User names a strategy** ("just install kodiak") → deploy intent → hand to **senpi-strategy-ops**.
 - **Below-floor budget** → surface the floor honestly ("the smallest here needs ~$X"); offer to see it
   anyway / adjust / build custom. Never hard-block (the caveat is already on the record).
