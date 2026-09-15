@@ -2,12 +2,12 @@
 # The fleet's dedicated SHORT-biased crypto/crypto-proxy agent. SHORT_ONLY by design:
 # it shorts the crypto block ONLY when risk-off conditions confirm on three axes —
 #   (1) market-wide funding regime LONG_CROWDED (master gate; crowded longs = squeeze
-#       fuel), (2) smart money net-SHORT the name (rotating OUT), (3) 4h downtrend
+#       fuel), (2) the 4h leaders net-SHORT the name (rotating OUT), (3) 4h downtrend
 #       (lower-highs) confirming. ALL three must agree. NEVER goes long.
 # It IDLES (emits nothing, WAITING) the rest of the time — a hedge that pairs with long
 # crypto exposure, not a standalone return engine. Universe: BTC/ETH/SOL/HYPE (main DEX)
 # + xyz:MSTR/xyz:COIN/xyz:CRCL (XYZ DEX crypto-proxy equities), all validated live on HL
-# meta 2026-06-30. Parsing for funding_regime + smart-money is copied from the Dog gold
+# meta 2026-06-30. Parsing for funding_regime + the 4h board is copied from the Dog gold
 # template; account read-guard from Bison/Bobcat; dex-aware fetch from Bobcat.
 name: hyena-main
 group: hyena
@@ -16,7 +16,7 @@ description: >
   HYENA — risk-off crypto SHORT hedge sleeve. SHORT_ONLY: shorts the crypto block
   (BTC/ETH/SOL/HYPE + xyz crypto-proxies MSTR/COIN/CRCL) ONLY when risk-off
   confirms — master gate: market-wide funding regime LONG_CROWDED (or a per-asset
-  crowded-long funding fallback); per name: smart money net-SHORT AND a 4h
+  crowded-long funding fallback); per name: the 4h leaders net-SHORT AND a 4h
   downtrend (lower-highs). Scores regime crowding + SM short tilt + downtrend
   strength + funding squeeze; emits the top 1-2 SHORTs per tick. Conservative
   margin (15% base) at low leverage (4x, clamped [1,5] then to the venue cap).
@@ -55,6 +55,7 @@ scanners:
       maxEmit: 2                            # emit top 1-2 shorts
       smShortTiltMinPct: 55                 # SM must be net-SHORT with >=55% tilt (gate)
       smStrongTiltPct: 70                   # strong-short tilt (+1 bonus)
+      minTraderCount: 10                    # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
       crowdedLongFundingThreshold: 0.0002   # per-asset crowded-long funding fallback/bonus
       recentSignalTtlSeconds: 240           # race-window dedup
     signal_data_schema:

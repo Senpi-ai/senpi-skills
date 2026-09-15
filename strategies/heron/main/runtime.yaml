@@ -3,9 +3,9 @@ name: heron-main
 group: heron
 version: 3.0.0
 description: >
-  HERON — single-asset ETH trend follower with a Smart-Money direction gate.
+  HERON — single-asset ETH trend follower with a 4h-leader direction gate.
   Onboarding tier. Enters only when 4h candle structure is directional (not NEUTRAL)
-  AND the smart-money leaderboard agrees with that side at >=60% tilt; scores 5
+  AND the 4h leaderboard's winning side agrees with that side at >=60% tilt; scores 5
   components (4h trend +3, 1h confirms +2, SM aligned +2, SM strong +1, volume rising
   +1; max ~9) and clears score 5. FIXED 5x leverage (NO conviction tiering — this is
   the simple onboarding port; kodiak/polar tier, heron does not). DSL is the ONLY exit
@@ -39,6 +39,7 @@ scanners:
       leverage: 5                          # v2 DEFAULT_LEVERAGE / MAX_LEVERAGE — FIXED, no tiering
       smTiltMinPct: 60                     # v2 SM_TILT_MIN_PCT_DEFAULT — hard SM gate
       smStrongTiltPct: 70                  # v2 SM_STRONG_TILT_PCT_DEFAULT — +1 bonus threshold
+      minTraderCount: 10                   # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
       recentSignalTtlSeconds: 14400        # 240m — mirror the per-asset cooldown (NOT v2's 240s race cache)
     signal_data_schema:
       score: { type: number }
