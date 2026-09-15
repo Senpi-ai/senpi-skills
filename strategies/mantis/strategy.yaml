@@ -8,14 +8,14 @@
 schema_version: 1
 
 id: mantis
-version: "1.1.0"
+version: "1.1.1"
 
 catalog:
   name: "Mantis — Cross-Asset Catchup Hunter"
   emoji: "🦎"
   tagline: "Watches BTC's 4-hour move via market_get_cross_asset_flows and strikes the highest-confidence correlated alt that historically follows BTC but hasn't caught up yet — entering the alt in BTC's direction, sized to the tool's confidence score, with a stop that trails the catchup."
   belief_plain: "When Bitcoin makes a big 4-hour move, certain alts that usually follow it lag behind for a while before catching up. Mantis spots those laggards (only the ones that follow Bitcoin reliably, with smart money already starting to rotate in) and buys the gap, betting it closes — bigger when it's more confident, with a stop that trails the move."
-  thesis: "The edge is a statistical lag, not a directional view: alts with an 85%+ historical follow-rate and tight timing variance tend to catch up to a confirmed leader move within their typical lag window. Restricting the leader to BTC (the only asset with pre-computed lag data) and requiring smart-money rotation plus a meaningful gap keeps it to high-probability catchups; sizing scales with the tool's confidence, and a dynamic timeout calibrated to each alt's lag distribution backstops trades where the catchup never materialises."
+  thesis: "The edge is a statistical lag, not a directional view: alts with an 85%+ historical follow-rate and tight timing variance tend to catch up to a confirmed leader move within their typical lag window. Restricting the leader to BTC (the only asset with pre-computed lag data) and requiring smart-money rotation plus a meaningful gap keeps it to high-probability catchups; sizing scales with the tool's confidence, and a 4-hour ceiling — the top of the lag model's own timeout range — backstops trades where the catchup never materialises."
   group: multi-asset-universe
   archetype: structural_neutral   # earns from a cross-asset lag relationship, not a directional bet
   sub_style: cross_asset_lag      # trades an alt that lags a BTC move

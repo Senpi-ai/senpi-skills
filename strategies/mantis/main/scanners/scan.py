@@ -31,7 +31,7 @@ FIDELITY NOTES vs the v2 producer (mantis-producer.py v6.0.1 / mantis_config.py 
     `close_position` raises PermissionError and would roll the whole tick to [].
     The veto MATH is preserved in scoring.leader_reversed (documented + testable)
     but is NOT executed here. The runtime's DSL exit (hard_timeout 240 ceiling +
-    Phase1/Phase2 retrace ladder + weak_peak_cut) is the exit authority; the v2
+    Phase1/Phase2 retrace ladder) is the exit authority; the v2
     dynamic per-trade hard_timeout is surfaced in signal data.hardTimeoutMinutes
     for observability/future runtime consumption. FLAGGED in the port report.
   - DROPPED (v2 -> Runtime 3.0): position-metadata.json + entry-log.jsonl state
