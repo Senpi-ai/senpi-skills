@@ -133,7 +133,11 @@ def fetch_sm_map(ctx, inputs):
         if not isinstance(m, dict):
             continue
         token = str(m.get("token", "")).upper()
-        if not token or _is_xyz(token):            # XYZ ban (name-prefix; v2 used dex)
+        # XYZ ban: the board sends a BARE token plus dex="xyz" (never a prefixed name).
+        if not token or _is_xyz(token) or str(m.get("dex", "")).lower() == "xyz":
+            continue
+        # LONG and SHORT are separate rows per token: keep the dominant side, never the last row.
+        if not m.get("is_dominant_direction", False):
             continue
         sm_map[token] = {
             "direction": str(m.get("direction", "")).upper(),
