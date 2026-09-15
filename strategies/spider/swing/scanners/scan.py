@@ -82,10 +82,12 @@ def _get_universe_meta(ctx):
 
 
 def _get_sm_map(ctx):
-    """{COIN: long_ratio_pct} from smart-money leaderboard markets."""
+    """{NAME: long_ratio_pct} from the smart-money board, keyed the way the universe names a
+    market (`XYZ:NVDA` for the xyz row, `SUI` for main)."""
     try:
         data = ctx.senpi_mcp.call_tool("leaderboard_get_markets", {})
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — a read error must not roll back the whole tick
+        print(f"[spider.swing.scan] leaderboard_get_markets read failed: {exc!r}", file=sys.stderr)
         return {}
     out = {}
     if not data:
@@ -93,6 +95,8 @@ def _get_sm_map(ctx):
     markets = data.get("data", data) if isinstance(data, dict) else data
     if isinstance(markets, dict):
         markets = markets.get("markets", markets.get("leaderboard", []))
+    if isinstance(markets, dict):          # the envelope is data.markets.markets[] (+ window metadata)
+        markets = markets.get("markets", [])
     agg = {}
     for m in markets or []:
         if not isinstance(m, dict):
@@ -100,9 +104,15 @@ def _get_sm_map(ctx):
         token = m.get("token", m.get("coin", m.get("asset", "")))
         if not token:
             continue
+        token = str(token).upper()
+        # The board carries a BARE token plus a separate `dex` ("" main / "xyz"); the universe
+        # carries `xyz:NVDA`. A bare key never matched an xyz name. Qualify the key with the dex
+        # read the fleet's _sm_row_matches uses, so a main-dex twin keeps its own key.
+        if str(m.get("dex", "")).strip().lower() == "xyz" and not token.startswith("XYZ:"):
+            token = "XYZ:" + token
         direction = m.get("direction", "").lower()
         pct = float(m.get("pct_of_top_traders_gain", m.get("longPct", 0)) or 0)
-        a = agg.setdefault(token.upper(), {"long": 0.0, "short": 0.0})
+        a = agg.setdefault(token, {"long": 0.0, "short": 0.0})
         if direction == "long":
             a["long"] = pct
         elif direction == "short":

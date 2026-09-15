@@ -154,7 +154,7 @@ def score_swing(asset, candles_1h, candles_4h, ctx_meta, sm_ratio, config):
         score -= 1
         reasons.append("funding_crowded")
 
-    # Smart-money consensus bonus (crypto alts only; XYZ has none)
+    # Smart-money consensus bonus (any name the board carries — xyz rows resolve via the dex-qualified key)
     sm_pct = 0.0
     if sm_ratio is not None:
         sm_pct = sm_ratio
