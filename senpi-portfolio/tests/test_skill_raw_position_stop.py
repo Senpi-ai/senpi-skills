@@ -1,0 +1,15 @@
+"""A raw position's `protected: false` is narrated as "no ratchet," never as "no stop": the SKILL tells the
+agent to read the wallet's resting orders before implying a hand-placed position has no stop."""
+# Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import os
+
+SKILL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "SKILL.md")
+
+
+def test_skill_reads_resting_orders_before_saying_no_stop():
+    text = open(SKILL, encoding="utf-8").read()
+    for needle in ('is "no ratchet," not "no stop."',
+                   "strategy_get_open_orders",
+                   "a static stop rests at $X",
+                   '"No DSL" on its own is heard as "no stop,"'):
+        assert needle in text, needle

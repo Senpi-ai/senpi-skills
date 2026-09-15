@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.23.0"
+  version: "1.24.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -531,7 +531,8 @@ directly.)
   position's live tier** (`positions[].dsl`). This config-level field is NOT the per-position tier — see
   "DSL — how it works per strategy, and which position is in which tier" below. **Never call a live
   position "unprotected" just because it has no ratchet record — sub-Tier-1 positions have none by
-  design.**
+  design.** For a raw position with no runtime, `false` means **no ratchet** — its stop, if any, is a
+  resting order this engine does not read; read it before you say "no stop" (HARD rule below).
 - **Don't infer "wiped out" from a low balance.** Check `total_funded` / `total_withdrawn` — a
   strategy can show a small balance because profits were withdrawn (`netFunded` can be negative). That
   is not a loss.
@@ -636,6 +637,12 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
   means it has no name at all. When
   `name_source != "strategyName"`, call it by `strategy_id` + wallet and say which package it came from —
   never "the cub strategy", and never tell one sleeve from another by that string.
+- **A raw position (no runtime, `protected: false`) is "no ratchet," not "no stop."** A one-off
+  position the user placed by hand carries its protection as resting orders, which this engine does not
+  read. Before saying it has no stop, read them — `strategy_get_open_orders` on that wallet; a
+  reduce-only trigger order (`isTrigger`, `triggerPx`) is its stop — and say what you found: "no ratchet;
+  a static stop rests at $X" or "no ratchet and no stop order." "No DSL" on its own is heard as "no stop,"
+  and a user who hears it will go and change a stop that was fine.
 - **Config-level `protected` ≠ live per-position tier.** `strategy.protected` / `group.protected`
   (`true`/`false`/`null`) is the **config posture** — `true` only when the deployed `runtime.yaml`'s
   `exit:` block was actually READ by the engine; `null` means the read didn't happen, never assume `true`
