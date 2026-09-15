@@ -110,3 +110,23 @@ def test_helpers_are_pure():
                                    "actions": [{"context": [{"type": "signal", "scanner": "a"}]}]}) == []
     assert vs.direction_literal_offenders('"direction": "FLAT"; "direction": "SHORT"; \'direction\': \'exit\'') == ["FLAT", "exit"]
     assert vs.direction_literal_offenders('{"direction": "NEUTRAL"}  # an analysis dict, not a signal') == []
+
+
+def test_a_recipe_with_no_actions_orphans_every_scanner(tmp_path):
+    # The worst case: nothing consumes any signal. The guard used to exempt it.
+    d = _package(tmp_path)
+    rt = (d / "main" / "runtime.yaml").read_text()
+    head = rt.split("actions:", 1)[0]
+    for variant in (head + "actions: []\n", head):
+        (d / "main" / "runtime.yaml").write_text(variant)
+        errs = vs.validate(d)
+        assert len(_hits(errs, "feeds no action")) >= 1, (variant[-60:], errs)
+
+
+def test_direction_close_assigned_after_the_literal_is_refused():
+    src = ("def scan(inputs, ctx):\n"
+           "    s = {'asset': 'BTC', 'data': {}}\n"
+           "    s['direction'] = 'CLOSE'\n"
+           "    return [s]\n")
+    assert vs.direction_literal_offenders(src) == ["CLOSE"]
+    assert vs.direction_literal_offenders("if s['direction'] == 'CLOSE':\n    pass\n") == []

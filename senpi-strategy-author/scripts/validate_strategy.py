@@ -103,7 +103,7 @@ def null_signal_field_offenders(scan_src, scoring_src, schema):
 # is refused or, from an unlisted scanner, silently dropped. The shipped pattern (barracuda's
 # close_all) is a dedicated scanner emitting the position's asset + side, consumed by its own
 # CLOSE_POSITION action. Both halves are decidable here, before a wallet exists.
-_DIRECTION_LITERAL = re.compile(r"""["']direction["']\s*:\s*["']([A-Za-z_]+)["']""")
+_DIRECTION_LITERAL = re.compile(r"""["']direction["']\s*(?::|\]\s*=)\s*["']([A-Za-z_]+)["']""")   # dict literal, or s["direction"] = "…"
 # Only the close-intent words: analysis dicts legitimately carry `direction: NEUTRAL` / `UP` and are
 # never emitted as signals (eleven catalog scanners do this).
 _CLOSE_WORDS = {"CLOSE", "FLAT", "EXIT", "CLOSE_ALL", "FORCE_FLAT", "FORCE_CLOSE"}
@@ -118,7 +118,7 @@ def unconsumed_scanners(rt_doc):
         consumed.update(str(s) for s in (a.get("scanners") or []) if s)
         consumed.update(str(c.get("scanner")) for c in (a.get("context") or [])
                         if isinstance(c, dict) and c.get("scanner"))
-    return [str(sc.get("name")) for sc in ((rt_doc.get("scanners") or []) if isinstance(rt_doc, dict) else [])
+    return [str(sc.get("name") or "<unnamed>") for sc in ((rt_doc.get("scanners") or []) if isinstance(rt_doc, dict) else [])
             if isinstance(sc, dict) and sc.get("type") == "external_scanner"
             and str(sc.get("name")) not in consumed]
 
@@ -336,7 +336,7 @@ def validate(pkg: Path) -> list:
                 errs.append(f"instance {name}: set runtime `strategy.wallet: \"${{{wenv}}}\"` in "
                             f"{rt_rel} (found {_found}) — deploy substitutes the wallet it creates, "
                             f"so a literal address there funds one wallet and trades another")
-        if isinstance(rt_doc, dict) and rt_doc.get("actions"):   # a recipe with no actions at all is another defect
+        if isinstance(rt_doc, dict):   # a recipe with no actions at all is the worst case: every scanner is orphaned
             for scn in unconsumed_scanners(rt_doc):
                 errs.append(
                     f"instance {name}: scanner {scn!r} feeds no action — the runtime routes a signal only to "
