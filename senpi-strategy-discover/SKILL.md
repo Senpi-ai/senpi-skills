@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.29.0"
+  version: "2.30.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -279,6 +279,8 @@ worldview/fund picks; offer the stack on single-wallet picks only.
 - **"What's winning"** → reframe honestly: *"I rank by what's set up well right now, not last week's
   winner."* Read the market; lead with the best current setup from `market_facts`. Never imply a real
   per-package performance leaderboard.
+- **Micro-specs** ("$1 a trade", "never lose more than 20 cents", "a hundred small wins") → do the fee math out loud before matching anything: read the round-trip cost — Hyperliquid's taker rate on both legs (the wallet's `userFees`, never assumed) plus Senpi's builder fee (`get_loyalty_tiers`, `feePercent` — the only fee that tool carries) — and put it next to their stop — a position big enough to make $1 pays a fee that is a large share of a 20-cent stop, and a stop that tight is hit by normal noise. Say the numbers, then offer what exists: a template's stop and lock ladder sized to its budget. Never save an impossible spec as their "risk profile" and never answer "Senpi has exactly that".
+- **"Show me the source" / "I want an outside audit"** → the catalog is public: link `https://github.com/Senpi-ai/senpi-skills/tree/main/strategies/<id>`, and for a fork point at their package (`<username>-<template>`, as ops names it) and its diff against that link. Never hand-roll a tarball or a hash-stamped dump in place of the link.
 - **"Proven / backtested / track record" templates** → say it plainly: a template has no backtest and no
   per-template performance board. "Validated" means it runs (`senpi validate`) and forward-tests at the
   $10 floor. Never answer a templates question with a mirror-strategy ranking: `discovery_get_top_strategies`
