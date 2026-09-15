@@ -11,5 +11,6 @@ def test_skill_reads_resting_orders_before_saying_no_stop():
     for needle in ("strategy_get_open_orders",
                    "reduce-only trigger order",
                    "a static stop rests at",
+                   "a Take Profit order is not",
                    "no ratchet and no stop order"):
         assert needle in text, needle
