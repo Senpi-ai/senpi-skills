@@ -133,7 +133,7 @@ def _build_cohort(ctx, cached, inputs, now):
     when no whales are hand-picked. Top `cohortSize` proven traders, paged by
     offset. Cached daily in ctx.state and refreshed every `cohortRefreshHours`;
     a failed refresh DEGRADES to the cached cohort. Returns a cohort dict
-    {refreshed_at, cache_version, whales:[addr,...]}.
+    {refreshed_at, cache_version, whales:[addr,...], tiers:{addr: tcsLabel}}.
 
     Reuses WhaleHunter's _build_cohorts pattern + scoring.realized /
     scoring.trader_address accessors so the auto-cohort is bucketed identically.
@@ -171,7 +171,7 @@ def _build_cohort(ctx, cached, inputs, now):
             if rp < min_realized:
                 continue
             seen.add(addr)
-            ranked.append((rp, addr))
+            ranked.append((rp, addr, str(t.get("tcsLabel") or "").upper()))
         # already have enough proven traders well above the deep band — stop paging.
         if len(seen) >= cohort_size * 3:
             break
@@ -188,10 +188,12 @@ def _build_cohort(ctx, cached, inputs, now):
         return cached
 
     ranked.sort(key=lambda r: r[0], reverse=True)
-    whales = [addr for _rp, addr in ranked[:cohort_size]]
+    whales = [addr for _rp, addr, _t in ranked[:cohort_size]]
+    tiers = {addr: t for _rp, addr, t in ranked[:cohort_size] if t}   # tcsLabel rides on the cohort row
     print(f"[remora.scan] auto-cohort built: top {len(whales)} traders by ALL_TIME realized PnL "
           f"(refresh every {refresh_h:.0f}h)", file=sys.stderr)
-    return {"refreshed_at": now, "cache_version": scoring.COHORT_CACHE_VERSION, "whales": whales}
+    return {"refreshed_at": now, "cache_version": scoring.COHORT_CACHE_VERSION, "whales": whales,
+            "tiers": tiers}
 
 
 def _fetch_whale_positions(ctx, trader_id):
@@ -216,20 +218,6 @@ def _fetch_whale_positions(ctx, trader_id):
         nested = rp.get("positions", [])
         return nested if isinstance(nested, list) else []
     return []
-
-
-def _fetch_whale_tier(ctx, trader_id):
-    """ELITE / RELIABLE / etc. for one whale, or None if unavailable.
-    READ-GUARDED -> None (quality bonus simply not awarded). Verbatim parse from
-    v2 fetch_whale_tier."""
-    raw = _read(ctx, "discovery_get_trader_state", {"trader_id": trader_id})
-    if not raw or not isinstance(raw, dict):
-        return None
-    d = raw.get("data", raw)
-    if not isinstance(d, dict):
-        return None
-    tier = d.get("tier", d.get("classification", d.get("rating")))
-    return str(tier).upper() if tier else None
 
 
 # ── ctx.state: recent-signal dedup (port of v2 recent-signals.json) ──
@@ -329,7 +317,7 @@ def scan(inputs, ctx):
 
     signaled = _prune_signaled(_load_signaled(ctx), ttl, now)
 
-    # ── per-whale: fetch positions, take the top, validate tier (READ-GUARDED) ──
+    # ── per-whale: fetch positions (READ-GUARDED), take the top, tier from the cohort row ──
     whale_tops = []
     for whale in whales:
         trader_id = _normalize_whale_id(whale)
@@ -339,7 +327,7 @@ def scan(inputs, ctx):
         top = scoring.top_position(whale_positions, min_notional)
         if not top:
             continue
-        tier = _fetch_whale_tier(ctx, trader_id) if use_tier else None
+        tier = cohort.get("tiers", {}).get(trader_id) if use_tier else None
         whale_tops.append((trader_id, top, tier))
 
     # ── aggregate into (asset, direction) candidates + score (pure) ──

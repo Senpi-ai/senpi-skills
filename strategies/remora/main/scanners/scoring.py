@@ -20,8 +20,8 @@ tier) are done by the caller (scan.py) and passed in, so this module stays pure
 and unit-testable.
 """
 
-# Whale-quality tiers that earn the discovery_get_trader_state bonus
-# (verbatim from v2 QUALITY_TIERS).
+# Whale-quality tiers that earn the quality bonus — the cohort row's tcsLabel
+# (discovery_get_top_traders; verbatim from v2 QUALITY_TIERS).
 QUALITY_TIERS = {"ELITE", "RELIABLE", "PROFITABLE"}
 
 # v2 producer constants (remora-producer.py).
@@ -34,7 +34,7 @@ DEFAULT_MIN_NOTIONAL_USD = 5000   # ignore dust positions
 # scan._build_cohort when inputs.whales is empty so Remora is autonomous OOTB.
 DEFAULT_COHORT_SIZE = 10          # top N proven traders to mirror by default
 DEFAULT_COHORT_REFRESH_HOURS = 24
-COHORT_CACHE_VERSION = 1          # bump if cohort-BUILDING logic changes (busts a stale cache)
+COHORT_CACHE_VERSION = 2          # bump if cohort-BUILDING logic changes (busts a stale cache)
 
 
 def safe_float(v, default=0.0):
