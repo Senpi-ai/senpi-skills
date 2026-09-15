@@ -640,9 +640,9 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
   position the user placed by hand carries its protection as resting orders, which this engine does not
   read. Before saying it has no stop, read them — `strategy_get_open_orders` on that wallet; a
   reduce-only trigger order (`isTrigger`, `triggerPx`) whose `orderType` is a Stop (`Stop Market` /
-  `Stop Limit`) is its stop, a Take Profit order is not — and say what you found: "no ratchet; a static
-  stop rests at $X" or "no ratchet and no stop order." The direct question ("do I have a stop?") is
-  `senpi-trade`'s protection protocol, which reads the same orders; this read is for the portfolio view.
+  `Stop Limit`) is its stop, a Take Profit order is not — and say what you found: "no ratchet;
+  a static stop rests at $X" or "no ratchet and no stop order." The direct question ("do I have a
+  stop?") is `senpi-trade`'s protection protocol, which reads the same orders; this is the portfolio view.
 - **Config-level `protected` ≠ live per-position tier.** `strategy.protected` / `group.protected`
   (`true`/`false`/`null`) is the **config posture** — `true` only when the deployed `runtime.yaml`'s
   `exit:` block was actually READ by the engine; `null` means the read didn't happen, never assume `true`
