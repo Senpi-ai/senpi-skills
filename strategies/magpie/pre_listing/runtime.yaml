@@ -8,7 +8,7 @@ description: >
   IPOPs (pre-IPO perpetuals) off the LIVE xyz instrument board by their funding
   signature (|funding| <= cap, max_leverage <= cap, min daily volume — the
   trade.xyz pre-listing structure) and rides the pre-listing trend into the IPO:
-  4h structure sets direction, 1h + Smart-Money confirm (sparse pre-listing ->
+  4h structure sets direction, 1h + 4h leader momentum confirm (sparse pre-listing ->
   trend-only fallback). BOTH directions. Pairs with the GRADUATION book on a
   SEPARATE wallet, which trades the conversion event. The edge is EVENT alpha on
   the pre-IPO ramp. IPOPs are price-throttled by Discovery Bounds, so the DSL is
@@ -43,6 +43,7 @@ scanners:
       ipopMinDailyVolUsd: 100000            # pre-listing min daily volume floor
       smTiltMinPct: 55
       smStrongTiltPct: 70
+      minTraderCount: 10                    # 4h-board headcount floor — a side with fewer top traders never sets the lean
       recentSignalTtlSeconds: 720
     signal_data_schema:
       score: { type: number }

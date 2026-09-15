@@ -15,7 +15,7 @@ description: >
   (leaderboard_get_momentum_events) and snipes the FRESHEST, HIGHEST-TIER events
   the instant they fire, entering in the momentum direction before the move is
   broadly known. Tier (the feed's own: 3 = $10M+, 2 = $5.5M+ 4h delta-PnL
-  crossings) + freshness (detected_at age <= 30min) gate the entry; smart-money
+  crossings) + freshness (detected_at age <= 30min) gate the entry; 4h leader momentum
   alignment + rising 1h volume are score bonuses (not gates). Emits ONE signal/tick for the best event clearing score 4
   (a fresh tier-2 event), sized 15% margin at 4x. DSL is the ONLY exit:
   let-winners-run (T0 +10% / lock 0, max_loss 18%) with a SHORT 36h hard_timeout
@@ -47,6 +47,7 @@ scanners:
       maxEventAgeMinutes: 30.0              # v2 maxEventAgeMinutes — freshness gate
       smTiltMinPct: 55                      # v2 smTiltMinPct — SM alignment bonus floor
       smStrongTiltPct: 70                   # v2 smStrongTiltPct — +1 strong-SM bonus floor
+      minTraderCount: 10                    # 4h-board headcount floor — a side with fewer top traders never sets the lean
       minScore: 4                           # v2 minScore — producer floor (fresh tier-2 clears)
       marginPct: 15                         # PERCENT of withdrawable (0,100]. v2 config marginPct=0.15 (FRACTION) ×100.
                                             # v2 runtime.yaml had margin_pct:20 — producer/config win per port rule.

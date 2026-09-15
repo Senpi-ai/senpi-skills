@@ -2,7 +2,7 @@
 # Runtime 3.0 port of the v2 Sheep (SKILL.md v1.0.0, producer v1.0.1). Crypto-
 # majors whitelist (BTC/ETH/SOL/HYPE), fires LONG only when fast EMA > slow EMA
 # on ALL THREE timeframes (15m + 1h + 4h). Never shorts. Score boosts from 4h/1h
-# spread magnitude + smart-money tilt (SM is a bonus, never a gate). Balanced
+# spread magnitude + 4h-leader tilt (the board is a bonus, never a gate). Balanced
 # DSL, ONBOARDING TIER. Faithful port — see scanners/scoring.py (math verbatim).
 name: sheep-main
 group: sheep
@@ -13,7 +13,7 @@ description: >
   ALL THREE timeframes (15m + 1h + 4h) for a whitelisted asset. Never shorts — a
   triple-timeframe stack is a visual rule a beginner can sanity-check on any
   chart. Score = 3 (full stack) + bonuses for wider 4h spread (>=1%), wider 1h
-  spread (>=0.5%), and aligned smart-money lean (>=55%, +1 strong >=70%); floor
+  spread (>=0.5%), and an aligned 4h leader lean (>=55%, +1 strong >=70%); floor
   minScore 4. Single best emit/tick, 20% margin, 3x (cap 5x). DSL is the ONLY
   exit (balanced preset: max_loss 12%, 72h hard_timeout, weak_peak_cut at 6h/3%,
   laddered phase-2 lock). Faithful port of the v2 Sheep v1.0.0 thesis. ONBOARDING.
@@ -45,6 +45,7 @@ scanners:
       minStackedFrames: 3                  # v2 minStackedFrames (3 = require all three timeframes)
       smTiltMinPct: 55                     # v2 smTiltMinPct / DEFAULT_SM_TILT_MIN (SM bonus floor)
       smStrongTiltPct: 70                  # v2 smStrongTiltPct / DEFAULT_SM_STRONG (+1 strong bonus)
+      minTraderCount: 10                   # 4h-board headcount floor — a side with fewer top traders never sets the lean
       minScore: 4                          # v2 minScore / DEFAULT_MIN_SCORE (floor)
       marginPct: 20                        # PERCENT of withdrawable (0,100]; v2 fraction 0.20 -> 20
       leverage: 3                          # clamped to [1,5] in scan.py (MAX_LEVERAGE=5)

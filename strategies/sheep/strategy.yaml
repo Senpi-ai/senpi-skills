@@ -7,12 +7,12 @@
 schema_version: 1
 
 id: sheep
-version: "1.2.0"
+version: "1.2.1"
 catalog:
   name: "Sheep — Triple-EMA Trend Follower"
   emoji: "🐑"
   tagline: "A long-only trend follower for beginners: buys a crypto major (BTC/ETH/SOL/HYPE) only when its fast EMA is above its slow EMA on all three timeframes (15m, 1h, 4h) at once, never shorts, and trails a balanced stop so a clean uptrend can run."
-  belief_plain: "Only buys when a coin is clearly going up by any chart reader's standard — the fast moving average has to be above the slow one on the 15-minute, 1-hour, AND 4-hour chart simultaneously. It never shorts (so there's no 'what's a short?' to learn), bets a little bigger when the trend is wider and the best traders agree, and then trails a stop so a real uptrend can keep running."
+  belief_plain: "Only buys when a coin is clearly going up by any chart reader's standard — the fast moving average has to be above the slow one on the 15-minute, 1-hour, AND 4-hour chart simultaneously. It never shorts (so there's no 'what's a short?' to learn), bets a little bigger when the trend is wider and the 4h leaders (the last four hours' winners) agree, and then trails a stop so a real uptrend can keep running."
   thesis: "Most trend agents pick a single timeframe; Sheep insists on agreement across three before firing. That is a stricter filter (fewer trades) but each entry is 'obviously up' to any chart reader, which is exactly the property a beginner needs to trust the agent. Long-only by design removes the cognitive load of shorting, making this the onboarding-grade entry point into the fleet."
   group: momentum
   archetype: trend_following
@@ -25,7 +25,7 @@ catalog:
   leverage_max: 5
   max_slots: 1
   assets: ["BTC", "ETH", "SOL", "HYPE"]
-  tags: [btc, eth, sol, hype, multi-asset, trend, ema-stack, triple-timeframe, long-only, onboarding, smart-money, let-winners-run]
+  tags: [btc, eth, sol, hype, multi-asset, trend, ema-stack, triple-timeframe, long-only, onboarding, leader-momentum, let-winners-run]
 
 requires:
   runtime: ">=3.0.0"

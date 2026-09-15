@@ -12,7 +12,7 @@ description: >
   SPIDER SWING — Tech & AI multi-day momentum, LONG only. Scores a dynamic
   universe (curated tech/AI/space XYZ equities auto-rebuilt from the live
   instrument board + a static crypto-alt pool) on 4h/1h trend structure, 24h
-  relative strength, RSI room, funding crowding, and smart-money consensus.
+  relative strength, RSI room, funding crowding, and 4h leader momentum consensus.
   minScore 5; wide let-winners-run DSL, all time-cuts off, 7d staleness cap.
   Paired with the SCALP leg on a separate wallet.
 
@@ -56,6 +56,7 @@ scanners:
       maxSlots: 3
       rsiMaxLong: 78
       useSmBonus: true
+      minTraderCount: 10                # 4h-board headcount floor — a side with fewer top traders never sets the lean
       venueMinNotionalUsd: 10
       minNotionalPctOfEquity: 0.01
       recentSignalTtlSeconds: 180

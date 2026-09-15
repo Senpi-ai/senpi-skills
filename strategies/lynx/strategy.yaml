@@ -8,13 +8,13 @@
 schema_version: 1
 
 id: lynx
-version: "1.1.0"
+version: "1.1.1"
 catalog:
   name: "Lynx — Adaptive MIN_SCORE Self-Tuner"
   emoji: "🐯"
   tagline: "A multi-asset momentum holder on liquid majors (BTC/ETH/SOL/HYPE) that learns its own conviction floor: every 6 hours it audits its own closed trades, buckets them by entry score, and ratchets its MIN_SCORE up above any score band that has been losing money — then enters only candidates that clear the learned floor and lets a wide DSL ride the move."
   belief_plain: "Trades the big, liquid coins (BTC, ETH, SOL, HYPE) on a simple momentum score. Every six hours it looks back at its own finished trades, figures out which score levels have actually been making money and which have been losing, and raises its own bar so it stops taking the kinds of trades that bled — it only ever raises the bar, never lowers it. When a coin clears the current bar it bets and trails a wide stop so a real move can run."
-  thesis: "A fixed entry threshold is a guess that goes stale: the market regime that made score-6 trades profitable last month may make them losers this month. Instead of an operator hand-tuning MIN_SCORE off a 30-trade table, Lynx bakes that loop into a scheduled audit — it reads its own closed-trade history, buckets by the entry score it logged, and raises the floor above any band whose realized ROE has turned negative with enough samples to trust. It ratchets up only (a floor that worked is never relaxed), caps at a hard ceiling, and otherwise runs a plain momentum scorer so the audit always has clean data to learn from."
+  thesis: "A fixed entry threshold is a guess that goes stale: the market regime that made score-6 trades profitable last month may make them losers this month. Instead of an operator hand-tuning MIN_SCORE off a 30-trade table, Lynx bakes that loop into a scheduled audit — it reads its own closed-trade history, buckets by the entry score it logged, and raises the floor above any band whose realized ROE has turned negative with enough samples to trust. It ratchets up only (a floor that worked is never relaxed), caps at a hard ceiling, and otherwise runs a plain momentum scorer (4h/1h trend, 4h leader momentum — which side the last four hours' winners sit on — and rising volume) so the audit always has clean data to learn from."
   group: momentum
   archetype: trend_following
   sub_style: adaptive
@@ -27,7 +27,7 @@ catalog:
   leverage_max: 5
   max_slots: 1
   assets: ["BTC", "ETH", "SOL", "HYPE"]
-  tags: [btc, eth, sol, hype, multi-asset, momentum, smart-money, self-tuning, adaptive-threshold, let-winners-run]
+  tags: [btc, eth, sol, hype, multi-asset, momentum, leader-momentum, self-tuning, adaptive-threshold, let-winners-run]
 
 requires:
   runtime: ">=3.0.0"

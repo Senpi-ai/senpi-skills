@@ -97,7 +97,7 @@ def _fetch_candles(ctx, asset):
     return (d.get("candles", {}) or {}) if isinstance(d, dict) else {}
 
 
-def _fetch_sm_direction(ctx, asset):
+def _fetch_sm_direction(ctx, asset, min_traders=10):
     """Net smart-money lean for `asset` from leaderboard_get_markets (USER-SCOPE
     auth). Returns (direction|None, tilt_pct). None direction triggers the
     sparse-pre-listing trend-only fallback in scoring."""
@@ -112,6 +112,7 @@ def _fetch_sm_direction(ctx, asset):
     if not isinstance(markets, list):
         return None, 0.0
     long_pct, short_pct, found = 0.0, 0.0, False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -120,6 +121,7 @@ def _fetch_sm_direction(ctx, asset):
             continue
         found = True
         d = str(m.get("direction", "")).upper()
+        side_n[d] = int(m.get("trader_count", 0) or 0)
         pct = scoring._f(m, "pct_of_top_traders_gain", "longPct")
         if d == "LONG":
             long_pct = pct
@@ -131,11 +133,14 @@ def _fetch_sm_direction(ctx, asset):
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
+    if side_n.get("LONG" if long_ratio >= 50 else "SHORT", 0) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     return ("LONG", long_ratio) if long_ratio >= 50 else ("SHORT", 100 - long_ratio)
 
 
 def scan(inputs, ctx):
     min_score = int(inputs.get("minScore", 5))
+    min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
     margin_pct = float(inputs.get("marginPct", 12))   # PERCENT of withdrawable (0,100], not a fraction
     max_lev = int(inputs.get("maxLeverage", 3))       # IPOP discovery-bounds regime
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
@@ -175,7 +180,7 @@ def scan(inputs, ctx):
             continue
         c1 = candles.get("1h", []) or []
         c4 = candles.get("4h", []) or []
-        sm_dir, sm_tilt = _fetch_sm_direction(ctx, coin)
+        sm_dir, sm_tilt = _fetch_sm_direction(ctx, coin, min_traders)
         th = scoring.build_thesis_pre_listing(coin, c1, c4, sm_dir, sm_tilt, inputs)
         if not th or th["score"] < min_score:
             continue

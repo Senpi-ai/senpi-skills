@@ -14,7 +14,7 @@ description: >
   force-closing, >=3% over 1h) AND price is moving violently (>=2% over 1h) AND
   the 5m candle is still moving the same way — riding the forced flow: OI down +
   price up = shorts squeezed -> LONG; OI down + price down = longs liquidated ->
-  SHORT. Thin book on the move side + volume spike + smart-money alignment add
+  SHORT. Thin book on the move side + volume spike + 4h leader momentum alignment add
   conviction (max ~9). Flat 15% margin, 1-5x leverage (default 4). DSL is the
   ONLY exit — wide ratchet ladder (first lock at +10% ROE) so a squeeze can run,
   with a 24h hard_timeout outer bound (forced flow resolves fast). Faithful port
@@ -47,6 +47,7 @@ scanners:
       oiDropStrongPct: 6.0                   # v2 oiDropStrongPct — strong-unwind bonus threshold
       priceMoveMinPct: 2.0                   # v2 priceMoveMinPct — 1h move magnitude that marks "violent"
       volSpikePct: 50.0                      # v2 volSpikePct — 5m volume-spike bonus threshold
+      minTraderCount: 10                     # 4h-board headcount floor — a side with fewer top traders never sets the lean
       marginPct: 15                          # PERCENT of withdrawable (0,100]; flat (v2 marginPct 0.15 -> 15)
       leverage: 4                            # clamped to <= 5 in scan.py (MAX_LEVERAGE)
       recentSignalTtlSeconds: 240            # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)

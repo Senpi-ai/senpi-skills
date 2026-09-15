@@ -45,6 +45,7 @@ scanners:
       conversionWindowHours: 72              # stay eligible for days post-flip, not just the flip tick
       smTiltMinPct: 55
       smStrongTiltPct: 70
+      minTraderCount: 10                     # 4h-board headcount floor — a side with fewer top traders never sets the lean
       recentSignalTtlSeconds: 720
     signal_data_schema:
       score: { type: number }
