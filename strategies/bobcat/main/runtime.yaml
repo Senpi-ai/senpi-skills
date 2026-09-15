@@ -1,7 +1,7 @@
 # ── BOBCAT · single instance — Big Tech equity-perp trend follower (Runtime 3.0 port) ──
 # Faithful port of v2 Bobcat (SKILL.md v1.0.0 + bobcat-producer.py v1.0.1 + bobcat-config.json).
 # 12-name big-tech whitelist on Hyperliquid XYZ (HIP-3 DEX): NVDA/TSLA/AAPL/META/MSFT/GOOGL/
-# AMZN/AMD/MU/INTC/TSM/ORCL. LONG OR SHORT on 4h-trend (gate) + Smart-Money direction (gate,
+# AMZN/AMD/MU/INTC/TSM/ORCL. LONG OR SHORT on 4h-trend (gate) + 4h-leader direction (gate,
 # tilt >= 55%). Flat 20% margin / 5x. Emits the single strongest setup per tick (v2 main()
 # emitted only `best`). DSL exits — Phase 1 15% max_loss, Phase 2 standard ladder, hard_timeout
 # 48h (equities have weekend pricing gaps). xyz: prefix mandatory for the HIP-3 DEX.
@@ -18,7 +18,7 @@ description: >
   BOBCAT — Big Tech equity-perp trend follower on Hyperliquid XYZ. A 12-name whitelist
   (NVDA/TSLA/AAPL/META/MSFT/GOOGL/AMZN/AMD/MU/INTC/TSM/ORCL). Per tick it scores every
   non-held, non-recently-signaled name and emits the single strongest setup whose 4h trend
-  is non-neutral AND whose Smart-Money direction agrees (tilt >= 55%). Score (max ~9):
+  is non-neutral AND whose 4h-leader direction agrees (tilt >= 55%). Score (max ~9):
   +3 4h trend, +2 1h confirms, +2 SM aligned, +1 SM strongly tilted (>= 70%); floor minScore 5.
   Flat sizing: 20% margin / 5x. DSL is the ONLY exit — Phase 1 15% max_loss, Phase 2
   Bison-pattern wide ladder (T0 +10%/lock 0 through T5 +100%/lock 85), hard_timeout 48h
@@ -51,6 +51,7 @@ scanners:
       minScore: 5                          # v2 DEFAULT_MIN_SCORE / config minScore
       smTiltMinPct: 55                     # v2 DEFAULT_SM_TILT_MIN / config smTiltMinPct (gate)
       smStrongTiltPct: 70                  # v2 DEFAULT_SM_STRONG / config smStrongTiltPct (+1 bonus)
+      minTraderCount: 10                   # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
       marginPct: 20                        # PERCENT of withdrawable (0,100]; v2 config marginPct 0.20 (FRACTION) -> 20
       leverage: 5                          # v2 DEFAULT_LEVERAGE; clamped to MAX_LEVERAGE 5 in scan.py
       recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)

@@ -59,7 +59,11 @@ def _asset_data(ctx, asset, intervals):
     return md.get("data", md) if isinstance(md, dict) else None
 
 
-def _sm_for_asset(ctx, asset):
+# Floor on the 4h board's `trader_count`: a lean whose leading side is thinner than this is refused.
+_DEFAULT_MIN_TRADER_COUNT = 10
+
+
+def _sm_for_asset(ctx, asset, min_traders=_DEFAULT_MIN_TRADER_COUNT):
     """Port of v2 fetch_sm_direction: net smart-money lean for `asset` from
     leaderboard_get_markets. Returns (direction, tilt_pct).
       direction in {"LONG","SHORT","NEUTRAL"} or None when the asset isn't found.
@@ -85,6 +89,7 @@ def _sm_for_asset(ctx, asset):
     long_pct = 0.0
     short_pct = 0.0
     found = False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -93,6 +98,7 @@ def _sm_for_asset(ctx, asset):
             continue
         found = True
         direction = str(m.get("direction", "")).upper()
+        side_n[direction] = int(m.get("trader_count", 0) or 0)
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         if direction == "LONG":
             long_pct = pct
@@ -105,6 +111,8 @@ def _sm_for_asset(ctx, asset):
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
+    if side_n.get("LONG" if long_ratio >= 50 else "SHORT", 0) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     if long_ratio >= 50:                      # v2-quirk: ties (50/50) resolve LONG
         return "LONG", long_ratio
     return "SHORT", 100 - long_ratio
@@ -113,6 +121,7 @@ def _sm_for_asset(ctx, asset):
 def scan(inputs, ctx):
     asset = (inputs.get("asset", "BTC") or "BTC").upper()
     min_score = float(inputs.get("minScore", 5))
+    min_traders = int(inputs.get("minTraderCount", _DEFAULT_MIN_TRADER_COUNT))   # 4h-board headcount floor
     margin_pct = float(inputs.get("marginPct", 25))   # PERCENT of withdrawable (0,100], not a fraction
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
     now = time.time()
@@ -130,7 +139,7 @@ def scan(inputs, ctx):
     c1h = candles.get("1h", []) or []
     c4h = candles.get("4h", []) or []
 
-    sm_dir, sm_tilt = _sm_for_asset(ctx, asset)
+    sm_dir, sm_tilt = _sm_for_asset(ctx, asset, min_traders=min_traders)
 
     th = scoring.build_thesis(c1h, c4h, sm_dir, sm_tilt, inputs)
 

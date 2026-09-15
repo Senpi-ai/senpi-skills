@@ -149,7 +149,11 @@ def _get_account(ctx):
     return account_value, positions
 
 
-def _get_sm_direction(ctx, coin):
+# Floor on the 4h board's `trader_count`: a lean whose leading side is thinner than this is refused.
+_DEFAULT_MIN_TRADER_COUNT = 10
+
+
+def _get_sm_direction(ctx, coin, min_traders=_DEFAULT_MIN_TRADER_COUNT):
     """Net smart-money lean for `coin` from leaderboard_get_markets. Returns
     (direction, tilt_pct) or (None, 0.0). READ-GUARDED -> degrades to neutral
     on failure (smart-money is a score CONTRIBUTOR here, never a hard gate).
@@ -175,6 +179,7 @@ def _get_sm_direction(ctx, coin):
 
     long_pct, short_pct, found = 0.0, 0.0, False
     cu = coin.upper()
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -183,6 +188,7 @@ def _get_sm_direction(ctx, coin):
             continue
         found = True
         d = str(m.get("direction", "")).upper()
+        side_n[d] = int(m.get("trader_count", 0) or 0)
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         if d == "LONG":
             long_pct = pct
@@ -195,6 +201,8 @@ def _get_sm_direction(ctx, coin):
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
+    if side_n.get("LONG" if long_ratio >= 50 else "SHORT", 0) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     if long_ratio >= 50:
         return "LONG", long_ratio
     return "SHORT", 100 - long_ratio
@@ -254,6 +262,7 @@ def scan(inputs, ctx):
     universe = inputs.get("universe", _DEFAULT_UNIVERSE)
     sub_groups = inputs.get("subGroups", _DEFAULT_SUB_GROUPS)
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
+    min_traders = int(inputs.get("minTraderCount", _DEFAULT_MIN_TRADER_COUNT))   # 4h-board headcount floor
     long_breadth = float(inputs.get("longBreadthPct", _DEFAULT_LONG_BREADTH))
     short_breadth = float(inputs.get("shortBreadthPct", _DEFAULT_SHORT_BREADTH))
     lev_cfg = int(inputs.get("leverage", _DEFAULT_LEVERAGE))
@@ -355,7 +364,7 @@ def scan(inputs, ctx):
             continue
         if _was_recently_signaled(signaled, coin, ttl, now):
             continue
-        sm = _get_sm_direction(ctx, coin)
+        sm = _get_sm_direction(ctx, coin, min_traders=min_traders)
         th = scoring.build_thesis(
             coin, sub_groups.get(coin, "logic"),
             md["candles_1h"], md["candles_4h"], gate_dir,

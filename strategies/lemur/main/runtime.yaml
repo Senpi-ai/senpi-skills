@@ -3,7 +3,7 @@
 # Auto-discovers IPOPs on Hyperliquid XYZ via the structural funding signature
 # (abs(funding) <= 1e-7 = ~100x smaller than standard XYZ perps) + a pre-listing
 # leverage cap (<=5x) + a $100k liquidity floor. Today's universe: [xyz:SPCX].
-# Long OR short on 4h trend structure + Smart-Money agreement. Moderate DSL —
+# Long OR short on 4h trend structure + 4h-leader agreement. Moderate DSL —
 # Discovery Bounds throttle IPOP velocity so positions don't snap as fast as
 # normal perps. Faithful port of the v2 producer thesis — see scanners/scoring.py
 # (IPOP filter + scoring reproduced verbatim, v2-quirks flagged).
@@ -26,7 +26,7 @@ description: >
   a $100k daily-volume floor; XYZ names only, delisted dropped. Today that
   returns [xyz:SPCX] (SpaceX); it auto-expands when trade.xyz lists more IPOPs
   and auto-drops a name once it IPOs. Long OR short on 4h trend structure with a
-  Smart-Money direction gate (4-component score, max ~9, minScore 5). Leverage
+  4h-leader direction gate (4-component score, max ~9, minScore 5). Leverage
   auto-capped to each IPOP's own max_leverage (min of config 3x and the venue 5x
   cap). One position at a time; a moderate DSL lets multi-day IPOP theses breathe
   (Phase 1 max_loss 10%, wide Phase 2 ladder, time-cuts disabled — IPOPs trade
@@ -58,6 +58,7 @@ scanners:
       marginPct: 15                         # PERCENT of withdrawable (0,100]; v2 stored 0.15 fraction
       smTiltMinPct: 55                      # v2 smTiltMinPct (SM agreement gate)
       smStrongTiltPct: 70                   # v2 smStrongTiltPct (+1 scoring tier)
+      minTraderCount: 10                    # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
       ipopFundingMaxAbs: 1.0e-7             # IPOP funding signature (abs funding <= 1e-7)
       ipopMaxLeverageCap: 5                 # IPOP pre-listing leverage cap
       ipopMinDailyVolUsd: 100000            # IPOP liquidity floor ($100k/day)

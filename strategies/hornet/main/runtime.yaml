@@ -19,7 +19,7 @@ description: >
   bullish) and applies a breadth gate: breadth >= 0.55 -> only LONGs eligible;
   breadth <= 0.35 -> only SHORTs eligible; chop in between -> emit nothing. Eligible
   names are scored in the gate direction (base 3 + 4h trend + 1h confirm + |momentum|
-  tier + smart-money agreement + a supply-chain-gradient bonus when the equipment
+  tier + 4h-leader agreement + a supply-chain-gradient bonus when the equipment
   sub-group leads — early-cycle confirmation); floor minScore 5. Emits the top 1-2.
   Flat sizing 18% margin / 4x. DSL is the ONLY exit — Phase 1 15% max_loss, Phase 2
   wide ladder (first lock at +10% ROE), hard_timeout 48h (equity perps reconcile
@@ -70,6 +70,7 @@ scanners:
       shortBreadthPct: 0.35                # breadth <= -> SHORT-only eligible
       momStrongPct: 1.0                    # |1h momentum| tier: strong (+2)
       momModeratePct: 0.5                  # |1h momentum| tier: moderate (+1)
+      minTraderCount: 10                   # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
       marginPctBase: 18                    # PERCENT of withdrawable (0,100]; flat
       leverage: 4                          # clamped to [1,5] in scan.py
       maxEmit: 2                           # emit the top 1-2 by score

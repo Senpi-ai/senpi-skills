@@ -6,12 +6,12 @@
 schema_version: 1
 
 id: bison
-version: "1.2.0"
+version: "1.2.1"
 catalog:
   name: "Bison — Conviction Momentum Holder"
   emoji: "🦬"
-  tagline: "A patient multi-asset momentum holder on liquid majors (BTC/ETH/SOL): enters only when a 9-factor composite (4h/1h trend structure, 1h/4h momentum, smart-money lean, funding, volume, OI proxy, RSI) clears a high conviction floor, then sizes margin to conviction (25/31/37%) and lets a wide DSL ratchet ride the move for days."
-  belief_plain: "Trades only the big, liquid coins (BTC, ETH, SOL). It waits until the 4-hour and 1-hour trend, momentum, the best traders, and funding all line up the same way before entering, bets bigger when more of them agree, and then trails a wide stop so a real move can run for days instead of getting chopped out early."
+  tagline: "A patient multi-asset momentum holder on liquid majors (BTC/ETH/SOL): enters only when a 9-factor composite (4h/1h trend structure, 1h/4h momentum, 4h-leader lean, funding, volume, OI proxy, RSI) clears a high conviction floor, then sizes margin to conviction (25/31/37%) and lets a wide DSL ratchet ride the move for days."
+  belief_plain: "Trades only the big, liquid coins (BTC, ETH, SOL). It waits until the 4-hour and 1-hour trend, momentum, the last four hours' winners, and funding all line up the same way before entering, bets bigger when more of them agree, and then trails a wide stop so a real move can run for days instead of getting chopped out early."
   thesis: "You want few, high-conviction trades on coins deep enough to size into, not a scattergun across thin small-caps. Restricting to BTC/ETH/SOL kills the small-cap-volume-spike failure mode (a thin coin spiking into the universe and consuming a slot), and a demanding multi-factor floor means the agent only acts when a real directional thesis exists — then it holds, because the edge is in the tail of the move, not the entry."
   group: momentum
   archetype: trend_following
@@ -24,7 +24,7 @@ catalog:
   leverage_max: 10
   max_slots: 3
   assets: ["BTC", "ETH", "SOL"]
-  tags: [btc, eth, sol, multi-asset, momentum, conviction, smart-money, conviction-margin, let-winners-run]
+  tags: [btc, eth, sol, multi-asset, momentum, conviction, leader-momentum, conviction-margin, let-winners-run]
 
 requires:
   runtime: ">=3.0.0"

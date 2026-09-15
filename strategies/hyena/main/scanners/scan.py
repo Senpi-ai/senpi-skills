@@ -154,7 +154,11 @@ def _fetch_markets(ctx, limit):
     return markets
 
 
-def _sm_for(markets, coin):
+# Floor on the 4h board's `trader_count`: a lean whose leading side is thinner than this is refused.
+_DEFAULT_MIN_TRADER_COUNT = 10
+
+
+def _sm_for(markets, coin, min_traders=_DEFAULT_MIN_TRADER_COUNT):
     """Net smart-money lean for `coin` from the leaderboard markets list. Returns
     (direction, tilt_pct) or (None, 0.0). Aggregates the long/short rows for the
     matched token (dog/bison parse: pct_of_top_traders_gain by direction), then
@@ -163,6 +167,7 @@ def _sm_for(markets, coin):
     want = str(coin).upper()
     is_xyz = want.startswith("XYZ:")
     long_pct, short_pct, found = 0.0, 0.0, False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -176,6 +181,7 @@ def _sm_for(markets, coin):
             continue
         found = True
         d = str(m.get("direction", "")).upper()
+        side_n[d] = int(m.get("trader_count", 0) or 0)
         pct = scoring.safe_float(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         if d == "LONG":
             long_pct = pct
@@ -183,7 +189,10 @@ def _sm_for(markets, coin):
             short_pct = pct
     if not found:
         return None, 0.0
-    return scoring.sm_short_tilt(long_pct, short_pct)
+    d, tilt = scoring.sm_short_tilt(long_pct, short_pct)
+    if d in ("LONG", "SHORT") and side_n.get(d, 0) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
+    return d, tilt
 
 
 # ── 4h CANDLES + per-asset funding (bobcat dex-aware + dog funding, read-guarded) ──
@@ -237,6 +246,7 @@ def scan(inputs, ctx):
     now = time.time()
     universe = inputs.get("universe", _UNIVERSE_DEFAULT)
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
+    min_traders = int(inputs.get("minTraderCount", _DEFAULT_MIN_TRADER_COUNT))   # 4h-board headcount floor
     leaderboard_limit = int(inputs.get("leaderboardLimit", _DEFAULT_LEADERBOARD_LIMIT))
     max_emit = int(inputs.get("maxEmit", _DEFAULT_MAX_EMIT))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
@@ -302,7 +312,7 @@ def scan(inputs, ctx):
             else:
                 continue            # no market-wide AND no per-asset confirmation
 
-        sm = _sm_for(markets, coin)
+        sm = _sm_for(markets, coin, min_traders=min_traders)
         th = scoring.score_short(coin, md["candles_4h"], sm, eff_regime,
                                  asset_funding, inputs)
         if th and th["score"] >= min_score:

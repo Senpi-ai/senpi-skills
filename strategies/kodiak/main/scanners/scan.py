@@ -40,7 +40,11 @@ def _asset_data(ctx, asset, dex, intervals, funding):
     return md.get("data", md) if isinstance(md, dict) else None
 
 
-def _sm_for_asset(ctx, asset):
+# Floor on the 4h board's `trader_count`: a lean whose leading side is thinner than this is refused.
+_DEFAULT_MIN_TRADER_COUNT = 10
+
+
+def _sm_for_asset(ctx, asset, min_traders=_DEFAULT_MIN_TRADER_COUNT):
     """Port of v2 get_sol_sm_signal: net smart-money lean for `asset` from
     leaderboard_get_markets. Returns {direction, pct, traders, cc_15m} or None."""
     try:
@@ -83,6 +87,9 @@ def _sm_for_asset(ctx, asset):
     if total == 0:
         return {"direction": "NEUTRAL", "pct": 50, "traders": traders, "cc_15m": cc_15m}
     long_ratio = (long_pct / total) * 100
+    lean = "LONG" if long_ratio > 58 else "SHORT" if long_ratio < 42 else None
+    if lean and (long_tc if lean == "LONG" else short_tc) < min_traders:
+        return None   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     if long_ratio > 58:
         return {"direction": "LONG", "pct": long_ratio, "traders": traders, "cc_15m": cc_15m}
     if long_ratio < 42:
@@ -95,6 +102,7 @@ def scan(inputs, ctx):
     dex = _dex_for(asset, inputs)
     macro_asset = inputs.get("macroAsset", "BTC")     # "" disables the BTC factor (e.g. xyz ports)
     min_score = float(inputs.get("minScore", 10))
+    min_traders = int(inputs.get("minTraderCount", _DEFAULT_MIN_TRADER_COUNT))   # 4h-board headcount floor
     margin_pct = float(inputs.get("marginPct", 20))   # PERCENT of withdrawable (0,100], not a fraction
     tiers = inputs.get("leverageTiers", _DEFAULT_TIERS)
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
@@ -122,7 +130,7 @@ def scan(inputs, ctx):
         if mdata:
             btc_mom_1h = scoring.mom((mdata.get("candles", {}) or {}).get("1h", []), 1)
 
-    sm = _sm_for_asset(ctx, asset)
+    sm = _sm_for_asset(ctx, asset, min_traders=min_traders)
 
     th = scoring.build_thesis(
         candles.get("5m", []), candles.get("15m", []), candles.get("1h", []), candles.get("4h", []),

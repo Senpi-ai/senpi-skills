@@ -10,7 +10,7 @@ version: 3.0.0
 description: >
   BISON — multi-asset conviction momentum holder on liquid majors (BTC/ETH/SOL).
   Enters only when a 9-factor composite (4h/1h trend structure, 1h/4h momentum,
-  smart-money lean, funding, volume trend, OI proxy, RSI) clears score 11 via a
+  4h-leader lean, funding, volume trend, OI proxy, RSI) clears score 11 via a
   direction waterfall (4h trend -> SM -> 1h momentum). Conviction-scaled margin:
   25% base, 31% at score >=10, 37% at score >=12. Leverage 7-10x (default 10).
   DSL is the ONLY exit — time-cuts disabled, wide ratchet ladder (first lock at
@@ -45,6 +45,7 @@ scanners:
       minVolTrendPct: 10                   # v2 entry.minVolTrendPct
       rsiMaxLong: 72                       # v2 entry.rsiMaxLong
       rsiMinShort: 28                      # v2 entry.rsiMinShort
+      minTraderCount: 10                   # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
       recentSignalTtlSeconds: 180          # v3.0.1 RECENT_SIGNAL_TTL_SEC (race-window dedup)
     signal_data_schema:
       score: { type: number }
