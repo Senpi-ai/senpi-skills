@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.22.0"
+  version: "1.23.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -492,6 +492,11 @@ directly.)
 - **Run the engine; never hand-pull balances.** `python3 scripts/portfolio.py` enumerates the
   embedded wallet + every strategy sub-wallet, pulls live clearinghouse state per wallet, and
   classifies the buckets. Read its JSON.
+- **Numbers come from the engine; other strategies come from discover.** Never state a win rate, a
+  winners/losers count or a long/short split the `closed` block did not print — `recent[]` is the
+  last five trades, not the record, and a rate read off it is a guess. If the user asks what to run
+  instead, hand off to **senpi-strategy-discover** and quote the returned record's `risk_level`;
+  never name a template, or call one aggressive or conservative, from memory.
 - **Real-time, always.** The engine forces a fresh fetch (no 12h cache) and reads each strategy's
   live clearinghouse state. Never report balances from earlier in the conversation — re-run.
 - **Always say which wallet / which bucket.** Every dollar figure gets a location. "Idle" is
@@ -509,10 +514,12 @@ directly.)
 - **Use leveraged return, not raw price %.** Cite `return_on_equity_pct` (uPnL / margin), the number
   that actually reflects the position — a 1% price move at 10x is a 10% return on margin.
 - **Report realized PnL + closed trades, not only open ones.** Each strategy carries a `closed` block —
-  `realized_pnl` (total booked PnL over the recent history pull) and `recent[]` (last few closed
-  trades: asset, direction, realized pnl, closed time). A strategy flat right now may have *already
-  booked* real gains; report both realized and unrealized. If `closed.realized_pnl` is `null`, the
-  history read failed (see `meta.warnings`) — say realized PnL is unavailable, don't imply zero.
+  `realized_pnl` (total booked PnL over the recent history pull), the record over that pull
+  (`trade_count`, `winners`, `losers`, `win_rate_pct`, `longs`, `shorts`) and `recent[]` (last few
+  closed trades: asset, direction, realized pnl, closed time). Quote the record; never work a win rate
+  or a long/short split out of `recent[]`. A strategy flat right now may have *already booked* real
+  gains; report both realized and unrealized. If `closed.realized_pnl` is `null`, the history read
+  failed (see `meta.warnings`) — say realized PnL is unavailable, don't imply zero.
 - **Surface the protection posture per strategy — then the live tiers.** Each strategy carries
   `protected` (`true` / `false` / `null`): `true` only when the deployed `runtime.yaml`'s `exit:` block
   is one the **ENGINE actually read** (`dsl_preset` or `engine: dsl`) — a `skill_name` attribution stamp
@@ -764,11 +771,13 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
     stamp alone no longer counts. `null` = the runtime read did not answer — say "could not verify on
     this host," never "protected" or "not protected." Config-level posture, not a live per-position
     check — see the tri-state rule above.
-  - `closed` — `{realized_pnl, trade_count, recent[]}` from a read-guarded `discovery_get_trader_history`
-    on the strategy wallet: `realized_pnl` (total booked PnL over the recent pull), `trade_count`, and
-    `recent[]` (last few closed trades: `asset`, `direction`, `realized_pnl`, `entry_px`, `exit_px`,
-    `closed_time`). On a read failure `realized_pnl` is `null` and a `meta.warnings` entry is added —
-    treat as "realized PnL unavailable," never as zero.
+  - `closed` — `{realized_pnl, trade_count, winners, losers, win_rate_pct, longs, shorts, recent[]}`
+    from a read-guarded `discovery_get_trader_history` on the strategy wallet: `realized_pnl` (total
+    booked PnL over the recent pull), the record over that pull (a flat close is neither a winner nor
+    a loser; `win_rate_pct` = winners / trade_count), and `recent[]` (last few closed trades: `asset`,
+    `direction`, `realized_pnl`, `entry_px`, `exit_px`, `closed_time`). `strategy_groups[].totals`
+    carries the same counts summed across the strategy's wallets. On a read failure `realized_pnl` and
+    the counts are `null` and a `meta.warnings` entry is added — treat as "unavailable," never as zero.
   - `positions[]` (asset, dex, direction, leverage, notional, margin, `upnl`, `return_on_equity_pct`,
     `liq_px`, `market_24h_pct`, `vs_market`, and **`dsl`** — the live per-position ratchet tier).
     - **`dsl`** — this position's live DSL/ratchet state. **`armed: true`** → `tier_index`,

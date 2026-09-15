@@ -1075,12 +1075,15 @@ def fetch_strategies(client, meta):
 
 
 def fetch_closed(client, wallet, meta):
-    """Read-guarded closed-position ledger for a strategy wallet: total realized PnL + a short list of
-    recent closed trades. Extraction matches the real `discovery_get_trader_history` shape
+    """Read-guarded closed-position ledger for a strategy wallet: total realized PnL, the record over the
+    whole pull (winners / losers / win rate / longs / shorts) + a short list of recent closed trades.
+    The record is printed so the narration quotes it — `recent[]` is the last few trades, and a win rate
+    or a long/short split read off it is a guess. Extraction matches the real `discovery_get_trader_history` shape
     (senpi://guides/trader-closed-positions): a `closedPositions[]` of records with `coin`, signed `szi`
     (>0 closed long / <0 closed short), string `realizedPnl`, Unix-ms `closeTime`, `entryPx`/`exitPx`.
     Fails OPEN — any read/parse error → empty closed block + a meta.warning, never crashes."""
-    empty = {"realized_pnl": None, "trade_count": 0, "recent": []}
+    empty = {"realized_pnl": None, "trade_count": 0, "winners": None, "losers": None, "win_rate_pct": None,
+             "longs": None, "shorts": None, "recent": []}
     try:
         h = _ok(client.mcp_call("discovery_get_trader_history", trader_address=wallet,
                                 sort_by="CLOSED_TIME", sort_direction="DESC",
@@ -1096,14 +1099,23 @@ def fetch_closed(client, wallet, meta):
     if not isinstance(rows, list):
         rows = []
     realized_total = 0.0
+    winners = losers = longs = shorts = 0
     recent = []
     for p in rows:
         if not isinstance(p, dict):
             continue
         pnl = _f(p, "realizedPnl", "realized_pnl", default=0.0)   # often a string → _f coerces
         realized_total += pnl
+        szi = _f(p, "szi", "size", default=0.0)
+        if pnl > 0:
+            winners += 1
+        elif pnl < 0:
+            losers += 1              # a flat close counts as neither, so winners + losers <= trade_count
+        if szi >= 0:
+            longs += 1
+        else:
+            shorts += 1
         if len(recent) < CLOSED_HISTORY_CAP:
-            szi = _f(p, "szi", "size", default=0.0)
             recent.append({
                 "asset": _field(p, "coin", "coinDisplayName", "asset"),
                 "direction": "long" if szi >= 0 else "short",   # closed-side sign (szi>0 closed a long)
@@ -1112,7 +1124,11 @@ def fetch_closed(client, wallet, meta):
                 "exit_px": _field(p, "exitPx", "exit_px"),
                 "closed_time": _field(p, "closeTime", "closed_time", "closeTimeMs"),
             })
-    return {"realized_pnl": round(realized_total, 2), "trade_count": len(rows), "recent": recent}
+    n = len(rows)
+    return {"realized_pnl": round(realized_total, 2), "trade_count": n,
+            "winners": winners, "losers": losers,
+            "win_rate_pct": round(100.0 * winners / n, 1) if n else None,
+            "longs": longs, "shorts": shorts, "recent": recent}
 
 
 # ──────────────────────────────────────────────────────────────── live per-position DSL / ratchet tier
@@ -1447,12 +1463,24 @@ def group_strategies(strategies, meta):
             return round(sum(vals), 2) if vals else None
         realized_vals = [_num((s.get("closed") or {}).get("realized_pnl")) for s in insts]
         realized_vals = [v for v in realized_vals if v is not None]
+
+        def _closed_count(field):
+            vals = [_num((s.get("closed") or {}).get(field)) for s in insts]
+            vals = [v for v in vals if v is not None]
+            return int(sum(vals)) if vals else None
+        closed_counts = {f: _closed_count(f) for f in ("trade_count", "winners", "losers", "longs", "shorts")}
+        n_closed = closed_counts["trade_count"] or 0
         totals = {
             "account_value": _sum("account_value"),
             "idle_withdrawable": _sum("idle_withdrawable"),
             "deployed": _sum("deployed"),
             "upnl": _sum("upnl"),
             "realized_pnl": round(sum(realized_vals), 2) if realized_vals else None,
+            # the closed record summed across the strategy's wallets — quote these, never a rate
+            # worked out from the per-wallet `recent[]` samples
+            **closed_counts,
+            "win_rate_pct": (round(100.0 * closed_counts["winners"] / n_closed, 1)
+                             if n_closed and closed_counts["winners"] is not None else None),
         }
 
         # flat instances = an instance with NO open positions. For a multi-wallet strategy this is its
@@ -1520,6 +1548,9 @@ def run(client, want_market=True):
     strategy_groups = group_strategies(strategies, meta)
     if not strategies and not embedded.get("address"):
         meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    # per-wallet reads run in a thread pool, so warnings land in completion order; sort them so two runs
+    # over the same data are byte-identical (the `all` step is compared to run() that way)
+    meta["warnings"] = sorted(meta["warnings"])
     return {
         "as_of": "live",
         "totals": totals,           # the three buckets — NEVER conflate them
