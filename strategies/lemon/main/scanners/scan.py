@@ -154,10 +154,14 @@ def _fetch_sm_map(ctx, limit, tracked, xyz_banned):
         dex = str(m.get("dex", "")).lower()
         if xyz_banned and dex == "xyz":
             continue
-        if token not in tracked_set:
+        asset = f"xyz:{token}" if dex == "xyz" else token
+        # Match the VENUE-qualified name so a main-dex row never stands in for its xyz twin (or
+        # vice versa); LONG and SHORT are separate rows per token — keep the dominant (crowded)
+        # side, never the last row.
+        if asset.upper() not in tracked_set or not m.get("is_dominant_direction", False):
             continue
-        sm_map[token] = {
-            "asset": f"xyz:{token}" if dex == "xyz" else token,
+        sm_map[asset] = {
+            "asset": asset,
             "dex": dex,
             "is_xyz": dex == "xyz",
             "direction": str(m.get("direction", "")).upper(),
@@ -216,7 +220,8 @@ def scan(inputs, ctx):
     now = time.time()
     tracked_crypto = inputs.get("trackedCrypto", _TRACKED_CRYPTO_DEFAULT)
     tracked_xyz = inputs.get("trackedXyz", _TRACKED_XYZ_DEFAULT)
-    tracked = list(tracked_crypto) + list(tracked_xyz)
+    tracked = list(tracked_crypto) + [t if str(t).lower().startswith("xyz:") else f"xyz:{t}"
+                                      for t in tracked_xyz]   # basket names carry their venue
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))      # PERCENT (0,100]
     # defensive: a pasted FRACTION (<=1.0) means margin was stored as 0.30 -> 30%.

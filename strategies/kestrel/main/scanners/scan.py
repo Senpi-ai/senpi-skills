@@ -123,7 +123,8 @@ def _fetch_sm_xyz_map(ctx):
             if isinstance(m, dict):
                 token = str(m.get("token", "")).upper()
                 dex = str(m.get("dex", "")).lower()
-                if dex == "xyz" and token:
+                # LONG and SHORT are separate rows per token: keep the dominant side, never the last row.
+                if dex == "xyz" and token and m.get("is_dominant_direction", False):
                     sm_map[token] = m
     return sm_map
 

@@ -217,7 +217,7 @@
       "emoji": "🍋",
       "tagline": "Watches where the worst, most crowded traders are piling in across a fixed basket of 12 crypto majors and 4 commodity/index names — and once that one-sided crowd stops following through (its 15-minute momentum rolls over), takes the OTHER side at conviction-scaled leverage and lets a wide ratcheting stop ride the snap-back.",
       "belief_plain": "When a lot of low-quality traders crowd hard onto one side of a coin and the move starts running out of steam, that crowd usually gets unwound. Lemon waits for the crowding to actually start fading on the 15-minute clock, blocks the trade if it's really a genuine trend (big BTC move or the asset itself ripping), then bets the OPPOSITE direction and trails a wide stop while the over-stretched move mean-reverts.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "Hyperliquid is full of high-leverage retail that piles into exhausted moves. A crowded smart-money consensus is only a fade setup once it STOPS following through — so Lemon gates on 15m exhaustion, not just crowding, and refuses to fade a real run (crypto MACRO gate on |BTC 4h|>3%, per-asset gate on |4h|>5%) because fading genuine trend is how a contrarian dies. Concentration + velocity-fade + overextension + reversal compound into a score; it fires the single best fade at score >=9, sizes leverage to conviction, and lets a wide DSL ride the mean reversion since reversals take hours, not minutes.",
       "tags": [
         "degen-fader",
@@ -851,7 +851,7 @@
       "emoji": "🦅",
       "tagline": "Scans the top 50 Hyperliquid crypto assets by volume and fires at most one position at a time — only when 4h, 1h and 15m momentum all align, the smart-money leaderboard is leaning the same way on a market it is actually concentrated in, and the move isn't a runaway counter-trend. Sizes margin to conviction (50/70/80%) at 10x, then rides a wide DSL.",
       "belief_plain": "Watches every liquid coin on Hyperliquid and waits, doing nothing until ONE setup is near-perfect: the trend, the momentum and the best traders all pointing the same direction at once. Then it takes a single, well-sized swing and trails a stop instead of guessing the top.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "The biggest swings happen when 4h + 1h + 15m momentum are perfectly unified AND the smart-money leaderboard is leaning that same way on a market it has meaningful skin in — a runaway trend's continuation, not a reversal. One amazing trade a day beats a scattergun: scan broadly, fire rarely, size to conviction, and never fight a trend already up >10% on the 4h.",
       "tags": [
         "momentum",
@@ -3188,7 +3188,7 @@
       "emoji": "🦅",
       "tagline": "A multi-asset non-crypto XYZ breakout rider: scans 12 macro names (oil, gold, S&P/Nasdaq, mega-cap tech) for a >=1.5% 1H breakout, confirms with 4H trend, volume surge, smart-money lean and funding, then sizes leverage to score (3x/5x) and rides the move with a DSL trailing exit. Holds up to 2 positions; trades 24/7 incl weekends.",
       "belief_plain": "Watches a basket of macro markets — crude and Brent oil, gold, the S&P and Nasdaq, and the biggest US tech stocks — and pounces when one breaks out more than 1.5% in an hour with volume behind it. It goes in harder (5x vs 3x) on the cleanest breakouts and trails a stop instead of guessing the exit. These markets trade around the clock, weekends included, so there's no market-hours gate.",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "thesis": "Macro assets move on discrete catalysts — an inventory print, a Fed headline, an earnings beat — and a sharp 1H breakout with volume confirmation usually continues for one to three hours before the move matures. A scanner watching a focused 12-name macro universe can catch that breakout early across commodities, indices and mega-cap equities, weight the 1H magnitude heaviest, confirm with the 4H trend, smart-money lean and funding, and let a trailing DSL lock the move before it fades.",
       "tags": [
         "xyz",
