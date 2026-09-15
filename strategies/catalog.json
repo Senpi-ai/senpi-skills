@@ -858,7 +858,7 @@
       "emoji": "🦪",
       "tagline": "An autonomous decoupler on Hyperliquid XYZ equity/commodity/index perps: it finds names quietly DECOUPLING from the broad market — outperforming the xyz index on persistent rising volume with shallow, bought dips (relentless accumulation, not a one-bar spike) — and rides the grind. No calendar, no event feed: the catalyst footprint is read straight from the tape. LONG up-accumulation, SHORT down-distribution; a wide DSL ratchet lets winners run.",
       "belief_plain": "Big catalysts — a stock getting added to an index, a buyout brewing, a sector run-up — all leave the same tell in the chart before anyone needs to know the news: the name starts beating the broad market on steady, rising volume, and every dip gets bought instead of selling off. That is accumulation, and Barnacle hunts for it automatically across the stocks, commodities and indices on Hyperliquid XYZ. It doesn't need you to feed it a calendar — it reads the footprint itself, goes long the quiet climbers (or short the quiet bleeders), and trails a stop so a real move can run for days.",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "thesis": "You don't need to know WHY a name is being accumulated to trade the accumulation. Index inclusions, M&A targets, and catalyst run-ups share one observable signature: the name decouples from its benchmark (positive excess return vs the broad xyz market) on PERSISTENT rising volume, and the largest pullback within the move stays shallow because the dips are bought — a grind, not a volatile breakout. Barnacle measures exactly that footprint from market data: excess return vs xyz:XYZ100 sets direction and conviction, 4h volume persistence and a shallow-deepest-dip confirm it's accumulation not noise, 4h/1h trend structure confirms the path, and the 4h leaders' side — which side the last four hours' winners sit on — nudges the score by ±1. Because the edge is read from the tape rather than an event date, the agent needs no operator calendar and the DSL owns the exit — a wide let-winners-run ratchet rides the grind, with a 48h cap so equity/index perps don't camp through the weekend pricing gap.",
       "tags": [
         "accumulation",
@@ -3440,7 +3440,7 @@
       "emoji": "🐉",
       "tagline": "A two-leg BTC + HYPE book that fuses a dozen weighted signals — trend, volume, OI, funding crowding, the 4h leaders' lean, cross-asset flow — into one 0-10 conviction score per asset, and only strikes when the composite is loud.",
       "belief_plain": "No single indicator is trustworthy, but when many independent ones agree — price trend, volume, open interest, funding, which side the last four hours' winners sit on, and BTC pulling HYPE — that agreement is the signal. Bet bigger the louder the agreement, protect every position with a ratchet stop, and stand aside when the picture is mixed.",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "thesis": null,
       "tags": [
         "composite",
@@ -5663,7 +5663,7 @@
       "emoji": "🦅",
       "tagline": "When BTC moves hard, crypto-correlated equities on Hyperliquid XYZ (Coinbase, MicroStrategy) follow late: Osprey self-computes each proxy's catch-up gap (leader move x its beta minus the move it has actually made), and when a proxy still owes a gap in the leader's direction it enters the proxy that way and lets a wide DSL ride the catch-up.",
       "belief_plain": "When Bitcoin makes a big move, the crypto-flavored stocks on the XYZ exchange (Coinbase, MicroStrategy) usually move the same way — but a beat late, because they are priced on a different venue. Osprey works out how far behind each one is and bets it catches up, then trails a wide stop so the catch-up can run for a day or two.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "thesis": "A crypto-correlated equity has a known beta to BTC (COIN ~1.8x, MSTR ~2.5x), so a BTC move implies an expected proxy move. But XYZ pricing trails spot crypto around its reference windows, so the proxy's actual move lags — a measurable, tradeable gap. Trading the lag (not the leader) means entering in the leader's confirmed direction only when the proxy still owes catch-up, which sidesteps the chase-the-leader failure mode and lets the structural pricing lag, not a directional guess, be the edge. The 4h leaders' side on the proxy (which side the last four hours' winners sit on) is a small score bonus, never a gate.",
       "tags": [
         "xyz",

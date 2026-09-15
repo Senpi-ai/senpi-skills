@@ -10,9 +10,14 @@ eight templates read. Two needles per template:
 
   (a) every field the validator reads — strategy.yaml `catalog.*` and `description`, each runtime.yaml
       `description`, README.md — says "4h leader" and never "smart money";
-  (b) the board read refuses a row whose `trader_count` is below the floor declared in runtime.yaml
-      `inputs` (`minTraderCount`, or the pre-existing floor cheetah / raptor already carried), so a thin
-      side never sets the lean.
+  (b) the board read floors on `trader_count` — the floor declared in runtime.yaml `inputs`
+      (`minTraderCount`, or the pre-existing floor cheetah / raptor already carried) — and where it floors
+      matters. A helper that folds the LONG row and the SHORT row of one asset into a ratio (barnacle,
+      osprey, dragonfly) keeps BOTH rows in the ratio and refuses only when the LEADING side's headcount is
+      under the floor: dropping a thin minority row would turn a two-row asset into a one-row asset, the
+      tilt would read 100, and the "strong tilt" bonuses would fire on exactly the thin reads the floor was
+      meant to refuse. A helper that keeps one row per token in a map (otter, owl, pangolin) refuses the
+      thin row itself. cheetah / raptor gate in scoring on the row's own headcount.
 
 Run:
   python3 -m pytest strategies/tests/test_board_momentum_rename_g4.py -q
@@ -132,16 +137,38 @@ def _floor(sid, instance="main"):
     return floor, inputs
 
 
+def _probe_ratio(sid, instance, read, token, dex=""):
+    """The three helpers that fold LONG + SHORT rows into one ratio. `read(scan, ctx, floor)` returns
+    (direction, tilt) or None. The ratio math is untouched; the only new outcome is a refusal."""
+    floor, _ = _floor(sid, instance)
+    scan, _ = _load(sid, instance)
+    row = lambda side, pct, n: _row(token, side, pct, n, dex=dex)      # noqa: E731
+    lean = lambda board, f=floor: read(scan, _Ctx(board), f)             # noqa: E731
+
+    # (a) a 3-trader LONG row owning 83% of the gain beside a 50-trader SHORT row: the lean would be
+    #     LONG, but 3 leaders do not make a lean — and dropping that row must NOT flip it to SHORT
+    assert lean(_board(row("long", 83.0, 3), row("short", 17.0, 50))) is None, f"{sid}/{instance} (a)"
+    # (b) a 40-trader LONG row at 60% beside a 5-trader SHORT row at 40%: LONG at the tilt the ratio
+    #     gives (60) — the minority side's thinness never changes the number (never 100)
+    d, tilt = lean(_board(row("long", 60.0, 40), row("short", 40.0, 5)))
+    assert d == "LONG" and tilt == pytest.approx(60.0), f"{sid}/{instance} (b): {d} {tilt}"
+    # (c) only thin rows for the asset: no lean, one-sided or two-sided
+    assert lean(_board(row("long", 4.1, floor - 1))) is None, f"{sid}/{instance} (c)"
+    assert lean(_board(row("long", 4.1, floor - 1), row("short", 9.0, floor - 1))) is None, f"{sid}/{instance} (c)"
+    # (d) min_traders=0: the floor is off and the lean returns
+    d, tilt = lean(_board(row("long", 83.0, 3), row("short", 17.0, 50)), 0)
+    assert d == "LONG" and tilt == pytest.approx(83.0), f"{sid}/{instance} (d): {d} {tilt}"
+    # a single thick row is still a full tilt: the floor refuses, it never rescales
+    assert lean(_board(row("long", 4.1, floor))) == ("LONG", 100.0), f"{sid}/{instance}"
+
+
+def _read_pair(scan, ctx, floor, asset):
+    d, tilt = scan._get_sm_direction(ctx, asset, floor)
+    return None if d is None else (d, tilt)
+
+
 def _probe_barnacle():
-    floor, _ = _floor("barnacle")
-    scan, _ = _load("barnacle")
-    thin = _row("NVDA", "long", 4.1, floor - 1, dex="xyz")
-    thick = _row("NVDA", "long", 4.1, floor, dex="xyz")
-    assert scan._get_sm_direction(_Ctx(_board(thin)), "xyz:NVDA", floor) == (None, 0.0)
-    assert scan._get_sm_direction(_Ctx(_board(thick)), "xyz:NVDA", floor) == ("LONG", 100.0)
-    # a thin opposing side is skipped, not counted: it never dilutes the lean
-    both = _board(thick, _row("NVDA", "short", 9.0, floor - 1, dex="xyz"))
-    assert scan._get_sm_direction(_Ctx(both), "xyz:NVDA", floor) == ("LONG", 100.0)
+    _probe_ratio("barnacle", "main", lambda s, c, f: _read_pair(s, c, f, "xyz:NVDA"), "NVDA", dex="xyz")
 
 
 def _probe_cheetah():
@@ -155,25 +182,23 @@ def _probe_cheetah():
     assert score > 0 and reasons
 
 
+def _read_dragonfly(scan, ctx, floor):
+    r = scan._sm_for_asset(ctx, "BTC", floor)
+    return None if r is None else (r["direction"], r["pct"])
+
+
 def _probe_dragonfly():
     for instance in ("btc", "hype"):
+        _probe_ratio("dragonfly", instance, _read_dragonfly, "BTC")
+        # the aggregation is exactly as it was: `traders` still counts BOTH sides (40 + 5)
         floor, _ = _floor("dragonfly", instance)
         scan, _ = _load("dragonfly", instance)
-        thin = _row("BTC", "long", 5.52, floor - 1)
-        thick = _row("BTC", "long", 5.52, floor)
-        assert scan._sm_for_asset(_Ctx(_board(thin)), "BTC", floor) is None, instance
-        assert scan._sm_for_asset(_Ctx(_board(thick)), "BTC", floor)["direction"] == "LONG", instance
-        both = _board(thick, _row("BTC", "short", 9.0, floor - 1))
-        assert scan._sm_for_asset(_Ctx(both), "BTC", floor)["direction"] == "LONG", instance
+        r = scan._sm_for_asset(_Ctx(_board(_row("BTC", "long", 60.0, 40), _row("BTC", "short", 40.0, 5))), "BTC", floor)
+        assert r["traders"] == 45, instance
 
 
 def _probe_osprey():
-    floor, _ = _floor("osprey")
-    scan, _ = _load("osprey")
-    thin = _row("COIN", "long", 1.75, floor - 1, dex="xyz")
-    thick = _row("COIN", "long", 1.75, floor, dex="xyz")
-    assert scan._get_sm_direction(_Ctx(_board(thin)), "xyz:COIN", floor) == (None, 0.0)
-    assert scan._get_sm_direction(_Ctx(_board(thick)), "xyz:COIN", floor) == ("LONG", 100.0)
+    _probe_ratio("osprey", "main", lambda s, c, f: _read_pair(s, c, f, "xyz:COIN"), "COIN", dex="xyz")
 
 
 def _probe_otter():

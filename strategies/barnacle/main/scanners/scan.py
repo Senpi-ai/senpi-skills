@@ -220,16 +220,16 @@ def _get_sm_direction(ctx, coin, min_traders=10):
     target = coin.upper()
     bare = target.split(":", 1)[1] if ":" in target else target
     long_pct, short_pct, found = 0.0, 0.0, False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
         token = str(m.get("token", m.get("coin", m.get("asset", "")))).upper()
         if token not in (target, bare):
             continue
-        if int(m.get("trader_count", 0) or 0) < min_traders:   # thin side: never sets the lean
-            continue
         found = True
         d = str(m.get("direction", "")).upper()
+        side_n[d] = int(m.get("trader_count", 0) or 0)
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         if d == "LONG":
             long_pct = pct
@@ -242,8 +242,12 @@ def _get_sm_direction(ctx, coin, min_traders=10):
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100.0
     if long_ratio >= 55:
+        if side_n.get("LONG", 0) < min_traders:
+            return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
         return "LONG", long_ratio
     if long_ratio <= 45:
+        if side_n.get("SHORT", 0) < min_traders:
+            return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
         return "SHORT", 100 - long_ratio
     return "NEUTRAL", 50.0
 
