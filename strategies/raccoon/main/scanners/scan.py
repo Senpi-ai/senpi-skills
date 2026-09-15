@@ -152,7 +152,8 @@ def fetch_weekend_universe(ctx, inputs):
 
 
 def _fetch_sm_map(ctx):
-    """ONE leaderboard_get_markets read -> {TOKEN: (long_pct, short_pct)} cache.
+    """ONE leaderboard_get_markets read -> {NAME: (long_pct, short_pct)} cache, keyed the
+    way the universe names a market (`XYZ:NVDA` for the xyz row, `BTC` for main).
 
     v2 re-fetched the whole leaderboard once per asset inside build_thesis; this
     port fetches it ONCE per tick and resolves each asset from the cache (same
@@ -178,6 +179,11 @@ def _fetch_sm_map(ctx):
         token = str(m.get("token", m.get("coin", m.get("asset", "")))).upper()
         if not token:
             continue
+        # The board carries a BARE token plus a separate `dex` ("" main / "xyz"); the universe
+        # carries `xyz:NVDA`. A bare key never matched an xyz name, so the SM gate failed closed
+        # on every candidate. Qualify the key with the dex read the fleet's _sm_row_matches uses.
+        if str(m.get("dex", "")).strip().lower() == "xyz" and not token.startswith("XYZ:"):
+            token = "XYZ:" + token
         d = str(m.get("direction", "")).upper()
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         lp, sp = sm_map.get(token, (0.0, 0.0))
