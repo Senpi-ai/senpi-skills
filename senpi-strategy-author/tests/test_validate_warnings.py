@@ -40,7 +40,8 @@ strategy:
 exit:
 {exit}
 scanners:
-  - type: external_scanner
+  - name: entry_signals
+    type: external_scanner
     path: ./scanners
     entrypoint: scan.py
     interval_seconds: 900
@@ -48,6 +49,13 @@ scanners:
     signal_data_schema:
       score:
         type: float
+actions:
+  - name: entry
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [entry_signals]
+    params: {{order_type: FEE_OPTIMIZED_LIMIT, fee_optimized_limit_options: {{ensure_execution_as_taker: true}}}}
+    context: [{{type: signal, scanner: entry_signals}}]
 {risk}"""
 
 _GATED_SCAN = ("def scan(inputs, ctx):\n"

@@ -231,6 +231,22 @@ exit:   { engine: dsl, dsl_preset: { ... } }   # <-- a named preset (§7)
 risk:   { guard_rails: { drawdown_halt_pct: 25, daily_loss_limit_pct: 15, cooldown_seconds: 3600, ... } }
 ```
 
+**Closing from a signal.** A close is not a direction. The runtime routes a signal only to the actions whose
+`scanners:` name its scanner, and the open action refuses any direction but `LONG`/`SHORT`
+(`invalid_direction`): a "force-flat" signal with `direction: CLOSE` is refused, and one from a scanner no
+action lists is dropped without a log line. The shipped pattern is Barracuda's `close_all`: a **dedicated
+scanner** that emits each open position's `asset` and its side (`LONG`/`SHORT`, the reason in `data{}`),
+consumed by its own action:
+```yaml
+  - name: <id>_close
+    action_type: CLOSE_POSITION
+    decision_mode: rule
+    scanners: [<id>_close_signals]
+    params: { order_type: MARKET }
+    context: [ { type: signal, scanner: <id>_close_signals } ]
+```
+The lint refuses a scanner no action lists and a `direction` literal that names a close (`CLOSE`, `FLAT`, `EXIT`).
+
 ### `strategy.yaml` — the manifest
 ```yaml
 schema_version: 1
@@ -342,6 +358,7 @@ Two things it deliberately does *not* prove, so don't over-claim on its behalf: 
 - **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Check it: `validate_universe.py /data/workspace/strategies/<id>` (read-only; `deploy.py validate` reports the same thing, and `openclaw senpi deploy` REFUSES a dead name pre-money with `[E_UNIVERSE_NOT_LIVE]` — so that deploy funds no wallet, though on a redeploy it says nothing about a wallet the package already has; you find out faster here). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`. This applies to the universe a strategy TRADES: an **exclusion** list (`excludeAssets`, `deny*`/`skip*`/`ignore*`) is exempt and never checked on either side, because it names what the strategy refuses to trade — often precisely because the venue carries no instrument for it (stablecoins are the usual case).
 - Emit a **`marginPct` intent**, not dollars; `marginPct`/`leverage` top-level, not in `data{}`.
 - Declare every `data{}` key in `signal_data_schema`.
+- **A close is a dedicated scanner plus a `CLOSE_POSITION` action, never `direction: CLOSE`** (§6). Every external scanner must be listed by an action; the lint refuses both.
 - **Anchor on the references:** MCP fields → I/O guide; exit → a named preset; catalog facets → the glossary.
 - Linkage: `group: <id>`, `name: <id>-main` (`<id>-<instance>` per leg when multi-instance), package is `@senpi-ai/runtime`. `funding_share` sums to 1.0 only when `instances:` is declared.
 - **`strategy.wallet` must be the WHOLE value and UPPERCASE** — `"${MY_WALLET}"`, `[A-Z0-9_]` only. A lowercase (`${my_wallet}`) or mid-string (`pre${FOO}`) token passes **every** python lint, `deploy.py validate` included, and is then refused by the runtime when it loads the flat package.
