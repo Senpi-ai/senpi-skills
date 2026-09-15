@@ -28,6 +28,7 @@ conviction-ranked signals. No I/O, no MCP, no clock — unit-testable.
 """
 
 import math
+import sys
 
 # ── numeric helpers ───────────────────────────────────────────────────────────
 
@@ -266,8 +267,8 @@ THRESH_FLOOR = 52.0  # never lower the tilt threshold below this
 def new_accuracy_state():
     """Fresh accuracy tracker."""
     return {
-        "crypto": {"pending": [], "recent": [], "threshold_adj": 0.0},
-        "xyz": {"pending": [], "recent": [], "threshold_adj": 0.0},
+        "crypto": {"pending": [], "recent": [], "threshold_adj": 0.0, "evaluated": 0, "hits": 0},
+        "xyz": {"pending": [], "recent": [], "threshold_adj": 0.0, "evaluated": 0, "hits": 0},
     }
 
 def add_pending_signal(accuracy_state, asset_class, asset, direction, entry_price, ts):
@@ -293,6 +294,7 @@ def update_accuracy(accuracy_state, asset_class, now, price_lookup):
         return accuracy_state
 
     still_pending = []
+    evaluated_now = []
     for sig in cls.get("pending", []):
         if now - sig["ts"] < EVAL_DELAY_S:
             still_pending.append(sig)
@@ -307,6 +309,11 @@ def update_accuracy(accuracy_state, asset_class, now, price_lookup):
         else:
             correct = curr < entry
         cls["recent"].append({"correct": correct, "ts": now})
+        # lifetime totals (the rolling window above decides the threshold; these decide whether the
+        # template keeps its edge — read from the log line by the daily report)
+        cls["evaluated"] = int(cls.get("evaluated", 0)) + 1
+        cls["hits"] = int(cls.get("hits", 0)) + (1 if correct else 0)
+        evaluated_now.append((sig, correct))
 
     cls["pending"] = still_pending
     cls["recent"] = cls["recent"][-RECENT_WINDOW:]
@@ -321,6 +328,12 @@ def update_accuracy(accuracy_state, asset_class, now, price_lookup):
             cls["threshold_adj"] = 0.0
     else:
         cls["threshold_adj"] = 0.0
+
+    win_hits = sum(1 for r in cls["recent"] if r["correct"])
+    for sig, correct in evaluated_now:
+        print(f"[sm-ledger] EVAL {asset_class} {sig['asset']} {sig['direction']} {'hit' if correct else 'miss'} "
+              f"window={win_hits}/{len(cls['recent'])} total={cls['hits']}/{cls['evaluated']} "
+              f"threshold_adj={cls['threshold_adj']:+.0f}", file=sys.stderr)
 
     return accuracy_state
 
