@@ -67,15 +67,15 @@ def _sm_for_asset(ctx, asset, min_traders=10):
     want = asset.upper()
     long_pct = short_pct = 0.0
     traders, cc_15m, found = 0, 0.0, False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict) or str(m.get("token", "")).upper() != want:
-            continue
-        if int(m.get("trader_count", m.get("traderCount", 0)) or 0) < min_traders:   # thin side: never sets the lean
             continue
         found = True
         d = str(m.get("direction", "")).lower()
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
-        traders += int(m.get("trader_count", m.get("traderCount", 0)) or 0)
+        side_n[d] = int(m.get("trader_count", m.get("traderCount", 0)) or 0)
+        traders += side_n[d]
         cc_15m = scoring._f(m.get("contribution_pct_change_15m", 0))
         if d == "long":
             long_pct = pct
@@ -88,8 +88,12 @@ def _sm_for_asset(ctx, asset, min_traders=10):
         return {"direction": "NEUTRAL", "pct": 50, "traders": traders, "cc_15m": cc_15m}
     long_ratio = (long_pct / total) * 100
     if long_ratio > 58:
+        if side_n.get("long", 0) < min_traders:
+            return None   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
         return {"direction": "LONG", "pct": long_ratio, "traders": traders, "cc_15m": cc_15m}
     if long_ratio < 42:
+        if side_n.get("short", 0) < min_traders:
+            return None   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
         return {"direction": "SHORT", "pct": 100 - long_ratio, "traders": traders, "cc_15m": cc_15m}
     return {"direction": "NEUTRAL", "pct": 50, "traders": traders, "cc_15m": cc_15m}
 
