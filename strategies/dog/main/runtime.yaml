@@ -1,7 +1,7 @@
-# ── DOG · single instance — multi-asset contrarian SM-exhaustion fader ────────
+# ── DOG · single instance — multi-asset contrarian 4h-leader exhaustion fader ──
 # Runtime 3.0 port of the v2 Dog (dog-producer.py v3.0.0, thesis frozen at v2.5).
-# Basket of liquid majors (BTC/ETH/SOL/HYPE), scored off the top-100 smart-money
-# leaderboard each tick. CONTRARIAN FLIP: scores the SM direction, emits the
+# Basket of liquid majors (BTC/ETH/SOL/HYPE), scored off the top-100 rows of the 4h
+# leaderboard each tick. CONTRARIAN FLIP: scores the 4h leaders' side, emits the
 # OPPOSITE. 3.0% exhaustion gate, 15m freshness gate, regime hard-gate,
 # MIN_SCORE 8, conservative leverage (7x base, 10x at score >=10). FLAT 30%
 # margin. Wide DSL so reversals develop. Faithful port of the v2 thesis — see
@@ -11,13 +11,15 @@ group: dog
 version: 3.0.0
 description: >
   DOG — multi-asset contrarian fader on liquid majors (BTC/ETH/SOL/HYPE).
-  Scores the top-100 smart-money leaderboard each tick, then FADES the crowded,
-  exhausted side: hard gates require 4H price moved >=3.0% in the SM direction,
-  15m SM contribution still building (>0), >=30 traders, and the market-wide
-  funding regime must not contradict the fade. Composite score (SM concentration
-  + trader depth + 4H alignment + INVERTED move-exhaustion bonus + 15m freshness
-  + 1h acceleration + funding-pays + regime confirmation + persistence + US
-  session) must clear 8. CONTRARIAN FLIP emits the opposite of SM. Conservative
+  Scores the top-100 rows of the 4h leaderboard (leaderboard_get_markets — the
+  traders winning the last four hours, a momentum read, not a proven cohort) each
+  tick, then FADES the 4h leaders' crowded, exhausted side: hard gates require 4H
+  price moved >=3.0% in the leaders' direction, 15m leader contribution still
+  building (>0), >=30 traders, and the market-wide funding regime must not
+  contradict the fade. Composite score (leader concentration + trader depth + 4H
+  alignment + INVERTED move-exhaustion bonus + 15m freshness + 1h acceleration +
+  funding-pays + regime confirmation + persistence + US session) must clear 8.
+  CONTRARIAN FLIP emits the opposite of the leaders' side. Conservative
   leverage 7x base, 10x at score >=10 (clamped to the per-asset venue cap). Flat
   30% margin. Wide DSL (hard_timeout 6h, first lock +5%/20%) so reversals develop.
   Faithful port of the v2 Dog v3.0.0 thesis (all scoring/thresholds verbatim).
@@ -47,6 +49,7 @@ scanners:
       minScore: 8                          # v2.5 MIN_SCORE (contrarian floor)
       marginPct: 30                        # PERCENT of withdrawable (0,100]; flat (v2 did not tier margin)
       leaderboardLimit: 100                # v2 leaderboard_get_markets limit
+      minTraderCount: 30                   # skip a board side thinner than this many traders at the read — a thin side never sets the lean (scoring's >=30 gate stays)
     signal_data_schema:
       score: { type: number }
       smDirection: { type: string }

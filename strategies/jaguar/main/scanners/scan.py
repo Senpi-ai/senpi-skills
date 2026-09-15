@@ -107,6 +107,9 @@ def scan(inputs, ctx):
     if markets is None:
         print("[jaguar.scan] no markets this tick — holding (keep prior history)", file=sys.stderr)
         return []
+    # a side thinner than minTraderCount traders never enters the snapshot (nor the rank order)
+    min_traders = int(inputs.get("minTraderCount", 10))
+    markets = [m for m in markets if isinstance(m, dict) and int(m.get("trader_count", 0) or 0) >= min_traders]
 
     current_scan = scoring.build_scan_snapshot(markets, now_iso)
 

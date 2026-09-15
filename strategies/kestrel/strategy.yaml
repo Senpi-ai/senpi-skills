@@ -8,14 +8,14 @@
 schema_version: 1
 
 id: kestrel
-version: "1.1.1"
+version: "1.1.2"
 
 catalog:
   name: "Kestrel — XYZ Macro Breakout Rider"
   emoji: "🦅"
-  tagline: "A multi-asset non-crypto XYZ breakout rider: scans 12 macro names (oil, gold, S&P/Nasdaq, mega-cap tech) for a >=1.5% 1H breakout, confirms with 4H trend, volume surge, smart-money lean and funding, then sizes leverage to score (3x/5x) and rides the move with a DSL trailing exit. Holds up to 2 positions; trades 24/7 incl weekends."
+  tagline: "A multi-asset non-crypto XYZ breakout rider: scans 12 macro names (oil, gold, S&P/Nasdaq, mega-cap tech) for a >=1.5% 1H breakout, confirms with 4H trend, volume surge, the 4h leaders' lean and funding, then sizes leverage to score (3x/5x) and rides the move with a DSL trailing exit. Holds up to 2 positions; trades 24/7 incl weekends."
   belief_plain: "Watches a basket of macro markets — crude and Brent oil, gold, the S&P and Nasdaq, and the biggest US tech stocks — and pounces when one breaks out more than 1.5% in an hour with volume behind it. It goes in harder (5x vs 3x) on the cleanest breakouts and trails a stop instead of guessing the exit. These markets trade around the clock, weekends included, so there's no market-hours gate."
-  thesis: "Macro assets move on discrete catalysts — an inventory print, a Fed headline, an earnings beat — and a sharp 1H breakout with volume confirmation usually continues for one to three hours before the move matures. A scanner watching a focused 12-name macro universe can catch that breakout early across commodities, indices and mega-cap equities, weight the 1H magnitude heaviest, confirm with the 4H trend, smart-money lean and funding, and let a trailing DSL lock the move before it fades."
+  thesis: "Macro assets move on discrete catalysts — an inventory print, a Fed headline, an earnings beat — and a sharp 1H breakout with volume confirmation usually continues for one to three hours before the move matures. A scanner watching a focused 12-name macro universe can catch that breakout early across commodities, indices and mega-cap equities, weight the 1H magnitude heaviest, confirm with the 4H trend, the 4h leaders' lean (the side the traders winning the last four hours are on — a momentum read of the board, not a proven cohort) and funding, and let a trailing DSL lock the move before it fades."
   group: multi-asset-whitelist
   archetype: trend_following
   sub_style: breakout

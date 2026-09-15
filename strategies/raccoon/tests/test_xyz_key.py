@@ -74,8 +74,8 @@ def _ctx():
 
 def test_xyz_name_keys_to_its_own_dex_row():
     sm = scan._fetch_sm_map(_ctx())
-    assert sm["XYZ:NVDA"] == (2.0, 6.0)      # xyz:NVDA finds the NVDA rows on dex xyz
-    assert sm["NVDA"] == (6.0, 4.0)          # the main-dex twin keeps its own key, neither overwrites
+    assert sm["XYZ:NVDA"] == (2.0, 6.0, 12, 41)   # xyz:NVDA finds the NVDA rows on dex xyz (pct, then headcount, per side)
+    assert sm["NVDA"] == (6.0, 4.0, 30, 19)       # the main-dex twin keeps its own key, neither overwrites
 
 
 def test_sm_direction_resolves_the_xyz_row_not_the_twin():

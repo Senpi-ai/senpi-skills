@@ -6,14 +6,14 @@
 schema_version: 1
 
 id: raccoon
-version: "1.2.1"
+version: "1.2.2"
 
 catalog:
   name: "Raccoon — Weekend XYZ Reconciliation"
   emoji: "🦝"
   tagline: "Trades only the weekend, only on tokenized stocks & commodities (XYZ): while the underlying markets are closed and XYZ runs on an internal oracle, Raccoon positions in the direction sentiment has been pushing the price — and captures the snap-back when real external pricing resumes Monday open. Sizes 15% / 3x and rides a tight DSL with a 48h Monday-exit cap."
-  belief_plain: "From Friday evening to Sunday evening the real stock and commodity markets are closed, so tokenized versions on XYZ drift on an internal estimate instead of a live price. When trading resumes Monday, that estimate snaps to the true market price. Raccoon bets in the direction the weekend drift (plus the best traders) is leaning, and exits into that Monday snap — and only ever runs on the weekend."
-  thesis: "Fri 17:00 ET -> Sun 18:00 ET, trade.xyz has no external price feed for equities/commodities and runs a 30-min EWMA internal oracle that drifts on impact-price activity. Accumulated weekend sentiment (>= 2% move + volume + smart-money agreement) shows up as directional oracle drift; when external pricing resumes Sunday evening the implied price reconciles to the real value. Positioning into that gap and exiting at the Monday-open snap is the edge — and confining all activity to the weekend window avoids weekday false signals and Lemur's 24/7 IPOP territory."
+  belief_plain: "From Friday evening to Sunday evening the real stock and commodity markets are closed, so tokenized versions on XYZ drift on an internal estimate instead of a live price. When trading resumes Monday, that estimate snaps to the true market price. Raccoon bets in the direction the weekend drift (plus the 4h leaders, the traders winning the last four hours on the board) is leaning, and exits into that Monday snap — and only ever runs on the weekend."
+  thesis: "Fri 17:00 ET -> Sun 18:00 ET, trade.xyz has no external price feed for equities/commodities and runs a 30-min EWMA internal oracle that drifts on impact-price activity. Accumulated weekend sentiment (>= 2% move + volume + 4h-leader agreement — a momentum read of the board, not a proven cohort) shows up as directional oracle drift; when external pricing resumes Sunday evening the implied price reconciles to the real value. Positioning into that gap and exiting at the Monday-open snap is the edge — and confining all activity to the weekend window avoids weekday false signals and Lemur's 24/7 IPOP territory."
   group: xyz
   archetype: single_market
   sub_style: weekend_gap
@@ -26,7 +26,7 @@ catalog:
   leverage_max: 5
   max_slots: 3
   assets: []
-  tags: [xyz, equities, commodities, weekend, reconciliation, oracle-gap, smart-money, snap-back, hard-timeout]
+  tags: [xyz, equities, commodities, weekend, reconciliation, oracle-gap, leader-momentum, snap-back, hard-timeout]
 
 requires:
   runtime: ">=3.0.0"

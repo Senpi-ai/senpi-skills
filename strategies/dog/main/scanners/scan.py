@@ -53,7 +53,7 @@ _ASSETS_DEFAULT = ["BTC", "ETH", "SOL", "HYPE"]
 _DEFAULT_MIN_SCORE = 8                 # v2.5 MIN_SCORE (contrarian floor)
 _DEFAULT_MARGIN_PCT = 30.0             # v2 runtime.yaml strategy.margin_pct (PERCENT)
 _DEFAULT_LEADERBOARD_LIMIT = 100       # v2 leaderboard_get_markets limit
-_MIN_TRADERS = 30                      # informational; gate lives in scoring.score_market
+_MIN_TRADERS = 30                      # trader-count floor at the board read (minTraderCount); scoring gates at 30 too
 
 
 def _read(ctx, name, args):
@@ -183,6 +183,7 @@ def scan(inputs, ctx):
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))   # PERCENT (0,100]
     leaderboard_limit = int(inputs.get("leaderboardLimit", _DEFAULT_LEADERBOARD_LIMIT))
+    min_traders = int(inputs.get("minTraderCount", _MIN_TRADERS))
 
     # Defensive: a value <=1.0 is a pasted FRACTION (v2 stored 0.30) -> x100 (dire/koala
     # guard). Dog's v2 runtime stored 30 (a PERCENT) so this never fires in practice.
@@ -215,6 +216,8 @@ def scan(inputs, ctx):
         token = str(m.get("token", "")).upper()
         dex = m.get("dex", "")
         if dex or token not in asset_set:
+            continue
+        if int(m.get("trader_count", 0) or 0) < min_traders:   # a thin side never sets the lean
             continue
         pct = scoring.safe_float(m.get("pct_of_top_traders_gain", 0))
         if token not in asset_data or pct > scoring.safe_float(
