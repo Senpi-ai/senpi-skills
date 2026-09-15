@@ -174,7 +174,12 @@ def _board(ctx, limit, xyz_banned):
     for m in markets:
         if not isinstance(m, dict):
             continue
-        token = str(m.get("token", m.get("coin", m.get("asset", "")))).upper()
+        # RAW case — Hyperliquid asset names are CASE-SENSITIVE (kPEPE, kBONK, kSHIB). Upper-casing
+        # here corrupted the name at ingest, so every downstream use got "KPEPE": the venue rejects
+        # it, `openclaw senpi validate` fails the package, and a name that slips past validate is a
+        # silent no-trade. _venue_asset (from #548) preserves case but cannot help if it is handed an
+        # already-corrupted token. Group case-insensitively (below) but CARRY the raw name.
+        token = str(m.get("token", m.get("coin", m.get("asset", ""))))
         if not token:
             continue
         dex = str(m.get("dex", "")).lower()
@@ -186,7 +191,7 @@ def _board(ctx, limit, xyz_banned):
         vol = scoring.safe_float(m.get("volume", m.get("avg_volume_6h", m.get("avgVolume", 0))))
         traders = scoring.safe_float(m.get("trader_count", m.get("traders", 0)))
 
-        key = (token, dex)
+        key = (token.upper(), dex)              # case-insensitive GROUPING only — row carries raw case
         row = by_asset.setdefault(key, {
             "token": token, "dex": dex,
             "long_pct": 0.0, "short_pct": 0.0,
