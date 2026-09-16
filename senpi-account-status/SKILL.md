@@ -4,9 +4,9 @@ description: >-
   Show the user's standing across Senpi programs — points and rank, loyalty tier and fees, referral
   earnings — and explain the AI-credits usage meter. Use for "how many points do I have?", "what's my
   rank/tier?", "what are my fees?", "my referral rewards", and for credits: "what is the bubble/meter
-  in the header?", "why are my credits going down?", "how much did that cost?", "can I trade or
-  withdraw my credits?". Use this instead of calling user_get_senpi_points + get_loyalty_tiers one by
-  one. A hidden engine (scripts/status.py) pulls points/loyalty/referral in one call; credits are
+  in the header?", "why are my credits going down?", "how much did that cost?", "does my strategy use
+  credits?", "can I trade or withdraw my credits?". Use this instead of calling user_get_senpi_points +
+  get_loyalty_tiers one by one. A hidden engine (scripts/status.py) pulls points/loyalty/referral in one call; credits are
   explained, never read — no tool returns the balance. Requires a USER-scoped Senpi token.
 license: Apache-2.0
 metadata:
@@ -80,6 +80,10 @@ credits. The app shows what is left as the **meter in the app header** (users ca
   cost more because the whole conversation is re-sent each turn — a fresh thread is cheaper than a
   long one. Scheduled monitoring (a cron that re-reads a strategy) is the classic silent drain;
   `senpi-strategy-author/references/shadow-testing.md` has the cheap alternatives.
+- **A running strategy is not what spends them.** Its runtime ticks without a model call, so running
+  it does not move the meter; a `decision_mode: llm` action in its `runtime.yaml` is the exception,
+  since that calls a model when it fires. A cron the agent set up to check on a strategy does move it
+  (each firing is a full model call), so name any the agent runs for this user.
 - **Not trading money.** Credits cannot be traded, withdrawn, deposited into a strategy, or moved
   anywhere — they are separate from the funding wallet and from every strategy budget. A shrinking
   meter is usage, never a trading loss; a losing trade never touches the meter.
@@ -96,11 +100,14 @@ credits. The app shows what is left as the **meter in the app header** (users ca
 | "How many credits you get depends on your plan — the meter shows what is left." | Any balance, percentage or plan size you did not read from the app |
 | "Credits aren't money: they can't be traded, withdrawn or put into a strategy — your funding wallet and strategy budgets are separate." | "credits" as a tradable or withdrawable balance |
 | "The meter going down is usage — it moves with messages and tool turns, not with your trades." | Blaming a shrinking meter on trading losses |
+| "Your strategy runs on its own without the AI, so running it doesn't use credits. Chat does, and so does any scheduled check-in I run for you." | "running the strategy costs nothing" while the agent runs a check-in cron on it; a wallet or strategy balance offered as proof about credits |
 
 **Routing.** "What is the bubble / meter in the header?", "why are my credits going down?", "how much
-did that cost?", "can I trade / withdraw / deposit my credits?" all come here. A credits question is
-answered from this section alone — no engine run, no number — and closes by pointing at the meter;
-the next-tier CTA is for standing answers.
+did that cost?", "does my strategy use credits?", "can I trade / withdraw / deposit my credits?" all
+come here, in any language. "Credits" (Ukrainian "кредити", Spanish "créditos") means these AI credits
+unless the user says leverage, a loan or funding; when it is unclear, ask which before answering. A
+credits question is answered from this section alone — no engine run, no number — and closes by
+pointing at the meter; the next-tier CTA is for standing answers.
 
 ## ⚠ Token scope
 

@@ -57,6 +57,23 @@ class CreditsAreTheUsageMeter(unittest.TestCase):
         ):
             self.assertIn(needle, section, needle)
 
+    def test_a_strategy_question_and_any_language_land_on_the_meter(self):
+        # "credits" asked about a strategy, or in another language, is still the AI-credit meter: the
+        # runtime ticks without a model call, the agent's own crons are what spend, and an unclear
+        # "credits" is asked about rather than read as funding or leverage
+        section = _flat(_section(_split(SKILL)[1]))
+        for needle in (
+            "ticks without a model call",
+            "decision_mode: llm",
+            "each firing is a full model call",
+            "does my strategy use credits?",
+            "in any language",
+            "unless the user says leverage, a loan or funding",
+            "a wallet or strategy balance offered as proof about credits",
+        ):
+            self.assertIn(needle, section, needle)
+        self.assertIn("does my strategy use credits?", _flat(_split(SKILL)[0]))
+
     def test_no_plan_size_or_dollar_amount_in_the_section(self):
         # plan sizes change; the text says "depends on your plan" and never carries a figure
         section = _flat(_section(_split(SKILL)[1]))
