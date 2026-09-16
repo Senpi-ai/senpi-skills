@@ -845,12 +845,14 @@ def _prune_surfaced(surfaced, now):
     return out
 
 
-def _render_md(now, social, trade, lens, cov=None):
-    """Two badged, ranked feeds. Badges (🔥/🟠/🟡), ⭐ top-of-feed, ⚑ named-wallet — keep them."""
+def _render_md(now, social, trade, lens, cov=None, consumer="adhoc"):
+    """Two badged, ranked feeds. Badges (🔥/🟠/🟡), ⭐ top-of-feed, ⚑ named-wallet — keep them.
+    The posting reminder is for the content automation (consumer "social"); a user asked a question
+    and posts nothing, so their copy of the note stops at the live-read line."""
     ts = now.isoformat()[:16]
-    out = [f"# 🔭 Senpi Signals — {ts} UTC", "",
-           "_Observation, not advice. Every number is from a live read this run — verify before posting._",
-           ""] + HOW_TO_READ + ["", "---", ""]
+    note = "_Observation, not advice. Every number is from a live read this run"
+    note += " — verify before posting._" if consumer == "social" else "._"
+    out = [f"# 🔭 Senpi Signals — {ts} UTC", "", note, ""] + HOW_TO_READ + ["", "---", ""]
     cov = cov or {}
     if cov.get("smart_money_lens") == "NO DATA" and cov.get("flow_lens") == "NO DATA":
         out += ["> ⛔ **Smart-money lens UNAVAILABLE this run — no cohort positioning was supplied.**",
@@ -1043,7 +1045,7 @@ def main():
     # not looked yet, which must never read as "looked and found nothing"
     cov["whale_lens"] = ("ok" if any(isinstance(v, dict) and v.get("smart_positions")
                                      for v in (prior or {}).values()) else "NO BASELINE")
-    open(a.out, "w").write(_render_md(now, social, trade, a.lens, cov))
+    open(a.out, "w").write(_render_md(now, social, trade, a.lens, cov, a.consumer))
     print(json.dumps({"generated": now.isoformat(),
                       "diff_baseline_ts": (baseline or {}).get("ts"),
                       "trend_baseline_ts": (slow or {}).get("ts"),
