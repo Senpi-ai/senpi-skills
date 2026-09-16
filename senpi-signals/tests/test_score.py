@@ -133,8 +133,17 @@ def test_default_state_path_is_durable_and_env_overridable():
         os.environ["SENPI_STATE_DIR"] = "/data/.openclaw/senpi-state"                # the runtime's base state dir…
         assert score._default_state_path() == "/data/.openclaw/senpi-state/signals/state.json"  # …+ signals/ subdir
         os.environ.pop("SENPI_STATE_DIR")
-        p = score._default_state_path()                                              # else the runtime's home default…
-        assert p.endswith("/.openclaw/senpi-state/signals/state.json") and "/tmp" not in p, p    # …never /tmp
+        # on a claw the exec shell carries no SENPI_STATE_DIR and ~/.openclaw is not the volume, so the
+        # runtime's own state dir wins whenever it exists — the ring the signals host writes too
+        claw = tempfile.mkdtemp()
+        saved_claw, score.CLAW_STATE_DIR = score.CLAW_STATE_DIR, claw
+        try:
+            assert score._default_state_path() == os.path.join(claw, "signals", "state.json")
+            score.CLAW_STATE_DIR = os.path.join(claw, "absent")                       # not a claw…
+            p = score._default_state_path()                                          # …the home default
+            assert p.endswith("/.openclaw/senpi-state/signals/state.json") and "/tmp" not in p, p
+        finally:
+            score.CLAW_STATE_DIR = saved_claw
     finally:
         for k, v in saved.items():
             os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
@@ -559,8 +568,10 @@ def test_a_whale_move_is_one_proven_wallet_changing_size_since_the_previous_swee
                    "crowd_dir": "long", "notional_vol": 5e8},
            "BTC": {"smart_positions": {w2: -20.0}, "price": 75000.0,   # flipped from long to short
                    "smart_source": "proven_cohort", "notional_vol": 5e8}}
+    wallets = {w1: {"realized_pnl_usd": 48_210_000.0}, w2: {"realized_pnl_usd": 1_250_000_000.0}}
     moves = {(s["asset"], s["concrete_entity"]): s
-             for s in score.detect_from_metrics(cur, prior, fast_age_min=45) if s["detector"] == "whale_move"}
+             for s in score.detect_from_metrics(cur, prior, fast_age_min=45, wallets=wallets)
+             if s["detector"] == "whale_move"}
     assert set(moves) == {("ETH", short(w1)), ("ETH", short(w2)), ("BTC", short(w2))}
     added = moves[("ETH", short(w1))]
     assert added["direction"] == "short" and added["change_usd"] == -1_200_000.0 and added["conflict"]
@@ -570,4 +581,14 @@ def test_a_whale_move_is_one_proven_wallet_changing_size_since_the_previous_swee
     flipped = moves[("BTC", short(w2))]
     assert flipped["flipped"] and flipped["numbers"] == ["flipped from LONG to SHORT in the last ~45min, now $1.5M"]
     assert score.normalize_event(dict(added, age_minutes=45)) is not None     # the event gate accepts it
+    # the reader sees WHO: the shortened wallet and its lifetime realized gains, and the verb fits the move
+    assert score.trade_read(added) == (f"A proven wallet {short(w1)}, who has $48.2M in lifetime gains, "
+                                       "is adding short size on ETH — size following conviction.")
+    assert score.trade_read(moves[("ETH", short(w2))]).startswith(
+        f"A proven wallet {short(w2)}, who has $1.2B in lifetime gains, opened a short on ETH")
+    assert "flipped to short on BTC" in score.trade_read(flipped)
+    assert score.frame(added) == (f"{short(w1)} ($48.2M in lifetime gains) on ETH: "
+                                  "added $1.2M to a SHORT in the last ~45min, now $1.4M.")
+    no_pnl = [s for s in score.detect_from_metrics(cur, prior, fast_age_min=45) if s["detector"] == "whale_move"]
+    assert all("lifetime gains" not in score.trade_read(s) for s in no_pnl)   # unknown gains: say nothing
     assert not [s for s in score.detect_from_metrics(cur, {}) if s["detector"] == "whale_move"]

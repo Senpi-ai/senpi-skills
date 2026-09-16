@@ -18,7 +18,7 @@ What one sweep reads (the read budget, printed as `reads=<n>` at the end):
   = 8 reads (up to 13 if discovery pages twice / the board is thin). Every read fails soft: a failed
   source is recorded in `coverage`, the rest of the sweep still lands.
 
-Outputs (in $SENPI_STATE_DIR/signals/ beside state.json, or --out-dir): current.json, signals.md,
+Outputs (beside state.json, in score.py's state dir or --out-dir): current.json, signals.md,
 plus the ring/freshness state score.py owns. Stdlib only; Python 3.9+.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
@@ -79,6 +79,8 @@ class Client:
         self.reads = 0
         self.failed = 0
         self.trader_states = []      # every discovery_get_trader_state row seen (for base-unit positions)
+        self.top_traders = []        # every discovery_get_top_traders row seen (for lifetime realized PnL)
+        self.wallet_pnl = {}         # proven wallet -> lifetime realized PnL, USD
 
     def mcp_call(self, tool, timeout=12, **kw):
         self.reads += 1
@@ -89,6 +91,8 @@ class Client:
             raise
         if tool == "discovery_get_trader_state":
             self.trader_states.extend(_traders_of(_ok(resp)))
+        elif tool == "discovery_get_top_traders":
+            self.top_traders.extend(_traders_of(_ok(resp)))
         return resp
 
 
@@ -194,6 +198,10 @@ def cohort(c, cov, metrics):
                                        or "; ".join(meta["warnings"]) or "empty cohort read")
         return
     smart_set = set(smart)
+    for t in c.top_traders:          # the ranking rows the cohort was cut from carry lifetime realized PnL
+        w = str(t.get("address") or t.get("trader_address") or t.get("wallet") or "").lower()
+        if w in smart_set and w not in c.wallet_pnl:
+            c.wallet_pnl[w] = round(sm._realized(t), 2)
     positions = {}                    # coin → {wallet: signed BASE size}
     for t in c.trader_states:
         w = str(t.get("address") or t.get("traderAddress") or "").lower()
@@ -339,6 +347,7 @@ def gather(call_tool, top_n=UNIVERSE_TOP_N, now=None):
     cov["whale_move"] = ("from the cohort's books: score.py diffs each proven wallet's base size against the "
                          "previous sweep (no extra reads; nothing to compare on a first run)")
     return {"generated": now.isoformat(), "asset_metrics": metrics, "events": events,
+            "wallets": {w: {"realized_pnl_usd": v} for w, v in c.wallet_pnl.items()},
             "coverage": cov, "source_trader_count": src, "reads": c.reads, "reads_failed": c.failed}
 
 
@@ -392,7 +401,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="senpi-signals: gather the universe and rank it, in one process")
     ap.add_argument("--consumer", default="adhoc", help="freshness namespace (the content feed uses 'social')")
     ap.add_argument("--out-dir", default=None, help="where current.json + signals.md land (default: beside the state file)")
-    ap.add_argument("--state", default=None, help="state file (default: $SENPI_STATE_DIR/signals/state.json)")
+    ap.add_argument("--state", default=None, help="state file (default: score.py's resolver — the claw's /data/.openclaw/senpi-state/signals/state.json)")
     ap.add_argument("--now", default=None, help="ISO timestamp (tests / backfills)")
     ap.add_argument("--top-n", type=int, default=UNIVERSE_TOP_N, help="universe size (top-N by volume)")
     ap.add_argument("--top", type=int, default=None, help="feed length (score.py --top)")
