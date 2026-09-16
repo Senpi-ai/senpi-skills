@@ -187,3 +187,17 @@ if __name__ == "__main__":
     test_asset_role()
     test_rank_signals()
     print("\n✅ All scoring tests passed")
+
+
+def test_floor_to_venue_min():
+    # a big wallet is never touched
+    assert scoring.floor_to_venue_min(3.6, 1000.0, 3, 15.0) == (3.6, False)
+    # a small wallet is raised to the smallest fill the venue accepts: 12 / (40 * 3) = 10%
+    pct, floored = scoring.floor_to_venue_min(3.6, 40.0, 3, 15.0)
+    assert floored and abs(pct - 10.0) < 1e-9
+    # 12 / (30 * 3) = 13.333% is stored to 2 dp: rounded UP so the order still clears
+    assert scoring.floor_to_venue_min(3.6, 30.0, 3, 15.0) == (13.34, True)
+    # too small even at the cap: 12 / (20 * 3) = 20% > 15% -> the caller skips
+    assert scoring.floor_to_venue_min(3.6, 20.0, 3, 15.0) == (None, True)
+    # no account read -> untouched
+    assert scoring.floor_to_venue_min(3.6, 0, 3, 15.0) == (3.6, False)

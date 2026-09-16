@@ -27,13 +27,14 @@ class _State:
 class _MCP:
     """Long-crowded funding and every market falling: risk-off, and positive funding pays shorts."""
 
-    def __init__(self, held):
+    def __init__(self, held, equity="1000"):
         self.held = held
+        self.equity = equity
 
     def call_tool(self, name, args):
         if name == "strategy_get_clearinghouse_state":
             def section(coins):
-                return {"marginSummary": {"accountValue": "1000", "totalMarginUsed": str(10 * len(coins))},
+                return {"marginSummary": {"accountValue": self.equity, "totalMarginUsed": str(10 * len(coins))},
                         "assetPositions": [{"position": {"coin": c, "szi": "-1"}} for c in coins]}
             return {"data": {"main": section([c for c in self.held if not c.startswith("xyz:")]),
                              "xyz": section([c for c in self.held if c.startswith("xyz:")])}}
@@ -45,8 +46,8 @@ class _MCP:
         raise AssertionError(f"unexpected tool {name}")
 
 
-def _run(held):
-    ctx = SimpleNamespace(senpi_mcp=_MCP(held), state=_State(), wallet="0x0")
+def _run(held, equity="1000"):
+    ctx = SimpleNamespace(senpi_mcp=_MCP(held, equity), state=_State(), wallet="0x0")
     return scan.scan({"maxSlots": 4, "minScore": 25}, ctx)
 
 
@@ -60,3 +61,29 @@ def test_slots_count_positions_on_both_dexes():
     assert _run(["BTC", "ETH", "xyz:SP500", "xyz:XYZ100"]) == []
     out = _run(["BTC", "ETH", "xyz:SP500"])
     assert [o["asset"] for o in out] == ["SOL"]
+
+
+def _pct(o):
+    return float(o["data"].get("marginPct", o.get("marginPct")))
+
+
+def _lev(o):
+    return float(o["data"].get("leverage", o.get("leverage", 3)))
+
+
+def test_a_small_wallet_is_sized_to_the_smallest_order_the_venue_fills():
+    # the regime scaling may size well under the $10 minimum on a small wallet; the emit is raised to the
+    # smallest notional the engine fills ($12) and never past the per-position cap
+    for equity in ("30", "40", "60"):
+        out = _run([], equity)
+        assert out, equity
+        for o in out:
+            notional = _pct(o) / 100.0 * float(equity) * _lev(o)
+            assert notional >= 12.0 - 1e-6, (equity, _pct(o))
+            assert _pct(o) <= 15.0 + 1e-9, (equity, _pct(o))
+
+
+def test_a_wallet_too_small_for_the_cap_emits_nothing_and_says_why(capsys):
+    # 12 / (20 * 3) = 20% of equity, over the 15% cap: no order, and the log says the wallet is too small
+    assert _run([], "20") == []
+    assert "wallet too small" in capsys.readouterr().err

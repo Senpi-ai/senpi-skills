@@ -306,8 +306,18 @@ def scan(inputs, ctx):
 
         margin_pct = scoring.margin_pct_for(
             conviction, base_margin, regime_score, margin_max)
+        margin_pct, floored = scoring.floor_to_venue_min(
+            margin_pct, account_value, leverage, margin_max)
+        if margin_pct is None:
+            print(f"[aegis.scan] SKIP {asset}: this regime sizes below the venue minimum and the floor "
+                  f"({scoring.VENUE_MIN_NOTIONAL:.0f} USDC notional) needs more than {margin_max:.0f}% "
+                  f"of {account_value:.0f} USDC at {leverage}x — wallet too small for this regime",
+                  file=sys.stderr)
+            continue
 
         asset_reasons = list(reasons)
+        if floored:
+            asset_reasons.append("sized to the venue minimum")
         asset_reasons.append(f"4h trend {trend_label.lower()} ({trend_strength:.0%})")
         if oi_vel and isinstance(oi_vel, dict):
             oi_trend = oi_vel.get("oi_trend", "")
