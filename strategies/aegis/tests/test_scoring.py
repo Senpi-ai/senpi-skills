@@ -201,3 +201,14 @@ def test_floor_to_venue_min():
     assert scoring.floor_to_venue_min(3.6, 20.0, 3, 15.0) == (None, True)
     # no account read -> untouched
     assert scoring.floor_to_venue_min(3.6, 0, 3, 15.0) == (3.6, False)
+
+def test_the_venue_floor_is_the_same_number_the_catalog_minimum_is_built_from():
+    # min_budget.py computes aegis's advertised min_budget from BUMPED_NOTIONAL; the scanner sizes to
+    # VENUE_MIN_NOTIONAL. The claim that a wallet at the catalog minimum can place its smallest entry holds
+    # only while these are equal — a scanner cannot import the runtime script, so the coupling lives here.
+    import importlib.util
+    path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "senpi-trading-runtime", "scripts", "min_budget.py")
+    spec = importlib.util.spec_from_file_location("min_budget", path)
+    min_budget = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(min_budget)
+    assert scoring.VENUE_MIN_NOTIONAL == min_budget.BUMPED_NOTIONAL
