@@ -121,34 +121,6 @@ def test_rank_caps_per_family_and_dedupes_asset():
     assert "oi" in fams                               # a different family still gets a slot
 
 
-def test_default_state_path_is_durable_and_env_overridable():
-    # the diff engine is worthless if state doesn't survive across chats — the default must be durable,
-    # never /tmp (which the agent wipes per-chat). Env overrides let ops point at a persistent volume.
-    saved = {k: os.environ.get(k) for k in ("SENPI_SIGNALS_STATE", "SENPI_STATE_DIR")}
-    try:
-        os.environ.pop("SENPI_STATE_DIR", None)
-        os.environ["SENPI_SIGNALS_STATE"] = "/data/sig.json"
-        assert score._default_state_path() == "/data/sig.json"                       # explicit file wins
-        os.environ.pop("SENPI_SIGNALS_STATE")
-        os.environ["SENPI_STATE_DIR"] = "/data/.openclaw/senpi-state"                # the runtime's base state dir…
-        assert score._default_state_path() == "/data/.openclaw/senpi-state/signals/state.json"  # …+ signals/ subdir
-        os.environ.pop("SENPI_STATE_DIR")
-        # on a claw the exec shell carries no SENPI_STATE_DIR and ~/.openclaw is not the volume, so the
-        # runtime's own state dir wins whenever it exists — the ring the signals host writes too
-        claw = tempfile.mkdtemp()
-        saved_claw, score.CLAW_STATE_DIR = score.CLAW_STATE_DIR, claw
-        try:
-            assert score._default_state_path() == os.path.join(claw, "signals", "state.json")
-            score.CLAW_STATE_DIR = os.path.join(claw, "absent")                       # not a claw…
-            p = score._default_state_path()                                          # …the home default
-            assert p.endswith("/.openclaw/senpi-state/signals/state.json") and "/tmp" not in p, p
-        finally:
-            score.CLAW_STATE_DIR = saved_claw
-    finally:
-        for k, v in saved.items():
-            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
-
-
 def test_one_sidedness_uses_the_positioned_split_not_the_whole_cohort():
     # "43% of the cohort is short" is a ROUT at 429-vs-40 and NOISE at 429-vs-380. The un-positioned
     # remainder is not the other side, so it must never be counted as one.
@@ -484,6 +456,28 @@ def test_the_posting_reminder_is_for_the_content_feed_only():
     assert "Observation, not advice. Every number is from a live read this run._" in user
     assert "posting" not in user, "a user asked a question; they are not posting anything"
     assert "verify before posting" in content
+
+
+def test_without_state_a_run_is_one_reading_and_writes_no_history():
+    # 2.0 ships one reading with no compare: without --state nothing is read from or written to history,
+    # so no change detector fires (even on metrics that fire them against PRIOR_STATE) and back-to-back
+    # runs rank the same
+    with tempfile.TemporaryDirectory() as d:
+        d = pathlib.Path(d)
+        cur = d / "cur.json"; cur.write_text(json.dumps(dict(CURRENT, events=[])))
+        runs = []
+        for i in range(2):
+            out = d / f"o{i}.md"
+            r = subprocess.run([sys.executable, str(SCRIPTS / "score.py"), str(cur), "--now", NOW, "--out", str(out)],
+                               capture_output=True, text=True, cwd=str(d))
+            assert r.returncode == 0, r.stderr
+            runs.append((json.loads(r.stdout), out.read_text()))
+        (r1, md1), (r2, md2) = runs
+        fired = {s["detector"] for s in r1["trade"] + r1["social"]}
+        assert fired and not fired & score.HISTORY_DETECTORS, fired
+        assert r1["diff_baseline_ts"] is None and r1["coverage"]["whale_lens"].startswith("off")
+        assert md1 == md2 and r1["trade"] == r2["trade"] and r1["social"] == r2["social"]
+        assert sorted(p.name for p in d.iterdir()) == ["cur.json", "o0.md", "o1.md"]
 
 
 def test_consumer_namespacing_shares_ring_isolates_freshness():
