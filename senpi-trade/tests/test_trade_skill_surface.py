@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """The protection protocol is resident in senpi-trade/SKILL.md, its four regression cases exist, and the
 version the README advertises is the version the skill carries."""
@@ -25,6 +26,15 @@ class ProtectionProtocolIsResident(unittest.TestCase):
                        "Leverage is the exchange's", "read → say → yes → act → read back", "Consent comes from this conversation",
                        "nor consent to add one", "a health check never changes protection", "REPLACES a static SL",
                        "references/protection-cases.md"):
+            self.assertIn(needle, body, needle)
+
+    def test_the_sizing_readout_and_its_thresholds_are_in_the_body(self):
+        body = open(os.path.join(os.path.dirname(__file__), "..", "SKILL.md"), encoding="utf-8").read()
+        for needle in ("Then the three numbers, before the replay", "share of the account", "dollars at the stop",
+                       "leverage that will actually apply", "50% of the account in one position",
+                       "20% of the account at the stop", "a yes to the setup is not a yes to the concentration",
+                       "Read back the leverage", "is the ladder, never a cron",
+                       "Place or grow a hand position without the three numbers"):
             self.assertIn(needle, body, needle)
 
     def test_the_pair_is_never_promised(self):

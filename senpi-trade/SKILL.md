@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.4.0"
+  version: "1.5.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -150,6 +150,13 @@ Never pick the coins yourself and open them here.
 2. **Size & leverage** — you set `marginAmount` (USD collateral) + `leverage`; the engine derives size
    (`notional = marginAmount × leverage`). Min notional $10 (auto-bumped to $12). Look up `max_leverage`
    per asset — never hardcode. **Never invent the amount — if unstated, ASK; don't default to the balance.**
+   **Then the three numbers, before the replay:** the **share of the account** this margin takes
+   (`marginAmount ÷ withdrawable`), the **dollars at the stop** (`|entry − stop| × size`, and as a share of
+   the account), and the **leverage that will actually apply** (the asset's `max_leverage` when it is lower
+   than asked — say the clip; never name a strategy after a leverage the venue will not give). Above
+   **50% of the account in one position** or **20% of the account at the stop**, put the number in its own
+   sentence and get a fresh yes to that sentence — a yes to the setup is not a yes to the concentration.
+   Re-run the three numbers on every add, every stop move and every leverage change, not only at open.
 3. **Entry** — MARKET (immediate, taker) or FEE_OPTIMIZED_LIMIT (maker, cheaper; add
    `ensureExecutionAsTaker` for a guaranteed fill).
 4. **Protection — OPTIONAL, offer all three:** (a) none, (b) a **static** stop/TP (`stopLoss`/`takeProfit`,
@@ -167,6 +174,12 @@ Then **replay the full spec, get an explicit "yes"**, and place.
   **orphaned** / unattributed per CLAUDE.md). Async — poll `strategy_list` to ACTIVE; **report the real returned
   status**, never assume success.
 - **Protect (if chosen):** `ratchet_stop_add` on the open position (asset + tier config; it auto-reads the live position).
+- **Read back the leverage:** the position's `leverage.value` from `strategy_get_clearinghouse_state` is
+  the one that applies — quote it, not the request; when the venue clipped it, say so and fix any name or
+  label that carries the asked-for number.
+- **"Watch it for me" on a raw position is the ladder, never a cron:** `ratchet_stop_add` is the engine-side
+  watcher at zero model cost (profit-lock only — say it has no downside floor without a runtime); a cron is
+  a full agent turn per firing, and it is not a stop.
 - **Edit:** `edit_position` — `targetMargin` is **absolute, not a delta**; a direction flip does NOT carry
   SL/TP over. Partial close = `edit_position` with a lower `targetMargin`.
 - **Close:** `close_position` (full only; best-effort cancels resting SL/TP + DSL).
@@ -290,6 +303,9 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
 | Leave slippage at a silent / too-tight default | 1% on a trader whose positions already moved opens **nothing** — the mirror sits flat and looks broken | Set slippage against the trader's current distance-from-entry; warn before funding if nothing would open |
 | Close + recreate a mirror to "fix" it not trading | Each round-trip skims ~$1.50 in fees; funds fragment | The fix is **target / budget / multiplier**, not re-create |
 | Re-derive state fresh each session and misread it | User had to repeat "you didn't do what I asked" 3× | Persist intent + strategy IDs; **reconcile intended-vs-actual** before replying |
+| Place or grow a hand position without the three numbers | A wallet went almost entirely into one thin coin and a "keep it tight" stop was widened to over 40% of the account, one small request at a time — nothing ever said the total | Share of account, dollars at the stop, applied leverage — before the replay; above 50% / 20%, a fresh yes to that sentence |
+| Quote the leverage the user asked for after the venue clipped it | 10× asked, 3× applied, the position still labelled "10x" | Read `leverage.value` from the position; say the clip; label by what applies |
+| Offer a cron as "watch it for me" on a raw position | Every firing is a full agent turn, and it is not a stop | `ratchet_stop_add` — the ladder watches for free (profit-lock only; say so) |
 | Say anything about a stop or ladder, or change one, outside the protection protocol | Every rule in it was broken on a live short — the user caught each one | The six rules above, in order |
 
 > **State machine is transient, not terminal — *up to a point*.** `CREATE_WALLET` → `FUND_WALLET` /
