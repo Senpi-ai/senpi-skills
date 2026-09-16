@@ -11,7 +11,7 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 PKG = ROOT / "strategies" / "signals"
 sys.path.insert(0, str(PKG / "main" / "scanners"))            # `import scoring` (sibling model)
-sys.path.insert(0, str(ROOT / "senpi-signals" / "scripts"))   # the fixture shapes
+sys.path.insert(0, str(ROOT / "senpi-signals" / "tests"))     # the fixture shapes (test_sweep moved to tests/)
 from test_sweep import fake_call_tool  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("signals_scan", PKG / "main" / "scanners" / "scan.py")
