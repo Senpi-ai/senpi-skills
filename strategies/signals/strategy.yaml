@@ -3,7 +3,8 @@
 # runs every 45 minutes under the runtime supervisor at zero model cost, instead of as an
 # agent cron that spent a model call per firing and timed out. Its scanner always returns
 # []; `slots: 0`; the $10 floor wallet is never used. The content automation READS
-# $SENPI_STATE_DIR/signals/signals.md — it never gathers. Install/teardown via senpi-strategy-ops.
+# signals.md in the runtime's state dir (/data/.openclaw/senpi-state/signals/ on a claw) — it never
+# gathers. Install/teardown via senpi-strategy-ops.
 schema_version: 1
 
 id: signals

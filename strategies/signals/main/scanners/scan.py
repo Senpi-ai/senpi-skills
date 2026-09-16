@@ -2,7 +2,7 @@
 
 Every tick: run senpi-signals/scripts/sweep.py through ctx.senpi_mcp (so the reads are counted
 and a `senpi validate` tick is a real, proven read), which writes
-$SENPI_STATE_DIR/signals/{current.json, signals.md} and advances score.py's snapshot ring —
+<runtime state dir>/signals/{current.json, signals.md} and advances score.py's snapshot ring —
 then return []. No signal is ever emitted. The runtime is the scheduler; no model call is made.
 
 Read-only + single-pass. The sweep locates the skill's script the way the runtime's own
@@ -31,7 +31,8 @@ def _out_dir(inputs):
     """Where current.json, signals.md and the ring land. An explicit `outDir` input wins; with
     SENPI_STATE_DIR / SENPI_SIGNALS_STATE in the env score.py resolves its documented path; in the
     runtime (no env) the root comes off the launch config, so the files sit at
-    <runtime state root>/signals/ — the same $SENPI_STATE_DIR/signals/ the claw exports."""
+    <runtime state root>/signals/ — on a claw /data/.openclaw/senpi-state/signals/, the directory
+    score.py also picks for an ad hoc run."""
     if inputs.get("outDir"):
         return str(inputs["outDir"])
     if os.environ.get("SENPI_SIGNALS_STATE") or os.environ.get("SENPI_STATE_DIR"):

@@ -321,13 +321,14 @@ def trade_score(s, cred):
     return round(100 * base * cred, 1)
 
 
-def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None, fast_age_min=None):
+def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None, fast_age_min=None, wallets=None):
     """Fire the diff/threshold detectors from current asset_metrics.
 
     Two baselines: `prior` ≈ DIFF_TARGET_MIN old (the fast diff — OI, funding, conviction, whale
     moves) and `prior_slow` ≈ TREND_LOOKBACK_MIN old (~12h — the cohort-positioning trend, which needs
     a longer arm to show a real build). `prior_slow` falls back to `prior` when the ring isn't deep
     enough yet. `fast_age_min` is the fast baseline's real age, used to say how recent a whale move is.
+    `wallets` is current.json's {wallet: {"realized_pnl_usd"}} — who the whale is, in lifetime gains.
     """
     out = []
     # every wallet the previous snapshot sampled (it held something somewhere): a wallet absent from
@@ -518,6 +519,7 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None, fast_age
                     "smart_source": src, "source_trust": src_trust, "is_change": True,
                     "change_usd": round(change_usd if side == "long" else -change_usd, 2),
                     "opened": move == "opened", "flipped": move == "flipped",
+                    "entity_realized_pnl_usd": _num(((wallets or {}).get(w) or {}).get("realized_pnl_usd")),
                 })
 
         # smart-money conviction jump (change) — fires on a move in EITHER direction (piling in OR unwinding)
@@ -631,6 +633,16 @@ def _smart_lead(s):
                                                    if s.get("smart_source") in SMART_SOURCE_TRUST else None]
 
 
+def _usd_short(v):
+    """$1.2B / $48.2M / $950,000 — a reader-sized dollar figure."""
+    v = float(v)
+    if abs(v) >= 1e9:
+        return f"${v / 1e9:.1f}B"
+    if abs(v) >= 1e6:
+        return f"${v / 1e6:.1f}M"
+    return f"${v:,.0f}"
+
+
 def frame(s):
     """Content voice (social feed)."""
     a, d = s["asset"], (s.get("direction") or "")
@@ -644,7 +656,9 @@ def frame(s):
     if det in ("funding_extreme", "funding_flip"):
         return f"{a}: {nums} — a funding dislocation most screens never show."
     if det == "whale_move":
-        return f"{s.get('concrete_entity') or 'A top trader'} on {a}: {nums}."
+        pnl = _num(s.get("entity_realized_pnl_usd"))
+        gains = f" ({_usd_short(pnl)} in lifetime gains)" if pnl and pnl > 0 else ""
+        return f"{s.get('concrete_entity') or 'A top trader'}{gains} on {a}: {nums}."
     if det == "sm_flow":
         return (f"Money is moving into {a} {d}s while the chart is quiet — {nums}. "
                 f"Not who is winning right now; who is buying in.")
@@ -703,7 +717,15 @@ def trade_read(s):
         return (f"Positioning building on {a}" + (f" {d}" if d else "")
                 + " with price quiet — a coil; watch for the break.")
     if det == "whale_move":
-        return f"A proven wallet is adding {d} size on {a} — size following conviction."
+        lead = "A proven wallet" + (f" {s['concrete_entity']}" if s.get("concrete_entity") else "")
+        pnl = _num(s.get("entity_realized_pnl_usd"))
+        if pnl and pnl > 0:
+            lead += f", who has {_usd_short(pnl)} in lifetime gains,"
+        if s.get("opened"):
+            return f"{lead} opened a {d} on {a} — size following conviction."
+        if s.get("flipped"):
+            return f"{lead} flipped to {d} on {a} — size following conviction."
+        return f"{lead} is adding {d} size on {a} — size following conviction."
     if det == "funding_flip":
         return f"Funding just flipped on {a} — the carry regime changed; the paid side moved."
     if det == "funding_extreme":
@@ -864,19 +886,24 @@ def _render_md(now, social, trade, lens, cov=None):
     return "\n".join(out)
 
 
+CLAW_STATE_DIR = "/data/.openclaw/senpi-state"   # the runtime's state dir on a claw (the persistent volume)
+
+
 def _default_state_path():
-    """A DURABLE path co-located with the Senpi RUNTIME's own state, so it survives across chats AND
-    redeploys exactly as runtimes do — never a per-chat scratchpad or /tmp, where the diff engine
-    silently resets every chat. Mirrors the runtime's resolver (senpi-trading-runtime
-    resolveSenpiBaseStateDir): $SENPI_SIGNALS_STATE (explicit file) › $SENPI_STATE_DIR/signals/state.json
-    › ~/.openclaw/senpi-state/signals/state.json. In the hyperclaw container the claw already exports
-    SENPI_STATE_DIR=/data/.openclaw/senpi-state — the Railway persistent volume mounted at /data — so
-    this lands beside installed_runtimes.json on durable storage with no configuration."""
+    """A DURABLE path beside the Senpi RUNTIME's own state, so it survives chats and redeploys and is the
+    same ring the strategies/signals host writes — never a per-chat scratchpad or /tmp, where the diff
+    engine silently resets. Order: $SENPI_SIGNALS_STATE (explicit file) › $SENPI_STATE_DIR/signals ›
+    the claw's CLAW_STATE_DIR/signals when that directory exists › ~/.openclaw/senpi-state/signals.
+    The claw is checked explicitly because the agent's exec shell does not carry SENPI_STATE_DIR and its
+    ~/.openclaw is not the volume (verified on a claw, 2026-09-16), while the runtime keeps its state —
+    and derives the signals host's root — at CLAW_STATE_DIR."""
     f = os.environ.get("SENPI_SIGNALS_STATE")
     if f:
         return f
-    base = os.environ.get("SENPI_STATE_DIR") or os.path.join(
-        os.path.expanduser("~"), ".openclaw", "senpi-state")
+    base = os.environ.get("SENPI_STATE_DIR")
+    if not base and os.path.isdir(CLAW_STATE_DIR):
+        base = CLAW_STATE_DIR
+    base = base or os.path.join(os.path.expanduser("~"), ".openclaw", "senpi-state")
     return os.path.join(base, "signals", "state.json")
 
 
@@ -984,7 +1011,8 @@ def main():
     slow_lookup = make_slow_lookup(ring, now)
     base_ts = _parse_ts((baseline or {}).get("ts"))
     fast_age = round((now - base_ts).total_seconds() / 60.0, 1) if base_ts else None
-    signals = detect_from_metrics(cur_metrics, prior, slow_lookup, fast_age_min=fast_age) + events
+    signals = detect_from_metrics(cur_metrics, prior, slow_lookup, fast_age_min=fast_age,
+                                  wallets=data.get("wallets") or {}) + events
     # observability: the best comparable arm we could find for any asset this run
     ages = [a for a in (slow_lookup(k, (v.get("smart_source")
                                         if isinstance(v, dict) else None))[1]
