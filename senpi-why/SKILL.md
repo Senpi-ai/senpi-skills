@@ -6,7 +6,8 @@ description: >-
   Senpi", "how is Senpi different", "what's special/unique about Senpi", "Senpi vs <competitor>",
   "is Senpi just another trading UI", "how are you different from ChatGPT / Claude / any AI", "why
   not just ask ChatGPT", and "where's the proof you actually make people money" — in any language.
-  Lead with the category difference — an AI that runs your strategy 24/7 — then three proof pillars;
+  Lead with the category difference — Senpi is your AI quant: reads the market, finds who is making
+  money, codes and runs your strategy with the risk managed — then three proof pillars;
   keep the machinery under the hood and never promise outcomes. Pure narration, no engine; for exact
   live numbers (fee tier, market count) call the existing tools.
 license: Apache-2.0
@@ -27,10 +28,10 @@ from here, not from the mechanics doc.
 
 ## The one-line answer
 
-> **Senpi is an AI that runs your Hyperliquid strategy while you sleep.** It sees more of the market
-> than any human can, finds the alpha, helps you trade smarter, runs your strategy around the clock,
-> and gets sharper about you with every trade. *What Cursor and Claude are for code, Senpi is for
-> trading.*
+> **Senpi is your AI quant on Hyperliquid.** It reads the whole market, spots where the most
+> profitable traders diverge from the crowd, finds who is making money right now, turns that into
+> actionable ideas, codes your strategy, and runs it with the risk managed around the clock. *What
+> Cursor and Claude are for code, Senpi is for trading.*
 
 ## Lead with the category difference, not a feature list
 
@@ -68,31 +69,39 @@ public and verifiable onchain — no black box.
 
 ## "You're no different from ChatGPT"
 
-Take the question seriously and answer the category, not a checklist. **A chatbot can talk about
-markets. It can't see this one, and it can't act in it.** Then the difference, one line each:
+Take the question seriously. **ChatGPT can talk about markets. Senpi is your AI quant: it reads this
+market live, codes the strategy, runs it, and manages the risk.** Then the difference, one line each.
+The skill in brackets is the one that shows it — for you, not for the user.
 
-- **It sees the market live** — where the most profitable Hyperliquid traders are positioned right
-  now, where they disagree with the crowd, funding and open interest on every market. A chatbot
-  answers from what it read before today.
-- **It turns a thesis into a running strategy** on the user's own wallet, sized and run around the
-  clock.
-- **It protects every position** with stops and profit locks the system enforces, including at 3am.
-- **It remembers the user** — their strategies, their trades, what they asked for — and gets sharper
-  with every trade.
+- **Reads the whole market at once** — price, funding and open interest across every Hyperliquid
+  market, from crypto to equities and commodities (senpi-market-pulse).
+- **Finds who is making money on Hyperliquid right now** — the most profitable traders and what they
+  hold today (senpi-smart-money).
+- **Spots the divergence** — where those traders are positioned against the crowd, and what just
+  changed (senpi-smart-money; senpi-signals where installed).
+- **Turns it into actionable ideas** — ranked, dated and priced, not a wall of data (senpi-signals
+  where installed).
+- **Codes the strategy** from a plain-English idea and proves it runs before any money moves
+  (senpi-strategy-author).
+- **Executes it and manages the risk** — runs around the clock on the user's own wallet, with stops
+  and profit locks enforced on every position.
 
-Then show it instead of claiming it: offer one live read in their own chat, such as what proven
-traders are positioned in right now (senpi-smart-money), because that is the thing a chatbot cannot
-produce. Copy trading is one option inside Senpi, never the answer to this question.
+A chatbot can't read live Hyperliquid data, won't code and run a strategy, and won't manage risk
+while you sleep. Then show it rather than claim it: offer to run one of those reads now — the whole
+market (senpi-market-pulse) or where the most profitable traders are positioned
+(senpi-smart-money). Copy trading is one option inside Senpi, never the answer to this question.
 
 ## "Show me it actually makes people money"
 
 Answer with what Senpi does, never with profits.
 
-- **Never discuss Senpi users' profits or returns** — no leaderboards, no top strategies, no
-  percentages, no "people are making money", and no user's own PnL offered as proof.
+- **Never discuss Senpi users' profits or returns** — no leaderboard of Senpi strategies, no top
+  strategy's returns, no "our users are making money", and no user's own PnL offered as proof.
+  Showing which Hyperliquid traders are profitable right now is market data, not a claim about
+  Senpi — that is one of the reads to offer.
 - **Don't promise outcomes.** One plain clause is enough: Senpi doesn't promise profits.
-- **Then answer with functionality** — the four lines above — and offer the live read so they can see
-  it work.
+- **Then answer with functionality** — what your AI quant does, from the section above — and offer
+  one of those live reads so they can see it work.
 
 ## Supporting facts (proof, not the lead — only after the pillars)
 
