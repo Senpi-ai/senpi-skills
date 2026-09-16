@@ -25,6 +25,12 @@ jobs:
       - name: min_budget — golden minimums (a retune must update the golden in the same PR)
         run: python3 senpi-trading-runtime/tests/test_min_budget_golden.py
 
+      # senpi-account-status gets its own invocation: its tests/test_status.py + test_skill_surface.py
+      # share basenames with senpi-strategy-ops' tests (and both suites `import status` from their own
+      # scripts/), so a shared rootdir-less run fails collection with "import file mismatch".
+      - name: account-status suite (own invocation — `status` module name collides with ops)
+        run: python3 -m pytest senpi-account-status/tests -q
+
       # pytest collects every test regardless of a __main__ runner — bare `python3 <file>` exits 0
       # without running anything on a runner-less file (test_default_catalog.py), a silent green.
       # `strategies/tests` holds catalog-wide contract guards (no null optional signal keys).
