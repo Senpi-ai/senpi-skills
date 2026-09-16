@@ -321,14 +321,21 @@ def trade_score(s, cred):
     return round(100 * base * cred, 1)
 
 
-def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None):
+def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None, fast_age_min=None):
     """Fire the diff/threshold detectors from current asset_metrics.
 
-    Two baselines: `prior` ≈ DIFF_TARGET_MIN old (the fast diff — OI, funding, conviction) and
-    `prior_slow` ≈ TREND_LOOKBACK_MIN old (~12h — the cohort-positioning trend, which needs a longer
-    arm to show a real build). `prior_slow` falls back to `prior` when the ring isn't deep enough yet.
+    Two baselines: `prior` ≈ DIFF_TARGET_MIN old (the fast diff — OI, funding, conviction, whale
+    moves) and `prior_slow` ≈ TREND_LOOKBACK_MIN old (~12h — the cohort-positioning trend, which needs
+    a longer arm to show a real build). `prior_slow` falls back to `prior` when the ring isn't deep
+    enough yet. `fast_age_min` is the fast baseline's real age, used to say how recent a whale move is.
     """
     out = []
+    # every wallet the previous snapshot sampled (it held something somewhere): a wallet absent from
+    # it may be new to the sample rather than new to the trade, so it can never read as "opened"
+    prior_wallets = set()
+    for v in (prior or {}).values() if isinstance(prior, dict) else []:
+        if isinstance(v, dict) and isinstance(v.get("smart_positions"), dict):
+            prior_wallets.update(v["smart_positions"])
     for asset, m in (cur or {}).items():
         if not isinstance(m, dict):
             continue
@@ -462,6 +469,56 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None):
                     fnums.append(f"crowd still {str(cd).upper()}")
                 sig("sm_flow", sd, min(1.0, flow["base_delta_pct"] / 0.5), fnums,
                     conflict=bool(cd and cd != sd), is_change=True)
+
+        # ── WHALE MOVES — one proven wallet changing SIZE since the previous sweep ─────────────
+        # Base units, so price cannot manufacture it: opened, added to, or flipped a side, worth at
+        # least WHALE_MIN_USD at today's price. Trims and closes are not entries. Needs a previous
+        # snapshot that sampled this asset; on a first run there is nothing to compare, so nothing fires.
+        cur_pos, prior_pos, px = m.get("smart_positions"), p.get("smart_positions"), _num(m.get("price"))
+        if isinstance(cur_pos, dict) and isinstance(prior_pos, dict) and px and prior_wallets:
+            if fast_age_min is not None and fast_age_min >= 90:
+                window = f" in the last ~{fast_age_min / 60.0:.0f}h"
+            elif fast_age_min is not None:
+                window = f" in the last ~{max(1.0, fast_age_min):.0f}min"
+            else:
+                window = " since the previous sweep"
+            for w, now_sz in cur_pos.items():
+                c, b = _num(now_sz) or 0.0, _num(prior_pos.get(w)) or 0.0
+                if abs(c) <= FLOW_EPS or (abs(b) <= FLOW_EPS and w not in prior_wallets):
+                    continue
+                side = "long" if c > 0 else "short"
+                if abs(b) <= FLOW_EPS:
+                    move, delta_base = "opened", abs(c)
+                elif _sign(b) != _sign(c):
+                    move, delta_base = "flipped", abs(c)
+                elif abs(c) > abs(b) + FLOW_EPS:
+                    move, delta_base = "added", abs(c) - abs(b)
+                else:
+                    continue
+                change_usd = delta_base * px
+                if change_usd < WHALE_MIN_USD:
+                    continue
+                now_usd = abs(c) * px
+                if move == "opened":
+                    text = f"opened a {side.upper()} worth ${change_usd / 1e6:.1f}M{window}"
+                elif move == "flipped":
+                    other = "SHORT" if side == "long" else "LONG"
+                    text = f"flipped from {other} to {side.upper()}{window}, now ${now_usd / 1e6:.1f}M"
+                else:
+                    text = (f"added ${change_usd / 1e6:.1f}M to a {side.upper()}{window}, "
+                            f"now ${now_usd / 1e6:.1f}M")
+                wallet = str(w)
+                out.append({
+                    "asset": asset, "dex": dex, "detector": "whale_move", "direction": side,
+                    "numbers": [text], "notional_vol": vol,
+                    "concrete_entity": (wallet[:6] + "…" + wallet[-4:]) if len(wallet) > 12 else wallet,
+                    "price_change_pct": pcp,
+                    "magnitude": max(0.0, min(1.0, change_usd / (10 * WHALE_MIN_USD))),
+                    "conflict": bool(cd and cd != side), "flip": move == "flipped",
+                    "smart_source": src, "source_trust": src_trust, "is_change": True,
+                    "change_usd": round(change_usd if side == "long" else -change_usd, 2),
+                    "opened": move == "opened", "flipped": move == "flipped",
+                })
 
         # smart-money conviction jump (change) — fires on a move in EITHER direction (piling in OR unwinding)
         pshare = _num(p.get("smart_share"))
@@ -925,7 +982,9 @@ def main():
     prior = (baseline or {}).get("asset_metrics", {})
     # slow (~12h) arm for the trend detector — resolved per asset AND per source (see make_slow_lookup)
     slow_lookup = make_slow_lookup(ring, now)
-    signals = detect_from_metrics(cur_metrics, prior, slow_lookup) + events
+    base_ts = _parse_ts((baseline or {}).get("ts"))
+    fast_age = round((now - base_ts).total_seconds() / 60.0, 1) if base_ts else None
+    signals = detect_from_metrics(cur_metrics, prior, slow_lookup, fast_age_min=fast_age) + events
     # observability: the best comparable arm we could find for any asset this run
     ages = [a for a in (slow_lookup(k, (v.get("smart_source")
                                         if isinstance(v, dict) else None))[1]
@@ -952,6 +1011,10 @@ def main():
     _commit_state(state_path, cur_metrics, now, a.consumer, social + trade)
 
     cov = coverage(cur_metrics)
+    # whale moves need a previous snapshot that carried the cohort's books; without one the lens has
+    # not looked yet, which must never read as "looked and found nothing"
+    cov["whale_lens"] = ("ok" if any(isinstance(v, dict) and v.get("smart_positions")
+                                     for v in (prior or {}).values()) else "NO BASELINE")
     open(a.out, "w").write(_render_md(now, social, trade, a.lens, cov))
     print(json.dumps({"generated": now.isoformat(),
                       "diff_baseline_ts": (baseline or {}).get("ts"),

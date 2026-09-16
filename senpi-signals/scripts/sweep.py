@@ -336,8 +336,8 @@ def gather(call_tool, top_n=UNIVERSE_TOP_N, now=None):
         events = momentum_events(c, cov, metrics, now) + cross_asset(c, cov, metrics)
     else:
         src, events = None, []
-    cov["whale_move"] = ("not gathered: leaderboard_get_trader_positions is one read per wallet; "
-                         "whale shifts come from sm_flow (base-unit opens/adds) and momentum events")
+    cov["whale_move"] = ("from the cohort's books: score.py diffs each proven wallet's base size against the "
+                         "previous sweep (no extra reads; nothing to compare on a first run)")
     return {"generated": now.isoformat(), "asset_metrics": metrics, "events": events,
             "coverage": cov, "source_trader_count": src, "reads": c.reads, "reads_failed": c.failed}
 
@@ -381,6 +381,7 @@ def run(call_tool, consumer="social", out_dir=None, state=None, now=None, top_n=
     summary = (f"assets {len(cur['asset_metrics'])} · events {len(cur['events'])} · "
                f"trade {len(res.get('trade') or [])} · social {len(res.get('social') or [])} · "
                f"smart-money lens {cov.get('smart_money_lens', 'n/a')} · flow lens {cov.get('flow_lens', 'n/a')} · "
+               f"whale lens {cov.get('whale_lens', 'n/a')} · "
                f"trend_ready {res.get('trend_ready')} · reads {cur['reads']} ({cur['reads_failed']} failed) · "
                f"out {out_dir}")
     return {"summary": summary, "reads": cur["reads"], "coverage": cur["coverage"], "current": cur,

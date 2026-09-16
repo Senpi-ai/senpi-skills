@@ -41,10 +41,10 @@ assembles it. Per asset (top-N of `market_list_instruments` by day notional volu
 | `crowd_dir` + `crowd_source`, `hot_4h_share`, `hot_4h_dir`, `hot_4h_trader_count`, `price_change_pct` (4h) | `leaderboard_get_markets` (limit 500): the dominant row per token | `crowd_source: board_4h` when the name is on the board, else `funding_sign` (positive ⇒ crowd LONG). `price_change_pct` is absent off-board — `earliness` then scores neutral, honestly |
 | `events[]` `momentum_event` | `leaderboard_get_momentum_events` (limit 50, last 4h): only `decision: sent` (the platform's own "worth notifying" gate); the largest `top_positions` leg; `concrete_entity` shortened `0x12…ab34`; `age_minutes` from `detected_at` | the platform's whale feed — replaces per-wallet reads |
 | `events[]` `cross_asset_laggard` | `market_get_cross_asset_flows` (BTC, 2%, 4h): laggards with `follow_rate ≥ 0.8` | direction = the leader's |
-| *(not gathered)* `whale_move` | `leaderboard_get_trader_positions` is one read per wallet — 150 for the cohort | whale shifts come from `sm_flow` (base-unit opens/adds off the ring) + momentum events; `coverage.whale_move` says so |
+| `whale_move` *(in score.py)* | the same `discovery_get_trader_state` books, diffed per wallet against the previous sweep's snapshot | no extra read; `leaderboard_get_trader_positions` carries only a 4h P&L delta, which is not a move; a first run has nothing to compare (`whale_lens: NO BASELINE`) |
 
 `current.json` also carries `coverage` (per source: `ok (…)` / `failed: <tool>: <err>` / `NO DATA` /
-`unavailable` / `not gathered`), `source_trader_count`, `reads` and `reads_failed`. A read that fails
+`unavailable`), `source_trader_count`, `reads` and `reads_failed`. A read that fails
 degrades its fields for that run and is named there — it never crashes the sweep.
 
 ---
@@ -242,14 +242,13 @@ state** (great content, but not a directional edge). `score.py` fires whichever 
 - **Recency is required in the framing.** Say **when / how fresh**: "opened today", "added in the last
   4h", "flipped from long to short this window". If you can only tell that it's *large* and *old* (the
   entry price sits far from the recent range and nothing changed), it's a holding — **skip it**.
-- **Source (VERIFY-LIVE):** whale set = top-trader cohort from `discovery_get_top_traders`. The **4h
-  delta needs no state** — `leaderboard_get_trader_positions` returns each trader's **4h position
-  delta** and **4h P&L delta** directly; use them so moves fire even on the **first run**. For longer
-  horizons, diff each wallet's per-asset notional vs its prior snapshot (store wallet books in state).
-  **The sweep does not gather this detector** (one read per wallet); use it in **focus mode** on a named
-  wallet. In a sweep write-up, "any whale shifts?" is answered by `sm_flow` (wallets that OPENED /
-  ADDED in base units) and the momentum events — report a shift only when there genuinely is one;
-  "no notable whale moves" is a correct, honest answer.
+- **Source:** the proven cohort's books — the `discovery_get_trader_state` reads the sweep already makes.
+  `score.py` diffs each wallet's **base size** per asset against the previous sweep's snapshot and fires
+  on an open, an add or a flip worth ≥ `WHALE_MIN_USD` at today's price; trims and closes are not
+  entries. A wallet the previous snapshot never sampled is skipped (it may be new to the sample, not
+  new to the trade). `leaderboard_get_trader_positions` returns each position's **4h P&L delta but no
+  size delta**, so it cannot show a move on its own — use it in focus mode on a named wallet. A first
+  run has no previous snapshot, so nothing fires; "no notable whale moves" is a correct, honest answer.
 - **`concrete_entity`** = the public `0x…`. **Framing (lead with the change + when):**
   `A top trader (0x12…) just grew their <ASSET> SHORT by $10M to $50M (added this 4h window).`
   or `0x12… flipped <ASSET> long→short today — now $30M short.` Include the entry only as context

@@ -154,14 +154,19 @@ than ~2 signals per detector family reach either feed. Give a **user** the trade
 - **Present `score.py`'s rendered block** (`signals.md`) as canonical — narrate *around* it, don't
   replace it with free prose. Badges (🔥 ≥ 80 · 🟠 65–79 · 🟡 45–64; ⭐ top; ⚑ named wallet), header,
   ranking and diff-state are the engine's job.
-- **Check `coverage` before you claim anything.** `current.json` → `coverage` says, per source,
-  `ok` / `failed: …` / `NO DATA` / `not gathered`; the run JSON's `coverage.smart_money_lens` /
-  `flow_lens` says whether the smart-money detectors were fed at all. A detector that was never fed
-  must never be reported as one that looked and found nothing. `whale_move` is **not gathered** by
-  the sweep (one read per wallet); whale shifts come from `sm_flow` (wallets that OPENED/ADDED, in
-  base units, off the ring) and from the platform's momentum events — say so if asked for whales.
-- **Always include a smart-money-vs-crowd divergence check and a whale-shifts check** in a sweep
-  write-up. If either finds nothing, **say so plainly**.
+- **Check `coverage` before you claim anything — silently.** `current.json` → `coverage` says, per
+  source, `ok` / `failed: …` / `NO DATA`; the run JSON's `coverage.smart_money_lens` / `flow_lens` /
+  `whale_lens` says whether those detectors were fed at all. A detector that was never fed must never
+  be reported as one that looked and found nothing. Whale moves are one proven wallet opening, adding
+  to or flipping a side by ≥ $1M since the previous sweep (`score.py` diffs the cohort's books), so a
+  first run has nothing to compare (`whale_lens: NO BASELINE`).
+- **Talk about the market, never about the engine.** Present `signals.md`, then at most a few
+  sentences on what stands out. Never narrate the state ring, baselines or their age, warm-up,
+  `trend_ready`, coverage lines, read counts, detector names, or why a detector is quiet — that is
+  debugging output, not an answer. If a lens could not be read, one plain clause is the most a user
+  hears ("whale moves aren't measurable on a first run").
+- **Name a divergence or a whale move only when the feed carries one.** No whale move in the feed is
+  not a section and not an explanation — leave it out, or one plain clause if the user asked about whales.
 
 ## Running the sweep
 ```bash

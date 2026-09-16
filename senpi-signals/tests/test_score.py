@@ -540,3 +540,34 @@ if __name__ == "__main__":
         fn()
         print(f"ok  {fn.__name__}")
     print(f"\nALL {len(fns)} SIGNALS TESTS PASS")
+
+
+def test_a_whale_move_is_one_proven_wallet_changing_size_since_the_previous_sweep():
+    """Whale shifts are SIZE changes by a single proven wallet, in base units, against the previous
+    sweep: opened, added or flipped, worth >= $1M at today's price. A trim, a sub-$1M add, and a wallet
+    the previous sweep never sampled do not fire, and a first run (no previous snapshot) fires nothing."""
+    w1, w2, w3, w4, w5 = ("0x" + ch * 40 for ch in "12345")
+    short = lambda w: w[:6] + "…" + w[-4:]
+    prior = {"ETH": {"smart_positions": {w1: -100.0, w4: 900.0, w5: 50.0}, "price": 2400.0},
+             "BTC": {"smart_positions": {w2: 1.0}, "price": 75000.0}}
+    cur = {"ETH": {"smart_positions": {w1: -600.0,     # added 500 ETH to a short: $1.2M
+                                       w2: -1000.0,    # flat on ETH but sampled (BTC): opened a $2.4M short
+                                       w3: 5000.0,     # never sampled before: may be new to the sample
+                                       w4: 400.0,      # trimmed: not an entry
+                                       w5: 300.0},     # added $0.6M: under the bar
+                   "price": 2400.0, "smart_source": "proven_cohort", "smart_dir": "short",
+                   "crowd_dir": "long", "notional_vol": 5e8},
+           "BTC": {"smart_positions": {w2: -20.0}, "price": 75000.0,   # flipped from long to short
+                   "smart_source": "proven_cohort", "notional_vol": 5e8}}
+    moves = {(s["asset"], s["concrete_entity"]): s
+             for s in score.detect_from_metrics(cur, prior, fast_age_min=45) if s["detector"] == "whale_move"}
+    assert set(moves) == {("ETH", short(w1)), ("ETH", short(w2)), ("BTC", short(w2))}
+    added = moves[("ETH", short(w1))]
+    assert added["direction"] == "short" and added["change_usd"] == -1_200_000.0 and added["conflict"]
+    assert added["numbers"] == ["added $1.2M to a SHORT in the last ~45min, now $1.4M"]
+    assert moves[("ETH", short(w2))]["opened"] and moves[("ETH", short(w2))]["numbers"] == [
+        "opened a SHORT worth $2.4M in the last ~45min"]
+    flipped = moves[("BTC", short(w2))]
+    assert flipped["flipped"] and flipped["numbers"] == ["flipped from LONG to SHORT in the last ~45min, now $1.5M"]
+    assert score.normalize_event(dict(added, age_minutes=45)) is not None     # the event gate accepts it
+    assert not [s for s in score.detect_from_metrics(cur, {}) if s["detector"] == "whale_move"]
