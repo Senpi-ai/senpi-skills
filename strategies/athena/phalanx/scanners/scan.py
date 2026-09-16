@@ -283,8 +283,14 @@ def _crowd_lean(ctx, limit):
     if not isinstance(raw, list):
         if isinstance(raw, dict):
             for k in ("markets", "data", "results"):
-                if isinstance(raw.get(k), list):
-                    raw = raw[k]
+                v = raw.get(k)
+                # The MCP wraps the board client's {markets: [...]} under `markets` again, so live
+                # rows arrive at data.markets.markets. Reading only a flat list returned {} on every
+                # real response and the divergence booster never fired.
+                if isinstance(v, dict) and isinstance(v.get(k), list):
+                    v = v[k]
+                if isinstance(v, list):
+                    raw = v
                     break
             else:
                 return {}
