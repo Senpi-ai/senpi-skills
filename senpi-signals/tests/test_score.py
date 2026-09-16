@@ -476,6 +476,16 @@ def test_end_to_end():
         assert {s["asset"] for s in res2["trade"]} == {s["asset"] for s in res["trade"]}, "trade is not freshness-gated"
 
 
+def test_the_posting_reminder_is_for_the_content_feed_only():
+    from datetime import datetime, timezone
+    now = datetime(2026, 1, 5, 12, 0, tzinfo=timezone.utc)
+    user = score._render_md(now, [], [], "both", {}, "adhoc")
+    content = score._render_md(now, [], [], "both", {}, "social")
+    assert "Observation, not advice. Every number is from a live read this run._" in user
+    assert "posting" not in user, "a user asked a question; they are not posting anything"
+    assert "verify before posting" in content
+
+
 def test_consumer_namespacing_shares_ring_isolates_freshness():
     # the content cron and a user's on-demand run share ONE market baseline (the ring) but keep
     # SEPARATE anti-repeat memory — the cron's "already posted" must not blank a user's browse.
@@ -483,16 +493,18 @@ def test_consumer_namespacing_shares_ring_isolates_freshness():
         state = pathlib.Path(d) / "state.json"
         state.write_text(json.dumps(PRIOR_STATE))
 
-        r_soc, _ = _run(CURRENT, state, NOW, extra=["--consumer", "social"])
+        r_soc, md_soc = _run(CURRENT, state, NOW, extra=["--consumer", "social"])
         assert r_soc["social"], "social consumer should produce a feed"
+        assert "verify before posting" in md_soc, "the content feed keeps its posting reminder"
         sb = json.loads(state.read_text())["surfaced_by"]
         assert sb.get("social"), sb                         # only the social consumer's memory was written
         assert "adhoc" not in sb, sb
 
         # a user run 5 min later (default 'adhoc') shares the ~1h ring baseline but is NOT penalized
         # by what the cron surfaced
-        r_adhoc, _ = _run(CURRENT, state, "2026-08-24T02:05:00+00:00")
+        r_adhoc, md_adhoc = _run(CURRENT, state, "2026-08-24T02:05:00+00:00")
         assert r_adhoc["diff_baseline_ts"] == BASELINE_TS, "adhoc run shares the same ~1h baseline"
+        assert "posting" not in md_adhoc, "a user's feed carries no posting reminder"
         assert {s["asset"] for s in r_soc["social"]} & {s["asset"] for s in r_adhoc["social"]}, \
             "adhoc feed should not be suppressed by the cron's anti-repeat memory"
         sb2 = json.loads(state.read_text())["surfaced_by"]
