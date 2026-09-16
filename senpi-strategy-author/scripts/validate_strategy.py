@@ -419,11 +419,14 @@ def validate(pkg: Path) -> list:
                 errs.append(f"{py.name}: direction from a PnL sign (`{fld}`) is not a direction — use the "
                             f"position's side (szi sign)")
 
-    # momentum is not smart money: a side taken from the 4h board, no proven-cohort read in any of the
-    # package's scanners, and text that says smart money. One line per package, naming the first mention.
+    # momentum is not smart money: a side taken from the 4h board, no proven-cohort read anywhere in the
+    # package, and text that says smart money. One line per package, naming the first mention. The board
+    # read is searched in scanners/ (where a direction is decided); the cohort read that earns the phrase is
+    # searched in every module outside tests/ — a helper can hold it, a test mock cannot buy it.
     scn = {str(p.relative_to(pkg)): p.read_text() for p in sorted(pkg.rglob("*.py")) if "scanners" in p.parts}
     board = [f for f, s in scn.items() if _BOARD_SIDE.search(s)]
-    if board and not any("discovery_get_trader_state" in s for s in scn.values()):
+    cohort = any("discovery_get_trader_state" in p.read_text() for p in pkg.rglob("*.py") if "tests" not in p.parts)
+    if board and not cohort:
         for f, field, phrase in smart_money_mentions(pkg)[:1]:
             errs.append(f"{', '.join(board)}: momentum read of the 4h board described as smart money "
                         f"({f} {field}: {phrase!r}) — rename to 4h leader momentum, or read the proven "

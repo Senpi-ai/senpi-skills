@@ -121,6 +121,29 @@ def test_cohort_read_described_as_smart_money_passes(tmp_path):
     assert not _hits(errs, "4h board") and not _hits(errs, "PnL sign"), errs
 
 
+# A cohort read that lives in a helper outside scanners/ earns the phrase as much as one inside it.
+_COHORT_HELPER = (
+    "def leader_side(ctx, leader):\n"
+    "    st = ctx.senpi_mcp.call_tool('discovery_get_trader_state', {'traderAddress': leader})\n"
+    "    return {p['coin']: ('LONG' if float(p['szi']) > 0 else 'SHORT') for p in st['positions']}\n")
+
+
+def test_cohort_read_in_a_helper_outside_scanners_passes(tmp_path):
+    d = _package(tmp_path, "Smart-money positioning, read from the proven cohort")
+    (d / "main" / "cohort.py").write_text(_COHORT_HELPER)
+    errs = vs.validate(d)
+    assert not _hits(errs, "4h board"), errs
+
+
+def test_a_test_mock_of_the_cohort_read_does_not_buy_the_exemption(tmp_path):
+    d = _package(tmp_path, "Follows the smart money on the 4h board")
+    (d / "tests").mkdir()
+    (d / "tests" / "test_board.py").write_text(
+        "def test_mock(monkeypatch):\n    calls = ['discovery_get_trader_state']\n    assert calls\n")
+    errs = vs.validate(d)
+    assert len(_hits(errs, "momentum read of the 4h board described as smart money")) == 1, errs
+
+
 def test_helpers_are_pure():
     assert vs.pnl_sign_directions('"LONG" if delta_pnl >= 0 else "SHORT"') == ["delta_pnl"]
     assert vs.pnl_sign_directions("'SHORT' if pos['closed_pnl'] < 0 else 'LONG'") == ["closed_pnl"]
