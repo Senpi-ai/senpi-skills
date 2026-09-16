@@ -149,6 +149,16 @@ def test_book_vs_market_gap_surfaces_unheld_mover():
     assert bvm["window"] == "4h"
 
 
+def test_book_vs_market_reads_the_live_envelope():
+    """The live tool nests its payload under the same key: data.markets = {markets: [...], window, ...}.
+    That envelope must yield the same movers, gaps and window as the bare payload the fixture records."""
+    with open(FIXTURE) as f:
+        recorded = json.load(f)
+    recorded["leaderboard_get_markets"] = {"success": True, "data": {"markets": recorded["leaderboard_get_markets"]}}
+    live = _run_with_registry(review._FixtureClient(recorded))["book_vs_market"]
+    assert live["top_movers"] and live == _result()["book_vs_market"]
+
+
 def test_participation_alignment_flags():
     """participation records whether the book was on the RIGHT side of a mover it held. ETH: held long,
     ETH moved +9% → aligned True. SOL: held long, SOL moved -8.5% → aligned False (wrong side)."""

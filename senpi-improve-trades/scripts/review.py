@@ -1576,6 +1576,8 @@ def book_vs_market(client, trades, strategies, meta, want_market):
     if raw is None:
         meta.setdefault("warnings", []).append("leaderboard_get_markets returned no data; book-vs-market skipped")
         return empty
+    if isinstance(raw, dict) and isinstance(raw.get("markets"), dict):
+        raw = raw["markets"]   # live envelope: data.markets = {markets: [...], window, ...}
     movers = _extract_movers(raw)
     window = _field(raw, "window", default=None) if isinstance(raw, dict) else None
 
