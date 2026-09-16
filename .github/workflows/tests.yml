@@ -31,9 +31,10 @@ jobs:
       # `senpi-strategy-author/tests` was never listed here, so its suite had never run in CI —
       # added 2026-09-08 along with the exit-preview guard that keeps SKILL.md's worked ladder
       # arithmetically true to dsl-presets.yaml.
-      # Named explicitly rather than `strategies`: a module-level sys.exit() in
-      # strategies/chimp/tests/test_package_shape.py aborts collection for that whole tree
-      # (pre-existing, unrelated).
+      # Named explicitly rather than `strategies`: a module-level sys.exit() aborts pytest collection for
+      # the whole tree. It is not chimp alone — 8 script-style files across 4 packages (chimp, gibbon,
+      # gorilla, orangutan: test_engine.py + test_package_shape.py in each). The step above runs those
+      # per file with python3, and every other strategies/<id>/tests directory with pytest.
       # Every strategies/<id>/tests suite, one process per directory. These never ran in CI: the line
       # below names strategies/tests only, because a module-level sys.exit() in the chimp family aborts
       # collection for the whole tree. The script runs pytest-style files per directory and the
