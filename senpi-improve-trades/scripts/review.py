@@ -740,11 +740,11 @@ def _ms(ts):
 def _direction(rec):
     """Side of a CLOSED trade, read only from a side label on the row. The real `discovery_get_trader_history`
     row labels the side in `type` ("Close Long" / "Close Short") and carries an UNSIGNED at-close `szi` —
-    positive on a closed short too — so the sign of the size says nothing about the side. Neither does
-    realized PnL against the price move: `realizedPnl` is net of fees, so a small winning long can book a
-    loss. A label in `dir` / `side` / `direction` / `positionSide` / `type` containing "long" or "short"
-    (any case) decides it. A buy / sell side is not a label: on a closed row it can be the closing fill,
-    which is the opposite side. No label → None (unknown)."""
+    positive on a closed short too — so the sign of the size says nothing about the side. The label is on
+    every row the feed returns. A label in `dir` / `side` / `direction` / `positionSide` / `type` containing
+    "long" or "short" (any case) decides it, and nothing else is read: not the size's sign, not realized PnL
+    against the price move, not a buy / sell side (on a closed row that can be the closing fill, which is the
+    opposite side). No label → None (unknown)."""
     for name in ("dir", "side", "direction", "positionSide", "type"):
         label = str(_field(rec, name, default="") or "").strip().lower()
         if "short" in label:

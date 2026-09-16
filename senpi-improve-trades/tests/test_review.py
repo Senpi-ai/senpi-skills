@@ -98,10 +98,10 @@ def test_short_sign_is_direction_adjusted():
 
 def test_a_closed_trade_reads_its_side_from_the_label_never_the_size_or_pnl():
     """The real discovery_get_trader_history row labels the side in `type` and carries an UNSIGNED at-close
-    `szi`, positive on a closed short too. Without a label the side is unknown, because every guess can read
-    the wrong way: a size sign, PnL against the price move (a long up 100 -> 100.2 that fees turn into a
-    -0.05 loss), and a buy / sell side (on a closed row, possibly the closing fill). An unknown side gets no
-    if-held dollar figure and no verdict."""
+    `szi`, positive on a closed short too. Only the label decides the side; an unlabelled row is unknown
+    whatever it carries: a signed size, an unsigned size, PnL against the price move (this row's PnL and move
+    disagree in sign, so an inference would call it a short), or a buy / sell side (on a closed row, possibly
+    the closing fill). An unknown side gets no if-held dollar figure and no verdict."""
     assert review._direction({"szi": "0.05", "type": "Close Short"}) == "short"
     assert review._direction({"szi": "3.0", "type": "close LONG"}) == "long"
     for unlabelled in ({"szi": "-1"}, {"szi": "1"},
