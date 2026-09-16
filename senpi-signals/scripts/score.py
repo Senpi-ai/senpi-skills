@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
-"""senpi-signals ranker — dual-lens (trade + social) stateful diff engine.
+"""senpi-signals ranker — dual-lens (trade + social) scoring of one market reading.
 
 ONE sweep → TWO ranked feeds from the same detected signals:
   - trade  : Senpi USERS building ideas — actionable EDGE, price CONFIRMATION, credible enough to
              act on. A static funding extreme scores LOW here (carry, not a directional edge); a
              winning smart-money divergence scores HIGH.
-  - social : team AUTOMATION / market-news content — surprising, non-obvious, and FRESH (anti-repeat
-             so a cron doesn't re-post the same six), credibility-gated. Static extremes are fine here.
+  - social : market-news content — surprising, non-obvious, credibility-gated. Static extremes are
+             fine here.
 
-Core principle: rank credible CHANGE and actionable EDGE — and never repeat yourself.
+Core principle: rank credible, actionable EDGE.
 
 Input JSON: { "asset_metrics": { "<asset>": {oi, price, price_change_pct, smart_share, smart_dir,
               crowd_dir, funding_pctile, funding_annualized_pct, notional_vol, dex, oi_side} },
               "events": [ pre-formed signals (whale_move / momentum_event / cross_asset_laggard) ] }
 
-State is a RING of snapshots: the change-detectors diff `cur` against the snapshot ~DIFF_TARGET_MIN
-old (not merely the last run), so a 3-minute re-run still sees a meaningful delta. `surfaced` records
-when each (asset,detector) last appeared, for the social freshness penalty. Stdlib only.
+2.0 runs WITHOUT --state: one reading, no compare. Nothing is read from or written to history, so the
+change detectors (oi_surge, funding_flip, sm_conviction, sm_positioning_build, sm_flow, whale moves)
+never fire and back-to-back runs rank the same. --state PATH turns on the history engine for v2
+(compare over periods): a RING of snapshots the change detectors diff against ~DIFF_TARGET_MIN old,
+plus per-consumer anti-repeat memory. Stdlib only.
 
 Thresholds mirror references/detectors.md — change them in BOTH places.
 """
@@ -144,6 +146,10 @@ FAMILY = {
 CHANGE_DETECTORS = {"oi_surge", "sm_conviction", "funding_flip", "whale_move",
                     "cross_asset_laggard", "momentum_event", "regime_shift",
                     "sm_positioning_build", "sm_flow"}
+# the detectors that need an EARLIER reading (our own history). 2.0 runs without history, so none of
+# these can fire; they are v2 (compare over periods). Events the MCP reports in a single read stay in.
+HISTORY_DETECTORS = {"oi_surge", "sm_conviction", "funding_flip", "whale_move",
+                     "sm_positioning_build", "sm_flow"}
 
 
 def _num(v):
@@ -684,7 +690,7 @@ HOW_TO_READ = [
     "it does not predict. *Trade* weighs directional edge · earliness · is it a change · does it cut "
     "against the crowd · size. *News* weighs how invisible it is on a chart · size · contradiction · "
     "change · a named wallet. Both are multiplied by credibility (book depth + how trustworthy the "
-    "source is) and news also by freshness.",
+    "source is).",
     "",
     "Every claim is dated and priced where we have it — `[2h ago · from $41.20]`. No bracket means "
     "we could not date it, not that it is fresh.",
@@ -888,27 +894,6 @@ def _render_md(now, social, trade, lens, cov=None, consumer="adhoc"):
     return "\n".join(out)
 
 
-CLAW_STATE_DIR = "/data/.openclaw/senpi-state"   # the runtime's state dir on a claw (the persistent volume)
-
-
-def _default_state_path():
-    """A DURABLE path beside the Senpi RUNTIME's own state, so it survives chats and redeploys and is the
-    same ring the strategies/signals host writes — never a per-chat scratchpad or /tmp, where the diff
-    engine silently resets. Order: $SENPI_SIGNALS_STATE (explicit file) › $SENPI_STATE_DIR/signals ›
-    the claw's CLAW_STATE_DIR/signals when that directory exists › ~/.openclaw/senpi-state/signals.
-    The claw is checked explicitly because the agent's exec shell does not carry SENPI_STATE_DIR and its
-    ~/.openclaw is not the volume (verified on a claw, 2026-09-16), while the runtime keeps its state —
-    and derives the signals host's root — at CLAW_STATE_DIR."""
-    f = os.environ.get("SENPI_SIGNALS_STATE")
-    if f:
-        return f
-    base = os.environ.get("SENPI_STATE_DIR")
-    if not base and os.path.isdir(CLAW_STATE_DIR):
-        base = CLAW_STATE_DIR
-    base = base or os.path.join(os.path.expanduser("~"), ".openclaw", "senpi-state")
-    return os.path.join(base, "signals", "state.json")
-
-
 def _read_state(path):
     """(ring, surfaced_by) from the state file, migrating older shapes. The snapshot ring is SHARED
     across consumers (one market baseline for everyone); surfaced_by = {consumer: {asset|detector: ts}}
@@ -966,28 +951,30 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("input", help="current signals JSON (asset_metrics + events)")
     ap.add_argument("--state", default=None,
-                    help="state file (default: durable ~/.senpi/signals/state.json — survives across chats)")
+                    help="history file for compare over periods (v2; the 2.0 skill never passes it). Without "
+                         "it the run is one reading: no compare, no anti-repeat memory, nothing written.")
     ap.add_argument("--consumer", default="adhoc",
-                    help="freshness namespace: 'adhoc' for a user's on-demand run, e.g. 'social' for the "
-                         "content cron. The market baseline (ring) is shared; only anti-repeat is per-consumer.")
+                    help="with --state: the anti-repeat namespace. The ring is shared; freshness is per consumer.")
     ap.add_argument("--top", type=int, default=TOP_N)
     ap.add_argument("--now", default=None, help="ISO timestamp (default: now UTC)")
     ap.add_argument("--out", default="signals.md")
     ap.add_argument("--lens", choices=["both", "trade", "social"], default="both")
     ap.add_argument("--snapshot-only", action="store_true",
-                    help="record this reading into the ring and exit — no detection, no ranking, no "
+                    help="with --state: record this reading into the ring and exit — no detection, no ranking, no "
                          "output feed, and freshness is NOT touched. The cheap keep-the-history-warm "
                          "job: sm_positioning_build needs a ~12h-old partner snapshot to diff against.")
     a = ap.parse_args()
-    state_path = a.state or _default_state_path()
+    state_path = a.state                      # None = one reading (2.0): no history read, none written
+    if a.snapshot_only and not state_path:
+        ap.error("--snapshot-only records history, so it needs --state")
 
     data = json.load(open(a.input))
     cur_metrics = data.get("asset_metrics") or {}
     events = [e for e in (normalize_event(e) for e in (data.get("events") or [])) if e]
     now = _parse_ts(a.now) or datetime.datetime.now(datetime.timezone.utc)
 
-    # shared snapshot ring + THIS consumer's freshness memory (migrates older state shapes)
-    ring, surfaced_by = _read_state(state_path)
+    # shared snapshot ring + THIS consumer's freshness memory (migrates older state shapes); none in 2.0
+    ring, surfaced_by = _read_state(state_path) if state_path else ([], {})
     surfaced = surfaced_by.get(a.consumer, {})
 
     if a.snapshot_only:
@@ -1038,12 +1025,14 @@ def main():
                           live, a.top, FAMILY_CAP)
 
     # advance state: locked read-merge-write into the SHARED ring + THIS consumer's freshness map
-    _commit_state(state_path, cur_metrics, now, a.consumer, social + trade)
+    if state_path:
+        _commit_state(state_path, cur_metrics, now, a.consumer, social + trade)
 
     cov = coverage(cur_metrics)
     # whale moves need a previous snapshot that carried the cohort's books; without one the lens has
     # not looked yet, which must never read as "looked and found nothing"
-    cov["whale_lens"] = ("ok" if any(isinstance(v, dict) and v.get("smart_positions")
+    cov["whale_lens"] = ("off (one reading, no compare)" if not state_path else
+                         "ok" if any(isinstance(v, dict) and v.get("smart_positions")
                                      for v in (prior or {}).values()) else "NO BASELINE")
     open(a.out, "w").write(_render_md(now, social, trade, a.lens, cov, a.consumer))
     print(json.dumps({"generated": now.isoformat(),
@@ -1059,7 +1048,7 @@ def main():
               "fire. This run is OI/funding/price only (i.e. market-pulse). Do not report it as a "
               "smart-money read.", file=sys.stderr)
     print(f"[wrote {a.out} · trade {len(trade)} · social {len(social)} · baseline "
-          f"{(baseline or {}).get('ts', 'none')} · consumer {a.consumer} · state {state_path}]", file=sys.stderr)
+          f"{(baseline or {}).get('ts', 'none')} · consumer {a.consumer} · state {state_path or 'none (one reading)'}]", file=sys.stderr)
 
 
 if __name__ == "__main__":

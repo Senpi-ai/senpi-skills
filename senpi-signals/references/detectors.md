@@ -5,6 +5,12 @@ For every detector: the MCP source, the fields, the threshold, the normalized si
 the human framing. **Confirmed** = response shape verified; **VERIFY-LIVE** = call the tool once and
 read the real response before writing extraction (KeyError > silent zero).
 
+> **2.0 scope — one reading, no compare.** `scripts/sweep.py` runs `score.py` without `--state`, so no
+> earlier reading exists. **In 2.0:** `sm_divergence` (the standing state; its *flip* is v2),
+> `funding_extreme`, `momentum_event`, `cross_asset_laggard`. **v2, because each needs an earlier
+> reading:** `oi_surge`, `sm_conviction`, `funding_flip`, `sm_positioning_build`, `sm_flow`,
+> `whale_move` (`score.HISTORY_DETECTORS`). Their sections below document the v2 engine; 2.0 never fires them.
+
 ## The normalized signal schema
 Everything downstream (scoring, framing) consumes this one shape:
 ```json
@@ -36,12 +42,12 @@ assembles it. Per asset (top-N of `market_list_instruments` by day notional volu
 | field | source (one read unless noted) | note |
 |---|---|---|
 | `oi`, `price`, `price_change_pct_24h`, `notional_vol`, `dex` | `market_list_instruments` → `context` (`openInterest`, `markPx`, `prevDayPx`, `dayNtlVlm`) | `oi` is **base units** — immune to the price move |
-| `funding_annualized_pct`, `funding_pctile` | same read → `context.funding` (HL's **hourly** rate × 24 × 365 × 100); percentile = cross-sectional rank of \|annualized\| inside this universe | a flip is a sign change vs the ~1h baseline |
+| `funding_annualized_pct`, `funding_pctile` | same read → `context.funding` (HL's **hourly** rate × 24 × 365 × 100); percentile = cross-sectional rank of \|annualized\| inside this universe | a flip needs an earlier reading (v2) |
 | `smart_source: proven_cohort`, `smart_share_kind: cohort_pct`, `smart_dir`, `smart_share`, `smart_long_n`, `smart_short_n`, `cohort_n`, `smart_positions`, `smart_net_bias`, `smart_net_usd` | senpi-smart-money's `build_cohorts` (1 page of `discovery_get_top_traders`, ALL_TIME realized ≥ $1M, 150 sampled) + `cohort_bias` (`discovery_get_trader_state`, 3 batches of 50) — **imported unchanged** | `smart_dir` = the headcount majority; `smart_share` = majority ÷ `cohort_n` × 100; `smart_positions` = `{wallet: signed szi}` from the same batches (no extra read). The engine's notional `bias`/`net` ride along as colour, never as the basis |
 | `crowd_dir` + `crowd_source`, `hot_4h_share`, `hot_4h_dir`, `hot_4h_trader_count`, `price_change_pct` (4h) | `leaderboard_get_markets` (limit 500): the dominant row per token | `crowd_source: board_4h` when the name is on the board, else `funding_sign` (positive ⇒ crowd LONG). `price_change_pct` is absent off-board — `earliness` then scores neutral, honestly |
 | `events[]` `momentum_event` | `leaderboard_get_momentum_events` (limit 50, last 4h): only `decision: sent` (the platform's own "worth notifying" gate); the largest `top_positions` leg; `concrete_entity` shortened `0x12…ab34`; `age_minutes` from `detected_at` | the platform's whale feed — replaces per-wallet reads |
 | `events[]` `cross_asset_laggard` | `market_get_cross_asset_flows` (BTC, 2%, 4h): laggards with `follow_rate ≥ 0.8` | direction = the leader's |
-| `whale_move` *(in score.py)* | the same `discovery_get_trader_state` books, diffed per wallet against the previous sweep's snapshot | no extra read; `leaderboard_get_trader_positions` carries only a 4h P&L delta, which is not a move; a first run has nothing to compare (`whale_lens: NO BASELINE`) |
+| `whale_move` *(in score.py)* | the same `discovery_get_trader_state` books, diffed per wallet against the previous sweep's snapshot | **v2** — 2.0 keeps no previous snapshot, so it never fires; `leaderboard_get_trader_positions` carries only a 4h P&L delta, which is not a move |
 
 `current.json` also carries `coverage` (per source: `ok (…)` / `failed: <tool>: <err>` / `NO DATA` /
 `unavailable`), `source_trader_count`, `reads` and `reads_failed`. A read that fails
@@ -51,7 +57,7 @@ degrades its fields for that run and is named there — it never crashes the swe
 
 ## Diff-based detectors (fire in score.py from asset_metrics vs prior snapshot)
 
-### 1. `oi_surge` — open-interest build / OI-price divergence  *(oi-tracker family)*
+### 1. `oi_surge` — open-interest build / OI-price divergence  *(oi-tracker family)* — **v2**
 - **Source:** open interest per asset. **VERIFY-LIVE:** HL Info API `metaAndAssetCtxs` →
   `openInterest` per asset (the template scanners in `strategies/*/main/scanners/scan.py` read this;
   copy their extraction). Price from `market_get_prices` / `market_get_asset_data` (candles keyed
@@ -62,7 +68,7 @@ degrades its fields for that run and is named there — it never crashes the swe
 - **Why non-obvious:** OI is invisible on a price chart. Magnitude = the OI %.
 - **Framing:** `OI +10% on <ASSET> <longs|—> while price sat flat.`
 
-### 2. `sm_divergence` — smart money vs the crowd  *(smart-money + divergence families)*
+### 2. `sm_divergence` — smart money vs the crowd  *(smart-money + divergence families)* — **2.0** (the flip: v2)
 - **Source — the proven cohort, NOT the leaderboard.** Smart-money *direction* = **senpi-smart-money**
   engine (the **≥$1M-lifetime-realized** cohort's **net positioning**: bias, members, **net $**, crowd
   side, divergence flag — it already computes all of this; consume it). **Do NOT derive smart-money
@@ -132,7 +138,7 @@ degrades its fields for that run and is named there — it never crashes the swe
   `<Smart money|The last 4h's top performers> lean <SHORT> on <ASSET> — <X>% of <source> (<S> short vs
   <L> long among those positioned, <O>% one-sided), ~$<Nm> notional — while the crowd is <LONG>.`
 
-### 2b. `sm_positioning_build` — the cohort's positioning MOVING  *(smart-money family — the best signal we have)*
+### 2b. `sm_positioning_build` — the cohort's positioning MOVING  *(smart-money family — the best signal we have)* — **v2**
 **This is the flagship read: change, applied to the highest-quality data.** A *standing* divergence is
 a state ("smart money is short X"); this is the **same cohort shifting onto a side over ~12h** — the
 thing that is actually news. It outranks a standing divergence by design (change bonus + top edge).
@@ -163,7 +169,7 @@ thing that is actually news. It outranks a standing divergence by design (change
 - **Requires a warm ring:** on a cold state file there is no 12h partner, so it stays quiet — that is
   expected, not a bug. **This is the single strongest argument for running the sweep on a schedule.**
 
-### 2c. `sm_flow` — money that actually MOVED IN, in BASE UNITS  *(smart-money family — the cleanest read)*
+### 2c. `sm_flow` — money that actually MOVED IN, in BASE UNITS  *(smart-money family — the cleanest read)* — **v2**
 **Everything above measures HOLDINGS. This measures DECISIONS.** It is the only detector immune to
 the circularity that contaminates every other smart-money read.
 
@@ -191,7 +197,7 @@ side on price alone. Base units cannot do that: a wallet either opened the posit
   (units, not notional — immune to the price move); crowd still LONG."* Not who is winning right
   now — who is buying in.
 
-### 3. `sm_conviction` — a SHARP, short-horizon conviction jump  *(smart-money family)*
+### 3. `sm_conviction` — a SHARP, short-horizon conviction jump  *(smart-money family)* — **v2**
 - **Same `smart_share` field as #2/#2b (the proven-cohort share), diffed on the FAST (~1h) baseline.**
   The three smart-money detectors are one metric on three horizons: #2 the standing *state*, **#3 a
   sharp ~1h move (≥12pp — rare and abrupt)**, #2b the ~12h *trend* (≥3pp — the usual story). Only one
@@ -209,7 +215,7 @@ side on price alone. Base units cannot do that: a wallet either opened the posit
   state-diff — never both. (A "+57pp to 56%" that implies a negative prior means the two got mixed.)
 - **Framing:** `Top traders are <piling into|unwinding> <ASSET> <LONG|SHORT> — concentration <+/−>Npp to <share>%.`
 
-### 4. funding — split into a CHANGE and a STATE detector  *(funding family — the biggest, and the noisiest)*
+### 4. funding — split into a CHANGE and a STATE detector  *(funding family — the biggest, and the noisiest)* — `funding_extreme` **2.0**, `funding_flip` **v2**
 The old single `funding_dislocation` flooded the feed because a *static* extreme re-fires every run.
 Split it: a **flip is a change** (tradeable — the carry regime just turned) and an **extreme is a
 state** (great content, but not a directional edge). `score.py` fires whichever applies.
@@ -226,7 +232,7 @@ state** (great content, but not a directional edge). `score.py` fires whichever 
 
 ## Event-based detectors (assemble as pre-formed `events[]`)
 
-### 5. `whale_move` — a proven wallet *just moved* (a change, not a holding)  *(whale / position_tracker)*
+### 5. `whale_move` — a proven wallet *just moved* (a change, not a holding)  *(whale / position_tracker)* — **v2**
 - **The whole point is the MOVE, not the holding.** A whale *sitting on* a big position — even a
   $78M one — is **not a signal** if it's been held since an old entry and hasn't changed. "0x… holds
   $78M HYPE long" tells a reader nothing they can act on: they may have opened it months ago and just
@@ -254,11 +260,11 @@ state** (great content, but not a directional edge). `score.py` fires whichever 
   or `0x12… flipped <ASSET> long→short today — now $30M short.` Include the entry only as context
   for the *change*, never as the headline of a static hold.
 
-### 6. `cross_asset_laggard` — rotation not yet priced in  *(cross-asset family)*
+### 6. `cross_asset_laggard` — rotation not yet priced in  *(cross-asset family)* — **2.0**
 - **Source:** `market_get_cross_asset_flows` (meaningful only when BTC moved >2% in 4h; `follow_rate`).
 - **Framing:** `BTC ran <x%> but <ASSET> hasn't followed (follow-rate <r>) — the laggard.`
 
-### 7. `momentum_event` — the platform's own tiered events  *(momentum family)*
+### 7. `momentum_event` — the platform's own tiered events  *(momentum family)* — **2.0**
 - **Source:** `leaderboard_get_momentum_events` (tiers + behavioral tags + notification decisions —
   it already scores "is this worth notifying"). Pass through the high-tier ones as events.
 
@@ -344,7 +350,7 @@ The terms:
   ~3% 4h move = full confirmation. This is why you pass `price_change_pct`.
 - **credibility** (both, a MULTIPLIER): `notional_vol ≥ $25M` → 1.0, ramping down to 0.45 at the $1M
   floor; unknown vol → 0.8. A thin book is discounted, never allowed to out-shout a deep one.
-- **freshness** (social only, a MULTIPLIER): 1.0 if this asset+detector wasn't surfaced in the last
+- **freshness** (social only, a MULTIPLIER; always 1.0 in 2.0, which keeps no history): 1.0 if this asset+detector wasn't surfaced in the last
   ~45 min; drops toward 0.3 the more recently it was, then recovers. The anti-repeat engine.
 
 Badges on the rendered feeds: 🔥 ≥ 80 · 🟠 65–79 · 🟡 < 65 · ⭐ top of feed · ⚑ named wallet.

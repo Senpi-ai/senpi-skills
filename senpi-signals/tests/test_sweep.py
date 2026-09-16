@@ -112,9 +112,9 @@ def state_dir(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_current_json_carries_every_field_the_ring_requires(state_dir):
-    """scheduling.md: any job that writes to the ring gathers the FULL asset_metrics shape."""
-    rep = sweep.run(fake_call_tool, consumer="social", now=NOW)
+def test_current_json_carries_the_full_metric_set(state_dir):
+    """One sweep gathers the FULL asset_metrics shape every detector reads."""
+    rep = sweep.run(fake_call_tool, now=NOW)
     cur = json.load(open(state_dir / "signals" / "current.json"))
     btc = cur["asset_metrics"]["BTC"]
     for k in ("oi", "price", "price_change_pct", "smart_dir", "smart_share", "smart_long_n",
@@ -141,12 +141,13 @@ def test_current_json_carries_every_field_the_ring_requires(state_dir):
     assert len(cur["wallets"]) == 20
     assert rep["coverage"]["board_4h"] == "ok (2 universe names on the board, 500.0 traders aggregated)"
     assert rep["coverage"]["momentum"].startswith("ok (1 sent events")
-    assert (state_dir / "signals" / "signals.md").is_file() and (state_dir / "signals" / "state.json").is_file()
+    assert (state_dir / "signals" / "signals.md").is_file()
+    assert not (state_dir / "signals" / "state.json").exists(), "2.0 keeps no history"
 
 
 def test_a_failed_read_lands_in_coverage_not_an_exception(state_dir):
     rep = sweep.run(lambda n, a: fake_call_tool(n, a, fail=("leaderboard_get_markets", "market_get_cross_asset_flows")),
-                    consumer="social", now=NOW)
+                    now=NOW)
     cov = rep["coverage"]
     assert cov["board_4h"].startswith("failed:") and cov["cross_asset"].startswith("failed:")
     assert cov["cohort"].startswith("ok") and cov["universe"].startswith("ok")
@@ -156,31 +157,29 @@ def test_a_failed_read_lands_in_coverage_not_an_exception(state_dir):
     assert (state_dir / "signals" / "signals.md").is_file()
 
 
-def test_score_ranks_a_change_between_two_sweeps(state_dir):
-    """The second sweep, 70 min later with BTC OI +25%, must fire oi_surge off the ring."""
-    sweep.run(fake_call_tool, consumer="social", now=NOW)
-    rep = sweep.run(lambda n, a: fake_call_tool(n, a, oi_btc=15000), consumer="social", now=LATER)
+def test_a_sweep_is_one_reading_so_a_second_sweep_compares_nothing(state_dir):
+    """2.0 is a one-time job with no compare: a second sweep 70 min later with BTC OI +25% must NOT
+    fire oi_surge (there is no earlier reading), and back-to-back sweeps of the same market rank the same."""
+    first = sweep.run(fake_call_tool, now=NOW)
+    md_first = (state_dir / "signals" / "signals.md").read_text()
+    rep = sweep.run(lambda n, a: fake_call_tool(n, a, oi_btc=15000), now=LATER)
     res = rep["result"]
-    assert res["diff_baseline_ts"] == NOW
+    assert res["diff_baseline_ts"] is None
     fired = {(s["asset"], s["detector"]) for s in res["trade"] + res["social"]}
-    assert ("BTC", "oi_surge") in fired
-    assert ("BTC", "sm_divergence") in fired          # 70% of the cohort short vs a long crowd
-    md = (state_dir / "signals" / "signals.md").read_text()
-    assert md.startswith("# 🔭 Senpi Signals") and "oi_surge" in md
+    assert not {d for _, d in fired} & sweep.score.HISTORY_DETECTORS, fired
+    assert ("BTC", "sm_divergence") in fired          # 70% of the cohort short vs a long crowd: a standing state
+    again = sweep.run(fake_call_tool, now=NOW)
+    assert (state_dir / "signals" / "signals.md").read_text() == md_first
+    assert again["result"]["trade"] == first["result"]["trade"]
+    assert sorted(p.name for p in (state_dir / "signals").iterdir()) == ["current.json", "signals.md"]
 
 
 def test_no_cohort_engine_degrades_to_market_pulse_with_a_warning(state_dir, monkeypatch):
     monkeypatch.setattr(sweep, "_smartmoney", lambda: (_ for _ in ()).throw(ImportError("not installed")))
-    rep = sweep.run(fake_call_tool, consumer="social", now=NOW)
+    rep = sweep.run(fake_call_tool, now=NOW)
     assert rep["coverage"]["cohort"].startswith("unavailable:")
     assert rep["result"]["coverage"]["smart_money_lens"] == "NO DATA"
     assert rep["reads"] == 4
-
-
-def test_snapshot_only_warms_the_ring_and_ranks_nothing(state_dir):
-    rep = sweep.run(fake_call_tool, consumer="social", now=NOW, snapshot_only=True)
-    assert rep["result"]["snapshot_only"] is True and rep["result"]["assets"] == 4
-    assert "trade" not in rep["result"]
 
 
 def test_cli_prints_the_read_budget(state_dir, monkeypatch, capsys):
@@ -191,7 +190,7 @@ def test_cli_prints_the_read_budget(state_dir, monkeypatch, capsys):
     fake_mod.MCPClient = _Client
     monkeypatch.setitem(sys.modules, "mcp_client", fake_mod)
     monkeypatch.setattr(sweep, "skill_scripts", lambda name, marker: str(SCRIPTS))
-    assert sweep.main(["--now", NOW, "--consumer", "social"]) == 0
+    assert sweep.main(["--now", NOW]) == 0
     out = capsys.readouterr().out.strip().splitlines()
     assert out[-1] == "reads=6"
     assert json.loads("\n".join(out[:-1]))["generated"] == NOW

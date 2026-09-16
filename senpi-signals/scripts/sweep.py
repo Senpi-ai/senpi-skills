@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """senpi-signals sweep — the whole gather in ONE process, then score.py. No agent orchestration.
 
-    python3 sweep.py                       # standalone: SENPI_AUTH_TOKEN / SENPI_MCP_URL from env
-    python3 sweep.py --consumer social     # the content feed's anti-repeat namespace
-    python3 sweep.py --snapshot-only       # warm the ring, rank nothing
+    python3 sweep.py --print-feed          # what an agent runs for a user: prints only the feed
+    python3 sweep.py                       # debugging: run JSON, coverage lines, reads=<n>
+    (SENPI_AUTH_TOKEN / SENPI_MCP_URL from env, like senpi-smart-money)
 
-Or from a runtime scanner:  sweep.run(ctx.senpi_mcp.call_tool)  — same gather, the runtime's clock,
-zero model tokens (strategies/signals is that host).
+2.0 is ONE READING with no compare: it reads the market now, ranks what that reading shows, and keeps
+no history, so back-to-back runs give the same feed. Compare over periods is v2.
 
 What one sweep reads (the read budget, printed as `reads=<n>` at the end):
     1   market_list_instruments        universe + OI + price + 24h move + funding + volume, both dexes
@@ -18,8 +18,8 @@ What one sweep reads (the read budget, printed as `reads=<n>` at the end):
   = 8 reads (up to 13 if discovery pages twice / the board is thin). Every read fails soft: a failed
   source is recorded in `coverage`, the rest of the sweep still lands.
 
-Outputs (beside state.json, in score.py's state dir or --out-dir): current.json, signals.md,
-plus the ring/freshness state score.py owns. Stdlib only; Python 3.9+.
+Outputs (in --out-dir; default $SENPI_STATE_DIR/signals or ~/.openclaw/senpi-state/signals), overwritten
+each run: current.json and signals.md. Nothing else is written. Stdlib only; Python 3.9+.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -344,26 +344,19 @@ def gather(call_tool, top_n=UNIVERSE_TOP_N, now=None):
         events = momentum_events(c, cov, metrics, now) + cross_asset(c, cov, metrics)
     else:
         src, events = None, []
-    cov["whale_move"] = ("from the cohort's books: score.py diffs each proven wallet's base size against the "
-                         "previous sweep (no extra reads; nothing to compare on a first run)")
     return {"generated": now.isoformat(), "asset_metrics": metrics, "events": events,
             "wallets": {w: {"realized_pnl_usd": v} for w, v in c.wallet_pnl.items()},
             "coverage": cov, "source_trader_count": src, "reads": c.reads, "reads_failed": c.failed}
 
 
-def rank(current_path, out_dir, consumer, state=None, now=None, top=None, lens="both",
-         snapshot_only=False):
-    """score.py in-process (its CLI is its API); returns its stdout JSON."""
-    argv = [current_path, "--consumer", consumer, "--out", os.path.join(out_dir, "signals.md"),
-            "--lens", lens]
-    if state:
-        argv += ["--state", state]
+def rank(current_path, out_dir, now=None, top=None, lens="both"):
+    """score.py in-process (its CLI is its API), with no --state: one reading, nothing written to history.
+    Returns its stdout JSON."""
+    argv = [current_path, "--out", os.path.join(out_dir, "signals.md"), "--lens", lens]
     if now:
         argv += ["--now", now]
     if top:
         argv += ["--top", str(top)]
-    if snapshot_only:
-        argv.append("--snapshot-only")
     saved, buf = sys.argv, io.StringIO()
     try:
         sys.argv = ["score.py"] + argv
@@ -374,24 +367,28 @@ def rank(current_path, out_dir, consumer, state=None, now=None, top=None, lens="
     return json.loads(buf.getvalue())
 
 
-def run(call_tool, consumer="social", out_dir=None, state=None, now=None, top_n=UNIVERSE_TOP_N,
-        top=None, lens="both", snapshot_only=False):
-    """One sweep, both transports. Writes current.json + signals.md (+ the ring) and returns
-    {"summary", "reads", "coverage", "current", "result"}."""
-    out_dir = out_dir or os.path.dirname(state or score._default_state_path())
+def default_out_dir():
+    """Where current.json + signals.md land, overwritten each run: $SENPI_STATE_DIR/signals when set, else
+    ~/.openclaw/senpi-state/signals. They are this run's outputs, not history."""
+    base = os.environ.get("SENPI_STATE_DIR") or os.path.join(os.path.expanduser("~"), ".openclaw", "senpi-state")
+    return os.path.join(base, "signals")
+
+
+def run(call_tool, out_dir=None, now=None, top_n=UNIVERSE_TOP_N, top=None, lens="both"):
+    """One sweep: one reading, no compare. Writes current.json + signals.md and returns
+    {"summary", "reads", "coverage", "current", "result", "out_dir"}."""
+    out_dir = out_dir or default_out_dir()
     os.makedirs(out_dir, exist_ok=True)
     cur = gather(call_tool, top_n=top_n, now=score._parse_ts(now) if now else None)
     current_path = os.path.join(out_dir, "current.json")
     with open(current_path, "w") as f:
         json.dump(cur, f)
-    res = rank(current_path, out_dir, consumer, state=state, now=now, top=top, lens=lens,
-               snapshot_only=snapshot_only)
+    res = rank(current_path, out_dir, now=now, top=top, lens=lens)
     cov = res.get("coverage") or {}
     summary = (f"assets {len(cur['asset_metrics'])} · events {len(cur['events'])} · "
                f"trade {len(res.get('trade') or [])} · social {len(res.get('social') or [])} · "
-               f"smart-money lens {cov.get('smart_money_lens', 'n/a')} · flow lens {cov.get('flow_lens', 'n/a')} · "
-               f"whale lens {cov.get('whale_lens', 'n/a')} · "
-               f"trend_ready {res.get('trend_ready')} · reads {cur['reads']} ({cur['reads_failed']} failed) · "
+               f"smart-money lens {cov.get('smart_money_lens', 'n/a')} · "
+               f"reads {cur['reads']} ({cur['reads_failed']} failed) · "
                f"out {out_dir}")
     return {"summary": summary, "reads": cur["reads"], "coverage": cur["coverage"], "current": cur,
             "result": res, "out_dir": out_dir}
@@ -416,14 +413,12 @@ def feed_text(rep):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="senpi-signals: gather the universe and rank it, in one process")
-    ap.add_argument("--consumer", default="adhoc", help="freshness namespace (the content feed uses 'social')")
-    ap.add_argument("--out-dir", default=None, help="where current.json + signals.md land (default: beside the state file)")
-    ap.add_argument("--state", default=None, help="state file (default: score.py's resolver — the claw's /data/.openclaw/senpi-state/signals/state.json)")
+    ap.add_argument("--out-dir", default=None,
+                    help="where current.json + signals.md land (default: $SENPI_STATE_DIR/signals or ~/.openclaw/senpi-state/signals)")
     ap.add_argument("--now", default=None, help="ISO timestamp (tests / backfills)")
     ap.add_argument("--top-n", type=int, default=UNIVERSE_TOP_N, help="universe size (top-N by volume)")
     ap.add_argument("--top", type=int, default=None, help="feed length (score.py --top)")
     ap.add_argument("--lens", choices=["both", "trade", "social"], default="both")
-    ap.add_argument("--snapshot-only", action="store_true", help="warm the ring; rank nothing")
     ap.add_argument("--print-feed", action="store_true",
                     help="print only the feed to present (signals.md, plus one line naming any failed source); "
                          "diagnostics are shown only if the sweep itself fails")
@@ -436,8 +431,7 @@ def main(argv=None):
         sys.path.insert(0, d)
     from mcp_client import MCPClient  # noqa: E402
     client = MCPClient()
-    kwargs = dict(consumer=a.consumer, out_dir=a.out_dir, state=a.state, now=a.now, top_n=a.top_n, top=a.top,
-                  lens=a.lens, snapshot_only=a.snapshot_only)
+    kwargs = dict(out_dir=a.out_dir, now=a.now, top_n=a.top_n, top=a.top, lens=a.lens)
     if a.print_feed:
         err = io.StringIO()
         try:
