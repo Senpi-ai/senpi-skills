@@ -40,7 +40,7 @@ The agent never assembles `current.json` from tool calls, and never runs the gat
 
 | Mode | How | Cost |
 |---|---|---|
-| **Ad hoc** ("what's moving under the surface?") | one `exec`: `python3 scripts/sweep.py` — then present `signals.md` from the state dir (on a claw `/data/.openclaw/senpi-state/signals/`) | ~8 MCP reads, no model tokens spent on gathering |
+| **Ad hoc** ("what's moving under the surface?") | one `exec`: `python3 scripts/sweep.py --print-feed` — its output is the feed to present, and nothing else | ~8 MCP reads, no model tokens spent on gathering |
 | **Continuous** (the content automation) | deploy **`strategies/signals`** once (`senpi-strategy-ops` `deploy.py create signals --budget 10`). The runtime runs the same sweep every 45 min on its own clock. The automation **reads** `signals.md`; it never gathers | ~8 MCP reads per sweep, **zero model cost** — the runtime ticks without a model call |
 
 The 1.x model — an agent cron firing every ~45 min that did the gather as tool calls — cost a full
@@ -176,7 +176,8 @@ than ~2 signals per detector family reach either feed. Give a **user** the trade
 
 ## Running the sweep
 ```bash
-python3 scripts/sweep.py                     # ad hoc: SENPI_AUTH_TOKEN + SENPI_MCP_URL from env (like senpi-smart-money)
+python3 scripts/sweep.py --print-feed        # what you run for a user: prints only the feed (+ one line if a source failed)
+python3 scripts/sweep.py                     # debugging: run JSON, coverage lines, reads=<n>; SENPI_AUTH_TOKEN + SENPI_MCP_URL from env (like senpi-smart-money)
 python3 scripts/sweep.py --consumer social   # the content feed's anti-repeat namespace (the package does this)
 python3 scripts/sweep.py --snapshot-only     # warm the ring, rank nothing; prints trend_ready
 #   --out-dir DIR  --state PATH  --top-n 120  --top 6  --lens both|trade|social  --now <ISO>
