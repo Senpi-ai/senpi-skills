@@ -80,8 +80,10 @@ def fake_call_tool(name, args, oi_btc=12000, fail=()):
               {"token": "TSLA", "dex": "xyz", "direction": "short", "pct_of_top_traders_gain": 12.0,
                "token_price_change_pct_4h": -1.2, "day_notional_volume": 2.2e7, "trader_count": 14,
                "is_dominant_direction": True}]
-        return {"success": True, "data": {"markets": mk, "source_trader_count": 500,
-                                          "window": "4h", "timestamp": 0}}
+        # the real shape: the MCP handler wraps its client's {markets: [...], source_trader_count, ...}
+        # under `markets` again (createResponse(tool, 'read', { markets })), so rows sit at data.markets.markets
+        return {"success": True, "data": {"markets": {"markets": mk, "source_trader_count": 500,
+                                                      "window": "4h", "timestamp": 0}}}
     if name == "leaderboard_get_momentum_events":
         ev = [{"trader_id": "0x" + "ab" * 20, "tier": 2, "tier_label": "Tier 2", "delta_pnl": 3_000_000,
                "decision": "sent", "blocked_reason": None, "concentration": 0.8,
@@ -89,7 +91,8 @@ def fake_call_tool(name, args, oi_btc=12000, fail=()):
                "detected_at": "2026-09-15T11:30:00Z"},
               {"trader_id": "0x" + "cd" * 20, "tier": 1, "tier_label": "Tier 1", "delta_pnl": 2_100_000,
                "decision": "blocked", "blocked_reason": "cooldown", "top_positions": [], "detected_at": NOW}]
-        return {"success": True, "data": {"events": ev, "total_count": 2}}
+        # same wrapping as the board: createResponse(tool, 'read', { events }) → data.events.events
+        return {"success": True, "data": {"events": {"events": ev, "total_count": 2}}}
     if name == "market_get_cross_asset_flows":
         return {"success": True, "data": {
             "leader": {"asset": "BTC", "move_pct": 2.5, "direction": "LONG", "sm_aligned": True},
@@ -134,6 +137,8 @@ def test_current_json_carries_every_field_the_ring_requires(state_dir):
     assert dets == {"momentum_event", "cross_asset_laggard"}
     assert all("0x" + "ab" * 20 != e.get("concrete_entity") for e in cur["events"])  # shortened, never raw
     assert rep["result"]["coverage"]["smart_money_lens"] == "ok"
+    assert rep["coverage"]["board_4h"] == "ok (2 universe names on the board, 500.0 traders aggregated)"
+    assert rep["coverage"]["momentum"].startswith("ok (1 sent events")
     assert (state_dir / "signals" / "signals.md").is_file() and (state_dir / "signals" / "state.json").is_file()
 
 
