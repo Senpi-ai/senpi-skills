@@ -13,7 +13,8 @@ import sys
 import pytest
 
 HERE = pathlib.Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
+SCRIPTS = HERE.parent / "scripts"
+sys.path.insert(0, str(SCRIPTS))
 import sweep  # noqa: E402
 
 NOW = "2026-09-15T12:00:00+00:00"
@@ -182,7 +183,7 @@ def test_cli_prints_the_read_budget(state_dir, monkeypatch, capsys):
     fake_mod = type(sys)("mcp_client")
     fake_mod.MCPClient = _Client
     monkeypatch.setitem(sys.modules, "mcp_client", fake_mod)
-    monkeypatch.setattr(sweep, "skill_scripts", lambda name, marker: str(HERE))
+    monkeypatch.setattr(sweep, "skill_scripts", lambda name, marker: str(SCRIPTS))
     assert sweep.main(["--now", NOW, "--consumer", "social"]) == 0
     out = capsys.readouterr().out.strip().splitlines()
     assert out[-1] == "reads=6"
