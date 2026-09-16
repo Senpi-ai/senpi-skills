@@ -195,3 +195,33 @@ def test_cli_prints_the_read_budget(state_dir, monkeypatch, capsys):
     out = capsys.readouterr().out.strip().splitlines()
     assert out[-1] == "reads=6"
     assert json.loads("\n".join(out[:-1]))["generated"] == NOW
+
+
+def _cli_client(monkeypatch, fail=()):
+    class _Client:
+        def mcp_call(self, tool, timeout=12, **kw):
+            return fake_call_tool(tool, kw, fail=fail)
+    fake_mod = type(sys)("mcp_client")
+    fake_mod.MCPClient = _Client
+    monkeypatch.setitem(sys.modules, "mcp_client", fake_mod)
+    monkeypatch.setattr(sweep, "skill_scripts", lambda name, marker: str(SCRIPTS))
+
+
+def test_print_feed_is_the_feed_and_nothing_about_the_engine(state_dir, monkeypatch, capsys):
+    """What an agent runs. Its output is what it presents, so coverage lines, read counts and the
+    summary never reach it — the agent kept turning them into a footer for the user."""
+    _cli_client(monkeypatch)
+    assert sweep.main(["--now", NOW, "--print-feed"]) == 0
+    cap = capsys.readouterr()
+    assert cap.out.strip() == (state_dir / "signals" / "signals.md").read_text().strip()
+    assert cap.err == ""
+    for leak in ("[coverage]", "reads=", "[sweep]", "[wrote", "Not measured"):
+        assert leak not in cap.out, leak
+
+
+def test_print_feed_names_a_failed_source_in_one_plain_line(state_dir, monkeypatch, capsys):
+    _cli_client(monkeypatch, fail=("leaderboard_get_markets",))
+    assert sweep.main(["--now", NOW, "--print-feed"]) == 0
+    out = capsys.readouterr().out.strip()
+    assert out.endswith("_Not measured this run: the 4h leaderboard._")
+    assert "leaderboard_get_markets" not in out
