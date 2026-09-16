@@ -1074,25 +1074,20 @@ def fetch_strategies(client, meta):
     return strategies
 
 
-def _closed_direction(row, szi, entry_px, exit_px, pnl):
-    """Side of a CLOSED trade. The real `discovery_get_trader_history` row labels the side in `type`
-    ("Close Long" / "Close Short") and carries an UNSIGNED at-close `szi` — positive on a closed short too —
-    so the sign of the size says nothing about the side. Order: (1) a side label in `dir` / `side` /
-    `direction` / `positionSide` / `type`, matching the words "long" / "short" (or an exchange-style
-    buy / sell) case-insensitively; (2) a non-zero SIGNED szi, for a shape that signs it; (3) realized PnL
-    vs the price move — a long books profit when price rises (pnl and exit−entry share a sign), a short
-    when it falls. None only when nothing resolves it; that row is `unknown_side`."""
+def _closed_direction(row):
+    """Side of a CLOSED trade, read only from a side label on the row. The real `discovery_get_trader_history`
+    row labels the side in `type` ("Close Long" / "Close Short") and carries an UNSIGNED at-close `szi` —
+    positive on a closed short too — so the sign of the size says nothing about the side. Neither does
+    realized PnL against the price move: `realizedPnl` is net of fees, so a small winning long can book a
+    loss. A label in `dir` / `side` / `direction` / `positionSide` / `type` containing "long" or "short"
+    (any case) decides it. A buy / sell side is not a label: on a closed row it can be the closing fill,
+    which is the opposite side. No label → None, and the row counts as `unknown_side`."""
     for name in ("dir", "side", "direction", "positionSide", "type"):
         label = str(_field(row, name, default="") or "").strip().lower()
-        if "short" in label or label in ("sell", "a", "ask", "s"):
+        if "short" in label:
             return "short"
-        if "long" in label or label in ("buy", "b", "bid", "l"):
+        if "long" in label:
             return "long"
-    if szi:
-        return "long" if szi > 0 else "short"
-    move = (exit_px - entry_px) if (entry_px is not None and exit_px is not None) else None
-    if move and pnl:
-        return "long" if ((move > 0) == (pnl > 0)) else "short"
     return None
 
 
@@ -1131,8 +1126,7 @@ def fetch_closed(client, wallet, meta):
         parsed += 1
         pnl = _f(p, "realizedPnl", "realized_pnl", default=0.0)   # often a string → _f coerces
         realized_total += pnl
-        side = _closed_direction(p, _f(p, "szi", "size", default=0.0),
-                                 _num(_field(p, "entryPx", "entry_px")), _num(_field(p, "exitPx", "exit_px")), pnl)
+        side = _closed_direction(p)
         if pnl > 0:
             winners += 1
         elif pnl < 0:

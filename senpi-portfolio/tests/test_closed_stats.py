@@ -109,34 +109,20 @@ def test_a_closed_short_carries_a_positive_size_and_still_reads_as_a_short():
     assert closed["recent"][0]["asset"] == "ENA" and closed["recent"][0]["realized_pnl"] == -0.68
 
 
-def test_without_a_side_label_a_signed_size_still_reads_by_its_sign():
-    long_row, short_row = _row("BTC", 1, 2.0), _row("ETH", 1, 1.0)
-    for r in (long_row, short_row):
+def test_without_a_side_label_the_side_is_unknown_whatever_the_size_or_pnl_suggests():
+    # Only a label decides the side. Each unlabelled row below would read as a side under a guess, and
+    # each guess can be wrong: a signed size, the real feed's unsigned size (positive on a short too),
+    # PnL against the price move (a long up 100 -> 100.2 that fees turn into a -0.05 loss reads "short"),
+    # and a buy / sell side (on a closed row that can be the closing fill, the opposite side).
+    signed, unsigned, fee_negative_long, closing_fill = (_row("ETH", -1, 1.0), _row("BTC", 1, 2.0),
+                                                         _row("SOL", 0, -0.05), _row("ARB", 1, 1.0))
+    fee_negative_long["entryPx"], fee_negative_long["exitPx"] = "100", "100.2"
+    closing_fill["side"] = "sell"
+    for r in (signed, unsigned, fee_negative_long, closing_fill):
         del r["type"]
-    short_row["szi"] = "-1"
-    closed = portfolio.fetch_closed(_Client([long_row, short_row]), "0x" + "e" * 40, {})
-    assert closed["longs"] == 1 and closed["shorts"] == 1 and closed["unknown_side"] == 0
-    assert [r["direction"] for r in closed["recent"]] == ["long", "short"]
-
-
-def test_a_zero_size_with_no_label_resolves_from_pnl_against_the_price_move():
-    # price fell 2 → 1: booking a profit on that move is a short, booking a loss is a long
-    won, lost = _row("SOL", 0, 3.0), _row("ARB", 0, -3.0)
-    for r in (won, lost):
-        del r["type"]
-        r["entryPx"], r["exitPx"] = "2", "1"
-    closed = portfolio.fetch_closed(_Client([won, lost]), "0x" + "f" * 40, {})
-    assert closed["shorts"] == 1 and closed["longs"] == 1 and closed["unknown_side"] == 0
-    assert [r["direction"] for r in closed["recent"]] == ["short", "long"]
-
-
-def test_a_row_with_nothing_to_read_the_side_from_is_neither_long_nor_short():
-    # no label, no size, and a flat trade (entry == exit) so the PnL rule has nothing to go on either —
-    # the row still counts in the record (trade_count, winners); only its side is unknown
-    row = _row("BTC", 1, 2.0)
-    del row["szi"]
-    del row["type"]
-    closed = portfolio.fetch_closed(_Client([row, _row("ETH", 1, 1.0, side="short")]), "0x" + "c" * 40, {})
-    assert closed["longs"] == 0 and closed["shorts"] == 1 and closed["unknown_side"] == 1
-    assert closed["trade_count"] == 2 and closed["winners"] == 2
-    assert closed["recent"][0]["direction"] is None and closed["recent"][1]["direction"] == "short"
+    rows = [signed, unsigned, fee_negative_long, closing_fill, _row("HYPE", 1, 1.0, side="short")]
+    closed = portfolio.fetch_closed(_Client(rows), "0x" + "c" * 40, {})
+    assert closed["longs"] == 0 and closed["shorts"] == 1 and closed["unknown_side"] == 4
+    # an unknown side still counts in the record
+    assert closed["trade_count"] == 5 and closed["winners"] == 4 and closed["losers"] == 1
+    assert [r["direction"] for r in closed["recent"]] == [None, None, None, None, "short"]
