@@ -34,5 +34,12 @@ jobs:
       # Named explicitly rather than `strategies`: a module-level sys.exit() in
       # strategies/chimp/tests/test_package_shape.py aborts collection for that whole tree
       # (pre-existing, unrelated).
+      # Every strategies/<id>/tests suite, one process per directory. These never ran in CI: the line
+      # below names strategies/tests only, because a module-level sys.exit() in the chimp family aborts
+      # collection for the whole tree. The script runs pytest-style files per directory and the
+      # script-style ones directly, gating on every exit code.
+      - name: strategy package suites (every strategies/<id>/tests)
+        run: bash .github/scripts/run_strategy_package_tests.sh
+
       - name: full suites (ops + discover + author + trading-runtime + catalog guards)
         run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-strategy-author/tests senpi-trading-runtime/tests senpi-trader-research/tests senpi-market-pulse/tests senpi-portfolio/tests senpi-trade/tests strategies/tests -q
