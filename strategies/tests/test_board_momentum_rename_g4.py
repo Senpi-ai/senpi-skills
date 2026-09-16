@@ -13,10 +13,10 @@ eight templates read. Two needles per template:
   (b) the board read floors on `trader_count` — the floor declared in runtime.yaml `inputs`
       (`minTraderCount`, or the pre-existing floor cheetah / raptor already carried) — and where it floors
       matters. A helper that folds the LONG row and the SHORT row of one asset into a ratio (barnacle,
-      osprey, dragonfly) keeps BOTH rows in the ratio and refuses only when the LEADING side's headcount is
-      under the floor: dropping a thin minority row would turn a two-row asset into a one-row asset, the
+      osprey, dragonfly, owl) keeps BOTH rows in the ratio and refuses only when the LEADING side's headcount
+      is under the floor: dropping a thin minority row would turn a two-row asset into a one-row asset, the
       tilt would read 100, and the "strong tilt" bonuses would fire on exactly the thin reads the floor was
-      meant to refuse. A helper that keeps one row per token in a map (otter, owl, pangolin) refuses the
+      meant to refuse. A helper that keeps one row per token in a map (otter, pangolin) refuses the
       thin row itself. cheetah / raptor gate in scoring on the row's own headcount.
 
 Run:
@@ -210,12 +210,16 @@ def _probe_otter():
     assert sm["SOL"]["pct"] == 3.6, "pct_of_top_traders_gain is already a percent — no ×100"
 
 
+def _read_owl(scan, ctx, floor):
+    sm, _btc = scan.fetch_sm_positioning_map(ctx, {"minTraderCount": floor})
+    if "BTC" not in sm:
+        return None
+    long_share = sm["BTC"][0]
+    return ("LONG", long_share) if long_share >= 50 else ("SHORT", 100 - long_share)
+
+
 def _probe_owl():
-    floor, inputs = _floor("owl")
-    scan, _ = _load("owl")
-    sm, _btc = scan.fetch_sm_positioning_map(_Ctx(_board(_row("HYPE", "short", 25.63, floor - 1),
-                                                          _row("SOL", "long", 3.6, floor))), inputs)
-    assert "HYPE" not in sm and "SOL" in sm
+    _probe_ratio("owl", "main", _read_owl, "BTC")
 
 
 def _probe_pangolin():

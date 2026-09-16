@@ -13,6 +13,13 @@ as bare token + dex, and single-sided tokens. No main-dex/xyz twin instrument ex
 live instrument list today, so the venue needle uses a synthetic main-dex GOLD row inserted
 around the xyz GOLD rows.
 
+otter, pangolin, raptor and owl had the same overwrite, and the live feed makes it certain:
+the MCP nests the rows at data.markets.markets and orders them by pct_of_top_traders_gain
+descending across the whole board, so the minority row of a two-sided token always comes
+last. Their tests use that envelope (`_live_board`). Owl also read pct_of_top_traders_gain
+(a share of the whole board's gains) as a 0-1 long fraction, so on this board its "long %"
+ran from -2463 to 410; the coin's long share is long / (long + short) * 100 over its two rows.
+
 Run:
   python3 -m pytest strategies/tests/test_board_last_row_overwrite.py -q
 """
@@ -176,6 +183,69 @@ def test_lemon_scans_the_venue_the_basket_trades():
     assert "GOLD" not in funding_reads, "a main-dex GOLD row stood in for the basket's xyz:GOLD"
     # every basket name on the board (DOGE is in the default basket), nothing else
     assert set(funding_reads) == {"BTC", "ETH", "SOL", "HYPE", "DOGE", "xyz:GOLD", "xyz:SP500"}
+
+
+# ── the live envelope: rows nested at data.markets.markets, pct_of_top_traders_gain descending ──
+
+# A two-sided token whose dominant side (by gain share) has FEWER traders than its minority side,
+# and whose minority row clears every downstream floor on its own (synthetic; shaped like a pair
+# seen on the live board).
+_XRP_PAIR = [
+    dict(_MAIN_GOLD_TWIN, token="XRP", direction="short", pct_of_top_traders_gain=3.95,
+         trader_count=44, is_dominant_direction=True),
+    dict(_MAIN_GOLD_TWIN, token="XRP", direction="long", pct_of_top_traders_gain=2.12,
+         trader_count=189, is_dominant_direction=False),
+]
+
+# the dominant side per main-dex token at a 10-trader floor: (direction, pct, traders)
+_DOMINANT = {"HYPE": ("SHORT", 25.63, 212), "ETH": ("SHORT", 8.2, 114), "BTC": ("LONG", 5.52, 112),
+             "SOL": ("LONG", 3.6, 69), "XRP": ("SHORT", 3.95, 44)}
+
+
+def _live_board():
+    rows = copy.deepcopy(json.load(open(_FIXTURE, encoding="utf-8"))["data"]["markets"] + _XRP_PAIR)
+    rows.sort(key=lambda r: r["pct_of_top_traders_gain"], reverse=True)
+    return {"success": True, "data": {"markets": {"markets": rows, "source_trader_count": 100,
+                                                  "window": "4h", "timestamp": 1789503753}}}
+
+
+def test_otter_keeps_the_dominant_side_on_the_live_board():
+    scan = _load("otter")
+    sm = scan.fetch_sm_map(_FakeCtx({"leaderboard_get_markets": _live_board()}), {"minTraderCount": 10})
+    assert {t: (r["direction"], r["pct"], r["traders"]) for t, r in sm.items()} == _DOMINANT
+
+
+def test_pangolin_keeps_the_dominant_row_on_the_live_board():
+    scan = _load("pangolin")
+    sm = scan._get_sm_map(_FakeCtx({"leaderboard_get_markets": _live_board()}), 10)
+    assert {t: (r["direction"].upper(), r["pct_of_top_traders_gain"], r["trader_count"])
+            for t, r in sm.items()} == _DOMINANT
+
+
+def test_raptor_confirms_a_whale_only_on_the_side_the_board_leans():
+    scan = _load("raptor")
+    sm = scan.fetch_sm_map(_FakeCtx({"leaderboard_get_markets": _live_board()}), {})
+
+    # raptor floors in scoring.sm_gate, not at the read, so DOGE's thin single row stays in the map
+    assert {t: (r["direction"], r["pct"], r["traders"]) for t, r in sm.items()} == \
+        dict(_DOMINANT, DOGE=("LONG", 0.01, 8))
+    # XRP's minority LONG row (2.12%, 189 traders) passes every gate by itself: a whale long must
+    # not be confirmed while the board leans SHORT
+    gate = lambda side: scan.scoring.sm_gate(sm["XRP"], {"direction": side}, {})   # noqa: E731
+    assert (gate("LONG"), gate("SHORT")) == (False, True)
+
+
+def test_owl_reads_each_coins_long_share_from_both_rows():
+    scan = _load("owl")
+    sm, btc_p4h = scan.fetch_sm_positioning_map(
+        _FakeCtx({"leaderboard_get_markets": _live_board()}), {"minTraderCount": 10})
+
+    # no xyz row (bare token + dex="xyz") leaks in; DOGE's only side is under the floor
+    assert set(sm) == {"HYPE", "ETH", "BTC", "SOL", "XRP"}
+    share = {t: round(p, 2) for t, (p, _) in sm.items()}
+    assert share == {"HYPE": 1.61, "ETH": 11.83, "BTC": 85.85, "SOL": 73.47, "XRP": 34.93}
+    assert sm["BTC"][1] == 112 + 17
+    assert btc_p4h == -0.12
 
 
 if __name__ == "__main__":

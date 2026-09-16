@@ -121,6 +121,9 @@ def _get_sm_map(ctx, min_traders=10):
                 continue
             token = str(m.get("token", "")).upper()
             dex = str(m.get("dex", "")).lower()
+            # LONG and SHORT are separate rows per token: keep the dominant side, never the last row.
+            if not m.get("is_dominant_direction", False):
+                continue
             if dex != "xyz" and token and int(m.get("trader_count", 0) or 0) >= min_traders:   # v2-quirk: skip xyz rows; a thin side never sets the lean
                 sm_map[token] = m
     return sm_map

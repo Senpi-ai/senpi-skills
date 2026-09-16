@@ -142,8 +142,11 @@ def fetch_sm_positioning_map(ctx, inputs):
     """Returns (sm_map, btc_p4h) where sm_map = {coin: (long_pct, trader_count)}
     for crypto markets and btc_p4h is BTC's 4h price change percent (macro gate).
 
-    Ported verbatim from v2 fetch_sm_positioning_map (v7.0/v7.1): ONE call per
-    scan; BTC 4h move extracted from the same response (no extra MCP cost)."""
+    Port of v2 fetch_sm_positioning_map (v7.0/v7.1): ONE call per scan; BTC 4h
+    move extracted from the same response (no extra MCP cost). long_pct is the
+    coin's long share, 0-100 (50 = neutral): each board row carries its side's
+    share of the WHOLE board's 4h gains, so the share is long / (long + short)
+    * 100 over the coin's two rows. trader_count counts both sides."""
     limit = int(inputs.get("smLimit", 200))
     min_traders = int(inputs.get("minTraderCount", 10))
     raw = _read(ctx, "leaderboard_get_markets", {"limit": limit})
@@ -157,13 +160,14 @@ def fetch_sm_positioning_map(ctx, inputs):
     if not isinstance(sm, list):
         return {}, 0.0
 
-    out = {}
+    sides = {}                                     # {coin: {"long"|"short": (pct, trader_count)}}
     btc_p4h = 0.0
     for m in sm:
         if not isinstance(m, dict):
             continue
         token = str(m.get("token", m.get("coin", m.get("asset", "")))).upper()
-        if not token or _is_xyz(token):            # v2: skip dex=="xyz"; live shape -> name prefix
+        # XYZ ban: the board sends a BARE token plus dex="xyz" (never a prefixed name).
+        if not token or _is_xyz(token) or str(m.get("dex", "")).lower() == "xyz":
             continue
         # v7.1: capture BTC's 4h move from the same scan (macro gate input)
         if token == "BTC":
@@ -172,12 +176,18 @@ def fetch_sm_positioning_map(ctx, inputs):
         direction = str(m.get("direction", "")).lower()
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         trader_count = int(m.get("trader_count", m.get("traderCount", 0)) or 0)
-        if trader_count < min_traders:                 # thin side: never sets the lean
-            continue
-        if direction == "long":
-            out[token] = (pct * 100, trader_count)
-        elif direction == "short":
-            out[token] = ((1 - pct) * 100, trader_count)
+        if direction in ("long", "short"):
+            sides.setdefault(token, {})[direction] = (pct, trader_count)
+
+    out = {}
+    for token, s in sides.items():
+        (long_pct, long_n), (short_pct, short_n) = s.get("long", (0.0, 0)), s.get("short", (0.0, 0))
+        if long_pct + short_pct <= 0:
+            continue                               # no gain on either side: neutral (the lookup default)
+        long_share = long_pct / (long_pct + short_pct) * 100
+        if (long_n if long_share >= 50 else short_n) < min_traders:
+            continue                               # the leading side is too thin to call a lean
+        out[token] = (long_share, long_n + short_n)
     return out, btc_p4h
 
 

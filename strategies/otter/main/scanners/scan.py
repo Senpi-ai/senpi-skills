@@ -174,7 +174,7 @@ def fetch_instruments(ctx):
 # ═══════════════════════════════════════════════════════════════
 
 def fetch_sm_map(ctx, inputs):
-    """{asset: {direction, pct, traders}} for the SM concentration bonus.
+    """{asset: {direction, pct, traders}} of each token's dominant side, for the SM concentration bonus.
     READ-GUARDED. Port of v2 fetch_sm_map (XYZ skipped); pct is the board's own percent share."""
     limit = int(inputs.get("smLimit", 100))
     min_traders = int(inputs.get("minTraderCount", 10))
@@ -195,6 +195,9 @@ def fetch_sm_map(ctx, inputs):
         token = str(m.get("token", "")).upper()
         dex = str(m.get("dex", "")).lower()
         if dex == "xyz":
+            continue
+        # LONG and SHORT are separate rows per token: keep the dominant side, never the last row.
+        if not m.get("is_dominant_direction", False):
             continue
         if not token or int(m.get("trader_count", 0) or 0) < min_traders:   # thin side: never sets the lean
             continue
