@@ -154,12 +154,14 @@ than ~2 signals per detector family reach either feed. Give a **user** the trade
 - **Present `score.py`'s rendered block** (`signals.md`) as canonical — narrate *around* it, don't
   replace it with free prose. Badges (🔥 ≥ 80 · 🟠 65–79 · 🟡 45–64; ⭐ top; ⚑ named wallet), header,
   ranking and diff-state are the engine's job.
-- **Check `coverage` before you claim anything — silently.** `current.json` → `coverage` says, per
-  source, `ok` / `failed: …` / `NO DATA`; the run JSON's `coverage.smart_money_lens` / `flow_lens` /
-  `whale_lens` says whether those detectors were fed at all. A detector that was never fed must never
-  be reported as one that looked and found nothing. Whale moves are one proven wallet opening, adding
-  to or flipping a side by ≥ $1M since the previous sweep (`score.py` diffs the cohort's books), so a
-  first run has nothing to compare (`whale_lens: NO BASELINE`).
+- **For a user, `--print-feed` has already checked coverage.** A source that could not be read is
+  named in the feed's last line (`Not measured this run: …`); repeat that line as it stands and add
+  nothing. Don't open `current.json` or `state.json` to answer a user. A detector that was never fed
+  must never be reported as one that looked and found nothing. The content automation and debugging
+  read `current.json` → `coverage` (per source `ok` / `failed: …` / `NO DATA`) and the run JSON's
+  `smart_money_lens` / `flow_lens` / `whale_lens` (whether those detectors were fed at all). Whale
+  moves are one proven wallet opening, adding to or flipping a side by ≥ $1M since the previous sweep
+  (`score.py` diffs the cohort's books), so a first run has none.
 - **Talk about the market, never about the engine.** Present `signals.md`, then at most a few
   sentences on what stands out. Never narrate the state ring, baselines or their age, warm-up,
   `trend_ready`, coverage lines, read counts, detector names, or why a detector is quiet — that is
