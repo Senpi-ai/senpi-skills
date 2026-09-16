@@ -101,12 +101,18 @@ def _ok(resp):
 
 
 def _traders_of(data):
+    """The row list of a read. The leaderboard tools wrap their client's payload under the same key
+    it already uses — `leaderboard_get_markets` returns data.markets.markets[] and
+    `leaderboard_get_momentum_events` data.events.events[] — so one same-key level is unwrapped."""
     if isinstance(data, list):
         return [t for t in data if isinstance(t, dict)]
     if isinstance(data, dict):
         for k in ("traders", "markets", "events", "instruments", "data", "results"):
-            if isinstance(data.get(k), list):
-                return [t for t in data[k] if isinstance(t, dict)]
+            v = data.get(k)
+            if isinstance(v, dict) and isinstance(v.get(k), list):
+                v = v[k]
+            if isinstance(v, list):
+                return [t for t in v if isinstance(t, dict)]
     return []
 
 
@@ -242,7 +248,8 @@ def board(c, cov, metrics):
             m["hot_4h_dir"] = m["crowd_dir"]
             m["hot_4h_share"] = _num(r.get("pct_of_top_traders_gain"))
             m["hot_4h_trader_count"] = _num(r.get("trader_count"))
-    src = _num((data or {}).get("source_trader_count")) if isinstance(data, dict) else None
+    inner = data.get("markets") if isinstance(data, dict) and isinstance(data.get("markets"), dict) else data
+    src = _num(inner.get("source_trader_count")) if isinstance(inner, dict) else None
     cov["board_4h"] = f"ok ({hit} universe names on the board, {src or '?'} traders aggregated)"
     return src
 
