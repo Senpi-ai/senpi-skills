@@ -49,4 +49,4 @@ jobs:
         run: bash .github/scripts/run_strategy_package_tests.sh
 
       - name: full suites (ops + discover + author + trading-runtime + catalog guards)
-        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-strategy-author/tests senpi-trading-runtime/tests senpi-trader-research/tests senpi-market-pulse/tests senpi-portfolio/tests senpi-trade/tests senpi-improve-trades/tests strategies/tests -q
+        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-strategy-author/tests senpi-trading-runtime/tests senpi-trader-research/tests senpi-market-pulse/tests senpi-portfolio/tests senpi-trade/tests senpi-improve-trades/tests senpi-signals/tests strategies/tests -q

@@ -15,7 +15,8 @@ import sys
 import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
+SCRIPTS = HERE.parent / "scripts"
+sys.path.insert(0, str(SCRIPTS))
 import score  # noqa: E402
 
 NOW = "2026-08-24T02:00:00+00:00"
@@ -388,7 +389,7 @@ def _run(current, state_path, now, extra=None):
         d = pathlib.Path(d)
         cur = d / "cur.json"; cur.write_text(json.dumps(current))
         out = d / "o.md"
-        r = subprocess.run([sys.executable, str(HERE / "score.py"), str(cur), "--state", str(state_path),
+        r = subprocess.run([sys.executable, str(SCRIPTS / "score.py"), str(cur), "--state", str(state_path),
                             "--now", now, "--out", str(out), *(extra or [])],
                            capture_output=True, text=True)
         assert r.returncode == 0, f"score failed: {r.stderr}"
@@ -500,7 +501,7 @@ def test_snapshot_only_warms_the_ring_without_burning_freshness():
         cur.write_text(json.dumps(CURRENT))
 
         def snap(now):
-            r = subprocess.run([sys.executable, str(HERE / "score.py"), str(cur), "--state", str(state),
+            r = subprocess.run([sys.executable, str(SCRIPTS / "score.py"), str(cur), "--state", str(state),
                                 "--now", now, "--consumer", "social", "--snapshot-only"],
                                capture_output=True, text=True)
             assert r.returncode == 0, r.stderr
