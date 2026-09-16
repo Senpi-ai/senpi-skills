@@ -53,3 +53,12 @@ class Serr124IsThisAccountsPoolNotARetry(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_the_runtime_first_rules_are_in_the_skill():
+    import os
+    text = open(os.path.join(os.path.dirname(__file__), "..", "SKILL.md"), encoding="utf-8").read()
+    for needle in ("`runCount` counts signals EMITTED, not ticks", "never a reason to close and recreate",
+                   "Say every stop twice", "ROE ÷ leverage", "max_entries_per_day × marginPct",
+                   "Read the runtime's own state first", "Max Entries/Day", "interval under 60 s"):
+        assert needle in text, needle
