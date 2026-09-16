@@ -96,6 +96,20 @@ def test_short_sign_is_direction_adjusted():
     assert btc["exit_vs_hold"] == "held_higher"
 
 
+def test_a_closed_trade_reads_its_side_from_the_label_never_the_size_or_pnl():
+    """The real discovery_get_trader_history row labels the side in `type` and carries an UNSIGNED at-close
+    `szi`, positive on a closed short too. Without a label the side is unknown, because every guess can read
+    the wrong way: a size sign, PnL against the price move (a long up 100 -> 100.2 that fees turn into a
+    -0.05 loss), and a buy / sell side (on a closed row, possibly the closing fill). An unknown side gets no
+    if-held dollar figure and no verdict."""
+    assert review._direction({"szi": "0.05", "type": "Close Short"}) == "short"
+    assert review._direction({"szi": "3.0", "type": "close LONG"}) == "long"
+    for unlabelled in ({"szi": "-1"}, {"szi": "1"},
+                       {"szi": "0", "entryPx": "100", "exitPx": "100.2", "realizedPnl": "-0.05"},
+                       {"side": "sell"}):
+        assert review._direction(unlabelled) is None, unlabelled
+    assert review._if_held({"direction": None, "exit_px": 100.0, "size": 1.0}, 95.0) == (-5.0, None, "unknown")
+
 def test_timing_summary_counts_beat_vs_worse():
     """PROCESS-framed aggregate: 1 exit beat holding (SOL), 2 were worse (ETH, BTC). Realized total 340;
     if_all_reclosed_now is the honest counterfactual aggregate (-60+100+250 = 290), CONTEXT not a

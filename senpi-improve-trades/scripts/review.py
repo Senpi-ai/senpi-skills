@@ -737,22 +737,20 @@ def _ms(ts):
     return n * 1000.0 if n < 1e12 else n
 
 
-def _direction(rec, szi, entry_px, exit_px, pnl):
-    """Direction of a CLOSED trade, robustly. `szi` is unreliable on a fully-closed position (the
-    at-close size is often 0), which read wrong/ambiguous. Order: (1) an explicit dir/side field;
-    (2) a non-zero szi sign; (3) DERIVE from realized PnL vs the price move — a LONG books profit when
-    price rises (pnl and (exit−entry) share a sign), a SHORT when price falls (opposite signs). Returns
-    None only when nothing resolves it (e.g. a flat trade with no move)."""
-    d = str(_field(rec, "dir", "side", "direction", "positionSide", default="") or "").strip().lower()
-    if d in ("long", "buy", "b", "bid", "l"):
-        return "long"
-    if d in ("short", "sell", "a", "ask", "s"):
-        return "short"
-    if szi and szi != 0:
-        return "long" if szi > 0 else "short"
-    move = (exit_px - entry_px) if (entry_px is not None and exit_px is not None) else None
-    if move and pnl:
-        return "long" if ((move > 0) == (pnl > 0)) else "short"
+def _direction(rec):
+    """Side of a CLOSED trade, read only from a side label on the row. The real `discovery_get_trader_history`
+    row labels the side in `type` ("Close Long" / "Close Short") and carries an UNSIGNED at-close `szi` —
+    positive on a closed short too — so the sign of the size says nothing about the side. Neither does
+    realized PnL against the price move: `realizedPnl` is net of fees, so a small winning long can book a
+    loss. A label in `dir` / `side` / `direction` / `positionSide` / `type` containing "long" or "short"
+    (any case) decides it. A buy / sell side is not a label: on a closed row it can be the closing fill,
+    which is the opposite side. No label → None (unknown)."""
+    for name in ("dir", "side", "direction", "positionSide", "type"):
+        label = str(_field(rec, name, default="") or "").strip().lower()
+        if "short" in label:
+            return "short"
+        if "long" in label:
+            return "long"
     return None
 
 
@@ -879,7 +877,7 @@ def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
         pnl = round(_f(p, "realizedPnl", "realized_pnl", default=0.0), 2)
         trades.append({
             "asset": _field(p, "coin", "coinDisplayName", "asset"),
-            "direction": _direction(p, szi, entry_px, exit_px, pnl),   # robust: field → szi → pnl-vs-move
+            "direction": _direction(p),   # the row's side label; never the size's sign or PnL vs the move
             "size": abs(szi),
             "leverage": _f(lev, "value", default=None) if isinstance(lev, dict) else _num(lev),
             "entry_px": entry_px,
@@ -1051,8 +1049,11 @@ def _if_held(trade, price_now):
         return since_exit_pct, None, "unknown"
     raw_move = (price_now - exit_px) / exit_px
     # direction-adjusted: long gains when price rises (+), short gains when price falls (so flip sign).
-    # flip ONLY for an explicit short; long / unknown → no flip (don't mistreat a null direction as short)
-    signed = -raw_move if trade.get("direction") == "short" else raw_move
+    # An unknown side has no sign to adjust by: no dollar figure and no verdict, never a guess either way.
+    direction = trade.get("direction")
+    if direction not in ("long", "short"):
+        return since_exit_pct, None, "unknown"
+    signed = -raw_move if direction == "short" else raw_move
     if_held_delta = round(notional * signed, 2)
     # exit_vs_hold — NEUTRAL context, never a grade. Positive delta → holding-to-now would be higher
     # (this-window trend; says nothing about exit quality, and ignores the risk the exit avoided);
