@@ -286,7 +286,8 @@ def _crowd_lean(ctx, limit):
                 v = raw.get(k)
                 # The MCP wraps the board client's {markets: [...]} under `markets` again, so live
                 # rows arrive at data.markets.markets. Reading only a flat list returned {} on every
-                # real response and the divergence booster never fired.
+                # real response: the crowd read defaulted to 50 (counted as SHORT), so every long
+                # scored as divergent and no short ever did.
                 if isinstance(v, dict) and isinstance(v.get(k), list):
                     v = v[k]
                 if isinstance(v, list):
