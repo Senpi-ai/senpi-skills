@@ -24,10 +24,11 @@ without a model call. The 1.x design ran the same gather as an agent cron: a ful
 firing, and on a real box every firing timed out. senpi-smart-money's rule — *"asked to run this on
 a schedule? Say the cost first"* — is why the schedule is a scanner, not a cron.
 
-State is durable and shared — the sweep resolves `$SENPI_STATE_DIR/signals/state.json`
-(`/data/.openclaw/senpi-state/signals/state.json` on the claw, the persistent volume). Users' ad-hoc
-`sweep.py` runs read the same warm baseline automatically; the content automation reads
-`$SENPI_STATE_DIR/signals/signals.md` on its own cadence and never gathers.
+State is durable and shared. On a claw the sweep uses `/data/.openclaw/senpi-state/signals/state.json`,
+the runtime's state dir on the persistent volume, even though the agent's exec shell carries no
+`SENPI_STATE_DIR`; the host derives the same directory from its launch config. Users' ad-hoc
+`sweep.py` runs read the same warm baseline automatically; the content automation reads `signals.md`
+there on its own cadence and never gathers.
 
 ## ⚠️ The one rule that will bite you: every snapshot must carry the SAME fields
 

@@ -40,7 +40,7 @@ The agent never assembles `current.json` from tool calls, and never runs the gat
 
 | Mode | How | Cost |
 |---|---|---|
-| **Ad hoc** ("what's moving under the surface?") | one `exec`: `python3 scripts/sweep.py` — then read `$SENPI_STATE_DIR/signals/signals.md` and narrate | ~8 MCP reads, no model tokens spent on gathering |
+| **Ad hoc** ("what's moving under the surface?") | one `exec`: `python3 scripts/sweep.py` — then present `signals.md` from the state dir (on a claw `/data/.openclaw/senpi-state/signals/`) | ~8 MCP reads, no model tokens spent on gathering |
 | **Continuous** (the content automation) | deploy **`strategies/signals`** once (`senpi-strategy-ops` `deploy.py create signals --budget 10`). The runtime runs the same sweep every 45 min on its own clock. The automation **reads** `signals.md`; it never gathers | ~8 MCP reads per sweep, **zero model cost** — the runtime ticks without a model call |
 
 The 1.x model — an agent cron firing every ~45 min that did the gather as tool calls — cost a full
@@ -164,9 +164,13 @@ than ~2 signals per detector family reach either feed. Give a **user** the trade
   sentences on what stands out. Never narrate the state ring, baselines or their age, warm-up,
   `trend_ready`, coverage lines, read counts, detector names, or why a detector is quiet — that is
   debugging output, not an answer. If a lens could not be read, one plain clause is the most a user
-  hears ("whale moves aren't measurable on a first run").
+  hears ("the smart-money read failed this run"). That includes closing notes and caveats. Wrong:
+  *"Note: this is a first run on a cold state ring, so the flagship detector isn't active yet; whale
+  moves are baseline-only this time."* Every part of that is engine state, and the feed it closed
+  already carried two whale moves.
 - **Name a divergence or a whale move only when the feed carries one.** No whale move in the feed is
   not a section and not an explanation — leave it out, or one plain clause if the user asked about whales.
+  When the feed carries one, keep who it is: the line names the shortened wallet and its lifetime gains.
 
 ## Running the sweep
 ```bash
@@ -175,8 +179,10 @@ python3 scripts/sweep.py --consumer social   # the content feed's anti-repeat na
 python3 scripts/sweep.py --snapshot-only     # warm the ring, rank nothing; prints trend_ready
 #   --out-dir DIR  --state PATH  --top-n 120  --top 6  --lens both|trade|social  --now <ISO>
 ```
-- **Outputs** land in **`$SENPI_STATE_DIR/signals/`** (the claw exports `SENPI_STATE_DIR=/data/.openclaw/senpi-state`,
-  the persistent volume, so they survive chats and redeploys; fallback `~/.openclaw/senpi-state`):
+- **Outputs** land beside the state file. On a claw that is **`/data/.openclaw/senpi-state/signals/`**, the
+  runtime's state dir on the persistent volume: the exec shell carries no `SENPI_STATE_DIR` and its
+  `~/.openclaw` is not the volume, so the sweep looks for that directory itself (`$SENPI_STATE_DIR/signals/`
+  wins when set; `~/.openclaw/senpi-state/signals/` only off a claw):
   `current.json` (the gathered metrics + events + `coverage`), `signals.md` (the two badged feeds),
   `state.json` (the snapshot ring + per-consumer freshness). Inside `strategies/signals` the scanner child
   has no env, so it derives the same root from its launch config and writes to `<runtime state root>/signals/`
@@ -212,9 +218,10 @@ python3 scripts/sweep.py --snapshot-only     # warm the ring, rank nothing; prin
 cold-start timeline and the one rule that bites (every snapshot carries the full metric set — the
 sweep guarantees it). The package runs `sweep.run(...)` every 45 minutes (matched to the ~45-min
 freshness window so the social feed rotates), writes `signals.md`, and emits no trade signal. The
-content automation then **reads** `$SENPI_STATE_DIR/signals/signals.md` on its own cadence — it never
+content automation then **reads** `signals.md` from that same directory on its own cadence — it never
 gathers, and it never needs a model call to have fresh signals waiting.
 
+*Operator detail — for whoever runs the package, never part of an answer to a user.*
 **The strongest reason to keep it running is `sm_positioning_build`** — the flagship detector, the
 *proven cohort's own positioning shifting over ~12h*. It needs a **warm ring** (a 12h-old snapshot to
 diff against), so on a cold state file it stays silent. Until then, expect standing-state signals only

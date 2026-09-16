@@ -137,6 +137,8 @@ def test_current_json_carries_every_field_the_ring_requires(state_dir):
     assert dets == {"momentum_event", "cross_asset_laggard"}
     assert all("0x" + "ab" * 20 != e.get("concrete_entity") for e in cur["events"])  # shortened, never raw
     assert rep["result"]["coverage"]["smart_money_lens"] == "ok"
+    assert cur["wallets"][_W[0]] == {"realized_pnl_usd": 5_000_000.0}          # who a whale is, for the feed
+    assert len(cur["wallets"]) == 20
     assert rep["coverage"]["board_4h"] == "ok (2 universe names on the board, 500.0 traders aggregated)"
     assert rep["coverage"]["momentum"].startswith("ok (1 sent events")
     assert (state_dir / "signals" / "signals.md").is_file() and (state_dir / "signals" / "state.json").is_file()
