@@ -171,6 +171,8 @@ than ~2 signals per detector family reach either feed. Give a **user** the trade
 - **Name a divergence or a whale move only when the feed carries one.** No whale move in the feed is
   not a section and not an explanation — leave it out, or one plain clause if the user asked about whales.
   When the feed carries one, keep who it is: the line names the shortened wallet and its lifetime gains.
+- **Funding is a percent of position size, never of margin.** `-494%/yr` means shorts pay longs about
+  494% of the position's size a year at the current rate. Never restate it as a multiple of margin.
 
 ## Running the sweep
 ```bash
