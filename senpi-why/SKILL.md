@@ -1,16 +1,18 @@
 ---
 name: senpi-why
 description: >-
-  Answer "what makes Senpi different?" / "why Senpi?" / "Senpi vs other trading apps or bots?" — the
-  positioning answer, led by value, not a feature dump. Use for "why should I use Senpi", "how is
-  Senpi different", "what's special/unique about Senpi", "Senpi vs <competitor>", "is Senpi just
-  another trading UI". Lead with the category difference — an AI that runs your strategy 24/7 — then
-  three proof pillars; keep the machinery under the hood and never promise outcomes. Pure narration,
-  no engine; for exact live numbers (fee tier, market count) call the existing tools.
+  Answer "what makes Senpi different?" / "why Senpi?" / "Senpi vs other trading apps, bots or AI
+  chatbots?" — the positioning answer, led by value, not a feature dump. Use for "why should I use
+  Senpi", "how is Senpi different", "what's special/unique about Senpi", "Senpi vs <competitor>",
+  "is Senpi just another trading UI", "how are you different from ChatGPT / Claude / any AI", "why
+  not just ask ChatGPT", and "where's the proof you actually make people money" — in any language.
+  Lead with the category difference — an AI that runs your strategy 24/7 — then three proof pillars;
+  keep the machinery under the hood and never promise outcomes. Pure narration, no engine; for exact
+  live numbers (fee tier, market count) call the existing tools.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.2.0"
+  version: "1.3.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -64,6 +66,36 @@ scripting. Prefer to follow proven traders instead? Mirror any Hyperliquid trade
 record first, and dry-run exactly what would open before committing a dollar. Either way, every trade is
 public and verifiable onchain — no black box.
 
+## "You're no different from ChatGPT"
+
+Take the question seriously and answer the category, not a checklist. **A chatbot can talk about
+markets. It can't see this one, and it can't act in it.** Then the difference, one line each:
+
+- **It sees the market live** — where the most profitable Hyperliquid traders are positioned right
+  now, where they disagree with the crowd, funding and open interest on every market. A chatbot
+  answers from what it read before today.
+- **It turns a thesis into a running strategy** on the user's own wallet, sized and run around the
+  clock.
+- **It protects every position** with stops and profit locks the system enforces, including at 3am.
+- **It remembers the user** — their strategies, their trades, what they asked for — and gets sharper
+  with every trade.
+
+Then show it instead of claiming it: offer one live read in their own chat, such as what proven
+traders are positioned in right now (senpi-smart-money), because that is the thing a chatbot cannot
+produce. Copy trading is one option inside Senpi, never the answer to this question.
+
+## "Show me it actually makes people money"
+
+- **Never answer with other people's returns.** No leaderboard of other users' strategies, no top
+  performer's percentage, no "copy the #1 strategy, it's proven." The best row of a ranking is
+  survivorship, it is someone else's money, and it reads as a promise.
+- **Say the honest part plainly:** no one can promise a profit, most traders lose, and results depend
+  on the strategy and the market.
+- **Point to what can be verified:** every Senpi trade is public onchain, and the user's own strategy
+  record — read fresh and told straight, including when it is down.
+- **Then offer something useful now:** the live read above, or a look at making their current
+  strategy better.
+
 ## Supporting facts (proof, not the lead — only after the pillars)
 
 - **No paper-trading mode, by design** — every strategy runs on a real, isolated sub-wallet; the $10 floor is the
@@ -110,6 +142,8 @@ fund — and Senpi turns it into a sized, risk-managed, 24/7 strategy. No config
   English is the headline; copying a proven trader is the secondary option.
 - **"Senpi vs `<competitor>`":** contrast the *category* (an operator that runs it vs a UI you click),
   not a checkbox war.
+- **"You're just ChatGPT" or "prove it makes money":** answer from the two sections above — never with a
+  table of other users' returns.
 - **Exact live numbers** (current fee tier, market count): call the existing tools
   (`get_loyalty_tiers`, `market_list_instruments`) — don't hardcode them.
 - **Close with a next step:** *"Want me to analyze what smart money is doing on Hyperliquid right now?"*
