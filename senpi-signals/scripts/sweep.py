@@ -394,7 +394,24 @@ def run(call_tool, consumer="social", out_dir=None, state=None, now=None, top_n=
                f"trend_ready {res.get('trend_ready')} · reads {cur['reads']} ({cur['reads_failed']} failed) · "
                f"out {out_dir}")
     return {"summary": summary, "reads": cur["reads"], "coverage": cur["coverage"], "current": cur,
-            "result": res}
+            "result": res, "out_dir": out_dir}
+
+
+# what a failed source is called in the feed's one "not measured" line — reader words, not tool names
+PLAIN_SOURCE = {"universe": "market data", "cohort": "proven-trader positions", "board_4h": "the 4h leaderboard",
+                "momentum": "momentum events", "cross_asset": "cross-asset flows"}
+
+
+def feed_text(rep):
+    """The rendered feed an agent presents, verbatim, plus ONE plain line naming any source that failed —
+    so a dark lens is never read as "nothing happened", without coverage lines, counts or tool names."""
+    with open(os.path.join(rep["out_dir"], "signals.md")) as f:
+        feed = f.read().rstrip("\n")
+    dark = [PLAIN_SOURCE[k] for k, v in (rep.get("coverage") or {}).items()
+            if k in PLAIN_SOURCE and str(v).startswith(("failed", "NO DATA", "unavailable"))]
+    if dark:
+        feed += "\n\n_Not measured this run: " + ", ".join(dark) + "._"
+    return feed
 
 
 def main(argv=None):
@@ -407,6 +424,9 @@ def main(argv=None):
     ap.add_argument("--top", type=int, default=None, help="feed length (score.py --top)")
     ap.add_argument("--lens", choices=["both", "trade", "social"], default="both")
     ap.add_argument("--snapshot-only", action="store_true", help="warm the ring; rank nothing")
+    ap.add_argument("--print-feed", action="store_true",
+                    help="print only the feed to present (signals.md, plus one line naming any failed source); "
+                         "diagnostics are shown only if the sweep itself fails")
     a = ap.parse_args(argv)
     d = skill_scripts("senpi-smart-money", "mcp_client.py")     # the vendored stdlib MCP transport
     if d is None:
@@ -416,8 +436,19 @@ def main(argv=None):
         sys.path.insert(0, d)
     from mcp_client import MCPClient  # noqa: E402
     client = MCPClient()
-    rep = run(lambda name, args: client.mcp_call(name, **args), consumer=a.consumer, out_dir=a.out_dir,
-              state=a.state, now=a.now, top_n=a.top_n, top=a.top, lens=a.lens, snapshot_only=a.snapshot_only)
+    kwargs = dict(consumer=a.consumer, out_dir=a.out_dir, state=a.state, now=a.now, top_n=a.top_n, top=a.top,
+                  lens=a.lens, snapshot_only=a.snapshot_only)
+    if a.print_feed:
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                rep = run(lambda name, args: client.mcp_call(name, **args), **kwargs)
+        except Exception:
+            sys.stderr.write(err.getvalue())
+            raise
+        print(feed_text(rep))
+        return 0
+    rep = run(lambda name, args: client.mcp_call(name, **args), **kwargs)
     print(json.dumps(rep["result"], indent=2))
     for k, v in rep["coverage"].items():
         print(f"[coverage] {k}: {v}", file=sys.stderr)
