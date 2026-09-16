@@ -1074,13 +1074,36 @@ def fetch_strategies(client, meta):
     return strategies
 
 
+def _closed_direction(row, szi, entry_px, exit_px, pnl):
+    """Side of a CLOSED trade. The real `discovery_get_trader_history` row labels the side in `type`
+    ("Close Long" / "Close Short") and carries an UNSIGNED at-close `szi` — positive on a closed short too —
+    so the sign of the size says nothing about the side. Order: (1) a side label in `dir` / `side` /
+    `direction` / `positionSide` / `type`, matching the words "long" / "short" (or an exchange-style
+    buy / sell) case-insensitively; (2) a non-zero SIGNED szi, for a shape that signs it; (3) realized PnL
+    vs the price move — a long books profit when price rises (pnl and exit−entry share a sign), a short
+    when it falls. None only when nothing resolves it; that row is `unknown_side`."""
+    for name in ("dir", "side", "direction", "positionSide", "type"):
+        label = str(_field(row, name, default="") or "").strip().lower()
+        if "short" in label or label in ("sell", "a", "ask", "s"):
+            return "short"
+        if "long" in label or label in ("buy", "b", "bid", "l"):
+            return "long"
+    if szi:
+        return "long" if szi > 0 else "short"
+    move = (exit_px - entry_px) if (entry_px is not None and exit_px is not None) else None
+    if move and pnl:
+        return "long" if ((move > 0) == (pnl > 0)) else "short"
+    return None
+
+
 def fetch_closed(client, wallet, meta):
     """Read-guarded closed-position ledger for a strategy wallet: total realized PnL, the record over the
     whole pull (winners / losers / win rate / longs / shorts) + a short list of recent closed trades.
     The record is printed so the narration quotes it — `recent[]` is the last few trades, and a win rate
     or a long/short split read off it is a guess. Extraction matches the real `discovery_get_trader_history` shape
-    (senpi://guides/trader-closed-positions): a `closedPositions[]` of records with `coin`, signed `szi`
-    (>0 closed long / <0 closed short), string `realizedPnl`, Unix-ms `closeTime`, `entryPx`/`exitPx`.
+    (senpi://guides/trader-closed-positions): a `closedPositions[]` of records with `coin`, the side labelled
+    in `type` ("Close Long" / "Close Short") beside an UNSIGNED at-close `szi`, string `realizedPnl`,
+    `closeTime`, `entryPx`/`exitPx`. The side is read by `_closed_direction`, never off the sign of `szi`.
     Fails OPEN — any read/parse error → empty closed block + a meta.warning, never crashes."""
     empty = {"realized_pnl": None, "trade_count": None, "winners": None, "losers": None, "win_rate_pct": None,
              "longs": None, "shorts": None, "unknown_side": None, "recent": []}
@@ -1108,21 +1131,22 @@ def fetch_closed(client, wallet, meta):
         parsed += 1
         pnl = _f(p, "realizedPnl", "realized_pnl", default=0.0)   # often a string → _f coerces
         realized_total += pnl
-        szi = _f(p, "szi", "size", default=None)   # None = no readable size: neither side, and the gap stays visible
+        side = _closed_direction(p, _f(p, "szi", "size", default=0.0),
+                                 _num(_field(p, "entryPx", "entry_px")), _num(_field(p, "exitPx", "exit_px")), pnl)
         if pnl > 0:
             winners += 1
         elif pnl < 0:
             losers += 1              # a flat close counts as neither, so winners + losers <= trade_count
-        if szi is None:
-            unknown_side += 1
-        elif szi >= 0:
+        if side == "long":
             longs += 1
-        else:
+        elif side == "short":
             shorts += 1
+        else:
+            unknown_side += 1        # None = nothing on the row reads as a side, and the gap stays visible
         if len(recent) < CLOSED_HISTORY_CAP:
             recent.append({
                 "asset": _field(p, "coin", "coinDisplayName", "asset"),
-                "direction": (("long" if szi >= 0 else "short") if szi is not None else None),   # closed-side sign (szi>0 closed a long)
+                "direction": side,
                 "realized_pnl": round(pnl, 2),
                 "entry_px": _field(p, "entryPx", "entry_px"),
                 "exit_px": _field(p, "exitPx", "exit_px"),
