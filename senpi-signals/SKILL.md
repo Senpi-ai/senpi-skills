@@ -41,18 +41,21 @@ The agent never assembles `current.json` from tool calls, and never runs the gat
 | Mode | How | Cost |
 |---|---|---|
 | **Ad hoc** ("what's moving under the surface?") | one `exec`: `python3 scripts/sweep.py --print-feed` — its output is the feed to present, and nothing else | ~8 MCP reads, no model tokens spent on gathering |
-| **Continuous** (the content automation) | deploy **`strategies/signals`** once (`senpi-strategy-ops` `deploy.py create signals --budget 10`). The runtime runs the same sweep every 45 min on its own clock. The automation **reads** `signals.md`; it never gathers | ~8 MCP reads per sweep, **zero model cost** — the runtime ticks without a model call |
+| **Continuous** (Senpi's content automation: one team box, never a user's account) | deploy **`strategies/signals`** once on the team account (`senpi-strategy-ops` `deploy.py create signals --budget 10`). The runtime runs the same sweep every 45 min on its own clock. The automation **reads** `signals.md`; it never gathers | ~8 MCP reads per sweep, **zero model cost** — the runtime ticks without a model call |
 
 The 1.x model — an agent cron firing every ~45 min that did the gather as tool calls — cost a full
 model call per firing and, on a real box, timed out on every firing. **senpi-smart-money's own rule
 applies here verbatim: "Asked to run this on a schedule? Say the cost first."** An `openclaw cron` is
 an agent turn; the sweep on a cron is 32 model calls a day that produce nothing the runtime scanner
-does not produce for free. If someone asks for the sweep on a schedule, the answer is the package,
-not a cron.
+does not produce for free. If a user asks for the sweep on a schedule, say a cron's cost first and
+give them the on-demand run. **The package below is never deployed or offered on a user's account:**
+it is Senpi's content-automation host, and on a user's account it would park $10 plus a wallet fee to
+keep a feed they already get on demand.
 
 `strategies/signals` **trades nothing**: its scanner runs `sweep.run(ctx.senpi_mcp.call_tool)` and
 returns `[]` every tick; `slots: 0`; the $10 wallet is the runtime's formality. It exists to run the
-sweep on the runtime's clock and keep the state ring warm for everyone — including users' ad-hoc runs.
+sweep on the runtime's clock and keep the state ring warm on the box it runs on (the ring is that box's
+state file, so it does not warm anyone else's ad-hoc runs).
 
 ## ⚠️ The circularity trap (the single easiest way to get this wrong)
 

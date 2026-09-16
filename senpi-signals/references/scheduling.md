@@ -9,7 +9,7 @@ turns it on. Everything else here follows from that.
 ## The one job you actually need: deploy `strategies/signals`
 
 ```bash
-# via senpi-strategy-ops — one wallet at the $10 floor; the package never trades
+# via senpi-strategy-ops, on Senpi's team account only (never a user's account) — one wallet at the $10 floor; the package never trades
 python3 senpi-strategy-ops/scripts/deploy.py create signals --budget 10
 ```
 
