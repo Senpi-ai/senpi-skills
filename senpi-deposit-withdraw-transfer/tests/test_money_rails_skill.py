@@ -54,13 +54,26 @@ def test_at_most_one_resubmit_and_never_the_same_strategy_twice():
              "Never a third submit, never a retry loop")
 
 
-def test_perps_precheck_before_the_top_up_call():
-    _needles("perps USDC is `total_in_hyperliquid`",
+def test_perps_precheck_gates_on_withdrawable_never_on_account_value():
+    """total_in_hyperliquid includes margin locked in open positions, so it over-states what a top-up can
+    draw. The gate is the funding wallet's `withdrawable`; account value is an upper bound only."""
+    _needles("**Free perps USDC — the gate:** `withdrawable` on the `main` side of `strategy_get_clearinghouse_state`",
+             "`walletType: embedded` entry in `user_get_me` — read it to\n     check the balance, **never** to hand out as a deposit address",
+             "It is an **upper bound only, never\n   the gate**",
              "balance fields sit under `data.portfolio`",
              "`total_spot_usd_in_hyperliquid`",
-             "**The amount must not exceed the perps figure**",
-             "also ends FAILED, and the deposit may still be on an EVM chain or in Spot",
-             "\"Your funding wallet holds $X in perps; topping up $Y.\"")
+             "**The amount must not exceed free perps (`withdrawable`)**",
+             "\"Your funding wallet has $X free in perps; topping up $Y.\"")
+
+
+def test_account_value_is_never_presented_as_the_free_perps_figure():
+    """The defect this file once pinned: the precheck named `total_in_hyperliquid` as the funding wallet's
+    perps USDC. A wallet with an open position then passes the precheck and the top-up FAILS."""
+    text = _skill()
+    for defect in ("perps USDC is `total_in_hyperliquid`",
+                   "**The amount must not exceed the perps figure**",
+                   "\"Your funding wallet holds $X in perps; topping up $Y.\""):
+        assert defect not in text, f"the account-value precheck came back: {defect!r}"
 
 
 def test_top_up_is_polled_never_resubmitted_while_pending():

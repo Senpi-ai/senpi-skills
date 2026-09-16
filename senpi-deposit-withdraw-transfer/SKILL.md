@@ -167,21 +167,29 @@ buying simply happens in the card's own checkout. Point at it warmly and specifi
 in two legs — perps → Spot on the funding wallet, then Spot → the strategy wallet — so a failure can leave
 the money parked in **Spot**. Four rules, in this order:
 
-1. **Precheck the perps figure, then say it.** Read `account_get_portfolio` with `forceFetch: true` (the
-   default read is cached for hours); its balance fields sit under `data.portfolio`. The funding wallet's
-   perps USDC is `total_in_hyperliquid`; its Spot USDC is `total_spot_usd_in_hyperliquid` (`spot_balances`
-   lists the entry); EVM USDC in `token_balances` does not count.
-   **The amount must not exceed the perps figure** — a top-up accepted against an empty perps balance
-   also ends FAILED, and the deposit may still be on an EVM chain or in Spot. State both numbers in one
-   line before the call: "Your funding wallet holds $X in perps; topping up $Y." Spot covers the gap →
-   `transfer_spot_to_perps` first, then top up. Nothing covers it → the funding card, and top up once
-   the deposit lands.
+1. **Precheck the FREE perps figure, then say it.** Two reads:
+   - **Free perps USDC — the gate:** `withdrawable` on the `main` side of `strategy_get_clearinghouse_state`
+     for the funding wallet. Its address is the `walletType: embedded` entry in `user_get_me` — read it to
+     check the balance, **never** to hand out as a deposit address (deposits go through the funding card).
+   - **Spot USDC:** `account_get_portfolio` with `forceFetch: true` (the default read is cached for hours);
+     its balance fields sit under `data.portfolio`, Spot is `total_spot_usd_in_hyperliquid` (`spot_balances`
+     lists the entry). EVM USDC in `token_balances` does not count.
+   `total_in_hyperliquid` is the perps **account value** — free USDC *plus* margin locked in open positions —
+   so it over-states what a top-up can draw whenever a position is open. It is an **upper bound only, never
+   the gate**: if even it is short of the amount, the top-up will certainly fail, so go straight to the
+   funding card.
+   **The amount must not exceed free perps (`withdrawable`)** — a top-up accepted against too little also
+   ends FAILED, and the deposit may still be on an EVM chain or in Spot. State both numbers in one line
+   before the call: "Your funding wallet has $X free in perps; topping up $Y." Spot covers the gap →
+   `transfer_spot_to_perps` first, then top up. Nothing covers it → the funding card, and top up once the
+   deposit lands.
 2. **Poll, don't re-submit.** Keep `data.top_up_request.id` and poll `strategy_get_top_up_status` until
    `COMPLETED` or `FAILED`. `PENDING` / `FUNDS_IN_TRANSIT` = keep polling; `totalFunded` stays stale until
    completion. Re-submitting while PENDING is how strategies get double-funded.
 3. **FAILED — find the money before you say anything.** The status message can say "no funds moved …
    still in the funding wallet … safe to re-submit" when the first leg *did* run: treat it as a hint, not
-   a fact. Re-read `account_get_portfolio` (`forceFetch: true`) against the precheck:
+   a fact. Re-take both rule-1 reads — free perps (`withdrawable`) and Spot (`account_get_portfolio`,
+   `forceFetch: true`) — and compare them with the precheck:
    - **Spot USDC rose by about the top-up amount** → the money is in the funding wallet's **Spot**
      balance. Move it back with `transfer_spot_to_perps` for that amount, then say where it was and
      where it is now: "The top-up failed after its first leg — your $X was in your funding wallet's Spot
@@ -196,17 +204,16 @@ the money parked in **Spot**. Four rules, in this order:
    Spot leg (rule 3), re-run the precheck (rule 1), then submit once with a **new** idempotency key. A
    second FAILED for the same strategy means **this strategy wallet cannot receive top-ups right now**
    (some older strategy wallets refuse the second leg every time; a fresh deploy gets a wallet that
-   accepts it). Recover the Spot leg again, say so, and offer the two real options: **deploy the same
+   accepts it). Apply rule 3 again, say so, and offer the two real options: **deploy the same
    strategy fresh so it gets a new wallet** (the old one keeps running until the user explicitly asks to
    close it), or **Senpi support with the top-up request id**. Never a third submit, never a retry loop,
    never "contact support" before the money is located.
 
 | Say | Never say |
 | --- | --- |
-| "Your funding wallet holds $X in perps; topping up $Y." — before the call | A top-up amount with no perps figure next to it |
+| "Your funding wallet has $X free in perps; topping up $Y." — before the call | A top-up amount with no free-perps figure next to it; the account value (`total_in_hyperliquid`) quoted as free |
 | "The top-up failed after its first leg — your $X was in your funding wallet's **Spot** balance; I've moved it back to perps and it's available again." | "The money is still in your funding wallet" with no balance named; "safe to re-submit" read off the status message |
 | "This strategy wallet can't receive top-ups right now. Two options: deploy it fresh (new wallet), or Senpi support with request id …" — after the second FAILED | "Let me try again" a third time; "contact support" before the money is located |
-| "Withdrew the exact available figure, $X.YZ — the strategy wallet reads ~$0. It's still ACTIVE and scanning; want me to close it?" | "Withdrew everything" for a rounded number; "how much should I withdraw instead?" when `details.available` was returned |
 | "Creating a strategy reserves a creation fee — about $1, budgeted as $1.50 per wallet — on top of the $10 minimum." | A fee figure no tool returned |
 
 ## Costs — say them before money moves
