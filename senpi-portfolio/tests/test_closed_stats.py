@@ -110,17 +110,17 @@ def test_a_closed_short_carries_a_positive_size_and_still_reads_as_a_short():
 
 
 def test_without_a_side_label_the_side_is_unknown_whatever_the_size_or_pnl_suggests():
-    # Only a label decides the side. Each unlabelled row below would read as a side under a guess, and
-    # each guess can be wrong: a signed size, the real feed's unsigned size (positive on a short too),
-    # PnL against the price move (a long up 100 -> 100.2 that fees turn into a -0.05 loss reads "short"),
-    # and a buy / sell side (on a closed row that can be the closing fill, the opposite side).
-    signed, unsigned, fee_negative_long, closing_fill = (_row("ETH", -1, 1.0), _row("BTC", 1, 2.0),
-                                                         _row("SOL", 0, -0.05), _row("ARB", 1, 1.0))
-    fee_negative_long["entryPx"], fee_negative_long["exitPx"] = "100", "100.2"
+    # Only a label decides the side. None of these unlabelled rows is read as a side: a signed size, the real
+    # feed's unsigned size (positive on a short too), PnL against the price move (this row's PnL and move
+    # disagree in sign, so an inference would call it a short), and a buy / sell side (on a closed row that
+    # can be the closing fill, the opposite side).
+    signed, unsigned, pnl_against_move, closing_fill = (_row("ETH", -1, 1.0), _row("BTC", 1, 2.0),
+                                                        _row("SOL", 0, -0.05), _row("ARB", 1, 1.0))
+    pnl_against_move["entryPx"], pnl_against_move["exitPx"] = "100", "100.2"
     closing_fill["side"] = "sell"
-    for r in (signed, unsigned, fee_negative_long, closing_fill):
+    for r in (signed, unsigned, pnl_against_move, closing_fill):
         del r["type"]
-    rows = [signed, unsigned, fee_negative_long, closing_fill, _row("HYPE", 1, 1.0, side="short")]
+    rows = [signed, unsigned, pnl_against_move, closing_fill, _row("HYPE", 1, 1.0, side="short")]
     closed = portfolio.fetch_closed(_Client(rows), "0x" + "c" * 40, {})
     assert closed["longs"] == 0 and closed["shorts"] == 1 and closed["unknown_side"] == 4
     # an unknown side still counts in the record
