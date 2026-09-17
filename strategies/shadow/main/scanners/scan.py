@@ -15,6 +15,7 @@ import scoring
 
 CACHE_VERSION = 1
 _DEFAULT_TTL = 3600
+_DEFAULT_MAX_ENTRY_AGE = 240      # 2 ticks at the 120s cadence — a mirror of a FRESH open
 
 
 def _read(ctx, name, args):
@@ -111,12 +112,24 @@ def scan(inputs, ctx):
 
     states = _fetch_states(ctx, addrs)
 
+    max_age = float(inputs.get("maxEntryAgeSeconds", _DEFAULT_MAX_ENTRY_AGE))
     fresh_by_trader = {}
     new_seen = {}
     for addr in addrs:                              # only re-seed CURRENTLY-watched traders
-        positions = scoring.extract_positions(states.get(addr))
+        state = states.get(addr)
+        if state is None:
+            # The read failed for this trader. Emptying their seen-set here made the NEXT tick read
+            # their whole standing book as fresh opens, which is how positions 2-65% from their fill
+            # got mirrored. Carry the book we already seeded and sit this trader out.
+            if addr in seen_map:
+                new_seen[addr] = seen_map[addr]
+            print(f"[shadow.scan] no state for {addr[:10]}… — keeping the book already seeded",
+                  file=sys.stderr)
+            continue
+        positions = scoring.extract_positions(state)
         fresh, keys = scoring.diff_fresh(addr, positions, seen_map)
         new_seen[addr] = keys
+        fresh = [p for p in fresh if scoring.opened_within(p, now, max_age)]   # a FRESH open, not an old one
         if fresh:
             fresh_by_trader[addr] = fresh
 
@@ -129,8 +142,9 @@ def scan(inputs, ctx):
         if recent.get(k) is not None and (now - recent[k]) < ttl:        # dedup: one fire per book event
             continue
         slip = scoring.chase_pct(a["entry_avg"], a.get("mark", 0.0), a["side"])
-        if a.get("mark", 0.0) > 0 and slip > max_slip:                   # already ran past a fair fill
-            print(f"[shadow.scan] skip {k}: chase {slip:.2f}% > cap {max_slip}%", file=sys.stderr)
+        if a.get("mark", 0.0) > 0 and not scoring.chase_within(slip, max_slip):
+            print(f"[shadow.scan] skip {k}: chase {slip:+.2f}% outside ±{max_slip}% of their fill",
+                  file=sys.stderr)
             continue
         out.append({
             "asset": a["coin"],
@@ -146,7 +160,7 @@ def scan(inputs, ctx):
                 "traderEntry": round(a["entry_avg"], 6),
                 "traders": a["traders"],
                 "reasons": [f"{a['confirm']} watched trader(s) opened {a['side']} {a['coin']} fresh",
-                            f"chase {slip:+.2f}% vs their entry (cap {max_slip}%)"],
+                            f"chase {slip:+.2f}% vs their entry (cap ±{max_slip}%)"],
             },
         })
         recent[k] = now
