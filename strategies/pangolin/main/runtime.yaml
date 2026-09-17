@@ -3,7 +3,7 @@ name: pangolin-main
 group: pangolin
 version: 3.0.0
 description: >
-  PANGOLIN — multi-asset funding-rate fader. Scans every liquid perp (OI > $3M, derived
+  PANGOLIN — multi-asset funding-rate fader. Scans every liquid perp (OI > $10M, derived
   live from market_list_instruments) for funding that has been EXTREME (>= 0.0000228/hr,
   ~20% annualized) and PERSISTENT (>= 3h) — the crowd is one-sided and paying to hold it.
   Fades the crowd (enters OPPOSITE the funding-payer side) only when the market funding
@@ -32,14 +32,15 @@ scanners:
     path: ./scanners
     entrypoint: scan.py
     interval_seconds: 300                   # v2 producer cadence (5 min — funding doesn't move fast)
-    timeout_seconds: 240                    # universe scan + 1 funding-history read per candidate; v2 WARN_OVER_300S budget
+    timeout_seconds: 240                    # universe scan + 1 asset-data (hourly funding) read per candidate; v2 WARN_OVER_300S budget
     default_signal_validity_seconds: 1800
     state_history_max_count: 100            # dedup map (emit + post-close) + per-tick scan-result history
     inputs:
       dex: ""                               # main DEX only; xyz: names are banned in scan (no funding thesis on equities)
       minScore: 9                           # v1.4 floor (raised from 7 for persistence + regime points)
       minFundingRate: 0.0000228             # ~20% annualized floor (HL funding is HOURLY: rate * 8760 * 100). v3.0.1 recalibration.
-      minOiUsd: 3000000                     # liquidity floor — TASK SPEC OI>$3M (v2 producer was 1_000_000; see fidelity note)
+      minOiUsd: 10000000                    # liquidity floor. Was 3M (task spec): with persistence read correctly, names with
+                                            # only a few million of open interest clear every gate; a fade needs a book to exit into
       minPersistenceHours: 3                # hard gate against fresh spikes (v1.4)
       marginPct: 25                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable. v2 margin_pct=25.
       leverageTiers: [[13, 5], [9, 3]]      # v1.4 carryover: score>=13 -> 5x, else 3x

@@ -51,7 +51,7 @@ scanners:
       recentSignalTtlSeconds: 21600
       # ── funding gate ──
       targetApr: 30                   # annualized funding %; HL funds HOURLY (apr = rate×24×365)
-      minPersistHours: 6              # funding must have been positive ≥ this many hours
+      minPersistHours: 6              # hours in a row funding has been at or above targetApr
       oiBonusUsd: 50000000            # OI above this earns a liquidity bonus point
       # ── exhaustion gate (never short fresh strength) ──
       minExhaustion: 1                # require ≥ this much exhaustion evidence to short
