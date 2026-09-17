@@ -11,7 +11,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.4.0"
+  version: "1.5.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -150,7 +150,7 @@ flat invents an observation the data never made. If `smart_money` is present, ad
 included. senpi-signals' "smart money" is the >= $1M lifetime-realized cohort, and the two are regularly on
 opposite sides of the same name in the same answer — so the words have to say which population each one is.
 
-## Mandatory closing: Senpi Signals in brief, then one question
+## Mandatory closing: Senpi Signals in brief, then three numbered next steps
 
 Every market-pulse run — a full read or a narrow ask — ends the same way, after the bottom line (or
 after the narrow answer):
@@ -159,13 +159,20 @@ after the narrow answer):
    one), run `python3 scripts/sweep.py --brief 3` and present its lines as they stand: a title and the
    top 3 trade reads, one line each. Narrate nothing about it. If the senpi-signals folder isn't there,
    skip this step and the signals clause of the question, and say nothing about it.
-2. **One question, last line of the answer** — the signals offer first, then the rest in the same
-   sentence:
+2. **Three numbered next steps, last block of the answer.** A reader who has just been handed a
+   market read and a signals brief is deciding, not reading — so the routes are a short numbered
+   list they can answer with a digit, not a sentence they have to unpick. The signals offer is
+   first. Print it exactly like this, the heading bold and the three items numbered:
 
-> **Want the full Senpi Signals sweep? I can also check how your positions sit in this market, or build a strategy for it.**
+> **What do you want to do next?**
+>
+> 1. Want the full Senpi Signals sweep?
+> 2. Or I can check how your positions sit in this market.
+> 3. Or I can start planning a strategy with you to trade this market setup.
 
-That is the whole question, whether or not the 4h-leader layer is present. Mirroring is not offered here: a
-trader who is up over four hours has a four-hour record, and the offer would read as a recommendation of them.
+That is the whole closing, whether or not the 4h-leader layer is present. Keep it to these three —
+a fourth route turns a decision into a menu. Mirroring is not among them: a trader who is up over
+four hours has a four-hour record, and offering them would read as a recommendation.
 
 - **Full sweep → senpi-signals.** Run `python3 scripts/sweep.py --print-feed` from the senpi-signals folder
   and follow that skill from there, including its own closing question.

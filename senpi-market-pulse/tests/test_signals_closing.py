@@ -20,12 +20,32 @@ def test_the_brief_command_exists_and_takes_the_flag_we_pass():
     assert '"--brief"' in SWEEP.read_text(encoding="utf-8"), "sweep.py no longer accepts --brief"
 
 
-def test_every_run_ends_with_the_brief_and_one_question():
-    assert "## Mandatory closing: Senpi Signals in brief, then one question" in SKILL
+def test_every_run_ends_with_the_brief_and_three_numbered_next_steps():
+    """A reader handed a market read plus a signals brief is deciding, not reading. Three numbered
+    routes can be answered with a digit; one packed sentence has to be unpicked first. The three are
+    pinned verbatim, in order, with the signals sweep first."""
+    assert "## Mandatory closing: Senpi Signals in brief, then three numbered next steps" in SKILL
     assert "Every market-pulse run — a full read or a narrow ask — ends the same way" in SKILL
-    assert ("**Want the full Senpi Signals sweep? I can also check how your positions sit in this market, "
-            "or build a strategy for it.**") in SKILL
+    for line in (
+        "**What do you want to do next?**",
+        "1. Want the full Senpi Signals sweep?",
+        "2. Or I can check how your positions sit in this market.",
+        "3. Or I can start planning a strategy with you to trade this market setup.",
+    ):
+        assert line in SKILL, line
+    # order matters — signals leads
+    assert (SKILL.index("1. Want the full Senpi Signals sweep?")
+            < SKILL.index("2. Or I can check how your positions")
+            < SKILL.index("3. Or I can start planning a strategy"))
     assert "Run `python3 scripts/sweep.py --print-feed` from the senpi-signals folder" in SKILL
+
+
+def test_the_closing_stays_three_routes():
+    """A fourth route turns a decision into a menu — and mirroring is the one that keeps trying to
+    get in, because the 4h-leader layer sits right above it."""
+    closing = SKILL[SKILL.index("**What do you want to do next?**"):]
+    assert "4." not in closing[:300], "a fourth route crept into the closing"
+    assert "Keep it to these three" in SKILL
 
 
 def test_the_4h_leader_layer_is_never_called_smart_money():
@@ -44,9 +64,10 @@ def test_a_missing_move_is_not_printed_as_flat():
     assert "A missing change is `—`, never `0.00%`" in SKILL
 
 
-def test_the_question_does_not_offer_to_mirror_a_4h_winner():
-    q = SKILL[SKILL.index("**Want the full Senpi Signals sweep?"):]
-    assert "traders to mirror" not in q[:400]
+def test_the_closing_does_not_offer_to_mirror_a_4h_winner():
+    q = SKILL[SKILL.index("**What do you want to do next?**"):]
+    assert "traders to mirror" not in q[:500]
+    assert "mirror" not in q[:300].lower()
 
 
 def test_the_strategy_route_offers_athena_first():
@@ -62,5 +83,6 @@ def test_a_box_without_senpi_signals_skips_the_step_silently():
 
 
 def test_the_old_verbatim_cta_list_is_gone():
-    for gone in ("## Mandatory closing (verbatim)", "The two CTAs", "Want me to check how our strategies"):
+    for gone in ("## Mandatory closing (verbatim)", "The two CTAs", "Want me to check how our strategies",
+                 "I can also check how your positions sit in this market, or build a strategy for it"):
         assert gone not in SKILL, gone
