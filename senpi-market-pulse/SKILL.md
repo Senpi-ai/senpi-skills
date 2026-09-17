@@ -166,11 +166,13 @@ to mirror."*
 - **Positions → positions read.** Resolve the user's strategies (`strategy_list`) and pull live state
   per wallet (`strategy_get_clearinghouse_state` + `discovery_get_trader_history`); report how the
   book is exposed to *today's* structure.
-- **Strategy → new strategy.** Hand to **senpi-strategy-author** with a structured brief built from the
-  thesis you just produced (e.g. *"semi-led risk-off, memory −10%/logic −3%, software green, gold &
-  DXY calm = orderly rotation → candidate: long asset-light software / short memory, or fade if
-  washout; risk: timing"*). **Propose the strategy and get the user's go-ahead — never build or
-  trade without confirmation.**
+- **Strategy → Athena first, or one built for this market.** Offer the user's own **Athena**, the
+  smart-money hedge fund, as the quick start: **senpi-strategy-ops** runs its walkthrough and deploys it
+  under their name. Its peer is a strategy built from the thesis you just produced: hand
+  **senpi-strategy-author** a structured brief (e.g. *"semi-led risk-off, memory −10%/logic −3%,
+  software green, gold & DXY calm = orderly rotation → candidate: long asset-light software / short
+  memory, or fade if washout; risk: timing"*). Never promise or imply results. **Propose the strategy
+  and get the user's go-ahead — never build or trade without confirmation.**
 - **Mirror → the smart money** (only when `smart_money` is present). Hand to **senpi-trader-research**
   to vet a *copyable* trader from the cohort (mirrorability + min budget, not just PnL), then
   **senpi-trade** to run the mirror.

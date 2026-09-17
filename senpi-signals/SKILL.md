@@ -214,18 +214,37 @@ or funds anything.
 ## How every run ends — one question
 After the feed and your few sentences, end the turn with **one question**, and nothing after it:
 
-> **Want to act on any of these? I can set up a trade on one of them — you see the size and the stop before anything is placed — or build a strategy around one of these reads.**
+> **Want to act on any of these? I can set up a trade on one of them — you see the size and the stop before anything is placed — or start a strategy: your own Athena, the smart-money hedge fund, or one built around these reads.**
 
 - **A trade on one read → senpi-trade.** Take the side the read names. Before any order, show the
   margin and its share of the account, the leverage, the stop price and the liquidation price. The
   stop must sit before liquidation. Place nothing until the user says yes to that exact order. A
   funding extreme names no side (it is a carry read), so it is never a one-trade setup.
-- **A strategy around a read → senpi-strategy-author.** Hand over the read as the brief: the asset,
-  the side, what the read is and its numbers. Build with the author's guardrails: a DSL stop on every
-  position, leverage 3x or less, few trades (fees are the biggest cost of an active strategy), and
-  the minimum budget plus the wallet-creation fee stated before anything is funded. Never promise or
-  imply results: it is a new strategy with no track record, and you say so. Deploy only on the user's
-  yes.
+- **Athena → senpi-strategy-ops.** The lead strategy offer: when the user wants a strategy and hasn't
+  picked a read, offer **Athena** (`athena`). Its Phalanx sleeve follows the same proven cohort the
+  smart-money reads come from (traders with at least $1M lifetime realized PnL), and its Aegis sleeve
+  reads the tape to hedge the regime. Ops runs the walkthrough first (what it does, how it is set, two
+  levers, the name it deploys under, e.g. *PurpleFrog's Athena*), then asks the budget; read the minimum
+  budget from the catalog, never from memory.
+- **A strategy around one read → that read's template, or the user's own.** Offer the template built on
+  that kind of read as the quick start (senpi-strategy-ops, same walkthrough), with designing one from
+  scratch as its peer:
+
+  | The read | Start from |
+  |---|---|
+  | Smart money vs the crowd | **Athena** (`athena`), with a hedge, or **Phalanx** (`phalanx`), the cohort sleeve alone |
+  | A funding extreme | **Pangolin** (`pangolin`), which fades the crowd paying to hold, or **Camel** (`camel`), which collects the carry on two books |
+  | A momentum event | **Meerkat** (`meerkat`) |
+  | A laggard behind BTC | **Mantis** (`mantis`) |
+
+  From scratch → senpi-strategy-author, with the read as the brief: the asset, the side, what the read
+  is and its numbers. Build with the author's guardrails: a DSL stop on every position, leverage 3x or
+  less, few trades (fees are the biggest cost of an active strategy), and the minimum budget plus the
+  wallet-creation fee stated before anything is funded. It is a new strategy with no track record, and
+  you say so.
+- **Every template is a starting point the user makes their own.** It deploys under their name, as-is
+  or with levers moved. Never promise or imply results, and never call a template proven. Deploy only on
+  the user's yes.
 - **No, or no answer → stop.** Don't repeat the offer.
 - **Never in public copy.** The question and everything after it are a private, interactive step;
   anything written for posting stays observation-only.
