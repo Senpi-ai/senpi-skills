@@ -47,3 +47,35 @@ def test_compare_detectors_are_v2_and_never_claimed():
     assert "## v2 — compare over periods (not in 2.0)" in skill
     assert "Now, never \"since\"." in skill
     assert "Never describe the feed as if it carried them." in skill
+
+
+def test_every_run_ends_with_one_question_to_trade_or_build():
+    """The feed is observation; acting is a separate, consented step. One question closes every run,
+    it routes to senpi-trade or senpi-strategy-author, and nothing is placed or funded without a yes."""
+    skill = _flat(SKILL)
+    assert "## How every run ends — one question" in skill
+    assert ("Want to act on any of these? I can set up a trade on one of them — you see the size and the stop "
+            "before anything is placed — or build a strategy around one of these reads.") in skill
+    assert "Place nothing until the user says yes to that exact order." in skill
+    assert "The stop must sit before liquidation." in skill
+    assert "it is a new strategy with no track record, and you say so" in skill
+    assert "Deploy only on the user's yes." in skill
+    assert "then the closing question (next section) — nothing after it" in skill
+    assert "Follow-up: \"how could I play it?\"" not in skill
+
+
+def test_the_sweep_stays_read_only_and_the_question_stays_private():
+    skill = _flat(SKILL)
+    assert "3. **The sweep is read-only.**" in skill
+    assert "Acting on a read happens only in the closing step (below), on the user's explicit yes" in skill
+    assert "**Never in public copy.**" in skill
+
+
+def test_the_brief_is_documented_and_the_chip_wording_loads_the_skill():
+    skill = _flat(SKILL)
+    front = _frontmatter(SKILL)
+    assert "python3 scripts/sweep.py --brief 3" in skill
+    assert "## The short version (`--brief N`)" in skill
+    for trigger in ("scan Senpi Signals", "scan for market anomalies"):
+        assert trigger in front, trigger
+    assert "Every user has it." in skill

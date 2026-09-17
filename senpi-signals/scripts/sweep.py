@@ -2,6 +2,7 @@
 """senpi-signals sweep — the whole gather in ONE process, then score.py. No agent orchestration.
 
     python3 sweep.py --print-feed          # what an agent runs for a user: prints only the feed
+    python3 sweep.py --brief 3             # the short version another skill closes with: top 3 reads, one line each
     python3 sweep.py                       # debugging: run JSON, coverage lines, reads=<n>
     (SENPI_AUTH_TOKEN / SENPI_MCP_URL from env, like senpi-smart-money)
 
@@ -15,8 +16,12 @@ What one sweep reads (the read budget, printed as `reads=<n>` at the end):
     1   leaderboard_get_markets        the 4h board: crowd side, hot_4h_share, 4h price move
     1   leaderboard_get_momentum_events  the platform's own tiered whale/momentum events
     1   market_get_cross_asset_flows   BTC-led laggards
-  = 8 reads (up to 13 if discovery pages twice / the board is thin). Every read fails soft: a failed
-  source is recorded in `coverage`, the rest of the sweep still lands.
+  = 8 reads. Every read fails soft: a failed source is recorded in `coverage`, the rest of the sweep
+  still lands.
+
+The cohort engine (smartmoney.py) and the MCP transport (mcp_client.py) are verbatim copies of
+senpi-smart-money's, kept next to this file: skills install standalone, so this one never reaches into
+another skill's folder. tests/test_vendored_parity.py fails when the copies drift.
 
 Outputs (in --out-dir; default $SENPI_STATE_DIR/signals or ~/.openclaw/senpi-state/signals), overwritten
 each run: current.json and signals.md. Nothing else is written. Stdlib only; Python 3.9+.
@@ -45,30 +50,9 @@ LAGGARD_MIN_FOLLOW = 0.8      # follow_rate below this is not a laggard, it is a
 HOURS_PER_YEAR = 24 * 365     # HL `funding` (metaAndAssetCtxs) is the HOURLY rate → ×8760 ×100 = %/yr
 
 
-# ── sibling skill resolution ──────────────────────────────────────────────────
-def skill_scripts(name, marker):
-    """<skills root>/<name>/scripts holding `marker`. Roots: SENPI_SKILLS_DIR (the runtime's own
-    comma-separated knob), every ancestor of this file (the repo checkout), then the claw defaults."""
-    roots = [r for r in os.environ.get("SENPI_SKILLS_DIR", "").split(",") if r.strip()]
-    d = HERE
-    while os.path.dirname(d) != d:
-        d = os.path.dirname(d)
-        roots.append(d)
-    roots += ["/data/.openclaw/skills", os.path.expanduser("~/.openclaw/skills")]
-    for r in roots:
-        cand = os.path.join(r.strip(), name, "scripts")
-        if os.path.isfile(os.path.join(cand, marker)):
-            return cand
-    return None
-
-
+# ── the cohort engine: senpi-smart-money's, vendored verbatim next to this file ──
 def _smartmoney():
-    d = skill_scripts("senpi-smart-money", "smartmoney.py")
-    if d is None:
-        raise ImportError("senpi-smart-money/scripts/smartmoney.py not found (SENPI_SKILLS_DIR?)")
-    if d not in sys.path:
-        sys.path.insert(0, d)
-    import smartmoney  # noqa: E402
+    import smartmoney  # noqa: E402 — scripts/smartmoney.py, byte-identical to senpi-smart-money's
     return smartmoney
 
 
@@ -182,7 +166,7 @@ def universe(c, cov, top_n):
     return metrics
 
 
-# ── 2. the proven cohort (senpi-smart-money's engine, imported as-is) ─────────
+# ── 2. the proven cohort (senpi-smart-money's engine, vendored as-is) ─────────
 def cohort(c, cov, metrics):
     try:
         sm = _smartmoney()
@@ -399,16 +383,28 @@ PLAIN_SOURCE = {"universe": "market data", "cohort": "proven-trader positions", 
                 "momentum": "momentum events", "cross_asset": "cross-asset flows"}
 
 
-def feed_text(rep):
-    """The rendered feed an agent presents, verbatim, plus ONE plain line naming any source that failed —
-    so a dark lens is never read as "nothing happened", without coverage lines, counts or tool names."""
-    with open(os.path.join(rep["out_dir"], "signals.md")) as f:
-        feed = f.read().rstrip("\n")
+def not_measured(rep):
+    """ONE plain line naming any source that failed, or "" — so a dark lens is never read as "nothing
+    happened", without coverage lines, counts or tool names."""
     dark = [PLAIN_SOURCE[k] for k, v in (rep.get("coverage") or {}).items()
             if k in PLAIN_SOURCE and str(v).startswith(("failed", "NO DATA", "unavailable"))]
-    if dark:
-        feed += "\n\n_Not measured this run: " + ", ".join(dark) + "._"
-    return feed
+    return "_Not measured this run: " + ", ".join(dark) + "._" if dark else ""
+
+
+def feed_text(rep):
+    """The rendered feed an agent presents, verbatim, plus the not-measured line when a source failed."""
+    with open(os.path.join(rep["out_dir"], "signals.md")) as f:
+        feed = f.read().rstrip("\n")
+    dark = not_measured(rep)
+    return feed + ("\n\n" + dark if dark else "")
+
+
+def brief_text(rep, n):
+    """The short version another skill closes with (senpi-market-pulse): the top n trade reads, one line
+    each, no legend — plus the not-measured line when a source failed."""
+    text = score.render_brief((rep.get("result") or {}).get("trade") or [], n)
+    dark = not_measured(rep)
+    return text + ("\n" + dark if dark else "")
 
 
 def main(argv=None):
@@ -422,17 +418,14 @@ def main(argv=None):
     ap.add_argument("--print-feed", action="store_true",
                     help="print only the feed to present (signals.md, plus one line naming any failed source); "
                          "diagnostics are shown only if the sweep itself fails")
+    ap.add_argument("--brief", type=int, default=None, metavar="N",
+                    help="print only the top N trade reads, one line each (the short version another skill "
+                         "closes with); same sweep, same outputs written")
     a = ap.parse_args(argv)
-    d = skill_scripts("senpi-smart-money", "mcp_client.py")     # the vendored stdlib MCP transport
-    if d is None:
-        print("senpi-smart-money/scripts/mcp_client.py not found — set SENPI_SKILLS_DIR", file=sys.stderr)
-        return 2
-    if d not in sys.path:
-        sys.path.insert(0, d)
-    from mcp_client import MCPClient  # noqa: E402
+    from mcp_client import MCPClient  # noqa: E402 — scripts/mcp_client.py, byte-identical to senpi-smart-money's
     client = MCPClient()
     kwargs = dict(out_dir=a.out_dir, now=a.now, top_n=a.top_n, top=a.top, lens=a.lens)
-    if a.print_feed:
+    if a.print_feed or a.brief is not None:
         err = io.StringIO()
         try:
             with contextlib.redirect_stderr(err):
@@ -440,7 +433,7 @@ def main(argv=None):
         except Exception:
             sys.stderr.write(err.getvalue())
             raise
-        print(feed_text(rep))
+        print(brief_text(rep, a.brief) if a.brief is not None else feed_text(rep))
         return 0
     rep = run(lambda name, args: client.mcp_call(name, **args), **kwargs)
     print(json.dumps(rep["result"], indent=2))

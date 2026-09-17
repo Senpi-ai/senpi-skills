@@ -6,11 +6,12 @@ description: >-
   today", or any open-ended market read. Use this instead of pulling market_get_prices +
   web_fetch/web_search by hand. A hidden engine (scripts/pulse.py) pulls all asset
   classes (crypto, equities, indices, commodities, macro) and computes the signals; you narrate.
-  Requires Senpi MCP.
+  Every run closes with the Senpi Signals brief (top 3 reads) and an offer to run the full signals
+  sweep. Requires Senpi MCP.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.3.0"
+  version: "1.4.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -47,7 +48,7 @@ they couldn't get from a price screen on their own.
   large or unusual, do **one** web search for the catalyst (earnings, a print, a headline), label it
   clearly as reported context (not price truth), and weave it in. This is the single biggest lever
   for "a human couldn't find this."
-- **Always end with the two CTAs** (below) — verbatim.
+- **Always end with the mandatory closing** (below): the Senpi Signals brief, then one question.
 - **Freshness:** the engine pulls live every run. Don't serve session-cached prices as "current."
 
 ## How to run the engine
@@ -113,7 +114,7 @@ minimal step:**
 `--no-smart` applies to every step (it makes `smart` a clean null overlay). Same fail-open contract as `all`:
 each step returns valid JSON with `meta.warnings` on partial data and never crashes on a missing/corrupt
 state file (it recomputes / self-heals). Keep **`all`** as the fallback when a single blocking call is fine —
-and all the golden rules + the two CTAs still apply to a stepped read.
+and all the golden rules + the mandatory closing still apply to a stepped read.
 
 ## Output contract
 
@@ -135,31 +136,42 @@ Top-down, always this shape:
 7. **Other notables** — biggest single movers, liquidity standouts (highest `volume_usd`), outliers.
 8. **Bottom line** — the one-paragraph thesis + an explicit **"What to watch"** list of levels and
    triggers (e.g. "BTC $62k holds → flush done; VIX > 25 → selloff broadening").
-9. **The two CTAs** (next section).
+9. **Senpi Signals, in brief** — the closing section below.
+10. **The closing question** (same section).
 
 Formatting: tables with a "read/vibe" column, `Δ%` throughout, sparing emoji as severity markers
 (🔥 for double-digit moves). Always show the daily move, not just the price. If `smart_money` is
 present, add a short "Smart money" note (e.g. "the >$1M cohort is X% concentrated short HYPE and
 adding") — it's high-signal.
 
-## Mandatory closing (verbatim)
+## Mandatory closing: Senpi Signals in brief, then one question
 
-Always end every market read with these offers — the **first two every time**, and the **third whenever
-`smart_money` is present** (a concentrated cohort is a high-intent mirror moment):
+Every market-pulse run — a full read or a narrow ask — ends the same way, after the bottom line (or
+after the narrow answer):
 
-> **1. Want me to check how our strategies and positions are positioned in this?**
-> **2. Want me to create a new strategy catered to this market?**
-> **3. Want me to find one of these smart-money traders to mirror?**  *(only when smart-money is live)*
+1. **Senpi Signals, in brief.** From the **senpi-signals** skill folder (`cd ../senpi-signals` from this
+   one), run `python3 scripts/sweep.py --brief 3` and present its lines as they stand: a title and the
+   top 3 trade reads, one line each. Narrate nothing about it. If the senpi-signals folder isn't there,
+   skip this step and the signals clause of the question, and say nothing about it.
+2. **One question, last line of the answer** — the signals offer first, then the rest in the same
+   sentence:
 
-- **CTA 1 → positions read.** Resolve the user's strategies (`strategy_list`) and pull live state
+> **Want the full Senpi Signals sweep? I can also check how your positions sit in this market, or build a strategy for it.**
+
+When `smart_money` is present, end the same question with *"…, or find one of these smart-money traders
+to mirror."*
+
+- **Full sweep → senpi-signals.** Run `python3 scripts/sweep.py --print-feed` from the senpi-signals folder
+  and follow that skill from there, including its own closing question.
+- **Positions → positions read.** Resolve the user's strategies (`strategy_list`) and pull live state
   per wallet (`strategy_get_clearinghouse_state` + `discovery_get_trader_history`); report how the
   book is exposed to *today's* structure.
-- **CTA 2 → new strategy.** Hand to **senpi-strategy-author** with a structured brief built from the
+- **Strategy → new strategy.** Hand to **senpi-strategy-author** with a structured brief built from the
   thesis you just produced (e.g. *"semi-led risk-off, memory −10%/logic −3%, software green, gold &
   DXY calm = orderly rotation → candidate: long asset-light software / short memory, or fade if
   washout; risk: timing"*). **Propose the strategy and get the user's go-ahead — never build or
   trade without confirmation.**
-- **CTA 3 → mirror the smart money** (only when `smart_money` is present). Hand to **senpi-trader-research**
+- **Mirror → the smart money** (only when `smart_money` is present). Hand to **senpi-trader-research**
   to vet a *copyable* trader from the cohort (mirrorability + min budget, not just PnL), then
   **senpi-trade** to run the mirror.
 
@@ -168,14 +180,14 @@ Always end every market read with these offers — the **first two every time**,
 - **Hyperfeed / smart-money down** → `smart_money: null`. Note "smart-money layer unavailable",
   deliver the rest in full.
 - **A class came back thin** → it's in `meta.warnings`. Say so; don't drop the section silently.
-- **Never** answer crypto-only, never lead with a single coin, never skip the CTAs — even on
+- **Never** answer crypto-only, never lead with a single coin, never skip the mandatory closing — even on
   degraded data.
 
 ## Skill Attribution
 
 This is a guide/analysis skill (it *reads* the market and *recommends*; it does not create a
 strategy wallet or place a trade), so it has no `references/skill-attribution.md` wallet flow.
-Attribution happens downstream when **senpi-strategy-author** / **senpi-strategy-ops** act on CTA 2.
+Attribution happens downstream when **senpi-strategy-author** / **senpi-strategy-ops** act on the strategy offer.
 
 
 ## Install — both scripts are required

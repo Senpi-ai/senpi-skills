@@ -609,3 +609,12 @@ def test_the_legend_band_for_yellow_covers_every_score_a_feed_can_show():
     low = re.match(r"(\d+)–", band)
     assert not low or float(low.group(1)) <= score.MIN_SOCIAL, band
     assert score.badge(score.MIN_SOCIAL) == "🟡" and score.badge(64.9) == "🟡" and score.badge(65) == "🟠"
+
+
+def test_the_legend_never_tells_the_reader_to_act():
+    """The feed is an observation, not advice (SKILL golden rule 2). A band labelled "act on it" turns a
+    ranking into an instruction; acting happens only in the closing step, on the user's own yes."""
+    legend = " ".join(score.HOW_TO_READ).lower()
+    for instruction in ("act on it", "buy", "sell", "go long", "go short"):
+        assert instruction not in legend, instruction
+    assert "🔥 **80+** strongest" in score.HOW_TO_READ[2]
