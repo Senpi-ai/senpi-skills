@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "4.1.3"
+  version: "4.1.4"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -110,6 +110,23 @@ passing proof that covers the recipe being applied, so point it at the package D
 handed over as bare text has nothing to verify against and is refused. Exit `2` means the runtime
 was never touched; exit `1` means an apply was attempted and it may not be where you left it — read
 the message before retrying.
+
+**Saved is not applied.** Without `--apply`, `update` changes nothing, and only the first line of its
+output says so — `Dry run for <runtime_id> — nothing has been applied.` — so never pipe
+`openclaw senpi` output through `tail` or `head`. A scanner imports `scan.py` once, when it starts, so
+a running strategy keeps its old code until `--apply` restarts its scanners (a crash or a gateway
+restart would load the edit too, unannounced). `senpi validate` runs the copy on disk, never the
+running one, and re-running `deploy` on a strategy that is already running applies nothing. The edit
+is live once the apply exits `0` with `Updated <runtime_id>.` as its first line and no `WARNING` that
+its external scanners are NOT running, and the running strategy shows it:
+
+```bash
+openclaw senpi events -r <runtime_id> --name runtime.updated   # an entry for this apply (code-only edits too)
+openclaw senpi update ./pkg --id <runtime_id>                  # read-only: a recipe edit that landed plans "The recipe is unchanged."
+```
+
+Until both reads show it, tell the user the edit is **saved, not applied**. What a tick keeps and what
+discards one: `references/scan-contract.md`.
 
 Beyond `validate`, `deploy`/`deploy status`, `update` and `runtime list/delete`, the CLI exposes the runtime's live state — `senpi dsl
 positions|inspect|closes` (the exit engine), `senpi action list|inspect|history|decisions` (the
