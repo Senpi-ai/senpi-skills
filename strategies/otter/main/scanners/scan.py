@@ -230,8 +230,12 @@ def fetch_spread_bps(ctx, asset):
     ob = data.get("order_book") or data.get("orderBook") or {}
     if not isinstance(ob, dict):
         return None
-    bids = ob.get("bids") or []
-    asks = ob.get("asks") or []
+    levels = ob.get("levels")
+    if isinstance(levels, list) and len(levels) >= 2:     # live shape: {levels: [[bids], [asks]]}
+        bids, asks = levels[0] or [], levels[1] or []
+    else:
+        bids = ob.get("bids") or []
+        asks = ob.get("asks") or []
     if not bids or not asks:
         return None
     best_bid = scoring._f((bids[0] or {}).get("price") or (bids[0] or {}).get("px"))
