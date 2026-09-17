@@ -683,7 +683,7 @@ def frame(s):
 HOW_TO_READ = [
     "**How to read this**",
     "",
-    "🔥 **80+** act on it · 🟠 **65–79** worth a look · 🟡 **45–64** context",
+    "🔥 **80+** act on it · 🟠 **65–79** worth a look · 🟡 **under 65** context",
     "⭐ top of feed · ⚑ a named wallet · **early** = positioning is in, the price move hasn't happened yet",
     "",
     "The score is a **0–100 weighted checklist, not a probability** — it ranks what to look at, "

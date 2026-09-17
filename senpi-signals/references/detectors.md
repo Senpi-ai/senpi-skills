@@ -296,7 +296,7 @@ state** (great content, but not a directional edge). `score.py` fires whichever 
   check (price move + volume, OI building/draining); use thin positioning (few traders, low %,
   tiny market) as *corroboration*, never the headline. Never upgrade "leans short (1.23%)" to
   "smart money is short." See `worked-examples.md` (WLFI).
-- **Severity flag** — 🔥 ≥ 80 · 🟠 65–79 · 🟡 45–64; ⭐ top; ⚑ named wallet (score.py emits these).
+- **Severity flag** — 🔥 ≥ 80 · 🟠 65–79 · 🟡 under 65 (trade items start at 45, news items at 30); ⭐ top; ⚑ named wallet (score.py emits these).
 
 ### Glossary (use these plain-English definitions in output)
 - **Top traders / the cohort** — the top ~C most-profitable traders on Hyperliquid by realized PnL
