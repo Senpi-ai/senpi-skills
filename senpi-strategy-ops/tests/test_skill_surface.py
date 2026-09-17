@@ -51,7 +51,10 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # references/walkthrough.md and are named here, not repeated. Set at the post-edit count with no slack.
 # ops 322: DSL two-target rule, four resident lines (2026-09-12)
 # ops 331: templates deploy under the user's name — the walkthrough rule in bullets, plain words, the name as a fact (2026-09-12)
-BODY_BUDGET = {"senpi-strategy-ops": 331, "senpi-strategy-author": 425}
+# ops 335: saved is not applied — a plan says so only in its first line (no tail/head), an edit is live only once
+# `--apply` exits 0 and the running strategy shows it, and until then the user hears "saved, not applied". Resident
+# because it fires on every edit to a live strategy; the two confirming reads live in references/editing-a-live-strategy.md.
+BODY_BUDGET = {"senpi-strategy-ops": 335, "senpi-strategy-author": 425}
 
 
 def _skill_body(path):

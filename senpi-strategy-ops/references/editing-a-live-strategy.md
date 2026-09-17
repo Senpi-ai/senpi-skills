@@ -21,7 +21,27 @@ openclaw senpi update <recipe-dir> --id <runtime_id>
 
 # 3. Apply.
 openclaw senpi update <recipe-dir> --id <runtime_id> --apply
+
+# 4. Confirm the running strategy has it — both read-only.
+openclaw senpi events -r <runtime_id> --name runtime.updated   # an entry for this apply (code-only edits too)
+openclaw senpi update <recipe-dir> --id <runtime_id>           # a recipe edit that landed now plans "The recipe is unchanged."
 ```
+
+**An edit is live only after step 3 succeeds and step 4 shows it.** Until then tell the user the edit is
+**saved, not applied** — never "done" or "live".
+
+- Step 2 changes nothing, and only the first line of its output says so:
+  `Dry run for <runtime_id> — nothing has been applied.` Nothing at the end repeats it, so never pipe
+  `openclaw senpi` output through `tail` or `head` — read all of it.
+- Step 3 succeeded when it exits `0`, its first line is `Updated <runtime_id>.`, and no `WARNING` says
+  the runtime's external scanners are NOT running. If one does, the edited scanner is not running:
+  relay the warning and the check it names.
+- A running scanner imported `scan.py` and `scoring.py` when it started, so it keeps the old code until
+  step 3 restarts the scanners (a crash or a gateway restart would load the edit too, unannounced). The
+  plan in step 4 compares recipes and cannot see code: for a code-only edit, the `runtime.updated` entry
+  is the proof.
+- A `PASS` from step 1 is not step 4. `senpi validate` runs the copy on disk in a fresh process; it
+  never inspects the running scanner.
 
 **The wrapper — `python3 senpi-strategy-ops/scripts/deploy.py update <pkg> --id <runtime_id> [--apply] [--code-only] [--json]`.**
 Same verb, three things around it: the structural preflight `create` runs (a package the deployer would

@@ -110,6 +110,25 @@ if ctx.state is not None:
         print(f"[scan] WARNING: state append failed: {exc!r}", file=sys.stderr)
 ```
 
+### What a tick keeps, and when an edit reaches a running scanner
+
+- **Every key of every record you `append` is saved** to the state file as JSON — nothing is dropped
+  or trimmed, and the scaffold adds its own `recorded_at` (seconds). `state_history_max_count` caps
+  how many records are kept, not how large each one is. A restarted scanner reads the file back, so
+  an `int` key returns as a string and a tuple as a list.
+- **These discard the whole tick — state not advanced, no signals delivered:** `scan()` raises, runs
+  past its timeout or returns something other than a list; a record holds anything `json.dumps`
+  rejects (a `set`, a `datetime`, a `Decimal`, a tuple key); or `scan()` returns `[]` after any
+  `ctx.senpi_mcp` call in that tick failed, even one your code caught.
+- **`scan.py` is imported once, when the scanner process starts**, and so is everything it imports,
+  `scoring.py` included. A running scanner keeps the code it started with; an edit on disk runs from
+  its next start, which `openclaw senpi update <recipe-dir> --id <runtime_id> --apply` triggers (add
+  `--code-only` when only scanner code changed) — and which a crash or a gateway restart also
+  triggers, unannounced. Re-running a deploy on a strategy that is already running applies nothing:
+  it keeps the runtime that is running.
+- **`openclaw senpi validate` never inspects the running scanner.** It runs the code on disk in a
+  fresh process against empty, throwaway state, so a `PASS` proves the edit runs, not that it is live.
+
 ---
 
 ## Gates and `ctx.dry_run`

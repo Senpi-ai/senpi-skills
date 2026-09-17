@@ -28,7 +28,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.19.0"
+  version: "3.20.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -337,7 +337,7 @@ is strategy-driven: close also cleans up an attributed package's **orphaned** (n
 ## Applying an edit to a strategy that is already LIVE
 
 "Make my live strategy more aggressive." **The edit is authored in `senpi-strategy-author`**, never here. **Read the runtime's own state first** (`status.py <id>` / `openclaw senpi status -r <runtime>`): a `Runtime paused: Max Entries/Day` line or a gate that is not `OPEN` means nothing opens today at any balance — a top-up "for a fifth position" is the wrong advice; free margin for a perp book is the perps `withdrawable`, never spot-side USDC. The clearinghouse alone cannot say why nothing is opening.
-**Re-running `create` will NOT apply it** — it is idempotent, so it adopts the existing wallet and leaves
+**Re-running `create` (or `senpi deploy`) will NOT apply it** — it is idempotent, so it adopts the existing wallet and leaves
 the deployed scanner as it is.
 
 **Apply it in place — `openclaw senpi update`.** No close, no fresh wallet, no market exit; DSL state,
@@ -351,6 +351,10 @@ both first (the file and `ratchet_stop_list`), show the drift and each position'
 ask (a), (b) or (c) — never assume (a), never touch an open position without its own approval:
 [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md). Call it an **update** to the user, never a
 "redeploy" — that word is the market-exit path below; an edit that closes nothing must never sound like one.
+**Saved is not applied.** `update` without `--apply` only plans — its first line reads `Dry run for <runtime_id> — nothing has been applied.` —
+so never pipe `openclaw senpi` output through `tail`/`head`. An edit is live only once `--apply` exits `0` and the running strategy
+shows the change (the two reads: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md)); until then tell
+the user it is **saved, not applied** — never "done" or "live".
 
 **Only a changed `strategy.wallet`, a renamed or moved external scanner, or a changed `action_type` still need
 close-and-redeploy**, which market-exits every open position and drops any custom ratchet ladder — take
