@@ -46,14 +46,15 @@ class _State:
 
 
 class _MCP:
-    def __init__(self): self.calls = []
+    def __init__(self): self.calls, self.elite_size = [], 1.0
 
     def call_tool(self, tool, args):
         self.calls.append((tool, args))
         if tool == "discovery_get_top_traders":
             return _TOP_TRADERS if not args.get("offset") else {"success": True, "data": {"traders": []}}
         if tool == "leaderboard_get_trader_positions":
-            return _positions("BTC", 1.0, 60000) if args["trader_id"] == ELITE else _positions("ETH", -20.0, 3000)
+            return (_positions("BTC", self.elite_size, 60000) if args["trader_id"] == ELITE
+                    else _positions("ETH", -20.0, 3000))
         if tool == "strategy_get_clearinghouse_state":
             return {"main": {"marginSummary": {"accountValue": "1000", "totalMarginUsed": "0"},
                              "assetPositions": []}}
@@ -80,8 +81,13 @@ def test_the_cohort_build_keeps_each_rows_tcsLabel():
 
 def test_one_elite_whale_now_clears_min_score():
     """3 (a whale's top conviction) + 1 (ELITE) = 4 = minScore: a single elite whale trades; the
-    STREAKY whale's solo ETH short stays at 3 and does not. No trader_state read is made."""
+    STREAKY whale's solo ETH short stays at 3 and does not. No trader_state read is made.
+
+    The first tick only seeds each whale's book (Remora mirrors what a whale just did, not what they
+    hold), so the ELITE whale ADDS on the second tick and that is what trades."""
     ctx = _Ctx(_MCP())
+    assert scan.scan(dict(_INPUTS), ctx) == []                       # first sight: seed, emit nothing
+    ctx.senpi_mcp.elite_size = 1.5                                   # the elite whale adds 50%
     out = scan.scan(dict(_INPUTS), ctx)
     assert [(s["asset"], s["direction"], s["data"]["score"], s["data"]["eliteTier"]) for s in out] \
         == [("BTC", "LONG", 4, True)]

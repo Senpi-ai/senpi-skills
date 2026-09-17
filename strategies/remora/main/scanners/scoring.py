@@ -156,6 +156,44 @@ def top_position(positions, min_notional=0.0):
     return best
 
 
+def book_snapshot(positions):
+    """{"ASSET|SIDE": size} for a whale's book. Size is |szi| (or |size|), which does not drift with
+    price, so a mark move is never mistaken for the whale adding."""
+    snap = {}
+    for p in positions or []:
+        if not isinstance(p, dict):
+            continue
+        asset, side = position_asset(p), mirror_direction(p)
+        if not asset or side is None:
+            continue
+        size = abs(safe_float(p.get("szi", p.get("size", 0))))
+        key = f"{asset.upper()}|{side}"
+        snap[key] = max(snap.get(key, 0.0), size)
+    return snap
+
+
+def new_or_added(positions, prior, min_add_pct):
+    """The positions a whale JUST opened, or added to by at least `min_add_pct`, against the previous
+    tick's snapshot. A position they merely still hold is not a signal: mirroring holdings re-entered
+    the same standing short every time the per-asset cooldown expired. `prior` None (first sight of a
+    whale) seeds their book and returns nothing, so Remora never inherits an existing book."""
+    if prior is None:
+        return []
+    out = []
+    step = 1.0 + max(0.0, safe_float(min_add_pct)) / 100.0
+    for p in positions or []:
+        if not isinstance(p, dict):
+            continue
+        asset, side = position_asset(p), mirror_direction(p)
+        if not asset or side is None:
+            continue
+        size = abs(safe_float(p.get("szi", p.get("size", 0))))
+        was = safe_float(prior.get(f"{asset.upper()}|{side}", 0.0))
+        if was <= 0 or size > was * step:
+            out.append(p)
+    return out
+
+
 def consensus_bonus(count):
     """Score bonus for how many whales independently hold the same
     asset+direction. 3+ whales is a strong consensus. Verbatim from v2."""

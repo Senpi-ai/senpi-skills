@@ -22,7 +22,7 @@ description: >
   cached daily) and mirrors their highest-conviction positions — so it trades out of
   the box with no config. Optionally name specific whales via inputs.whales to mirror
   exactly those. Each tick it pulls each whale's open positions (leaderboard_get_trader_positions),
-  takes their highest-conviction (largest-notional) position above minNotionalUsd,
+  takes the highest-conviction (largest-notional) position they JUST opened or added to above minNotionalUsd,
   aggregates across whales into (asset, direction) candidates, scores by consensus
   (how many whales agree) + whale quality (the cohort row's ELITE/RELIABLE tcsLabel
   when useWhaleQuality), and mirrors the strongest 1-2 — sized by
@@ -66,6 +66,7 @@ scanners:
       # ── mirror scoring (v2 Remora — verbatim) ─────────────────────────────
       useWhaleQuality: true                  # ELITE/RELIABLE bonus — tcsLabel on the discovery_get_top_traders cohort row
       minNotionalUsd: 5000                   # v2 DEFAULT_MIN_NOTIONAL_USD — skip dust positions
+      minWhaleAddPct: 20                     # a whale ADDING counts as a move; below this a size change is noise
       minScore: 4                            # v2 DEFAULT_MIN_SCORE — producer floor
       emitTopN: 2                            # emit the strongest 1-2 mirrors per tick (clamped 1..2)
       marginPct: 15                          # PERCENT of withdrawable (0,100]; v2 stored fraction 0.15 -> 15%
