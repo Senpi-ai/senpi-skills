@@ -351,6 +351,20 @@ def test_brief_is_the_top_trade_reads_one_line_each(state_dir, monkeypatch, caps
     assert sorted(p.name for p in (state_dir / "signals").iterdir()) == ["current.json", "signals.md"]
 
 
+def test_brief_says_so_when_nothing_clears_the_second_band():
+    """Two 🟡 reads under a header that says "top reads right now" reads as a recommendation of the best
+    of a weak lot (live, Sep 17: 63.4 and 57.9). Say what the band means instead."""
+    weak = [{"asset": "HYPE", "trade_score": 63.4, "detector": "sm_divergence", "direction": "short",
+             "numbers": ["cohort 60% short"], "dex": ""},
+            {"asset": "ZEC", "trade_score": 57.9, "detector": "sm_divergence", "direction": "short",
+             "numbers": ["cohort 58% short"], "dex": ""}]
+    out = sweep.score.render_brief(weak, 3)
+    assert out.splitlines()[0] == "**🔭 Senpi Signals — nothing strong right now, context only**"
+    assert "`HYPE`" in out and "`ZEC`" in out                      # the reads still print
+    strong = [dict(weak[0], trade_score=71.0)]
+    assert sweep.score.render_brief(strong, 3).splitlines()[0] == "**🔭 Senpi Signals — top reads right now**"
+
+
 def test_brief_on_a_quiet_market_is_one_plain_line():
     assert sweep.score.render_brief([], 3) == "**🔭 Senpi Signals:** nothing notable stands out right now."
 

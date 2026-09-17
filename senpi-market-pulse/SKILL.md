@@ -57,7 +57,7 @@ Invoke via the `exec` tool. Optional leading STEP (`pulse` · `smart` · `all`; 
 
 ```
 python3 scripts/pulse.py pulse [--no-smart]   # 1. FAST core read: movers/groups/funding/signals (narrate first)
-python3 scripts/pulse.py smart                # 2. smart-money overlay, layered on the persisted core read
+python3 scripts/pulse.py smart                # 2. 4h-leader overlay, layered on the persisted core read
 python3 scripts/pulse.py all  [--no-smart]    # one-shot fallback: the full composed dict (same output as before)
 ```
 
@@ -68,8 +68,9 @@ python3 scripts/pulse.py all  [--no-smart]    # one-shot fallback: the full comp
   `macro_fx`, `crypto`.
 - `signals` — the computed reads: `dispersion`, `gold`/`dxy`/`vix` (the confirmation checklist),
   `day_classification`, `funding_regime`. Each carries a plain `read` string you can cite.
-- `smart_money` — the leaderboard layer (cohort concentration, top traders, momentum events) **or
-  `null`** if Hyperfeed is down. If null, note it once and move on — never stall.
+- `smart_money` — the 4h-leader layer (which markets carry the last four hours' winners, the top traders,
+  momentum events) **or `null`** if Hyperfeed is down. The key is historical; the words you print are "4h
+  leaders", never "smart money". If null, note it once and move on — never stall.
 - `meta.warnings` / `meta.degraded` — what was unavailable. Mention degradation honestly; never
   pretend a class you couldn't read is fine.
 - The engine **fails open** — partial data still returns valid JSON. Work with what you got; flag
@@ -86,7 +87,7 @@ so your response streams and no single call hangs.
 
 ```sh
 python3 scripts/pulse.py pulse    # 1. instruments + build_groups + compute_signals + mover deep-pull → movers/groups/funding/signals (FAST, narrate first)
-python3 scripts/pulse.py smart    # 2. the smart-money overlay (leaderboard/Hyperfeed) layered on the persisted core read
+python3 scripts/pulse.py smart    # 2. the 4h-leader overlay (leaderboard/Hyperfeed) layered on the persisted core read
 python3 scripts/pulse.py all      # one-shot fallback: the full composed dict (byte-identical to before)
 ```
 
@@ -97,9 +98,9 @@ the two steps **in order** and narrate between:
    `signals` (macro character, indices, the epicenter gradient, the divergence, commodities/macro, crypto +
    `funding_regime`, notable movers). Don't wait for the smart-money layer. This is the whole output
    contract below **except** the smart-money note.
-2. `pulse.py smart` → narrate the **smart-money overlay** (`smart_money`: cohort concentration, top traders,
-   momentum events) — "the >$1M cohort is X% concentrated short HYPE and adding." If `smart_money` is null,
-   note "smart-money layer unavailable" once and move on.
+2. `pulse.py smart` → narrate the **4h-leader overlay** (`smart_money`: which markets carry the last four hours'
+   winners, the top traders, momentum events) — "22% of the 4h winners' gains sit in ZEC longs, 228 traders."
+   Never call it smart money (see Formatting). If it is null, note "4h-leader layer unavailable" once and move on.
 
 **Narrate each slice as it returns — never wait for both steps.** The steps share a state file
 (`<tempdir>/senpi-market-pulse/state.json`, overridable with `--state`), so `smart` layers onto the
@@ -108,8 +109,9 @@ minimal step:**
 
 - *"what's moving / today's markets / funding regime / market overview"* → just **`pulse`** (the core read;
   no smart-money round-trips).
-- *"what's smart money doing in the market / compare to the whales"* → **`smart`** (it self-heals the core
-  read if you skipped `pulse`), or compose **`senpi-smart-money`** for the deep trader-level whale read.
+- *"who is winning right now / what's hot in the last 4h"* → **`smart`** (it self-heals the core read if you
+  skipped `pulse`). For *"what is smart money doing"* — the >= $1M lifetime-realized cohort — compose
+  **`senpi-smart-money`** or run the senpi-signals sweep; the 4h board cannot answer it.
 
 `--no-smart` applies to every step (it makes `smart` a clean null overlay). Same fail-open contract as `all`:
 each step returns valid JSON with `meta.warnings` on partial data and never crashes on a missing/corrupt
@@ -140,9 +142,13 @@ Top-down, always this shape:
 10. **The closing question** (same section).
 
 Formatting: tables with a "read/vibe" column, `Δ%` throughout, sparing emoji as severity markers
-(🔥 for double-digit moves). Always show the daily move, not just the price. If `smart_money` is
-present, add a short "Smart money" note (e.g. "the >$1M cohort is X% concentrated short HYPE and
-adding") — it's high-signal.
+(🔥 for double-digit moves). Always show the daily move, not just the price. **A missing change is `—`, never `0.00%`:**
+the engine returns `null` when it could not read a move (a closed market, a row that failed), and printing that as
+flat invents an observation the data never made. If `smart_money` is present, add a short **4h leaders** note
+(e.g. "in the last 4h, 22% of the winners' gains sit in ZEC longs, across 228 traders") — it's high-signal.
+**Never call it smart money.** That layer is `leaderboard_get_markets`: who is winning *right now*, survivorship
+included. senpi-signals' "smart money" is the >= $1M lifetime-realized cohort, and the two are regularly on
+opposite sides of the same name in the same answer — so the words have to say which population each one is.
 
 ## Mandatory closing: Senpi Signals in brief, then one question
 
@@ -158,8 +164,8 @@ after the narrow answer):
 
 > **Want the full Senpi Signals sweep? I can also check how your positions sit in this market, or build a strategy for it.**
 
-When `smart_money` is present, end the same question with *"…, or find one of these smart-money traders
-to mirror."*
+That is the whole question, whether or not the 4h-leader layer is present. Mirroring is not offered here: a
+trader who is up over four hours has a four-hour record, and the offer would read as a recommendation of them.
 
 - **Full sweep → senpi-signals.** Run `python3 scripts/sweep.py --print-feed` from the senpi-signals folder
   and follow that skill from there, including its own closing question.
@@ -173,14 +179,13 @@ to mirror."*
   software green, gold & DXY calm = orderly rotation → candidate: long asset-light software / short
   memory, or fade if washout; risk: timing"*). Never promise or imply results. **Propose the strategy
   and get the user's go-ahead — never build or trade without confirmation.**
-- **Mirror → the smart money** (only when `smart_money` is present). Hand to **senpi-trader-research**
-  to vet a *copyable* trader from the cohort (mirrorability + min budget, not just PnL), then
-  **senpi-trade** to run the mirror.
+- **Mirror, if the user asks for one** (they may, after the 4h-leader note — it is never offered). Hand to
+  **senpi-trader-research** to vet a *copyable* trader on their track record, not their last four hours
+  (mirrorability + min budget, not just PnL), then **senpi-trade** to run the mirror.
 
 ## Resilience (the engine handles these — narrate them honestly)
 
-- **Hyperfeed / smart-money down** → `smart_money: null`. Note "smart-money layer unavailable",
-  deliver the rest in full.
+- **Hyperfeed down** → `smart_money: null`. Note "4h-leader layer unavailable", deliver the rest in full.
 - **A class came back thin** → it's in `meta.warnings`. Say so; don't drop the section silently.
 - **Never** answer crypto-only, never lead with a single coin, never skip the mandatory closing — even on
   degraded data.

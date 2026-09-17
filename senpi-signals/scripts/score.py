@@ -790,7 +790,10 @@ def render_brief(trade, n):
     picks = list(trade or [])[:max(0, n)]
     if not picks:
         return "**🔭 Senpi Signals:** nothing notable stands out right now."
-    lines = ["**🔭 Senpi Signals — top reads right now**"]
+    # A header that says "top reads" over two 🟡 lines recommends the best of a weak lot. Say the band.
+    strongest = max((_num(s.get("trade_score")) or 0.0) for s in picks)
+    lines = ["**🔭 Senpi Signals — top reads right now**" if strongest >= 65
+             else "**🔭 Senpi Signals — nothing strong right now, context only**"]
     for s in picks:
         lines.append(f"- {badge(s['trade_score'])} **{s['trade_score']}** · `{s['asset']}` — {trade_read(s)}{when(s)}")
     return "\n".join(lines)
