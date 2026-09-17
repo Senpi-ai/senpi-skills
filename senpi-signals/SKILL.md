@@ -146,7 +146,7 @@ detector family reach either feed. Give a **user** the trade feed; content uses 
   sections** — *Tradeable dislocations* (trade feed) and *Market news* (news feed). Present the feed
   that fits the audience; don't relabel it.
 - **Present `score.py`'s rendered block** (`signals.md`) as canonical — narrate *around* it, don't
-  replace it with free prose. Badges (🔥 ≥ 80 · 🟠 65–79 · 🟡 45–64; ⭐ top; ⚑ named wallet), header
+  replace it with free prose. Badges (🔥 ≥ 80 · 🟠 65–79 · 🟡 under 65; ⭐ top; ⚑ named wallet), header
   and ranking are the engine's job.
 - **For a user, `--print-feed` has already checked coverage.** A source that could not be read is
   named in the feed's last line (`Not measured this run: …`); repeat that line as it stands and add

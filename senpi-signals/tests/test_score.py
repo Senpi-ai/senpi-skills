@@ -598,3 +598,14 @@ def test_a_whale_move_is_one_proven_wallet_changing_size_since_the_previous_swee
     no_pnl = [s for s in score.detect_from_metrics(cur, prior, fast_age_min=45) if s["detector"] == "whale_move"]
     assert all("lifetime gains" not in score.trade_read(s) for s in no_pnl)   # unknown gains: say nothing
     assert not [s for s in score.detect_from_metrics(cur, {}) if s["detector"] == "whale_move"]
+
+
+def test_the_legend_band_for_yellow_covers_every_score_a_feed_can_show():
+    """News items are shown from MIN_SOCIAL (30) and badge 🟡 below 65, so the legend's 🟡 band cannot
+    start above MIN_SOCIAL: a news item scored 32 under a '45–64' legend reads as a mislabelled item."""
+    import re
+    line = next(x for x in score.HOW_TO_READ if "🟡" in x)
+    band = re.search(r"🟡 \*\*([^*]+)\*\*", line).group(1)
+    low = re.match(r"(\d+)–", band)
+    assert not low or float(low.group(1)) <= score.MIN_SOCIAL, band
+    assert score.badge(score.MIN_SOCIAL) == "🟡" and score.badge(64.9) == "🟡" and score.badge(65) == "🟠"

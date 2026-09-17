@@ -196,10 +196,10 @@ def test_cli_prints_the_read_budget(state_dir, monkeypatch, capsys):
     assert json.loads("\n".join(out[:-1]))["generated"] == NOW
 
 
-def _cli_client(monkeypatch, fail=()):
+def _cli_client(monkeypatch, fail=(), oi_btc=12000):
     class _Client:
         def mcp_call(self, tool, timeout=12, **kw):
-            return fake_call_tool(tool, kw, fail=fail)
+            return fake_call_tool(tool, kw, oi_btc=oi_btc, fail=fail)
     fake_mod = type(sys)("mcp_client")
     fake_mod.MCPClient = _Client
     monkeypatch.setitem(sys.modules, "mcp_client", fake_mod)
@@ -216,6 +216,25 @@ def test_print_feed_is_the_feed_and_nothing_about_the_engine(state_dir, monkeypa
     assert cap.err == ""
     for leak in ("[coverage]", "reads=", "[sweep]", "[wrote", "Not measured"):
         assert leak not in cap.out, leak
+
+
+def test_print_feed_never_carries_a_history_detector(state_dir, monkeypatch, capsys):
+    """The 2.0/v2 line at the surface an agent reads. A --print-feed run 70 min after another, with BTC OI
+    up 25%, has nothing to compare against: no v2 detector reaches what it prints, and the standing
+    smart-money read still does. Passing a --state to score.py from rank() makes this fail."""
+    seen, real_feed_text = [], sweep.feed_text
+    monkeypatch.setattr(sweep, "feed_text", lambda rep: seen.append(rep) or real_feed_text(rep))
+    _cli_client(monkeypatch)
+    assert sweep.main(["--now", NOW, "--print-feed"]) == 0
+    _cli_client(monkeypatch, oi_btc=15000)
+    assert sweep.main(["--now", LATER, "--print-feed"]) == 0
+    printed = capsys.readouterr().out.rstrip("\n")
+    second = seen[-1]["result"]
+    fired = {s["detector"] for s in second["trade"] + second["social"]}
+    assert "sm_divergence" in fired and not fired & sweep.score.HISTORY_DETECTORS, fired
+    assert second["diff_baseline_ts"] is None
+    assert printed.endswith(real_feed_text(seen[-1]))          # what it printed is that result, verbatim
+    assert sorted(p.name for p in (state_dir / "signals").iterdir()) == ["current.json", "signals.md"]
 
 
 def test_print_feed_names_a_failed_source_in_one_plain_line(state_dir, monkeypatch, capsys):
