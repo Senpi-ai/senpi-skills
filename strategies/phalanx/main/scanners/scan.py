@@ -441,6 +441,17 @@ def scan(inputs, ctx):
                        accuracy_state, signaled, {"ts": now, "emitted": False, "gate": "no_headcount"})
         return []
 
+    # ── cold start: the first read is the baseline, not a signal (delta needs a last tick) ──
+    # Measured against no last tick, every standing one-sided name reads as growing conviction.
+    if not prev_tilts:
+        tilts = {a: {"long_n": r["long_n"], "short_n": r["short_n"]} for a, r in headcount.items()}
+        print(f"[phalanx.scan] baseline seeded: {len(tilts)} names across {len(cohort)} wallets "
+              f"— no opens on the first tick", file=sys.stderr)
+        _persist_state(ctx, prev, cohort_refreshed, cohort, tilts, accuracy_state, signaled,
+                       {"ts": now, "emitted": False, "gate": "baseline", "board": len(headcount),
+                        "held": held_assets})
+        return []
+
     # ── 4h leaderboard (crowd read for divergence) ──
     crowd_lean = _crowd_lean(ctx, lb_limit)
 
@@ -502,9 +513,10 @@ def scan(inputs, ctx):
         trend_label, trend_strength = scoring.trend_structure(c4h or [])
         price_mult = scoring.price_conviction_mult(trend_label, direction)
 
-        # divergence booster
-        crowd_lr = crowd_lean.get(asset_key, 50.0)
-        divergent = scoring.is_divergent(long_ratio, crowd_lr)
+        # divergence booster — only against a board row. A name missing from the 4h board has no crowd
+        # read; a 50 default counted as SHORT and boosted every cohort long on an off-board name.
+        crowd_lr = crowd_lean.get(asset_key)
+        divergent = crowd_lr is not None and scoring.is_divergent(long_ratio, crowd_lr)
         divergence_mult = 1.5 if divergent else 1.0
 
         if divergent:
