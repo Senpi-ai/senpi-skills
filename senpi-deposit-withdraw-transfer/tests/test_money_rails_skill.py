@@ -48,10 +48,23 @@ def test_failed_top_up_reread_bypasses_the_portfolio_cache():
 def test_at_most_one_resubmit_and_never_the_same_strategy_twice():
     _needles("**At most one re-submit — only if the user asks, and never for the same strategy twice.**",
              "submit once with a **new** idempotency key",
-             "this strategy wallet cannot receive top-ups right now",
-             "strategy fresh so it gets a new wallet",
+             "something is wrong that a retry won't fix",
              "Senpi support with the top-up request id",
              "Never a third submit, never a retry loop")
+
+
+def test_a_second_failed_top_up_goes_to_support_never_to_a_fresh_deploy():
+    """A second FAILED is a support case. A fresh deploy fixes nothing a retry didn't: it only charges
+    another wallet-creation fee and leaves the old strategy running beside the new one."""
+    _needles("**Never offer a fresh deploy as the fix for a failed top-up:**",
+             "a fresh deploy offered as the fix for a failed top-up")
+    text = _skill()
+    for defect in ("cannot receive top-ups right now",
+                   "can't receive top-ups right now",
+                   "a fresh deploy gets a wallet",
+                   "deploy it fresh (new wallet)",
+                   "fresh so it gets a new wallet"):
+        assert defect not in text, f"the fresh-deploy remedy came back: {defect!r}"
 
 
 def test_perps_precheck_gates_on_withdrawable_never_on_account_value():

@@ -202,18 +202,17 @@ the money parked in **Spot**. Four rules, in this order:
    **Never say "still in the funding wallet" without naming the balance — perps or Spot.**
 4. **At most one re-submit — only if the user asks, and never for the same strategy twice.** Recover the
    Spot leg (rule 3), re-run the precheck (rule 1), then submit once with a **new** idempotency key. A
-   second FAILED for the same strategy means **this strategy wallet cannot receive top-ups right now**
-   (some older strategy wallets refuse the second leg every time; a fresh deploy gets a wallet that
-   accepts it). Apply rule 3 again, say so, and offer the two real options: **deploy the same
-   strategy fresh so it gets a new wallet** (the old one keeps running until the user explicitly asks to
-   close it), or **Senpi support with the top-up request id**. Never a third submit, never a retry loop,
-   never "contact support" before the money is located.
+   second FAILED for the same strategy means **something is wrong that a retry won't fix**. Apply rule 3
+   again, say where the money is, and hand the case to **Senpi support with the top-up request id**.
+   **Never offer a fresh deploy as the fix for a failed top-up:** it costs another wallet-creation fee and
+   leaves the old strategy running. Never a third submit, never a retry loop, never "contact support"
+   before the money is located.
 
 | Say | Never say |
 | --- | --- |
 | "Your funding wallet has $X free in perps; topping up $Y." — before the call | A top-up amount with no free-perps figure next to it; the account value (`total_in_hyperliquid`) quoted as free |
 | "The top-up failed after its first leg — your $X was in your funding wallet's **Spot** balance; I've moved it back to perps and it's available again." | "The money is still in your funding wallet" with no balance named; "safe to re-submit" read off the status message |
-| "This strategy wallet can't receive top-ups right now. Two options: deploy it fresh (new wallet), or Senpi support with request id …" — after the second FAILED | "Let me try again" a third time; "contact support" before the money is located |
+| "The top-up failed again, so I've stopped retrying. Your $X is in your funding wallet's **perps** (or **Spot**) balance, and Senpi support can trace it with request id …" — after the second FAILED | "Let me try again" a third time; a fresh deploy offered as the fix for a failed top-up; "contact support" before the money is located |
 | "Creating a strategy reserves a creation fee — about $1, budgeted as $1.50 per wallet — on top of the $10 minimum." | A fee figure no tool returned |
 
 ## Costs — say them before money moves
