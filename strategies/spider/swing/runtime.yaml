@@ -20,7 +20,8 @@ strategy:
   wallet: "${SPIDER_SWING_WALLET}"
   slots: 3                          # source maxSlots 3
   margin_pct: 28                    # fallback %; scan emits the same per-signal marginPct (source fraction 0.28 -> 28 PERCENT)
-  default_leverage: 10              # source swingMaxLeverage cap (clamped per-asset to HL venue max in scan.py)
+  default_leverage: 5               # was 10: a 12% margin stop sat 1.2% from entry on a multi-day leg and 57% of
+                                    # 10x exits were stop-outs (30d live read, Sep 2026). Clamped per-asset in scan.py.
   trading_risk: moderate
   enabled: true
 
@@ -52,7 +53,7 @@ scanners:
                                       # VALUE — flat per name — NOT *withdrawable as this comment used to
                                       # say (pending runtime-team confirmation). The scanner's open_slots/
                                       # affordable cap keeps the batch within free margin; size unchanged.
-      maxLeverage: 10
+      maxLeverage: 5                  # was 10 — see strategy.default_leverage
       maxSlots: 3
       rsiMaxLong: 78
       useSmBonus: true
@@ -113,7 +114,7 @@ exit:
       # retrace (12% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
       # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
       enabled: false
-      max_loss_pct: 12.0   # was 22.0 — set to the old retrace so the risk cap is unchanged
+      max_loss_pct: 12.0   # was 22.0 — set to the old retrace so the risk cap is unchanged; 2.4% from entry at 5x
       retrace_threshold: 12
       consecutive_breaches_required: 1
     phase2:
@@ -124,9 +125,10 @@ exit:
         # +150% tier cannot be expressed. Dropped; the +100% tier (lock 80%) is now the
         # top of the ladder. All tiers <= 100 are carried verbatim. This is the single
         # threshold that does not map cleanly to the v2 schema.
-        - { trigger_pct: 30, lock_hw_pct: 45 }
-        - { trigger_pct: 60, lock_hw_pct: 68 }
-        - { trigger_pct: 100, lock_hw_pct: 80 }
+        # Triggers halved with the leverage (10x -> 5x) so each tier arms at the same price move as before.
+        - { trigger_pct: 15, lock_hw_pct: 45 }
+        - { trigger_pct: 30, lock_hw_pct: 68 }
+        - { trigger_pct: 50, lock_hw_pct: 80 }
 
 # ── RISK guard rails (from runtime-swing.yaml; minutes → seconds) ──
 risk:

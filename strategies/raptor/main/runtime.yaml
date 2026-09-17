@@ -144,5 +144,6 @@ risk:
     max_consecutive_losses: 3
     cooldown_seconds: 1800                  # v2 cooldown_minutes: 30
     per_asset_cooldown_seconds: 7200        # v2 per_asset_cooldown_minutes: 120
-    max_entries_per_day: 6
+    max_entries_per_day: 3             # was 6: the cap bound on 18 of 21 sampled days, and days with 12+ fills paid 94%
+                                       # of the fees; the edge per trade (≈4.7 bps) is below the round-trip cost (30d read)
     bypass_max_entries_per_day_on_profit: false
