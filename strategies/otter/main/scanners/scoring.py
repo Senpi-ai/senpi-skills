@@ -53,8 +53,12 @@ def get_leverage_for_score(score, tiers=None):
     """Returns leverage for the score tier. Ported verbatim from v2
     get_leverage_for_score; the fallback (5x) matches v2 DEFAULT_LEVERAGE."""
     for tier in (tiers or LEVERAGE_TIERS):
-        if score >= tier["min_score"]:
-            return tier["leverage"]
+        if isinstance(tier, (list, tuple)):          # runtime.yaml writes [min_score, leverage]
+            min_score, leverage = tier[0], tier[1]
+        else:
+            min_score, leverage = tier["min_score"], tier["leverage"]
+        if score >= min_score:
+            return leverage
     return DEFAULT_LEVERAGE
 
 

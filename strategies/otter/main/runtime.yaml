@@ -131,7 +131,8 @@ risk:
   data_retention_seconds: 259200             # v2 data_retention_hours 72 ×3600 (within [3600, 604800])
   guard_rails:
     daily_loss_limit_pct: 8                   # v2 daily_loss_limit_pct
-    max_entries_per_day: 8                    # v2 max_entries_per_day
+    max_entries_per_day: 3                    # was 8 (v2): each entry is 1.25-2.5x the account in notional, so 8 a day
+                                              # bleeds fees the way owl's did once the book read works
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 4                 # v2 max_consecutive_losses
     cooldown_seconds: 60                     # runtime guard_rails min 60 (scan manages the real per-asset cooldown)
