@@ -8,15 +8,17 @@ description: >
   (actionable edge, for users building ideas) and a **news** lens (surprising, non-obvious, for
   market-news content). 2.0 is one reading with no compare: it keeps no history, so moves measured
   against an earlier sweep (whale moves, OI and funding changes, positioning trends) come in v2. Use
-  for "what's noteworthy in the market right now", "any interesting anomalies to tweet", "signals of
-  the day", "build me some trade ideas", or a focused ask — "anything notable on OIL / the AI basket /
-  trader 0x1234?". On demand only: if asked to put it on a cron or any schedule, say no. Read-only,
-  observation not advice, every number sourced. Reuses senpi-smart-money's cohort engine; ranks via
+  for "scan Senpi Signals", "scan for market anomalies", "what's noteworthy in the market right now",
+  "any interesting anomalies to tweet", "signals of the day", "build me some trade ideas", or a
+  focused ask — "anything notable on OIL / the AI basket / trader 0x1234?". Every run ends with one
+  question: set up a trade on a read, or a strategy that trades reads like these. On demand only: if
+  asked to put it on a cron or any schedule, say no. The sweep is read-only, observation not advice,
+  every number sourced. Carries a verbatim copy of senpi-smart-money's cohort engine; ranks via
   scripts/score.py. Requires a Senpi MCP token.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.0.0"
+  version: "2.1.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -96,8 +98,9 @@ detector family reach either feed. Give a **user** the trade feed; content uses 
    source). Never estimate, round misleadingly, or state a number you can't back.
 2. **Observation, not advice.** Describe *what the data shows* — never "buy / sell / long this", no
    price targets, **no returns or outcome language.** It's a market observation, not a call.
-3. **Read-only.** This skill never opens or closes a position, never changes a strategy, never
-   trades, and never implies Senpi is taking the trade. It reports.
+3. **The sweep is read-only.** Running it never opens or closes a position, never changes a strategy,
+   never trades, and never implies Senpi is taking the trade. It reports. Acting on a read happens only
+   in the closing step (below), on the user's explicit yes to a specific order or strategy.
 4. **Public data only.** On-chain wallet addresses are public — frame as "a top trader (0x12…)".
    Never attach a real person's identity.
 5. **Now, never "since".** One reading has nothing earlier to compare against, so never claim a move
@@ -154,12 +157,12 @@ detector family reach either feed. Give a **user** the trade feed; content uses 
   reported as one that looked and found nothing. Debugging reads `current.json` → `coverage` (per
   source `ok` / `failed: …` / `NO DATA`) and the run JSON's `smart_money_lens`.
 - **Talk about the market, never about the engine.** Present `signals.md`, then at most a few
-  sentences on what stands out. Never narrate coverage lines, read counts, detector names, why a
-  detector is quiet, or what 2.0 leaves out — that is debugging output, not an answer. If a source
-  could not be read, one plain clause is the most a user hears ("the smart-money read failed this
-  run"). That includes closing notes and caveats. Wrong: *"Note: this run has no history, so whale
-  moves and 12-hour trends aren't included."* The feed is what the market shows now; don't explain
-  what it leaves out.
+  sentences on what stands out, then the closing question (next section) — nothing after it. Never
+  narrate coverage lines, read counts, detector names, why a detector is quiet, or what 2.0 leaves
+  out — that is debugging output, not an answer. If a source could not be read, one plain clause is
+  the most a user hears ("the smart-money read failed this run"). That includes closing notes and
+  caveats. Wrong: *"Note: this run has no history, so whale moves and 12-hour trends aren't
+  included."* The feed is what the market shows now; don't explain what it leaves out.
 - **Name a divergence only when the feed carries one.** Never add a section for something the feed
   doesn't have.
 - **Funding is a percent of position size, never of margin.** `-494%/yr` means shorts pay longs about
@@ -168,6 +171,7 @@ detector family reach either feed. Give a **user** the trade feed; content uses 
 ## Running the sweep
 ```bash
 python3 scripts/sweep.py --print-feed   # what you run for a user: prints only the feed (+ one line if a source failed)
+python3 scripts/sweep.py --brief 3      # the short version senpi-market-pulse closes with: top 3 trade reads, one line each
 python3 scripts/sweep.py                # debugging: run JSON, coverage lines, reads=<n>; SENPI_AUTH_TOKEN + SENPI_MCP_URL from env (like senpi-smart-money)
 #   --out-dir DIR  --top-n 120  --top 6  --lens both|trade|social  --now <ISO>
 ```
@@ -182,9 +186,10 @@ python3 scripts/sweep.py                # debugging: run JSON, coverage lines, r
   tokens. Every read fails soft: a dead service degrades its detector and is named in `coverage`.
 - **Auth.** `discovery_*` needs a **user-scoped** token (an app-scoped one returns nothing → the cohort
   lens reports `NO DATA`, and the sweep degrades honestly into OI/funding/price).
-- **Dependencies.** The sweep imports senpi-smart-money's cohort engine (`build_cohorts` +
-  `cohort_bias`, unchanged) and its vendored `mcp_client.py`, resolved the way the runtime resolves
-  skills (`SENPI_SKILLS_DIR`, default `/data/.openclaw/skills`, or up the tree from a checkout).
+- **Dependencies.** The sweep carries verbatim copies of senpi-smart-money's cohort engine
+  (`scripts/smartmoney.py`: `build_cohorts` + `cohort_bias`, unchanged) and its stdlib MCP transport
+  (`scripts/mcp_client.py`), so it runs with only this skill installed.
+  `tests/test_vendored_parity.py` fails if either copy drifts from the original.
 - **What the sweep declares per asset** (so you can read the output honestly): `smart_source:
   proven_cohort`, `smart_share_kind: cohort_pct` (headcount share of the sampled cohort on
   `smart_dir`), `smart_long_n`/`smart_short_n`/`cohort_n`, `smart_net_bias`/`smart_net_usd` (the
@@ -206,18 +211,35 @@ and base-unit flow, and anti-repeat rotation for a content feed. The engine for 
 v2's decision, kept on Senpi's side rather than on a user's box, so nothing in 2.0 schedules, deploys
 or funds anything.
 
-## Follow-up: "how could I play it?" (opt-in, consent-gated)
-The **trade feed** already gives the actionable *read* per pick (side + whether price confirms it).
-After the signals, **offer** — don't push — to show how the user could position for one: *align with
-the smart-money side · fade the crowd on a divergence · harvest the funding.* On a yes, compose
-**senpi-trader-research / senpi-trade / senpi-strategy-author** to propose a concrete, **simulated**
-setup (with a stop), acting only on the user's confirmation. **Keep this out of any public/tweet
-copy** — public output stays observation-only; "play it" is a private interactive step.
+## How every run ends — one question
+After the feed and your few sentences, end the turn with **one question**, and nothing after it:
+
+> **Want to act on any of these? I can set up a trade on one of them — you see the size and the stop before anything is placed — or build a strategy around one of these reads.**
+
+- **A trade on one read → senpi-trade.** Take the side the read names. Before any order, show the
+  margin and its share of the account, the leverage, the stop price and the liquidation price. The
+  stop must sit before liquidation. Place nothing until the user says yes to that exact order. A
+  funding extreme names no side (it is a carry read), so it is never a one-trade setup.
+- **A strategy around a read → senpi-strategy-author.** Hand over the read as the brief: the asset,
+  the side, what the read is and its numbers. Build with the author's guardrails: a DSL stop on every
+  position, leverage 3x or less, few trades (fees are the biggest cost of an active strategy), and
+  the minimum budget plus the wallet-creation fee stated before anything is funded. Never promise or
+  imply results: it is a new strategy with no track record, and you say so. Deploy only on the user's
+  yes.
+- **No, or no answer → stop.** Don't repeat the offer.
+- **Never in public copy.** The question and everything after it are a private, interactive step;
+  anything written for posting stays observation-only.
+- **The brief carries no question.** `--brief` output is another skill's closing section; that skill
+  asks its own question.
 
 ## Where it lives
-Internal to start (a content/intelligence tool). **Focus mode is the seed of a user-facing feature**
-— "ask your Senpi agent what's moving under the surface on gold" — graduate it once the detectors are
-tuned.
+Every user has it. A chat chip runs the full sweep ("Scan Senpi Signals for market anomalies"), and
+**senpi-market-pulse** closes every pulse with the brief (`--brief 3`) and an offer to run the full sweep.
+
+## The short version (`--brief N`)
+`python3 scripts/sweep.py --brief 3` runs the same sweep and prints only a title and the top N trade
+reads, one line each: badge, score, asset and the read. No legend, no news feed, nothing about the
+engine, plus the one not-measured line when a source failed. A quiet market prints one plain line.
 
 ## Checklist before shipping a signal
 - [ ] Every number traces to this run's `current.json` (name the source field / call) — incl. `price_change_pct` when you claim a side.

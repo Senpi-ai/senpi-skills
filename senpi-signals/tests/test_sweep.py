@@ -274,7 +274,6 @@ def test_cli_prints_the_read_budget(state_dir, monkeypatch, capsys):
     fake_mod = type(sys)("mcp_client")
     fake_mod.MCPClient = _Client
     monkeypatch.setitem(sys.modules, "mcp_client", fake_mod)
-    monkeypatch.setattr(sweep, "skill_scripts", lambda name, marker: str(SCRIPTS))
     assert sweep.main(["--now", NOW]) == 0
     out = capsys.readouterr().out.strip().splitlines()
     assert out[-1] == "reads=6"
@@ -288,7 +287,6 @@ def _cli_client(monkeypatch, fail=(), oi_btc=12000):
     fake_mod = type(sys)("mcp_client")
     fake_mod.MCPClient = _Client
     monkeypatch.setitem(sys.modules, "mcp_client", fake_mod)
-    monkeypatch.setattr(sweep, "skill_scripts", lambda name, marker: str(SCRIPTS))
 
 
 def test_print_feed_is_the_feed_and_nothing_about_the_engine(state_dir, monkeypatch, capsys):
@@ -325,6 +323,41 @@ def test_print_feed_never_carries_a_history_detector(state_dir, monkeypatch, cap
 def test_print_feed_names_a_failed_source_in_one_plain_line(state_dir, monkeypatch, capsys):
     _cli_client(monkeypatch, fail=("leaderboard_get_markets",))
     assert sweep.main(["--now", NOW, "--print-feed"]) == 0
+    out = capsys.readouterr().out.strip()
+    assert out.endswith("_Not measured this run: the 4h leaderboard._")
+    assert "leaderboard_get_markets" not in out
+
+
+def test_brief_is_the_top_trade_reads_one_line_each(state_dir, monkeypatch, capsys):
+    """What senpi-market-pulse closes with: the same sweep, printed as a title plus the top N trade reads,
+    one line each, in the trade feed's order — no legend, no news feed, nothing about the engine."""
+    seen, real_run = [], sweep.run
+    monkeypatch.setattr(sweep, "run", lambda *a, **k: seen.append(real_run(*a, **k)) or seen[-1])
+    _cli_client(monkeypatch)
+    assert sweep.main(["--now", NOW, "--brief", "2"]) == 0
+    cap = capsys.readouterr()
+    lines = cap.out.strip().splitlines()
+    trade = seen[-1]["result"]["trade"]
+    assert trade, "the fixture should produce at least one trade read"
+    assert lines[0] == "**🔭 Senpi Signals — top reads right now**"
+    items = lines[1:]
+    assert len(items) == min(2, len(trade))
+    for line, s in zip(items, trade):
+        assert line.startswith(f"- {sweep.score.badge(s['trade_score'])} **{s['trade_score']}** · `{s['asset']}` — ")
+        assert sweep.score.trade_read(s) in line
+    assert cap.err == ""
+    for leak in ("How to read this", "Market news", "[coverage]", "reads=", "[sweep]", "cred"):
+        assert leak not in cap.out, leak
+    assert sorted(p.name for p in (state_dir / "signals").iterdir()) == ["current.json", "signals.md"]
+
+
+def test_brief_on_a_quiet_market_is_one_plain_line():
+    assert sweep.score.render_brief([], 3) == "**🔭 Senpi Signals:** nothing notable stands out right now."
+
+
+def test_brief_names_a_failed_source_in_one_plain_line(state_dir, monkeypatch, capsys):
+    _cli_client(monkeypatch, fail=("leaderboard_get_markets",))
+    assert sweep.main(["--now", NOW, "--brief", "3"]) == 0
     out = capsys.readouterr().out.strip()
     assert out.endswith("_Not measured this run: the 4h leaderboard._")
     assert "leaderboard_get_markets" not in out
