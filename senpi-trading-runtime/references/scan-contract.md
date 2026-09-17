@@ -199,6 +199,9 @@ Runtimes **newer than 3.0.32** numeric-cast the two market tools at the `ctx.sen
 - Drops are never silent: a `senpi_mcp_cast_dropped` scaffold event + a `_cast_dropped` marker on
   the payload. A series can come back **shorter / non-contiguous** — guard `len(candles)`, don't
   assume fixed `t` spacing.
+- `t` (candle open) and `T` (candle close) are **epoch milliseconds** on every runtime version;
+  the cast changes their type, not their unit. `time.time()` is seconds, so a candle has closed
+  when `_f(c["t"]) / 1000 + candle_seconds <= time.time()` (`candle_seconds`: `4h` = 14400).
 - Originals: a single `_raw` key beside the cast sections.
 - Every other tool's response is untouched, on every runtime version.
 
