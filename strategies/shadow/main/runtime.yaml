@@ -36,7 +36,8 @@ scanners:
       cohortRefreshHours: 24
       maxWatched: 3
       minConfirm: 1                         # 1 = mirror any watched trader's fresh open; 2 = require confirmation
-      maxEntrySlippagePct: 1.5             # skip if price already ran >1.5% past their entry
+      maxEntrySlippagePct: 1.5             # skip when price is more than 1.5% from their entry, EITHER way
+      maxEntryAgeSeconds: 240               # 2 ticks: mirror an open the trader just made, not one hours old
       marginPct: 15                         # PERCENT of withdrawable (0,100]
       minMarginPct: 8                       # min-notional floor — never 'too small to enter'
       maxMarginPct: 30

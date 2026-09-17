@@ -5574,7 +5574,7 @@
       "emoji": "🕶️",
       "tagline": "Watches a handful of vetted Hyperliquid traders and mirrors only the positions they NEWLY open — never inheriting a stale book mid-move — with a hard entry-slippage guard so you never chase a fill that already ran, plus budget-relative sizing with a min-notional floor.",
       "belief_plain": "Instead of copying one trader's whole account — and inheriting trades already deep in profit or loss at a worse price than they got — Shadow watches two or three proven traders and only acts when one of them OPENS a brand-new position. It checks how far price has already moved from their entry and skips the trade if it is too late to get a comparable fill. It sizes each mirror to your budget with a floor so a position is never too small to matter, and it manages its own exit.",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "thesis": "The failure mode of naive mirroring is entry drift: you inherit a book at a 1-5% worse price than the trader got, so the same trade is a loss for you. Shadow fires ONLY on fresh opens (a snapshot-diff against a seeded book, so nothing pre-existing is ever inherited), rejects any entry whose price has already run past a slippage cap, and can require multi-trader confirmation before committing size. You follow proven money at their price, not yesterday's book at yours. Leverage is capped, so a trader's 40x book becomes something survivable.",
       "tags": [
         "copy-trading",
