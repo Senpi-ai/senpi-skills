@@ -5,13 +5,16 @@ description: >-
   earnings — and explain the AI-credits usage meter. Use for "how many points do I have?", "what's my
   rank/tier?", "what are my fees?", "my referral rewards", and for credits: "what is the bubble/meter
   in the header?", "why are my credits going down?", "how much did that cost?", "does my strategy use
-  credits?", "can I trade or withdraw my credits?". Use this instead of calling user_get_senpi_points +
-  get_loyalty_tiers one by one. A hidden engine (scripts/status.py) pulls points/loyalty/referral in one call; credits are
-  explained, never read — no tool returns the balance. Requires a USER-scoped Senpi token.
+  credits?", "can I trade or withdraw my credits?", and for plans: "what plans are there?", "how much
+  does Senpi cost?", "what do I get on Pro/Quant?", "how do I get free credits?", "where are my
+  milestone credits?". Use this instead of calling user_get_senpi_points +
+  get_loyalty_tiers one by one. A hidden engine (scripts/status.py) pulls points/loyalty/referral in one call; the credit
+  BALANCE is explained, never read — no tool returns it — while the plan catalog and the free-credit
+  ladder are published here and may be quoted. Requires a USER-scoped Senpi token.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.3.0"
+  version: "1.4.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -35,6 +38,9 @@ cleanly** and point at the next milestone (next loyalty tier, etc.).
   engine returns all of it so you can.
 - **Credits are explained, never read.** No tool returns the AI-credit balance; the meter in the app
   header is the balance. Rules in "AI credits — the usage meter" below.
+- **Plans and free credits are published; the balance is not.** Quote the catalog and the milestone
+  ladder in "Plans & free credits" below — and only from there. A figure about *this user* (what is
+  left, what they were charged, where their bar sits) comes from their page, never from you.
 - **Always end with the CTA** (below) — for standing answers; a credits answer closes on the meter.
 
 ## How to run the engine
@@ -74,7 +80,9 @@ On yes: use `loyalty.points_to_next` + `get_loyalty_tiers` for the tier path.
 
 Senpi agents run on **AI-usage credits that come with the plan** — a trial grant first, then plan
 credits. The app shows what is left as the **meter in the app header** (users call it "the bubble" or
-"my credits"). How many a plan includes depends on your plan — never quote a plan size.
+"my credits"), and their subscription page is the source of truth for the number. What each plan
+includes is published in "Plans & free credits" below and may be quoted; how much is **left** depends
+on your plan and your usage, and only the user's own page shows that.
 
 - **What spends them.** Every message the user sends and every tool turn the agent runs. Long threads
   cost more because the whole conversation is re-sent each turn — a fresh thread is cheaper than a
@@ -89,15 +97,17 @@ credits. The app shows what is left as the **meter in the app header** (users ca
   meter is usage, never a trading loss; a losing trade never touches the meter.
 - **You cannot read the balance.** No Senpi tool returns it (`user_get_me` → id / wallets / createdAt
   / referralCode; `user_get_senpi_points` → points / tier / fees) and the engine has no `credits`
-  section. Point at the meter in the app header; never invent a number, a percentage or a "roughly",
-  and never guess what the meter shows.
+  section. Point at the meter in the app header, or at their subscription page for the exact figure —
+  the in-app indicator surfaces only when credits run low, so a missing indicator is expected, not a
+  lost balance. Never invent a number, a percentage or a "roughly", and never guess what the meter
+  shows.
 - **Chat is not free of credits.** Every turn spends them — including the turn that asks what a turn
   cost. Say so plainly; never "nothing".
 
 | Say | Never say |
 |---|---|
 | "Chat and tool use spend AI credits from your plan; the meter in the app header is the balance — I can't read it from here. Longer threads cost more because the whole conversation is re-sent each turn." | "chatting is free" / "that cost nothing" |
-| "How many credits you get depends on your plan — the meter shows what is left." | Any balance, percentage or plan size you did not read from the app |
+| "What each plan includes is published — here's the table. How much is left depends on your plan and your usage; the meter shows that." | Any balance or percentage you did not read from the app, or a plan size you did not read from the table below |
 | "Credits aren't money: they can't be traded, withdrawn or put into a strategy — your funding wallet and strategy budgets are separate." | "credits" as a tradable or withdrawable balance |
 | "The meter going down is usage — it moves with messages and tool turns, not with your trades." | Blaming a shrinking meter on trading losses |
 | "Your strategy runs on its own without the AI, so running it doesn't use credits. Chat does, and so does any scheduled check-in I run for you." | "running the strategy costs nothing" while the agent runs a check-in cron on it; a wallet or strategy balance offered as proof about credits |
@@ -107,7 +117,63 @@ did that cost?", "does my strategy use credits?", "can I trade / withdraw / depo
 come here, in any language. "Credits" (Ukrainian "кредити", Spanish "créditos") means these AI credits
 unless the user says leverage, a loan or funding; when it is unclear, ask which before answering. A
 credits question is answered from this section alone — no engine run, no number — and closes by
-pointing at the meter; the next-tier CTA is for standing answers.
+pointing at the meter; the next-tier CTA is for standing answers. "What plans are there / how much
+does it cost / what do I get on Pro / how do I get free credits / where are my milestone credits"
+are **catalog** questions: answer them from "Plans & free credits" below, still without a figure
+about this user.
+
+## Plans & free credits
+
+Published facts — quote them. Billed per **30-day cycle, rolling from the user's own start date**,
+never a calendar month.
+
+| Plan | Price | Credits | Points per $1 volume |
+|---|---|---|---|
+| Starter | $25 | $25 | 1 |
+| Pro (default) | $50 | $50 | 1.5 |
+| Advanced | $100 | $130 (+30%) | 2 |
+| Quant | $200 | $270 (+35%) | 3 |
+
+- **Every plan includes every model.** Plans differ on credits and points rate only — never on model
+  access, so a cheaper plan never locks anyone out of the better model. Trading fees are separate and
+  start at 0.05% on every plan.
+- **$1 of credit = $1 of AI usage.** Full credits land at the start of the cycle and expire at the end
+  of it: **no rollover, no top-ups, no overage**. Out of credits = upgrade (instant) or wait for renewal.
+- **Upgrading is instant, any day** — the new plan's full credits land immediately, the 30-day cycle
+  restarts, and unused credits are credited against the price, so they pay the difference.
+  **Downgrading or cancelling takes effect at the next renewal**, never mid-cycle; benefits are kept
+  until then and there are no mid-cycle refunds.
+- **Payment is web only** (Stripe, senpi.ai/settings/subscription). The app shows plan, credits and
+  renewal date but links out to the web page to change anything.
+- **Free trial:** activates when the user **deploys their agent**, is one-time, and expires **14 days
+  after activation**. **Never quote a trial figure** — the starting amount has changed more than once;
+  their subscription page is the only source of truth. On expiry or exhaustion the agent stops until
+  they subscribe: active strategies pause, **open positions are NOT auto-closed**, funds untouched.
+
+**Free credits — the milestone ladder.** $315 of AI credit across 12 milestones, on the "Unlock Free
+AI Credits" card:
+
+| Milestone | Free credits |
+|---|---|
+| Deploy your agent | $10 |
+| Launch your first strategy | $10 |
+| Subscribe to a plan | $15 |
+| Trade $2K / $25K / $50K volume | $10 each |
+| Trade $100K / $250K volume | $20 / $30 |
+| Trade $500K / $1M / $2M / $4M volume | $50 each |
+
+- **Deploying the agent is the only one credited on day one.** Everything else is earned.
+- **Not retroactive** — a milestone credits the next time it is achieved, counting from when
+  milestones launched; activity before that does not fill the bar.
+- **Milestone credits expire at the next renewal** — a different clock from the 14-day trial expiry,
+  so credit that vanished at a renewal boundary is working as designed.
+- **Volume progress is not live** — the card refreshes on a timer and shows a countdown, so a trade
+  that has not moved the bar yet is normal, not a missed milestone.
+- The bonus is **always AI credit** — it never lands in Balances as USDC.
+
+**The card is the source of truth.** If the user's own page or card disagrees with any figure here,
+their page is right and this table is stale — never argue a user out of what is on their screen, and
+never tell them what their bar ought to read.
 
 ## ⚠ Token scope
 

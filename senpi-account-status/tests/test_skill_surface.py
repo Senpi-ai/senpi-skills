@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The AI-credits rules are resident in senpi-account-status/SKILL.md — the meter is explained, never
-read — the router can find the credits questions from the frontmatter, and the version the README
-advertises is the version the skill carries."""
+read, while the plan catalog and the free-credit ladder ARE published — the router can find the
+credits questions from the frontmatter, and the version the README advertises is the version the
+skill carries."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import re
 import unittest
@@ -11,6 +12,7 @@ REPO = Path(__file__).resolve().parents[2]
 SKILL = REPO / "senpi-account-status" / "SKILL.md"
 README = REPO / "README.md"
 SECTION = "## AI credits — the usage meter"
+PLANS = "## Plans & free credits"
 
 
 def _split(path):
@@ -25,10 +27,10 @@ def _flat(text):
     return re.sub(r"\s+", " ", text)
 
 
-def _section(body):
-    start = body.find(SECTION)
-    assert start >= 0, "SKILL.md lost its AI-credits section"
-    rest = body[start + len(SECTION):]
+def _section(body, heading=SECTION):
+    start = body.find(heading)
+    assert start >= 0, f"SKILL.md lost its {heading!r} section"
+    rest = body[start + len(heading):]
     end = rest.find("\n## ")
     return rest if end < 0 else rest[:end]
 
@@ -92,6 +94,52 @@ class CreditsAreTheUsageMeter(unittest.TestCase):
         version = re.search(r'version: "([0-9.]+)"', SKILL.read_text(encoding="utf-8")).group(1)
         self.assertIn(f"| [`senpi-account-status`](senpi-account-status/) | {version} |",
                       README.read_text(encoding="utf-8"))
+
+
+class PlansAndFreeCreditsArePublished(unittest.TestCase):
+    """The catalog is the half of this that IS quotable — a user asking what a plan costs gets the
+    table, not a shrug at the meter. The figures come from the subscription card, so the rules that
+    survive a price change (no rollover, instant upgrade, not retroactive, card-wins) matter as much
+    as the numbers."""
+
+    def test_the_four_plans_and_the_cycle_rules_are_in_the_table(self):
+        section = _flat(_section(_split(SKILL)[1], PLANS))
+        for plan in ("Starter", "Pro (default)", "Advanced", "Quant"):
+            self.assertIn(plan, section, plan)
+        for needle in (
+            "Every plan includes every model",
+            "no rollover, no top-ups, no overage",
+            "Upgrading is instant",
+            "takes effect at the next renewal",
+            "Payment is web only",
+        ):
+            self.assertIn(needle, section, needle)
+
+    def test_the_ladder_carries_the_milestones_and_the_rules_that_generate_tickets(self):
+        section = _flat(_section(_split(SKILL)[1], PLANS))
+        for needle in (
+            "Deploy your agent",
+            "Launch your first strategy",     # replaced the retired "fund your wallet" milestone
+            "Subscribe to a plan",
+            "Not retroactive",
+            "expire at the next renewal",
+            "Volume progress is not live",
+            "never lands in Balances as USDC",
+            "The card is the source of truth",
+        ):
+            self.assertIn(needle, section, needle)
+
+    def test_the_trial_figure_stays_unpublished(self):
+        # plan prices are fixed and quotable; the trial grant has moved more than once, so the
+        # catalog may carry every plan number and still no trial number
+        section = _flat(_section(_split(SKILL)[1], PLANS))
+        self.assertIn("Never quote a trial figure", section)
+        self.assertIn("open positions are NOT auto-closed", section)
+
+    def test_the_meter_section_still_defers_the_balance_to_the_page(self):
+        # the catalog being quotable must not leak into the balance: "what is left" is still theirs
+        section = _flat(_section(_split(SKILL)[1]))
+        self.assertIn("how much is **left** depends on your plan and your usage", section)
 
 
 if __name__ == "__main__":
