@@ -145,6 +145,24 @@ def _open_positions(ctx):
     return held
 
 
+def _pause_after_close(prev_held, held, last_close_at, now, pause_seconds):
+    """Stop emitting for a while after any position leaves the book.
+
+    All 4 slots refilled the moment an exit landed: 33% of opens came less than 15 minutes after a
+    close. `cooldown_seconds` reads like it should stop that, but it is the CONSECUTIVE-LOSS cooldown
+    (risk-gates.md gate 3), and the per-asset cooldown only holds the SAME name back.
+
+    Returns (paused, last_close_at). A name that disappeared from the book starts the pause; a first
+    tick (prev_held None) has nothing to diff. A clearinghouse read that fails looks like an empty
+    book, so the worst case is a 20-minute pause we did not need."""
+    at = _f(last_close_at)
+    if prev_held is not None and set(prev_held) - set(held or ()):
+        at = now
+    if at <= 0:
+        return False, at
+    return (now - at) < _f(pause_seconds), at
+
+
 def _universe(ctx, lb_limit):
     """(smart_count, all_coins). smart_count[coin] = how many top traders hold it;
     all_coins = the full liquid symbol set (leaderboard holdings ∪ market_get_prices).
@@ -218,6 +236,7 @@ def scan(inputs, ctx):
     workers = int(_f(inputs.get("parallel_workers"), 8))
     max_new = int(_f(inputs.get("max_new_entries_per_tick"), 2))
     recent_ttl = _f(inputs.get("recent_signal_ttl_seconds"), 180.0)
+    pause_after_close = _f(inputs.get("pause_after_close_seconds"), 1200.0)
     lb_limit = int(_f(inputs.get("smart_money_leaderboard_limit"), 50))
 
     now = time.time()
@@ -233,12 +252,23 @@ def scan(inputs, ctx):
     funding_bias = _funding_regime(ctx)
     held = _open_positions(ctx)
 
+    # ── post-close pause: a freed slot is not a reason to open something else ──
+    prev_held = st.get("held")
+    prev_held = set(prev_held) if isinstance(prev_held, (list, set, tuple)) else None
+    paused, last_close_at = _pause_after_close(prev_held, held, st.get("last_close_at", 0.0),
+                                               now, pause_after_close)
+    if paused:
+        print(f"[barracuda.scan] paused {int(now - last_close_at)}s after a close "
+              f"(pause {int(pause_after_close)}s) — no entries this tick", file=sys.stderr)
+        _persist(ctx, recent, now, 0, 0, held, last_close_at)
+        return []
+
     # ── universe ──
     smart_count, all_coins = _universe(ctx, lb_limit)
     if not all_coins:
         print("[barracuda.scan] empty universe (leaderboard + prices both unreadable)",
               file=sys.stderr)
-        _persist(ctx, recent, now, 0, 0)
+        _persist(ctx, recent, now, 0, 0, held, last_close_at)
         return []
 
     # ── pre-filter (cheap, no per-coin MCP): drop held + recently-signalled ──
@@ -312,7 +342,7 @@ def scan(inputs, ctx):
         })
         recent[c["asset"]] = now
 
-    _persist(ctx, recent, now, len(scan_coins), len(signals))
+    _persist(ctx, recent, now, len(scan_coins), len(signals), held, last_close_at)
     return signals
 
 
@@ -492,11 +522,12 @@ def _score_coin(coin, md, smart, regime_val, funding_bias,
     return max(directions, key=lambda d: d["total_score"])
 
 
-def _persist(ctx, recent, now, scanned, emitted):
+def _persist(ctx, recent, now, scanned, emitted, held=None, last_close_at=0.0):
     if ctx.state is None:
         return
     try:
         ctx.state.append({"recent": recent, "scanned_at": now,
-                          "scanned": scanned, "emitted": emitted})
+                          "scanned": scanned, "emitted": emitted,
+                          "held": sorted(held or ()), "last_close_at": _f(last_close_at)})
     except Exception as exc:  # noqa: BLE001
         print(f"[barracuda.scan] WARNING: state append failed: {exc!r}", file=sys.stderr)
