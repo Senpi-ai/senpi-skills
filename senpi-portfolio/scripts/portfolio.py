@@ -1091,6 +1091,20 @@ def _closed_direction(row):
     return None
 
 
+def _utc_iso(ts):
+    """An epoch timestamp as `YYYY-MM-DDTHH:MM:SSZ` (UTC), or None when it does not read as one. The
+    trader-history `closeTime` is epoch SECONDS; a value of 1e12 or more is MILLISECONDS (the same cut as
+    senpi-improve-trades' `_ms`). Only a 10-digit second (2001-2286) is a date: text, zero, a negative
+    or a number of any other size is None, never a date made up from it."""
+    n = _num(ts)
+    if n is None:
+        return None
+    secs = n / 1000.0 if n >= 1e12 else n
+    if not 1e9 <= secs < 1e10:
+        return None
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(secs))
+
+
 def fetch_closed(client, wallet, meta):
     """Read-guarded closed-position ledger for a strategy wallet: total realized PnL, the record over the
     whole pull (winners / losers / win rate / longs / shorts) + a short list of recent closed trades.
@@ -1099,9 +1113,11 @@ def fetch_closed(client, wallet, meta):
     (senpi://guides/trader-closed-positions): a `closedPositions[]` of records with `coin`, the side labelled
     in `type` ("Close Long" / "Close Short") beside an UNSIGNED at-close `szi`, string `realizedPnl`,
     `closeTime`, `entryPx`/`exitPx`. The side is read by `_closed_direction`, never off the sign of `szi`.
+    Each close is dated in UTC (`closed_at_utc`) and `closed_record_newest_utc` is the newest close the
+    record holds: the record is ingested after the fact, so a close can be missing from it for hours.
     Fails OPEN — any read/parse error → empty closed block + a meta.warning, never crashes."""
     empty = {"realized_pnl": None, "trade_count": None, "winners": None, "losers": None, "win_rate_pct": None,
-             "longs": None, "shorts": None, "unknown_side": None, "recent": []}
+             "longs": None, "shorts": None, "unknown_side": None, "closed_record_newest_utc": None, "recent": []}
     try:
         h = _ok(client.mcp_call("discovery_get_trader_history", trader_address=wallet,
                                 sort_by="CLOSED_TIME", sort_direction="DESC",
@@ -1119,6 +1135,8 @@ def fetch_closed(client, wallet, meta):
     realized_total = 0.0
     winners = losers = longs = shorts = unknown_side = 0
     parsed = 0                   # the denominator is the rows actually read, never len(rows)
+    undated = 0
+    newest = None
     recent = []
     for p in rows:
         if not isinstance(p, dict):
@@ -1127,6 +1145,12 @@ def fetch_closed(client, wallet, meta):
         pnl = _f(p, "realizedPnl", "realized_pnl", default=0.0)   # often a string → _f coerces
         realized_total += pnl
         side = _closed_direction(p)
+        close_raw = _field(p, "closeTime", "closed_time", "closeTimeMs")
+        closed_at = _utc_iso(close_raw)
+        if closed_at is None:
+            undated += 1
+        elif newest is None or closed_at > newest:    # same-width ISO strings sort in time order
+            newest = closed_at
         if pnl > 0:
             winners += 1
         elif pnl < 0:
@@ -1144,13 +1168,19 @@ def fetch_closed(client, wallet, meta):
                 "realized_pnl": round(pnl, 2),
                 "entry_px": _field(p, "entryPx", "entry_px"),
                 "exit_px": _field(p, "exitPx", "exit_px"),
-                "closed_time": _field(p, "closeTime", "closed_time", "closeTimeMs"),
+                "closed_time": close_raw,         # raw epoch as the feed sent it; quote closed_at_utc
+                "closed_at_utc": closed_at,
             })
+    if undated:
+        meta.setdefault("warnings", []).append(
+            f"trader_history {wallet[:8]}: {undated} closed trade(s) with no readable close time — "
+            f"closed_at_utc is null for them; give those closes no date")
     n = parsed
     return {"realized_pnl": round(realized_total, 2), "trade_count": n,
             "winners": winners, "losers": losers,
             "win_rate_pct": round(100.0 * winners / n, 1) if n else None,
-            "longs": longs, "shorts": shorts, "unknown_side": unknown_side, "recent": recent}
+            "longs": longs, "shorts": shorts, "unknown_side": unknown_side,
+            "closed_record_newest_utc": newest, "recent": recent}
 
 
 # ──────────────────────────────────────────────────────────────── live per-position DSL / ratchet tier
@@ -1492,6 +1522,7 @@ def group_strategies(strategies, meta):
             return int(sum(vals)) if vals else None
         closed_counts = {f: _closed_count(f) for f in ("trade_count", "winners", "losers", "longs", "shorts", "unknown_side")}
         n_closed = closed_counts["trade_count"] or 0
+        newest = [(s.get("closed") or {}).get("closed_record_newest_utc") for s in insts]
         totals = {
             "account_value": _sum("account_value"),
             "idle_withdrawable": _sum("idle_withdrawable"),
@@ -1503,6 +1534,7 @@ def group_strategies(strategies, meta):
             **closed_counts,
             "win_rate_pct": (round(100.0 * closed_counts["winners"] / n_closed, 1)
                              if n_closed and closed_counts["winners"] is not None else None),
+            "closed_record_newest_utc": max(filter(None, newest), default=None),   # newest close on any wallet
         }
 
         # flat instances = an instance with NO open positions. For a multi-wallet strategy this is its
