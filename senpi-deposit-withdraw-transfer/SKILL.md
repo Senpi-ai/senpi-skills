@@ -9,12 +9,15 @@ description: >-
   NEVER writes a deposit address in chat and NEVER points at a strategy wallet; and money LEAVES Senpi to
   any EXTERNAL address only through the Senpi web/mobile app (Balances/Wallet) — no agent tool can send
   funds outside Senpi, by design, for the user's security. On-platform moves between the user's OWN
-  wallets (strategy → funding wallet, spot → perps, close a strategy to reclaim funds) DO use tools. Use
-  this skill for every deposit / withdraw / transfer / send question. Pure guidance, no engine.
+  wallets (strategy → funding wallet, spot → perps, close a strategy to reclaim funds) DO use tools —
+  and this skill owns their mechanics: the perps precheck before a top-up, polling it, a FAILED top-up
+  that parked the money in Spot (recover it, never loop), "withdraw everything" as the exact figure,
+  and fees stated before money moves. Use this skill for every deposit / withdraw / transfer / send /
+  top-up question. Pure guidance, no engine.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.3.0"
+  version: "1.4.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -52,11 +55,12 @@ Everything the agent does with tools happens **strictly between the user's own S
 | --- | --- |
 | Deposit / add money / fund my account | **The funding card** — `show_widget` (`widget_type: "fund_user_wallet"`). Never an address in chat. |
 | **Buy USDC with a card / Apple Pay / Google Pay ("I have no crypto")** | **The funding card too** — its **Buy USDC** tab. Not a refusal; a first-class path. |
-| Fund / top up a strategy | `strategy_top_up` **only** — never the funding card for a strategy, never a direct send to a strategy wallet. |
+| Fund / top up a strategy | `strategy_top_up` **only** — after the perps precheck, then poll `strategy_get_top_up_status`; a FAILED top-up may have parked the money in Spot (see **Topping up a strategy**). Never the funding card for a strategy, never a direct send to a strategy wallet. |
 | **Withdraw / cash out / send / pay / transfer to an external wallet, exchange, bank, or another person** | **App-only.** Say the security line above. No tool. |
 | **Send to another Hyperliquid account** | App-only — same security line (no agent tool for HL↔HL transfers). |
 | Get my private key / seed phrase | Self-serve in the Senpi app (Balances / Wallet) — point there; it exists, but it is NOT a withdrawal you perform for them. |
 | Move a strategy's funds back to the main (funding) wallet | `strategy_withdraw_funds` (ACTIVE) or **close the strategy** (`strategy_close`) to reclaim all of it. |
+| "Withdraw everything / all of it" from a strategy | `strategy_withdraw_funds` with the **exact available figure** the tool reports — never rounded; on `SERR037` retry once with `details.available`. Dust left in an ACTIVE strategy keeps scanning — offer to close it. |
 | Move funds between two strategies | Via the funding wallet as the hub: `strategy_withdraw_funds` from A → funding wallet, then `strategy_top_up` B. |
 | Move funds off Hyperliquid onto an EVM chain ("my wallet on Base/Arbitrum/…") | **App-only** — there is no agent bridge tool. Balances / Wallet in the Senpi app. |
 | Hyperliquid Spot → Perps | `transfer_spot_to_perps` (instant, no fee, funding wallet). |
@@ -78,8 +82,9 @@ with no crypto at all is not stuck — never tell them they need an exchange acc
 - **Where deposits land:** as USDC on Hyperliquid in the user's own funding (embedded) wallet, ready to
   trade — no separate transfer step afterwards.
 - **Two different minimums — don't merge them.** The **deposit** floor is **$8** (the card's own `MIN $8`);
-  a **strategy** still needs **$10** to open. So "what's the minimum deposit?" is $8, but "what do I need
-  to start trading?" is $10 — quote the $10 whenever the goal is running something.
+  a **strategy** still needs **$10** to open (plus the ~$1.50 creation-fee reserve — see **Costs**). So
+  "what's the minimum deposit?" is $8, but "what do I need to start trading?" is $10 — quote the $10
+  whenever the goal is running something.
 - **NEVER present a strategy wallet address as a deposit target — on any chain, for any reason.** A
   direct send to a `strategyWalletAddress` bypasses accounting, corrupts PnL, and may be unrecoverable.
   `strategy_top_up` is the **only** way to add funds to a strategy — and the funding card is **only**
@@ -134,6 +139,13 @@ buying simply happens in the card's own checkout. Point at it warmly and specifi
 - **`strategy_withdraw_funds`** — ACTIVE strategy sub-wallet → funding wallet (synchronous Hyperliquid
   `usdSend`). Amount > 1 USDC; if it drains the strategy to $0 the strategy **auto-closes** — do NOT then
   call `strategy_close` (`SERR045`). **PAUSED** strategies can't be withdrawn from — they must be closed.
+  - **Short by cents → retry once with the tool's number.** `SERR037` on a withdrawal carries
+    `details.available`: retry ONCE with exactly that figure. Never ask the user for a new number.
+  - **"Withdraw everything / all of it / move all my funds" means the exact available figure from the
+    tool** — `withdrawable` from `strategy_get_clearinghouse_state`, or `details.available` on the retry
+    — never a rounded amount. That is explicit intent, not a default. Afterwards confirm the strategy
+    wallet reads ~$0 (`strategy_get_clearinghouse_state`) and say that an ACTIVE strategy with dust
+    keeps scanning — offer to close it (explicit, confirmed, as above).
 - **Closing a strategy reclaims its funds to the funding wallet.** `strategy_close` flattens ALL of a
   strategy's positions and returns the capital to the funding wallet — so it's always available to move
   money out of a strategy. Only close on an **explicit** close request, **confirmed first** (it's
@@ -143,11 +155,76 @@ buying simply happens in the card's own checkout. Point at it warmly and specifi
   do not bridge in for strategies either: money comes in through the funding card, as USDC on
   Hyperliquid.
 - **`transfer_spot_to_perps`** — Hyperliquid Spot → Perps on the funding wallet; internal, instant, no
-  fee. Strategy sub-wallets aren't involved.
+  fee. Strategy sub-wallets aren't involved. Also the recovery tool after a FAILED top-up (below).
 - **Referral rewards** — `user_claim_referral_rewards` pays out to the funding wallet (call
   `user_get_referral_rewards` first to confirm a non-zero balance).
 - **Amounts are the user's intent.** If no amount is given, **ASK** — never default to the balance, the
   withdrawable, or "everything." Read balances to check *sufficiency*, not to pick the number.
+
+## Topping up a strategy — precheck, poll, recover
+
+`strategy_top_up` is async and draws on the funding wallet's **perps** USDC. The worker moves the money
+in two legs — perps → Spot on the funding wallet, then Spot → the strategy wallet — so a failure can leave
+the money parked in **Spot**. Four rules, in this order:
+
+1. **Precheck the FREE perps figure, then say it.** Two reads:
+   - **Free perps USDC — the gate:** `withdrawable` on the `main` side of `strategy_get_clearinghouse_state`
+     for the funding wallet. Its address is the `walletType: embedded` entry in `user_get_me` — read it to
+     check the balance, **never** to hand out as a deposit address (deposits go through the funding card).
+   - **Spot USDC:** `account_get_portfolio` with `forceFetch: true` (the default read is cached for hours);
+     its balance fields sit under `data.portfolio`, Spot is `total_spot_usd_in_hyperliquid` (`spot_balances`
+     lists the entry). EVM USDC in `token_balances` does not count.
+   `total_in_hyperliquid` is the perps **account value** — free USDC *plus* margin locked in open positions —
+   so it over-states what a top-up can draw whenever a position is open. It is an **upper bound only, never
+   the gate**: if even it is short of the amount, the top-up will certainly fail, so go straight to the
+   funding card.
+   **The amount must not exceed free perps (`withdrawable`)** — a top-up accepted against too little also
+   ends FAILED, and the deposit may still be on an EVM chain or in Spot. State both numbers in one line
+   before the call: "Your funding wallet has $X free in perps; topping up $Y." Spot covers the gap →
+   `transfer_spot_to_perps` first, then top up. Nothing covers it → the funding card, and top up once the
+   deposit lands.
+2. **Poll, don't re-submit.** Keep `data.top_up_request.id` and poll `strategy_get_top_up_status` until
+   `COMPLETED` or `FAILED`. `PENDING` / `FUNDS_IN_TRANSIT` = keep polling; `totalFunded` stays stale until
+   completion. Re-submitting while PENDING is how strategies get double-funded.
+3. **FAILED — find the money before you say anything.** The status message can say "no funds moved …
+   still in the funding wallet … safe to re-submit" when the first leg *did* run: treat it as a hint, not
+   a fact. Re-take both rule-1 reads — free perps (`withdrawable`) and Spot (`account_get_portfolio`,
+   `forceFetch: true`) — and compare them with the precheck:
+   - **Spot USDC rose by about the top-up amount** → the money is in the funding wallet's **Spot**
+     balance. Move it back with `transfer_spot_to_perps` for that amount, then say where it was and
+     where it is now: "The top-up failed after its first leg — your $X was in your funding wallet's Spot
+     balance. I've moved it back to perps; it's available again." Do **not** re-submit on your own.
+   - **Perps and Spot both unchanged** → nothing moved; say "still in your funding wallet's **perps**
+     balance."
+   - **Anything else, or the read fails** → say what you confirmed and what you couldn't, don't
+     re-submit, and hand the top-up request id to Senpi support (`SERR159`/`SERR160`: money may have
+     moved).
+   **Never say "still in the funding wallet" without naming the balance — perps or Spot.**
+4. **At most one re-submit — only if the user asks, and never for the same strategy twice.** Recover the
+   Spot leg (rule 3), re-run the precheck (rule 1), then submit once with a **new** idempotency key. A
+   second FAILED for the same strategy means **something is wrong that a retry won't fix**. Apply rule 3
+   again, say where the money is, and hand the case to **Senpi support with the top-up request id**.
+   **Never offer a fresh deploy as the fix for a failed top-up:** it costs another wallet-creation fee and
+   leaves the old strategy running. Never a third submit, never a retry loop, never "contact support"
+   before the money is located.
+
+| Say | Never say |
+| --- | --- |
+| "Your funding wallet has $X free in perps; topping up $Y." — before the call | A top-up amount with no free-perps figure next to it; the account value (`total_in_hyperliquid`) quoted as free |
+| "The top-up failed after its first leg — your $X was in your funding wallet's **Spot** balance; I've moved it back to perps and it's available again." | "The money is still in your funding wallet" with no balance named; "safe to re-submit" read off the status message |
+| "The top-up failed again, so I've stopped retrying. Your $X is in your funding wallet's **perps** (or **Spot**) balance, and Senpi support can trace it with request id …" — after the second FAILED | "Let me try again" a third time; a fresh deploy offered as the fix for a failed top-up; "contact support" before the money is located |
+| "Creating a strategy reserves a creation fee — about $1, budgeted as $1.50 per wallet — on top of the $10 minimum." | A fee figure no tool returned |
+
+## Costs — say them before money moves
+
+- **Creating a strategy reserves a creation fee — about $1, budgeted as $1.50 per wallet by the
+  minimum-budget math** — so a wallet opens at the $10 floor with ~$11.50 funded. Say it whenever the plan
+  creates a wallet.
+- **Several wallets → the per-wallet minimum and fee up front:** "N wallets × ($10 minimum + ~$1.50 fee)
+  ≈ $Z" — before the budget question, not after a refusal.
+- **Quote what the tool returned, nothing else.** A fee, a "funds in transit" figure, or an `available`
+  figure in a tool result is quoted as-is. Never invent a fee a tool did not return.
+  `transfer_spot_to_perps` is fee-free — that is the tool's contract, not a guess.
 
 ## How to answer
 
@@ -164,6 +241,11 @@ buying simply happens in the card's own checkout. Point at it warmly and specifi
 - **On-platform move:** check state where it matters — `account_get_portfolio` (balances),
   `strategy_get_clearinghouse_state` (withdrawable), `strategy_list` (status) — confirm the amount with
   the user, then use the movement tool.
+- **Top-up:** the perps figure and the amount in one line, call, poll. On FAILED locate the money first
+  (Spot rose → `transfer_spot_to_perps` it back), say which balance it is in, and never re-submit on your
+  own.
+- **"Withdraw everything":** the exact figure from the tool; on `SERR037` retry once with
+  `details.available`; confirm ~$0; offer to close the dust.
 
 ## Never
 
@@ -182,3 +264,8 @@ buying simply happens in the card's own checkout. Point at it warmly and specifi
 - Never offer to bridge Hyperliquid → EVM yourself; no such tool exists. That move is app-only.
 - Never invent or default an amount; never move "the whole balance" unless the user explicitly says so.
 - Never use `strategy_close` as a stealth withdraw — explicit, confirmed close intent only.
+- Never re-submit a FAILED top-up on your own, never more than once per strategy, never while PENDING —
+  and never say "still in your funding wallet" without naming **perps** or **Spot**.
+- Never ask the user for a new number when `SERR037` returned `details.available` — retry once with that
+  figure. Never round "everything" — it is the exact available figure.
+- Never invent a fee a tool did not return; never leave the creation fee out of a multi-wallet plan.
