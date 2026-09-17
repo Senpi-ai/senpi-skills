@@ -29,6 +29,8 @@ import io
 import json
 import os
 import sys
+import time
+import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
@@ -36,6 +38,10 @@ if HERE not in sys.path:
 import score  # noqa: E402 — the ranker, called in-process
 
 UNIVERSE_TOP_N = 120          # top-N by day notional volume (SKILL golden rule 6: floor + top-N)
+# every MCP read here is an idempotent GET, so one transient failure is retried rather than written
+# off as a dark source (see _read)
+READ_ATTEMPTS = 2
+RETRY_SLEEP_S = 0.75
 UNIVERSE_MIN_VOL = score.CRED_FLOOR_VOL   # below this the ranker drops the name anyway
 COHORT_PAGES = 1              # one page of 1000 (ALL_TIME, realized desc) fills the 150-wallet smart sample;
                               # the crowd band smartmoney pages for is not read here (crowd = 4h board)
@@ -128,15 +134,26 @@ def _num(v):
 
 
 def _read(c, tool, args, cov, key):
-    """One guarded read: a failure degrades `key` in coverage, never the sweep."""
-    try:
-        data = _ok(c.mcp_call(tool, **args))
-    except Exception as e:  # noqa: BLE001
-        cov[key] = f"failed: {tool}: {str(e)[:160]}"
-        return None
-    if data is None:
-        cov[key] = f"failed: {tool}: tool reported success=false"
-    return data
+    """One guarded read: a failure degrades `key` in coverage, never the sweep.
+
+    Every read here is an idempotent GET, so a transient 503 or a dropped socket is retried once
+    before the source is written off. Without this a single blip silently removed a whole lens from
+    the run — and a removed lens is indistinguishable from a lens that looked and found nothing.
+    """
+    err = None
+    for attempt in range(READ_ATTEMPTS):
+        try:
+            data = _ok(c.mcp_call(tool, **args))
+        except Exception as e:  # noqa: BLE001
+            err = f"failed: {tool}: {str(e)[:160]}"
+        else:
+            if data is not None:
+                return data
+            err = f"failed: {tool}: tool reported success=false"
+        if attempt + 1 < READ_ATTEMPTS:
+            time.sleep(RETRY_SLEEP_S * (attempt + 1))
+    cov[key] = err
+    return None
 
 
 def _dex(name):
@@ -349,10 +366,10 @@ def gather(call_tool, top_n=UNIVERSE_TOP_N, now=None):
             "coverage": cov, "source_trader_count": src, "reads": c.reads, "reads_failed": c.failed}
 
 
-def rank(current_path, out_dir, now=None, top=None, lens="both"):
+def rank(current_path, feed_path, now=None, top=None, lens="both"):
     """score.py in-process (its CLI is its API), with no --state: one reading, nothing written to history.
     Returns its stdout JSON."""
-    argv = [current_path, "--out", os.path.join(out_dir, "signals.md"), "--lens", lens]
+    argv = [current_path, "--out", feed_path, "--lens", lens]
     if now:
         argv += ["--now", now]
     if top:
@@ -380,10 +397,23 @@ def run(call_tool, out_dir=None, now=None, top_n=UNIVERSE_TOP_N, top=None, lens=
     out_dir = out_dir or default_out_dir()
     os.makedirs(out_dir, exist_ok=True)
     cur = gather(call_tool, top_n=top_n, now=score._parse_ts(now) if now else None)
-    current_path = os.path.join(out_dir, "current.json")
-    with open(current_path, "w") as f:
-        json.dump(cur, f)
-    res = rank(current_path, out_dir, now=now, top=top, lens=lens)
+    # Hand the reading to score.py through files only THIS run can see, then publish them under the
+    # stable names with os.replace (atomic). Two sweeps sharing an out dir — the chip and the sweep
+    # inside a market pulse — used to write and re-read the same current.json, so an interleave let
+    # one run rank the other's universe and present assets it never read.
+    tag = f"{os.getpid()}.{uuid.uuid4().hex[:8]}"
+    run_current = os.path.join(out_dir, f".current.{tag}.json")
+    run_feed = os.path.join(out_dir, f".signals.{tag}.md")
+    try:
+        with open(run_current, "w") as f:
+            json.dump(cur, f)
+        res = rank(run_current, run_feed, now=now, top=top, lens=lens)
+        os.replace(run_current, os.path.join(out_dir, "current.json"))
+        os.replace(run_feed, os.path.join(out_dir, "signals.md"))
+    finally:
+        for stale in (run_current, run_feed):
+            if os.path.exists(stale):
+                os.unlink(stale)
     cov = res.get("coverage") or {}
     summary = (f"assets {len(cur['asset_metrics'])} · events {len(cur['events'])} · "
                f"trade {len(res.get('trade') or [])} · social {len(res.get('social') or [])} · "
@@ -399,11 +429,29 @@ PLAIN_SOURCE = {"universe": "market data", "cohort": "proven-trader positions", 
                 "momentum": "momentum events", "cross_asset": "cross-asset flows"}
 
 
+def universe_is_dark(coverage):
+    """True when the ONE read everything else hangs off — market_list_instruments — gave us nothing.
+
+    Every other lens is optional: it degrades and the feed says so. This one is not. With no
+    universe there are no assets to score, so `score.py` renders its quiet-market line — and the
+    skill teaches the agent that a quiet read is a correct answer to present as-is. A total outage
+    would therefore be reported to the user as a calm market. It is an error, not a feed.
+    """
+    return str((coverage or {}).get("universe", "")).startswith(("failed", "NO DATA", "unavailable"))
+
+
 def feed_text(rep):
     """The rendered feed an agent presents, verbatim, plus ONE plain line naming any source that failed —
     so a dark lens is never read as "nothing happened", without coverage lines, counts or tool names."""
-    with open(os.path.join(rep["out_dir"], "signals.md")) as f:
-        feed = f.read().rstrip("\n")
+    if universe_is_dark(rep.get("coverage")):
+        return ("_Senpi Signals could not read the market this run — the universe read failed after "
+                f"{READ_ATTEMPTS} attempts, so nothing was measured. This is an outage, not a quiet "
+                "market. Worth trying again in a minute._")
+    feed = (rep.get("result") or {}).get("feed_md")
+    if feed is None:      # a caller that built `rep` by hand
+        with open(os.path.join(rep["out_dir"], "signals.md")) as f:
+            feed = f.read()
+    feed = feed.rstrip("\n")
     dark = [PLAIN_SOURCE[k] for k, v in (rep.get("coverage") or {}).items()
             if k in PLAIN_SOURCE and str(v).startswith(("failed", "NO DATA", "unavailable"))]
     if dark:
@@ -441,13 +489,19 @@ def main(argv=None):
             sys.stderr.write(err.getvalue())
             raise
         print(feed_text(rep))
-        return 0
+        # a dark universe is an outage, not a quiet market: exit non-zero so a caller that only
+        # checks the status code cannot present it as a successful, empty read
+        return 3 if universe_is_dark(rep["coverage"]) else 0
     rep = run(lambda name, args: client.mcp_call(name, **args), **kwargs)
     print(json.dumps(rep["result"], indent=2))
     for k, v in rep["coverage"].items():
         print(f"[coverage] {k}: {v}", file=sys.stderr)
     print(f"[sweep] {rep['summary']}", file=sys.stderr)
     print(f"reads={rep['reads']}")
+    if universe_is_dark(rep["coverage"]):
+        print("[sweep] universe read failed — this run measured nothing; it is an outage, not a "
+              "quiet market.", file=sys.stderr)
+        return 3
     return 0
 
 

@@ -153,8 +153,74 @@ def test_a_failed_read_lands_in_coverage_not_an_exception(state_dir):
     assert cov["cohort"].startswith("ok") and cov["universe"].startswith("ok")
     btc = rep["current"]["asset_metrics"]["BTC"]
     assert btc["crowd_source"] == "funding_sign" and "price_change_pct" not in btc   # degraded, honestly
-    assert rep["current"]["reads_failed"] == 2 and rep["reads"] == 6
+    # each dead source is RETRIED before it is written off, so the failure count is per attempt
+    assert rep["current"]["reads_failed"] == 2 * sweep.READ_ATTEMPTS
+    assert rep["reads"] == 6 + 2 * (sweep.READ_ATTEMPTS - 1)
     assert (state_dir / "signals" / "signals.md").is_file()
+
+
+def test_a_transient_failure_is_retried_before_a_source_is_written_off(state_dir):
+    """Every read here is an idempotent GET. One 503 used to delete a whole lens from the run — and
+    a lens that was never read is indistinguishable, in the feed, from one that looked and found
+    nothing. So a source is only dark after it has failed every attempt."""
+    budget = {"leaderboard_get_markets": 1}          # fails once, then serves
+    def flaky(name, args):
+        if budget.get(name):
+            budget[name] -= 1
+            raise RuntimeError(f"{name} HTTP 503")
+        return fake_call_tool(name, args)
+    rep = sweep.run(flaky, now=NOW)
+    assert budget["leaderboard_get_markets"] == 0
+    assert rep["coverage"]["board_4h"].startswith("ok"), rep["coverage"]["board_4h"]
+    assert rep["current"]["asset_metrics"]["BTC"]["crowd_source"] == "board_4h"   # the real read won
+
+
+def test_a_dark_universe_is_an_outage_not_a_quiet_market(state_dir):
+    """`market_list_instruments` is the one read everything hangs off. When it dies there are no
+    assets to score, so score.py renders its quiet-market line — and SKILL.md teaches the agent that
+    a quiet read is a correct answer to present as-is. A total outage would be reported to the user
+    as a calm market, at exit code 0. It is an error, and it has to look like one."""
+    rep = sweep.run(lambda n, a: fake_call_tool(n, a, fail=("market_list_instruments",)), now=NOW)
+    assert sweep.universe_is_dark(rep["coverage"])
+    feed = sweep.feed_text(rep)
+    assert "could not read the market this run" in feed
+    assert "outage, not a quiet market" in feed
+    assert "quiet read is a correct answer" not in feed     # never the calm-market line
+    assert "Nothing notable stands out" not in feed
+    # and a healthy-but-empty run is still allowed to say so
+    assert not sweep.universe_is_dark(sweep.run(fake_call_tool, now=NOW)["coverage"])
+
+
+def test_two_sweeps_sharing_an_out_dir_never_present_each_others_universe(state_dir, monkeypatch):
+    """The chip and the sweep inside every market pulse share one out dir. Both used to write
+    current.json and then re-read it, so if a second run landed in between, the first RANKED the
+    second's universe and presented assets it had never read — golden rule 1 broken by a filesystem
+    race, silently, exit 0. Run B here starts and finishes between A's write and A's read."""
+    inner = {}
+    real_rank = sweep.rank
+
+    def other_universe(name, args):
+        resp = fake_call_tool(name, args)
+        if name == "market_list_instruments":
+            resp["data"]["instruments"].append(_inst("ONLYINB", 400e6, 5000, 10.0, 9.0, 0.00009))
+        return resp
+
+    def racing_rank(*a, **kw):
+        if not inner.get("started"):              # exactly once, and B must not re-enter this
+            inner["started"] = True
+            inner["rep"] = sweep.run(other_universe, now=NOW)
+        return real_rank(*a, **kw)
+
+    monkeypatch.setattr(sweep, "rank", racing_rank)
+    rep_a = sweep.run(fake_call_tool, now=NOW)
+
+    assert "ONLYINB" in inner["rep"]["current"]["asset_metrics"]        # B really did read it
+    assert "ONLYINB" not in rep_a["current"]["asset_metrics"]           # A never did
+    assert "ONLYINB" not in json.dumps(rep_a["result"])                 # so A cannot have ranked it
+    assert "ONLYINB" not in sweep.feed_text(rep_a)                      # nor present it
+    # and no per-run scratch file is left behind
+    leftovers = [f for f in os.listdir(state_dir / "signals") if f.startswith(".")]
+    assert leftovers == [], leftovers
 
 
 def test_a_sweep_is_one_reading_so_a_second_sweep_compares_nothing(state_dir):

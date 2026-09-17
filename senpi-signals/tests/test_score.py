@@ -47,7 +47,29 @@ def test_earliness_rewards_flow_before_the_move_not_after():
     assert e({"direction": "short", "price_change_pct": 0.0}) > \
            e({"direction": "short", "price_change_pct": -3.0})           # EARLY OUTRANKS CONFIRMED
     assert e({"direction": None, "price_change_pct": -3.0}) == 0.30      # no side is NOT half-evidence
-    assert e({"direction": "short", "price_change_pct": None}) == 0.5    # no price data = neutral
+    # A price we did NOT READ is not the same state as a price that moved. Both used to return 0.50
+    # and render the same sentence — "price already ran — late" — a claim about a move nobody
+    # measured, on the healthy path (price_change_pct exists only for names the 4h board returned).
+    unread = e({"direction": "short", "price_change_pct": None})
+    assert unread == score.EARLINESS_PRICE_UNREAD
+    assert unread != e({"direction": "short", "price_change_pct": -3.0}), "unread == confirmed again"
+    assert e({"direction": "short", "price_change_pct": 3.0}) < unread < \
+           e({"direction": "short", "price_change_pct": -3.0})     # weaker than looking, stronger than disproven
+
+
+def test_every_price_state_renders_as_the_state_it_actually_is():
+    """trade_read used to bucket earliness into three bands, so two states it never measured —
+    no price this run, and no side at all — fell into bands that assert a price move."""
+    def read(direction, pc):
+        return score.trade_read({"asset": "ETH", "detector": "sm_divergence", "numbers": [],
+                                 "direction": direction, "price_change_pct": pc})
+    assert "price not read this run" in read("short", None)
+    assert "already ran" not in read("short", None)          # the bug: unread claimed a move
+    assert "no side resolved" in read(None, None)
+    assert "going against it" not in read(None, None)        # and a missing side claimed a direction
+    assert "price already ran — late" in read("short", -3.0)
+    assert "price hasn't moved yet — early" in read("short", 0.0)
+    assert "price is going against it" in read("short", 3.0)
 
 
 def test_base_flow_is_immune_to_the_price_move():

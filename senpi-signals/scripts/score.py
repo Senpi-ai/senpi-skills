@@ -275,6 +275,11 @@ def effective_one_sidedness(raw, n):
     return round(0.5 + (raw - 0.5) * sample_shrink(n), 3)
 
 
+# earliness when the side is known but no price was read this run — deliberately below a confirmed
+# read (0.50+) and above a contradicted one (0.15): not looking is weaker evidence than looking.
+EARLINESS_PRICE_UNREAD = 0.35
+
+
 def earliness(s):
     """0..1 — is this signal EARLY (flow is there, the move is not) or LATE (price already ran)?
 
@@ -285,9 +290,16 @@ def earliness(s):
     flat price is the valuable state: the positioning is in and the move has not happened.
 
         price contradicts the side   → 0.15   being disproven
+        price NOT READ this run      → 0.35   we did not look; never "already ran"
         price already ran with it    → 0.50   real, but you are late
         price flat                   → 1.00   early — this is the whole point
         no direction at all          → 0.30   absence of a read is NOT half-evidence
+
+    `price_change_pct` is only populated for names the 4h board returned (sweep.py), so on any
+    healthy run some names have no price at all. That state used to return 0.50 — the same value as
+    "price already ran with it" — and rendered as the sentence "price already ran — late", a claim
+    about a move nobody measured. Unknown now has its own value, below a confirmed read and above a
+    contradicted one, and its own wording in `trade_read`.
 
     (The old function scored "no direction" at 0.50 — the exact median — so a signal with no side
     outranked every signal price was disproving, and tied a half-confirmed one. That is why a
@@ -298,7 +310,7 @@ def earliness(s):
     if not d:
         return 0.30
     if pc is None:
-        return 0.50
+        return EARLINESS_PRICE_UNREAD
     ran = min(1.0, abs(pc) / 3.0)
     aligned = (d == "long" and pc > 0) or (d == "short" and pc < 0)
     return round(1.0 - (0.50 if aligned else 0.85) * ran, 3)
@@ -709,8 +721,18 @@ def trade_read(s):
     nums = "; ".join(s.get("numbers") or [])
     det = s["detector"]
     early = earliness(s)
-    tag = ("price hasn't moved yet — early" if early >= 0.8
-           else ("price already ran — late" if early >= 0.45 else "price is going against it"))
+    # every branch is a state we actually measured; "no price this run" and "no side" are their own
+    # sentences, never bucketed into a band that asserts a move
+    if not d:
+        tag = "no side resolved"
+    elif _num(s.get("price_change_pct")) is None:
+        tag = "price not read this run"
+    elif early >= 0.8:
+        tag = "price hasn't moved yet — early"
+    elif early >= 0.45:
+        tag = "price already ran — late"
+    else:
+        tag = "price is going against it"
     if det == "sm_divergence":
         return f"{_smart_lead(s)} {d} vs the crowd on {a}, {tag}."
     if det == "sm_flow":
@@ -1034,8 +1056,11 @@ def main():
     cov["whale_lens"] = ("off (one reading, no compare)" if not state_path else
                          "ok" if any(isinstance(v, dict) and v.get("smart_positions")
                                      for v in (prior or {}).values()) else "NO BASELINE")
-    open(a.out, "w").write(_render_md(now, social, trade, a.lens, cov, a.consumer))
-    print(json.dumps({"generated": now.isoformat(),
+    feed_md = _render_md(now, social, trade, a.lens, cov, a.consumer)
+    open(a.out, "w").write(feed_md)
+    # the feed travels back with the result, so an in-process caller never re-reads the file it just
+    # wrote — two concurrent runs sharing an out dir would otherwise swap feeds on the way back
+    print(json.dumps({"generated": now.isoformat(), "feed_md": feed_md,
                       "diff_baseline_ts": (baseline or {}).get("ts"),
                       "trend_baseline_ts": (slow or {}).get("ts"),
                       "trend_baseline_age_hours": (round(slow_age_min / 60.0, 1)
