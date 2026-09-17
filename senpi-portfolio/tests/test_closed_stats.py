@@ -1,5 +1,6 @@
 """The closed block prints the record — winners / losers / win rate / longs / shorts over the full
-pull — so the narration quotes it instead of extrapolating from the five recent trades.
+pull — so the narration quotes it instead of extrapolating from the five recent trades. Every close is
+dated in UTC, and the block prints the newest close the record holds.
 
     python3 -m pytest senpi-portfolio/tests/test_closed_stats.py
 """
@@ -72,12 +73,14 @@ def test_a_failed_read_prints_null_counts_not_zero():
     closed = portfolio.fetch_closed(_Down(), "0xwallet", meta)
     assert closed["trade_count"] is None
     assert closed["winners"] is None and closed["win_rate_pct"] is None and closed["shorts"] is None
+    assert closed["closed_record_newest_utc"] is None
     assert meta["warnings"]
 
 
 def test_an_empty_history_has_no_win_rate():
     closed = portfolio.fetch_closed(_Client([]), "0xwallet", {})
     assert closed["trade_count"] == 0 and closed["winners"] == 0 and closed["win_rate_pct"] is None
+    assert closed["closed_record_newest_utc"] is None
 
 
 def test_skill_says_quote_the_record_and_route_other_templates_through_discover():
@@ -126,3 +129,72 @@ def test_without_a_side_label_the_side_is_unknown_whatever_the_size_or_pnl_sugge
     # an unknown side still counts in the record
     assert closed["trade_count"] == 5 and closed["winners"] == 4 and closed["losers"] == 1
     assert [r["direction"] for r in closed["recent"]] == [None, None, None, None, "short"]
+
+
+def _closed_at(close_time):
+    row = _row("ETH", 1, 1.0)
+    if close_time is None:
+        del row["closeTime"]
+    else:
+        row["closeTime"] = close_time
+    return row
+
+
+def test_a_close_is_dated_in_utc_from_seconds_or_milliseconds():
+    # the feed sends epoch seconds; the same instant in milliseconds, or as a string, dates the same
+    meta = {}
+    closed = portfolio.fetch_closed(
+        _Client([_closed_at(1700000000), _closed_at(1700000000123), _closed_at("1700000000")]), "0x" + "e" * 40, meta)
+    assert [r["closed_at_utc"] for r in closed["recent"]] == ["2023-11-14T22:13:20Z"] * 3
+    assert closed["recent"][0]["closed_time"] == 1700000000      # the raw value stays beside it
+    assert not meta.get("warnings")
+
+
+def test_an_unreadable_close_time_is_null_with_a_warning_never_a_made_up_date():
+    # text, zero, a flag, an 11-digit number (neither seconds nor milliseconds) and no close time at all
+    meta = {}
+    rows = [_closed_at(t) for t in ("soon", 0, True, 17000000000, None)]
+    closed = portfolio.fetch_closed(_Client(rows), "0x" + "e" * 40, meta)
+    assert [r["closed_at_utc"] for r in closed["recent"]] == [None] * 5
+    assert closed["closed_record_newest_utc"] is None
+    assert any("5 closed trade(s) with no readable close time" in w for w in meta["warnings"]), meta
+    assert closed["trade_count"] == 5                              # still counted in the record
+
+
+def test_the_record_prints_its_newest_close_whatever_the_row_order_or_unit():
+    rows = [_closed_at(1700000000), _closed_at(1700086400000), _closed_at(1700043200), _closed_at("soon")]
+    closed = portfolio.fetch_closed(_Client(rows), "0x" + "e" * 40, {})
+    assert closed["closed_record_newest_utc"] == "2023-11-15T22:13:20Z"
+
+
+def test_a_strategy_group_prints_the_newest_close_across_its_wallets():
+    sleeves = [{"name": "pair-long", "wallet": "0x" + "1" * 40, "skill_name": "pair",
+                "closed": {"closed_record_newest_utc": "2023-11-14T22:13:20Z"}},
+               {"name": "pair-short", "wallet": "0x" + "2" * 40, "skill_name": "pair",
+                "closed": {"closed_record_newest_utc": "2023-11-15T22:13:20Z"}},
+               {"name": "pair-hedge", "wallet": "0x" + "3" * 40, "skill_name": "pair", "closed": None}]
+    [group] = portfolio.group_strategies(sleeves, {})
+    assert group["totals"]["closed_record_newest_utc"] == "2023-11-15T22:13:20Z"
+
+
+def _skill():
+    return open(SKILL, encoding="utf-8").read()
+
+
+def test_skill_dates_a_close_from_closed_at_utc_never_a_raw_epoch():
+    for needle in ("Quote a close with its UTC date and time", "never from a raw epoch"):
+        assert needle in _skill(), needle
+
+
+def test_skill_says_a_close_can_reach_the_record_late():
+    for needle in ("The closed record can arrive hours after a close",
+                   "has not reached trade history yet",
+                   "show the live state",
+                   "Never present older closes as today's",
+                   "never invent the missing P&L"):
+        assert needle in _skill(), needle
+
+
+def test_skill_says_an_open_profit_is_unrealized_and_the_close_is_not_forecast():
+    for needle in ("on an open position is unrealized", "do not forecast the close"):
+        assert needle in _skill(), needle

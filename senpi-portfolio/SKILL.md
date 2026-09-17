@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.25.0"
+  version: "1.26.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -73,8 +73,8 @@ dump when the user asked about their **strategies** — is a failure. The user w
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
 > authoritative read for what the user holds and what closed. **Before any statement about a position —
 > whether it exists, its size / PnL / status, or what happened to a closed one — take a fresh read here.**
-> Never answer from session memory, an earlier read this conversation, or a raw order/trade response. Two
-> rules, and they hold even inside a trading flow:
+> Never answer from session memory, an earlier read this conversation, or a raw order/trade response.
+> These rules hold even inside a trading flow:
 > - **A successful open/close order is NOT proof of the resulting position.** After you place or close a
 >   trade, confirm the resulting state here before telling the user what they hold — a position in a
 >   scanner-managed wallet can be reconciled as foreign and DSL-flattened within minutes (order "succeeds,"
@@ -82,6 +82,13 @@ dump when the user asked about their **strategies** — is a failure. The user w
 > - **"What happened to my [asset] / my closed trades"** → read the authoritative CLOSED record
 >   (`closed.recent[]` / `closed.realized_pnl` here, or hand to `senpi-improve-trades` for why-it-closed).
 >   Never narrate a closed-position story from memory.
+> - **Quote a close with its UTC date and time from `closed_at_utc`, never from a raw epoch** such as
+>   `closed_time` — a bare number read by eye is how an older close gets called today's.
+> - **The closed record can arrive hours after a close.** A close the user saw may not be in `closed` yet
+>   (`closed_record_newest_utc` is the newest close it holds; a re-read does not skip the wait). Say it
+>   has not reached trade history yet and show the live state from this read instead — open `positions[]`
+>   and `account_value`. Never present older closes as today's, and never invent the missing P&L.
+> - **"In profit" on an open position is unrealized.** Say it is unrealized, and do not forecast the close.
 
 ## The wallet model (get this exactly right)
 
@@ -516,10 +523,11 @@ directly.)
 - **Report realized PnL + closed trades, not only open ones.** Each strategy carries a `closed` block —
   `realized_pnl` (total booked PnL over the recent history pull), the record over that pull
   (`trade_count`, `winners`, `losers`, `win_rate_pct`, `longs`, `shorts`, `unknown_side`) and `recent[]` (last few
-  closed trades: asset, direction, realized pnl, closed time). Quote the record; never work a win rate
+  closed trades: asset, direction, realized pnl, `closed_at_utc`). Quote the record; never work a win rate
   or a long/short split out of `recent[]`. A strategy flat right now may have *already booked* real
   gains; report both realized and unrealized. If `closed.realized_pnl` is `null`, the history read
-  failed (see `meta.warnings`) — say realized PnL is unavailable, don't imply zero.
+  failed (see `meta.warnings`) — say realized PnL is unavailable, don't imply zero. For dating a close,
+  and for a close that has not reached the record yet, see **Source of truth for position facts** above.
 - **Surface the protection posture per strategy — then the live tiers.** Each strategy carries
   `protected` (`true` / `false` / `null`): `true` only when the deployed `runtime.yaml`'s `exit:` block
   is one the **ENGINE actually read** (`dsl_preset` or `engine: dsl`) — a `skill_name` attribution stamp
@@ -779,13 +787,17 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
     stamp alone no longer counts. `null` = the runtime read did not answer — say "could not verify on
     this host," never "protected" or "not protected." Config-level posture, not a live per-position
     check — see the tri-state rule above.
-  - `closed` — `{realized_pnl, trade_count, winners, losers, win_rate_pct, longs, shorts, unknown_side, recent[]}`
+  - `closed` — `{realized_pnl, trade_count, winners, losers, win_rate_pct, longs, shorts, unknown_side, closed_record_newest_utc, recent[]}`
     from a read-guarded `discovery_get_trader_history` on the strategy wallet: `realized_pnl` (total
     booked PnL over the recent pull), the record over that pull (a flat close is neither a winner nor
-    a loser; `win_rate_pct` = winners / trade_count), and `recent[]` (last few closed trades: `asset`,
-    `direction`, `realized_pnl`, `entry_px`, `exit_px`, `closed_time`). `strategy_groups[].totals`
-    carries the same counts summed across the strategy's wallets. On a read failure `realized_pnl` and
-    the counts are `null` and a `meta.warnings` entry is added — treat as "unavailable," never as zero.
+    a loser; `win_rate_pct` = winners / trade_count), `closed_record_newest_utc` (the newest close the
+    record holds, UTC), and `recent[]` (last few closed trades: `asset`, `direction`, `realized_pnl`,
+    `entry_px`, `exit_px`, `closed_at_utc` — the close's UTC date and time, the one to quote — and
+    `closed_time`, the raw epoch as the feed sent it). A close time that cannot be read is
+    `closed_at_utc: null` plus a `meta.warnings` line: give that close no date. `strategy_groups[].totals`
+    carries the same counts summed across the strategy's wallets and the newest of their
+    `closed_record_newest_utc`. On a read failure `realized_pnl` and the counts are `null` and a
+    `meta.warnings` entry is added — treat as "unavailable," never as zero.
   - `positions[]` (asset, dex, direction, leverage, notional, margin, `upnl`, `return_on_equity_pct`,
     `liq_px`, `market_24h_pct`, `vs_market`, and **`dsl`** — the live per-position ratchet tier).
     - **`dsl`** — this position's live DSL/ratchet state. **`armed: true`** → `tier_index`,
