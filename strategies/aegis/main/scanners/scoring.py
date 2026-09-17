@@ -276,6 +276,32 @@ def margin_pct_for(conviction, base_pct, regime_intensity, max_pct=None):
         pct = min(pct, max_pct)
     return pct
 
+# The engine refuses an order whose notional is under the platform minimum ($10) and bumps small orders
+# to $12. A regime-scaled size below that is not a smaller hedge, it is no hedge and a skipped entry every
+# tick. Size to the smallest order the venue accepts instead, or say the wallet is too small for the regime.
+VENUE_MIN_NOTIONAL = 12.0
+
+
+def floor_to_venue_min(pct, account_value, leverage, max_pct=None, min_notional=VENUE_MIN_NOTIONAL):
+    """Raise a regime-scaled margin PERCENT to the smallest size the venue will fill.
+
+    Returns (pct, floored). `floored` is True when the percent was raised. Returns (None, True) when
+    even the floor exceeds `max_pct` — the wallet is too small for this regime's sizing and the caller
+    should skip the entry and say why. Pure; percent in (0,100].
+    """
+    av = _f(account_value)
+    lev = _f(leverage)
+    if pct is None or av <= 0 or lev <= 0:
+        return pct, False
+    need = min_notional / (av * lev) * 100.0
+    if pct >= need:
+        return pct, False
+    need = math.ceil(need * 100.0) / 100.0      # the emit is stored to 2 dp; round UP so it still clears
+    if max_pct is not None and max_pct > 0 and need > max_pct:
+        return None, True
+    return need, True
+
+
 # ── signal ranking ────────────────────────────────────────────────────────────
 
 def rank_signals(candidates):
