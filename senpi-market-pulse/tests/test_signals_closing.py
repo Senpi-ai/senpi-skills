@@ -28,6 +28,13 @@ def test_every_run_ends_with_the_brief_and_one_question():
     assert "Run `python3 scripts/sweep.py --print-feed` from the senpi-signals folder" in SKILL
 
 
+def test_the_strategy_route_offers_athena_first():
+    route = SKILL[SKILL.index("**Strategy → Athena first, or one built for this market.**"):]
+    assert route.index("**Athena**") < route.index("**senpi-strategy-author**")
+    assert "**senpi-strategy-ops** runs its walkthrough and deploys it under their name" in route
+    assert "Never promise or imply results." in route
+
+
 def test_a_box_without_senpi_signals_skips_the_step_silently():
     assert ("If the senpi-signals folder isn't there, skip this step and the signals clause of the question, "
             "and say nothing about it.") in SKILL

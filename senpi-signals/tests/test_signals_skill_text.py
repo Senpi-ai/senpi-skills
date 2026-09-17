@@ -3,6 +3,7 @@
 2.0 is a one-time job with no compare. The skill runs it when asked and never on a schedule (a cron is a
 model call per firing), never deploys or funds anything for it, and never describes a detector that
 needs an earlier reading as part of the feed."""
+import json
 import re
 from pathlib import Path
 
@@ -51,17 +52,45 @@ def test_compare_detectors_are_v2_and_never_claimed():
 
 def test_every_run_ends_with_one_question_to_trade_or_build():
     """The feed is observation; acting is a separate, consented step. One question closes every run,
-    it routes to senpi-trade or senpi-strategy-author, and nothing is placed or funded without a yes."""
+    it routes to senpi-trade or to a strategy, and nothing is placed or funded without a yes."""
     skill = _flat(SKILL)
     assert "## How every run ends — one question" in skill
     assert ("Want to act on any of these? I can set up a trade on one of them — you see the size and the stop "
-            "before anything is placed — or build a strategy around one of these reads.") in skill
+            "before anything is placed — or start a strategy: your own Athena, the smart-money hedge fund, "
+            "or one built around these reads.") in skill
     assert "Place nothing until the user says yes to that exact order." in skill
     assert "The stop must sit before liquidation." in skill
-    assert "it is a new strategy with no track record, and you say so" in skill
+    assert "It is a new strategy with no track record, and you say so." in skill
     assert "Deploy only on the user's yes." in skill
     assert "then the closing question (next section) — nothing after it" in skill
     assert "Follow-up: \"how could I play it?\"" not in skill
+
+
+def _closing(skill):
+    return skill[skill.index("## How every run ends — one question"):skill.index("## Where it lives")]
+
+
+def test_the_strategy_offer_leads_with_athena_and_every_template_it_names_is_real():
+    """Athena is the lead strategy offer, and each read type names the template built on that kind of
+    read. A name that isn't in the catalog would send the user to a template ops can't deploy, so every
+    id named here must exist in strategies/catalog.json."""
+    closing = _closing(_flat(SKILL))
+    named = re.findall(r"\*\*[A-Z][a-z]+\*\* \(`([a-z0-9-]+)`\)", closing)
+    assert named[0] == "athena"
+    assert set(named) == {"athena", "phalanx", "pangolin", "camel", "meerkat", "mantis"}
+    catalog = json.loads((SKILL_DIR.parent / "strategies" / "catalog.json").read_text(encoding="utf-8"))
+    ids = {s["id"] for s in catalog["skills"]}
+    assert set(named) <= ids, set(named) - ids
+    assert "**Athena → senpi-strategy-ops.**" in closing
+    assert "read the minimum budget from the catalog, never from memory" in closing
+
+
+def test_a_template_is_a_starting_point_never_a_promise():
+    closing = _closing(_flat(SKILL))
+    assert "Every template is a starting point the user makes their own" in closing
+    assert "Never promise or imply results, and never call a template proven." in closing
+    for claim in ("proven template", "proven strategy", "guaranteed", "best-performing", "profitable"):
+        assert claim not in closing.lower(), claim
 
 
 def test_the_sweep_stays_read_only_and_the_question_stays_private():
