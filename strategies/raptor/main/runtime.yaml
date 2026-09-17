@@ -5,8 +5,9 @@ version: 3.0.0
 description: >
   RAPTOR — quality-first hot-streak follower. Pulls ELITE/RELIABLE traders winning the
   WEEKLY window (discovery_get_top_traders, unrealized >= $500k), isolates each one's
-  strongest open position, confirms a smart-money lean in the same direction
-  (leaderboard_get_markets, >= 2% of top-trader gain, >= 10 traders), applies whale
+  strongest open position, confirms the 4h leaders' side agrees (leaderboard_get_markets —
+  which side the last four hours' winners sit on; >= 2% of top-trader gain, >= 10
+  traders), applies whale
   entry-price discipline (skip if price already ran > 5% past the whale's entry in the
   whale's favor), scores, and follows ONLY the single best candidate. Conviction-tiered
   leverage: 7x base, 8x at score >= 8, 10x apex at >= 10; conviction-scaled margin (25%
@@ -41,7 +42,7 @@ scanners:
       tier3Threshold: 3000000               # scoring tier-3 trader-delta floor (USD)
       minConcentration: 0.35                # min |pnl| concentration of the strongest position
       minPositionPnl: 100000                # min |delta_pnl| on the strongest position (USD)
-      # ── smAlignment (smart-money confirmation) — verbatim from v2 ──
+      # ── smAlignment (4h-leader confirmation) — verbatim from v2 ──
       minSmPct: 2.0                         # min pct_of_top_traders_gain on the asset
       minSmTraders: 10                      # min trader_count on the asset
       requireDirectionMatch: true
@@ -93,8 +94,15 @@ actions:
       - type: signal
         scanner: raptor_main_signals
 
-# EXIT — follow-the-streak DSL (ported VERBATIM from v2 runtime.yaml): wide disaster
-# stop, let winners compound, first lock already reachable at +8%.
+# EXIT — follow-the-streak DSL: wide disaster stop, let winners compound, first lock
+# already reachable at +8%. No time-based cuts: Raptor rides one proven trader's live
+# conviction bet, and a whale's position runs for hours to days, so a follow exits on the
+# hard stop (phase1.max_loss_pct) or the profit-lock ladder (phase2.tiers) — never because
+# a clock ran out. The 6h hard_timeout counts from entry and fires in either phase, so it
+# closed follows that had not yet reached the first tier (+8% ROE is ~1.1% of price at 7x)
+# and tier-armed winners mid-run alike; the 60m weak-peak cut and the 40m dead-weight cut
+# closed follows that had merely not moved yet. The whale not having been paid yet is not
+# the whale being wrong. Removed 2026-09-15 (Raptor 1.1.2).
 exit:
   engine: dsl
   interval_seconds: 30
@@ -104,15 +112,11 @@ exit:
     execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: true
-      interval_in_minutes: 360
+      enabled: false
     weak_peak_cut:
-      enabled: true
-      interval_in_minutes: 60
-      min_value: 2.5
+      enabled: false
     dead_weight_cut:
-      enabled: true
-      interval_in_minutes: 40
+      enabled: false
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable
       # move it can still sit BELOW entry and close a WINNER at a loss — churning fees.
@@ -140,5 +144,6 @@ risk:
     max_consecutive_losses: 3
     cooldown_seconds: 1800                  # v2 cooldown_minutes: 30
     per_asset_cooldown_seconds: 7200        # v2 per_asset_cooldown_minutes: 120
-    max_entries_per_day: 6
+    max_entries_per_day: 3             # was 6: the cap bound on 18 of 21 sampled days, and days with 12+ fills paid 94%
+                                       # of the fees; the edge per trade (≈4.7 bps) is below the round-trip cost (30d read)
     bypass_max_entries_per_day_on_profit: false

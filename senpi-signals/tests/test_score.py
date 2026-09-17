@@ -1,0 +1,687 @@
+#!/usr/bin/env python3
+"""Tests for score.py — the dual-lens (trade + social) ranker.
+
+Pure-function units for the three multipliers (credibility, confirmation, freshness) and the
+family-capped rank(), plus an end-to-end subprocess run that exercises: two feeds, illiquid drop,
+the trade-only liquidity floor, change>state (funding_flip beats/keeps a static funding_extreme out
+of the trade feed), the ~1h baseline-ring pick (a 3-min-old snapshot must NOT be the diff baseline),
+and the state advancing. Run: python3 scripts/test_score.py
+"""
+import json
+import os
+import pathlib
+import subprocess
+import sys
+import tempfile
+
+HERE = pathlib.Path(__file__).resolve().parent
+SCRIPTS = HERE.parent / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+import score  # noqa: E402
+
+NOW = "2026-08-24T02:00:00+00:00"
+BASELINE_TS = "2026-08-24T00:55:00+00:00"   # ~65 min old → the correct diff baseline
+NOISE_TS = "2026-08-24T01:57:00+00:00"      # 3 min old → must NOT be chosen as the baseline
+
+
+# ── pure units: the three multipliers + rank() ──
+
+def test_credibility_multiplier_bands():
+    assert score.credibility(50_000_000) == 1.0            # fat book → full credibility
+    assert score.credibility(1_000_000) == 0.45            # at the drop floor → min mult
+    assert score.credibility(500_000) == 0.45              # below floor clamps (dropped upstream anyway)
+    assert score.credibility(None) == 0.8                  # unknown liquidity ≠ proof of thinness
+    mid = score.credibility(13_000_000)
+    assert 0.45 < mid < 1.0                                # ramps monotonically between floor and full
+
+
+def test_earliness_rewards_flow_before_the_move_not_after():
+    """Replaces the old `confirmation` term, which paid a signal for price having already moved its
+    way. That double-counts one move — a "who gained over 4h" read IS a statement that price moved —
+    and it systematically preferred LATE signals. Early (flow in, price flat) is the valuable state."""
+    e = score.earliness
+    assert e({"direction": "short", "price_change_pct": 0.0}) == 1.0     # flat = early = the alpha
+    assert e({"direction": "short", "price_change_pct": -3.0}) == 0.5    # already ran = real but late
+    assert e({"direction": "long", "price_change_pct": 3.0}) == 0.5      # ditto long
+    assert e({"direction": "short", "price_change_pct": 3.0}) == 0.15    # price disproving it
+    assert e({"direction": "short", "price_change_pct": 0.0}) > \
+           e({"direction": "short", "price_change_pct": -3.0})           # EARLY OUTRANKS CONFIRMED
+    assert e({"direction": None, "price_change_pct": -3.0}) == 0.30      # no side is NOT half-evidence
+    # A price we did NOT READ is not the same state as a price that moved. Both used to return 0.50
+    # and render the same sentence — "price already ran — late" — a claim about a move nobody
+    # measured, on the healthy path (price_change_pct exists only for names the 4h board returned).
+    unread = e({"direction": "short", "price_change_pct": None})
+    assert unread == score.EARLINESS_PRICE_UNREAD
+    assert unread != e({"direction": "short", "price_change_pct": -3.0}), "unread == confirmed again"
+    assert e({"direction": "short", "price_change_pct": 3.0}) < unread < \
+           e({"direction": "short", "price_change_pct": -3.0})     # weaker than looking, stronger than disproven
+
+
+def test_every_price_state_renders_as_the_state_it_actually_is():
+    """trade_read used to bucket earliness into three bands, so two states it never measured —
+    no price this run, and no side at all — fell into bands that assert a price move."""
+    def read(direction, pc):
+        return score.trade_read({"asset": "ETH", "detector": "sm_divergence", "numbers": [],
+                                 "direction": direction, "price_change_pct": pc})
+    assert "price not read this run" in read("short", None)
+    assert "already ran" not in read("short", None)          # the bug: unread claimed a move
+    assert "no side resolved" in read(None, None)
+    assert "going against it" not in read(None, None)        # and a missing side claimed a direction
+    assert "price already ran — late" in read("short", -3.0)
+    assert "price hasn't moved yet — early" in read("short", 0.0)
+    assert "price is going against it" in read("short", 3.0)
+
+
+def test_base_flow_is_immune_to_the_price_move():
+    """The 4h gain leaderboard is circular: if a name falls, everyone short it tops the board. A
+    NOTIONAL lean carries the same bug one level down — short notional grows on a fall with zero
+    trading. Base units (coins/contracts) cannot move on price, so this is the honest flow read."""
+    prior = {"w1": 10.0, "w2": -5.0}
+    assert score.base_flow(dict(prior), prior, "short")["base_delta_pct"] == 0.0   # no trades = no flow
+    grew = {"w1": 10.0, "w2": -9.0, "w3": -4.0, "w4": -3.0}
+    f = score.base_flow(grew, prior, "short")
+    assert f["opened"] == 2 and f["added"] == 1 and f["base_delta_pct"] > 0.10
+    assert score.base_flow({}, prior, "short") is None                             # no data != no flow
+
+
+def test_net_bias_build_is_suppressed_once_price_has_moved():
+    """A net/gross NOTIONAL lean drifts toward the winning side on mark-to-market alone, so a
+    "build" on that basis is unreadable after a real move. Headcount is immune and still fires."""
+    def dets(kind, pcp):
+        cur = {"X": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 55.0,
+                     "smart_share_kind": kind, "smart_source": "proven_cohort",
+                     "price_change_pct": pcp, "notional_vol": 5e7,
+                     "smart_long_n": 10, "smart_short_n": 90}}
+        old = {"X": dict(cur["X"], smart_share=45.0)}
+        return [d["detector"] for d in score.detect_from_metrics(cur, {}, lambda a, s: (old["X"], 720))]
+    assert "sm_positioning_build" not in dets("net_bias", -8.0)     # contaminated by the move
+    assert "sm_positioning_build" in dets("net_bias", -0.3)         # flat: drift negligible
+    assert "sm_positioning_build" in dets("cohort_pct", -8.0)       # headcount: immune
+
+
+def test_coverage_reports_a_dark_lens_as_no_data():
+    """"Missing fields just skip their detectors" makes a never-fed detector look identical to one
+    that ran and found nothing. Those mean opposite things, so the run must say which."""
+    c = score.coverage({"A": {"oi": 1, "funding_annualized_pct": 2.0, "notional_vol": 5e7}})
+    assert c["smart_money_lens"] == "NO DATA" and c["flow_lens"] == "NO DATA"
+    full = score.coverage({"A": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 50.0,
+                                 "smart_positions": {"w": -1.0}, "smart_source": "proven_cohort"}})
+    assert full["smart_money_lens"] == "ok" and full["flow_lens"] == "ok"
+
+
+def test_funding_flip_magnitude_scales_with_the_distance_past_zero():
+    """A flip is a zero-crossing, so it is always near zero when it fires; magnitude was hardcoded to
+    1.0, which made a −0.09%/yr flip score identically to a −8.2%/yr one."""
+    def sc_of(rate):
+        s_ = [x for x in score.detect_from_metrics({"E": {"funding_annualized_pct": rate,
+                                                          "notional_vol": 8e7}},
+                                                   {"E": {"funding_annualized_pct": 2.0}})
+              if x["detector"] == "funding_flip"][0]
+        return score.social_score(s_, 1.0, 1.0)
+    assert sc_of(-8.2) > sc_of(-0.09)
+
+
+def test_freshness_penalizes_recent_repeats_and_recovers():
+    now = score._parse_ts(NOW)
+    assert score.freshness("BTC", "oi_surge", {}, now) == 1.0                                   # never shown
+    just = {"BTC|oi_surge": "2026-08-24T01:58:00+00:00"}                                        # 2 min ago
+    assert score.freshness("BTC", "oi_surge", just, now) < 0.6                                  # heavy penalty
+    old = {"BTC|oi_surge": "2026-08-24T00:55:00+00:00"}                                         # 65 min ago
+    assert score.freshness("BTC", "oi_surge", old, now) == 1.0                                  # recovered
+
+
+def test_rank_caps_per_family_and_dedupes_asset():
+    sigs = [
+        {"asset": "A", "detector": "funding_flip", "social_score": 90},
+        {"asset": "B", "detector": "funding_extreme", "social_score": 85},
+        {"asset": "C", "detector": "funding_extreme", "social_score": 80},   # 3rd funding → capped out
+        {"asset": "D", "detector": "oi_surge", "social_score": 70},
+    ]
+    kept = score.rank(sigs, "social_score", 40, 6, 2)
+    fams = [score.FAMILY[s["detector"]] for s in kept]
+    assert fams.count("funding") == 2, fams          # family cap holds — no funding flood
+    assert "oi" in fams                               # a different family still gets a slot
+
+
+def test_one_sidedness_uses_the_positioned_split_not_the_whole_cohort():
+    # "43% of the cohort is short" is a ROUT at 429-vs-40 and NOISE at 429-vs-380. The un-positioned
+    # remainder is not the other side, so it must never be counted as one.
+    rout = score.one_sidedness({"smart_short_n": 429, "smart_long_n": 40}, "short")
+    noise = score.one_sidedness({"smart_short_n": 429, "smart_long_n": 380}, "short")
+    assert rout > 0.9 and 0.5 < noise < 0.55, (rout, noise)
+    # reads the side it's asked about
+    assert score.one_sidedness({"smart_short_n": 429, "smart_long_n": 40}, "long") < 0.1
+    # unknown split → None (caller must say "unknown", never imply a side)
+    assert score.one_sidedness({"smart_short_n": 429}, "short") is None
+    assert score.one_sidedness({}, "short") is None
+    assert score.one_sidedness({"smart_short_n": 0, "smart_long_n": 0}, "short") is None
+
+
+def test_smart_share_basis_must_be_declared_and_is_gated_accordingly():
+    """senpi-smart-money's `bias` is net/gross NOTIONAL in [-1,+1] — dollar-weighted, not a headcount.
+    Rendering bias=-0.83 as "83% of the cohort hold shorts" is a false claim about different people."""
+    def line(kind, share):
+        m = {"smart_dir": "short", "crowd_dir": "long", "smart_share": share,
+             "smart_source": "proven_cohort", "smart_short_n": 10, "smart_long_n": 2,
+             "notional_vol": 9e8}
+        if kind:
+            m["smart_share_kind"] = kind
+        s = [x for x in score.detect_from_metrics({"NVDA": m}, {}) if x["detector"] == "sm_divergence"]
+        return s[0]["numbers"][0] if s else None
+
+    # dollar-weighted net exposure is described as exposure, never as a headcount
+    assert line("net_bias", 83) == "net exposure 83% SHORT-weighted"
+    assert "of the proven cohort" not in line("net_bias", 83)
+    # a genuine headcount share IS described as one
+    assert line("cohort_pct", 12) == "12% of the proven cohort positioned SHORT"
+    # an undeclared basis is flagged rather than guessed
+    assert "BASIS UNSTATED" in line(None, 83)
+
+    # the gates are per-basis and NOT interchangeable: |net/gross| must clear the upstream engine's
+    # own 0.40 bar, while a cohort headcount share of 12% is already notable
+    assert score.SMART_NET_BIAS_MIN == 40.0 and score.SMART_COHORT_PCT_MIN < 25
+    assert line("net_bias", 30) is None                      # below upstream LEAN_THRESHOLD → not a lean
+    assert line("cohort_pct", 6.7) is None                   # 10 of 150 cohort members → not notable
+    assert line("cohort_pct", 12) is not None
+
+
+def test_small_samples_do_not_score_like_large_ones():
+    """4-short-vs-1-long and 400-vs-100 are both '80% one-sided', but one is a fact about the market
+    and the other is four people. Without a sample term the engine scored them identically — and a
+    5-wallet lean led the feed at 82."""
+    assert score.sample_shrink(5) < 0.3 and score.sample_shrink(500) > 0.9
+    assert score.sample_shrink(0) == 0.0 and score.sample_shrink(None) == 0.0
+    # the observed ratio is preserved; only the WEIGHT changes
+    assert score.effective_one_sidedness(0.8, 500) > score.effective_one_sidedness(0.8, 5)
+    assert score.effective_one_sidedness(0.8, 5) < 0.6          # 4-vs-1 is barely distinguishable from 50/50
+    assert score.effective_one_sidedness(None, 500) is None
+
+    def mag(sn, ln):
+        m = {"smart_dir": "short", "crowd_dir": "long", "smart_share": 83,
+             "smart_source": "proven_cohort", "smart_short_n": sn, "smart_long_n": ln,
+             "notional_vol": 9e8}
+        return [s for s in score.detect_from_metrics({"X": m}, {})
+                if s["detector"] == "sm_divergence"][0]
+
+    tiny, big = mag(4, 1), mag(447, 79)
+    assert tiny["magnitude"] < big["magnitude"] / 2, (tiny["magnitude"], big["magnitude"])
+    assert score.trade_score(tiny, 1.0) < score.trade_score(big, 1.0)
+    # and the reader is TOLD when the sample is thin, rather than having to infer it
+    assert "SMALL SAMPLE (n=5)" in " ".join(tiny["numbers"]), tiny["numbers"]
+    assert "SMALL SAMPLE" not in " ".join(big["numbers"]), big["numbers"]
+    # the raw observed figure is still reported honestly — shrinkage governs the score, not the facts
+    assert "80% one-sided" in " ".join(tiny["numbers"]), tiny["numbers"]
+
+
+def test_cohort_positioning_trend_fires_on_a_12h_build():
+    # the signal Jason asked for: "43% now vs 38% of the same cohort ~12h ago".
+    cur = {"HYPE": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 43,
+                    "smart_source": "proven_cohort", "smart_share_kind": "cohort_pct",
+                    "smart_short_n": 429, "smart_long_n": 40, "notional_vol": 9e8}}
+    slow = {"HYPE": {"smart_dir": "short", "smart_share": 38,
+                     "smart_source": "proven_cohort"}}                  # the ~12h-ago reading
+    sigs = score.detect_from_metrics(cur, {}, slow, 720)                # baseline genuinely 12h old
+    trend = [s for s in sigs if s["detector"] == "sm_positioning_build"]
+    assert len(trend) == 1, [s["detector"] for s in sigs]
+    t_ = trend[0]
+    assert t_["is_change"] is True and t_["direction"] == "short"
+    joined = " ".join(t_["numbers"])
+    assert "43% of the proven cohort positioned SHORT" in joined and "38%" in joined and "up from" in joined, joined
+    assert "~12h ago" in joined, joined                                  # states the REAL window
+    assert "one-sided" in joined, joined                                 # carries the positioned split
+    # a build outranks a merely-standing divergence on the same name (change + edge both higher)
+    div = [s for s in sigs if s["detector"] == "sm_divergence"][0]
+    for s in (t_, div):
+        s["trade_score"] = score.trade_score(s, 1.0)
+    assert t_["trade_score"] > div["trade_score"], (t_["trade_score"], div["trade_score"])
+    # below the pp threshold, or a side rotation → no fire
+    assert not [s for s in score.detect_from_metrics(cur, {}, {"HYPE": {"smart_dir": "short", "smart_share": 42, "smart_source": "proven_cohort"}}, 720)
+                if s["detector"] == "sm_positioning_build"]              # +1pp < TREND_MIN_PP
+    assert not [s for s in score.detect_from_metrics(cur, {}, {"HYPE": {"smart_dir": "long", "smart_share": 38, "smart_source": "proven_cohort"}}, 720)
+                if s["detector"] == "sm_positioning_build"]              # different side = not a build
+
+
+def test_trend_refuses_a_baseline_too_young_to_be_a_trend():
+    """_pick_baseline falls back to the OLDEST snapshot it has, which on a cold ring can be minutes
+    old. Firing then — and narrating it as '~12h ago' — would fabricate the window (golden rule 1)."""
+    cur = {"HYPE": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 43,
+                    "smart_source": "proven_cohort", "smart_share_kind": "cohort_pct",
+                    "notional_vol": 9e8}}
+    slow = {"HYPE": {"smart_dir": "short", "smart_share": 38, "smart_source": "proven_cohort"}}
+    for young in (0, 20, 120, score.TREND_MIN_AGE_MIN - 1):
+        assert not [s for s in score.detect_from_metrics(cur, {}, slow, young)
+                    if s["detector"] == "sm_positioning_build"], f"fired on a {young}min baseline"
+    assert not [s for s in score.detect_from_metrics(cur, {}, slow, None)
+                if s["detector"] == "sm_positioning_build"], "fired with an unknown baseline age"
+    # at/over the minimum it fires — and narrates the ACTUAL age, not the nominal 12h target
+    fired = [s for s in score.detect_from_metrics(cur, {}, slow, 400)
+             if s["detector"] == "sm_positioning_build"]
+    assert len(fired) == 1
+    joined = " ".join(fired[0]["numbers"])
+    assert "~7h ago" in joined, joined                                   # 400min ≈ 7h, not "12h"
+    assert "12h" not in joined, joined
+
+
+def test_trend_refuses_to_diff_across_a_source_switch():
+    """The ring is heterogeneous: a sweep may or may not have run the proven-cohort engine. Comparing
+    a proven-cohort reading now against a leaderboard reading 12h ago would manufacture a 'trend' out
+    of a change of INSTRUMENT rather than of positioning — the delta would be pure artefact."""
+    cur = {"HYPE": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 43,
+                    "smart_source": "proven_cohort", "smart_share_kind": "cohort_pct", "notional_vol": 9e8}}
+    mismatched = {"HYPE": {"smart_dir": "short", "smart_share": 38, "smart_source": "leaderboard_4h"}}
+    assert not [s for s in score.detect_from_metrics(cur, {}, mismatched, 720)
+                if s["detector"] == "sm_positioning_build"], "diffed across a source switch"
+    matched = {"HYPE": {"smart_dir": "short", "smart_share": 38, "smart_source": "proven_cohort"}}
+    assert [s for s in score.detect_from_metrics(cur, {}, matched, 720)
+            if s["detector"] == "sm_positioning_build"], "same source should still fire"
+
+
+def test_slow_lookup_finds_the_comparable_snapshot_per_asset():
+    """Picks the snapshot nearest the ~12h arm that (a) is old enough, (b) holds this asset, and
+    (c) shares its provenance — so sparse proven-cohort sweeps still find their partner."""
+    now = score._parse_ts("2026-08-26T00:00:00+00:00")
+    ring = [
+        {"ts": "2026-08-25T12:00:00+00:00",                                    # 12h — right arm, right source
+         "asset_metrics": {"HYPE": {"smart_share": 38, "smart_source": "proven_cohort"}}},
+        {"ts": "2026-08-25T14:00:00+00:00",                                    # 10h — wrong source
+         "asset_metrics": {"HYPE": {"smart_share": 55, "smart_source": "leaderboard_4h"}}},
+        {"ts": "2026-08-25T23:00:00+00:00",                                    # 1h — too young
+         "asset_metrics": {"HYPE": {"smart_share": 41, "smart_source": "proven_cohort"}}},
+    ]
+    lookup = score.make_slow_lookup(ring, now)
+    m, age = lookup("HYPE", "proven_cohort")
+    assert m.get("smart_share") == 38 and round(age / 60) == 12, (m, age)   # skipped young + mismatched
+    lb, lb_age = lookup("HYPE", "leaderboard_4h")                           # each source gets its OWN arm
+    assert lb.get("smart_share") == 55 and round(lb_age / 60) == 10, (lb, lb_age)
+    assert lookup("HYPE", None) == ({}, None)                               # unstated matches neither
+    assert lookup("NOSUCH", "proven_cohort") == ({}, None)                  # asset absent from the ring
+
+
+def test_smart_source_is_labelled_honestly_and_discounted():
+    """The engine must never assert a provenance it cannot verify. Feeding the 4h leaderboard in and
+    getting back 'the proven cohort' is the overstatement golden rule 12 exists to prevent."""
+    base = {"smart_dir": "short", "crowd_dir": "long", "smart_share": 43, "notional_vol": 9e8}
+
+    def div(extra):
+        m = dict(base); m.update(extra)
+        return [s for s in score.detect_from_metrics({"HYPE": m}, {}) if s["detector"] == "sm_divergence"][0]
+
+    proven = div({"smart_source": "proven_cohort"})
+    board = div({"smart_source": "leaderboard_4h"})
+    unstated = div({})
+
+    assert "the proven cohort" in " ".join(proven["numbers"])
+    assert "live 4h leaderboard" in " ".join(board["numbers"])
+    assert "proven cohort" not in " ".join(board["numbers"]), board["numbers"]
+    assert "SOURCE UNSTATED" in " ".join(unstated["numbers"]), unstated["numbers"]
+
+    # …and provenance discounts the score, exactly as thin liquidity does
+    assert proven["source_trust"] == 1.0 and board["source_trust"] < proven["source_trust"]
+    assert unstated["source_trust"] < proven["source_trust"]
+    assert score.trade_score(board, score.credibility(9e8) * board["source_trust"]) \
+        < score.trade_score(proven, score.credibility(9e8) * proven["source_trust"])
+
+
+def test_whale_move_requires_a_dated_SIZE_move_not_a_holding_or_a_pnl_swing():
+    """A big HOLDING is not a signal, and neither is a P&L swing on one.
+
+    This test previously asserted `pnl_swing_usd` fires. That was the loophole: price acting on a
+    static position is not a decision by the whale, so admitting it readmitted exactly the case
+    SKILL.md names — "a months-old $38.68 entry is holdings, not a move". Live proof: a $3.4M 4h P&L
+    swing on a months-old $38.68 HYPE long was ranked as a whale_move.
+
+    Only a SIZE change counts (opened / added / flipped), and it must be DATEABLE and recent —
+    an undated change cannot be told apart from an old one, so it is treated as a holding."""
+    W = lambda **kw: score.normalize_event(dict(asset="HYPE", detector="whale_move", **kw))
+    assert W(notional_vol=5e8, numbers=["holds $78M from an old entry"]) is None   # holding
+    assert W(pnl_swing_usd=3_400_000, age_minutes=60) is None                      # P&L swing != move
+    assert W(change_usd=5_000_000) is None                                         # undated -> holding
+    assert W(change_usd=5_000_000, age_minutes=score.WHALE_MOVE_MAX_AGE_MIN + 1) is None   # old news
+
+    ev = W(change_usd=10_000_000, age_minutes=45, basis_price=38.68,
+           concrete_entity="0x1234", notional_vol=8e6)
+    assert ev is not None and ev["magnitude"] > 0 and ev["concrete_entity"] == "0x1234"
+    assert ev["age_minutes"] == 45 and ev["basis_price"] == 38.68
+    assert W(opened=True, age_minutes=10) is not None                              # a fresh open fires
+
+    # when(): the reader can date and price every claim — and gets nothing rather than a fake one
+    assert "45min ago" in score.when(ev) and "38.68" in score.when(ev)
+    assert score.when({}) == ""
+
+
+# ── end-to-end ──
+
+PRIOR_STATE = {"ts": NOW, "snapshots": [
+    # the ~65-min baseline the change-detectors SHOULD diff against
+    {"ts": BASELINE_TS, "asset_metrics": {
+        "OIL":  {"oi": 1000, "price": 100.0},
+        "SPCX": {"smart_dir": "long", "smart_share": 30},        # was LONG → now SHORT ⇒ flip
+        "FUND": {"funding_annualized_pct": 40.0},                # was +40%/yr → now negative ⇒ funding_flip
+        "MICRO": {"oi": 100},
+    }},
+    # a 3-min-old near-copy of CURRENT: if the baseline picker wrongly used THIS, the deltas vanish
+    {"ts": NOISE_TS, "asset_metrics": {
+        "OIL":  {"oi": 1149, "price": 100.29},
+        "SPCX": {"smart_dir": "short", "smart_share": 42},
+        "FUND": {"funding_annualized_pct": -30.0},
+        "MICRO": {"oi": 249},
+    }},
+], "surfaced": {}}
+
+CURRENT = {"asset_metrics": {
+    "OIL":  {"oi": 1150, "price": 100.3, "notional_vol": 40_000_000},                    # +15% OI, price flat
+    "SPCX": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 42,
+             "smart_source": "proven_cohort", "smart_share_kind": "cohort_pct",
+             "price_change_pct": -3.5, "notional_vol": 20_000_000},                       # smart flips short, price down
+    "FUND": {"funding_annualized_pct": -30.0, "funding_pctile": 80, "notional_vol": 30_000_000},  # sign FLIP
+    "FEXT": {"funding_pctile": 98, "funding_annualized_pct": 120, "notional_vol": 30_000_000},    # static extreme
+    "FEX2": {"funding_pctile": 97, "funding_annualized_pct": 90, "notional_vol": 25_000_000},     # static extreme
+    "THIN": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 35,
+             "smart_source": "proven_cohort", "smart_share_kind": "cohort_pct",
+             "notional_vol": 4_000_000},                                                  # mid-liquid: social-only band
+    "MICRO": {"oi": 250, "notional_vol": 200_000},                                        # +150% OI but illiquid → drop
+}, "events": [
+    {"asset": "INTC", "detector": "whale_move", "change_usd": 10_000_000, "concrete_entity": "0x1234",
+     "notional_vol": 8_000_000, "direction": "short", "price_change_pct": -2.0,
+     "numbers": ["grew INTC short by $10M to $50M"]},   # a real MOVE (change_usd), not a bare holding
+]}
+
+
+def _run(current, state_path, now, extra=None):
+    with tempfile.TemporaryDirectory() as d:
+        d = pathlib.Path(d)
+        cur = d / "cur.json"; cur.write_text(json.dumps(current))
+        out = d / "o.md"
+        r = subprocess.run([sys.executable, str(SCRIPTS / "score.py"), str(cur), "--state", str(state_path),
+                            "--now", now, "--out", str(out), *(extra or [])],
+                           capture_output=True, text=True)
+        assert r.returncode == 0, f"score failed: {r.stderr}"
+        return json.loads(r.stdout), out.read_text()
+
+
+def test_end_to_end():
+    with tempfile.TemporaryDirectory() as d:
+        state = pathlib.Path(d) / "state.json"
+        state.write_text(json.dumps(PRIOR_STATE))
+        res, md = _run(CURRENT, state, NOW)
+
+        trade = {s["asset"]: s for s in res["trade"]}
+        social = {s["asset"]: s for s in res["social"]}
+
+        # two feeds exist; the ~1h snapshot (not the 3-min one) was the diff baseline
+        assert res["diff_baseline_ts"] == BASELINE_TS, res["diff_baseline_ts"]
+
+        # illiquid micro-cap dropped from BOTH feeds
+        assert "MICRO" not in trade and "MICRO" not in social
+
+        # the thin ($3M) market is content-worthy but excluded from the TRADE feed (liquidity floor)
+        assert "THIN" in social and "THIN" not in trade
+
+        # THE TWO FEEDS DO NOT REPEAT EACH OTHER. Both lenses rank the same small pool, so without
+        # this the news feed was a restatement of the trade feed — the same six assets printed twice.
+        assert not (set(trade) & set(social)), f"cross-listed: {set(trade) & set(social)}"
+
+        # detectors classified right; the funding sign-flip is a CHANGE, the static levels are not
+        assert trade["OIL"]["detector"] == "oi_surge" and trade["OIL"]["conflict"] is True
+        assert trade["SPCX"]["detector"] == "sm_divergence" and trade["SPCX"]["flip"] is True
+        assert trade["FUND"]["detector"] == "funding_flip" and trade["FUND"]["is_change"] is True
+
+        # change>state: a static funding_extreme is carry, not a trade — it never clears the trade floor
+        assert all(s["detector"] != "funding_extreme" for s in res["trade"]), res["trade"]
+        # …but funding_flip (the regime change) does earn a trade slot
+        assert "FUND" in trade
+
+        # earliness pays: the coil (price still flat) is not penalised for having not moved yet
+        assert trade["SPCX"]["trade_score"] > trade["OIL"]["trade_score"]
+
+        # family cap: at most 2 funding-family items in each feed (no more 4-funding floods)
+        for feed in (res["trade"], res["social"]):
+            fams = [score.FAMILY[s["detector"]] for s in feed]
+            assert fams.count("funding") <= 2, fams
+
+        # credibility is a multiplier: same detector (sm_divergence), the fatter book scores higher.
+        # SPCX now lands in the TRADE feed and is deduped out of news, so compare across the feeds.
+        assert trade["SPCX"]["social_score"] > social["THIN"]["social_score"]
+        assert trade["SPCX"]["credibility"] > social["THIN"]["credibility"]
+        assert social["THIN"]["credibility"] < 1.0   # thin book is discounted, not full-credibility
+
+        # both lenses ranked descending, each within its floor
+        assert [s["trade_score"] for s in res["trade"]] == sorted((s["trade_score"] for s in res["trade"]), reverse=True)
+        assert all(s["trade_score"] >= score.MIN_TRADE for s in res["trade"])
+        assert all(s["social_score"] >= score.MIN_SOCIAL for s in res["social"])
+
+        # markdown: disclaimer + both sections rendered
+        assert "Observation, not advice" in md
+        assert "for building ideas" in md and "for content" in md
+
+        # state advanced: the ring grew with the current reading, surfaced marks the social picks
+        st = json.loads(state.read_text())
+        newest = st["snapshots"][-1]
+        assert newest["asset_metrics"]["OIL"]["oi"] == 1150, "ring should append the current reading"
+        adhoc = st["surfaced_by"]["adhoc"]
+        assert adhoc, "surfaced map should record what was shown, for anti-repeat"
+        assert any(k.startswith("SPCX|") for k in adhoc)
+
+        # anti-repeat: an identical re-run 5 min later shrinks the SOCIAL feed (just-surfaced items are
+        # penalized below the floor — a cron won't re-post the same six), while the TRADE feed is
+        # unchanged (a standing edge is still an edge — users still get it).
+        res2, _ = _run(CURRENT, state, "2026-08-24T02:05:00+00:00")
+        assert len(res2["social"]) < len(res["social"]), "social should rotate, not repeat"
+        assert {s["asset"] for s in res2["trade"]} == {s["asset"] for s in res["trade"]}, "trade is not freshness-gated"
+
+
+def test_the_posting_reminder_is_for_the_content_feed_only():
+    from datetime import datetime, timezone
+    now = datetime(2026, 1, 5, 12, 0, tzinfo=timezone.utc)
+    user = score._render_md(now, [], [], "both", {}, "adhoc")
+    content = score._render_md(now, [], [], "both", {}, "social")
+    assert "Observation, not advice. Every number is from a live read this run._" in user
+    assert "posting" not in user, "a user asked a question; they are not posting anything"
+    assert "verify before posting" in content
+
+
+def test_without_state_a_run_is_one_reading_and_writes_no_history():
+    # 2.0 ships one reading with no compare: without --state nothing is read from or written to history,
+    # so no change detector fires (even on metrics that fire them against PRIOR_STATE) and back-to-back
+    # runs rank the same
+    with tempfile.TemporaryDirectory() as d:
+        d = pathlib.Path(d)
+        cur = d / "cur.json"; cur.write_text(json.dumps(dict(CURRENT, events=[])))
+        runs = []
+        for i in range(2):
+            out = d / f"o{i}.md"
+            r = subprocess.run([sys.executable, str(SCRIPTS / "score.py"), str(cur), "--now", NOW, "--out", str(out)],
+                               capture_output=True, text=True, cwd=str(d))
+            assert r.returncode == 0, r.stderr
+            runs.append((json.loads(r.stdout), out.read_text()))
+        (r1, md1), (r2, md2) = runs
+        fired = {s["detector"] for s in r1["trade"] + r1["social"]}
+        assert fired and not fired & score.HISTORY_DETECTORS, fired
+        assert r1["diff_baseline_ts"] is None and r1["coverage"]["whale_lens"].startswith("off")
+        assert md1 == md2 and r1["trade"] == r2["trade"] and r1["social"] == r2["social"]
+        assert sorted(p.name for p in d.iterdir()) == ["cur.json", "o0.md", "o1.md"]
+
+
+def test_consumer_namespacing_shares_ring_isolates_freshness():
+    # the content cron and a user's on-demand run share ONE market baseline (the ring) but keep
+    # SEPARATE anti-repeat memory — the cron's "already posted" must not blank a user's browse.
+    with tempfile.TemporaryDirectory() as d:
+        state = pathlib.Path(d) / "state.json"
+        state.write_text(json.dumps(PRIOR_STATE))
+
+        r_soc, md_soc = _run(CURRENT, state, NOW, extra=["--consumer", "social"])
+        assert r_soc["social"], "social consumer should produce a feed"
+        assert "verify before posting" in md_soc, "the content feed keeps its posting reminder"
+        sb = json.loads(state.read_text())["surfaced_by"]
+        assert sb.get("social"), sb                         # only the social consumer's memory was written
+        assert "adhoc" not in sb, sb
+
+        # a user run 5 min later (default 'adhoc') shares the ~1h ring baseline but is NOT penalized
+        # by what the cron surfaced
+        r_adhoc, md_adhoc = _run(CURRENT, state, "2026-08-24T02:05:00+00:00")
+        assert r_adhoc["diff_baseline_ts"] == BASELINE_TS, "adhoc run shares the same ~1h baseline"
+        assert "posting" not in md_adhoc, "a user's feed carries no posting reminder"
+        assert {s["asset"] for s in r_soc["social"]} & {s["asset"] for s in r_adhoc["social"]}, \
+            "adhoc feed should not be suppressed by the cron's anti-repeat memory"
+        sb2 = json.loads(state.read_text())["surfaced_by"]
+        assert sb2.get("social") and sb2.get("adhoc"), sb2  # both memories now exist, independently
+
+
+def test_snapshot_only_warms_the_ring_without_burning_freshness():
+    """The cheap keep-history-warm job: it must advance the ring but never consume the anti-repeat
+    budget the content run depends on — otherwise a frequent snapshot cron would silently starve the
+    social feed it exists to serve."""
+    with tempfile.TemporaryDirectory() as d:
+        d = pathlib.Path(d)
+        state = d / "state.json"
+        cur = d / "c.json"
+        cur.write_text(json.dumps(CURRENT))
+
+        def snap(now):
+            r = subprocess.run([sys.executable, str(SCRIPTS / "score.py"), str(cur), "--state", str(state),
+                                "--now", now, "--consumer", "social", "--snapshot-only"],
+                               capture_output=True, text=True)
+            assert r.returncode == 0, r.stderr
+            return json.loads(r.stdout)
+
+        first = snap("2026-08-24T00:00:00+00:00")
+        assert first["snapshot_only"] is True and first["snapshots"] == 1
+        assert first["trend_ready"] is False, "one snapshot cannot support a 12h lookback"
+
+        later = snap("2026-08-24T12:30:00+00:00")
+        assert later["snapshots"] == 2
+        assert later["trend_ready"] is True, later          # >=12h of history now spans the lookback
+
+        # freshness was NOT consumed — no asset+detector was marked surfaced by a snapshot run
+        st = json.loads(state.read_text())
+        assert not any(st.get("surfaced_by", {}).values()), st.get("surfaced_by")
+
+        # and a real run afterwards still gets its full feed (nothing was pre-suppressed)
+        res, _ = _run(CURRENT, state, "2026-08-24T12:35:00+00:00", extra=["--consumer", "social"])
+        assert res["social"], "snapshot-only must not starve the subsequent content run"
+
+
+def test_quiet_market_is_a_clean_empty():
+    # no diffs, no events, no prior → nothing fires, and that's a correct answer (not a crash)
+    with tempfile.TemporaryDirectory() as d:
+        state = pathlib.Path(d) / "s.json"
+        res, md = _run({"asset_metrics": {"BTC": {"oi": 1000, "price": 50000, "notional_vol": 9e8}}},
+                       state, NOW)
+        assert res["trade"] == [] and res["social"] == []
+        assert "Nothing notable" in md
+
+
+if __name__ == "__main__":
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    for fn in fns:
+        fn()
+        print(f"ok  {fn.__name__}")
+    print(f"\nALL {len(fns)} SIGNALS TESTS PASS")
+
+
+def test_a_whale_move_is_one_proven_wallet_changing_size_since_the_previous_sweep():
+    """Whale shifts are SIZE changes by a single proven wallet, in base units, against the previous
+    sweep: opened, added or flipped, worth >= $1M at today's price. A trim, a sub-$1M add, and a wallet
+    the previous sweep never sampled do not fire, and a first run (no previous snapshot) fires nothing."""
+    w1, w2, w3, w4, w5 = ("0x" + ch * 40 for ch in "12345")
+    short = lambda w: w[:6] + "…" + w[-4:]
+    prior = {"ETH": {"smart_positions": {w1: -100.0, w4: 900.0, w5: 50.0}, "price": 2400.0},
+             "BTC": {"smart_positions": {w2: 1.0}, "price": 75000.0}}
+    cur = {"ETH": {"smart_positions": {w1: -600.0,     # added 500 ETH to a short: $1.2M
+                                       w2: -1000.0,    # flat on ETH but sampled (BTC): opened a $2.4M short
+                                       w3: 5000.0,     # never sampled before: may be new to the sample
+                                       w4: 400.0,      # trimmed: not an entry
+                                       w5: 300.0},     # added $0.6M: under the bar
+                   "price": 2400.0, "smart_source": "proven_cohort", "smart_dir": "short",
+                   "crowd_dir": "long", "notional_vol": 5e8},
+           "BTC": {"smart_positions": {w2: -20.0}, "price": 75000.0,   # flipped from long to short
+                   "smart_source": "proven_cohort", "notional_vol": 5e8}}
+    wallets = {w1: {"realized_pnl_usd": 48_210_000.0}, w2: {"realized_pnl_usd": 1_250_000_000.0}}
+    moves = {(s["asset"], s["concrete_entity"]): s
+             for s in score.detect_from_metrics(cur, prior, fast_age_min=45, wallets=wallets)
+             if s["detector"] == "whale_move"}
+    assert set(moves) == {("ETH", short(w1)), ("ETH", short(w2)), ("BTC", short(w2))}
+    added = moves[("ETH", short(w1))]
+    assert added["direction"] == "short" and added["change_usd"] == -1_200_000.0 and added["conflict"]
+    assert added["numbers"] == ["added $1.2M to a SHORT in the last ~45min, now $1.4M"]
+    assert moves[("ETH", short(w2))]["opened"] and moves[("ETH", short(w2))]["numbers"] == [
+        "opened a SHORT worth $2.4M in the last ~45min"]
+    flipped = moves[("BTC", short(w2))]
+    assert flipped["flipped"] and flipped["numbers"] == ["flipped from LONG to SHORT in the last ~45min, now $1.5M"]
+    assert score.normalize_event(dict(added, age_minutes=45)) is not None     # the event gate accepts it
+    # the reader sees WHO: the shortened wallet and its lifetime realized gains, and the verb fits the move
+    assert score.trade_read(added) == (f"A proven wallet {short(w1)}, who has $48.2M in lifetime gains, "
+                                       "is adding short size on ETH — size following conviction.")
+    assert score.trade_read(moves[("ETH", short(w2))]).startswith(
+        f"A proven wallet {short(w2)}, who has $1.2B in lifetime gains, opened a short on ETH")
+    assert "flipped to short on BTC" in score.trade_read(flipped)
+    assert score.frame(added) == (f"{short(w1)} ($48.2M in lifetime gains) on ETH: "
+                                  "added $1.2M to a SHORT in the last ~45min, now $1.4M.")
+    no_pnl = [s for s in score.detect_from_metrics(cur, prior, fast_age_min=45) if s["detector"] == "whale_move"]
+    assert all("lifetime gains" not in score.trade_read(s) for s in no_pnl)   # unknown gains: say nothing
+    assert not [s for s in score.detect_from_metrics(cur, {}) if s["detector"] == "whale_move"]
+
+
+def test_the_legend_band_for_yellow_covers_every_score_a_feed_can_show():
+    """News items are shown from MIN_SOCIAL (30) and badge 🟡 below 65, so the legend's 🟡 band cannot
+    start above MIN_SOCIAL: a news item scored 32 under a '45–64' legend reads as a mislabelled item."""
+    import re
+    line = next(x for x in score.HOW_TO_READ if "🟡" in x)
+    band = re.search(r"🟡 \*\*([^*]+)\*\*", line).group(1)
+    low = re.match(r"(\d+)–", band)
+    assert not low or float(low.group(1)) <= score.MIN_SOCIAL, band
+    assert score.badge(score.MIN_SOCIAL) == "🟡" and score.badge(64.9) == "🟡" and score.badge(65) == "🟠"
+
+
+def test_the_crowd_always_names_the_evidence_it_was_read_from():
+    """"The crowd" is two different claims. `board_4h` is real positioning off the 4h leaderboard;
+    `funding_sign` is only the sign of the funding rate — an inference, not a count of anybody. The
+    basis is resolved PER NAME, so a healthy run mixes both, and a failed board read silently moves
+    every name onto the proxy. `crowd_source` recorded which and then reached no renderer, so the
+    sentence never changed. Golden rule 8: name the board and the window."""
+    def read(crowd_source):
+        return score.trade_read({"asset": "ETH", "detector": "sm_divergence", "direction": "short",
+                                 "price_change_pct": -2.0, "numbers": [],
+                                 "smart_source": "proven_cohort", "crowd_source": crowd_source})
+    board, funding, unset = read("board_4h"), read("funding_sign"), read(None)
+    assert "the 4h board" in board
+    assert "the funding sign" in funding
+    assert "an unstated basis" in unset          # never silently borrow the stronger basis
+    assert board != funding != unset, "the crowd reads identically whatever it was read from"
+
+
+def test_the_divergence_numbers_carry_the_crowd_basis_too():
+    """The news lens prints `numbers` verbatim, so the basis has to be in them as well as in the
+    trade read — a detector fires once and is rendered by two different lenses."""
+    metrics = {"ETH": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 78.0,
+                       "smart_share_kind": "cohort_pct", "smart_source": "proven_cohort",
+                       "smart_long_n": 4, "smart_short_n": 40, "notional_vol": 2e8,
+                       "crowd_source": "funding_sign"}}
+    sigs = [s for s in score.detect_from_metrics(metrics, {}) if s["detector"] == "sm_divergence"]
+    assert sigs, "the fixture no longer fires a divergence"
+    assert sigs[0]["crowd_source"] == "funding_sign"
+    assert any("per the funding sign" in n for n in sigs[0]["numbers"]), sigs[0]["numbers"]
+
+
+def test_the_engine_banner_never_reaches_someone_who_asked_a_question():
+    """`--print-feed` prints this markdown verbatim to a user. The coverage banner is engine-talk —
+    it names another skill and tells them to re-run it — against the skill's own "talk about the
+    market, never about the engine" convention, and in the universe-dead state it is also false
+    ("everything below is OI, funding and price" when nothing is below). The user's one allowed
+    clause is `not_measured()`. Same gate the posting reminder already had."""
+    import datetime
+    now = datetime.datetime(2026, 9, 15, 12, tzinfo=datetime.timezone.utc)
+    dead = {"smart_money_lens": "NO DATA", "flow_lens": "NO DATA"}
+    for consumer, banned in (("adhoc", True), ("social", False)):
+        md = score._render_md(now, [], [], "both", dead, consumer)
+        assert ("senpi-smart-money" in md) is not banned, consumer
+        assert ("⛔" in md) is not banned, consumer
+
+
+def test_the_legend_never_tells_the_reader_to_act():
+    """The feed is an observation, not advice (SKILL golden rule 2). A band labelled "act on it" turns a
+    ranking into an instruction; acting happens only in the closing step, on the user's own yes."""
+    legend = " ".join(score.HOW_TO_READ).lower()
+    for instruction in ("act on it", "buy", "sell", "go long", "go short"):
+        assert instruction not in legend, instruction
+    assert "🔥 **80+** strongest" in score.HOW_TO_READ[2]

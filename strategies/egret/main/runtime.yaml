@@ -1,4 +1,4 @@
-# ── EGRET · single instance — Smart-Money Divergence Fader ────────────────────
+# ── EGRET · single instance — Leader-Crowding Divergence Fader ────────────────
 # Runtime 3.0 port of the v2 Egret (SKILL.md v1.0.0 / producer v1.0.1). Multi-asset
 # whitelist (BTC/ETH/SOL/HYPE). Two hard gates: SM concentration >= 70% AND price
 # NOT confirming the crowd (divergence). Fades the exhausted crowd; RSI exhaustion
@@ -9,8 +9,8 @@ name: egret-main
 group: egret
 version: 3.0.0
 description: >
-  EGRET — multi-asset Smart-Money Divergence Fader (BTC/ETH/SOL/HYPE). When the
-  Smart-Money crowd is extremely concentrated one way (>= crowdingMinPct, default
+  EGRET — multi-asset Leader-Crowding Divergence Fader (BTC/ETH/SOL/HYPE). When the
+  4h leaders' gains are extremely concentrated one way (>= crowdingMinPct, default
   70%) but price is NOT confirming over the recent window (it has stalled or rolled
   over against the crowd), the crowded side is exhausted and the unwind is the edge —
   Egret fades it. Crowded LONG + price stalled -> FADE SHORT; crowded SHORT + price
@@ -46,6 +46,7 @@ scanners:
       minScore: 5                          # v2 DEFAULT_MIN_SCORE / config minScore
       crowdingMinPct: 70                   # v2 DEFAULT_CROWDING_MIN_PCT — GATE 1
       crowdingExtremePct: 80               # v2 DEFAULT_CROWDING_EXTREME_PCT — ultra-crowded bonus
+      minTraderCount: 10                   # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
       confirmMaxPct: 0.5                   # v2 DEFAULT_CONFIRM_MAX_PCT — divergence threshold (GATE 2)
       divergenceLookbackHours: 4           # v2 DEFAULT_DIVERGENCE_LOOKBACK — 1h bars
       marginPct: 15                        # PERCENT of withdrawable (0,100]; flat (NOT tiered)

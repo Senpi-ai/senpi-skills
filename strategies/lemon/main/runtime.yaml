@@ -1,7 +1,7 @@
 # ── LEMON · single instance — Degen Fader (Runtime 3.0 port of v2 Lemon v2.0.1) ──
-# Counter-trades a crowded, EXHAUSTING smart-money consensus on a fixed basket of 12
-# crypto majors + 4 XYZ commodity/index names. Emits the OPPOSITE direction to the SM
-# crowd (fade). Two-gate trend filter (MACRO_TREND_GATE crypto-only |BTC 4h|>3%,
+# Counter-trades a crowded, EXHAUSTING 4h-leader consensus on a fixed basket of 12
+# crypto majors + 4 XYZ commodity/index names. Emits the OPPOSITE direction to the
+# leaders' crowd (fade). Two-gate trend filter (MACRO_TREND_GATE crypto-only |BTC 4h|>3%,
 # PER_ASSET_TREND_GATE |asset 4h|>5%), MIN_SCORE 9, conviction leverage 5/7/10x capped
 # at 10x, MARGIN_PCT 30%. DSL is the ONLY exit — wide tiers give the reversal time to
 # mean-revert. Faithful port of the v2 producer thesis (all scoring/thresholds verbatim).
@@ -9,10 +9,11 @@ name: lemon-main
 group: lemon
 version: 3.0.0
 description: >
-  LEMON — Degen Fader. Filters the smart-money leaderboard board to a fixed basket
-  (12 crypto majors + BRENTOIL/CL/GOLD/SP500) and fades a crowded consensus once it
-  starts exhausting (15m contribution <= 0.1, ideally collapsing). Scores the fade on
-  SM concentration, 15m/1h/4h velocity fade, 4h overextension, 1h reversal, funding,
+  LEMON — Degen Fader. Filters the 4h leaderboard (leaderboard_get_markets — the traders
+  winning the last four hours, a momentum read, not a proven cohort) to a fixed basket
+  (12 crypto majors + BRENTOIL/CL/GOLD/SP500) and fades the 4h leaders' crowded side once
+  it starts exhausting (15m contribution <= 0.1, ideally collapsing). Scores the fade on
+  leader concentration, 15m/1h/4h velocity fade, 4h overextension, 1h reversal, funding,
   and US-session; two trend gates block fading a real run (crypto MACRO |BTC 4h|>3%,
   per-asset |4h|>5%). Emits ONE fade (opposite the crowd) at score >=9, leverage
   5/7/10x by conviction (capped 10x), 30% margin, one slot. DSL is the ONLY exit (wide

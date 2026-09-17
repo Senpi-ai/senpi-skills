@@ -83,8 +83,12 @@ def get_market_in_scan(scan, token, dex):
 
 def build_scan_snapshot(markets_data, now_iso):
     """Normalise a raw leaderboard_get_markets payload into the compact snapshot the
-    detector compares across ticks. Verbatim from v2 build_scan_snapshot; `now_iso`
-    is passed in so this stays clock-free."""
+    detector compares across ticks. Verbatim from v2 build_scan_snapshot except the
+    rank: v2 read a `rank` field the board never sends (999 on both sides, so every
+    jump was 0 and the detector never fired); the rank is DERIVED here — the row's
+    position ordered by pct_of_top_traders_gain descending, 1 = the biggest share of
+    the top traders' gains, one row per (token, dex, direction). `now_iso` is passed
+    in so this stays clock-free."""
     markets = []
     for m in markets_data:
         if not isinstance(m, dict):
@@ -92,7 +96,6 @@ def build_scan_snapshot(markets_data, now_iso):
         markets.append({
             "token": str(m.get("token", m.get("asset", ""))).upper(),
             "dex": m.get("dex", ""),
-            "rank": int(m.get("rank", m.get("position", 999))),
             "direction": str(m.get("direction", "")).upper(),
             "contribution": safe_float(m.get("pct_of_top_traders_gain", 0)),
             "traders": int(m.get("trader_count", 0)),
@@ -109,6 +112,9 @@ def build_scan_snapshot(markets_data, now_iso):
                         m.get("volume_24h_usd", 0)))),
             "vol_ratio": safe_float(m.get("vol_ratio", m.get("volume_ratio", 0))),
         })
+    markets.sort(key=lambda r: r["contribution"], reverse=True)
+    for i, r in enumerate(markets, 1):
+        r["rank"] = i
     return {"markets": markets, "timestamp": now_iso}
 
 

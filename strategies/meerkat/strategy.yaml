@@ -1,20 +1,21 @@
 # Meerkat — momentum-event sniper. A single-instance PACKAGE: this manifest +
 # one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the
 # v2 Meerkat (SKILL.md v1.0.0): an EVENT-DRIVEN scanner that reads the Senpi
-# momentum-event feed (leaderboard_get_momentum_events), classifies each event's
-# tier + freshness, picks the single best fresh high-tier event, and sizes 15%
+# momentum-event feed (leaderboard_get_momentum_events — top traders crossing profit
+# tiers, with the markets driving each crossing in top_positions), reads each event's
+# tier + freshness, picks the single best fresh high-tier market, and sizes 15%
 # margin at 4x. DSL-only exits, "let winners run" with a short 36h hard_timeout.
 # Install/teardown via senpi-strategy-ops.
 schema_version: 1
 
 id: meerkat
-version: "1.1.0"
+version: "1.1.2"
 catalog:
   name: "Meerkat — Momentum-Event Sniper"
   emoji: "🦦"
-  tagline: "A sentry that watches the momentum-event feed and snipes the freshest, highest-tier move the instant it fires: tier (event magnitude) + freshness gate the entry, smart-money alignment and rising volume add conviction, then it takes ONE position in the momentum direction and lets a wide DSL ride the burst."
-  belief_plain: "Watches a live feed of coins that just made a sharp move in the last few hours, and pounces only on the strongest, freshest ones — before the move is widely known. It sizes one bet in the direction of the move and trails a wide stop so a real burst can keep running, but cuts it loose after about a day and a half if it stalls."
-  thesis: "Fresh momentum is the earliest, cleanest edge, and it decays fast — an event that's already 30+ minutes old is half-known and somebody else's trade. So the whole job is speed plus selectivity: only the strongest tiers, only while they're fresh, one position at a time. Smart-money lean and rising volume are confirmation bonuses, not gates, because the event fires faster than that data updates — waiting for confirmation forfeits the edge. A momentum burst pays out fast or it's stale, so a short hard timeout cuts a trade that hasn't moved."
+  tagline: "A sentry that watches the momentum-event feed and snipes the freshest, highest-tier move the instant it fires: tier (the crossing's size) + freshness gate the entry, 4h leader momentum alignment and rising volume add conviction, then it takes ONE position in the momentum direction and lets a wide DSL ride the burst."
+  belief_plain: "Watches the live feed of top traders crossing big profit thresholds — and the markets driving each crossing — and pounces only on the strongest, freshest ones, before the move is widely known. It sizes one bet in the direction of the move and trails a wide stop so a real burst can keep running, but cuts it loose after about a day and a half if it stalls."
+  thesis: "Fresh momentum is the earliest, cleanest edge, and it decays fast — an event that's already 30+ minutes old is half-known and somebody else's trade. So the whole job is speed plus selectivity: only the strongest tiers, only while they're fresh, one position at a time. The 4h leaders' lean and rising volume are confirmation bonuses, not gates, because the event fires faster than that data updates — waiting for confirmation forfeits the edge. A momentum burst pays out fast or it's stale, so a short hard timeout cuts a trade that hasn't moved."
   group: momentum
   archetype: breakout_momentum
   sub_style: momentum_event
@@ -27,7 +28,7 @@ catalog:
   leverage_max: 10
   max_slots: 1
   assets: []                # derived universe — coins come from the momentum-event feed each tick, not a fixed list
-  tags: [momentum, momentum-event, sniper, freshness, tier, smart-money, universe-scanner, single-slot, let-winners-run]
+  tags: [momentum, momentum-event, sniper, freshness, tier, leader-momentum, universe-scanner, single-slot, let-winners-run]
 
 requires:
   runtime: ">=3.0.0"

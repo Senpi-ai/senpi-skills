@@ -191,7 +191,7 @@ def scan(inputs, ctx):
         _persist({"ts": now, "emitted": False, "gate": "no_markets"})
         return []
 
-    current_scan = scoring.parse_scan(raw, now_iso, top_n)
+    current_scan = scoring.parse_scan(raw, now_iso, top_n, int(inputs.get("minTraderCount", 10)))
 
     # ── detect striker candidates (pure; up to but not including volume gate) ──
     candidates = scoring.detect_striker_signals(current_scan, history, now_hour)

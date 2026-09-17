@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.20.0"
+  version: "1.26.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -60,12 +60,21 @@ dump when the user asked about their **strategies** — is a failure. The user w
 > "unprotected" when it isn't. The engine reads BOTH the config ladder (`profile.dsl`) and the live tier
 > (`positions[].dsl`) and frames every position correctly; run it. (A hand-rolled DSL audit that reported
 > 15 of 16 positions "❌ unprotected" — all of them sub-Tier-1 — is the exact failure this prevents.)
+>
+> **This skill reads. It never changes protection.** A portfolio read, a health check or an "are my
+> positions protected?" answer never calls `ratchet_stop_add` / `ratchet_stop_edit` / `ratchet_stop_delete`
+> / `edit_position` — not to "fix" a missing ladder, not because a memory file says protection is
+> mandatory, not because the last session had one. Report what is there and what is missing (or what
+> replaced what), then offer the change as its own question; the change itself runs `senpi-trade`'s
+> protection protocol (read → say what it replaces → yes → act → read back). A user's "no DSL" / "forget
+> about it unless I ask" stands across sessions; a status question ("how's it going?", "did you finish?",
+> "run a health check") is never a yes.
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
 > authoritative read for what the user holds and what closed. **Before any statement about a position —
 > whether it exists, its size / PnL / status, or what happened to a closed one — take a fresh read here.**
-> Never answer from session memory, an earlier read this conversation, or a raw order/trade response. Two
-> rules, and they hold even inside a trading flow:
+> Never answer from session memory, an earlier read this conversation, or a raw order/trade response.
+> These rules hold even inside a trading flow:
 > - **A successful open/close order is NOT proof of the resulting position.** After you place or close a
 >   trade, confirm the resulting state here before telling the user what they hold — a position in a
 >   scanner-managed wallet can be reconciled as foreign and DSL-flattened within minutes (order "succeeds,"
@@ -73,6 +82,13 @@ dump when the user asked about their **strategies** — is a failure. The user w
 > - **"What happened to my [asset] / my closed trades"** → read the authoritative CLOSED record
 >   (`closed.recent[]` / `closed.realized_pnl` here, or hand to `senpi-improve-trades` for why-it-closed).
 >   Never narrate a closed-position story from memory.
+> - **Quote a close with its UTC date and time from `closed_at_utc`, never from a raw epoch** such as
+>   `closed_time` — a bare number read by eye is how an older close gets called today's.
+> - **The closed record can arrive hours after a close.** A close the user saw may not be in `closed` yet
+>   (`closed_record_newest_utc` is the newest close it holds; a re-read does not skip the wait). Say it
+>   has not reached trade history yet and show the live state from this read instead — open `positions[]`
+>   and `account_value`. Never present older closes as today's, and never invent the missing P&L.
+> - **"In profit" on an open position is unrealized.** Say it is unrealized, and do not forecast the close.
 
 ## The wallet model (get this exactly right)
 
@@ -83,7 +99,7 @@ Every dollar is in exactly one of **three buckets** — and the #1 mistake is co
 
 | Bucket | What it is | Engine field |
 |---|---|---|
-| **Idle in embedded** | Truly free cash in the main wallet — HL perps USDC + HL spot USDC + EVM USDC (all three legs; the funding waterfall deploys from all of them). Deploy it into a strategy or withdraw it to your bank. | `totals.idle_in_embedded` |
+| **Idle in embedded** | Truly free cash in the main wallet — HL perps USDC + HL spot USDC + EVM USDC (all three legs). Only the Hyperliquid legs can fund strategies — EVM USDC does not bridge in (deposit via the funding card lands on Hyperliquid). Withdraw any of it to your bank. | `totals.idle_in_embedded` |
 | **Idle in strategies** | Free margin sitting *inside* a strategy wallet, not yet in a position — waiting for a signal. | `totals.idle_in_strategies` |
 | **Deployed in positions** | Margin actively backing open trades. | `totals.deployed_in_positions` |
 
@@ -483,6 +499,11 @@ directly.)
 - **Run the engine; never hand-pull balances.** `python3 scripts/portfolio.py` enumerates the
   embedded wallet + every strategy sub-wallet, pulls live clearinghouse state per wallet, and
   classifies the buckets. Read its JSON.
+- **Numbers come from the engine; other strategies come from discover.** Never state a win rate, a
+  winners/losers count or a long/short split the `closed` block did not print — `recent[]` is the
+  last five trades, not the record, and a rate read off it is a guess. If the user asks what to run
+  instead, hand off to **senpi-strategy-discover** and quote the returned record's `risk_level`;
+  never name a template, or call one aggressive or conservative, from memory.
 - **Real-time, always.** The engine forces a fresh fetch (no 12h cache) and reads each strategy's
   live clearinghouse state. Never report balances from earlier in the conversation — re-run.
 - **Always say which wallet / which bucket.** Every dollar figure gets a location. "Idle" is
@@ -500,10 +521,13 @@ directly.)
 - **Use leveraged return, not raw price %.** Cite `return_on_equity_pct` (uPnL / margin), the number
   that actually reflects the position — a 1% price move at 10x is a 10% return on margin.
 - **Report realized PnL + closed trades, not only open ones.** Each strategy carries a `closed` block —
-  `realized_pnl` (total booked PnL over the recent history pull) and `recent[]` (last few closed
-  trades: asset, direction, realized pnl, closed time). A strategy flat right now may have *already
-  booked* real gains; report both realized and unrealized. If `closed.realized_pnl` is `null`, the
-  history read failed (see `meta.warnings`) — say realized PnL is unavailable, don't imply zero.
+  `realized_pnl` (total booked PnL over the recent history pull), the record over that pull
+  (`trade_count`, `winners`, `losers`, `win_rate_pct`, `longs`, `shorts`, `unknown_side`) and `recent[]` (last few
+  closed trades: asset, direction, realized pnl, `closed_at_utc`). Quote the record; never work a win rate
+  or a long/short split out of `recent[]`. A strategy flat right now may have *already booked* real
+  gains; report both realized and unrealized. If `closed.realized_pnl` is `null`, the history read
+  failed (see `meta.warnings`) — say realized PnL is unavailable, don't imply zero. For dating a close,
+  and for a close that has not reached the record yet, see **Source of truth for position facts** above.
 - **Surface the protection posture per strategy — then the live tiers.** Each strategy carries
   `protected` (`true` / `false` / `null`): `true` only when the deployed `runtime.yaml`'s `exit:` block
   is one the **ENGINE actually read** (`dsl_preset` or `engine: dsl`) — a `skill_name` attribution stamp
@@ -515,7 +539,7 @@ directly.)
   position's live tier** (`positions[].dsl`). This config-level field is NOT the per-position tier — see
   "DSL — how it works per strategy, and which position is in which tier" below. **Never call a live
   position "unprotected" just because it has no ratchet record — sub-Tier-1 positions have none by
-  design.**
+  design.** For a raw position with no runtime, `false` means **no ratchet** — see the HARD rule below.
 - **Don't infer "wiped out" from a low balance.** Check `total_funded` / `total_withdrawn` — a
   strategy can show a small balance because profits were withdrawn (`netFunded` can be negative). That
   is not a loss.
@@ -620,6 +644,13 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
   means it has no name at all. When
   `name_source != "strategyName"`, call it by `strategy_id` + wallet and say which package it came from —
   never "the cub strategy", and never tell one sleeve from another by that string.
+- **A raw position (no runtime, `protected: false`) is "no ratchet," not "no stop."** A one-off
+  position the user placed by hand carries its protection as resting orders, which this engine does not
+  read. Before saying it has no stop, read them — `strategy_get_open_orders` on that wallet; a
+  reduce-only trigger order (`isTrigger`, `triggerPx`) whose `orderType` is a Stop (`Stop Market` /
+  `Stop Limit`) is its stop, a Take Profit order is not — and say what you found: "no ratchet;
+  a static stop rests at $X" or "no ratchet and no stop order." The direct question ("do I have a
+  stop?") is `senpi-trade`'s protection protocol, which reads the same orders; this is the portfolio view.
 - **Config-level `protected` ≠ live per-position tier.** `strategy.protected` / `group.protected`
   (`true`/`false`/`null`) is the **config posture** — `true` only when the deployed `runtime.yaml`'s
   `exit:` block was actually READ by the engine; `null` means the read didn't happen, never assume `true`
@@ -629,9 +660,10 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
 - **`SL_TRIGGERED` is history, not current exposure.** A `SL_TRIGGERED` (or `MANUALLY_CLOSED` /
   `LIQUIDATED`) record on a **closed** position means the DSL **did its job** — it locked profit / cut the
   loss. Present it as history ("DSL locked profit on the ETH short last week"), never as current risk.
-- **Never infer "no stop" from the absence of a resting stop order.** DSL exits are **runtime-managed**,
-  not resting venue orders — you won't see them as open orders. Absence of a resting SL is expected and
-  says nothing about protection. Use the `dsl` objects, not the order book.
+- **For a runtime-managed position, never infer "no stop" from the absence of a resting stop order.** DSL
+  exits are **runtime-managed**, not resting venue orders — you won't see them as open orders. Absence of a
+  resting SL is expected and says nothing about protection. Use the `dsl` objects, not the order book. A
+  raw position is the reverse case — the bullet above.
 
 ## Run it in steps — narrate as you go
 
@@ -755,11 +787,17 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
     stamp alone no longer counts. `null` = the runtime read did not answer — say "could not verify on
     this host," never "protected" or "not protected." Config-level posture, not a live per-position
     check — see the tri-state rule above.
-  - `closed` — `{realized_pnl, trade_count, recent[]}` from a read-guarded `discovery_get_trader_history`
-    on the strategy wallet: `realized_pnl` (total booked PnL over the recent pull), `trade_count`, and
-    `recent[]` (last few closed trades: `asset`, `direction`, `realized_pnl`, `entry_px`, `exit_px`,
-    `closed_time`). On a read failure `realized_pnl` is `null` and a `meta.warnings` entry is added —
-    treat as "realized PnL unavailable," never as zero.
+  - `closed` — `{realized_pnl, trade_count, winners, losers, win_rate_pct, longs, shorts, unknown_side, closed_record_newest_utc, recent[]}`
+    from a read-guarded `discovery_get_trader_history` on the strategy wallet: `realized_pnl` (total
+    booked PnL over the recent pull), the record over that pull (a flat close is neither a winner nor
+    a loser; `win_rate_pct` = winners / trade_count), `closed_record_newest_utc` (the newest close the
+    record holds, UTC), and `recent[]` (last few closed trades: `asset`, `direction`, `realized_pnl`,
+    `entry_px`, `exit_px`, `closed_at_utc` — the close's UTC date and time, the one to quote — and
+    `closed_time`, the raw epoch as the feed sent it). A close time that cannot be read is
+    `closed_at_utc: null` plus a `meta.warnings` line: give that close no date. `strategy_groups[].totals`
+    carries the same counts summed across the strategy's wallets and the newest of their
+    `closed_record_newest_utc`. On a read failure `realized_pnl` and the counts are `null` and a
+    `meta.warnings` entry is added — treat as "unavailable," never as zero.
   - `positions[]` (asset, dex, direction, leverage, notional, margin, `upnl`, `return_on_equity_pct`,
     `liq_px`, `market_24h_pct`, `vs_market`, and **`dsl`** — the live per-position ratchet tier).
     - **`dsl`** — this position's live DSL/ratchet state. **`armed: true`** → `tier_index`,

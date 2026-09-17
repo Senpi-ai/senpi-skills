@@ -1,117 +1,116 @@
-"""Starling consensus-engine tests. Pure/deterministic; plus a scan() smoke run
-against a fake ctx (no network). Run: python3 -m pytest strategies/starling/tests -q
-or plain `python3 strategies/starling/tests/test_engine.py`."""
+"""Starling engine tests: the gate over fixture dicts (no network), the hit-rate ledger, the
+headcount, the shipped config, and a scan() smoke run against a fake ctx.
+Run: python3 -m pytest strategies/starling/tests -q  or  python3 strategies/starling/tests/test_engine.py"""
+import math
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "main", "scanners"))
+import yaml
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_RUNTIME = os.path.join(_HERE, "..", "main", "runtime.yaml")
+sys.path.insert(0, os.path.join(_HERE, "..", "main", "scanners"))
+for _m in ("scoring", "scan"):          # never inherit another package's module of the same name
+    sys.modules.pop(_m, None)
 import scoring  # noqa: E402
+import scan  # noqa: E402
 
 
-# ── (a) consensus_counts: DISTINCT wallets per (asset, direction) ──
+# ── (a) THE GATE — Phalanx's engine over fixture dicts ──
 
-def test_consensus_counts_distinct_wallets_and_tolerant_shapes():
+def test_gate_refuses_one_wallet_and_a_thin_lean_and_accepts_a_growing_one_sided_name():
+    inp = {"tiltThreshold": 65, "deltaMin": 2}
+    acc = scoring.new_accuracy_state()
+    # +1: one wallet joined a one-sided name (13L/7S -> 14L/7S, 66.7%) — noise, not a rotation
+    assert scan.fresh_picks({"BTC": {"long_n": 14, "short_n": 7}},
+                            {"BTC": {"long_n": 13, "short_n": 7}}, acc, inp) == []
+    # 30L/26S is 54% one-sided: never trades, however fast it grew (+4 here). The old
+    # absolute-margin gate took this at the apex band.
+    assert scan.fresh_picks({"ETH": {"long_n": 30, "short_n": 26}},
+                            {"ETH": {"long_n": 26, "short_n": 26}}, acc, inp) == []
+    # +2 at 65%+ with >= 10 wallets positioned (13L/7S -> 15L/7S, 68.2%) -> fires, dominant side
+    picks = scan.fresh_picks({"BTC": {"long_n": 15, "short_n": 7, "raw_coin": "BTC"}},
+                             {"BTC": {"long_n": 13, "short_n": 7}}, acc, inp)
+    assert [(p["asset"], p["direction"], p["count"], p["delta"]) for p in picks] == [("BTC", "LONG", 15, 2.0)]
+    assert picks[0]["conviction"] == 68.2
+    # under the 10-wallet min sample one_sidedness is 0 -> refused however aligned (5L/0S, +5)
+    assert scan.fresh_picks({"SOL": {"long_n": 5, "short_n": 0}}, {}, acc, inp) == []
+
+
+def test_gate_takes_the_short_side_and_ranks_by_one_sidedness():
+    inp = {"tiltThreshold": 65, "deltaMin": 2}
+    acc = scoring.new_accuracy_state()
+    cur = {"ETH": {"long_n": 4, "short_n": 18, "raw_coin": "ETH"},         # 81.8% short, net -14
+           "NVDA": {"long_n": 15, "short_n": 7, "raw_coin": "xyz:NVDA"}}   # 68.2% long, net +8
+    prev = {"ETH": {"long_n": 5, "short_n": 15},                           # net -10 -> SHORT delta +4
+            "NVDA": {"long_n": 13, "short_n": 7}}                          # net +6  -> LONG delta +2
+    picks = scan.fresh_picks(cur, prev, acc, inp)
+    assert [(p["asset"], p["direction"]) for p in picks] == [("ETH", "SHORT"), ("xyz:NVDA", "LONG")]
+    assert picks[0]["delta"] == 4.0 and picks[0]["count"] == 18
+
+
+def test_ledger_raises_the_bar_for_a_class_that_keeps_missing():
+    """The hit-rate ledger. Five signals marked wrong an hour later -> 0% hit rate (< 40%) -> the
+    crypto threshold rises by 4 (65 -> 69), so a 68.2% name that fired before is refused until the
+    class earns it back. xyz keeps its own ledger."""
+    acc = scoring.new_accuracy_state()
+    for _ in range(5):
+        scoring.add_pending_signal(acc, "crypto", "BTC", "LONG", 100.0, 0)
+    scoring.update_accuracy(acc, "crypto", scoring.EVAL_DELAY_S + 1, lambda asset: 90.0)  # LONG, price fell
+    assert scoring.adjusted_threshold(65, "crypto", acc) == 69.0
+    inp = {"tiltThreshold": 65, "deltaMin": 2}
+    cur = {"BTC": {"long_n": 15, "short_n": 7, "raw_coin": "BTC"}}
+    prev = {"BTC": {"long_n": 13, "short_n": 7}}                                       # 68.2%, +2
+    assert scan.fresh_picks(cur, prev, acc, inp) == []                                  # 68.2 < 69
+    assert scan.fresh_picks(cur, prev, scoring.new_accuracy_state(), inp)               # clean ledger: fires
+    assert scan.fresh_picks({"NVDA": {"long_n": 15, "short_n": 7, "raw_coin": "xyz:NVDA"}},
+                            {"NVDA": {"long_n": 13, "short_n": 7}}, acc, inp)           # xyz untouched
+
+
+# ── (b) fake ctx (no network) ──
+
+class _State:
+    def __init__(self):
+        self._log = []
+
+    def last(self):
+        return self._log[-1] if self._log else None
+
+    def append(self, d):
+        self._log.append(d)
+
+
+class _Ctx:
+    def __init__(self, mcp):
+        self.wallet = "0xstarling"
+        self.state = _State()
+        self.senpi_mcp = mcp
+
+
+def test_cohort_headcount_is_one_vote_per_wallet_asset_direction():
     states = [
         {"traderAddress": "0xa", "openPositions": [{"coin": "BTC", "szi": 1.0}]},
         {"traderAddress": "0xb", "openPositions": [{"coin": "BTC", "szi": 2.0},
                                                    {"coin": "ETH", "szi": -1.0}]},
         {"traderAddress": "0xc", "openPositions": [{"coin": "xyz:NVDA", "szi": 3.0},
                                                    {"coin": "BTC", "szi": 0.5}]},
-        {"trader_address": "0xd", "open_positions": [{"asset": "ETH", "szi": -2.0}]},  # alt keys
-        {"traderAddress": "0xa", "openPositions": [{"coin": "BTC", "szi": 1.0}]},  # DUP wallet
-        {"traderAddress": "0xe", "openPositions": [{"coin": "BTC", "szi": 0.0}]},  # flat -> ignored
+        {"trader_address": "0xd", "open_positions": [{"asset": "ETH", "szi": -2.0}]},   # alt spellings
+        {"traderAddress": "0xa", "openPositions": [{"coin": "BTC", "szi": 1.0}]},        # duplicate wallet
+        {"traderAddress": "0xe", "openPositions": [{"coin": "BTC", "szi": 0.0}]},        # flat -> no vote
     ]
-    c = scoring.consensus_counts(states)
-    assert c["BTC"]["LONG"] == 3      # a, b, c ; dup a not double-counted ; flat e ignored
-    assert c["BTC"]["SHORT"] == 0
-    assert c["ETH"]["SHORT"] == 2     # b, d (via alt spellings open_positions/asset)
-    assert c["ETH"]["LONG"] == 0
-    assert c["NVDA"]["LONG"] == 1     # bare-upper strips the xyz: prefix for counting
-    assert scoring.consensus_counts([]) == {}
-    assert scoring.consensus_counts(None) == {}
+
+    class _M:
+        def call_tool(self, tool, args):
+            assert tool == "discovery_get_trader_state"
+            return {"data": {"traders": states}}
+
+    hc = scan._cohort_headcount(_Ctx(_M()), ["0xa", "0xb", "0xc", "0xd", "0xe"], {"stateBatch": 50})
+    assert (hc["BTC"]["long_n"], hc["BTC"]["short_n"]) == (3, 0)     # a, b, c ; dup a once ; flat e ignored
+    assert (hc["ETH"]["long_n"], hc["ETH"]["short_n"]) == (0, 2)     # b, d
+    assert hc["NVDA"]["raw_coin"] == "xyz:NVDA"                       # emit the venue-prefixed name
 
 
-def test_name_map_preserves_venue_prefix():
-    states = [{"traderAddress": "0xc", "openPositions": [
-        {"coin": "xyz:NVDA", "szi": 3.0}, {"coin": "BTC", "szi": 1.0}]}]
-    nm = scoring.name_map(states)
-    assert nm["NVDA"] == "xyz:NVDA"   # emit the tradeable prefixed name, not bare
-    assert nm["BTC"] == "BTC"
-
-
-def test_direction_of_from_szi_then_side_fallback():
-    assert scoring.direction_of({"szi": 5}) == "LONG"
-    assert scoring.direction_of({"szi": -5}) == "SHORT"
-    assert scoring.direction_of({"szi": 0}) is None
-    assert scoring.direction_of({"side": "SELL"}) == "SHORT"   # fallback only when szi absent
-    assert scoring.direction_of({"direction": "long"}) == "LONG"
-    assert scoring.direction_of({}) is None
-
-
-# ── (b) fresh_picks: fires on newly-formed / rising, NOT on stale standing ──
-
-def test_fresh_picks_forming_growing_and_stale():
-    inp = {"minConsensus": 3, "minMargin": 3}
-    cur = {"BTC": {"LONG": 3, "SHORT": 0}}
-    # newly FORMED (prev absent) -> fires
-    assert scoring.fresh_picks(cur, {}, inp) == [
-        {"asset": "BTC", "direction": "LONG", "count": 3, "margin": 3, "opposite": 0}]
-    # STALE standing consensus (prev == cur >= min) -> NO pick  (the core guarantee)
-    assert scoring.fresh_picks(cur, {"BTC": {"LONG": 3, "SHORT": 0}}, inp) == []
-    # GROWING (prev 3 -> cur 5) -> fires
-    grew = scoring.fresh_picks({"BTC": {"LONG": 5}}, {"BTC": {"LONG": 3}}, inp)
-    assert grew[0]["count"] == 5 and grew[0]["margin"] == 5
-    # crossing the bar from below (prev 2 < min -> cur 4) -> fires
-    assert scoring.fresh_picks({"BTC": {"LONG": 4}}, {"BTC": {"LONG": 2}}, inp)[0]["count"] == 4
-    # below the bar -> never
-    assert scoring.fresh_picks({"BTC": {"LONG": 2}}, {}, inp) == []
-    # SHRINKING but still above bar (prev 5 -> cur 4) -> NO pick (not rising)
-    assert scoring.fresh_picks({"BTC": {"LONG": 4}}, {"BTC": {"LONG": 5}}, inp) == []
-
-
-def test_fresh_picks_never_opens_the_minority_side():
-    """THE REGRESSION. Live cohort read: ETH 29 short / 13 long. The old engine evaluated each
-    direction independently, so a long leg ticking 10 -> 13 emitted a LONG pick — and banded it
-    apex. That is how the book went 97/97 long while the proven cohort was net SHORT.
-
-    Note every pre-existing fixture pinned one side to 0, so the both-sides-populated case was
-    never exercised and the suite could not catch this."""
-    inp = {"minConsensus": 3, "minMargin": 3}
-    cur = {"ETH": {"LONG": 13, "SHORT": 29}}
-    prev = {"ETH": {"LONG": 10, "SHORT": 29}}          # the long leg grew, the short leg stood still
-    picks = scoring.fresh_picks(cur, prev, inp)
-    assert all(p["direction"] != "LONG" for p in picks), picks   # minority side is unpickable
-    # …and the long leg growing does NOT widen the short margin, so nothing fires at all
-    assert picks == [], picks
-    # a split cohort asserts nothing
-    assert scoring.fresh_picks({"ETH": {"LONG": 15, "SHORT": 15}}, {}, inp) == []
-    # a lead too thin to be decisive is ignored even when both counts clear minConsensus
-    assert scoring.fresh_picks({"ETH": {"LONG": 9, "SHORT": 7}}, {}, inp) == []
-
-
-def test_fresh_picks_fires_when_the_dominant_short_side_widens():
-    """The other half of the failure: per-leg freshness discarded a STANDING short cohort as
-    'stale' (flat count), so shorts could never fire while the churning long leg fired constantly.
-    Margin-based freshness fixes the asymmetry."""
-    inp = {"minConsensus": 3, "minMargin": 3}
-    # more wallets pile onto the dominant short side -> margin widens 16 -> 19 -> fires SHORT
-    picks = scoring.fresh_picks({"ETH": {"LONG": 13, "SHORT": 32}},
-                                {"ETH": {"LONG": 13, "SHORT": 29}}, inp)
-    assert len(picks) == 1
-    assert picks[0]["direction"] == "SHORT" and picks[0]["count"] == 32
-    assert picks[0]["margin"] == 19 and picks[0]["opposite"] == 13
-    # defectors to the other side NARROW the margin -> correctly ignored, not treated as news
-    assert scoring.fresh_picks({"ETH": {"LONG": 16, "SHORT": 29}},
-                               {"ETH": {"LONG": 13, "SHORT": 29}}, inp) == []
-
-
-def test_fresh_picks_sorted_by_margin_desc():
-    inp = {"minConsensus": 3, "minMargin": 3}
-    cur = {"BTC": {"LONG": 4, "SHORT": 0}, "ETH": {"LONG": 0, "SHORT": 7}, "SOL": {"LONG": 3}}
-    picks = scoring.fresh_picks(cur, {}, inp)
-    assert [p["margin"] for p in picks] == [7, 4, 3]      # apex ETH first
-    assert picks[0]["asset"] == "ETH" and picks[0]["direction"] == "SHORT"
-
+# ── (c) the shipped config ──
 
 def test_ratchet_locks_gains_only_and_never_a_loss():
     """Starling takes longer-term bets, so the exit must never convert a winner into a loser.
@@ -124,10 +123,7 @@ def test_ratchet_locks_gains_only_and_never_a_loss():
       2. No tier may lock 0% of high-water. A breakeven exit still pays fees, so "scratch" is a
          loss. Every rung must protect a positive ROE or it should not exist.
     """
-    import os
-    import yaml
-    rt = os.path.join(os.path.dirname(__file__), "..", "main", "runtime.yaml")
-    preset = yaml.safe_load(open(rt))["exit"]["dsl_preset"]
+    preset = yaml.safe_load(open(_RUNTIME))["exit"]["dsl_preset"]
     p1, tiers = preset["phase1"], preset["phase2"]["tiers"]
 
     assert p1["enabled"] is False, "phase1 trailing must stay off — it can ratchet into a loss"
@@ -149,98 +145,85 @@ def test_ratchet_locks_gains_only_and_never_a_loss():
     assert lowest_lockable >= 8, (
         f"first rung can exit at only +{lowest_lockable:.1f}% ROE — that is a scratch after fees")
 
-    # …and the stall cut must be the ONLY way out of the dead zone, with a bar high enough to mean
-    # something: weak_peak's 48h clock resets whenever ROE >= min_value.
-    wp = preset["weak_peak_cut"]
-    assert wp["enabled"] is True and wp["interval_in_minutes"] >= 2880, wp
-    assert wp["min_value"] >= 5, (
-        f"weak_peak min_value {wp['min_value']} is so low any wiggle resets the 48h clock")
+    # …and the stall cut stays OFF: it closes at MARKET with no floor, so on a longer-hold book it
+    # realises a small loss on a position that simply hadn't moved yet. weak_peak is a CHOP tool.
+    assert preset["weak_peak_cut"]["enabled"] is False
 
 
-def test_min_consensus_and_bands_stay_coherent():
-    """Raising the floor without raising the bands would make EVERY pick apex (5x, 14% margin).
-    Guard the shipped config so the sizing ladder keeps three distinct rungs."""
-    import os
-    import yaml
-    rt = os.path.join(os.path.dirname(__file__), "..", "main", "runtime.yaml")
-    inputs = yaml.safe_load(open(rt))["scanners"][1]["inputs"]
-    assert inputs["minConsensus"] < inputs["goodConsensus"] < inputs["apexConsensus"], inputs
-    assert scoring.band_for(inputs["minConsensus"], inputs) == "base"
-    assert scoring.band_for(inputs["goodConsensus"], inputs) == "good"
-    assert scoring.band_for(inputs["apexConsensus"], inputs) == "apex"
+def test_bands_stay_coherent_with_the_gate():
+    """The smallest dominant side that can clear the gate is 65% of the 10-wallet min sample = 7 —
+    that must band base, and the ladder must keep three distinct rungs so not every pick is apex."""
+    inputs = yaml.safe_load(open(_RUNTIME))["scanners"][1]["inputs"]
+    floor = math.ceil(inputs["tiltThreshold"] / 100 * 10)
+    assert floor < inputs["goodConsensus"] < inputs["apexConsensus"], inputs
+    assert scan.band_for(floor, inputs) == "base"
+    assert scan.band_for(inputs["goodConsensus"], inputs) == "good"
+    assert scan.band_for(inputs["apexConsensus"], inputs) == "apex"
 
-
-# ── band + sizing (fleet caps) ──
 
 def test_band_and_sizing_caps():
-    inp = {"apexConsensus": 6, "goodConsensus": 4, "minConsensus": 3,
+    inp = {"apexConsensus": 15, "goodConsensus": 10,
            "leverageTiers": {"apex": 5, "good": 4, "base": 3},
            "marginPctTiers": {"apex": 14, "good": 10, "base": 7},
            "maxLeverage": 5, "maxMarginPct": 25}
-    assert scoring.band_for(6, inp) == "apex"
-    assert scoring.band_for(5, inp) == "good"
-    assert scoring.band_for(4, inp) == "good"
-    assert scoring.band_for(3, inp) == "base"
-    lev, mgn = scoring.sizing_for("apex", inp)
+    assert scan.band_for(15, inp) == "apex"
+    assert scan.band_for(14, inp) == "good"
+    assert scan.band_for(10, inp) == "good"
+    assert scan.band_for(7, inp) == "base"
+    lev, mgn = scan.sizing_for("apex", inp)
     assert lev == 5 and mgn == 14
-    lev, mgn = scoring.sizing_for("apex", inp, venue_max=3)
+    lev, mgn = scan.sizing_for("apex", inp, venue_max=3)
     assert lev == 3                                        # clamped to venue max
-    lev, mgn = scoring.sizing_for("base", inp)
+    lev, mgn = scan.sizing_for("base", inp)
     assert 1 <= lev <= 5 and 0 < mgn <= 25
     # oversized tier clamps to fleet caps, never overshoots
-    lev, mgn = scoring.sizing_for("apex", {"leverageTiers": {"apex": 99},
-                                           "marginPctTiers": {"apex": 999},
-                                           "maxLeverage": 5, "maxMarginPct": 25})
+    lev, mgn = scan.sizing_for("apex", {"leverageTiers": {"apex": 99},
+                                        "marginPctTiers": {"apex": 999},
+                                        "maxLeverage": 5, "maxMarginPct": 25})
     assert lev == 5 and mgn == 25
 
 
-def test_traders_of_and_realized_tolerant():
-    assert scoring.traders_of([1, 2]) == [1, 2]
-    assert scoring.traders_of({"traders": [1]}) == [1]
-    assert scoring.traders_of({"data": [2]}) == [2]
-    assert scoring.traders_of({"results": [3]}) == [3]
-    assert scoring.traders_of({"nope": 1}) == []
-    assert scoring.realized({"realizedPnl": 5}) == 5.0
-    assert scoring.realized({"realized_profit_and_loss": 7}) == 7.0
-    assert scoring.realized({"nope": 1}) == 0.0
-    assert scoring.trader_address({"address": "0xAbC"}) == "0xabc"
-    assert scoring.trader_address({"trader_address": "0xDeF"}) == "0xdef"
-    assert scoring.trader_address({}) == ""
-
-
-# ── (c) scan() smoke against a fake ctx (no network) ──
-
-class _State:
-    def __init__(self):
-        self._log = []
-
-    def last(self):
-        return self._log[-1] if self._log else None
-
-    def append(self, d):
-        self._log.append(d)
-
+# ── (d) scan() smoke against a fake ctx ──
 
 class _MCP:
-    """Canned: 4 proven traders; 3 of them freshly long BTC, 1 short ETH, 1 long SOL."""
+    """Canned proven cohort of 14 wallets. tick 1: BTC 8L/3S (73%), ETH 5L/6S (55%), SOL 3L (thin).
+    tick 2+: two more wallets long BTC -> 10L/3S (77%, +2); ETH 6L/6S; SOL unchanged."""
+
+    def __init__(self):
+        self.tick = 1
+        self.calls = []
+
+    def _states(self):
+        btc_long, eth_long = (10, 6) if self.tick >= 2 else (8, 5)
+        out = []
+        for i in range(14):
+            pos = []
+            if i < btc_long:
+                pos.append({"coin": "BTC", "szi": 1.0})
+            elif i < btc_long + 3:
+                pos.append({"coin": "BTC", "szi": -1.0})
+            if i < eth_long:
+                pos.append({"coin": "ETH", "szi": 2.0})
+            elif i < eth_long + 6:
+                pos.append({"coin": "ETH", "szi": -2.0})
+            if i < 3:
+                pos.append({"coin": "SOL", "szi": 1.0})
+            out.append({"traderAddress": f"0x{i:02x}", "openPositions": pos})
+        return out
+
     def call_tool(self, tool, args):
+        self.calls.append(tool)
         if tool == "discovery_get_top_traders":
             if (args or {}).get("offset", 0) > 0:
                 return {"data": {"traders": []}}           # end pagination
-            return {"data": {"traders": [
-                {"address": "0xa", "realizedPnl": 5_000_000},
-                {"address": "0xb", "realizedPnl": 3_000_000},
-                {"address": "0xc", "realizedPnl": 2_000_000},
-                {"address": "0xd", "realizedPnl": 1_500}]}}
+            return {"data": {"traders": [{"address": f"0x{i:02x}", "realizedPnl": 5_000_000}
+                                         for i in range(14)]}}
         if tool == "discovery_get_trader_state":
-            return {"data": {"traders": [
-                {"traderAddress": "0xa", "openPositions": [{"coin": "BTC", "szi": 1.2}]},
-                {"traderAddress": "0xb", "openPositions": [{"coin": "BTC", "szi": 3.0}]},
-                {"traderAddress": "0xc", "openPositions": [{"coin": "BTC", "szi": 0.4},
-                                                           {"coin": "ETH", "szi": -2.0}]},
-                {"traderAddress": "0xd", "openPositions": [{"coin": "SOL", "szi": 9.0}]}]}}
+            return {"data": {"traders": self._states()}}
         if tool == "strategy_get_clearinghouse_state":
-            return {"data": {"assetPositions": []}}
+            return {"data": {"main": {"assetPositions": []}, "xyz": {"assetPositions": []}}}
+        if tool == "market_get_asset_data":
+            return {"data": {"candles": {"1h": [{"c": "100"}], "4h": []}}}
         return {}
 
 
@@ -251,17 +234,10 @@ class _EmptyMCP:
         return {"data": {"assetPositions": []}}
 
 
-class _Ctx:
-    def __init__(self, mcp=None):
-        self.wallet = "0xstarling"
-        self.state = _State()
-        self.senpi_mcp = mcp or _MCP()
-
-
 _INPUTS = {
     "cohortRefreshHours": 12, "smartMinRealizedUsd": 1000, "cohortCap": 120,
     "pageSize": 1000, "maxPages": 6, "stateBatch": 50,
-    "minConsensus": 3, "goodConsensus": 4, "apexConsensus": 6,
+    "tiltThreshold": 65, "deltaMin": 2, "goodConsensus": 10, "apexConsensus": 15,
     "maxSlots": 6, "recentSignalTtlSeconds": 21600,
     "leverageTiers": {"apex": 5, "good": 4, "base": 3},
     "marginPctTiers": {"apex": 14, "good": 10, "base": 7},
@@ -269,32 +245,37 @@ _INPUTS = {
 }
 
 
-def test_scan_smoke_returns_valid_signals_and_persists():
-    import scan
-    ctx = _Ctx()
+def test_scan_seeds_on_the_first_tick_then_opens_on_growth_and_persists():
+    ctx = _Ctx(_MCP())
+    # tick 1: cold start — the read seeds the baseline, nothing opens, no price read is made
+    assert scan.scan(dict(_INPUTS), ctx) == []
+    last = ctx.state.last()
+    assert len(last["cohort"]) == 14 and last["prev_tilts"]["BTC"] == {"long_n": 8, "short_n": 3}
+    assert "market_get_asset_data" not in ctx.senpi_mcp.calls
+
+    # tick 2: two more wallets long BTC (+2 at 77%) -> one open; ETH at 50% and thin SOL never qualify
+    ctx.senpi_mcp.tick = 2
     out = scan.scan(dict(_INPUTS), ctx)
-    assert isinstance(out, list)
-    assert len(out) == 1                                   # only BTC has >=3 fresh agreeing wallets
+    assert len(out) == 1
     s = out[0]
     assert set(("asset", "direction", "marginPct", "leverage", "data")) <= set(s)
-    assert s["asset"] == "BTC" and s["direction"] == "LONG"
-    assert 0 < s["marginPct"] <= 25 and 1 <= s["leverage"] <= 5
-    assert s["data"]["consensusCount"] == 3 and s["data"]["band"] == "base"
-    assert s["data"]["reasons"] == ["3_smart_wallets_LONG"]
-    # state persisted: cohort + snapshot + recent
+    assert (s["asset"], s["direction"], s["leverage"], s["marginPct"]) == ("BTC", "LONG", 4, 10)  # 10 agree -> good
+    assert s["data"]["consensusCount"] == 10 and s["data"]["band"] == "good"
+    assert s["data"]["oneSidedness"] == 76.9 and s["data"]["delta"] == 2.0
+    schema = yaml.safe_load(open(_RUNTIME))["scanners"][1]["signal_data_schema"]
+    assert set(s["data"]) == set(schema)                   # an undeclared or null key is discarded by the intake
+    assert not [k for k, v in s["data"].items() if v is None]
     last = ctx.state.last()
-    assert last is not None and len(last["cohort"]) == 4
-    assert last["last_snapshot"]["BTC"]["LONG"] == 3
-    assert "BTC" in last["recent"]
+    assert last["prev_tilts"]["BTC"] == {"long_n": 10, "short_n": 3} and "BTC" in last["recent"]
+    pend = last["accuracy"]["crypto"]["pending"]           # the ledger holds the signal for its 1h mark
+    assert len(pend) == 1 and pend[0]["entry_price"] == 100.0 and pend[0]["direction"] == "LONG"
 
-    # second tick: identical snapshot -> STALE standing consensus (+ recent debounce) -> no new opens
-    out2 = scan.scan(dict(_INPUTS), ctx)
-    assert out2 == []
+    # tick 3: same read -> delta 0 (+ the per-name debounce) -> nothing new
+    assert scan.scan(dict(_INPUTS), ctx) == []
 
 
 def test_scan_degrades_when_cohort_empty():
-    import scan
-    ctx = _Ctx(mcp=_EmptyMCP())
+    ctx = _Ctx(_EmptyMCP())
     out = scan.scan(dict(_INPUTS), ctx)
     assert out == []                                       # nothing to follow -> empty, no crash
     assert ctx.state.last() is not None                    # still persists (cohort stays empty)

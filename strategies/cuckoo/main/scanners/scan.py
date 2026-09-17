@@ -48,7 +48,7 @@ import scoring
 # v2 producer defaults (cuckoo-producer.py / cuckoo-config.json)
 _DEFAULT_TOP_N = 12              # how many top strategies to follow
 _DEFAULT_MIN_STRATEGIES = 2     # require at least this many agreeing
-_DEFAULT_MIN_NOTIONAL_USD = 2000
+_DEFAULT_MIN_NOTIONAL_USD = 100
 _DEFAULT_WEIGHT_CAP = 3.0       # max per-strategy weight (outlier guard)
 _DEFAULT_HIGH_WEIGHT = 6.0      # aggregate weight that earns the bonus point
 _DEFAULT_MIN_SCORE = 4

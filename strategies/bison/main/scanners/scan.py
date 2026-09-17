@@ -58,8 +58,10 @@ def _sm_row_matches(row, token, target):
 _ALLOWED_ASSETS_DEFAULT = ["BTC", "ETH", "SOL"]
 _DEFAULT_RECENT_TTL = 180        # v3.0.1 RECENT_SIGNAL_TTL_SEC — race-window dedup
 _DEFAULT_TIERS = [[12, 1.5], [10, 1.25]]   # informational; tiering lives in scoring.margin_tier_pct
-_MAX_LEVERAGE = 10               # v2.1 MAX_LEVERAGE (hardcoded, not configurable)
-_MIN_LEVERAGE = 7                # v2.1 MIN_LEVERAGE (hardcoded, not configurable)
+# Was 7-10x (v2.1). At 10x the 8%-of-margin phase-1 cap is a 0.8% price move, and 77 of 132 closes
+# were stops at -6.1% ROE — 64% of them traded back through entry within 4h on a multi-day thesis.
+_MAX_LEVERAGE = 5
+_MIN_LEVERAGE = 4
 
 
 def _dex_for(asset):
@@ -119,7 +121,11 @@ def _get_account(ctx):
     return account_value, positions
 
 
-def _get_sm_direction(ctx, coin):
+# Floor on the 4h board's `trader_count`: a lean whose leading side is thinner than this is refused.
+_DEFAULT_MIN_TRADER_COUNT = 10
+
+
+def _get_sm_direction(ctx, coin, min_traders=_DEFAULT_MIN_TRADER_COUNT):
     """Port of v2 get_sm_direction: net smart-money lean for `coin` from
     leaderboard_get_markets. Returns (direction, pct) or (None, 0). READ-GUARDED.
 
@@ -144,6 +150,7 @@ def _get_sm_direction(ctx, coin):
     coin_long_pct = 0
     coin_short_pct = 0
     found = False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -152,6 +159,7 @@ def _get_sm_direction(ctx, coin):
             continue
         found = True
         direction = str(m.get("direction", "")).lower()
+        side_n[direction] = int(m.get("trader_count", 0) or 0)
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         if direction == "long":
             coin_long_pct = pct
@@ -164,6 +172,9 @@ def _get_sm_direction(ctx, coin):
     if total == 0:
         return "NEUTRAL", 50
     long_ratio = (coin_long_pct / total) * 100 if total > 0 else 50
+    lean = "long" if long_ratio > 58 else "short" if long_ratio < 42 else None
+    if lean and side_n.get(lean, 0) < min_traders:
+        return None, 0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     if long_ratio > 58:
         return "LONG", long_ratio
     elif long_ratio < 42:
@@ -225,6 +236,7 @@ def scan(inputs, ctx):
     now = time.time()
     allowed = inputs.get("allowedAssets", _ALLOWED_ASSETS_DEFAULT)
     min_score = float(inputs.get("minScore", 11))
+    min_traders = int(inputs.get("minTraderCount", _DEFAULT_MIN_TRADER_COUNT))   # 4h-board headcount floor
     base_margin_pct = float(inputs.get("marginPctBase", 25))   # PERCENT in (0,100]
     lev_default = int(inputs.get("leverageDefault", 10))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
@@ -254,7 +266,7 @@ def scan(inputs, ctx):
         if not md:
             continue
         candles = md["candles"]
-        sm = _get_sm_direction(ctx, coin)
+        sm = _get_sm_direction(ctx, coin, min_traders=min_traders)
         th = scoring.build_thesis(
             coin,
             candles.get("15m", []), candles.get("1h", []), candles.get("4h", []),

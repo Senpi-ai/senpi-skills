@@ -67,28 +67,11 @@ def _oi_of(md):
     ctx_ = (md or {}).get("asset_context") or (md or {}).get("assetContext") or {}
     oi = scoring._num(ctx_.get("openInterest") or ctx_.get("open_interest"))
     mark = scoring._num(ctx_.get("markPx") or ctx_.get("midPx"))
-    if oi is None:
+    if oi is None or not mark:
         return 0.0
-    return oi * mark if (mark and oi < 1e7) else oi   # coin-units × price → USD; else already USD-ish
-
-
-def _funding(ctx, name):
-    """This asset's funding row from market_get_funding_history — the call + parse are
-    ported from pangolin (a LIVE strategy): args are `{"asset": <bare>}` ONLY (the tool
-    has no `dex` param), and the payload is double-nested `data.data = [{asset,
-    annualized_pct, funding_direction, persistence_hours, trend}, ...]`. Returns that
-    row dict for this asset, or None. (`_read` already unwraps the outer `data`.)"""
-    bare = str(name).split(":", 1)[-1]
-    d = _read(ctx, "market_get_funding_history", {"asset": bare},
-              f"market_get_funding_history({bare})")
-    rows = d.get("data") if isinstance(d, dict) else d
-    if not isinstance(rows, list) or not rows:
-        return None
-    up = bare.upper()
-    for row in rows:
-        if isinstance(row, dict) and str(row.get("asset", "")).split(":", 1)[-1].upper() == up:
-            return row
-    return rows[0] if isinstance(rows[0], dict) else None   # asset-filtered call → single row
+    # Hyperliquid openInterest is always coin units (SOL read live: 5,271,553 at $101.86). The old
+    # "above 1e7 it must already be USD" guess ranked kBONK / kPEPE / PENGU coin counts as dollars.
+    return oi * mark
 
 
 def _held(ctx):
@@ -164,7 +147,8 @@ def scan(inputs, ctx):
                 bare = str(name).split(":", 1)[-1].upper()
                 if bare in held or (recent.get(bare) and (now - scoring._f(recent[bare])) < ttl):
                     continue
-                funding = _funding(ctx, name)
+                funding = scoring.funding_from_history(md.get("funding_history"),
+                                                       scoring._f(inputs.get("targetApr"), 30.0))
                 candles = md.get("candles", {}) or {}
                 th = scoring.build_signal(name, funding, oi,
                                           candles.get("1h", []), candles.get("4h", []), inputs)

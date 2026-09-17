@@ -150,7 +150,7 @@ def _asset_data(ctx, coin):
     return {"candles": candles}
 
 
-def _get_sm_direction(ctx, coin):
+def _get_sm_direction(ctx, coin, min_traders=10):
     """Port of v2 fetch_sm_direction: net smart-money lean for `coin` from
     leaderboard_get_markets. Returns (direction, tilt_pct) or (None, 0).
     READ-GUARDED. SM is a BONUS, never a gate.
@@ -176,6 +176,7 @@ def _get_sm_direction(ctx, coin):
         return None, 0.0
 
     long_pct, short_pct, found = 0.0, 0.0, False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -184,6 +185,7 @@ def _get_sm_direction(ctx, coin):
             continue
         found = True
         d = str(m.get("direction", "")).upper()
+        side_n[d] = int(m.get("trader_count", 0) or 0)
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         if d == "LONG":
             long_pct = pct
@@ -195,6 +197,8 @@ def _get_sm_direction(ctx, coin):
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
+    if side_n.get("LONG" if long_ratio >= 50 else "SHORT", 0) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     return ("LONG", long_ratio) if long_ratio >= 50 else ("SHORT", 100 - long_ratio)
 
 
@@ -225,6 +229,7 @@ def scan(inputs, ctx):
     now = time.time()
     whitelist = inputs.get("whitelist", _DEFAULT_WHITELIST)
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
+    min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
     lev_default = int(inputs.get("leverage", _DEFAULT_LEVERAGE))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
 
@@ -262,7 +267,7 @@ def scan(inputs, ctx):
         if not md:
             continue
         candles = md["candles"]
-        sm = _get_sm_direction(ctx, coin)
+        sm = _get_sm_direction(ctx, coin, min_traders)
         th = scoring.build_thesis(
             cu,
             candles.get("15m", []), candles.get("1h", []), candles.get("4h", []),

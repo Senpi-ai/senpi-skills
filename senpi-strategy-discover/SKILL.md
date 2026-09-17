@@ -6,7 +6,10 @@ description: >-
   a strategy", "help me pick a strategy", "what's winning?", "set me up", "I have
   a view on the world (a war, the economy, one coin winning) — trade it", "run a
   hedge fund / all-weather / tail-risk book", or wants a strategy but has NOT
-  named a specific one. Surface the closest matching TEMPLATE first — the quick start
+  named a specific one — and every discretionary mandate: "deploy whatever you think is
+  profitable", "trade for me", "be aggressive", "put it to work", "you decide". A mandate is a
+  strategy request even when it names no strategy and no coin; it is never answered with
+  hand-picked raw positions. Surface the closest matching TEMPLATE first — the quick start
   to the user's OWN strategy (every template deploys as `<User>'s <Template>` — or a
   name of their own — as-is or with levers moved, after ops walks them through it) — passing their
   worldview as `--theme` to rank the closest fits; offer building one as a peer with
@@ -17,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.23.0"
+  version: "2.31.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -158,7 +161,9 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
    1. 🏦 "A ready-made **fund** — either a *view* on the world (a war, the economy, AI, one coin beating
       the rest), or a *return style* (AI/tech, market-neutral, income, macro)?" → rank up candidates
       whose `tags` include `hedge-fund`/`thesis-fund`/`all-weather`/`tail-risk`/… and whose `thesis`
-      fits. **No `--assets` for a fuzzy view** — run broad and rank.
+      fits. **Athena** is the smart-money hedge fund (a Phalanx alpha sleeve + an Aegis hedge sleeve, 65/35
+      by default — the weighting is theirs): lead with it for a "hedge fund" or "smart money" ask.
+      **No `--assets` for a fuzzy view** — run broad and rank.
    2. "Ride what's moving, or fade the crowd?" → rank `archetype_label` Trend-Follower vs Contrarian/Fade.
    3. "A **specific market** — a stock (NVDA), a pre-IPO name (SpaceX), a commodity (gold/oil), an index,
       or a coin?" → this IS concrete → `--assets xyz_equities|pre_ipo|commodities|indices|<class/ticker>`.
@@ -166,9 +171,9 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
       mirror — it blends proven + hot and ranks by who you can actually copy *right now*, so **the user never
       picks a window.** For the **hands-off** route, managed copy templates come in **two flavors — surface
       both, don't show only one**: *copy specific traders* (**Shadow / Remora / Raptor / Cuckoo / Oxpecker /
-      Jackal** — mirror a trader's fresh entries or book) **and** *follow the smart money by signal* (**Stingray
-      / Starling / Whalehunter / Phalanx** — position by where the whole proven cohort leans, many traders at once, not
-      1:1). All auto-apply DSL + budget-relative sizing. (`senpi-trade` carries the full flavor breakdown.)
+      Jackal** — mirror a trader's fresh entries or book) **and** *follow the smart money by signal* (**Athena / Phalanx
+      / Starling / Whalehunter / Pilotfish** — position by where the whole proven cohort leans, many wallets at once, not
+      1:1; Athena is Phalanx with its Aegis hedge as one fund). All auto-apply DSL + budget-relative sizing. (`senpi-trade` carries the full flavor breakdown.)
    5. 🏆 "Just run what's set up best right now?" → *read the market*, lead with the best current setup
       (be honest — see "What's winning" in Special paths; there's no per-package performance board).
    6. "Catch breakouts early, or earn from market structure?" → rank Breakout / Structural up.
@@ -191,8 +196,10 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
      good?"). Never invent a number the user hasn't confirmed, and never default everyone to the floor.
    - If funds are unavailable (`user_context` missing/errored), ask for the budget rather than assuming.
    - **"Can I try it first / paper trade it?"** — there is no paper-trading mode. The trial IS a live run at
-     the floor (`min_budget`, about $10 per wallet), after `senpi validate` proves it runs; say so, and never
-     offer to watch it on a timer — an `openclaw cron` job is a model call per firing, not a simulation.
+     the floor, after `senpi validate` proves it runs — and the floor is the card's `min_budget`, which is
+     the number to quote. The $10 platform floor is the per-wallet minimum inside it, never the number to
+     give a user. Say so, and never offer to watch it on a timer — an `openclaw cron` job is a model call
+     per firing, not a simulation.
 
    Optionally `discover.py --context-only` to reference holdings (confirm first; never silently infer).
    Then run the engine with the FULL concrete flag set (this run does the live market read), **rank the
@@ -227,7 +234,9 @@ They lack the vocabulary; recommend *without* making them self-classify:
   alongside it to cut drawdown?"* To find the complement, **re-run the engine broadly** (drop the
   narrowing, or flip `--direction`) and offer a candidate that *complements* the pick — a fader/defensive
   or tail-risk one for a momentum pick (read `archetype_label`/`tags`/`direction` to choose), à la
-  Spider + Dog. Size ~70/30 toward the primary — it's a cushion, not a co-bet.
+  Spider + Dog. Phalanx has one built as its pair: **Aegis** (reads the tape where Phalanx reads the
+  crowd) — and **Athena** is the two as one fund (65/35 by default, the weighting is theirs). Stacking by
+  hand, size ~70/30 toward the primary — it's a cushion, not a co-bet.
 - **Fund pick** (`funding_split` present → already a multi-wallet long/short book): **don't push
   stacking — it's internally hedged.** Just show the funding split when you present it.
 
@@ -246,7 +255,9 @@ They lack the vocabulary; recommend *without* making them self-classify:
 - "gold vs bitcoin" → run broad (or `--assets commodities,btc_eth`) → pick the matching `thesis-*` fund by which side wins
 - "I think there's going to be a war" → *(no asset cut)* run broad → rank up war / tail-risk / oil-gold
   theses (`thesis-war-escalation`, `rhino`)
-- "run a hedge fund / all-weather book" → run broad → rank up `hedge-fund`/`all-weather`/`risk-parity` tags (`ox`, `spider`, `rhino`)
+- "run a hedge fund / all-weather book" → run broad → rank up `hedge-fund`/`all-weather`/`risk-parity` tags (`athena` first — the smart-money hedge fund — then `ox`, `spider`, `rhino`)
+- "a smart money hedge fund" / "follow the smart money, hedged" → `--theme "smart money hedge fund proven cohort regime hedge"` → `athena` (65/35 Phalanx/Aegis by default; the weighting is theirs)
+- "which of your templates are proven?" / "did you backtest this?" → no engine call; the honest line under *Special paths*, then the pick they asked about
 - "copy good traders, nothing crazy" → **hand to `senpi-trader-research`** for the blended shortlist (steady names surface by copyability — no window for the user to pick); or a managed **Copy-Trader template** if they want it hands-off. Keep risk=moderate in head.
 - "trade stocks not crypto" → `--assets xyz_equities --exclude crypto`
 - "I don't want to short" → `--direction long_only`
@@ -270,6 +281,13 @@ worldview/fund picks; offer the stack on single-wallet picks only.
 - **"What's winning"** → reframe honestly: *"I rank by what's set up well right now, not last week's
   winner."* Read the market; lead with the best current setup from `market_facts`. Never imply a real
   per-package performance leaderboard.
+- **Micro-specs** ("$1 a trade", "never lose more than 20 cents", "a hundred small wins") → do the fee math out loud before matching anything: read the round-trip cost — Hyperliquid's taker rate on both legs (the wallet's `userFees`, never assumed) plus Senpi's builder fee (`get_loyalty_tiers`, `feePercent` — the only fee that tool carries) — and put it next to their stop — a position big enough to make $1 pays a fee that is a large share of a 20-cent stop, and a stop that tight is hit by normal noise. Say the numbers, then offer what exists: a template's stop and lock ladder sized to its budget. Never save an impossible spec as their "risk profile" and never answer "Senpi has exactly that".
+- **"Show me the source" / "I want an outside audit"** → the catalog is public: link `https://github.com/Senpi-ai/senpi-skills/tree/main/strategies/<id>`, and for a fork point at their package (`<username>-<template>`, as ops names it) and its diff against that link. Never hand-roll a tarball or a hash-stamped dump in place of the link.
+- **"Proven / backtested / track record" templates** → say it plainly: a template has no backtest and no
+  per-template performance board. "Validated" means it runs (`senpi validate`) and forward-tests at the
+  $10 floor. Never answer a templates question with a mirror-strategy ranking: `discovery_get_top_strategies`
+  is mirror-only, and swapping it in reads as a bait-and-switch. Copy-trading is the one thing on Senpi with
+  a track record today; offer it as an alternative, never as the answer.
 - **User names a strategy** ("just install kodiak") → deploy intent → hand to **senpi-strategy-ops**.
 - **Below-floor budget** → surface the floor honestly ("the smallest here needs ~$X"); offer to see it
   anyway / adjust / build custom. Never hard-block (the caveat is already on the record).

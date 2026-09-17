@@ -80,7 +80,7 @@ def _hype_full_picture(ctx, asset, dex):
     return data if isinstance(data, dict) else None
 
 
-def _sm_for_asset(ctx, asset):
+def _sm_for_asset(ctx, asset, min_traders=10):
     """Port of v2 get_hype_sm_direction: net smart-money lean for `asset` from
     leaderboard_get_markets. Returns {direction, pct, traders, cc_15m} or None."""
     raw = _read(ctx, "leaderboard_get_markets", {"limit": 100},
@@ -102,6 +102,7 @@ def _sm_for_asset(ctx, asset):
     traders_sum = 0
     cc_15m = 0.0
     found = False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -110,6 +111,7 @@ def _sm_for_asset(ctx, asset):
             continue
         found = True
         direction = str(m.get("direction", "")).upper()
+        side_n[direction] = int(m.get("trader_count", 0) or 0)
         pct = scoring._f(m.get("pct_of_top_traders_gain", 0))
         traders = int(m.get("trader_count", 0) or 0)
         cc = scoring._f(m.get("contribution_pct_change_15m", 0))
@@ -127,6 +129,9 @@ def _sm_for_asset(ctx, asset):
     if total == 0:
         return {"direction": "NEUTRAL", "pct": 0, "traders": traders_sum, "cc_15m": cc_15m}
     long_ratio = (long_pct / total) * 100
+    lean = "LONG" if long_ratio > 58 else "SHORT" if long_ratio < 42 else None
+    if lean and side_n.get(lean, 0) < min_traders:
+        return None   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     if long_ratio > 58:
         return {"direction": "LONG", "pct": long_pct, "traders": traders_sum, "cc_15m": cc_15m}
     if long_ratio < 42:
@@ -207,6 +212,7 @@ def scan(inputs, ctx):
     dex = _dex_for(asset, inputs)
     macro_asset = inputs.get("macroAsset", "BTC")     # "" disables the BTC factor
     min_score = float(inputs.get("minScore", 10))     # config "patient-conviction" floor
+    min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
     margin_pct = float(inputs.get("marginPct", 25))   # PERCENT of withdrawable (0,100], not a fraction
     tiers = inputs.get("leverageTiers", _DEFAULT_TIERS)
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
@@ -230,7 +236,7 @@ def scan(inputs, ctx):
     oi_velocity = data.get("oi_velocity") if isinstance(data.get("oi_velocity"), dict) else {}
 
     # ── smart-money + MACRO/REGIME inputs (all optional, degrade to neutral) ──
-    sm = _sm_for_asset(ctx, asset)
+    sm = _sm_for_asset(ctx, asset, min_traders)
     regime = _funding_regime(ctx)
     persistence_h = _funding_persistence_h(ctx, asset, dex)
     btc_mom_15m, btc_mom_1h = _btc_correlation(ctx, macro_asset)

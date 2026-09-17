@@ -22,10 +22,10 @@ description: >
   cached daily) and mirrors their highest-conviction positions — so it trades out of
   the box with no config. Optionally name specific whales via inputs.whales to mirror
   exactly those. Each tick it pulls each whale's open positions (leaderboard_get_trader_positions),
-  takes their highest-conviction (largest-notional) position above minNotionalUsd,
+  takes the highest-conviction (largest-notional) position they JUST opened or added to above minNotionalUsd,
   aggregates across whales into (asset, direction) candidates, scores by consensus
-  (how many whales agree) + whale quality (discovery_get_trader_state ELITE/RELIABLE/
-  PROFITABLE tier when useWhaleQuality), and mirrors the strongest 1-2 — sized by
+  (how many whales agree) + whale quality (the cohort row's ELITE/RELIABLE tcsLabel
+  when useWhaleQuality), and mirrors the strongest 1-2 — sized by
   Remora's own marginPct (default 15%), leverage clamped to [1,10]. Producer enters
   only — the DSL owns exits: let-winners-run preset (wide ladder, first lock at +10%
   ROE, max_loss 18%) with a 120h hard_timeout staleness cap. Mirror scoring verbatim
@@ -48,7 +48,7 @@ scanners:
     path: ./scanners
     entrypoint: scan.py
     interval_seconds: 600                    # whale positions change slowly (10 min); cohort cached daily
-    timeout_seconds: 240                     # up to ~2 reads/whale + account + (daily) cohort paging
+    timeout_seconds: 240                     # 1 read/whale + account + (daily) cohort paging
     default_signal_validity_seconds: 1200    # 2x tick; rule action, a fresh re-score arrives next tick
     state_history_max_count: 50              # dedup map + cohort cache + per-tick scan-results history
     inputs:
@@ -64,8 +64,9 @@ scanners:
       cohortFetchLimit: 1000                 # discovery_get_top_traders page size
       cohortMaxPages: 6                      # paging cap to reach a deep, stable ranking
       # ── mirror scoring (v2 Remora — verbatim) ─────────────────────────────
-      useWhaleQuality: true                  # ELITE/RELIABLE/PROFITABLE bonus (discovery_get_trader_state)
+      useWhaleQuality: true                  # ELITE/RELIABLE bonus — tcsLabel on the discovery_get_top_traders cohort row
       minNotionalUsd: 5000                   # v2 DEFAULT_MIN_NOTIONAL_USD — skip dust positions
+      minWhaleAddPct: 20                     # a whale ADDING counts as a move; below this a size change is noise
       minScore: 4                            # v2 DEFAULT_MIN_SCORE — producer floor
       emitTopN: 2                            # emit the strongest 1-2 mirrors per tick (clamped 1..2)
       marginPct: 15                          # PERCENT of withdrawable (0,100]; v2 stored fraction 0.15 -> 15%

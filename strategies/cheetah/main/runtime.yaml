@@ -3,13 +3,15 @@ name: cheetah-main
 group: cheetah
 version: 3.0.0
 description: >
-  CHEETAH — universe confluence sniper. Scans the top-100 smart-money leaderboard markets
-  (leaderboard_get_markets) every tick, scores each on a 7-component confluence model
-  (max 15: SM consensus, velocity, acceleration, dual-price, volume, quality-trader
+  CHEETAH — universe confluence sniper. Scans the top-100 markets on the 4h leader board
+  (leaderboard_get_markets — which side the last four hours' winners sit on) every tick,
+  scores each on a 7-component confluence model (max 15: 4h-leader consensus, velocity,
+  acceleration, dual-price, volume, quality-trader
   alignment, rank-climb), and emits ONE signal for the single strongest candidate that
   clears score 10. Score-scaled leverage: 3x @10, 5x @11, 7x @12, 8x @14+. XYZ banned,
-  one slot, 30% margin. DSL is the ONLY exit ("let winners run": T0 +10% / lock 0, the
-  rare +50-100% mover pays for the quiet weeks). Faithful port of the v2 producer thesis.
+  one slot, 30% margin. DSL is the ONLY exit ("let winners run": first lock at +20% ROE
+  keeps 25% of the peak; the rare +50-100% mover pays for the quiet weeks). Faithful port
+  of the v2 producer thesis.
 
 strategy:
   wallet: "${CHEETAH_WALLET}"
@@ -39,7 +41,7 @@ scanners:
       leaderboardLimit: 100                # v2 fetch_sm_markets limit=100
       # ── score-component thresholds (v2 producer constants, verbatim) ──
       smMinPct: 10.0
-      smMinTraders: 25
+      smMinTraders: 25                     # floor on trader_count per board side — a thinner side never becomes a candidate
       velMin15m: 1.0
       velMin1h: 3.0
       priceMin4h: 2.0
@@ -92,10 +94,15 @@ actions:
       - type: signal
         scanner: cheetah_main_signals
 
-# EXIT — DSL, "let winners run" (ported verbatim from v2 v7.2.0): time cuts OFF except the
-# 12h hard-timeout fail-safe (the one cut that captured the two big HYPE wins). Phase 2 first
-# lock is REACHABLE at +10% (lock 0 — let a +10% mover retrace fully before any profit lock so
-# the rare +50-100% trend isn't capped); the right tail pays for the quiet weeks.
+# EXIT — DSL, "let winners run": no time-based cuts. Cheetah waits weeks for one confluence
+# and then lets the ratchet — not a fixed target and not a clock — decide the exit, so a
+# position exits on the hard stop (phase1.max_loss_pct) or the profit-lock ladder
+# (phase2.tiers) only. The 12h hard_timeout counted from entry and fired in either phase:
+# it closed positions that had not reached the first tier (+20% ROE) — including ones
+# sitting in profit below it — and tier-armed winners mid-run, which made a clock the
+# profit-taker the thesis hands to the ladder. Removed 2026-09-15 (Cheetah 1.1.1). First
+# lock at +20% ROE keeps 25% of the peak (the old "+10% / lock 0" copy predated the
+# breakeven-rung ban); the right tail pays for the quiet weeks.
 exit:
   engine: dsl
   interval_seconds: 30
@@ -105,8 +112,7 @@ exit:
     execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: true
-      interval_in_minutes: 720             # 12h fail-safe — the ONLY time cut left (v7.2.0)
+      enabled: false                       # was 12h — fired in either phase; see EXIT note
     weak_peak_cut:
       enabled: false                       # v7.2.0: disabled — was chopping winners-in-waiting
       interval_in_minutes: 90

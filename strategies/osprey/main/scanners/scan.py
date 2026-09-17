@@ -163,7 +163,7 @@ def _fetch_candles(ctx, asset):
     return candles.get("1h", []) if isinstance(candles, dict) else []
 
 
-def _get_sm_direction(ctx, asset):
+def _get_sm_direction(ctx, asset, min_traders=10):
     """Net smart-money lean for `asset` from leaderboard_get_markets.
     Returns (direction, pct) or (None, 0.0). READ-GUARDED. Ported verbatim from
     v2 fetch_sm_direction: long_ratio >= 50 -> LONG else SHORT (NEUTRAL/50 when
@@ -186,6 +186,7 @@ def _get_sm_direction(ctx, asset):
         return None, 0.0
 
     long_pct, short_pct, found = 0.0, 0.0, False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -194,6 +195,7 @@ def _get_sm_direction(ctx, asset):
             continue
         found = True
         d = str(m.get("direction", "")).upper()
+        side_n[d] = int(m.get("trader_count", 0) or 0)
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         if d == "LONG":
             long_pct = pct
@@ -205,6 +207,8 @@ def _get_sm_direction(ctx, asset):
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
+    if side_n.get("LONG" if long_ratio >= 50 else "SHORT", 0) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     return ("LONG", long_ratio) if long_ratio >= 50 else ("SHORT", 100 - long_ratio)
 
 
@@ -276,6 +280,7 @@ def scan(inputs, ctx):
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
     lev_default = int(inputs.get("leverage", _DEFAULT_LEVERAGE))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
+    min_traders = int(inputs.get("minTraderCount", 10))
 
     # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value <= 1
     # (an operator who pasted the v2 FRACTION 0.15) into a PERCENT so it never
@@ -333,7 +338,7 @@ def scan(inputs, ctx):
         if len(proxy_candles) <= lookback:
             continue
         proxy_closes = [scoring._close(c) for c in proxy_candles]
-        sm = _get_sm_direction(ctx, proxy)
+        sm = _get_sm_direction(ctx, proxy, min_traders)
         th = scoring.build_thesis(proxy_cfg, leader_move, proxy_closes, proxy_candles, sm, inputs)
         if th and th["score"] >= min_score:
             candidates.append(th)

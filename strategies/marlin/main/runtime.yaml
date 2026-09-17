@@ -1,7 +1,7 @@
 # ── MARLIN · single instance — order-book imbalance momentum (BTC/ETH/SOL/HYPE) ──
 # Runtime 3.0 port of the v2 Marlin (SKILL.md v1.0.0). Liquid-majors basket, L2
 # order-book depth imbalance as the entry-TIMING edge on a momentum thesis: fires
-# only when book imbalance, 15m momentum, and smart-money direction all agree on the
+# only when book imbalance, 15m momentum, and 4h leader momentum all agree on the
 # same side. NOT a scalper — wide "let winners run" DSL + a 24h hard_timeout outer
 # bound (microstructure is short-horizon). Faithful port of the v2 producer thesis —
 # see scanners/scoring.py (math reproduced verbatim, v2-quirks flagged).
@@ -13,7 +13,7 @@ description: >
   A persistent resting-depth imbalance in the L2 book is a near-term pressure tell:
   bids >> asks = buy pressure (LONG), asks >> bids = sell pressure (SHORT). Three
   hard gates, all required: book imbalance >= imbalanceMin on one side, 15m momentum
-  confirms that side (>= momMinPct), and smart-money direction agrees with tilt
+  confirms that side (>= momMinPct), and 4h leader momentum agrees with tilt
   >= smTiltMinPct (default 55%). Composite score (max ~9) with strong-imbalance,
   5m-momentum, strong-SM, and volume-rising bonuses; floor minScore 5. Emits the
   single highest-scoring candidate per tick. Fixed margin 15% of withdrawable,
@@ -48,7 +48,8 @@ scanners:
       imbalanceMin: 1.5                    # v2 imbalanceMin — bid/ask depth ratio to call a side
       imbalanceStrong: 2.5                 # v2 imbalanceStrong — strongly-imbalanced bonus
       momMinPct: 0.1                       # v2 momMinPct — 15m momentum magnitude that confirms the side
-      smTiltMinPct: 55                     # v2 smTiltMinPct — smart-money tilt floor
+      smTiltMinPct: 55                     # v2 smTiltMinPct — 4h-leader tilt floor
+      minTraderCount: 10                   # 4h-board headcount floor — a side with fewer top traders never sets the lean
       marginPct: 15                        # PERCENT of withdrawable (v2 0.15 fraction -> 15 percent)
       leverage: 4                          # clamped to [1,5] in scan.py (MAX_LEVERAGE=5)
       recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)

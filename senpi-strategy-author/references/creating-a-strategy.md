@@ -92,7 +92,7 @@ Two invariants fall out of this:
 Decide these in prose first; the files just encode them.
 
 1. **Universe** — single asset · static basket · **dynamic** (rebuilt from `market_list_instruments`, volume floor + fresh-listing) · **derived** (names come from a leaderboard/cohort, not a list).
-2. **Data** — candles (`market_get_asset_data`) · funding/OI (`market_get_funding_*`) · smart-money (`leaderboard_get_markets`, `discovery_*`) · cross-asset flow (`market_get_cross_asset_flows`).
+2. **Data** — candles (`market_get_asset_data`) · funding/OI (`market_get_funding_*`) · 4h-board momentum (`leaderboard_get_markets`) · smart-money (`discovery_get_trader_state` on the proven cohort — a board read is momentum, never smart money) · cross-asset flow (`market_get_cross_asset_flows`).
 3. **Edge** — trend-follow · mean-revert · breakout · relative-strength · copy/follow · cohort-divergence · event/new-listing · macro-thesis.
 4. **Shape** — long-only / short-only / mixed-on-one-wallet = **1 instance** (build flat, §2) · independent long+short or distinct cadences = **multiple instances** (each its own wallet + `funding_share`) — that is §2's exception, and the only decision here that changes the layout.
 5. **Cardinality** — one best pick (`slots: 1`) · all gated qualifiers (runtime caps via `slots`).
@@ -110,7 +110,7 @@ as the working example (validated, current-idiom code; never resurrect old doc s
 | Trend / momentum | dynamic/basket | candles | confirmed trend + RS | long or L/S | all | dedup | `let_winners_run` / slow | `lynx`, `bison` |
 | Mean-reversion | majors basket | candles + RSI | fade extremes | L/S | all | dedup | `mean_reversion` / fast | `lemon`, `bald-eagle` |
 | Breakout | basket | candles + range | range break / new high | long | all | dedup | `let_winners_run` / medium | `hawk`, `badger` |
-| Trader-follower | **derived** (board) | `leaderboard_*`/`discovery_*` | mirror proven traders | L/S | all | dedup + baseline | `let_winners_run` / medium | `albatross`, `raptor` |
+| Trader-follower | **derived** (board) | `leaderboard_*`/`discovery_*` | mirror proven traders | L/S | all | dedup + baseline | `let_winners_run` / medium | `raptor` |
 | Cohort-divergence | **derived** (realized-PnL cohorts) | `discovery_*` | smart-money vs crowd | L+S (2 inst.) | all | daily ledger + cohort cache | `let_winners_run` / slow | `whalehunter`, `egret` |
 | Managed-futures | multi-class basket | candles | cross-asset trend, vol-parity | L+S | all | minimal | `let_winners_run` / slow | `caribou`, `ox` |
 | Microstructure / flow | majors | funding/OI + candles | liquidation cascade / volume | L/S | one or all | dedup | `balanced` or `scalp` / fast | `piranha`, `camel` |
@@ -127,6 +127,8 @@ grep `strategies/catalog.json` by its `archetype` field (a closed set; every pac
 No I/O, no MCP, no clock, no state — just functions over candles/numbers, so it unit-tests without mocks.
 
 > **Candle schema (`market_get_asset_data`):** keys `t,o,h,l,c,v` (+ `T,s,i,n`). Close is `candle["c"]` — there is no `candle["close"]`. Values may arrive as **strings** — always read numerics through `_f()` below (`float` of a number is a no-op, so it's correct on every runtime version and every tool). Type contract: `senpi-trading-runtime/references/scan-contract.md` → "Market data types".
+>
+> **Candle times are epoch milliseconds; `time.time()` is seconds.** `t` is the candle's open time and `T` its close time, both in ms. A candle has closed when `_f(c["t"]) / 1000 + candle_seconds <= now`: `candle_seconds` is the candle interval (`4h` = 14400, not the scanner's `interval_seconds`), and `now = time.time()` is read in `scan.py` and passed in. Comparing `t` to `time.time()` directly means no candle ever closes, so the scanner never emits.
 
 ```python
 def _f(v, d=0.0):
@@ -162,6 +164,7 @@ def scan(inputs, ctx):
         data = ctx.senpi_mcp.call_tool("market_get_asset_data",   # (2) DATA — READ-ONLY
             {"asset": asset, "candle_intervals": ["4h", "1d"],
              "dex": "xyz" if asset.lower().startswith("xyz:") else ""})
+        if not isinstance(data, dict): continue                   # raw-text payload — see scan-contract
         th = scoring.score(asset, data, None, inputs)             # (3) EDGE
         if th and th["score"] >= inputs.get("minScore", 5):
             picks.append({**th, "asset": asset})
@@ -186,6 +189,7 @@ def scan(inputs, ctx):
 - **`ctx` is frozen:** `ctx.senpi_mcp.call_tool(name, args)` (read-only), `ctx.state` (`.last()/.recent(n)/.append()/len()`), `ctx.wallet`, `ctx.scanner_name`, `ctx.interval_seconds`. No logging handle — `print(..., file=sys.stderr)`.
 - **Signal dict keys:** `asset`✅, `direction`✅ (LONG/SHORT), `marginPct` (intent), `leverage` (optional), `data{}` (validated against `signal_data_schema`), optional `valid_for_seconds` / `signal_id`. The scaffold owns `produced_at`/`valid_until`/dedup — don't set them.
 - **Anchor every `call_tool` on the published MCP I/O reference** (`read_senpi_guide`). A guessed tool name, interval string, or output field = a silent dead scanner.
+- **A response is not guaranteed to be a dict.** When a tool's text payload is not JSON, `call_tool` returns it as a **raw string** (by design — it mirrors `producer.mjs`), and a bare JSON array comes back as a **list**. `if not resp:` does NOT catch that, because a non-empty string is truthy. Guard with `isinstance(resp, dict)` before any `.get()`, or the tick dies on `AttributeError: 'str' object has no attribute 'get'`. It is intermittent, so it passes `validate` and surfaces hours later.
 
 ### `runtime.yaml` — the deterministic spec
 At the package root (§2). Multi-instance: one per `<instance>/` dir, with `<instance>` in place of `main`.
@@ -228,6 +232,22 @@ actions:
 exit:   { engine: dsl, dsl_preset: { ... } }   # <-- a named preset (§7)
 risk:   { guard_rails: { drawdown_halt_pct: 25, daily_loss_limit_pct: 15, cooldown_seconds: 3600, ... } }
 ```
+
+**Closing from a signal.** A close is not a direction. The runtime routes a signal only to the actions whose
+`scanners:` name its scanner, and the open action refuses any direction but `LONG`/`SHORT`
+(`invalid_direction`): a "force-flat" signal with `direction: CLOSE` is refused, and one from a scanner no
+action lists is dropped without a log line. The shipped pattern is Barracuda's `close_all`: a **dedicated
+scanner** that emits each open position's `asset` and its side (`LONG`/`SHORT`, the reason in `data{}`),
+consumed by its own action:
+```yaml
+  - name: <id>_close
+    action_type: CLOSE_POSITION
+    decision_mode: rule
+    scanners: [<id>_close_signals]
+    params: { order_type: MARKET }
+    context: [ { type: signal, scanner: <id>_close_signals } ]
+```
+The lint refuses a scanner no action lists and a `direction` literal that names a close (`CLOSE`, `FLAT`, `EXIT`).
 
 ### `strategy.yaml` — the manifest
 ```yaml
@@ -340,6 +360,8 @@ Two things it deliberately does *not* prove, so don't over-claim on its behalf: 
 - **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Check it: `validate_universe.py /data/workspace/strategies/<id>` (read-only; `deploy.py validate` reports the same thing, and `openclaw senpi deploy` REFUSES a dead name pre-money with `[E_UNIVERSE_NOT_LIVE]` — so that deploy funds no wallet, though on a redeploy it says nothing about a wallet the package already has; you find out faster here). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`. This applies to the universe a strategy TRADES: an **exclusion** list (`excludeAssets`, `deny*`/`skip*`/`ignore*`) is exempt and never checked on either side, because it names what the strategy refuses to trade — often precisely because the venue carries no instrument for it (stablecoins are the usual case).
 - Emit a **`marginPct` intent**, not dollars; `marginPct`/`leverage` top-level, not in `data{}`.
 - Declare every `data{}` key in `signal_data_schema`.
+- **A close is a dedicated scanner plus a `CLOSE_POSITION` action, never `direction: CLOSE`** (§6). Every external scanner must be listed by an action; the lint refuses both.
+- **A 4h-board read is momentum, not smart money.** A side taken from `pct_of_top_traders_gain` / `longPct` with no `discovery_get_trader_state` read is *4h leader momentum* — say so in every text a user reads (catalog fields, runtime `description`, README). A PnL sign is not a side: use the position's `szi` sign. The lint refuses both.
 - **Anchor on the references:** MCP fields → I/O guide; exit → a named preset; catalog facets → the glossary.
 - Linkage: `group: <id>`, `name: <id>-main` (`<id>-<instance>` per leg when multi-instance), package is `@senpi-ai/runtime`. `funding_share` sums to 1.0 only when `instances:` is declared.
 - **`strategy.wallet` must be the WHOLE value and UPPERCASE** — `"${MY_WALLET}"`, `[A-Z0-9_]` only. A lowercase (`${my_wallet}`) or mid-string (`pre${FOO}`) token passes **every** python lint, `deploy.py validate` included, and is then refused by the runtime when it loads the flat package.
@@ -459,7 +481,8 @@ def scan(inputs, ctx):
         md = ctx.senpi_mcp.call_tool("market_get_asset_data",
             {"asset": asset, "candle_intervals": ["4h", "1d"],
              "dex": "xyz" if asset.lower().startswith("xyz:") else ""})
-        if not md: continue
+        if not isinstance(md, dict): continue   # non-JSON payload comes back as RAW TEXT, and a
+                                               # non-empty str passes `if not md` then dies on .get()
         c = (md.get("data", md) or {}).get("candles", {})
         th = scoring.confirm_rebound(c.get("4h", []), c.get("1d", []), inputs)
         if th and th["score"] >= min_score:

@@ -3,13 +3,14 @@ name: pangolin-main
 group: pangolin
 version: 3.0.0
 description: >
-  PANGOLIN — multi-asset funding-rate fader. Scans every liquid perp (OI > $3M, derived
+  PANGOLIN — multi-asset funding-rate fader. Scans every liquid perp (OI > $10M, derived
   live from market_list_instruments) for funding that has been EXTREME (>= 0.0000228/hr,
   ~20% annualized) and PERSISTENT (>= 3h) — the crowd is one-sided and paying to hold it.
   Fades the crowd (enters OPPOSITE the funding-payer side) only when the market funding
-  regime confirms the fade OR is neutral/unavailable, and the smart-money lean isn't
-  fighting the fade. Composite score (funding extremity + persistence + trend + regime +
-  smart-money + sticky-OI + price-reversal) must clear 9. Conservative leverage (3x default,
+  regime confirms the fade OR is neutral/unavailable, and the 4h leaders' lean (which side
+  the last four hours' winners sit on) isn't fighting the fade. Composite score (funding
+  extremity + persistence + trend + regime + 4h-leader lean + sticky-OI + price-reversal)
+  must clear 9. Conservative leverage (3x default,
   5x at score >= 13 — crowded unwinds are violent). Quiet-hours gate: no entries 00-04 UTC.
   Collects funding hourly while the crowded position mean-reverts (24-48h thesis). DSL-only
   exits with a reachable first profit-lock. Faithful port of the v2 producer thesis (v2.2.0);
@@ -31,14 +32,15 @@ scanners:
     path: ./scanners
     entrypoint: scan.py
     interval_seconds: 300                   # v2 producer cadence (5 min — funding doesn't move fast)
-    timeout_seconds: 240                    # universe scan + 1 funding-history read per candidate; v2 WARN_OVER_300S budget
+    timeout_seconds: 240                    # universe scan + 1 asset-data (hourly funding) read per candidate; v2 WARN_OVER_300S budget
     default_signal_validity_seconds: 1800
     state_history_max_count: 100            # dedup map (emit + post-close) + per-tick scan-result history
     inputs:
       dex: ""                               # main DEX only; xyz: names are banned in scan (no funding thesis on equities)
       minScore: 9                           # v1.4 floor (raised from 7 for persistence + regime points)
       minFundingRate: 0.0000228             # ~20% annualized floor (HL funding is HOURLY: rate * 8760 * 100). v3.0.1 recalibration.
-      minOiUsd: 3000000                     # liquidity floor — TASK SPEC OI>$3M (v2 producer was 1_000_000; see fidelity note)
+      minOiUsd: 10000000                    # liquidity floor. Was 3M (task spec): with persistence read correctly, names with
+                                            # only a few million of open interest clear every gate; a fade needs a book to exit into
       minPersistenceHours: 3                # hard gate against fresh spikes (v1.4)
       marginPct: 25                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable. v2 margin_pct=25.
       leverageTiers: [[13, 5], [9, 3]]      # v1.4 carryover: score>=13 -> 5x, else 3x
@@ -47,6 +49,7 @@ scanners:
       quietHoursEndUtc: 4
       recentSignalTtlSeconds: 14400         # 240m post-EMIT cooldown (v1 ASSET_COOLDOWN_MINUTES)
       postCloseCooldownSeconds: 14400       # 240m post-CLOSE cooldown (v2.1.2 thrash-cycle guard)
+      minTraderCount: 10                    # 4h leader board: a side with fewer traders than this never sets the lean
     signal_data_schema:
       mode: { type: string }                              # always "FUNDING_FADE"
       score: { type: number }                             # producer composite (>=9 floor)

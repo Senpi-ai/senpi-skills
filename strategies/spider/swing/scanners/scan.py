@@ -81,11 +81,13 @@ def _get_universe_meta(ctx):
     return out
 
 
-def _get_sm_map(ctx):
-    """{COIN: long_ratio_pct} from smart-money leaderboard markets."""
+def _get_sm_map(ctx, min_traders=10):
+    """{NAME: long_ratio_pct} from the smart-money board, keyed the way the universe names a
+    market (`XYZ:NVDA` for the xyz row, `SUI` for main)."""
     try:
         data = ctx.senpi_mcp.call_tool("leaderboard_get_markets", {})
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — a read error must not roll back the whole tick
+        print(f"[spider.swing.scan] leaderboard_get_markets read failed: {exc!r}", file=sys.stderr)
         return {}
     out = {}
     if not data:
@@ -93,6 +95,8 @@ def _get_sm_map(ctx):
     markets = data.get("data", data) if isinstance(data, dict) else data
     if isinstance(markets, dict):
         markets = markets.get("markets", markets.get("leaderboard", []))
+    if isinstance(markets, dict):          # the envelope is data.markets.markets[] (+ window metadata)
+        markets = markets.get("markets", [])
     agg = {}
     for m in markets or []:
         if not isinstance(m, dict):
@@ -100,17 +104,28 @@ def _get_sm_map(ctx):
         token = m.get("token", m.get("coin", m.get("asset", "")))
         if not token:
             continue
+        token = str(token).upper()
+        # The board carries a BARE token plus a separate `dex` ("" main / "xyz"); the universe
+        # carries `xyz:NVDA`. A bare key never matched an xyz name. Qualify the key with the dex
+        # read the fleet's _sm_row_matches uses, so a main-dex twin keeps its own key.
+        if str(m.get("dex", "")).strip().lower() == "xyz" and not token.startswith("XYZ:"):
+            token = "XYZ:" + token
         direction = m.get("direction", "").lower()
         pct = float(m.get("pct_of_top_traders_gain", m.get("longPct", 0)) or 0)
-        a = agg.setdefault(token.upper(), {"long": 0.0, "short": 0.0})
+        a = agg.setdefault(token, {"long": 0.0, "short": 0.0, "long_n": 0, "short_n": 0})
         if direction == "long":
             a["long"] = pct
+            a["long_n"] = int(m.get("trader_count", 0) or 0)
         elif direction == "short":
             a["short"] = pct
+            a["short_n"] = int(m.get("trader_count", 0) or 0)
     for tok, a in agg.items():
         total = a["long"] + a["short"]
         if total > 0:
-            out[tok] = a["long"] / total * 100
+            ratio = a["long"] / total * 100
+            if a["long_n" if ratio >= 50 else "short_n"] < min_traders:
+                continue   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
+            out[tok] = ratio
     return out
 
 
@@ -262,6 +277,7 @@ def _build_universe(inputs, meta_map, first_seen, now):
 def scan(inputs, ctx):
     now = time.time()
     min_score = inputs.get("minScore", 5)
+    min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
     # margin PERCENT of equity in (0,100] (source fraction 0.28 -> 28). Defensive
     # guard: a value <=1.0 is a pasted FRACTION -> x100.
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
@@ -295,7 +311,7 @@ def scan(inputs, ctx):
     signaled = _prune_signaled(signaled, ttl, now)
 
     meta_map = _get_universe_meta(ctx)
-    sm_map = _get_sm_map(ctx) if inputs.get("useSmBonus", True) else {}
+    sm_map = _get_sm_map(ctx, min_traders) if inputs.get("useSmBonus", True) else {}
     allowed, first_seen = _build_universe(inputs, meta_map, first_seen, now)
 
     candidates = []

@@ -121,7 +121,11 @@ def _get_account(ctx):
     return account_value, positions
 
 
-def _get_sm_direction(ctx, coin):
+# Floor on the 4h board's `trader_count`: a lean whose leading side is thinner than this is refused.
+_DEFAULT_MIN_TRADER_COUNT = 10
+
+
+def _get_sm_direction(ctx, coin, min_traders=_DEFAULT_MIN_TRADER_COUNT):
     """Port of v2 fetch_sm_direction: net smart-money lean for `coin` from
     leaderboard_get_markets. Returns (direction, tilt_pct). READ-GUARDED.
 
@@ -145,6 +149,7 @@ def _get_sm_direction(ctx, coin):
         return None, 0.0
 
     long_pct, short_pct, found = 0.0, 0.0, False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -153,6 +158,7 @@ def _get_sm_direction(ctx, coin):
             continue
         found = True
         d = str(m.get("direction", "")).upper()
+        side_n[d] = int(m.get("trader_count", 0) or 0)
         pct = scoring._f(m, "pct_of_top_traders_gain", "longPct", default=0)
         if d == "LONG":
             long_pct = pct
@@ -165,6 +171,8 @@ def _get_sm_direction(ctx, coin):
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
+    if side_n.get("LONG" if long_ratio >= 50 else "SHORT", 0) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     if long_ratio >= 50:
         return "LONG", long_ratio
     return "SHORT", 100 - long_ratio
@@ -222,6 +230,7 @@ def scan(inputs, ctx):
     now = time.time()
     universe = inputs.get("universe", _UNIVERSE_DEFAULT)
     min_score = float(inputs.get("minScore", 5))
+    min_traders = int(inputs.get("minTraderCount", _DEFAULT_MIN_TRADER_COUNT))   # 4h-board headcount floor
     margin_pct = float(inputs.get("marginPct", 10))     # PERCENT in (0,100]
     leverage = int(inputs.get("leverage", _DEFAULT_LEVERAGE))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
@@ -257,7 +266,7 @@ def scan(inputs, ctx):
         md = _asset_data(ctx, coin)
         if not md:
             continue
-        sm = _get_sm_direction(ctx, coin)
+        sm = _get_sm_direction(ctx, coin, min_traders=min_traders)
         th = scoring.build_thesis(coin, md["candles_1h"], md["candles_4h"], sm, inputs)
         if th and th["score"] >= min_score:
             candidates.append(th)

@@ -53,7 +53,7 @@ def _funding_regime(ctx):
     return data.get("regime"), scoring._f(data.get("regime_duration_hours"))
 
 
-def _sm_for_asset(ctx, asset):
+def _sm_for_asset(ctx, asset, min_traders=10):
     """Net smart-money lean for `asset` from leaderboard_get_markets (kodiak port).
     Returns {direction, pct, traders, cc_15m} or None."""
     data = _read(ctx, "leaderboard_get_markets", {"limit": 100}, "leaderboard_get_markets")
@@ -67,13 +67,15 @@ def _sm_for_asset(ctx, asset):
     want = asset.upper()
     long_pct = short_pct = 0.0
     traders, cc_15m, found = 0, 0.0, False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict) or str(m.get("token", "")).upper() != want:
             continue
         found = True
         d = str(m.get("direction", "")).lower()
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
-        traders += int(m.get("trader_count", m.get("traderCount", 0)) or 0)
+        side_n[d] = int(m.get("trader_count", m.get("traderCount", 0)) or 0)
+        traders += side_n[d]
         cc_15m = scoring._f(m.get("contribution_pct_change_15m", 0))
         if d == "long":
             long_pct = pct
@@ -86,8 +88,12 @@ def _sm_for_asset(ctx, asset):
         return {"direction": "NEUTRAL", "pct": 50, "traders": traders, "cc_15m": cc_15m}
     long_ratio = (long_pct / total) * 100
     if long_ratio > 58:
+        if side_n.get("long", 0) < min_traders:
+            return None   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
         return {"direction": "LONG", "pct": long_ratio, "traders": traders, "cc_15m": cc_15m}
     if long_ratio < 42:
+        if side_n.get("short", 0) < min_traders:
+            return None   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
         return {"direction": "SHORT", "pct": 100 - long_ratio, "traders": traders, "cc_15m": cc_15m}
     return {"direction": "NEUTRAL", "pct": 50, "traders": traders, "cc_15m": cc_15m}
 
@@ -130,7 +136,7 @@ def scan(inputs, ctx):
             pair_candles = pdata.get("candles", {}) or {}
 
     regime, regime_hours = _funding_regime(ctx)
-    sm = _sm_for_asset(ctx, asset)
+    sm = _sm_for_asset(ctx, asset, int(inputs.get("minTraderCount", 10)))
     flow = None
     if use_flow:
         flow = _read(ctx, "market_get_cross_asset_flows",

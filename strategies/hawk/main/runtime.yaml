@@ -1,7 +1,7 @@
 # ── HAWK · single instance — breakout buyer / breakdown seller (basket) ───────
 # Runtime 3.0 port of the v2 Hawk (SKILL.md v1.0.0 / hawk-producer.py v1.0.1).
 # Liquid-majors basket (BTC/ETH/SOL): LONG a break above the 7d high / SHORT a
-# break below the 7d low, GATED by the smart-money leaderboard (net >= 55% in the
+# break below the 7d low, GATED by the 4h leaderboard's winning side (net >= 55% in the
 # breakout direction). 5-component breakout score (max ~9, floor 5), flat 20%
 # margin / 5x leverage. Asymmetric DSL — TIGHT Phase 1 (max_loss 8%, retrace 5)
 # cuts failed breakouts fast; WIDE Phase 2 ladder (first lock at +10% ROE) lets a
@@ -13,7 +13,7 @@ version: 1.0.0
 description: >
   HAWK — breakout buyer / breakdown seller on the liquid majors (BTC/ETH/SOL).
   Goes LONG when the latest 1h close breaks ABOVE the prior 7-day (168h) high AND
-  the Senpi smart-money leaderboard is net long in the same direction at >= 55%;
+  the 4h leaderboard's winners are net long in the same direction at >= 55%;
   SHORT on a break below the 7-day low with SM net short. The breakout and the
   SM-direction agreement are HARD GATES; 4h-trend alignment and a volume-spike
   confirm are score contributors (5 components, max ~9, floor 5). Flat sizing:
@@ -50,6 +50,7 @@ scanners:
       leverage: 5                           # clamped to MAX_LEVERAGE 5 in scan.py
       smTiltMinPct: 55                      # v1 DEFAULT_SM_TILT_MIN — SM-agreement gate
       smStrongTiltPct: 70                   # v1 DEFAULT_SM_STRONG — +1 "strongly tilted" component
+      minTraderCount: 10                    # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
       breakoutLookbackHours: 168            # v1 DEFAULT_BREAKOUT_LOOKBACK_HOURS (7 days)
       recentSignalTtlSeconds: 240           # v1 RECENT_SIGNAL_TTL_SEC (race-window dedup)
     signal_data_schema:

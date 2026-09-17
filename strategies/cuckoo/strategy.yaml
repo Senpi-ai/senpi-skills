@@ -9,7 +9,7 @@
 schema_version: 1
 
 id: cuckoo
-version: "1.1.0"
+version: "1.2.0"
 
 catalog:
   name: "Cuckoo — Copy-the-Copiers"
@@ -28,6 +28,7 @@ catalog:
   time_horizon: swing
   leverage_max: 10
   max_slots: 1
+  min_budget_floor: 50       # 15% margin x 4x must clear the venue minimum; at $20 a live wallet logged 1,090 sub-$10 skips
   assets: []
   tags: [copy-trading, copy-the-copiers, meta-strategy, consensus, performance-weighted, follows-strategies, let-winners-run]
 

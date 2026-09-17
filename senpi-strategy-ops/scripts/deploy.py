@@ -84,6 +84,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _cli  # noqa: E402
+import _fork  # noqa: E402
 import _fetch  # noqa: E402
 import _pkg  # noqa: E402
 from mcp_client import MCPClient  # noqa: E402
@@ -183,7 +184,7 @@ def ensure_pkg(arg, ref, log):
 
     Until 2026-09-04 an on-disk package was used verbatim and the remote never consulted, so a box
     that had ever fetched a strategy was pinned to that copy forever — every later catalog fix
-    invisible to it. Observed live: a box deployed stingray v1.0.0 while the catalog was at v1.2.1,
+    invisible to it. Observed live: a box deployed a template at v1.0.0 while the catalog was at v1.2.1,
     funded the wallet, and reported success.
 
     Three cases still do NOT refresh:
@@ -1589,6 +1590,97 @@ def cmd_update(a):
 
 # ---------- cli ----------
 
+def _ownership_flags(p):
+    p.add_argument("--owner", default=None, metavar="USERNAME",
+                   help="Override whose name the fork carries. Default: the user's Senpi username, read from user_get_me — "
+                        "`ignas-phalanx`, spoken as \"Ignas's Phalanx\". Never their user ID.")
+    p.add_argument("--name", default=None, metavar="WORDS",
+                   help="A name of the user's own instead (\"Shield Wall\" → id shield-wall). Wins over --owner.")
+
+
+def _username():
+    """The user's Senpi username (`user_get_me` → data.user.userName), or None when it cannot be read — no
+    token, a failed call, or no username on the account. The caller then asks the user; it never falls back
+    to the id, because an id is not a name."""
+    mcp = MCPClient()
+    if not mcp.token:
+        return None
+    try:
+        doc = mcp.mcp_call("user_get_me")
+    except Exception:  # noqa: BLE001 — unreadable means ask, never guess
+        return None
+    user = _cli.dig(_cli.dig(doc, "data") or {}, "user") or {}
+    return str(_cli.dig(user, "userName") or "").strip() or None
+
+
+def _fork_for_deploy(pkg, a, log):
+    """`create`/`runtime` of a template: fork it under the user's name and deploy THE FORK — their Senpi
+    username unless --owner/--name says otherwise. When the username cannot be read, a bare template id is
+    refused and the agent asks what to call it; an explicit directory is the author's own package and is never
+    second-guessed."""
+    owner, name = getattr(a, "owner", None), getattr(a, "name", None)
+    explicit_dir = (Path(a.package) / "strategy.yaml").is_file()
+    manifest = getattr(pkg, "manifest", None) or {}
+    catalog = getattr(pkg, "catalog", None) or {}
+    # a catalog template carries a `catalog.tier`; a fork carries `forked_from`; an authored package may
+    # carry either but deploys by DIRECTORY — the refusal names that path
+    is_template = bool(catalog.get("tier")) and not manifest.get("forked_from")
+    if not (owner or name):
+        if not (a.cmd == "create" and not explicit_dir and is_template):
+            return pkg
+        owner = _username()
+        if not owner:
+            print(f"✗ {pkg.id}: a template deploys under the user's name, never as the bare template, and their Senpi "
+                  f"username could not be read. Ask what to call it, then re-run with\n"
+                  f"    python3 {Path(__file__).name} create {a.package} --name \"<their words>\" --budget <usd>\n"
+                  f"  A user ID is never a name. Nothing was created, funded or installed.", file=sys.stderr)
+            sys.exit(EXIT_CODES["refused"])
+    try:
+        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=name, log=log)
+    except _fork.ForkError as e:
+        print(f"✗ {pkg.id}: {e}. Nothing was created, funded or installed.", file=sys.stderr)
+        sys.exit(EXIT_CODES["refused"])
+    log(f"  deploying the fork: {info['id']} — \"{info['display']}\" (from {info['forked_from']['id']} "
+        f"{info['forked_from']['version']}); use the id {info['id']} for status, verify and close")
+    forked = _pkg.load(dest)
+    if a.cmd == "create" and not getattr(a, "dry_run", False):
+        # A fresh fork carries no proof and the verb refuses an unproven package: record it now — the same
+        # `openclaw senpi validate --stage live` the agent would otherwise be sent to run by hand.
+        unproven = [d for _n, st, d in proof_state(forked) if st == "no_proof"]
+        if unproven:
+            ok, text = revalidate(unproven, log)
+            if not ok:
+                print(text, file=sys.stderr)
+                print(f"✗ {info['id']}: `openclaw senpi validate` did not PASS on the fork, so no proof was recorded and "
+                      f"the deploy was not started. The fork is on disk at {dest}; fix what validate reported, then re-run "
+                      f"this command. Nothing was created, funded or installed.", file=sys.stderr)
+                sys.exit(EXIT_CODES["refused"])
+    return forked
+
+
+def cmd_fork(pkg, a, log):
+    owner = a.owner or (None if a.name else _username())
+    try:
+        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=a.name, log=log)
+    except _fork.ForkError as e:
+        print(f"✗ {pkg.id}: {e}. Nothing was written.", file=sys.stderr)
+        return EXIT_CODES["refused"]
+    gate = full_validate(_pkg.load(dest))
+    if a.json:
+        print(json.dumps({**info, "errors": gate}))
+        return 0 if not gate else EXIT_CODES["refused"]
+    print(f"{'reusing' if info['reused'] else 'forked'} {pkg.id} → {dest}")
+    print(f"  id {info['id']} · \"{info['display']}\" · runtimes {', '.join(info['runtimes'])} · from {pkg.id} {pkg.version}")
+    if gate:
+        print(f"✗ {info['id']}: {len(gate)} issue(s):", file=sys.stderr)
+        for e in gate:
+            print(f"    - {e}", file=sys.stderr)
+        return EXIT_CODES["refused"]
+    print(f"  move levers on it with the normal edit path, then:\n"
+          f"    python3 {Path(__file__).name} create {dest} --budget <usd>   # proves it (openclaw senpi validate) and deploys it")
+    return 0
+
+
 def main(argv):
     ap = argparse.ArgumentParser(
         description="Deploy a strategy package via the runtime's `openclaw senpi deploy` verb.")
@@ -1610,6 +1702,7 @@ def main(argv):
     pc.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
     pc.add_argument("--dry-run", action="store_true")
+    _ownership_flags(pc)
 
     pr = sub.add_parser("runtime", help="Resume/complete the same deploy (installs the runtime(s)).")
     common(pr)
@@ -1622,6 +1715,16 @@ def main(argv):
     pr.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
     pr.add_argument("--dry-run", action="store_true")
+    _ownership_flags(pr)
+
+    # `fork` makes the user's copy of a template and stops there — no money, nothing installed. It is
+    # what `create <template> --owner` runs first; on its own it lets the agent move levers on the fork
+    # (the normal edit path) before funding it.
+    pf = sub.add_parser("fork", help="Make the user's copy of a template under the durable root (<owner>-<template>, or "
+                                     "--name <their words>): id, catalog.name, runtime name/group/description rewritten, "
+                                     "forked_from recorded. No money moves, nothing is installed.")
+    common(pf)
+    _ownership_flags(pf)
 
     # `verify` is the READ-ONLY check. NONE of the deploy flags does anything here — a check that
     # honours `--budget` is a check that can fund a wallet, which is exactly the trap this command is
@@ -1771,6 +1874,11 @@ def main(argv):
         sys.exit(cmd_update(a))
 
     pkg = ensure_pkg(a.package, a.ref, log)
+
+    if a.cmd == "fork":
+        sys.exit(cmd_fork(pkg, a, log))
+    if a.cmd in ("create", "runtime"):
+        pkg = _fork_for_deploy(pkg, a, log)
 
     # `validate` is the standalone preflight — no money moves and nothing is installed, but it is not
     # side-effect-free: `ensure_pkg` above fetches a bare catalog id and writes it under the durable

@@ -82,13 +82,14 @@ def _sm_markets(ctx):
     return markets if isinstance(markets, list) else None
 
 
-def _sm_direction(markets, asset):
+def _sm_direction(markets, asset, min_traders=10):
     """Port of v2 fetch_sm_direction: net smart-money lean for `asset`.
     Returns (direction, tilt_pct) — (None, 0.0) if the asset isn't found.
     `markets` is the pre-fetched list from _sm_markets."""
     if not isinstance(markets, list):
         return None, 0.0
     long_pct, short_pct, found = 0.0, 0.0, False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -97,6 +98,7 @@ def _sm_direction(markets, asset):
             continue
         found = True
         d = str(m.get("direction", "")).upper()
+        side_n[d] = int(m.get("trader_count", 0) or 0)
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         if d == "LONG":
             long_pct = pct
@@ -108,6 +110,8 @@ def _sm_direction(markets, asset):
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
+    if side_n.get("LONG" if long_ratio >= 50 else "SHORT", 0) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     return ("LONG", long_ratio) if long_ratio >= 50 else ("SHORT", 100 - long_ratio)
 
 
@@ -139,6 +143,7 @@ def _held_assets(ctx):
 def scan(inputs, ctx):
     whitelist = inputs.get("whitelist", _DEFAULT_WHITELIST)
     min_score = int(inputs.get("minScore", _DEFAULT_MIN_SCORE))
+    min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
     margin_pct = float(inputs.get("marginPct", 25))      # PERCENT of withdrawable (0,100], not a fraction
     max_lev = int(inputs.get("maxLeverage", _DEFAULT_MAX_LEVERAGE))
     leverage = min(int(inputs.get("leverage", _DEFAULT_LEVERAGE)), max_lev)   # v2 min(leverage, MAX_LEVERAGE)
@@ -160,7 +165,7 @@ def scan(inputs, ctx):
             scanned.append({"asset": a, "skipped": "held_or_recent"})
             continue
         candles = _fetch_candles(ctx, a)
-        sm = _sm_direction(markets, a)
+        sm = _sm_direction(markets, a, min_traders)
         th = scoring.build_thesis(candles, sm, inputs)
         if th and th["score"] >= min_score:
             th["coin"] = a

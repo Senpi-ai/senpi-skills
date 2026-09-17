@@ -5,7 +5,7 @@ version: 3.0.0
 description: >
   OWL — pure contrarian crowding-unwind hunter. Scans EVERY liquid HL crypto perp
   (OI > $3M, no top-N truncation; XYZ banned) for one-sided crowding (extreme funding +
-  lopsided smart money + concentrated OI), waits for crowding to PERSIST >=1h AND for
+  the last four hours' winners lopsided to one side + concentrated OI), waits for crowding to PERSIST >=1h AND for
   exhaustion confluence to fire (volume declining, price stalling vs the crowd, capitulation
   wick, 4h RSI divergence), then fades the crowd. Combined score >=12 to fire; conviction-
   scaled leverage (7/8/10 by score) at 25% margin. MACRO_TREND_GATE blocks all fades when
@@ -36,6 +36,7 @@ scanners:
     inputs:
       minOiUsd: 3000000                     # v2 MIN_OI_USD — $3M liquidity floor; ALL perps above it (no top-N)
       smLimit: 200                          # v2 leaderboard_get_markets limit=200
+      minTraderCount: 10                    # 4h leader board: a side with fewer traders than this never sets the lean
       minCrowdingScore: 6                   # v2 MIN_CROWDING_SCORE (v6.2)
       minPersistHours: 1                    # v2 MIN_PERSIST_HOURS (v6.0)
       belowThresholdTolerance: 2            # v2 BELOW_THRESHOLD_TOLERANCE (v5.3 noise-tick guard)

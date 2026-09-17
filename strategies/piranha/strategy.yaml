@@ -8,12 +8,12 @@
 schema_version: 1
 
 id: piranha
-version: "1.1.0"
+version: "1.1.1"
 catalog:
   name: "Piranha — Liquidation-Cascade / Forced-Flow Hunter"
   emoji: "🐟"
   tagline: "Rides forced flow on crypto majors (BTC/ETH/SOL/HYPE): when open interest is unwinding fast (positions being force-closed) AND price is moving violently AND the 5-minute candle is still pushing the same way, it takes ONE position in the direction of the flow, sized 1-5x, and lets a wide DSL ratchet ride the squeeze with a 24h outer bound."
-  belief_plain: "A liquidation cascade is the cleanest momentum in crypto — it's forced flow, not opinion. When lots of positions are being force-closed at once, price gets shoved hard in one direction and the move feeds on itself until the leverage is flushed. Piranha reads the order flow underneath price (open-interest velocity + order-book depth) to confirm the move is forced, then rides it: OI down + price up = shorts squeezed, go long; OI down + price down = longs liquidated, go short."
+  belief_plain: "A liquidation cascade is the cleanest momentum in crypto — it's forced flow, not opinion. When lots of positions are being force-closed at once, price gets shoved hard in one direction and the move feeds on itself until the leverage is flushed. Piranha reads the order flow underneath price (open-interest velocity + order-book depth) to confirm the move is forced — 4h leader momentum (which side the last four hours' winners sit on) and a volume spike only add conviction — then rides it: OI down + price up = shorts squeezed, go long; OI down + price down = longs liquidated, go short."
   thesis: "Most agents react to price; the edge is reading the forced flow beneath it. Open interest dropping fast means positions are closing under duress, and when that coincides with a violent move and a thinning book on the side price is running into, there is little resistance left and the cascade continues. That signature is short-horizon and self-resolving, so the right move is one conviction entry in the flow direction, a wide ratchet that lets a squeeze extend, and a 24h hard timeout because if the cascade hasn't paid in a day it's over."
   group: momentum
   archetype: breakout_momentum

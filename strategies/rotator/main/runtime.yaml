@@ -37,8 +37,8 @@ scanners:
       minConfidence: 0.5
       minGapPct: 0.5
       gapFullPct: 3.0                        # gap that saturates the flow component
-      minEventTier: 2                        # tier>=2 momentum events only (winners entering)
-      eventWindowMin: 240                    # 4h freshness on events
+      minEventTier: 2                        # tier>=2 crossings only ($5.5M+ / $10M+ 4h delta-PnL; a floor, tier 3 kept)
+      eventWindowMin: 240                    # 4h freshness on events (detected_at)
       eventCoinWeight: 1.5
       eventMarketWeight: 0.5
       flowWeight: 4.0

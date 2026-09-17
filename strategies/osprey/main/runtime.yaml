@@ -15,9 +15,10 @@ description: >
   |move| >= minLeaderMovePct it scores each proxy's catch-up gap
   (leader move x beta - the proxy's own move). When |gap| >= minGapPct AND the gap
   shares the leader's sign (the proxy still owes catch-up in the leader's
-  direction), it trades the proxy in that direction. Smart-money on the proxy
-  (leaderboard_get_markets) is a SCORE BONUS, not a gate (SM is sparse on XYZ
-  equities). market_get_cross_asset_flows is read (read-guarded) as an independent
+  direction), it trades the proxy in that direction. The 4h leaders' side on the proxy
+  (leaderboard_get_markets — which side the last four hours' winners sit on) is a SCORE
+  BONUS, not a gate (the board is sparse on XYZ equities). market_get_cross_asset_flows
+  is read (read-guarded) as an independent
   confirmation of the leader move only — it never gates. Default proxies
   xyz:COIN (beta 1.8) / xyz:MSTR (beta 2.5), operator-tunable. DSL is the ONLY
   exit: let-winners-run preset (wide ladder, T0 +10% / lock 0, max_loss 18%,
@@ -58,6 +59,7 @@ scanners:
       marginPct: 15                        # PERCENT of withdrawable (0,100] (v2 fraction 0.15 -> 15%)
       leverage: 4                          # v2 leverage; clamped to <=10 (MAX_LEVERAGE) in scan.py
       recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+      minTraderCount: 10                   # 4h leader board: a side with fewer traders than this never sets the lean
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }

@@ -1,11 +1,11 @@
-# ── HUMMINGBIRD · single instance — HYPE trend follower w/ Smart-Money gate ──
+# ── HUMMINGBIRD · single instance — HYPE trend follower w/ 4h-leader gate ──
 #    (Runtime 3.0 port of v2 Hummingbird v1.0.0, SKILL.md v1.0.0) ──
 name: hummingbird-main
 group: hummingbird
 version: 3.0.0
 description: >
   HUMMINGBIRD — onboarding-tier single-asset HYPE trend follower. Enters only when
-  the 4h trend structure is non-neutral AND Senpi's Smart-Money leaderboard agrees
+  the 4h trend structure is non-neutral AND the 4h leaderboard's winning side agrees
   with that direction (tilt >= 60%). 5-component score (max ~9): 4h trend +3, 1h
   confirms +2, SM aligned +2, SM strongly tilted +1, volume rising +1. Floor minScore 5.
   Flat 5x leverage (NOT conviction-tiered — onboarding sizing). DSL is the ONLY exit
@@ -38,6 +38,7 @@ scanners:
       leverage: 5                          # flat; v2 DEFAULT_LEVERAGE (capped at MAX_LEVERAGE 5)
       smTiltMinPct: 60                      # v2 SM_TILT_MIN_PCT_DEFAULT — hard direction gate
       smStrongTiltPct: 70                   # v2 SM_STRONG_TILT_PCT_DEFAULT — +1 bonus
+      minTraderCount: 10                    # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
       recentSignalTtlSeconds: 14400         # 240m — mirror the per-asset cooldown
     signal_data_schema:
       score: { type: number }

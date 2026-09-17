@@ -49,13 +49,19 @@ def extract_positions(state):
         if not coin or side is None:
             continue
         entry = _f(p, "entryPx", "entry_price", "entryPrice")
-        mark = _f(p, "markPx", "mark_price", "oraclePx")
         notional = _f(p, "positionValue", "notional", "position_value")
+        mark = _f(p, "markPx", "mark_price", "oraclePx")
+        if mark <= 0 and notional > 0 and szi:
+            # The live response carries no mark price, which left the slippage guard reading 0 on
+            # every decision. positionValue IS |szi| x mark, so the mark is exact, at no extra read.
+            mark = notional / abs(szi)
         if notional <= 0:
             notional = abs(szi) * (mark or entry)
         lev = _f(p.get("leverage"), "value") or _f(p, "leverage", default=0.0)
         out.append({"coin": coin, "side": side, "szi": szi, "entry": entry,
-                    "mark": mark, "notional": notional, "leverage": lev})
+                    "mark": mark, "notional": notional, "leverage": lev,
+                    "age_seconds": _f(p, "durationInSeconds", "duration_in_seconds", default=-1.0),
+                    "start_time": _f(p, "startTime", "start_time", default=0.0)})
     return out
 
 
@@ -81,6 +87,29 @@ def chase_pct(entry, mark, side):
         return 0.0
     raw = (mark - entry) / entry if side == "LONG" else (entry - mark) / entry
     return round(raw * 100.0, 4)
+
+
+def chase_within(slip, cap):
+    """True when the price is still within `cap` percent of the trader's fill, EITHER way. A large
+    positive chase means paying up for a move that already happened; a large negative one means the
+    trade is already that far underwater. Neither is mirroring their entry."""
+    try:
+        return abs(float(slip)) <= float(cap)
+    except (TypeError, ValueError):
+        return False
+
+
+def opened_within(pos, now, max_age_seconds):
+    """Is this a FRESH entry? Age comes from durationInSeconds, else now - startTime (both are
+    returned when scan.py asks for include_position_age). No age information at all passes: an
+    optional field going missing must never silently stop the template from trading."""
+    age = _f(pos, "age_seconds", default=-1.0)
+    if age < 0:
+        start = _f(pos, "start_time", default=0.0)
+        age = (now - start) if start > 0 else -1.0
+    if age < 0:
+        return True
+    return age <= _f(max_age_seconds, default=0.0)
 
 
 def aggregate_fresh(fresh_by_trader):

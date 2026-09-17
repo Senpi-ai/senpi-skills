@@ -47,7 +47,7 @@ def _f(v, d=0.0):
 
 # ── SCAN SNAPSHOT (port of v2 parse_scan) ──
 
-def parse_scan(raw_markets, now_iso, top_n=TOP_N):
+def parse_scan(raw_markets, now_iso, top_n=TOP_N, min_traders=10):
     """Parse raw leaderboard markets into a scan snapshot.
     HARDCODED: xyz: assets filtered at scan level — never enter the signal pipeline.
     Verbatim from v2 parse_scan (now-string passed in to keep this pure)."""
@@ -61,6 +61,8 @@ def parse_scan(raw_markets, now_iso, top_n=TOP_N):
         if dex and str(dex).lower() == "xyz":
             continue
         if str(token).lower().startswith("xyz:"):
+            continue
+        if int(_f(m.get("trader_count", 0))) < min_traders:     # a thin side never enters the rank order
             continue
         scan["markets"].append({
             "token": token,

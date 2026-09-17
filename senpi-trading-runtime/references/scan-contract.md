@@ -110,6 +110,25 @@ if ctx.state is not None:
         print(f"[scan] WARNING: state append failed: {exc!r}", file=sys.stderr)
 ```
 
+### What a tick keeps, and when an edit reaches a running scanner
+
+- **Every key of every record you `append` is saved** to the state file as JSON — nothing is dropped
+  or trimmed, and the scaffold adds its own `recorded_at` (seconds). `state_history_max_count` caps
+  how many records are kept, not how large each one is. A restarted scanner reads the file back, so
+  an `int` key returns as a string and a tuple as a list.
+- **These discard the whole tick — state not advanced, no signals delivered:** `scan()` raises, runs
+  past its timeout or returns something other than a list; a record holds anything `json.dumps`
+  rejects (a `set`, a `datetime`, a `Decimal`, a tuple key); or `scan()` returns `[]` after any
+  `ctx.senpi_mcp` call in that tick failed, even one your code caught.
+- **`scan.py` is imported once, when the scanner process starts**, and so is everything it imports,
+  `scoring.py` included. A running scanner keeps the code it started with; an edit on disk runs from
+  its next start, which `openclaw senpi update <recipe-dir> --id <runtime_id> --apply` triggers (add
+  `--code-only` when only scanner code changed) — and which a crash or a gateway restart also
+  triggers, unannounced. Re-running a deploy on a strategy that is already running applies nothing:
+  it keeps the runtime that is running.
+- **`openclaw senpi validate` never inspects the running scanner.** It runs the code on disk in a
+  fresh process against empty, throwaway state, so a `PASS` proves the edit runs, not that it is live.
+
 ---
 
 ## Gates and `ctx.dry_run`
@@ -158,6 +177,31 @@ knob. As an author: **assume you cannot mutate anything.** Produce signals; the 
 
 ## Market data types
 
+### The response envelope is not guaranteed to be a dict
+
+`call_tool` normalizes a tool result in the order `isError` → `structuredContent` → first text
+content parsed as JSON → **the raw text**. That last step is deliberate (it mirrors
+`producer.mjs`), and it means a successful call can hand back a plain `str` — typically when the
+upstream answers with a message rather than a payload — or a `list`, when the payload is a bare
+JSON array.
+
+Truthiness does not catch it. A non-empty string passes `if not resp:` and then raises
+`AttributeError: 'str' object has no attribute 'get'`, which is **unhandled and kills the whole
+tick** — not just that asset. Guard on the type:
+
+```python
+md = ctx.senpi_mcp.call_tool("market_get_asset_data", {...})
+if not isinstance(md, dict):
+    print(f"[scan] WARNING: non-dict payload: {str(md)[:200]!r}", file=sys.stderr)
+    continue                      # skip this asset; `return []` if it was the only read
+candles = (md.get("data", md) or {}).get("candles", {}) or {}
+```
+
+This is intermittent by nature — it depends on what the upstream returned on that tick — so a
+package passes `senpi validate` and then fails hours later, on some ticks and not others. It has
+cost four users a dead scanner in the last fortnight. A JSON payload that parses to a scalar
+(`"text"`, `123`) or to a list lands in the same trap, so test the type, never the truthiness.
+
 **Read every numeric field through the fleet-standard `_f()` helper** (author guide's scoring
 template) — `float` of a number is a no-op, so it is correct on every runtime version and every
 data path. Hyperliquid serves candle `o/h/l/c/v` and price-map values as strings; most other
@@ -174,6 +218,9 @@ Runtimes **newer than 3.0.32** numeric-cast the two market tools at the `ctx.sen
 - Drops are never silent: a `senpi_mcp_cast_dropped` scaffold event + a `_cast_dropped` marker on
   the payload. A series can come back **shorter / non-contiguous** — guard `len(candles)`, don't
   assume fixed `t` spacing.
+- `t` (candle open) and `T` (candle close) are **epoch milliseconds** on every runtime version;
+  the cast changes their type, not their unit. `time.time()` is seconds, so a candle has closed
+  when `_f(c["t"]) / 1000 + candle_seconds <= time.time()` (`candle_seconds`: `4h` = 14400).
 - Originals: a single `_raw` key beside the cast sections.
 - Every other tool's response is untouched, on every runtime version.
 

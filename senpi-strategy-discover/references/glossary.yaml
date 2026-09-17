@@ -67,11 +67,11 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   accumulation: { gloss: "Detects persistent institutional accumulation — relative-strength decoupling from the market on rising volume with shallow, bought dips — from the tape, no catalyst feed needed." }
   indicator_crossover: { gloss: "Textbook technical setup: a MACD signal-line crossover triggers the entry, RSI confirms momentum, higher-timeframe trend adds context." }
   # contrarian_fade
-  sm_crowding:   { gloss: "Fades the crowded smart-money side once price stops following." }
+  sm_crowding:   { gloss: "Fades the side the 4h leaders crowded into once price stops following." }
   funding_extreme: { gloss: "Fades extreme funding rates." }
   xyz_overextended: { gloss: "Fades overextended stocks/commodities." }
   crowd_exhaustion: { gloss: "Fades a crowded one-sided move once it shows exhaustion." }
-  risk_off_rotation: { gloss: "Shorts the crypto block when smart money rotates out and longs are crowded — a risk-off hedge." }
+  risk_off_rotation: { gloss: "Shorts the crypto block when the 4h leaders rotate out and longs are crowded — a risk-off hedge." }
   # copy_trading
   arena_winners: { gloss: "Copies multi-week arena winners, not one-week wonders." }
   hot_streak:    { gloss: "Copies whoever is hot in the live window." }
@@ -79,6 +79,7 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   copy_the_copiers: { gloss: "Follows the best-performing strategies automatically." }
   cohort_divergence: { gloss: "Acts when a smart-money cohort diverges from price." }
   sm_rotation: { gloss: "Follows where smart money is rotating across asset classes — long the crowded-into, short the fled." }
+  sm_hedge_fund: { gloss: "A smart-money alpha sleeve paired with an independent regime-hedge sleeve in one fund — two wallets, user-weighted." }
   elite_conviction: { gloss: "Mirrors only top-tier (elite/reliable) traders' concentrated, high-conviction positions." }
   fresh_entry_mirror: { gloss: "Mirrors only the FRESHLY-opened positions of a small vetted cohort — never inherits an existing book — with an entry-slippage guard so you don't chase a fill that already ran." }
   # single_market

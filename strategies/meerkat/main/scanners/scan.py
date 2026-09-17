@@ -2,11 +2,13 @@
 
 EVENT-DRIVEN scanner. Per tick it:
   - reads account state + held positions (dual-DEX equity via max(), never sum()),
-  - pulls the Senpi momentum-event feed (leaderboard_get_momentum_events — the
-    4h rolling-window momentum / rank-jump events),
-  - for each event: classifies |momentum| into a TIER (1/2/3), measures FRESHNESS
-    (minutes since it fired), extracts direction, fetches per-asset smart-money
-    lean (leaderboard_get_markets) + rising-1h-volume (market_get_asset_data),
+  - pulls the Senpi momentum-event feed (leaderboard_get_momentum_events — top
+    traders crossing the $2M / $5.5M / $10M 4h delta-PnL tiers, each event carrying
+    the markets driving the crossing in `top_positions` and its time in `detected_at`),
+  - flattens each event into per-market records (scoring.flatten_events), reads the
+    feed's TIER (1/2/3), measures FRESHNESS (minutes since detected_at), takes the
+    position's direction, fetches per-asset smart-money lean (leaderboard_get_markets)
+    + rising-1h-volume (market_get_asset_data),
   - scores via the pure `scoring.build_thesis`, drops held / recently-signaled,
   - emits the SINGLE best fresh tier>=minTier event clearing `minScore`, in the
     momentum direction.
@@ -63,9 +65,7 @@ def _sm_row_matches(row, token, target):
 
 
 # v2 producer constants (defaults; overridable via inputs)
-_DEFAULT_MIN_TIER = 2               # v2 DEFAULT_MIN_TIER — snipe tier 2+
-_DEFAULT_TIER2_MIN_PCT = 5.0        # v2 DEFAULT_TIER2_MIN_PCT
-_DEFAULT_TIER3_MIN_PCT = 10.0       # v2 DEFAULT_TIER3_MIN_PCT
+_DEFAULT_MIN_TIER = 2               # v2 DEFAULT_MIN_TIER — snipe tier 2+ (the feed's tier: 2 = $5.5M+)
 _DEFAULT_MAX_EVENT_AGE_MIN = 30.0   # v2 DEFAULT_MAX_EVENT_AGE_MIN — freshness gate
 _DEFAULT_SM_TILT_MIN = 55           # v2 DEFAULT_SM_TILT_MIN
 _DEFAULT_SM_STRONG = 70             # v2 DEFAULT_SM_STRONG
@@ -135,7 +135,9 @@ def _get_account(ctx):
     return account_value, positions
 
 
-# ── MOMENTUM-EVENT FEED (port of v2 fetch_momentum_events, verbatim unwrap) ──
+# ── MOMENTUM-EVENT FEED (port of v2 fetch_momentum_events; the tool envelope is
+#    {success, data: {events: {events: [...], query, total_count}}} — `data.events` is
+#    the feed's response OBJECT, the list sits one level down) ──
 
 def _fetch_momentum_events(ctx):
     raw = _read(ctx, "leaderboard_get_momentum_events", {})
@@ -148,13 +150,15 @@ def _fetch_momentum_events(ctx):
         return d
     if isinstance(d, dict):
         ev = d.get("events", d.get("momentum_events", d.get("results", [])))
+        if isinstance(ev, dict):
+            ev = ev.get("events", [])
         return ev if isinstance(ev, list) else []
     return []
 
 
 # ── SMART-MONEY LEAN (port of v2 fetch_sm_direction, verbatim) ──
 
-def _get_sm_direction(ctx, asset):
+def _get_sm_direction(ctx, asset, min_traders=10):
     """Net smart-money lean for `asset` from leaderboard_get_markets. Returns
     (direction, pct) or (None, 0). READ-GUARDED. Verbatim v2 thresholds:
     long_ratio >= 50 -> LONG else SHORT; tilt is the dominant-side ratio."""
@@ -169,6 +173,7 @@ def _get_sm_direction(ctx, asset):
     if not isinstance(markets, list):
         return None, 0.0
     long_pct, short_pct, found = 0.0, 0.0, False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -177,6 +182,7 @@ def _get_sm_direction(ctx, asset):
             continue
         found = True
         d = str(m.get("direction", "")).upper()
+        side_n[d] = int(m.get("trader_count", 0) or 0)
         pct = scoring.safe_float(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         if d == "LONG":
             long_pct = pct
@@ -188,6 +194,8 @@ def _get_sm_direction(ctx, asset):
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
+    if side_n.get("LONG" if long_ratio >= 50 else "SHORT", 0) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     return ("LONG", long_ratio) if long_ratio >= 50 else ("SHORT", 100 - long_ratio)
 
 
@@ -248,20 +256,19 @@ def _resolve_margin_pct(raw):
 def scan(inputs, ctx):
     now = time.time()
     min_tier = int(inputs.get("minTier", _DEFAULT_MIN_TIER))
-    tier2_min = float(inputs.get("tier2MinPct", _DEFAULT_TIER2_MIN_PCT))
-    tier3_min = float(inputs.get("tier3MinPct", _DEFAULT_TIER3_MIN_PCT))
     max_age = float(inputs.get("maxEventAgeMinutes", _DEFAULT_MAX_EVENT_AGE_MIN))
     sm_tilt_min = float(inputs.get("smTiltMinPct", _DEFAULT_SM_TILT_MIN))
     sm_strong = float(inputs.get("smStrongTiltPct", _DEFAULT_SM_STRONG))
     min_score = int(inputs.get("minScore", _DEFAULT_MIN_SCORE))
+    min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
     margin_pct = _resolve_margin_pct(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))  # PERCENT (0,100]
     leverage = min(int(inputs.get("leverage", _DEFAULT_LEVERAGE)), _MAX_LEVERAGE)
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
 
     # event-classification config consumed by scoring.build_thesis
     th_config = {
-        "minTier": min_tier, "tier2MinPct": tier2_min, "tier3MinPct": tier3_min,
-        "maxEventAgeMinutes": max_age, "smTiltMinPct": sm_tilt_min, "smStrongTiltPct": sm_strong,
+        "minTier": min_tier, "maxEventAgeMinutes": max_age,
+        "smTiltMinPct": sm_tilt_min, "smStrongTiltPct": sm_strong,
     }
 
     account_value, positions = _get_account(ctx)
@@ -283,20 +290,28 @@ def scan(inputs, ctx):
         _persist(ctx, signaled, result)
         return []
 
-    # ── score every fresh tier>=minTier event (held + recently-signaled filtered
-    #    BEFORE the per-asset MCP fetch, as in v2 main()) ──
-    candidates = []
-    for event in events:
-        asset = scoring.event_asset(event)
-        if not asset or asset.upper() in held_set or _was_recently_signaled(signaled, asset, ttl, now):
+    # ── flatten the trader crossings into per-market records, then the cheap structural
+    #    gate (tier + freshness + direction — build_thesis with no bonuses, no reads) keeps
+    #    the best record per market (highest tier, then freshest) BEFORE the per-asset
+    #    SM/vol reads: a 4h window of events x positions would otherwise cost a board read
+    #    each. Held + recently-signaled are filtered here too, as in v2 main(). ──
+    best = {}
+    for rec in scoring.flatten_events(events):
+        th = scoring.build_thesis(rec, th_config, now, None, False)
+        if not th:
             continue
-        # cheap structural gate (tier + freshness + direction) BEFORE the SM/vol
-        # reads — match v2: build_thesis returns None early when the event can't
-        # clear, but the SM/vol fetches are needed for the score bonuses. We do
-        # the two reads then score (v2 fetched them inside build_thesis).
-        sm = _get_sm_direction(ctx, asset)
+        asset = th["coin"]
+        if asset.upper() in held_set or _was_recently_signaled(signaled, asset, ttl, now):
+            continue
+        key = (th["tier"], -(th["age_min"] or 0.0))
+        if asset not in best or key > best[asset][0]:
+            best[asset] = (key, rec)
+
+    candidates = []
+    for asset, (_, rec) in best.items():
+        sm = _get_sm_direction(ctx, asset, min_traders)
         vol_rising = _volume_rising(ctx, asset)
-        th = scoring.build_thesis(event, th_config, now, sm, vol_rising)
+        th = scoring.build_thesis(rec, th_config, now, sm, vol_rising)
         if th and th["score"] >= min_score:
             candidates.append(th)
 
@@ -317,7 +332,7 @@ def scan(inputs, ctx):
                   "marginPct": round(margin_pct, 4), "candidates": len(candidates),
                   "events_seen": len(events), "held": held_assets, "reasons": best["reasons"]}
         print(f"[meerkat.scan] EMIT {best['coin']} {best['direction']} tier={best['tier']} "
-              f"mag={best['magnitude_pct']:+.1f}% score={best['score']} {leverage}x "
+              f"pnl_share={best['magnitude_pct']:.0f}% score={best['score']} {leverage}x "
               f"marginPct={margin_pct:.2f}% | {best['reasons'][:5]}", file=sys.stderr)
         out = [{
             "asset": best["coin"],

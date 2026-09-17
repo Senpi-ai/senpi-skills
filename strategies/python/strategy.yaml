@@ -7,14 +7,14 @@
 schema_version: 1
 
 id: python
-version: "1.1.0"
+version: "1.1.1"
 
 catalog:
   name: "Python — The Patience Hunter"
   emoji: "🐍"
-  tagline: "Scans the top 50 Hyperliquid crypto assets by volume and waits for one multi-day setup — 4h trend with macro direction, 1h agreeing, 15m confirming, smart money not opposing, RSI not extreme — then takes a single LONG-biased swing at 3-7x, sizes margin to conviction (25/30/40%), and holds for days behind a wide DSL (96h cap)."
-  belief_plain: "Watches every liquid coin on Hyperliquid and does nothing until one setup lines up across the 4-hour, 1-hour and 15-minute timeframes with the best traders on the same side. Then it takes one well-sized, mostly-long swing and holds it for days behind a wide trailing stop, because the money is in the rare multi-day winner — not in trading often."
-  thesis: "Every other agent strikes and rotates within hours; none hold for days, and that's the blind spot. The edge isn't a high win rate — it's NOT MISSING the one big multi-day move: a low win rate with a 3:1 win/loss ratio beats a high win rate with a thin one. So scan broadly, demand a real macro trend confirmed across three timeframes (never fighting a runaway counter-trend or a crowded smart-money side), tilt LONG, size to conviction, and let a wide DSL ride the move for days instead of getting chopped out early."
+  tagline: "Scans the top 50 Hyperliquid crypto assets by volume and waits for one multi-day setup — 4h trend with macro direction, 1h agreeing, 15m confirming, the 4h leaders not opposing, RSI not extreme — then takes a single LONG-biased swing at 3-7x, sizes margin to conviction (25/30/40%), and holds for days behind a wide DSL (96h cap)."
+  belief_plain: "Watches every liquid coin on Hyperliquid and does nothing until one setup lines up across the 4-hour, 1-hour and 15-minute timeframes with the last four hours' winners on the same side. Then it takes one well-sized, mostly-long swing and holds it for days behind a wide trailing stop, because the money is in the rare multi-day winner — not in trading often."
+  thesis: "Every other agent strikes and rotates within hours; none hold for days, and that's the blind spot. The edge isn't a high win rate — it's NOT MISSING the one big multi-day move: a low win rate with a 3:1 win/loss ratio beats a high win rate with a thin one. So scan broadly, demand a real macro trend confirmed across three timeframes (never fighting a runaway counter-trend or the 4h leaders' crowded side), tilt LONG, size to conviction, and let a wide DSL ride the move for days instead of getting chopped out early."
   group: momentum
   archetype: trend_following
   sub_style: trend_continuation
@@ -26,7 +26,7 @@ catalog:
   leverage_max: 7
   max_slots: 2
   assets: []
-  tags: [momentum, trend-following, universe, multi-day-hold, patience, smart-money, long-biased, conviction-margin, let-winners-run]
+  tags: [momentum, trend-following, universe, multi-day-hold, patience, leader-momentum, long-biased, conviction-margin, let-winners-run]
 
 requires:
   runtime: ">=3.0.0"

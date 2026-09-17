@@ -7,13 +7,13 @@
 schema_version: 1
 
 id: magpie
-version: "1.1.0"
+version: "1.1.2"
 catalog:
   name: "Magpie — IPO / New-Listing Event Fund"
   emoji: "🐦"
   tagline: "Trades the full pre-IPO → listing → graduation arc of tokenized equities on Hyperliquid XYZ: a pre-listing book accumulates pre-IPO perpetuals (IPOPs) into the IPO, and a graduation book rides the explosive post-conversion price discovery — the SpaceX $1.4B-day-1 pattern."
   belief_plain: "Auto-finds brand-new pre-IPO contracts (like a SpaceX-before-it-lists perp) by their tell-tale tiny funding and low leverage cap, rides the trend into the IPO, then detects the moment they convert to a full equity perp and rides the fireworks of the first few days of free price discovery."
-  thesis: "You think the biggest, most repeatable edge on Hyperliquid right now is the new-listing EVENT itself, not the ongoing equity market. Pre-IPO perpetuals trade throttled and quiet; the instant they graduate to a standard equity perp the funding jumps ~100x, the leverage cap lifts and price discovery goes vertical. Capture both halves of that arc with two books on two wallets so the slow accumulation and the explosive pop never fight over the same margin."
+  thesis: "You think the biggest, most repeatable edge on Hyperliquid right now is the new-listing EVENT itself, not the ongoing equity market. Pre-IPO perpetuals trade throttled and quiet; the instant they graduate to a standard equity perp the funding jumps ~100x, the leverage cap lifts and price discovery goes vertical. Capture both halves of that arc with two books on two wallets so the slow accumulation and the explosive pop never fight over the same margin. Both books take direction from 4h structure and add conviction when 4h leader momentum — which side of the name the last four hours' winners sit on — agrees."
   group: event-driven
   archetype: event_driven
   sub_style: new_listing_event

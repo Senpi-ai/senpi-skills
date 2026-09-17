@@ -5,7 +5,7 @@ version: 3.0.0
 description: >
   GRIZZLY — single-asset BTC alpha hunter. Enters only when 4h structure (>=0.75)
   and 1h agree, 15m momentum confirms, the base-tech floor holds, the v5.5 macro
-  V-recovery gate passes (no fade within 1.25% of the 24h extreme), smart money does
+  V-recovery gate passes (no fade within 1.25% of the 24h extreme), the 4h leaders do
   NOT oppose, RSI is in band (70 LONG / 30 SHORT), and a multi-factor composite
   (SM lean, funding + regime + persistence, volume, OI velocity, RSI room) clears
   score 12. FP-001 quiet hours (00-04 UTC unless apex score 14+) and FP-003
@@ -47,6 +47,7 @@ scanners:
       moveTiringPct: 1.5                   # MOVE_TIRING_PCT
       minVolRatio: 1.1                     # MIN_VOL_RATIO
       fundingCrowded: 0.003                # FUNDING_CROWDED
+      minTraderCount: 10                   # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
       # MACRO V-RECOVERY GATE (v5.5) — block fades within this % of the 24h extreme
       macroVrecoveryDistancePct: 1.25      # MACRO_VRECOVERY_DISTANCE_PCT
       # FP-001 quiet hours

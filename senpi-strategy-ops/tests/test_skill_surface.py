@@ -49,7 +49,12 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # protection removal as consent. Every one is a what-to-ASK / what-to-CLAIM rule that fires in the
 # interview, which this file says has nowhere else to live; the fork mechanics live in ops'
 # references/walkthrough.md and are named here, not repeated. Set at the post-edit count with no slack.
-BODY_BUDGET = {"senpi-strategy-ops": 317, "senpi-strategy-author": 425}
+# ops 322: DSL two-target rule, four resident lines (2026-09-12)
+# ops 331: templates deploy under the user's name — the walkthrough rule in bullets, plain words, the name as a fact (2026-09-12)
+# ops 335: saved is not applied — a plan says so only in its first line (no tail/head), an edit is live only once
+# `--apply` exits 0 and the running strategy shows it, and until then the user hears "saved, not applied". Resident
+# because it fires on every edit to a live strategy; the two confirming reads live in references/editing-a-live-strategy.md.
+BODY_BUDGET = {"senpi-strategy-ops": 335, "senpi-strategy-author": 425}
 
 
 def _skill_body(path):
@@ -271,3 +276,27 @@ class CronCostArithmeticAgreesEverywhere(unittest.TestCase):
         self.assertEqual(set(five), {"288"}, five)
         self.assertEqual(set(hourly), {"24"}, hourly)
         self.assertEqual(set(ten), {"144"}, ten)
+
+
+class DslChangeHasTwoTargets(unittest.TestCase):
+    """A DSL edit reaches future positions through the file and open positions only through ratchet_stop_edit;
+    the skill must name both and the question."""
+
+    def test_rule_is_resident_and_the_protocol_is_in_the_reference(self):
+        body = _skill_body(REPO / "senpi-strategy-ops" / "SKILL.md")
+        for needle in ("ratchet_stop_edit", "ratchet_stop_list"):
+            self.assertIn(needle, body)
+        self.assertIn("senpi://guides/ratchet_stop", (REPO / "senpi-strategy-ops" / "references" / "editing-a-live-strategy.md").read_text())
+
+
+class TemplatesDeployUnderTheUsersName(unittest.TestCase):
+    """A template never deploys as the bare template: the verb forks it under the user's name, the walkthrough
+    is bullets in plain words (no config keys), the name is stated, and a status check is not a yes."""
+
+    def test_rule_is_resident_and_the_language_is_in_the_reference(self):
+        body = _skill_body(REPO / "senpi-strategy-ops" / "SKILL.md")
+        for needle in ("A user ID is never a name", "never by its key", "is not a yes", "as a fact, never a question", "ignas-phalanx"):
+            self.assertIn(needle, body)
+        ref = (REPO / "senpi-strategy-ops" / "references" / "walkthrough.md").read_text()
+        for needle in ("Every block is bullets", "marginPctBase", "ignas-phalanx", "deploy.py fork", "is not a yes"):
+            self.assertIn(needle, ref)

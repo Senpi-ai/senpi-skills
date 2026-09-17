@@ -19,7 +19,7 @@ description: >
   the leg if leg==numerator, LONG if leg==denominator; mirror for z low. The
   runtime is single-position, so this is a directional relative-value bet, not a
   two-leg market-neutral spread. Score (max ~7): +2 |z|>=zEntryMin, +2 |z|>=zStrong,
-  +1 ratio turning, +1 smart-money confirms the leg, +1 leg volume rising. Floor
+  the ratio must have started turning (a gate), +1 4h leader momentum confirms the leg, +1 leg volume rising. Floor
   minScore 4. Emits the single most-extended reversion candidate per tick at 4x
   (cap 5x), 15% margin. DSL is the ONLY exit — mean-reversion preset (tight ladder,
   first lock 30% at +5% ROE, 48h hard_timeout + weak_peak_cut). Faithful port of
@@ -54,11 +54,13 @@ scanners:
       lookbackBars: 48                     # v2 DEFAULT_LOOKBACK_BARS — 1h bars (~2 days) for ratio mean/std
       zEntryMin: 2.0                       # v2 DEFAULT_Z_ENTRY_MIN — |z| to consider the ratio extended
       zStrong: 3.0                         # v2 DEFAULT_Z_STRONG — |z| for the extreme bonus
-      smTiltMinPct: 55                     # v2 DEFAULT_SM_TILT_MIN — smart-money tilt floor for the +1
+      smTiltMinPct: 55                     # v2 DEFAULT_SM_TILT_MIN — 4h-leader tilt floor for the +1
+      minTraderCount: 10                   # 4h-board headcount floor — a side with fewer top traders never sets the lean
       marginPct: 15                        # PERCENT of withdrawable (0,100] (v2 config marginPct 0.15 -> 15%)
       leverage: 4                          # v2 DEFAULT_LEVERAGE; clamped to <=5 (MAX_LEVERAGE) in scan.py
       maxLeverage: 5                       # v2 MAX_LEVERAGE
-      recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+      recentSignalTtlSeconds: 21600        # 6h. Was 240s against a 300s scan, so the same pair re-signalled
+                                           # on every tick — one signal per reversion, not per scan
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }

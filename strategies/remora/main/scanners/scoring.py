@@ -20,8 +20,8 @@ tier) are done by the caller (scan.py) and passed in, so this module stays pure
 and unit-testable.
 """
 
-# Whale-quality tiers that earn the discovery_get_trader_state bonus
-# (verbatim from v2 QUALITY_TIERS).
+# Whale-quality tiers that earn the quality bonus — the cohort row's tcsLabel
+# (discovery_get_top_traders; verbatim from v2 QUALITY_TIERS).
 QUALITY_TIERS = {"ELITE", "RELIABLE", "PROFITABLE"}
 
 # v2 producer constants (remora-producer.py).
@@ -34,7 +34,7 @@ DEFAULT_MIN_NOTIONAL_USD = 5000   # ignore dust positions
 # scan._build_cohort when inputs.whales is empty so Remora is autonomous OOTB.
 DEFAULT_COHORT_SIZE = 10          # top N proven traders to mirror by default
 DEFAULT_COHORT_REFRESH_HOURS = 24
-COHORT_CACHE_VERSION = 1          # bump if cohort-BUILDING logic changes (busts a stale cache)
+COHORT_CACHE_VERSION = 2          # bump if cohort-BUILDING logic changes (busts a stale cache)
 
 
 def safe_float(v, default=0.0):
@@ -154,6 +154,44 @@ def top_position(positions, min_notional=0.0):
         if n > best_n:
             best_n, best = n, p
     return best
+
+
+def book_snapshot(positions):
+    """{"ASSET|SIDE": size} for a whale's book. Size is |szi| (or |size|), which does not drift with
+    price, so a mark move is never mistaken for the whale adding."""
+    snap = {}
+    for p in positions or []:
+        if not isinstance(p, dict):
+            continue
+        asset, side = position_asset(p), mirror_direction(p)
+        if not asset or side is None:
+            continue
+        size = abs(safe_float(p.get("szi", p.get("size", 0))))
+        key = f"{asset.upper()}|{side}"
+        snap[key] = max(snap.get(key, 0.0), size)
+    return snap
+
+
+def new_or_added(positions, prior, min_add_pct):
+    """The positions a whale JUST opened, or added to by at least `min_add_pct`, against the previous
+    tick's snapshot. A position they merely still hold is not a signal: mirroring holdings re-entered
+    the same standing short every time the per-asset cooldown expired. `prior` None (first sight of a
+    whale) seeds their book and returns nothing, so Remora never inherits an existing book."""
+    if prior is None:
+        return []
+    out = []
+    step = 1.0 + max(0.0, safe_float(min_add_pct)) / 100.0
+    for p in positions or []:
+        if not isinstance(p, dict):
+            continue
+        asset, side = position_asset(p), mirror_direction(p)
+        if not asset or side is None:
+            continue
+        size = abs(safe_float(p.get("szi", p.get("size", 0))))
+        was = safe_float(prior.get(f"{asset.upper()}|{side}", 0.0))
+        if was <= 0 or size > was * step:
+            out.append(p)
+    return out
 
 
 def consensus_bonus(count):

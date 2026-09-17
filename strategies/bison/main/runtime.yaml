@@ -1,7 +1,7 @@
 # ── BISON · single instance — multi-asset conviction momentum holder ──────────
 # Runtime 3.0 port of the v2 Bison (SKILL.md v3.0.1). Liquid-majors whitelist
 # (BTC/ETH/SOL), 9-component conviction scoring, conviction-tiered margin
-# (25/31/37%), 7-10x leverage, DSL-only exits (time-cuts off, wide ratchet for
+# (25/31/37%), 4-5x leverage, DSL-only exits (time-cuts off, wide ratchet for
 # multi-day conviction holds). Faithful port of the v2 producer thesis — see
 # scanners/scoring.py (math reproduced verbatim, v2-quirks flagged).
 name: bison-main
@@ -10,9 +10,9 @@ version: 3.0.0
 description: >
   BISON — multi-asset conviction momentum holder on liquid majors (BTC/ETH/SOL).
   Enters only when a 9-factor composite (4h/1h trend structure, 1h/4h momentum,
-  smart-money lean, funding, volume trend, OI proxy, RSI) clears score 11 via a
+  4h-leader lean, funding, volume trend, OI proxy, RSI) clears score 11 via a
   direction waterfall (4h trend -> SM -> 1h momentum). Conviction-scaled margin:
-  25% base, 31% at score >=10, 37% at score >=12. Leverage 7-10x (default 10).
+  25% base, 31% at score >=10, 37% at score >=12. Leverage 4-5x (default 5).
   DSL is the ONLY exit — time-cuts disabled, wide ratchet ladder (first lock at
   +10% ROE) so a real directional thesis runs multiple days into the move.
   Faithful port of the v2 Bison v3.0.1 thesis (all scoring/thresholds verbatim).
@@ -21,7 +21,7 @@ strategy:
   wallet: "${BISON_WALLET}"
   slots: 3                                # v2 maxPositions 3
   margin_pct: 25                          # baseline %; scan emits the conviction-tier marginPct per signal
-  default_leverage: 10                    # fallback; scan emits 7-10x per signal
+  default_leverage: 5                     # fallback; scan emits 4-5x per signal
   trading_risk: aggressive
   enabled: true
 
@@ -41,10 +41,11 @@ scanners:
       allowedAssets: ["BTC", "ETH", "SOL"] # v2.1 whitelist (validated live on HL main DEX 2026-06-27)
       minScore: 11                         # v2.1 MIN_SCORE (raised 8 -> 11: real conviction)
       marginPctBase: 25                    # PERCENT of withdrawable (0,100]; tiered x1.25/x1.5 by score
-      leverageDefault: 10                  # clamped to [7,10] in scan.py (MIN_LEVERAGE/MAX_LEVERAGE)
+      leverageDefault: 5                   # clamped to [4,5] in scan.py (MIN_LEVERAGE/MAX_LEVERAGE)
       minVolTrendPct: 10                   # v2 entry.minVolTrendPct
       rsiMaxLong: 72                       # v2 entry.rsiMaxLong
       rsiMinShort: 28                      # v2 entry.rsiMinShort
+      minTraderCount: 10                   # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
       recentSignalTtlSeconds: 180          # v3.0.1 RECENT_SIGNAL_TTL_SEC (race-window dedup)
     signal_data_schema:
       score: { type: number }
