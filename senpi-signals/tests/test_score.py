@@ -661,3 +661,18 @@ def test_the_divergence_numbers_carry_the_crowd_basis_too():
     assert sigs, "the fixture no longer fires a divergence"
     assert sigs[0]["crowd_source"] == "funding_sign"
     assert any("per the funding sign" in n for n in sigs[0]["numbers"]), sigs[0]["numbers"]
+
+
+def test_the_engine_banner_never_reaches_someone_who_asked_a_question():
+    """`--print-feed` prints this markdown verbatim to a user. The coverage banner is engine-talk —
+    it names another skill and tells them to re-run it — against the skill's own "talk about the
+    market, never about the engine" convention, and in the universe-dead state it is also false
+    ("everything below is OI, funding and price" when nothing is below). The user's one allowed
+    clause is `not_measured()`. Same gate the posting reminder already had."""
+    import datetime
+    now = datetime.datetime(2026, 9, 15, 12, tzinfo=datetime.timezone.utc)
+    dead = {"smart_money_lens": "NO DATA", "flow_lens": "NO DATA"}
+    for consumer, banned in (("adhoc", True), ("social", False)):
+        md = score._render_md(now, [], [], "both", dead, consumer)
+        assert ("senpi-smart-money" in md) is not banned, consumer
+        assert ("⛔" in md) is not banned, consumer

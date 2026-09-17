@@ -903,13 +903,19 @@ def _render_md(now, social, trade, lens, cov=None, consumer="adhoc"):
     note += " — verify before posting._" if consumer == "social" else "._"
     out = [f"# 🔭 Senpi Signals — {ts} UTC", "", note, ""] + HOW_TO_READ + ["", "---", ""]
     cov = cov or {}
-    if cov.get("smart_money_lens") == "NO DATA" and cov.get("flow_lens") == "NO DATA":
+    # Engine-talk, and it is FALSE in the universe-dead state ("everything below is OI, funding and
+    # price" when nothing is below and those were not read either). `--print-feed` prints this file
+    # verbatim to a user, so the banner is gated to the content consumer the same way the posting
+    # reminder above is: a user gets `not_measured()`'s one plain line, which is what the output
+    # conventions allow. Never name another skill to someone who asked a question.
+    if (consumer == "social" and cov.get("smart_money_lens") == "NO DATA"
+            and cov.get("flow_lens") == "NO DATA"):
         out += ["> ⛔ **Smart-money lens UNAVAILABLE this run — no cohort positioning was supplied.**",
                 "> Everything below is OI, funding and price: the same inputs as market-pulse. The",
                 "> divergence and flow detectors did not find nothing — they were never fed. Run the",
                 "> proven-cohort fan-out (`senpi-smart-money`) and re-run before reading this as a",
                 "> smart-money report.", ""]
-    elif "thin" in (cov.get("smart_money_lens"), cov.get("flow_lens")):
+    elif consumer == "social" and "thin" in (cov.get("smart_money_lens"), cov.get("flow_lens")):
         out += [f"> ⚠️ **Partial smart-money coverage** — divergence inputs on "
                 f"{cov.get('smart_divergence_inputs_pct')}% of the universe, base-unit flow on "
                 f"{cov.get('base_flow_inputs_pct')}%. Absence of a signal on an uncovered name means "

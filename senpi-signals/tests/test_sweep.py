@@ -175,6 +175,25 @@ def test_a_transient_failure_is_retried_before_a_source_is_written_off(state_dir
     assert rep["current"]["asset_metrics"]["BTC"]["crowd_source"] == "board_4h"   # the real read won
 
 
+def test_the_retry_covers_the_cohort_reads_the_vendored_engine_makes(state_dir):
+    """The retry was added to `_read()`, which wraps only the four market/leaderboard calls. The
+    cohort is gathered by the vendored engine calling `Client.mcp_call` DIRECTLY, so half the reads —
+    including the smart-money lens this skill is named after — were still one blip from going dark.
+    Counting attempts is the only way to see it: the run succeeds either way, it just loses a lens."""
+    attempts = {}
+    budget = {"discovery_get_top_traders": 1}      # one transport blip, then it serves
+    def flaky(name, args):
+        attempts[name] = attempts.get(name, 0) + 1
+        if budget.get(name):
+            budget[name] -= 1
+            raise RuntimeError(f"{name} HTTP 503")
+        return fake_call_tool(name, args)
+    rep = sweep.run(flaky, now=NOW)
+    assert attempts["discovery_get_top_traders"] >= 2, attempts     # it was retried at all
+    assert rep["coverage"]["cohort"].startswith("ok"), rep["coverage"]["cohort"]
+    assert rep["current"]["asset_metrics"]["BTC"].get("smart_dir"), "the smart-money lens went dark"
+
+
 def test_a_dark_universe_is_an_outage_not_a_quiet_market(state_dir):
     """`market_list_instruments` is the one read everything hangs off. When it dies there are no
     assets to score, so score.py renders its quiet-market line — and SKILL.md teaches the agent that

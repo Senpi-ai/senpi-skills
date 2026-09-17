@@ -89,17 +89,33 @@ class Client:
         self.wallet_pnl = {}         # proven wallet -> lifetime realized PnL, USD
 
     def mcp_call(self, tool, timeout=12, **kw):
-        self.reads += 1
-        try:
-            resp = self.call_tool(tool, kw)
-        except Exception:
-            self.failed += 1
-            raise
-        if tool == "discovery_get_trader_state":
-            self.trader_states.extend(_traders_of(_ok(resp)))
-        elif tool == "discovery_get_top_traders":
-            self.top_traders.extend(_traders_of(_ok(resp)))
-        return resp
+        """Every read in this sweep is an idempotent GET, so a transport failure is retried before
+        it is allowed to take a lens out of the run.
+
+        The retry lives HERE and not in `_read()`. `_read` only wraps the four market/leaderboard
+        calls; the cohort is gathered by the vendored engine, which calls this method directly — so
+        a retry a layer up covered 4 of 8 reads and left the smart-money lens, the one this skill is
+        named after, as exposed as before. A `success: false` envelope is deliberately NOT retried
+        here: it is returned as-is so `_read` degrades that source exactly as it always has, and the
+        vendored engine keeps seeing the response shape it expects rather than an exception.
+        """
+        last = None
+        for attempt in range(READ_ATTEMPTS):
+            self.reads += 1
+            try:
+                resp = self.call_tool(tool, kw)
+            except Exception as e:  # noqa: BLE001 — transport; retried, then re-raised as before
+                self.failed += 1
+                last = e
+                if attempt + 1 < READ_ATTEMPTS:
+                    time.sleep(RETRY_SLEEP_S * (attempt + 1))
+                continue
+            if tool == "discovery_get_trader_state":
+                self.trader_states.extend(_traders_of(_ok(resp)))
+            elif tool == "discovery_get_top_traders":
+                self.top_traders.extend(_traders_of(_ok(resp)))
+            return resp
+        raise last
 
 
 def _ok(resp):
@@ -134,26 +150,16 @@ def _num(v):
 
 
 def _read(c, tool, args, cov, key):
-    """One guarded read: a failure degrades `key` in coverage, never the sweep.
-
-    Every read here is an idempotent GET, so a transient 503 or a dropped socket is retried once
-    before the source is written off. Without this a single blip silently removed a whole lens from
-    the run — and a removed lens is indistinguishable from a lens that looked and found nothing.
-    """
-    err = None
-    for attempt in range(READ_ATTEMPTS):
-        try:
-            data = _ok(c.mcp_call(tool, **args))
-        except Exception as e:  # noqa: BLE001
-            err = f"failed: {tool}: {str(e)[:160]}"
-        else:
-            if data is not None:
-                return data
-            err = f"failed: {tool}: tool reported success=false"
-        if attempt + 1 < READ_ATTEMPTS:
-            time.sleep(RETRY_SLEEP_S * (attempt + 1))
-    cov[key] = err
-    return None
+    """One guarded read: a failure degrades `key` in coverage, never the sweep. The RETRY is in
+    `Client.mcp_call`, so it covers the cohort reads the vendored engine makes directly too."""
+    try:
+        data = _ok(c.mcp_call(tool, **args))
+    except Exception as e:  # noqa: BLE001
+        cov[key] = f"failed: {tool}: {str(e)[:160]}"
+        return None
+    if data is None:
+        cov[key] = f"failed: {tool}: tool reported success=false"
+    return data
 
 
 def _dex(name):
