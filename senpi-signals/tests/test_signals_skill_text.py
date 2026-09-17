@@ -107,4 +107,19 @@ def test_the_brief_is_documented_and_the_chip_wording_loads_the_skill():
     assert "## The short version (`--brief N`)" in skill
     for trigger in ("scan Senpi Signals", "scan for market anomalies"):
         assert trigger in front, trigger
+
+
+def test_the_mispricing_vocabulary_routes_here_and_stays_an_observation():
+    """"Find what's mispriced" is how a user asks for this feed in their own words, so it has to
+    reach the skill at all — and then be pinned to the reads, because "mispriced" is a valuation
+    word and this sweep carries no model of fair value. It compares two things it read; saying a
+    thing is worth more or less than its price would be advice the feed cannot support."""
+    front = _frontmatter(SKILL)
+    for trigger in ("find what's mispriced", "where is the market wrong", "find dislocations",
+                    "what's out of line"):
+        assert trigger in front, trigger
+    skill = _flat(SKILL)
+    assert "gap between two things the sweep actually read" in skill
+    assert "never a fair-value judgment" in skill
+    assert 'never "HYPE is overpriced"' in skill
     assert "Every user has it." in skill

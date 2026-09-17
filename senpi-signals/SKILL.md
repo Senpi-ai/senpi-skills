@@ -8,8 +8,9 @@ description: >
   (actionable edge, for users building ideas) and a **news** lens (surprising, non-obvious, for
   market-news content). 2.0 is one reading with no compare: it keeps no history, so moves measured
   against an earlier sweep (whale moves, OI and funding changes, positioning trends) come in v2. Use
-  for "scan Senpi Signals", "scan for market anomalies", "what's noteworthy in the market right now",
-  "any interesting anomalies to tweet", "signals of the day", "build me some trade ideas", or a
+  for "scan Senpi Signals", "scan for market anomalies", "find what's mispriced", "where is the
+  market wrong", "find dislocations", "what's out of line", "what's noteworthy in the market right
+  now", "any interesting anomalies to tweet", "signals of the day", "build me some trade ideas", or a
   focused ask — "anything notable on OIL / the AI basket / trader 0x1234?". Every run ends with one
   question: set up a trade on a read, or a strategy that trades reads like these. On demand only: if
   asked to put it on a cron or any schedule, say no. The sweep is read-only, observation not advice,
@@ -78,6 +79,13 @@ A single reading shows **where things stand**, not what just moved:
 It **cannot** show a change measured against an earlier sweep: whale moves (a proven wallet opening,
 adding or flipping $1M+), OI surges, funding flips, sharp conviction jumps, the cohort's 12h
 positioning trend or base-unit flow. Those are v2 (below). Never describe the feed as if it carried them.
+
+**"Mispriced", "dislocated", "out of line", "where the market is wrong"** all land here, and they mean
+one thing in this skill: a **gap between two things the sweep actually read** — the proven cohort
+against the 4h crowd, funding against positioning, a laggard against its basket. It is **never a
+fair-value judgment**: the sweep carries no model of what anything is worth, so it can say "the cohort
+is 78% short HYPE while the 4h board is long" and never "HYPE is overpriced". Answer with the reads
+and their numbers; the word the user chose does not license a valuation claim.
 
 ## Two lenses, two audiences (why every signal gets two scores)
 The same signals serve two jobs, so `score.py` scores each one **twice** and returns **two ranked
