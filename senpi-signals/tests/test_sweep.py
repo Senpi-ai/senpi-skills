@@ -206,6 +206,10 @@ def test_a_dark_universe_is_an_outage_not_a_quiet_market(state_dir):
     assert "outage, not a quiet market" in feed
     assert "quiet read is a correct answer" not in feed     # never the calm-market line
     assert "Nothing notable stands out" not in feed
+    # the brief closes EVERY market pulse — an outage must not print there as a quiet market either
+    brief = sweep.brief_text(rep, 3)
+    assert "outage, not a quiet market" in brief
+    assert "nothing strong right now" not in brief and "top reads right now" not in brief
     # and a healthy-but-empty run is still allowed to say so
     assert not sweep.universe_is_dark(sweep.run(fake_call_tool, now=NOW)["coverage"])
 
