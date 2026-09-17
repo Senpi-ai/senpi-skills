@@ -198,26 +198,27 @@ def _build_cohort(ctx, cached, inputs, now):
 
 def _fetch_whale_positions(ctx, trader_id):
     """List of position dicts for one whale (leaderboard_get_trader_positions),
-    unwrapping the nested data.positions.positions shape. READ-GUARDED -> []
-    on any failure (the whale just drops out of this tick). Verbatim unwrap from
-    v2 fetch_whale_positions."""
+    unwrapping the nested data.positions.positions shape. READ-GUARDED -> None on
+    any failure or unusable shape, [] when the whale genuinely holds nothing. The
+    two must stay distinct: a failed read read as an empty book would make every
+    standing position look newly opened on the next tick."""
     raw = _read(ctx, "leaderboard_get_trader_positions", {"trader_id": trader_id})
     if not raw:
-        return []
+        return None
     if not isinstance(raw, dict):
-        return raw if isinstance(raw, list) else []
+        return raw if isinstance(raw, list) else None
     d = raw.get("data", raw)
     if isinstance(d, list):
         return d
     if not isinstance(d, dict):
-        return []
+        return None
     rp = d.get("positions", d.get("top_positions", []))
     if isinstance(rp, list):
         return rp
     if isinstance(rp, dict):  # nested one level deeper (observed shape)
         nested = rp.get("positions", [])
-        return nested if isinstance(nested, list) else []
-    return []
+        return nested if isinstance(nested, list) else None
+    return None
 
 
 # ── ctx.state: recent-signal dedup (port of v2 recent-signals.json) ──
@@ -228,6 +229,15 @@ def _load_signaled(ctx):
     last = ctx.state.last() or {}
     sig = last.get("signaled", {})
     return dict(sig) if isinstance(sig, dict) else {}
+
+
+def _load_books(ctx):
+    """{trader_id: book_snapshot} from the last tick — the baseline the whale's book is diffed against."""
+    if ctx.state is None or len(ctx.state) == 0:
+        return {}
+    last = ctx.state.last() or {}
+    b = last.get("books", {})
+    return dict(b) if isinstance(b, dict) else {}
 
 
 def _load_cohort(ctx):
@@ -267,6 +277,7 @@ def scan(inputs, ctx):
     min_score = int(inputs.get("minScore", scoring.DEFAULT_MIN_SCORE))
     leverage = min(max(int(inputs.get("leverage", scoring.DEFAULT_LEVERAGE)), 1), scoring.MAX_LEVERAGE)
     ttl = float(inputs.get("recentSignalTtlSeconds", 240))
+    min_add_pct = float(inputs.get("minWhaleAddPct", 20))   # below this, a size change is noise, not an add
     emit_top_n = max(1, min(2, int(inputs.get("emitTopN", 2))))   # 1-2 emit allowance
 
     # marginPct intent (PERCENT in (0,100]). v2 stored a FRACTION (0.15); the
@@ -294,7 +305,7 @@ def scan(inputs, ctx):
               "will retry next tick", file=sys.stderr)
         if ctx.state is not None:
             try:
-                ctx.state.append({"signaled": {}, "cohort": cohort,
+                ctx.state.append({"signaled": {}, "cohort": cohort, "books": _load_books(ctx),
                                   "result": {"ts": now, "emitted": False,
                                              "note": "cohort_cold_start"}})
             except Exception as exc:  # noqa: BLE001
@@ -307,7 +318,7 @@ def scan(inputs, ctx):
         if ctx.state is not None:
             try:
                 ctx.state.append({"signaled": _prune_signaled(_load_signaled(ctx), ttl, now),
-                                  "cohort": cohort,
+                                  "cohort": cohort, "books": _load_books(ctx),
                                   "result": {"ts": now, "emitted": False, "note": "no_account_value"}})
             except Exception as exc:  # noqa: BLE001
                 print(f"[remora.scan] WARNING: state append failed: {exc!r}", file=sys.stderr)
@@ -317,14 +328,25 @@ def scan(inputs, ctx):
 
     signaled = _prune_signaled(_load_signaled(ctx), ttl, now)
 
-    # ── per-whale: fetch positions (READ-GUARDED), take the top, tier from the cohort row ──
+    # ── per-whale: fetch positions (READ-GUARDED), diff their book, take the top MOVE ──
+    # Remora mirrors what a whale just did, not what they hold: mirroring holdings re-entered the
+    # same standing short every time the per-asset cooldown expired.
+    books = _load_books(ctx)
+    new_books = dict(books)
     whale_tops = []
     for whale in whales:
         trader_id = _normalize_whale_id(whale)
         if not trader_id:
             continue
         whale_positions = _fetch_whale_positions(ctx, trader_id)
-        top = scoring.top_position(whale_positions, min_notional)
+        if whale_positions is None:                      # read failed — keep the book we already have
+            print(f"[remora.scan] positions unreadable for {str(trader_id)[:10]}… — keeping its book",
+                  file=sys.stderr)
+            continue
+        prior = books.get(trader_id)
+        new_books[trader_id] = scoring.book_snapshot(whale_positions)
+        moves = scoring.new_or_added(whale_positions, prior, min_add_pct)
+        top = scoring.top_position(moves, min_notional)
         if not top:
             continue
         tier = cohort.get("tiers", {}).get(trader_id) if use_tier else None
@@ -387,7 +409,7 @@ def scan(inputs, ctx):
     #    by state_history_max_count. Read back via ctx.state.recent(n). ──
     if ctx.state is not None:
         try:
-            ctx.state.append({"signaled": signaled, "cohort": cohort, "result": result})
+            ctx.state.append({"signaled": signaled, "cohort": cohort, "books": new_books, "result": result})
         except Exception as exc:  # noqa: BLE001
             print(f"[remora.scan] WARNING: state append failed; next tick may re-emit "
                   f"a suppressed signal or rebuild the cohort: {exc!r}", file=sys.stderr)
