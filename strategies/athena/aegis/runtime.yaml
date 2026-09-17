@@ -14,9 +14,9 @@ description: >
   risk-off) to +2.0 (strong risk-on). In risk-off: shorts risk assets
   (BTC/ETH/SOL/HYPE/SP500/XYZ100), buys the yen (short USD/JPY) and longs
   defensives (GOLD/BRENTOIL/NATGAS). In risk-on: the mirror. In neutral
-  (|score| < 0.5): goes to cash — doesn't bleed funding or take drawdowns in
-  chop. 3x leverage with 10% margin stops and early profit locks (first at
-  +12% ROE) so regime calls bank gains before they reverse. Built as
+  (|score| < 0.5): opens nothing new and leaves the DSL to manage whatever is
+  already on. 3x leverage with 10% margin stops and early profit locks (first
+  at +12% ROE), because regime calls reverse. Built as
   Phalanx's companion: Aegis reads the tape, Phalanx reads the crowd.
 
 strategy:
@@ -93,8 +93,12 @@ exit:
     hard_timeout:
       enabled: false
     weak_peak_cut:
-      enabled: true
-      interval_in_minutes: 480        # 8h — cuts positions that never reached +4% ROE and are fading
+      # OFF since 1.3.0. The 8h cut closed 61 hedges, 16 of them re-entered on the same asset within
+      # 30 minutes despite the 2h per-asset cooldown, and Aegis's fees ran past its gross profit. A
+      # hedge that is still the right hedge is not a dead position. Phalanx dropped its time cuts for
+      # the same reason (#609). The lines below are inert while enabled is false.
+      enabled: false
+      interval_in_minutes: 480
       min_value: 4.0
     phase1:
       enabled: false                  # trailing OFF — a floor below entry can ratchet a winner into a loss
