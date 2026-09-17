@@ -631,3 +631,33 @@ def test_the_legend_band_for_yellow_covers_every_score_a_feed_can_show():
     low = re.match(r"(\d+)–", band)
     assert not low or float(low.group(1)) <= score.MIN_SOCIAL, band
     assert score.badge(score.MIN_SOCIAL) == "🟡" and score.badge(64.9) == "🟡" and score.badge(65) == "🟠"
+
+
+def test_the_crowd_always_names_the_evidence_it_was_read_from():
+    """"The crowd" is two different claims. `board_4h` is real positioning off the 4h leaderboard;
+    `funding_sign` is only the sign of the funding rate — an inference, not a count of anybody. The
+    basis is resolved PER NAME, so a healthy run mixes both, and a failed board read silently moves
+    every name onto the proxy. `crowd_source` recorded which and then reached no renderer, so the
+    sentence never changed. Golden rule 8: name the board and the window."""
+    def read(crowd_source):
+        return score.trade_read({"asset": "ETH", "detector": "sm_divergence", "direction": "short",
+                                 "price_change_pct": -2.0, "numbers": [],
+                                 "smart_source": "proven_cohort", "crowd_source": crowd_source})
+    board, funding, unset = read("board_4h"), read("funding_sign"), read(None)
+    assert "the 4h board" in board
+    assert "the funding sign" in funding
+    assert "an unstated basis" in unset          # never silently borrow the stronger basis
+    assert board != funding != unset, "the crowd reads identically whatever it was read from"
+
+
+def test_the_divergence_numbers_carry_the_crowd_basis_too():
+    """The news lens prints `numbers` verbatim, so the basis has to be in them as well as in the
+    trade read — a detector fires once and is rendered by two different lenses."""
+    metrics = {"ETH": {"smart_dir": "short", "crowd_dir": "long", "smart_share": 78.0,
+                       "smart_share_kind": "cohort_pct", "smart_source": "proven_cohort",
+                       "smart_long_n": 4, "smart_short_n": 40, "notional_vol": 2e8,
+                       "crowd_source": "funding_sign"}}
+    sigs = [s for s in score.detect_from_metrics(metrics, {}) if s["detector"] == "sm_divergence"]
+    assert sigs, "the fixture no longer fires a divergence"
+    assert sigs[0]["crowd_source"] == "funding_sign"
+    assert any("per the funding sign" in n for n in sigs[0]["numbers"]), sigs[0]["numbers"]

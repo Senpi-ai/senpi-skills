@@ -89,6 +89,19 @@ SMART_SOURCE_LABEL = {
     "leaderboard_4h": "the live 4h leaderboard (what's winning now, not track record)",
     None: "top traders (SOURCE UNSTATED — do not call this smart money)",
 }
+# "The crowd" has TWO possible evidential bases and they are not the same claim. `board_4h` is real
+# positioning read off the 4h leaderboard; `funding_sign` is only the SIGN of the funding rate
+# (positive ⇒ longs pay ⇒ crowd assumed LONG) — an inference, not a count of anybody. The board is
+# resolved per name, so on a healthy run some assets carry one basis and some the other; and when
+# the board read FAILS, every name silently falls back to the proxy. Same sentence, different
+# evidence — so the basis is named wherever the crowd is named (golden rule 8).
+CROWD_SOURCE_LABEL = {
+    "board_4h": "the 4h board",
+    "funding_sign": "the funding sign",
+    None: "an unstated basis",
+}
+
+
 SMART_SOURCE_TRUST = {          # folded into credibility: how much we believe the reading itself
     "proven_cohort": 1.0,
     "leaderboard_4h": 0.7,      # momentum read — real, but weaker evidence of conviction
@@ -383,6 +396,7 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None, fast_age
         pcp = _num(m.get("price_change_pct"))
         if pcp is None:
             pcp = _num(m.get("token_price_change_pct_4h"))
+        crowd_src = m.get("crowd_source") if m.get("crowd_source") in CROWD_SOURCE_LABEL else None
 
         def sig(detector, direction, magnitude, numbers, conflict=False, flip=False, is_change=None):
             out.append({
@@ -390,7 +404,7 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None, fast_age
                 "numbers": numbers, "notional_vol": vol, "concrete_entity": None,
                 "price_change_pct": pcp, "magnitude": max(0.0, min(1.0, magnitude)),
                 "conflict": conflict, "flip": flip,
-                "smart_source": src, "source_trust": src_trust,
+                "smart_source": src, "source_trust": src_trust, "crowd_source": crowd_src,
                 "is_change": (detector in CHANGE_DETECTORS if is_change is None else is_change),
             })
 
@@ -424,7 +438,7 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None, fast_age
                 nums.append(line)
             else:                        # …and when it's missing, say so — never imply the rest are opposite
                 nums.append("positioned long/short split unknown")
-            nums.append(f"crowd {str(cd).upper()}")
+            nums.append(f"crowd {str(cd).upper()} per {CROWD_SOURCE_LABEL[crowd_src]}")
             # magnitude from one-sidedness, SHRUNK by sample size (50/50 ⇒ no directional information;
             # 4-vs-1 must not score like 400-vs-100), else fall back to the declared share
             eff = effective_one_sidedness(one_sided, n_pos)
@@ -534,7 +548,8 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None, fast_age
                     "price_change_pct": pcp,
                     "magnitude": max(0.0, min(1.0, change_usd / (10 * WHALE_MIN_USD))),
                     "conflict": bool(cd and cd != side), "flip": move == "flipped",
-                    "smart_source": src, "source_trust": src_trust, "is_change": True,
+                    "smart_source": src, "source_trust": src_trust, "crowd_source": crowd_src,
+                    "is_change": True,
                     "change_usd": round(change_usd if side == "long" else -change_usd, 2),
                     "opened": move == "opened", "flipped": move == "flipped",
                     "entity_realized_pnl_usd": _num(((wallets or {}).get(w) or {}).get("realized_pnl_usd")),
@@ -651,6 +666,12 @@ def _smart_lead(s):
                                                    if s.get("smart_source") in SMART_SOURCE_TRUST else None]
 
 
+def _crowd_basis(s):
+    """What "the crowd" was read FROM on this signal — never assumed, same contract as _smart_lead."""
+    cs = s.get("crowd_source")
+    return CROWD_SOURCE_LABEL[cs if cs in CROWD_SOURCE_LABEL else None]
+
+
 def _usd_short(v):
     """$1.2B / $48.2M / $950,000 — a reader-sized dollar figure."""
     v = float(v)
@@ -734,7 +755,7 @@ def trade_read(s):
     else:
         tag = "price is going against it"
     if det == "sm_divergence":
-        return f"{_smart_lead(s)} {d} vs the crowd on {a}, {tag}."
+        return f"{_smart_lead(s)} {d} vs the crowd on {a} (crowd per {_crowd_basis(s)}), {tag}."
     if det == "sm_flow":
         return (f"Proven wallets are OPENING and ADDING {d} size on {a} ({tag}) — {nums}.")
     if det == "sm_positioning_build":
