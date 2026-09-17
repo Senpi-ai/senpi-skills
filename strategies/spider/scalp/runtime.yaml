@@ -51,7 +51,8 @@ scanners:
       stretchThresholdPct: 0.8
       venueMinNotionalUsd: 10
       minNotionalPctOfEquity: 0.01
-      recentSignalTtlSeconds: 180
+      recentSignalTtlSeconds: 3600    # was 180: the same asset re-signalled every 3 minutes, and 38% of re-opens were
+                                      # the same asset within 15m of exiting (30d live read). One signal per asset per hour.
     signal_data_schema:
       score: { type: number }
       direction: { type: string }
