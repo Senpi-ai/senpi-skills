@@ -716,7 +716,7 @@ def frame(s):
 HOW_TO_READ = [
     "**How to read this**",
     "",
-    "🔥 **80+** act on it · 🟠 **65–79** worth a look · 🟡 **under 65** context",
+    "🔥 **80+** strongest · 🟠 **65–79** worth a look · 🟡 **under 65** context",
     "⭐ top of feed · ⚑ a named wallet · **early** = positioning is in, the price move hasn't happened yet",
     "",
     "The score is a **0–100 weighted checklist, not a probability** — it ranks what to look at, "
@@ -782,6 +782,21 @@ def trade_read(s):
     if det == "cross_asset_laggard":
         return f"{a} is the rotation laggard — a catch-up watch."
     return f"{a}: {'; '.join(s.get('numbers') or [])}."
+
+
+def render_brief(trade, n):
+    """The short version another skill closes with (senpi-market-pulse): the top n trade reads, one line
+    each — badge, score, asset and the read — with no legend and no engine words."""
+    picks = list(trade or [])[:max(0, n)]
+    if not picks:
+        return "**🔭 Senpi Signals:** nothing notable stands out right now."
+    # A header that says "top reads" over two 🟡 lines recommends the best of a weak lot. Say the band.
+    strongest = max((_num(s.get("trade_score")) or 0.0) for s in picks)
+    lines = ["**🔭 Senpi Signals — top reads right now**" if strongest >= 65
+             else "**🔭 Senpi Signals — nothing strong right now, context only**"]
+    for s in picks:
+        lines.append(f"- {badge(s['trade_score'])} **{s['trade_score']}** · `{s['asset']}` — {trade_read(s)}{when(s)}")
+    return "\n".join(lines)
 
 
 def dedupe_feeds(trade, social, pool, top_n, family_cap):

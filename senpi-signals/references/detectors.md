@@ -313,10 +313,10 @@ state** (great content, but not a directional edge). `score.py` fires whichever 
   right now, the share sitting in this one token+side. High = the proven money is concentrated there.
 - **Concentration jump/drop** (`contribution_pct_change_4h`) — how much that share moved vs 4h ago.
 
-## Ways to play (the opt-in follow-up — never in public/tweet copy)
-Per detector, the thesis the agent can *offer* to build (consent-gated, via senpi-trade /
-senpi-trader-research / senpi-strategy-author), always a **simulated** setup with a stop, executed
-only on the user's confirmation:
+## Ways to play (the closing question — never in public/tweet copy)
+Per detector, the thesis behind SKILL.md's closing question (a trade via senpi-trade; or a strategy:
+Athena or the read's own template via senpi-strategy-ops, or the user's own via senpi-strategy-author,
+per SKILL.md's table), always shown with its size and stop first and executed only on the user's yes:
 - `sm_divergence` → **align with the smart-money side** (or fade the crowd).
 - `sm_conviction` piling-in → **follow the crowding**; unwinding → **de-risk / fade**.
 - `whale_move` → **mirror the whale** (senpi-trade mirror) at your budget, with a stop.
