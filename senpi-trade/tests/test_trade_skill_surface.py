@@ -27,6 +27,16 @@ class ProtectionProtocolIsResident(unittest.TestCase):
                        "references/protection-cases.md"):
             self.assertIn(needle, body, needle)
 
+    def test_the_sizing_readout_and_its_thresholds_are_in_the_body(self):
+        body = _body(SKILL)
+        # One needle per rule, never a sentence opener: the three numbers, the two thresholds, the fresh-yes
+        # clause, the applied-leverage read-back, and the ladder-not-a-cron rule.
+        for needle in ("share of the account", "dollars at the stop", "leverage that will actually apply",
+                       "50% of the account in one position", "20% of the account at the stop",
+                       "a yes to the setup is not a yes to the concentration",
+                       "Read back the leverage", "is the ladder, never a cron"):
+            self.assertIn(needle, body, needle)
+
     def test_the_pair_is_never_promised(self):
         body = _body(SKILL)
         self.assertNotIn("Offer both; don't call the pair", body)
