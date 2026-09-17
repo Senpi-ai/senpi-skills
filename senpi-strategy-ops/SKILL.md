@@ -28,7 +28,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.18.0"
+  version: "3.19.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -276,9 +276,9 @@ The user just funded a strategy; the last thing they see must explain **how the 
 
 - **Cadence — how often it acts.** From the `external_scanner`'s `interval_seconds`. If `inputs` carry a slower *decision* clock (`recalibrationHours`, `thesisRefreshHours`, `regimeRefreshHours`), lead with THAT and note the wake interval. Translate to human: `interval_seconds: 300` → "scans every 5 minutes"; `interval_seconds: 21600` + `recalibrationHours: 168` → "re-reads the whole market **weekly**, waking every 6h to act on that read."
 - **Scoring — what it grades and the entry bar.** One or two sentences: the catalog `belief_plain`/`thesis` (what signal it scores) + the runtime `inputs` gate (`minScore` and the conviction bands, `leverageTiers`/`marginPctTiers`). e.g. "ranks the book by relative strength + smart-money lean; opens a name only above its score threshold, sizing bigger at higher conviction (leverage steps up base→apex)."
-- **Protection — the DSL exit ladder.** From `exit.dsl_preset`: the hard stop (`phase1.max_loss_pct`), the profit-lock ladder (`phase2.tiers`: first `trigger_pct` → top `lock_hw_pct`), and any time cut (`weak_peak_cut`/`hard_timeout`). State whether it has a manual close action or is **DSL-only** (no `CLOSE_POSITION` action → "no manual exits — the stop does all the selling"). e.g. "hard stop at −18% from entry; as a winner runs, a trailing floor ratchets up, locking profit from +8% to +80%; a stalled position is cut at 48h."
+- **Protection — the DSL exit ladder.** From `exit.dsl_preset`: the hard stop (`phase1.max_loss_pct`), the profit-lock ladder (`phase2.tiers`: first `trigger_pct` → top `lock_hw_pct`), and any time cut (`weak_peak_cut`/`hard_timeout`). State whether it has a manual close action or is **DSL-only** (no `CLOSE_POSITION` action → "no manual exits — the stop does all the selling"). e.g. "hard stop at −18% from entry; as a winner runs, a trailing floor ratchets up, locking profit from +8% to +80%; a stalled position is cut at 48h." Say every stop twice — as ROE and as price: the price distance is **ROE ÷ leverage** (a 15% ROE hard stop at 5× sits 3% from entry, at 2× 7.5%); quote both from the recipe, never a computed table — a stop table off by the leverage factor sells a leverage change the user did not understand.
 
-- **Cap — how many entries a day.** From `risk.guard_rails.max_entries_per_day`: say the number, and that once it is hit the runtime logs `Runtime paused: Max Entries/Day` and opens nothing until 00:00 UTC — its own rule, not a fault. While it holds, `status.py` shows the row as **⏸ paused** (health stays ✅).
+- **Cap — how many entries a day.** From `risk.guard_rails.max_entries_per_day`: say the number, and that once it is hit the runtime logs `Runtime paused: Max Entries/Day` and opens nothing until 00:00 UTC — its own rule, not a fault. While it holds, `status.py` shows the row as **⏸ paused** (health stays ✅). Before raising `marginPct`, say `max_entries_per_day × marginPct` — the share of equity a day may commit (4 × 20% = 80%, where the venue starts warning); above ~60% say so and get a fresh yes, and never present the warning that follows as a market event.
 - **Ownership — one line, the name first.** *"**PurpleFrog's Starling** is live — `purplefrog-starling` in your strategy list, saved at `/data/workspace/strategies/purplefrog-starling/`.
   Say 'widen the stop' any time; it applies in place — no close, no new wallet."* Never "Starling is live" — the template's name is not theirs (the update path below).
 
@@ -286,7 +286,7 @@ Keep it to ~5 short lines per strategy. Multi-instance packages whose legs diffe
 
 ## Monitor — what am I running? / is it actually live?
 
-**"What strategies am I running?" / "list my strategies" / "is my fleet healthy?"** →
+**"What strategies am I running?" / "list my strategies" / "is my fleet healthy?"** → **`runCount` counts signals EMITTED, not ticks** — a scanner with a fresh heartbeat and `runCount: 0` is alive and found nothing that passed its gates (all night on a small book is normal): never a fault, never a reason to close and recreate (each new strategy wallet costs a real creation fee); the fix for "it isn't trading" is the gates or the budget, applied in place (below). A scanner interval under 60 s on a small book is fee churn — refuse it with the arithmetic (fills × fee against the budget), not a claim about timing. Decision tree: [`references/liveness-verification.md`](references/liveness-verification.md).
 `python3 scripts/status.py` (`<id>` filters, `--fast` skips the per-runtime health call, `--json` for
 machine output). It is the single source of truth — live `strategy_list` ∪ `runtime list` (the same runtime-CLI
 read `senpi-portfolio` also quotes — neither surface independently confirms the other), never the
@@ -336,7 +336,7 @@ is strategy-driven: close also cleans up an attributed package's **orphaned** (n
 
 ## Applying an edit to a strategy that is already LIVE
 
-"Make my live strategy more aggressive." **The edit is authored in `senpi-strategy-author`**, never here.
+"Make my live strategy more aggressive." **The edit is authored in `senpi-strategy-author`**, never here. **Read the runtime's own state first** (`status.py <id>` / `openclaw senpi status -r <runtime>`): a `Runtime paused: Max Entries/Day` line or a gate that is not `OPEN` means nothing opens today at any balance — a top-up "for a fifth position" is the wrong advice; free margin for a perp book is the perps `withdrawable`, never spot-side USDC. The clearinghouse alone cannot say why nothing is opening.
 **Re-running `create` will NOT apply it** — it is idempotent, so it adopts the existing wallet and leaves
 the deployed scanner as it is.
 

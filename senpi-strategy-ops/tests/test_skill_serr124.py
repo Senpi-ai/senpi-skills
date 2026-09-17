@@ -51,5 +51,18 @@ class Serr124IsThisAccountsPoolNotARetry(unittest.TestCase):
         self.assertIn("| `SERR124` (backend) |", TAXONOMY.read_text())
 
 
+class DiagnoseFromTheRuntimesOwnNumbers(unittest.TestCase):
+    """runCount counts emits, stops are said as ROE and as price, an edit's exposure is named, and the runtime's
+    state is read before a top-up is advised. Every needle is absent from the pre-change skill, so each one
+    fails if its rule is removed."""
+
+    def test_the_runtime_first_rules_are_in_the_skill(self):
+        text = SKILL.read_text()
+        for needle in ("`runCount` counts signals EMITTED, not ticks", "never a reason to close and recreate",
+                       "Say every stop twice", "ROE ÷ leverage", "max_entries_per_day × marginPct",
+                       "Read the runtime's own state first", "interval under 60 s"):
+            self.assertIn(needle, text, needle)
+
+
 if __name__ == "__main__":
     unittest.main()
