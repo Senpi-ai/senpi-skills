@@ -21,12 +21,11 @@ Pure halves:
   2. FUNDING + EXHAUSTION — funding_signal, exhaustion_score, and build_signal
      (short-only, funding gate ∧ persistence ∧ not-still-ripping).
 
-FUNDING SOURCE: the funding fields (annualized_pct, funding_direction,
-persistence_hours, trend) come straight from `market_get_funding_history` — the
-call + parse are ported from pangolin (a live strategy), so ant uses the tool's
-NATIVE annualized % and its LONG/SHORT collecting-side flag rather than recomputing
-an APR from a raw rate (avoids the hourly-vs-8h ambiguity entirely). OI shape from
-asset_context is still best-effort tolerant.
+FUNDING SOURCE: the HOURLY `funding_history` rows market_get_asset_data already returns
+({coin, fundingRate, premium, time}). Hyperliquid funds hourly, so APR = rate x 24 x 365 x 100
+(funding_from_history). market_get_funding_history is not used: it annualizes the hourly rate
+as if it were an 8h rate (8x too low, verified against Hyperliquid Sep 17 2026), and its row
+fields never matched this parse, so ant never saw a qualifying name.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 
@@ -109,13 +108,46 @@ def calc_rsi(closes, period=14):
     return 100.0 - (100.0 / (1.0 + avg_g / avg_l))
 
 
-# ── funding (fields straight from market_get_funding_history — pangolin's proven
-# parse: each row carries annualized_pct, funding_direction, persistence_hours, trend) ──
+# ── funding (from the venue's own hourly rates) ──
+
+_HOURS_PER_YEAR = 24 * 365
+
+
+def funding_from_history(history, target_apr):
+    """The funding summary ant gates on, from market_get_asset_data's HOURLY funding_history
+    rows ({coin, fundingRate, premium, time}). Hyperliquid funds hourly: APR = rate x 24 x 365 x 100.
+      • annualized_pct    — the latest settled hour, annualized (> 0 means longs pay)
+      • funding_direction — the side that COLLECTS: SHORT when longs pay, LONG when shorts pay
+      • persistence_hours — consecutive latest hours at or above target_apr
+      • trend             — mean rate of the last 3 hours vs the 3 before: DECAYING below 0.8x,
+                            INTENSIFYING above 1.25x, else STABLE
+    Returns a dict, or None when no row carries a rate (fails closed)."""
+    rows = [r for r in (history or []) if isinstance(r, dict) and _num(r.get("fundingRate")) is not None]
+    if not rows:
+        return None
+    rows.sort(key=lambda r: _f(r.get("time")))
+    rates = [_f(r.get("fundingRate")) for r in rows]
+    apr = rates[-1] * _HOURS_PER_YEAR * 100
+    target = _f(target_apr, 30.0)
+    persist = 0
+    for rate in reversed(rates):
+        if rate * _HOURS_PER_YEAR * 100 < target:
+            break
+        persist += 1
+    trend = "STABLE"
+    if len(rates) >= 6:
+        recent, before = sum(rates[-3:]) / 3, sum(rates[-6:-3]) / 3
+        if before > 0 and recent < before * 0.8:
+            trend = "DECAYING"
+        elif before > 0 and recent > before * 1.25:
+            trend = "INTENSIFYING"
+    return {"funding_direction": "SHORT" if apr > 0 else "LONG", "annualized_pct": apr,
+            "persistence_hours": float(persist), "trend": trend}
+
 
 def funding_signal(funding, inputs):
-    """Is this funding row a harvestable SHORT, and how rich? `funding` is one
-    market_get_funding_history row (see scan._funding). Uses the tool's NATIVE fields —
-    no rate→APR recompute, no hourly-vs-8h ambiguity:
+    """Is this funding a harvestable SHORT, and how rich? `funding` is the dict
+    funding_from_history returns:
       • funding_direction == "SHORT"  (the SHORT side COLLECTS ⇒ longs pay us to short)
       • annualized_pct >= targetApr
       • persistence_hours >= minPersistHours   (not a one-hour spike)

@@ -11,7 +11,7 @@ funding decays, rebalance daily. Mapping it to Senpi:
 | Step | Senpi | Notes |
 |---|---|---|
 | Rank top perps by open interest | ✅ | volume shortlist → `market_get_asset_data` OI |
-| Funding > threshold (longs pay shorts) | ✅ | `market_get_funding_history` |
+| Funding > threshold (longs pay shorts) | ✅ | hourly `funding_history` in `market_get_asset_data` |
 | **Buy spot on HyperEVM** | ❌ | **no spot execution primitive** — the delta-neutral leg |
 | Short the perp | ✅ | perp `SHORT` signal |
 | Target 30% APR | ✅ | funding-APR gate |
@@ -47,13 +47,18 @@ funding dropped. Ant approximates the intent:
 This is a daily rotation, not an instant funding-threshold close.
 
 ## Funding source + the numbers
-Ant reads funding from **`market_get_funding_history`** using the exact call + parse
-a live strategy (pangolin) uses: args are `{"asset": <bare>}` only (the tool has no
-`dex` param), and each row carries `annualized_pct`, `funding_direction` (which side
-COLLECTS — SHORT when longs pay), `persistence_hours`, and `trend`. Ant gates on
-`funding_direction == "SHORT"` + `annualized_pct >= targetApr` + `persistence_hours`
-+ `trend != "DECAYING"`, and uses `annualized_pct` **directly** — no rate→APR
-recompute, so the hourly-vs-8h question never arises. `targetApr: 30` = 30% annualized.
+Ant reads funding from the **hourly `funding_history` rows** that `market_get_asset_data`
+already returns for each name (`{coin, fundingRate, premium, time}`). Hyperliquid funds
+**hourly**, so APR = rate × 24 × 365 × 100 (`scoring.funding_from_history`). From those rows
+ant derives the latest APR, the side that collects (SHORT when longs pay), how many hours in
+a row funding has been at or above `targetApr`, and a 3h-vs-3h trend. It gates on
+`funding_direction == "SHORT"` + APR ≥ `targetApr` + persistence ≥ `minPersistHours` +
+trend ≠ `DECAYING`. `targetApr: 30` = 30% annualized.
+
+Why not `market_get_funding_history`: it labels the hourly rate `current_funding_8h` and
+annualizes it ×3×365, so every APR it reports is 8× too low (verified against Hyperliquid's
+own funding history, Sep 17 2026), and its row fields never matched ant's parse. Ant took
+no trade in its first 30 days live.
 
 ## What would make it the *real* (delta-neutral) strategy
 Same primitives crane needs, plus spot:

@@ -6,7 +6,8 @@ Multi-asset universe scanner. Per tick:
   2. Fetch the market funding regime once (market_get_funding_regime).
   3. Fetch the smart-money map once (leaderboard_get_markets).
   4. For each universe asset that clears the |funding| floor and regime-confirms-or-neutral
-     gate, fetch its funding-history (market_get_funding_history) for persistence + trend.
+     gate, read its hourly funding rows (market_get_asset_data funding_history) and derive
+     persistence + trend at the minFundingRate floor (scoring.funding_history_stats).
   5. Score VERBATIM via scoring.score_candidate (funding extremity + persistence + trend +
      regime + smart-money + sticky OI + price-reversal).
   6. Apply hard gates (score >= minScore, persistence >= minPersistenceHours), the quiet-hours
@@ -14,7 +15,7 @@ Multi-asset universe scanner. Per tick:
   7. Emit the TOP candidate (v2 emit-one-per-tick behavior — the runtime owns slots + cooldowns).
 
 Read-only + single-pass. EVERY ctx.senpi_mcp.call_tool is wrapped in _read() so a transient or
-permission error degrades gracefully (universe falls back to [], a failed funding-history skips
+permission error degrades gracefully (universe falls back to [], a failed hourly-funding read skips
 that one candidate) and NEVER rolls back the whole tick. No daemon, no push_signal — the runtime
 sizes (marginPct/100 * withdrawable), executes, owns cooldowns/risk gates, and trails the DSL exit.
 
@@ -24,8 +25,9 @@ as a hard pre-emit gate using the kodiak clock-passed idiom (scoring.in_quiet_ho
 so a fidelity harness diff surfaces it. All funding-persistence + exhaustion + fade SCORING is ported
 verbatim in scoring.py; only this one gate is additive.
 
-FIDELITY NOTE — minOiUsd defaults to 3_000_000 (task spec OI > $3M); the v2 producer floor was
-1_000_000. Both are operator-tunable via inputs.minOiUsd.
+FIDELITY NOTE — minOiUsd defaults to 10_000_000. The task spec said OI > $3M and the v2 producer floor
+was 1_000_000; with persistence read correctly, thin names cleared the gates, so the floor rose. It is
+operator-tunable via inputs.minOiUsd.
 """
 
 import sys
@@ -41,7 +43,7 @@ _DEFAULT_TIERS = [[13, 5], [9, 3]]
 def _read(ctx, name, args):
     """Guarded MCP read: a transient/permission error on a read must NOT roll back the whole
     tick. Returns None on failure so the existing degrade paths apply (universe -> [], a failed
-    regime/funding-history read -> treated as unavailable)."""
+    regime/hourly-funding read -> treated as unavailable)."""
     try:
         return ctx.senpi_mcp.call_tool(name, args)
     except Exception as exc:  # noqa: BLE001
@@ -59,7 +61,7 @@ def _build_universe(ctx, inputs):
     """DERIVED universe: every live main-DEX instrument with OI(USD) > minOiUsd, each carrying
     its context block (funding/OI/markPx/volume). One market_list_instruments read.
     Read-guarded — returns [] on failure (the tick then emits nothing, not a crash)."""
-    min_oi_usd = float(inputs.get("minOiUsd", 3_000_000))
+    min_oi_usd = float(inputs.get("minOiUsd", 10_000_000))
     raw = _read(ctx, "market_list_instruments", {"dex": inputs.get("dex", "")})
     if not raw:
         return []
@@ -129,34 +131,19 @@ def _get_sm_map(ctx, min_traders=10):
     return sm_map
 
 
-def _get_funding_history(ctx, asset):
-    """Per-asset funding history (persistence + trend). Read-guarded — None on failure.
-    Parser ported VERBATIM from the v2 producer (v1.5 parser fix): the MCP returns
-    data.data = [{asset, persistence_hours, ...}, ...] (double-nested list keyed by asset)."""
-    r = _read(ctx, "market_get_funding_history", {"asset": asset})
+def _get_hourly_funding(ctx, asset, floor_rate, current_funding):
+    """Persistence + trend from the venue's own HOURLY funding rows (market_get_asset_data
+    funding_history). Read-guarded — None on failure (that candidate is skipped). Replaces the
+    market_get_funding_history read: its annualized rate is 8x too low and its default 20% filter
+    hid all but the most extreme names, so persistence rarely cleared the gate."""
+    r = _read(ctx, "market_get_asset_data", {"asset": asset, "candle_intervals": [],
+                                             "include_funding": True, "include_order_book": False})
     if not r:
         return None
-    outer = r.get("data", r) if isinstance(r, dict) else r
-    rows = outer.get("data") if isinstance(outer, dict) else None
-    if not rows:
+    data = r.get("data", r) if isinstance(r, dict) else None
+    if not isinstance(data, dict):
         return None
-    row = next((x for x in rows if isinstance(x, dict) and x.get("asset") == asset), None)
-    if row is None:
-        return None
-    raw_trend = (row.get("funding_trend") or row.get("trend") or "").upper()
-    # v2-quirk (v1.5): normalize INTENSIFYING/DECAYING -> INCREASING/DECREASING
-    if raw_trend == "INTENSIFYING":
-        trend = "INCREASING"
-    elif raw_trend == "DECAYING":
-        trend = "DECREASING"
-    else:
-        trend = raw_trend
-    return {
-        "persistence_hours": row.get("persistence_hours"),
-        "funding_direction": row.get("funding_direction"),
-        "trend": trend,
-        "annualized_pct": row.get("funding_annualized_pct") or row.get("annualized_pct"),
-    }
+    return scoring.funding_history_stats(data.get("funding_history"), floor_rate, current_funding)
 
 
 def scan(inputs, ctx):
@@ -229,8 +216,8 @@ def scan(inputs, ctx):
         if scoring.regime_confirms_fade(fade_direction, regime) is False:
             continue
 
-        # HARD GATE 2: persistence >= minPersistenceHours (v2-quirk) — needs the funding-history read
-        fh = _get_funding_history(ctx, name)
+        # HARD GATE 2: persistence >= minPersistenceHours (v2-quirk) — needs the hourly funding rows
+        fh = _get_hourly_funding(ctx, name, min_funding_rate, funding)
         if fh is None:
             continue
         ph = fh.get("persistence_hours")

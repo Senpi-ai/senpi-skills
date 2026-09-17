@@ -1,6 +1,8 @@
 """Ant funding-harvester tests. Pure/deterministic + a scan() smoke against a fake
-ctx. Funding uses the REAL market_get_funding_history row shape (pangolin-proven:
-{asset, funding_direction, annualized_pct, persistence_hours, trend}).
+ctx. Funding comes from market_get_asset_data's HOURLY `funding_history` rows
+({coin, fundingRate, premium, time}, read live Sep 17): Hyperliquid funds hourly, so
+APR = rate x 24 x 365 x 100. market_get_funding_history is not used — it annualizes the
+hourly rate as if it were 8h (8x too low) and its field names never matched ant's parse.
 Run: python3 strategies/ant/tests/test_engine.py"""
 import os
 import sys
@@ -28,9 +30,46 @@ def _gentle_up(n=14):
 
 
 def _fund(direction="SHORT", apr=44.0, persist=8.0, trend="STABLE", asset="BTC"):
-    """One market_get_funding_history row (the pangolin/live shape)."""
+    """The funding summary funding_from_history() returns."""
     return {"asset": asset, "funding_direction": direction, "annualized_pct": apr,
             "persistence_hours": persist, "trend": trend}
+
+
+H = 3_600_000
+
+
+def _hourly(rates, t0=1_789_000_000_000):
+    """market_get_asset_data funding_history rows, oldest first, one per hour."""
+    return [{"coin": "BTC", "fundingRate": f"{r:.10f}", "premium": "0", "time": t0 + i * H}
+            for i, r in enumerate(rates)]
+
+
+def test_apr_is_the_hourly_rate_annualized():
+    # 0.0000125/h is Hyperliquid's baseline: 10.95% a year, not 1.37% (the 8h reading)
+    f = scoring.funding_from_history(_hourly([0.0000125] * 10), 30)
+    assert abs(f["annualized_pct"] - 10.95) < 1e-9 and f["funding_direction"] == "SHORT"
+
+
+def test_persistence_counts_the_latest_hours_at_or_above_target():
+    rich = 30 / (24 * 365 * 100) * 1.5                           # 45% APR
+    f = scoring.funding_from_history(_hourly([0.0000125] * 5 + [rich] * 8), 30)
+    assert f["persistence_hours"] == 8 and f["trend"] == "STABLE"
+    f = scoring.funding_from_history(_hourly([rich] * 10 + [0.0000125] + [rich] * 3), 30)
+    assert f["persistence_hours"] == 3                           # a dip below target resets it
+
+
+def test_trend_reads_decaying_and_intensifying_funding():
+    a, b = 0.0001, 0.00004
+    assert scoring.funding_from_history(_hourly([a, a, a, b, b, b]), 30)["trend"] == "DECAYING"
+    assert scoring.funding_from_history(_hourly([b, b, b, a, a, a]), 30)["trend"] == "INTENSIFYING"
+
+
+def test_shorts_paying_reads_long_and_nothing_fails_closed():
+    f = scoring.funding_from_history(_hourly([-0.0001] * 8), 30)
+    assert f["funding_direction"] == "LONG" and f["persistence_hours"] == 0
+    assert scoring.funding_from_history([], 30) is None
+    assert scoring.funding_from_history(None, 30) is None
+    assert scoring.funding_from_history([{"time": 1}], 30) is None
 
 
 def test_funding_signal_gates():
@@ -83,20 +122,18 @@ class _State:
 
 
 class _MCP:
+    def __init__(self): self.calls = []
+
     def call_tool(self, tool, args):
         if tool == "market_list_instruments":
             return {"data": {"instruments": [
                 {"name": "BTC", "context": {"dayNtlVlm": 9e8, "maxLeverage": 10}},
                 {"name": "ETH", "context": {"dayNtlVlm": 8e8, "maxLeverage": 10}}]}}
-        if tool == "market_get_asset_data":
+        self.calls.append(tool)
+        if tool == "market_get_asset_data":                 # live shape: hourly funding_history rows
             return {"data": {"candles": {"1h": _blowoff(), "4h": _blowoff(8)},
+                             "funding_history": _hourly([0.00005] * 12),       # 43.8% APR for 12h
                              "asset_context": {"openInterest": 6e8, "markPx": 1.0}}}
-        if tool == "market_get_funding_history":            # real shape: data.data list of rows
-            return {"data": {"data": [
-                {"asset": "BTC", "funding_direction": "SHORT", "annualized_pct": 44.0,
-                 "persistence_hours": 8.0, "trend": "STABLE"},
-                {"asset": "ETH", "funding_direction": "SHORT", "annualized_pct": 44.0,
-                 "persistence_hours": 8.0, "trend": "STABLE"}]}}
         if tool == "strategy_get_clearinghouse_state":
             return {"data": {"assetPositions": []}}
         return {}
@@ -118,6 +155,15 @@ def test_scan_smoke_shorts_only_and_valid():
         assert 0 < s["marginPct"] <= 20 and 1 <= s["leverage"] <= 4
         assert s["data"]["fundingApr"] > 30
     assert ctx.state.last() is not None
+    assert "market_get_funding_history" not in ctx.senpi_mcp.calls
+
+
+def test_open_interest_is_coin_units_times_mark():
+    import scan
+    # kPEPE-style: a huge coin count at a tiny price is ~$200K of OI, not $20B
+    md = {"asset_context": {"openInterest": "20000000000", "markPx": "0.00001"}}
+    assert abs(scan._oi_of(md) - 200_000.0) < 1e-6
+    assert scan._oi_of({"asset_context": {"openInterest": "5271553.72", "markPx": "101.86"}}) > 5e8
 
 
 if __name__ == "__main__":
