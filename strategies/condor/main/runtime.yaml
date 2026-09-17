@@ -30,14 +30,17 @@ scanners:
     entrypoint: scan.py
     interval_seconds: 180                  # v2 producer cadence (3 min)
     timeout_seconds: 120                   # v2 tick_timeout; 3 universe-level MCP reads/tick
-    default_signal_validity_seconds: 1800
+    default_signal_validity_seconds: 300   # under two 180s ticks. Was 1800: 48 of 110 opens fired 00:00-00:59 UTC when the
+                                           # daily entry cap reset, 69% on a setup first blocked ~2.6h earlier (36% win vs 56%)
     state_history_max_count: 100           # dedup map + per-tick scan-results history (~5h @180s)
     inputs:
       universeSize: 50                     # top N HL crypto by 24h notional volume
       minOiUsd: 1000000                    # OI >= $1M hard floor
       smLimit: 100                         # leaderboard_get_markets aggregation depth
       minScore: 12                         # v2 MIN_SCORE (v3.4 calibration)
-      marginPct: 50                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      marginPct: 20                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable.
+                                           # Was 50: at 10x that is 5x the account in one position, so a -12% stop cost 6%
+                                           # of equity (median drawdown 10.6% live, one wallet -99%)
       maxPositions: 1                      # "one amazing trade per day"
       # SM gates. `minSmConsensusPct: 70` used to live here and gated
       # `pct_of_top_traders_gain` — a share of TOTAL top-trader gain spread across the
@@ -57,7 +60,7 @@ scanners:
       convergentPct: 8                     # SM concentration scoring tier (+3)
       recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC race-window dedup
       # leverageTiers: per-score [min_score, leverage, marginPct(PERCENT)]; omit -> scoring defaults
-      leverageTiers: [[15, 10, 80], [13, 10, 70], [11, 10, 50]]
+      leverageTiers: [[15, 10, 32], [13, 10, 28], [11, 10, 20]]   # margin per score tier, was 80/70/50 (divided by 2.5)
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }
