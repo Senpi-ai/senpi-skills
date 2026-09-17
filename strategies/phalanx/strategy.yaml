@@ -9,7 +9,7 @@
 schema_version: 1
 
 id: phalanx
-version: "1.3.3"
+version: "1.3.4"
 
 catalog:
   name: "Phalanx — Proven-Cohort Rotation"
