@@ -63,6 +63,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-portfolio`](senpi-portfolio/) | 1.26.0 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads |
 | [`senpi-market-pulse`](senpi-market-pulse/) | 1.3.0 | Daily cross-asset market read (crypto, equities, commodities, macro, funding regime) |
 | [`senpi-smart-money`](senpi-smart-money/) | 1.3.0 | Where the most-profitable wallets are positioned vs. the crowd |
+| [`senpi-signals`](senpi-signals/) | 2.0.0 | Non-obvious market developments (funding extremes, proven cohort vs the 4h crowd, momentum events, cross-asset laggards) from one on-demand reading, ranked through a trade lens and a news lens — no cron, no history (compare over periods is v2) |
 | [`senpi-trader-research`](senpi-trader-research/) | 1.4.0 | Rank + vet Hyperliquid traders before copying them (mirror-aware: copyability, min-budget, live book) |
 | [`senpi-improve-trades`](senpi-improve-trades/) | 1.12.0 | Retrospective review + health checks off the **telemetry event log**: exit quality, missed signals, leaks, crashes, "if I'd held" counterfactual |
 | [`senpi-account-status`](senpi-account-status/) | 1.4.0 | Points, loyalty tier, fees, referrals — and the AI-credits usage meter: chat + tool turns spend plan credits; not trading money; the balance is the meter in the app header, which no tool reads. Carries the plan catalog (Starter/Pro/Advanced/Quant) and the free-credit milestone ladder |
@@ -191,7 +192,7 @@ To **build a new strategy**, start with [`senpi-strategy-author`](senpi-strategy
 ```
 senpi-skills/
 ├── senpi-portfolio/  senpi-market-pulse/  senpi-smart-money/      ← analyze
-│   senpi-trader-research/  senpi-improve-trades/  senpi-account-status/
+│   senpi-trader-research/  senpi-improve-trades/  senpi-account-status/  senpi-signals/
 ├── senpi-strategy-discover/  senpi-strategy-author/                ← run a strategy
 │   senpi-strategy-ops/  senpi-trading-runtime/
 ├── senpi-deposit-withdraw-transfer/  senpi-why/                    ← money / positioning
