@@ -8,7 +8,6 @@ import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
 VERSION = "1.3.0"     # shown in the header line, so a stale install is visible at a glance
-FOOTER = "_Analysis of onchain data. Not financial advice._"
 
 
 def pct_cost(x):
@@ -428,10 +427,10 @@ def render_deep(mode, d, r):
             atr = "—" if x["atr_pct"] is None else "{:.1f}%".format(x["atr_pct"])
             out.append("| {} | {} | {:,.4g} | {:,.4g} | {:.1f}% | {} | {:,.4g} | {} | {} |".format(x["coin"], x["side"], x["mark"], x["hard_stop"], x["hard_stop_pct"], atr, x["lock_arms_at"], pct(x["covered_now"]), x["note"]))
         out += ["", "The hard stop sits beyond one and a half days of normal range and above the liquidation price; the lock trails at half the peak gain once the trade is two ranges in the money. One signature on positions you already hold — no deposit."]
-        return "\n".join(out) + "\n\n" + FOOTER
+        return "\n".join(out)
     if mode == "replay":
         if not d or d.get("empty"):
-            return "No losing week in the window.\n\n" + FOOTER
+            return "No losing week in the window."
         out = ["## Your worst week", "", f"Week of {datetime.datetime.fromtimestamp(d['start'] / 1000, datetime.timezone.utc).strftime('%Y-%m-%d')}: **{usd(d['realized'], signed=True)}** over {d['trades']} trades ({d['losers']} losers).", "",
                "| Coin | Side | Hold | Realized |", "|---|---|---:|---:|"]
         out += [f"| {e['coin']} | {e['direction']} | {hrs(e['hold_h'])} | {usd(e['realized'], signed=True)} |" for e in d["biggest"]]
@@ -440,40 +439,40 @@ def render_deep(mode, d, r):
                 out.append(f"\n**{label}** on exactly these trades: " + ", ".join(f"{k}: {usd(v['total'], signed=True)}" for k, v in g["settings"].items() if v["n"]) + (f" → robust {usd(g['robust'], signed=True)}" if g.get("robust") else " → not robust; would not have helped"))
         if d.get("green_first") is not None:
             out.append(f"\n{pct(d['green_first'])} of that week's losers were green first.")
-        return "\n".join(out) + "\n\n" + FOOTER
+        return "\n".join(out)
     if mode == "funding":
         out = ["## Funding — next 30 days at today's rates", "", "| Coin | Side | Notional | Rate | Per day | 30 days | Paid since open |", "|---|---|---:|---:|---:|---:|---:|"]
         out += [f"| {x['coin']} | {x['side']} | {usd(x['notional'])} | {x['rate_bp_8h']:+.1f} bp/8h | {usd(x['per_day'], signed=True)} | {usd(x['thirty_days'], signed=True)} | {usd(x['since_open'], signed=True)} |" for x in d["rows"]]
         out.append(f"\nTotal: **{usd(d['thirty_days'], signed=True)}** over 30 days" + (f" — {pct(d['share_of_equity'])} of your equity" if d.get("share_of_equity") is not None else "") + (f". The payers: {', '.join(d['payers'])}." if d.get("payers") else "."))
-        return "\n".join(out) + "\n\n" + FOOTER
+        return "\n".join(out)
     if mode == "compare":
         rc, pr = d.get("recent"), d.get("prior")
         if not rc or not pr:
-            return "Not enough trades in both windows to compare.\n\n" + FOOTER
+            return "Not enough trades in both windows to compare."
         rows = [("Trades", rc["trades"], pr["trades"], None), ("Win rate", rc["win_rate"], pr["win_rate"], "%"), ("Profit factor", rc["pf"], pr["pf"], "x"), ("Realized", rc["realized"], pr["realized"], "$"),
                 ("Fees", rc["fees"], pr["fees"], "$"), ("Avg size", rc["avg_size"], pr["avg_size"], "$"), ("Median hold — winners", rc["hold_w"], pr["hold_w"], "h"), ("Median hold — losers", rc["hold_l"], pr["hold_l"], "h"), ("Taker share", rc["taker"], pr["taker"], "%")]
         out = ["## Last 30 days vs the 60 before", "", "| Metric | Last 30d | Prior 60d |", "|---|---:|---:|"]
         for m, a, b, u in rows:
             f = (lambda v: "—" if v is None else (f"{v:,.0f}" if u is None else (usd(v) if u == "$" else num(v, u))))
             out.append(f"| {m} | {f(a)} | {f(b)} |")
-        return "\n".join(out) + "\n\n" + FOOTER
+        return "\n".join(out)
     if mode == "rules":
         out = ["## Your strategy as a rule set", ""]
         out += [f"- **Entry setups:** {'; '.join(d['entries']) if d['entries'] else 'no setup clears the bar yet'}", f"- **Entry timing:** {d['entry_rule']}", f"- **Holding:** {d['hold_rule']}", f"- **Sizing:** {d['size_rule']}", f"- **Risk:** {d['risk_rule']}", f"- **Catalog families:** {', '.join(f.replace('_', ' ') for f in d['families'])}", "", d["handoff"] + "."]
-        return "\n".join(out) + "\n\n" + FOOTER
+        return "\n".join(out)
     if mode == "regime":
         rr = dict(r); rr["context"] = dict(r.get("context") or {}, breadth=dict((r.get("context") or {}).get("breadth") or {}, day=d.get("today")))
-        return context(rr) + "\n\n" + FOOTER
+        return context(rr)
     if mode == "watch":
         out = ["## What your agents would watch", ""] + [f"- {x}" for x in d["items"]] + ["", "Say *hire my quant* to keep them on your book."]
-        return "\n".join(out) + "\n\n" + FOOTER
+        return "\n".join(out)
     if mode == "smart":
-        return smart_v2(dict(r, cohorts=d.get("cohorts"))) + "\n\n" + FOOTER
+        return smart_v2(dict(r, cohorts=d.get("cohorts")))
     if mode == "scout":
-        return scout(dict(r, opportunities=d.get("opportunities"))) + "\n\n" + FOOTER
+        return scout(dict(r, opportunities=d.get("opportunities")))
     if mode == "strategy":
-        return strategy(dict(r, strategy=d)) + "\n\n" + FOOTER
-    return FOOTER
+        return strategy(dict(r, strategy=d))
+    return ""
 
 
 def next_steps_other(r):
@@ -539,7 +538,6 @@ def render_compare(rs):
         seps.append("protection: " + ", ".join(f"`{a}` {n} unprotected" for n, a in naked))
     if seps:
         out += ["", "**What separates them**"] + [f"- {s}" for s in seps]
-    out += ["", FOOTER]
     import voice
     return voice.third_person("\n".join(out))
 
@@ -555,7 +553,6 @@ def render(r, sections=None):
     meta = r.get("meta") or {}
     if meta.get("warnings"):
         parts.append("_Notes: " + " · ".join(meta["warnings"]) + "_\n")
-    parts.append(FOOTER)
     md = "\n".join(parts)
     if r.get("whose") == "other":
         import voice

@@ -235,7 +235,7 @@ def test_fixture_pipeline_end_to_end():
     assert r["quant_score"] and r["archetype"] and r["verdict"] and r["flags"] and r["leaks"] and r["smart"]["rows"]
     assert not any("public API" in w for w in r["meta"]["warnings"])                                   # coverage is measured, never apologised for
     md = __import__("render").render(r)
-    for s in ("Quant score", "protection audit", "Leaks", "You vs smart money", "Market fit", "Where your edge", "Not financial advice"):
+    for s in ("Quant score", "protection audit", "Leaks", "You vs smart money", "Market fit", "Where your edge"):
         assert s in md
     assert "1606" not in md and "3822" not in md                                                      # no absurd hold ratios on a thin sample
 
@@ -413,7 +413,6 @@ def test_deep_modes_run_on_a_cached_analysis():
         data = {"protect": p, "funding": deep.funding_forecast(r), "compare": deep.compare_windows(r), "rules": deep.rules(r), "watch": deep.watch(r), "regime": deep.regime(r),
                 "smart": {"cohorts": r["cohorts"]}, "scout": {"opportunities": r["opportunities"]}, "strategy": r["strategy"]}[mode]
         md = __import__("render").render_deep(mode, data, r)
-        assert "Not financial advice" in md
 
 
 # ---------------------------------------------------------------- someone else's book: voice, follow-ups, compare
@@ -439,7 +438,7 @@ def test_other_book_follow_ups_and_compare_render():
     assert "Your quant is ready to go deeper" in md
     r2 = dict(r, address="0x" + "9" * 40, quant_score=r["quant_score"] + 7)
     cmp_ = __import__("render").render_compare([r, r2])
-    assert "Side by side" in cmp_ and "Quant score" in cmp_ and "Verdicts" in cmp_ and "Not financial advice" in cmp_
+    assert "Side by side" in cmp_ and "Quant score" in cmp_ and "Verdicts" in cmp_
 
 
 def test_cli_compare_offline(tmp_path):
@@ -697,3 +696,13 @@ def test_desk_is_chat_shaped_and_never_apologises_for_its_sources():
     assert f"· v{render.VERSION}" in md and "Ledger over 90 days:" in md and "Closed trades (" in md
     skill = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
     assert f'version: "{render.VERSION}"' in skill
+
+
+def test_the_desk_carries_no_per_response_disclaimer():
+    """senpi is disclaimered at the product level (Jason, 2026-09-17), so repeating it under every
+    desk, every deep dive and every comparison is noise. It also carried the data-source mention the
+    desk voice rules forbid. Nothing the renderer emits says it."""
+    import pathlib as _pl
+    src = (_pl.Path(__file__).resolve().parents[1] / "scripts" / "render.py").read_text(encoding="utf-8")
+    assert "financial advice" not in src.lower()
+    assert "FOOTER" not in src

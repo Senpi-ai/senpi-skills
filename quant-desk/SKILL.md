@@ -70,7 +70,7 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    user gives on positions they already hold; funding a quant is only for autonomous trading. Never
    imply senpi holds or moves their funds.
 6. **Say "quant", "desk", "agents", "leak", "protect".** Never "report", "analyst", "bot", "AI assistant".
-   Lowercase `senpi`. No outcome guarantees. Close with the footer the script prints.
+   Lowercase `senpi`. No outcome guarantees. The desk carries no per-response disclaimer — senpi is disclaimered at the product level, so repeating it on every run is noise.
 7. **Address hygiene and whose book it is.** Show the address shortened (`0x2999…65de`). Never post
    the desk of a wallet the user did not name. A bare address is the user's own book: "run quant desk on
    0x…" means the user is 0x… — run it plain and speak to them. "Run quant desk analyst on 0x…" (or
@@ -164,7 +164,6 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
     setup fits how this trader wins, ranked and explained; "already moved today — a chase" is a demerit.
 12. **What your quant would do next** — protect first · fix the biggest leak · keep the agents on.
 12b. **Your quant is ready to go deeper** — three to five follow-ups from the bank of ten.
-13. Footer: _Analysis of onchain data. Not financial advice._
 
 ## Reading the sources (what to say when asked "where does this come from")
 
