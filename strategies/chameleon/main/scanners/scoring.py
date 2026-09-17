@@ -125,9 +125,13 @@ def build_pair_thesis(pair, closes_by_asset, candles_by_asset, sm, entry_cfg):
     if direction is None:
         return None
 
-    # Reversion must be starting, not still extending: |z| one bar ago > |z| now.
+    # Reversion must be starting, not still extending: |z| one bar ago > |z| now. This is a GATE, not
+    # a point: as a +1 a still-stretching pair cleared the floor on extremity alone and the strategy
+    # entered before the reversion its own card waits for ("EMIT ETH SHORT z=2.14 score=4" while z
+    # kept rising to 2.37).
     zr_prev = ratio_zscore(ca[:-1], cb[:-1], lookback)
-    turning = bool(zr_prev and abs(z) < abs(zr_prev[0]))
+    if not (zr_prev and abs(z) < abs(zr_prev[0])):
+        return None
 
     sm_dir, sm_tilt = sm if sm else (None, 0.0)
     sm_min = float(entry_cfg.get("smTiltMinPct", DEFAULT_SM_TILT_MIN))
@@ -139,9 +143,6 @@ def build_pair_thesis(pair, closes_by_asset, candles_by_asset, sm, entry_cfg):
     if abs(z) >= z_strong:
         score += 2
         reasons.append(f"z_extreme_{z:+.2f}")
-    if turning:
-        score += 1
-        reasons.append("ratio_turning")
     if sm_dir == direction and sm_tilt >= sm_min:
         score += 1
         reasons.append(f"sm_confirms_{sm_tilt:.0f}%")
@@ -158,7 +159,7 @@ def build_pair_thesis(pair, closes_by_asset, candles_by_asset, sm, entry_cfg):
         "zscore": round(z, 3),
         "ratio": round(ratio, 6),
         "ratio_mean": round(mean, 6),
-        "turning": turning,
+        "turning": True,          # a gate now: a thesis only exists once the ratio has started to turn
         "sm_direction": sm_dir if sm_dir else "NONE",
         "sm_tilt_pct": float(sm_tilt) if isinstance(sm_tilt, (int, float)) else 0.0,
         "leg_volume_trend_pct": round(leg_vol, 2),

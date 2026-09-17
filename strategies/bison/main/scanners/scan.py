@@ -58,8 +58,10 @@ def _sm_row_matches(row, token, target):
 _ALLOWED_ASSETS_DEFAULT = ["BTC", "ETH", "SOL"]
 _DEFAULT_RECENT_TTL = 180        # v3.0.1 RECENT_SIGNAL_TTL_SEC — race-window dedup
 _DEFAULT_TIERS = [[12, 1.5], [10, 1.25]]   # informational; tiering lives in scoring.margin_tier_pct
-_MAX_LEVERAGE = 10               # v2.1 MAX_LEVERAGE (hardcoded, not configurable)
-_MIN_LEVERAGE = 7                # v2.1 MIN_LEVERAGE (hardcoded, not configurable)
+# Was 7-10x (v2.1). At 10x the 8%-of-margin phase-1 cap is a 0.8% price move, and 77 of 132 closes
+# were stops at -6.1% ROE — 64% of them traded back through entry within 4h on a multi-day thesis.
+_MAX_LEVERAGE = 5
+_MIN_LEVERAGE = 4
 
 
 def _dex_for(asset):
