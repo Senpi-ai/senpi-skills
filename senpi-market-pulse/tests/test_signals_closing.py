@@ -28,6 +28,27 @@ def test_every_run_ends_with_the_brief_and_one_question():
     assert "Run `python3 scripts/sweep.py --print-feed` from the senpi-signals folder" in SKILL
 
 
+def test_the_4h_leader_layer_is_never_called_smart_money():
+    """The overlay is leaderboard_get_markets — who is WINNING in the last 4h, survivorship included.
+    senpi-signals' smart money is the >= $1M lifetime-realized cohort, and the two are regularly on
+    opposite sides of the same name in the same answer (live, Sep 17: the overlay had ZEC and HYPE long,
+    the signals brief had the cohort short both). Whatever the JSON key is called, the words the reader
+    sees must say which population it is."""
+    assert "**4h leaders**" in SKILL
+    assert "Never call it smart money" in SKILL
+    assert ">= $1M lifetime-realized cohort" in SKILL
+    assert "the >$1M cohort is X% concentrated short HYPE" not in SKILL     # the old, wrong example
+
+
+def test_a_missing_move_is_not_printed_as_flat():
+    assert "A missing change is `—`, never `0.00%`" in SKILL
+
+
+def test_the_question_does_not_offer_to_mirror_a_4h_winner():
+    q = SKILL[SKILL.index("**Want the full Senpi Signals sweep?"):]
+    assert "traders to mirror" not in q[:400]
+
+
 def test_the_strategy_route_offers_athena_first():
     route = SKILL[SKILL.index("**Strategy → Athena first, or one built for this market.**"):]
     assert route.index("**Athena**") < route.index("**senpi-strategy-author**")
