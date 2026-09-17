@@ -127,6 +127,8 @@ grep `strategies/catalog.json` by its `archetype` field (a closed set; every pac
 No I/O, no MCP, no clock, no state — just functions over candles/numbers, so it unit-tests without mocks.
 
 > **Candle schema (`market_get_asset_data`):** keys `t,o,h,l,c,v` (+ `T,s,i,n`). Close is `candle["c"]` — there is no `candle["close"]`. Values may arrive as **strings** — always read numerics through `_f()` below (`float` of a number is a no-op, so it's correct on every runtime version and every tool). Type contract: `senpi-trading-runtime/references/scan-contract.md` → "Market data types".
+>
+> **Candle times are epoch milliseconds; `time.time()` is seconds.** `t` is the candle's open time and `T` its close time, both in ms. A candle has closed when `_f(c["t"]) / 1000 + candle_seconds <= now`: `candle_seconds` is the candle interval (`4h` = 14400, not the scanner's `interval_seconds`), and `now = time.time()` is read in `scan.py` and passed in. Comparing `t` to `time.time()` directly means no candle ever closes, so the scanner never emits.
 
 ```python
 def _f(v, d=0.0):
