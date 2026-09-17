@@ -148,14 +148,14 @@ def _cohort_headcount(ctx, cohort, inputs):
     where raw_coin carries the venue prefix (xyz:NVDA) for the first sighting.
     """
     batch = int(scoring._f(inputs.get("stateBatch"), 50))
-    states, any_ok = [], False
+    states, failed = [], []
     for i in range(0, len(cohort), batch):
         d = _read(ctx, "discovery_get_trader_state",
                   {"trader_addresses": cohort[i:i + batch]},
                   f"discovery_get_trader_state(b{i // batch})")
         if d is None:
+            failed.append(i // batch)
             continue
-        any_ok = True
         # d might be a list of trader states or a dict wrapping one
         if isinstance(d, list):
             states.extend(d)
@@ -167,8 +167,10 @@ def _cohort_headcount(ctx, cohort, inputs):
             else:
                 states.append(d)  # single trader state
 
-    if not any_ok:
-        print("[starling.scan] all trader_state batches failed — no headcount this tick",
+    if failed:
+        # A partial read is not a reading: the failed batch's wallets would count as the cohort leaving
+        # their positions, and saved as the baseline they would count as growth on the next full read.
+        print(f"[starling.scan] trader_state batch(es) {failed} failed — no headcount this tick",
               file=sys.stderr)
         return {}
 
