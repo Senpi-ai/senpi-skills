@@ -15,10 +15,21 @@ import portfolio  # noqa: E402
 SKILL = os.path.join(HERE, "..", "SKILL.md")
 
 
-def _row(coin, szi, pnl):
-    # the real discovery_get_trader_history shape: strings, signed szi (>0 closed a long)
-    return {"coin": coin, "szi": str(szi), "realizedPnl": str(pnl), "closeTime": 1789380778,
-            "entryPx": "1", "exitPx": "1"}
+def _row(coin, size, pnl, side="long"):
+    # the real discovery_get_trader_history shape: strings, the side labelled in `type` ("Close Long" /
+    # "Close Short"), and an UNSIGNED at-close `szi` — a closed short carries a positive size too
+    return {"coin": coin, "type": "Close " + side.capitalize(), "szi": str(size), "realizedPnl": str(pnl),
+            "closeTime": 1789380778, "entryPx": "1", "exitPx": "1"}
+
+
+# A closed short exactly as the API sends it (values altered): the side is in `type`, `szi` is positive.
+REAL_CLOSED_SHORT = {
+    "closedOrderId": "545000000000", "coin": "ENA", "coinDisplayName": "ENA", "entryPx": "0.1423",
+    "exitPx": "0.14266", "leverage": {"type": "", "value": 5}, "maxLeverage": 5, "openTime": 1789476612,
+    "closeTime": 1789477190, "szi": "1877", "realizedPnl": "-0.67572", "marginUsed": "53.40065",
+    "type": "Close Short", "totalFills": "2", "totalFees": "0.498496", "totalBuilderFees": "0.267434",
+    "totalHyperliquidFees": "0.231062",
+}
 
 
 class _Client:
@@ -34,8 +45,8 @@ class _Client:
 # losing longs, which is exactly the sample a narration must not turn into a win rate.
 ROWS = ([_row("ZEC", 0.35, -3.815), _row("PONS", 12, -4.95), _row("LIT", 3, -0.82), _row("BTC", 0.001, -0.59),
          _row("ETH", 0.1, -1.1)]
-        + [_row("SOL", 1, 2.0)] * 4 + [_row("HYPE", -2, 1.5)] * 5
-        + [_row("DOGE", -50, -0.4)] * 2 + [_row("ARB", 5, -0.7)] * 3
+        + [_row("SOL", 1, 2.0)] * 4 + [_row("HYPE", 2, 1.5, side="short")] * 5
+        + [_row("DOGE", 50, -0.4, side="short")] * 2 + [_row("ARB", 5, -0.7)] * 3
         + [_row("LINK", 1, 0.0)])
 
 
@@ -84,9 +95,34 @@ def test_malformed_rows_are_not_in_the_denominator():
     assert closed["win_rate_pct"] == 0.0
 
 
-def test_a_missing_size_is_neither_long_nor_short():
-    row = _row("BTC", 1, 2.0)
-    del row["szi"]
-    closed = portfolio.fetch_closed(_Client([row, _row("ETH", -1, 1.0)]), "0x" + "c" * 40, {})
-    assert closed["longs"] == 0 and closed["shorts"] == 1 and closed["unknown_side"] == 1
-    assert closed["recent"][0]["direction"] is None and closed["recent"][1]["direction"] == "short"
+def test_a_closed_short_carries_a_positive_size_and_still_reads_as_a_short():
+    # the side lives in `type`; the at-close size is unsigned, so a sign test would call every short a
+    # long. The label is matched case-insensitively and is enough on its own — no size needed.
+    lower = _row("ETH", 1, 1.0, side="short")
+    lower["type"] = "close SHORT"
+    label_only = _row("HYPE", 1, 1.0, side="short")
+    del label_only["szi"]
+    closed = portfolio.fetch_closed(_Client([REAL_CLOSED_SHORT, lower, label_only, _row("SOL", 1, 2.0)]),
+                                    "0x" + "d" * 40, {})
+    assert closed["shorts"] == 3 and closed["longs"] == 1 and closed["unknown_side"] == 0
+    assert [r["direction"] for r in closed["recent"]] == ["short", "short", "short", "long"]
+    assert closed["recent"][0]["asset"] == "ENA" and closed["recent"][0]["realized_pnl"] == -0.68
+
+
+def test_without_a_side_label_the_side_is_unknown_whatever_the_size_or_pnl_suggests():
+    # Only a label decides the side. None of these unlabelled rows is read as a side: a signed size, the real
+    # feed's unsigned size (positive on a short too), PnL against the price move (this row's PnL and move
+    # disagree in sign, so an inference would call it a short), and a buy / sell side (on a closed row that
+    # can be the closing fill, the opposite side).
+    signed, unsigned, pnl_against_move, closing_fill = (_row("ETH", -1, 1.0), _row("BTC", 1, 2.0),
+                                                        _row("SOL", 0, -0.05), _row("ARB", 1, 1.0))
+    pnl_against_move["entryPx"], pnl_against_move["exitPx"] = "100", "100.2"
+    closing_fill["side"] = "sell"
+    for r in (signed, unsigned, pnl_against_move, closing_fill):
+        del r["type"]
+    rows = [signed, unsigned, pnl_against_move, closing_fill, _row("HYPE", 1, 1.0, side="short")]
+    closed = portfolio.fetch_closed(_Client(rows), "0x" + "c" * 40, {})
+    assert closed["longs"] == 0 and closed["shorts"] == 1 and closed["unknown_side"] == 4
+    # an unknown side still counts in the record
+    assert closed["trade_count"] == 5 and closed["winners"] == 4 and closed["losers"] == 1
+    assert [r["direction"] for r in closed["recent"]] == [None, None, None, None, "short"]
