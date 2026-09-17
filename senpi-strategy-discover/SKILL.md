@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.30.0"
+  version: "2.31.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -171,8 +171,8 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
       mirror — it blends proven + hot and ranks by who you can actually copy *right now*, so **the user never
       picks a window.** For the **hands-off** route, managed copy templates come in **two flavors — surface
       both, don't show only one**: *copy specific traders* (**Shadow / Remora / Raptor / Cuckoo / Oxpecker /
-      Jackal** — mirror a trader's fresh entries or book) **and** *follow the smart money by signal* (**Athena / Stingray
-      / Starling / Whalehunter / Phalanx** — position by where the whole proven cohort leans, many traders at once, not
+      Jackal** — mirror a trader's fresh entries or book) **and** *follow the smart money by signal* (**Athena / Phalanx
+      / Starling / Whalehunter / Pilotfish** — position by where the whole proven cohort leans, many wallets at once, not
       1:1; Athena is Phalanx with its Aegis hedge as one fund). All auto-apply DSL + budget-relative sizing. (`senpi-trade` carries the full flavor breakdown.)
    5. 🏆 "Just run what's set up best right now?" → *read the market*, lead with the best current setup
       (be honest — see "What's winning" in Special paths; there's no per-package performance board).
@@ -196,8 +196,10 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
      good?"). Never invent a number the user hasn't confirmed, and never default everyone to the floor.
    - If funds are unavailable (`user_context` missing/errored), ask for the budget rather than assuming.
    - **"Can I try it first / paper trade it?"** — there is no paper-trading mode. The trial IS a live run at
-     the floor (`min_budget`, about $10 per wallet), after `senpi validate` proves it runs; say so, and never
-     offer to watch it on a timer — an `openclaw cron` job is a model call per firing, not a simulation.
+     the floor, after `senpi validate` proves it runs — and the floor is the card's `min_budget`, which is
+     the number to quote. The $10 platform floor is the per-wallet minimum inside it, never the number to
+     give a user. Say so, and never offer to watch it on a timer — an `openclaw cron` job is a model call
+     per firing, not a simulation.
 
    Optionally `discover.py --context-only` to reference holdings (confirm first; never silently infer).
    Then run the engine with the FULL concrete flag set (this run does the live market read), **rank the

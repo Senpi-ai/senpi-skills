@@ -352,7 +352,7 @@
       "archetype": "contrarian_fade",
       "archetype_label": "Contrarian / Fade",
       "sub_style": "risk_off_rotation",
-      "sub_style_label": "Shorts the crypto block when smart money rotates out and longs are crowded — a risk-off hedge.",
+      "sub_style_label": "Shorts the crypto block when the 4h leaders rotate out and longs are crowded — a risk-off hedge.",
       "asset_classes": [
         "btc_eth",
         "major_alts",
