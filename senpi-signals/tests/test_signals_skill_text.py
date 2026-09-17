@@ -118,8 +118,15 @@ def test_the_mispricing_vocabulary_routes_here_and_stays_an_observation():
     for trigger in ("find what's mispriced", "where is the market wrong", "find dislocations",
                     "what's out of line"):
         assert trigger in front, trigger
+    body = SKILL.read_text(encoding="utf-8")
     skill = _flat(SKILL)
-    assert "gap between two things the sweep actually read" in skill
     assert "never a fair-value judgment" in skill
     assert 'never "HYPE is overpriced"' in skill
+    # ONCE, and in golden rule 2 — a rebase across a section deletion re-attached a copy of this
+    # paragraph to the previous section while a second copy lived in the rule, and every assertion
+    # above passed against both. "Present somewhere" is not the claim; "stated once, where the rule
+    # that forbids the crossing lives" is.
+    assert body.count("gap between two things the sweep actually read") == 1, "the fence is duplicated"
+    rule2 = body[body.index("2. **Observation, not advice.**"):body.index("3. **")]
+    assert "gap between two things the sweep actually read" in rule2, "the fence drifted out of rule 2"
     assert "Every user has it." in skill

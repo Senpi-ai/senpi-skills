@@ -69,13 +69,6 @@ survivorship-biased. **Never call the board number "smart money is long/short"**
 hot in the last 4h", and treat it as *color (fwiw)*, never a standalone headline. When the two
 disagree, **that gap is itself the story** — report both, correctly labeled.
 
-**"Mispriced", "dislocated", "out of line", "where the market is wrong"** all land here, and they mean
-one thing in this skill: a **gap between two things the sweep actually read** — the proven cohort
-against the 4h crowd, funding against positioning, a laggard against its basket. It is **never a
-fair-value judgment**: the sweep carries no model of what anything is worth, so it can say "the cohort
-is 78% short HYPE while the 4h board is long" and never "HYPE is overpriced". Answer with the reads
-and their numbers; the word the user chose does not license a valuation claim.
-
 ## Two lenses, two audiences (why every signal gets two scores)
 
 The same signals serve two jobs, so `score.py` scores each one **twice** and returns **two ranked
