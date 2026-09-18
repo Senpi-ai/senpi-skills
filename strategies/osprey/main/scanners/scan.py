@@ -70,10 +70,17 @@ def _sm_row_matches(row, token, target):
 
 # v2 defaults (osprey-producer.py / osprey-config.json)
 _DEFAULT_LEADER = "BTC"
+# Betas are MEASURED, not assumed: realized beta vs BTC = cov(proxy, BTC)/var(BTC) over 720 hourly
+# bars (30 days) to 2026-09-18, from Hyperliquid candles. The previous values (COIN 1.8, MSTR 2.5)
+# ran 40-45% above realized, and this scanner multiplies the leader's move BY beta to decide what a
+# proxy "owes" — so an overstated beta does not make it cautious, it manufactures catch-up gaps that
+# were never there. Names are kept only where BTC explains the moves (R^2 0.71 / 0.54); BMNR, HOOD
+# and IREN measured 0.47/0.24/0.06 and were rejected. Mirrors runtime.yaml — keep the two in sync.
 _DEFAULT_PROXIES = [
-    {"proxy": "xyz:COIN", "beta": 1.8},
-    {"proxy": "xyz:MSTR", "beta": 2.5},
+    {"proxy": "xyz:MSTR", "beta": 1.73},
+    {"proxy": "xyz:COIN", "beta": 1.28},
 ]
+
 _DEFAULT_MOVE_LOOKBACK = 4            # 1h bars — the "recent move" window for both legs
 _DEFAULT_MIN_LEADER_MOVE = 2.0       # leader must move at least this % to matter
 _DEFAULT_MIN_SCORE = 4               # v2 DEFAULT_MIN_SCORE

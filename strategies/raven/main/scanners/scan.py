@@ -144,8 +144,17 @@ def _recalibrate(ctx, inputs, state, now):
         return cur_min, cur_scale, {"n": -1}, "history unreadable — holding calibration"
     stats = scoring.track_record(closed, scoring._f(inputs.get("historyTrades"), 40))
     if stats.get("n", 0) == 0:
-        print("[raven.scan] WARNING: 0 closed trades parsed from history — holding "
-              "(verify discovery_get_trader_history payload shape)", file=sys.stderr)
+        # Zero parsed from zero rows is a strategy that has not closed a trade yet — true of every
+        # deploy on its first day, and not a defect. Zero parsed from rows that DID arrive is a
+        # payload-shape problem. Warning about the shape in both cases cried wolf on every new
+        # wallet, which is how a real parse failure would have gone unnoticed.
+        if closed:
+            print(f"[raven.scan] WARNING: {len(closed)} history rows returned but 0 parsed — "
+                  "holding calibration (verify discovery_get_trader_history payload shape)",
+                  file=sys.stderr)
+        else:
+            print("[raven.scan] no closed trades yet — holding the initial calibration",
+                  file=sys.stderr)
     min_score, size_scale, note = scoring.adapt(stats, state, inputs)
     return min_score, size_scale, stats, note
 

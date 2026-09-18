@@ -32,7 +32,7 @@ scanners:
     state_history_max_count: 100
     inputs:
       asset: "BTC"                         # the ONE market the whole pyramid stacks into
-      unitIndex: 2                         # BASE rung — arms at the breakout (offset 0 x N)
+      unitIndex: 2                         # rung 3/4 — arms once price is +1N past the breakout
       candleInterval: "1d"                 # Turtle is a daily-breakout system
       breakoutLookback: 20                 # Turtle System 1: the 20-day channel
       atrPeriod: 20                        # N = 20-day ATR
