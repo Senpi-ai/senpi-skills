@@ -16,7 +16,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.2.0"
+  version: "2.3.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -201,7 +201,7 @@ python3 scripts/sweep.py                # debugging: run JSON, coverage lines, r
 
 Everything that needs an earlier reading — whale **adds and flips**, OI surges, funding flips,
 conviction jumps, the cohort's positioning trend and base-unit flow — is v2. (A whale **open** is
-not among them: the position carries its own age, so it ships in 2.2.) Where that history lives is v2's decision,
+not among them: the position carries its own age, so it ships in 2.3.) Where that history lives is v2's decision,
 kept on Senpi's side rather than on a user's box, so nothing here schedules, deploys or funds anything.
 
 ## How every run ends — one question
