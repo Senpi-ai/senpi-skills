@@ -50,8 +50,13 @@ assembles it. Per asset (top-N of `market_list_instruments` by day notional volu
 | `whale_move` *(in score.py)* | the same `discovery_get_trader_state` books, diffed per wallet against the previous sweep's snapshot | **v2** — 2.0 keeps no previous snapshot, so it never fires; `leaderboard_get_trader_positions` carries only a 4h P&L delta, which is not a move |
 
 `current.json` also carries `coverage` (per source: `ok (…)` / `failed: <tool>: <err>` / `NO DATA` /
-`unavailable`), `source_trader_count`, `reads` and `reads_failed`. A read that fails
-degrades its fields for that run and is named there — it never crashes the sweep.
+`unavailable`), `source_trader_count`, `reads`, `reads_failed` and `reads_skipped`. A read that fails
+degrades its fields for that run and is named there — it never crashes the sweep. The run is also
+bounded in wall-clock time (45s on `--brief`, 100s on `--print-feed`): a read is not started once
+what is left cannot pay for it, which is what `reads_skipped` counts. The cheap market reads run
+first and the proven cohort last, so the lens that goes dark on a slow upstream is the expensive one
+— and `NO DATA: … not started …` is a different fact from `failed:`, which named a read that was
+actually made.
 
 ---
 

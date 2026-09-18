@@ -65,9 +65,35 @@ def test_near_term_present_when_healthy():
 
 
 def test_cohorts_unavailable_flag_on_empty():
-    """No discovery data (e.g. app-scoped token) → flagged honestly, no exception."""
+    """No discovery data → flagged honestly, no exception, and named as what it was: a read that
+    SUCCEEDED and returned nothing. That is the app-scoped-token case, so the token note belongs
+    on this branch and only on it."""
     res = smartmoney.run(smartmoney._FixtureClient({}), want_near=True)
-    assert res["meta"].get("cohorts_unavailable")
+    cu = res["meta"].get("cohorts_unavailable")
+    assert cu and "succeeded and returned no traders" in cu
+    assert "USER-scoped SENPI_AUTH_TOKEN" in cu
+    assert res["smart_leaning"] == [] and res["divergences"] == []
+
+
+class _DeadDiscoveryClient:
+    """Every discovery read times out (the upstream trader-data degradation of 2026-09-18); the rest
+    of the engine reads offline-empty."""
+
+    def mcp_call(self, tool, timeout=12, **kw):
+        if tool.startswith("discovery_"):
+            raise TimeoutError("timed out")
+        return None
+
+
+def test_a_failed_cohort_read_is_never_reported_as_a_token_problem():
+    """An empty successful read and a failed read are different facts and must not render as the
+    same sentence. `cohorts_unavailable` asserted the token scope for both, so a timed-out cohort
+    read presented to the agent — and to whoever read the output — as an auth misconfiguration."""
+    res = smartmoney.run(_DeadDiscoveryClient(), want_near=False)
+    cu = res["meta"].get("cohorts_unavailable")
+    assert cu and "read failed" in cu
+    assert "timed out" in cu                       # the recorded failure is quoted, not guessed at
+    assert "SENPI_AUTH_TOKEN" not in cu and "app-scoped" not in cu
     assert res["smart_leaning"] == [] and res["divergences"] == []
 
 

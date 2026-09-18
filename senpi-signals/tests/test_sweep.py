@@ -379,3 +379,157 @@ def test_brief_names_a_failed_source_in_one_plain_line(state_dir, monkeypatch, c
     out = capsys.readouterr().out.strip()
     assert out.endswith("_Not measured this run: the 4h leaderboard._")
     assert "leaderboard_get_markets" not in out
+
+
+# ──────────────────────────────────────────────── the per-read budget (it has to reach the socket)
+def test_the_budget_a_read_asks_for_reaches_the_socket(state_dir, monkeypatch, capsys):
+    """`Client.mcp_call(tool, timeout=..., **kw)` bound `timeout` to its own parameter and forwarded
+    only `kw`, so every read silently ran on the transport's 12s default — including the cohort
+    reads the vendored engine asks 20s for. The MCP server's own upstream budget is 20s, so a 12s
+    client budget abandons every read that takes 12-20s before the server can answer it, and the
+    server keeps working a query it can no longer deliver. On a slow upstream that is the whole
+    smart-money lens, on about half the runs. Counting is the only way to see it: the sweep still
+    lands either way, it just loses the lens it is named after."""
+    seen = {}
+
+    class _Client:
+        def mcp_call(self, tool, timeout=12, **kw):
+            seen.setdefault(tool, []).append(timeout)
+            return fake_call_tool(tool, kw)
+
+    fake_mod = type(sys)("mcp_client")
+    fake_mod.MCPClient = _Client
+    monkeypatch.setitem(sys.modules, "mcp_client", fake_mod)
+    assert sweep.main(["--now", NOW]) == 0
+    capsys.readouterr()
+    for tool in sweep.COHORT_TOOLS:
+        # the budget must OUTLIVE the server's 20s upstream budget, or the client always gives up first
+        assert seen[tool] and min(seen[tool]) > 20, (tool, seen.get(tool))
+    for tool in ("market_list_instruments", "leaderboard_get_markets",
+                 "leaderboard_get_momentum_events", "market_get_cross_asset_flows"):
+        assert set(seen[tool]) == {sweep.READ_TIMEOUT_S}, (tool, seen[tool])   # short reads stay short
+
+
+def test_the_budget_is_never_sent_to_the_server_as_a_tool_argument(state_dir):
+    """`args` is the tool-arguments payload the MCP server receives, so a budget folded into it
+    would be sent as a tool argument. A `call_tool(name, args)` that knows nothing about budgets —
+    the runtime's, and this fixture's — is still called with two arguments and still reads."""
+    calls = []
+
+    def two_arg(name, args):
+        calls.append((name, dict(args)))
+        return fake_call_tool(name, args)
+
+    rep = sweep.run(two_arg, now=NOW)
+    assert rep["coverage"]["cohort"].startswith("ok"), rep["coverage"]["cohort"]
+    assert calls and all("timeout" not in args for _, args in calls), calls
+
+
+def test_a_call_tool_that_can_carry_a_budget_is_given_one(state_dir):
+    budgets = {}
+
+    def with_budget(name, args, timeout=None):
+        budgets[name] = timeout
+        return fake_call_tool(name, args)
+
+    sweep.run(with_budget, now=NOW)
+    assert budgets["discovery_get_top_traders"] == sweep.COHORT_TIMEOUT_S
+    assert budgets["discovery_get_trader_state"] == sweep.COHORT_TIMEOUT_S
+    assert budgets["market_list_instruments"] == sweep.READ_TIMEOUT_S
+
+
+# ──────────────────────────────── the run-level deadline (patient reads still have to come back)
+class _Clock:
+    """A monotonic source the fake reads advance themselves — a degraded upstream, without the wait."""
+
+    def __init__(self, t=0.0):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
+def _slow_call_tool(clock, seconds_per_read, calls=None):
+    def call_tool(name, args, timeout=None):
+        if calls is not None:
+            calls.append(name)
+        clock.t += seconds_per_read
+        return fake_call_tool(name, args)
+    return call_tool
+
+
+def test_a_read_the_deadline_cannot_pay_for_is_never_started():
+    """The projection, not elapsed time, is the cap: a 30s cohort read starting at 31s of a 45s
+    deadline lands at 61s, which is the overrun the deadline exists to prevent."""
+    clock, calls = _Clock(), []
+    c = sweep.Client(_slow_call_tool(clock, 0.0, calls), deadline_s=45, clock=clock)
+
+    clock.t = 20.0
+    assert c.mcp_call("market_list_instruments") is not None       # 20 + 15 fits
+    clock.t = 31.0
+    with pytest.raises(sweep.SweepDeadline):
+        c.mcp_call("discovery_get_top_traders")                    # 31 + 30 does not
+
+    assert calls == ["market_list_instruments"], calls             # the second read was never asked for
+    assert c.skipped == 1 and c.failed == 0                        # skipped, NOT failed
+
+
+def test_an_unbounded_client_is_still_unbounded():
+    """deadline_s=None is the old behaviour, and it is what the tests and any caller with its own
+    bound get. A deadline that cannot be turned off would be a second, invisible timeout."""
+    clock = _Clock(t=10_000.0)
+    c = sweep.Client(_slow_call_tool(clock, 0.0), clock=clock)
+    assert c.mcp_call("market_list_instruments") is not None
+    assert c.skipped == 0
+
+
+def test_the_deadline_renders_a_thin_feed_instead_of_being_killed_mid_flight(state_dir):
+    """The reads got more patient (15s/30s) and the caller above them did not: `--brief` runs inside
+    another skill's ~60s answer. Without a run-level bound a degraded upstream does not return a
+    shorter feed, it returns none at all — the agent kills the process mid-read. So the market lenses
+    are read first, the cohort last, and what did get fed is rendered."""
+    clock, calls = _Clock(), []
+    rep = sweep.run(_slow_call_tool(clock, 8.0, calls), now=NOW,
+                    deadline_s=sweep.BRIEF_DEADLINE_S, clock=clock)
+
+    assert calls == ["market_list_instruments", "leaderboard_get_markets",
+                     "leaderboard_get_momentum_events", "market_get_cross_asset_flows"], calls
+    for key in ("universe", "board_4h", "momentum", "cross_asset"):
+        assert rep["coverage"][key].startswith("ok"), (key, rep["coverage"][key])
+    assert rep["coverage"]["cohort"].startswith("NO DATA: the proven-cohort read was not started")
+    assert clock.t <= sweep.BRIEF_DEADLINE_S, clock.t     # the run is capped AT the deadline
+
+    feed = sweep.brief_text(rep, 3)
+    assert feed != sweep.OUTAGE_LINE and feed.strip()
+    assert feed.endswith("_Not measured this run: proven-trader positions._"), feed
+
+
+def test_a_read_the_deadline_skipped_is_never_reported_as_a_failed_read(state_dir):
+    """Nothing was asked of the server, so there is no upstream fault to chase. Saying "failed" here
+    sends the next investigation at a service that was never called — the same shape of wrong answer
+    that "an app-scoped token returns nothing" was, on this very line."""
+    clock = _Clock()
+    rep = sweep.run(_slow_call_tool(clock, 12.0), now=NOW, deadline_s=sweep.BRIEF_DEADLINE_S, clock=clock)
+
+    cross = rep["coverage"]["cross_asset"]                 # skipped inside _read, at 36s + 15s > 45s
+    assert cross.startswith("NO DATA: market_get_cross_asset_flows not started"), cross
+    assert "deadline" in cross and not cross.startswith("failed")
+
+    cohort = rep["coverage"]["cohort"]                     # skipped as a whole lens, before its first read
+    assert "Not a failed read and not a token problem." in cohort, cohort
+    assert rep["current"]["reads_skipped"] == 2
+    assert f"past the {sweep.BRIEF_DEADLINE_S}s deadline" in rep["summary"], rep["summary"]
+
+
+def test_the_brief_path_is_given_less_time_than_the_full_feed(state_dir, monkeypatch, capsys):
+    """`--brief` closes another skill's answer on that skill's budget (~60s today); `--print-feed` is
+    the whole answer (~120s). One deadline for both would either strand the feed or overrun the brief."""
+    seen, real_run = [], sweep.run
+    monkeypatch.setattr(sweep, "run", lambda ct, **kw: (seen.append(kw["deadline_s"]), real_run(ct, **kw))[1])
+    _cli_client(monkeypatch)
+
+    assert sweep.main(["--now", NOW, "--brief", "2"]) == 0
+    assert sweep.main(["--now", NOW, "--print-feed"]) == 0
+    capsys.readouterr()
+    assert seen == [sweep.BRIEF_DEADLINE_S, sweep.FEED_DEADLINE_S]
+    assert sweep.BRIEF_DEADLINE_S < sweep.FEED_DEADLINE_S

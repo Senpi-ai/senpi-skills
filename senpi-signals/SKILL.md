@@ -16,7 +16,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.1.0"
+  version: "2.2.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -170,8 +170,16 @@ python3 scripts/sweep.py                # debugging: run JSON, coverage lines, r
   `discovery_get_trader_state` · 1 `leaderboard_get_markets` · 1 `leaderboard_get_momentum_events` ·
   1 `market_get_cross_asset_flows` = **~8 reads**, no model tokens. Every read fails soft: a dead
   service degrades its detector and is named in the feed's not-measured line.
+- **The time budget per sweep.** The whole run is bounded: **45s** on `--brief` (it closes another
+  skill's answer, on that skill's budget) and **100s** on `--print-feed`. A read is not started once
+  what is left cannot pay for it, so a slow upstream costs a lens, never the answer — the market
+  reads go first, the proven cohort (the slowest, and the only one that can spend the whole budget
+  alone) goes last. A lens dropped for time is named in the not-measured line like any other, and its
+  `[coverage]` line says it was never started, which is not the same fact as a read that failed.
 - **Auth.** `SENPI_AUTH_TOKEN` + `SENPI_MCP_URL` from env. `discovery_*` needs a **user-scoped**
-  token — an app-scoped one returns nothing and the cohort lens goes dark.
+  token — an app-scoped one returns nothing and the cohort lens goes dark. A dark cohort lens is not
+  by itself a token problem: the `[coverage] cohort:` line quotes the read that failed, so read it
+  before naming a cause.
 - **Dependencies.** The sweep carries verbatim copies of senpi-smart-money's cohort engine
   (`scripts/smartmoney.py`) and its stdlib MCP transport (`scripts/mcp_client.py`), so it runs with
   only this skill installed. `tests/test_vendored_parity.py` fails if either copy drifts.
