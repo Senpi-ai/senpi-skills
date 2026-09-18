@@ -31,6 +31,7 @@ import metrics  # noqa: E402
 import opportunities  # noqa: E402
 import render  # noqa: E402
 import score  # noqa: E402
+import addresses as addr_book
 import senpi_history  # noqa: E402
 import smart_money  # noqa: E402
 import strategy_read  # noqa: E402
@@ -112,13 +113,24 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
             meta["warnings"].append(f"own position ages unavailable: {e}")
     source = "public fills"
     cov = metrics.coverage(closed, opened, fills, tr_raw["userFees"])
+    indexed = None
     if mcp is not None:
+        public_closed = len(closed)
         t_h = time.time()
         rows = senpi_history.fetch(mcp, addr, win_start, meta)
         meta["timings"]["senpi_history"] = round(time.time() - t_h, 1)
         if rows:
             closed, source = rows, f"senpi discovery ({len(rows)} closed position{'s' if len(rows) != 1 else ''})"
+            indexed = True
+        elif public_closed:
+            # The public endpoints show closed round trips in this window and senpi's index returned
+            # none for the same window. That is a CONTRADICTION between two sources, not a quiet
+            # wallet: this address is not in the index yet. Without the distinction the desk drops
+            # silently to public fills — which miss TWAP slices — and a whale gets a confident desk
+            # built on a fraction of their volume, with nothing in the output saying so.
+            indexed = False
     meta["sources"]["trades"] = source
+    meta["indexed"] = indexed
     track = metrics.track_record(closed, opened, tr_raw["userFunding"], tr_raw["userFees"], win_start)
     track["coverage"] = cov
     track["ledger_net"] = metrics.ledger_pnl(tr_raw["portfolio"], win_start)
@@ -256,17 +268,37 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
              benchmark=bench, benchmark_table=smart_money.benchmark_table(track, bench) if bench else None,
              episodes=[{k: v for k, v in e.items()} for e in in_win][-300:], meta=meta)
     r["whose"] = whose
+    r["indexed"] = indexed
     r["verdict"] = score.verdict(track, book, dims, lk)
     r["followups"] = followups.offer(r, whose=whose)
     meta["timings"]["total"] = round(time.time() - t0, 1); meta["hl_calls"] = hl.calls
     return r
 
 
+def resolve_whose(book, addr, other=False, mine=False, claim=False):
+    """Whose book this is — a LOOKUP, not a reading of how the request was phrased.
+
+    An explicit flag on this run wins. Otherwise the address book decides, and an address it does
+    not know is someone else's. That default is the whole point: owner voice speaks in the second
+    person and recommends the reader's next steps, so defaulting to it means handing a stranger's
+    trading back to them as their own, with advice attached. Defaulting the other way costs a
+    reader nothing but a `--claim`.
+    """
+    if other:
+        return "other"
+    if mine or claim:
+        return "mine"
+    return "mine" if addr_book.is_mine(book, addr) else "other"
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="quant-desk: the desk for any Hyperliquid address")
     ap.add_argument("address", nargs="?", help="the wallet; omit with --compare")
     g = ap.add_mutually_exclusive_group()
-    g.add_argument("--mine", action="store_true", help="the reader's own book (second person) — the default")
+    g.add_argument("--mine", action="store_true", help="the reader's own book (second person)")
+    g.add_argument("--claim", action="store_true",
+                   help="the reader says this address is theirs: read it as their book AND remember it "
+                        "(a claim, not proof — we cannot verify ownership of an address from a message)")
     g.add_argument("--other", "--analyst", dest="other", action="store_true", help="someone else's book (analyst mode): third person, learn-from-them follow-ups")
     ap.add_argument("--compare", nargs="+", metavar="0x", help="two or more addresses side by side (cached runs are reused)")
     ap.add_argument("--days", type=int, default=90)
@@ -279,9 +311,14 @@ def main(argv=None):
     ap.add_argument("--cache", default=hl_api.DEFAULT_CACHE, help="HTTP cache dir ('' to disable)")
     ap.add_argument("--state-dir", default=DEFAULT_STATE_DIR)
     ap.add_argument("--fresh", action="store_true", help="ignore a cached analysis")
+    ap.add_argument("--addresses", action="store_true",
+                    help="print this box's address book as JSON and exit — which wallets are the reader's, "
+                         "which they have read, and which are not in senpi's index yet")
     a = ap.parse_args(argv)
-    whose = "other" if a.other else "mine"
     os.makedirs(a.state_dir, exist_ok=True)
+    book = addr_book.load(a.state_dir)
+    if a.addresses:
+        print(json.dumps(book, indent=2, sort_keys=True)); return 0
     if a.compare:
         rs = []
         for x in a.compare:
@@ -305,6 +342,11 @@ def main(argv=None):
     if not ADDR_RE.match(addr):
         print(json.dumps({"error": "not a Hyperliquid address — expected 0x followed by 40 hex characters"})); return 2
     addr = addr.lower()
+    # Whose book this is comes from the address book, not from how the request was phrased. An
+    # UNKNOWN address is someone else's: the desk gives advice in the second person, and delivering
+    # that about a stranger's trading is the failure worth defaulting against. Owner voice needs a
+    # wallet senpi issued, a claim the reader already made, or an explicit flag on this run.
+    whose = resolve_whose(book, addr, other=a.other, mine=a.mine, claim=a.claim)
     state_path = os.path.join(a.state_dir, f"desk-{addr}.json")
     meta = {}
     bench = None
@@ -360,8 +402,14 @@ def main(argv=None):
                 md = voice.third_person(md, f"{addr[:6]}…{addr[-4:]}")
             print(md)
         return 0
-    if (a.other or a.mine) and r.get("whose") != whose:
+    if (a.other or a.mine or a.claim) and r.get("whose") != whose:
         r["whose"] = whose; r["followups"] = followups.offer(r, whose=whose)     # a cached run re-voiced
+    rel = addr_book.CLAIMED if a.claim else (addr_book.ANALYZED if whose == "other" else None)
+    tr = r.get("track") or {}
+    addr_book.record(book, addr, relationship=rel, indexed=r.get("indexed"),
+                     digest={"at": r.get("generated") or None, "score": (r.get("score") or {}).get("total"),
+                             "verdict": r.get("verdict"), "net": tr.get("ledger_net")})
+    addr_book.save(a.state_dir, book)
     if a.json:
         print(json.dumps({k: v for k, v in r.items() if k != "episodes"}, default=float))
     else:
