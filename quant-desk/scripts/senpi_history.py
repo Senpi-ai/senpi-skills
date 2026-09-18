@@ -39,7 +39,15 @@ def _rows(data):
 
 
 def fetch(client, addr, window_start_ms, meta):
-    """Page newest-first until a page ends before the window; returns episode dicts closed in the window."""
+    """Page newest-first until a page ends before the window; returns episode dicts closed in the window.
+
+    Sets `meta["senpi_history_failed"]` when a page could not be READ — an exception or a
+    `success: false` envelope. An empty list means one of two very different things, and the caller
+    has to tell them apart: senpi has no closed positions for this wallet in the window (a quiet
+    wallet, or one that is not indexed yet), or senpi could not answer. Reporting the second as the
+    first tells an indexed reader they are not indexed — and, since the desk offers to flag them to
+    the team, promises something about a wallet that is already there.
+    """
     out, offset = [], 0
     for _ in range(MAX_PAGES):
         try:
@@ -47,6 +55,14 @@ def fetch(client, addr, window_start_ms, meta):
                                    sort_by="CLOSED_TIME", sort_direction="DESC", timeout=20)
         except Exception as e:  # noqa: BLE001
             meta.setdefault("warnings", []).append(f"senpi history page {offset // PAGE} failed: {e}")
+            meta["senpi_history_failed"] = True
+            break
+        if isinstance(resp, dict) and resp.get("success") is False:
+            # `_rows` flattens this to [] like any empty page, and it is the shape a degraded
+            # discovery service returns most often — so it has to be caught before that.
+            meta.setdefault("warnings", []).append(
+                f"senpi history page {offset // PAGE} refused: {str((resp.get('error') or {}).get('code') or 'success=false')[:80]}")
+            meta["senpi_history_failed"] = True
             break
         rows = _rows(resp)
         if not rows:

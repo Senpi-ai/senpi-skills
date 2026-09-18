@@ -122,13 +122,15 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         if rows:
             closed, source = rows, f"senpi discovery ({len(rows)} closed position{'s' if len(rows) != 1 else ''})"
             indexed = True
-        elif public_closed:
+        elif public_closed and not meta.get("senpi_history_failed"):
             # The public endpoints show closed round trips in this window and senpi's index returned
             # none for the same window. That is a CONTRADICTION between two sources, not a quiet
             # wallet: this address is not in the index yet. Without the distinction the desk drops
             # silently to public fills — which miss TWAP slices — and a whale gets a confident desk
             # built on a fraction of their volume, with nothing in the output saying so.
             indexed = False
+    # A read senpi could not ANSWER is not a wallet senpi does not HAVE. Leaving `indexed` at None
+    # on a failed read is the difference between "we don't know" and a confident wrong claim.
     meta["sources"]["trades"] = source
     meta["indexed"] = indexed
     track = metrics.track_record(closed, opened, tr_raw["userFunding"], tr_raw["userFees"], win_start)

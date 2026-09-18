@@ -759,3 +759,28 @@ def test_the_skill_offers_the_lateral_move_in_both_directions():
     assert "Your quant reads any book on Hyperliquid, not just yours" in skill
     assert "Your quant works the\n   same way on yours" in skill
     assert "**Never invent an address.**" in skill
+
+
+def test_a_discovery_failure_is_never_reported_as_not_indexed():
+    """`fetch` returns [] for three different things: an unindexed wallet, a read that threw, and a
+    `success: false` envelope. Only the first is "not indexed". The other two are "we could not
+    look" — and the desk offers to flag a not-indexed wallet to the team, so getting this wrong
+    promises something about a wallet that is already in the index."""
+    import desk, hl_api as _hl
+    with open(FIXTURE) as fh:
+        rec = json.load(fh)
+
+    class Throws:
+        def mcp_call(self, *a, **kw):
+            raise RuntimeError("discovery_get_trader_history HTTP 503")
+
+    class Refuses:                                  # the shape a degraded discovery returns
+        def mcp_call(self, *a, **kw):
+            return {"success": False, "error": {"code": "INVALID_TOKEN"}}
+
+    for client in (Throws(), Refuses()):
+        r = desk.analyze(rec["address"], _hl.HLFixture(rec), days=90, mcp=client,
+                         want_cohort=False, want_rank=False)
+        assert r["indexed"] is None, f"{type(client).__name__}: a failed read read as 'not indexed'"
+        assert r["meta"].get("senpi_history_failed") is True
+        assert any("senpi history" in w for w in r["meta"]["warnings"]), "the failure left no trace"
