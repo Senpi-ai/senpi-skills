@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-09-17",
+  "_updated": "2026-09-18",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -547,7 +547,7 @@
       "emoji": "🐺",
       "tagline": "Maintains a daily-refreshed pool of the top-ROI Hyperliquid traders (win-rate + age + 30d-ROI filtered, quality-scored toward tail-winner trend-followers), watches for the moment a pool member opens a fresh position, and mirrors only the freshest entries (< 10 min old) when pool consensus and independent TA confirm — sized to the source trader's quality and ridden on its own wide DSL.",
       "belief_plain": "Keeps a shortlist of the most profitable traders on Hyperliquid and refreshes it every day. The instant one of them opens a new trade, Jackal copies that trade in the same direction — but only if the entry is brand new, other shortlisted traders are leaning the same way, and the chart agrees. It bets a bit more behind the highest-quality traders and then trails a wide stop so a good copy can run for days.",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "thesis": "High-quality traders telegraph alpha, but naive copy-trading loses because winners regress, signals lag, and style mismatches amplify risk. Jackal only copies the freshest entries (< 10 min, before the alpha is public) from a pool ranked toward tail-winner trend-followers (ROI 35% / gain-to-pain 25% / age 15% / win-rate 10% — deliberately NOT high-win-rate scalpers), and confirms each copy with pool consensus + independent multi-timeframe TA + funding regime before sizing to the source's quality and riding its OWN DSL rather than the source trader's.",
       "tags": [
         "copy-trading",
