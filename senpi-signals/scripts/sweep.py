@@ -44,6 +44,14 @@ if HERE not in sys.path:
 import score  # noqa: E402 — the ranker, called in-process
 
 UNIVERSE_TOP_N = 120          # top-N by day notional volume (SKILL golden rule 6: floor + top-N)
+
+# ── whale opens ───────────────────────────────────────────────────────────────
+# A proven wallet OPENING size is the most concrete read this feed can carry, and it needs no
+# history of our own: `discovery_get_trader_state` returns each position's own start time, so the
+# age is a fact about the position rather than a diff against an earlier sweep. Adds and flips DO
+# need a before-and-after and stay in v2 — a bigger position tells you nothing without the old size.
+WHALE_OPEN_MIN_USD = 1_000_000     # below this it is a position, not a statement
+WHALE_OPEN_MAX_AGE_S = 4 * 3600    # opened within the 4h horizon the rest of the feed reasons over
 # every MCP read here is an idempotent GET, so one transient failure is retried rather than written
 # off as a dark source (see _read)
 READ_ATTEMPTS = 2
@@ -238,6 +246,32 @@ def _read(c, tool, args, cov, key):
     return data
 
 
+def _whale_open(p, wallet, szi, lifetime_pnl):
+    """One proven wallet's position, IF it was opened recently enough and is big enough to be news.
+
+    Read from a single sweep. `durationInSeconds` (or `startTime`) is the position's own age as the
+    exchange reports it — it is not a comparison against anything we stored, which is why this is not
+    a history detector. A position we cannot date is skipped rather than assumed fresh: an undated
+    whale position is almost always an old one, and "opened just now" is exactly the claim that must
+    never be guessed.
+    """
+    notional = abs(_num(p.get("positionValue")) or 0.0)
+    if notional < WHALE_OPEN_MIN_USD:
+        return None
+    age = _num(p.get("durationInSeconds")) or _num(p.get("duration_in_seconds"))
+    if age is None:
+        start = _num(p.get("startTime")) or _num(p.get("start_time"))
+        if not start:
+            return None                       # undated: say nothing
+        start_ms = start * 1000.0 if start < 1e12 else start
+        age = (time.time() * 1000.0 - start_ms) / 1000.0
+    if age < 0 or age > WHALE_OPEN_MAX_AGE_S:
+        return None
+    return {"wallet": wallet, "direction": "long" if szi > 0 else "short",
+            "notional_usd": round(notional, 2), "age_seconds": round(age),
+            "lifetime_realized_usd": lifetime_pnl}
+
+
 def _dex(name):
     return "xyz" if str(name).lower().startswith("xyz:") else ""
 
@@ -311,6 +345,7 @@ def cohort(c, cov, metrics):
         if w in smart_set and w not in c.wallet_pnl:
             c.wallet_pnl[w] = round(sm._realized(t), 2)
     positions = {}                    # coin → {wallet: signed BASE size}
+    opens = {}                        # coin → [whale opens, freshest first]
     for t in c.trader_states:
         w = str(t.get("address") or t.get("traderAddress") or "").lower()
         if w not in smart_set:
@@ -319,6 +354,11 @@ def cohort(c, cov, metrics):
             szi = _num(p.get("szi")) if isinstance(p, dict) else None
             if p.get("coin") and szi:
                 positions.setdefault(p["coin"], {})[w] = szi
+                o = _whale_open(p, w, szi, c.wallet_pnl.get(w))
+                if o:
+                    opens.setdefault(p["coin"], []).append(o)
+    for v in opens.values():
+        v.sort(key=lambda o: o["age_seconds"])
     covered = 0
     for coin, d in per.items():
         m = metrics.get(coin)
@@ -334,6 +374,7 @@ def cohort(c, cov, metrics):
             "smart_long_n": ln, "smart_short_n": sn, "cohort_n": len(smart),
             "smart_net_bias": d["bias"], "smart_net_usd": d["net"],   # the engine's notional lean, as colour
             "smart_positions": positions.get(coin, {}),
+            "whale_opens": opens.get(coin, []),
         })
     cov["cohort"] = (f"ok ({len(smart)} proven wallets, {covered} universe names positioned, "
                      f"{len(per) - covered} outside the universe)"

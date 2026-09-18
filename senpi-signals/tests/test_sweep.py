@@ -533,3 +533,70 @@ def test_the_brief_path_is_given_less_time_than_the_full_feed(state_dir, monkeyp
     capsys.readouterr()
     assert seen == [sweep.BRIEF_DEADLINE_S, sweep.FEED_DEADLINE_S]
     assert sweep.BRIEF_DEADLINE_S < sweep.FEED_DEADLINE_S
+
+
+def _whale_tool(pos, coin="BTC"):
+    """fake_call_tool, with one proven wallet holding `pos` on `coin`. The cohort is cut from
+    discovery_get_top_traders by lifetime realized, so _W[0] is the most proven wallet there is."""
+    def call(name, args):
+        resp = fake_call_tool(name, args)
+        if name == "discovery_get_trader_state" and _W[0] in args.get("trader_addresses", []):
+            for row in resp["data"]["traders"]:
+                if row["address"] == _W[0]:
+                    row["openPositions"] = [dict(pos, coin=coin)]
+        return resp
+    return call
+
+
+FRESH_WHALE = {"szi": "-160.0", "positionValue": "12400000", "entryPx": "77500",
+               "durationInSeconds": 1080}          # $12.4M short, opened 18 minutes ago
+
+
+def test_a_proven_wallet_opening_size_is_read_from_one_sweep(state_dir):
+    """The whole point: no history. `discovery_get_trader_state` returns the position's own age, so
+    "opened 18 minutes ago" is a fact about the position rather than a diff against an earlier sweep
+    of ours — which is why this ships in 2.0 while adds and flips (they need the old size / old side)
+    stay in v2."""
+    rep = sweep.run(_whale_tool(FRESH_WHALE), now=NOW)
+    btc = rep["current"]["asset_metrics"]["BTC"]
+    assert btc["whale_opens"], "a $12.4M position opened 18 minutes ago was not picked up"
+    o = btc["whale_opens"][0]
+    assert o["direction"] == "short" and o["notional_usd"] == 12_400_000.0 and o["age_seconds"] == 1080
+    sigs = [s for s in rep["result"]["trade"] + rep["result"]["social"] if s["detector"] == "whale_open"]
+    assert sigs, "the open never reached a feed"
+    assert "12.4M" in " ".join(sigs[0]["numbers"]) and "18 minutes ago" in " ".join(sigs[0]["numbers"])
+    assert sigs[0]["concrete_entity"], "a whale read with no wallet on it is just a number"
+
+
+def test_a_position_we_cannot_date_is_never_called_an_open(state_dir):
+    """An undated whale position is almost always an OLD one. "Opened just now" is exactly the claim
+    that must never be guessed — golden rule 1, and rule 5's ban on claiming a move we cannot time."""
+    undated = {k: v for k, v in FRESH_WHALE.items() if k != "durationInSeconds"}
+    rep = sweep.run(_whale_tool(undated), now=NOW)
+    assert rep["current"]["asset_metrics"]["BTC"]["whale_opens"] == []
+
+
+def test_an_old_or_small_position_is_a_holding_not_news(state_dir):
+    for pos, why in (({**FRESH_WHALE, "durationInSeconds": 5 * 3600}, "5h old — a holding"),
+                     ({**FRESH_WHALE, "positionValue": "500000"}, "$500k — a position, not a statement")):
+        rep = sweep.run(_whale_tool(pos), now=NOW)
+        assert rep["current"]["asset_metrics"]["BTC"]["whale_opens"] == [], why
+
+
+def test_whale_open_is_not_a_history_detector(state_dir):
+    """It must be reachable from `--print-feed`, which is gated against every detector that needs an
+    earlier reading. If it ever lands in HISTORY_DETECTORS this skill silently stops carrying it."""
+    import score
+    assert "whale_open" not in score.HISTORY_DETECTORS
+    assert "whale_open" in score.EDGE and "whale_open" in score.NON_OBVIOUS
+    rep = sweep.run(_whale_tool(FRESH_WHALE), now=NOW)
+    assert "whale_open" in sweep.feed_text(rep) or "opened" in sweep.feed_text(rep)
+
+
+def test_an_age_is_never_rounded_up_into_a_bigger_claim():
+    import score
+    assert score._ago(30) == "just now"
+    assert score._ago(1080) == "18 minutes ago"
+    assert score._ago(3540) == "59 minutes ago"      # not "an hour"
+    assert score._ago(3600) == "an hour ago"
+    assert score._ago(4 * 3600) == "4 hours ago"
