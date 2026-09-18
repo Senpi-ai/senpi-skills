@@ -46,9 +46,18 @@ scanners:
     state_history_max_count: 100           # dedup map + per-tick scan-results history
     inputs:
       leader: "BTC"                        # v2 leader (main DEX) — validated live on HL meta 2026-06-29
-      proxies:                             # v2 DEFAULT_PROXIES — operator-tunable crypto-correlated XYZ equities
-        - { proxy: "xyz:COIN", beta: 1.8 } # validated live on HL xyz meta 2026-06-29
-        - { proxy: "xyz:MSTR", beta: 2.5 } # validated live on HL xyz meta 2026-06-29
+      proxies:                             # crypto-correlated XYZ equities; MEASURED betas, not assumed
+        # beta = cov(proxy, BTC)/var(BTC) over 720 hourly HL bars (30d) to 2026-09-18.
+        # This scanner multiplies the leader's move BY beta to decide what a proxy still "owes",
+        # so an overstated beta is not the conservative error — it manufactures catch-up gaps that
+        # were never there. COIN was carried at 1.8 against a realized 1.28 and MSTR at 2.5 against
+        # 1.73; on a 4% BTC move that invents a ~2-3% gap, which clears minGapPct on its own.
+        # Only names BTC actually explains belong here (R^2 over the same window):
+        #   MSTR 0.71, COIN 0.54 -> kept.  BMNR 0.47 (336 bars, $0.4M/day), HOOD 0.24,
+        #   IREN 0.06 -> rejected: a proxy BTC barely moves has no catch-up to owe, so its "gap"
+        #   is that name's own news. Re-measure beta AND R^2 when re-tuning; do not eyeball them.
+        - { proxy: "xyz:MSTR", beta: 1.73 } # was 2.5
+        - { proxy: "xyz:COIN", beta: 1.28 } # was 1.8
       moveLookbackBars: 4                  # v2 moveLookbackBars — 1h bars for the recent-move window (both legs)
       minLeaderMovePct: 2.0                # v2 minLeaderMovePct — leader must move at least this %
       minGapPct: 2.0                       # v2 minGapPct — proxy must still owe at least this % of catch-up
