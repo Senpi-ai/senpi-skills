@@ -44,6 +44,23 @@ if HERE not in sys.path:
 import score  # noqa: E402 — the ranker, called in-process
 
 UNIVERSE_TOP_N = 120          # top-N by day notional volume (SKILL golden rule 6: floor + top-N)
+
+# ── whale opens ───────────────────────────────────────────────────────────────
+# A proven wallet OPENING size is the most concrete read this feed can carry, and it needs no
+# history of our own: `discovery_get_trader_state` returns each position's own start time, so the
+# age is a fact about the position rather than a diff against an earlier sweep. Adds and flips DO
+# need a before-and-after and stay in v2 — a bigger position tells you nothing without the old size.
+WHALE_OPEN_MIN_USD = 1_000_000     # below this it is a position, not a statement
+WHALE_OPEN_MAX_AGE_S = 4 * 3600    # opened within the 4h horizon the rest of the feed reasons over
+# `startTime` is the only field that dates a position, and it cannot be taken on trust: it has been
+# observed jumping FORWARD on positions whose size never changed (Ignas, PR #675 — 4592s of age
+# becoming 17s in fourteen seconds), which makes an old position read as newly opened. So the age is
+# corroborated against the position's own entry price, from the SAME read: a position that really
+# opened minutes ago is still near the price it opened at. How far it may have drifted scales with
+# the age being claimed — a wide base for spread and a large entry filled across many prints, then a
+# per-minute allowance for the market actually moving.
+ENTRY_DRIFT_BASE = 0.015           # 1.5% — spread, slippage, a $10M entry filled across the book
+ENTRY_DRIFT_PER_MIN = 0.0025       # +0.25% a minute of claimed age
 # every MCP read here is an idempotent GET, so one transient failure is retried rather than written
 # off as a dark source (see _read)
 READ_ATTEMPTS = 2
@@ -238,6 +255,44 @@ def _read(c, tool, args, cov, key):
     return data
 
 
+def _whale_open(p, wallet, szi, lifetime_pnl):
+    """One proven wallet's position, IF it was opened recently enough and is big enough to be news.
+
+    Read from a single sweep. `durationInSeconds` (or `startTime`) is the position's own age as the
+    exchange reports it — it is not a comparison against anything we stored, which is why this is not
+    a history detector. A position we cannot date is skipped rather than assumed fresh: an undated
+    whale position is almost always an old one, and "opened just now" is exactly the claim that must
+    never be guessed.
+    """
+    notional = abs(_num(p.get("positionValue")) or 0.0)
+    if notional < WHALE_OPEN_MIN_USD:
+        return None
+    # `startTime`, not `durationInSeconds`: the duration is computed when the response is built, so
+    # on a cached read it is stale by the cache age — and stale in the direction that makes an old
+    # position look newly opened. `startTime` is absolute and stays correct however long the read sat
+    # in a cache. Unix SECONDS, per the MCP schema; `startTime: 0` occurs and `not start` catches it.
+    start = _num(p.get("startTime"))
+    if not start:
+        return None                           # undated: say nothing
+    age = time.time() - start
+    if age < 0 or age > WHALE_OPEN_MAX_AGE_S:
+        return None
+    # Corroborate the age against the entry price. `positionValue` is |szi| x mark, so the mark comes
+    # out of the same row — no extra read, no history. A position claiming to be seconds old while
+    # sitting 8% away from its own entry did not open seconds ago, whatever `startTime` says.
+    entry = _num(p.get("entryPx"))
+    if not entry or not szi:
+        return None                           # cannot corroborate ⇒ do not claim
+    mark = notional / abs(szi)
+    drift = abs(mark - entry) / entry
+    if drift > ENTRY_DRIFT_BASE + ENTRY_DRIFT_PER_MIN * (age / 60.0):
+        return None                           # the price says this is older than the clock does
+    return {"wallet": wallet, "direction": "long" if szi > 0 else "short",
+            "notional_usd": round(notional, 2), "age_seconds": round(age),
+            "entry_drift_pct": round(drift * 100, 3),
+            "lifetime_realized_usd": lifetime_pnl}
+
+
 def _dex(name):
     return "xyz" if str(name).lower().startswith("xyz:") else ""
 
@@ -311,6 +366,7 @@ def cohort(c, cov, metrics):
         if w in smart_set and w not in c.wallet_pnl:
             c.wallet_pnl[w] = round(sm._realized(t), 2)
     positions = {}                    # coin → {wallet: signed BASE size}
+    opens = {}                        # coin → [whale opens, freshest first]
     for t in c.trader_states:
         w = str(t.get("address") or t.get("traderAddress") or "").lower()
         if w not in smart_set:
@@ -319,6 +375,11 @@ def cohort(c, cov, metrics):
             szi = _num(p.get("szi")) if isinstance(p, dict) else None
             if p.get("coin") and szi:
                 positions.setdefault(p["coin"], {})[w] = szi
+                o = _whale_open(p, w, szi, c.wallet_pnl.get(w))
+                if o:
+                    opens.setdefault(p["coin"], []).append(o)
+    for v in opens.values():
+        v.sort(key=lambda o: o["age_seconds"])
     covered = 0
     for coin, d in per.items():
         m = metrics.get(coin)
@@ -334,6 +395,7 @@ def cohort(c, cov, metrics):
             "smart_long_n": ln, "smart_short_n": sn, "cohort_n": len(smart),
             "smart_net_bias": d["bias"], "smart_net_usd": d["net"],   # the engine's notional lean, as colour
             "smart_positions": positions.get(coin, {}),
+            "whale_opens": opens.get(coin, []),
         })
     cov["cohort"] = (f"ok ({len(smart)} proven wallets, {covered} universe names positioned, "
                      f"{len(per) - covered} outside the universe)"

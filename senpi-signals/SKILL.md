@@ -16,7 +16,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.2.0"
+  version: "2.3.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -101,11 +101,19 @@ per detector family reach either feed. Give a **user** the trade feed; content u
    in the closing step (below), on the user's explicit yes to a specific order or strategy.
 4. **Public data only.** On-chain wallet addresses are public — frame as "a top trader (0x12…)".
    Never attach a real person's identity.
-5. **Now, never "since".** The feed is a snapshot of where things stand, with nothing earlier to
-   compare against. Never claim a move since an earlier time: no "just shifted", "up 10% since this
-   morning", "a whale added". A change measured against an earlier reading — whale moves, OI surges,
-   funding flips, conviction jumps, positioning trends, base-unit flow — is not in this feed.
-   Never describe the feed as if it carried them. The only time words allowed are the sources' own
+5. **Now, never "since".** The feed is a snapshot of where things stand, with nothing earlier of
+   ours to compare against. Never claim a move since an earlier time: no "just shifted", "up 10%
+   since this morning", "a whale **added**". A change measured against an earlier reading — whale
+   adds and flips, OI surges, funding flips, conviction jumps, positioning trends, base-unit flow —
+   is not in this feed. Never describe the feed as if it carried them.
+
+   **The one exception, because it dates itself: a whale OPEN.** A proven wallet's position reports
+   its own age, so "$12.4M short, opened 18 minutes ago" is a fact about the position, not a diff
+   against a sweep of ours. An **add** needs the old size and a **flip** needs the old side — those
+   are still v2. Say *opened*, never *added* or *flipped*, and never date a position the feed did
+   not date: an undated whale position is dropped rather than called fresh.
+
+   The only other time words allowed are the sources' own
    windows: the 4h board, the 24h price move, a momentum event's time.
 6. **Derive the universe, don't hardcode.** The sweep pulls it from `market_list_instruments` (a
    liquidity floor + top-N by volume). Identity baskets (e.g. "the AI names") are the only allowed
@@ -191,8 +199,9 @@ python3 scripts/sweep.py                # debugging: run JSON, coverage lines, r
 
 ## v2 — compare over periods (not in 2.0)
 
-Everything that needs an earlier reading — whale moves, OI surges, funding flips, conviction jumps,
-the cohort's positioning trend and base-unit flow — is v2. Where that history lives is v2's decision,
+Everything that needs an earlier reading — whale **adds and flips**, OI surges, funding flips,
+conviction jumps, the cohort's positioning trend and base-unit flow — is v2. (A whale **open** is
+not among them: the position carries its own age, so it ships in 2.3.) Where that history lives is v2's decision,
 kept on Senpi's side rather than on a user's box, so nothing here schedules, deploys or funds anything.
 
 ## How every run ends — one question

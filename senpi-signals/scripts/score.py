@@ -25,6 +25,7 @@ Thresholds mirror references/detectors.md — change them in BOTH places.
 import argparse
 import datetime
 import json
+import math
 import os
 import sys
 
@@ -53,6 +54,8 @@ SMART_COHORT_PCT_MIN = 8.0    # a single name holding this much of the cohort is
 SMART_SHARE_MIN = 25.0        # fallback when the basis is unstated
 SMART_JUMP_PP = 12.0
 FUNDING_PCTILE = 95.0
+WHALE_OPENS_PER_ASSET = 2            # two named wallets on one coin is a story; five is a list
+WHALE_OPEN_SCALE_USD = 1_000_000     # magnitude scale: a $10M open tops it out
 WHALE_MIN_USD = 1_000_000
 WHALE_MOVE_MAX_AGE_MIN = 720  # a "change" older than this is not news — it is a holding. Without a
                               # timestamp at all we cannot date it, so it is treated as a holding too.
@@ -136,6 +139,7 @@ NON_OBVIOUS = {
     "sm_flow": 1.0,                # base-unit position flow — the cleanest read we have
     "sm_positioning_build": 1.0,   # needs cohort history — nobody else is tracking this
     "oi_surge": 1.0, "funding_flip": 1.0, "sm_divergence": 1.0, "whale_move": 1.0,
+    "whale_open": 1.0,             # a named wallet with a track record, sized, and dated
     "funding_extreme": 0.9, "sm_conviction": 0.85, "cross_asset_laggard": 0.8,
     "momentum_event": 0.6, "regime_shift": 0.6,
 }
@@ -143,7 +147,7 @@ NON_OBVIOUS = {
 EDGE = {
     "sm_flow": 1.0,               # wallets actually OPENED/ADDED size — immune to mark-to-market
     "sm_positioning_build": 1.0,  # proven traders MOVING onto a side — the strongest read we have
-    "sm_divergence": 1.0, "sm_conviction": 0.9, "whale_move": 0.85, "oi_surge": 0.75,
+    "sm_divergence": 1.0, "sm_conviction": 0.9, "whale_move": 0.85, "whale_open": 0.85, "oi_surge": 0.75,
     "cross_asset_laggard": 0.75, "funding_flip": 0.7, "momentum_event": 0.6, "regime_shift": 0.6,
     "funding_extreme": 0.35,  # a static extreme is carry, not a directional edge → low trade score
 }
@@ -152,7 +156,7 @@ FAMILY = {
     "funding_flip": "funding", "funding_extreme": "funding",
     "sm_divergence": "smart_money", "sm_conviction": "smart_money",
     "sm_positioning_build": "smart_money", "sm_flow": "smart_money",
-    "oi_surge": "oi", "whale_move": "whale", "cross_asset_laggard": "cross_asset",
+    "oi_surge": "oi", "whale_move": "whale", "whale_open": "whale", "cross_asset_laggard": "cross_asset",
     "momentum_event": "momentum", "regime_shift": "regime",
 }
 # detectors that fire from a CHANGE vs the prior snapshot (vs a static level)
@@ -445,6 +449,30 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None, fast_age
             mag = max(0.0, (eff - 0.5) * 2) if eff is not None else share / 100.0
             sig("sm_divergence", sd, mag, nums, conflict=True, flip=flip, is_change=flip)
 
+        # ── WHALE OPENS — a proven wallet that has just put size on ───────────────────────────
+        # NO HISTORY: the position carries its own age, so this is a fact about the position rather
+        # than a diff against an earlier sweep of ours. Only OPENS — an add needs the old size and a
+        # flip needs the old side, and both of those stay in v2.
+        for o in (m.get("whale_opens") or [])[:WHALE_OPENS_PER_ASSET]:
+            side = o.get("direction")
+            notional, age = _num(o.get("notional_usd")), _num(o.get("age_seconds"))
+            if not side or not notional or age is None:
+                continue
+            w = str(o.get("wallet") or "")
+            out.append({
+                "asset": asset, "dex": dex, "detector": "whale_open", "direction": side,
+                "numbers": [f"{_usd_short(notional)} {side.upper()} {_ago(age)}"],
+                "notional_vol": vol,
+                "concrete_entity": (w[:6] + "…" + w[-4:]) if len(w) > 12 else w,
+                "price_change_pct": pcp,
+                "magnitude": max(0.0, min(1.0, notional / (10 * WHALE_OPEN_SCALE_USD))),
+                "conflict": bool(cd and cd != side), "flip": False,
+                "smart_source": src, "source_trust": src_trust, "crowd_source": crowd_src,
+                "is_change": True,          # a position opened inside the window IS new information
+                "age_seconds": age, "notional_usd": notional,
+                "entity_realized_pnl_usd": _num(o.get("lifetime_realized_usd")),
+            })
+
         # cohort POSITIONING TREND (change) — the same cohort's share on a name moving over ~12h.
         # "43% of the top 1,000 now hold HYPE shorts, up from 38% 12h ago" — change on the best data
         # we have. A build is a far stronger read than a standing divergence, so it outranks one.
@@ -672,6 +700,22 @@ def _crowd_basis(s):
     return CROWD_SOURCE_LABEL[cs if cs in CROWD_SOURCE_LABEL else None]
 
 
+def _ago(seconds):
+    """"18 minutes ago" — the position's own age, reader-sized.
+
+    Rounds AWAY from freshness, never toward it. For a detector whose whole claim is "this just
+    happened", understating an age is the overstatement: 2h30m rendered as "2 hours ago" sells a
+    position as half an hour newer than it is. `ceil` can only ever report older.
+    """
+    s = max(0, int(seconds or 0))
+    if s < 90:
+        return "just now"
+    if s < 3600:
+        return f"{max(2, math.ceil(s / 60))} minutes ago"
+    hours = math.ceil(s / 3600)
+    return "an hour ago" if hours <= 1 else f"{hours} hours ago"
+
+
 def _usd_short(v):
     """$1.2B / $48.2M / $950,000 — a reader-sized dollar figure."""
     v = float(v)
@@ -694,6 +738,12 @@ def frame(s):
                 + " — positioning building under a quiet chart.")
     if det in ("funding_extreme", "funding_flip"):
         return f"{a}: {nums} — a funding dislocation most screens never show."
+    if det == "whale_open":
+        lead = "A wallet" + (f" ({s['concrete_entity']})" if s.get("concrete_entity") else "")
+        pnl = _num(s.get("entity_realized_pnl_usd"))
+        if pnl and pnl > 0:
+            lead += f" up {_usd_short(pnl)} lifetime"
+        return f"{lead} just opened {nums} on {a}."
     if det == "whale_move":
         pnl = _num(s.get("entity_realized_pnl_usd"))
         gains = f" ({_usd_short(pnl)} in lifetime gains)" if pnl and pnl > 0 else ""
@@ -765,6 +815,12 @@ def trade_read(s):
     if det == "oi_surge":
         return (f"Positioning building on {a}" + (f" {d}" if d else "")
                 + " with price quiet — a coil; watch for the break.")
+    if det == "whale_open":
+        lead = "A proven wallet" + (f" {s['concrete_entity']}" if s.get("concrete_entity") else "")
+        pnl = _num(s.get("entity_realized_pnl_usd"))
+        if pnl and pnl > 0:
+            lead += f", {_usd_short(pnl)} in lifetime gains,"
+        return f"{lead} opened {nums} on {a} — size, on a record, with a time on it."
     if det == "whale_move":
         lead = "A proven wallet" + (f" {s['concrete_entity']}" if s.get("concrete_entity") else "")
         pnl = _num(s.get("entity_realized_pnl_usd"))

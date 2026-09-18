@@ -130,3 +130,16 @@ def test_the_mispricing_vocabulary_routes_here_and_stays_an_observation():
     rule2 = body[body.index("2. **Observation, not advice.**"):body.index("3. **")]
     assert "gap between two things the sweep actually read" in rule2, "the fence drifted out of rule 2"
     assert "Every user has it." in skill
+
+
+def test_a_whale_open_ships_but_an_add_or_a_flip_is_still_v2():
+    """Rule 5 banned every whale read because they all needed history. An OPEN does not — the
+    position dates itself — so the rule has to separate them, or the agent keeps suppressing a
+    detector the feed now carries."""
+    skill = _flat(SKILL)
+    assert "The one exception, because it dates itself: a whale OPEN" in skill
+    assert "An **add** needs the old size and a **flip** needs the old side" in skill
+    assert "Say *opened*, never *added* or *flipped*" in skill
+    assert "an undated whale position is dropped rather than called fresh" in skill
+    # the v2 list must no longer claim whale reads wholesale
+    assert "whale **adds and flips**, OI surges" in skill

@@ -208,7 +208,12 @@ def cohort_bias(client, addrs, meta, label):
     for i in range(0, len(addrs), STATE_BATCH):
         batch = addrs[i:i + STATE_BATCH]
         try:
-            resp = client.mcp_call("discovery_get_trader_state", trader_addresses=batch, timeout=20)
+            # `include_position_age` costs nothing extra — same call, same batch — and it is what
+            # lets a whale OPEN be read from a single sweep: the position carries its own start
+            # time, so "opened 18 minutes ago" is a fact about the position, not a diff against an
+            # earlier reading of ours.
+            resp = client.mcp_call("discovery_get_trader_state", trader_addresses=batch,
+                                   include_position_age=True, timeout=20)
         except Exception as e:  # noqa
             meta.setdefault("warnings", []).append(f"{label} trader_state batch failed: {e}")
             continue
