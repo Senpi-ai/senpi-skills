@@ -53,8 +53,8 @@ RETRY_SLEEP_S = 0.75
 # no longer deliver. The market/leaderboard reads are small and fast and keep the short budget; the
 # cohort reads (the proven-trader lens, ~1000 ranking rows and 50 books per call) get a budget above
 # the server's, with room for the handshake and the transfer.
-READ_TIMEOUT_S = 12
-COHORT_TIMEOUT_S = 28
+READ_TIMEOUT_S = 15
+COHORT_TIMEOUT_S = 30
 COHORT_TOOLS = ("discovery_get_top_traders", "discovery_get_trader_state")
 UNIVERSE_MIN_VOL = score.CRED_FLOOR_VOL   # below this the ranker drops the name anyway
 COHORT_PAGES = 1              # one page of 1000 (ALL_TIME, realized desc) fills the 150-wallet smart sample;
