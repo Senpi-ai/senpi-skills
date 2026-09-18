@@ -13,7 +13,7 @@ version: 1.0.0
 description: >
   CHAMELEON — relative-value / pairs (ratio mean-reversion). For each correlated
   pair (ETH/BTC, SOL/ETH, SOL/BTC) it computes the latest price RATIO's z-score
-  vs its mean/std over lookbackBars (48) 1h candles. When |z| >= zEntryMin (2.0)
+  vs its mean/std over lookbackBars (72) 1h candles. When |z| >= zEntryMin (2.0)
   and the reversion is starting, it trades the high-beta leg (ETH or SOL) in the
   direction that profits as the ratio reverts: z high (numerator rich) -> SHORT
   the leg if leg==numerator, LONG if leg==denominator; mirror for z low. The
@@ -51,7 +51,15 @@ scanners:
         - { numerator: "SOL", denominator: "ETH", leg: "SOL" }
         - { numerator: "SOL", denominator: "BTC", leg: "SOL" }
       minScore: 4                          # v2 DEFAULT_MIN_SCORE / config.minScore
-      lookbackBars: 48                     # v2 DEFAULT_LOOKBACK_BARS — 1h bars (~2 days) for ratio mean/std
+      lookbackBars: 72                     # 1h bars (3 days) for the ratio mean/std. Was 48.
+                                           # Replaying this scanner's own z-score and DSL exit over
+                                           # 208 days of hourly candles, 48 is the one value in the
+                                           # 24-96 range that loses money in-sample (-0.64 ROE/trade
+                                           # vs +0.13 at 36 and +0.28 at 72); 120 and 168 break down,
+                                           # and 168 would exceed the ~169-candle feed anyway.
+                                           # 72 is positive in BOTH halves of the window on the
+                                           # largest sample of the plateau. Read that as "48 sat in a
+                                           # hole", not as a tuned optimum — see tests/test_lookback.py.
       zEntryMin: 2.0                       # v2 DEFAULT_Z_ENTRY_MIN — |z| to consider the ratio extended
       zStrong: 3.0                         # v2 DEFAULT_Z_STRONG — |z| for the extreme bonus
       smTiltMinPct: 55                     # v2 DEFAULT_SM_TILT_MIN — 4h-leader tilt floor for the +1
