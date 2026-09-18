@@ -25,8 +25,9 @@ Modeled on the whalehunter strategy's cohort engine (same definitions + bias mat
 senpi-strategy-discover's hidden-engine pattern: guarded I/O, fails open, always valid JSON.
 
 ⚠ discovery_* requires a USER-scoped SENPI_AUTH_TOKEN (it resolves a user id). With an app-scoped
-token the cohort pulls return empty and the engine reports `meta.cohorts_unavailable` — narrate that
-honestly rather than pretending the smart cohort is flat.
+token the cohort pulls return empty. When the cohort cannot be read at all the engine reports
+`meta.cohorts_unavailable`, naming WHICH it was — a read that failed, or one that succeeded and
+returned nothing — so narrate that line rather than pretending the smart cohort is flat.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -172,6 +173,26 @@ def build_cohorts(client, meta):
     return smart, crowd
 
 
+_COHORT_PAGE_FAILED = "top_traders page "   # the prefix build_cohorts records a failed page read under
+
+
+def _cohorts_unavailable(meta):
+    """Why there is no cohort — the read FAILED, or the read succeeded and returned nothing.
+
+    Two different facts. The second one's cause (an app-scoped token) must never be asserted over
+    the first: an upstream timeout reported as a token problem sent one investigation down a
+    token-scope dead end for hours. A failed read is already recorded in `warnings`, so it is quoted
+    here rather than guessed at.
+    """
+    failed = [w for w in meta.get("warnings", []) if w.startswith(_COHORT_PAGE_FAILED)]
+    if failed:
+        return ("no cohort data — the discovery_get_top_traders read failed, so the cohort was "
+                f"never read (this is not a token problem): {failed[-1]}")
+    return ("no cohort data — discovery_get_top_traders succeeded and returned no traders. "
+            "discovery_* needs a USER-scoped SENPI_AUTH_TOKEN; an app-scoped token returns "
+            "nothing here.")
+
+
 def _signed_notional(p):
     szi = _f(p, "szi", "size")
     val = _f(p, "positionValue", "notional", "position_value")
@@ -283,9 +304,7 @@ def run(client, want_near=True):
     meta["crowd_cohort_size"] = len(crowd_addrs)
 
     if not smart_addrs and not crowd_addrs:
-        meta["cohorts_unavailable"] = (
-            "no cohort data — discovery_get_top_traders returned empty. discovery_* needs a "
-            "USER-scoped SENPI_AUTH_TOKEN; an app-scoped token returns nothing here.")
+        meta["cohorts_unavailable"] = _cohorts_unavailable(meta)
 
     smart_per = cohort_bias(client, smart_addrs, meta, "smart") if smart_addrs else {}
     crowd_per = cohort_bias(client, crowd_addrs, meta, "crowd") if crowd_addrs else {}
@@ -366,9 +385,7 @@ def _cohorts_slice(client, meta):
     meta["smart_cohort_size"] = len(smart_addrs)
     meta["crowd_cohort_size"] = len(crowd_addrs)
     if not smart_addrs and not crowd_addrs:
-        meta["cohorts_unavailable"] = (
-            "no cohort data — discovery_get_top_traders returned empty. discovery_* needs a "
-            "USER-scoped SENPI_AUTH_TOKEN; an app-scoped token returns nothing here.")
+        meta["cohorts_unavailable"] = _cohorts_unavailable(meta)
     smart_per = cohort_bias(client, smart_addrs, meta, "smart") if smart_addrs else {}
     crowd_per = cohort_bias(client, crowd_addrs, meta, "crowd") if crowd_addrs else {}
     leaning = smart_conviction(smart_per)

@@ -30,6 +30,7 @@ each run: current.json and signals.md. Nothing else is written. Stdlib only; Pyt
 import argparse
 import contextlib
 import datetime
+import inspect
 import io
 import json
 import os
@@ -47,6 +48,14 @@ UNIVERSE_TOP_N = 120          # top-N by day notional volume (SKILL golden rule 
 # off as a dark source (see _read)
 READ_ATTEMPTS = 2
 RETRY_SLEEP_S = 0.75
+# Per-read SOCKET budget. The MCP server's own upstream budget is 20s, so a client budget at or under
+# 20s abandons the read BEFORE the server can answer — and the server goes on working a query it can
+# no longer deliver. The market/leaderboard reads are small and fast and keep the short budget; the
+# cohort reads (the proven-trader lens, ~1000 ranking rows and 50 books per call) get a budget above
+# the server's, with room for the handshake and the transfer.
+READ_TIMEOUT_S = 12
+COHORT_TIMEOUT_S = 28
+COHORT_TOOLS = ("discovery_get_top_traders", "discovery_get_trader_state")
 UNIVERSE_MIN_VOL = score.CRED_FLOOR_VOL   # below this the ranker drops the name anyway
 COHORT_PAGES = 1              # one page of 1000 (ALL_TIME, realized desc) fills the 150-wallet smart sample;
                               # the crowd band smartmoney pages for is not read here (crowd = 4h board)
@@ -62,17 +71,37 @@ def _smartmoney():
     return smartmoney
 
 
+def _accepts_timeout(call_tool):
+    """Whether this `call_tool` can carry a per-read budget as a `timeout=` keyword.
+
+    It is asked, never assumed, because the budget must NOT ride in the arguments dict: that dict is
+    the tool-arguments payload the MCP server receives, and a `timeout` key in it would be sent to
+    the server as a tool argument. A `call_tool(name, args)` that knows nothing about budgets — the
+    runtime's, and the tests' — is called with two arguments as before, on the callee's own budget.
+    Uninspectable callables (builtins, some partials) take the same two-argument path.
+    """
+    try:
+        params = inspect.signature(call_tool).parameters
+    except (TypeError, ValueError):
+        return False
+    p = params.get("timeout")
+    if p is not None:
+        return p.kind is not inspect.Parameter.POSITIONAL_ONLY
+    return any(q.kind is inspect.Parameter.VAR_KEYWORD for q in params.values())
+
+
 # ── the client adapter: smartmoney wants .mcp_call(tool, **kw); the runtime gives call_tool(name, args)
 class Client:
     def __init__(self, call_tool):
         self.call_tool = call_tool
+        self._call_takes_timeout = _accepts_timeout(call_tool)
         self.reads = 0
         self.failed = 0
         self.trader_states = []      # every discovery_get_trader_state row seen (for base-unit positions)
         self.top_traders = []        # every discovery_get_top_traders row seen (for lifetime realized PnL)
         self.wallet_pnl = {}         # proven wallet -> lifetime realized PnL, USD
 
-    def mcp_call(self, tool, timeout=12, **kw):
+    def mcp_call(self, tool, timeout=None, **kw):
         """Every read in this sweep is an idempotent GET, so a transport failure is retried before
         it is allowed to take a lens out of the run.
 
@@ -82,12 +111,22 @@ class Client:
         named after, as exposed as before. A `success: false` envelope is deliberately NOT retried
         here: it is returned as-is so `_read` degrades that source exactly as it always has, and the
         vendored engine keeps seeing the response shape it expects rather than an exception.
+
+        `timeout` is the budget the CALLER asks for — the vendored engine asks for one on every
+        cohort read. It used to bind here and go no further, because only `kw` was forwarded, so
+        every read ran on the transport's own 12s default; the cohort reads were cut off mid-flight
+        while the MCP server (20s upstream budget) was still working them. It is forwarded now, and
+        a cohort read is floored at COHORT_TIMEOUT_S so it outlives the server it is waiting on.
         """
+        budget = timeout or READ_TIMEOUT_S
+        if tool in COHORT_TOOLS:
+            budget = max(budget, COHORT_TIMEOUT_S)
         last = None
         for attempt in range(READ_ATTEMPTS):
             self.reads += 1
             try:
-                resp = self.call_tool(tool, kw)
+                resp = (self.call_tool(tool, kw, timeout=budget) if self._call_takes_timeout
+                        else self.call_tool(tool, kw))
             except Exception as e:  # noqa: BLE001 — transport; retried, then re-raised as before
                 self.failed += 1
                 last = e
@@ -469,6 +508,14 @@ def brief_text(rep, n):
     return text + ("\n" + dark if dark else "")
 
 
+def _adapter(client):
+    """`call_tool(name, args)` over an MCPClient, with the per-read budget carried through as the
+    SOCKET timeout — `args` stays exactly the tool-arguments payload the server receives."""
+    def call_tool(name, args, timeout=READ_TIMEOUT_S):
+        return client.mcp_call(name, timeout=timeout, **args)
+    return call_tool
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="senpi-signals: gather the universe and rank it, in one process")
     ap.add_argument("--out-dir", default=None,
@@ -491,7 +538,7 @@ def main(argv=None):
         err = io.StringIO()
         try:
             with contextlib.redirect_stderr(err):
-                rep = run(lambda name, args: client.mcp_call(name, **args), **kwargs)
+                rep = run(_adapter(client), **kwargs)
         except Exception:
             sys.stderr.write(err.getvalue())
             raise
@@ -499,7 +546,7 @@ def main(argv=None):
         # a dark universe is an outage, not a quiet market: exit non-zero so a caller that only
         # checks the status code cannot present it as a successful, empty read
         return 3 if universe_is_dark(rep["coverage"]) else 0
-    rep = run(lambda name, args: client.mcp_call(name, **args), **kwargs)
+    rep = run(_adapter(client), **kwargs)
     print(json.dumps(rep["result"], indent=2))
     for k, v in rep["coverage"].items():
         print(f"[coverage] {k}: {v}", file=sys.stderr)

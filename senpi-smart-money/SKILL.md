@@ -10,7 +10,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.3.0"
+  version: "1.3.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -79,7 +79,9 @@ every slice into one dict — the same output the engine always produced.
   `momentum_events`) **or `null`** if Hyperfeed is down. Use it to confirm/contradict the cohort read.
 - `cohorts` — the sample sizes (how many proven / crowd wallets were measured). Cite these so the
   user knows the sample behind the bias.
-- `meta` — `warnings`, `near_term_available`, and **`cohorts_unavailable`** (see token note below).
+- `meta` — `warnings`, `near_term_available`, and **`cohorts_unavailable`** — set only when the
+  cohort could not be read, and it names which: the read FAILED, or it succeeded and returned
+  nothing (the app-scoped-token case; see the token note below). Quote it; never merge the two.
 - The engine **fails open** — partial data still returns valid JSON. Work with what you got.
 
 ## Run it in steps — narrate as you go
@@ -120,16 +122,18 @@ minimal step:**
 Each step is **idempotent + fail-open**: a missing/corrupt state file → recompute (self-heal), so
 `near_term` **also works standalone** (it just re-runs the cohort fetch first). `--no-near` / `--fixture` /
 `--state` apply to every step; same fail-open contract as `all` — each step returns valid JSON with
-`meta.warnings` on partial data, `meta.cohorts_unavailable` on an app-scoped token, and never crashes on a
+`meta.warnings` on partial data, `meta.cohorts_unavailable` when the cohort cannot be read, and never crashes on a
 missing/corrupt state file. Prefer the steps for the full read; use `all` only when a single blocking call
 is fine.
 
 ## ⚠ Token scope
 
 `discovery_*` needs a **USER-scoped** `SENPI_AUTH_TOKEN` (it resolves a user id). With an app-scoped
-token the cohort pulls come back empty and `meta.cohorts_unavailable` is set. If you see that, say so
-plainly ("I can't read the proven-cohort positioning with this token") — don't report an empty smart
-cohort as "smart money is flat." The near-term layer may still work.
+token the cohort pulls come back empty and `meta.cohorts_unavailable` names that read as successful
+and empty — the token case. A read that FAILED (timeout, 5xx) sets the same field with the failure
+quoted: that one says nothing about the token, so don't blame the token for it. Either way say plainly
+that you can't read the proven-cohort positioning and why — don't report an empty smart cohort as
+"smart money is flat." The near-term layer may still work.
 
 ## Output contract
 
@@ -170,8 +174,9 @@ bias with its member count — conviction is the whole point.
 ## Resilience (engine handles; narrate honestly)
 
 - **Hyperfeed down** → `near_term: null`. Note it; deliver the cohort read in full.
-- **Discovery token app-scoped** → `meta.cohorts_unavailable`. Say you can't read the cohort with
-  this token; offer the near-term layer if it came through.
+- **Cohort unreadable** → `meta.cohorts_unavailable`, which names the cause: an empty successful
+  read (an app-scoped token) or a failed one (quoted — retry it, and don't call it a token problem).
+  Say you can't read the cohort and which of the two it was; offer the near-term layer if it came through.
 - **Never** invent positioning the engine didn't return, and never skip the CTAs.
 
 ## Skill Attribution

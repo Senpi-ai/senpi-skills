@@ -48,10 +48,12 @@ jobs:
       - name: strategy package suites (every strategies/<id>/tests)
         run: bash .github/scripts/run_strategy_package_tests.sh
 
+      # `senpi-smart-money/tests` added 2026-09-18: it owns the cohort engine senpi-signals vendors,
+      # and its suite had never run in CI — so the engine half of a two-copy fix was ungated.
       # `senpi-deposit-withdraw-transfer/tests` added 2026-09-15: needle guards on the money-rails
       # rules (top-up precheck + Spot recovery, exact-figure withdrawals, fees before money moves).
       - name: full suites (ops + discover + author + trading-runtime + catalog guards)
-        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-strategy-author/tests senpi-trading-runtime/tests senpi-trader-research/tests senpi-market-pulse/tests senpi-portfolio/tests senpi-trade/tests senpi-improve-trades/tests senpi-signals/tests senpi-deposit-withdraw-transfer/tests strategies/tests -q
+        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-strategy-author/tests senpi-trading-runtime/tests senpi-trader-research/tests senpi-market-pulse/tests senpi-portfolio/tests senpi-trade/tests senpi-improve-trades/tests senpi-signals/tests senpi-smart-money/tests senpi-deposit-withdraw-transfer/tests strategies/tests -q
 
       # quant-desk runs in its own invocation: quant-desk/scripts/score.py and
       # senpi-signals/scripts/score.py are both importable as `score`, so in a shared pytest run the

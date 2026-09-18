@@ -379,3 +379,60 @@ def test_brief_names_a_failed_source_in_one_plain_line(state_dir, monkeypatch, c
     out = capsys.readouterr().out.strip()
     assert out.endswith("_Not measured this run: the 4h leaderboard._")
     assert "leaderboard_get_markets" not in out
+
+
+# ──────────────────────────────────────────────── the per-read budget (it has to reach the socket)
+def test_the_budget_a_read_asks_for_reaches_the_socket(state_dir, monkeypatch, capsys):
+    """`Client.mcp_call(tool, timeout=..., **kw)` bound `timeout` to its own parameter and forwarded
+    only `kw`, so every read silently ran on the transport's 12s default — including the cohort
+    reads the vendored engine asks 20s for. The MCP server's own upstream budget is 20s, so a 12s
+    client budget abandons every read that takes 12-20s before the server can answer it, and the
+    server keeps working a query it can no longer deliver. On a slow upstream that is the whole
+    smart-money lens, on about half the runs. Counting is the only way to see it: the sweep still
+    lands either way, it just loses the lens it is named after."""
+    seen = {}
+
+    class _Client:
+        def mcp_call(self, tool, timeout=12, **kw):
+            seen.setdefault(tool, []).append(timeout)
+            return fake_call_tool(tool, kw)
+
+    fake_mod = type(sys)("mcp_client")
+    fake_mod.MCPClient = _Client
+    monkeypatch.setitem(sys.modules, "mcp_client", fake_mod)
+    assert sweep.main(["--now", NOW]) == 0
+    capsys.readouterr()
+    for tool in sweep.COHORT_TOOLS:
+        # the budget must OUTLIVE the server's 20s upstream budget, or the client always gives up first
+        assert seen[tool] and min(seen[tool]) > 20, (tool, seen.get(tool))
+    for tool in ("market_list_instruments", "leaderboard_get_markets",
+                 "leaderboard_get_momentum_events", "market_get_cross_asset_flows"):
+        assert set(seen[tool]) == {sweep.READ_TIMEOUT_S}, (tool, seen[tool])   # short reads stay short
+
+
+def test_the_budget_is_never_sent_to_the_server_as_a_tool_argument(state_dir):
+    """`args` is the tool-arguments payload the MCP server receives, so a budget folded into it
+    would be sent as a tool argument. A `call_tool(name, args)` that knows nothing about budgets —
+    the runtime's, and this fixture's — is still called with two arguments and still reads."""
+    calls = []
+
+    def two_arg(name, args):
+        calls.append((name, dict(args)))
+        return fake_call_tool(name, args)
+
+    rep = sweep.run(two_arg, now=NOW)
+    assert rep["coverage"]["cohort"].startswith("ok"), rep["coverage"]["cohort"]
+    assert calls and all("timeout" not in args for _, args in calls), calls
+
+
+def test_a_call_tool_that_can_carry_a_budget_is_given_one(state_dir):
+    budgets = {}
+
+    def with_budget(name, args, timeout=None):
+        budgets[name] = timeout
+        return fake_call_tool(name, args)
+
+    sweep.run(with_budget, now=NOW)
+    assert budgets["discovery_get_top_traders"] == sweep.COHORT_TIMEOUT_S
+    assert budgets["discovery_get_trader_state"] == sweep.COHORT_TIMEOUT_S
+    assert budgets["market_list_instruments"] == sweep.READ_TIMEOUT_S

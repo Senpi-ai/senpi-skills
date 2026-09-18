@@ -16,7 +16,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.1.0"
+  version: "2.1.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -171,7 +171,9 @@ python3 scripts/sweep.py                # debugging: run JSON, coverage lines, r
   1 `market_get_cross_asset_flows` = **~8 reads**, no model tokens. Every read fails soft: a dead
   service degrades its detector and is named in the feed's not-measured line.
 - **Auth.** `SENPI_AUTH_TOKEN` + `SENPI_MCP_URL` from env. `discovery_*` needs a **user-scoped**
-  token — an app-scoped one returns nothing and the cohort lens goes dark.
+  token — an app-scoped one returns nothing and the cohort lens goes dark. A dark cohort lens is not
+  by itself a token problem: the `[coverage] cohort:` line quotes the read that failed, so read it
+  before naming a cause.
 - **Dependencies.** The sweep carries verbatim copies of senpi-smart-money's cohort engine
   (`scripts/smartmoney.py`) and its stdlib MCP transport (`scripts/mcp_client.py`), so it runs with
   only this skill installed. `tests/test_vendored_parity.py` fails if either copy drifts.
