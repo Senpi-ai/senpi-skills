@@ -550,10 +550,10 @@ def _whale_tool(pos, coin="BTC"):
     return call
 
 
-def _whale(age_s, notional="12400000"):
+def _whale(age_s, notional="12400000", entry="77500"):
     """A $12.4M short whose startTime is `age_s` ago. `startTime` is Unix SECONDS, absolute — the
     field the detector actually reads, so the fixture exercises the real code path."""
-    return {"szi": "-160.0", "positionValue": notional, "entryPx": "77500",
+    return {"szi": "-160.0", "positionValue": notional, "entryPx": entry,
             "startTime": int(time.time()) - age_s}
 
 
@@ -637,3 +637,32 @@ def test_the_read_says_opened_exactly_once():
          "entity_realized_pnl_usd": 5_000_000.0, "smart_source": "proven_cohort"}
     for rendered in (score.trade_read(s), score.frame(s)):
         assert rendered.lower().count("opened") == 1, rendered
+
+
+
+def test_a_reset_clock_is_caught_by_the_price_the_position_opened_at():
+    """`startTime` has been seen jumping forward on untouched positions, which makes an OLD position
+    read as newly opened — and the error only ever runs in that direction, straight onto this
+    detector's trigger. The entry price is a second witness from the same read: a position that
+    really opened minutes ago is still near the price it opened at. 160 x 77,500 = $12.4M, so an
+    entry of 71,000 means the position is ~9% away from where it says it just opened."""
+    stale = _whale(17)                              # the exact shape of an observed reset: ~seconds old
+    stale["entryPx"] = "71000"                      # …but nine percent from the mark
+    rep = sweep.run(_whale_tool(stale), now=NOW)
+    assert rep["current"]["asset_metrics"]["BTC"]["whale_opens"] == [], "a reset clock was believed"
+
+
+def test_the_drift_allowance_grows_with_the_age_being_claimed():
+    """A four-hour-old position is allowed to have moved; a seventeen-second-old one is not. The
+    allowance has to scale, or the guard either rejects every real open or catches no resets."""
+    near = _whale(17)                               # 77,500 entry vs 77,500 mark — no drift
+    assert sweep.run(_whale_tool(near), now=NOW)["current"]["asset_metrics"]["BTC"]["whale_opens"]
+    old_but_moved = _whale(3 * 3600, entry="74000")  # 3h old, ~4.5% drift — plausible over 3 hours
+    assert sweep.run(_whale_tool(old_but_moved), now=NOW)["current"]["asset_metrics"]["BTC"]["whale_opens"]
+
+
+def test_a_position_with_no_entry_price_is_not_claimed():
+    """No second witness ⇒ no claim. The same rule as an undated position."""
+    no_entry = {k: v for k, v in _whale(1080).items() if k != "entryPx"}
+    rep = sweep.run(_whale_tool(no_entry), now=NOW)
+    assert rep["current"]["asset_metrics"]["BTC"]["whale_opens"] == []

@@ -11,8 +11,11 @@ Every one of those observations used `latest: true`. The sweep does NOT — it t
 which has almost no production history. So the reset may be an artifact of the fresh-fetch
 re-derivation and may never touch us. This settles it on the path we actually use.
 
-    SENPI_AUTH_TOKEN=… python3 check_position_age.py            # two reads, 20 minutes apart
-    SENPI_AUTH_TOKEN=… python3 check_position_age.py --gap 300  # shorter gap while iterating
+Run it as TWO turns, minutes apart — an agent cannot hold a 20-minute sleep open in a chat session:
+
+    SENPI_AUTH_TOKEN=… python3 check_position_age.py --snapshot   # turn 1: read and save
+    …wait 20 minutes, do something else…
+    SENPI_AUTH_TOKEN=… python3 check_position_age.py --compare    # turn 2: read again and diff
 
 Read-only. Exits 0 if every unchanged position kept its startTime, 1 if any reset.
 """
@@ -45,7 +48,9 @@ def _positions(client, wallets):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--gap", type=int, default=1200, help="seconds between the two reads")
+    ap.add_argument("--snapshot", action="store_true", help="turn 1: read the cohort and save it")
+    ap.add_argument("--compare", action="store_true", help="turn 2: read again and diff the snapshot")
+    ap.add_argument("--state", default="/tmp/position-age-snapshot.json")
     ap.add_argument("--wallets", type=int, default=50, help="how many proven wallets to sample")
     a = ap.parse_args()
 
@@ -56,12 +61,25 @@ def main():
         print(json.dumps({"error": "no cohort", "warnings": meta["warnings"]})); return 2
     wallets = list(smart)[: a.wallets]
 
-    first = _positions(client, wallets)
-    print(f"[check] read 1: {len(first)} positions across {len(wallets)} wallets — "
-          f"waiting {a.gap}s", flush=True)
-    time.sleep(a.gap)
-    second = _positions(client, wallets)
-    print(f"[check] read 2: {len(second)} positions", flush=True)
+    if a.snapshot or not a.compare:
+        now = _positions(client, wallets)
+        with open(a.state, "w") as fh:
+            json.dump({"at": time.time(), "wallets": wallets,
+                       "positions": {f"{k[0]}|{k[1]}": v for k, v in now.items()}}, fh)
+        print(f"[check] snapshot: {len(now)} positions across {len(wallets)} wallets, saved to "
+              f"{a.state}. Run again with --compare in ~20 minutes.")
+        return 0
+
+    with open(a.state) as fh:
+        snap = json.load(fh)
+    gap = time.time() - snap["at"]
+    if gap < 120:
+        print(f"[check] the snapshot is only {gap:.0f}s old — wait longer, or the reads land inside "
+              "one cache window and nothing can move for the wrong reason.")
+        return 2
+    first = {tuple(k.split("|", 1)): tuple(v) for k, v in snap["positions"].items()}
+    second = _positions(client, snap["wallets"])
+    print(f"[check] snapshot {len(first)} positions, {gap / 60:.0f} min ago; now {len(second)}")
 
     same_size, moved = 0, []
     for k, (szi1, start1) in first.items():
@@ -76,7 +94,7 @@ def main():
                           "startTime_before": start1, "startTime_after": start2,
                           "jumped_forward_s": (start2 or 0) - (start1 or 0)})
 
-    print(json.dumps({"gap_s": a.gap, "positions_unchanged_in_size": same_size,
+    print(json.dumps({"gap_s": round(gap), "positions_unchanged_in_size": same_size,
                       "startTime_moved": len(moved), "detail": moved[:20]}, indent=2))
     if moved:
         print(f"\n[check] FAIL — {len(moved)} of {same_size} untouched positions had startTime move. "

@@ -52,6 +52,15 @@ UNIVERSE_TOP_N = 120          # top-N by day notional volume (SKILL golden rule 
 # need a before-and-after and stay in v2 — a bigger position tells you nothing without the old size.
 WHALE_OPEN_MIN_USD = 1_000_000     # below this it is a position, not a statement
 WHALE_OPEN_MAX_AGE_S = 4 * 3600    # opened within the 4h horizon the rest of the feed reasons over
+# `startTime` is the only field that dates a position, and it cannot be taken on trust: it has been
+# observed jumping FORWARD on positions whose size never changed (Ignas, PR #675 — 4592s of age
+# becoming 17s in fourteen seconds), which makes an old position read as newly opened. So the age is
+# corroborated against the position's own entry price, from the SAME read: a position that really
+# opened minutes ago is still near the price it opened at. How far it may have drifted scales with
+# the age being claimed — a wide base for spread and a large entry filled across many prints, then a
+# per-minute allowance for the market actually moving.
+ENTRY_DRIFT_BASE = 0.015           # 1.5% — spread, slippage, a $10M entry filled across the book
+ENTRY_DRIFT_PER_MIN = 0.0025       # +0.25% a minute of claimed age
 # every MCP read here is an idempotent GET, so one transient failure is retried rather than written
 # off as a dark source (see _read)
 READ_ATTEMPTS = 2
@@ -268,8 +277,19 @@ def _whale_open(p, wallet, szi, lifetime_pnl):
     age = time.time() - start
     if age < 0 or age > WHALE_OPEN_MAX_AGE_S:
         return None
+    # Corroborate the age against the entry price. `positionValue` is |szi| x mark, so the mark comes
+    # out of the same row — no extra read, no history. A position claiming to be seconds old while
+    # sitting 8% away from its own entry did not open seconds ago, whatever `startTime` says.
+    entry = _num(p.get("entryPx"))
+    if not entry or not szi:
+        return None                           # cannot corroborate ⇒ do not claim
+    mark = notional / abs(szi)
+    drift = abs(mark - entry) / entry
+    if drift > ENTRY_DRIFT_BASE + ENTRY_DRIFT_PER_MIN * (age / 60.0):
+        return None                           # the price says this is older than the clock does
     return {"wallet": wallet, "direction": "long" if szi > 0 else "short",
             "notional_usd": round(notional, 2), "age_seconds": round(age),
+            "entry_drift_pct": round(drift * 100, 3),
             "lifetime_realized_usd": lifetime_pnl}
 
 
