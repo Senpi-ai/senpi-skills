@@ -20,7 +20,7 @@ Score (max ~7):  +2 |z|>=zEntryMin (gate-confirmed) · +2 |z|>=zStrong ·
 import statistics
 
 # v2 defaults (chameleon-producer.py / chameleon-config.json)
-DEFAULT_LOOKBACK_BARS = 48          # 1h bars (~2 days) for the ratio mean/std
+DEFAULT_LOOKBACK_BARS = 72          # 1h bars (3 days) for the ratio mean/std — mirrors runtime.yaml
 DEFAULT_Z_ENTRY_MIN = 2.0           # |z| to consider the ratio extended
 DEFAULT_Z_STRONG = 3.0
 DEFAULT_SM_TILT_MIN = 55
