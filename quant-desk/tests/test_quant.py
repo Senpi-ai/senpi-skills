@@ -732,12 +732,12 @@ def test_indexed_is_a_contradiction_between_two_sources_not_a_guess():
     assert r2["indexed"] is None, "with no senpi client there is nothing to contradict"
 
 
-def test_the_skill_resolves_whose_book_from_the_address_book_not_the_phrasing():
+def test_the_skill_defaults_to_the_readers_own_book_and_remembers_the_rest():
     skill = (_P(__file__).resolve().parents[1] / "SKILL.md").read_text(encoding="utf-8")
-    assert "Whose book it is is a lookup, not a reading of the phrasing" in skill
-    assert "An address the book does\n   not know is **someone else's**" in skill
+    assert "An address is the reader's own book unless we know otherwise" in skill
+    assert "already recorded as *analyzed* stays\n   someone else's on a bare re-run" in skill
     for needle in ("**verified**", "**claimed**", "**analyzed**", "--claim", "--addresses",
-                   "a claim, not proof", "ask once whether it is theirs"):
+                   "a claim, not proof", "whenever the request is about someone else"):
         assert needle in skill, needle
 
 

@@ -278,19 +278,25 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
 
 
 def resolve_whose(book, addr, other=False, mine=False, claim=False):
-    """Whose book this is — a LOOKUP, not a reading of how the request was phrased.
+    """Whose book this is. **An address is the reader's own book unless we know otherwise.**
 
-    An explicit flag on this run wins. Otherwise the address book decides, and an address it does
-    not know is someone else's. That default is the whole point: owner voice speaks in the second
-    person and recommends the reader's next steps, so defaulting to it means handing a stranger's
-    trading back to them as their own, with advice attached. Defaulting the other way costs a
-    reader nothing but a `--claim`.
+    The flagship path is a Hyperliquid trader pasting their own address to see their own desk, so
+    that is the default: asking them to claim it first would put a question in front of the one
+    moment the product exists for.
+
+    What the address book adds is memory, not suspicion. An address already read as someone else's
+    stays someone else's — the reader looked at a whale last week, and a bare re-run should not
+    start giving them the whale's leaks to fix. Anything the book has not seen is theirs.
+
+    Order: an explicit flag on this run, then what the book already knows, then the default.
     """
     if other:
         return "other"
     if mine or claim:
         return "mine"
-    return "mine" if addr_book.is_mine(book, addr) else "other"
+    if addr_book.relationship(book, addr) == addr_book.ANALYZED:
+        return "other"                 # we have already established this one is not theirs
+    return "mine"
 
 
 def main(argv=None):

@@ -74,18 +74,22 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 7. **Address hygiene and whose book it is.** Show the address shortened (`0x2999…65de`). Never post
    the desk of a wallet the user did not name.
 
-   **Whose book it is is a lookup, not a reading of the phrasing.** The desk keeps an address book per
-   box (`scripts/desk.py --addresses`) with three relationships: **verified** (a wallet senpi issued —
-   we know), **claimed** (the user said it is theirs — a claim, not proof; nobody can verify ownership
-   of an address from a chat message) and **analyzed** (someone else's book). An address the book does
-   not know is **someone else's**, and the desk runs in analyst mode. That default matters: owner mode
-   speaks in the second person and recommends *their* next steps, so getting it wrong means giving a
-   stranger's trading back to the reader as if it were their own.
+   **An address is the reader's own book unless we know otherwise.** "Run quant desk on 0x…" means the
+   user is 0x… — run it plain and speak to them. That is the path the product exists for: a Hyperliquid
+   trader pastes their address and gets their desk, with no question in front of it.
 
-   **The first time a reader gives an address, ask once whether it is theirs** — one short question,
-   before or alongside the first desk. On a yes, run with `--claim`: the desk reads it as their book
-   and remembers it. On a no, or no answer, run it plain (analyst). Never infer ownership from the fact
-   that they asked.
+   **The desk remembers.** It keeps an address book per box (`scripts/desk.py --addresses`) with three
+   relationships: **verified** (a wallet senpi issued — we know), **claimed** (the user said it is
+   theirs — a claim, not proof; nobody can verify ownership of an address from a chat message) and
+   **analyzed** (someone else's book they read). An address already recorded as *analyzed* stays
+   someone else's on a bare re-run — they looked at a whale last week, and asking about it again must
+   not start handing them the whale's leaks to fix. Use `--claim` when a reader says an address that
+   the book has as someone else's is in fact theirs.
+
+   **Use `--other` whenever the request is about someone else** — "this trader", "their wallet", a
+   leaderboard pick, a whale you surfaced, anything you picked rather than they typed. The default
+   covers the address a reader hands you; it is not a licence to read a wallet they never claimed as
+   their own.
 
    "Run quant desk analyst on 0x…" (or
    "this trader", "their wallet", a leaderboard pick) means the user is analyzing 0x…: run with

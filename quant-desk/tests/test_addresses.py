@@ -98,20 +98,30 @@ def test_mine_and_analyzed_partition_the_book(tmp_path):
     assert ab.analyzed(book) == [WHALE]
 
 
-def test_an_unknown_address_resolves_to_analyst_mode(tmp_path):
-    """The behaviour the address book exists for. Before this, `whose` defaulted to "mine" from a
-    bare address, so reading a whale spoke to the reader in the second person about the whale's
-    leaks and recommended *they* fix them."""
+def test_an_unseen_address_is_the_readers_own_book(tmp_path):
+    """The flagship path is a Hyperliquid trader pasting their own address, so that is the default —
+    putting a question in front of it would sit on the one moment the product exists for."""
     sys.path.insert(0, str(HERE.parent / "scripts"))
     import desk
     book = ab.load(str(tmp_path))
-    assert desk.resolve_whose(book, WHALE) == "other"          # unknown → not yours
-    ab.record(book, MINE, relationship=ab.CLAIMED)
-    assert desk.resolve_whose(book, MINE) == "mine"            # claimed → yours
+    assert desk.resolve_whose(book, MINE) == "mine"            # unseen → theirs
     ab.mark_verified(book, [SENPI])
-    assert desk.resolve_whose(book, SENPI) == "mine"           # senpi-issued → yours
+    assert desk.resolve_whose(book, SENPI) == "mine"           # senpi-issued → theirs
+    ab.record(book, MINE, relationship=ab.CLAIMED)
+    assert desk.resolve_whose(book, MINE) == "mine"            # claimed → theirs
+
+
+def test_an_address_already_read_as_someone_elses_stays_someone_elses(tmp_path):
+    """What the book adds is memory, not suspicion. They read a whale last week; a bare re-run must
+    not start handing them the whale's leaks to fix."""
+    sys.path.insert(0, str(HERE.parent / "scripts"))
+    import desk
+    book = ab.load(str(tmp_path))
+    assert desk.resolve_whose(book, WHALE) == "mine"           # before we know anything
     ab.record(book, WHALE, relationship=ab.ANALYZED)
-    assert desk.resolve_whose(book, WHALE) == "other"          # reading it does not make it yours
+    assert desk.resolve_whose(book, WHALE) == "other"          # and after
+    ab.record(book, WHALE, relationship=ab.CLAIMED)            # unless they claim it
+    assert desk.resolve_whose(book, WHALE) == "mine"
 
 
 def test_an_explicit_flag_still_wins_over_the_book(tmp_path):
