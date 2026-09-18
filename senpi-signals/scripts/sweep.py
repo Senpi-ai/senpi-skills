@@ -56,6 +56,15 @@ RETRY_SLEEP_S = 0.75
 READ_TIMEOUT_S = 15
 COHORT_TIMEOUT_S = 30
 COHORT_TOOLS = ("discovery_get_top_traders", "discovery_get_trader_state")
+# Wall-clock budget for the WHOLE gather. The budgets above bound one read; nothing bounded the run,
+# and at 15s/30s a degraded upstream can keep ~8 reads (each retried once) going for minutes. The
+# agent that calls this script does have a bound — the brief path is given ~60s, the feed path ~120s
+# — so an unbounded sweep does not return a thin feed on a bad day, it gets killed mid-flight and
+# returns nothing. A read is not STARTED unless its own budget fits in what is left, which caps a run
+# AT the deadline rather than at the deadline plus one hung read; whatever was read still renders,
+# and the not-measured line names what was not.
+BRIEF_DEADLINE_S = 45         # --brief closes someone else's answer, on that skill's ~60s budget
+FEED_DEADLINE_S = 100         # --print-feed is the whole answer, on ~120s
 UNIVERSE_MIN_VOL = score.CRED_FLOOR_VOL   # below this the ranker drops the name anyway
 COHORT_PAGES = 1              # one page of 1000 (ALL_TIME, realized desc) fills the 150-wallet smart sample;
                               # the crowd band smartmoney pages for is not read here (crowd = 4h board)
@@ -90,16 +99,43 @@ def _accepts_timeout(call_tool):
     return any(q.kind is inspect.Parameter.VAR_KEYWORD for q in params.values())
 
 
+class SweepDeadline(Exception):
+    """A read that was never STARTED because the sweep's wall-clock deadline could not pay for it.
+
+    It is not a failed read and must never be reported as one: nothing was asked of the server, so
+    there is no upstream fault to chase. It is raised instead of returned so it travels the same path
+    a transport failure does — including out through the vendored engine, which records it as a
+    warning and leaves the cohort empty, exactly as it does for a read that failed.
+    """
+
+
 # ── the client adapter: smartmoney wants .mcp_call(tool, **kw); the runtime gives call_tool(name, args)
 class Client:
-    def __init__(self, call_tool):
+    def __init__(self, call_tool, deadline_s=None, clock=time.monotonic):
         self.call_tool = call_tool
         self._call_takes_timeout = _accepts_timeout(call_tool)
+        self.deadline_s = deadline_s      # None = unbounded (a caller with its own bound, and the tests)
+        self._clock = clock
+        self._started = clock()
         self.reads = 0
         self.failed = 0
+        self.skipped = 0                  # reads the deadline never let start
         self.trader_states = []      # every discovery_get_trader_state row seen (for base-unit positions)
         self.top_traders = []        # every discovery_get_top_traders row seen (for lifetime realized PnL)
         self.wallet_pnl = {}         # proven wallet -> lifetime realized PnL, USD
+
+    def elapsed(self):
+        return self._clock() - self._started
+
+    def can_start(self, budget):
+        """Whether a read needing up to `budget` seconds can still finish inside the deadline.
+
+        The projection is what makes the deadline a real cap: a check on elapsed time alone would let
+        a 30s cohort read start at 44s of a 45s deadline and land at 74s, which is the overrun the
+        deadline exists to prevent. Callers use it to skip a whole lens before paying for its first
+        read (see `cohort`).
+        """
+        return self.deadline_s is None or self.elapsed() + budget <= self.deadline_s
 
     def mcp_call(self, tool, timeout=None, **kw):
         """Every read in this sweep is an idempotent GET, so a transport failure is retried before
@@ -117,12 +153,26 @@ class Client:
         every read ran on the transport's own 12s default; the cohort reads were cut off mid-flight
         while the MCP server (20s upstream budget) was still working them. It is forwarded now, and
         a cohort read is floored at COHORT_TIMEOUT_S so it outlives the server it is waiting on.
+
+        A read is only STARTED while the sweep's wall-clock deadline can still pay for it; past that
+        it raises SweepDeadline, untried. Patient reads without a run-level bound are how a slow
+        upstream turns a thin feed into no feed — the sweep keeps waiting and the agent above it
+        kills the process mid-flight.
         """
         budget = timeout or READ_TIMEOUT_S
         if tool in COHORT_TOOLS:
             budget = max(budget, COHORT_TIMEOUT_S)
         last = None
         for attempt in range(READ_ATTEMPTS):
+            if not self.can_start(budget):
+                # out of time for the RETRY of a read that genuinely failed: the failure is the fact
+                # worth reporting, so it is re-raised unwrapped and the coverage line stays accurate
+                if last is not None:
+                    raise last
+                self.skipped += 1
+                raise SweepDeadline(
+                    f"not started: {self.elapsed():.0f}s of the sweep's {self.deadline_s}s deadline "
+                    f"is spent and this read needs up to {budget}s")
             self.reads += 1
             try:
                 resp = (self.call_tool(tool, kw, timeout=budget) if self._call_takes_timeout
@@ -177,6 +227,9 @@ def _read(c, tool, args, cov, key):
     `Client.mcp_call`, so it covers the cohort reads the vendored engine makes directly too."""
     try:
         data = _ok(c.mcp_call(tool, **args))
+    except SweepDeadline as e:
+        cov[key] = f"NO DATA: {tool} {e}"
+        return None
     except Exception as e:  # noqa: BLE001
         cov[key] = f"failed: {tool}: {str(e)[:160]}"
         return None
@@ -230,6 +283,15 @@ def universe(c, cov, top_n):
 
 # ── 2. the proven cohort (senpi-smart-money's engine, vendored as-is) ─────────
 def cohort(c, cov, metrics):
+    if not c.can_start(COHORT_TIMEOUT_S):
+        # said here rather than let through the vendored engine, which would record it as a failed
+        # read: nothing was asked of the server, and a cause invented for an empty cohort is exactly
+        # the dead end this coverage line already cost one investigation
+        c.skipped += 1
+        cov["cohort"] = (f"NO DATA: the proven-cohort read was not started — {c.elapsed():.0f}s of the "
+                         f"sweep's {c.deadline_s}s deadline is spent and a cohort read needs up to "
+                         f"{COHORT_TIMEOUT_S}s. Not a failed read and not a token problem.")
+        return
     try:
         sm = _smartmoney()
     except ImportError as e:
@@ -379,20 +441,30 @@ def cross_asset(c, cov, metrics):
 
 
 # ── the sweep ──────────────────────────────────────────────────────────────────
-def gather(call_tool, top_n=UNIVERSE_TOP_N, now=None):
-    """Everything score.py needs, from one client: {"asset_metrics", "events", "coverage", "reads"}."""
+def gather(call_tool, top_n=UNIVERSE_TOP_N, now=None, deadline_s=FEED_DEADLINE_S, clock=time.monotonic):
+    """Everything score.py needs, from one client: {"asset_metrics", "events", "coverage", "reads"}.
+
+    `deadline_s` is the whole run's wall-clock budget (None = unbounded); `clock` is the monotonic
+    source it measures against, injected so the deadline is testable without waiting for it.
+
+    The four cheap market/leaderboard reads run BEFORE the cohort. The cohort is one lens and it can
+    spend the entire deadline on its own — one ranking read plus a batch per 50 wallets, each of them
+    the slowest call in the sweep — so reading it first is what makes a degraded upstream cost four
+    detectors to save one. Last, it is the lens that goes dark, and the not-measured line says so.
+    """
     now = now or datetime.datetime.now(datetime.timezone.utc)
-    c, cov = Client(call_tool), {}
+    c, cov = Client(call_tool, deadline_s=deadline_s, clock=clock), {}
     metrics = universe(c, cov, top_n)
     if metrics:
-        cohort(c, cov, metrics)
         src = board(c, cov, metrics)
         events = momentum_events(c, cov, metrics, now) + cross_asset(c, cov, metrics)
+        cohort(c, cov, metrics)
     else:
         src, events = None, []
     return {"generated": now.isoformat(), "asset_metrics": metrics, "events": events,
             "wallets": {w: {"realized_pnl_usd": v} for w, v in c.wallet_pnl.items()},
-            "coverage": cov, "source_trader_count": src, "reads": c.reads, "reads_failed": c.failed}
+            "coverage": cov, "source_trader_count": src, "reads": c.reads, "reads_failed": c.failed,
+            "reads_skipped": c.skipped}
 
 
 def rank(current_path, feed_path, now=None, top=None, lens="both"):
@@ -420,12 +492,14 @@ def default_out_dir():
     return os.path.join(base, "signals")
 
 
-def run(call_tool, out_dir=None, now=None, top_n=UNIVERSE_TOP_N, top=None, lens="both"):
+def run(call_tool, out_dir=None, now=None, top_n=UNIVERSE_TOP_N, top=None, lens="both",
+        deadline_s=FEED_DEADLINE_S, clock=time.monotonic):
     """One sweep: one reading, no compare. Writes current.json + signals.md and returns
     {"summary", "reads", "coverage", "current", "result", "out_dir"}."""
     out_dir = out_dir or default_out_dir()
     os.makedirs(out_dir, exist_ok=True)
-    cur = gather(call_tool, top_n=top_n, now=score._parse_ts(now) if now else None)
+    cur = gather(call_tool, top_n=top_n, now=score._parse_ts(now) if now else None,
+                 deadline_s=deadline_s, clock=clock)
     # Hand the reading to score.py through files only THIS run can see, then publish them under the
     # stable names with os.replace (atomic). Two sweeps sharing an out dir — the chip and the sweep
     # inside a market pulse — used to write and re-read the same current.json, so an interleave let
@@ -447,7 +521,9 @@ def run(call_tool, out_dir=None, now=None, top_n=UNIVERSE_TOP_N, top=None, lens=
     summary = (f"assets {len(cur['asset_metrics'])} · events {len(cur['events'])} · "
                f"trade {len(res.get('trade') or [])} · social {len(res.get('social') or [])} · "
                f"smart-money lens {cov.get('smart_money_lens', 'n/a')} · "
-               f"reads {cur['reads']} ({cur['reads_failed']} failed) · "
+               f"reads {cur['reads']} ({cur['reads_failed']} failed"
+               + (f", {cur['reads_skipped']} past the {deadline_s}s deadline" if cur["reads_skipped"] else "")
+               + ") · "
                f"out {out_dir}")
     return {"summary": summary, "reads": cur["reads"], "coverage": cur["coverage"], "current": cur,
             "result": res, "out_dir": out_dir}
@@ -533,7 +609,9 @@ def main(argv=None):
     a = ap.parse_args(argv)
     from mcp_client import MCPClient  # noqa: E402 — scripts/mcp_client.py, byte-identical to senpi-smart-money's
     client = MCPClient()
-    kwargs = dict(out_dir=a.out_dir, now=a.now, top_n=a.top_n, top=a.top, lens=a.lens)
+    # the brief runs inside another skill's answer and is given less time than the full feed is
+    kwargs = dict(out_dir=a.out_dir, now=a.now, top_n=a.top_n, top=a.top, lens=a.lens,
+                  deadline_s=BRIEF_DEADLINE_S if a.brief is not None else FEED_DEADLINE_S)
     if a.print_feed or a.brief is not None:
         err = io.StringIO()
         try:
