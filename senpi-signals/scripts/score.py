@@ -25,6 +25,7 @@ Thresholds mirror references/detectors.md — change them in BOTH places.
 import argparse
 import datetime
 import json
+import math
 import os
 import sys
 
@@ -53,6 +54,8 @@ SMART_COHORT_PCT_MIN = 8.0    # a single name holding this much of the cohort is
 SMART_SHARE_MIN = 25.0        # fallback when the basis is unstated
 SMART_JUMP_PP = 12.0
 FUNDING_PCTILE = 95.0
+WHALE_OPENS_PER_ASSET = 2            # two named wallets on one coin is a story; five is a list
+WHALE_OPEN_SCALE_USD = 1_000_000     # magnitude scale: a $10M open tops it out
 WHALE_MIN_USD = 1_000_000
 WHALE_MOVE_MAX_AGE_MIN = 720  # a "change" older than this is not news — it is a holding. Without a
                               # timestamp at all we cannot date it, so it is treated as a holding too.
@@ -458,7 +461,7 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None, fast_age
             w = str(o.get("wallet") or "")
             out.append({
                 "asset": asset, "dex": dex, "detector": "whale_open", "direction": side,
-                "numbers": [f"{_usd_short(notional)} {side.upper()} opened {_ago(age)}"],
+                "numbers": [f"{_usd_short(notional)} {side.upper()} {_ago(age)}"],
                 "notional_vol": vol,
                 "concrete_entity": (w[:6] + "…" + w[-4:]) if len(w) > 12 else w,
                 "price_change_pct": pcp,
@@ -466,7 +469,7 @@ def detect_from_metrics(cur, prior, prior_slow=None, slow_age_min=None, fast_age
                 "conflict": bool(cd and cd != side), "flip": False,
                 "smart_source": src, "source_trust": src_trust, "crowd_source": crowd_src,
                 "is_change": True,          # a position opened inside the window IS new information
-                "opened": True, "age_seconds": age, "notional_usd": notional,
+                "age_seconds": age, "notional_usd": notional,
                 "entity_realized_pnl_usd": _num(o.get("lifetime_realized_usd")),
             })
 
@@ -697,19 +700,20 @@ def _crowd_basis(s):
     return CROWD_SOURCE_LABEL[cs if cs in CROWD_SOURCE_LABEL else None]
 
 
-WHALE_OPENS_PER_ASSET = 2            # two named wallets on one coin is a story; five is a list
-WHALE_OPEN_SCALE_USD = 1_000_000     # magnitude scale: a $10M open tops it out
-
-
 def _ago(seconds):
-    """"18 minutes ago" — the position's own age, reader-sized. Never rounded UP into a bigger
-    claim: 59 minutes stays minutes rather than becoming "an hour"."""
+    """"18 minutes ago" — the position's own age, reader-sized.
+
+    Rounds AWAY from freshness, never toward it. For a detector whose whole claim is "this just
+    happened", understating an age is the overstatement: 2h30m rendered as "2 hours ago" sells a
+    position as half an hour newer than it is. `ceil` can only ever report older.
+    """
     s = max(0, int(seconds or 0))
     if s < 90:
         return "just now"
     if s < 3600:
-        return f"{s // 60} minutes ago"
-    return "an hour ago" if s < 5400 else f"{s / 3600.0:.0f} hours ago"
+        return f"{max(2, math.ceil(s / 60))} minutes ago"
+    hours = math.ceil(s / 3600)
+    return "an hour ago" if hours <= 1 else f"{hours} hours ago"
 
 
 def _usd_short(v):

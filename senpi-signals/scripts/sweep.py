@@ -258,13 +258,14 @@ def _whale_open(p, wallet, szi, lifetime_pnl):
     notional = abs(_num(p.get("positionValue")) or 0.0)
     if notional < WHALE_OPEN_MIN_USD:
         return None
-    age = _num(p.get("durationInSeconds")) or _num(p.get("duration_in_seconds"))
-    if age is None:
-        start = _num(p.get("startTime")) or _num(p.get("start_time"))
-        if not start:
-            return None                       # undated: say nothing
-        start_ms = start * 1000.0 if start < 1e12 else start
-        age = (time.time() * 1000.0 - start_ms) / 1000.0
+    # `startTime`, not `durationInSeconds`: the duration is computed when the response is built, so
+    # on a cached read it is stale by the cache age — and stale in the direction that makes an old
+    # position look newly opened. `startTime` is absolute and stays correct however long the read sat
+    # in a cache. Unix SECONDS, per the MCP schema; `startTime: 0` occurs and `not start` catches it.
+    start = _num(p.get("startTime"))
+    if not start:
+        return None                           # undated: say nothing
+    age = time.time() - start
     if age < 0 or age > WHALE_OPEN_MAX_AGE_S:
         return None
     return {"wallet": wallet, "direction": "long" if szi > 0 else "short",

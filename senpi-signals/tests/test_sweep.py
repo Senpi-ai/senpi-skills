@@ -8,7 +8,9 @@ No real wallet addresses. Run: python3 -m pytest senpi-signals/scripts -q
 import json
 import os
 import pathlib
+import re
 import sys
+import time
 
 import pytest
 
@@ -548,8 +550,14 @@ def _whale_tool(pos, coin="BTC"):
     return call
 
 
-FRESH_WHALE = {"szi": "-160.0", "positionValue": "12400000", "entryPx": "77500",
-               "durationInSeconds": 1080}          # $12.4M short, opened 18 minutes ago
+def _whale(age_s, notional="12400000"):
+    """A $12.4M short whose startTime is `age_s` ago. `startTime` is Unix SECONDS, absolute — the
+    field the detector actually reads, so the fixture exercises the real code path."""
+    return {"szi": "-160.0", "positionValue": notional, "entryPx": "77500",
+            "startTime": int(time.time()) - age_s}
+
+
+FRESH_WHALE = _whale(1080)                     # $12.4M short, opened 18 minutes ago
 
 
 def test_a_proven_wallet_opening_size_is_read_from_one_sweep(state_dir):
@@ -561,24 +569,29 @@ def test_a_proven_wallet_opening_size_is_read_from_one_sweep(state_dir):
     btc = rep["current"]["asset_metrics"]["BTC"]
     assert btc["whale_opens"], "a $12.4M position opened 18 minutes ago was not picked up"
     o = btc["whale_opens"][0]
-    assert o["direction"] == "short" and o["notional_usd"] == 12_400_000.0 and o["age_seconds"] == 1080
+    assert o["direction"] == "short" and o["notional_usd"] == 12_400_000.0
+    assert 1080 <= o["age_seconds"] < 1140, o["age_seconds"]   # measured from startTime, so it ticks
     sigs = [s for s in rep["result"]["trade"] + rep["result"]["social"] if s["detector"] == "whale_open"]
     assert sigs, "the open never reached a feed"
-    assert "12.4M" in " ".join(sigs[0]["numbers"]) and "18 minutes ago" in " ".join(sigs[0]["numbers"])
+    nums = " ".join(sigs[0]["numbers"])
+    # not a fixed minute: the age is measured from startTime and ceil never under-reports, so a
+    # fixture set 1080s back reads as 18 or 19 minutes depending on how long the sweep took
+    assert "12.4M" in nums and "SHORT" in nums
+    assert re.search(r"(18|19) minutes ago$", nums), nums
     assert sigs[0]["concrete_entity"], "a whale read with no wallet on it is just a number"
 
 
 def test_a_position_we_cannot_date_is_never_called_an_open(state_dir):
     """An undated whale position is almost always an OLD one. "Opened just now" is exactly the claim
     that must never be guessed — golden rule 1, and rule 5's ban on claiming a move we cannot time."""
-    undated = {k: v for k, v in FRESH_WHALE.items() if k != "durationInSeconds"}
+    undated = {k: v for k, v in FRESH_WHALE.items() if k != "startTime"}
     rep = sweep.run(_whale_tool(undated), now=NOW)
     assert rep["current"]["asset_metrics"]["BTC"]["whale_opens"] == []
 
 
 def test_an_old_or_small_position_is_a_holding_not_news(state_dir):
-    for pos, why in (({**FRESH_WHALE, "durationInSeconds": 5 * 3600}, "5h old — a holding"),
-                     ({**FRESH_WHALE, "positionValue": "500000"}, "$500k — a position, not a statement")):
+    for pos, why in ((_whale(5 * 3600), "5h old — a holding"),
+                     (_whale(1080, "500000"), "$500k — a position, not a statement")):
         rep = sweep.run(_whale_tool(pos), now=NOW)
         assert rep["current"]["asset_metrics"]["BTC"]["whale_opens"] == [], why
 
@@ -593,10 +606,34 @@ def test_whale_open_is_not_a_history_detector(state_dir):
     assert "whale_open" in sweep.feed_text(rep) or "opened" in sweep.feed_text(rep)
 
 
-def test_an_age_is_never_rounded_up_into_a_bigger_claim():
+def test_an_age_always_rounds_away_from_freshness():
+    """The previous version of this test named the rounding rule and then tested only values that do
+    not round — so `f"{s/3600:.0f}"` (round to NEAREST) passed it while reporting 2h30m as "2 hours
+    ago". Understating an age is the overstatement for a detector whose claim is "this just
+    happened", so every case below is one that actually rounds."""
     import score
     assert score._ago(30) == "just now"
+    assert score._ago(90) == "2 minutes ago"          # not "1 minutes ago"
     assert score._ago(1080) == "18 minutes ago"
-    assert score._ago(3540) == "59 minutes ago"      # not "an hour"
+    assert score._ago(3540) == "59 minutes ago"
     assert score._ago(3600) == "an hour ago"
-    assert score._ago(4 * 3600) == "4 hours ago"
+    assert score._ago(8999) == "3 hours ago"          # 2h30m — never "2 hours"
+    assert score._ago(12600) == "4 hours ago"         # 3h30m — never "3 hours"
+    for s in range(60, 4 * 3600, 617):                # never claims fresher than the truth
+        spoken = score._ago(s)
+        if spoken.endswith("minutes ago"):
+            assert int(spoken.split()[0]) * 60 >= s
+        elif spoken.endswith("hours ago"):
+            assert int(spoken.split()[0]) * 3600 >= s
+
+
+def test_the_read_says_opened_exactly_once():
+    """`numbers` used to end with "opened 18 minutes ago" while both renderers prepend "opened" —
+    so the flagship sentence read "opened $12.4M SHORT opened 18 minutes ago". The old tests were
+    substring checks on "12.4M" and "18 minutes ago", which passed either way."""
+    import score
+    s = {"asset": "BTC", "detector": "whale_open", "direction": "short", "price_change_pct": None,
+         "numbers": ["$12.4M SHORT 18 minutes ago"], "concrete_entity": "0x0000…0001",
+         "entity_realized_pnl_usd": 5_000_000.0, "smart_source": "proven_cohort"}
+    for rendered in (score.trade_read(s), score.frame(s)):
+        assert rendered.lower().count("opened") == 1, rendered
