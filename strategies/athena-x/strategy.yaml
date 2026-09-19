@@ -1,0 +1,56 @@
+# Athena-X — Athena at conviction size. Selection is Athena's; only sizing differs.
+# Athena — the smart-money hedge fund: Phalanx and Aegis as one two-wallet PACKAGE.
+# Phalanx (the alpha sleeve) follows the proven cohort's rotation; Aegis (the hedge
+# sleeve) reads the tape — funding regime, haven flows, OI velocity — and hedges the
+# regime, sitting in cash when it is neutral. The two read different things by
+# design, so the hedge is on before the cohort has rotated. Each sleeve is its
+# source template verbatim (tests/test_legs_verbatim.py pins that); the ONE lever
+# this package adds is the weighting below. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: athena-x
+version: "1.0.0"
+
+catalog:
+  name: "Athena-X — Smart-Money Hedge Fund, Conviction Sizing"
+  emoji: "🏛️"
+  tagline: "Athena at conviction size. The same two sleeves, the same signals, the same entries — sized up: 5x instead of 3x, more margin per slot, one more slot each. Roughly 3.7x the gross exposure of Athena for identical trades. Take it only if you would take Athena and want it louder."
+  belief_plain: "This is not a different read on the market — it is the same read with more behind it. Athena decides WHAT to trade; Athena-X only changes HOW MUCH. Phalanx still follows the proven cohort (traders with >=$1M lifetime realized PnL) and Aegis still hedges the regime off the tape, exactly as they do in Athena. What changes is size: 5x leverage instead of 3x, 25%% of the alpha wallet per position instead of 15%%, 20%% of the hedge wallet instead of 12%%, and one extra slot in each sleeve. That is about 3.7x the gross exposure for the same signals, so both the gains and the drawdowns scale with it. The daily loss limit stays at 5%%, which at this size trips sooner — expect the book to halt on a bad day earlier than Athena would."
+  thesis: "Sizing is a separate decision from selection, and Athena-X exists to make it an explicit one rather than a fork users hand-edit. Every signal, gate and exit is Athena's, unchanged and still byte-identical to the Phalanx and Aegis source templates; only the sizing block differs. It suits an operator who has already watched Athena trade, believes the entries, and wants conviction size behind them. It is the wrong choice as a first strategy: 5x with 25%% per slot means a single bad regime day reaches the 5%% daily loss limit quickly, and the whole point of the hedge sleeve is muted if the book halts. Start on Athena, move here on evidence."
+  group: smart-money
+  archetype: copy_trading
+  sub_style: sm_hedge_fund
+  asset_classes: [universe_crypto, btc_eth, major_alts, xyz_equities, commodities, indices, fx]
+  asset_scope: follows_traders
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 9
+  assets: []
+  # Computed mechanically, Athena-X's minimum is LOWER than Athena's ($40 vs $100): a bigger
+  # marginPct clears the $10 exchange floor on a smaller wallet. That is true and useless —
+  # it would advertise the higher-risk package as the cheaper one. Floored to Athena's, so
+  # nobody is told 5x conviction sizing is the entry-level option.
+  min_budget_floor: 100
+  tags: [athena-x, conviction-sizing, aggressive-sizing, smart-money, hedge-fund, smart-money-hedge-fund, alpha-plus-hedge, proven-cohort, rotation, regime-hedge, dynamic-hedge, cross-asset, long-short, phalanx, aegis]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+# THE lever: the weighting. Move the two funding_share values together (they must
+# total 1.0) in the user's fork before funding — 0.65/0.35 is the default. Each
+# wallet needs the $10 platform floor and its sleeve's own sizing at the budget.
+instances:
+  - name: phalanx
+    runtime: phalanx/runtime.yaml        # → runtime name athena-phalanx, group athena
+    wallet_env: ATHENA_X_PHALANX_WALLET    # bound as ${ATHENA_X_PHALANX_WALLET} in phalanx/runtime.yaml
+    funding_share: 0.65
+  - name: aegis
+    runtime: aegis/runtime.yaml          # → runtime name athena-aegis, group athena
+    wallet_env: ATHENA_X_AEGIS_WALLET
+    funding_share: 0.35
