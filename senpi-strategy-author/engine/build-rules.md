@@ -48,7 +48,26 @@ ticks clean and trades nothing.
 | Exit wording | `{{SKILL_DIR}}/references/explaining-the-exit.md` |
 | Worked examples ("Clone from" in the archetype table) | packages under `{{STRATEGIES_DIR}}` when present |
 | Tickers | `mcp__senpi__market_list_instruments` (live) |
+| What a Senpi tool returns and means | its own guide — `mcp__senpi__list_senpi_guides`, then `mcp__senpi__read_senpi_guide` |
 | MCP output fields | call the tool once, inspect the real response, then extract |
+
+### Learn every tool the scanner will call, before you write the call
+
+You have the same read-only Senpi MCP the chat agent has (~41 tools), **including the guides**, and
+each tool family has one: `discovery_*`, `leaderboard_*`, `account_get_portfolio`, `trader-states`,
+`strategy_get_pnl_and_account_value_history`, the execution reads, and more. They carry the field
+meanings, the freshness rules and the gotchas that no amount of plausible naming will give you.
+
+For each tool the scanner will call, in this order:
+
+1. `mcp__senpi__list_senpi_guides` — one call, lists them all.
+2. `mcp__senpi__read_senpi_guide` for each matching guide. A tool with no guide is fine; go to 3.
+3. **Call the tool once with the real arguments and read the actual response** before writing any
+   `.get(...)` chain against it. Shapes differ per tool: some nest under `data`, some return a bare
+   list, some return text.
+
+Skipping this is how a scanner ticks clean and emits nothing forever: a field that never existed
+reads as `None`, and `None` fails every threshold quietly.
 
 Known doc error: `references/risk-gates.md` shows `cooldown_minutes` / `per_asset_cooldown_minutes`.
 The runtime rejects both; the keys are `cooldown_seconds` (>= 60) and `per_asset_cooldown_seconds`
