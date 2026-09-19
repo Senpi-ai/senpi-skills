@@ -175,6 +175,11 @@ def strategy_min_budget(manifest, runtimes):
     floor_override = _f(cat.get("min_budget_floor"))
     if floor_override:                                       # deliberate authored number — RAISE only,
         computed = max(computed, floor_override)             # and NEVER shrunk by the rounding
+        # _f() returns a float, so an authored whole number used to serialise as `100.0` into the
+        # catalog while every COMPUTED minimum is an int — a visible type split between two rows
+        # that mean the same thing. Keep the type the rest of the field has.
+        if float(computed).is_integer():
+            computed = int(computed)
     binding = None
     if breakdown:
         binding = max(breakdown, key=lambda b: b["per_wallet_min"] / (b["funding_share"] or 1.0))["wallet"]
