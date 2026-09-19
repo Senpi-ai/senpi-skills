@@ -212,3 +212,48 @@ def test_a_failed_wallet_read_does_not_stop_trading(monkeypatch):
     monkeypatch.setattr(scan, "_withdrawable", lambda ctx: None)
     _ranked(monkeypatch, [_sig("ETH", "LONG", 70.0)])
     assert len(scan.scan({}, _ctx())) == 1
+
+
+# ── the signal payload the runtime will actually accept ──
+# `signal_data_schema` declares `oneSidedness: {type: number, required: false}`. The runtime reads
+# that as "absent is fine, null is not", so a key present with None fails the type and the SIGNAL is
+# rejected — while this scanner's own tick reports itself healthy. Shipped in 1.1.0: `oneSidedness`
+# was read off the SIGNAL (`s.get("smart_share")`), but `smart_share` is a field on the asset
+# METRICS and none of score.py's four signal-construction sites copies it across, so it was None on
+# 100% of emits and nothing this strategy produced could ever open a position.
+#
+# Note the old `_sig()` helper above still sets `smart_share` on the signal. That is precisely how
+# this passed review: the fixture was kinder than the engine. These tests use the real shape.
+
+def _engine_sig(asset, direction, ts, vol=50_000_000):
+    """A signal shaped the way score.py actually builds one — no `smart_share` key."""
+    return {"asset": asset, "direction": direction, "trade_score": ts, "detector": "sm_divergence",
+            "notional_vol": vol, "numbers": ["cohort 70% long"]}
+
+
+def test_no_emitted_field_is_ever_null(monkeypatch):
+    """`required: false` means OMIT the key. A null fails `type: number` and loses the signal."""
+    _gather(monkeypatch, COHORT_OK)
+    _detected(monkeypatch, [_engine_sig("A0", "LONG", 90.0)])
+    out = scan.scan({}, _ctx())
+    assert out, "the fix must not cost us the emit"
+    nulls = {k for k, v in out[0]["data"].items() if v is None}
+    assert not nulls, f"null-valued keys the schema forbids: {sorted(nulls)}"
+
+
+def test_one_sidedness_comes_from_the_metrics_row_not_the_signal(monkeypatch):
+    """COHORT_OK carries smart_share 70.0 on each asset; the emit must carry that number through."""
+    _gather(monkeypatch, COHORT_OK)
+    _detected(monkeypatch, [_engine_sig("A0", "LONG", 90.0)])
+    out = scan.scan({}, _ctx())
+    assert out[0]["data"]["oneSidedness"] == 70.0
+
+
+def test_an_asset_with_no_smart_share_omits_the_key_rather_than_sending_none(monkeypatch):
+    """An asset the metrics have no cohort reading for still trades — it just says nothing it cannot."""
+    metrics = dict(COHORT_OK)
+    metrics["A0"] = {k: v for k, v in COHORT_OK["A0"].items() if k != "smart_share"}
+    _gather(monkeypatch, metrics)
+    _detected(monkeypatch, [_engine_sig("A0", "LONG", 90.0)])
+    out = scan.scan({}, _ctx())
+    assert out and "oneSidedness" not in out[0]["data"]
