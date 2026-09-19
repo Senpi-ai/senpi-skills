@@ -300,3 +300,53 @@ class TemplatesDeployUnderTheUsersName(unittest.TestCase):
         ref = (REPO / "senpi-strategy-ops" / "references" / "walkthrough.md").read_text()
         for needle in ("Every block is bullets", "marginPctBase", "ignas-phalanx", "deploy.py fork", "is not a yes"):
             self.assertIn(needle, ref)
+
+
+class ScriptInvocationsAreCwdIndependent(unittest.TestCase):
+    """Every documented `python3 …/scripts/x.py` must carry the real skills root.
+
+    Two separate ways this went wrong in one day:
+
+    1. A backgrounded `cd <skill> && python3 scripts/close.py <a> &` leaves the `cd` in the
+       subshell, so every later line runs from the original cwd and dies on `can't open file
+       'scripts/close.py'` — which reads as a broken script, not a lost directory, while the
+       strategies stay open. (2026-09-18, two closes lost.)
+    2. Rewriting those to `~/.openclaw/skills/…` to fix (1). `$HOME` is `/root` on an agent box
+       and the skills OpenClaw loads are under `/data/.openclaw/skills/`, so every rewritten line
+       would have failed — worse than the relative form, which at least worked from the skills
+       root. Caught in review before it shipped.
+
+    So the gate is on the absolute path, not merely on "not relative".
+    """
+
+    ROOT = "/data/.openclaw/skills"
+    # The counterexample in lifecycle.md IS the failing shape; rewriting it erases the lesson.
+    ALLOWED_RELATIVE = ("python3 scripts/close.py <a> &", "python3 scripts/close.py <b>")
+    DOCS = ("senpi-strategy-ops", "senpi-strategy-author", "quant-desk")
+
+    def _markdown(self):
+        for skill in self.DOCS:
+            d = REPO / skill
+            if not d.is_dir():
+                continue
+            for p in sorted(d.rglob("*.md")):
+                yield p
+
+    def test_no_documented_invocation_depends_on_the_working_directory(self):
+        bad = []
+        for p in self._markdown():
+            for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+                if any(k in line for k in self.ALLOWED_RELATIVE):
+                    continue
+                for m in re.finditer(r"python3 (\S*scripts/[a-z_]+\.py)", line):
+                    if not m.group(1).startswith(self.ROOT):
+                        bad.append(f"{p.relative_to(REPO)}:{i}  {m.group(0)}")
+        self.assertEqual(bad, [], "cwd-dependent script invocations:\n  " + "\n  ".join(bad))
+
+    def test_the_skills_root_is_never_written_as_a_home_relative_path(self):
+        bad = [f"{p.relative_to(REPO)}:{i}"
+               for p in self._markdown()
+               for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
+               if "~/.openclaw" in line or "$HOME/.openclaw" in line]
+        self.assertEqual(bad, [], "$HOME is /root on an agent box; skills live under /data:\n  "
+                                  + "\n  ".join(bad))

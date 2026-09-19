@@ -51,7 +51,7 @@ openclaw senpi scanner -r <runtime_id>           # runs / errors / signals / ali
 openclaw senpi status -r <runtime_id> --json     # the runtime's own health verdict + risk gates
 openclaw senpi dsl positions                     # what it holds and where each stop sits
 openclaw senpi action history                    # what it did, and why
-python3 senpi-strategy-ops/scripts/status.py     # the fleet view (health, pauses, config drift)
+python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py     # the fleet view (health, pauses, config drift)
 ```
 
 One read when the user asks beats a hundred reads nobody asked for.
@@ -78,5 +78,5 @@ Read the log to know what it did. A second launch is a second process, not a res
 
 ## Stopping a shadow
 
-`openclaw cron rm <id>` for anything scheduled; `python3 senpi-strategy-ops/scripts/close.py <id>`
+`openclaw cron rm <id>` for anything scheduled; `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/close.py <id>`
 for a funded floor wallet (flattens, returns the funds). Say which one you did.

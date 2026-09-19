@@ -478,8 +478,8 @@ user: "deploy spider with $300"
 2. prove    → openclaw senpi validate /data/workspace/strategies/spider/swing   → PASS
               openclaw senpi validate /data/workspace/strategies/spider/scalp   → PASS
               (one run per instance; only a PASS records the proof `create` refuses without)
-3. preflight→ python3 scripts/deploy.py validate spider   → structurally deploy-ready, both proven
-4. start    → python3 scripts/deploy.py create spider --budget 300
+3. preflight→ python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py validate spider   → structurally deploy-ready, both proven
+4. start    → python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py create spider --budget 300
               (starts the job, which refuses pre-money on a dead universe: dpl-a1b2c3d4 — phase: reconcile)
 5. watch    → it polls for you; or openclaw senpi deploy status  (repeat until it is terminal)
               running (phase: create) → running (phase: install) → done — live
@@ -590,3 +590,20 @@ the content form specifically that breaks.
 `strategy_close` (flatten + close) · optionally `strategy_get` / `strategy_get_clearinghouse_state` to
 cross-check zero open positions. Note: `timeout=` on a call is the **HTTP request** timeout, not the
 async on-chain completion time — lifecycle ops submit then poll.
+
+## Closing several
+
+There is no subset flag: `close.py <id>` takes one package and `--all` is all-or-nothing, so
+"close jackal, osprey and piranha" is three runs. Run them **sequentially** and read each result
+before the next — `strategy_close` is async, and a close you never read is a close you cannot
+confirm.
+
+**Never background them.** `cd <skill> && python3 scripts/close.py <a> &` followed by more
+`python3 scripts/close.py <b>` lines is the shape that fails: the `cd` lives in the backgrounded
+subshell, so every later line runs from the *original* cwd and dies on
+`python3: can't open file 'scripts/close.py': [Errno 2] No such file or directory`. The strategies
+stay open, and the error names a missing script rather than a lost directory — so it reads as a
+broken tool. Observed on a real box, 2026-09-18, closing two strategies at once.
+
+Invoke by the absolute path (`python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/close.py …`)
+and the cwd cannot matter.

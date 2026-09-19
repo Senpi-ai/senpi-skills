@@ -78,7 +78,7 @@ cheaper — the two skills-side validators (`deploy.py validate`, and the author
 
 The refusal **names the offending instances and computes the re-check block for them** — one
 `openclaw senpi validate '<that instance's dir>'` per offender, then the package-wide
-`python3 senpi-strategy-ops/scripts/deploy.py validate '<package dir>'`. **Run the block it printed,
+`python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py validate '<package dir>'`. **Run the block it printed,
 in that order, and do not substitute the python line for the runtime one**: the refusal says so
 itself — only `openclaw senpi validate` records the proof the deploy requires, and the python route
 writes none. Add the exit block to the instance `runtime.yaml`, re-check, then re-run.
@@ -195,7 +195,7 @@ already own a funded, live wallet, and the unscoped sentence is what funds a sec
 The one refusal names every dead instrument, both forms it checked
 (`T` and `xyz:T`), and the exact file + key path each appears in. Fix each named instrument in the
 package (the **senpi-strategy-author** edit path), re-check read-only with
-`python3 senpi-strategy-ops/scripts/validate_universe.py <dir>`, then re-run. A dead name never
+`python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/validate_universe.py <dir>`, then re-run. A dead name never
 errors at runtime — the scan skips it and the strategy silently trades nothing — so **never
 "deploy anyway"**. If the step instead reports that the live instrument list **could not be read**,
 nothing is claimed dead, nothing was created by that run and nothing the package already had was

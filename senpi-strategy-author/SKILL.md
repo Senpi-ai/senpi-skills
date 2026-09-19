@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.10.0"
+  version: "3.11.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -273,11 +273,11 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
 7. **Unit-test `scoring.py`** on sample candles (pure — no mocks). Run it → report pass/fail as its own beat.
 8. **Lint — advisory, instant, no credentials** (pass the package's absolute path,
    `/data/workspace/strategies/<id>`, so they hit the authored copy from any CWD):
-   (a) **authoring lint** → `python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>`
+   (a) **authoring lint** → `python3 /data/.openclaw/skills/senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>`
    (candle keys, null-in-schema, mandate description, retention/cooldown bounds) **+ advisory warns you relay to the user**: the stop's distance in price at the recipe's leverage, multi-slot sizing with no free-margin gate, a daily entry cap at or below the slot count;
-   (b) **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>`
+   (b) **universe gate** → `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>`
    — every hardcoded ticker you TRADE must be a live HL instrument (derived universes, and names under an exclusion key, pass trivially);
-   (c) **deploy contract** → `python3 senpi-strategy-ops/scripts/deploy.py validate /data/workspace/strategies/<id>`
+   (c) **deploy contract** → `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py validate /data/workspace/strategies/<id>`
    — the deployer's structural preflight (structure, linkage, render; **no money moved, nothing
    installed** — though not side-effect-free: a bare catalog id is fetched to disk). It also
    **reports** the universe from (b)'s predicates, so it reads the live instrument list and needs
@@ -362,16 +362,16 @@ makes one new wallet per instance). Authoring just designs the package; **concur
 ## Invariants (every guess in this system fails silently — hold these)
 
 - **`scan(inputs, ctx)` is read-only, pure, single-pass.** Return `[]` on any error. No daemon, no
-  `push_signal`, no `sleep`, no file writes, no wallet hardcoding.
+  `push_signal`, no `sleep`, no file writes, no wallet hardcoding. **One tick has a call budget** — production kills it at `timeout_seconds` exactly as validation does, so an over-budget scan times out on EVERY tick and never trades: [per-tick call budget](references/creating-a-strategy.md#the-per-tick-call-budget).
 - **A gate in `scan()` must honour `ctx.dry_run`.** If the scanner returns early outside its trading
   session (or any similar condition), consult `ctx.dry_run` and read anyway when it is set —
   otherwise validation sees a tick that read nothing, which is reported as **UNPROVEN** and is not a
   pass. Returning `[]` is fine; returning `[]` *without having read* proves nothing about the scanner.
 - **Emit a `marginPct` *intent*, not dollars** — top-level, not inside `data{}`. The runtime sizes the
   dollars off the live account; don't read the clearinghouse to size.
-- **Pure thesis math in `scoring.py`** (no I/O, no MCP, no clock) so it unit-tests.
+- **Pure thesis math in `scoring.py`** (no I/O, no MCP, no clock) so it unit-tests. Put the computed **score into the emitted `data`** — it is the signal's audit trail; the runtime's log line prints `score 0` for every emit fleet-wide, so never verify it from there.
 - **Memory = `ctx.state`** (`.last()/.recent()/.append()`); set `state_history_max_count` > 0. Cohort
-  rotation, dedup, and first-seen ledgers all live here.
+  rotation, dedup, and first-seen ledgers all live here. **Editing a LIVE scanner is an instant, unvalidated production change** (the scaffold re-reads it each tick) and **the universe must be bounded by the thesis**, never by a scoring condition: [creating-a-strategy.md](references/creating-a-strategy.md#bound-the-universe-to-the-thesis).
 - **Exits = a named DSL preset**, copied from `references/dsl-presets.yaml`, change ≤1 field.
   `max_loss_pct`/`retrace_threshold` are **ROE % (margin), not price %**.
 - **Catalog facets from the glossary** (`senpi-strategy-discover/references/glossary.yaml`):
@@ -380,7 +380,7 @@ makes one new wallet per instance). Authoring just designs the package; **concur
 - **Anchor every `call_tool` on the published MCP I/O reference** — a guessed tool name, interval
   string, or output field is a scanner that ticks clean and emits nothing.
 - **Never hardcode a ticker you didn't verify.** Every static `universe`/`asset`/`catalog.assets` entry you TRADE
-  must be a live HL instrument (`validate_universe.py`; an **exclusion** list — `excludeAssets`, `deny*`, `skip*` —
+  must be a live HL instrument (`senpi-strategy-ops/scripts/validate_universe.py`; an **exclusion** list — `excludeAssets`, `deny*`, `skip*` —
   is exempt: it names what you will *not* trade) — a fake ticker 500s on `market_get_asset_data` and the scan skips it: no error, no trade. `xyz:XYZ100`, not `xyz:NASDAQ`.
 
 ## Editing an existing strategy
