@@ -25,6 +25,10 @@ LEGS = {"phalanx": "phalanx", "aegis": "aegis"}
 SIZING_KEYS = ("  slots:", "  margin_pct:", "  default_leverage:", "      marginPctBase:",
                "      marginPctMax:", "      leverageDefault:", "      maxSlots:",
                "    default_signal_validity_seconds:")
+# The ONLY keys it is allowed to DROP: the daily entry cap. Conviction sizing exists to take a
+# standing cohort call when it appears rather than ration it, so the cap is removed on purpose
+# — which puts the whole braking load on the gates listed in test_the_remaining_brakes_are_intact.
+REMOVED_KEYS = ("    max_entries_per_day:", "    bypass_max_entries_per_day_on_profit:")
 IDENTITY = ("name:", "group:", "  wallet:", "  ATHENA")
 
 
@@ -46,9 +50,11 @@ def test_scanners_are_byte_identical_to_the_source_templates():
 
 def test_runtime_differs_only_in_identity_and_declared_sizing():
     for leg, src in LEGS.items():
-        s = _code_lines(os.path.join(STRATEGIES, src, "main", "runtime.yaml"))
+        s = [l for l in _code_lines(os.path.join(STRATEGIES, src, "main", "runtime.yaml"))
+             if not l.startswith(REMOVED_KEYS)]
         d = _code_lines(os.path.join(PKG, leg, "runtime.yaml"))
-        assert len(s) == len(d), f"{leg}: runtime.yaml gained or lost lines vs {src}"
+        assert len(s) == len(d), (
+            f"{leg}: runtime.yaml gained or lost lines vs {src} beyond the declared removals")
         for a, b in zip(s, d):
             if a == b:
                 continue
@@ -77,9 +83,26 @@ def test_the_two_packages_never_share_a_wallet():
             seen.add(w)
 
 
-def test_the_daily_entry_cap_survives():
-    """The live run this package came from removed it. At 5x, with phalanx now able to enter on a
-    STANDING consensus, an uncapped book fills in one burst — keep the cap until evidence says otherwise."""
+def test_the_daily_entry_cap_is_deliberately_absent():
+    """Athena rations entries; Athena-X does not. A standing cohort call is taken when it appears.
+    Pinned so the cap cannot drift back in silently — restoring it is a product decision."""
     for leg in LEGS:
-        rt = yaml.safe_load(open(os.path.join(PKG, leg, "runtime.yaml"), encoding="utf-8"))
-        assert rt["risk"]["guard_rails"]["max_entries_per_day"] > 0, leg
+        rails = yaml.safe_load(open(os.path.join(PKG, leg, "runtime.yaml"),
+                                    encoding="utf-8"))["risk"]["guard_rails"]
+        assert "max_entries_per_day" not in rails, leg
+        assert "bypass_max_entries_per_day_on_profit" not in rails, leg
+
+
+def test_the_remaining_brakes_are_intact():
+    """With no entry cap these are the only things that stop a bad day, and at 5x they carry more
+    load than they do in Athena. None of them may be loosened relative to Athena."""
+    for leg in LEGS:
+        base = yaml.safe_load(open(os.path.join(STRATEGIES, "athena", leg, "runtime.yaml"),
+                                   encoding="utf-8"))["risk"]["guard_rails"]
+        x = yaml.safe_load(open(os.path.join(PKG, leg, "runtime.yaml"),
+                                encoding="utf-8"))["risk"]["guard_rails"]
+        for k in ("daily_loss_limit_pct", "max_consecutive_losses", "drawdown_halt_pct"):
+            assert x[k] <= base[k], f"{leg}: {k} loosened to {x[k]} from {base[k]}"
+        for k in ("cooldown_seconds", "per_asset_cooldown_seconds"):
+            assert x[k] >= base[k] or x[k] > 0, f"{leg}: {k} disabled"
+        assert x["drawdown_reset_on_day_rollover"] is False, leg

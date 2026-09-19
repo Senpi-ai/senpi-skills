@@ -118,12 +118,12 @@ risk:
   data_retention_seconds: 259200      # 72h
   guard_rails:
     daily_loss_limit_pct: 5            # tight — a bad regime day stops the book early
-    # max_entries_per_day is KEPT deliberately. The live "bigger" run this package came
-    # from removed it, but that was before phalanx could enter on a STANDING consensus
-    # (1.4.0). Uncapped entries at 5x with that path open is how a book fills in one
-    # burst. Raise it on evidence, not to match the original run.
-    max_entries_per_day: 8
-    bypass_max_entries_per_day_on_profit: false
+    # NO max_entries_per_day. Removed deliberately, matching the live "bigger" run this
+    # package comes from: the whole point of conviction sizing is that a standing cohort
+    # call gets taken when it appears, not rationed. What still brakes the book is
+    # daily_loss_limit_pct, max_consecutive_losses + cooldown_seconds, drawdown_halt_pct
+    # and the per-asset cooldown — those carry more weight here than they do in Athena,
+    # so do not loosen them to match a bad day.
     max_consecutive_losses: 3
     cooldown_seconds: 14400            # 4h regime pause after 3 consecutive losses
     drawdown_halt_pct: 18
