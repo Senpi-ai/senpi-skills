@@ -28,7 +28,7 @@ TOL = 0.06   # the yaml carries rounded ROE values (16.7, 33, 167) — parity to
 # Keys Athena-X may MOVE, all of them consequences of the leverage change.
 SIZING_KEYS = ("  slots:", "  margin_pct:", "  default_leverage:", "      marginPctBase:",
                "      marginPctMax:", "      leverageDefault:", "      maxSlots:",
-               "    default_signal_validity_seconds:", "      max_loss_pct:",
+               "      max_loss_pct:",
                "      retrace_threshold:", "        - { trigger_pct:", "    drawdown_halt_pct:")
 # Keys it may DROP: both ration ENTRIES, which is what a conviction hold must not do.
 REMOVED_KEYS = ("    max_entries_per_day:", "    bypass_max_entries_per_day_on_profit:",
