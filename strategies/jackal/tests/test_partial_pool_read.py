@@ -6,7 +6,7 @@ holds then looks newly opened on the next full read, and `maxEntryAgeSeconds` th
 for being old. The scanner goes quiet for good and reports "no fresh pool-member entries", which is a
 read that failed wearing the words of a market with nothing in it.
 
-Observed live on M401059 on 2026-09-18: 126 consecutive ticks of that line while
+Observed live on 2026-09-18: 126 consecutive ticks of that line while
 `discovery_get_trader_state` was degraded. Same guard as `_cohort_headcount` in whalehunter /
 phalanx / athena / starling / pilotfish (#658), which this scanner was missed by because it spells
 the function differently.

@@ -14,11 +14,11 @@ budget it is expected to consume, with no room for one slow read.
 MEASURED, 24 h to 2026-09-08 (fleet telemetry, `max(duration_ms)` per run vs the configured timeout):
 
     barracuda pump_signals      60/90    worst 95,046 ms = 105.6% of budget   <- exceeded, 2 users
-    barracuda close_all_scanner 30/30    worst 30,000 ms = 100.0% of budget   <- wedged M417101, 4 users
+    barracuda close_all_scanner 30/30    worst 30,000 ms = 100.0% of budget   <- wedged; 4 users
     jackal    jackal_main_signals 60/120 worst 120,000 ms = 100.0% of budget  <- 4 users
     vulture   60/120  30.8%   swift 60/120  26.0%   orca 90/120  16.9%   roach 90/180  5.7%
 
-M417101's `close_all_scanner` ran 3,231 clean ticks over 17.4 h, then one tick hit **exactly 30,000 ms**
+One live `close_all_scanner` ran 3,231 clean ticks over 17.4 h, then one tick hit **exactly 30,000 ms**
 and the next 9.5 h produced 2,284 `ClosedResourceError` with no recovery. The user closed the $180
 strategy 27 minutes after a restart had already fixed it.
 

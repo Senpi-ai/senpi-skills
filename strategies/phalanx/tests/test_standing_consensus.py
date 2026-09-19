@@ -5,7 +5,7 @@ catches the moment a consensus forms and nothing after it. Once the cohort is he
 simply holds, delta sits at ~0 and the strategy is locked out — at exactly the point the setup is
 most established.
 
-M401059, 2026-09-19: the cohort held a standing short through a rally, the user was stopped out, and
+2026-09-19, on a live book: the cohort held a standing short through a rally, the user was stopped out, and
 waited for Phalanx to add shorts into it. It never did — **359 consecutive ticks, zero candidates**.
 The only thing that worked was closing the strategy and redeploying, which reseeds the baseline so
 the next read looks like a jump. That is a user hand-executing a bug, and it is what this path
