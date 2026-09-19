@@ -573,12 +573,16 @@ which its thesis has an opinion about.
 ## Carry the score into the emitted signal
 
 `scan()` must put the score it computed into the emitted `data` (`"data": {"score": <n>, ...}`) and
-declare it in `signal_data_schema`. It is not cosmetic:
+declare it in `signal_data_schema`. It is the signal's audit trail: the only durable record of how
+much conviction the scanner had when it opened a position, and what any downstream consumer of the
+signal reads.
 
-- The runtime logs the emitted score, so a missing one reads as `score 0` in every line — and a
-  reader chasing a problem sees a scanner that is firing with no conviction rather than one that
-  simply forgot to attach the number.
-- Conviction-scaled sizing reads that field. A helper like `margin_pct_for(score, inputs)` sizes off
-  the score the scanner *kept*, so dropping it silently collapses every position to the base tier.
-- Nothing downstream re-derives it. The runtime executed `ETH SHORT signal (score 0)` on
-  2026-09-19 — a score of 0 is not treated as a floor, so an unset score does not fail safe.
+**Do not use the runtime's log line to check it.** The runtime prints `<ASSET> <DIR> signal
+(score N)` on every emit, and it prints `score 0` regardless of what the scanner attached —
+fleet-wide, 21,013 signal lines across 118 runtimes in a 30-hour window, not one non-zero. Phalanx
+passes `"score": c["conviction"]` correctly and still logs `score 0`. So that line tells you a
+signal fired and nothing about its conviction; verify the field in the scanner's own output or in
+`gen_ai.tool.call.result`, never from the log.
+
+That matters when reading a strategy you did not write: `score 0` on every line looks exactly like
+a scanner firing with no conviction, which is a misdiagnosis waiting to happen.
