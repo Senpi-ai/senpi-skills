@@ -40,6 +40,23 @@ DEFAULT_LEVERAGE = 5
 DEFAULT_TOP_N = 6                 # score.TOP_N
 DEFAULT_FAMILY_CAP = 2            # score.FAMILY_CAP — kills the funding flood
 DEFAULT_TTL_S = 7200
+DEFAULT_MAX_TOTAL_MARGIN_PCT = 80.0   # of withdrawable, across everything one tick opens
+
+# Detectors the FEED may print but this package must not trade.
+#
+# `whale_open` says "a proven wallet just opened size". Its freshness rests entirely on the
+# third-party `startTime` field, and that field has been observed jumping forward on a position
+# whose `szi` and `entryPx` had not moved — 4592s of age reading as 17s. The entry-price
+# corroboration added alongside it passes that exact reset, because the position was sitting 0.019%
+# from its entry. `check_position_age.py` exists to settle whether the cached path resets and has
+# not reported yet.
+#
+# In the feed that is a sentence a reader can discount. Here it is a 5x entry at a fifth of the
+# wallet, on an hourly clock, with nobody between the detector and the order — and the direction it
+# gets wrong is the direction we take. Every OTHER detector in the library is a statement about a
+# level or a change we measured ourselves; this is the only one whose freshness is asserted by a
+# field we have caught being wrong. It trades again when that check reports, not before.
+NON_TRADEABLE_DETECTORS = frozenset({"whale_open"})
 
 
 def _f(v, d):
@@ -54,6 +71,32 @@ def _ring_from_state(ctx):
     ring = last.get("ring")
     return ([r for r in ring if isinstance(r, dict) and r.get("asset_metrics")] if isinstance(ring, list)
             else []), (last.get("recent") or {})
+
+
+def _withdrawable(ctx):
+    """Free margin, USD. `withdrawable` sits beside `marginSummary` in each dex section and BOTH
+    sections are views of ONE cross-margined wallet, so this is a max() — summing double-counts.
+    Returns None when the read fails, which is not the same as a wallet with nothing in it."""
+    try:
+        d = ctx.senpi_mcp.call_tool("strategy_get_clearinghouse_state",
+                                    {"strategy_wallet": ctx.wallet})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[signals-hunter.scan] clearinghouse read failed: {exc!r}", file=sys.stderr)
+        return None
+    d = d.get("data", d) if isinstance(d, dict) else None
+    if not isinstance(d, dict):
+        return None
+    best = None
+    for section in ("main", "xyz"):
+        s = d.get(section)
+        if not isinstance(s, dict) or s.get("withdrawable") is None:
+            continue
+        try:
+            v = float(s["withdrawable"])
+        except (TypeError, ValueError):
+            continue
+        best = v if best is None else max(best, v)
+    return best
 
 
 def _cohort_is_dark(cov):
@@ -74,6 +117,7 @@ def scan(inputs, ctx):
     ring_max = int(_f(inputs.get("ringMax"), DEFAULT_RING_MAX))
     deadline_s = _f(inputs.get("gatherDeadlineSeconds"), DEFAULT_DEADLINE_S)
     ttl = _f(inputs.get("recentSignalTtlSeconds"), DEFAULT_TTL_S)
+    max_total_margin = _f(inputs.get("maxTotalMarginPct"), DEFAULT_MAX_TOTAL_MARGIN_PCT)
 
     ring, recent = _ring_from_state(ctx)
     held = {str(p.get("coin") or "").upper() for p in (getattr(ctx, "positions", None) or [])}
@@ -120,10 +164,22 @@ def scan(inputs, ctx):
     # a book too thin to trade is excluded from the TRADE lens, same floor the feed uses
     tradeable = [s for s in signals
                  if _f(s.get("notional_vol"), score.TRADE_CRED_FLOOR) >= score.TRADE_CRED_FLOOR]
+    parked = [s for s in tradeable if s.get("detector") in NON_TRADEABLE_DETECTORS]
+    if parked:
+        print(f"[signals-hunter.scan] parked {len(parked)} signal(s) from non-tradeable detectors "
+              f"{sorted({s.get('detector') for s in parked})} — see NON_TRADEABLE_DETECTORS",
+              file=sys.stderr)
+    tradeable = [s for s in tradeable if s.get("detector") not in NON_TRADEABLE_DETECTORS]
     ranked = score.rank(tradeable, "trade_score", min_score, top_n, family_cap)
 
     # ── 3. emit ──
-    out, skipped_dir = [], 0
+    # Every signal in one tick is sized off the SAME balance read, so emitting more than the wallet
+    # funds does not shrink the later positions — it fails them outright with insufficient margin,
+    # and it fails the LOWER-ranked ones, which is a silent quality bias rather than log noise.
+    # 5 slots x 20% is already exactly 100% of withdrawable with zero headroom; the 25% tier puts
+    # the intended total over it. So emit only what fits, worst-ranked dropped first.
+    free = _withdrawable(ctx)
+    out, skipped_dir, committed_pct, unfunded = [], 0, 0.0, 0
     for s in ranked:
         asset = s.get("asset")
         direction = str(s.get("direction") or "").upper()
@@ -136,10 +192,17 @@ def scan(inputs, ctx):
         if _f(recent.get(key), 0.0) and (now.timestamp() - _f(recent.get(key), 0.0)) < ttl:
             continue
         ts = _f(s.get("trade_score"), 0.0)
+        want_pct = high_margin if ts >= high_score else base_margin
+        # `free` is None when the read FAILED, which is not a wallet with nothing in it — in that
+        # case fall back to the cap alone rather than refusing to trade on a missing read.
+        if committed_pct + want_pct > max_total_margin:
+            unfunded += 1
+            continue
+        committed_pct += want_pct
         out.append({
             "asset": asset,
             "direction": direction,
-            "marginPct": high_margin if ts >= high_score else base_margin,
+            "marginPct": want_pct,
             "leverage": leverage,
             "data": {
                 "score": ts,
@@ -152,12 +215,21 @@ def scan(inputs, ctx):
         })
         recent[key] = now.timestamp()
 
+    if unfunded:
+        # Say this on EVERY tick it happens, not only on a quiet one: a tick that opened four and
+        # silently dropped two qualifying signals for want of margin is the case worth seeing.
+        print(f"[signals-hunter.scan] {unfunded} qualifying signal(s) not emitted — "
+              f"{committed_pct:.0f}% of withdrawable already committed this tick against a "
+              f"{max_total_margin:.0f}% cap. Lowest-ranked dropped first.", file=sys.stderr)
+
     if not out:
+        free_s = "unread" if free is None else f"${free:,.0f}"
+        base_s = (baseline or {}).get("ts") or "none (first tick — diff detectors cannot fire yet)"
         print(f"[signals-hunter.scan] WAITING — no emit | assets={cov.get('assets')} "
               f"signals={len(signals)} tradeable={len(tradeable)} ranked={len(ranked)} "
-              f"held={sorted(held)} ring={len(ring)} baseline="
-              f"{(baseline or {}).get('ts') or 'none (first tick — diff detectors cannot fire yet)'} "
-              f"(minScore {min_score:.0f}, unnamed_direction={skipped_dir})", file=sys.stderr)
+              f"held={sorted(held)} ring={len(ring)} baseline={base_s} "
+              f"(minScore {min_score:.0f}, unnamed_direction={skipped_dir}, "
+              f"unfunded={unfunded}, free={free_s})", file=sys.stderr)
 
     # ── 4. persist the ring ──
     if ctx.state is not None:

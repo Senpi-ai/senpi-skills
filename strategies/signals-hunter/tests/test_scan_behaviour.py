@@ -56,6 +56,13 @@ def _ranked(monkeypatch, signals):
     monkeypatch.setattr(scan.score, "rank", lambda sigs, key, lo, n, cap: list(signals))
 
 
+def _detected(monkeypatch, signals):
+    """Inject BEFORE the non-tradeable filter, which is where detector parking happens."""
+    monkeypatch.setattr(scan.score, "detect_from_metrics", lambda *a, **k: list(signals))
+    monkeypatch.setattr(scan.score, "trade_score", lambda s, cred: s.get("trade_score", 0.0))
+    monkeypatch.setattr(scan.score, "rank", lambda sigs, key, lo, n, cap: list(sigs))
+
+
 def _sig(asset, direction, ts, vol=50_000_000):
     return {"asset": asset, "direction": direction, "trade_score": ts, "detector": "sm_divergence",
             "notional_vol": vol, "numbers": ["cohort 70% long"], "smart_share": 70.0}
@@ -152,3 +159,56 @@ def test_a_state_failure_warns_about_the_consequence(monkeypatch, capsys):
             raise OSError("disk full")
     scan.scan({}, _ctx(_Bad()))
     assert "loses its diff baseline" in capsys.readouterr().err
+
+
+# ── what the wallet funds, and what this package will not trade ──
+
+def test_whale_open_is_never_traded(monkeypatch, capsys):
+    """It is the only detector whose freshness is asserted by a third-party field we have caught
+    being wrong — `startTime` reading 4592s of age as 17s. In the feed that is a discountable
+    sentence; here it would be a 5x entry in the direction the field got wrong."""
+    _gather(monkeypatch, COHORT_OK)
+    whale = _sig("ETH", "LONG", 90.0); whale["detector"] = "whale_open"
+    _detected(monkeypatch, [whale])
+    assert scan.scan({}, _ctx()) == []
+    assert "parked 1 signal" in capsys.readouterr().err
+
+
+def test_a_tradeable_detector_beside_a_parked_one_still_fires(monkeypatch):
+    _gather(monkeypatch, COHORT_OK)
+    whale = _sig("ETH", "LONG", 90.0); whale["detector"] = "whale_open"
+    _detected(monkeypatch, [whale, _sig("SOL", "SHORT", 88.0)])
+    out = scan.scan({}, _ctx())
+    assert [s["asset"] for s in out] == ["SOL"]
+
+
+def test_emits_stop_at_what_the_wallet_funds(monkeypatch, capsys):
+    """5 slots x 20% is exactly 100% of withdrawable with zero headroom, and every signal in a tick
+    is sized off the SAME balance read — so over-emitting fails the later opens outright rather
+    than shrinking them, and the ones it fails are the lowest-ranked."""
+    _gather(monkeypatch, COHORT_OK)
+    monkeypatch.setattr(scan, "_withdrawable", lambda ctx: 1000.0)
+    _ranked(monkeypatch, [_sig(f"A{i}", "LONG", 70.0) for i in range(6)])
+    out = scan.scan({}, _ctx())
+    assert sum(s["marginPct"] for s in out) <= 80.0      # the default cap
+    assert len(out) == 4                                  # 4 x 20% = 80; the 5th and 6th do not fit
+    err = capsys.readouterr().err
+    assert "2 qualifying signal(s) not emitted" in err and "Lowest-ranked dropped first" in err
+
+
+def test_the_cap_drops_the_worst_ranked_not_the_best(monkeypatch):
+    _gather(monkeypatch, COHORT_OK)
+    monkeypatch.setattr(scan, "_withdrawable", lambda ctx: 1000.0)
+    _ranked(monkeypatch, [_sig("BEST", "LONG", 95.0), _sig("MID", "LONG", 85.0),
+                          _sig("WORST", "LONG", 66.0)])
+    out = scan.scan({"maxTotalMarginPct": 50}, _ctx())
+    assert [s["asset"] for s in out] == ["BEST", "MID"]   # 25 + 25 = 50; WORST drops
+
+
+def test_a_failed_wallet_read_does_not_stop_trading(monkeypatch):
+    """None means the read failed, which is not a wallet with nothing in it. The cap alone still
+    governs — refusing to trade on a missing read would be the same bug in the other direction."""
+    _gather(monkeypatch, COHORT_OK)
+    monkeypatch.setattr(scan, "_withdrawable", lambda ctx: None)
+    _ranked(monkeypatch, [_sig("ETH", "LONG", 70.0)])
+    assert len(scan.scan({}, _ctx())) == 1
