@@ -1,0 +1,6 @@
+{
+  "_comment": "Senpi's trader index, for the not-indexed answer. Read it at run time; never quote a remembered figure. Refresh `as_of` whenever `indexed_wallets` changes — the SKILL drops the exact number and says 'over 45,000' once this is more than 7 days old, because a precise wrong number is worse than a round right one.",
+  "indexed_wallets": 45424,
+  "as_of": "2026-09-18",
+  "stale_after_days": 7
+}

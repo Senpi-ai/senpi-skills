@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.3.0"
+  version: "1.4.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -72,8 +72,26 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 6. **Say "quant", "desk", "agents", "leak", "protect".** Never "report", "analyst", "bot", "AI assistant".
    Lowercase `senpi`. No outcome guarantees. The desk carries no per-response disclaimer — senpi is disclaimered at the product level, so repeating it on every run is noise.
 7. **Address hygiene and whose book it is.** Show the address shortened (`0x2999…65de`). Never post
-   the desk of a wallet the user did not name. A bare address is the user's own book: "run quant desk on
-   0x…" means the user is 0x… — run it plain and speak to them. "Run quant desk analyst on 0x…" (or
+   the desk of a wallet the user did not name.
+
+   **An address is the reader's own book unless we know otherwise.** "Run quant desk on 0x…" means the
+   user is 0x… — run it plain and speak to them. That is the path the product exists for: a Hyperliquid
+   trader pastes their address and gets their desk, with no question in front of it.
+
+   **The desk remembers.** It keeps an address book per box (`scripts/desk.py --addresses`) with three
+   relationships: **verified** (a wallet senpi issued — we know), **claimed** (the user said it is
+   theirs — a claim, not proof; nobody can verify ownership of an address from a chat message) and
+   **analyzed** (someone else's book they read). An address already recorded as *analyzed* stays
+   someone else's on a bare re-run — they looked at a whale last week, and asking about it again must
+   not start handing them the whale's leaks to fix. Use `--claim` when a reader says an address that
+   the book has as someone else's is in fact theirs.
+
+   **Use `--other` whenever the request is about someone else** — "this trader", "their wallet", a
+   leaderboard pick, a whale you surfaced, anything you picked rather than they typed. The default
+   covers the address a reader hands you; it is not a licence to read a wallet they never claimed as
+   their own.
+
+   "Run quant desk analyst on 0x…" (or
    "this trader", "their wallet", a leaderboard pick) means the user is analyzing 0x…: run with
    `--other` (alias `--analyst`): the desk speaks in the third
    person, the closing becomes *what to take from this trader*, and the follow-ups are the learning
@@ -82,6 +100,37 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    data, never advice to copy a position. Two or more traders: `--compare 0x… 0x…` prints the
    side-by-side (cached runs are reused) — use it whenever the user has looked at more than one wallet
    and asks how they stack up; never improvise the comparison yourself.
+7b. **An address senpi has not indexed yet.** `--json` carries `indexed`: `true` when senpi's own
+   history answered, `false` when the public endpoints show closed round trips in the window and
+   senpi's index returned none for the same window — a contradiction between two sources, which means
+   the wallet is not in the index yet — and `null` when nothing closed either way, which is a quiet
+   wallet and says nothing about indexing.
+
+   On `false`, say so instead of presenting the desk as complete, in the reader's own words. Read the
+   figure from `references/coverage.json`, never from memory; if `as_of` is more than `stale_after_days`
+   old, say "over 45,000" rather than a precise number that has moved:
+
+   > senpi is rolling out the AI Quant Desk to every trader on Hyperliquid in waves. We're at
+   > **45,424** wallets so far and yours isn't in that set yet. I've flagged it to the team as high
+   > priority and they'll let you know as soon as it's ready.
+
+   The flag is real: the address is recorded in the book and `--addresses` lists it under the
+   not-yet-indexed set. Never promise a date. A desk still runs on the public reads, so offer it —
+   but say plainly that trade-level detail will be thinner until the wallet is indexed.
+
+7c. **The desk reads any book on Hyperliquid, not just theirs.** Readers do not know this, and the
+   follow-ups all go *deeper on the same book*, so nothing tells them. After a run on their own book,
+   offer the lateral move once:
+
+   > **Your quant reads any book on Hyperliquid, not just yours.** Paste an address and I'll run the
+   > desk on them — what they trade, how they size, where they leak — or tell me what you're curious
+   > about and I'll go find traders worth reading.
+
+   After an analyst run, offer the mirror of it: *"That was someone else's book. Your quant works the
+   same way on yours — paste your address and I'll run it."* "Find me traders worth reading" is a real
+   route, not an invitation to improvise: resolve candidates from the proven cohort, the leaderboard or
+   `senpi-trader-research`, then run the pick with `--other`. **Never invent an address.**
+
 8. **Hold three to five things back — on purpose.** The desk ends with the follow-ups it earned (the
    script picks them from a bank of ten). Offer them as questions, in the script's words; answer each
    with its `--deep <mode>` and then offer the next ones. The more the trader asks, the more of their own
