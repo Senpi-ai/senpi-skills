@@ -78,7 +78,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("AI_API_KEY", "Bearer sk-box-key")
     monkeypatch.setenv("SENPI_BASE_URL", "https://models.senpi.ai/v1")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "must-not-leak-to-child")
-    for var in ("SENPI_AUTHOR_ANTHROPIC_API_KEY", "SENPI_AUTHOR_ANTHROPIC_BASE_URL", "SENPI_AUTHOR_MODEL"):
+    for var in ("SENPI_AUTHOR_ANTHROPIC_API_KEY", "SENPI_AUTHOR_ANTHROPIC_BASE_URL", "SENPI_AUTHOR_MODEL", "SENPI_MODEL"):
         monkeypatch.delenv(var, raising=False)
     spec = tmp_path / "spec.json"
     spec.write_text(json.dumps(SPEC))
@@ -194,7 +194,7 @@ def test_child_gets_the_box_model_gateway_not_the_global_key(env, monkeypatch):
     assert call["env"]["ANTHROPIC_BASE_URL"] == "https://models.senpi.ai"
     assert call["env"]["ANTHROPIC_AUTH_TOKEN"] == "sk-box-key"
     assert call["env"]["ANTHROPIC_API_KEY"] is None
-    assert call["env"]["ANTHROPIC_MODEL"] == ab.DEFAULT_MODEL
+    assert call["env"]["ANTHROPIC_MODEL"] == "samurai-pro"
     argv = call["argv"]
     assert argv[argv.index("--permission-mode") + 1] == "dontAsk"
     assert "--strict-mcp-config" in argv and argv[argv.index("--setting-sources") + 1] == ""

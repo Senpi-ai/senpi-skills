@@ -30,11 +30,11 @@ image), `model_credential` (no `AI_API_KEY`), `validate_cmd` (no `openclaw` on P
 
 ```
 cd /tmp && ANTHROPIC_BASE_URL=https://models.senpi.ai ANTHROPIC_AUTH_TOKEN="$AI_API_KEY" \
-  claude -p "reply with the word ok" --model claude-opus-4-8 --tools "" --setting-sources "" \
+  claude -p "reply with the word ok" --model samurai-pro --tools "" --setting-sources "" \
   --strict-mcp-config --output-format json < /dev/null | head -c 400
 ```
 
-A 401/403 here means the box's LiteLLM key is not allowed `claude-opus-4-8` — grant it on the proxy,
+A 401/403 here means the box's LiteLLM key is not allowed `samurai-pro` — grant it on the proxy,
 or set `SENPI_AUTHOR_MODEL` to a model the key can use.
 
 ## 4. The conversation

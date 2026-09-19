@@ -403,7 +403,7 @@ def build_claude_argv(job, st, prompt, first):
     return argv
 
 
-DEFAULT_MODEL = "claude-opus-4-8"  # an alias on models.senpi.ai (litellm-proxy config.yaml)
+DEFAULT_MODEL = "samurai-pro"  # senpi-agent's SENPI_PRIMARY_MODEL; an alias on models.senpi.ai
 
 
 def model_route():
@@ -423,7 +423,8 @@ def model_route():
              or os.environ.get("SENPI_API_KEY") or "").strip()
     if token.lower().startswith("bearer "):
         token = token[7:].strip()
-    model = os.environ.get("SENPI_AUTHOR_MODEL") or DEFAULT_MODEL
+    # Same model the OpenClaw agent runs on unless overridden: SENPI_MODEL, then samurai-pro.
+    model = os.environ.get("SENPI_AUTHOR_MODEL") or os.environ.get("SENPI_MODEL") or DEFAULT_MODEL
     return base, token, model
 
 
