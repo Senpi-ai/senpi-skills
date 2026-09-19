@@ -1,5 +1,10 @@
 # Creating a Strategy from Scratch — Senpi Runtime 3.0
 
+> **Who follows this guide.** The headless build engine (Claude Code, started by `author_build.py`)
+> does — it is the one writing files. **The chat agent on a host where `author_build.py doctor` says
+> `"ready": true` does not:** it runs the interview and hands the confirmed spec to the engine
+> (SKILL.md → "The build engine"). Read on as that agent only to explain choices, never to write the package.
+
 > **The one rule that governs everything below:** *every guess in this system fails silently.* A wrong MCP field → a scanner that ticks clean and emits nothing. A drifted DSL → an exit that doesn't fire. A made-up catalog facet → a strategy nobody is ever shown. So: **anchor on the references** (the MCP I/O guide, `dsl-presets.yaml`, the discovery `glossary.yaml`), and **confirm it actually operates** — never assume.
 
 ---

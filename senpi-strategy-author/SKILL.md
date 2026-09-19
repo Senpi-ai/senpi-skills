@@ -118,6 +118,15 @@ executes`). Observed in testing: a scanner whose every tick raised `AttributeErr
 object has no attribute 'call_tool'` was reported to the user as "Validation passed" on the strength
 of an import-stage run. The gate is stage 9, and it takes no `--stage` flag.
 
+## ⛔ Who writes the package — decide this once, before the interview ends
+
+Run `python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py doctor` once.
+**If it prints `"ready": true`, you do NOT write `strategy.yaml`, `runtime.yaml` or any scanner file —
+not from scratch, not by copying another package.** You run the interview and the replay, then hand the
+confirmed spec to the build engine (section "The build engine" below; `doctor` prints the exact
+commands). Writing the package yourself when the engine is ready is the wrong path, even if you know how.
+Only when `doctor` is not ready do you build inline (stages 2–9).
+
 ## ▶ DEFAULT behavior — the rules of this conversation (do this every time)
 
 ### Funding heads-up — first tool call, never a gate
@@ -270,6 +279,9 @@ The engine never deploys and cannot move money: it reads Senpi through read-only
 inside the package. Budget and deploy stay here — Handoff below.
 
 ## After the 7 — build it in STAGES, narrating as you go
+
+> **Engine ready (`doctor` → `"ready": true`)? Skip stages 2–9 below — the engine runs them.** Stage 1
+> (the confirmed replay) is still yours. Everything below is the inline path for a host without the engine.
 
 The build is the part that takes longest, and it's where the user is most likely to be left staring at a
 silent screen while you write four files and run three checks. **Don't do the assemble + validate as one

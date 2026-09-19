@@ -786,6 +786,19 @@ def cmd_doctor(a):
     ok = all(checks.values())
     print(json.dumps({"ready": ok, "checks": checks, "model": model, "model_base_url": base,
                       "strategies_dir": str(strategies_dir()), "jobs_dir": str(jobs_dir())}, indent=2))
+    me = Path(__file__).resolve()
+    if ok:
+        # Said here, in the tool output, because an agent follows what a command tells it next more
+        # reliably than a section of SKILL.md — observed: an agent ran doctor, got ready, and then
+        # wrote the package itself.
+        print(f"\nENGINE READY. Do NOT write strategy.yaml / runtime.yaml / scanners yourself.\n"
+              f"After the user's yes to the replayed spec:\n"
+              f"  1. write the spec JSON to {workspace_dir() / '.author-specs'}/<id>.json (user_confirmed: true)\n"
+              f"  2. python3 {me} start --detach --spec {workspace_dir() / '.author-specs'}/<id>.json\n"
+              f"  3. python3 {me} wait --job <job>   (repeat while state is running; narrate the steps)\n"
+              f"  4. python3 {me} status --job <job> -> relay done / ask needs_input / report failed")
+    else:
+        print("\nENGINE NOT READY — build inline (SKILL.md stages 2-9).")
     return 0 if ok else 1
 
 
