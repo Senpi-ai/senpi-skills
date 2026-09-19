@@ -5,8 +5,12 @@ description: >-
   never an agent-turn cron to watch a strategy (a model call per firing) — the runtime
   supervises it at zero model cost, and there is no paper-trading mode ($10 floor = the test).
   Use when the user names a strategy to run — "install spider", "deploy polar",
-  "set up kodiak", "run the spider strategy", "is my strategy live?", "what am I
-  running", "list my strategies" (→ status.py),
+  "set up kodiak", "reinstall athena", "run the spider strategy", "is my strategy live?",
+  "what am I running", "list my strategies" (→ status.py),
+  A STRATEGY IS A PACKAGE, NEVER A SKILL: "install/reinstall <name>" is
+  `deploy.py create <id>` here — never `openclaw skills install`, never clawhub, and
+  never a GitHub user or repo named after the strategy. A package missing from disk is
+  normal (it was closed, or never fetched) and `deploy.py` fetches it by id.
   "are my positions protected? / do they have a stop-loss (DSL)?",
   "stop/close/uninstall polar" — and for teardown like "close all strategies",
   "return funds to main", "tear everything down" (→ close.py --all). ALWAYS tear
@@ -54,7 +58,7 @@ openclaw senpi deploy status                                            # 2. pol
 python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/status.py                            # what am I running? (+ health)
 python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/close.py <id> | --all                # teardown one strategy | EVERY open strategy
 ```
-**Fund through `deploy.py create|runtime <id>`, not through the bare verb.** Both resolve the package,
+**"Install"/"reinstall <name>" = `deploy.py create <id>`** — a strategy is a package, not an openclaw/clawhub skill; not on disk just means fetch it by id. **Fund through `deploy.py create|runtime <id>`, not through the bare verb.** Both resolve the package,
 run the structural preflight, then start the runtime's `senpi deploy` job, poll it, and relay its
 report **verbatim**. The wrapper's value is resolution, that structural pass and the verbatim relay —
 **not** a gate the verb lacks: the live-universe gate is the verb's own and it fires **pre-money**. Use
