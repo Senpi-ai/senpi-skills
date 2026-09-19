@@ -325,8 +325,18 @@ def validate(pkg: Path) -> list:
             errs.append(f"instance {name}: missing {scan_py.relative_to(pkg)} (Runtime 3.0 scan() entrypoint)")
         elif "def scan(" not in scan_py.read_text():
             errs.append(f"instance {name}: {scan_py.relative_to(pkg)} does not define scan(inputs, ctx)")
-        if not scoring_py.is_file():
-            errs.append(f"instance {name}: missing sibling {scoring_py.relative_to(pkg)} ('import scoring' will fail)")
+        # scoring.py is OPTIONAL — CLAUDE.md: "scoring.py  optional pure math (no I/O) so the edge
+        # unit-tests". Requiring it unconditionally hard-failed a structurally sound package whose
+        # scanner imports a vendored engine instead, and it went unnoticed only because every other
+        # package happens to have one. Ask the question that actually matters: does anything import
+        # `scoring` without it being there.
+        importers = sorted(f.name for f in scn_dir.glob("*.py")
+                           if f.is_file() and f.name != "scoring.py"
+                           and re.search(r"^\s*(?:import\s+scoring|from\s+scoring\s+import)\b",
+                                         f.read_text(errors="replace"), re.M))
+        if importers and not scoring_py.is_file():
+            errs.append(f"instance {name}: {', '.join(importers)} imports `scoring` but "
+                        f"{scoring_py.relative_to(pkg)} is missing")
         if (scn_dir / "__init__.py").is_file():
             errs.append(f"instance {name}: {(scn_dir / '__init__.py').relative_to(pkg)} present — remove it (sibling-import model)")
         # Asked of the PARSED `strategy.wallet`, never of the file's text. A `${WALLET_ENV}` sitting

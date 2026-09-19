@@ -59,6 +59,8 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   parabolic:     { gloss: "Hunts parabolic runs with a very wide let-winners-run exit." }
   hodl:          { gloss: "Set-and-forget single holding; widest exit." }
   oi_confirmed:  { gloss: "Enters a breakout only when open interest confirms (new money)." }
+  # copy_trading
+  signal_feed:   { gloss: "Trades a published signal feed's own detector library, engine vendored verbatim." }
   adaptive:      { gloss: "Self-tunes its thresholds from its own track record." }
   alpha_hunter:  { gloss: "Multi-factor conviction scoring on one asset, with tiered leverage." }
   conviction_holder: { gloss: "High-conviction multi-factor holder; sizes up as more signals agree, then holds the move." }
