@@ -1,0 +1,45 @@
+# SIGNALS-HUNTER — the Senpi Signals feed, traded on a clock.
+# The engine under main/scanners/ (sweep.py, score.py, smartmoney.py) is a byte-identical copy of
+# senpi-signals/scripts/. tests/test_engine_parity.py fails if they drift, because the detector
+# library IS the strategy — an approximation of it stops being the thing whose signals you read.
+schema_version: 1
+
+id: signals-hunter
+version: "1.0.0"
+
+catalog:
+  name: "Signals Hunter — the Senpi Signals Feed, Traded"
+  emoji: "📡"
+  tagline: "Runs the Senpi Signals detector library on a clock and opens what clears the score floor. Same engine as the feed you read, byte-identical and drift-tested. Conviction-sized: 5x, 20-25% per slot, 5 slots — the whole wallet committed when full. It skips a tick outright when the smart-money lens goes dark rather than scoring without it."
+  belief_plain: "Senpi Signals already tells you where the proven cohort is positioned, where funding is dislocated, where open interest is surging and where a leader has left a laggard behind. Reading it and acting is two steps; this is the second one on a clock. Every hour it runs the same gather and the same detectors, takes the TRADE lens, and opens the names scoring 65 or better — 20% of the wallet each, 25% above 80. It is sized for conviction, not for a first strategy: five slots at 5x means a full book is the whole wallet committed. It trades both directions, because the cohort is short about as often as it is long. When the cohort read fails it opens nothing and says so, rather than quietly scoring on price and funding alone and calling that a smart-money read."
+  thesis: "The detector library is the edge, so it is vendored rather than reimplemented: sweep.py, score.py and smartmoney.py are byte-identical to the skill's and a drift test enforces it, which means a detector fixed in the feed is fixed in the strategy. Most of that library diffs the current reading against an earlier one — OI surges, conviction builds, funding flips, whale moves — so the scanner keeps a 24-deep hourly ring in its own state to give them a baseline; the first tick after a deploy can only fire the point-in-time detectors and says so rather than looking quiet. Two failures are treated as failures rather than as silence: a universe read that returns nothing, and a proven-cohort lens that went dark. Either skips the tick. A signal whose direction the engine could not name is skipped too, never defaulted long. Exits are a wide let-winners-run ladder with every ROE threshold scaled for 5x, so the stops sit where they would at 3x measured in price."
+  group: smart-money
+  archetype: copy_trading
+  sub_style: signal_feed
+  asset_classes: [universe_crypto, btc_eth, major_alts]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 5
+  assets: []
+  # Every position is 20-25% of the wallet at 5x across 5 slots, so the mechanical
+  # minimum ($15) is a number no one can actually run: it puts each slot under the $10
+  # exchange floor before the book is half full. Floored to what a real deployment needs.
+  min_budget_floor: 100
+  tags: [signals, senpi-signals, detector-library, proven-cohort, smart-money, funding, open-interest, cross-asset, long-short, conviction-sizing, always-on]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+# One instance. The lens is the whole universe, so a second sleeve would trade the same signals.
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: SIGNALS_HUNTER_WALLET
+    funding_share: 1.0
