@@ -82,12 +82,24 @@ def test_every_profit_lock_rung_triggers_at_the_same_price_move():
                 f"{leg}: lock % must not change — it is what sets the retrace room")
 
 
-def test_the_drawdown_circuit_breaker_is_not_tighter_in_price():
+def _notional(rt):
+    """How many multiples of the wallet the book carries when full. A PORTFOLIO drawdown
+    converts to a market move through THIS, not through leverage — dividing an account-level
+    budget by leverage alone understates the exposure by the slot count and the margin share."""
+    s = rt["strategy"]
+    return s["slots"] * (s["margin_pct"] / 100.0) * s["default_leverage"]
+
+
+def test_the_drawdown_budget_tolerates_the_same_market_move():
+    """Athena's budget is 10% of PnL from peak. At 1.35x notional that is a ~7% adverse move.
+    Carrying a flat 10 onto a 5.0x notional book would make it a ~2% move — it would halt on
+    noise, which is the exact failure this package exists to avoid."""
     for leg in LEGS:
         a, x = _rt("athena", leg), _rt("athena-x", leg)
-        pa = a["risk"]["guard_rails"]["drawdown_halt_pct"] / a["strategy"]["default_leverage"]
-        px = x["risk"]["guard_rails"]["drawdown_halt_pct"] / x["strategy"]["default_leverage"]
-        assert px >= pa * (1 - TOL), f"{leg}: breaker fires {pa/px:.1f}x sooner in price terms"
+        ma = a["risk"]["guard_rails"]["drawdown_halt_pct"] / _notional(a)
+        mx = x["risk"]["guard_rails"]["drawdown_halt_pct"] / _notional(x)
+        assert mx >= ma * (1 - TOL), (
+            f"{leg}: breaker fires at a {mx:.1f}% move vs Athena's {ma:.1f}% — {ma/mx:.1f}x sooner")
 
 
 def test_the_entry_rationing_gates_are_gone():
