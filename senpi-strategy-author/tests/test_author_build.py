@@ -245,6 +245,21 @@ def test_status_and_wait_are_read_only_views(env, monkeypatch, capsys):
     assert int((job.dir / "fake-calls").read_text()) == 1                 # neither ran a turn
 
 
+def test_detached_start_then_wait_loop(env, monkeypatch, capsys):
+    """The path SKILL.md uses: start --detach returns at once; wait returns the end state."""
+    tmp, spec = env
+    script(monkeypatch, {"write_package": True, "write_proof": True, "out": {"status": "done", "summary": "ok"}})
+    assert ab.main(["start", "--detach", "--spec", str(spec)]) == ab.EXIT["running"]
+    note = json.loads(capsys.readouterr().out.strip().splitlines()[-1].split(" ", 1)[1])
+    assert note["state"] == "running"
+    for _ in range(20):
+        rc = ab.main(["wait", "--job", note["job"], "--timeout", "3"])
+        if rc != ab.EXIT["running"]:
+            break
+    assert rc == ab.EXIT["done"]
+    assert ab.Job(note["job"]).result()["proof"]["ok"] is True
+
+
 def test_a_dead_runner_reads_as_error(env):
     tmp, _ = env
     job = ab.Job("demo-x")

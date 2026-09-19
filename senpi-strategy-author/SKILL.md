@@ -238,17 +238,23 @@ python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py doc
     "opening_constraints": ["every constraint from their first message"],
     "exit_preview": "<the ladder you replayed, in price terms>"}
    ```
-2. **Start the build** with `exec` (the engine refuses a spec without `user_confirmed: true`):
+2. **Start the build detached** with `exec` (the engine refuses a spec without `user_confirmed: true`):
    ```
-   python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py start --spec /data/workspace/.author-specs/<id>.json
+   python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py start --detach --spec /data/workspace/.author-specs/<id>.json
    ```
    Editing a package that is not live yet (a fork, a draft): add `--edit /data/workspace/strategies/<id>`.
-   It runs for minutes and backgrounds on its own; tell the user it is building and that you will report
-   back. **When it exits, its last line reaches you** as `AUTHOR_BUILD {"job": …, "state": …}`.
-3. **Read the result** — `author_build.py status --job <job>` — and branch on `state`:
+   It returns at once with `AUTHOR_BUILD {"job": "<job>", "state": "running", …}`. Tell the user it is
+   building (a few minutes).
+3. **Wait in short steps, narrating** — `exec` backgrounds anything past ~2 minutes, so never one long wait:
+   ```
+   python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py wait --job <job>
+   ```
+   Each call returns within ~100s. `state: running` comes with its recent steps (`· Write: scan.py`) —
+   relay one short line of progress, then call `wait` again. Any other state: read the full result with
+   `author_build.py status --job <job>` and branch on `state`:
    - `needs_input` → ask the user the `question` verbatim, with its `options`. Pass the answer back
-     with `author_build.py answer --job <job> --text "<their answer>"` (same session: it remembers
-     everything).
+     with `author_build.py answer --detach --job <job> --text "<their answer>"` (same session: it
+     remembers everything), then `wait` again as in step 3.
    - `done` → relay `summary`, the `validate.stage_lines` verbatim, every `warnings` entry, and the
      `exit_preview`. The engine only returns `done` after the wrapper itself checked
      `.senpi-proof.json` against the package bytes — that is stage 9's PASS. Then go to **Handoff**.
@@ -256,9 +262,9 @@ python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py doc
    - `failed` → relay `blocking_finding` in its own words and let the user decide. Do not start the
      inline build as a silent retry.
    - `error` → the harness broke, not the strategy (`message` says how). Build inline instead.
-4. **Progress** — if the user asks mid-build, `author_build.py status --job <job>` shows the recent
-   steps. Read it when asked, **never on a cron** (every firing is a paid model call). If no exit line
-   arrived, `author_build.py wait --job <job> --timeout 600` blocks until the turn ends.
+4. **Never on a cron.** The `wait` loop runs inside this turn; if the conversation moved on, resume
+   with `author_build.py status --job <job>` when the user asks. A scheduled check is a paid model
+   call every firing.
 
 The engine never deploys and cannot move money: it reads Senpi through read-only tools and writes only
 inside the package. Budget and deploy stay here — Handoff below.

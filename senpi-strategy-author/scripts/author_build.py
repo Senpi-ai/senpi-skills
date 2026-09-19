@@ -11,8 +11,11 @@ One exec = one turn. Each turn ends in exactly one state, printed as the LAST st
 
     AUTHOR_BUILD {"job": ..., "state": "done" | "needs_input" | "failed" | "error", ...}
 
-That line stays under 400 chars on purpose: OpenClaw posts the tail of a backgrounded exec into
-the session when it exits, and that tail is how the agent learns the turn ended.
+OpenClaw's exec backgrounds any command after at most 120s, and senpi-agent runs with heartbeats
+off, so the exit notice cannot be relied on to wake the agent. The skill therefore runs
+`start --detach` (returns the job id at once) and loops `wait` (returns within ~100s: the end state,
+or `running` plus recent steps to narrate). The line still stays under 400 chars, OpenClaw's
+exit-notify tail, for hosts where that notice does arrive.
 
   start   --spec <spec.json> [--edit <pkg-dir>] [--detach]  first turn of a new job
   answer  --job <id> (--text <s> | --file <path>) [--detach] resume a job that needs input
@@ -731,6 +734,9 @@ def cmd_wait(a):
         if st.get("state") not in ("running", "queued"):
             return _emit(job, st, job.result())
         if time.time() >= deadline:
+            # Still building: say what it is doing, so the agent can narrate between waits.
+            for step in progress(job, n=5):
+                print(f"  · {step}", flush=True)
             return _emit(job, st)
         time.sleep(3)
 
@@ -804,7 +810,8 @@ def main(argv=None):
     s.add_argument("--first", action="store_true"); s.set_defaults(fn=cmd_run)
     s = sub.add_parser("status"); s.add_argument("--job", required=True); s.add_argument("--full", action="store_true")
     s.set_defaults(fn=cmd_status)
-    s = sub.add_parser("wait"); s.add_argument("--job", required=True); s.add_argument("--timeout", type=int, default=1500)
+    # 100s default: OpenClaw's exec backgrounds anything past 120s (yieldMs is clamped there).
+    s = sub.add_parser("wait"); s.add_argument("--job", required=True); s.add_argument("--timeout", type=int, default=100)
     s.set_defaults(fn=cmd_wait)
     s = sub.add_parser("check"); s.add_argument("package"); s.set_defaults(fn=cmd_check)
     s = sub.add_parser("verify-proof"); s.add_argument("package"); s.set_defaults(fn=cmd_verify_proof)
