@@ -468,6 +468,13 @@ def scan(inputs, ctx):
     # ── build candidates ──
     long_candidates, short_candidates = [], []
     new_tilts = {}
+    # Why a tick produced nothing. Three gates can each swallow every asset, and the WAITING
+    # line used to report only the final count — so "long_cands=0 short_cands=0" could not tell
+    # a cohort that is merely undecided from a gate that never passes anything. On M401059 that
+    # ambiguity stood for 359 consecutive ticks (30h, cohort=100, assets=224, zero candidates)
+    # with no way to say which gate was responsible without editing the scanner.
+    blocked = {"tilt": 0, "delta": 0, "breakout": 0}
+    best_delta = None
 
     for asset_key, rec in headcount.items():
         long_n = rec["long_n"]
@@ -489,6 +496,7 @@ def scan(inputs, ctx):
 
         # gate 1: one_sidedness >= threshold
         if sided < eff_threshold:
+            blocked["tilt"] += 1
             continue
 
         # gate 2: delta >= delta_min (conviction growing)
@@ -497,7 +505,12 @@ def scan(inputs, ctx):
             prev_rec.get("long_n", 0), prev_rec.get("short_n", 0),
             long_n, short_n, direction,
         )
+        # The largest delta among assets that CLEARED gate 1 is the number that says whether
+        # delta_min is reachable at this tick interval at all: a run of ticks where it never
+        # approaches delta_min means the window is too short, not that conviction is absent.
+        best_delta = delta if best_delta is None else max(best_delta, delta)
         if delta < delta_min:
+            blocked["delta"] += 1
             continue
 
         # gate 3: overcrowding breakout check
@@ -505,6 +518,7 @@ def scan(inputs, ctx):
         if sided >= overcrowd:
             c1h, c4h = _asset_data(ctx, raw_coin)
             if not scoring.breakout_check(c1h, direction):
+                blocked["breakout"] += 1
                 continue  # crowded but no breakout — move is exhausted
             reasons.append(f"overcrowded ({sided:.0f}%) with breakout confirmation")
         else:
@@ -585,7 +599,10 @@ def scan(inputs, ctx):
     else:
         print(f"[phalanx.scan] WAITING — no emit | cohort={len(cohort)} assets={len(headcount)} "
               f"long_cands={len(long_candidates)} short_cands={len(short_candidates)} "
-              f"held={held_assets} (threshold {tilt_threshold:.0f}, delta_min {delta_min:.0f})",
+              f"held={held_assets} (threshold {tilt_threshold:.0f}, delta_min {delta_min:.0f}) "
+              f"| blocked: tilt={blocked['tilt']} delta={blocked['delta']} "
+              f"breakout={blocked['breakout']} "
+              f"max_delta={'n/a' if best_delta is None else format(best_delta, '.0f')}",
               file=sys.stderr)
         result = {"ts": now, "emitted": False, "gate": "no_signal", "board": len(headcount),
                   "held": held_assets}
