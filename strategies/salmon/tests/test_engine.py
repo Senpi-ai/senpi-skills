@@ -122,9 +122,13 @@ class _MCP:
         self.candles = candles
     def call_tool(self, tool, args):
         if tool == "market_list_instruments":
+            # The no-dex listing carries BOTH boards — reproducing that here is the whole
+            # point: a stub with crypto names only cannot catch an xyz: leak.
             return {"data": {"instruments": [
                 {"name": "BTC", "context": {"dayNtlVlm": 5e8, "maxLeverage": 5}},
-                {"name": "ETH", "context": {"dayNtlVlm": 4e8, "maxLeverage": 5}}]}}
+                {"name": "ETH", "context": {"dayNtlVlm": 4e8, "maxLeverage": 5}},
+                {"name": "xyz:CL", "context": {"dayNtlVlm": 6e8, "maxLeverage": 5}},
+                {"name": "xyz:BRENTOIL", "context": {"dayNtlVlm": 5.5e8, "maxLeverage": 5}}]}}
         if tool == "market_get_asset_data":
             return {"data": {"candles": {"1h": self.candles}}}
         if tool == "strategy_get_clearinghouse_state":
@@ -166,3 +170,32 @@ if __name__ == "__main__":
     for fn in fns:
         fn(); print(f"ok  {fn.__name__}")
     print(f"\nALL {len(fns)} SALMON TESTS PASS")
+
+
+def test_includeXyz_false_excludes_xyz_names_from_the_universe():
+    """`includeXyz: false` must EXCLUDE xyz: names, not merely skip fetching more.
+
+    The no-dex instrument listing carries both boards, so a flag that only gates a second
+    fetch removes nothing. Left unfiltered, xyz: names are graded against `xyzVolFloorUsd`
+    rather than the main floor — a far lower bar into a book whose universe is crypto majors.
+    """
+    import scan
+    ctx = _Ctx(_candles_from_closes(_long_bounce_closes()))
+    universe = scan._derive_universe(ctx, {"includeXyz": False, "universeVolFloorUsd": 1e6,
+                                           "maxUniverse": 10})
+    names = [r["name"] for r in universe]
+    assert names, "universe should not be empty"
+    assert not [n for n in names if n.lower().startswith("xyz:")], \
+        f"xyz: names leaked into a crypto-only universe: {names}"
+    assert "BTC" in names and "ETH" in names
+
+
+def test_includeXyz_true_still_admits_xyz_names():
+    """The opt-in must keep working — the fix removes, it does not forbid."""
+    import scan
+    ctx = _Ctx(_candles_from_closes(_long_bounce_closes()))
+    universe = scan._derive_universe(ctx, {"includeXyz": True, "universeVolFloorUsd": 1e6,
+                                           "xyzVolFloorUsd": 1e6, "maxUniverse": 10})
+    names = [r["name"] for r in universe]
+    assert [n for n in names if n.lower().startswith("xyz:")], \
+        f"includeXyz: true should admit xyz: names, got {names}"
