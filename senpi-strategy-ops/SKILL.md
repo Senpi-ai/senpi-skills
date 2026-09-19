@@ -28,7 +28,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.20.0"
+  version: "3.21.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -47,12 +47,12 @@ and you poll until it is terminal.
 
 ```
 openclaw senpi validate <recipe-dir>                                    # 0a. does it RUN? records the proof create needs
-python3 senpi-strategy-ops/scripts/deploy.py validate <id>              # 0b. preflight — structurally deploy-ready? (no money, nothing installed; a bare id is fetched to disk)
-python3 senpi-strategy-ops/scripts/deploy.py fork <id>                  # 0c. their copy on disk — only when levers move before funding
-python3 senpi-strategy-ops/scripts/deploy.py create <id> --budget <usd> # 1. THE FUNDED PATH: forks it under their username, proves it, starts the deploy
+python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py validate <id>              # 0b. preflight — structurally deploy-ready? (no money, nothing installed; a bare id is fetched to disk)
+python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py fork <id>                  # 0c. their copy on disk — only when levers move before funding
+python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py create <id> --budget <usd> # 1. THE FUNDED PATH: forks it under their username, proves it, starts the deploy
 openclaw senpi deploy status                                            # 2. poll until terminal; read the verified report
-python3 senpi-strategy-ops/scripts/status.py                            # what am I running? (+ health)
-python3 senpi-strategy-ops/scripts/close.py <id> | --all                # teardown one strategy | EVERY open strategy
+python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/status.py                            # what am I running? (+ health)
+python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/close.py <id> | --all                # teardown one strategy | EVERY open strategy
 ```
 **Fund through `deploy.py create|runtime <id>`, not through the bare verb.** Both resolve the package,
 run the structural preflight, then start the runtime's `senpi deploy` job, poll it, and relay its
@@ -125,7 +125,7 @@ it**. Two tiers, and only the first
 stops anything: below the $10/wallet floor the deploy **refuses**; a wallet left with less than **its
 own** sizing needs still **deploys**, with a `[W_BUDGET_BELOW_STRATEGY_MIN]` warn to relay.
 ```
-python3 senpi-strategy-ops/scripts/deploy.py create spider --budget 300   # username PurpleFrog → purplefrog-spider, "PurpleFrog's Spider"
+python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py create spider --budget 300   # username PurpleFrog → purplefrog-spider, "PurpleFrog's Spider"
 ```
 It validates locally, starts the job — which itself refuses pre-money on a dead universe — then polls
 `deploy status` and prints the verb's report verbatim. Flags: `--decision-model <model>` (only for a
@@ -287,7 +287,7 @@ Keep it to ~5 short lines per strategy. Multi-instance packages whose legs diffe
 ## Monitor — what am I running? / is it actually live?
 
 **"What strategies am I running?" / "list my strategies" / "is my fleet healthy?"** → **`runCount` counts signals EMITTED, not ticks** — a scanner with a fresh heartbeat and `runCount: 0` is alive and found nothing that passed its gates (all night on a small book is normal): never a fault, never a reason to close and recreate (each new strategy wallet costs a real creation fee); the fix for "it isn't trading" is the gates or the budget, applied in place (below). A scanner interval under 60 s on a small book is fee churn — refuse it with the arithmetic (fills × fee against the budget), not a claim about timing. Decision tree: [`references/liveness-verification.md`](references/liveness-verification.md).
-`python3 scripts/status.py` (`<id>` filters, `--fast` skips the per-runtime health call, `--json` for
+`python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/status.py` (`<id>` filters, `--fast` skips the per-runtime health call, `--json` for
 machine output). It is the single source of truth — live `strategy_list` ∪ `runtime list` (the same runtime-CLI
 read `senpi-portfolio` also quotes — neither surface independently confirms the other), never the
 ephemeral deploy state — so **don't hand-compose `strategy_list`**. A strategy with **no runtime is not
@@ -306,8 +306,8 @@ Do **not** trust "runtime: running" alone. A strategy is **live** only when its 
 each instance's `external_scanner` has a recent successful tick. Confirm it on a **read-only** surface
 — every one of these is read-only; the money path is `deploy.py create|runtime` (see the funded path
 above) and nothing here is it:
-- `python3 scripts/deploy.py verify <id>` — the per-instance verdict over the surfaces below
-- `python3 scripts/status.py <id>` — the fleet view + each runtime's own health verdict
+- `python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py verify <id>` — the per-instance verdict over the surfaces below
+- `python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/status.py <id>` — the fleet view + each runtime's own health verdict
 - `openclaw senpi deploy status` / `deploy.py status [<id>]` — the agent's ONE last-deploy-job record
 - `openclaw senpi scanner -r <runtime_id>` — the scanner rows (`lastRunStatus`, `runCount`), the tick itself
 - `openclaw senpi status -r <runtime_id> --json` / `state -r <runtime_id> --json`; liveness decision
@@ -322,14 +322,14 @@ above) and nothing here is it:
 ## Close — stop → trigger → (agent polls)
 
 ```
-python3 scripts/close.py spider          # stop runtime(s) + trigger strategy_close; re-run to poll
-python3 scripts/close.py --all           # close EVERY open strategy (all packages) + delete runtimes
-python3 scripts/close.py --strategy-id <id> | --address <wallet>   # a wallet with NO package at all
+python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/close.py spider      # stop runtime(s) + trigger strategy_close; re-run to poll
+python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/close.py --all       # close EVERY open strategy (all packages) + delete runtimes
+python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/close.py --strategy-id <id> | --address <wallet>   # a wallet with NO package at all
 ```
 Per strategy: **stop the runtime** (if live) → **trigger `strategy_close`** (flattens **all** positions
 + closes the strategy, funds returned). `strategy_close` is **async**, so the script **does not wait** —
 it returns `closing` and hands polling to you: **re-run `close.py spider`** until it reports `closed`.
-Re-runs are idempotent. `--instance <name>` scopes an instance (needs its live runtime to map; else omit
+Re-runs are idempotent. **A subset = one run each, sequential, never backgrounded with `&`** ([lifecycle.md](references/lifecycle.md#closing-several)). `--instance <name>` scopes an instance (needs its live runtime to map; else omit
 to close all). **Redeploy** = `openclaw senpi validate` → `close` → `create`, in that order. Discovery
 is strategy-driven: close also cleans up an attributed package's **orphaned** (no-runtime) wallet, and
 `--strategy-id`/`--address` close one with **no package at all** ([`references/lifecycle.md`](references/lifecycle.md)).
@@ -342,7 +342,7 @@ the deployed scanner as it is.
 
 **Apply it in place — `openclaw senpi update`.** No close, no fresh wallet, no market exit; DSL state,
 scanner stores and action history survive. `senpi validate <instance-dir>` writes the proof `--apply`
-needs; `python3 senpi-strategy-ops/scripts/deploy.py update <pkg> --id <runtime_id>` PLANS (the structural preflight, then the verb; add `--apply` to commit — it stops if the box has no `update` verb yet: then STOP too, never close-and-redeploy). **Read the
+needs; `python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py update <pkg> --id <runtime_id>` PLANS (the structural preflight, then the verb; add `--apply` to commit — it stops if the box has no `update` verb yet: then STOP too, never close-and-redeploy). **Read the
 plan out first**: `dsl_preset` is **forward-only** — new entries only, never one already open (other `exit:`
 fields, e.g. `order_type`, DO reach open positions) — never let "tighter" be heard as "my open trades are tighter".
 **A DSL change has two targets, and the user picks which: (a) future positions — the file, via `update`;

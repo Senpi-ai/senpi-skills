@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.10.0"
+  version: "3.11.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -362,7 +362,7 @@ makes one new wallet per instance). Authoring just designs the package; **concur
 ## Invariants (every guess in this system fails silently — hold these)
 
 - **`scan(inputs, ctx)` is read-only, pure, single-pass.** Return `[]` on any error. No daemon, no
-  `push_signal`, no `sleep`, no file writes, no wallet hardcoding.
+  `push_signal`, no `sleep`, no file writes, no wallet hardcoding. **One tick has a call budget** — production kills it at `timeout_seconds` exactly as validation does, so an over-budget scan times out on EVERY tick and never trades: [per-tick call budget](references/creating-a-strategy.md#the-per-tick-call-budget).
 - **A gate in `scan()` must honour `ctx.dry_run`.** If the scanner returns early outside its trading
   session (or any similar condition), consult `ctx.dry_run` and read anyway when it is set —
   otherwise validation sees a tick that read nothing, which is reported as **UNPROVEN** and is not a
@@ -380,7 +380,7 @@ makes one new wallet per instance). Authoring just designs the package; **concur
 - **Anchor every `call_tool` on the published MCP I/O reference** — a guessed tool name, interval
   string, or output field is a scanner that ticks clean and emits nothing.
 - **Never hardcode a ticker you didn't verify.** Every static `universe`/`asset`/`catalog.assets` entry you TRADE
-  must be a live HL instrument (`validate_universe.py`; an **exclusion** list — `excludeAssets`, `deny*`, `skip*` —
+  must be a live HL instrument (`senpi-strategy-ops/scripts/validate_universe.py`; an **exclusion** list — `excludeAssets`, `deny*`, `skip*` —
   is exempt: it names what you will *not* trade) — a fake ticker 500s on `market_get_asset_data` and the scan skips it: no error, no trade. `xyz:XYZ100`, not `xyz:NASDAQ`.
 
 ## Editing an existing strategy

@@ -70,8 +70,8 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-account-status`](senpi-account-status/) | 1.4.0 | Points, loyalty tier, fees, referrals — and the AI-credits usage meter: chat + tool turns spend plan credits; not trading money; the balance is the meter in the app header, which no tool reads. Carries the plan catalog (Starter/Pro/Advanced/Quant) and the free-credit milestone ladder |
 | **Run a strategy** | | |
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.31.0 | Conversational picker — rank the catalog against your worldview |
-| [`senpi-strategy-author`](senpi-strategy-author/) | 3.10.0 | Build/edit a DSL-protected strategy package, one decision at a time |
-| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.20.0 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
+| [`senpi-strategy-author`](senpi-strategy-author/) | 3.11.0 | Build/edit a DSL-protected strategy package, one decision at a time |
+| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.21.0 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
 | [`senpi-trade`](senpi-trade/) | 1.5.0 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
 | [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.4 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
 | **Move money / positioning** | | |
@@ -170,13 +170,13 @@ openclaw plugins install @senpi-ai/runtime
 #    → senpi-strategy-discover ranks strategies/catalog.json against your goals
 
 # 3. Deploy — creates a funded wallet per instance, deploys, verifies the scanner ticked
-python3 senpi-strategy-ops/scripts/deploy.py <id> --budget <usd>
+python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py <id> --budget <usd>
 
 # 4. Monitor
 openclaw senpi status            # liveness; strategy is live once its scanner has a recent tick
 
 # 5. Close — flattens positions, returns funds
-python3 senpi-strategy-ops/scripts/close.py <id>
+python3 ~/.openclaw/skills/senpi-strategy-ops/scripts/close.py <id>
 ```
 
 To **build a new strategy**, start with [`senpi-strategy-author`](senpi-strategy-author/) and the [`senpi-trading-runtime`](senpi-trading-runtime/) contract.

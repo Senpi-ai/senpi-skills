@@ -42,7 +42,7 @@ Your code is **one read-only, pure function**: it reads data and returns candida
 runtime itself — synthesizes the canonical `main` instance from that root `runtime.yaml`, binding
 `wallet_env` to the `${...}` the recipe already uses. That is what makes **one** path serve every
 command in this guide: the package root is the target of `validate_strategy.py`,
-`validate_universe.py`, `deploy.py validate`, `openclaw senpi validate` and `deploy.py create` alike.
+`senpi-strategy-ops/scripts/validate_universe.py`, `deploy.py validate`, `openclaw senpi validate` and `deploy.py create` alike.
 The instance is still named `main`, so the recipe's linkage is `name: <id>-main`, `group: <id>` (§6).
 
 **Location is load-bearing:** build under `/data/workspace/strategies/` (`SENPI_STRATEGIES_DIR`
@@ -64,7 +64,7 @@ Beyond the layout itself, taking the exception changes **two things about the co
 
 **Every other command still takes the package root or the bare id.** `validate_strategy.py` and
 `deploy.py validate` read `strategy.yaml`, so they need the **root** — pointed at an instance dir,
-`validate_strategy.py` fails `missing strategy.yaml`. `validate_universe.py` walks every
+`validate_strategy.py` fails `missing strategy.yaml`. `senpi-strategy-ops/scripts/validate_universe.py` walks every
 `runtime*.yaml` under whatever dir you give it, so the root covers all legs in one run.
 `deploy.py create <id>` takes the bare id and funds every instance by `funding_share`. Only
 `senpi validate` is per-instance, because it resolves ONE recipe and a multi-instance root holds none.
@@ -357,7 +357,7 @@ Two things it deliberately does *not* prove, so don't over-claim on its behalf: 
 
 - `scan()` single-pass + sync; read-only MCP only; `return []` on any error.
 - Pure scoring in `scoring.py`; MCP + state in `scan.py`.
-- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Check it: `validate_universe.py /data/workspace/strategies/<id>` (read-only; `deploy.py validate` reports the same thing, and `openclaw senpi deploy` REFUSES a dead name pre-money with `[E_UNIVERSE_NOT_LIVE]` — so that deploy funds no wallet, though on a redeploy it says nothing about a wallet the package already has; you find out faster here). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`. This applies to the universe a strategy TRADES: an **exclusion** list (`excludeAssets`, `deny*`/`skip*`/`ignore*`) is exempt and never checked on either side, because it names what the strategy refuses to trade — often precisely because the venue carries no instrument for it (stablecoins are the usual case).
+- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Check it: `senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>` (read-only; `deploy.py validate` reports the same thing, and `openclaw senpi deploy` REFUSES a dead name pre-money with `[E_UNIVERSE_NOT_LIVE]` — so that deploy funds no wallet, though on a redeploy it says nothing about a wallet the package already has; you find out faster here). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`. This applies to the universe a strategy TRADES: an **exclusion** list (`excludeAssets`, `deny*`/`skip*`/`ignore*`) is exempt and never checked on either side, because it names what the strategy refuses to trade — often precisely because the venue carries no instrument for it (stablecoins are the usual case).
 - Emit a **`marginPct` intent**, not dollars; `marginPct`/`leverage` top-level, not in `data{}`.
 - Declare every `data{}` key in `signal_data_schema`.
 - **A close is a dedicated scanner plus a `CLOSE_POSITION` action, never `direction: CLOSE`** (§6). Every external scanner must be listed by an action; the lint refuses both.
@@ -509,3 +509,24 @@ deploy.py create us-rebound --budget 200 ; openclaw senpi deploy status   # `ove
 …then confirm it **emits** on a tick where ≥4 names confirm — not just that it ticked.
 
 **The portable lesson:** building any strategy = walk the 7 decisions → copy the matching archetype row → write the edge in `scoring.py` → name a DSL preset → fill the catalog facets from the glossary. The thesis fund's breadth+horizon, a scalp's tight preset, a follower's derived universe — those are *cells*, not different frameworks. And whatever you build, remember the creed: **every guess fails silently — anchor on the references and confirm it operates.**
+
+## The per-tick call budget
+
+`scan()` runs under the recipe's `timeout_seconds`, and **production enforces it exactly as
+validation does**. So a scanner over budget does not fail once and get retried — it times out on
+every tick, forever, and the strategy never trades. Validation reports this as
+`E_VALIDATE_TICK_TIMEOUT` with the call count it observed.
+
+Fan-out is what blows it. One `call_tool` per asset inside a loop over a wide universe reaches
+several hundred calls before anything looks wrong in the code. Two scanners authored on 2026-09-18
+came in at 398 and 390 calls against a 240s budget and both timed out.
+
+- A healthy scanner sits in the **tens**. Roughly one call per 0.6s of `timeout_seconds` is the
+  ceiling (~400 on a 240s tick), not a target.
+- Fetch candles/state **once per unique asset** and reuse across every pair or leg that needs them.
+- Hoist board-wide reads (`leaderboard_get_markets`, `discovery_get_top_traders`) out of the
+  per-asset loop — they return the whole board in one call.
+- Batch wallet reads (`discovery_get_trader_state` takes a list) rather than looping one per wallet.
+- If the count really is irreducible, raise `timeout_seconds` deliberately and say why in the
+  recipe. Don't discover the ceiling by failing validation: each attempt costs a multi-minute
+  live run.
