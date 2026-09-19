@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Entry-gate reachability: a hard gate must be satisfiable by real upstream data.
 
-Two silent no-trade bugs found live on M176334 (2026-08-13), where condor ($4,000)
+Two silent no-trade bugs found live (2026-08-13), where condor ($4,000)
 and piranha ($1,500) each sat ACTIVE and fully funded for 15 days, ~7,000 scanner
 ticks apiece, and never emitted a single signal. Both scanners were healthy — they
 logged `WAITING` every tick and exited clean, which is indistinguishable from a

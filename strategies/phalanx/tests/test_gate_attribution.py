@@ -5,7 +5,7 @@ overcrowding breakout check — and the WAITING line reported only the final can
 `long_cands=0 short_cands=0` could not distinguish a cohort with no view from a gate that never
 passes anything.
 
-That mattered: on M401059 the line read exactly that for **359 consecutive ticks over 30 hours**
+That mattered: on a live book the line read exactly that for **359 consecutive ticks over 30 hours**
 (cohort=100, assets=224) and there was no way to tell which gate to look at without editing the
 scanner. `max_delta` is the decisive one — if the largest delta among assets that cleared gate 1
 never approaches `delta_min`, the delta window is too short for the tick interval rather than the

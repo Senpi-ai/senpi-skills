@@ -474,7 +474,7 @@ def scan(inputs, ctx):
     new_tilts = {}
     # Why a tick produced nothing. Three gates can each swallow every asset, and the WAITING
     # line used to report only the final count — so "long_cands=0 short_cands=0" could not tell
-    # a cohort that is merely undecided from a gate that never passes anything. On M401059 that
+    # a cohort that is merely undecided from a gate that never passes anything. On one live book that
     # ambiguity stood for 359 consecutive ticks (30h, cohort=100, assets=224, zero candidates)
     # with no way to say which gate was responsible without editing the scanner.
     blocked = {"tilt": 0, "delta": 0, "breakout": 0}
@@ -520,7 +520,7 @@ def scan(inputs, ctx):
         #
         # delta alone could only ever catch the moment a consensus FORMS. Once the cohort is
         # already heavily one-sided and simply stays there, delta sits at ~0 and the strategy
-        # is locked out — at exactly the point the setup is most established. On M401059 that
+        # is locked out — at exactly the point the setup is most established. On one live book that
         # produced 359 consecutive ticks with zero candidates while the cohort held a standing
         # short through a rally; the only way to act on it was to close the strategy and
         # redeploy, which reseeds the baseline and makes the next read look like a jump. A user
