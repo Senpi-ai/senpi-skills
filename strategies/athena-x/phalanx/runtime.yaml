@@ -122,8 +122,10 @@ exit:
       enabled: false
     phase1:
       enabled: false                  # trailing OFF — a floor below entry can ratchet a winner into a loss
-      max_loss_pct: 15.0              # 15% margin loss cap (3.75% price on 3x) — wide for noise
-      retrace_threshold: 15           # INERT while phase1.enabled is false
+      max_loss_pct: 25.0              # 25% margin loss cap = 5.0% price on 5x — the SAME price
+                                      # width Athena has at 3x (15/3). ROE stops divide by
+                                      # leverage, so carrying 15.0 here would be a 3.0% stop.
+      retrace_threshold: 25           # INERT while phase1.enabled is false
       consecutive_breaches_required: 1
     phase2:
       enabled: true
@@ -131,25 +133,31 @@ exit:
                                       # +20% ROE winner locking 1.7% of price — a rounding error); 50% at 3x left 3.3% of price of
                                       # retrace room, inside small-cap noise. 40/55 keeps ~4% of room at 3x and doubles what a
                                       # reversing winner retains. Leverage, stop width and this ladder are one system: change together.
-        - { trigger_pct: 20, lock_hw_pct: 40 }    # +20% ROE (6.7% price at 3x): keep 40% of the peak — 4.0% price of retrace room
-        - { trigger_pct: 30, lock_hw_pct: 55 }    # +30% ROE (10% price): keep 55% — 4.5% price of room; the thesis is real by here
-        - { trigger_pct: 60, lock_hw_pct: 65 }    # +60% ROE: keep 65%
-        - { trigger_pct: 100, lock_hw_pct: 85 }   # +100% ROE: keep 85%
+        - { trigger_pct: 33, lock_hw_pct: 40 }    # +33% ROE = 6.7% price at 5x: keep 40% — 4.0% price of room
+        - { trigger_pct: 50, lock_hw_pct: 55 }    # +50% ROE = 10% price: keep 55% — 4.5% price of room
+        - { trigger_pct: 100, lock_hw_pct: 65 }   # +100% ROE = 20% price: keep 65%
+        - { trigger_pct: 167, lock_hw_pct: 85 }   # +167% ROE = 33% price: keep 85%
 
 # ── RISK guard rails ──────────────────────────────────────────────────────────
 risk:
   data_retention_seconds: 259200      # 72h
   guard_rails:
-    daily_loss_limit_pct: 5            # tight — a bad regime day stops the book early
-    # NO max_entries_per_day. Removed deliberately, matching the live "bigger" run this
-    # package comes from: the whole point of conviction sizing is that a standing cohort
-    # call gets taken when it appears, not rationed. What still brakes the book is
-    # daily_loss_limit_pct, max_consecutive_losses + cooldown_seconds, drawdown_halt_pct
-    # and the per-asset cooldown — those carry more weight here than they do in Athena,
-    # so do not loosen them to match a bad day.
+    # NO daily_loss_limit_pct. A DAILY loss halt is a day-trading construct and this is a
+    # swing hold on smart-money conviction — its whole premise is sitting through a move
+    # against you while the cohort stays positioned. It was also ~3.7x tighter here than in
+    # Athena in real terms: 5% of the wallet is a 1% adverse price move at 500% notional,
+    # so an ordinary day halted the book. The circuit breaker is drawdown_halt_pct below,
+    # which measures PnL from peak and carries across days rather than resetting at midnight.
+    # NO max_entries_per_day. Removed deliberately: the point of conviction sizing is that a
+    # standing cohort call gets taken when it appears, not rationed. Note every gate in this
+    # block halts ENTRIES only — none of them ever closes a position. What remains is the
+    # consecutive-loss pause, the per-asset cooldown, and drawdown_halt_pct as the circuit
+    # breaker; the per-position stop is the DSL's phase1.max_loss_pct, not anything here.
     max_consecutive_losses: 3
     cooldown_seconds: 43200            # 12h regime pause after 3 consecutive losses
-    drawdown_halt_pct: 20
+    drawdown_halt_pct: 33           # 20 at 3x measured a ~4.9% adverse price move;
+                                          # scaled so the circuit breaker sits at the same place in PRICE
+                                          # terms rather than firing 1.7x sooner just because leverage rose.
     drawdown_reset_on_day_rollover: false
     per_asset_cooldown_seconds: 14400  # 4h per-asset re-entry cooldown
 
