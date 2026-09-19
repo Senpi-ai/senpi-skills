@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.11.0"
+  version: "3.12.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -217,6 +217,57 @@ For each: ask the question, offer the options as plain choices, then map the ans
    book), let the first rung engage only on a real move, and **lower the leverage before you tighten the
    stop**. Losers are the cost of the strategy; winners that run far enough pay for them.
    `validate_strategy.py` warns on a stop that is too tight at the recipe's leverage — relay it.
+
+## The build engine — after the "yes", hand stages 2–9 to Claude Code when this host has it
+
+The interview is yours; the build does not have to be. Once stage 1 below has its explicit **yes**
+(name, full spec, exit preview), check the engine once:
+
+```
+python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py doctor
+```
+
+**Exit 0 → hand off.** Anything else → build inline yourself, stages 2–9 below, exactly as before.
+
+1. **Write the confirmed spec** to `/data/workspace/.author-specs/<id>.json` — the user's words, not a
+   summary of them. `user_confirmed` is `true` only because the user said yes to the replay:
+   ```json
+   {"id": "<slug>", "name": "<their name>", "thesis": "<one paragraph>", "user_confirmed": true,
+    "decisions": {"universe": "…", "data": "…", "edge": "…", "shape": "…", "cardinality": "…",
+                  "memory": "…", "exit_risk": "<preset + guard rails + leverage + cadence>"},
+    "opening_constraints": ["every constraint from their first message"],
+    "exit_preview": "<the ladder you replayed, in price terms>"}
+   ```
+2. **Start the build detached** with `exec` (the engine refuses a spec without `user_confirmed: true`):
+   ```
+   python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py start --detach --spec /data/workspace/.author-specs/<id>.json
+   ```
+   Editing a package that is not live yet (a fork, a draft): add `--edit /data/workspace/strategies/<id>`.
+   It returns at once with `AUTHOR_BUILD {"job": "<job>", "state": "running", …}`. Tell the user it is
+   building (a few minutes).
+3. **Wait in short steps, narrating** — `exec` backgrounds anything past ~2 minutes, so never one long wait:
+   ```
+   python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py wait --job <job>
+   ```
+   Each call returns within ~100s. `state: running` comes with its recent steps (`· Write: scan.py`) —
+   relay one short line of progress, then call `wait` again. Any other state: read the full result with
+   `author_build.py status --job <job>` and branch on `state`:
+   - `needs_input` → ask the user the `question` verbatim, with its `options`. Pass the answer back
+     with `author_build.py answer --detach --job <job> --text "<their answer>"` (same session: it
+     remembers everything), then `wait` again as in step 3.
+   - `done` → relay `summary`, the `validate.stage_lines` verbatim, every `warnings` entry, and the
+     `exit_preview`. The engine only returns `done` after the wrapper itself checked
+     `.senpi-proof.json` against the package bytes — that is stage 9's PASS. Then go to **Handoff**.
+     Edit jobs: the result is staged; after the user's yes, `author_build.py promote --job <job>`.
+   - `failed` → relay `blocking_finding` in its own words and let the user decide. Do not start the
+     inline build as a silent retry.
+   - `error` → the harness broke, not the strategy (`message` says how). Build inline instead.
+4. **Never on a cron.** The `wait` loop runs inside this turn; if the conversation moved on, resume
+   with `author_build.py status --job <job>` when the user asks. A scheduled check is a paid model
+   call every firing.
+
+The engine never deploys and cannot move money: it reads Senpi through read-only tools and writes only
+inside the package. Budget and deploy stay here — Handoff below.
 
 ## After the 7 — build it in STAGES, narrating as you go
 
