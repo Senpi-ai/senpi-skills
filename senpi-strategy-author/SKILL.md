@@ -369,9 +369,9 @@ makes one new wallet per instance). Authoring just designs the package; **concur
   pass. Returning `[]` is fine; returning `[]` *without having read* proves nothing about the scanner.
 - **Emit a `marginPct` *intent*, not dollars** — top-level, not inside `data{}`. The runtime sizes the
   dollars off the live account; don't read the clearinghouse to size.
-- **Pure thesis math in `scoring.py`** (no I/O, no MCP, no clock) so it unit-tests.
+- **Pure thesis math in `scoring.py`** (no I/O, no MCP, no clock) so it unit-tests. Put the computed **score into the emitted `data`** — the runtime logs and sizes off it, and an unset score reads as `0` and still executes.
 - **Memory = `ctx.state`** (`.last()/.recent()/.append()`); set `state_history_max_count` > 0. Cohort
-  rotation, dedup, and first-seen ledgers all live here.
+  rotation, dedup, and first-seen ledgers all live here. **Editing a LIVE scanner is an instant, unvalidated production change** (the scaffold re-reads it each tick) and **the universe must be bounded by the thesis**, never by a scoring condition: [creating-a-strategy.md](references/creating-a-strategy.md#bound-the-universe-to-the-thesis).
 - **Exits = a named DSL preset**, copied from `references/dsl-presets.yaml`, change ≤1 field.
   `max_loss_pct`/`retrace_threshold` are **ROE % (margin), not price %**.
 - **Catalog facets from the glossary** (`senpi-strategy-discover/references/glossary.yaml`):

@@ -530,3 +530,55 @@ came in at 398 and 390 calls against a 240s budget and both timed out.
 - If the count really is irreducible, raise `timeout_seconds` deliberately and say why in the
   recipe. Don't discover the ceiling by failing validation: each attempt costs a multi-minute
   live run.
+
+## Editing a LIVE strategy's scanner is an instant production change
+
+The scaffold re-reads `scanners/*.py` from disk on **every tick**. There is no apply step and no
+validation gate on scanner code: `senpi update` compares *recipes* and cannot see code. So saving an
+edit to a live strategy's `scan.py` or `scoring.py` puts it in front of real money at the next tick,
+typically within a minute.
+
+This is how the worst kind of change ships — the one made in a hurry because the strategy "isn't
+firing". Observed 2026-09-19: a scanner was edited at 01:29 to turn a gate into a non-gate, and by
+01:37 — eight minutes later, with no validation run — it had opened **six positions in 138
+seconds**, every one of them stopped out within the hour and the risk gate halted the strategy for
+the rest of the day.
+
+**Before editing a live scanner:** run `openclaw senpi validate` against the edited package and read
+the tick output, exactly as you would for a new one. If the edit loosens or removes a condition,
+say out loud how many more emits per tick it allows and against which universe. "It isn't firing" is
+a hypothesis about a rate — go measure the rate first (below), because the fix for "too strict" and
+the fix for "broken" are opposite changes and shipping the wrong one costs money.
+
+## Bound the universe to the thesis
+
+A scanner may only trade names its thesis can actually speak about. If the strategy is "BTC bounced
+and I think it's fake, so fade the pullback", the tradeable set is BTC and the alts that track it —
+not everything the venue lists.
+
+The failure is quiet, because the gate that bounds the universe is usually a *condition*, not a
+list. Replace a condition like "this coin bounced" with a weaker one like "the cohort has any bias
+on this coin" and the universe silently becomes every coin a single cohort wallet happens to hold.
+The same 2026-09-19 scanner went from scoring bouncing coins to scoring anything with
+`abs(smart_bias) >= 0.3` — and since one wallet holding a coin gives it a bias of ±1.0, that is
+every coin anyone in the cohort touches. It emitted SHORT on gold, Apple and crude oil, none of
+which its thesis has an opinion about.
+
+- State the universe as a **list or an explicit filter** the thesis justifies, not as a side effect
+  of a scoring condition.
+- Set `catalog.assets` to what it actually trades, and keep the scanner's own filter in agreement.
+- After any change to an entry condition, print the candidate count for one tick. A count that jumps
+  by an order of magnitude is the bug, whatever the score says.
+
+## Carry the score into the emitted signal
+
+`scan()` must put the score it computed into the emitted `data` (`"data": {"score": <n>, ...}`) and
+declare it in `signal_data_schema`. It is not cosmetic:
+
+- The runtime logs the emitted score, so a missing one reads as `score 0` in every line — and a
+  reader chasing a problem sees a scanner that is firing with no conviction rather than one that
+  simply forgot to attach the number.
+- Conviction-scaled sizing reads that field. A helper like `margin_pct_for(score, inputs)` sizes off
+  the score the scanner *kept*, so dropping it silently collapses every position to the base tier.
+- Nothing downstream re-derives it. The runtime executed `ETH SHORT signal (score 0)` on
+  2026-09-19 — a score of 0 is not treated as a floor, so an unset score does not fail safe.
