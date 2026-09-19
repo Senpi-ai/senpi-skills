@@ -9,12 +9,12 @@
 schema_version: 1
 
 id: athena-x
-version: "1.4.0"
+version: "1.4.1"
 
 catalog:
   name: "Athena-X — Smart-Money Hedge Fund, Conviction Sizing"
   emoji: "🏛️"
-  tagline: "Athena at conviction size. The same two sleeves, the same signals, the same entries — sized up: 5x instead of 3x, more margin per slot, one more slot each. Roughly 3.7x the gross exposure of Athena for identical trades. Take it only if you would take Athena and want it louder."
+  tagline: "Athena at conviction size. Same two sleeves and the same selection — scanners byte-identical, stops rescaled to sit at the same place in price — but NOT the same entry behaviour: no daily loss halt and no cap on entries per day, so it fills faster and keeps adding while underwater. 5x instead of 3x, more margin per slot, one more slot each: about 3.6x the gross exposure, and 100% of each wallet committed at full slots. Take it only if you already run Athena and want conviction size behind the same calls."
   belief_plain: "Athena decides WHAT to trade; Athena-X changes HOW MUCH, and loosens two gates that ration entries. Phalanx still follows the proven cohort (traders with >=$1M lifetime realized PnL) and Aegis still hedges the regime off the tape — the scanners are byte-identical to Athena's. What differs: 5x leverage instead of 3x, 25% of the alpha wallet per position instead of 15%, 20% of the hedge wallet instead of 12%, and one extra slot in each sleeve — about 3.6x the gross exposure for the same signals. At full slots each sleeve commits 100% of its wallet as margin, against 45% and 48% on Athena; that absence of headroom is the real change in character, not the leverage number. Two entry gates are also gone: there is no daily loss halt and no cap on entries per day, so the book can fill in one burst and can keep adding while it is underwater. Gains and drawdowns both scale with all of it."
   thesis: "Sizing is a separate decision from selection, and Athena-X exists to make it an explicit one rather than a fork users hand-edit. Selection is Athena's and unchanged: the scanners are byte-identical to the Phalanx and Aegis source templates and a test enforces that. What differs is size and the entry gates. Every DSL threshold is rescaled so the stops sit at the same place in PRICE terms as Athena rather than tightening with leverage, and the overall risk budget is 37%/35% of PnL from peak — the same ~7% adverse market move Athena tolerates at 10%. But the daily loss halt and the daily entry cap are removed, which is deliberate for a conviction hold and does mean the only brakes left are that drawdown budget, a consecutive-loss pause, a per-asset cooldown, and each position's own DSL stop. Nothing flattens the book. It suits an operator who has already watched Athena trade and wants conviction size behind the same calls; it is the wrong first strategy. Start on Athena, move here on evidence."
   group: smart-money
