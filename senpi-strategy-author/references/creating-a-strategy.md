@@ -531,6 +531,39 @@ came in at 398 and 390 calls against a 240s budget and both timed out.
   recipe. Don't discover the ceiling by failing validation: each attempt costs a multi-minute
   live run.
 
+### A call budget is not enough on its own — every read needs a timeout
+
+Counting calls bounds the work a tick *intends* to do. It does nothing about a single read that
+never returns, and that is the failure that actually strands scanners: no output, no error, no
+timeout line, the runtime alive and the scan silent for hours.
+
+Observed 2026-09-19: a hand-authored scanner made the SAME reads as `senpi-signals/scripts/sweep.py`
+with the SAME limits — universe top-120, one cohort page, board 500, momentum 50 — and produced
+**zero completed ticks in 2h49m**, while the sweep runs the identical gather in about a minute. The
+limits were never the difference. The sweep budgets its reads; the scanner did not:
+
+```python
+READ_TIMEOUT_S  = 15    # per read
+READ_ATTEMPTS   = 2     # one retry, because a degraded upstream usually recovers
+FEED_DEADLINE_S = 100   # the whole gather's wall-clock budget
+```
+
+Against a bare `ctx.senpi_mcp.call_tool(name, args)` with neither, one hung call blocks the tick
+forever. `timeout_seconds` in the recipe is the runtime's backstop, not your error handling — by the
+time it fires you have lost the tick and learned nothing about which read hung.
+
+So, for any scanner that makes more than a couple of reads:
+
+- **Per-read timeout**, with one retry. Pass it to `call_tool` if the host accepts a `timeout=`
+  keyword; `sweep.py`'s `Client.mcp_call` shows how to detect that once and fall back cleanly.
+- **A whole-tick deadline** checked between reads, comfortably under `timeout_seconds`, so the scan
+  returns `[]` on its own terms instead of being killed mid-flight.
+- **Cheap reads first, the expensive lens last.** `sweep.py` reads market and leaderboard before the
+  cohort precisely because the cohort can eat the entire deadline by itself — so a degraded cohort
+  costs one detector rather than all of them.
+- **Say what went dark.** A tick that skipped a read is not the same as a market with nothing in it,
+  and the log line has to distinguish them — the recurring defect in this codebase.
+
 ## Editing a LIVE strategy's scanner is an instant production change
 
 The scaffold re-reads `scanners/*.py` from disk on **every tick**. There is no apply step and no
