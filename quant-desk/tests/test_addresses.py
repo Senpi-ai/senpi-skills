@@ -19,8 +19,11 @@ WHALE = "0x" + "b" * 40
 SENPI = "0x" + "c" * 40
 
 
-def test_an_unknown_address_is_not_the_readers(tmp_path):
-    """The default the whole feature exists for: never assume a wallet is theirs because they asked."""
+def test_the_book_holds_no_relationship_for_an_address_it_has_not_seen(tmp_path):
+    """The BOOK's answer, which is not the desk's. `is_mine` is False here because nothing has been
+    recorded — not because the address is judged to be someone else's. `resolve_whose` sits above
+    this and defaults an unseen address to the reader's own book (see the test below); the two are
+    different questions and this one must not be read as the product default."""
     book = ab.load(str(tmp_path))
     assert ab.relationship(book, WHALE) is None
     assert ab.is_mine(book, WHALE) is False
