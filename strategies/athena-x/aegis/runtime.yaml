@@ -131,9 +131,13 @@ risk:
     # breaker; the per-position stop is the DSL's phase1.max_loss_pct, not anything here.
     max_consecutive_losses: 3
     cooldown_seconds: 14400            # 4h regime pause after 3 consecutive losses
-    drawdown_halt_pct: 30           # 18 at 3x measured a ~4.4% adverse price move;
-                                          # scaled so the circuit breaker sits at the same place in PRICE
-                                          # terms rather than firing 1.7x sooner just because leverage rose.
+    drawdown_halt_pct: 35                   # Athena's 10% budget expressed so it tolerates the
+                                            # SAME market move (~7%). The divisor is the NOTIONAL
+                                            # multiple (slots x margin_pct x leverage = 5.0x here,
+                                            # 1.35x on Athena), NOT leverage — a portfolio drawdown
+                                            # is not a per-position ROE stop. A flat 10 here would
+                                            # be a 2% market move and would halt on noise.
+                                            # Halts ENTRIES only; it never flattens the book.
     drawdown_reset_on_day_rollover: false
     per_asset_cooldown_seconds: 7200   # 2h per-asset re-entry cooldown
 

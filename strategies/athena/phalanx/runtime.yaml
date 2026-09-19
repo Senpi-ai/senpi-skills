@@ -140,12 +140,23 @@ exit:
 risk:
   data_retention_seconds: 259200      # 72h
   guard_rails:
-    daily_loss_limit_pct: 5            # tight — a bad regime day stops the book early
+    # NO daily_loss_limit_pct. A DAILY halt is a day-trading construct and this is a
+    # conviction hold: its premise is staying positioned while the cohort is, including
+    # through a day that goes against it. Every gate in this block halts ENTRIES and none
+    # of them closes a position, so what the 5% limit actually did was stop the strategy
+    # ADDING once it was underwater — the cohort still short, the book down, and the gate
+    # CLOSED until UTC midnight. That is the failure that forced a manual close-and-
+    # redeploy to clear it. The overall budget is drawdown_halt_pct below.
     max_entries_per_day: 12
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 3
     cooldown_seconds: 43200            # 12h regime pause after 3 consecutive losses
-    drawdown_halt_pct: 20
+    drawdown_halt_pct: 10                   # THE overall risk budget: 10% of PnL from peak,
+                                            # carried across days (reset flag below is false).
+                                            # At this sizing that is a ~7% adverse market move
+                                            # before the strategy stops ADDING — it never
+                                            # flattens the book; open positions run to their
+                                            # own DSL stop.
     drawdown_reset_on_day_rollover: false
     per_asset_cooldown_seconds: 14400  # 4h per-asset re-entry cooldown
 
