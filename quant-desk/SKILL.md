@@ -40,7 +40,7 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 
 **HARD RULES — obey these even if you skim the rest.**
 
-1. **One command, then relay.** `python3 quant-desk/scripts/desk.py <0xaddress>` prints the desk as
+1. **One command, then relay.** `python3 /data/.openclaw/skills/quant-desk/scripts/desk.py <0xaddress>` prints the desk as
    Markdown. Relay it; do not recompute, reorder or "improve" its numbers. A follow-up question renders
    one section from the cached run: `--section protection|leaks|smart|market|edge|performance|overview|next`.
    **The lead-in, before you run it, is this sentence and only this sentence** (short address in place):
@@ -54,7 +54,7 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    works — relay them as they arrive. Never "this pulls public data" or "this may take a moment": the
    desk is senpi's proprietary analysis. Never mention the public API, data sources or coverage in your
    own words — the desk says what it needs to. Run the installed copy
-   (`~/.openclaw/skills/quant-desk/scripts/desk.py`), never a backup folder: the header line carries the
+   (`/data/.openclaw/skills/quant-desk/scripts/desk.py`), never a backup folder: the header line carries the
    version. Relay tables as they are — never widen them or add columns; the desk is chat-shaped. Write
    **onchain**, never "on-chain", everywhere.
 2. **Never invent a number.** Every figure on the desk is computed from public onchain data (or Senpi

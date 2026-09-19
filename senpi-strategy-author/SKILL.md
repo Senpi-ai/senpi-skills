@@ -273,11 +273,11 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
 7. **Unit-test `scoring.py`** on sample candles (pure — no mocks). Run it → report pass/fail as its own beat.
 8. **Lint — advisory, instant, no credentials** (pass the package's absolute path,
    `/data/workspace/strategies/<id>`, so they hit the authored copy from any CWD):
-   (a) **authoring lint** → `python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>`
+   (a) **authoring lint** → `python3 /data/.openclaw/skills/senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>`
    (candle keys, null-in-schema, mandate description, retention/cooldown bounds) **+ advisory warns you relay to the user**: the stop's distance in price at the recipe's leverage, multi-slot sizing with no free-margin gate, a daily entry cap at or below the slot count;
-   (b) **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>`
+   (b) **universe gate** → `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>`
    — every hardcoded ticker you TRADE must be a live HL instrument (derived universes, and names under an exclusion key, pass trivially);
-   (c) **deploy contract** → `python3 senpi-strategy-ops/scripts/deploy.py validate /data/workspace/strategies/<id>`
+   (c) **deploy contract** → `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py validate /data/workspace/strategies/<id>`
    — the deployer's structural preflight (structure, linkage, render; **no money moved, nothing
    installed** — though not side-effect-free: a bare catalog id is fetched to disk). It also
    **reports** the universe from (b)'s predicates, so it reads the live instrument list and needs

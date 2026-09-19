@@ -106,7 +106,7 @@ id when no username can be read — nothing is created; ask what to call it and 
 
 When levers move first: `deploy.py fork <template>` makes the copy and stops; apply the
 moved levers with the edit path — values only, never structure; `wallet_env` names stay as they are — run
-the normal gate (`python3 senpi-strategy-author/scripts/validate_strategy.py <dir>` — it warns on a stop
+the normal gate (`python3 /data/.openclaw/skills/senpi-strategy-author/scripts/validate_strategy.py <dir>` — it warns on a stop
 that is too tight at the leverage, sizing with no free-margin gate, a daily cap at or below the slots, a
 fee load above 0.5% of the budget a day, and refuses a maker-only entry — relay every warn; then
 `openclaw senpi validate <dir>`), and `deploy.py create <dir> --budget <usd>` — the **directory**.

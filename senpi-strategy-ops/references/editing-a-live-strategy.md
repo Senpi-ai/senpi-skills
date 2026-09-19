@@ -43,7 +43,7 @@ openclaw senpi update <recipe-dir> --id <runtime_id>           # a recipe edit t
 - A `PASS` from step 1 is not step 4. `senpi validate` runs the copy on disk in a fresh process; it
   never inspects the running scanner.
 
-**The wrapper — `python3 senpi-strategy-ops/scripts/deploy.py update <pkg> --id <runtime_id> [--apply] [--code-only] [--json]`.**
+**The wrapper — `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py update <pkg> --id <runtime_id> [--apply] [--code-only] [--json]`.**
 Same verb, three things around it: the structural preflight `create` runs (a package the deployer would
 refuse is refused here too, before the verb is called); the instance dir resolved from `--id` on a
 multi-instance package; and a clear stop when the box's runtime has no `update` verb yet — exit `1`,

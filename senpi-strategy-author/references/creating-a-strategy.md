@@ -295,9 +295,9 @@ Discovery matches your strategy to users by the `catalog:` block. **Validation o
 ## 9. Prove it runs, then deploy, then confirm it *operates*
 
 ```
-python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>   # advisory lint + warns (stop distance, sizing, daily cap) — relay them
+python3 /data/.openclaw/skills/senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>   # advisory lint + warns (stop distance, sizing, daily cap) — relay them
 openclaw senpi validate /data/workspace/strategies/<id>                         # THE GATE — must be PASS. The package root (flat, §2)
-python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # the whole path: wallet(s) ($10/wallet floor) → install → observed tick
+python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # the whole path: wallet(s) ($10/wallet floor) → install → observed tick
 openclaw senpi deploy status                                                    # read-only: the report; `overall: live` is the gate
 # teardown / redeploy:  close.py <id>  (flattens positions, returns funds)
 ```
