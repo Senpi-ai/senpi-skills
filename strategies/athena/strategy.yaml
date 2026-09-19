@@ -8,7 +8,7 @@
 schema_version: 1
 
 id: athena
-version: "1.4.0"
+version: "1.4.1"
 
 catalog:
   name: "Athena — Smart-Money Hedge Fund"
@@ -36,9 +36,20 @@ requires:
 defaults:
   auth_token_env: SENPI_AUTH_TOKEN
 
-# THE lever: the weighting. Move the two funding_share values together (they must
-# total 1.0) in the user's fork before funding — 0.65/0.35 is the default. Each
-# wallet needs the $10 platform floor and its sleeve's own sizing at the budget.
+# TWO choices at install, and the agent must put BOTH to the user before funding:
+#
+#   1. THE WEIGHTING. Move the two funding_share values together (they must total
+#      1.0) in the user's fork before funding — 0.65/0.35 is the default. Each
+#      wallet needs the $10 platform floor and its sleeve's own sizing at the budget.
+#
+#   2. THE SIZE. This package is the standard sizing: 3x, 15%/12% of each sleeve's
+#      wallet per position. `athena-x` is the identical strategy — same signals, same
+#      gates, same exits, scanners byte-identical — at conviction size: 5x, 25%/20%,
+#      one more slot per sleeve, ~3.7x the gross exposure for the same entries.
+#      Ask which one they want; do not assume. Athena is the right default and the
+#      right first strategy. Athena-X is for an operator who has already watched
+#      Athena trade and wants conviction size behind the same calls — its 5% daily
+#      loss limit trips sooner at that size, so the book halts earlier on a bad day.
 instances:
   - name: phalanx
     runtime: phalanx/runtime.yaml        # → runtime name athena-phalanx, group athena

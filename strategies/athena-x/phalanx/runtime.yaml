@@ -1,0 +1,159 @@
+# ── ATHENA · phalanx leg — the alpha sleeve ─────────────────────────────────
+# Phalanx, verbatim: proven-cohort rotation (>=$1M lifetime realized PnL,
+# headcount not notional, delta-gated, divergence-boosted, wide stops on 3x).
+# Only the identity lines differ from strategies/phalanx (name, group, wallet,
+# the description's first line); tests/test_legs_verbatim.py pins that.
+# The sleeve weighting lives in ../strategy.yaml (funding_share).
+name: athena-x-phalanx
+group: athena-x
+version: 3.0.0
+description: >
+  ATHENA · Phalanx leg (the alpha sleeve) — proven-cohort rotation. Reads the proven cohort (>=$1M lifetime
+  realized PnL via discovery_get_top_traders ALL_TIME) and tracks where their
+  headcount is shifting each tick. Goes LONG the assets the cohort is crowding
+  into (one_sidedness >= 65%, delta >= +2) and SHORT the ones they're fleeing,
+  with a divergence booster when the cohort disagrees with the 4h leaderboard
+  and an overcrowding breakout gate at 85%. 3x leverage with wide stops (15%
+  margin) and reachable profit locks (first at +20% ROE) so winners run through
+  noise to pay back losers. Per-class hit-rate tracking auto-tunes the tilt
+  threshold so the strategy learns which crowd to trust.
+
+strategy:
+  wallet: "${ATHENA_X_PHALANX_WALLET}"
+  slots: 4
+  margin_pct: 25
+  default_leverage: 5
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: phalanx_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300
+    timeout_seconds: 180
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 200
+    inputs:
+      tiltThreshold: 65
+      deltaMin: 2
+      sustainMinTicks: 12                 # 12 x 300s = 1h of UNBROKEN one-sidedness in the
+                                          # same direction qualifies on its own. delta alone
+                                          # only ever caught the moment a consensus FORMS;
+                                          # a cohort that is already short and stays short
+                                          # sits at delta~0 and locked the strategy out.
+      overcrowdThreshold: 85
+      marginPctBase: 25
+      marginPctMax: 0
+      leverageDefault: 5
+      maxLong: 2
+      maxShort: 2
+      recentSignalTtlSeconds: 21600       # 6h. Was 240s against a 300s scan — the dedup
+                                          # expired before the next tick could ever consult
+                                          # it, so it suppressed nothing. Harmless only
+                                          # while nothing emitted; with the standing-consensus
+                                          # path a sustained name would re-signal every tick.
+      leaderboardLimit: 100
+      smartMinRealizedUsd: 1000000
+      cohortCap: 100
+      stateBatch: 50
+      pageSize: 1000
+      maxPages: 6
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      longRatio: { type: number, required: false }
+      netTilt: { type: number, required: false }
+      conviction: { type: number, required: false }
+      delta: { type: number, required: false }
+      divergence: { type: boolean, required: false }
+      oneSidedness: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: phalanx_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [phalanx_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      # Maker-first with taker fallback after 30s: gives a window for maker
+      # fills (lower fees) but guarantees execution so signals don't miss.
+      # (A pure maker-only entry — taker fallback off — passes validation and
+      # then fails every order at the executor; keep the fallback on.)
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: phalanx_main_signals
+
+# ── EXIT (DSL — wide stops, reachable locks, no deadline on winners) ──────────
+# Hard stop at 15% margin loss (3.75% price on 3x) — wide enough that normal
+# noise doesn't trigger it. First profit lock at +20% ROE (6.67% price on 3x),
+# floor at 40% of high-water (+8% ROE). Escalating ladder with wide gaps so
+# a position at +25% that pulls back to +18% hits no floor and keeps running.
+# No time-based cuts: Phalanx holds and follows the smart-money divergence, so a
+# position exits on the hard stop (phase1.max_loss_pct) or the profit-lock ladder
+# (phase2.tiers) — never because a clock ran out. The 12h weak-peak cut closed
+# positions that were inside the stop and had hit no tier: the cohort not having
+# moved yet is not the thesis being wrong. Removed 2026-09-15 (Phalanx 1.3.0,
+# Athena 1.1.0). No hard_timeout either: it counts from entry and fires in either
+# phase, so any fixed deadline closes a ratchet-armed winner mid-run.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+    weak_peak_cut:
+      enabled: false
+    phase1:
+      enabled: false                  # trailing OFF — a floor below entry can ratchet a winner into a loss
+      max_loss_pct: 15.0              # 15% margin loss cap (3.75% price on 3x) — wide for noise
+      retrace_threshold: 15           # INERT while phase1.enabled is false
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                          # profit-lock ladder, tuned live 2026-09-12: the first lock keeps 40% of the peak (25% left a
+                                      # +20% ROE winner locking 1.7% of price — a rounding error); 50% at 3x left 3.3% of price of
+                                      # retrace room, inside small-cap noise. 40/55 keeps ~4% of room at 3x and doubles what a
+                                      # reversing winner retains. Leverage, stop width and this ladder are one system: change together.
+        - { trigger_pct: 20, lock_hw_pct: 40 }    # +20% ROE (6.7% price at 3x): keep 40% of the peak — 4.0% price of retrace room
+        - { trigger_pct: 30, lock_hw_pct: 55 }    # +30% ROE (10% price): keep 55% — 4.5% price of room; the thesis is real by here
+        - { trigger_pct: 60, lock_hw_pct: 65 }    # +60% ROE: keep 65%
+        - { trigger_pct: 100, lock_hw_pct: 85 }   # +100% ROE: keep 85%
+
+# ── RISK guard rails ──────────────────────────────────────────────────────────
+risk:
+  data_retention_seconds: 259200      # 72h
+  guard_rails:
+    daily_loss_limit_pct: 5            # tight — a bad regime day stops the book early
+    # NO max_entries_per_day. Removed deliberately, matching the live "bigger" run this
+    # package comes from: the whole point of conviction sizing is that a standing cohort
+    # call gets taken when it appears, not rationed. What still brakes the book is
+    # daily_loss_limit_pct, max_consecutive_losses + cooldown_seconds, drawdown_halt_pct
+    # and the per-asset cooldown — those carry more weight here than they do in Athena,
+    # so do not loosen them to match a bad day.
+    max_consecutive_losses: 3
+    cooldown_seconds: 43200            # 12h regime pause after 3 consecutive losses
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400  # 4h per-asset re-entry cooldown
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
