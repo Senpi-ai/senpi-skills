@@ -8,7 +8,7 @@
 schema_version: 1
 
 id: athena
-version: "1.5.0"
+version: "1.5.1"
 
 catalog:
   name: "Athena — Smart-Money Hedge Fund"
@@ -43,13 +43,16 @@ defaults:
 #      wallet needs the $10 platform floor and its sleeve's own sizing at the budget.
 #
 #   2. THE SIZE. This package is the standard sizing: 3x, 15%/12% of each sleeve's
-#      wallet per position. `athena-x` is the identical strategy — same signals, same
-#      gates, same exits, scanners byte-identical — at conviction size: 5x, 25%/20%,
-#      one more slot per sleeve, ~3.7x the gross exposure for the same entries.
-#      Ask which one they want; do not assume. Athena is the right default and the
-#      right first strategy. Athena-X is for an operator who has already watched
-#      Athena trade and wants conviction size behind the same calls — its 5% daily
-#      loss limit trips sooner at that size, so the book halts earlier on a bad day.
+#      wallet per position. `athena-x` runs the SAME SELECTION — scanners byte-identical,
+#      same signals, and DSL stops rescaled to sit at the same place in PRICE — at
+#      conviction size: 5x, 25%/20%, one more slot per sleeve, ~3.6x the gross exposure.
+#      It is NOT gate-for-gate identical: Athena-X has no daily loss halt and no daily
+#      entry cap, so it can fill in one burst and can keep adding while underwater, and
+#      at full slots each sleeve commits 100% of its wallet as margin against 45%/48%
+#      here. Say that difference out loud — it is the part a user cannot see from the
+#      size numbers. Ask which one they want; do not assume. Athena is the right default
+#      and the right first strategy; Athena-X is for someone who has already watched
+#      Athena trade and wants conviction size behind the same calls.
 instances:
   - name: phalanx
     runtime: phalanx/runtime.yaml        # → runtime name athena-phalanx, group athena

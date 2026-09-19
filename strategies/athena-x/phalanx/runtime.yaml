@@ -36,7 +36,7 @@ scanners:
     entrypoint: scan.py
     interval_seconds: 300
     timeout_seconds: 180
-    default_signal_validity_seconds: 1800
+    default_signal_validity_seconds: 600
     state_history_max_count: 200
     inputs:
       tiltThreshold: 65
