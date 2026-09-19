@@ -41,13 +41,22 @@ scanners:
     inputs:
       tiltThreshold: 65
       deltaMin: 2
+      sustainMinTicks: 12                 # 12 x 300s = 1h of UNBROKEN one-sidedness in the
+                                          # same direction qualifies on its own. delta alone
+                                          # only ever caught the moment a consensus FORMS;
+                                          # a cohort that is already short and stays short
+                                          # sits at delta~0 and locked the strategy out.
       overcrowdThreshold: 85
       marginPctBase: 15
       marginPctMax: 0
       leverageDefault: 3
       maxLong: 2
       maxShort: 2
-      recentSignalTtlSeconds: 240
+      recentSignalTtlSeconds: 21600       # 6h. Was 240s against a 300s scan — the dedup
+                                          # expired before the next tick could ever consult
+                                          # it, so it suppressed nothing. Harmless only
+                                          # while nothing emitted; with the standing-consensus
+                                          # path a sustained name would re-signal every tick.
       leaderboardLimit: 100
       smartMinRealizedUsd: 1000000
       cohortCap: 100

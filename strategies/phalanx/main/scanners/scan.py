@@ -31,6 +31,8 @@ import scoring
 # ── defaults (overridable via runtime.yaml inputs) ───────────────────────────
 _DEFAULT_TILT_THRESHOLD = 65.0   # min one_sidedness to qualify
 _DEFAULT_DELTA_MIN = 2.0          # min directional delta since last tick
+_DEFAULT_SUSTAIN_MIN_TICKS = 12   # consecutive one-sided ticks that qualify on their own
+                                  # (12 x 300s = 1h of unbroken cohort conviction)
 _DEFAULT_OVERCROWD = 85.0         # one_sidedness above which breakout is required
 _DEFAULT_MARGIN_PCT = 15.0        # baseline % of withdrawable
 _DEFAULT_LEVERAGE = 3             # clamped to [1,4]
@@ -394,6 +396,7 @@ def scan(inputs, ctx):
     # ── tunables ──
     tilt_threshold = scoring._f(inputs.get("tiltThreshold"), _DEFAULT_TILT_THRESHOLD)
     delta_min = scoring._f(inputs.get("deltaMin"), _DEFAULT_DELTA_MIN)
+    sustain_min_ticks = scoring._f(inputs.get("sustainMinTicks"), _DEFAULT_SUSTAIN_MIN_TICKS)
     overcrowd = scoring._f(inputs.get("overcrowdThreshold"), _DEFAULT_OVERCROWD)
     base_margin = scoring._f(inputs.get("marginPctBase"), _DEFAULT_MARGIN_PCT)
     margin_max = scoring._f(inputs.get("marginPctMax"), 0)
@@ -446,7 +449,8 @@ def scan(inputs, ctx):
     # ── cold start: the first read is the baseline, not a signal (delta needs a last tick) ──
     # Measured against no last tick, every standing one-sided name reads as growing conviction.
     if not prev_tilts:
-        tilts = {a: {"long_n": r["long_n"], "short_n": r["short_n"]} for a, r in headcount.items()}
+        tilts = {a: {"long_n": r["long_n"], "short_n": r["short_n"], "sustain": 0}
+                 for a, r in headcount.items()}
         print(f"[phalanx.scan] baseline seeded: {len(tilts)} names across {len(cohort)} wallets "
               f"— no opens on the first tick", file=sys.stderr)
         _persist_state(ctx, prev, cohort_refreshed, cohort, tilts, accuracy_state, signaled,
@@ -475,14 +479,13 @@ def scan(inputs, ctx):
     # with no way to say which gate was responsible without editing the scanner.
     blocked = {"tilt": 0, "delta": 0, "breakout": 0}
     best_delta = None
+    best_sustain = 0
 
     for asset_key, rec in headcount.items():
         long_n = rec["long_n"]
         short_n = rec["short_n"]
         raw_coin = rec.get("raw_coin", asset_key)
-
-        # store for next tick's delta
-        new_tilts[asset_key] = {"long_n": long_n, "short_n": short_n}
+        prev_rec = prev_tilts.get(asset_key, {})
 
         long_ratio, net_tilt = scoring.net_tilt(long_n, short_n)
         sided = scoring.one_sidedness(long_n, short_n)
@@ -494,13 +497,34 @@ def scan(inputs, ctx):
         cls = scoring.asset_class_for(raw_coin)
         eff_threshold = scoring.adjusted_threshold(tilt_threshold, cls, accuracy_state)
 
+        # How many CONSECUTIVE ticks this asset has been one-sided in the SAME direction.
+        # Resets on a direction flip or any tick that drops below the threshold, so it only
+        # ever counts an unbroken run.
+        if sided < eff_threshold:
+            sustain = 0
+        elif prev_rec.get("dir") == direction:
+            sustain = int(scoring._f(prev_rec.get("sustain"), 0)) + 1
+        else:
+            sustain = 1
+
+        # store for next tick's delta + sustain run
+        new_tilts[asset_key] = {"long_n": long_n, "short_n": short_n,
+                                "dir": direction, "sustain": sustain}
+
         # gate 1: one_sidedness >= threshold
         if sided < eff_threshold:
             blocked["tilt"] += 1
             continue
 
-        # gate 2: delta >= delta_min (conviction growing)
-        prev_rec = prev_tilts.get(asset_key, {})
+        # gate 2: conviction is GROWING (delta) **or** STANDING (a sustained run).
+        #
+        # delta alone could only ever catch the moment a consensus FORMS. Once the cohort is
+        # already heavily one-sided and simply stays there, delta sits at ~0 and the strategy
+        # is locked out — at exactly the point the setup is most established. On M401059 that
+        # produced 359 consecutive ticks with zero candidates while the cohort held a standing
+        # short through a rally; the only way to act on it was to close the strategy and
+        # redeploy, which reseeds the baseline and makes the next read look like a jump. A user
+        # should never have to do that by hand, so a sustained run now qualifies on its own.
         delta = scoring.directional_delta(
             prev_rec.get("long_n", 0), prev_rec.get("short_n", 0),
             long_n, short_n, direction,
@@ -509,12 +533,18 @@ def scan(inputs, ctx):
         # delta_min is reachable at this tick interval at all: a run of ticks where it never
         # approaches delta_min means the window is too short, not that conviction is absent.
         best_delta = delta if best_delta is None else max(best_delta, delta)
-        if delta < delta_min:
+        best_sustain = max(best_sustain, int(sustain))
+        growing = delta >= delta_min
+        standing = sustain >= sustain_min_ticks
+        if not growing and not standing:
             blocked["delta"] += 1
             continue
 
         # gate 3: overcrowding breakout check
         reasons = []
+        if standing and not growing:
+            reasons.append(f"standing consensus: {int(sustain)} consecutive ticks at "
+                           f"{sided:.0f}% one-sided {direction} (delta {delta:+.0f}, flat)")
         if sided >= overcrowd:
             c1h, c4h = _asset_data(ctx, raw_coin)
             if not scoring.breakout_check(c1h, direction):
@@ -602,7 +632,8 @@ def scan(inputs, ctx):
               f"held={held_assets} (threshold {tilt_threshold:.0f}, delta_min {delta_min:.0f}) "
               f"| blocked: tilt={blocked['tilt']} delta={blocked['delta']} "
               f"breakout={blocked['breakout']} "
-              f"max_delta={'n/a' if best_delta is None else format(best_delta, '.0f')}",
+              f"max_delta={'n/a' if best_delta is None else format(best_delta, '.0f')} "
+              f"max_sustain={best_sustain}/{sustain_min_ticks:.0f}",
               file=sys.stderr)
         result = {"ts": now, "emitted": False, "gate": "no_signal", "board": len(headcount),
                   "held": held_assets}

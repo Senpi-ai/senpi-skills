@@ -48,7 +48,9 @@ def test_the_first_tick_seeds_the_baseline_and_opens_nothing(monkeypatch):
     out, rec = _run(monkeypatch, {"ETH": {"long_n": 5, "short_n": 15, "raw_coin": "ETH"}}, {})
     assert out == []
     assert rec["result"]["gate"] == "baseline"
-    assert rec["prev_tilts"] == {"ETH": {"long_n": 5, "short_n": 15}}
+    # sustain starts at 0: a cold start must not inherit a run it never observed, or the
+    # standing-consensus path would qualify an asset the scanner has seen exactly once.
+    assert rec["prev_tilts"] == {"ETH": {"long_n": 5, "short_n": 15, "sustain": 0}}
 
 
 def test_growth_after_the_baseline_still_opens(monkeypatch):
