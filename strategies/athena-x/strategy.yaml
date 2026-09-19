@@ -45,6 +45,10 @@ defaults:
 # THE lever: the weighting. Move the two funding_share values together (they must
 # total 1.0) in the user's fork before funding — 0.65/0.35 is the default. Each
 # wallet needs the $10 platform floor and its sleeve's own sizing at the budget.
+# THE SIZE IS THE ONLY DIFFERENCE. `athena` is the same strategy at standard sizing
+# (3x, 15%/12%, one fewer slot per sleeve). If the user has not already run Athena and
+# watched it trade, say so and offer Athena instead — this is not a first strategy. The
+# weighting lever below works identically in both.
 instances:
   - name: phalanx
     runtime: phalanx/runtime.yaml        # → runtime name athena-phalanx, group athena
