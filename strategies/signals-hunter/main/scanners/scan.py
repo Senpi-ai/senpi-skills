@@ -199,19 +199,31 @@ def scan(inputs, ctx):
             unfunded += 1
             continue
         committed_pct += want_pct
+        # `oneSidedness` is declared `{type: number, required: false}`, and the runtime reads that as
+        # "absent is fine, null is not": a key present with None fails the type and the whole SIGNAL
+        # is rejected — after a tick that reported itself healthy, so the loss is invisible from here.
+        # And `smart_share` is a field on the asset METRICS; not one of score.py's four signal
+        # construction sites copies it onto the signal dict. `s.get("smart_share")` was therefore
+        # None on 100% of emits, for every detector, and nothing this strategy produced could open.
+        # Read it from the metrics row the signal was derived from (`cur` is keyed by the same asset
+        # score.py iterated), and OMIT the key when there is no number rather than sending a null.
+        m = cur.get(asset)
+        one_sided = _f(m.get("smart_share"), None) if isinstance(m, dict) else None
+        data = {
+            "score": ts,
+            "direction": direction,
+            "detector": s.get("detector"),
+            "credibility": s.get("credibility"),
+            "reasons": [f"{s.get('detector')}: {'; '.join(s.get('numbers') or [])}".strip(": ")],
+        }
+        if one_sided is not None:
+            data["oneSidedness"] = one_sided
         out.append({
             "asset": asset,
             "direction": direction,
             "marginPct": want_pct,
             "leverage": leverage,
-            "data": {
-                "score": ts,
-                "direction": direction,
-                "detector": s.get("detector"),
-                "credibility": s.get("credibility"),
-                "oneSidedness": s.get("smart_share"),
-                "reasons": [f"{s.get('detector')}: {'; '.join(s.get('numbers') or [])}".strip(": ")],
-            },
+            "data": data,
         })
         recent[key] = now.timestamp()
 
