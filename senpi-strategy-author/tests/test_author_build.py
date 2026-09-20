@@ -268,6 +268,71 @@ def test_a_dead_runner_reads_as_error(env):
     assert ab._effective(job.read())["state"] == "error"
 
 
+# ---------------------------------------------------------------- resuming an edit
+
+def _fake_session(tmp, session_id, project="proj"):
+    d = tmp / "claude-cfg" / "projects" / project
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{session_id}.jsonl").write_text("{}\n")
+
+
+def test_done_writes_a_build_marker_with_session_and_choices(env, monkeypatch):
+    tmp, spec = env
+    script(monkeypatch, {"write_package": True, "write_proof": True,
+                         "out": {"status": "done", "summary": "ok", "key_choices": ["RSI 72 because ..."]}})
+    assert ab.main(["start", "--spec", str(spec)]) == ab.EXIT["done"]
+    job = only_job(tmp)
+    marker = json.loads((tmp / "strategies" / "demo" / ab.BUILD_MARKER).read_text())
+    assert marker["job"] == job.id
+    assert marker["session_id"] == job.read()["session_id"]
+    assert marker["strategy_id"] == "demo"
+    assert marker["key_choices"] == ["RSI 72 because ..."]
+
+
+def test_edit_resumes_the_session_that_built_the_package(env, monkeypatch, tmp_path):
+    tmp, spec = env
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp / "claude-cfg"))
+    live = tmp / "strategies" / "demo"
+    (live / "scanners").mkdir(parents=True)
+    (live / "strategy.yaml").write_text("id: demo\n")
+    (live / ab.BUILD_MARKER).write_text(json.dumps(
+        {"job": "demo-first", "session_id": "11111111-1111-4111-8111-111111111111", "strategy_id": "demo"}))
+    _fake_session(tmp, "11111111-1111-4111-8111-111111111111")
+    script(monkeypatch, {"write_package": True, "write_proof": True, "out": {"status": "done", "summary": "edited"}})
+    assert ab.main(["start", "--spec", str(spec), "--edit", str(live)]) == ab.EXIT["done"]
+    job = only_job(tmp)
+    argv = json.loads((job.dir / "fake-argv-0.json").read_text())["argv"]
+    assert "--resume" in argv and argv[argv.index("--resume") + 1] == "11111111-1111-4111-8111-111111111111"
+    assert "--session-id" not in argv
+    assert job.read()["resumed_from"] == "demo-first"
+    assert "same session" in (job.dir / "prompt-1.md").read_text()
+
+
+@pytest.mark.parametrize("marker,session,why", [
+    ({"job": "j", "session_id": "22222222-2222-4222-8222-222222222222", "strategy_id": "other"}, True,
+     "a fork carries the original's marker"),
+    ({"job": "j", "session_id": "33333333-3333-4333-8333-333333333333", "strategy_id": "demo"}, False,
+     "claude code no longer has that session"),
+    (None, False, "no marker at all"),
+])
+def test_edit_starts_fresh_when_the_prior_session_is_not_ours(env, monkeypatch, marker, session, why):
+    tmp, spec = env
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp / "claude-cfg"))
+    live = tmp / "strategies" / "demo"
+    (live / "scanners").mkdir(parents=True)
+    (live / "strategy.yaml").write_text("id: demo\n")
+    if marker:
+        (live / ab.BUILD_MARKER).write_text(json.dumps(marker))
+        if session:
+            _fake_session(tmp, marker["session_id"])
+    script(monkeypatch, {"write_package": True, "write_proof": True, "out": {"status": "done", "summary": "edited"}})
+    assert ab.main(["start", "--spec", str(spec), "--edit", str(live)]) == ab.EXIT["done"], why
+    job = only_job(tmp)
+    argv = json.loads((job.dir / "fake-argv-0.json").read_text())["argv"]
+    assert "--session-id" in argv and "--resume" not in argv, why
+    assert job.read().get("resumed_from") is None, why
+
+
 # ---------------------------------------------------------------- progress reporting
 
 def _events(job, calls):

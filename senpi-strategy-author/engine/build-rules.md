@@ -12,6 +12,10 @@ the OpenClaw agent relays it.
   `✓ live`). Put every advisory lint warning in `warnings`. Put the DSL ladder, as outcomes in price
   terms at the chosen leverage, in `exit_preview`. The wrapper re-checks `.senpi-proof.json` itself;
   claiming done without a real PASS gets the turn sent back.
+  Fill **`key_choices`**: every judgement the spec left to you — a threshold, a window, the score
+  shape, a default you picked, anywhere you departed from the spec and why. The chat agent has only
+  your result, not your reasoning, so this is what it answers "why is it like that?" with weeks
+  later, and what you yourself read back when you are resumed to edit this package.
 - **`needs_input`** — ONE user decision is missing or contradictory and no source can settle it: a
   ticker the user named that is not a live instrument, two constraints that conflict, a threshold
   the spec leaves open that changes what the strategy is. Ask exactly one question, give concrete

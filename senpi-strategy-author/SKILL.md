@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.13.0"
+  version: "3.14.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -252,6 +252,9 @@ python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py doc
    python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py start --detach --spec /data/workspace/.author-specs/<id>.json
    ```
    Editing a package that is not live yet (a fork, a draft): add `--edit /data/workspace/strategies/<id>`.
+   An edit **resumes the Claude Code session that built that package** when it still exists (same
+   strategy id, session still on disk), so it keeps its own reasoning and re-reads far less; otherwise
+   it starts fresh from the package on disk. `status` shows `resumed_from` when it did.
    It returns at once with `AUTHOR_BUILD {"job": "<job>", "state": "running", …}`. Tell the user it is
    building (a few minutes).
 3. **Wait, and narrate what it is doing** — the user is watching a silent screen otherwise:
@@ -269,7 +272,10 @@ python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py doc
      with `author_build.py answer --detach --job <job> --text "<their answer>"` (same session: it
      remembers everything), then `wait` again as in step 3.
    - `done` → relay `summary`, the `validate.stage_lines` verbatim, every `warnings` entry, and the
-     `exit_preview`. The engine only returns `done` after the wrapper itself checked
+     `exit_preview`. **Keep `key_choices`** — the judgement calls the spec left open, each with its
+     reason. That is what you answer "why is the threshold 72?" with later; without it you would be
+     guessing from the code. It is also saved in the package as `.author-build.json`, so a question
+     weeks later is one read away, along with the package files themselves. The engine only returns `done` after the wrapper itself checked
      `.senpi-proof.json` against the package bytes — that is stage 9's PASS. Then go to **Handoff**.
      Edit jobs: the result is staged; after the user's yes, `author_build.py promote --job <job>`.
    - `failed` → relay `blocking_finding` in its own words and let the user decide. Do not start the

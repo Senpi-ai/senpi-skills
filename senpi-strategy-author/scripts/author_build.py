@@ -71,6 +71,11 @@ NOTIFY_LINE_MAX = 390  # OpenClaw's exit-notify tail is 400 chars
 ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,39}$")
 DECISIONS = ("universe", "data", "edge", "shape", "cardinality", "memory", "exit_risk")
 
+# Written into the package so a later edit can resume the session that built it (and so anyone
+# reading the package can find its build log). Not hashed by the proof: that covers the recipe and
+# the scanner roots only.
+BUILD_MARKER = ".author-build.json"
+
 # Proof fingerprinting — must match runtime src/validate/proof.ts byte for byte.
 PROOF_FILE = ".senpi-proof.json"
 _PROOF_EXCLUDED = {PROOF_FILE, ".DS_Store"}
@@ -285,6 +290,43 @@ def verify_proof(pkg_dir):
         if not entry["ok"] and report["ok"]:
             report.update(ok=False, reason=entry["reason"])
     return report
+
+
+def read_marker(pkg_dir):
+    try:
+        m = json.loads((Path(pkg_dir) / BUILD_MARKER).read_text())
+        return m if isinstance(m, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def write_marker(pkg_dir, st, result):
+    """Record which job + Claude Code session built these bytes, and why it chose what it did."""
+    marker = {
+        "job": st.get("job"),
+        "session_id": st.get("session_id"),
+        "strategy_id": st.get("strategy_id"),
+        "built_at": now_iso(),
+        "jobs_dir": str(jobs_dir()),
+        "key_choices": (result or {}).get("key_choices") or [],
+        "summary": (result or {}).get("summary"),
+    }
+    try:
+        (Path(pkg_dir) / BUILD_MARKER).write_text(json.dumps(marker, indent=2) + "\n")
+    except OSError as exc:
+        print(f"note: could not write {BUILD_MARKER}: {exc}", file=sys.stderr)
+    return marker
+
+
+def session_exists(session_id):
+    """Does Claude Code still have this session? Sessions live under CLAUDE_CONFIG_DIR/projects/."""
+    if not session_id:
+        return False
+    cfg = Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude"))
+    try:
+        return any(cfg.glob(f"projects/*/{session_id}.jsonl"))
+    except OSError:
+        return False
 
 
 # ---------------------------------------------------------------- check (lint + gate)
@@ -613,6 +655,8 @@ def run_turn(job, prompt, first):
         if st.get("mode") == "edit":
             result["staged_dir"] = st["package_dir"]
             result["original_dir"] = st.get("original_dir")
+        if status == "done":
+            result["marker"] = write_marker(st["package_dir"], st, result)
         job.write_result(result)
         st = job.write(state=status, pid=None, claude_pid=None, cost_usd=round(cost, 4),
                        message=out.get("blocking_finding") if status == "failed" else None)
@@ -659,6 +703,12 @@ def first_prompt(spec, st):
     ]
     if mode == "edit":
         lines += ["", f"This is a staged copy of {st.get('original_dir')}. Change only what the spec asks."]
+        if st.get("resumed_from"):
+            lines += [
+                f"You built this package yourself in job {st['resumed_from']} — this is the same session,"
+                " so you already know why it is the way it is. The files may have changed since; re-read"
+                " the ones you are about to touch rather than trusting your memory of them.",
+            ]
     return "\n".join(lines)
 
 
@@ -679,6 +729,7 @@ def _detach(job, argv_tail):
 
 
 def cmd_start(a):
+    resume_session, resumed_from = None, None
     spec, err = load_spec(a.spec)
     if err:
         print(f"✗ refused: {err}", file=sys.stderr)
@@ -695,6 +746,15 @@ def cmd_start(a):
         pkg = job.dir / "work" / original.name
         shutil.copytree(original, pkg, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".deploy-state.json"))
         mode, original_dir = "edit", str(original)
+        # Resume the session that built these bytes when Claude Code still has it: it knows why it
+        # chose what it chose, and skips re-reading every reference. Verified that --resume works
+        # from a different cwd, which matters because this runs in the staged copy.
+        prior = read_marker(original) or {}
+        # Same strategy only. A fork or a copied package carries the ORIGINAL's marker, and resuming
+        # there would hand the model another strategy's reasoning as if it were this one's.
+        same_strategy = prior.get("strategy_id") == spec["id"]
+        if same_strategy and session_exists(prior.get("session_id")):
+            resume_session, resumed_from = prior["session_id"], prior.get("job")
     else:
         pkg = strategies_dir() / spec["id"]
         if pkg.exists() and any(pkg.iterdir()):
@@ -705,13 +765,14 @@ def cmd_start(a):
         pkg.mkdir(parents=True, exist_ok=True)
         mode, original_dir = "new", None
     st = job.write(job=job.id, state="queued", mode=mode, strategy_id=spec["id"], package_dir=str(pkg),
-                   original_dir=original_dir, session_id=str(uuid.uuid4()), turn=0, cost_usd=0,
-                   created_at=now_iso())
+                   original_dir=original_dir, session_id=resume_session or str(uuid.uuid4()),
+                   resumed_from=resumed_from, turn=0, cost_usd=0, created_at=now_iso())
     write_session_files(job, pkg)
     (job.dir / "prompt-1.md").write_text(first_prompt(spec, st))
+    first = resume_session is None            # resuming: --resume, not --session-id
     if a.detach:
-        return _detach(job, ["_run", "--job", job.id, "--first"])
-    return _emit(job, *run_turn(job, (job.dir / "prompt-1.md").read_text(), first=True))
+        return _detach(job, ["_run", "--job", job.id] + (["--first"] if first else []))
+    return _emit(job, *run_turn(job, (job.dir / "prompt-1.md").read_text(), first=first))
 
 
 def _load_job(job_id):
@@ -765,7 +826,7 @@ def cmd_status(a):
         return EXIT["refused"]
     st = _effective(job.read())
     view = {k: st.get(k) for k in ("job", "state", "mode", "strategy_id", "package_dir", "original_dir",
-                                    "turn", "cost_usd", "message", "updated_at")}
+                                    "resumed_from", "turn", "cost_usd", "message", "updated_at")}
     if st.get("state") == "running":
         view["stage"] = stage_line(job)
         view["recent_steps"] = progress(job)

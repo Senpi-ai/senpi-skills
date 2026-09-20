@@ -23,7 +23,7 @@ import _pkg
 MAX_ID = 40        # the deploy verb's sanitizeStrategyName cap (runtime src/deploy/package.ts)
 MAX_OWNER = 20     # leaves room for `-<template>` and `-<instance>` under the cap
 MIN_ID = 3         # the backend's floor for a strategy name
-SKIP_NAMES = {".deploy-state.json", ".senpi-proof.json", "__pycache__", ".DS_Store"}
+SKIP_NAMES = {".deploy-state.json", ".senpi-proof.json", ".author-build.json", "__pycache__", ".DS_Store"}
 
 
 class ForkError(ValueError):
