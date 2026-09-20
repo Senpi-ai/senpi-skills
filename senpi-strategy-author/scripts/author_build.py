@@ -502,21 +502,75 @@ def read_events(job, since_last_turn_start=False):
     return evs
 
 
+def _step_of(tool, inp):
+    """One tool call -> (stage, human step). Stages are the build's own phases, in order."""
+    name = str(inp.get("file_path") or inp.get("notebook_path") or "")
+    base = Path(name).name if name else ""
+    cmd = str(inp.get("command") or "")
+    if tool in ("Read", "Glob", "Grep"):
+        if "/references/" in name or "/skills/" in name:
+            return "reading the references", f"read {base or inp.get('pattern') or ''}".strip()
+        return None, None                      # ordinary reads are noise
+    if tool.startswith("mcp__senpi__"):
+        return "checking live data", f"{tool.split('__')[-1]}"
+    if tool in ("Write", "Edit", "MultiEdit"):
+        if base in ("scoring.py",):
+            return "writing the thesis math", f"write {base}"
+        if base in ("scan.py",):
+            return "writing the scanner", f"write {base}"
+        if base == "runtime.yaml":
+            return "writing the runtime config", f"write {base}"
+        if base == "strategy.yaml":
+            return "writing the catalog entry", f"write {base}"
+        if base.startswith("test"):
+            return "writing unit tests", f"write {base}"
+        return "writing files", f"write {base}"
+    if tool == "Bash":
+        if "senpi validate" in cmd or "author_build.py check" in cmd:
+            return "running the gate", "openclaw senpi validate"
+        if "validate_strategy.py" in cmd or "validate_universe.py" in cmd or "deploy.py validate" in cmd:
+            return "linting", "lint"
+        if "unittest" in cmd or "pytest" in cmd:
+            return "running unit tests", "unit tests"
+        return None, None
+    return None, None
+
+
 def progress(job, n=8):
-    """Recent tool activity, for a user-facing 'what is it doing' line."""
-    steps = []
+    """Recent build steps, newest last — for a user-facing 'what is it doing' line."""
+    return [s for _, s in _walk_steps(job)][-n:]
+
+
+def _walk_steps(job):
+    """[(stage, step)] in order, one per meaningful tool call."""
+    out = []
     for ev in read_events(job, since_last_turn_start=True):
         if ev.get("type") != "assistant":
             continue
         for c in (ev.get("message") or {}).get("content") or []:
             if c.get("type") != "tool_use" or c.get("name") == "StructuredOutput":
                 continue
-            inp = c.get("input") or {}
-            what = inp.get("file_path") or inp.get("command") or inp.get("pattern") or ""
-            if c.get("name") in ("Write", "Edit", "Read") and what:
-                what = Path(what).name
-            steps.append(f"{c.get('name')}: {str(what)[:90]}")
-    return steps[-n:]
+            stage, step = _step_of(c.get("name"), c.get("input") or {})
+            if stage:
+                out.append((stage, step))
+    return out
+
+
+def stage_line(job):
+    """The current stage, with the gate attempt when it is on its second pass or later.
+
+    Named rather than listing files: 'running the gate (attempt 2)' tells the user where the build
+    is; 'Write: scan.py' makes them work it out.
+    """
+    steps = _walk_steps(job)
+    if not steps:
+        return "starting up"
+    stage = steps[-1][0]
+    if stage == "running the gate":
+        attempts = sum(1 for st, _ in steps if st == "running the gate")
+        if attempts > 1:
+            return f"{stage} (attempt {attempts})"
+    return stage
 
 
 def run_turn(job, prompt, first):
@@ -713,6 +767,7 @@ def cmd_status(a):
     view = {k: st.get(k) for k in ("job", "state", "mode", "strategy_id", "package_dir", "original_dir",
                                     "turn", "cost_usd", "message", "updated_at")}
     if st.get("state") == "running":
+        view["stage"] = stage_line(job)
         view["recent_steps"] = progress(job)
     res = job.result()
     if res and st.get("state") != "running":
@@ -730,14 +785,22 @@ def cmd_wait(a):
     if job is None:
         return EXIT["refused"]
     deadline = time.time() + a.timeout
+    seen_stage, seen_steps = None, 0
     while True:
         st = _effective(job.read())
+        # Stream: a line the moment the build moves on, so every poll of this command has something
+        # fresh to relay. OpenClaw's exec backgrounds this within ~10s and the agent polls it.
+        stage, steps = stage_line(job), _walk_steps(job)
+        if stage != seen_stage:
+            print(f"  · {stage}", flush=True)
+            seen_stage = stage
+        elif len(steps) > seen_steps and a.verbose:
+            for _, step in steps[seen_steps:]:
+                print(f"    - {step}", flush=True)
+        seen_steps = len(steps)
         if st.get("state") not in ("running", "queued"):
             return _emit(job, st, job.result())
         if time.time() >= deadline:
-            # Still building: say what it is doing, so the agent can narrate between waits.
-            for step in progress(job, n=5):
-                print(f"  · {step}", flush=True)
             return _emit(job, st)
         time.sleep(3)
 
@@ -826,6 +889,7 @@ def main(argv=None):
     s.set_defaults(fn=cmd_status)
     # 100s default: OpenClaw's exec backgrounds anything past 120s (yieldMs is clamped there).
     s = sub.add_parser("wait"); s.add_argument("--job", required=True); s.add_argument("--timeout", type=int, default=100)
+    s.add_argument("--verbose", action="store_true", help="also print each step, not only stage changes")
     s.set_defaults(fn=cmd_wait)
     s = sub.add_parser("check"); s.add_argument("package"); s.set_defaults(fn=cmd_check)
     s = sub.add_parser("verify-proof"); s.add_argument("package"); s.set_defaults(fn=cmd_verify_proof)

@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.12.1"
+  version: "3.13.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -254,13 +254,17 @@ python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py doc
    Editing a package that is not live yet (a fork, a draft): add `--edit /data/workspace/strategies/<id>`.
    It returns at once with `AUTHOR_BUILD {"job": "<job>", "state": "running", …}`. Tell the user it is
    building (a few minutes).
-3. **Wait in short steps, narrating** — `exec` backgrounds anything past ~2 minutes, so never one long wait:
+3. **Wait, and narrate what it is doing** — the user is watching a silent screen otherwise:
    ```
    python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py wait --job <job>
    ```
-   Each call returns within ~100s. `state: running` comes with its recent steps (`· Write: scan.py`) —
-   relay one short line of progress, then call `wait` again. Any other state: read the full result with
-   `author_build.py status --job <job>` and branch on `state`:
+   `exec` backgrounds this after ~10s and hands you a session id. **Poll that session** —
+   `process` with `action: poll` and `timeout: 30000` — and each poll returns the stages the build has
+   reached since the last one: `· writing the scanner`, `· running unit tests`,
+   `· running the gate (attempt 2)`. **Relay one short line per poll, in your own words**, then poll
+   again. A stage line is a fact about the build; don't embellish it into a claim about the result.
+   When the command ends it prints `AUTHOR_BUILD {...}` with the final state — then read the full
+   result with `author_build.py status --job <job>` and branch on `state`:
    - `needs_input` → ask the user the `question` verbatim, with its `options`. Pass the answer back
      with `author_build.py answer --detach --job <job> --text "<their answer>"` (same session: it
      remembers everything), then `wait` again as in step 3.

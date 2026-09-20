@@ -268,6 +268,71 @@ def test_a_dead_runner_reads_as_error(env):
     assert ab._effective(job.read())["state"] == "error"
 
 
+# ---------------------------------------------------------------- progress reporting
+
+def _events(job, calls):
+    job.dir.mkdir(parents=True, exist_ok=True)
+    with open(job.events_path, "w") as f:
+        f.write(json.dumps({"type": "wrapper", "event": "turn_start"}) + "\n")
+        for name, inp in calls:
+            f.write(json.dumps({"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "name": name, "input": inp}]}}) + "\n")
+
+
+def test_stage_is_named_by_phase_not_by_file(env):
+    tmp, _ = env
+    job = ab.Job("demo-stage")
+    _events(job, [("Read", {"file_path": "/skills/senpi-strategy-author/references/creating-a-strategy.md"})])
+    assert ab.stage_line(job) == "reading the references"
+    _events(job, [("Write", {"file_path": "/pkg/scanners/scoring.py"})])
+    assert ab.stage_line(job) == "writing the thesis math"
+    _events(job, [("Write", {"file_path": "/pkg/scanners/scan.py"})])
+    assert ab.stage_line(job) == "writing the scanner"
+    _events(job, [("Write", {"file_path": "/pkg/runtime.yaml"})])
+    assert ab.stage_line(job) == "writing the runtime config"
+    _events(job, [("Bash", {"command": "python3 -m unittest discover tests"})])
+    assert ab.stage_line(job) == "running unit tests"
+    _events(job, [("Bash", {"command": "python3 /s/scripts/validate_strategy.py /pkg"})])
+    assert ab.stage_line(job) == "linting"
+    _events(job, [("mcp__senpi__market_list_instruments", {})])
+    assert ab.stage_line(job) == "checking live data"
+
+
+def test_gate_attempts_are_counted(env):
+    tmp, _ = env
+    job = ab.Job("demo-gate")
+    gate = ("Bash", {"command": "openclaw senpi validate /pkg"})
+    _events(job, [gate])
+    assert ab.stage_line(job) == "running the gate"
+    _events(job, [gate, ("Edit", {"file_path": "/pkg/scanners/scan.py"}), gate])
+    assert ab.stage_line(job) == "running the gate (attempt 2)"
+
+
+def test_wait_streams_each_stage_change(env, capsys):
+    tmp, _ = env
+    job = ab.Job("demo-stream")
+    job.dir.mkdir(parents=True)
+    job.write(job=job.id, state="running", pid=os.getpid(), strategy_id="demo")
+    _events(job, [("Write", {"file_path": "/pkg/scanners/scan.py"}),
+                  ("Bash", {"command": "openclaw senpi validate /pkg"})])
+    ab.main(["wait", "--job", job.id, "--timeout", "0"])
+    out = capsys.readouterr().out
+    assert "· running the gate" in out          # current stage, streamed before the state line
+    assert out.strip().splitlines()[-1].startswith("AUTHOR_BUILD ")
+
+
+def test_status_reports_the_stage_while_running(env, capsys):
+    tmp, _ = env
+    job = ab.Job("demo-status")
+    job.dir.mkdir(parents=True)
+    job.write(job=job.id, state="running", pid=os.getpid(), strategy_id="demo")
+    _events(job, [("Write", {"file_path": "/pkg/strategy.yaml"})])
+    ab.main(["status", "--job", job.id])
+    view = json.loads(capsys.readouterr().out)
+    assert view["stage"] == "writing the catalog entry"
+    assert view["recent_steps"] == ["write strategy.yaml"]
+
+
 # ---------------------------------------------------------------- the guard hook
 
 def guard(tmp, tool, tool_input):
