@@ -126,6 +126,15 @@ def test_existing_rails_survive():
              "`strategy_get_clearinghouse_state`", "`account_get_portfolio`")
 
 
+def test_deposit_checks_for_funds_already_parked_in_a_strategy():
+    """A funded user must never be asked to deposit: the portfolio can read allocated 0 while a
+    strategy holds the money and count it again as withdrawable."""
+    _needles("**First check they don't already have it.**",
+             "`total_allocated_in_strategy: 0` while an ACTIVE strategy holds the money",
+             "Asking a funded user to deposit is the worst answer available.",
+             "check `strategy_list` for an ACTIVE")
+
+
 def test_readme_row_matches_the_skill_version():
     m = re.search(r'^  version: "(\d+\.\d+\.\d+)"', _skill(), re.M)
     assert m, "SKILL.md frontmatter version not found"

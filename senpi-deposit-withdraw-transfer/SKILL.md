@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.5.0"
+  version: "1.6.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -200,7 +200,8 @@ the money parked in **Spot**. Four rules, in this order:
    **The amount must not exceed free perps (`withdrawable`)** — a top-up accepted against too little also
    ends FAILED, and the deposit may still be on an EVM chain or in Spot. State both numbers in one line
    before the call: "Your funding wallet has $X free in perps; topping up $Y." Spot covers the gap → ask them to move it to
-   perps in Balances, then top up once it lands. Nothing covers it → the funding card.
+   perps in Balances, then top up once it lands. Nothing covers it → check `strategy_list` for an ACTIVE strategy already
+   holding the money (see *Deposit / add funds*) before the funding card, and top up once it lands.
 2. **Poll, don't re-submit.** Keep `data.top_up_request.id` and poll `strategy_get_top_up_status` until
    `COMPLETED` or `FAILED`. `PENDING` / `FUNDS_IN_TRANSIT` = keep polling; `totalFunded` stays stale until
    completion. Re-submitting while PENDING is how strategies get double-funded.
@@ -253,6 +254,12 @@ the money parked in **Spot**. Four rules, in this order:
   say the deposit lands in their own wallet ready to trade. Never write an address, never hand out a
   strategy wallet address. If they may not hold crypto yet, mention the card's Buy USDC tab in one
   line — don't make them ask twice.
+  **First check they don't already have it.** `account_get_portfolio` can report
+  `total_allocated_in_strategy: 0` while an ACTIVE strategy holds the money, and count that same money
+  again as `total_withdrawable` — so the portfolio alone reads "funded and free" when it is neither. Call
+  `strategy_list` before the card: an ACTIVE strategy with `netFunded` above zero holds funds that
+  `strategy_withdraw_funds` reclaims in one call. The tell is `total_withdrawable` well above
+  `total_in_hyperliquid`. Asking a funded user to deposit is the worst answer available.
 - **Buy USDC / "can I use a card":** yes — show the funding card and point at its **Buy USDC** tab; card
   / Apple Pay / Google Pay, lands in their own wallet ready to trade. Positive framing, never the
   security line.
