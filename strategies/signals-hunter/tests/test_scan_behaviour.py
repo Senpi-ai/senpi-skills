@@ -187,7 +187,7 @@ def test_emits_stop_at_what_the_wallet_funds(monkeypatch, capsys):
     is sized off the SAME balance read — so over-emitting fails the later opens outright rather
     than shrinking them, and the ones it fails are the lowest-ranked."""
     _gather(monkeypatch, COHORT_OK)
-    monkeypatch.setattr(scan, "_withdrawable", lambda ctx: 1000.0)
+    monkeypatch.setattr(scan, "_wallet", lambda ctx: (1000.0, 0.0))   # funded, nothing open yet
     _ranked(monkeypatch, [_sig(f"A{i}", "LONG", 70.0) for i in range(6)])
     out = scan.scan({}, _ctx())
     assert sum(s["marginPct"] for s in out) <= 80.0      # the default cap
@@ -198,7 +198,7 @@ def test_emits_stop_at_what_the_wallet_funds(monkeypatch, capsys):
 
 def test_the_cap_drops_the_worst_ranked_not_the_best(monkeypatch):
     _gather(monkeypatch, COHORT_OK)
-    monkeypatch.setattr(scan, "_withdrawable", lambda ctx: 1000.0)
+    monkeypatch.setattr(scan, "_wallet", lambda ctx: (1000.0, 0.0))   # funded, nothing open yet
     _ranked(monkeypatch, [_sig("BEST", "LONG", 95.0), _sig("MID", "LONG", 85.0),
                           _sig("WORST", "LONG", 66.0)])
     out = scan.scan({"maxTotalMarginPct": 50}, _ctx())
@@ -209,7 +209,7 @@ def test_a_failed_wallet_read_does_not_stop_trading(monkeypatch):
     """None means the read failed, which is not a wallet with nothing in it. The cap alone still
     governs — refusing to trade on a missing read would be the same bug in the other direction."""
     _gather(monkeypatch, COHORT_OK)
-    monkeypatch.setattr(scan, "_withdrawable", lambda ctx: None)
+    monkeypatch.setattr(scan, "_wallet", lambda ctx: (None, 0.0))     # the read FAILED
     _ranked(monkeypatch, [_sig("ETH", "LONG", 70.0)])
     assert len(scan.scan({}, _ctx())) == 1
 
@@ -257,3 +257,81 @@ def test_an_asset_with_no_smart_share_omits_the_key_rather_than_sending_none(mon
     _detected(monkeypatch, [_engine_sig("A0", "LONG", 90.0)])
     out = scan.scan({}, _ctx())
     assert out and "oneSidedness" not in out[0]["data"]
+
+
+# ── the margin cap is a PORTFOLIO cap, not a per-tick one ──
+# Shipped through 1.1.2: `committed_pct` started at 0 on EVERY tick and counted only that tick's
+# emits, so an hourly clock could commit another maxTotalMarginPct on top of an already-full book —
+# five ticks, 400%. What actually held the line was `slots` and the held-set, not this guard.
+#
+# The payload below is the verbatim shape of a live wallet (majutsushi-signals-hunter, 2026-09-20)
+# holding three `main` and two `xyz` positions. It is the reason the two numbers must aggregate in
+# opposite directions: withdrawable reads identically in both sections (one wallet), while the
+# positions are genuinely different and their margin sums.
+
+LIVE_STATE = {"data": {
+    "main": {
+        "withdrawable": "149.90865699999995",
+        "marginSummary": {"accountValue": "342.389729", "totalMarginUsed": "199.340585"},
+        "assetPositions": [
+            {"position": {"coin": "BTC", "marginUsed": "110.299345", "szi": "-0.00678"}},
+            {"position": {"coin": "SOL", "marginUsed": "39.53024", "szi": "-1.78"}},
+            {"position": {"coin": "XRP", "marginUsed": "49.511", "szi": "-175.0"}},
+        ]},
+    "xyz": {
+        "withdrawable": "149.90865699999995",
+        "marginSummary": {"accountValue": "343.762276", "totalMarginUsed": "193.853619"},
+        "assetPositions": [
+            {"position": {"coin": "xyz:XYZ100", "marginUsed": "82.969042", "szi": "-0.0142"}},
+            {"position": {"coin": "xyz:SP500", "marginUsed": "110.884577", "szi": "0.072"}},
+        ]},
+}}
+
+EMPTY_STATE = {"data": {"main": {"withdrawable": "550.0", "assetPositions": []},
+                        "xyz": {"withdrawable": "550.0", "assetPositions": []}}}
+
+
+def _ctx_wallet(state, positions=()):
+    return types.SimpleNamespace(
+        state=_State(), positions=list(positions), wallet="0xtest",
+        senpi_mcp=types.SimpleNamespace(call_tool=lambda *a, **k: state))
+
+
+def test_wallet_maxes_free_and_sums_committed_margin():
+    """Opposite directions. Sum the free and you double-count one wallet; max the margin and you
+    lose every position outside the section that happened to read highest."""
+    free, used = scan._wallet(_ctx_wallet(LIVE_STATE))
+    assert round(free, 2) == 149.91, "free is a max across the two views of one wallet"
+    assert round(used, 2) == 393.19, "committed margin sums across sections"
+    # and it agrees with what the sections report about themselves
+    assert round(used, 2) == round(199.340585 + 193.853619, 2)
+
+
+def test_a_full_book_refuses_a_new_slot(monkeypatch, capsys):
+    """72% of capital already at risk + a 20% slot is over the 80% cap. This is the case that used
+    to pass: every tick started the count at zero and saw only its own emits."""
+    _gather(monkeypatch, COHORT_OK)
+    _detected(monkeypatch, [_engine_sig("A0", "LONG", 90.0)])
+    assert scan.scan({}, _ctx_wallet(LIVE_STATE)) == []
+    err = capsys.readouterr().err
+    assert "not emitted" in err and "already at risk in open positions" in err
+
+
+def test_an_empty_book_still_takes_the_same_signal(monkeypatch):
+    """The guard must refuse a FULL book, not refuse to trade. Same signal, nothing open."""
+    _gather(monkeypatch, COHORT_OK)
+    _detected(monkeypatch, [_engine_sig("A0", "LONG", 90.0)])
+    out = scan.scan({}, _ctx_wallet(EMPTY_STATE))
+    assert len(out) == 1 and out[0]["asset"] == "A0"
+
+
+def test_a_failed_wallet_read_does_not_block_trading(monkeypatch):
+    """A read that FAILED is not a wallet with nothing in it — but it must not wedge the strategy
+    shut either. With no reading, fall back to the cap alone, as before."""
+    def boom(*a, **k):
+        raise RuntimeError("clearinghouse down")
+    ctx = types.SimpleNamespace(state=_State(), positions=[], wallet="0xtest",
+                                senpi_mcp=types.SimpleNamespace(call_tool=boom))
+    _gather(monkeypatch, COHORT_OK)
+    _detected(monkeypatch, [_engine_sig("A0", "LONG", 90.0)])
+    assert len(scan.scan({}, ctx)) == 1
