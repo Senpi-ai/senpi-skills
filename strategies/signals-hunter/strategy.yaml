@@ -5,7 +5,7 @@
 schema_version: 1
 
 id: signals-hunter
-version: "1.1.1"
+version: "1.1.2"
 
 catalog:
   name: "Signals Hunter — the Senpi Signals Feed, Traded"
@@ -29,7 +29,7 @@ catalog:
   # minimum ($15) is a number no one can actually run: it puts each slot under the $10
   # exchange floor before the book is half full. Floored to what a real deployment needs.
   min_budget_floor: 100
-  tags: [signals, senpi-signals, detector-library, proven-cohort, smart-money, funding, open-interest, cross-asset, long-short, conviction-sizing, always-on]
+  tags: [signals, senpi-signals, detector-library, whale, whale-moves, proven-cohort, cohort, smart-money, copy-trading, follows-traders, funding, open-interest, cross-asset, long-short, conviction-sizing, always-on]
 
 requires:
   runtime: ">=3.0.0"
