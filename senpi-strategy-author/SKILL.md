@@ -227,66 +227,33 @@ For each: ask the question, offer the options as plain choices, then map the ans
    stop**. Losers are the cost of the strategy; winners that run far enough pay for them.
    `validate_strategy.py` warns on a stop that is too tight at the recipe's leverage — relay it.
 
-## The build engine — after the "yes", hand stages 2–9 to Claude Code when this host has it
+## The build engine — after the "yes", hand the build to Claude Code when this host has it
 
-The interview is yours; the build does not have to be. Once stage 1 below has its explicit **yes**
-(name, full spec, exit preview), check the engine once:
+The interview is yours; the build does not have to be. Once stage 1 has its explicit **yes**, check
+the engine once — `python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py doctor`.
+**Exit 0 → hand off; `doctor` prints the exact commands.** Anything else → build inline, stages 2–9.
 
-```
-python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py doctor
-```
-
-**Exit 0 → hand off.** Anything else → build inline yourself, stages 2–9 below, exactly as before.
-
-1. **Write the confirmed spec** to `/data/workspace/.author-specs/<id>.json` — the user's words, not a
-   summary of them. `user_confirmed` is `true` only because the user said yes to the replay:
-   ```json
-   {"id": "<slug>", "name": "<their name>", "thesis": "<one paragraph>", "user_confirmed": true,
-    "decisions": {"universe": "…", "data": "…", "edge": "…", "shape": "…", "cardinality": "…",
-                  "memory": "…", "exit_risk": "<preset + guard rails + leverage + cadence>"},
-    "opening_constraints": ["every constraint from their first message"],
-    "exit_preview": "<the ladder you replayed, in price terms>"}
-   ```
-2. **Start the build detached** with `exec` (the engine refuses a spec without `user_confirmed: true`):
-   ```
-   python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py start --detach --spec /data/workspace/.author-specs/<id>.json
-   ```
-   Editing a package that is not live yet (a fork, a draft): add `--edit /data/workspace/strategies/<id>`.
-   An edit **resumes the Claude Code session that built that package** when it still exists (same
-   strategy id, session still on disk), so it keeps its own reasoning and re-reads far less; otherwise
-   it starts fresh from the package on disk. `status` shows `resumed_from` when it did.
-   It returns at once with `AUTHOR_BUILD {"job": "<job>", "state": "running", …}`. Tell the user it is
-   building (a few minutes).
-3. **Wait, and narrate what it is doing** — the user is watching a silent screen otherwise:
-   ```
-   python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py wait --job <job>
-   ```
-   `exec` backgrounds this after ~10s and hands you a session id. **Poll that session** —
-   `process` with `action: poll` and `timeout: 30000` — and each poll returns the stages the build has
-   reached since the last one: `· writing the scanner`, `· running unit tests`,
-   `· running the gate (attempt 2)`. **Relay one short line per poll, in your own words**, then poll
-   again. A stage line is a fact about the build; don't embellish it into a claim about the result.
-   When the command ends it prints `AUTHOR_BUILD {...}` with the final state — then read the full
-   result with `author_build.py status --job <job>` and branch on `state`:
-   - `needs_input` → ask the user the `question` verbatim, with its `options`. Pass the answer back
-     with `author_build.py answer --detach --job <job> --text "<their answer>"` (same session: it
-     remembers everything), then `wait` again as in step 3.
-   - `done` → relay `summary`, the `validate.stage_lines` verbatim, every `warnings` entry, and the
-     `exit_preview`. **Keep `key_choices`** — the judgement calls the spec left open, each with its
-     reason. That is what you answer "why is the threshold 72?" with later; without it you would be
-     guessing from the code. It is also saved in the package as `.author-build.json`, so a question
-     weeks later is one read away, along with the package files themselves. The engine only returns `done` after the wrapper itself checked
-     `.senpi-proof.json` against the package bytes — that is stage 9's PASS. Then go to **Handoff**.
-     Edit jobs: the result is staged; after the user's yes, `author_build.py promote --job <job>`.
-   - `failed` → relay `blocking_finding` in its own words and let the user decide. Do not start the
-     inline build as a silent retry.
+1. **Write the confirmed spec** to `/data/workspace/.author-specs/<id>.json` — the user's words, all 7
+   decisions, every opening constraint, `user_confirmed: true` because they said yes to the replay.
+2. **`start --detach --spec <file>`** (add `--edit <pkg-dir>` to change a package that is not live).
+   Returns a job id at once; tell the user it is building.
+3. **`wait --job <job>`, then poll it.** `exec` backgrounds it after ~10s: poll that session
+   (`process`, `poll`, `timeout: 30000`) and **relay one short line per poll** from the stage it
+   reports (`· writing the scanner`, `· running the gate (attempt 2)`). A stage is a fact about the
+   build, not a claim about the result. Never poll on a cron — a scheduled check is a paid model call.
+4. **Branch on the final state** — `status --job <job>`:
+   - `needs_input` → ask the `question` verbatim with its `options`; `answer --detach --job <job>
+     --text "<their answer>"` resumes the same session, then wait as in 3.
+   - `done` → relay `summary`, `validate.stage_lines` verbatim, every `warnings` entry, and
+     `exit_preview`; keep `key_choices` (that is what "why is it 72?" is answered with later). The
+     engine returns `done` only after the wrapper re-checked the proof against the package bytes —
+     that is stage 9's PASS. Then go to **Handoff**. Edit jobs are staged: after the user's yes,
+     `promote --job <job>`.
+   - `failed` → relay `blocking_finding` in its own words; let the user decide. Never silently retry inline.
    - `error` → the harness broke, not the strategy (`message` says how). Build inline instead.
-4. **Never on a cron.** The `wait` loop runs inside this turn; if the conversation moved on, resume
-   with `author_build.py status --job <job>` when the user asks. A scheduled check is a paid model
-   call every firing.
 
-The engine never deploys and cannot move money: it reads Senpi through read-only tools and writes only
-inside the package. Budget and deploy stay here — Handoff below.
+Spec shape, the edit/resume rules and what the engine may touch: [`engine/README.md`](engine/README.md).
+The engine never deploys and cannot move money. Budget and deploy stay here — Handoff below.
 
 ## After the 7 — build it in STAGES, narrating as you go
 

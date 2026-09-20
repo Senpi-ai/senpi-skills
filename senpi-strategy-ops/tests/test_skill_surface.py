@@ -54,7 +54,15 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # ops 335: saved is not applied — a plan says so only in its first line (no tail/head), an edit is live only once
 # `--apply` exits 0 and the running strategy shows it, and until then the user hears "saved, not applied". Resident
 # because it fires on every edit to a live strategy; the two confirming reads live in references/editing-a-live-strategy.md.
-BODY_BUDGET = {"senpi-strategy-ops": 335, "senpi-strategy-author": 425}
+# author 425 -> 465 (2026-09-20): the build engine. On a host where `author_build.py doctor` is ready
+# the agent does NOT write the package — it writes the spec, starts the job, polls it and branches on
+# done/needs_input/failed/error. That is a different execution path for the same conversation, and every
+# line of it fires mid-interview: which side writes files, what the spec must carry, how to narrate a
+# build the user cannot see, and what `done` means (the wrapper re-checked the proof, not the model's
+# word). The spec shape, the edit/resume rules, the engine's permissions and the doctor checks went to
+# engine/README.md. Observed before this was resident: an agent read the skill, ran doctor, saw ready,
+# and built inline anyway. Set at the post-edit count with no slack.
+BODY_BUDGET = {"senpi-strategy-ops": 335, "senpi-strategy-author": 465}
 
 
 def _skill_body(path):
