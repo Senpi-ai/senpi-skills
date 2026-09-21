@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.10.1"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.11.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -114,7 +114,10 @@ def header(r):
     lab = r.get("labels") or {}
     if any(lab.get(k) for k in ("consistency", "risk", "activity")):
         lines.append("senpi's read: " + " · ".join(str(lab[k]).upper() for k in ("consistency", "risk", "activity") if lab.get(k))
-                     + (f" · consistency score {lab['tcs']}" if lab.get("tcs") is not None else ""))
+                     # senpi's trader-score consistency, NOT the desk's own Consistency dimension —
+                     # unlabelled they collided on one page as "consistency score 33" beside
+                     # "Consistency 100"
+                     + (f" · senpi trader-score consistency {lab['tcs']}" if lab.get("tcs") is not None else ""))
     lines.append(f"> **{r['verdict']}**")
     if r["flags"]:
         lines.append(" ".join(f"`{f}`" for f in r["flags"]))
@@ -233,11 +236,14 @@ def recoverable_line(r):
         return []
     fees, rule = rec.get("fees") or 0, rec.get("rule")
     lever = total - fees
-    share = rec.get("share_of_losses")
+    # "N% of what your losing trades gave up" only frames a book that LOST money. On a 93%-win-rate
+    # book it read "116% of what your losing trades gave up" — true arithmetic (fees are spread over
+    # the winners too) and a meaningless sentence to put in front of a profitable trader.
+    share, net = rec.get("share_of_losses"), (r.get("track") or {}).get("net")
     head = f"**Your quant would have kept ~{usd(total)} of this**"
     # a denominator that means something: on a book with almost no losses the share is a division
     # by noise (the fixture reads 20924%), and a number like that discredits the rest
-    if share and 0 < share <= 2.0:
+    if share and 0 < share <= 2.0 and (net is None or net < 0):
         head += f" — {pct(share, 0)} of what your losing trades gave up"
     out = [head + ".", ""]
 
