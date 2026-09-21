@@ -100,20 +100,26 @@ def dim_cost(tr):
         else:
             line = f"Fees + funding ate {_pct_cost(cr)} of gross P&L ({_usd(tr['fees'])} fees, {_usd(-tr['funding'])} funding on {_usd(tr['gross_realized'])} gross)."
     else:
-        # cost_ratio is None because gross P&L was not positive — there is no base to take a share
-        # OF, so cost efficiency is UNDEFINED here, not good. This branch used to answer 90 minus a
-        # taker penalty, which on a real book meant a trader whose trades lost money scored 79/100
-        # on "Cost efficiency" for being 23% taker, and that 79 carried 0.15 of the weighted quant
-        # score — lifting the headline from 32 to 39 on a dimension nothing had measured. Return
-        # None and let the aggregate re-normalise around it.
-        s = None
-        if (tr.get("funding") or 0) > 0:
-            line = f"Not measurable this window: the trades themselves did not make money (gross {_usd(tr['gross_realized'])}), so there is no gross to take a share of. Funding paid you {_usd(tr['funding'])}, which is where the result came from, against {_usd(tr['fees'])} of fees."
-        else:
-            line = f"Not measurable this window: gross P&L is not positive, so there is no base to price costs against. Fees {_usd(tr['fees'])} and funding {_usd(-tr['funding'])} came on top."
-        if ts is not None:
-            line += f" {_pct(ts)} of your volume crossed the spread as a taker."
-        return None, line
+        # cost_ratio is None because gross P&L was not positive. That does NOT make costs
+        # unmeasurable — it makes them the worst case: a book that lost money and paid to do it.
+        # "—" hid the clearest cost problem on the desk (a book paying $7,068 of fees while losing
+        # $16,969 read as a blank), and an abstaining dimension let the other five re-normalise the
+        # headline UP.
+        #
+        # The base is |net| — the money actually lost — NOT |gross|. Against |gross| a book that
+        # lost $180,996 on $7,143 of fees scores 94/100, which is not cost efficiency, just a large
+        # loss. Against |net| the question is the one that matters: how much of what you lost went
+        # to cost rather than to bad trades.
+        net = float(tr.get("net") or 0.0)
+        costs = abs(tr.get("fees") or 0) + max(0.0, -(tr.get("funding") or 0))
+        if abs(net) < 1 and costs < 1:
+            return None, "Not measurable this window: no trading result, and no costs to price against it."
+        drag = costs / max(abs(net), 1.0)
+        s = 100 - min(70, drag * 150)
+        line = (f"{_pct_cost(drag)} of what you lost was cost, not bad trades: {_usd(abs(tr.get('fees') or 0))} of fees"
+                + (f" and {_usd(-tr['funding'])} of funding" if (tr.get("funding") or 0) < 0 else "")
+                + f" against a {_usd(net)} net result"
+                + (f" — funding paid you {_usd(tr['funding'])}" if (tr.get("funding") or 0) > 0 else "") + ".")
     if ts is not None and ts > 0.6:
         s -= 10
         line += f" {_pct(ts)} of your volume crossed the spread as a taker."
@@ -397,13 +403,16 @@ def recoverable(rows, closed, tr, tm=None):
     if best <= 0:
         best, rule, vals = 0.0, None, []
 
-    pos = sorted((v for v in vals if v > 0), reverse=True)
-    conc = None
-    if best > 0 and pos:
-        conc = dict(top1=pos[0] / best, top3=sum(pos[:3]) / best, n_positive=len(pos))
-
     losses = -sum(t["realized"] for t in rows if (t.get("realized") or 0) < 0)
     fees = max(0.0, float(tr.get("fee_recoverable") or 0.0)) if (tr.get("taker_share") or 0) >= 0.25 else 0.0
+
+    # Concentration is a share of the number actually quoted, which includes fees. Measuring it
+    # against the exit lever alone called a total "one trade" when two thirds of it was fees spread
+    # over 89.5M of volume and 1,073 trades — the most diffuse thing on the desk.
+    pos = sorted((v for v in vals if v > 0), reverse=True)
+    conc = None
+    if best + fees > 0 and pos:
+        conc = dict(top1=pos[0] / (best + fees), top3=sum(pos[:3]) / (best + fees), n_positive=len(pos))
     return dict(usd=best + fees, fees=fees, n_trades=len(rows), rule=rule, concentration=conc,
                 share_of_losses=((best + fees) / losses if losses > 0 else None))
 

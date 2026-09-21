@@ -883,42 +883,63 @@ def test_no_caption_is_swallowed_into_a_table():
     assert not bad, "prose absorbed into a table (needs a blank line first):\n  " + "\n  ".join(bad)
 
 
-def test_an_unmeasurable_dimension_abstains_instead_of_scoring_well():
-    """`cost_ratio` is None when gross P&L was not positive — there is no base to take a share OF,
-    so cost efficiency is UNDEFINED, not good.
+def test_a_book_that_paid_to_lose_is_scored_on_cost_not_left_blank():
+    """Cost efficiency used to abstain whenever gross P&L was not positive — there was "no base to
+    take a share of". But a book that lost money AND paid to do it is the worst cost case on the
+    desk, not an unmeasurable one. On 0x8b79…85d7 that printed "—" against $7,068 of fees on $89.5M
+    of volume, and the abstention let the other five dimensions re-normalise the headline UP.
 
-    On the 2026-09-21 run of 0x880a…311c the fallback answered `90 - taker_share*50` = 79/100 on a
-    book whose own sentence read "the trades themselves did not make money". Worse than the odd
-    label: that 79 carried WEIGHTS['cost'] = 0.15 of the headline, lifting the quant score from 32
-    to 39 on a dimension nothing had measured.
-    """
+    The base is |net| — the money actually lost. Against |gross| the same book scores 94/100, which
+    measures the size of the loss, not the cost of it."""
     import score
-    tr = dict(cost_ratio=None, taker_share=0.23, fees=-7143.0, funding=103130.0,
-              gross_realized=-180996.0, net=-85010.0, ledger_net=-1079940.0, trades=38)
-    s, line = score.dim_cost(tr)
-    assert s is None, f"an undefined dimension scored {s}"
-    assert "Not measurable" in line and "no gross to take a share of" in line, line
+    bleeding = dict(cost_ratio=None, taker_share=0.70, fees=7068.0, funding=193.0,
+                    gross_realized=-10094.0, net=-16969.0)
+    s_bleed, line = score.dim_cost(bleeding)
+    assert s_bleed is not None and s_bleed < 40, f"a book paying 42% of its loss in fees scored {s_bleed}"
+    assert "of what you lost was cost" in line and "$7,068" in line, line
 
-    # and it must not vote in the headline — asserted through score.dimensions(), not by redoing
-    # the arithmetic here. A test that recomputes the formula passes even when the code stops
-    # using it.
+    # a loss that was NOT about costs must not be punished for being a big loss
+    trades_were_the_problem = dict(cost_ratio=None, taker_share=0.23, fees=7143.0, funding=103130.0,
+                                   gross_realized=-180996.0, net=-85010.0)
+    s_ok, _ = score.dim_cost(trades_were_the_problem)
+    assert s_ok > 70, f"8% of the loss in fees should read as fine, scored {s_ok}"
+    assert s_ok > s_bleed
+
+    # pin the BASE, not just the direction. net = gross - fees, so |net| is always the larger
+    # denominator and the two choices genuinely disagree here: costs are a third of the trading
+    # loss but only a quarter of the damage that actually landed. The second is the honest one —
+    # the fees are part of why net is -$40,000, so charging them against gross double-counts them.
+    disagrees = dict(cost_ratio=None, taker_share=0.0, fees=10_000.0, funding=0.0,
+                     gross_realized=-30_000.0, net=-40_000.0)
+    s_base, _ = score.dim_cost(disagrees)
+    assert round(s_base, 1) == 62.5, f"|net| base gives 62.5, |gross| base gives 50.0 — got {s_base}"
+
+    # and a book with no result and no costs still has nothing to measure
+    s_none, line_none = score.dim_cost(dict(cost_ratio=None, taker_share=0.0, fees=0.0,
+                                            funding=0.0, gross_realized=0.0, net=0.0))
+    assert s_none is None and "Not measurable" in line_none
+
+
+def test_a_dimension_that_abstains_does_not_vote_in_the_headline():
+    """Asserted through score.dimensions(), not by redoing the arithmetic — a test that recomputes
+    the formula passes even when the code stops using it."""
+    import score
     FN = {"timing": "dim_timing", "risk": "dim_risk", "cost": "dim_cost", "sizing": "dim_sizing",
           "consistency": "dim_consistency", "market_fit": "dim_market"}
     real = {k: getattr(score, fn) for k, fn in FN.items()}
     fixed = {"timing": 31, "risk": 28, "sizing": 45, "consistency": 42, "market_fit": 20}
     try:
         for k, v in fixed.items():
-            setattr(score, FN[k], (lambda v: (lambda *a, **kw: (v, "x")))(v))
-        score.dim_cost = lambda *a, **kw: (None, "Not measurable this window: no positive gross.")
-        d, quant = score.dimensions(tr, None, None, None, None, None, None, None)
-        assert d["cost"]["score"] is None
-        assert quant == 32, f"cost abstained but the headline came out {quant}, not 32"
-        score.dim_cost = lambda *a, **kw: (79, "x")
-        _, with_79 = score.dimensions(tr, None, None, None, None, None, None, None)
-        assert with_79 == 39, with_79
+            setattr(score, FN[k], (lambda val: (lambda *a, **kw: (val, "")))(v))
+        setattr(score, FN["cost"], lambda *a, **kw: (None, ""))
+        d_abstain, q_abstain = score.dimensions({}, {}, {}, {}, {}, {}, {}, {})
+        setattr(score, FN["cost"], lambda *a, **kw: (90, ""))
+        _, q_with_90 = score.dimensions({}, {}, {}, {}, {}, {}, {}, {})
     finally:
-        for k, fn in real.items():
-            setattr(score, FN[k], fn)
+        for k, fn in FN.items():
+            setattr(score, fn, real[k])
+    assert d_abstain["cost"]["score"] is None
+    assert q_abstain < q_with_90, "an abstaining dimension still lifted the headline"
 
 
 def test_the_dimension_table_never_prints_a_number_it_did_not_measure():
@@ -1288,3 +1309,32 @@ def test_the_header_line_must_be_relayed_verbatim_so_a_stale_engine_is_visible()
     line = _P(HERE, "..", "scripts", "render.py").read_text()
     assert "v{VERSION}" in line and "READ-ONLY" in line, "the header no longer carries the version"
     assert render.VERSION, "no version to stamp"
+
+
+def test_fees_dilute_concentration_because_fees_are_the_least_concentrated_thing_there_is():
+    """Concentration was a share of the exit lever alone while the quoted total included fees. On
+    0x8b79…85d7 that called a $27,996 total "one trade" when $18,898 of it was taker fees spread
+    across $89.5M of volume and 1,073 trades — the most diffuse item on the desk."""
+    rows = [_tm_row(lock_cf={"0.03/0.5": v}) for v in (6_000.0, 1_500.0, 1_500.0)]
+    tm = dict(lock={"settings": {"0.03/0.5": dict(n=3, total=9_000.0)}})
+
+    no_fees = score.recoverable(rows, [], {}, tm)["concentration"]
+    with_fees = score.recoverable(rows, [], dict(fee_recoverable=19_000.0, taker_share=0.7), tm)["concentration"]
+
+    assert round(no_fees["top1"], 4) == round(6_000 / 9_000, 4) == 0.6667
+    assert round(with_fees["top1"], 4) == round(6_000 / 28_000, 4) == 0.2143
+    assert with_fees["top1"] < 0.4 < no_fees["top1"], "fees must move it off the 'it is one trade' branch"
+
+
+def test_the_headline_does_not_credit_the_exit_rule_with_the_fee_saving():
+    """On 0x8b79…85d7 the line read "a trailing stop ... would have kept ~$27,996" when $18,898 of
+    that was taker fees and the stop's own share was $9,098. The total leads; the split follows."""
+    import render
+    r = dict(leaks=[{"usd": 1}], track={}, timing={},
+             recoverable=dict(usd=27_996.0, fees=18_898.0, n_trades=1073, share_of_losses=0.42,
+                              rule="a trailing stop that arms at +3% and keeps 50% of the peak",
+                              concentration=dict(top1=0.21, top3=0.28, n_positive=10)))
+    md = "\n".join(render.recoverable_line(r))
+    assert "Your quant would have kept ~$27,996" in md
+    assert "$18,898 of it is taker fees" in md and "the other $9,098 comes from one rule" in md
+    assert not md.startswith("**A trailing stop"), "the rule is credited with the fee saving again"
