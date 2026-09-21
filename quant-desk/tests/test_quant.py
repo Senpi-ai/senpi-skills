@@ -953,3 +953,26 @@ def test_a_none_score_survives_the_whole_pipeline_not_just_the_unit():
     assert "| — |" in md and "| None |" not in md
     # the verdict still has to say something — an unmeasured dimension must not silence it
     assert r.get("verdict") or r.get("flags") or r["quant_score"] >= 0
+
+
+def test_a_heading_never_promises_more_items_than_it_lists():
+    """`## Top 3 things your agents found` was hardcoded over `r["leaks"][:3]`.
+
+    On the 2026-09-21 run of 0xd475…1a91 the desk found two leaks and still announced three. It is a
+    small lie the reader checks in one glance, and it makes them wonder what else was rounded.
+    """
+    import re, render
+    for n, want in ((3, "Top 3 things"), (2, "Top 2 things"), (1, "Top 1 thing")):
+        leaks = [dict(agent="Leak finder", usd=1000.0, window="90d", title=f"t{i}",
+                      evidence="e", counterfactual="c", cta="x") for i in range(n)]
+        r = dict(leaks=leaks, track={}, dimensions={}, book=dict(positions=[]), quant_score=50,
+                 days=90, equity={}, activity=dict(active_days=1))
+        body = render.leaks_summary(r) if hasattr(render, "leaks_summary") else None
+        if body is None:
+            src = __import__("pathlib").Path(render.__file__).read_text()
+            assert "f\"## Top {len(top)} thing" in src, "heading is hardcoded again"
+            break
+        assert want in body, (n, body[:120])
+    # and the heading must never out-count the list in the shipped source
+    src = __import__("pathlib").Path(render.__file__).read_text()
+    assert not re.search(r'"## Top [0-9]+ thing', src), "a literal count crept back into the heading"
