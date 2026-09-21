@@ -1061,3 +1061,38 @@ def test_an_empty_window_still_reports_whether_senpi_has_the_wallet():
     assert '"indexed": r.get("indexed")' in payload, "the empty-window exit still drops `indexed`"
     assert "Spot trades and transfers are not perp activity" in payload
     assert "nothing to read" not in payload
+
+
+def test_the_desk_never_promises_a_signature_it_cannot_take():
+    """"a hard floor now, a trailing lock as it runs … a signature on positions you already hold."
+
+    Three things were wrong with that. The integrated two-phase DSL is a RUNTIME feature; a raw
+    position gets a FIXED stop plus an uncoordinated profit ladder. `ratchet_stop_add` is keyed to a
+    senpi strategy wallet, so for a desk reader whose book is on their OWN wallet senpi cannot attach
+    anything at all today. And the reader is told to do nothing while four naked positions sit there.
+
+    The desk now tells them to place the stops themselves, now, and says senpi will take it over.
+    """
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "render.py").read_text()
+    # drop comment lines — the explanation of this fix quotes the phrase it forbids
+    code = "\n".join(l for l in src.splitlines() if not l.lstrip().startswith("#"))
+    assert "signature on positions you already hold" not in code, "the signature overclaim is back"
+    assert "onchain on Hyperliquid" in src
+    for phrase in ("Set a stop on each of them onchain", "These are yours to place"):
+        assert phrase in src, phrase
+
+
+def test_next_steps_offers_a_route_for_someone_who_does_not_want_their_own_history_mechanised():
+    """"hire my quant" turns THEIR past into the strategy. A reader who wants something else had
+    nowhere to go, and it is the cheapest step on the page — a sentence, no wallet, no deposit."""
+    import json, desk, render
+    with open(FIXTURE) as fh:
+        rec = json.load(fh)
+    r = desk.analyze(rec["address"], hl_api.HLFixture(rec), days=90, mcp=None, bench=None)
+    md = render.next_steps(r)
+    assert "Or build something new." in md and "Tell me your thesis" in md
+    assert "Reply *hire my quant*" in md
+    # and the protect step must point at Hyperliquid, not at a signature
+    if "Protect first" in md:
+        assert "onchain on Hyperliquid yourself" in md and "signature" not in md
