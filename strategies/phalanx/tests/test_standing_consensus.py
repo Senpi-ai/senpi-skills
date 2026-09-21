@@ -15,6 +15,7 @@ Run: python3 -m pytest strategies/phalanx/tests/test_standing_consensus.py -q
 """
 import os
 import sys
+import time
 import types
 
 import yaml
@@ -25,7 +26,7 @@ import scan  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _WALLET = "0x" + "1" * 40
-_COHORT = {"addresses": [_WALLET], "refreshed_at": 1.0}
+_COHORT = {"addresses": [_WALLET], "refreshed_at": time.time()}
 # 5 long / 15 short = 75% one-sided SHORT, and identical to the previous tick -> delta 0.
 _FLAT = {"ETH": {"long_n": 5, "short_n": 15, "raw_coin": "ETH"}}
 
@@ -44,7 +45,7 @@ class _State:
 
 def _run(monkeypatch, headcount, last, inputs=None):
     monkeypatch.setattr(scan, "_get_account", lambda ctx: (1000.0, []))
-    monkeypatch.setattr(scan, "_get_cohort", lambda ctx, inputs_, prev: ([_WALLET], 1.0))
+    monkeypatch.setattr(scan, "_get_cohort", lambda ctx, inputs_, prev: ([_WALLET], time.time()))
     monkeypatch.setattr(scan, "_cohort_headcount", lambda ctx, cohort, inputs_: headcount)
     monkeypatch.setattr(scan, "_crowd_lean", lambda ctx, limit: {})
     monkeypatch.setattr(scan, "_asset_data", lambda ctx, coin: ([], []))
