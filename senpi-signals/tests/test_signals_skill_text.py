@@ -55,9 +55,14 @@ def test_every_run_ends_with_one_question_to_trade_or_build():
     it routes to senpi-trade or to a strategy, and nothing is placed or funded without a yes."""
     skill = _flat(SKILL)
     assert "## How every run ends — one question" in skill
-    assert ("Want to act on any of these? I can set up a trade on one of them — you see the size and the stop "
-            "before anything is placed — or start a strategy: your own Athena, the smart-money hedge fund, "
-            "or one built around these reads.") in skill
+    # Three routes, not one. Athena alone sent every user who wanted a strategy to the same place
+    # regardless of what they had just read — and never named the template that trades THIS feed.
+    for fragment in ("Want to act on any of these?",
+                     "I can set up a **single trade** on one read",
+                     "build one around these reads",
+                     "**(2) Signals Hunter**, which trades this same feed on",
+                     "**(3) Athena**, the smart-money hedge fund, forked under your name."):
+        assert fragment in skill, fragment
     assert "Place nothing until the user says yes to that exact order." in skill
     assert "The stop must sit before liquidation." in skill
     assert "It is a new strategy with no track record, and you say so." in skill
@@ -70,19 +75,39 @@ def _closing(skill):
     return skill[skill.index("## How every run ends — one question"):skill.index("## Where it lives")]
 
 
-def test_the_strategy_offer_leads_with_athena_and_every_template_it_names_is_real():
-    """Athena is the lead strategy offer, and each read type names the template built on that kind of
-    read. A name that isn't in the catalog would send the user to a template ops can't deploy, so every
-    id named here must exist in strategies/catalog.json."""
+def test_the_offer_carries_all_three_routes_and_every_template_it_names_is_real():
+    """Three strategy routes are offered every time — author your own, Signals Hunter, fork Athena —
+    and each read type names the template built on that kind of read. A name that isn't in the catalog
+    would send the user to a template ops can't deploy, so every id named here must exist in
+    strategies/catalog.json."""
     closing = _closing(_flat(SKILL))
-    named = re.findall(r"\*\*[A-Z][a-z]+\*\* \(`([a-z0-9-]+)`\)", closing)
-    assert named[0] == "athena"
-    assert set(named) == {"athena", "phalanx", "pangolin", "camel", "meerkat", "mantis"}
-    catalog = json.loads((SKILL_DIR.parent / "strategies" / "catalog.json").read_text(encoding="utf-8"))
-    ids = {s["id"] for s in catalog["skills"]}
-    assert set(named) <= ids, set(named) - ids
-    assert "**Athena → senpi-strategy-ops.**" in closing
-    assert "read the minimum budget from the catalog, never from memory" in closing
+    for route in ("**(1) Build one around these reads → senpi-strategy-author.**",
+                  "**(2) Signals Hunter → senpi-strategy-ops.**",
+                  "**(3) Fork Athena → senpi-strategy-ops.**"):
+        assert route in closing, route
+    assert "Offer **all three** strategy routes, every time." in closing
+    named = re.findall(r"`([a-z0-9-]+)`", closing)
+    ids = {s["id"] for s in json.loads(
+        (SKILL_DIR.parent / "strategies" / "catalog.json").read_text(encoding="utf-8"))["skills"]}
+    template_ids = {n for n in named if n in ids}
+    assert {"signals-hunter", "athena", "athena-x", "phalanx"} <= template_ids, template_ids
+    # any id-shaped token that looks like a template but isn't in the catalog is a dead end
+    assert not {n for n in named if n.endswith(("-hunter", "-x")) } - ids
+    assert "the minimum budget from the catalog, never from memory" in closing
+
+
+def test_signals_hunter_is_offered_as_this_feeds_own_engine():
+    """The claim that earns route (2) its place: signals-hunter's scanners ARE this skill's scripts.
+    If that stops being true the pitch becomes marketing, so the parity is asserted here too."""
+    import hashlib
+    closing = _closing(_flat(SKILL))
+    assert "byte-identical to the scripts behind" in closing
+    for f in ("sweep.py", "score.py", "smartmoney.py"):
+        a = (SKILL_DIR / "scripts" / f).read_bytes()
+        b = (SKILL_DIR.parent / "strategies" / "signals-hunter" / "main" / "scanners" / f).read_bytes()
+        assert hashlib.sha256(a).hexdigest() == hashlib.sha256(b).hexdigest(), f
+    # and the expectation it sets: a correct run acts on fewer reads than the feed prints
+    assert "acts on fewer reads than the feed shows" in closing
 
 
 def test_a_template_is_a_starting_point_never_a_promise():
