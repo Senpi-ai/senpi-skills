@@ -63,6 +63,18 @@ class DiagnoseFromTheRuntimesOwnNumbers(unittest.TestCase):
                        "Read the runtime's own state first", "interval under 60 s"):
             self.assertIn(needle, text, needle)
 
+    def test_an_external_scanners_empty_schedule_fields_are_not_a_dead_strategy(self):
+        # The runtime arms a timer only for `interval` mode, so an `external` scanner reads
+        # intervalSeconds 0 / nextRunAt null by construction. Read as "the runtime never wired it",
+        # that tells a funded user their money is in a broken thing while it is scanning.
+        for needle in ('`scheduleMode: "external"`', "`intervalSeconds: 0` / `nextRunAt: null` are the correct values",
+                       "never call a strategy dead without checking its ticks first"):
+            self.assertIn(needle, SKILL.read_text(), needle)
+        liveness = (OPS / "references" / "liveness-verification.md").read_text()
+        for needle in ("Read the schedule fields against `scheduleMode` first",
+                       "is **not** an unwired scanner", "Never call a strategy dead without a tick check"):
+            self.assertIn(needle, liveness, needle)
+
 
 if __name__ == "__main__":
     unittest.main()

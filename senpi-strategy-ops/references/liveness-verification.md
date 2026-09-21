@@ -103,6 +103,28 @@ authoritative signals are `health` and the heartbeat, **not** the run counters:
 > cycle," which is normal. Judge liveness by `health` + `lastAliveAt`; `runCount > 0` is a bonus, not a
 > requirement.
 
+**Read the schedule fields against `scheduleMode` first.** The same row means opposite things in the two
+modes, and every zero in the `external` column is the runtime working:
+
+| Field | `scheduleMode: "interval"` | `scheduleMode: "external"` (push-driven) |
+|---|---|---|
+| `intervalSeconds` | the cadence, `> 0` | **`0` — correct**, the scanner is not timer-driven |
+| `nextRunAt` | a timestamp | **`null` — correct**, no timer is armed |
+| `runCount` | climbs per emit | `0` until the runtime processes a POST |
+| liveness comes from | the tick | `health` + `lastAliveAt` (the intake heartbeat) |
+
+`intervalSeconds: 0` / `nextRunAt: null` on an `external` scanner is **not** an unwired scanner and not a
+failed deploy: the runtime only arms a timer for `interval` mode, so those fields are null by
+construction (runtime `src/scanners/engine/engine.ts` `schedule()` returns early unless
+`scheduleMode === "interval"`; `src/runtime/__tests__/scanner-registry.test.ts` pins `external` together
+with `intervalSeconds: 0`). Saying "the runtime never wired it" off those two fields tells a funded user
+their money is in a broken thing while it scans.
+
+> **Never call a strategy dead without a tick check.** Before any "not running" / "never wired" /
+> "sat dead" wording: read `health`, then `lastAliveAt` (or the scaffold tick events) for that wallet in
+> the window you are describing. Ticks landing `ok` with no candidates is a strategy that is working and
+> finding nothing — say that instead, and take the question to the gates or the budget.
+
 Failure signatures (**positive** evidence of breakage only — anything else is "not yet confirmed," retry).
 Note what this table structurally cannot tell you: a scanner that runs perfectly and *reads nothing*
 emits no failure signature at all. That is what `senpi validate` is for, before the wallet exists.
