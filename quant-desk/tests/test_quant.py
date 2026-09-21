@@ -1096,3 +1096,158 @@ def test_next_steps_offers_a_route_for_someone_who_does_not_want_their_own_histo
     # and the protect step must point at Hyperliquid, not at a signature
     if "Protect first" in md:
         assert "onchain on Hyperliquid yourself" in md and "signature" not in md
+
+
+
+# -------------------------------------------------- recoverable: one number a user can actually quote
+def _tm_row(**kw):
+    """A per_trade()-shaped row. Defaults are a clean, unremarkable winner."""
+    row = dict(coin="ETH", direction="long", realized=100.0, hold_h=10.0, win=True, pre24=0.0,
+               chased=False, mfe=0.05, mae=-0.01, realized_pct=0.02, give_back=0.0,
+               notional=5_000.0, lock_cf={}, cut_cf={}, open_time=0)
+    row.update(kw)
+    return row
+
+
+def _closed_winners(n=3, notional=5_000.0):
+    return [dict(win=True, truncated=False, peak_notional=notional) for _ in range(n)]
+
+
+CHASE_ON = dict(chased_n=5, chased_realized=-10_000.0, calm_pf=1.8, chased_pf=0.4)
+
+
+def test_recoverable_is_the_best_single_lever_never_the_sum_of_them():
+    """The bug this exists to fix: a trade that was oversized, chased, held too long AND gave back
+    its peak is priced in four leaks. Added up it reads as four losses; there was only ever one."""
+    bad = _tm_row(realized=-4_000.0, win=False, chased=True, notional=50_000.0, hold_h=100.0,
+                  lock_cf={"0.03/0.5": 1_000.0}, cut_cf={"24": 1_500.0})
+    tm = dict(CHASE_ON, lock={"settings": {"0.03/0.5": dict(n=1, total=1_000.0)}},
+              cut={"settings": {"24": dict(n=1, total=1_500.0)}})
+    rec = score.recoverable([bad], _closed_winners(), {}, tm)
+
+    sizing = 4_000.0 * (1 - 5_000.0 / 50_000.0)          # 3,600
+    assert rec["usd"] == max(1_000.0, 1_500.0, sizing, 10_000.0) == 10_000.0, "the best lever wins"
+    assert rec["usd"] < 1_000.0 + 1_500.0 + sizing + 10_000.0, "and it is strictly under the sum"
+    assert rec["rule"] == "skip entries after a >=3% move"
+
+
+def test_recoverable_will_not_pick_a_rule_that_costs_money_on_the_trades_it_hurts():
+    """An exit rule is scored on its whole-book total, so the trades where it cut a winner short are
+    charged against it. A rule that only looks good on the trades it helped must not be quotable."""
+    tm = dict(lock={"settings": {"0.03/0.5": dict(n=9, total=-500.0)}},
+              cut={"settings": {"24": dict(n=9, total=-200.0)}})
+    rec = score.recoverable([_tm_row()], [], {}, tm)
+    assert rec["usd"] == 0.0 and rec["rule"] is None, "no lever beat what the trader actually did"
+
+
+def test_recoverable_prefers_the_setting_with_the_best_book_total_not_the_best_trade():
+    tm = dict(lock={"settings": {"0.03/0.5": dict(n=9, total=9_000.0),
+                                 "0.05/0.5": dict(n=3, total=1_000.0)}})
+    rec = score.recoverable([_tm_row()], [], {}, tm)
+    assert rec["rule"] == "trailing lock 0.03/0.5" and rec["usd"] == 9_000.0
+
+
+def test_recoverable_chase_term_is_unavailable_when_chasing_is_not_this_book_s_problem():
+    """"Chased" is only a >=3% 24h move — on a trending book nearly every entry clears it. Crediting
+    every chased loser its whole loss is what made the retail number several times the real one. The
+    credit needs this book's chased entries to have really done worse than its calm ones."""
+    loser = _tm_row(realized=-4_000.0, win=False, chased=True, notional=5_000.0)
+    not_worse = dict(chased_n=5, chased_realized=-10_000.0, calm_pf=0.4, chased_pf=1.8)
+
+    assert score.recoverable([loser], [], {}, not_worse)["usd"] == 0.0
+    assert score.recoverable([loser], [], {}, None)["usd"] == 0.0, "no timing view = no claim"
+    assert score.recoverable([loser], [], {}, CHASE_ON)["usd"] == 10_000.0, "gate open, credit applies"
+
+
+def test_recoverable_chase_credit_is_what_the_chase_leak_claims_winners_netted_off():
+    """The leak's figure nets the chased WINNERS off. Summing the losers alone claims more than the
+    leak it is derived from."""
+    losers = [_tm_row(realized=-4_000.0, win=False, chased=True, notional=5_000.0) for _ in range(5)]
+    tm = dict(chased_n=8, chased_realized=-6_000.0, calm_pf=1.8, chased_pf=0.4)
+    assert sum(-t["realized"] for t in losers) == 20_000.0
+    assert score.recoverable(losers, [], {}, tm)["usd"] == 6_000.0
+
+
+def test_recoverable_size_cap_gives_up_the_winners_upside_too():
+    """A cap shrinks every oversized trade, not just the ones that lost. Shrinking only the losers is
+    the same survivorship bias as charging a time-cut only on losers."""
+    big_loser = _tm_row(realized=-4_000.0, win=False, notional=50_000.0)
+    big_winner = _tm_row(realized=+3_000.0, win=True, notional=50_000.0)
+    closed = _closed_winners()
+
+    only_loser = score.recoverable([big_loser], closed, {}, None)["usd"]
+    both = score.recoverable([big_loser, big_winner], closed, {}, None)["usd"]
+    assert only_loser == 4_000.0 * 0.9
+    assert both == (4_000.0 - 3_000.0) * 0.9, "the winner's forgone upside is charged against the cap"
+
+
+def test_recoverable_adds_fees_but_only_for_a_taker_and_never_funding():
+    """Fees are the one genuinely independent fix — resting instead of crossing saves the same money
+    whatever the exit rule — so they sit on top. Funding is excluded on purpose: capping a
+    funding-paying hold is the same action as the time-cut, and counting both reopens the overlap."""
+    tr = dict(fee_recoverable=900.0, taker_share=0.8)
+    assert score.recoverable([], [], tr, None)["usd"] == 900.0
+    assert score.recoverable([], [], dict(tr, taker_share=0.05), None)["usd"] == 0.0
+    assert score.recoverable([], [], dict(fee_recoverable=-50.0, taker_share=0.8), None)["usd"] == 0.0
+
+
+def test_recoverable_reports_how_concentrated_the_number_is():
+    """"You leak $46k across your book" was true arithmetic and a false picture — on the book that
+    drove this work, one trade was 62% of it. The shape has to travel with the number."""
+    rows = [_tm_row(lock_cf={"k": v}) for v in (10_000.0, 500.0, 500.0)]
+    tm = dict(lock={"settings": {"k": dict(n=3, total=11_000.0)}})
+    c = score.recoverable(rows, [], {}, tm)["concentration"]
+    assert round(c["top1"], 4) == round(10_000.0 / 11_000.0, 4) and c["n_positive"] == 3
+
+
+def test_recoverable_is_measured_against_losses_not_against_the_account():
+    """The account is a snapshot and can be zero; the counterfactual runs over the whole window's
+    turnover. Losses are the only denominator that makes the number checkable."""
+    rows = [_tm_row(realized=-1_000.0, win=False), _tm_row(realized=+400.0, win=True),
+            _tm_row(lock_cf={"k": 500.0})]
+    tm = dict(lock={"settings": {"k": dict(n=1, total=500.0)}})
+    rec = score.recoverable(rows, [], {}, tm)
+    assert rec["gross_losses"] == 1_000.0
+    assert round(rec["share_of_losses"], 6) == 0.5
+
+
+def test_time_cut_is_charged_on_the_winners_it_would_have_chopped():
+    """At hour h you do not know which trades will win. Pricing a time-cut only on the losers is
+    survivorship bias, and it made the cut look like it beat every other lever."""
+    src = _P(HERE, "..", "scripts", "timing.py").read_text()
+    body = src[src.index("cuts[f\"{h:.0f}\"]"):]
+    assert 'not e["win"]' not in body.split("\n")[0], "the winners-excluded gate is back"
+
+
+def test_recoverable_stays_under_the_sum_of_the_listed_leaks_on_the_real_fixture():
+    """End to end: the quotable number must never exceed what a reader gets by adding the printed
+    leaks — that arithmetic is the whole failure mode."""
+    import desk
+    with open(FIXTURE) as fh:
+        rec = json.load(fh)
+    r = desk.analyze(rec["address"], hl_api.HLFixture(rec), days=90, mcp=None, bench=None)
+    naive = sum(l["usd"] for l in r["leaks"])
+    assert r["recoverable"]["usd"] <= naive + 1e-6, f"union {r['recoverable']['usd']} > sum {naive}"
+
+
+def test_leaks_section_leads_with_the_number_and_tells_the_reader_not_to_add():
+    import desk, render
+    with open(FIXTURE) as fh:
+        rec = json.load(fh)
+    r = desk.analyze(rec["address"], hl_api.HLFixture(rec), days=90, mcp=None, bench=None)
+    md = render.leaks(r)
+    if (r.get("recoverable") or {}).get("usd", 0) > 0 and r["leaks"]:
+        assert "would have kept" in md and "do not add up" in md
+        assert md.index("do not add up") < md.index("**01 ·"), "the number leads; the leaks follow"
+        # a share of losses is only printed when the denominator means something
+        share = r["recoverable"].get("share_of_losses")
+        if share and share > 2.0:
+            assert "of what your losing trades gave up" not in md, "division by noise reached the page"
+
+
+def test_the_rule_is_stated_in_english_not_in_grid_keys():
+    """"trailing lock 0.03/0.5" is the grid key. Nobody can act on that."""
+    import render
+    assert render.rule_in_english("trailing lock 0.03/0.5") == "a trailing stop that arms at +3% and keeps 50% of the peak"
+    assert render.rule_in_english("time cut 24") == "closing anything still open after 24h"
+    assert render.rule_in_english(None) is None

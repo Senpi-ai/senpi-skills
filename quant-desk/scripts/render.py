@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.7.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.8.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -214,8 +214,64 @@ def performance(r):
     return "\n".join(out)
 
 
+def rule_in_english(rule):
+    """The levers are stored as grid keys ("0.03/0.5", "24"). Nobody can act on that."""
+    if not rule:
+        return None
+    if rule.startswith("trailing lock"):
+        try:
+            arm, share = rule.split()[-1].split("/")
+            return f"a trailing stop that arms at +{float(arm):.0%} and keeps {float(share):.0%} of the peak"
+        except ValueError:
+            return "a trailing stop"
+    if rule.startswith("time cut"):
+        try:
+            return f"closing anything still open after {float(rule.split()[-1]):.0f}h"
+        except ValueError:
+            return "a time cut"
+    return rule
+
+
+def recoverable_line(r):
+    """The one quotable number, with its shape. The leaks below are alternative fixes for the same
+    trades, so a reader who adds them up gets a figure larger than the money ever at stake."""
+    rec = r.get("recoverable") or {}
+    total = rec.get("usd") or 0
+    if total <= 0 or not r.get("leaks"):
+        return []
+    eng = rule_in_english(rec.get("rule"))
+    head = f"**{eng.capitalize()} would have kept ~{usd(total)}**" if eng \
+        else f"**Your costs alone would have kept ~{usd(total)}**"
+    # only a denominator that means something: on a book with almost no losses the share is a
+    # division by noise (the fixture reads 20924%), and a number like that discredits the rest
+    share = rec.get("share_of_losses")
+    if share and 0 < share <= 2.0:
+        head += f" — {pct(share, 0)} of what your losing trades gave up"
+    out = [head + ".", ""]
+    if eng:
+        detail = f"One rule, applied to all {rec['n_trades']} complete trades and charged on the ones it would have cost you"
+        if rec.get("fees"):
+            detail += f", plus the {usd(rec['fees'])} you paid as a taker"
+        out += [detail + ".", ""]
+
+    c = rec.get("concentration") or {}
+    if c.get("top1", 0) >= 0.4:
+        out += [f"**That total is not spread across your book — it is {'one trade' if c['top1'] >= 0.6 else 'a few trades'}.** "
+                f"The largest is {pct(c['top1'], 0)} of it on its own, and the top three are {pct(min(c['top3'], 1.0), 0)}. "
+                f"A handful of positions ran with no stop on them; the rest of the book is not the problem.", ""]
+    elif c.get("n_positive"):
+        out += [f"It is spread across {c['n_positive']} trades with no single position dominating — "
+                f"the largest is {pct(c['top1'], 0)} of it. This one is a habit, not an accident.", ""]
+
+    out += ["_The leaks below price each fix on its own. They land on the same trades — one oversized, "
+            "chased, held-too-long position shows up in several — so **they do not add up**. The number "
+            "above is the single best change, and it is the one to quote._", ""]
+    return out
+
+
 def leaks(r):
     out = ["## Leaks — ranked by $ impact · counterfactual, not history", ""]
+    out += recoverable_line(r)
     if not r["leaks"]:
         out.append("Not enough closed trades to price a leak yet — the desk needs a handful of round trips before a counterfactual means anything." if (r["track"].get("trades") or 0) < 5
                    else "No leak clears the bar on this window: every counterfactual the desk tests came out flat or negative, which means the process is not where the money is going.")
