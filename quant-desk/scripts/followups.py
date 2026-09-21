@@ -3,7 +3,15 @@
 desk. Each maps to a `--deep <mode>`; the desk holds these back on purpose — the more the trader asks, the
 more of their own book they see."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+# Two of these answer from what is ALREADY on screen and carry no `--deep` mode: the desk output
+# holds the numbers, so the quant expands them in conversation rather than re-running anything.
+# `eli5` leads because the reader most likely to bounce is the one who did not follow the vocabulary,
+# and it is the cheapest possible next step — no wallet, no signup, no wait.
+MODELESS = {"eli5", "leak"}
+
 BANK = {
+    "eli5":     "Want this in plain English — what it means and what to do about it, without the trading vocabulary?",
+    "leak":     "Want me to walk through the biggest one — {leak} — and what it would take to stop it?",
     "protect":  "Want me to draft the stop ladder for each open position — hard floor, trailing lock, and what each one changes about your worst case?",
     "smart":    "Want the full smart-money picture — every coin you trade against the proven cohort and the hot 30-day cohort, and when they moved?",
     "scout":    "Want me to scout today's market for setups that match how you actually win?",
@@ -15,10 +23,12 @@ BANK = {
     "strategy": "Want the long version of what you've been doing — position by position, and where the thesis holds and breaks?",
     "watch":    "Want me to keep watching this book — a missing stop, a whale flipping against you, a regime change — and tell you the moment it happens?",
 }
-ORDER = ["protect", "smart", "scout", "replay", "regime", "funding", "compare", "rules", "strategy", "watch"]
+ORDER = ["eli5", "leak", "protect", "smart", "scout", "replay", "regime", "funding", "compare", "rules", "strategy", "watch"]
 
 # the same ten modes, asked about SOMEONE ELSE's book — learning from a trader, not fixing your own
 BANK_OTHER = {
+    "eli5":     "Want this in plain English — what this trader does well, what they do badly, without the vocabulary?",
+    "leak":     "Want me to walk through their biggest one — {leak} — and what it would take to stop it?",
     "rules":    "Want their playbook written up as a rule set — the setups, the holds, the sizing — that your quant could run under your name?",
     "smart":    "Want the full smart-money picture on their coins — where the proven cohort and the hot 30-day cohort agree and disagree with them, and when they moved?",
     "strategy": "Want the long version of what they've been doing — position by position, and where the thesis holds and breaks?",
@@ -30,7 +40,7 @@ BANK_OTHER = {
     "funding":  "Want their funding bill for the next 30 days at today's rates — is the carry paying them or costing them?",
     "watch":    "Want me to keep watching this wallet — a new position, a flip, a size change — and tell you when they move?",
 }
-ORDER_OTHER = ["rules", "smart", "strategy", "scout", "regime", "replay", "compare", "protect", "funding", "watch"]
+ORDER_OTHER = ["eli5", "leak", "rules", "smart", "strategy", "scout", "regime", "replay", "compare", "protect", "funding", "watch"]
 
 
 def offer(r, n=4, whose="mine"):
@@ -55,8 +65,16 @@ def offer(r, n=4, whose="mine"):
     score["rules"] += 1 + (2 if (r.get("setups") or {}).get("best") else 0)
     score["strategy"] += 1 + (1 if (r.get("strategy") or {}).get("critique") else 0)
     score["watch"] += 1 + (1 if naked else 0)
+    # Plain English leads for the reader who did not follow the vocabulary — UNLESS the book is in
+    # trouble. A position that is unprotected AND near liquidation outranks everything; the desk's own
+    # recommendation is "Protect first", and a follow-up list that opens with "want this explained?"
+    # over a book 38% from liquidation is the desk disagreeing with itself.
+    urgent = bool(naked) and near
+    score["eli5"] += 40 if urgent else 99
+    score["protect"] += 100 if urgent else 0
+    score["leak"] += 50 if r.get("leaks") else -99
     ranked = sorted(BANK, key=lambda k: (-score[k], ORDER.index(k)))
-    return [dict(mode=k, prompt=BANK[k]) for k in ranked[:n]]
+    return _fill(ranked[:n], BANK, r)
 
 
 def _offer_other(r, n):
@@ -73,5 +91,24 @@ def _offer_other(r, n):
     score["protect"] += 1 + (1 if r["book"]["naked"] else 0)
     score["funding"] += 1 + (1 if abs(r["book"].get("funding_per_day") or 0) > 0.001 * max(1, r["book"].get("account_value") or 1) else 0)
     score["watch"] += 2
+    score["eli5"] += 99
+    score["leak"] += 50 if r.get("leaks") else -99
     ranked = sorted(BANK_OTHER, key=lambda k: (-score[k], ORDER_OTHER.index(k)))
-    return [dict(mode=k, prompt=BANK_OTHER[k]) for k in ranked[:n]]
+    return _fill(ranked[:n], BANK_OTHER, r)
+
+
+def _fill(keys, bank, r):
+    """Name the finding in the prompt. "Walk through the biggest one" is a menu item; "walk through the
+    71% of every winner's peak you give back" is a question about THEM, and that is the whole difference
+    between a reader who asks a second question and one who closes the tab."""
+    leaks = r.get("leaks") or []
+    top = (leaks[0].get("title") or "").rstrip(".") if leaks else ""
+    out = []
+    for k in keys:
+        prompt = bank[k]
+        if "{leak}" in prompt:
+            if not top:
+                continue
+            prompt = prompt.replace("{leak}", top[0].lower() + top[1:] if top else top)
+        out.append(dict(mode=None if k in MODELESS else k, prompt=prompt))
+    return out
