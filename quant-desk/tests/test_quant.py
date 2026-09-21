@@ -400,11 +400,11 @@ def test_followups_offer_protect_first_when_naked():
     # list opening with "want this explained?" over a book near liquidation contradicts the desk's own
     # "Protect first" recommendation.
     assert fu[0]["mode"] == "protect" and len(fu) == 4 and all(f["prompt"].endswith("?") for f in fu)
-    assert "eli5" in [f["mode"] or "eli5" for f in fu][:3], "plain English still has to be near the top"
+    assert "eli5" in [f["mode"] or "eli5" for f in fu][:3], "the ELI5 still has to be near the top"
 
-    # and with no urgency, plain English leads
+    # and with no urgency, the ELI5 leads
     calm = {**r, "book": {**r["book"], "naked": [], "positions": [{"liq_distance_pct": 80.0}]}}
-    assert followups.offer(calm, n=4)[0]["prompt"].startswith("Want this in plain English")
+    assert followups.offer(calm, n=4)[0]["prompt"].startswith("Want the ELI5")
 
 
 def test_deep_modes_run_on_a_cached_analysis():
@@ -443,7 +443,7 @@ def test_other_book_follow_ups_and_compare_render():
     assert r["whose"] == "other" and r["followups"]
     # mode None = answered from what is already on screen, no second run
     assert all(f["mode"] is None or f["mode"] in followups.BANK_OTHER for f in r["followups"])
-    assert r["followups"][0]["prompt"].startswith("Want this in plain English")             # a stranger's book, explained first
+    assert r["followups"][0]["prompt"].startswith("Want the ELI5")             # a stranger's book, explained first
     assert "rules" in [f["mode"] for f in r["followups"]]                                   # the playbook is still offered
     md = __import__("render").render(r)
     assert md.startswith("# The desk for") and "What to take from this trader" in md and "you hold" not in md.lower().replace("you hold", "")
@@ -987,3 +987,33 @@ def test_a_heading_never_promises_more_items_than_it_lists():
     # and the heading must never out-count the list in the shipped source
     src = __import__("pathlib").Path(render.__file__).read_text()
     assert not re.search(r'"## Top [0-9]+ thing', src), "a literal count crept back into the heading"
+
+
+def test_the_skill_tells_the_agent_to_stage_the_relay():
+    """The desk is 30-60s of analysis and thousands of words. Delivered as one block after a silent
+    wait it is the worst possible shape — the reader waits with nothing, then gets more than they can
+    read. The first run caches for 10 minutes, so every later --section is instant and the staging
+    costs nothing but instruction.
+
+    Rule 1 used to read "One command, then relay", and prescribed a 90-word lead-in sentence listing
+    every phase. That sentence is what a reader actually saw while waiting.
+    """
+    import pathlib, re
+    # SKILL.md is hard-wrapped, so any phrase can straddle a newline. Collapse whitespace first or
+    # every assertion in here is one re-wrap away from a false failure.
+    skill = re.sub(r"\s+", " ", (pathlib.Path(__file__).resolve().parents[1] / "SKILL.md").read_text())
+    assert "Relay it in STAGES — never as one block." in skill
+    assert "One command, then relay." not in skill
+    for stage in ("--section overview", "--section protection", "--section leaks"):
+        assert stage in skill, stage
+    assert "the staging IS the feature" in skill
+    # the lead-in must be short: the old one narrated all eight phases before anything ran
+    assert "scanning every fill, funding payment and resting order, auditing the live book" not in skill
+    assert "reading every fill, the live book, the cohorts and the tape" in skill
+
+
+def test_the_eli5_is_called_eli5():
+    """Traders know the term, and it signals "ask me anything" better than "plain English" does."""
+    import followups
+    for bank in (followups.BANK, followups.BANK_OTHER):
+        assert bank["eli5"].startswith("Want the ELI5"), bank["eli5"]
