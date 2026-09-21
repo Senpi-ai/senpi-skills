@@ -9,7 +9,7 @@
 schema_version: 1
 
 id: athena-x
-version: "1.4.1"
+version: "1.5.0"
 
 catalog:
   name: "Athena-X — Smart-Money Hedge Fund, Conviction Sizing"

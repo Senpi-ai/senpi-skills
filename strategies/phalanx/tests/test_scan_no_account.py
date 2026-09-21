@@ -3,6 +3,7 @@ The call on that path used to name keyword arguments _persist_state does not hav
 wallet whose clearinghouse read failed raised TypeError on every tick instead of waiting."""
 import os
 import sys
+import time
 import types
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "main", "scanners"))
@@ -17,7 +18,7 @@ class _State:
         self.records = []
 
     def last(self):
-        return {"cohort": {"addresses": [_WALLET], "refreshed_at": 1.0},
+        return {"cohort": {"addresses": [_WALLET], "refreshed_at": time.time()},
                 "prev_tilts": {"BTC": {"long_n": 12, "short_n": 1}}}
 
     def append(self, rec):
