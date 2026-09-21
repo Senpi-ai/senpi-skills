@@ -60,7 +60,7 @@ def dim_timing(tm, sm, cov=None):
             s += 10; lines.append((1, f"You enter {abs(lag):.1f}h ahead of the whale cohort on the coins you share."))
     if not lines:
         lines.append((0, "Entries are not systematically late or chased over this window." if tm and tm.get("n") else "Not enough complete trades to judge timing."))
-    return clamp(s), max(lines)[1]
+    return clamp(s), max(lines, key=lambda x: x[0])[1]
 
 
 def dim_risk(tr, book, dd):
@@ -72,13 +72,13 @@ def dim_risk(tr, book, dd):
     if n:
         naked = len(book["naked"]); s -= 25 * naked / n
         if naked:
-            lines.append((3, f"{naked} of {n} open positions {'has' if naked == 1 else 'have'} no stop at all — {', '.join(book['naked'])}."))
+            lines.append((4, f"{naked} of {n} open positions {'has' if naked == 1 else 'have'} no stop at all — {', '.join(book['naked'])}."))
         near = [p for p in book["positions"] if p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5]
         if near:
             s -= 15; p = min(near, key=lambda p: p["liq_distance_pct"])
-            lines.append((4, f"{p['coin']} {p['side'].lower()} {p['leverage']}× sits {p['liq_distance_pct']:.1f}% from liquidation."))
+            lines.append((5, f"{p['coin']} {p['side'].lower()} {p['leverage']}× sits {p['liq_distance_pct']:.1f}% from liquidation."))
     if tr.get("liquidations"):
-        s -= min(30, 10 * tr["liquidations"]); lines.append((3, f"{tr['liquidations']} liquidation(s) in 90 days cost {_usd(tr['liquidation_loss'])}."))
+        s -= min(30, 10 * tr["liquidations"]); lines.append((4, f"{tr['liquidations']} liquidation(s) in 90 days cost {_usd(tr['liquidation_loss'])}."))
     mu = book.get("margin_utilization")
     if mu and mu > 0.6:
         s -= min(20, (mu - 0.6) * 50); lines.append((2, f"Margin used is {_pct(mu)} of account value — little cushion for a bad hour."))
@@ -90,12 +90,12 @@ def dim_risk(tr, book, dd):
         # outcome the dimension exists to catch.
         s -= min(75, dd["dd_pct"] * 75)
         if dd["dd_pct"] >= 0.9:
-            lines.append((5, "The account went to zero inside the window — a full loss of the equity at risk."))
+            lines.append((6, "The account went to zero inside the window — a full loss of the equity at risk."))
         elif dd["dd_pct"] >= 0.25:
             lines.append((2, f"Max drawdown {_pct(dd['dd_pct'])} of equity over the window."))
     if not lines:
         lines.append((0, "Stops in place, losers cut faster than winners, no liquidations."))
-    return clamp(s), max(lines)[1]
+    return clamp(s), max(lines, key=lambda x: x[0])[1]
 
 
 def dim_cost(tr):
@@ -168,7 +168,7 @@ def dim_sizing(tr, book, closed):
             # that was not measured.
             return None, "No closed trades to judge sizing on, and the open book shows nothing unusual."
         lines.append((0, "Sizes are consistent and exposure is proportionate."))
-    return clamp(s), max(lines)[1]
+    return clamp(s), max(lines, key=lambda x: x[0])[1]
 
 
 def dim_consistency(tr, pnl_curve):
@@ -203,13 +203,15 @@ def dim_market(book, mf):
     fpd = mf.get("funding_per_day") or 0.0
     if fpd < 0 and av:
         yr = -fpd * 365 / av
-        s -= min(20, yr * 50)
+        # capped at 20 this saturated at 40%/yr: a book paying 40% of equity a year in funding and
+        # one paying 240% scored identically. Same shape as the drawdown cap fixed in 1.9.1.
+        s -= min(45, yr * 50)
         lines.append((2, f"{mf['stance'].capitalize()} into {'positive' if book['net_exposure'] > 0 else 'negative'} funding — paying ~{_usd(-fpd)}/day to hold ({_pct(yr)} of equity a year)."))
     elif fpd > 0:
         lines.append((1, f"Your book collects ~{_usd(fpd)}/day in funding at today's rates."))
     if not lines:
         lines.append((0, f"{mf['with_market']} of {len(mf['rows'])} positions sit with the trend; funding is near flat."))
-    return clamp(s), max(lines)[1]
+    return clamp(s), max(lines, key=lambda x: x[0])[1]
 
 
 def dimensions(tr, book, dd, tm, mf, sm, closed, pnl_curve):
