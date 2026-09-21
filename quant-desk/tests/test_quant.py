@@ -838,7 +838,10 @@ def test_the_funding_headline_is_weighted_by_size_not_by_coin_count():
     # 2.70 bp/8h is 29.6%/yr — the desk's own dollar figure for this book was $20,629/day, 25.8%/yr
     # of account value. The label has to agree with the money.
     assert "NEAR FLAT" not in out["headline"], out["headline"]
-    assert "%/yr on the book you hold" in out["headline"], out["headline"]
+    # the label names its denominator: this is the RATE on notional. The risk dimension quotes the
+    # same funding against EQUITY, which leverage makes a different number — on 0xccd2…c8a3 the two
+    # read "+49%/yr on the book you hold" and "186% of equity a year", 4x apart and indistinguishable.
+    assert "%/yr on notional at today's rates" in out["headline"], out["headline"]
 
 
 def test_the_leg_correlation_never_claims_a_leg_the_live_book_lacks():
@@ -1588,7 +1591,7 @@ def test_the_funding_penalty_does_not_saturate_at_40_percent_a_year():
     s_40, _ = score.dim_market(book, mk(100_000.0 * 0.40 / 365))
     s_240, line = score.dim_market(book, mk(100_000.0 * 2.40 / 365))
     assert s_240 < s_40, f"240%/yr ({s_240}) must score worse than 40%/yr ({s_40})"
-    assert "of equity a year" in line
+    assert "of your EQUITY a year" in line, "the denominator must be named — see the notional label"
 
 
 def test_equal_severity_falls_back_to_order_not_to_the_alphabet():
@@ -1602,3 +1605,16 @@ def test_equal_severity_falls_back_to_order_not_to_the_alphabet():
     tr = dict(hold_ratio=None, liquidations=2, liquidation_loss=-5_000.0)
     _, line = score.dim_risk(tr, book, None)
     assert "no stop at all" in line, f"a past liquidation outranked live naked risk: {line}"
+
+
+def test_a_lever_that_gives_back_what_it_saves_is_not_a_fix():
+    """On 0xccd2…c8a3 a time-cut was listed as a leak worth $165 — out of $5,701 it saved on the
+    trades it helped. A rule that hands back 97% of its own saving is a coin flip, not an edge, and
+    printing it invites "why is this on my list?"."""
+    noise = [_tm_row(cut_cf={"48": v}) for v in (5_701.0, -1_500.0, -1_500.0, -1_268.0, -1_268.0)]
+    tm = dict(cut={"settings": {"48": dict(n=5, total=165.0)}})
+    assert score.levers(noise, [], tm) == [], "a 3% keep-rate lever is noise"
+
+    real = [_tm_row(cut_cf={"48": v}) for v in (5_701.0, -300.0, -300.0, -200.0, -200.0)]
+    tm2 = dict(cut={"settings": {"48": dict(n=5, total=4_701.0)}})
+    assert len(score.levers(real, [], tm2)) == 1, "an 82% keep-rate lever is a real fix"

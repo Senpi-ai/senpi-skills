@@ -206,7 +206,7 @@ def dim_market(book, mf):
         # capped at 20 this saturated at 40%/yr: a book paying 40% of equity a year in funding and
         # one paying 240% scored identically. Same shape as the drawdown cap fixed in 1.9.1.
         s -= min(45, yr * 50)
-        lines.append((2, f"{mf['stance'].capitalize()} into {'positive' if book['net_exposure'] > 0 else 'negative'} funding — paying ~{_usd(-fpd)}/day to hold ({_pct(yr)} of equity a year)."))
+        lines.append((2, f"{mf['stance'].capitalize()} into {'positive' if book['net_exposure'] > 0 else 'negative'} funding — paying ~{_usd(-fpd)}/day to hold ({_pct(yr)} of your EQUITY a year — leverage makes this bigger than the headline rate on notional)."))
     elif fpd > 0:
         lines.append((1, f"Your book collects ~{_usd(fpd)}/day in funding at today's rates."))
     if not lines:
@@ -296,6 +296,7 @@ def flags(tr, book, dd, tm, mf, labels):
 
 
 MIN_VERDICT_TRADES = 5   # below this, cost / timing / consistency cannot carry the headline
+NOISE_SHARE = 0.15       # a lever keeping less than this share of what it saves is a coin flip
 MIN_PATTERN_TRADES = 5   # a hold-time or give-back leak is a pattern claim: it needs a sample
 
 
@@ -389,8 +390,13 @@ def levers(rows, closed, tm=None):
         if (st.get("n") or 0) < MIN_PATTERN_TRADES:
             continue
         vals = [float(v) for v in ((t.get(f"{grp}_cf") or {}).get(k) for t in rows) if v is not None]
-        out.append(dict(kind=grp, key=k, label=label, total=float(st.get("total") or 0.0),
-                        gross=sum(v for v in vals if v > 0), vals=vals, n=int(st["n"])))
+        total, gross = float(st.get("total") or 0.0), sum(v for v in vals if v > 0)
+        # a rule that hands back almost everything it saves is a coin flip, not an edge. On
+        # 0xccd2…c8a3 a time-cut netted $165 out of $5,701 saved — 3% — and was listed as a fix.
+        if gross > 0 and total < NOISE_SHARE * gross:
+            continue
+        out.append(dict(kind=grp, key=k, label=label, total=total, gross=gross,
+                        vals=vals, n=int(st["n"])))
 
     m = None
     winners = [e["peak_size"] * e["entry_vwap"] for e in (closed or [])
