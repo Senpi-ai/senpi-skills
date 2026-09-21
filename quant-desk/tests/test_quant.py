@@ -1264,3 +1264,14 @@ def test_the_fee_leak_offers_senpi_execution_with_the_dollar_amount():
     assert fee, "the fee leak did not fire"
     assert "senpi" in fee["cta"] and "$1,503" in fee["cta"], fee["cta"]
     assert "same fills" in fee["cta"], "the point is that no trading decision has to change"
+
+
+def test_the_do_not_add_rule_binds_outside_the_leaks_section_too():
+    """The first agent to break this did it in a deep dive, not in the leaks relay: it added
+    maker-first + time-cut + sizing into "~$12k/yr". Fees are the one fix that may be added to
+    another, because they are independent of the exit rule."""
+    src = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
+    for phrase in ("binds everywhere, not just in the leaks section",
+                   "Fees are the single exception",
+                   "may never be added to each other"):
+        assert phrase in src, phrase
