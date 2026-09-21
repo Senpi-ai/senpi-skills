@@ -16,7 +16,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.3.0"
+  version: "2.4.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -208,31 +208,48 @@ kept on Senpi's side rather than on a user's box, so nothing here schedules, dep
 
 After the feed and your few sentences, end the turn with **one question**, and nothing after it:
 
-> **Want to act on any of these? I can set up a trade on one of them — you see the size and the stop before anything is placed — or start a strategy: your own Athena, the smart-money hedge fund, or one built around these reads.**
+> **Want to act on any of these?** I can set up a **single trade** on one read — you see the size, the
+> stop and the liquidation price before anything is placed. Or run it as a strategy, three ways:
+> **(1) build one around these reads** with you, **(2) Signals Hunter**, which trades this same feed on
+> a clock, or **(3) Athena**, the smart-money hedge fund, forked under your name.
+
+Offer **all three** strategy routes, every time. Athena was the only one named for a while, which sent
+every user who wanted a strategy to the same place regardless of what they had just read.
 
 - **A trade on one read → senpi-trade.** Take the side the read names. Before any order, show the
   margin and its share of the account, the leverage, the stop price and the liquidation price. The
   stop must sit before liquidation. Place nothing until the user says yes to that exact order. A
   funding extreme names no side, so it is never a one-trade setup.
-- **Athena → senpi-strategy-ops.** The lead strategy offer: when the user wants a strategy and hasn't
-  picked a read, offer **Athena** (`athena`). Its Phalanx sleeve follows the same proven cohort the
-  smart-money reads come from, and its Aegis sleeve reads the tape to hedge the regime. Ops runs the
-  walkthrough first, then asks the budget; read the minimum budget from the catalog, never from memory.
-- **A strategy around one read → that read's template, or the user's own.** Offer the template built on
-  that kind of read as the quick start (senpi-strategy-ops, same walkthrough), with designing one from
-  scratch as its peer:
+- **(1) Build one around these reads → senpi-strategy-author.** The read is the brief: the asset, the
+  side, what the read is and its numbers. Build with the author's guardrails — a DSL stop on every
+  position, leverage 3x or less, few trades, and the minimum budget plus the wallet-creation fee
+  stated before anything is funded. It is a new strategy with no track record, and you say so.
+- **(2) Signals Hunter → senpi-strategy-ops.** `signals-hunter` runs **this** detector library on an
+  hourly clock — `sweep.py`, `score.py` and `smartmoney.py` are byte-identical to the scripts behind
+  the feed the user just read, held that way by a parity test. So it is the literal answer to "can I
+  just trade these?": it scores the same whole-book sweep and opens what clears its score floor, long
+  or short. Its floor is deliberately higher than the feed's TRADE floor, so it acts on fewer reads
+  than the feed shows. Say that — a user who expects every line above to become a position will be
+  disappointed by a correct run.
+- **(3) Fork Athena → senpi-strategy-ops.** `athena` for the smart-money hedge fund: its Phalanx sleeve
+  follows the same proven cohort these reads come from, and its Aegis sleeve reads the tape to hedge
+  the regime. `athena-x` is the same two sleeves at conviction size (25% at 5x rather than 15% at 3x)
+  — offer it only when the user asks for size, and name the trade-off rather than just the numbers.
+- **Ops runs the walkthrough first, then asks the budget.** Read the minimum budget from the catalog,
+  never from memory.
+- **Narrowing by the read.** When the user picks one read rather than a route, the template built on
+  that kind of read is the quick start, with designing one from scratch as its peer:
 
   | The read | Start from |
   |---|---|
+  | Any of them, traded as a feed | **Signals Hunter** (`signals-hunter`) — this same engine on a clock |
+  | A whale open or add | **Signals Hunter** (`signals-hunter`); note it parks `whale_open` as non-tradeable and acts on whale *moves* |
   | Smart money vs the crowd | **Athena** (`athena`), with a hedge, or **Phalanx** (`phalanx`), the cohort sleeve alone |
   | A funding extreme | **Pangolin** (`pangolin`), which fades the crowd paying to hold, or **Camel** (`camel`), which collects the carry on two books |
   | A momentum event | **Meerkat** (`meerkat`) |
   | A laggard behind BTC | **Mantis** (`mantis`) |
 
-  From scratch → senpi-strategy-author, with the read as the brief: the asset, the side, what the read
-  is and its numbers. Build with the author's guardrails: a DSL stop on every position, leverage 3x or
-  less, few trades, and the minimum budget plus the wallet-creation fee stated before anything is
-  funded. It is a new strategy with no track record, and you say so.
+  From scratch → senpi-strategy-author, under route (1)'s guardrails above.
 - **Every template is a starting point the user makes their own.** It deploys under their name, as-is
   or with levers moved. Never promise or imply results, and never call a template proven. Deploy only on
   the user's yes.
