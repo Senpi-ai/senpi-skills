@@ -396,7 +396,15 @@ def test_followups_offer_protect_first_when_naked():
     r = {"book": {"naked": ["ETH"], "partial": [], "positions": [{"liq_distance_pct": 3.0}], "account_value": 1000, "funding_per_day": -5}, "track": {"trades": 40, "largest_loss": -100},
          "timing": {}, "leaks": [{"title": "You hold losers 3× longer"}], "cohorts": [{"against": ["ETH"], "they_hold": [1]}], "opportunities": [1], "setups": {"best": [1]}, "context": {}, "strategy": {"critique": ["x"]}}
     fu = followups.offer(r, n=4)
+    # Unprotected AND near liquidation: protection outranks even the plain-English offer. A follow-up
+    # list opening with "want this explained?" over a book near liquidation contradicts the desk's own
+    # "Protect first" recommendation.
     assert fu[0]["mode"] == "protect" and len(fu) == 4 and all(f["prompt"].endswith("?") for f in fu)
+    assert "eli5" in [f["mode"] or "eli5" for f in fu][:3], "plain English still has to be near the top"
+
+    # and with no urgency, plain English leads
+    calm = {**r, "book": {**r["book"], "naked": [], "positions": [{"liq_distance_pct": 80.0}]}}
+    assert followups.offer(calm, n=4)[0]["prompt"].startswith("Want this in plain English")
 
 
 def test_deep_modes_run_on_a_cached_analysis():
@@ -432,8 +440,11 @@ def test_other_book_follow_ups_and_compare_render():
         rec = json.load(fh)
     import desk
     r = desk.analyze(rec["address"], hl_api.HLFixture(rec), days=90, mcp=None, bench=None, whose="other")
-    assert r["whose"] == "other" and r["followups"] and all(f["mode"] in followups.BANK_OTHER for f in r["followups"])
-    assert r["followups"][0]["mode"] == "rules"                                            # the playbook comes first for someone else's book
+    assert r["whose"] == "other" and r["followups"]
+    # mode None = answered from what is already on screen, no second run
+    assert all(f["mode"] is None or f["mode"] in followups.BANK_OTHER for f in r["followups"])
+    assert r["followups"][0]["prompt"].startswith("Want this in plain English")             # a stranger's book, explained first
+    assert "rules" in [f["mode"] for f in r["followups"]]                                   # the playbook is still offered
     md = __import__("render").render(r)
     assert md.startswith("# The desk for") and "What to take from this trader" in md and "you hold" not in md.lower().replace("you hold", "")
     assert "Your quant is ready to go deeper" in md

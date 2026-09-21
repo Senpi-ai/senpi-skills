@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.4.5"
+  version: "1.5.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -132,9 +132,21 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    `senpi-trader-research`, then run the pick with `--other`. **Never invent an address.**
 
 8. **Hold three to five things back — on purpose.** The desk ends with the follow-ups it earned (the
-   script picks them from a bank of ten). Offer them as questions, in the script's words; answer each
+   script picks them from a bank of twelve). Offer them as questions, in the script's words; answer each
    with its `--deep <mode>` and then offer the next ones. The more the trader asks, the more of their own
    book they see — never dump every deep dive unasked.
+
+   **Two of them carry no `--deep` mode and must not be run as one.** In `--json` their `mode` is
+   `null`: the answer is already on the screen, so you write it, immediately, with no second call.
+   - *plain English* — leads for almost every reader, and is the whole point for someone who has never
+     used senpi: restate the desk without the vocabulary. No profit factor, no ρ, no basis, no regime.
+     A number, what it means, what to do. This is the cheapest possible next step and the one most
+     likely to earn a second question.
+   - *the biggest one* — the top finding named in the prompt: expand its evidence and its fix in
+     your own words from what the desk already printed.
+
+   Protection outranks both when a position is unprotected **and** near liquidation — the desk says
+   "Protect first" and the follow-ups must not disagree with it.
 9. **The strategy read is theirs to argue with.** Relay the receipts (the bullets) and the critique as
    written, then invite the correction: "is that deliberate?" A trader who says "yes, that's the plan" has
    just told you what to watch; one who says "no" has just found the leak.

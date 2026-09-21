@@ -50,6 +50,21 @@ def log(msg):
     print(msg, file=sys.stderr, flush=True)
 
 
+# OpenClaw renders a RUNNING exec's stderr to the chat as it is produced, so these lines are the
+# user's only company during a 40s sweep. They were nine gerund clauses with no number and no
+# position — "scanning …, auditing …, running …" — which a host concatenates into one run-on
+# sentence, and which is exactly what a reader saw. A step marker, the elapsed clock and a number
+# the run has just learned make each line a beat that has to stand on its own.
+_STEPS = 8
+
+
+def step(n, msg, t0=None, found=None):
+    where = f"[{n}/{_STEPS}]"
+    when = f" {time.time() - t0:.0f}s" if t0 else ""
+    what = f" — {found}" if found else ""
+    print(f"[quant-desk] {where}{when} {msg}{what}", file=sys.stderr, flush=True)
+
+
 def _mcp_client(meta):
     if not os.environ.get("SENPI_AUTH_TOKEN"):
         return None
@@ -88,7 +103,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     meta = meta if meta is not None else {}
     meta.setdefault("warnings", []); meta["timings"] = {}; meta["sources"] = {}
     t0 = time.time()
-    log("[quant-desk] scanning every fill, funding payment, transfer and resting order …")
+    step(1, "scanning every fill, funding payment, transfer and resting order …")
     tr_raw = hl.trader(addr, days=days)
     meta["timings"]["trader"] = round(time.time() - t0, 1)
     fills, cs, oo = tr_raw["fills"], tr_raw["clearinghouseState"], tr_raw["frontendOpenOrders"]
@@ -142,7 +157,8 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         fb_closed, fb_open = episodes_from_fills(fills)
         fb = metrics.track_record(fb_closed, fb_open, tr_raw["userFunding"], tr_raw["userFees"], win_start)
         track["taker_share"], track["fee_recoverable"], track["volume"] = fb["taker_share"], fb["fee_recoverable"], fb["volume"]
-    log("[quant-desk] auditing the live book: every position's stop, liquidation distance and funding …")
+    step(2, "auditing the live book — every position's stop, liquidation distance and funding …", t0,
+         f"{len(fills):,} fills across {len({e.get('coin') for e in fills})} coins")
     book = metrics.open_book(cs, oo, ctxs, ages, tr_raw.get("clearinghouseState_xyz"), tr_raw.get("frontendOpenOrders_xyz"), ctx_xyz,
                              metrics.whole_account_value(tr_raw.get("portfolio"), tr_raw.get("spotClearinghouseState")),
                              metrics.spot_free_usdc(tr_raw.get("spotClearinghouseState")))
@@ -175,7 +191,8 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
             meta["warnings"].append("address is not on Hyperliquid's leaderboard this week (no rank)")
     if want_cohort:
         t3 = time.time()
-        log("[quant-desk] running senpi-smart-money: the proven cohort and the hot 30-day cohort against this book …")
+        step(3, "running senpi-smart-money — the proven cohort and the hot 30-day cohort against this book …", t0,
+             f"{len(book['positions'])} open position(s), {len(book['naked'])} unprotected")
         if mcp is not None:
             for name, fetch in (("proven", smart_money.proven_cohort), ("hot", smart_money.hot_cohort)):
                 try:
@@ -199,7 +216,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         meta["timings"]["cohort"] = round(time.time() - t3, 1)
         meta["sources"]["cohort"] = [c["source"] for c in cohorts]
     if mcp is not None:
-        log("[quant-desk] running senpi-market-pulse: funding regime, where the top traders' gains sit, momentum …")
+        step(4, "running senpi-market-pulse — funding regime, where the top traders' gains sit, momentum …", t0)
         try:
             fregime = market_mod.funding_regime(mcp.mcp_call("market_get_funding_regime", timeout=10))
         except Exception as e:  # noqa: BLE001
@@ -226,7 +243,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
             meta["warnings"].append(f"senpi labels unavailable: {e}")
     # ---- candles: every coin the trader touched or holds, BTC, and what the cohorts and top traders are in
     t1 = time.time()
-    log("[quant-desk] reading the tape: 90 days of candles for every coin touched, regime by regime …")
+    step(5, "reading the tape — 90 days of candles for every coin touched, regime by regime …", t0)
     coins = {e["coin"] for e in closed + opened if metrics.in_window(e, win_start)} | {p["coin"] for p in book["positions"]} | {"BTC"}
     for cv in cohorts:
         coins |= {h["coin"] for h in cv.get("they_hold") or []}
@@ -253,15 +270,17 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     if ctx_xyz:
         ctx_by.update({u["name"]: c for u, c in zip(ctx_xyz[0]["universe"], ctx_xyz[1])})
     coin_regimes = {c: market_mod.coin_regime(c, candles, ctx_by.get(c)) for c in coins}
-    log("[quant-desk] finding the leaks, pricing the fixes, running senpi-signals for live matches …")
+    step(6, "finding the leaks, pricing the fixes, running senpi-signals for live matches …", t0,
+         f"{len(coins)} coins of tape")
     lk = score.leaks(track, book, tm, tr_raw["userFunding"], in_win, win_start, days)
     setups = score.best_setups(in_win, tm_rows)
-    log("[quant-desk] reading the playbook: what the book actually does, by class, side and size — decoding the setups that actually pay …")
+    step(7, "reading the playbook — what the book actually does, by class, side and size …", t0,
+         f"{len(lk)} leak(s) priced")
     fp = strategy_read.fingerprint(in_win, opened, book, track, act, tm, candles, ctxs, pnl_curve, win_start, now)
     strategy = dict(fingerprint=fp, statements=strategy_read.statements(fp, track, book), critique=strategy_read.critique(fp, track, book, mf, sm, cohorts))
     context = dict(breadth=breadth, funding_regime=fregime, attention=attention, regime_days=regimes_days, regime_performance=rperf)
     opps = opportunities.scout(in_win, setups, book, breadth, coin_regimes, cohorts, attention, majors, large)
-    log("[quant-desk] running quant: scoring the book on six dimensions, comparing it to the top traders, scouting today's matches, developing the recommendations …")
+    step(8, "scoring the book on six dimensions, comparing to the top traders, scouting today's matches …", t0)
     dims, quant = score.dimensions(track, book, dd, tm, mf, sm, closed, pnl_curve)
     r = dict(address=addr, days=days, now_ms=now, window_start_ms=win_start, activity=act, track=track, book=book, equity=equity, drawdown=dd,
              pnl_curve=pnl_curve[-120:], timing=tm, market=mf, rank=rank, smart=sm, cohorts=cohorts, labels=labels, dimensions=dims, quant_score=quant,
