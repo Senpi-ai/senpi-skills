@@ -296,12 +296,18 @@ def verdict(tr, book, dims, leaks):
     base = abs(tr["ledger_net"] if tr.get("ledger_net") is not None else (tr.get("net") or 0))
 
     def material(k):
+        # A dimension that could not be measured has no score to rank and cannot be "the weakest" —
+        # nothing measured it. This guard has to come FIRST: sorted() runs before the filter below,
+        # so a None reaching the key function raises TypeError and takes the whole desk down before
+        # it renders a line. That shipped in 1.4.3 and crashed every run.
+        if dims[k]["score"] is None:
+            return False
         if k in ("cost", "timing", "consistency") and n < MIN_VERDICT_TRADES:
             return False
         if k == "cost" and base and costs < 0.05 * base:
             return False
         return True
-    ranked = [k for k in sorted(dims, key=lambda k: dims[k]["score"]) if material(k)]
+    ranked = sorted([k for k in dims if material(k)], key=lambda k: dims[k]["score"])
     weakest = ranked[0] if ranked else None
     weak_line = imperative = None
     if weakest is not None and dims[weakest]["score"] < 60:

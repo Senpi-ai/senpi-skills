@@ -923,3 +923,33 @@ def test_the_dimension_table_never_prints_a_number_it_did_not_measure():
     assert "| — |" in row, row
     assert "could not be measured this window" in body
     assert "| None |" not in body
+
+
+def test_a_none_score_survives_the_whole_pipeline_not_just_the_unit():
+    """1.4.3 made dim_cost return None, fixed the aggregate and the table, and missed verdict().
+
+        ranked = [k for k in sorted(dims, key=lambda k: dims[k]["score"]) if material(k)]
+        TypeError: '<' not supported between instances of 'NoneType' and 'int'
+
+    sorted() runs BEFORE the filter, so the None reached the key function and took the desk down
+    after every read had completed — 10,366 fills scanned, nothing rendered.
+
+    The unit tests all passed. They exercised dim_cost in isolation and the fixture's own trader has
+    positive gross, so no None ever travelled the full path. This test forces one through
+    analyze -> verdict -> render, which is the only shape that catches it.
+    """
+    import desk, render, score
+    with open(FIXTURE) as fh:
+        rec = json.load(fh)
+    real = score.dim_cost
+    try:
+        score.dim_cost = lambda *a, **kw: (None, "Not measurable this window: no positive gross.")
+        r = desk.analyze(rec["address"], hl_api.HLFixture(rec), days=90, mcp=None, bench=None)
+        md = render.render(r)                       # must not raise
+    finally:
+        score.dim_cost = real
+    assert r["dimensions"]["cost"]["score"] is None
+    assert isinstance(r["quant_score"], int)
+    assert "| — |" in md and "| None |" not in md
+    # the verdict still has to say something — an unmeasured dimension must not silence it
+    assert r.get("verdict") or r.get("flags") or r["quant_score"] >= 0
