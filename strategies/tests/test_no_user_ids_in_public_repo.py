@@ -15,6 +15,7 @@ Run: python3 -m pytest strategies/tests/test_no_user_ids_in_public_repo.py -q
 """
 import os
 import re
+import subprocess
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 MID = re.compile(r"\bM\d{6}\b")
@@ -26,13 +27,39 @@ SCAN_EXT = (".py", ".md", ".yaml", ".yml", ".json", ".txt", ".sh")
 SKIP_DIR = {".git", "__pycache__", "node_modules", ".venv", "venv", ".github"}
 
 
-def _candidate_files():
+def _walked_files():
+    """Fallback for a checkout with no usable git. Deliberately the WIDER of the two listings: a
+    security test may end up scanning files it need not, never the reverse."""
     for root, dirs, names in os.walk(REPO):
         dirs[:] = [d for d in dirs if d not in SKIP_DIR]
         for n in names:
-            path = os.path.join(root, n)
-            if n.endswith(SCAN_EXT) and os.path.abspath(path) != SELF:
-                yield path
+            yield os.path.join(root, n)
+
+
+def _candidate_files():
+    """Tracked files only. This test asks what is COMMITTED to a public repo, and `git ls-files` is
+    the authoritative answer to that; walking the filesystem was only ever an approximation of it.
+
+    The approximation broke on gitignored scratch checkouts — a local `git worktree` under .claude/
+    is an entire second copy of this repo, so the walk re-scanned every file under a second name and
+    reported hits at paths that are not in the repo at all. A suite that is red on every developer's
+    machine is a suite nobody reads, which is precisely how a real leak would get waved through.
+
+    Coverage of tracked files is unchanged (verified: zero tracked paths drop out). It only widens:
+    every SKIP_DIR entry except .github is untracked by definition, so git excludes those for free,
+    while .github — committed, public, and skipped by the walk — is now scanned.
+    """
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=REPO,
+            check=True, capture_output=True, text=True).stdout
+        paths = (os.path.join(REPO, rel) for rel in listed.split("\0") if rel)
+    except (OSError, subprocess.CalledProcessError):
+        paths = _walked_files()
+    for path in paths:
+        if (path.endswith(SCAN_EXT) and os.path.abspath(path) != SELF
+                and os.path.isfile(path)):
+            yield path
 
 
 def test_no_real_user_id_is_committed():
