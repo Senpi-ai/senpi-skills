@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.10.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.10.1"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -257,7 +257,7 @@ def recoverable_line(r):
     if c.get("top1", 0) >= 0.4:
         out += [f"**That total is not spread across your book — it is {'one trade' if c['top1'] >= 0.6 else 'a few trades'}.** "
                 f"The largest is {pct(c['top1'], 0)} of it on its own, and the top three are {pct(min(c['top3'], 1.0), 0)}. "
-                f"A handful of positions ran with no stop on them; the rest of the book is not the problem.", ""]
+                f"A handful of positions drove it; the rest of the book is not the problem.", ""]
     elif c.get("n_positive"):
         out += [f"No single trade dominates it — the largest is {pct(c['top1'], 0)}, spread over "
                 f"{c['n_positive']} of your trades. This one is a habit, not an accident.", ""]
