@@ -1251,3 +1251,16 @@ def test_the_rule_is_stated_in_english_not_in_grid_keys():
     assert render.rule_in_english("trailing lock 0.03/0.5") == "a trailing stop that arms at +3% and keeps 50% of the peak"
     assert render.rule_in_english("time cut 24") == "closing anything still open after 24h"
     assert render.rule_in_english(None) is None
+
+
+def test_the_fee_leak_offers_senpi_execution_with_the_dollar_amount():
+    """The fee leak is the one a user can act on without changing a single trading decision — same
+    fills, resting instead of crossing. It should say so, name senpi as the way to do it, and carry
+    the money, rather than describing a config line the reader cannot apply themselves."""
+    tr = dict(fee_recoverable=1_503.0, taker_share=0.77, fees=2_396.0, volume=6_500_000.0,
+              fee_rate_taker=0.00045, fee_rate_maker=0.00015)
+    out = score.leaks(tr, {}, {}, [], [], 0, 90)
+    fee = next((l for l in out if "taker" in l["title"]), None)
+    assert fee, "the fee leak did not fire"
+    assert "senpi" in fee["cta"] and "$1,503" in fee["cta"], fee["cta"]
+    assert "same fills" in fee["cta"], "the point is that no trading decision has to change"

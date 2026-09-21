@@ -411,7 +411,9 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days):
         out.append(dict(agent="Leak finder", title=f"{_pct(tr['taker_share'])} of your volume crossed the spread as a taker",
                         evidence=f"{_usd(tr['fees'])} in fees on {_usd(tr['volume'])} of volume at {tr['fee_rate_taker'] * 1e4:.1f} bp taker / {tr['fee_rate_maker'] * 1e4:.1f} bp maker.",
                         counterfactual=f"Resting maker orders for the same fills would have kept ~{_usd(tr['fee_recoverable'])} over {days} days (≈{_usd(tr['fee_recoverable'] * yr)}/yr).",
-                        usd=tr["fee_recoverable"], window=f"{days}d", cta="A maker-first entry with a taker fallback is one line in a strategy."))
+                        usd=tr["fee_recoverable"], window=f"{days}d", cta=f"Execute through senpi and I'll rest your entries maker-first with a taker fallback — "
+                            f"that's ~{_usd(tr['fee_recoverable'])} over {days} days (~{_usd(tr['fee_recoverable'] * yr)}/yr) "
+                            f"you keep, on the same fills."))
     # 2. funding — hold time on funding-paying legs
     paid_late = _funding_after(funding_rows, closed, window_start, 24.0)
     if tr.get("funding", 0) < -100 and paid_late > 50:
