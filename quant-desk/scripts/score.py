@@ -98,11 +98,20 @@ def dim_cost(tr):
         else:
             line = f"Fees + funding ate {_pct_cost(cr)} of gross P&L ({_usd(tr['fees'])} fees, {_usd(-tr['funding'])} funding on {_usd(tr['gross_realized'])} gross)."
     else:
-        s = 90 - min(60, (ts or 0) * 50)
+        # cost_ratio is None because gross P&L was not positive — there is no base to take a share
+        # OF, so cost efficiency is UNDEFINED here, not good. This branch used to answer 90 minus a
+        # taker penalty, which on a real book meant a trader whose trades lost money scored 79/100
+        # on "Cost efficiency" for being 23% taker, and that 79 carried 0.15 of the weighted quant
+        # score — lifting the headline from 32 to 39 on a dimension nothing had measured. Return
+        # None and let the aggregate re-normalise around it.
+        s = None
         if (tr.get("funding") or 0) > 0:
-            line = f"The trades themselves did not make money over the window (gross {_usd(tr['gross_realized'])}); funding paid you {_usd(tr['funding'])}, which is where the result came from, against {_usd(tr['fees'])} of fees."
+            line = f"Not measurable this window: the trades themselves did not make money (gross {_usd(tr['gross_realized'])}), so there is no gross to take a share of. Funding paid you {_usd(tr['funding'])}, which is where the result came from, against {_usd(tr['fees'])} of fees."
         else:
-            line = f"Gross P&L is not positive over the window; fees {_usd(tr['fees'])} and funding {_usd(-tr['funding'])} came on top."
+            line = f"Not measurable this window: gross P&L is not positive, so there is no base to price costs against. Fees {_usd(tr['fees'])} and funding {_usd(-tr['funding'])} came on top."
+        if ts is not None:
+            line += f" {_pct(ts)} of your volume crossed the spread as a taker."
+        return None, line
     if ts is not None and ts > 0.6:
         s -= 10
         line += f" {_pct(ts)} of your volume crossed the spread as a taker."
@@ -183,8 +192,12 @@ def dimensions(tr, book, dd, tm, mf, sm, closed, pnl_curve):
     for key, (score, line) in {
         "timing": dim_timing(tm, sm, tr.get("coverage")), "risk": dim_risk(tr, book, dd), "cost": dim_cost(tr), "sizing": dim_sizing(tr, book, closed),
         "consistency": dim_consistency(tr, pnl_curve), "market_fit": dim_market(book, mf)}.items():
-        d[key] = dict(score=round(score), line=line)
-    quant = sum(WEIGHTS[k] * d[k]["score"] for k in WEIGHTS)
+        d[key] = dict(score=None if score is None else round(score), line=line)
+    # A dimension that could not be measured must not vote. Re-normalise over the ones that could,
+    # rather than scoring an unmeasured dimension and letting its default move the headline.
+    live = {k: w for k, w in WEIGHTS.items() if d[k]["score"] is not None}
+    tot = sum(live.values())
+    quant = (sum(live[k] * d[k]["score"] for k in live) / tot) if tot > 0 else 0
     return d, round(quant)
 
 
