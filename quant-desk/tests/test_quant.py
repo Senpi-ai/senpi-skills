@@ -1128,7 +1128,7 @@ def test_recoverable_is_the_best_single_lever_never_the_sum_of_them():
     sizing = 4_000.0 * (1 - 5_000.0 / 50_000.0)          # 3,600
     assert rec["usd"] == max(1_000.0, 1_500.0, sizing, 10_000.0) == 10_000.0, "the best lever wins"
     assert rec["usd"] < 1_000.0 + 1_500.0 + sizing + 10_000.0, "and it is strictly under the sum"
-    assert rec["rule"] == "skip entries after a >=3% move"
+    assert rec["rule"] == "skipping entries after a >=3% move"
 
 
 def test_recoverable_will_not_pick_a_rule_that_costs_money_on_the_trades_it_hurts():
@@ -1144,7 +1144,9 @@ def test_recoverable_prefers_the_setting_with_the_best_book_total_not_the_best_t
     tm = dict(lock={"settings": {"0.03/0.5": dict(n=9, total=9_000.0),
                                  "0.05/0.5": dict(n=3, total=1_000.0)}})
     rec = score.recoverable([_tm_row()], [], {}, tm)
-    assert rec["rule"] == "trailing lock 0.03/0.5" and rec["usd"] == 9_000.0
+    assert rec["usd"] == 9_000.0
+    # the lever's label is the finished sentence, so nothing has to parse "0.03/0.5" back out
+    assert rec["rule"] == "a trailing stop that arms at +3% and keeps 50% of the peak"
 
 
 def test_recoverable_chase_term_is_unavailable_when_chasing_is_not_this_book_s_problem():
@@ -1194,8 +1196,8 @@ def test_recoverable_adds_fees_but_only_for_a_taker_and_never_funding():
 def test_recoverable_reports_how_concentrated_the_number_is():
     """"You leak $46k across your book" was true arithmetic and a false picture — on the book that
     drove this work, one trade was 62% of it. The shape has to travel with the number."""
-    rows = [_tm_row(lock_cf={"k": v}) for v in (10_000.0, 500.0, 500.0)]
-    tm = dict(lock={"settings": {"k": dict(n=3, total=11_000.0)}})
+    rows = [_tm_row(lock_cf={"0.03/0.5": v}) for v in (10_000.0, 500.0, 500.0)]
+    tm = dict(lock={"settings": {"0.03/0.5": dict(n=3, total=11_000.0)}})
     c = score.recoverable(rows, [], {}, tm)["concentration"]
     assert round(c["top1"], 4) == round(10_000.0 / 11_000.0, 4) and c["n_positive"] == 3
 
@@ -1204,11 +1206,10 @@ def test_recoverable_is_measured_against_losses_not_against_the_account():
     """The account is a snapshot and can be zero; the counterfactual runs over the whole window's
     turnover. Losses are the only denominator that makes the number checkable."""
     rows = [_tm_row(realized=-1_000.0, win=False), _tm_row(realized=+400.0, win=True),
-            _tm_row(lock_cf={"k": 500.0})]
-    tm = dict(lock={"settings": {"k": dict(n=1, total=500.0)}})
+            _tm_row(lock_cf={"0.03/0.5": 500.0})]
+    tm = dict(lock={"settings": {"0.03/0.5": dict(n=1, total=500.0)}})
     rec = score.recoverable(rows, [], {}, tm)
-    assert rec["gross_losses"] == 1_000.0
-    assert round(rec["share_of_losses"], 6) == 0.5
+    assert round(rec["share_of_losses"], 6) == 0.5, "500 recovered against 1,000 of losses"
 
 
 def test_time_cut_is_charged_on_the_winners_it_would_have_chopped():
@@ -1246,11 +1247,9 @@ def test_leaks_section_leads_with_the_number_and_tells_the_reader_not_to_add():
 
 
 def test_the_rule_is_stated_in_english_not_in_grid_keys():
-    """"trailing lock 0.03/0.5" is the grid key. Nobody can act on that."""
-    import render
-    assert render.rule_in_english("trailing lock 0.03/0.5") == "a trailing stop that arms at +3% and keeps 50% of the peak"
-    assert render.rule_in_english("time cut 24") == "closing anything still open after 24h"
-    assert render.rule_in_english(None) is None
+    """"0.03/0.5" is the grid key. Nobody can act on that, so score.py emits the sentence."""
+    tm = dict(cut={"settings": {"24": dict(n=4, total=800.0)}})
+    assert score.recoverable([_tm_row()], [], {}, tm)["rule"] == "closing anything still open after 24h"
 
 
 def test_the_fee_leak_offers_senpi_execution_with_the_dollar_amount():

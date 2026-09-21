@@ -6,6 +6,8 @@ Every number here is a transparent function of the metrics — the formulas are 
 import collections
 import statistics
 
+import timing
+
 WEIGHTS = {"risk": 0.25, "consistency": 0.20, "timing": 0.15, "cost": 0.15, "market_fit": 0.15, "sizing": 0.10}
 
 
@@ -359,18 +361,22 @@ def recoverable(rows, closed, tr, tm=None):
 
     Returns `concentration` alongside the total, because the shape matters as much as the size. On
     that same book three trades were 102% of it and one was 62% — "you leak $46k across your book"
-    would have been true arithmetic and a false picture.
+    would have been true arithmetic and a false picture. `rule` is the finished sentence, not the
+    grid key: the phrasing has one home, here, next to every other string the desk shows a user.
     """
     tm = tm or {}
     rows = rows or []
     levers = []   # (total, label, per-trade values)
 
-    for grp, label in (("lock", "trailing lock"), ("cut", "time cut")):
-        for k, st in (((tm.get(grp) or {}).get("settings")) or {}).items():
-            if st.get("n"):
-                field = "lock_cf" if grp == "lock" else "cut_cf"
-                vals = [float(v) for v in ((t.get(field) or {}).get(k) for t in rows) if v is not None]
-                levers.append((float(st.get("total") or 0.0), f"{label} {k}", vals))
+    grid = [("lock", f"{a:.2f}/{sh:.1f}", f"a trailing stop that arms at +{a:.0%} and keeps {sh:.0%} of the peak")
+            for a, sh in timing.LOCK_GRID]
+    grid += [("cut", f"{h:.0f}", f"closing anything still open after {h:.0f}h") for h in timing.CUT_GRID_H]
+    for grp, k, label in grid:
+        st = (((tm.get(grp) or {}).get("settings")) or {}).get(k) or {}
+        if not st.get("n"):
+            continue
+        vals = [float(v) for v in ((t.get(f"{grp}_cf") or {}).get(k) for t in rows) if v is not None]
+        levers.append((float(st.get("total") or 0.0), label, vals))
 
     m = None
     winners = [e["peak_notional"] for e in (closed or [])
@@ -380,12 +386,12 @@ def recoverable(rows, closed, tr, tm=None):
     if m:
         vals = [-t["realized"] * (1 - m / t["notional"]) for t in rows if (t.get("notional") or 0) > 1.5 * m]
         if vals:
-            levers.append((sum(vals), "size cap at your median winner", vals))
+            levers.append((sum(vals), "capping size at your median winner", vals))
 
     if (tm.get("chased_n") or 0) >= 3 and (tm.get("chased_realized") or 0) < -50 \
             and (tm.get("calm_pf") or 0) > (tm.get("chased_pf") or 0):
         vals = [-float(t["realized"]) for t in rows if t.get("chased") and (t.get("realized") or 0) < 0]
-        levers.append((-float(tm["chased_realized"]), "skip entries after a >=3% move", vals))
+        levers.append((-float(tm["chased_realized"]), "skipping entries after a >=3% move", vals))
 
     best, rule, vals = max(levers, default=(0.0, None, []), key=lambda x: x[0])
     if best <= 0:
@@ -398,9 +404,8 @@ def recoverable(rows, closed, tr, tm=None):
 
     losses = -sum(t["realized"] for t in rows if (t.get("realized") or 0) < 0)
     fees = max(0.0, float(tr.get("fee_recoverable") or 0.0)) if (tr.get("taker_share") or 0) >= 0.25 else 0.0
-    return dict(usd=best + fees, trades=len(pos), fees=fees, exits_and_sizing=best,
-                n_trades=len(rows), rule=rule, concentration=conc,
-                gross_losses=losses, share_of_losses=((best + fees) / losses if losses > 0 else None))
+    return dict(usd=best + fees, fees=fees, n_trades=len(rows), rule=rule, concentration=conc,
+                share_of_losses=((best + fees) / losses if losses > 0 else None))
 
 
 def leaks(tr, book, tm, funding_rows, closed, window_start, days):
