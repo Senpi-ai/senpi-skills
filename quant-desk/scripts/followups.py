@@ -5,12 +5,14 @@ more of their own book they see."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 # Two of these answer from what is ALREADY on screen and carry no `--deep` mode: the desk output
 # holds the numbers, so the quant expands them in conversation rather than re-running anything.
-# `eli5` leads because the reader most likely to bounce is the one who did not follow the vocabulary,
+# `eli5` is named ELI5 on purpose: traders know the term, and it signals "ask me anything" better
+# than "plain English" does. It leads because the reader most likely to bounce is the one who did
+# not follow the vocabulary,
 # and it is the cheapest possible next step — no wallet, no signup, no wait.
 MODELESS = {"eli5", "leak"}
 
 BANK = {
-    "eli5":     "Want this in plain English — what it means and what to do about it, without the trading vocabulary?",
+    "eli5":     "Want the ELI5 — what this means and what to do about it, without the trading vocabulary?",
     "leak":     "Want me to walk through the biggest one — {leak} — and what it would take to stop it?",
     "protect":  "Want me to draft the stop ladder for each open position — hard floor, trailing lock, and what each one changes about your worst case?",
     "smart":    "Want the full smart-money picture — every coin you trade against the proven cohort and the hot 30-day cohort, and when they moved?",
@@ -27,7 +29,7 @@ ORDER = ["eli5", "leak", "protect", "smart", "scout", "replay", "regime", "fundi
 
 # the same ten modes, asked about SOMEONE ELSE's book — learning from a trader, not fixing your own
 BANK_OTHER = {
-    "eli5":     "Want this in plain English — what this trader does well, what they do badly, without the vocabulary?",
+    "eli5":     "Want the ELI5 — what this trader does well, what they do badly, without the vocabulary?",
     "leak":     "Want me to walk through their biggest one — {leak} — and what it would take to stop it?",
     "rules":    "Want their playbook written up as a rule set — the setups, the holds, the sizing — that your quant could run under your name?",
     "smart":    "Want the full smart-money picture on their coins — where the proven cohort and the hot 30-day cohort agree and disagree with them, and when they moved?",
