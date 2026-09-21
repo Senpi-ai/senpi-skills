@@ -127,7 +127,10 @@ def overview(r):
             f"| {usd(ledger, signed=True)} | {pct(eq.get('return_on_avg_equity'), 1, signed=True)} | {usd(tr['net'], signed=True)} | {pct(tr['win_rate'])} | {pct(-r['drawdown']['dd_pct'], 0, signed=True) if r['drawdown'].get('dd_pct') else '—'} | {num(tr['profit_factor'], 'x')} | {tr['trades']} | {r['activity']['active_days']} |"]
     note = coverage_note(tr, r.get("meta"))
     if note:
-        out.append(note)
+        # The blank line is load-bearing. A line placed straight after a table row is parsed as
+        # ANOTHER ROW, so this caption rendered as a row with its text in column 1 and seven empty
+        # cells trailing it — which is what a reader sees as "the table has an empty row".
+        out += ["", note]
     cr = tr.get("cost_ratio"); wb = (r.get("benchmark") or {}).get("cost_ratio")
     n_tr = tr.get("trades") or 0
     out += ["", "## Where your P&L went", ""]

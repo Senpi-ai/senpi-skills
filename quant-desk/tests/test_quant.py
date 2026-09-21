@@ -835,3 +835,38 @@ def test_the_leg_correlation_never_claims_a_leg_the_live_book_lacks():
     assert "over the window" in line and "moved together" in line, line
     assert "move together" not in line, f"present tense restored: {line}"
     assert "the book you hold now is" in src
+
+
+def test_no_caption_is_swallowed_into_a_table():
+    """A line placed straight after a table row is parsed as ANOTHER ROW.
+
+    Caught on the 2026-09-21 run: `_Trade history: senpi discovery (38 closed positions)._` sat
+    directly under the track-record row, so it rendered as a row carrying that text in column 1 and
+    seven empty cells after it. To a reader the table simply has an empty row in it, and the caption
+    is gone. The blank line before a caption is load-bearing, and nothing in Markdown warns you.
+
+    Asserted over EVERY rendered surface, because the mistake is one line of code away anywhere a
+    table is followed by prose.
+    """
+    import desk, render
+    with open(FIXTURE) as fh:
+        rec = json.load(fh)
+    r = desk.analyze(rec["address"], hl_api.HLFixture(rec), days=90, mcp=None, bench=None)
+
+    surfaces = {"render": render.render(r), "protection": render.protection(r)}
+    for mode in ("smartmoney", "market", "leaks"):
+        try:
+            surfaces[f"deep:{mode}"] = render.render_deep(mode, {}, r)
+        except Exception:
+            pass
+
+    bad = []
+    for name, md in surfaces.items():
+        lines = md.splitlines()
+        for i, ln in enumerate(lines[:-1]):
+            if not ln.lstrip().startswith("|"):
+                continue
+            nxt = lines[i + 1]
+            if nxt.strip() and not nxt.lstrip().startswith("|"):
+                bad.append(f"{name}:{i + 2} — {nxt.strip()[:80]!r} follows a table row")
+    assert not bad, "prose absorbed into a table (needs a blank line first):\n  " + "\n  ".join(bad)
