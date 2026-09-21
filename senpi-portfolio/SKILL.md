@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.26.0"
+  version: "1.27.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -406,6 +406,18 @@ close the mirror **via `senpi-trade`**.
 > close it." Those are **custom-strategy** remedies — applied to a mirror they break the copy-trade the user
 > deliberately set up. A mirror is an intentional copy of a trader, judged on the trader + the multiplier + its
 > strategy-level SL/TP.
+
+### "What did the trader do with it?" — that is the COPIED trader, never the user's own wallet
+
+On anything that follows someone else's trades — a `strategy_kind: "mirror"`, or a custom package whose
+entries come from a follow list — "the trader", "he", "they" is the **source** trader. Resolve the source
+address first (`mirror_of` for a mirror; the followed addresses in the package's scanner inputs for a custom
+one), then answer from `discovery_get_trader_state` (do they still hold it?) and
+`discovery_get_trader_history` (did they close it, and when?) **on that address**.
+
+Running those same tools on the user's own strategy wallet is the trap: it returns *their copy* of the trade,
+so the answer comes back fluent, confident and about the wrong person — and the user has to ask again. If the
+source address cannot be resolved, say that; never substitute the user's wallet for it.
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
