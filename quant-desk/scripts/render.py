@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.12.2"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.13.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -254,8 +254,9 @@ def recoverable_line(r):
     out = [head + ".", ""]
 
     fee_part = f"{usd(fees)} of it is taker fees you can stop paying on the same fills"
-    rule_part = (f"one rule — {rule} — applied to all {rec['n_trades']} complete trades and charged "
-                 f"on the ones it would have cost you")
+    n = rec["n_trades"]
+    rule_part = (f"one rule — {rule} — applied to {'your one complete trade' if n == 1 else f'all {n} complete trades'} "
+                 f"and charged on the ones it would have cost you")
     if rule and fees > 0:
         big, small = (fee_part, f"the other {usd(lever)} comes from {rule_part}") if fees >= lever \
             else (f"{usd(lever)} of it comes from {rule_part}", f"the other {usd(fees)} is taker fees on the same fills")

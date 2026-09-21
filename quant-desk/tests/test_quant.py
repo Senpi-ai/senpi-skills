@@ -1618,3 +1618,37 @@ def test_a_lever_that_gives_back_what_it_saves_is_not_a_fix():
     real = [_tm_row(cut_cf={"48": v}) for v in (5_701.0, -300.0, -300.0, -200.0, -200.0)]
     tm2 = dict(cut={"settings": {"48": dict(n=5, total=4_701.0)}})
     assert len(score.levers(real, [], tm2)) == 1, "an 82% keep-rate lever is a real fix"
+
+
+def test_the_headline_is_never_smaller_than_a_leak_listed_under_it():
+    """0x767a…0ace quoted "would have kept ~$99,228" directly above a $114,566 funding leak. Funding
+    was excluded from the levers because capping a funding-paying hold IS the time-cut — but the
+    union only ever credits ONE lever, so there was no double-count to prevent, and the exclusion
+    made the headline understate whenever funding was the biggest fix."""
+    lv = score.levers([_tm_row()], [], {}, funding_late=114_566.0)
+    assert [x["kind"] for x in lv] == ["funding"], lv
+    assert score.best_lever(lv)["total"] == 114_566.0
+    # …and it competes with the exits rather than adding to them
+    tm = dict(lock={"settings": {"0.03/0.5": dict(n=5, total=200_000.0)}})
+    rows = [_tm_row(lock_cf={"0.03/0.5": 40_000.0}) for _ in range(5)]
+    both = score.recoverable(rows, [], {}, tm, score.levers(rows, [], tm, funding_late=114_566.0))
+    assert both["usd"] == 200_000.0, "the bigger lever wins; they are never summed"
+
+
+def test_every_desk_section_survives_a_book_with_one_closed_trade():
+    """0x767a…0ace crashed the engine outright: `tm.get("chased_share", 0) >= 0.5` — and `.get`'s
+    default only fires when the key is ABSENT, not when it is present-and-None. One closed trade
+    with no 24h prior makes that field null.
+
+    The agent's response to the crash was to edit its own copy of the engine, so this is also the
+    test that keeps a whole class of null-defaults from reaching a box that will do that again."""
+    tm_null = dict(chased_share=None, give_back_median=None, chased_n=0, chased_realized=None,
+                   calm_pf=None, chased_pf=None, n=1)
+    book = dict(positions=[], naked=[], funding_per_day=None, account_value=1_630_084.0,
+                net_exposure=0.0, margin_utilization=None)
+    tr = dict(fee_recoverable=None, funding=None, taker_share=0.79, trades=1, liquidations=0,
+              hold_ratio=None, coins={})
+    # each of these read a present-and-null field through a .get default before the fix
+    assert score.flags(tr, book, dict(dd_pct=0.2), tm_null, None, {}) is not None
+    assert score.leaks(tr, book, tm_null, [], [], 0, 90) == []
+    assert score.dim_market(book, None)[0] is None

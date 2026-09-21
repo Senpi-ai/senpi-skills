@@ -144,7 +144,7 @@ def fingerprint(closed, opened, book, tr, act, tm, candles, ctxs, pnl_curve, win
         style.append(es)
     if tr.get("adds_per_trade") is not None and tr["adds_per_trade"] >= 1:
         style.append(f"pyramids — {tr['adds_per_trade']:.1f} added orders per trade on average")
-    if act.get("twap_share", 0) > 0.2:
+    if (act.get("twap_share") or 0) > 0.2:   # present-and-None on a book with no TWAPs
         style.append(f"works orders — {100 * act['twap_share']:.0f}% of fills are TWAP slices")
     tpd = (tr.get("trades") or 0) / max(1, act.get("active_days") or 1)
     return dict(class_side=rows, live=live, money=money_rows[:4], open_shorts=sum(1 for p in live if p["side"] == "SHORT"), open_longs=sum(1 for p in live if p["side"] == "LONG"),
