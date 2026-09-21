@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.11.2"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.12.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -245,6 +245,12 @@ def recoverable_line(r):
     # by noise (the fixture reads 20924%), and a number like that discredits the rest
     if share and 0 < share <= 2.0 and (net is None or net < 0):
         head += f" — {pct(share, 0)} of what your losing trades gave up"
+    # when one trade IS the number, say so in the headline. The disclosure below is the first thing
+    # a reader drops when they quote the figure, and on 0xb699…392e that figure was $1,072,010 of
+    # which 97% came from a single position on an 8-trade book.
+    top1 = ((rec.get("concentration") or {}).get("top1")) or 0
+    if top1 >= 0.8:
+        head += f" — though {pct(top1, 0)} of that is one trade, not a pattern"
     out = [head + ".", ""]
 
     fee_part = f"{usd(fees)} of it is taker fees you can stop paying on the same fills"

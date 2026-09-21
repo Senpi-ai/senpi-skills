@@ -380,7 +380,11 @@ def levers(rows, closed, tm=None):
     grid += [("cut", f"{h:.0f}", f"closing anything still open after {h:.0f}h") for h in timing.CUT_GRID_H]
     for grp, k, label in grid:
         st = (((tm.get(grp) or {}).get("settings")) or {}).get(k) or {}
-        if not st.get("n"):
+        # a lever is a pattern claim and needs the same sample the leaks require. Without this the
+        # quotable headline was built from whatever setting scored highest, however few trades it
+        # engaged on: on 0xb699…392e the winner was "closing anything still open after 48h" with
+        # n=2, and it put $1.87M in front of a reader who lost $230,596.
+        if (st.get("n") or 0) < MIN_PATTERN_TRADES:
             continue
         vals = [float(v) for v in ((t.get(f"{grp}_cf") or {}).get(k) for t in rows) if v is not None]
         out.append(dict(kind=grp, key=k, label=label, total=float(st.get("total") or 0.0),
@@ -395,7 +399,7 @@ def levers(rows, closed, tm=None):
     if m:
         over = [t for t in rows if (t.get("notional") or 0) > 1.5 * m]
         vals = [-t["realized"] * (1 - m / t["notional"]) for t in over]
-        if vals:
+        if len(vals) >= MIN_PATTERN_TRADES:
             out.append(dict(kind="size", key="1.5x", label="capping size at your median winner",
                             total=sum(vals), gross=sum(v for v in vals if v > 0), vals=vals,
                             n=len(over), median_winner=m,
@@ -490,7 +494,11 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
                             f"that's ~{_usd(tr['fee_recoverable'])} over {days} days (~{_usd(tr['fee_recoverable'] * yr)}/yr) "
                             f"you keep, on the same fills."))
     # 2. funding — hold time on funding-paying legs
-    paid_late = _funding_after(funding_rows, closed, window_start, 24.0)
+    # _funding_after sums funding PAID; tr["funding"] is NET of funding collected elsewhere. Left
+    # uncapped the leak read "You paid $123,764 in funding … would have kept ~$164,499" — a saving
+    # larger than the cost in the same sentence.
+    paid_late = min(_funding_after(funding_rows, closed, window_start, 24.0),
+                    -float(tr.get("funding") or 0.0))
     if tr.get("funding", 0) < -100 and paid_late > 50:
         worst = min(tr["coins"].items(), key=lambda kv: kv[1]["funding"])
         out.append(dict(agent="Market regime", title=f"You paid {_usd(-tr['funding'])} in funding over {days} days",
