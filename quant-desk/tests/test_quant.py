@@ -784,3 +784,89 @@ def test_a_discovery_failure_is_never_reported_as_not_indexed():
         assert r["indexed"] is None, f"{type(client).__name__}: a failed read read as 'not indexed'"
         assert r["meta"].get("senpi_history_failed") is True
         assert any("senpi history" in w for w in r["meta"]["warnings"]), "the failure left no trace"
+
+
+# ── two contradictions caught on the 2026-09-21 launch-eve run of 0x880a…311c ──
+
+def test_the_funding_headline_is_weighted_by_size_not_by_coin_count():
+    """A plain median over coins counts a $19 dust position and a $20M one equally.
+
+    On the real book: sixteen xyz names at +0 bp/8h, and the actual size in ZEC ($20.0M, +1),
+    XMR ($4.8M, +9) and HYPE ($0.5M, +10). The median said FUNDING NEAR FLAT while the same desk
+    reported the book collecting $20,629/day two lines below — funding was most of what the window
+    earned, called flat.
+    """
+    import market
+    pos = ([dict(coin=f"xyz:D{i}", side="SHORT", leverage=3, notional=20.0, funding_per_day=0.0)
+            for i in range(16)]
+           + [dict(coin="ZEC", side="SHORT", leverage=10, notional=19_951_503.0, funding_per_day=5985.0),
+              dict(coin="XMR", side="SHORT", leverage=5, notional=4_822_496.0, funding_per_day=13049.0),
+              dict(coin="HYPE", side="SHORT", leverage=8, notional=492_263.0, funding_per_day=1417.0)])
+    book = dict(positions=pos, net_exposure=-1.0, funding_per_day=20629.0)
+    universe = [dict(name=p["coin"]) for p in pos] + [dict(name="BTC")]
+    fund = {"ZEC": 1.25e-5, "XMR": 1.125e-4, "HYPE": 1.25e-4}          # bp/8h = fr * 8 * 1e4
+    ctxs = [dict(universe=universe),
+            [dict(funding=fund.get(u["name"], 0.0), markPx="1", openInterest="0", dayNtlVlm="0")
+             for u in universe]]
+    # coin_regime returns None without >=48 candle rows, and a None regime carries no funding —
+    # so every coin needs a series or the weighting has nothing to weigh.
+    candles = {p["coin"]: (None, [[0, 1.0, 1.0, 1.0, 1.0, 1.0] for _ in range(50)]) for p in pos}
+    candles["BTC"] = (None, [[0, 1.0, 1.0, 1.0, 1.0, 1.0] for _ in range(50)])
+    out = market.book_fit(book, candles, ctxs)
+    w = out["median_funding_bp_8h"]
+    assert 2.5 < w < 3.0, (
+        f"notional-weighted funding came out at {w:.2f} bp/8h; a plain median over these 19 coins "
+        "reads 0.00 because sixteen of them are dust")
+    # 2.70 bp/8h is 29.6%/yr — the desk's own dollar figure for this book was $20,629/day, 25.8%/yr
+    # of account value. The label has to agree with the money.
+    assert "NEAR FLAT" not in out["headline"], out["headline"]
+    assert "%/yr on the book you hold" in out["headline"], out["headline"]
+
+
+def test_the_leg_correlation_never_claims_a_leg_the_live_book_lacks():
+    """It measures the 90-day window, but it printed in the present tense directly under
+    'the book right now is directional — net 100% of gross', telling a reader about a long leg that
+    does not exist. Past tense, and say so when the live book is one-sided."""
+    import pathlib, re
+    src = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "strategy_read.py").read_text()
+    m = re.search(r'f"([^"]*long leg[^"]*)"', src)
+    assert m, "the leg-correlation sentence moved — update this test"
+    line = m.group(1)
+    assert "over the window" in line and "moved together" in line, line
+    assert "move together" not in line, f"present tense restored: {line}"
+    assert "the book you hold now is" in src
+
+
+def test_no_caption_is_swallowed_into_a_table():
+    """A line placed straight after a table row is parsed as ANOTHER ROW.
+
+    Caught on the 2026-09-21 run: `_Trade history: senpi discovery (38 closed positions)._` sat
+    directly under the track-record row, so it rendered as a row carrying that text in column 1 and
+    seven empty cells after it. To a reader the table simply has an empty row in it, and the caption
+    is gone. The blank line before a caption is load-bearing, and nothing in Markdown warns you.
+
+    Asserted over EVERY rendered surface, because the mistake is one line of code away anywhere a
+    table is followed by prose.
+    """
+    import desk, render
+    with open(FIXTURE) as fh:
+        rec = json.load(fh)
+    r = desk.analyze(rec["address"], hl_api.HLFixture(rec), days=90, mcp=None, bench=None)
+
+    surfaces = {"render": render.render(r), "protection": render.protection(r)}
+    for mode in ("smartmoney", "market", "leaks"):
+        try:
+            surfaces[f"deep:{mode}"] = render.render_deep(mode, {}, r)
+        except Exception:
+            pass
+
+    bad = []
+    for name, md in surfaces.items():
+        lines = md.splitlines()
+        for i, ln in enumerate(lines[:-1]):
+            if not ln.lstrip().startswith("|"):
+                continue
+            nxt = lines[i + 1]
+            if nxt.strip() and not nxt.lstrip().startswith("|"):
+                bad.append(f"{name}:{i + 2} — {nxt.strip()[:80]!r} follows a table row")
+    assert not bad, "prose absorbed into a table (needs a blank line first):\n  " + "\n  ".join(bad)

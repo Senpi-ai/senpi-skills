@@ -65,22 +65,44 @@ def book_fit(book, candles, ctxs):
         regimes[p["coin"]] = r
         rows.append(dict(coin=p["coin"], side=p["side"], leverage=p["leverage"], trend=r["trend"] if r else None,
                          funding_bp_8h=r["funding_bp_8h"] if r else None, open_interest_usd=r["open_interest_usd"] if r else None,
-                         funding_per_day=p["funding_per_day"], fit=fit(p, r)))
+                         notional=abs(_f(p.get("notional"))), funding_per_day=p["funding_per_day"], fit=fit(p, r)))
     btc = coin_regime("BTC", candles, ctx_by.get("BTC"))
-    fundings = [r["funding_bp_8h"] for r in rows if r["funding_bp_8h"] is not None]
-    med_f = statistics.median(fundings) if fundings else None
+    # Weight the headline by NOTIONAL, not by coin. A plain median counts a $19 dust position and a
+    # $20M one equally, so a book with sixteen xyz names at 0 bp and its real size in HYPE (+10) and
+    # XMR (+9) read "FUNDING NEAR FLAT" while the same desk said it collects $20,629/day two lines
+    # below. Size is what decides whether funding is a real part of the return.
+    pairs = [(r["funding_bp_8h"], r["notional"]) for r in rows
+             if r["funding_bp_8h"] is not None and r["notional"] > 0]
+    if pairs:
+        tot = sum(w for _, w in pairs)
+        med_f = sum(f * w for f, w in pairs) / tot if tot > 0 else None
+    else:
+        fundings = [r["funding_bp_8h"] for r in rows if r["funding_bp_8h"] is not None]
+        med_f = statistics.median(fundings) if fundings else None
+    # Say the annualised rate, and never let the word contradict it. bp/8h is three periods a day, so
+    # 3 bp/8h — the old floor for "POSITIVE" — is already 33%/yr, and everything below it read
+    # "NEAR FLAT". On the real book that printed FUNDING NEAR FLAT over a weighted 2.70 bp/8h =
+    # 29.6%/yr, beside the same desk's own "$20,629/day" (25.8%/yr of account value). The two agree;
+    # only the label was wrong.
+    ann = (med_f * 3 * 365 / 100.0) if med_f is not None else None
     if med_f is None:
         fhead = "FUNDING UNKNOWN"
     elif med_f >= 10:
         fhead = "HIGH POSITIVE FUNDING"
     elif med_f >= 3:
         fhead = "POSITIVE FUNDING"
+    elif med_f >= 1:
+        fhead = "MILDLY POSITIVE FUNDING"
     elif med_f <= -10:
         fhead = "DEEPLY NEGATIVE FUNDING"
     elif med_f <= -3:
         fhead = "NEGATIVE FUNDING"
+    elif med_f <= -1:
+        fhead = "MILDLY NEGATIVE FUNDING"
     else:
         fhead = "FUNDING NEAR FLAT"
+    if ann is not None and abs(ann) >= 5:
+        fhead += f" ({ann:+.0f}%/yr on the book you hold)"
     headline = f"{fhead} · BTC {btc['trend'] if btc else 'UNKNOWN'}"
     net = book["net_exposure"]
     stance = "net long" if net > 0 else ("net short" if net < 0 else "flat")
