@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.4.4"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.4.5"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -152,8 +152,11 @@ def overview(r):
         else:
             out.append(f"Fees + funding took **{pct_cost(cr)}** of your gross" + (f" — the whale median is {pct(wb)}." if wb is not None else "."))
     if r["leaks"]:
-        out += ["", "## Top 3 things your agents found", ""]
-        for i, l in enumerate(r["leaks"][:3], 1):
+        # The heading counts what is actually below it. "Top 3" over two items is a small lie the
+        # reader checks in one glance, and it makes them wonder what else was rounded.
+        top = r["leaks"][:3]
+        out += ["", f"## Top {len(top)} thing{'s' if len(top) != 1 else ''} your agents found", ""]
+        for i, l in enumerate(top, 1):
             out.append(f"{i}. **{l['agent']} · ~{usd(l['usd'])} / {l['window']}** — **{l['title']}.** {l['evidence']} _{l['counterfactual']}_ → {l['cta']}")
     return "\n".join(out)
 
