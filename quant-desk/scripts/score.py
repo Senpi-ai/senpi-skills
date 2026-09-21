@@ -103,6 +103,10 @@ def dim_risk(tr, book, dd):
         elif dd["dd_pct"] >= 0.25:
             lines.append((2, f"Max drawdown {_pct(dd['dd_pct'])} of equity over the window."))
     if not lines:
+        # "Stops in place, losers cut faster than winners" asserts three findings. On a book with no
+        # open positions and one closed trade there is nothing to have found — and it scored 76.
+        if not n and (tr.get("trades") or 0) < MIN_PATTERN_TRADES:
+            return None, "No open positions and too few closed trades to judge risk."
         lines.append((0, "Stops in place, losers cut faster than winners, no liquidations."))
     return clamp(s), max(lines, key=lambda x: x[0])[1]
 
@@ -171,11 +175,13 @@ def dim_sizing(tr, book, closed):
     if book.get("largest_share") and book["largest_share"] > 0.6 and len(book["positions"]) > 1:
         s -= 10; lines.append((1, f"One position is {_pct(book['largest_share'])} of the book."))
     if not lines:
-        if not comp:
-            # no closed trades and nothing unusual in the live book: there is no sizing BEHAVIOUR to
-            # read. Claiming "sizes are consistent and exposure is proportionate" asserts the thing
-            # that was not measured.
-            return None, "No closed trades to judge sizing on, and the open book shows nothing unusual."
+        if len(comp) < MIN_PATTERN_TRADES:
+            # too few closed trades and nothing unusual in the live book: there is no sizing
+            # BEHAVIOUR to read. Claiming "sizes are consistent and exposure is proportionate"
+            # asserts the thing that was not measured — it scored 85 off a single trade.
+            return None, ("No closed trades to judge sizing on, and the open book shows nothing unusual."
+                          if not comp else
+                          f"Only {len(comp)} closed trade{'s' if len(comp) > 1 else ''} — too few to read sizing from.")
         lines.append((0, "Sizes are consistent and exposure is proportionate."))
     return clamp(s), max(lines, key=lambda x: x[0])[1]
 
@@ -233,6 +239,12 @@ def dimensions(tr, book, dd, tm, mf, sm, closed, pnl_curve):
     # rather than scoring an unmeasured dimension and letting its default move the headline.
     live = {k: w for k, w in WEIGHTS.items() if d[k]["score"] is not None}
     tot = sum(live.values())
+    # Below half the dimensions there is no book to score. 0x31a7…7549 — one trade, net -$91 — had
+    # four of six abstain and still printed 66/100, re-normalised onto cost (90, off $0 of fees) and
+    # consistency (48, off that single trade). A confident headline from two noisy inputs is the
+    # same failure as a confident dimension from no input.
+    if len(live) < MIN_DIMENSIONS:
+        return d, None
     quant = (sum(live[k] * d[k]["score"] for k in live) / tot) if tot > 0 else 0
     return d, round(quant)
 
@@ -305,6 +317,7 @@ def flags(tr, book, dd, tm, mf, labels):
 
 
 MIN_VERDICT_TRADES = 5   # below this, cost / timing / consistency cannot carry the headline
+MIN_DIMENSIONS = 3       # fewer measurable dimensions than this and there is no book to score
 NOISE_SHARE = 0.15       # a lever keeping less than this share of what it saves is a coin flip
 MIN_PATTERN_TRADES = 5   # a hold-time or give-back leak is a pattern claim: it needs a sample
 
@@ -367,7 +380,12 @@ def verdict(tr, book, dims, leaks):
     if weak_line:
         return f"{strength} — {'and' if negative else 'but'} {weak_line}. {imperative}"
     if n < MIN_VERDICT_TRADES:
-        return f"{strength} — only {n} closed trade{'s' if n != 1 else ''} in the window, so the record is too thin to grade; the live book is where the desk earns its keep today."
+        # "the live book is where the desk earns its keep" only holds if there IS a live book. On
+        # 0x31a7…7549 it sat above a risk line reading "No open positions".
+        tail = ("the live book is where the desk earns its keep today."
+                if (book or {}).get("positions") else
+                "and with nothing open, there is nothing for the desk to protect right now.")
+        return f"{strength} — only {n} closed trade{'s' if n != 1 else ''} in the window, so the record is too thin to grade; {tail}"
     return f"{strength} — nothing in the record is leaking badly; the gains are in the details below."
 
 

@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.13.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.14.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -126,7 +126,10 @@ def header(r):
 
 def overview(r):
     tr, d, book = r["track"], r["dimensions"], r["book"]
-    out = [f"## Quant score **{r['quant_score']}**/100", "", "| Dimension | Score | What it means |", "|---|---:|---|"]
+    q = r.get("quant_score")
+    out = [f"## Quant score **{q}**/100" if q is not None else
+           "## Quant score — _not enough of this book is measurable to score it_",
+           "", "| Dimension | Score | What it means |", "|---|---:|---|"]
     names = {"timing": "Timing / edge", "risk": "Risk management", "cost": "Cost efficiency", "sizing": "Sizing / conviction", "consistency": "Consistency", "market_fit": "Market fit"}
     for k in ("timing", "risk", "cost", "sizing", "consistency", "market_fit"):
         # An unmeasured dimension shows a dash, not a number. A number here is a claim.
@@ -595,7 +598,7 @@ def next_steps_other(r):
 
 
 COMPARE_ROWS = (("Weekly rank", lambda r: f"#{r['rank']['rank']:,}" if r.get("rank") else "—"), ("Archetype", lambda r: r["archetype"]),
-                ("Quant score", lambda r: str(r["quant_score"])), ("Net P&L (ledger)", lambda r: usd(r["track"].get("ledger_net"), signed=True)),
+                ("Quant score", lambda r: str(r["quant_score"]) if r.get("quant_score") is not None else "—"), ("Net P&L (ledger)", lambda r: usd(r["track"].get("ledger_net"), signed=True)),
                 ("Return on avg equity", lambda r: pct(r["equity"].get("return_on_avg_equity"), 1, signed=True)), ("Max drawdown", lambda r: pct(-(r["drawdown"].get("dd_pct") or 0), 0, signed=True)),
                 ("Trades / win rate", lambda r: f"{r['track']['trades']} / {pct(r['track'].get('win_rate'))}"), ("Profit factor", lambda r: num(r["track"].get("profit_factor"), "x")),
                 ("Taker share", lambda r: pct(r["track"].get("taker_share"))), ("Costs ÷ gross income", lambda r: pct(r["track"].get("cost_ratio"))),

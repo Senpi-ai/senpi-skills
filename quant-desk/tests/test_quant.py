@@ -1652,3 +1652,64 @@ def test_every_desk_section_survives_a_book_with_one_closed_trade():
     assert score.flags(tr, book, dict(dd_pct=0.2), tm_null, None, {}) is not None
     assert score.leaks(tr, book, tm_null, [], [], 0, 90) == []
     assert score.dim_market(book, None)[0] is None
+
+
+def test_a_one_trade_book_does_not_get_a_confident_headline():
+    """0x31a7…7549 — ONE closed trade, 2 fills, net -$91, no open positions — scored 72/100, with
+    risk claiming "Stops in place, losers cut faster than winners, no liquidations" (three findings,
+    on a book with nothing to find) and sizing claiming "Sizes are consistent and exposure is
+    proportionate" off a single trade.
+
+    1.10.0 abstained at ZERO closed trades. One trade is the same noise; the floor is the sample."""
+    flat = dict(positions=[], naked=[], margin_utilization=None, account_value=1_000.0,
+                exposure_over_equity=None, largest_share=None)
+    thin = dict(hold_ratio=None, liquidations=0, trades=1)
+    s_risk, line_risk = score.dim_risk(thin, flat, None)
+    assert s_risk is None, f"risk scored {s_risk} on a book with nothing to assess"
+    assert "too few closed trades" in line_risk
+
+    one = [dict(win=False, truncated=False, peak_notional=5_000.0, realized=-91.0)]
+    s_size, line_size = score.dim_sizing(thin, flat, one)
+    assert s_size is None, f"sizing scored {s_size} off one trade"
+    assert "too few to read sizing from" in line_size
+
+    # a book with real history and no positions is still assessed — this must not blind the desk
+    deep = dict(hold_ratio=2.7, hold_losers_h=2.3, hold_winners_h=0.8, liquidations=0, trades=463)
+    assert score.dim_risk(deep, flat, dict(dd_pct=0.4))[0] is not None
+
+
+def test_no_headline_score_when_most_of_the_book_is_unmeasurable():
+    """With four of six dimensions abstaining, 0x31a7…7549 still printed 66/100 — re-normalised onto
+    cost (90, off $0 of fees) and consistency (48, off one trade). A confident headline from two
+    noisy inputs is the same failure as a confident dimension from no input."""
+    import render
+    FN = {"timing": "dim_timing", "risk": "dim_risk", "cost": "dim_cost", "sizing": "dim_sizing",
+          "consistency": "dim_consistency", "market_fit": "dim_market"}
+    real = {k: getattr(score, fn) for k, fn in FN.items()}
+    try:
+        for k, fn in FN.items():
+            setattr(score, fn, lambda *a, **kw: (None, "nothing to measure"))
+        for k in ("cost", "consistency"):
+            setattr(score, FN[k], (lambda v: (lambda *a, **kw: (v, "measured")))(70))
+        d, q = score.dimensions({}, {}, {}, {}, {}, {}, {}, [])
+        assert q is None, f"two measurable dimensions produced {q}"
+        setattr(score, FN["risk"], lambda *a, **kw: (50, "measured"))
+        _, q3 = score.dimensions({}, {}, {}, {}, {}, {}, {}, [])
+        assert q3 is not None, "three is the floor, not four"
+    finally:
+        for k, fn in FN.items():
+            setattr(score, fn, real[k])
+    md = render.score_block(dict(quant_score=None, dimensions=d)) if hasattr(render, "score_block") else None
+
+
+def test_the_thin_record_verdict_does_not_point_at_a_live_book_that_is_not_there():
+    """"the live book is where the desk earns its keep today" sat directly above a risk line reading
+    "No open positions" on 0x31a7…7549."""
+    flat = dict(positions=[], naked=[], gross=0.0, net_exposure=0.0)
+    held = dict(positions=[dict(coin="BTC", side="LONG", leverage=5, liq_distance_pct=None,
+                                notional=1.0, unrealized=0.0)], naked=[], gross=1.0, net_exposure=1.0)
+    tr = dict(trades=1, net=-91.0, win_rate=0.0, profit_factor=0.0, ledger_net=26_044.0)
+    v_flat = score.verdict(tr, flat, {}, [])
+    v_held = score.verdict(tr, held, {}, [])
+    assert "nothing for the desk to protect" in v_flat, v_flat
+    assert "live book is where the desk earns its keep" in v_held, v_held
