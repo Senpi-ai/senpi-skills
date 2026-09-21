@@ -66,7 +66,10 @@ def per_trade(episodes, candles):
         cuts = {}
         for h in CUT_GRID_H:
             v = cut_pnl[h]
-            cuts[f"{h:.0f}"] = (v * ntl - e["realized"]) if (not e["win"] and e["hold_h"] > h and v is not None) else None
+            # every trade still open at hour h, winner or loser. Charging a time-cut only on the
+            # losers is survivorship bias — at hour h you do not yet know which is which — and it
+            # inflated the cut counterfactual to more than the book's whole equity.
+            cuts[f"{h:.0f}"] = (v * ntl - e["realized"]) if (e["hold_h"] > h and v is not None) else None
         out.append(dict(coin=e["coin"], direction=e["direction"], realized=e["realized"], hold_h=e["hold_h"], win=e["win"], pre24=pre24,
                         chased=(pre24 is not None and pre24 >= CHASE_PCT), mfe=mfe, mae=mae, realized_pct=realized_pct, give_back=give_back,
                         notional=ntl, lock_cf=locks, cut_cf=cuts, open_time=e["open_time"]))

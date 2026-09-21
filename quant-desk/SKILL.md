@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.7.0"
+  version: "1.8.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -79,6 +79,15 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    ~$2,536 over 90 days" — a process change and what it would have kept. Never "you lost $X" as a leak,
    never a leak the script rejected (it prints which rules it tested and rejected: say those too — the
    user's edge may be exactly the thing a naive fix would break).
+3b. **Never add the leaks up — quote the one number the desk gives you.** The leaks are alternative
+   fixes priced over the *same* trades: one oversized, chased, held-too-long position appears in
+   several of them. Summing them produced $68k on a book that lost $65k. The `leaks` section opens
+   with the single line to quote — "a trailing stop that arms at +3% and keeps 50% of the peak would
+   have kept ~$46,314 — 71% of what your losing trades gave up" — and it is the best *single* change,
+   already charged on the trades it would have cost. Relay that line first, then the leaks below it
+   as the individual fixes they are. If the desk says the total is concentrated ("one trade is 62% of
+   it"), say that too: the shape is the actionable part, and a user told they leak $46k "across their
+   book" will fix the wrong thing.
 4. **Process only.** Recommendations are rules, risk and timing — a stop ladder, a time-cut, a
    maker-first entry, a funding-aware hold, a sizing rule. **Never a call to buy or sell a coin.**
 5. **Custody language.** The desk is read-only. Protection on existing positions is a signature the

@@ -45,7 +45,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -279,6 +279,8 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     step(6, "finding the leaks, pricing the fixes, running senpi-signals for live matches …", t0,
          f"{len(coins)} coins of tape")
     lk = score.leaks(track, book, tm, tr_raw["userFunding"], in_win, win_start, days)
+    # the ONE quotable number: a union over trades, never the sum of the leaks above
+    rec = score.recoverable(tm_rows, closed, track, tm)
     setups = score.best_setups(in_win, tm_rows)
     step(7, "reading the playbook — what the book actually does, by class, side and size …", t0,
          f"{len(lk)} leak(s) priced")
@@ -290,7 +292,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     dims, quant = score.dimensions(track, book, dd, tm, mf, sm, closed, pnl_curve)
     r = dict(address=addr, days=days, now_ms=now, window_start_ms=win_start, activity=act, track=track, book=book, equity=equity, drawdown=dd,
              pnl_curve=pnl_curve[-120:], timing=tm, market=mf, rank=rank, smart=sm, cohorts=cohorts, labels=labels, dimensions=dims, quant_score=quant,
-             archetype=score.archetype(track, book, tm, act, opened), flags=score.flags(track, book, dd, tm, mf, labels), leaks=lk,
+             archetype=score.archetype(track, book, tm, act, opened), flags=score.flags(track, book, dd, tm, mf, labels), leaks=lk, recoverable=rec,
              setups=setups, families=score.families(closed, tm, track), strategy=strategy, context=context, opportunities=opps,
              benchmark=bench, benchmark_table=smart_money.benchmark_table(track, bench) if bench else None,
              episodes=[{k: v for k, v in e.items()} for e in in_win][-300:], meta=meta)

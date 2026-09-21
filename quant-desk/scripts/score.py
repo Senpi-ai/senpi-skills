@@ -335,6 +335,74 @@ def verdict(tr, book, dims, leaks):
 
 
 # ---------------------------------------------------------------- leaks
+def recoverable(rows, closed, tr, tm=None):
+    """One honest number: what a senpi runtime would have kept over this window.
+
+    The leaks each price a different fix over the SAME trades, so they must never be added — one bad
+    trade that was oversized, chased, held too long AND gave back its peak appears in several of
+    them. On a real book the four printed leaks summed to $68k against $65k of actual losses.
+
+    This is the most conservative honest answer: **the single best change, applied to every trade.**
+    Not a sum of fixes, and not the best fix per trade either — letting each trade pick its own lever
+    is hindsight fitting at a finer grain, and a user runs one rule, not a different one per
+    position. Each lever is a book-wide total that nets its own costs:
+
+    * **exits** — every trailing-lock and time-cut setting, charged on the trades it would have hurt
+      as well as the ones it saved.
+    * **sizing** — a cap at the median winner's size across every oversized trade, winners included,
+      where the term is negative because the cap gives up that upside.
+    * **entries** — skipping chased entries, available only when this book's chased entries really
+      did do worse than its calm ones, and worth only what the chase leak itself claims.
+
+    Fees are added on top as the one genuinely independent fix. Funding is excluded: capping a
+    funding-paying hold is the same action as the time-cut.
+
+    Returns `concentration` alongside the total, because the shape matters as much as the size. On
+    that same book three trades were 102% of it and one was 62% — "you leak $46k across your book"
+    would have been true arithmetic and a false picture.
+    """
+    tm = tm or {}
+    rows = rows or []
+    levers = []   # (total, label, per-trade values)
+
+    for grp, label in (("lock", "trailing lock"), ("cut", "time cut")):
+        for k, st in (((tm.get(grp) or {}).get("settings")) or {}).items():
+            if st.get("n"):
+                field = "lock_cf" if grp == "lock" else "cut_cf"
+                vals = [float(v) for v in ((t.get(field) or {}).get(k) for t in rows) if v is not None]
+                levers.append((float(st.get("total") or 0.0), f"{label} {k}", vals))
+
+    m = None
+    winners = [e["peak_notional"] for e in (closed or [])
+               if e.get("win") and not e.get("truncated") and (e.get("peak_notional") or 0) > 0]
+    if len(winners) >= 3:
+        m = statistics.median(winners)
+    if m:
+        vals = [-t["realized"] * (1 - m / t["notional"]) for t in rows if (t.get("notional") or 0) > 1.5 * m]
+        if vals:
+            levers.append((sum(vals), "size cap at your median winner", vals))
+
+    if (tm.get("chased_n") or 0) >= 3 and (tm.get("chased_realized") or 0) < -50 \
+            and (tm.get("calm_pf") or 0) > (tm.get("chased_pf") or 0):
+        vals = [-float(t["realized"]) for t in rows if t.get("chased") and (t.get("realized") or 0) < 0]
+        levers.append((-float(tm["chased_realized"]), "skip entries after a >=3% move", vals))
+
+    best, rule, vals = max(levers, default=(0.0, None, []), key=lambda x: x[0])
+    if best <= 0:
+        best, rule, vals = 0.0, None, []
+
+    pos = sorted((v for v in vals if v > 0), reverse=True)
+    conc = None
+    if best > 0 and pos:
+        conc = dict(top1=pos[0] / best, top3=sum(pos[:3]) / best, n_positive=len(pos))
+
+    losses = -sum(t["realized"] for t in rows if (t.get("realized") or 0) < 0)
+    fees = max(0.0, float(tr.get("fee_recoverable") or 0.0)) if (tr.get("taker_share") or 0) >= 0.25 else 0.0
+    return dict(usd=best + fees, trades=len(pos), fees=fees, exits_and_sizing=best,
+                n_trades=len(rows), rule=rule, concentration=conc,
+                gross_losses=losses, share_of_losses=((best + fees) / losses if losses > 0 else None))
+
+
 def leaks(tr, book, tm, funding_rows, closed, window_start, days):
     out = []
     yr = 365.0 / days
@@ -343,7 +411,9 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days):
         out.append(dict(agent="Leak finder", title=f"{_pct(tr['taker_share'])} of your volume crossed the spread as a taker",
                         evidence=f"{_usd(tr['fees'])} in fees on {_usd(tr['volume'])} of volume at {tr['fee_rate_taker'] * 1e4:.1f} bp taker / {tr['fee_rate_maker'] * 1e4:.1f} bp maker.",
                         counterfactual=f"Resting maker orders for the same fills would have kept ~{_usd(tr['fee_recoverable'])} over {days} days (≈{_usd(tr['fee_recoverable'] * yr)}/yr).",
-                        usd=tr["fee_recoverable"], window=f"{days}d", cta="A maker-first entry with a taker fallback is one line in a strategy."))
+                        usd=tr["fee_recoverable"], window=f"{days}d", cta=f"Execute through senpi and I'll rest your entries maker-first with a taker fallback — "
+                            f"that's ~{_usd(tr['fee_recoverable'])} over {days} days (~{_usd(tr['fee_recoverable'] * yr)}/yr) "
+                            f"you keep, on the same fills."))
     # 2. funding — hold time on funding-paying legs
     paid_late = _funding_after(funding_rows, closed, window_start, 24.0)
     if tr.get("funding", 0) < -100 and paid_late > 50:
