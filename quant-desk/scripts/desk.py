@@ -41,6 +41,12 @@ from roundtrips import episodes_from_fills  # noqa: E402
 
 ADDR_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
+# desk.py does the work and carried no version of its own, so an install with a fresh SKILL.md and
+# render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
+# step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
+# Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
+VERSION = "1.6.1"
+
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
 PUBLIC_COHORT_N = 80          # live books read for the public smart-money cohort (parallel, cached 2 min)
@@ -329,6 +335,8 @@ def main(argv=None):
     g.add_argument("--other", "--analyst", dest="other", action="store_true", help="someone else's book (analyst mode): third person, learn-from-them follow-ups")
     ap.add_argument("--compare", nargs="+", metavar="0x", help="two or more addresses side by side (cached runs are reused)")
     ap.add_argument("--days", type=int, default=90)
+    ap.add_argument("--version", action="version", version=f"quant-desk desk.py {VERSION}",
+                    help="print this script's version — the one gate that catches a stale desk.py")
     ap.add_argument("--json", action="store_true", help="print the analysis document instead of Markdown")
     ap.add_argument("--section", choices=render.SECTIONS, action="append", help="render only these sections (repeatable)")
     ap.add_argument("--deep", choices=sorted(deep_mod.MODES), help="a follow-up deep dive from the cached run (protect, smart, scout, replay, funding, regime, compare, rules, strategy, watch)")
@@ -399,7 +407,15 @@ def main(argv=None):
         except hl_api.HLError as e:
             print(json.dumps({"error": f"Hyperliquid read failed: {e}", "address": addr})); return 1
         if not r["activity"]["fills"] and not r["book"]["positions"]:
-            print(json.dumps({"error": "no perp activity in the window and no open positions — nothing to read", "address": addr, "days": a.days})); return 3
+            # Carry `indexed` out even here. Without it a caller cannot tell "senpi has never seen this
+            # wallet" from "senpi has it and there is simply nothing in the window" — and those two need
+            # opposite things said to the reader. Spot fills do not count as perp activity, so a wallet
+            # the owner knows is busy can land here; say which it is rather than "nothing to read".
+            print(json.dumps({
+                "error": f"no PERP activity in the last {a.days} days and no open perp positions. "
+                         f"Spot trades and transfers are not perp activity and are not read here.",
+                "address": addr, "days": a.days, "indexed": r.get("indexed"),
+                "perp_fills_in_window": 0, "open_perp_positions": 0})); return 3
         log(f"[quant-desk] done in {meta['timings']['total']}s ({meta.get('hl_calls')} reads)")
         with open(state_path, "w") as fh:
             json.dump(r, fh, default=float)

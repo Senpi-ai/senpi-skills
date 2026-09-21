@@ -1017,3 +1017,47 @@ def test_the_eli5_is_called_eli5():
     import followups
     for bank in (followups.BANK, followups.BANK_OTHER):
         assert bank["eli5"].startswith("Want the ELI5"), bank["eli5"]
+
+
+def test_every_script_that_matters_carries_the_same_version():
+    """A stale install passed every gate we had.
+
+    2026-09-21: an agent updated quant-desk, SKILL.md and render.py both read 1.6.0, all three gates
+    passed — and desk.py was still old. It showed up as a progress line reading "senpi-smart-money"
+    at step 4 where the shipped source says "senpi-market-pulse". desk.py does all the work and was
+    the one file with no version of its own, so nothing could catch it.
+    """
+    import desk, render
+    assert desk.VERSION == render.VERSION, (desk.VERSION, render.VERSION)
+    import pathlib
+    skill = (pathlib.Path(__file__).resolve().parents[1] / "SKILL.md").read_text()
+    assert f'version: "{render.VERSION}"' in skill
+
+
+def test_the_progress_lines_name_the_right_engine():
+    """Step 3 is smart-money, step 4 is market-pulse. They were briefly the same word, which is how
+    the stale install above was spotted — so pin them."""
+    import pathlib, re
+    src = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "desk.py").read_text()
+    steps = dict(re.findall(r'step\((\d), "([^"]{0,60})', src))
+    assert "senpi-smart-money" in steps.get("3", ""), steps.get("3")
+    assert "senpi-market-pulse" in steps.get("4", ""), steps.get("4")
+
+
+def test_an_empty_window_still_reports_whether_senpi_has_the_wallet():
+    """The empty-window exit printed `{"error": …, "address": …, "days": …}` and dropped `indexed`.
+
+    A caller then cannot tell "senpi has never seen this wallet" from "senpi has it and there is
+    simply nothing in the window" — and those two need opposite things said to the reader. A wallet
+    whose 90 days are all SPOT lands here too, so "nothing to read" was wrong as well as incomplete.
+    """
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "desk.py").read_text()
+    # isolate the json.dumps({...}) that this exit prints — a byte window around it would also pick
+    # up the comment explaining the fix, which quotes the old wording
+    i = src.index("no PERP activity in the last")
+    start = src.rindex("print(json.dumps({", 0, i)
+    payload = src[start:src.index("return 3", i)]
+    assert '"indexed": r.get("indexed")' in payload, "the empty-window exit still drops `indexed`"
+    assert "Spot trades and transfers are not perp activity" in payload
+    assert "nothing to read" not in payload
