@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.6.1"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.7.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -300,12 +300,30 @@ def next_steps(r):
     i = 1
     at_risk = [p for p in b["positions"] if (p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5 and p["stop_covered_share"] < 0.9) or p["stop_covered_share"] == 0]
     if at_risk:
-        out.append(f"{i}. **Protect first.** {', '.join(p['coin'] for p in at_risk)}: a stop ladder under each — a hard floor now, a trailing lock as it runs. This is a signature on positions you already hold, not a deposit."); i += 1
+        # "a hard floor now, a trailing lock as it runs … a signature on positions you already hold"
+        # promised something that does not exist for this reader. The integrated two-phase DSL is a
+        # RUNTIME feature; on a raw position you get a FIXED stop plus an uncoordinated profit ladder,
+        # and `ratchet_stop_add` is keyed to a senpi strategy wallet — so for a desk reader whose book
+        # sits on their own wallet, senpi cannot attach anything today. Say what they can do now, and
+        # what is coming, without claiming a signature there is nothing to sign.
+        out.append(f"{i}. **Protect first.** {', '.join(p['coin'] for p in at_risk)}: every one of these "
+                   f"is naked. Set a stop on each of them onchain on Hyperliquid yourself — today, "
+                   f"before anything else here. Senpi will soon do this for you and keep it moving: a "
+                   f"floor that ratchets up as the trade runs, locking gains instead of a stop you have "
+                   f"to remember to raise."); i += 1
     if r["leaks"]:
         l = r["leaks"][0]
         out.append(f"{i}. **Fix the biggest leak.** {l['title']} — ~{usd(l['usd'])}/{l['window']}. {l['cta']}"); i += 1
     fam = r.get("families") or []
-    out.append(f"{i}. **Keep the agents on.** Say *hire my quant* and senpi runs this desk on your book — risk guard, smart money, market regime, leak finder — and can code your best setup ({fam[0].replace('_', ' ') if fam else 'your pattern'}) into a strategy you approve, deployed as **your** strategy.")
+    setup = fam[0].replace("_", " ") if fam else "your pattern"
+    out.append(f"{i}. **Keep the agents on.** Reply *hire my quant* and I'll run this desk on your book "
+               f"continuously — risk guard, smart money, market regime, leak finder — and turn your best "
+               f"setup ({setup}) into a strategy you approve, deployed as **your** strategy."); i += 1
+    # The reader who does not want their own history mechanised still has somewhere to go. It is also
+    # the cheapest next step on the page: a sentence from them, no wallet, no deposit.
+    out.append(f"{i}. **Or build something new.** Tell me your thesis — what you think is about to "
+               f"happen and why — and I'll write the strategy for it: the rules, the risk, the sizing, "
+               f"yours to approve before anything runs.")
     return "\n".join(out)
 
 
@@ -437,7 +455,16 @@ def render_deep(mode, d, r):
         for x in d["rows"]:
             atr = "—" if x["atr_pct"] is None else "{:.1f}%".format(x["atr_pct"])
             out.append("| {} | {} | {:,.4g} | {:,.4g} | {:.1f}% | {} | {:,.4g} | {} | {} |".format(x["coin"], x["side"], x["mark"], x["hard_stop"], x["hard_stop_pct"], atr, x["lock_arms_at"], pct(x["covered_now"]), x["note"]))
-        out += ["", "The hard stop sits beyond one and a half days of normal range and above the liquidation price; the lock trails at half the peak gain once the trade is two ranges in the money. One signature on positions you already hold — no deposit."]
+        # Same overclaim as the next-steps block: there is no signature to give for a book on the
+        # reader's own wallet. These levels are still the most actionable thing on the page — they are
+        # a worksheet, so say that plainly.
+        out += ["", "The hard stop sits beyond one and a half days of normal range and above the "
+                    "liquidation price; the lock trails at half the peak gain once the trade is two "
+                    "ranges in the money.",
+                "", "**These are yours to place.** Set the hard stop on each position onchain on "
+                    "Hyperliquid now — it is the number in the *Hard stop* column. The *Lock arms at* "
+                    "column is where a trailing stop should begin once the trade is in the money; "
+                    "senpi will soon keep that moving for you, so you are not raising it by hand."]
         return "\n".join(out)
     if mode == "replay":
         if not d or d.get("empty"):
