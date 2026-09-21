@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.9.1"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.10.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -362,10 +362,7 @@ def next_steps(r):
         # sits on their own wallet, senpi cannot attach anything today. Say what they can do now, and
         # what is coming, without claiming a signature there is nothing to sign.
         out.append(f"{i}. **Protect first.** {', '.join(p['coin'] for p in at_risk)}: every one of these "
-                   f"is naked. Set a stop on each of them onchain on Hyperliquid yourself — today, "
-                   f"before anything else here. Senpi will soon do this for you and keep it moving: a "
-                   f"floor that ratchets up as the trade runs, locking gains instead of a stop you have "
-                   f"to remember to raise."); i += 1
+                   f"is naked. Let me know if you want my help."); i += 1
     if r["leaks"]:
         l = r["leaks"][0]
         out.append(f"{i}. **Fix the biggest leak.** {l['title']} — ~{usd(l['usd'])}/{l['window']}. {l['cta']}"); i += 1
