@@ -80,8 +80,15 @@ def dim_risk(tr, book, dd):
     if mu and mu > 0.6:
         s -= min(20, (mu - 0.6) * 50); lines.append((2, f"Margin used is {_pct(mu)} of account value — little cushion for a bad hour."))
     if dd and dd.get("dd_pct"):
-        s -= min(20, dd["dd_pct"] * 60)
-        if dd["dd_pct"] >= 0.25:
+        # The old cap was min(20, dd_pct * 60), which flattened at 33%: a book that gave back a
+        # third and a book that went to ZERO were penalised identically, and a wiped-out account
+        # scored 65/100 on "Risk management". Drawdown here is built from cumulative P&L and is
+        # transfer-immune, so dd_pct = 1.0 really does mean the equity at risk was lost — the one
+        # outcome the dimension exists to catch.
+        s -= min(75, dd["dd_pct"] * 75)
+        if dd["dd_pct"] >= 0.9:
+            lines.append((5, "The account went to zero inside the window — a full loss of the equity at risk."))
+        elif dd["dd_pct"] >= 0.25:
             lines.append((2, f"Max drawdown {_pct(dd['dd_pct'])} of equity over the window."))
     if not lines:
         lines.append((0, "Stops in place, losers cut faster than winners, no liquidations."))
@@ -366,7 +373,7 @@ def recoverable(rows, closed, tr, tm=None):
     funding-paying hold is the same action as the time-cut.
 
     Returns `concentration` alongside the total, because the shape matters as much as the size. On
-    that same book three trades were 102% of it and one was 62% — "you leak $46k across your book"
+    that same book three trades were 83% of it and one was 50% — "you leak $46k across your book"
     would have been true arithmetic and a false picture. `rule` is the finished sentence, not the
     grid key: the phrasing has one home, here, next to every other string the desk shows a user.
     """
@@ -385,8 +392,14 @@ def recoverable(rows, closed, tr, tm=None):
         levers.append((float(st.get("total") or 0.0), label, vals))
 
     m = None
-    winners = [e["peak_notional"] for e in (closed or [])
-               if e.get("win") and not e.get("truncated") and (e.get("peak_notional") or 0) > 0]
+    # entry-marked on BOTH sides. `peak_notional` is marked at the price when the peak size was on,
+    # while timing.py's `notional` is peak size x entry VWAP — winners are by definition the trades
+    # whose price moved their way, so a peak-marked median is biased high against an entry-marked
+    # threshold. Measured at ~0.0% on both test books, so this changes no number today; it removes a
+    # comparison between two different populations before one starts to matter.
+    winners = [e["peak_size"] * e["entry_vwap"] for e in (closed or [])
+               if e.get("win") and not e.get("truncated") and (e.get("peak_size") or 0) > 0
+               and (e.get("entry_vwap") or 0) > 0]
     if len(winners) >= 3:
         m = statistics.median(winners)
     if m:
@@ -406,13 +419,19 @@ def recoverable(rows, closed, tr, tm=None):
     losses = -sum(t["realized"] for t in rows if (t.get("realized") or 0) < 0)
     fees = max(0.0, float(tr.get("fee_recoverable") or 0.0)) if (tr.get("taker_share") or 0) >= 0.25 else 0.0
 
-    # Concentration is a share of the number actually quoted, which includes fees. Measuring it
-    # against the exit lever alone called a total "one trade" when two thirds of it was fees spread
-    # over 89.5M of volume and 1,073 trades — the most diffuse thing on the desk.
+    # Concentration answers "is this driven by a few trades or many", so the denominator is the sum
+    # of everything that CONTRIBUTED — the positive per-trade terms plus fees, the most diffuse
+    # contributor there is.
+    #
+    # It must NOT be the lever total. That total is net of the trades the rule cost money on (and,
+    # for the chased lever, net of the chased winners) while the numerator is gross, so a single
+    # trade could be reported as 111% of the number. The "top three were 102%" this docstring used
+    # to cite was that artifact, not a fact about the book.
     pos = sorted((v for v in vals if v > 0), reverse=True)
     conc = None
-    if best + fees > 0 and pos:
-        conc = dict(top1=pos[0] / (best + fees), top3=sum(pos[:3]) / (best + fees), n_positive=len(pos))
+    denom = sum(pos) + fees
+    if denom > 0 and pos:
+        conc = dict(top1=pos[0] / denom, top3=sum(pos[:3]) / denom, n_positive=len(pos))
     return dict(usd=best + fees, fees=fees, n_trades=len(rows), rule=rule, concentration=conc,
                 share_of_losses=((best + fees) / losses if losses > 0 else None))
 

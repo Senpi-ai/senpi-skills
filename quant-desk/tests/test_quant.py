@@ -1131,7 +1131,10 @@ def _tm_row(**kw):
 
 
 def _closed_winners(n=3, notional=5_000.0):
-    return [dict(win=True, truncated=False, peak_notional=notional) for _ in range(n)]
+    # entry-marked (peak_size x entry_vwap) is what the size lever measures against; peak_notional
+    # is kept so any caller still reading it sees the same number
+    return [dict(win=True, truncated=False, peak_notional=notional,
+                 peak_size=1.0, entry_vwap=notional) for _ in range(n)]
 
 
 CHASE_ON = dict(chased_n=5, chased_realized=-10_000.0, calm_pf=1.8, chased_pf=0.4)
@@ -1338,3 +1341,48 @@ def test_the_headline_does_not_credit_the_exit_rule_with_the_fee_saving():
     assert "Your quant would have kept ~$27,996" in md
     assert "$18,898 of it is taker fees" in md and "the other $9,098 comes from one rule" in md
     assert not md.startswith("**A trailing stop"), "the rule is credited with the fee saving again"
+
+
+def test_concentration_can_never_exceed_the_thing_it_is_a_share_of():
+    """Reported by @shnoodles on #718. The numerator was gross per-trade savings while the
+    denominator was the lever total, which is NET of the trades the rule cost money on — and, for
+    the chased lever, net of the chased winners. A single trade could be reported as 111% of the
+    number. The "top three were 102%" cited as a finding about a real book was this artifact."""
+    charged = [_tm_row(lock_cf={"0.03/0.5": v}) for v in (10_000.0, 2_000.0, 1_000.0, -4_000.0)]
+    tm = dict(lock={"settings": {"0.03/0.5": dict(n=4, total=9_000.0)}})
+    c = score.recoverable(charged, [], {}, tm)["concentration"]
+    assert c["top1"] <= 1.0 and c["top3"] <= 1.0, c
+    assert round(c["top1"], 4) == round(10_000 / 13_000, 4), "share of what contributed, not of the net"
+
+    # the chased lever nets its winners off the total; the per-trade list is losers only
+    chased = [_tm_row(realized=r, win=r > 0, chased=True) for r in (-8_000.0, -3_000.0, -1_000.0, 1_000.0, 1_000.0)]
+    c2 = score.recoverable(chased, [], {}, CHASE_ON)["concentration"]
+    assert c2["top1"] <= 1.0 and c2["top3"] <= 1.0, c2
+
+
+def test_the_size_lever_marks_both_sides_the_same_way():
+    """Also from #718. The median winner was peak-marked (price when peak size was on) while the
+    threshold it gates is entry-marked (peak size x entry VWAP). Winners are by definition the
+    trades that moved favourably, so the median was biased high. ~0.0% on the books tested, but it
+    is a comparison across two populations."""
+    closed = [dict(win=True, truncated=False, peak_size=2.0, entry_vwap=5_000.0,
+                   peak_notional=50_000.0) for _ in range(3)]          # peak-marked 5x the entry mark
+    loser = _tm_row(realized=-4_000.0, win=False, notional=20_000.0)   # 1.3x peak-marked, 2x entry-marked
+    rec = score.recoverable([loser], closed, {}, None)
+    assert rec["usd"] > 0, "entry-marked median is 10,000, so a 20,000 loser is oversized and must count"
+
+
+def test_a_wiped_out_account_is_not_the_same_risk_score_as_a_third_drawdown():
+    """The penalty was min(20, dd_pct * 60), which saturates at 33%: a book that gave back a third
+    and a book that went to ZERO scored identically, and a wiped-out account read 65/100 on "Risk
+    management". Drawdown here is built from cumulative P&L and is transfer-immune, so dd_pct = 1.0
+    really does mean the equity at risk was lost — the one outcome this dimension exists to catch."""
+    flat = dict(positions=[], naked=[], margin_utilization=None)
+    tr = dict(hold_ratio=None, liquidations=0)
+    s_third, _ = score.dim_risk(tr, flat, dict(dd_pct=0.33))
+    s_half, _ = score.dim_risk(tr, flat, dict(dd_pct=0.50))
+    s_zero, line = score.dim_risk(tr, flat, dict(dd_pct=1.00))
+
+    assert s_third > s_half > s_zero, f"not monotonic: {s_third} / {s_half} / {s_zero}"
+    assert s_zero <= 15, f"a total loss of the equity at risk scored {s_zero}"
+    assert "went to zero" in line, line
