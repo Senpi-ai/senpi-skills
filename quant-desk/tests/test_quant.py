@@ -1,6 +1,7 @@
 """quant-desk — offline tests: synthetic fills for the engine's rules, the recorded public fixture for the
 whole pipeline. No network."""
 import json
+import re
 from pathlib import Path as _P
 import os
 import subprocess
@@ -1118,7 +1119,14 @@ def test_the_desk_never_promises_a_signature_it_cannot_take():
     # it verbatim on 0x2e2e…1c50, on a book with 15 naked positions. Guarding only the renderer
     # guards the half the agent is allowed to rewrite.
     skill = " ".join((root / "SKILL.md").read_text().split())
-    assert "is a signature the user gives on positions they already hold" not in skill
+    # match the CLAIM, not one phrasing of it. The first version of this test pinned the exact
+    # sentence from rule 5 and missed a second instance eleven lines from the next-steps template —
+    # "a stop ladder is a signature on positions they already hold, not a deposit" — which is the
+    # one an agent actually reproduced to a reader with 15 naked positions.
+    for m in re.finditer(r"signature", skill):
+        window = skill[m.start():m.start() + 120]
+        assert "positions they already hold" not in window and "positions you already hold" not in window, window
+        assert "stop ladder is a signature" not in skill
     assert "senpi cannot put a stop on a position held in the reader's own wallet" in skill
     assert "they place the stop on Hyperliquid, themselves" in skill
 
@@ -1467,3 +1475,15 @@ def test_senpis_trader_score_consistency_is_not_confused_with_the_desks_own():
     src = _P(HERE, "..", "scripts", "render.py").read_text()
     assert "senpi trader-score consistency" in src
     assert "· consistency score {lab['tcs']}" not in src
+
+
+def test_the_hire_my_quant_handoff_leads_with_both_routes_and_the_leaks():
+    """Arriving from the desk is not the same as opening discover cold: the reader has just been
+    shown their edge AND their leaks. Opening on templates alone reads as the only option, and
+    drops the half that makes the handoff worth anything — what the strategy has to FIX."""
+    skill = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
+    assert "Handing off on *hire my quant*" in skill
+    for phrase in ("maps to your trading style, while improving some of your leaks",
+                   "fork a template to build quickly, or code something from scratch",
+                   "Name the leak the template closes"):
+        assert phrase in skill, phrase
