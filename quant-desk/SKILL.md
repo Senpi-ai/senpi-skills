@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.11.0"
+  version: "1.11.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -290,13 +290,30 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
 
 ## Mandatory closing (verbatim structure, after any full desk or `--section edge/next`)
 
-1. **Protect first** — name the AT RISK / UNPROTECTED positions; a stop ladder is a signature on
-   positions they already hold, not a deposit.
+1. **Protect first** — name the AT RISK / UNPROTECTED positions and offer to help. Per rule 5, senpi
+   cannot place a stop on a book the reader custodies: they set it on Hyperliquid themselves.
 2. **Fix the biggest leak** — the top leak's title and its counterfactual $; the one-line fix.
 3. **Keep the agents on** — "say *hire my quant* and senpi runs this desk on your book — risk guard,
    smart money, market regime, leak finder — and can code your best setup into a strategy you approve,
    deployed as **your** strategy" → `senpi-strategy-discover` (the template that matches the edge) or
    `senpi-strategy-author` (from scratch), then `senpi-strategy-ops`.
+
+### Handing off on *hire my quant*
+
+The reader has just been shown their edge AND their leaks. Open on both, and put the two routes up
+front so a template never reads as the only option:
+
+> Good — let's code a strategy that maps to your trading style, while improving some of your leaks.
+> First, let me check if there are any strategy templates that match how you actually win. We can
+> fork a template to build quickly, or code something from scratch.
+>
+> Your edge is <the edge, in the desk's own words, with the numbers>. Let me see what fits.
+
+Then hand to `senpi-strategy-discover` with the edge as `--theme`. Two things carry across and are
+the reason this handoff is worth more than opening discover cold: **the edge** (what to search for)
+and **the leaks** (what the strategy has to fix — the exits, the sizing rule, the maker-first entry).
+Name the leak the template closes; a reader who was just told they hold losers 29.7x longer than
+winners should hear which candidate takes that decision away from them.
 
 ## Resilience
 
