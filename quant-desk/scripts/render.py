@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.8.2"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.8.3"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -214,24 +214,6 @@ def performance(r):
     return "\n".join(out)
 
 
-def rule_in_english(rule):
-    """The levers are stored as grid keys ("0.03/0.5", "24"). Nobody can act on that."""
-    if not rule:
-        return None
-    if rule.startswith("trailing lock"):
-        try:
-            arm, share = rule.split()[-1].split("/")
-            return f"a trailing stop that arms at +{float(arm):.0%} and keeps {float(share):.0%} of the peak"
-        except ValueError:
-            return "a trailing stop"
-    if rule.startswith("time cut"):
-        try:
-            return f"closing anything still open after {float(rule.split()[-1]):.0f}h"
-        except ValueError:
-            return "a time cut"
-    return rule
-
-
 def recoverable_line(r):
     """The one quotable number, with its shape. The leaks below are alternative fixes for the same
     trades, so a reader who adds them up gets a figure larger than the money ever at stake."""
@@ -239,8 +221,8 @@ def recoverable_line(r):
     total = rec.get("usd") or 0
     if total <= 0 or not r.get("leaks"):
         return []
-    eng = rule_in_english(rec.get("rule"))
-    head = f"**{eng.capitalize()} would have kept ~{usd(total)}**" if eng \
+    eng = rec.get("rule")
+    head = f"**{eng[0].upper() + eng[1:]} would have kept ~{usd(total)}**" if eng \
         else f"**Your costs alone would have kept ~{usd(total)}**"
     # only a denominator that means something: on a book with almost no losses the share is a
     # division by noise (the fixture reads 20924%), and a number like that discredits the rest
