@@ -200,7 +200,16 @@ def statements(fp, tr, book):
                  + f" — net {100 * fp['net_over_gross']:.0f}% of gross; " + ", ".join(f"{100 * m['share']:.0f}% {m['side'].lower()} {m['cls']}" for m in fp["live_mix"][:3]))
     if fp["leg_correlation"] is not None and sim["both_share"] >= 0.2:
         c = fp["leg_correlation"]
-        s.append(f"your long leg and your short leg move together (ρ = {c:+.2f}) — " + ("the hedge is mostly a fee" if c > 0.6 else ("the legs are genuinely different bets" if c < 0.3 else "partly a hedge")))
+        # Past tense, always. This measures the WINDOW, and it used to sit in the present tense
+        # directly beneath "the book right now is directional — net 100% of gross", so a reader was
+        # told about a long leg the live book does not have. Say when the legs are gone.
+        sides = {q["side"] for q in (book["positions"] or [])}
+        gone = " — though the book you hold now is " + ("short only" if sides == {"SHORT"} else "long only") \
+               if len(sides) == 1 else ""
+        s.append(f"over the window your long leg and your short leg moved together (ρ = {c:+.2f}) — "
+                 + ("the hedge was mostly a fee" if c > 0.6
+                    else ("the legs were genuinely different bets" if c < 0.3 else "partly a hedge"))
+                 + gone)
     if fp["pnl_beta"]:
         b = fp["pnl_beta"]
         if abs(b["corr"]) >= 0.5:
