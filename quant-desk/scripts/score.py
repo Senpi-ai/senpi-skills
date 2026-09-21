@@ -34,7 +34,10 @@ def _pct_cost(x):
 def dim_timing(tm, sm, cov=None):
     s, lines = 70.0, []
     if not tm or (tm.get("n") or 0) < 5:
-        return 60.0, "Not enough fully observed trades to judge timing."
+        # abstain, do not score: a dimension that measured nothing must not vote. Scoring 60 here
+        # propped a book with 0 closed trades to 56/100 while it sat $1.27M underwater on a naked
+        # position. dimensions() re-normalises over the dimensions that could measure.
+        return None, "Not enough fully observed trades to judge timing."
     if tm and tm.get("n"):
         cs = tm.get("chased_share") or 0.0
         s -= cs * 40
@@ -159,6 +162,11 @@ def dim_sizing(tr, book, closed):
     if book.get("largest_share") and book["largest_share"] > 0.6 and len(book["positions"]) > 1:
         s -= 10; lines.append((1, f"One position is {_pct(book['largest_share'])} of the book."))
     if not lines:
+        if not comp:
+            # no closed trades and nothing unusual in the live book: there is no sizing BEHAVIOUR to
+            # read. Claiming "sizes are consistent and exposure is proportionate" asserts the thing
+            # that was not measured.
+            return None, "No closed trades to judge sizing on, and the open book shows nothing unusual."
         lines.append((0, "Sizes are consistent and exposure is proportionate."))
     return clamp(s), max(lines)[1]
 
@@ -167,7 +175,7 @@ def dim_consistency(tr, pnl_curve):
     n = tr.get("trades") or 0
     wr, pf = tr.get("win_rate"), tr.get("profit_factor")
     if pf is None and wr is None:
-        return 50.0, "No closed trades in the window."
+        return None, "No closed trades in the window — nothing to judge consistency on."
     pf_ = 3.0 if pf in (None, float("inf")) else min(pf, 3.0)
     s = 50 + (pf_ - 1) * 20 + (((wr or 0.5) - 0.5) * 40 if wr is not None else 0)
     s = 50 + (s - 50) * (n / (n + 10.0)) if n else 50.0
@@ -350,7 +358,64 @@ def verdict(tr, book, dims, leaks):
 
 
 # ---------------------------------------------------------------- leaks
-def recoverable(rows, closed, tr, tm=None):
+def levers(rows, closed, tm=None):
+    """Every process fix the desk can price, each as a book-wide total that NETS its own costs.
+
+    This is the single source both `leaks()` and `recoverable()` read. They used to compute the same
+    fixes separately and disagreed on the page: a trailing lock was listed at $6,083 (the most
+    conservative setting) while the quotable headline credited the same rule with $9,099 (the best
+    setting, charged), and the sizing leak was listed at $53,792 against a charged value of $8,182 —
+    so the desk named a "biggest leak" that was not the biggest lever once both were measured the
+    same way. Reported by @shnoodles on #718.
+
+    Each entry: kind, label (a finished sentence fragment), total (charged), gross (before the trades
+    it costs), vals (per-trade contributions, for concentration).
+    """
+    tm, rows, out = tm or {}, rows or [], []
+
+    grid = [("lock", f"{a:.2f}/{sh:.1f}", f"a trailing stop that arms at +{a:.0%} and keeps {sh:.0%} of the peak")
+            for a, sh in timing.LOCK_GRID]
+    grid += [("cut", f"{h:.0f}", f"closing anything still open after {h:.0f}h") for h in timing.CUT_GRID_H]
+    for grp, k, label in grid:
+        st = (((tm.get(grp) or {}).get("settings")) or {}).get(k) or {}
+        if not st.get("n"):
+            continue
+        vals = [float(v) for v in ((t.get(f"{grp}_cf") or {}).get(k) for t in rows) if v is not None]
+        out.append(dict(kind=grp, key=k, label=label, total=float(st.get("total") or 0.0),
+                        gross=sum(v for v in vals if v > 0), vals=vals, n=int(st["n"])))
+
+    m = None
+    winners = [e["peak_size"] * e["entry_vwap"] for e in (closed or [])
+               if e.get("win") and not e.get("truncated") and (e.get("peak_size") or 0) > 0
+               and (e.get("entry_vwap") or 0) > 0]
+    if len(winners) >= 3:
+        m = statistics.median(winners)
+    if m:
+        over = [t for t in rows if (t.get("notional") or 0) > 1.5 * m]
+        vals = [-t["realized"] * (1 - m / t["notional"]) for t in over]
+        if vals:
+            out.append(dict(kind="size", key="1.5x", label="capping size at your median winner",
+                            total=sum(vals), gross=sum(v for v in vals if v > 0), vals=vals,
+                            n=len(over), median_winner=m,
+                            losers=len([t for t in over if not t.get("win")])))
+
+    if (tm.get("chased_n") or 0) >= 3 and (tm.get("chased_realized") or 0) < -50 \
+            and (tm.get("calm_pf") or 0) > (tm.get("chased_pf") or 0):
+        vals = [-float(t["realized"]) for t in rows if t.get("chased") and (t.get("realized") or 0) < 0]
+        out.append(dict(kind="chase", key="3pct", label="skipping entries after a >=3% move",
+                        total=-float(tm["chased_realized"]), gross=sum(vals), vals=vals,
+                        n=int(tm["chased_n"])))
+    return out
+
+
+def best_lever(lv, kind=None):
+    """The highest-scoring lever, optionally of one kind. None when nothing beats doing nothing."""
+    c = [x for x in (lv or []) if kind is None or x["kind"] == kind]
+    b = max(c, key=lambda x: x["total"], default=None)
+    return b if b and b["total"] > 0 else None
+
+
+def recoverable(rows, closed, tr, tm=None, lv=None):
     """One honest number: what a senpi runtime would have kept over this window.
 
     The leaks each price a different fix over the SAME trades, so they must never be added — one bad
@@ -377,68 +442,43 @@ def recoverable(rows, closed, tr, tm=None):
     would have been true arithmetic and a false picture. `rule` is the finished sentence, not the
     grid key: the phrasing has one home, here, next to every other string the desk shows a user.
     """
-    tm = tm or {}
+    lv = levers(rows, closed, tm) if lv is None else lv
+    best = best_lever(lv)
+    rule = best["label"] if best else None
+    vals = best["vals"] if best else []
+    total = best["total"] if best else 0.0
+
     rows = rows or []
-    levers = []   # (total, label, per-trade values)
-
-    grid = [("lock", f"{a:.2f}/{sh:.1f}", f"a trailing stop that arms at +{a:.0%} and keeps {sh:.0%} of the peak")
-            for a, sh in timing.LOCK_GRID]
-    grid += [("cut", f"{h:.0f}", f"closing anything still open after {h:.0f}h") for h in timing.CUT_GRID_H]
-    for grp, k, label in grid:
-        st = (((tm.get(grp) or {}).get("settings")) or {}).get(k) or {}
-        if not st.get("n"):
-            continue
-        vals = [float(v) for v in ((t.get(f"{grp}_cf") or {}).get(k) for t in rows) if v is not None]
-        levers.append((float(st.get("total") or 0.0), label, vals))
-
-    m = None
-    # entry-marked on BOTH sides. `peak_notional` is marked at the price when the peak size was on,
-    # while timing.py's `notional` is peak size x entry VWAP — winners are by definition the trades
-    # whose price moved their way, so a peak-marked median is biased high against an entry-marked
-    # threshold. Measured at ~0.0% on both test books, so this changes no number today; it removes a
-    # comparison between two different populations before one starts to matter.
-    winners = [e["peak_size"] * e["entry_vwap"] for e in (closed or [])
-               if e.get("win") and not e.get("truncated") and (e.get("peak_size") or 0) > 0
-               and (e.get("entry_vwap") or 0) > 0]
-    if len(winners) >= 3:
-        m = statistics.median(winners)
-    if m:
-        vals = [-t["realized"] * (1 - m / t["notional"]) for t in rows if (t.get("notional") or 0) > 1.5 * m]
-        if vals:
-            levers.append((sum(vals), "capping size at your median winner", vals))
-
-    if (tm.get("chased_n") or 0) >= 3 and (tm.get("chased_realized") or 0) < -50 \
-            and (tm.get("calm_pf") or 0) > (tm.get("chased_pf") or 0):
-        vals = [-float(t["realized"]) for t in rows if t.get("chased") and (t.get("realized") or 0) < 0]
-        levers.append((-float(tm["chased_realized"]), "skipping entries after a >=3% move", vals))
-
-    best, rule, vals = max(levers, default=(0.0, None, []), key=lambda x: x[0])
-    if best <= 0:
-        best, rule, vals = 0.0, None, []
-
     losses = -sum(t["realized"] for t in rows if (t.get("realized") or 0) < 0)
     fees = max(0.0, float(tr.get("fee_recoverable") or 0.0)) if (tr.get("taker_share") or 0) >= 0.25 else 0.0
 
     # Concentration answers "is this driven by a few trades or many", so the denominator is the sum
     # of everything that CONTRIBUTED — the positive per-trade terms plus fees, the most diffuse
-    # contributor there is.
-    #
-    # It must NOT be the lever total. That total is net of the trades the rule cost money on (and,
-    # for the chased lever, net of the chased winners) while the numerator is gross, so a single
-    # trade could be reported as 111% of the number. The "top three were 102%" this docstring used
-    # to cite was that artifact, not a fact about the book.
+    # contributor there is. It must NOT be the lever total, which is net of the trades the rule cost
+    # money on: a single trade could then be reported as 111% of the number (#718).
     pos = sorted((v for v in vals if v > 0), reverse=True)
-    conc = None
     denom = sum(pos) + fees
-    if denom > 0 and pos:
-        conc = dict(top1=pos[0] / denom, top3=sum(pos[:3]) / denom, n_positive=len(pos))
-    return dict(usd=best + fees, fees=fees, n_trades=len(rows), rule=rule, concentration=conc,
-                share_of_losses=((best + fees) / losses if losses > 0 else None))
+    conc = dict(top1=pos[0] / denom, top3=sum(pos[:3]) / denom, n_positive=len(pos)) if (denom > 0 and pos) else None
+
+    return dict(usd=total + fees, fees=fees, n_trades=len(rows), rule=rule, concentration=conc,
+                share_of_losses=((total + fees) / losses if losses > 0 else None))
 
 
-def leaks(tr, book, tm, funding_rows, closed, window_start, days):
+def _cf_charged(l, days):
+    """Charged value first, gross second. The gross figure is what the fix saves on the trades it
+    helps; the charged one nets the trades it costs, and is the only one that can be quoted next to
+    the headline without contradicting it."""
+    g = l.get("gross") or 0.0
+    s = f"Running {l['label']} over the whole book would have kept ~{_usd(l['total'])} over {days} days"
+    return s + (f" — it saves {_usd(g)} on the trades it helps and gives some of that back on the ones it costs." if g > l["total"] + 1 else ".")
+
+
+def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
     out = []
     yr = 365.0 / days
+    # charged lever totals, so a leak is listed at the value recoverable() would credit it with and
+    # the ranking is by the same accounting as the headline (#718)
+    ch = {x["kind"]: x for x in (lv or [])}
     # 1. costs — resting instead of crossing the spread
     if tr.get("fee_recoverable", 0) >= 50 and (tr.get("taker_share") or 0) >= 0.25:
         out.append(dict(agent="Leak finder", title=f"{_pct(tr['taker_share'])} of your volume crossed the spread as a taker",
@@ -456,18 +496,22 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days):
                         counterfactual=f"A 24h cap on holds that pay funding would have kept ~{_usd(paid_late)} over {days} days.",
                         usd=paid_late, window=f"{days}d", cta="A funding-aware hold rule caps the cost without changing the thesis."))
     # 3. losers held too long — only when the time cut is robust
-    cut = ((tm or {}).get("cut") or {}).get("robust")
+    cut_l = best_lever(lv, "cut")
+    cut = cut_l["total"] if cut_l else ((tm or {}).get("cut") or {}).get("robust")
     if cut and cut > 50 and tr.get("hold_ratio", 0) and tr["hold_ratio"] > 1.2 and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES:
         out.append(dict(agent="Leak finder", title=f"You hold losers {tr['hold_ratio']:.1f}× longer than winners",
                         evidence=f"Median loser {tr['hold_losers_h']:.1f}h vs winner {tr['hold_winners_h']:.1f}h across {tr['complete_trades']} complete trades.",
-                        counterfactual=f"A time-cut on losers (12–48h, whichever) would have kept roughly ~{_usd(cut)} over {days} days (approximate: peak size × price move).",
+                        counterfactual=(f"{_cf_charged(cut_l, days)}" if cut_l else
+                                        f"A time-cut on losers (12–48h, whichever) would have kept roughly ~{_usd(cut)} over {days} days (approximate: peak size × price move)."),
                         usd=cut, window=f"{days}d", cta="A time-cut is a rule your quant can run for you."))
     # 4. giving back winners — only when the lock is robust
-    lock = ((tm or {}).get("lock") or {}).get("robust")
+    lock_l = best_lever(lv, "lock")
+    lock = lock_l["total"] if lock_l else ((tm or {}).get("lock") or {}).get("robust")
     if lock and lock > 50 and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES:
         out.append(dict(agent="Leak finder", title=f"You give back a median {_pct(tm['give_back_median'])} of a winner's peak",
                         evidence=f"Winners reach a median +{_pct(tm['mfe_median_winners'], 1)} before exit; {_pct(tm['losers_that_were_green'])} of losers were green first." if tm.get("losers_that_were_green") is not None else "",
-                        counterfactual=f"A trailing lock on peak gains would have kept roughly ~{_usd(lock)} over {days} days (approximate: peak size × price move).",
+                        counterfactual=(f"{_cf_charged(lock_l, days)}" if lock_l else
+                                        f"A trailing lock on peak gains would have kept roughly ~{_usd(lock)} over {days} days (approximate: peak size × price move)."),
                         usd=lock, window=f"{days}d", cta="A ratcheting stop locks the peak without capping the run."))
     # 5. chasing
     if tm and tm.get("chased_n", 0) >= 3 and tm.get("chased_realized", 0) < -50 and (tm.get("calm_pf") or 0) > (tm.get("chased_pf") or 0):
@@ -483,16 +527,12 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days):
                         counterfactual=f"A stop halfway to liquidation would have kept roughly ~{_usd(half)} of it.",
                         usd=half, window=f"{days}d", cta="A hard stop is the cheapest insurance there is."))
     # 7. sizing — oversized losers
-    comp = [e for e in closed if not e.get("truncated") and e["peak_notional"] > 0]
-    lw = [e["peak_notional"] for e in comp if e["win"]]
-    if len(lw) >= 3:
-        m = statistics.median(lw); over = [e for e in comp if not e["win"] and e["peak_notional"] > 1.5 * m]
-        saved = sum(-e["realized"] * (1 - m / e["peak_notional"]) for e in over if e["realized"] < 0)
-        if saved > 50 and len(over) >= 2:
-            out.append(dict(agent="Leak finder", title=f"{len(over)} losers were sized >1.5× your median winner",
-                            evidence=f"Median winner {_usd(m)} notional; those losers averaged {_usd(statistics.mean(e['peak_notional'] for e in over))}.",
-                            counterfactual=f"Sizing them at your median would have kept ~{_usd(saved)} over {days} days.",
-                            usd=saved, window=f"{days}d", cta="Size by conviction, not by frustration — a fixed-fraction rule does this."))
+    size_l = ch.get("size")
+    if size_l and size_l["total"] > 50 and size_l.get("losers", 0) >= 2:
+        out.append(dict(agent="Leak finder", title=f"{size_l['losers']} losers were sized >1.5× your median winner",
+                        evidence=f"Median winner {_usd(size_l['median_winner'])} notional; {size_l['n']} positions ran above 1.5× that.",
+                        counterfactual=_cf_charged(size_l, days),
+                        usd=size_l["total"], window=f"{days}d", cta="Size by conviction, not by frustration — a fixed-fraction rule does this."))
     out.sort(key=lambda l: -l["usd"])
     return out
 

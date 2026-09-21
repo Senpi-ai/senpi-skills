@@ -215,7 +215,13 @@ def test_dimensions_are_bounded_and_explained():
               coins={"ETH": {"volume_share": 0.6, "funding": -50}}, coverage=None, fee_recoverable=100, volume=100000, fee_rate_taker=0.0004, fee_rate_maker=0.0001, long_share=0.7)
     dd = {"dd_pct": 0.1, "in_drawdown": False}
     dims, q = score.dimensions(tr, book, dd, None, market.book_fit(book, {}, ctxs), None, [], [])
-    assert set(dims) == set(score.WEIGHTS) and all(0 <= d["score"] <= 100 and d["line"] for d in dims.values()) and 0 <= q <= 100
+    # a dimension either scores inside the band or abstains — but it always explains itself, and an
+    # abstention must never leave the headline out of range
+    assert set(dims) == set(score.WEIGHTS)
+    for k, d in dims.items():
+        assert d["line"], f"{k} scored without explaining itself"
+        assert d["score"] is None or 0 <= d["score"] <= 100, f"{k} out of band: {d['score']}"
+    assert 0 <= q <= 100
     assert "3.0× longer" in dims["risk"]["line"]
     fl = score.flags(tr, book, dd, None, None, {"consistency": "CHOPPY"})
     assert "PARTIAL STOPS (1/2)" in fl and "HIGH MARGIN 70%" in fl and "CHOPPY" in fl
@@ -1092,16 +1098,18 @@ def test_the_desk_never_promises_a_signature_it_cannot_take():
     senpi strategy wallet, so for a desk reader whose book is on their OWN wallet senpi cannot attach
     anything at all today. And the reader is told to do nothing while four naked positions sit there.
 
-    The desk now tells them to place the stops themselves, now, and says senpi will take it over.
+    The desk names the naked positions and offers help. It must never imply senpi can place the stop
+    for them, in any tense — the copy is now short ("Let me know if you want my help"), and short copy
+    is exactly where an overclaim slips back in unnoticed.
     """
     import pathlib
     src = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "render.py").read_text()
-    # drop comment lines — the explanation of this fix quotes the phrase it forbids
+    # drop comment lines — the explanation of this fix quotes the phrases it forbids
     code = "\n".join(l for l in src.splitlines() if not l.lstrip().startswith("#"))
-    assert "signature on positions you already hold" not in code, "the signature overclaim is back"
-    assert "onchain on Hyperliquid" in src
-    for phrase in ("Set a stop on each of them onchain", "These are yours to place"):
-        assert phrase in src, phrase
+    for banned in ("signature on positions you already hold", "Senpi will soon do this for you",
+                   "senpi will place", "I'll place the stop", "we'll set the stop"):
+        assert banned not in code, f"overclaim is back: {banned!r}"
+    assert "Let me know if you want my help" in code, "the offer of help was dropped"
 
 
 def test_next_steps_offers_a_route_for_someone_who_does_not_want_their_own_history_mechanised():
@@ -1114,9 +1122,9 @@ def test_next_steps_offers_a_route_for_someone_who_does_not_want_their_own_histo
     md = render.next_steps(r)
     assert "Or build something new." in md and "Tell me your thesis" in md
     assert "Reply *hire my quant*" in md
-    # and the protect step must point at Hyperliquid, not at a signature
+    # and the protect step names the naked coins and offers help, without promising a signature
     if "Protect first" in md:
-        assert "onchain on Hyperliquid yourself" in md and "signature" not in md
+        assert "Let me know if you want my help" in md and "signature" not in md
 
 
 
@@ -1386,3 +1394,23 @@ def test_a_wiped_out_account_is_not_the_same_risk_score_as_a_third_drawdown():
     assert s_third > s_half > s_zero, f"not monotonic: {s_third} / {s_half} / {s_zero}"
     assert s_zero <= 15, f"a total loss of the equity at risk scored {s_zero}"
     assert "went to zero" in line, line
+
+
+def test_a_dimension_with_nothing_to_measure_abstains_rather_than_scoring_mid():
+    """On 0x6910…feda — 0 closed trades, $1.27M underwater, one naked $6.5M position at 96% margin —
+    timing scored 60 ("not enough trades to judge timing"), consistency 50 ("no closed trades") and
+    sizing 85 ("sizes are consistent and exposure is proportionate"). Three dimensions that measured
+    nothing carried 0.55 of the weighted headline and lifted it to 56/100.
+
+    Same rule as dim_cost: measure it or abstain, and let the aggregate re-normalise."""
+    assert score.dim_timing({}, None)[0] is None
+    assert score.dim_timing(dict(n=2), None)[0] is None, "under the 5-trade floor"
+    assert score.dim_consistency(dict(trades=0, win_rate=None, profit_factor=None), None)[0] is None
+
+    quiet_book = dict(positions=[], exposure_over_equity=None, largest_share=None)
+    assert score.dim_sizing(dict(), quiet_book, [])[0] is None, "no trades and a quiet book"
+
+    # but a live book that IS unusual still gets judged with no closed trades
+    loud = dict(positions=[{}], exposure_over_equity=9.0, largest_share=None)
+    s_loud, line = score.dim_sizing(dict(), loud, [])
+    assert s_loud is not None and "exposure" in line.lower()
