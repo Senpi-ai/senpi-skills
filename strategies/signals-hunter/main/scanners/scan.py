@@ -73,30 +73,50 @@ def _ring_from_state(ctx):
             else []), (last.get("recent") or {})
 
 
-def _withdrawable(ctx):
-    """Free margin, USD. `withdrawable` sits beside `marginSummary` in each dex section and BOTH
-    sections are views of ONE cross-margined wallet, so this is a max() — summing double-counts.
-    Returns None when the read fails, which is not the same as a wallet with nothing in it."""
+def _wallet(ctx):
+    """(free_usd, committed_margin_usd) from ONE read.
+
+    The two numbers aggregate in OPPOSITE directions and getting that backwards is the whole bug
+    this function exists to avoid:
+
+      - `withdrawable` sits beside `marginSummary` in each dex section and BOTH sections are views
+        of ONE cross-margined wallet, so free is a **max()** — summing double-counts it.
+      - each section lists its OWN `assetPositions`, so committed margin **sums** across sections.
+
+    Verified against a live wallet holding three `main` and two `xyz` positions: the per-position
+    `marginUsed` summed to $393.19, matching the two sections' `totalMarginUsed` (199.34 + 193.85)
+    exactly, while `withdrawable` read identically ($149.91) in both.
+
+    Capital is then `free + committed`, which is deliberately NOT `accountValue`: an isolated xyz
+    position posts its margin out of the cross balance, so `accountValue` means different things in
+    the two views and reconciling them is guesswork. free+committed needs no such interpretation —
+    on that same wallet it came to $543.10 against $550 funded, the difference being fees, funding
+    and open losses.
+
+    Returns (None, 0.0) when the read fails, which is not the same as a wallet with nothing in it.
+    """
     try:
         d = ctx.senpi_mcp.call_tool("strategy_get_clearinghouse_state",
                                     {"strategy_wallet": ctx.wallet})
     except Exception as exc:  # noqa: BLE001
         print(f"[signals-hunter.scan] clearinghouse read failed: {exc!r}", file=sys.stderr)
-        return None
+        return None, 0.0
     d = d.get("data", d) if isinstance(d, dict) else None
     if not isinstance(d, dict):
-        return None
-    best = None
+        return None, 0.0
+    best, used = None, 0.0
     for section in ("main", "xyz"):
         s = d.get(section)
-        if not isinstance(s, dict) or s.get("withdrawable") is None:
+        if not isinstance(s, dict):
             continue
-        try:
-            v = float(s["withdrawable"])
-        except (TypeError, ValueError):
-            continue
-        best = v if best is None else max(best, v)
-    return best
+        v = _f(s.get("withdrawable"), None)
+        if v is not None:
+            best = v if best is None else max(best, v)
+        for ap in (s.get("assetPositions") or []):
+            pos = ap.get("position") if isinstance(ap, dict) else None
+            if isinstance(pos, dict):
+                used += abs(_f(pos.get("marginUsed"), 0.0))
+    return best, used
 
 
 def _cohort_is_dark(cov):
@@ -178,8 +198,15 @@ def scan(inputs, ctx):
     # and it fails the LOWER-ranked ones, which is a silent quality bias rather than log noise.
     # 5 slots x 20% is already exactly 100% of withdrawable with zero headroom; the 25% tier puts
     # the intended total over it. So emit only what fits, worst-ranked dropped first.
-    free = _withdrawable(ctx)
-    out, skipped_dir, committed_pct, unfunded = [], 0, 0.0, 0
+    free, used = _wallet(ctx)
+    # The cap is a PORTFOLIO cap, and it was only ever a per-TICK one. `committed_pct` started at 0
+    # on every tick and counted only that tick's emits, so an hourly clock was free to commit another
+    # `maxTotalMarginPct` on top of a book that was already full — five ticks, 400%. What actually
+    # held the line was `slots` and the held-set, not the guard written to do it. Seed the counter
+    # with what is already at risk so the cap means what its name says.
+    capital = (free + used) if free is not None else None
+    already_pct = (100.0 * used / capital) if capital and capital > 0 else 0.0
+    out, skipped_dir, committed_pct, unfunded = [], 0, already_pct, 0
     for s in ranked:
         asset = s.get("asset")
         direction = str(s.get("direction") or "").upper()
@@ -231,8 +258,9 @@ def scan(inputs, ctx):
         # Say this on EVERY tick it happens, not only on a quiet one: a tick that opened four and
         # silently dropped two qualifying signals for want of margin is the case worth seeing.
         print(f"[signals-hunter.scan] {unfunded} qualifying signal(s) not emitted — "
-              f"{committed_pct:.0f}% of withdrawable already committed this tick against a "
-              f"{max_total_margin:.0f}% cap. Lowest-ranked dropped first.", file=sys.stderr)
+              f"{committed_pct:.0f}% of capital committed against a {max_total_margin:.0f}% cap "
+              f"({already_pct:.0f}% of it already at risk in open positions). "
+              f"Lowest-ranked dropped first.", file=sys.stderr)
 
     if not out:
         free_s = "unread" if free is None else f"${free:,.0f}"
@@ -241,7 +269,8 @@ def scan(inputs, ctx):
               f"signals={len(signals)} tradeable={len(tradeable)} ranked={len(ranked)} "
               f"held={sorted(held)} ring={len(ring)} baseline={base_s} "
               f"(minScore {min_score:.0f}, unnamed_direction={skipped_dir}, "
-              f"unfunded={unfunded}, free={free_s})", file=sys.stderr)
+              f"unfunded={unfunded}, free={free_s}, committed={already_pct:.0f}%/"
+              f"{max_total_margin:.0f}%)", file=sys.stderr)
 
     # ── 4. persist the ring ──
     if ctx.state is not None:
