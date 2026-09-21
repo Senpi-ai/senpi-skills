@@ -77,6 +77,16 @@ budget (`min_budget` is the floor; the catalog card says what the design assumes
 design budget needs the user's explicit yes after hearing what degrades**; the `[W_BUDGET_*]` warn after
 the fact is not that consent.
 
+**"What does it need?" is answered with the calculated minimum — never the $10 wallet floor.** The floor is
+what the *platform* accepts; the calculated minimum is what the *design* needs, and below it the smallest
+slot cannot reach the engine's bumped notional, so the strategy **no-trades**: it funds, it installs, it
+scans, and it never opens. `min_budget.py` is the arithmetic —
+`max($10, $12 / (marginPct/100 × min_leverage) + $1.50)` per wallet — so a 15%-margin, 3× sleeve needs about
+$28, not $11.50, and quoting the floor hands the user a funded strategy that cannot trade. Quote the
+calculated figure (`minBudget` on the deploy report, `min_budget` on the catalog card), and if neither is to
+hand, do that division before naming a number. **Never describe a below-minimum deploy as "tight, but it'll
+trade."**
+
 ## 6. Guardrails are consent, both ways
 
 Removing a guardrail (a daily-loss limit, a cap) or lowering a threshold you just recommended gets a

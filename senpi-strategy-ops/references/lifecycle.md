@@ -136,7 +136,10 @@ Per instance the job runs five steps, each recorded with its own outcome:
    short: `[W_BUDGET_BELOW_STRATEGY_MIN]`, or `[W_BUDGET_UNRESOLVED]` when a sleeve's sizing could not be
    read and the figure is only a lower bound (that note carries the shortfall too, and the same escape).
    The floor is the platform's rule; the calculated minimum is a design estimate and the user sizes their
-   own budget. Both land on the final report (`minBudget`, `minWalletCount`, `belowMin`, `minBudgetNote`,
+   own budget — but it is not a soft one, and a warn is not permission to call the deploy fine. Below it
+   the wallet's smallest slot cannot reach the engine's bumped notional and the sleeve **no-trades**: it
+   funds, it installs, it scans, and it never opens. Report the shortfall as that, not as "degraded".
+   Both land on the final report (`minBudget`, `minWalletCount`, `belowMin`, `minBudgetNote`,
    `minBudgetUnresolved`) so they survive to a `live` render, not just the running narration; `belowMin`
    is set under either code.
    **The shortfall claim is PER WALLET, against what each one is actually allocated** — not the whole
