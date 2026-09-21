@@ -272,23 +272,29 @@ def scan(inputs, ctx):
 
     # ── neutral regime -> cash ──
     if abs(regime_score) < neutral_threshold:
-        print(f"[aegis.scan] NEUTRAL (score {regime_score:+.2f}) — cash | "
-              f"held={held_assets}", file=sys.stderr)
+        print(f"[aegis.scan] NEUTRAL (score {regime_score:+.2f}) — cash, below neutralThreshold "
+              f"{neutral_threshold:.2f} | held={held_assets}", file=sys.stderr)
         _persist_state(ctx, prev, signaled, {
             "ts": now, "emitted": False, "gate": "neutral_regime",
             "regime_score": regime_score, "regime_label": funding_label,
             "held": held_assets})
         return []
 
+    # A thin regime trades — 699 emits at -0.60 over a week — but only for a strongly aligned asset.
+    # Unsaid, an empty book in a thin regime is indistinguishable from a broken scanner, which cost a
+    # day of debugging on 2026-09-21. Say the arithmetic on the line the operator already reads.
+    thin = (f" | THIN: base {abs(regime_score) * scoring.BASE_SCALE:.0f} < minScore {min_score:.0f}"
+            f" — only a strongly aligned asset can clear here"
+            if scoring.thin_regime(regime_score, min_score) else "")
     print(f"[aegis.scan] REGIME {'RISK_OFF' if regime_score < 0 else 'RISK_ON'} "
           f"(score {regime_score:+.2f}) | funding={funding_label} "
-          f"gold={gold_trend[0]} JPY={jpy_trend[0]} | held={held_assets}",
+          f"gold={gold_trend[0]} JPY={jpy_trend[0]} | held={held_assets}{thin}",
           file=sys.stderr)
 
     # ── score each universe asset ──
     candidates = []
     for asset in _UNIVERSE:
-        direction = scoring.regime_to_direction(asset, regime_score)
+        direction = scoring.regime_to_direction(asset, regime_score, neutral_threshold)
         if direction is None:
             continue
 

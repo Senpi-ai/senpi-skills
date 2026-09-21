@@ -212,3 +212,39 @@ def test_the_venue_floor_is_the_same_number_the_catalog_minimum_is_built_from():
     min_budget = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(min_budget)
     assert scoring.VENUE_MIN_NOTIONAL == min_budget.BUMPED_NOTIONAL
+
+
+def test_a_thin_regime_still_trades():
+    """The productive regimes must keep trading. On 2026-09-21 a wallet sat empty for four hours at
+    -0.50 printing a confident RISK_OFF, and the first diagnosis was that 0.50-0.625 is a dead band
+    worth closing — base conviction 20-25 against a minScore of 25.
+
+    Seven days of telemetry refuted it: 699 emits at -0.60 and 35 at -0.50, about a quarter of all
+    Aegis trading. Thin is where trend/OI/funding alignment earns its keep. Closing the band would
+    have silenced the second-most productive regime this strategy has.
+    """
+    for score in (-0.50, -0.60, -0.62):
+        assert scoring.regime_to_direction("BTC", score, 0.5) == "SHORT", score
+        assert scoring.regime_to_direction("xyz:GOLD", score, 0.5) == "LONG", score
+        assert scoring.thin_regime(score, 25) is True, score
+    # and a strongly aligned asset really can clear the bar down there
+    best = scoring.conviction_for(-0.50, "BEARISH", "SHORT", {"trend": "BUILDING", "accel": "INCREASING"}, 0.001)
+    assert best > 25, f"a perfectly aligned asset at -0.50 scored {best:.1f}, so the band IS dead"
+    print("✓ thin regimes still trade")
+
+
+def test_regime_to_direction_respects_the_configured_threshold():
+    """It hardcoded 0.5 while the scanner read a configurable `neutralThreshold`. Both ship at 0.5, so
+    they agreed by luck; any retune of one would have silently diverged from the other — the scanner
+    announcing a regime while every asset resolved to cash."""
+    assert scoring.regime_to_direction("BTC", -0.55, 0.8) is None      # stricter band -> cash
+    assert scoring.regime_to_direction("BTC", -0.55, 0.4) == "SHORT"   # looser band -> trades
+    assert scoring.regime_to_direction("BTC", -0.55) == "SHORT"        # default keeps 0.5
+    print("✓ direction respects the configured threshold")
+
+
+def test_thin_regime_tracks_min_score():
+    """The warning is derived, not hardcoded, so a minScore retune moves it automatically."""
+    assert scoring.thin_regime(-0.60, 25) is True and scoring.thin_regime(-0.60, 20) is False
+    assert scoring.BASE_SCALE == 40.0
+    print("✓ thin_regime follows minScore")
