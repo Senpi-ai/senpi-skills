@@ -45,7 +45,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.12.2"
+VERSION = "1.13.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -289,7 +289,10 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     coin_regimes = {c: market_mod.coin_regime(c, candles, ctx_by.get(c)) for c in coins}
     step(6, "finding the leaks, pricing the fixes, running senpi-signals for live matches …", t0,
          f"{len(coins)} coins of tape")
-    lv = score.levers(tm_rows, closed, tm)          # one lever table, read by both
+    # funding is a lever too, so it is priced once here and read by both
+    _fl = min(score._funding_after(tr_raw["userFunding"], in_win, win_start, 24.0),
+              -float(track.get("funding") or 0.0))
+    lv = score.levers(tm_rows, closed, tm, funding_late=max(0.0, _fl))
     lk = score.leaks(track, book, tm, tr_raw["userFunding"], in_win, win_start, days, lv)
     # the ONE quotable number: a union over trades, never the sum of the leaks above
     rec = score.recoverable(tm_rows, closed, track, tm, lv)

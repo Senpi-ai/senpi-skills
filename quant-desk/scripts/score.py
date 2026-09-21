@@ -31,6 +31,15 @@ def _pct_cost(x):
 
 
 # ---------------------------------------------------------------- six dimensions
+def _n(d, key, default=0.0):
+    """`dict.get(k, default)` only defaults when the key is ABSENT. Several timing and market fields
+    are present-and-NULL — a median of nothing, a share with no sample, a funding rate with no book —
+    so `tm.get("chased_share", 0) >= 0.5` raised TypeError on a real wallet (0x767a…0ace, one closed
+    trade, no entry had a 24h prior). This defaults for missing AND null."""
+    v = (d or {}).get(key)
+    return default if v is None else v
+
+
 def dim_timing(tm, sm, cov=None):
     s, lines = 70.0, []
     if not tm or (tm.get("n") or 0) < 5:
@@ -42,7 +51,7 @@ def dim_timing(tm, sm, cov=None):
         cs = tm.get("chased_share") or 0.0
         s -= cs * 40
         cpf, kpf = tm.get("chased_pf"), tm.get("calm_pf")
-        if tm.get("chased_n", 0) >= 3 and cpf is not None and kpf is not None and cpf < 1.0 < kpf:
+        if _n(tm, "chased_n") >= 3 and cpf is not None and kpf is not None and cpf < 1.0 < kpf:
             s -= 15
             lines.append((3, f"{_pct(cs)} of your entries come after a ≥3% move — those run a {cpf:.1f} profit factor vs {min(kpf, 9.9):.1f} when you enter before it."))
         elif cs >= 0.5:
@@ -248,7 +257,7 @@ def archetype(tr, book, tm, act, opened=None):
         noun = "position trader"
     elif hold and hold > 24:
         noun = "swing trader"
-    elif pre is not None and pre > 0 and (tm or {}).get("give_back_median", 1) < 0.45:
+    elif pre is not None and pre > 0 and _n(tm, "give_back_median", 1) < 0.45:
         noun = "trend rider"
     else:
         noun = "opportunist"
@@ -284,9 +293,9 @@ def flags(tr, book, dd, tm, mf, labels):
         out.append("IN DRAWDOWN")
     if tr.get("liquidations"):
         out.append(f"LIQUIDATED ×{tr['liquidations']}")
-    if (tm or {}).get("chased_share", 0) >= 0.5:
+    if _n(tm, "chased_share") >= 0.5:
         out.append("CHASING")
-    if mf and mf.get("funding_per_day", 0) < 0 and book.get("account_value") and -mf["funding_per_day"] * 365 / book["account_value"] > 0.1:
+    if mf and _n(mf, "funding_per_day") < 0 and book.get("account_value") and -mf["funding_per_day"] * 365 / book["account_value"] > 0.1:
         out.append(f"PAYING FUNDING {_usd(-mf['funding_per_day'])}/DAY")
     for k in ("consistency", "risk", "activity"):
         v = (labels or {}).get(k)
@@ -363,7 +372,7 @@ def verdict(tr, book, dims, leaks):
 
 
 # ---------------------------------------------------------------- leaks
-def levers(rows, closed, tm=None):
+def levers(rows, closed, tm=None, funding_late=0.0):
     """Every process fix the desk can price, each as a book-wide total that NETS its own costs.
 
     This is the single source both `leaks()` and `recoverable()` read. They used to compute the same
@@ -412,6 +421,16 @@ def levers(rows, closed, tm=None):
                             total=sum(vals), gross=sum(v for v in vals if v > 0), vals=vals,
                             n=len(over), median_winner=m,
                             losers=len([t for t in over if not t.get("win")])))
+
+    # Funding belongs here, competing with the exits rather than sitting outside them. It was left
+    # out because capping a funding-paying hold IS the time-cut — but the union only ever credits
+    # ONE lever, so there was never a double-count to prevent, and leaving it out made the headline
+    # SMALLER than a leak listed under it: 0x767a…0ace quoted $99,228 above a $114,566 funding leak.
+    # No sample gate: funding paid is a measured cost, like fees, not a pattern estimated from a
+    # handful of trades.
+    if funding_late > 50:
+        out.append(dict(kind="funding", key="24h", label="capping holds that pay funding at 24h",
+                        total=float(funding_late), gross=float(funding_late), vals=[], n=len(rows)))
 
     if (tm.get("chased_n") or 0) >= 3 and (tm.get("chased_realized") or 0) < -50 \
             and (tm.get("calm_pf") or 0) > (tm.get("chased_pf") or 0):
@@ -494,7 +513,7 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
     # the ranking is by the same accounting as the headline (#718)
     ch = {x["kind"]: x for x in (lv or [])}
     # 1. costs — resting instead of crossing the spread
-    if tr.get("fee_recoverable", 0) >= 50 and (tr.get("taker_share") or 0) >= 0.25:
+    if _n(tr, "fee_recoverable") >= 50 and (tr.get("taker_share") or 0) >= 0.25:
         out.append(dict(agent="Leak finder", title=f"{_pct(tr['taker_share'])} of your volume crossed the spread as a taker",
                         evidence=f"{_usd(tr['fees'])} in fees on {_usd(tr['volume'])} of volume at {tr['fee_rate_taker'] * 1e4:.1f} bp taker / {tr['fee_rate_maker'] * 1e4:.1f} bp maker.",
                         counterfactual=f"Resting maker orders for the same fills would have kept ~{_usd(tr['fee_recoverable'])} over {days} days (≈{_usd(tr['fee_recoverable'] * yr)}/yr).",
@@ -505,12 +524,12 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
     # _funding_after sums funding PAID; tr["funding"] is NET of funding collected elsewhere. Left
     # uncapped the leak read "You paid $123,764 in funding … would have kept ~$164,499" — a saving
     # larger than the cost in the same sentence.
-    paid_late = min(_funding_after(funding_rows, closed, window_start, 24.0),
-                    -float(tr.get("funding") or 0.0))
-    if tr.get("funding", 0) < -100 and paid_late > 50:
+    paid_late = ch["funding"]["total"] if "funding" in ch else \
+        min(_funding_after(funding_rows, closed, window_start, 24.0), -float(tr.get("funding") or 0.0))
+    if _n(tr, "funding") < -100 and paid_late > 50:
         worst = min(tr["coins"].items(), key=lambda kv: kv[1]["funding"])
         out.append(dict(agent="Market regime", title=f"You paid {_usd(-tr['funding'])} in funding over {days} days",
-                        evidence=f"{worst[0]} alone cost {_usd(-worst[1]['funding'])}; the book pays {_usd(-book['funding_per_day'])}/day at today's rates." if book.get("funding_per_day", 0) < 0 else f"{worst[0]} alone cost {_usd(-worst[1]['funding'])}.",
+                        evidence=f"{worst[0]} alone cost {_usd(-worst[1]['funding'])}; the book pays {_usd(-book['funding_per_day'])}/day at today's rates." if _n(book, "funding_per_day") < 0 else f"{worst[0]} alone cost {_usd(-worst[1]['funding'])}.",
                         counterfactual=f"A 24h cap on holds that pay funding would have kept ~{_usd(paid_late)} over {days} days.",
                         usd=paid_late, window=f"{days}d", cta="A funding-aware hold rule caps the cost without changing the thesis."))
     # 3. losers held too long — only when the time cut is robust
@@ -532,7 +551,7 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
                                         f"A trailing lock on peak gains would have kept roughly ~{_usd(lock)} over {days} days (approximate: peak size × price move)."),
                         usd=lock, window=f"{days}d", cta="A ratcheting stop locks the peak without capping the run."))
     # 5. chasing
-    if tm and tm.get("chased_n", 0) >= 3 and tm.get("chased_realized", 0) < -50 and (tm.get("calm_pf") or 0) > (tm.get("chased_pf") or 0):
+    if tm and _n(tm, "chased_n") >= 3 and _n(tm, "chased_realized") < -50 and (tm.get("calm_pf") or 0) > (tm.get("chased_pf") or 0):
         out.append(dict(agent="Smart money", title=f"Entries after a ≥3% move lose money — {tm['chased_n']} of {tm['n']} trades",
                         evidence=f"Those trades realized {_usd(tm['chased_realized'])} (profit factor {tm['chased_pf']:.1f}) vs {min(tm['calm_pf'], 9.9):.1f} when you entered before the move.",
                         counterfactual=f"Skipping entries that had already run ≥3% would have kept ~{_usd(-tm['chased_realized'])} over {days} days.",
