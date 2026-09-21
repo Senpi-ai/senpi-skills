@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.6.0"
+  version: "1.6.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -69,7 +69,8 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    is senpi's proprietary analysis. Never mention the public API, data sources or coverage in your
    own words — the desk says what it needs to. Run the installed copy
    (`/data/.openclaw/skills/quant-desk/scripts/desk.py`), never a backup folder: the header line carries the
-   version. Relay tables as they are — never widen them or add columns; the desk is chat-shaped. Write
+   version — and `desk.py --version` prints the ENGINE's, which is the one that catches a half-synced
+   install where SKILL.md looks current and the script is not. Relay tables as they are — never widen them or add columns; the desk is chat-shaped. Write
    **onchain**, never "on-chain", everywhere.
 2. **Never invent a number.** Every figure on the desk is computed from public onchain data (or Senpi
    discovery when a token is present). If the script says a layer was unavailable (`Notes:` line), say so
