@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.8.0"
+  version: "1.8.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -88,6 +88,13 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    as the individual fixes they are. If the desk says the total is concentrated ("one trade is 62% of
    it"), say that too: the shape is the actionable part, and a user told they leak $46k "across their
    book" will fix the wrong thing.
+   **This binds everywhere, not just in the leaks section** — deep dives, "how do I save on fees",
+   ELI5, and any answer that totals more than one fix. Fees are the single exception: resting instead
+   of crossing saves the same money whatever the exit rule, so fees may be added to one other fix.
+   Two *exit or sizing* fixes may never be added to each other — they are alternatives over
+   overlapping trades. "Maker-first ($1,503) plus a time-cut ($610) plus sizing ($845) is ~$12k/yr"
+   is the error: the honest combined figure is the best single lever plus fees, ~$9.5k/yr.
+   Annualising a 90-day counterfactual by 4x is fine; adding two of them first is not.
 4. **Process only.** Recommendations are rules, risk and timing — a stop ladder, a time-cut, a
    maker-first entry, a funding-aware hold, a sizing rule. **Never a call to buy or sell a coin.**
 5. **Custody language.** The desk is read-only. Protection on existing positions is a signature the
