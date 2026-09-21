@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.9.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.9.1"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -79,9 +79,15 @@ def pct(x, d=0, signed=False):
 
 
 def hrs(x):
+    """Scalpers hold for seconds. At 1 decimal place every hold on a 1,117-trade book rendered
+    "0.0h", including the median-hold column and the winners/losers line."""
     if x is None:
         return "—"
-    return f"{x / 24:.1f}d" if x >= 48 else f"{x:.1f}h"
+    if x >= 48:
+        return f"{x / 24:.1f}d"
+    if x >= 1:
+        return f"{x:.1f}h"
+    return f"{x * 60:.0f}m" if x * 60 >= 1 else "<1m"
 
 
 def num(x, unit):

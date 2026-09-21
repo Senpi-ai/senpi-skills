@@ -45,7 +45,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.9.0"
+VERSION = "1.9.1"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -103,6 +103,14 @@ class _MCPFixture:
         if tool in self._r:
             return self._r[tool]
         raise RuntimeError(f"fixture has no {tool}")
+
+
+def _ratio_or_none(num, base, cap=10.0):
+    """None when the base is too small for the ratio to mean anything (|ratio| > cap)."""
+    if not base:
+        return None
+    r = num / base
+    return None if abs(r) > cap else r
 
 
 def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench=None, meta=None, whose="mine"):
@@ -176,7 +184,10 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     funded = [v for _, v in eq if v > 0]
     avg_eq = (sum(funded) / len(funded)) if funded else None
     equity = dict(points=len(eq), start=eq[0][1] if eq else None, end=eq[-1][1] if eq else None, avg=avg_eq,
-                  return_on_avg_equity=((track["ledger_net"] if track.get("ledger_net") is not None else track["net"]) / avg_eq) if avg_eq else None,
+                  # a return is only a return against an equity base that means something. On a book
+                  # that decayed to $0 the average equity is a rounding error and this read -3191.5%,
+                  # which tells a reader nothing except that the denominator collapsed.
+                  return_on_avg_equity=_ratio_or_none((track["ledger_net"] if track.get("ledger_net") is not None else track["net"]), avg_eq),
                   net_flows=sum(a for _, a in fl))
     act = metrics.activity(fills, win_start)
     majors, large = taxonomy.crypto_tiers(ctxs)
