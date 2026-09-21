@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.4.2"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.4.3"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -120,7 +120,12 @@ def overview(r):
     out = [f"## Quant score **{r['quant_score']}**/100", "", "| Dimension | Score | What it means |", "|---|---:|---|"]
     names = {"timing": "Timing / edge", "risk": "Risk management", "cost": "Cost efficiency", "sizing": "Sizing / conviction", "consistency": "Consistency", "market_fit": "Market fit"}
     for k in ("timing", "risk", "cost", "sizing", "consistency", "market_fit"):
-        out.append(f"| {names[k]} | {d[k]['score']} | {d[k]['line']} |")
+        # An unmeasured dimension shows a dash, not a number. A number here is a claim.
+        sc = d[k]["score"]
+        out.append(f"| {names[k]} | {'—' if sc is None else sc} | {d[k]['line']} |")
+    if any(d[k]["score"] is None for k in names):
+        out += ["", "_A dimension marked — could not be measured this window; the score is the weighted "
+                    "average of the ones that could._"]
     eq = r["equity"]
     ledger = tr.get("ledger_net")
     out += ["", f"## Track record ({r['days']} days)", "", "| Net P&L (ledger, incl. unrealized) | Return on avg equity | Realized (trades + funding − fees) | Win rate | Max drawdown | Profit factor | Trades | Active days |", "|---:|---:|---:|---:|---:|---:|---:|---:|",

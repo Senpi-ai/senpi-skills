@@ -870,3 +870,56 @@ def test_no_caption_is_swallowed_into_a_table():
             if nxt.strip() and not nxt.lstrip().startswith("|"):
                 bad.append(f"{name}:{i + 2} — {nxt.strip()[:80]!r} follows a table row")
     assert not bad, "prose absorbed into a table (needs a blank line first):\n  " + "\n  ".join(bad)
+
+
+def test_an_unmeasurable_dimension_abstains_instead_of_scoring_well():
+    """`cost_ratio` is None when gross P&L was not positive — there is no base to take a share OF,
+    so cost efficiency is UNDEFINED, not good.
+
+    On the 2026-09-21 run of 0x880a…311c the fallback answered `90 - taker_share*50` = 79/100 on a
+    book whose own sentence read "the trades themselves did not make money". Worse than the odd
+    label: that 79 carried WEIGHTS['cost'] = 0.15 of the headline, lifting the quant score from 32
+    to 39 on a dimension nothing had measured.
+    """
+    import score
+    tr = dict(cost_ratio=None, taker_share=0.23, fees=-7143.0, funding=103130.0,
+              gross_realized=-180996.0, net=-85010.0, ledger_net=-1079940.0, trades=38)
+    s, line = score.dim_cost(tr)
+    assert s is None, f"an undefined dimension scored {s}"
+    assert "Not measurable" in line and "no gross to take a share of" in line, line
+
+    # and it must not vote in the headline — asserted through score.dimensions(), not by redoing
+    # the arithmetic here. A test that recomputes the formula passes even when the code stops
+    # using it.
+    FN = {"timing": "dim_timing", "risk": "dim_risk", "cost": "dim_cost", "sizing": "dim_sizing",
+          "consistency": "dim_consistency", "market_fit": "dim_market"}
+    real = {k: getattr(score, fn) for k, fn in FN.items()}
+    fixed = {"timing": 31, "risk": 28, "sizing": 45, "consistency": 42, "market_fit": 20}
+    try:
+        for k, v in fixed.items():
+            setattr(score, FN[k], (lambda v: (lambda *a, **kw: (v, "x")))(v))
+        score.dim_cost = lambda *a, **kw: (None, "Not measurable this window: no positive gross.")
+        d, quant = score.dimensions(tr, None, None, None, None, None, None, None)
+        assert d["cost"]["score"] is None
+        assert quant == 32, f"cost abstained but the headline came out {quant}, not 32"
+        score.dim_cost = lambda *a, **kw: (79, "x")
+        _, with_79 = score.dimensions(tr, None, None, None, None, None, None, None)
+        assert with_79 == 39, with_79
+    finally:
+        for k, fn in real.items():
+            setattr(score, FN[k], fn)
+
+
+def test_the_dimension_table_never_prints_a_number_it_did_not_measure():
+    """Driven off the real fixture, not a stub — a skipped test guards nothing."""
+    import desk, render
+    with open(FIXTURE) as fh:
+        rec = json.load(fh)
+    r = desk.analyze(rec["address"], hl_api.HLFixture(rec), days=90, mcp=None, bench=None)
+    r["dimensions"]["cost"] = dict(score=None, line="Not measurable this window: no positive gross.")
+    md = render.overview(r)
+    body = "\n".join(md) if isinstance(md, list) else md
+    row = next(l for l in body.splitlines() if l.startswith("| Cost efficiency"))
+    assert "| — |" in row, row
+    assert "could not be measured this window" in body
+    assert "| None |" not in body
