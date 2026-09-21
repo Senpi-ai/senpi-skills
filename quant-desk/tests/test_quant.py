@@ -1558,3 +1558,47 @@ def test_when_one_trade_is_the_whole_number_the_headline_says_so():
     spread = dict(one_trade, recoverable=dict(one_trade["recoverable"],
                   concentration=dict(top1=0.21, top3=0.40, n_positive=12)))
     assert "not a pattern" not in "\n".join(render.recoverable_line(spread))
+
+
+def test_a_dimension_reports_its_most_severe_finding_not_its_alphabetically_last():
+    """`max(lines)` compared (priority, message) TUPLES, so a priority tie fell through to comparing
+    the message text. On 0x8da1…ea5e that put "You hold losers 2.7x longer than winners" in front of
+    a reader whose real problem was 2 of 3 positions naked at 82% margin — "Y" sorts above "2"."""
+    pos = lambda **kw: {**dict(coin="X", side="LONG", leverage=5, liq_distance_pct=None), **kw}
+    book = dict(positions=[pos(), pos(), pos()], naked=["SOL", "LIT"], margin_utilization=0.82,
+                account_value=127_622.0)
+    tr = dict(hold_ratio=2.7, hold_losers_h=2.3, hold_winners_h=0.8, liquidations=0)
+    s, line = score.dim_risk(tr, book, dict(dd_pct=0.73))
+    assert "no stop at all" in line, f"reported the lesser finding: {line}"
+    assert s == 0
+
+    # a position near liquidation outranks even the naked count
+    near = dict(book, positions=[pos(coin="SOL", leverage=20, liq_distance_pct=2.1)])
+    _, line2 = score.dim_risk(tr, near, dict(dd_pct=0.1))
+    assert "from liquidation" in line2, line2
+
+
+def test_the_funding_penalty_does_not_saturate_at_40_percent_a_year():
+    """Capped at 20 points the penalty maxed out at 40%/yr, so a book paying 40% of equity a year in
+    funding and one paying 240% scored the same. 0x8da1…ea5e pays 240% and scored 70/100 on market
+    fit. Same shape as the drawdown cap fixed in 1.9.1."""
+    book = dict(positions=[{}], net_exposure=1.0, account_value=100_000.0)
+    mk = lambda per_day: dict(stance="net long", with_market=0, against=0, rows=[],
+                              funding_per_day=-per_day)
+    s_40, _ = score.dim_market(book, mk(100_000.0 * 0.40 / 365))
+    s_240, line = score.dim_market(book, mk(100_000.0 * 2.40 / 365))
+    assert s_240 < s_40, f"240%/yr ({s_240}) must score worse than 40%/yr ({s_40})"
+    assert "of equity a year" in line
+
+
+def test_equal_severity_falls_back_to_order_not_to_the_alphabet():
+    """Naked positions and past liquidations are both severity 4. With `max(lines)` on the raw
+    tuples the winner was whichever message sorted higher as TEXT — so "2 liquidation(s)…" beat
+    "1 of 3 open positions has no stop…" purely because "2" > "1". Live risk should not lose a
+    coin-flip to a past event because of how the sentence happens to start."""
+    pos = lambda: dict(coin="X", side="LONG", leverage=5, liq_distance_pct=None)
+    book = dict(positions=[pos(), pos(), pos()], naked=["SOL"], margin_utilization=None,
+                account_value=100_000.0)
+    tr = dict(hold_ratio=None, liquidations=2, liquidation_loss=-5_000.0)
+    _, line = score.dim_risk(tr, book, None)
+    assert "no stop at all" in line, f"a past liquidation outranked live naked risk: {line}"
