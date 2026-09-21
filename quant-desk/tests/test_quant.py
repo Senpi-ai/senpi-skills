@@ -1103,13 +1103,24 @@ def test_the_desk_never_promises_a_signature_it_cannot_take():
     is exactly where an overclaim slips back in unnoticed.
     """
     import pathlib
-    src = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "render.py").read_text()
+    root = pathlib.Path(__file__).resolve().parents[1]
+    src = (root / "scripts" / "render.py").read_text()
     # drop comment lines — the explanation of this fix quotes the phrases it forbids
     code = "\n".join(l for l in src.splitlines() if not l.lstrip().startswith("#"))
     for banned in ("signature on positions you already hold", "Senpi will soon do this for you",
                    "senpi will place", "I'll place the stop", "we'll set the stop"):
         assert banned not in code, f"overclaim is back: {banned!r}"
     assert "Let me know if you want my help" in code, "the offer of help was dropped"
+
+    # SKILL.md is the copy the AGENT reads, and it is where this overclaim actually survived: the
+    # phrase was cut from render.py while rule 5 still told the agent that protection on existing
+    # positions "is a signature the user gives on positions they already hold". An agent reproduced
+    # it verbatim on 0x2e2e…1c50, on a book with 15 naked positions. Guarding only the renderer
+    # guards the half the agent is allowed to rewrite.
+    skill = " ".join((root / "SKILL.md").read_text().split())
+    assert "is a signature the user gives on positions they already hold" not in skill
+    assert "senpi cannot put a stop on a position held in the reader's own wallet" in skill
+    assert "they place the stop on Hyperliquid, themselves" in skill
 
 
 def test_next_steps_offers_a_route_for_someone_who_does_not_want_their_own_history_mechanised():
@@ -1434,3 +1445,25 @@ def test_market_fit_abstains_on_a_flat_book():
     measured-looking sixth of the headline on a dimension with no input at all."""
     s, line = score.dim_market(dict(positions=[], account_value=0), None)
     assert s is None and "No open positions" in line
+
+
+def test_the_losses_frame_is_dropped_on_a_book_that_made_money():
+    """On 0x2e2e…1c50 (93% win rate, +$310,760 net) the headline read "116% of what your losing
+    trades gave up" — arithmetically true, because fees are spread over the winners too, and a
+    meaningless sentence to put in front of a profitable trader."""
+    import render
+    rec = dict(usd=27_724.0, fees=27_724.0, n_trades=400, share_of_losses=1.16, rule=None,
+               concentration=None)
+    win = dict(leaks=[{"usd": 1}], timing={}, recoverable=rec, track=dict(net=310_760.0))
+    lose = dict(leaks=[{"usd": 1}], timing={}, recoverable=dict(rec, share_of_losses=0.42),
+                track=dict(net=-16_969.0))
+    assert "losing trades gave up" not in "\n".join(render.recoverable_line(win))
+    assert "42% of what your losing trades gave up" in "\n".join(render.recoverable_line(lose))
+
+
+def test_senpis_trader_score_consistency_is_not_confused_with_the_desks_own():
+    """The header carried "consistency score 33" (senpi's trader score) while the dimension table
+    said "Consistency 100" (the desk's own 90-day read). Same word, two numbers, one page."""
+    src = _P(HERE, "..", "scripts", "render.py").read_text()
+    assert "senpi trader-score consistency" in src
+    assert "· consistency score {lab['tcs']}" not in src

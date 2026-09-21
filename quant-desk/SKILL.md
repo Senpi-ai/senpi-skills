@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.10.1"
+  version: "1.11.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -104,9 +104,13 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    Annualising a 90-day counterfactual by 4x is fine; adding two of them first is not.
 4. **Process only.** Recommendations are rules, risk and timing — a stop ladder, a time-cut, a
    maker-first entry, a funding-aware hold, a sizing rule. **Never a call to buy or sell a coin.**
-5. **Custody language.** The desk is read-only. Protection on existing positions is a signature the
-   user gives on positions they already hold; funding a quant is only for autonomous trading. Never
-   imply senpi holds or moves their funds.
+5. **Custody language.** The desk is read-only, and **senpi cannot put a stop on a position held in
+   the reader's own wallet.** `ratchet_stop_add` is keyed to a senpi strategy wallet, so there is
+   nothing to sign and nothing to attach on a book the reader custodies themselves — they place the
+   stop on Hyperliquid, themselves. Say so plainly and offer to help; never describe protection on
+   their own positions as "a signature", "one click", or something senpi will do for them, in any
+   tense. Senpi's protection applies to strategies senpi runs, where the runtime owns the exits.
+   Funding a quant is only for autonomous trading. Never imply senpi holds or moves their funds.
 6. **Say "quant", "desk", "agents", "leak", "protect".** Never "report", "analyst", "bot", "AI assistant".
    Lowercase `senpi`. No outcome guarantees. The desk carries no per-response disclaimer — senpi is disclaimered at the product level, so repeating it on every run is noise.
 7. **Address hygiene and whose book it is.** Show the address shortened (`0x2999…65de`). Never post
