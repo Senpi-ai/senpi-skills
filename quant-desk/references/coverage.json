@@ -1,6 +1,6 @@
 {
-  "_comment": "Senpi's trader index, for the not-indexed answer. Read it at run time; never quote a remembered figure. Refresh `as_of` whenever `indexed_wallets` changes — the SKILL drops the exact number and says 'over 45,000' once this is more than 7 days old, because a precise wrong number is worse than a round right one.",
-  "indexed_wallets": 45424,
-  "as_of": "2026-09-18",
+  "_comment": "Senpi's trader index, for the not-indexed answer. Read it at run time; never quote a remembered figure. This counts DISTINCT WALLETS WITH CLOSED POSITIONS IN SENPI'S INDEX, because that is the exact set the `indexed` test compares against (public endpoints show closed round trips, senpi's index returns none). Do not source it from Hyperliquid's leaderboard row count (~46,600) \u2014 that is how this read 45,424 before 2026-09-21, a 73% overstatement of our own coverage. Cross-checks on the same day: raw_fills 27,405 wallets, top_perps_traders_all_time 29,171, mdd 31,199. Refresh `as_of` whenever `indexed_wallets` changes \u2014 the SKILL drops the exact number and says 'over 25,000' once this is more than 7 days old, because a precise wrong number is worse than a round right one.",
+  "indexed_wallets": 26188,
+  "as_of": "2026-09-21",
   "stale_after_days": 7
 }

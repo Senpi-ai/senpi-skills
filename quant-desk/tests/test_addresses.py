@@ -135,3 +135,44 @@ def test_an_explicit_flag_still_wins_over_the_book(tmp_path):
     assert desk.resolve_whose(book, MINE, other=True) == "other"      # read my own book as an analyst
     assert desk.resolve_whose(book, WHALE, mine=True) == "mine"       # and the reverse
     assert desk.resolve_whose(book, WHALE, claim=True) == "mine"      # claiming reads it as theirs
+
+
+# ── the coverage figure has to describe OUR index, not Hyperliquid's leaderboard ──
+# Shipped in the 1.4.0 branch as 45,424 — within 2% of Hyperliquid's own leaderboard row count
+# (~46,600) and a 73% overstatement of Senpi's index. Measured the same day: closed_positions
+# 26,188 wallets, raw_fills 27,405, top_perps_traders_all_time 29,171, mdd 31,199. Nothing we hold
+# is near 45k. The feature exists to tell a reader honestly that their wallet is NOT indexed, so an
+# inflated denominator is the one error that defeats its whole purpose.
+
+def _coverage():
+    import json, pathlib
+    return json.loads((pathlib.Path(__file__).resolve().parents[1]
+                       / "references" / "coverage.json").read_text())
+
+
+def test_the_indexed_count_is_our_index_not_the_leaderboard():
+    n = _coverage()["indexed_wallets"]
+    assert 10_000 < n < 40_000, (
+        f"indexed_wallets={n:,} is outside the plausible range for Senpi's own index. "
+        "Above ~40k means it was sourced from Hyperliquid's leaderboard row count (~46,600) "
+        "rather than from our own tables.")
+
+
+def test_the_skill_quotes_the_same_number_as_the_file():
+    """A figure hardcoded in prose drifts away from the file it claims to read."""
+    import pathlib, re
+    skill = (pathlib.Path(__file__).resolve().parents[1] / "SKILL.md").read_text()
+    n = _coverage()["indexed_wallets"]
+    assert f"**{n:,}** wallets so far" in skill, (
+        f"SKILL.md must quote coverage.json's {n:,}; found "
+        f"{re.findall(r'[*][*]([0-9,]+)[*][*] wallets so far', skill)}")
+
+
+def test_the_stale_fallback_never_rounds_upward():
+    """`as_of` goes stale and the skill falls back to a round number. Rounding UP would restate the
+    original bug in a vaguer form, so the fallback must sit at or below the real figure."""
+    import pathlib, re
+    skill = (pathlib.Path(__file__).resolve().parents[1] / "SKILL.md").read_text()
+    m = re.search(r'say "over ([0-9,]+)" rather than', skill)
+    assert m, "the stale fallback phrasing is gone — update this test with it"
+    assert int(m.group(1).replace(",", "")) <= _coverage()["indexed_wallets"]

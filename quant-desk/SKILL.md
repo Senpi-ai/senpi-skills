@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.4.0"
+  version: "1.4.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -108,10 +108,10 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 
    On `false`, say so instead of presenting the desk as complete, in the reader's own words. Read the
    figure from `references/coverage.json`, never from memory; if `as_of` is more than `stale_after_days`
-   old, say "over 45,000" rather than a precise number that has moved:
+   old, say "over 25,000" rather than a precise number that has moved:
 
    > senpi is rolling out the AI Quant Desk to every trader on Hyperliquid in waves. We're at
-   > **45,424** wallets so far and yours isn't in that set yet. I've flagged it to the team as high
+   > **26,188** wallets so far and yours isn't in that set yet. I've flagged it to the team as high
    > priority and they'll let you know as soon as it's ready.
 
    The flag is real: the address is recorded in the book and `--addresses` lists it under the
