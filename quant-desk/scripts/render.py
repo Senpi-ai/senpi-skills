@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.8.3"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.9.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -216,25 +216,36 @@ def performance(r):
 
 def recoverable_line(r):
     """The one quotable number, with its shape. The leaks below are alternative fixes for the same
-    trades, so a reader who adds them up gets a figure larger than the money ever at stake."""
+    trades, so a reader who adds them up gets a figure larger than the money ever at stake.
+
+    The headline states the TOTAL and then attributes it. It used to read "<rule> would have kept
+    ~$27,996" on a book where $18,898 of that was taker fees and the rule's own share was $9,098 —
+    crediting a trailing stop with money that came from not crossing the spread."""
     rec = r.get("recoverable") or {}
     total = rec.get("usd") or 0
     if total <= 0 or not r.get("leaks"):
         return []
-    eng = rec.get("rule")
-    head = f"**{eng[0].upper() + eng[1:]} would have kept ~{usd(total)}**" if eng \
-        else f"**Your costs alone would have kept ~{usd(total)}**"
-    # only a denominator that means something: on a book with almost no losses the share is a
-    # division by noise (the fixture reads 20924%), and a number like that discredits the rest
+    fees, rule = rec.get("fees") or 0, rec.get("rule")
+    lever = total - fees
     share = rec.get("share_of_losses")
+    head = f"**Your quant would have kept ~{usd(total)} of this**"
+    # a denominator that means something: on a book with almost no losses the share is a division
+    # by noise (the fixture reads 20924%), and a number like that discredits the rest
     if share and 0 < share <= 2.0:
         head += f" — {pct(share, 0)} of what your losing trades gave up"
     out = [head + ".", ""]
-    if eng:
-        detail = f"One rule, applied to all {rec['n_trades']} complete trades and charged on the ones it would have cost you"
-        if rec.get("fees"):
-            detail += f", plus the {usd(rec['fees'])} you paid as a taker"
-        out += [detail + ".", ""]
+
+    fee_part = f"{usd(fees)} of it is taker fees you can stop paying on the same fills"
+    rule_part = (f"one rule — {rule} — applied to all {rec['n_trades']} complete trades and charged "
+                 f"on the ones it would have cost you")
+    if rule and fees > 0:
+        big, small = (fee_part, f"the other {usd(lever)} comes from {rule_part}") if fees >= lever \
+            else (f"{usd(lever)} of it comes from {rule_part}", f"the other {usd(fees)} is taker fees on the same fills")
+        out += [f"{big[0].upper() + big[1:]}, and {small}.", ""]
+    elif rule:
+        out += [f"All of it comes from {rule_part}.", ""]
+    else:
+        out += [f"{fee_part[0].upper() + fee_part[1:]}.", ""]
 
     c = rec.get("concentration") or {}
     if c.get("top1", 0) >= 0.4:
@@ -242,8 +253,8 @@ def recoverable_line(r):
                 f"The largest is {pct(c['top1'], 0)} of it on its own, and the top three are {pct(min(c['top3'], 1.0), 0)}. "
                 f"A handful of positions ran with no stop on them; the rest of the book is not the problem.", ""]
     elif c.get("n_positive"):
-        out += [f"It is spread across {c['n_positive']} trades with no single position dominating — "
-                f"the largest is {pct(c['top1'], 0)} of it. This one is a habit, not an accident.", ""]
+        out += [f"No single trade dominates it — the largest is {pct(c['top1'], 0)}, spread over "
+                f"{c['n_positive']} of your trades. This one is a habit, not an accident.", ""]
 
     out += ["_The leaks below price each fix on its own. They land on the same trades — one oversized, "
             "chased, held-too-long position shows up in several — so **they do not add up**. The number "
