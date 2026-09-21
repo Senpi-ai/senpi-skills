@@ -192,7 +192,9 @@ def dim_consistency(tr, pnl_curve):
 def dim_market(book, mf):
     s, lines = 65.0, []
     if not mf or not book["positions"]:
-        return 60.0, "No open positions to fit against the market."
+        # nothing is held, so there is no fit to score. Returning 60 let a flat book carry a
+        # measured-looking sixth of the headline on a dimension with no input at all.
+        return None, "No open positions to fit against the market."
     s += min(25, 10 * mf["with_market"]) - min(45, 15 * mf["against"])
     ag = [r for r in mf["rows"] if r["fit"].startswith("AGAINST")]
     if ag:
@@ -529,8 +531,8 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
     # 7. sizing — oversized losers
     size_l = ch.get("size")
     if size_l and size_l["total"] > 50 and size_l.get("losers", 0) >= 2:
-        out.append(dict(agent="Leak finder", title=f"{size_l['losers']} losers were sized >1.5× your median winner",
-                        evidence=f"Median winner {_usd(size_l['median_winner'])} notional; {size_l['n']} positions ran above 1.5× that.",
+        out.append(dict(agent="Leak finder", title=f"{size_l['n']} positions were sized >1.5× your median winner",
+                        evidence=f"Median winner {_usd(size_l['median_winner'])} notional; {size_l['losers']} of those {size_l['n']} lost money.",
                         counterfactual=_cf_charged(size_l, days),
                         usd=size_l["total"], window=f"{days}d", cta="Size by conviction, not by frustration — a fixed-fraction rule does this."))
     out.sort(key=lambda l: -l["usd"])

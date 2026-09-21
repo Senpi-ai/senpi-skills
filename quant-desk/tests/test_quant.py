@@ -1414,3 +1414,23 @@ def test_a_dimension_with_nothing_to_measure_abstains_rather_than_scoring_mid():
     loud = dict(positions=[{}], exposure_over_equity=9.0, largest_share=None)
     s_loud, line = score.dim_sizing(dict(), loud, [])
     assert s_loud is not None and "exposure" in line.lower()
+
+
+def test_the_concentration_sentence_does_not_assume_the_lever_is_a_stop():
+    """On 0xfd32…612c the picked lever was a SIZE CAP, and the page still said "a handful of
+    positions ran with no stop on them". The sentence has to hold whichever lever wins."""
+    import render
+    r = dict(leaks=[{"usd": 1}], track={}, timing={},
+             recoverable=dict(usd=5_012.0, fees=2_759.0, n_trades=52, share_of_losses=0.23,
+                              rule="capping size at your median winner",
+                              concentration=dict(top1=0.53, top3=0.69, n_positive=6)))
+    md = "\n".join(render.recoverable_line(r))
+    assert "no stop on them" not in md, "stop-specific copy on a sizing lever"
+    assert "capping size at your median winner" in md
+
+
+def test_market_fit_abstains_on_a_flat_book():
+    """A book with no open positions has no fit to score. Returning 60 gave a flat book a
+    measured-looking sixth of the headline on a dimension with no input at all."""
+    s, line = score.dim_market(dict(positions=[], account_value=0), None)
+    assert s is None and "No open positions" in line
