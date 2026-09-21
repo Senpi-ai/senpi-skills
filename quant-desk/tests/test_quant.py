@@ -1176,8 +1176,8 @@ def test_recoverable_is_the_best_single_lever_never_the_sum_of_them():
     its peak is priced in four leaks. Added up it reads as four losses; there was only ever one."""
     bad = _tm_row(realized=-4_000.0, win=False, chased=True, notional=50_000.0, hold_h=100.0,
                   lock_cf={"0.03/0.5": 1_000.0}, cut_cf={"24": 1_500.0})
-    tm = dict(CHASE_ON, lock={"settings": {"0.03/0.5": dict(n=1, total=1_000.0)}},
-              cut={"settings": {"24": dict(n=1, total=1_500.0)}})
+    tm = dict(CHASE_ON, lock={"settings": {"0.03/0.5": dict(n=5, total=1_000.0)}},
+              cut={"settings": {"24": dict(n=5, total=1_500.0)}})
     rec = score.recoverable([bad], _closed_winners(), {}, tm)
 
     sizing = 4_000.0 * (1 - 5_000.0 / 50_000.0)          # 3,600
@@ -1197,7 +1197,7 @@ def test_recoverable_will_not_pick_a_rule_that_costs_money_on_the_trades_it_hurt
 
 def test_recoverable_prefers_the_setting_with_the_best_book_total_not_the_best_trade():
     tm = dict(lock={"settings": {"0.03/0.5": dict(n=9, total=9_000.0),
-                                 "0.05/0.5": dict(n=3, total=1_000.0)}})
+                                 "0.05/0.5": dict(n=5, total=1_000.0)}})
     rec = score.recoverable([_tm_row()], [], {}, tm)
     assert rec["usd"] == 9_000.0
     # the lever's label is the finished sentence, so nothing has to parse "0.03/0.5" back out
@@ -1228,14 +1228,15 @@ def test_recoverable_chase_credit_is_what_the_chase_leak_claims_winners_netted_o
 def test_recoverable_size_cap_gives_up_the_winners_upside_too():
     """A cap shrinks every oversized trade, not just the ones that lost. Shrinking only the losers is
     the same survivorship bias as charging a time-cut only on losers."""
-    big_loser = _tm_row(realized=-4_000.0, win=False, notional=50_000.0)
-    big_winner = _tm_row(realized=+3_000.0, win=True, notional=50_000.0)
+    losers = [_tm_row(realized=-800.0, win=False, notional=50_000.0) for _ in range(5)]
+    winner = _tm_row(realized=+3_000.0, win=True, notional=50_000.0)
     closed = _closed_winners()
 
-    only_loser = score.recoverable([big_loser], closed, {}, None)["usd"]
-    both = score.recoverable([big_loser, big_winner], closed, {}, None)["usd"]
-    assert only_loser == 4_000.0 * 0.9
-    assert both == (4_000.0 - 3_000.0) * 0.9, "the winner's forgone upside is charged against the cap"
+    only_losers = score.recoverable(losers, closed, {}, None)["usd"]
+    with_winner = score.recoverable(losers + [winner], closed, {}, None)["usd"]
+    assert round(only_losers, 6) == round(5 * 800.0 * 0.9, 6)
+    assert round(with_winner, 6) == round((5 * 800.0 - 3_000.0) * 0.9, 6), \
+        "the winner's forgone upside is charged against the cap"
 
 
 def test_recoverable_adds_fees_but_only_for_a_taker_and_never_funding():
@@ -1251,18 +1252,19 @@ def test_recoverable_adds_fees_but_only_for_a_taker_and_never_funding():
 def test_recoverable_reports_how_concentrated_the_number_is():
     """"You leak $46k across your book" was true arithmetic and a false picture — on the book that
     drove this work, one trade was 62% of it. The shape has to travel with the number."""
-    rows = [_tm_row(lock_cf={"0.03/0.5": v}) for v in (10_000.0, 500.0, 500.0)]
-    tm = dict(lock={"settings": {"0.03/0.5": dict(n=3, total=11_000.0)}})
+    rows = [_tm_row(lock_cf={"0.03/0.5": v}) for v in (10_000.0, 500.0, 500.0, 250.0, 250.0)]
+    tm = dict(lock={"settings": {"0.03/0.5": dict(n=5, total=11_000.0)}})
     c = score.recoverable(rows, [], {}, tm)["concentration"]
-    assert round(c["top1"], 4) == round(10_000.0 / 11_000.0, 4) and c["n_positive"] == 3
+    # denominator is what CONTRIBUTED (10,000 + 500 + 500 + 250 + 250), not the lever's net total
+    assert round(c["top1"], 4) == round(10_000.0 / 11_500.0, 4) and c["n_positive"] == 5
 
 
 def test_recoverable_is_measured_against_losses_not_against_the_account():
     """The account is a snapshot and can be zero; the counterfactual runs over the whole window's
     turnover. Losses are the only denominator that makes the number checkable."""
-    rows = [_tm_row(realized=-1_000.0, win=False), _tm_row(realized=+400.0, win=True),
-            _tm_row(lock_cf={"0.03/0.5": 500.0})]
-    tm = dict(lock={"settings": {"0.03/0.5": dict(n=1, total=500.0)}})
+    rows = [_tm_row(realized=-1_000.0, win=False), _tm_row(realized=+400.0, win=True)]
+    rows += [_tm_row(lock_cf={"0.03/0.5": v}) for v in (100.0, 100.0, 100.0, 100.0, 100.0)]
+    tm = dict(lock={"settings": {"0.03/0.5": dict(n=5, total=500.0)}})
     rec = score.recoverable(rows, [], {}, tm)
     assert round(rec["share_of_losses"], 6) == 0.5, "500 recovered against 1,000 of losses"
 
@@ -1303,7 +1305,7 @@ def test_leaks_section_leads_with_the_number_and_tells_the_reader_not_to_add():
 
 def test_the_rule_is_stated_in_english_not_in_grid_keys():
     """"0.03/0.5" is the grid key. Nobody can act on that, so score.py emits the sentence."""
-    tm = dict(cut={"settings": {"24": dict(n=4, total=800.0)}})
+    tm = dict(cut={"settings": {"24": dict(n=5, total=800.0)}})
     assert score.recoverable([_tm_row()], [], {}, tm)["rule"] == "closing anything still open after 24h"
 
 
@@ -1349,8 +1351,8 @@ def test_fees_dilute_concentration_because_fees_are_the_least_concentrated_thing
     """Concentration was a share of the exit lever alone while the quoted total included fees. On
     0x8b79…85d7 that called a $27,996 total "one trade" when $18,898 of it was taker fees spread
     across $89.5M of volume and 1,073 trades — the most diffuse item on the desk."""
-    rows = [_tm_row(lock_cf={"0.03/0.5": v}) for v in (6_000.0, 1_500.0, 1_500.0)]
-    tm = dict(lock={"settings": {"0.03/0.5": dict(n=3, total=9_000.0)}})
+    rows = [_tm_row(lock_cf={"0.03/0.5": v}) for v in (6_000.0, 1_500.0, 1_500.0, 0.0, 0.0)]
+    tm = dict(lock={"settings": {"0.03/0.5": dict(n=5, total=9_000.0)}})
 
     no_fees = score.recoverable(rows, [], {}, tm)["concentration"]
     with_fees = score.recoverable(rows, [], dict(fee_recoverable=19_000.0, taker_share=0.7), tm)["concentration"]
@@ -1379,8 +1381,8 @@ def test_concentration_can_never_exceed_the_thing_it_is_a_share_of():
     denominator was the lever total, which is NET of the trades the rule cost money on — and, for
     the chased lever, net of the chased winners. A single trade could be reported as 111% of the
     number. The "top three were 102%" cited as a finding about a real book was this artifact."""
-    charged = [_tm_row(lock_cf={"0.03/0.5": v}) for v in (10_000.0, 2_000.0, 1_000.0, -4_000.0)]
-    tm = dict(lock={"settings": {"0.03/0.5": dict(n=4, total=9_000.0)}})
+    charged = [_tm_row(lock_cf={"0.03/0.5": v}) for v in (10_000.0, 2_000.0, 1_000.0, -4_000.0, 0.0)]
+    tm = dict(lock={"settings": {"0.03/0.5": dict(n=5, total=9_000.0)}})
     c = score.recoverable(charged, [], {}, tm)["concentration"]
     assert c["top1"] <= 1.0 and c["top3"] <= 1.0, c
     assert round(c["top1"], 4) == round(10_000 / 13_000, 4), "share of what contributed, not of the net"
@@ -1398,8 +1400,9 @@ def test_the_size_lever_marks_both_sides_the_same_way():
     is a comparison across two populations."""
     closed = [dict(win=True, truncated=False, peak_size=2.0, entry_vwap=5_000.0,
                    peak_notional=50_000.0) for _ in range(3)]          # peak-marked 5x the entry mark
-    loser = _tm_row(realized=-4_000.0, win=False, notional=20_000.0)   # 1.3x peak-marked, 2x entry-marked
-    rec = score.recoverable([loser], closed, {}, None)
+    # 1.3x the peak-marked median, 2x the entry-marked one — only the entry mark catches these
+    losers = [_tm_row(realized=-4_000.0, win=False, notional=20_000.0) for _ in range(5)]
+    rec = score.recoverable(losers, closed, {}, None)
     assert rec["usd"] > 0, "entry-marked median is 10,000, so a 20,000 loser is oversized and must count"
 
 
@@ -1509,3 +1512,49 @@ def test_the_desk_never_promises_protection_it_cannot_deliver_yet_in_any_tense()
     # close the `" "` seam between them before matching
     flat = " ".join(code.split()).replace('" "', "")
     assert "Tell me if you want help with any of them" in flat
+
+
+def test_a_lever_needs_the_same_sample_the_leaks_require():
+    """The quotable headline was built from whatever setting scored highest, however few trades it
+    engaged on. On 0xb699…392e the winner was "closing anything still open after 48h" with **n=2**,
+    and it put $1.87M in front of a reader who lost $230,596 on a $1.27M account.
+
+    The leaks have gated on MIN_PATTERN_TRADES since 1.0; the number quoted above them did not."""
+    rows = [_tm_row(cut_cf={"48": 900_000.0}), _tm_row(cut_cf={"48": 900_000.0})]
+    thin = dict(cut={"settings": {"48": dict(n=2, total=1_800_000.0)}})
+    assert score.recoverable(rows, [], {}, thin)["usd"] == 0.0, "a 2-trade lever is not quotable"
+
+    rows5 = [_tm_row(cut_cf={"48": 200.0}) for _ in range(5)]
+    ok = dict(cut={"settings": {"48": dict(n=5, total=1_000.0)}})
+    assert score.recoverable(rows5, [], {}, ok)["usd"] == 1_000.0, "at the sample floor it is"
+
+
+def test_the_funding_leak_never_claims_to_save_more_than_was_paid():
+    """`_funding_after` sums funding PAID; tr["funding"] is NET of funding collected elsewhere. Left
+    uncapped the leak read "You paid $123,764 in funding … would have kept ~$164,499" — a saving
+    larger than the cost quoted in the same sentence."""
+    tr = dict(funding=-123_764.0, coins={"xyz:SKHX": dict(funding=-128_515.0)}, trades=9)
+    # the payment has to land more than 24h (86.4e6 ms) after the episode opened to count as "late"
+    rows = [dict(time=200_000_000, delta=dict(usdc="-200000", coin="xyz:SKHX"))]
+    closed = [dict(coin="xyz:SKHX", open_time=0, close_time=4e12)]
+    out = score.leaks(tr, dict(funding_per_day=-1.0), {}, rows, closed, 0, 90)
+    fund = next((l for l in out if "funding" in l["title"]), None)
+    assert fund and fund["usd"] <= 123_764.0, f"claimed {fund and fund['usd']} against a 123,764 bill"
+
+
+def test_when_one_trade_is_the_whole_number_the_headline_says_so():
+    """The concentration line sits below the figure, and it is the first thing dropped when someone
+    quotes the number. On 0xb699…392e the headline was $1,072,010 and 97% of it was a single
+    position out of 8 trades — a one-off, not a leak to go and fix."""
+    import render
+    one_trade = dict(leaks=[{"usd": 1}], timing={}, track=dict(net=-230_596.0),
+                     recoverable=dict(usd=1_072_010.0, fees=13_979.0, n_trades=8, share_of_losses=None,
+                                      rule="a trailing stop that arms at +5% and keeps 50% of the peak",
+                                      concentration=dict(top1=0.97, top3=0.99, n_positive=5)))
+    md = "\n".join(render.recoverable_line(one_trade))
+    assert "97% of that is one trade, not a pattern" in md
+    assert md.index("one trade, not a pattern") < md.index("_The leaks below"), "caveat rides with the figure"
+
+    spread = dict(one_trade, recoverable=dict(one_trade["recoverable"],
+                  concentration=dict(top1=0.21, top3=0.40, n_positive=12)))
+    assert "not a pattern" not in "\n".join(render.recoverable_line(spread))
