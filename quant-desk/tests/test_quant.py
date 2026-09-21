@@ -1275,3 +1275,17 @@ def test_the_do_not_add_rule_binds_outside_the_leaks_section_too():
                    "Fees are the single exception",
                    "may never be added to each other"):
         assert phrase in src, phrase
+
+
+def test_the_header_line_must_be_relayed_verbatim_so_a_stale_engine_is_visible():
+    """The header carries the version and the timestamp, and it is the only staleness gate a reader
+    has. An agent that paraphrases it into its own summary makes a months-old engine look current —
+    which is exactly how a desk missing the recoverable total got reviewed as if it had it."""
+    src = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
+    assert "Print the desk's header line exactly as the engine emits it" in src
+    assert "only staleness gate the reader has" in src
+    # and the renderer must actually emit what the rule promises
+    import render
+    line = _P(HERE, "..", "scripts", "render.py").read_text()
+    assert "v{VERSION}" in line and "READ-ONLY" in line, "the header no longer carries the version"
+    assert render.VERSION, "no version to stamp"

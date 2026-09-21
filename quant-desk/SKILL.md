@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.8.1"
+  version: "1.8.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -64,6 +64,13 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    `0x5b5d…c060` — reading every fill, the live book, the cohorts and the tape."* Nothing longer. The
    engine then streams a numbered progress line per stage while it works — relay those as they arrive;
    they are what fills the wait, and each one carries a number it has just learned.
+
+   **Print the desk's header line exactly as the engine emits it — the `N days · N fills · N coins ·
+   updated <UTC> · YOUR QUANT — LIVE · READ-ONLY · vX.Y.Z` line — as the first line of every desk you
+   relay.** It is the only staleness gate the reader has. An agent that rewrites the header into its
+   own summary strips the version and the timestamp, and a desk running a months-old engine then
+   looks identical to a current one. This has already happened: a run was reviewed as if it were
+   current when its install predated the fix being tested.
 
    Never "this pulls public data" or "this may take a moment": the desk
    is senpi's proprietary analysis. Never mention the public API, data sources or coverage in your
