@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.11.1"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.11.2"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -519,10 +519,10 @@ def render_deep(mode, d, r):
         out += ["", "The hard stop sits beyond one and a half days of normal range and above the "
                     "liquidation price; the lock trails at half the peak gain once the trade is two "
                     "ranges in the money.",
-                "", "**These are yours to place.** Set the hard stop on each position onchain on "
-                    "Hyperliquid now — it is the number in the *Hard stop* column. The *Lock arms at* "
-                    "column is where a trailing stop should begin once the trade is in the money; "
-                    "senpi will soon keep that moving for you, so you are not raising it by hand."]
+                "", "**These are yours to place.** The *Hard stop* column is the number to set on each "
+                    "position onchain on Hyperliquid; the *Lock arms at* column is where a trailing "
+                    "stop should begin once the trade is in the money. Tell me if you want help with "
+                    "any of them."]
         return "\n".join(out)
     if mode == "replay":
         if not d or d.get("empty"):

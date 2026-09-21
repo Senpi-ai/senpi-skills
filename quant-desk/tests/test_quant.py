@@ -1127,8 +1127,12 @@ def test_the_desk_never_promises_a_signature_it_cannot_take():
         window = skill[m.start():m.start() + 120]
         assert "positions they already hold" not in window and "positions you already hold" not in window, window
         assert "stop ladder is a signature" not in skill
-    assert "senpi cannot put a stop on a position held in the reader's own wallet" in skill
-    assert "they place the stop on Hyperliquid, themselves" in skill
+    assert "senpi cannot put a stop on a position held in the reader's own wallet today" in skill
+    # the reader is offered help, not handed homework
+    assert "name the naked positions and ask how you can help" in skill
+    assert "is the fact, not the offer" in skill
+    # and the restriction carries its own expiry, so it gets revisited instead of going stale
+    assert "Dated, revisit this" in skill and "2026-09-21" in skill
 
 
 def test_next_steps_offers_a_route_for_someone_who_does_not_want_their_own_history_mechanised():
@@ -1487,3 +1491,21 @@ def test_the_hire_my_quant_handoff_leads_with_both_routes_and_the_leaks():
                    "fork a template to build quickly, or code something from scratch",
                    "Name the leak the template closes"):
         assert phrase in skill, phrase
+
+
+def test_the_desk_never_promises_protection_it_cannot_deliver_yet_in_any_tense():
+    """Rule 5 forbids the future tense too — a promise that lands a week early is the one remembered
+    as a lie. `--deep protect` carried "senpi will soon keep that moving for you" long after the
+    present-tense version was cut from next-steps.
+
+    When senpi CAN attach a stop to a Hyperliquid position the reader custodies, this test and rule 5
+    are the two places that change."""
+    src = _P(HERE, "..", "scripts", "render.py").read_text()
+    code = "\n".join(l for l in src.splitlines() if not l.lstrip().startswith("#"))
+    for banned in ("senpi will soon", "we'll soon", "will soon keep that moving",
+                   "senpi will do this for you"):
+        assert banned not in code, f"future-tense promise: {banned!r}"
+    # the sentence is split across adjacent string literals, so collapse whitespace FIRST and then
+    # close the `" "` seam between them before matching
+    flat = " ".join(code.split()).replace('" "', "")
+    assert "Tell me if you want help with any of them" in flat
