@@ -236,7 +236,11 @@ def recoverable_line(r):
     crediting a trailing stop with money that came from not crossing the spread."""
     rec = r.get("recoverable") or {}
     total = rec.get("usd") or 0
-    if total <= 0 or not r.get("leaks"):
+    # It used to also return [] when the leak list was empty, so a book whose only recoverable money
+    # was TAKER FEES — measured, not a counterfactual, and always real — got no number at all, while
+    # the sentence underneath said no leak clears the bar. The JSON still carried the figure, so the
+    # agent could quote a number the desk had just denied. (@danielmbirochi, #718, item 10.)
+    if total <= 0:
         return []
     fees, rule = rec.get("fees") or 0, rec.get("rule")
     lever = total - fees
@@ -279,9 +283,10 @@ def recoverable_line(r):
         out += [f"No single trade dominates it — the largest is {pct(c['top1'], 0)}, spread over "
                 f"{c['n_positive']} of your trades. This one is a habit, not an accident.", ""]
 
-    out += ["_The leaks below price each fix on its own. They land on the same trades — one oversized, "
-            "chased, held-too-long position shows up in several — so **they do not add up**. The number "
-            "above is the single best change, and it is the one to quote._", ""]
+    if r.get("leaks"):
+        out += ["_The leaks below price each fix on its own. They land on the same trades — one oversized, "
+                "chased, held-too-long position shows up in several — so **they do not add up**. The number "
+                "above is the single best change, and it is the one to quote._", ""]
     return out
 
 
@@ -289,8 +294,18 @@ def leaks(r):
     out = ["## Leaks — ranked by $ impact · counterfactual, not history", ""]
     out += recoverable_line(r)
     if not r["leaks"]:
-        out.append("Not enough closed trades to price a leak yet — the desk needs a handful of round trips before a counterfactual means anything." if (r["track"].get("trades") or 0) < 5
-                   else "No leak clears the bar on this window: every counterfactual the desk tests came out flat or negative, which means the process is not where the money is going.")
+        _rec = r.get("recoverable") or {}
+        if (r["track"].get("trades") or 0) < 5:
+            out.append("Not enough closed trades to price a leak yet — the desk needs a handful of round trips before a counterfactual means anything.")
+        elif (_rec.get("usd") or 0) > 0:
+            # "No leak clears the bar" sat directly under a positive recoverable figure. Both were
+            # true of different things: no PROCESS counterfactual survived being charged, and the
+            # costs above are measured rather than counterfactual. Say which is which.
+            out.append("No *process* leak clears the bar on this window — every exit, sizing and entry rule the desk tests "
+                       "came out flat or negative once it was charged on the trades it would have cost. The figure above is "
+                       "not one of those: costs are measured, not modelled, which is why it stands on its own.")
+        else:
+            out.append("No leak clears the bar on this window: every counterfactual the desk tests came out flat or negative, which means the process is not where the money is going.")
     for i, l in enumerate(r["leaks"], 1):
         tag = f"_{l['agent']}_" + ("" if l.get("unpriced") else f" · **~{usd(l['usd'])} / {l['window']}**")
         out += [f"**{i:02d} · {l['title']}** — {tag}", f"{l['evidence']} {l['counterfactual']}", f"→ {l['cta']}", ""]

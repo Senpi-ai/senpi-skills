@@ -1620,11 +1620,19 @@ def test_a_lever_that_gives_back_what_it_saves_is_not_a_fix():
     printing it invites "why is this on my list?"."""
     noise = [_tm_row(cut_cf={"48": v}) for v in (5_701.0, -1_500.0, -1_500.0, -1_268.0, -1_268.0)]
     tm = dict(cut={"settings": {"48": dict(n=5, total=165.0)}})
-    assert score.levers(noise, [], tm) == [], "a 3% keep-rate lever is noise"
+    lv = score.levers(noise, [], tm)
+    # It is carried, flagged, and unquotable. It used to be dropped outright, which is what let
+    # best_lever take a "median" over a set the noise gate had already filtered by score.
+    assert [x["noisy"] for x in lv] == [True], lv
+    assert score.best_lever(lv) is None, "a 3% keep-rate lever is noise"
+    assert score.leaks(dict(trades=40), {}, tm, [], [], 0, 90, lv=lv) == [] or \
+        all("24h" not in (l.get("counterfactual") or "") for l in score.leaks(dict(trades=40), {}, tm, [], [], 0, 90, lv=lv))
 
     real = [_tm_row(cut_cf={"48": v}) for v in (5_701.0, -300.0, -300.0, -200.0, -200.0)]
     tm2 = dict(cut={"settings": {"48": dict(n=5, total=4_701.0)}})
-    assert len(score.levers(real, [], tm2)) == 1, "an 82% keep-rate lever is a real fix"
+    lv2 = score.levers(real, [], tm2)
+    assert len(lv2) == 1 and not lv2[0]["noisy"], "an 82% keep-rate lever is a real fix"
+    assert score.best_lever(lv2) is lv2[0]
 
 
 def test_the_headline_is_never_smaller_than_a_leak_listed_under_it():
@@ -1632,9 +1640,12 @@ def test_the_headline_is_never_smaller_than_a_leak_listed_under_it():
     was excluded from the levers because capping a funding-paying hold IS the time-cut — but the
     union only ever credits ONE lever, so there was no double-count to prevent, and the exclusion
     made the headline understate whenever funding was the biggest fix."""
-    lv = score.levers([_tm_row()], [], {}, funding_late=114_566.0)
-    assert [x["kind"] for x in lv] == ["funding"], lv
-    assert score.best_lever(lv)["total"] == 114_566.0
+    # The 24h cap CLOSES the position, so the lever only exists where the exits it forces can be
+    # priced — see the abstention test below.
+    _c24 = dict(cut={"settings": {"24": dict(n=6, total=0.0)}})
+    lv = score.levers([_tm_row()], [], _c24, funding_late=114_566.0)
+    assert "funding" in [x["kind"] for x in lv], lv
+    assert score.best_lever(lv)["kind"] == "funding" and score.best_lever(lv)["total"] == 114_566.0
     # …and it competes with the exits rather than adding to them
     tm = dict(lock={"settings": {"0.03/0.5": dict(n=5, total=200_000.0)}})
     rows = [_tm_row(lock_cf={"0.03/0.5": 40_000.0}) for _ in range(5)]
@@ -2412,3 +2423,151 @@ def test_the_stop_ladder_measures_a_day_not_an_hour():
 
     src = _P(HERE, "..", "scripts", "render.py").read_text()
     assert "| Daily range |" in src and "24h range" not in src, "the column still promises a day it does not measure"
+
+
+def test_the_venue_can_fail_in_the_three_ways_it_actually_fails():
+    """@danielmbirochi (#718), items 13/14/15. Three unguarded edges, all on the public path."""
+    import datetime, email.utils
+
+    # 13. Retry-After is delta-seconds OR an HTTP-date (RFC 7231). float() parses one of them, and
+    # the ValueError escaped from inside the 429 handler — the header that says when the bucket
+    # refills was turning a retryable rate-limit into a crash.
+    assert hl_api._retry_after({"Retry-After": "12"}) == 12.0
+    soon = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=30)
+    got = hl_api._retry_after({"Retry-After": email.utils.format_datetime(soon)})
+    assert 20 <= got <= 40, "the HTTP-date form has to yield seconds, not raise"
+    assert hl_api._retry_after({"Retry-After": "not a date"}) == 0.0  # fall through to backoff
+    assert hl_api._retry_after({}) == 0.0 and hl_api._retry_after(None) == 0.0
+    past = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)
+    assert hl_api._retry_after({"Retry-After": email.utils.format_datetime(past)}) == 0.0, "never negative"
+
+    # 15. A cache is an optimisation. A truncated file used to be terminal — every later run re-read
+    # the same bytes and died instead of refetching.
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+        fh.write('{"half a respon')
+        bad = fh.name
+    assert hl_api._cached(bad) is None, "a corrupt cache must read as a miss"
+    assert hl_api._cached(bad + ".nope") is None
+    hl_api._atomic_json(bad, {"ok": 1})
+    assert hl_api._cached(bad) == {"ok": 1}
+    os.unlink(bad)
+
+    # 14. `--find` fetches a ~40 MB public file with no auth and no SLA, and it was the only
+    # leaderboard call outside a try — a slow venue printed a traceback for the agent to read out.
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    find_branch = src.split("if a.find:", 1)[1].split("if a.addresses:", 1)[0]
+    assert "try:" in find_branch and "hl.leaderboard()" in find_branch, "--find is back outside a try"
+    assert '"error"' in find_branch, "a failure here has to come back as the desk's error shape"
+
+
+def test_a_lever_is_only_quoted_where_the_bar_is_the_same_for_every_lever():
+    """@danielmbirochi (#718), items 7/8/9. Three places where a lever got in on easier terms than
+    the levers it then out-scored."""
+    # 7. The chase lever was admitted at n>=3 and skipped the noise gate entirely, so three trades
+    # could out-rank a five-trade exit rule that had to keep 15% of what it saved.
+    tm3 = dict(n=10, chased_n=3, chased_realized=-9_000.0, calm_pf=2.0, chased_pf=0.2)
+    rows3 = [_tm_row(realized=-3_000.0, chased=True) for _ in range(3)]
+    assert [x["kind"] for x in score.levers(rows3, [], tm3)] == [], "three trades is not a pattern"
+    tm5 = {**tm3, "chased_n": 5}
+    rows5 = [_tm_row(realized=-1_800.0, chased=True) for _ in range(5)]
+    assert [x["kind"] for x in score.levers(rows5, [], tm5)] == ["chase"]
+    # and it answers to the same noise bar: hands back all but 5% of what it saves
+    tm_noise = {**tm5, "chased_realized": -500.0}
+    rows_noise = [_tm_row(realized=-2_000.0, chased=True) for _ in range(4)] + [_tm_row(realized=7_500.0, chased=True)]
+    lvn = score.levers(rows_noise, [], tm_noise)
+    assert lvn and lvn[0]["noisy"] and score.best_lever(lvn) is None
+
+    # 8. Six settings that clear the sample bar, five of them noise. The family median is a noisy
+    # setting, so the family does not get quoted — where before, the one survivor WAS the "median"
+    # and the grid search came back as a finding.
+    keys = ["12", "24", "48"]
+    settings = {"12": dict(n=6, total=100.0), "24": dict(n=6, total=120.0), "48": dict(n=6, total=9_000.0)}
+    rows8 = [_tm_row(cut_cf={k: 3_000.0 for k in keys}) for _ in range(6)]
+    lv8 = score.levers(rows8, [], dict(cut={"settings": settings}))
+    assert sorted(x["key"] for x in lv8) == ["12", "24", "48"], "the gate may not remove a setting from its own family"
+    assert [x["noisy"] for x in sorted(lv8, key=lambda x: x["key"])] == [True, True, False]
+    assert score.best_lever(lv8) is None, "one survivor out of six is a grid search, not a median"
+
+    # 9. The 24h funding cap credits the funding saved AND has to charge the exits it forces. With
+    # no 24h-cut sample there is nothing to charge, and crediting the whole bill uncharged is the
+    # survivorship shape this lever was rewritten to remove — so it abstains, and the leak beside it
+    # states the measured cost without putting a number on the fix.
+    assert score.levers([_tm_row()], [], {}, funding_late=114_566.0) == []
+    ep = [dict(coin="BTC", open_time=0, close_time=10 * 86_400_000)]
+    pay = [dict(time=5 * 86_400_000, delta=dict(usdc="-114566", coin="BTC"))]
+    lk = score.leaks(dict(trades=40, funding=-114_566.0, coins={"BTC": dict(funding=-114_566.0)}),
+                     dict(funding_per_day=-500.0), {}, pay, ep, 0, 90, lv=[])
+    fund = [l for l in lk if "funding" in l["title"]]
+    assert fund and fund[0]["usd"] == 0.0 and fund[0]["unpriced"], fund
+    assert "114,566" in fund[0]["title"], "the measured cost still has to be stated"
+
+
+def test_the_fee_split_prices_both_sides_on_the_dex_they_traded_on():
+    """@danielmbirochi (#718), items 6 and 12. B2 split TAKER volume across the main and HIP-3
+    schedules and left the MAKER side entirely on the main-dex rate — on the book where 98.9% of
+    taker volume is xyz:, that skews the very taker/maker ratio the split exists to compute. The
+    evidence line then quoted the main-dex bp beside a fee figure apportioned across both."""
+    def _e(coin, vol, taker):
+        return dict(coin=coin, volume=vol, taker_volume=taker, realized=0.0, fees=0.0, win=False,
+                    complete=True, truncated=False, hold_h=1.0, peak_notional=vol, direction="LONG",
+                    close_time=1, open_time=0, liquidated=False, adds=0, entry_vwap=1.0, peak_size=vol)
+    main = dict(userCrossRate="0.00035", userAddRate="0.0001")
+    xyz = dict(userCrossRate="0.0007", userAddRate="0.0004")
+    # Everything on xyz:, half taker half maker, and $1,000 of fees actually paid.
+    rows = [_e("xyz:UNITREE", 1_000_000.0, 500_000.0)]
+    rows[0]["fees"] = 1_000.0
+    tr = metrics.track_record(rows, [], [], main, 0, fee_sched_xyz=xyz)
+    # 6. The maker side is priced at the xyz maker rate, so the taker share is 0.0007/(0.0007+0.0004).
+    assert abs(tr["fee_rate_maker"] - 0.0004) < 1e-9, "maker fills were priced on a dex they never touched"
+    assert abs(tr["fee_rate_taker"] - 0.0007) < 1e-9
+    # 12. What the reader is quoted is what the reader pays; the main-dex schedule is still carried
+    # for anyone who needs it, it just no longer stands in for the book.
+    assert tr["fee_rate_taker_main"] == 0.00035 and tr["fee_rate_maker_main"] == 0.0001
+    # and the saving is the xyz spread (1 - 4/7), not the main-dex one (1 - 1/3.5)
+    assert abs(tr["fee_recoverable"] - 1_000.0 * (7 / 11) * (1 - 4 / 7)) < 1e-6
+
+    # A book on the main dex only is unchanged by any of it.
+    plain = [_e("BTC", 1_000_000.0, 500_000.0)]
+    plain[0]["fees"] = 1_000.0
+    t2 = metrics.track_record(plain, [], [], main, 0, fee_sched_xyz=None)
+    assert t2["fee_rate_taker"] == 0.00035 and t2["fee_rate_maker"] == 0.0001
+
+    src = _P(HERE, "..", "scripts", "score.py").read_text()
+    assert "tr['fee_rate_taker'] * 1e4" in src, "the leak evidence must quote the rate the reader faces"
+
+
+def test_a_zero_percent_win_rate_is_a_measurement_not_a_missing_value():
+    """@danielmbirochi (#718), item 11. `(wr or 0.5)` sits inside a branch that already handles
+    wr is None, so it only ever fires on a win rate of exactly 0.0 — the worst record there is,
+    scored as if it were a coin flip, worth +20 points."""
+    zero = dict(trades=20, win_rate=0.0, profit_factor=0.0)
+    half = dict(trades=20, win_rate=0.5, profit_factor=0.0)
+    s0, _ = score.dim_consistency(zero, None)
+    s5, _ = score.dim_consistency(half, None)
+    assert s0 < s5, "0% and 50% cannot score the same"
+    none = dict(trades=20, win_rate=None, profit_factor=1.0)
+    assert score.dim_consistency(none, None)[0] is not None, "a missing win rate still abstains, not crashes"
+
+
+def test_the_page_never_says_no_leak_over_a_number_it_just_printed():
+    """@danielmbirochi (#718), item 10. recoverable_line returned [] whenever the leak list was
+    empty, so a book whose recoverable money was taker fees — measured, not counterfactual — got the
+    sentence "No leak clears the bar" and no figure, while the JSON handed the agent the figure."""
+    import render
+    r = {"track": {"trades": 40, "net": -5_000.0}, "leaks": [],
+         "recoverable": {"usd": 18_898.0, "fees": 18_898.0, "rule": None, "n_trades": 40,
+                         "concentration": {}, "share_of_losses": None}, "timing": {}}
+    md = render.leaks(r)
+    md = "\n".join(md) if isinstance(md, list) else md
+    assert "18,898" in md, "the desk computed a number and then refused to print it"
+    assert "No leak clears the bar" not in md
+    assert "process" in md, "say which kind of leak came up empty"
+
+    # nothing recoverable at all still reads the old way
+    r0 = {**r, "recoverable": {"usd": 0.0}}
+    _j = lambda x: "\n".join(x) if isinstance(x, list) else x
+    assert "No leak clears the bar" in _j(render.leaks(r0))
+    # and too thin to judge still outranks both
+    r1 = {**r, "track": {"trades": 2}}
+    assert "Not enough closed trades" in _j(render.leaks(r1))

@@ -8,6 +8,8 @@ returns at most 2000 fills and `userFunding` at most 500 rows per call — both 
 `startTime = last.time + 1` until a short page.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import email.utils
+import datetime
 import hashlib
 import json
 import random
@@ -44,6 +46,46 @@ DEFAULT_CACHE = os.path.join(tempfile.gettempdir(), "quant-desk", "cache")
 TTL = {"metaAndAssetCtxs::xyz": 120, "clearinghouseState": 120, "frontendOpenOrders": 120, "metaAndAssetCtxs": 120, "candleSnapshot": 900,
        "userFees": 3600, "portfolio": 600, "userNonFundingLedgerUpdates": 600, "userFillsByTime": 600,
        "userFunding": 600, "leaderboard": 6 * 3600}
+
+
+def _retry_after(headers):
+    """Seconds to wait from a Retry-After header, in either legal form.
+
+    RFC 7231 allows delta-seconds OR an HTTP-date, and Hyperliquid's edge has sent both. `float()`
+    parses only the first, and the ValueError it raises on the second escapes from INSIDE the 429
+    handler — so the one header that tells us when the bucket refills turned a retryable rate-limit
+    into a hard crash. (@danielmbirochi, #718.)
+    """
+    v = (headers or {}).get("Retry-After")
+    if not v:
+        return 0.0
+    try:
+        return max(0.0, float(v))
+    except (TypeError, ValueError):
+        pass
+    try:
+        when = email.utils.parsedate_to_datetime(v)
+    except (TypeError, ValueError):
+        return 0.0
+    if when is None:
+        return 0.0
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=datetime.timezone.utc)
+    return max(0.0, (when - datetime.datetime.now(datetime.timezone.utc)).total_seconds())
+
+
+def _cached(path):
+    """A cache hit, or None if the file cannot be read as JSON.
+
+    Cache writes are atomic now, but a file written before that, or truncated by a full disk, used to
+    be terminal: every later run re-read the same corrupt bytes and died on JSONDecodeError instead
+    of refetching. A cache is an optimisation — it is never a reason to fail. (@danielmbirochi, #718.)
+    """
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
 
 
 def _atomic_json(path, obj):
@@ -90,8 +132,9 @@ class HL:
         ttl = TTL.get(body.get("type"), 300)
         path = os.path.join(self.cache_dir, key + ".json") if self.cache_dir else None
         if path and os.path.exists(path) and time.time() - os.path.getmtime(path) < ttl:
-            with open(path) as fh:
-                return json.load(fh)
+            hit = _cached(path)
+            if hit is not None:
+                return hit
         req = urllib.request.Request(INFO_URL, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
         data = None
         for attempt in range(max(RETRIES, RATE_LIMIT_RETRIES)):
@@ -103,7 +146,7 @@ class HL:
             except urllib.error.HTTPError as e:
                 if e.code == 429 and attempt < RATE_LIMIT_RETRIES - 1:
                     # honour Retry-After when the venue sends it; it knows when the bucket refills
-                    wait = float((e.headers or {}).get("Retry-After") or 0) or min(
+                    wait = _retry_after(e.headers) or min(
                         RATE_LIMIT_MAX_SLEEP_S, BACKOFF_S * (2 ** attempt))
                     # Jitter, because the bucket is per-IP and shared: without it every desk in a
                     # parallel round backs off in lockstep and collides again on the same refill.
@@ -245,8 +288,9 @@ class HL:
         """Hyperliquid's public leaderboard (every account with a window performance; ~40 MB), cached."""
         path = os.path.join(self.cache_dir, "leaderboard.json") if self.cache_dir else None
         if path and os.path.exists(path) and time.time() - os.path.getmtime(path) < TTL["leaderboard"]:
-            with open(path) as fh:
-                return json.load(fh)
+            hit = _cached(path)
+            if hit is not None:
+                return hit
         self.calls += 1
         try:
             with urllib.request.urlopen(urllib.request.Request(LEADERBOARD_URL), timeout=max(self.timeout, 120)) as r:

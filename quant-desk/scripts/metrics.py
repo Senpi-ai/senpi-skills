@@ -62,9 +62,22 @@ def track_record(closed, opened, funding_rows, fee_sched, window_start, fee_sche
     # real fees between taker and maker fills, which is schedule-independent as long as the ratio
     # holds. (B2, @0xsarvesh #718.)
     _t_est = tv_main * cross + tv_xyz * x_cross
-    _m_est = max(0.0, vol - taker_vol) * add
+    # The taker side was split by dex and the maker side was not: every resting fill, xyz: included,
+    # was priced at the main-dex maker rate. On the book where 98.9% of taker volume is xyz: that
+    # skews the very ratio this exists to compute. Split both sides. (@danielmbirochi, #718, item 6.)
+    v_main = sum(e["volume"] for e in closed + opened if not _xyz(e))
+    mv_main, mv_xyz = max(0.0, v_main - tv_main), max(0.0, (vol - v_main) - tv_xyz)
+    _m_est = mv_main * add + mv_xyz * x_add
     _taker_fee_share = (_t_est / (_t_est + _m_est)) if (_t_est + _m_est) > 0 else 0.0
-    _save_rate = max(0.0, 1.0 - (add / cross)) if cross else 0.0
+    # Same for the saving: resting instead of crossing saves the spread on the dex the volume is
+    # ACTUALLY on, at that dex's own schedule. Weight by where the taker volume sits.
+    _sv = lambda a, c: max(0.0, 1.0 - (a / c)) if c else 0.0
+    _save_rate = ((tv_main * _sv(add, cross) + tv_xyz * _sv(x_add, x_cross)) / taker_vol) if taker_vol else 0.0
+    # The rates the reader actually faces, volume-weighted across both dexes. The leak evidence and
+    # the Execution line used to quote the main-dex schedule beside a fee figure apportioned across
+    # both, so the two numbers on the page did not describe the same book. (item 12.)
+    eff_taker = (_t_est / taker_vol) if taker_vol else cross
+    eff_maker = (_m_est / (mv_main + mv_xyz)) if (mv_main + mv_xyz) > 0 else add
     # NOT abs(): a maker REBATE is negative fees, money EARNED. dim_cost was fixed for exactly this
     # in #733 and this site was missed — it turned a rebate into recoverable dollars, which
     # recoverable() then added on top of the lever. (@danielmbirochi, #718.)
@@ -99,7 +112,8 @@ def track_record(closed, opened, funding_rows, fee_sched, window_start, fee_sche
         hold_losers_h=med([e["hold_h"] for e in cl]) if len(cl) >= MIN_HOLD_N else None,
         hold_ratio=(med([e["hold_h"] for e in cl]) / med([e["hold_h"] for e in cw])) if (len(cw) >= MIN_HOLD_N and len(cl) >= MIN_HOLD_N and med([e["hold_h"] for e in cw])) else None,
         hold_n=dict(winners=len(cw), losers=len(cl)),
-        taker_share=taker_vol / vol if vol else None, volume=vol, fee_rate_taker=cross, fee_rate_maker=add,
+        taker_share=taker_vol / vol if vol else None, volume=vol, fee_rate_taker=eff_taker, fee_rate_maker=eff_maker,
+        fee_rate_taker_main=cross, fee_rate_maker_main=add,
         fee_recoverable=fee_recoverable, fee_rate_taker_xyz=x_cross, fee_rate_maker_xyz=x_add,
         taker_volume_xyz=tv_xyz,
         liquidations=len(liq), liquidation_loss=sum(e["realized"] for e in liq),

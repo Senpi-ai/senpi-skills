@@ -394,7 +394,16 @@ def main(argv=None):
     book = addr_book.load(a.state_dir)
     if a.find:
         hl = hl_api.HL(cache_dir=a.cache or None)
-        rows = hl_api.find_traders(hl.leaderboard(), band=a.find, window=a.find_window,
+        # A ~40 MB public fetch with no auth and no SLA. Everywhere else the desk degrades on it
+        # (`leaderboard unavailable` as a warning); here it was the whole answer and outside any try,
+        # so a slow venue printed a traceback for the agent to read back to the reader.
+        try:
+            lb = hl.leaderboard()
+        except Exception as e:  # noqa: BLE001
+            print(json.dumps({"error": f"Hyperliquid's leaderboard did not answer: {e}",
+                              "retry": "it is a large public file — worth one more try in a minute"}))
+            return 2
+        rows = hl_api.find_traders(lb, band=a.find, window=a.find_window,
                                    losers=a.find_losers)
         print(json.dumps({"band": a.find, "window": a.find_window,
                           "worst_first": bool(a.find_losers), "candidates": rows}, indent=2))

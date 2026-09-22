@@ -211,10 +211,14 @@ def dim_consistency(tr, pnl_curve):
     if pf is None and wr is None:
         return None, "No closed trades in the window — nothing to judge consistency on."
     pf_ = 3.0 if pf in (None, float("inf")) else min(pf, 3.0)
-    s = 50 + (pf_ - 1) * 20 + (((wr or 0.5) - 0.5) * 40 if wr is not None else 0)
+    s = 50 + (pf_ - 1) * 20 + ((wr - 0.5) * 40 if wr is not None else 0)
     s = 50 + (s - 50) * (n / (n + 10.0)) if n else 50.0
     pfs = "∞" if pf == float("inf") else (f"{pf:.1f}" if pf is not None else "n/a")
-    line = f"Win rate {_pct(wr)}, profit factor {pfs} across {n} trade{'s' if n != 1 else ''}"
+    # The profit factor already had an n/a path and the win rate did not, so the one input shape the
+    # guard above lets through — a measurable pf with no win rate — reached `_pct(None)` and raised
+    # a TypeError, which is not an HLError, so desk.py prints a traceback and no desk. Same failure
+    # mode as the all-losing book in #733; found while fixing item 11.
+    line = f"Win rate {_pct(wr) if wr is not None else 'n/a'}, profit factor {pfs} across {n} trade{'s' if n != 1 else ''}"
     if tr.get("payoff_ratio"):
         line += f" — average winner {tr['payoff_ratio']:.1f}× the average loser"
     line += "."
@@ -445,10 +449,13 @@ def levers(rows, closed, tm=None, funding_late=0.0):
         total, gross = float(st.get("total") or 0.0), sum(v for v in vals if v > 0)
         # a rule that hands back almost everything it saves is a coin flip, not an edge. On
         # 0xccd2…c8a3 a time-cut netted $165 out of $5,701 saved — 3% — and was listed as a fix.
-        if gross > 0 and total < NOISE_SHARE * gross:
-            continue
+        # It used to `continue` here, which removed the setting from the family ENTIRELY — so
+        # best_lever's median ran over a set the noise gate had already filtered BY SCORE, and a
+        # family with one survivor quoted that survivor as its "median". Selection has to happen
+        # over every adequately-sampled setting; the noise gate then applies to whatever selection
+        # returns. (@danielmbirochi, #718, item 8.)
         out.append(dict(kind=grp, key=k, label=label, total=total, gross=gross,
-                        vals=vals, n=int(st["n"])))
+                        vals=vals, n=int(st["n"]), noisy=bool(gross > 0 and total < NOISE_SHARE * gross)))
 
     m = None
     winners = [e["peak_size"] * e["entry_vwap"] for e in (closed or [])
@@ -460,9 +467,10 @@ def levers(rows, closed, tm=None, funding_late=0.0):
         over = [t for t in rows if (t.get("notional") or 0) > 1.5 * m]
         vals = [-t["realized"] * (1 - m / t["notional"]) for t in over]
         if len(vals) >= MIN_PATTERN_TRADES:
+            _tot, _gr = sum(vals), sum(v for v in vals if v > 0)
             out.append(dict(kind="size", key="1.5x", label="capping size at your median winner",
-                            total=sum(vals), gross=sum(v for v in vals if v > 0), vals=vals,
-                            n=len(over), median_winner=m,
+                            total=_tot, gross=_gr, vals=vals,
+                            n=len(over), median_winner=m, noisy=bool(_gr > 0 and _tot < NOISE_SHARE * _gr),
                             losers=len([t for t in over if not t.get("win")])))
 
     # Funding belongs here, competing with the exits rather than sitting outside them. It was left
@@ -471,18 +479,21 @@ def levers(rows, closed, tm=None, funding_late=0.0):
     # SMALLER than a leak listed under it: 0x767a…0ace quoted $99,228 above a $114,566 funding leak.
     # No sample gate: funding paid is a measured cost, like fees, not a pattern estimated from a
     # handful of trades.
-    if funding_late > 50:
+    _cut24_s = (((tm.get("cut") or {}).get("settings")) or {}).get("24") or {}
+    if funding_late > 50 and (_cut24_s.get("n") or 0) >= MIN_PATTERN_TRADES:
         # A 24h cap does not only stop the funding bill — it CLOSES the position, and the P&L
         # consequence of closing at 24h is exactly the 24h time-cut. Crediting the funding saved and
         # charging nothing for the exits it forces was the fourth survivorship bug (@0xsarvesh #718);
         # the first three were fixed in #712.
-        _cut24 = (((tm.get("cut") or {}).get("settings")) or {}).get("24") or {}
+        _cut24 = _cut24_s
         # CHARGE only, never credit. A 24h cap forces exits, and if those exits cost money the
         # funding saving has to carry it — that was the survivorship gap. But when they GAIN, that
         # gain is the time-cut lever's, and adding it here summed two levers, which is the exact
         # double-count the union exists to prevent. It made a $122,440 funding bill read as a
         # $4,083,959 saving.
-        _charge = min(0.0, float(_cut24.get("total") or 0.0)) if _cut24.get("n") else 0.0
+        # The gate above guarantees a sample; without one the credit used to ship uncharged, which
+        # is the fourth survivorship bug wearing a different hat. (@danielmbirochi, #718, item 9.)
+        _charge = min(0.0, float(_cut24.get("total") or 0.0))
         # The lever is legitimately worth funding + the P&L of the exits it forces. The LEAK beside
         # it is titled "you paid $X in funding", so quoting the combined figure there read as saving
         # 6x the bill ($502,094 against $80,256). Carry the two parts separately and let the leak
@@ -492,11 +503,15 @@ def levers(rows, closed, tm=None, funding_late=0.0):
                         funding_saved=float(funding_late), exit_effect=_charge, vals=[],
                         n=len(rows)))
 
-    if (tm.get("chased_n") or 0) >= 3 and (tm.get("chased_realized") or 0) < -50 \
+    # n>=3 and no noise gate: every other pattern lever needs MIN_PATTERN_TRADES and has to keep
+    # NOISE_SHARE of what it saves, and this one could win best_lever on three trades.
+    # (@danielmbirochi, #718, item 7.)
+    if (tm.get("chased_n") or 0) >= MIN_PATTERN_TRADES and (tm.get("chased_realized") or 0) < -50 \
             and (tm.get("calm_pf") or 0) > (tm.get("chased_pf") or 0):
         vals = [-float(t["realized"]) for t in rows if t.get("chased") and (t.get("realized") or 0) < 0]
+        _tot, _gr = -float(tm["chased_realized"]), sum(vals)
         out.append(dict(kind="chase", key="3pct", label="skipping entries after a >=3% move",
-                        total=-float(tm["chased_realized"]), gross=sum(vals), vals=vals,
+                        total=_tot, gross=_gr, vals=vals, noisy=bool(_gr > 0 and _tot < NOISE_SHARE * _gr),
                         n=int(tm["chased_n"])))
     return out
 
@@ -520,6 +535,8 @@ def best_lever(lv, kind=None):
     for k in {x["kind"] for x in c}:
         fam = sorted((x for x in c if x["kind"] == k), key=lambda x: x["total"])
         rep = fam[(len(fam) - 1) // 2]              # lower median: ties go to the more conservative
+        if rep.get("noisy"):                        # the family's typical setting is a coin flip
+            continue
         if best is None or rep["total"] > best["total"]:
             best = rep
     return best if best and best["total"] > 0 else None
@@ -588,7 +605,7 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
     yr = 365.0 / days
     # charged lever totals, so a leak is listed at the value recoverable() would credit it with and
     # the ranking is by the same accounting as the headline (#718)
-    ch = {x["kind"]: x for x in (lv or [])}
+    ch = {x["kind"]: x for x in (lv or []) if not x.get("noisy")}
     # 1. costs — resting instead of crossing the spread
     if _n(tr, "fee_recoverable") >= 50 and (tr.get("taker_share") or 0) >= 0.25:
         out.append(dict(agent="Leak finder", title=f"{_pct(tr['taker_share'])} of your volume crossed the spread as a taker",
@@ -618,8 +635,13 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
                             f"{_usd(_fl['funding_saved'])} of funding, and {_usd(_fl['exit_effect'])} from closing "
                             f"the positions that much earlier."
                             if (_fl := ch.get("funding")) and abs(_fl.get("exit_effect") or 0) > 50 else
-                            f"A 24h cap on holds that pay funding would have kept ~{_usd(paid_late)} over {days} days."),
-                        usd=paid_late, window=f"{days}d", cta="A funding-aware hold rule caps the cost without changing the thesis."))
+                            f"A 24h cap on holds that pay funding would have kept ~{_usd(paid_late)} over {days} days."
+                            if ch.get("funding") else
+                            "Capping those holds at 24h also CLOSES them, and this window has too few holds past "
+                            "24h to price what those exits would have done — so the desk does not put a number on "
+                            "the fix. The funding above is what it actually cost."),
+                        usd=paid_late if ch.get("funding") else 0.0, unpriced=not ch.get("funding"),
+                        window=f"{days}d", cta="A funding-aware hold rule caps the cost without changing the thesis."))
     # 3. losers held too long — only when the time cut is robust
     cut_l = best_lever(lv, "cut")
     cut = cut_l["total"] if cut_l else ((tm or {}).get("cut") or {}).get("robust")
@@ -664,7 +686,7 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
                                         f"A trailing lock on peak gains would have kept roughly ~{_usd(lock)} over {days} days (approximate: peak size × price move)."),
                         usd=lock, window=f"{days}d", cta="A ratcheting stop locks the peak without capping the run."))
     # 5. chasing
-    if tm and _n(tm, "chased_n") >= 3 and _n(tm, "chased_realized") < -50 and (tm.get("calm_pf") or 0) > (tm.get("chased_pf") or 0):
+    if tm and _n(tm, "chased_n") >= MIN_PATTERN_TRADES and _n(tm, "chased_realized") < -50 and (tm.get("calm_pf") or 0) > (tm.get("chased_pf") or 0):
         out.append(dict(agent="Smart money", title=f"Entries after a ≥3% move lose money — {tm['chased_n']} of {tm['n']} trades",
                         evidence=f"Those trades realized {_usd(tm['chased_realized'])} (profit factor {tm['chased_pf']:.1f}) vs {min(tm['calm_pf'], 9.9):.1f} when you entered before the move.",
                         counterfactual=f"Skipping entries that had already run ≥3% would have kept ~{_usd(-tm['chased_realized'])} over {days} days.",
