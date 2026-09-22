@@ -2,7 +2,7 @@
 """Hyperliquid public Info API — every read the desk needs for ANY address, no auth.
 
 `POST https://api.hyperliquid.xyz/info` with `{"type": ..., "user": "0x..."}`. Stdlib only. Every call
-is cached on disk (default: <tempdir>/quant-desk/cache) so a re-run inside the TTL costs nothing, and
+is cached on disk (default: <tempdir>/senpi-ai-quant/cache) so a re-run inside the TTL costs nothing, and
 a `HLFixture` serves recorded responses for tests and `--fixture` runs. Paging: `userFillsByTime`
 returns at most 2000 fills and `userFunding` at most 500 rows per call — both are paged by
 `startTime = last.time + 1` until a short page.
@@ -40,7 +40,7 @@ RATE_LIMIT_MAX_SLEEP_S = 20.0
 # OPTIONAL layers. (@0xsarvesh, #718.)
 RETRY_CODES = (429, 500, 502, 503, 504)
 BACKOFF_S = 1.5
-DEFAULT_CACHE = os.path.join(tempfile.gettempdir(), "quant-desk", "cache")
+DEFAULT_CACHE = os.path.join(tempfile.gettempdir(), "senpi-ai-quant", "cache")
 TTL = {"metaAndAssetCtxs::xyz": 120, "clearinghouseState": 120, "frontendOpenOrders": 120, "metaAndAssetCtxs": 120, "candleSnapshot": 900,
        "userFees": 3600, "portfolio": 600, "userNonFundingLedgerUpdates": 600, "userFillsByTime": 600,
        "userFunding": 600, "leaderboard": 6 * 3600}
@@ -136,7 +136,7 @@ class HL:
             if not page:
                 break
             out += page
-            self._tick(f"[quant-desk]   · {len(out):,} fills scanned …")
+            self._tick(f"[senpi-ai-quant]   · {len(out):,} fills scanned …")
             if len(page) < FILLS_PAGE:
                 break
             t = page[-1]["time"] + 1
@@ -163,7 +163,7 @@ class HL:
                 f = dict(x.get("fill") or x)
                 f["twapId"] = x.get("twapId", f.get("twapId"))
                 out.append(f)
-            self._tick(f"[quant-desk]   · {len(out):,} TWAP slices scanned …")
+            self._tick(f"[senpi-ai-quant]   · {len(out):,} TWAP slices scanned …")
             if len(page) < FILLS_PAGE:
                 break
             t = max(f["time"] for f in out) + 1
@@ -227,7 +227,7 @@ class HL:
             with lock:
                 done[0] += 1; k = done[0]
             if k % 40 == 0 or k == len(todo):
-                self._tick(f"[quant-desk]   · reading the tape: {k} of {len(todo)} coins{' · daily' if interval != '1h' else ''} …")
+                self._tick(f"[senpi-ai-quant]   · reading the tape: {k} of {len(todo)} coins{' · daily' if interval != '1h' else ''} …")
             return out
         with ThreadPoolExecutor(max_workers=workers) as ex:
             return dict(ex.map(one, todo))
@@ -327,6 +327,46 @@ def weekly_rank(leaderboard, addr):
             ranks[w] = 1 + sum(1 for r in rows if _window(r, w).get("pnl", 0.0) > mv)
     return {"rank": rank, "of": len(pnls), "top_pct": 100.0 * rank / len(pnls), "week_pnl": mine, "ranks": ranks,
             "windows": windows, "account_value": float(me.get("accountValue") or 0)}
+
+
+# The bands a reader actually thinks in. "Find me traders to analyse" is a size question first —
+# a $9k book and a $9M book teach different lessons — then a style question.
+FIND_BANDS = {
+    "5k-10k":   (5_000.0, 10_000.0),
+    "10k-25k":  (10_000.0, 25_000.0),
+    "25k-100k": (25_000.0, 100_000.0),
+    "100k-1m":  (100_000.0, 1_000_000.0),
+    "whales":   (1_000_000.0, float("inf")),
+}
+
+
+def find_traders(leaderboard, band=None, window="month", n=8, min_volume=250_000.0, losers=False):
+    """Candidate wallets to run the desk on, from public leaderboard data alone.
+
+    `band` is an account-size bracket (see FIND_BANDS) — the first thing a reader picks, because a
+    $9k book and a $9M book teach different lessons. `window` is "week" for who is hot right now or
+    "month"/"allTime" for who has held up. `min_volume` drops the vault and yield accounts that hold
+    equity but never trade — they render as an empty desk.
+
+    Returns dicts, not bare addresses: whoever is choosing needs to see why each one is on the list.
+    """
+    lo, hi = FIND_BANDS.get(band or "", (0.0, float("inf")))
+    out = []
+    for r in leaderboard.get("leaderboardRows") or []:
+        av = float(r.get("accountValue") or 0)
+        if not (lo <= av <= hi):
+            continue
+        w = _window(r, window)
+        if w.get("vlm", 0) < min_volume:
+            continue
+        pnl = w.get("pnl", 0)
+        if (pnl >= 0) if losers else (pnl <= 0):
+            continue
+        out.append(dict(address=r["ethAddress"], account_value=av, pnl=pnl,
+                        roi=w.get("roi", 0), volume=w.get("vlm", 0), window=window,
+                        turnover=(w.get("vlm", 0) / av) if av > 0 else 0.0))
+    out.sort(key=lambda x: x["pnl"], reverse=not losers)
+    return out[:n]
 
 
 def public_cohort(leaderboard, n=40, min_account_value=1_000_000.0, min_month_roi=0.05, min_month_volume=1_000_000.0):

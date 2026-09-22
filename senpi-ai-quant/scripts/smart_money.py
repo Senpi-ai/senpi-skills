@@ -264,7 +264,7 @@ def books(client, addrs, meta, progress=None, label=""):
             meta.setdefault("warnings", []).append(f"trader_state batch failed: {e}")
             continue
         if progress:
-            progress(f"[quant-desk]   · senpi-smart-money: {label}{min(i + STATE_BATCH, len(addrs))} of {len(addrs)} wallets read …")
+            progress(f"[senpi-ai-quant]   · senpi-smart-money: {label}{min(i + STATE_BATCH, len(addrs))} of {len(addrs)} wallets read …")
         for t in _traders_of(_ok(resp)):
             rows = []
             for p in (t.get("openPositions") or t.get("open_positions") or []):

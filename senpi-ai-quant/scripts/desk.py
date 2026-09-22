@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""quant-desk — paste any Hyperliquid address, get the desk.
+"""senpi-ai-quant — paste any Hyperliquid address, get the desk.
 
   python3 desk.py 0x<address>                      # the full desk as Markdown
   python3 desk.py 0x<address> --section protection # one section, from the cached run if fresh
@@ -45,9 +45,9 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.17.0"
+VERSION = "1.18.0"
 
-DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
+DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "senpi-ai-quant")
 FRESH_S = 600
 PUBLIC_COHORT_N = 80          # live books read for the public smart-money cohort (parallel, cached 2 min)
 
@@ -68,7 +68,7 @@ def step(n, msg, t0=None, found=None):
     where = f"[{n}/{_STEPS}]"
     when = f" {time.time() - t0:.0f}s" if t0 else ""
     what = f" — {found}" if found else ""
-    print(f"[quant-desk] {where}{when} {msg}{what}", file=sys.stderr, flush=True)
+    print(f"[senpi-ai-quant] {where}{when} {msg}{what}", file=sys.stderr, flush=True)
 
 
 def _mcp_client(meta):
@@ -348,7 +348,7 @@ def resolve_whose(book, addr, other=False, mine=False, claim=False):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="quant-desk: the desk for any Hyperliquid address")
+    ap = argparse.ArgumentParser(description="senpi AI Quant: the desk for any Hyperliquid address")
     ap.add_argument("address", nargs="?", help="the wallet; omit with --compare")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--mine", action="store_true", help="the reader's own book (second person)")
@@ -358,7 +358,7 @@ def main(argv=None):
     g.add_argument("--other", "--analyst", dest="other", action="store_true", help="someone else's book (analyst mode): third person, learn-from-them follow-ups")
     ap.add_argument("--compare", nargs="+", metavar="0x", help="two or more addresses side by side (cached runs are reused)")
     ap.add_argument("--days", type=int, default=90)
-    ap.add_argument("--version", action="version", version=f"quant-desk desk.py {VERSION}",
+    ap.add_argument("--version", action="version", version=f"senpi-ai-quant desk.py {VERSION}",
                     help="print this script's version — the one gate that catches a stale desk.py")
     ap.add_argument("--json", action="store_true", help="print the analysis document instead of Markdown")
     ap.add_argument("--section", choices=render.SECTIONS, action="append", help="render only these sections (repeatable)")
@@ -369,12 +369,26 @@ def main(argv=None):
     ap.add_argument("--cache", default=hl_api.DEFAULT_CACHE, help="HTTP cache dir ('' to disable)")
     ap.add_argument("--state-dir", default=DEFAULT_STATE_DIR)
     ap.add_argument("--fresh", action="store_true", help="ignore a cached analysis")
+    ap.add_argument("--find", metavar="BAND", choices=sorted(hl_api.FIND_BANDS),
+                    help="candidate wallets to run the desk on, by account size: "
+                         + ", ".join(sorted(hl_api.FIND_BANDS)))
+    ap.add_argument("--find-window", default="week", choices=("week", "month", "allTime"),
+                    help="who is hot right now (week) or who has held up (month/allTime)")
+    ap.add_argument("--find-losers", action="store_true",
+                    help="the worst in the band instead of the best — the desk reads a losing book just as well")
     ap.add_argument("--addresses", action="store_true",
                     help="print this box's address book as JSON and exit — which wallets are the reader's, "
                          "which they have read, and which are not in senpi's index yet")
     a = ap.parse_args(argv)
     os.makedirs(a.state_dir, exist_ok=True)
     book = addr_book.load(a.state_dir)
+    if a.find:
+        hl = hl_api.HL(cache_dir=a.cache or None)
+        rows = hl_api.find_traders(hl.leaderboard(), band=a.find, window=a.find_window,
+                                   losers=a.find_losers)
+        print(json.dumps({"band": a.find, "window": a.find_window,
+                          "worst_first": bool(a.find_losers), "candidates": rows}, indent=2))
+        return 0
     if a.addresses:
         print(json.dumps(book, indent=2, sort_keys=True)); return 0
     if a.compare:
@@ -424,7 +438,7 @@ def main(argv=None):
             if a.dry:
                 print(json.dumps({"error": "--dry needs --fixture"})); return 2
             hl = hl_api.HL(cache_dir=a.cache or None); hl.progress = log; mcp = _mcp_client(meta)
-        log(f"[quant-desk] running senpi quant desk on {addr[:6]}…{addr[-4:]}")
+        log(f"[senpi-ai-quant] running senpi quant desk on {addr[:6]}…{addr[-4:]}")
         try:
             r = analyze(addr, hl, days=a.days, mcp=mcp, want_rank=not a.no_rank, want_cohort=not a.no_cohort, bench=bench, meta=meta, whose=whose)
         except hl_api.HLError as e:
@@ -439,7 +453,7 @@ def main(argv=None):
                          f"Spot trades and transfers are not perp activity and are not read here.",
                 "address": addr, "days": a.days, "indexed": r.get("indexed"),
                 "perp_fills_in_window": 0, "open_perp_positions": 0})); return 3
-        log(f"[quant-desk] done in {meta['timings']['total']}s ({meta.get('hl_calls')} reads)")
+        log(f"[senpi-ai-quant] done in {meta['timings']['total']}s ({meta.get('hl_calls')} reads)")
         # atomic: stage 1 writes this and stages 2-4 read it, so a half-written relay file breaks
         # the whole staged run — and JSONDecodeError is not an HLError, so the handler above misses it
         hl_api._atomic_json(state_path, json.loads(json.dumps(r, default=float)))
@@ -455,7 +469,7 @@ def main(argv=None):
             try:
                 candles = timing_mod.load_candles(hl.candles(coins, days=a.days + 1))
             except Exception as e:  # noqa: BLE001
-                log(f"[quant-desk] candles unavailable for the deep dive: {e}")
+                log(f"[senpi-ai-quant] candles unavailable for the deep dive: {e}")
         data = {"protect": lambda: deep_mod.protect(r, candles), "replay": lambda: deep_mod.replay(r, candles), "funding": lambda: deep_mod.funding_forecast(r),
                 "compare": lambda: deep_mod.compare_windows(r), "rules": lambda: deep_mod.rules(r), "regime": lambda: deep_mod.regime(r), "watch": lambda: deep_mod.watch(r),
                 "smart": lambda: dict(cohorts=r.get("cohorts") or []), "scout": lambda: dict(opportunities=r.get("opportunities") or [], setups=r.get("setups")),

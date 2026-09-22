@@ -1,5 +1,5 @@
 ---
-name: quant-desk
+name: senpi-ai-quant
 description: >-
   **AI Quant** (also "the quant", "quant desk"): paste ANY Hyperliquid address (0x…) and get the desk —
   what the trader has actually been doing (a strategy read with a critique), a quant score with six
@@ -16,8 +16,10 @@ description: >-
   I leaking money", "what did I miss" (about a book, a week or a trade), "master my week", "analyze my
   wallet / my Hyperliquid address", "how am I doing", "what's my strategy", "am I on the right side of
   smart money", "are my positions protected", "what should I fix first", "compare me to the whales",
-  "scout setups for me". No address given? Ask for one, or read the user's own connected wallet — do
-  not answer from memory.
+  "scout setups for me", "find traders for me to analyze with AI quant", "run AI quant on any
+  Hyperliquid wallet". No address given? `desk.py --find <band>` offers candidates by account size
+  ($5k-10k through whales) and by this week's winners, the month's, or this week's worst — ask which,
+  never guess an address and never answer from memory.
   The default is the user's OWN book: "run AI quant on 0x…" means the user is 0x… — the desk speaks to
   them and recommends their next steps. "Run AI quant analyst on 0x…" (or "review this trader 0x…")
   means the user is analyzing someone else.
@@ -27,12 +29,12 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.17.0"
+  version: "1.18.0"
   platform: senpi
   exchange: hyperliquid
 ---
 
-# quant-desk — the desk for any Hyperliquid address
+# senpi AI Quant — the desk for any Hyperliquid address
 
 Built for one thing first: **the user's own book.** A trader joins senpi, pastes their Hyperliquid
 wallet, and gets their desk — the book they actually run, scored, protected and improved, in the second
@@ -80,7 +82,7 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    Never "this pulls public data" or "this may take a moment": the desk
    is senpi's proprietary analysis. Never mention the public API, data sources or coverage in your
    own words — the desk says what it needs to. Run the installed copy
-   (`/data/.openclaw/skills/quant-desk/scripts/desk.py`), never a backup folder: the header line carries the
+   (`/data/.openclaw/skills/senpi-ai-quant/scripts/desk.py`), never a backup folder: the header line carries the
    version — and `desk.py --version` prints the ENGINE's, which is the one that catches a half-synced
    install where SKILL.md looks current and the script is not. Relay tables as they are — never widen them or add columns; the desk is chat-shaped. Write
    **onchain**, never "on-chain", everywhere.
@@ -211,6 +213,7 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 
 | User says | Run | Then |
 |---|---|---|
+| "run AI quant on any Hyperliquid wallet", "find traders for me to analyze", no address given | `desk.py --find <band>` | ask size + kind first, then relay the candidates with their numbers |
 | "run AI quant / run quant / run quant desk on 0x…", "score my trading", "find leaks", "what did I miss", "master my week", "how am I doing" | `desk.py 0x…` | relay the full desk — the user is 0x… |
 | "are my positions protected", "am I at risk" | `desk.py 0x… --section protection` | relay; the AT RISK rows first |
 | "where am I leaking money", "what's costing me" | `desk.py 0x… --section leaks` | relay, biggest first, with the rejected rules |
@@ -337,6 +340,40 @@ window and no open positions returns an error document — say "nothing to read 
 new-trader path (`senpi-strategy-discover`). A malformed address returns exit 2 with the reason.
 Public-API rate limits (HTTP 429) are retried with backoff; a second run inside 10 minutes is served from
 the cache (`--fresh` to refetch).
+
+## No address given — find them some
+
+"Run AI quant on any Hyperliquid wallet", "find traders for me to analyze with AI quant", or a bare
+"run AI quant" with no `0x…`. **Do not guess an address and do not answer from memory.** Ask the one
+question that narrows it, then hand them a short list.
+
+The question is size first — a $9k book and a $9M book teach different lessons — then style:
+
+> Happy to. Two things and I'll pull a list: **how big a book** do you want to read, and **what
+> kind of trader**?
+>
+> Size: **$5k–10k · $10k–25k · $25k–100k · $100k–1M · whales ($1M+)**
+> Kind: **this week's winners** · **the ones who've held up over a month** · or **this week's worst**
+> — a losing book is often the more instructive read, and the desk prices it the same way.
+>
+> Or paste any address and I'll just run it.
+
+Then:
+
+- `desk.py --find 25k-100k --find-window week` — best in the band right now
+- `desk.py --find whales --find-window month` — the ones who held up over a month
+- `desk.py --find 10k-25k --find-losers` — this week's worst, often the instructive read
+- `desk.py --find 100k-1m --find-window allTime` — durable mid-size books
+- `desk.py --find 5k-10k` — retail-sized, this week
+
+Bands: `5k-10k` · `10k-25k` · `25k-100k` · `100k-1m` · `whales`.
+
+It returns JSON candidates — address, account value, P&L, ROI, volume, turnover. **Relay them as a
+short numbered list with the numbers**, so the reader picks on evidence rather than on your summary,
+then run the desk on whichever they choose. Three to five is a list; eight is a wall.
+
+Never present a candidate as a recommendation to copy or follow — it is a book to READ. Vetting a
+trader to mirror is `senpi-trader-research`.
 
 ## Running a batch — sequentially
 
