@@ -623,7 +623,19 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
     # 3. losers held too long — only when the time cut is robust
     cut_l = best_lever(lv, "cut")
     cut = cut_l["total"] if cut_l else ((tm or {}).get("cut") or {}).get("robust")
-    if cut and cut > 50 and tr.get("hold_ratio", 0) and tr["hold_ratio"] > 1.2 and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES:
+    # The hold-ratio framing is the EVIDENCE for a time cut, not a precondition for one. Gating the
+    # leak on it while the LEVER had no such gate meant a book that cuts losers 2.6x FASTER than
+    # winners saw "~$180,892 recoverable — closing anything still open after 24h" as its headline
+    # with no matching leak anywhere on the page. A winning lever must always be visible.
+    _hold_evidence = (tr.get("hold_ratio") or 0) > 1.2 and tr.get("hold_losers_h") is not None
+    if cut and cut > 50 and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES and not _hold_evidence:
+        out.append(dict(agent="Leak finder", title=f"Positions still open at 24h cost more than closing them",
+                        evidence=f"Across {tr.get('complete_trades') or tr.get('trades')} complete trades, the ones still "
+                                 f"open at the 24-hour mark gave back more than they added from there on.",
+                        counterfactual=_cf_charged(cut_l, days) if cut_l else
+                                       f"A time-cut at 24h would have kept roughly ~{_usd(cut)} over {days} days.",
+                        usd=cut, window=f"{days}d", cta="A time-cut is a rule your quant can run for you."))
+    if cut and cut > 50 and _hold_evidence and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES:
         out.append(dict(agent="Leak finder", title=f"You hold losers {tr['hold_ratio']:.1f}× longer than winners",
                         evidence=f"Median loser {tr['hold_losers_h']:.1f}h vs winner {tr['hold_winners_h']:.1f}h across {tr['complete_trades']} complete trades.",
                         counterfactual=(f"{_cf_charged(cut_l, days)}" if cut_l else
