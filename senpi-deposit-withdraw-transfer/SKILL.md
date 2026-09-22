@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.4.0"
+  version: "1.5.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -63,7 +63,7 @@ Everything the agent does with tools happens **strictly between the user's own S
 | "Withdraw everything / all of it" from a strategy | `strategy_withdraw_funds` with the **exact available figure** the tool reports — never rounded; on `SERR037` retry once with `details.available`. Dust left in an ACTIVE strategy keeps scanning — offer to close it. |
 | Move funds between two strategies | Via the funding wallet as the hub: `strategy_withdraw_funds` from A → funding wallet, then `strategy_top_up` B. |
 | Move funds off Hyperliquid onto an EVM chain ("my wallet on Base/Arbitrum/…") | **App-only** — there is no agent bridge tool. Balances / Wallet in the Senpi app. |
-| Hyperliquid Spot → Perps | `transfer_spot_to_perps` (instant, no fee, funding wallet). |
+| Hyperliquid Spot → Perps | **User only** — Balances in the app. The agent's movement rights are main wallet ↔ strategy wallet, perps only. |
 
 ## Deposits — the funding card only
 
@@ -75,10 +75,20 @@ with no crypto at all is not stuck — never tell them they need an exchange acc
   `widget_type: "fund_user_wallet"` whenever money should arrive in the user's own Senpi wallet — an
   explicit deposit ask, an empty wallet, or a balance too short for what they asked. The user picks the
   token and network **in the card**, which shows the matching deposit address and QR.
-- **NEVER write a deposit address, QR code, or network list in chat.** The deposit address is
-  **network-scoped** ("only send USDC on Base to this address") — repeating an address or implying it
-  works on any chain can lose funds. Do not read the address out of `user_get_me` either: the wallet
-  list there is identity data, not a deposit target.
+- **NEVER write a deposit address or QR code in chat.** The deposit address is **network-scoped**
+  ("only send USDC on Base to this address") — repeating an address, or implying one works on any
+  chain, can lose funds. Do not read it out of `user_get_me` either: that wallet list is identity
+  data, not a deposit target.
+- **DO name the supported networks when asked — withholding them makes the agent guess.**
+  **Base · Arbitrum · Ethereum · Optimism · Polygon · BNB Smart Chain · HyperCore.** A card deposit
+  on any of these lands as USDC on Hyperliquid, ready to trade. **HyperEVM is NOT a deposit network**
+  — USDC sent to HyperEVM (chain 999) lands in the user's wallet on the wrong layer and cannot fund
+  anything. Check whether Balances → Move offers it back before escalating; if it does not appear
+  there, support recovers it. **Never tell a user to bridge *to* HyperEVM**, and never
+  name it as an option even if the user raises it first. If their only withdrawal routes off another
+  venue are EVM chains, the six EVM networks above all work; HyperEVM does not.
+- **No crypto at all? The card sells them their first USDC** — its **Buy USDC** tab (card / Apple Pay
+  / Google Pay). Offer it alongside the deposit path, not as a fallback; see the Buy USDC section.
 - **Where deposits land:** as USDC on Hyperliquid in the user's own funding (embedded) wallet, ready to
   trade — no separate transfer step afterwards.
 - **Two different minimums — don't merge them.** The **deposit** floor is **$8** (the card's own `MIN $8`);
@@ -89,11 +99,19 @@ with no crypto at all is not stuck — never tell them they need an exchange acc
   direct send to a `strategyWalletAddress` bypasses accounting, corrupts PnL, and may be unrecoverable.
   `strategy_top_up` is the **only** way to add funds to a strategy — and the funding card is **only**
   for the user's own wallet, never for a strategy.
-- **Strategy funding draws on the funding wallet only.** Create / top-up pulls from the user's funding
-  wallet balance on Hyperliquid (perps, then spot USDC). There is **no bridging from EVM chains** —
-  USDC on other networks cannot fund strategies. Don't pre-empt a shortfall; only act if the operation
-  actually returns one — `SERR151` (the USDC is on an EVM chain), or `SERR158`/`SERR037` (genuinely
-  short) — then show the funding card, and `strategy_top_up` / retry once the deposit lands.
+- **Strategy funding draws on the Hyperliquid PERPS balance only.** Create / top-up does **not**
+  reach Hyperliquid **spot** — USDC sitting in spot does not count toward an `initialBudget`. Moving
+  it is the **user's** action, in Balances: under the wallet-hardening rules you may move funds only
+  between the main wallet and a strategy wallet, and only on perps, so never offer to do it for them.
+  Read the shortfall from `account_get_portfolio` (`spot_balances` /
+  `total_spot_usd_in_hyperliquid`) and tell them what to move. There is **no bridging from EVM chains**:
+  USDC that reached the embedded wallet on an EVM by any route other than a card deposit cannot fund
+  a strategy — but it is **not stuck**. Balances offers a **Move** action that sweeps everything
+  unusable into perps. **Move is theirs and prompts them to sign** — you cannot perform it and must
+  not call it instant. Don't pre-empt a shortfall; only act if the operation actually returns one —
+  `SERR151` (the USDC is on an EVM chain), or `SERR158`/`SERR037` (genuinely short) — then point at
+  Balances → Move if spot or an EVM balance covers it, or show the funding card and retry once the
+  deposit lands.
 
 ## Buying USDC — the "I have no crypto" path (the card's Buy USDC tab)
 
@@ -154,8 +172,9 @@ buying simply happens in the card's own checkout. Point at it warmly and specifi
   chain is done in the app — do **not** offer to do it, and never name a bridge tool. And EVM balances
   do not bridge in for strategies either: money comes in through the funding card, as USDC on
   Hyperliquid.
-- **`transfer_spot_to_perps`** — Hyperliquid Spot → Perps on the funding wallet; internal, instant, no
-  fee. Strategy sub-wallets aren't involved. Also the recovery tool after a FAILED top-up (below).
+- **Spot → Perps is NOT yours.** The agent may move funds only between the main wallet and a strategy
+  wallet, and only on perps (wallet hardening). Spot → perps is the user's, in Balances — including
+  when a FAILED top-up leaves money in Spot (below): you locate it and say so, they move it.
 - **Referral rewards** — `user_claim_referral_rewards` pays out to the funding wallet (call
   `user_get_referral_rewards` first to confirm a non-zero balance).
 - **Amounts are the user's intent.** If no amount is given, **ASK** — never default to the balance, the
@@ -180,9 +199,8 @@ the money parked in **Spot**. Four rules, in this order:
    funding card.
    **The amount must not exceed free perps (`withdrawable`)** — a top-up accepted against too little also
    ends FAILED, and the deposit may still be on an EVM chain or in Spot. State both numbers in one line
-   before the call: "Your funding wallet has $X free in perps; topping up $Y." Spot covers the gap →
-   `transfer_spot_to_perps` first, then top up. Nothing covers it → the funding card, and top up once the
-   deposit lands.
+   before the call: "Your funding wallet has $X free in perps; topping up $Y." Spot covers the gap → ask them to move it to
+   perps in Balances, then top up once it lands. Nothing covers it → the funding card.
 2. **Poll, don't re-submit.** Keep `data.top_up_request.id` and poll `strategy_get_top_up_status` until
    `COMPLETED` or `FAILED`. `PENDING` / `FUNDS_IN_TRANSIT` = keep polling; `totalFunded` stays stale until
    completion. Re-submitting while PENDING is how strategies get double-funded.
@@ -191,9 +209,9 @@ the money parked in **Spot**. Four rules, in this order:
    a fact. Re-take both rule-1 reads — free perps (`withdrawable`) and Spot (`account_get_portfolio`,
    `forceFetch: true`) — and compare them with the precheck:
    - **Spot USDC rose by about the top-up amount** → the money is in the funding wallet's **Spot**
-     balance. Move it back with `transfer_spot_to_perps` for that amount, then say where it was and
-     where it is now: "The top-up failed after its first leg — your $X was in your funding wallet's Spot
-     balance. I've moved it back to perps; it's available again." Do **not** re-submit on your own.
+     balance. Say exactly that, and hand them the one step you cannot take: "The top-up failed after
+     its first leg — your $X is sitting in your funding wallet's **Spot** balance, not lost. Move it to
+     Perps in Balances and I'll top up again." Do **not** re-submit on your own.
    - **Perps and Spot both unchanged** → nothing moved; say "still in your funding wallet's **perps**
      balance."
    - **Anything else, or the read fails** → say what you confirmed and what you couldn't, don't
@@ -224,7 +242,7 @@ the money parked in **Spot**. Four rules, in this order:
   ≈ $Z" — before the budget question, not after a refusal.
 - **Quote what the tool returned, nothing else.** A fee, a "funds in transit" figure, or an `available`
   figure in a tool result is quoted as-is. Never invent a fee a tool did not return.
-  `transfer_spot_to_perps` is fee-free — that is the tool's contract, not a guess.
+  `strategy_withdraw_funds` returns the exact available figure — quote that, don't compute one.
 
 ## How to answer
 
@@ -242,20 +260,29 @@ the money parked in **Spot**. Four rules, in this order:
   `strategy_get_clearinghouse_state` (withdrawable), `strategy_list` (status) — confirm the amount with
   the user, then use the movement tool.
 - **Top-up:** the perps figure and the amount in one line, call, poll. On FAILED locate the money first
-  (Spot rose → `transfer_spot_to_perps` it back), say which balance it is in, and never re-submit on your
-  own.
+  (Spot rose → it is in Spot), say which balance it is in and ask them to move it in Balances, and
+  never re-submit on your own.
 - **"Withdraw everything":** the exact figure from the tool; on `SERR037` retry once with
   `details.available`; confirm ~$0; offer to close the dust.
 
 ## Never
 
-- Never write a **deposit address, QR code, or network list in chat** — the funding card owns them, and
-  the address is network-scoped. Never read a "deposit address" out of `user_get_me`.
+- Never write a **deposit address or QR code in chat** — the funding card owns them, and the address
+  is network-scoped. Never read a "deposit address" out of `user_get_me`. **Naming the supported
+  networks is fine and expected** — it is the address that is unsafe, not the list.
+- Never name **HyperEVM** as a deposit or bridge destination — it is not supported and USDC sent there
+  is stranded. Correct the user if they propose it.
+- Never invent a **support channel.** Senpi support is **the chat on senpi.ai** — there is no Discord and no email
+  queue, and the Telegram group is a community space rather than a support channel. If you do not know where something is handled, say "Senpi
+  support via the chat on senpi.ai" and stop. (Telegram appears in this product only as a strategy
+  *notification* sink — `notifications.telegram_chat_id` — never as a way to reach a human.)
 - Never present a **strategy wallet address** as a deposit target — on any chain, for any reason — and
   never show the funding card as a way to fund a **strategy** (that is `strategy_top_up`, from the
   funding wallet).
 - Never claim EVM balances **bridge in automatically** — they don't; USDC on other networks cannot fund
-  strategies.
+  strategies. Never promise to move one for the user either: the Balances → Move action is theirs and
+  **needs their signature**. Equally, never claim **spot** USDC funds a strategy: creation and top-up read the
+  **perps** balance only — and moving it is the user's action in Balances, not yours.
 - Never route an external withdrawal through the **Hyperliquid UI**, **key export**, or a
   **bridge-/strategy-through** workaround. The external rail is the **app**, always.
 - Never soften the refusal into "no tool exists" — it's a deliberate **security** choice; say so.

@@ -2,8 +2,10 @@
 
 A FAILED `strategy_top_up` can leave the money in the funding wallet's SPOT balance (the worker's
 first leg ran, its second did not) while the status message says nothing moved. The skill must make
-the agent locate the money, move it back with `transfer_spot_to_perps`, say which balance it is in,
-and never re-submit in a loop. The same file guards the perps precheck before a top-up, the
+the agent locate the money, say which balance it is in, hand the user the move it cannot make, and
+never re-submit in a loop. Under the wallet-hardening rules the agent moves funds only between the
+main wallet and a strategy wallet, and only on perps, so the move itself is the user's — locating the
+money and naming the balance is still the agent's. The same file guards the perps precheck before a top-up, the
 `details.available` retry on a cents-short withdrawal, "everything" as the exact available figure,
 and the creation-fee sentence — each a rule a rewrite could quietly drop.
 
@@ -33,7 +35,7 @@ def test_failed_top_up_recovers_the_spot_leg_and_names_the_balance():
     _needles("perps → Spot on the funding wallet, then Spot → the strategy wallet",
              "when the first leg *did* run: treat it as a hint",
              "the money is in the funding wallet's **Spot**",
-             "Move it back with `transfer_spot_to_perps` for that amount",
+             "hand them the one step you cannot take",
              "Do **not** re-submit on your own.",
              "**Never say \"still in the funding wallet\" without naming the balance — perps or Spot.**")
 
@@ -120,7 +122,7 @@ def test_existing_rails_survive():
     """The new sections extend the skill; the two iron rules and their tool names stay verbatim."""
     _needles("`widget_type: \"fund_user_wallet\"`",
              "I can't send funds outside of Senpi for you",
-             "`strategy_top_up`", "`strategy_withdraw_funds`", "`transfer_spot_to_perps`",
+             "`strategy_top_up`", "`strategy_withdraw_funds`",
              "`strategy_get_clearinghouse_state`", "`account_get_portfolio`")
 
 

@@ -18,8 +18,7 @@ funding decays, rebalance daily. Mapping it to Senpi:
 | Exit when funding < 0.002% | ⚠️ | approximated (24h hard-timeout + no-reopen); no funding-triggered close |
 | Rebalance daily | ⚠️ | approximated by the 24h rotation; no delta-rebalance action |
 
-Senpi automates **perps**; it can bridge USDC to HyperEVM but cannot swap it into a
-spot token. So the hedge that makes cash-and-carry riskless is exactly what it can't
+Senpi automates **perps** and cannot swap USDC into a spot token. So the hedge that makes cash-and-carry riskless is exactly what it can't
 place.
 
 ## What ant actually is

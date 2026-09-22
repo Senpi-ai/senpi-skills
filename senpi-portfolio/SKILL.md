@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.26.0"
+  version: "1.27.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -184,9 +184,9 @@ so is the useful reply.
 
 | reason code | what to tell the user | do they act? |
 |---|---|---|
-| `withdrawable_unavailable` | "Your available balance couldn't be read during **N** recent scans, so these eligible positions were skipped. Your funds aren't affected and it usually clears on its own within a few scans. If it's still happening after that, contact Senpi Support." | only if it persists |
+| `withdrawable_unavailable` | "Your available balance couldn't be read during **N** recent scans, so these eligible positions were skipped. Your funds aren't affected and it usually clears on its own within a few scans. If it's still happening after that, contact Senpi support (the chat on senpi.ai)." | only if it persists |
 | `insufficient_margin` | "Your available balance is fully deployed, resulting in these eligible positions being skipped." It opens on its own as soon as a position closes. | no |
-| `no_margin_configured` | The strategy has no way to size a position, so it can never open one. Redeploy it, or contact Senpi Support if redeploying doesn't fix it. | **yes** |
+| `no_margin_configured` | The strategy has no way to size a position, so it can never open one. Redeploy it, or contact Senpi support (the chat on senpi.ai) if redeploying doesn't fix it. | **yes** |
 | `no_slots` | Every slot is already holding a position — working as designed. | no |
 | `below_min_notional` | The position would be smaller than the $10 exchange minimum. More budget, or higher leverage, would clear it. | their call |
 | `risk_gate_COOLDOWN` | A guard rail is holding it back — the per-asset or global cooldown from its own config. | no |
@@ -195,8 +195,8 @@ so is the useful reply.
 | `strategy_backend_paused` | The strategy is paused — it will not open anything until it is resumed. | **yes** — unpause it |
 | `position_open_failed` | It tried to open and the exchange rejected the order. Give the exchange's own message, which rides the outcome. | depends on the message |
 | `timeout` | **Not a rejection — the order may have filled.** The runtime recorded a failure after the send timed out, so the user can be holding a position it does not know about. Check live positions before saying anything, and never suggest retrying until you have. | check positions first |
-| `exception` | An unexpected error on the open path, with the message on the outcome. Contact Senpi Support if it repeats. | if it repeats |
-| `invalid_direction` | A defect — the signal carried neither LONG nor SHORT. Contact Senpi Support. | **yes** |
+| `exception` | An unexpected error on the open path, with the message on the outcome. Contact Senpi support (the chat on senpi.ai) if it repeats. | if it repeats |
+| `invalid_direction` | A defect — the signal carried neither LONG nor SHORT. Contact Senpi support (the chat on senpi.ai). | **yes** |
 
 **Do not offer "close and relaunch" for `withdrawable_unavailable`.** It reads like the obvious fix
 and it is not one: relaunching rebuilds the same percent-sized recipe against the same balance read,
@@ -233,7 +233,7 @@ them. When it is the second one, say so and give the action:
 > "Your scanner has been running for the last 9 hours without producing a single candidate, and it was
 > producing them before. That usually means its market-data connection dropped — the strategy isn't
 > broken and your funds aren't affected, but it isn't looking at the market either. Restarting clears
-> it. If it comes back, contact Senpi Support."
+> it. If it comes back, contact Senpi support (the chat on senpi.ai)."
 
 ### No reason codes at all — read it the right way round
 
