@@ -27,7 +27,7 @@ def _new(coin, f, signed, truncated=False):
     return dict(coin=coin, signed=signed, open_time=f["time"], close_time=None, last_time=f["time"], realized=0.0, fees=0.0,
                 volume=0.0, taker_volume=0.0, twap_volume=0.0, adds=0, partial_closes=0, entry_qty=0.0, entry_val=0.0, exit_qty=0.0,
                 exit_val=0.0, peak_size=0.0, peak_notional=0.0, liquidated=False, truncated=truncated, n_fills=0, unobserved_qty=0.0, unobserved_notional=0.0,
-                close_observed=True, entry_orders=set(), size_path=[], avg_entry=None)
+                close_observed=True, entry_orders=set(), size_path=[], avg_entry=None, taker_fees=0.0)
 
 
 def _sign(x):
@@ -62,7 +62,7 @@ def episodes_from_fills(fills):
         ep["n_fills"] += 1; ep["realized"] += float(f["closedPnl"]); ep["fees"] += float(f["fee"])
         ep["volume"] += sz * px
         if f.get("crossed"):
-            ep["taker_volume"] += sz * px
+            ep["taker_volume"] += sz * px; ep["taker_fees"] += float(f["fee"])
         if f.get("twapId") is not None:
             ep["twap_volume"] += sz * px
         if "Liquidated" in f.get("dir", ""):

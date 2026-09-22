@@ -2432,7 +2432,11 @@ def test_every_figure_is_computed_on_the_window_the_desk_claims():
     so the size lever's median-winner threshold and the sizing dimension's abstention gate ran on up
     to 150 days inside a desk whose every other number says 90."""
     src = _P(HERE, "..", "scripts", "desk.py").read_text()
-    assert "score.levers(tm_rows, in_win, tm" in src, "levers are back on the unfiltered set"
+    # The lever set is `lev_win` now — the fills-derived episodes on the indexed path (B6's discovery
+    # half) — but it is window-filtered exactly as `in_win` is, which is what this test is about.
+    assert "score.levers(tm_rows, lev_win, tm" in src, "levers are back on the unfiltered set"
+    assert "lev_win = [e for e in pub_closed if metrics.in_window(e, win_start)]" in src
+    assert "lev_win = in_win" in src
     assert "score.dimensions(track, book, dd, tm, mf, sm, in_win, pnl_curve)" in src, \
         "dim_sizing is back on the unfiltered set"
     # the wider fetch itself is deliberate and must stay
@@ -2747,3 +2751,98 @@ def test_a_leak_cannot_walk_around_the_bar_the_lever_answers_to():
     # nothing in leaks() may read `robust` again
     src = _P(HERE, "..", "scripts", "score.py").read_text()
     assert '.get("robust")' not in src, "the pre-levers fallback is back"
+
+
+def test_the_lever_grid_never_runs_on_a_size_that_never_existed():
+    """B6, the discovery half (@0xsarvesh, #718). B6 landed on the fills path and reached 0 of 161
+    discovery episodes, so every user with a token still got constant-size counterfactuals.
+
+    The premise in the first fix was wrong: a discovery row is not a position held at one size. The
+    largest xyz:SKHX row on 0x615f9484… carries 13,651 fills over 20 days with `size` 7,999 against a
+    peak concurrent exposure near 880 — `size` accumulates over the position's life, and the lever
+    priced $9.9M of notional on it. Same wallet, same window, same minute: fills $35,032 (0.188 of
+    losses) against discovery $1,043,709 (1.032). The desk fetches the fills on every run whatever
+    the source, so totals come from discovery and the grid comes from episodes with a real path."""
+    import desk
+    with open(FIXTURE) as fh:
+        rec = json.load(fh)
+    addr, now = rec["address"], rec["now_ms"]
+    rec = dict(rec)
+    # one discovery row per coin the fixture trades, each an aggregate with no intra-trade path
+    rec[f"discovery_get_trader_history::{addr}"] = {"success": True, "data": {"closedPositions": [
+        {"closedOrderId": f"0x{i}", "coin": "ETH", "entryPx": "2500", "exitPx": "2450",
+         "leverage": {"type": "cross", "value": 10}, "openTime": now - (i + 1) * 30 * H,
+         "closeTime": now - i * 30 * H + 6 * H, "szi": "2", "realizedPnl": "-100",
+         "marginUsed": "500", "totalFills": "900", "totalFees": "2.5"} for i in range(24)],
+        "pageInfo": {"totalCount": 24, "hasNextPage": False}}}
+    r = desk.analyze(addr, hl_api.HLFixture(rec), days=90, mcp=desk._MCPFixture(rec), bench=None)
+
+    # totals still come from discovery — that half of the split is the point of the indexed path
+    assert r["meta"]["sources"]["trades"].startswith("senpi discovery (24"), r["meta"]["sources"]
+    assert r["track"]["trades"] == 24
+    # …and the grid says, on the page's own record, where it had to get its exposure from
+    assert "public fills" in r["meta"]["sources"]["levers"]
+    assert "size path" in r["meta"]["sources"]["levers"]
+
+    # behavioural, not just structural: the fixture's discovery rows are 24 ETH aggregates while its
+    # fills rebuild a different book entirely, so the grid's own sample says which set it read
+    pub, _ = episodes_from_fills(hl_api.HLFixture(rec).trader(addr, days=90)["fills"])
+    want = len([e for e in pub if e.get("complete") and metrics.in_window(e, rec["now_ms"] - 90 * 24 * H)])
+    assert r["timing"] and r["timing"]["n"] != 24, "the grid counted discovery aggregates"
+    assert r["timing"]["n"] <= want, (r["timing"]["n"], want)
+
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    assert "timing_mod.per_trade(lev_win, candles)" in src, "the grid is back on discovery rows"
+    assert "score.recoverable(tm_rows, lev_win" in src and "score.best_setups(lev_win" in src, \
+        "the quotable number and the setups must read the same episode set the grid did"
+
+
+def test_the_quoted_fee_rate_is_the_one_the_fills_actually_paid():
+    """Item 12 (@0xsarvesh, #718). Deriving the rate per dex did not survive contact: `userFees`
+    with dex:"xyz" returns the IDENTICAL schedule to main, so the split always fell back and the
+    evidence still read "4.0 bp taker / 1.4 bp maker" beside a fee figure those rates multiply out
+    to 4.03x. Same principle as the dollars — take what was actually paid."""
+    def _e(coin, vol, taker, fee, tk_fee):
+        return dict(coin=coin, volume=vol, taker_volume=taker, fees=fee, taker_fees=tk_fee,
+                    realized=0.0, win=False, complete=True, truncated=False, hold_h=1.0,
+                    peak_notional=vol, direction="LONG", close_time=1, open_time=0,
+                    liquidated=False, adds=0, entry_vwap=1.0, peak_size=vol)
+    # the schedule says 3.5/0.8 bp; the fills say 10 bp taker and 2 bp maker, and the fills win
+    sched = dict(userCrossRate="0.00035", userAddRate="0.00008")
+    rows = [_e("xyz:UNITREE", 1_000_000.0, 500_000.0, 6_000.0, 5_000.0)]
+    tr = metrics.track_record(rows, [], [], sched, 0, fee_sched_xyz=sched)
+    assert abs(tr["fee_rate_taker"] - 0.010) < 1e-9, tr["fee_rate_taker"]
+    assert abs(tr["fee_rate_maker"] - 0.002) < 1e-9, tr["fee_rate_maker"]
+    # the quoted rates now reproduce the quoted fee, which is what item 12 was about
+    quoted = tr["fee_rate_taker"] * 500_000.0 + tr["fee_rate_maker"] * 500_000.0
+    assert abs(quoted - tr["fees"]) < 1e-6, (quoted, tr["fees"])
+    # with no fill-level split recorded, the schedule estimate still answers
+    bare = metrics.track_record([{**rows[0], "taker_fees": 0.0}], [], [], sched, 0, fee_sched_xyz=sched)
+    assert bare["fee_rate_taker"] == 0.00035
+
+    # and the episode builder has to carry the split, or none of the above ever fires in production
+    fs = [fill("ETH", "B", 1, 100, 0, 0, 1, fee=0.5, crossed=True),
+          fill("ETH", "B", 1, 100, H, 1, 2, fee=0.1, crossed=False),
+          fill("ETH", "A", 2, 100, 2 * H, 2, 3, fee=0.5, crossed=True, pnl=0.0)]
+    e = episodes_from_fills(fs)[0][0]
+    assert e["taker_fees"] == 1.0 and e["fees"] == 1.1, e
+    assert e["taker_volume"] == 300.0 and e["volume"] == 400.0
+
+
+def test_beta_is_not_measured_against_a_collapsed_equity_tail():
+    """@0xsarvesh (#718). Dividing each step by the equity at that step is right in form, and
+    unbounded in practice: 0xdc93a8fd… read beta 35.43. Gated off the page today by |corr| >= 0.5,
+    but a collapsed tail with a real correlation would print "a 1% BTC move swings your equity by
+    about 35%"."""
+    import math, strategy_read
+    ts = [i * 3_600_000 for i in range(60)]
+    px = [100.0 * (1 + 0.02 * math.sin(i)) for i in range(60)]
+    btc = (ts, [[ts[i], px[i], px[i], px[i], px[i], 1.0] for i in range(60)])
+    eqv = [100_000.0] * 50 + [1.0] * 10          # the account collapses at the end of the window
+    pv = [0.0]
+    for i in range(1, 60):
+        pv.append(pv[-1] + 1.5 * (px[i] / px[i - 1] - 1) * 100_000.0)
+    pnl, curve = list(zip(ts, pv)), list(zip(ts, eqv))
+    b = strategy_read.pnl_beta(pnl, btc, 1.0, equity=curve)
+    assert b and abs(b["beta"] - 1.5) < 0.25, f"the tail swamped the measurement: {b}"
+    assert abs(b["beta"]) < 5, "a near-zero denominator is a division by the tail, not a return"

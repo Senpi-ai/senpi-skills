@@ -101,14 +101,19 @@ def pnl_beta(pnl_curve, btc_candles, account_value, equity=None):
     # (@danielmbirochi, #718, round 2.)
     eq = dict(equity or [])
     eq_t = sorted(eq)
+    # A step measured against a near-zero equity is a division by the tail, not a return: it reported
+    # "a 1% BTC move swings your equity by about 35%" on a book whose equity collapsed mid-window.
+    # Floor the denominator at a tenth of the window's median equity and drop the steps below it.
+    _pos = [v for v in eq.values() if v and v > 0]
+    _floor = 0.1 * statistics.median(_pos) if _pos else 0.0
     def eq_at(t):
         i = bisect.bisect_right(eq_t, t) - 1
         v = eq[eq_t[i]] if i >= 0 else None
-        return v if v and v > 0 else None
+        return v if v and v > _floor else None
     xs, ys = [], []
     for (t0, v0), (t1, v1) in zip(pnl_curve, pnl_curve[1:]):
         p0, p1 = px(t0), px(t1)
-        base = eq_at(t0) or account_value
+        base = eq_at(t0) if eq else account_value
         if p0 and p1 and t1 > t0 and base:
             xs.append(p1 / p0 - 1); ys.append((v1 - v0) / base)
     if len(xs) < 10:
