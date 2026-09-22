@@ -243,7 +243,8 @@ debited**; the budget never left the funding wallet. No retry refills the pool: 
 
 - **Tell the user in one sentence**: their account is out of strategy wallets right now, nothing was
   created, their funds are untouched, and Senpi support refills it — you have handed it over.
-- **Route it**: Senpi support, with the exact backend line (`free=0, unapproved=N` says that account's
+- **Route it**: Senpi support — **the chat on senpi.ai**, the only support channel (the Telegram group is a
+  community space, not support; there is no Discord and no email queue) — with the exact backend line (`free=0, unapproved=N` says that account's
   approval step is stuck). **Try ONCE more only after support confirms** — the same `deploy.py create`
   command; it resumes cleanly because nothing exists.
 - **Never**: re-run every 30 seconds or on a timer (an identical request refuses identically until the

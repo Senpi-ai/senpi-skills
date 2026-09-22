@@ -60,7 +60,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | Skill | Ver | Role |
 |---|---|---|
 | **Analyze** | | |
-| [`senpi-portfolio`](senpi-portfolio/) | 1.26.0 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads |
+| [`senpi-portfolio`](senpi-portfolio/) | 1.27.0 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads |
 | [`senpi-market-pulse`](senpi-market-pulse/) | 1.5.0 | Daily cross-asset market read (crypto, equities, commodities, macro, funding regime) |
 | [`senpi-smart-money`](senpi-smart-money/) | 1.4.0 | Where the most-profitable wallets are positioned vs. the crowd |
 | [`senpi-signals`](senpi-signals/) | 2.4.0 | Non-obvious market developments (funding extremes, proven cohort vs the 4h crowd, momentum events, cross-asset laggards) from one on-demand reading, ranked through a trade lens and a news lens — no cron, no history (compare over periods is v2) |
@@ -71,11 +71,11 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | **Run a strategy** | | |
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.34.0 | Conversational picker — rank the catalog against your worldview |
 | [`senpi-strategy-author`](senpi-strategy-author/) | 3.11.0 | Build/edit a DSL-protected strategy package, one decision at a time |
-| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.21.0 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
+| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.22.0 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
 | [`senpi-trade`](senpi-trade/) | 1.6.0 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
 | [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.4 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
 | **Move money / positioning** | | |
-| [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.4.0 | The money-movement rails (funds in via the funding card — deposit address or in-card USDC purchase; out via the app); top-ups prechecked against perps and recovered from Spot when they fail, withdrawals at the exact available figure, fees stated before money moves |
+| [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.5.0 | The money-movement rails (funds in via the funding card — deposit address or in-card USDC purchase; out via the app); top-ups prechecked against perps and recovered from Spot when they fail, withdrawals at the exact available figure, fees stated before money moves |
 | [`senpi-why`](senpi-why/) | 1.3.0 | "Why Senpi / vs. other tools" — the positioning answer |
 
 Skills **compose**: `improve-trades` pulls in `market-pulse` + `smart-money` + `portfolio`; `discover` hands a chosen package to `ops`; `author` hands a built package to `ops`. The agent routes by **intent**, not keywords, and never re-implements one skill inside another.
