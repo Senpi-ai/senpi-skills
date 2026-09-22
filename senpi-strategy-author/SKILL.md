@@ -235,12 +235,24 @@ else → build inline, stages 2–9.
 
 1. **Write the confirmed spec** to `/data/workspace/.author-specs/<id>.json` — the user's words, all
    7 decisions, every constraint, and `user_confirmed: true` because they said yes to the replay.
-   A spec without that flag is refused before a model is billed.
-2. **`openclaw senpi author start -p <file>`** (`--edit <dir>` changes an existing package on a
-   staged copy, so a live strategy is untouched). Returns an id in ~1s.
-3. **Poll `openclaw senpi author status <id> --after-seq <n>`**, **relaying one short line per poll**
+   A spec without that flag is refused before a model is billed. Two fields beyond the seven:
+   - **`relationships`** — REQUIRED once the strategy has parts (legs, instances, both sides). Say
+     whether they fire together, whether one may fire alone, and what happens when one closes
+     first. The 7 decisions describe each part separately and have NO slot for this; a straddle
+     built without it shipped a leg that re-enters alone and passed every gate, because the gate
+     checks instances one at a time.
+   - **`established`** — what the conversation already settled: venue facts you hit (Hyperliquid
+     nets a long+short in one wallet to flat), numbers a backtest produced, an approach the user
+     rejected and why. Stops the engine re-deriving it, or contradicting what the user was told.
+2. **Pass the conversation**: add `--session-file /data/.openclaw/agents/main/sessions/<your
+   session id>.jsonl`. The runtime pulls YOUR turns out of it and seeds them as intent. A spec keeps
+   what was stated and loses what was negotiated — this is how the second survives. The spec still
+   wins on any conflict; a disagreement comes back in `assumptions`.
+3. **`openclaw senpi author start -p <file> --session-file <session>`** (`--edit <dir>` changes an
+   existing package on a staged copy, so a live strategy is untouched). Returns an id in ~1s.
+4. **Poll `openclaw senpi author status <id> --after-seq <n>`**, **relaying one short line per poll**
    from its events — a phase is where the build IS, not a claim about the result. Never poll on a cron.
-4. **Branch on the exit code**, which IS the answer:
+5. **Branch on the exit code**, which IS the answer:
    - **6** running → keep polling. **5** interrupted → `status` says if it can resume.
    - **7** needs input → ask the `question` verbatim with its `options`, then
      `openclaw senpi author answer <id> --text "<their answer>"` resumes the same build.

@@ -54,6 +54,16 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # ops 335: saved is not applied — a plan says so only in its first line (no tail/head), an edit is live only once
 # `--apply` exits 0 and the running strategy shows it, and until then the user hears "saved, not applied". Resident
 # because it fires on every edit to a live strategy; the two confirming reads live in references/editing-a-live-strategy.md.
+# author 465 -> 480 (4.0.0): what the handoff must CARRY, after a straddle shipped a leg that could
+# re-enter alone. The seven decisions describe a strategy as a list of properties, and a list has no
+# slot for how the parts relate — "one straddle at a time" and "slots: 1 per instance" were both in
+# the spec and they contradict, because one is about the pair and the other about each leg. Neither
+# the gate nor the proof catches it: both check instances ONE AT A TIME. So the skill now owes three
+# things at handoff — `relationships` (required once there are parts), `established` (what the
+# conversation already settled, so the engine does not re-derive or contradict it), and
+# `--session-file`, which seeds the trader's own turns because a spec keeps what was STATED and
+# loses what was NEGOTIATED. Every line of it fires once per build, at the one moment the
+# information still exists.
 # author 425 -> 465 (2026-09-20, re-stated 4.0.0): the build engine. Where `openclaw senpi author check` is ready
 # the agent does NOT write the package — it writes the spec, starts the job, polls it and branches on
 # done/needs_input/failed/error. That is a different execution path for the same conversation, and every
@@ -62,7 +72,7 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # word). The spec shape, the edit/resume rules and the engine's permissions now live in the runtime,
 # engine/README.md. Observed before this was resident: an agent read the skill, ran doctor, saw ready,
 # and built inline anyway. Set at the post-edit count with no slack.
-BODY_BUDGET = {"senpi-strategy-ops": 335, "senpi-strategy-author": 465}
+BODY_BUDGET = {"senpi-strategy-ops": 335, "senpi-strategy-author": 480}
 
 
 def _skill_body(path):
