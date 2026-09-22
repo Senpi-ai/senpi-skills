@@ -2203,7 +2203,17 @@ def test_a_bare_run_ai_quant_offers_candidates_instead_of_guessing():
     assert "run AI quant on any Hyperliquid wallet" in desc
     assert "never guess an address and never answer from memory" in desc
 
-    assert "No address given — find them some" in skill
+    assert "find them some" in skill, "the find-candidates flow must stay documented"
+    # …and it is now the SECOND branch: a bare "run quant desk" may mean the reader's OWN book, and
+    # for a senpi user that means their STRATEGY wallets. Two of four users on launch night were
+    # offered their embedded (funding) wallet instead and got "no PERP activity" on a book that
+    # trades daily, because this section only ever contemplated reading someone else.
+    assert "WHOSE book, before which book" in skill, "the whose-book question is not asked first"
+    assert "strategy wallets, not their embedded wallet" in skill
+    assert "strategy_list" in skill, "the skill never says how to resolve the reader's own wallets"
+    assert "FUNDING wallet" in skill, "the embedded wallet is not labelled for what it is"
+    assert "Never guess an address" in skill or "never guess an address" in skill.lower(), \
+        "the no-guessing rule must survive the change"
     # prose uses en-dashes; the CLI flags use hyphens — both must be present and must agree
     import hl_api
     for band in ("$5k\u201310k", "$10k\u201325k", "$25k\u2013100k", "$100k\u20131M", "whales ($1M+)"):
@@ -3053,3 +3063,25 @@ def test_portfolio_hands_a_scoring_request_to_quant_desk():
 
     # quant-desk names the relationship from its side
     assert "senpi-portfolio resolves the reader's wallets" in mine
+
+
+def test_the_empty_window_exit_points_a_senpi_user_at_their_strategy_wallets():
+    """Launch night: two of four organic users asked for their own book, their agents offered the
+    EMBEDDED wallet — reasoning correctly that the skill forbids guessing an address — and both got
+    exit 3, "no PERP activity", on books that trade daily. A third user pointed the desk at three
+    STRATEGY wallets the same hour and got three full desks, a priced leak and a DSL fix.
+
+    An embedded wallet is a FUNDING wallet: deposits land there and move out to the strategy
+    subwallets that trade. The engine was right — there was no perp activity — but the reader was
+    left at a dead end. The guidance is fixed in SKILL.md; the exit says it too, so a wrong wallet
+    corrects itself rather than reading as "you have nothing"."""
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    blk = src.split('if not r["activity"]["fills"] and not r["book"]["positions"]:', 1)[1][:2000]
+    assert '"if_this_is_your_own_wallet"' in blk, "the empty exit gives a senpi user no way forward"
+    assert "STRATEGY wallets" in blk and "funding wallet" in blk
+    assert "strategy_list" in blk, "it does not say how to resolve them"
+    # the existing guarantees still hold — this exit must stay machine-readable and keep `indexed`
+    assert '"indexed": r.get("indexed")' in blk and "return 3" in blk
+    # the banned phrase is guarded against the PAYLOAD in
+    # test_an_empty_window_still_reports_whether_senpi_has_the_wallet — not against the source,
+    # where it appears in the comment explaining why the payload must not say it

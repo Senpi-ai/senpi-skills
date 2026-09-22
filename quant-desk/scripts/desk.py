@@ -45,7 +45,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.25.3"
+VERSION = "1.26.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -513,8 +513,17 @@ def main(argv=None):
             # opposite things said to the reader. Spot fills do not count as perp activity, so a wallet
             # the owner knows is busy can land here; say which it is rather than "nothing to read".
             print(json.dumps({
+                # A senpi user's embedded wallet is a FUNDING wallet — deposits land there and move
+                # out to the strategy subwallets that actually trade. Two of four users on launch
+                # night were pointed here by their own agent and told their book was empty, on books
+                # that trade daily. The guidance is fixed in SKILL.md; this says it too, so the
+                # dead end corrects itself even when the wrong wallet is picked.
                 "error": f"no PERP activity in the last {a.days} days and no open perp positions. "
                          f"Spot trades and transfers are not perp activity and are not read here.",
+                "if_this_is_your_own_wallet": "If you trade through senpi, your perp history is in your "
+                                              "STRATEGY wallets, not this one — an embedded wallet is the "
+                                              "funding wallet. Resolve them with strategy_list and run the "
+                                              "desk on those.",
                 "address": addr, "days": a.days, "indexed": r.get("indexed"),
                 "perp_fills_in_window": 0, "open_perp_positions": 0})); return 3
         log(f"[quant-desk] done in {meta['timings']['total']}s ({meta.get('hl_calls')} reads)")
