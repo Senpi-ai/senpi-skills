@@ -8,7 +8,7 @@ import metrics
 import score as score_mod
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.25.2"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.25.3"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):

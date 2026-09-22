@@ -3021,3 +3021,35 @@ def test_the_headline_never_lowercases_a_ticker():
 
     src = _P(HERE, "..", "scripts", "followups.py").read_text()
     assert "top[1:2].islower()" in src, "the same idiom in followups can lowercase a ticker too"
+def test_portfolio_hands_a_scoring_request_to_quant_desk():
+    """Three users on 2026-09-22 typed a quant-desk chip and landed elsewhere, on boxes that
+    already carried the manifest:
+
+        "Score my trading"  20:45, runtime 3.0.120 since 19:57  -> portfolio.py
+        "Score my trading"  19:47, runtime 3.0.120 since 19:30  -> senpi-portfolio
+        "Run quant desk"    19:49, runtime 3.0.120 since 19:45  -> strategy-author
+
+    quant-desk lists "score my trading" verbatim, so the words were not the problem.
+    senpi-portfolio claims "Use this skill FIRST for ANY portfolio / strategies / positions /
+    balances / PnL / trade-history question" — a categorical directive that reads wider than it
+    means, and a scoring request is trade-history-shaped.
+
+    The fix is a CROSS-REFERENCE, not a carve-out: portfolio keeps its whole remit and hands off
+    the one verb it does not own. Anything that negates a category on portfolio's side risks
+    pulling it off questions it should answer — judging a strategy against its mandate IS its job.
+    """
+    mine = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
+    theirs = " ".join(_P(HERE, "..", "..", "senpi-portfolio", "SKILL.md").read_text().split())
+
+    # portfolio routes the scoring verb here, and names the wallets it just resolved
+    assert "run **quant-desk** on the wallets" in theirs, \
+        "portfolio does not hand a scoring request to quant-desk"
+    assert "score my trading" in theirs.lower() and "rate my trading" in theirs.lower()
+
+    # …and keeps everything else, stated positively rather than as a negation
+    assert "stays here" in theirs, "the handoff must not read as a carve-out of portfolio's remit"
+    assert "NOT for JUDGING" not in theirs, \
+        "a blanket negation pulls portfolio off strategy-vs-mandate questions it should answer"
+
+    # quant-desk names the relationship from its side
+    assert "senpi-portfolio resolves the reader's wallets" in mine
