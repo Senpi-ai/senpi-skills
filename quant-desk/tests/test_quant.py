@@ -2947,3 +2947,40 @@ def test_every_in_product_suggested_prompt_is_in_the_description():
     # and the ambiguous half still routes the other way for COPY
     theirs = " ".join(_P(HERE, "..", "..", "senpi-trader-research", "SKILL.md").read_text().split())
     assert "find traders for me to analyze" in theirs and "COPY comes here, ANALYSE goes there" in theirs
+
+
+def test_a_denominator_that_rounds_to_nothing_is_not_printed():
+    """Spotted by @betashop on a live 1.25.0 run, `0xb699…392e`: "Your quant would have kept ~$2,709
+    of this — 0% of what your losing trades gave up."
+
+    The clause exists to stop a reader dividing the headline by their net and getting nonsense — the
+    reason it was un-gated from `net < 0` earlier today. Below half a percent it does the opposite:
+    "0%" is not a denominator, it is a number that looks broken."""
+    import render
+    base = dict(leaks=[{"usd": 1}], timing={}, track=dict(trades=9, net=-274_940.0))
+    tiny = {**base, "recoverable": dict(usd=2_709.0, fees=2_709.0, rule=None, n_trades=9,
+                                        concentration={}, share_of_losses=0.00495)}
+    md = "\n".join(render.recoverable_line(tiny))
+    assert "$2,709" in md, "the headline itself must still print"
+    assert "of what your losing trades gave up" not in md, md
+
+    # a share that means something still prints
+    real = {**base, "recoverable": dict(tiny["recoverable"], share_of_losses=0.31)}
+    assert "31% of what your losing trades gave up" in "\n".join(render.recoverable_line(real))
+    # the boundary is wherever the FORMATTER stops rounding to zero, not a constant someone guessed:
+    # 0.005 still renders "0%", 0.006 renders "1%"
+    still_zero = {**base, "recoverable": dict(tiny["recoverable"], share_of_losses=0.005)}
+    assert "losing trades gave up" not in "\n".join(render.recoverable_line(still_zero))
+    edge = {**base, "recoverable": dict(tiny["recoverable"], share_of_losses=0.006)}
+    assert "1% of what your losing trades gave up" in "\n".join(render.recoverable_line(edge))
+    assert "0%" not in "\n".join(render.recoverable_line(tiny))
+
+
+def test_the_page_never_shows_two_different_totals_for_fees():
+    """Same run. The P&L breakdown read "fees -$5,021" and the leak evidence "$5,069 in fees" — 48
+    dollars apart, on one page, both labelled fees. They measure different populations: on the
+    indexed path `track["fees"]` is discovery's CLOSED-trade fee, and the execution figure is
+    fills-derived over closed AND open positions. Both are right; the page has to say which."""
+    src = _P(HERE, "..", "scripts", "score.py").read_text()
+    assert "in fees across every fill in the window" in src, \
+        "the execution sentence must name the population it counts"

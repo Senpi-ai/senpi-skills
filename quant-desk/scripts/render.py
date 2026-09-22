@@ -8,7 +8,7 @@ import metrics
 import score as score_mod
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.25.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.25.1"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -262,7 +262,13 @@ def recoverable_line(r):
     # noise (the fixture reads 20924%). The cap was 2.0, which still left "197% of what your losing
     # trades gave up" printable — above 100% the frame stops meaning anything to a reader, however
     # true the arithmetic is once fees come off the winners too. (@danielmbirochi, #718, round 2.)
-    if share and 0 < share <= 1.0:
+    # …and not when it rounds to nothing. On a book that lost $274,940 with $2,709 recoverable the
+    # share is 0.5%, and the clause printed "— 0% of what your losing trades gave up", which tells
+    # the reader nothing and reads as a broken number. The denominator exists to make the headline
+    # legible; below half a percent it does the opposite.
+    # Keyed on what actually renders, not on a threshold guessed against the formatter: 0.005 still
+    # prints "0%" under banker's rounding, so any constant here is one rounding rule away from wrong.
+    if share and 0 < share <= 1.0 and pct(share, 0) != "0%":
         head += f" — {pct(share, 0)} of what your losing trades gave up"
     # when one trade IS the number, say so in the headline. The disclosure below is the first thing
     # a reader drops when they quote the figure, and on 0xb699…392e that figure was $1,072,010 of

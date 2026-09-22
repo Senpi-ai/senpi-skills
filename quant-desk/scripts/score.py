@@ -628,7 +628,11 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
     # 1. costs — resting instead of crossing the spread
     if _n(tr, "fee_recoverable") >= 50 and (tr.get("taker_share") or 0) >= 0.25:
         out.append(dict(agent="Leak finder", title=f"{_pct(tr['taker_share'])} of your volume crossed the spread as a taker",
-                        evidence=f"{_usd(_n(tr, 'fee_total_exec') or tr['fees'])} in fees on {_usd(tr['volume'])} of volume at {_bp(tr['fee_rate_taker'])} taker / {_bp(tr['fee_rate_maker'])} maker.",
+                        # On the indexed path `tr["fees"]` is discovery's CLOSED-trade fee and this is the
+                        # fills-derived total over closed AND open positions, so the two differ — $5,021
+                        # against $5,069 on 0xb699…392e. Both are right for what they measure; the page
+                        # just has to say which, or a reader sees two numbers for "fees".
+                        evidence=f"{_usd(_n(tr, 'fee_total_exec') or tr['fees'])} in fees across every fill in the window, on {_usd(tr['volume'])} of volume at {_bp(tr['fee_rate_taker'])} taker / {_bp(tr['fee_rate_maker'])} maker.",
                         counterfactual=f"Resting maker orders for the same fills would have kept ~{_usd(tr['fee_recoverable'])} over {days} days (≈{_usd(tr['fee_recoverable'] * yr)}/yr).",
                         usd=tr["fee_recoverable"], window=f"{days}d", cta=f"Execute through senpi and I'll rest your entries maker-first with a taker fallback — "
                             f"that's ~{_usd(tr['fee_recoverable'])} over {days} days (~{_usd(tr['fee_recoverable'] * yr)}/yr) "
