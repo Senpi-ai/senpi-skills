@@ -1953,3 +1953,31 @@ def test_the_unreachable_whale_table_copy_is_gone():
     import render
     assert not hasattr(render, "smart"), "the dead renderer is back"
     assert render.RENDERERS["smart"] is render.smart_v2
+
+
+def test_skill_states_the_real_follow_up_count_and_module_list():
+    """#718 (@0xsarvesh). The `description` frontmatter — what the agent reads at SELECTION time —
+    said a bank of ten; followups.BANK holds twelve. The install list named 9 of the 17 local
+    modules desk.py imports, and a partial copy fails at import, not at runtime."""
+    import followups
+    skill = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
+    assert f"a bank of twelve follow-ups" in skill and len(followups.BANK) == 12
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    local = {m for m in re.findall(r"^(?:import|from) ([a-z_]+)", src, re.M)}
+    stdlib = {"argparse", "json", "os", "re", "sys", "tempfile", "time", "collections", "statistics",
+              "datetime", "math", "bisect", "urllib", "socket"}
+    for mod in local - stdlib:
+        assert f"`{mod}.py`" in skill, f"{mod}.py is imported but not in the install list"
+
+
+def test_methodology_names_the_engine_version_it_describes():
+    """#718 (@0xsarvesh). methodology.md documented the pre-1.9.0 engine while SKILL.md sent the
+    agent there for the formulas — so an agent asked "how is my cost score computed?" answered with
+    the old rule, confidently. Nine formulas were stale. Pinning the version makes drift fail here
+    rather than in front of a user."""
+    import render
+    doc = _P(HERE, "..", "references", "methodology.md").read_text()
+    assert f"as of quant-desk {render.VERSION}" in doc, (
+        f"methodology.md does not describe {render.VERSION} — update it in the same commit as the formula")
+    for rule in ("Median within a family", "Abstention", "Charged", "spans"):
+        assert rule in doc, rule
