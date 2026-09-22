@@ -2264,3 +2264,31 @@ def test_the_worst_funding_coin_can_exceed_the_net_and_says_why():
     out = score.leaks(tr, dict(funding_per_day=-271.0), {}, rows, closed, 0, 90)
     ev = next(l for l in out if "funding" in l["title"])["evidence"]
     assert "more than the $122,257 net" in ev and "other coins collected" in ev, ev
+
+
+def test_a_lever_that_wins_the_headline_always_has_a_visible_leak():
+    """On 0x696d…8e28 the headline read "~$180,892 recoverable — closing anything still open after
+    24h" and that leak was nowhere on the page: the LEAK was gated on hold_ratio > 1.2 ("you hold
+    losers longer than winners") while the LEVER had no such gate, and this trader cuts losers 2.6x
+    FASTER. The hold-ratio framing is the EVIDENCE for a time cut, not a precondition for one.
+
+    Asserted as a property: whatever lever wins, the reader can see where the number came from."""
+    rows = [_tm_row(cut_cf={"24": 30_000.0}, realized=-500.0, win=False, hold_h=48.0) for _ in range(6)]
+    tm = dict(cut={"settings": {"24": dict(n=6, total=150_000.0)}})
+    lv = score.levers(rows, [], tm)
+    tr = dict(trades=6, complete_trades=6, fee_recoverable=0.0, taker_share=0.0, funding=0.0,
+              liquidations=0, coins={}, hold_ratio=0.38,      # cuts losers FASTER — no hold evidence
+              hold_losers_h=2.0, hold_winners_h=5.2)
+
+    rec = score.recoverable(rows, [], tr, tm, lv)
+    out = score.leaks(tr, dict(funding_per_day=0.0), tm, [], [], 0, 90, lv)
+    assert rec["rule"], "no lever won, the fixture is wrong"
+    assert out, "the winning lever produced no leak at all"
+    assert any(abs(l["usd"] - (rec["usd"] - rec["fees"])) < 1 for l in out), \
+        f"headline cites {rec['rule']} at {rec['usd'] - rec['fees']:,.0f} but no leak matches: " \
+        f"{[(l['title'][:40], round(l['usd'])) for l in out]}"
+
+    # and when the hold-ratio evidence DOES apply, it is still the framing used
+    tr_slow = dict(tr, hold_ratio=2.6, hold_losers_h=52.0, hold_winners_h=20.0)
+    out2 = score.leaks(tr_slow, dict(funding_per_day=0.0), tm, [], [], 0, 90, lv)
+    assert any("hold losers 2.6× longer" in l["title"] for l in out2), [l["title"] for l in out2]
