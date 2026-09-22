@@ -233,24 +233,24 @@ The interview is yours; the build is not. Once stage 1 has its explicit **yes**,
 `openclaw senpi author check` once. **Exit 0 → hand off; it prints the exact commands.** Anything
 else → build inline, stages 2–9.
 
-The runtime owns the contract the engine builds against; what you remember of the YAML is a copy, and copies drift.
-
 1. **Write the confirmed spec** to `/data/workspace/.author-specs/<id>.json` — the user's words, all
    7 decisions, every constraint, and `user_confirmed: true` because they said yes to the replay.
    A spec without that flag is refused before a model is billed.
-2. **`openclaw senpi author start -p <file>`** (`--edit <pkg-dir>` to change an existing package —
-   it works on a staged copy, so a live strategy is untouched). Returns an id in ~1s.
+2. **`openclaw senpi author start -p <file>`** (`--edit <dir>` changes an existing package on a
+   staged copy, so a live strategy is untouched). Returns an id in ~1s.
 3. **Poll `openclaw senpi author status <id> --after-seq <n>`**, **relaying one short line per poll**
-   from its events (`· writing the scanner`, `· running the gate`) — a phase is a fact about where the
-   build is, never a claim about the result. Never poll on a cron; that is a paid model call.
+   from its events — a phase is where the build IS, not a claim about the result. Never poll on a cron.
 4. **Branch on the exit code**, which IS the answer:
    - **6** running → keep polling. **5** interrupted → `status` says if it can resume.
    - **7** needs input → ask the `question` verbatim with its `options`, then
      `openclaw senpi author answer <id> --text "<their answer>"` resumes the same build.
-   - **0** done → relay `summary`, `validate.stage_lines` verbatim and every `warnings`. `done` means
-     the RUNTIME re-ran the gate and the proof matches the bytes on disk, not that the model said so.
+   - **0** done → relay `summary`, `validate.stage_lines`, every `warnings`, and **every
+     `assumptions`** — places the spec did not settle and the engine chose. Put each to the user as
+     a question they can still answer: it quotes the spec and names the reading NOT built. Wrong
+     assumption costs an edit here, a position after funding. `done` means the RUNTIME re-ran the
+     gate and the proof matches the bytes, not that the model said so.
    - **3** failed → relay `blocking_finding` verbatim; the user decides. Never retry inline.
-   - **2** refused → obey it, never retry. **1** → transport; state unknown, ask `status` first.
+     **2** refused → obey it, never retry. **1** → transport; state unknown, ask `status` first.
 
 The engine cannot deploy or move money: package dir only, no network, every position-moving Senpi
 tool refused. Budget and deploy stay here — Handoff.
