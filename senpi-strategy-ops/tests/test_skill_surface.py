@@ -322,7 +322,7 @@ class ScriptInvocationsAreCwdIndependent(unittest.TestCase):
     ROOT = "/data/.openclaw/skills"
     # The counterexample in lifecycle.md IS the failing shape; rewriting it erases the lesson.
     ALLOWED_RELATIVE = ("python3 scripts/close.py <a> &", "python3 scripts/close.py <b>")
-    DOCS = ("senpi-strategy-ops", "senpi-strategy-author", "senpi-ai-quant")
+    DOCS = ("senpi-strategy-ops", "senpi-strategy-author", "quant-desk")
 
     def _markdown(self):
         for skill in self.DOCS:

@@ -1,7 +1,8 @@
 ---
-name: senpi-ai-quant
+name: quant-desk
 description: >-
-  **AI Quant** (also "the quant", "quant desk"): paste ANY Hyperliquid address (0x…) and get the desk —
+  **Quant Desk** — the desk your **AI Quant** produces. Users reach it by either name, spaced or
+  hyphenated: "run AI quant", "run ai-quant", "run quant", "run quant desk", "run quant-desk". Paste ANY Hyperliquid address (0x…) and get the desk —
   what the trader has actually been doing (a strategy read with a critique), a quant score with six
   explained dimensions, the market they are trading in right now and how they trade each regime, the
   live book with a protection audit, leaks priced as counterfactual dollars, their book against the
@@ -11,7 +12,7 @@ description: >-
   prepared to go deeper on. Works for wallets that never touched senpi (public onchain data,
   read-only); with a Senpi token the closed-trade history, both cohorts, the funding regime and the
   Hyperfeed attention layer come from Senpi's own data.
-  TRIGGERS — any of these, with or without an address: "run AI quant", "run AI quant on my Hyperliquid wallet", "run AI quant on any Hyperliquid wallet", "run quant", "run the quant on 0x…", "run quant
+  TRIGGERS — any of these, with or without an address: "run AI quant", "run ai-quant", "run quant-desk", "run AI quant on my Hyperliquid wallet", "run AI quant on any Hyperliquid wallet", "run quant", "run the quant on 0x…", "run quant
   desk on 0x…", "score my trading", "rate my trading", "find leaks on my Hyperliquid wallet", "where am
   I leaking money", "what did I miss" (about a book, a week or a trade), "master my week", "analyze my
   wallet / my Hyperliquid address", "how am I doing", "what's my strategy", "am I on the right side of
@@ -29,12 +30,12 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.19.1"
+  version: "1.20.0"
   platform: senpi
   exchange: hyperliquid
 ---
 
-# senpi AI Quant — the desk for any Hyperliquid address
+# Senpi Quant Desk — the desk your AI Quant produces, for any Hyperliquid address
 
 Built for one thing first: **the user's own book.** A trader joins senpi, pastes their Hyperliquid
 wallet, and gets their desk — the book they actually run, scored, protected and improved, in the second
@@ -82,7 +83,7 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    Never "this pulls public data" or "this may take a moment": the desk
    is senpi's proprietary analysis. Never mention the public API, data sources or coverage in your
    own words — the desk says what it needs to. Run the installed copy
-   (`/data/.openclaw/skills/senpi-ai-quant/scripts/desk.py`), never a backup folder: the header line carries the
+   (`/data/.openclaw/skills/quant-desk/scripts/desk.py`), never a backup folder: the header line carries the
    version — and `desk.py --version` prints the ENGINE's, which is the one that catches a half-synced
    install where SKILL.md looks current and the script is not. Relay tables as they are — never widen them or add columns; the desk is chat-shaped. Write
    **onchain**, never "on-chain", everywhere.
