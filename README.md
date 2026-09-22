@@ -60,7 +60,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | Skill | Ver | Role |
 |---|---|---|
 | **Analyze** | | |
-| [`senpi-portfolio`](senpi-portfolio/) | 1.26.0 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads |
+| [`senpi-portfolio`](senpi-portfolio/) | 1.27.0 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads |
 | [`senpi-market-pulse`](senpi-market-pulse/) | 1.5.0 | Daily cross-asset market read (crypto, equities, commodities, macro, funding regime) |
 | [`senpi-smart-money`](senpi-smart-money/) | 1.4.0 | Where the most-profitable wallets are positioned vs. the crowd |
 | [`senpi-signals`](senpi-signals/) | 2.4.0 | Non-obvious market developments (funding extremes, proven cohort vs the 4h crowd, momentum events, cross-asset laggards) from one on-demand reading, ranked through a trade lens and a news lens — no cron, no history (compare over periods is v2) |
