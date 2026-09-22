@@ -606,7 +606,13 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
     if _n(tr, "funding") < -100 and paid_late > 50:
         worst = min(tr["coins"].items(), key=lambda kv: kv[1]["funding"])
         out.append(dict(agent="Market regime", title=f"You paid {_usd(-tr['funding'])} in funding over {days} days",
-                        evidence=f"{worst[0]} alone cost {_usd(-worst[1]['funding'])}; the book pays {_usd(-book['funding_per_day'])}/day at today's rates." if _n(book, "funding_per_day") < 0 else f"{worst[0]} alone cost {_usd(-worst[1]['funding'])}.",
+                        evidence=(f"{worst[0]} alone cost {_usd(-worst[1]['funding'])}"
+                                  # the worst coin can exceed the NET total, because other coins collected —
+                                  # printed bare that reads as an arithmetic error
+                                  + (f" — more than the {_usd(-tr['funding'])} net, because other coins collected funding back"
+                                     if -worst[1]["funding"] > -_n(tr, "funding") else "")
+                                  + (f"; the book pays {_usd(-book['funding_per_day'])}/day at today's rates."
+                                     if _n(book, "funding_per_day") < 0 else ".")),
                         counterfactual=(
                             f"A 24h cap on those holds would have kept ~{_usd(_fl['total'])} over {days} days — "
                             f"{_usd(_fl['funding_saved'])} of funding, and {_usd(_fl['exit_effect'])} from closing "
