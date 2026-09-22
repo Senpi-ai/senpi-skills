@@ -10,6 +10,7 @@ returns at most 2000 fills and `userFunding` at most 500 rows per call — both 
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import hashlib
 import json
+import socket
 import os
 import tempfile
 import time
@@ -26,12 +27,32 @@ FUNDING_PAGE = 500
 MAX_FILL_PAGES = 12           # 24k fills — past that the book is a market maker's, not a trader's
 MAX_TWAP_PAGES = 25           # TWAP slices are tiny and numerous; 50k of them is a bot
 MAX_FUNDING_PAGES = 40
-RETRIES = 4                   # on HTTP 429 only
+RETRIES = 4                   # 429, 5xx, and transport faults (timeout / reset) — see _request
+# Retryable beyond 429: a 90-day desk makes 100-200 single-attempt requests, so one 503 or one reset
+# socket aborted the whole run with exit 1. SKILL.md's "fails open" was only ever true of the
+# OPTIONAL layers. (@0xsarvesh, #718.)
+RETRY_CODES = (429, 500, 502, 503, 504)
 BACKOFF_S = 1.5
 DEFAULT_CACHE = os.path.join(tempfile.gettempdir(), "quant-desk", "cache")
 TTL = {"metaAndAssetCtxs::xyz": 120, "clearinghouseState": 120, "frontendOpenOrders": 120, "metaAndAssetCtxs": 120, "candleSnapshot": 900,
        "userFees": 3600, "portfolio": 600, "userNonFundingLedgerUpdates": 600, "userFillsByTime": 600,
        "userFunding": 600, "leaderboard": 6 * 3600}
+
+
+def _atomic_json(path, obj):
+    """Write-then-rename. A half-written cache file reads as JSONDecodeError, which is not an HLError,
+    so desk.py's handler misses it and the poisoned file stays hot for its whole TTL. Two desks run in
+    parallel was enough to hit it. Same idiom as addresses.save(). (@0xsarvesh, #718.)"""
+    d = os.path.dirname(path) or "."
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".hl.", suffix=".json")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            json.dump(obj, fh)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 class HLError(Exception):
@@ -73,16 +94,21 @@ class HL:
                     data = json.load(r)
                 break
             except urllib.error.HTTPError as e:
-                # 429 = the public API's per-IP weight budget; back off and retry, never hammer it
-                if e.code == 429 and attempt < RETRIES - 1:
+                # 429 = the per-IP weight budget; 5xx = the venue having a moment. Both pass.
+                if e.code in RETRY_CODES and attempt < RETRIES - 1:
                     time.sleep(BACKOFF_S * (2 ** attempt))
                     continue
                 raise HLError(f"{body.get('type')}: HTTP {e.code}") from e
+            except (urllib.error.URLError, TimeoutError, ConnectionError, socket.timeout) as e:
+                # a reset socket or a read timeout is not an answer, it is the absence of one
+                if attempt < RETRIES - 1:
+                    time.sleep(BACKOFF_S * (2 ** attempt))
+                    continue
+                raise HLError(f"{body.get('type')}: {e}") from e
             except Exception as e:  # noqa: BLE001 — the caller decides whether this read was essential
                 raise HLError(f"{body.get('type')}: {e}") from e
         if path:
-            with open(path, "w") as fh:
-                json.dump(data, fh)
+            _atomic_json(path, data)
         return data
 
     # ---- trader-level reads ----
@@ -212,8 +238,7 @@ class HL:
         except Exception as e:  # noqa: BLE001
             raise HLError(f"leaderboard: {e}") from e
         if path:
-            with open(path, "w") as fh:
-                json.dump(data, fh)
+            _atomic_json(path, data)
         return data
 
 

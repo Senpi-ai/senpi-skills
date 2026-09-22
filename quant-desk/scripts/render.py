@@ -169,7 +169,8 @@ def overview(r):
         top = r["leaks"][:3]
         out += ["", f"## Top {len(top)} thing{'s' if len(top) != 1 else ''} your agents found", ""]
         for i, l in enumerate(top, 1):
-            out.append(f"{i}. **{l['agent']} · ~{usd(l['usd'])} / {l['window']}** — **{l['title']}.** {l['evidence']} _{l['counterfactual']}_ → {l['cta']}")
+            head = f"**{l['agent']}**" if l.get("unpriced") else f"**{l['agent']} · ~{usd(l['usd'])} / {l['window']}**"
+            out.append(f"{i}. {head} — **{l['title']}.** {l['evidence']} _{l['counterfactual']}_ → {l['cta']}")
     return "\n".join(out)
 
 
@@ -291,7 +292,8 @@ def leaks(r):
         out.append("Not enough closed trades to price a leak yet — the desk needs a handful of round trips before a counterfactual means anything." if (r["track"].get("trades") or 0) < 5
                    else "No leak clears the bar on this window: every counterfactual the desk tests came out flat or negative, which means the process is not where the money is going.")
     for i, l in enumerate(r["leaks"], 1):
-        out += [f"**{i:02d} · {l['title']}** — _{l['agent']}_ · **~{usd(l['usd'])} / {l['window']}**", f"{l['evidence']} {l['counterfactual']}", f"→ {l['cta']}", ""]
+        tag = f"_{l['agent']}_" + ("" if l.get("unpriced") else f" · **~{usd(l['usd'])} / {l['window']}**")
+        out += [f"**{i:02d} · {l['title']}** — {tag}", f"{l['evidence']} {l['counterfactual']}", f"→ {l['cta']}", ""]
     tm = r.get("timing") or {}
     if tm.get("n"):
         neg = [k for k, g in (("time-cut on losers", tm.get("cut")), ("trailing lock on winners", tm.get("lock")))
@@ -379,8 +381,9 @@ def next_steps(r):
         # what is coming, without claiming a signature there is nothing to sign.
         out.append(f"{i}. **Protect first.** {', '.join(p['coin'] for p in at_risk)}: every one of these "
                    f"is naked. Let me know if you want my help."); i += 1
-    if r["leaks"]:
-        l = r["leaks"][0]
+    priced = [l for l in r["leaks"] if not l.get("unpriced")]
+    if priced:
+        l = priced[0]
         out.append(f"{i}. **Fix the biggest leak.** {l['title']} — ~{usd(l['usd'])}/{l['window']}. {l['cta']}"); i += 1
     fam = r.get("families") or []
     setup = fam[0].replace("_", " ") if fam else "your pattern"

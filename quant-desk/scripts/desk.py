@@ -438,8 +438,9 @@ def main(argv=None):
                 "address": addr, "days": a.days, "indexed": r.get("indexed"),
                 "perp_fills_in_window": 0, "open_perp_positions": 0})); return 3
         log(f"[quant-desk] done in {meta['timings']['total']}s ({meta.get('hl_calls')} reads)")
-        with open(state_path, "w") as fh:
-            json.dump(r, fh, default=float)
+        # atomic: stage 1 writes this and stages 2-4 read it, so a half-written relay file breaks
+        # the whole staged run — and JSONDecodeError is not an HLError, so the handler above misses it
+        hl_api._atomic_json(state_path, json.loads(json.dumps(r, default=float)))
     if a.deep:
         candles = {}
         if a.deep in ("protect", "replay"):

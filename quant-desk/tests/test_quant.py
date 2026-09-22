@@ -1837,3 +1837,65 @@ def test_the_quoted_lever_is_the_median_of_its_family_not_the_best_of_a_grid():
     ev = [dict(kind="cut", key=k, label=f"cut {k}", total=t, gross=t, vals=[t], n=5)
           for k, t in (("12", 100.0), ("24", 300.0))]
     assert score.best_lever(ev)["total"] == 100.0
+
+
+def test_the_liquidation_leak_states_the_cost_and_does_not_invent_a_saving():
+    """#718 Q1 (@0xsarvesh). "A stop halfway to liquidation would have kept roughly half" is a guess:
+    it charges nothing for the positions that stop would have cut early which then recovered, and we
+    do not know where the trader would have put it. On one book it led the page at $169,425 and
+    next_steps pointed the reader straight at it."""
+    tr = dict(liquidations=2, liquidation_loss=-338_850.0, fee_recoverable=0.0, taker_share=0.0,
+              funding=0.0, trades=40, coins={})
+    out = score.leaks(tr, dict(funding_per_day=0.0), {}, [], [], 0, 90)
+    liq = next(l for l in out if "liquidation" in l["title"])
+    assert liq["usd"] == 0.0 and liq.get("unpriced") is True
+    assert "$338,850" in liq["title"], "the real cost still gets stated"
+    assert "does not price this one" in liq["counterfactual"]
+
+    # and it must not be offered as the fix to make
+    import render
+    r = dict(leaks=out, track=tr, book=dict(naked=[], positions=[]), timing={}, families=[],
+             recoverable=dict(usd=0.0, fees=0.0, n_trades=0, rule=None, concentration=None,
+                              share_of_losses=None))
+    assert "Fix the biggest leak" not in "\n".join(render.next_steps(r))
+
+
+def test_the_funding_cap_is_charged_for_the_exits_it_forces():
+    """A 24h cap does not only stop the bill — it CLOSES the position, and the P&L consequence of
+    closing at 24h is exactly the 24h time-cut. Crediting the funding saved and charging nothing for
+    those exits was the fourth survivorship bug; the first three were fixed in #712."""
+    tm = dict(cut={"settings": {"24": dict(n=6, total=-30_000.0)}})    # cutting at 24h COSTS money
+    lv = score.levers([_tm_row() for _ in range(6)], [], tm, funding_late=50_000.0)
+    fund = next(x for x in lv if x["kind"] == "funding")
+    assert fund["total"] == 20_000.0, "the forced exits were not charged"
+    assert fund["gross"] == 50_000.0, "the gross saving is still reported"
+
+
+def test_transport_faults_and_5xx_are_retried_not_just_429():
+    """#718 (@0xsarvesh). A 90-day desk makes 100-200 single-attempt requests; one 503 or one reset
+    socket aborted the whole run with exit 1. SKILL.md's "fails open" was only ever true of the
+    OPTIONAL layers."""
+    import hl_api
+    assert 429 in hl_api.RETRY_CODES and 503 in hl_api.RETRY_CODES and 500 in hl_api.RETRY_CODES
+    src = _P(HERE, "..", "scripts", "hl_api.py").read_text()
+    body = src[src.index("for attempt in range(RETRIES)"):src.index("for attempt in range(RETRIES)") + 1400]
+    for exc in ("URLError", "TimeoutError", "ConnectionError"):
+        assert exc in body, f"{exc} still fails on the first attempt"
+
+
+def test_cache_and_relay_files_are_written_atomically():
+    """A half-written JSON file reads as JSONDecodeError — which is NOT an HLError, so desk.py's
+    handler misses it and the poisoned file stays hot for its whole TTL. Two desks in parallel was
+    enough to hit it."""
+    import hl_api, json as _json, tempfile as _tf, os as _os
+    d = _tf.mkdtemp()
+    target = _os.path.join(d, "x.json")
+    hl_api._atomic_json(target, {"a": 1})
+    assert _json.load(open(target)) == {"a": 1}
+    assert [f for f in _os.listdir(d) if f.startswith(".hl.")] == [], "temp file left behind"
+
+    for f, site in ((_P(HERE, "..", "scripts", "hl_api.py"), "hl_api"),
+                    (_P(HERE, "..", "scripts", "desk.py"), "desk")):
+        src = f.read_text()
+        assert 'open(path, "w")' not in src and 'open(state_path, "w")' not in src, \
+            f"{site} writes JSON non-atomically again"
