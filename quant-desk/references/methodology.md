@@ -1,6 +1,6 @@
 # quant-desk — methodology
 
-> **This document describes the engine as of quant-desk 1.23.0.** Nine formulas in it were stale
+> **This document describes the engine as of quant-desk 1.23.1.** Nine formulas in it were stale
 > between 1.9.0 and 1.14.0 while SKILL.md sent the agent here for them, so an agent asked "how is my
 > cost score computed?" answered with the pre-1.9.0 rule, confidently. If you change a formula in
 > `scripts/`, change it here in the same commit — `test_methodology_matches_the_engine` fails if the
@@ -242,7 +242,7 @@ cohort → `smart`; a funding bill → `funding`; a losers leak → `replay`; re
   catalog families, and the discover/author handoff.
 * `regime`, `smart`, `scout`, `strategy`, `watch` — the corresponding sections in full.
 
-## Scoring rules as of 1.23.0 — read these, not any older formula above
+## Scoring rules as of 1.23.1 — read these, not any older formula above
 
 These nine changed between 1.9.0 and 1.15.0 while this file still described the pre-1.9.0 engine.
 
@@ -262,3 +262,4 @@ These nine changed between 1.9.0 and 1.15.0 while this file still described the 
 | Fees, per dex | Taker **and** maker volume are priced on the dex they traded on, and the quoted bp is the blended rate the wallet actually faces. |
 | Beta | Each step's P&L over the transfer-adjusted equity **at that step**, not over today's account value. |
 | Counterfactual scale | Priced on the exposure held at the moment of the counterfactual exit, from the episode's own fill-by-fill size path — never on the peak size assumed held throughout. |
+| One bar, one table | `leaks()` and `recoverable()` read the same `levers()` table and nothing else. A family the lever bar declines is stated **unpriced**, with the measured pattern that survives it; there is no second path that reports a number the bar rejected. |

@@ -2704,3 +2704,46 @@ def test_coverage_is_reconciled_against_the_exchanges_own_pnl():
     assert 'if k != "size_path"} for e in in_win' in src, "the size path is back in the payload"
     assert 'cov["reconstructed_net"] = track["net"] + book["unrealized"]' in src
     assert 'cov["effective"] = min(' in src
+
+
+def test_a_leak_cannot_walk_around_the_bar_the_lever_answers_to():
+    """Found running 1.23.0 on 0xb699…392e — the same wallet MIN_PATTERN_TRADES was written for.
+
+    `leaks()` fell back to `timing.summarize`'s `robust` whenever `best_lever` declined a family.
+    `robust` is the pre-levers path: the median of every setting's total, sample gate or not. So the
+    gates went on `levers()` and the leak walked around them — that book's 24h setting had n=3 and
+    48h n=2, the family was correctly declined, and the page still printed "~$341,779" beside a
+    headline that said $2,709. One table, one bar: a declined lever means an unpriced claim, and
+    only a leak with measured evidence of its own still has anything to say."""
+    tm = dict(n=9, give_back_median=0.88, mfe_median_winners=0.046, losers_that_were_green=1.0,
+              cut={"settings": {"12": dict(n=5, total=29_524.0), "24": dict(n=3, total=341_779.0),
+                                "48": dict(n=2, total=368_250.0)},
+                   "robust": 341_779.0},
+              lock={"settings": {"0.03/0.5": dict(n=2, total=46_644.0)}, "robust": 46_644.0})
+    tr = dict(trades=9, complete_trades=8, hold_ratio=3.1, hold_losers_h=40.0, hold_winners_h=13.0,
+              funding=0.0, coins={}, liquidations=0)
+    rows = [_tm_row(cut_cf={"12": 6_000.0}) for _ in range(5)]
+    lv = score.levers(rows, [], tm)
+    assert {x["key"] for x in lv} == {"12"}, "only the sampled setting may enter the family"
+
+    lk = score.leaks(tr, {}, tm, [], [], 0, 90, lv=lv)
+    priced = {l["title"]: l["usd"] for l in lk if not l.get("unpriced")}
+    assert 341_779.0 not in priced.values(), "a three-trade counterfactual reached the page"
+    assert 46_644.0 not in priced.values()
+
+    # the measured half survives, unpriced and saying so
+    gb = [l for l in lk if "give back" in l["title"]]
+    assert gb and gb[0]["unpriced"] and gb[0]["usd"] == 0.0
+    assert "88%" in gb[0]["title"] and "does not put a number" in gb[0]["counterfactual"]
+    # the hold leak IS priced here — but from the 12h setting that cleared the sample bar, not from
+    # `robust`. That is the whole distinction: a number, when one survives the gate.
+    hold = [l for l in lk if "hold losers" in l["title"]]
+    assert hold and not hold[0].get("unpriced")
+    assert hold[0]["usd"] == score.best_lever(lv, "cut")["total"] < 341_779.0
+
+    # and a claim with no measured evidence of its own does not appear at all
+    assert not [l for l in lk if l["title"].startswith("Positions still open at 24h")]
+
+    # nothing in leaks() may read `robust` again
+    src = _P(HERE, "..", "scripts", "score.py").read_text()
+    assert '.get("robust")' not in src, "the pre-levers fallback is back"

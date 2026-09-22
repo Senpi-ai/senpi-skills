@@ -643,47 +643,56 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
                         window=f"{days}d", cta="A funding-aware hold rule caps the cost without changing the thesis."))
     # 3. losers held too long — only when the time cut is robust
     cut_l = best_lever(lv, "cut")
-    cut = cut_l["total"] if cut_l else ((tm or {}).get("cut") or {}).get("robust")
+    # `robust` is the pre-levers path: the median of every setting's total, sample gate or not. It
+    # let the LEAK walk around every bar `levers()` applies. On 0xb699…392e the 24h setting had n=3
+    # and 48h n=2, so the family was correctly declined — and the leak printed $341,779 from a
+    # three-trade counterfactual while the headline beside it said $2,709. That is the same wallet
+    # whose n=2 lever MIN_PATTERN_TRADES was written for, and the same "the list and the headline
+    # disagree" shape @shnoodles reported. One table, one bar: if the lever is declined the claim is
+    # unpriced, and only a leak with measured evidence of its own still has anything to say.
+    cut = cut_l["total"] if cut_l else None
+    _unpriced_cf = ("The desk does not put a number on this one: too few trades clear the sample bar for "
+                    "a counterfactual to mean anything on this window. The pattern above is measured.")
     # The hold-ratio framing is the EVIDENCE for a time cut, not a precondition for one. Gating the
     # leak on it while the LEVER had no such gate meant a book that cuts losers 2.6x FASTER than
     # winners saw "~$180,892 recoverable — closing anything still open after 24h" as its headline
     # with no matching leak anywhere on the page. A winning lever must always be visible.
     _hold_evidence = (tr.get("hold_ratio") or 0) > 1.2 and tr.get("hold_losers_h") is not None
-    if cut and cut > 50 and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES and not _hold_evidence:
+    if cut_l and cut > 50 and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES and not _hold_evidence:
         out.append(dict(agent="Leak finder", title=f"Positions still open at 24h cost more than closing them",
                         evidence=f"Across {tr.get('complete_trades') or tr.get('trades')} complete trades, the ones still "
                                  f"open at the 24-hour mark gave back more than they added from there on.",
                         counterfactual=_cf_charged(cut_l, days) if cut_l else
                                        f"A time-cut at 24h would have kept roughly ~{_usd(cut)} over {days} days.",
                         usd=cut, window=f"{days}d", cta="A time-cut is a rule your quant can run for you."))
-    if cut and cut > 50 and _hold_evidence and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES:
+    if _hold_evidence and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES and (cut_l is None or cut > 50):
         out.append(dict(agent="Leak finder", title=f"You hold losers {tr['hold_ratio']:.1f}× longer than winners",
                         evidence=f"Median loser {tr['hold_losers_h']:.1f}h vs winner {tr['hold_winners_h']:.1f}h across {tr['complete_trades']} complete trades.",
-                        counterfactual=(f"{_cf_charged(cut_l, days)}" if cut_l else
-                                        f"A time-cut on losers (12–48h, whichever) would have kept roughly ~{_usd(cut)} over {days} days (approximate: peak size × price move)."),
-                        usd=cut, window=f"{days}d", cta="A time-cut is a rule your quant can run for you."))
+                        counterfactual=(_cf_charged(cut_l, days) if cut_l else _unpriced_cf),
+                        usd=cut if cut_l else 0.0, unpriced=not cut_l,
+                        window=f"{days}d", cta="A time-cut is a rule your quant can run for you."))
     # 4. giving back winners — only when the lock is robust
     lock_l = best_lever(lv, "lock")
-    lock = lock_l["total"] if lock_l else ((tm or {}).get("lock") or {}).get("robust")
+    lock = lock_l["total"] if lock_l else None      # same as the cut: no walking around the bar
     # `give_back_median` and `mfe_median_winners` are taken over WINNERS only, so a book with no
     # winning complete trade has both as None — and `lock` still fires, because losers that armed
     # and retraced do produce a lever. _pct(None) then raised TypeError, which is not an HLError, so
     # desk.py printed a traceback and no desk at all. That is exactly the book
     # `--find --find-losers` sends a reader to. (@danielmbirochi, #718.)
     _has_winner_stats = tm and tm.get("give_back_median") is not None
-    if lock and lock > 50 and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES and not _has_winner_stats:
+    if (tr.get("trades") or 0) >= MIN_PATTERN_TRADES and not _has_winner_stats and (lock_l is None or lock > 50) and tm and tm.get("n"):
         out.append(dict(agent="Leak finder", title="Your positions give back their peak before you exit",
                         evidence=f"No complete trade closed green in this window, but {tm['n']} of them were in profit "
                                  f"at some point first.",
-                        counterfactual=_cf_charged(lock_l, days) if lock_l else
-                                       f"A trailing lock on peak gains would have kept roughly ~{_usd(lock)} over {days} days.",
-                        usd=lock, window=f"{days}d", cta="A ratcheting stop locks the peak without capping the run."))
-    if lock and lock > 50 and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES and _has_winner_stats:
+                        counterfactual=(_cf_charged(lock_l, days) if lock_l else _unpriced_cf),
+                        usd=lock if lock_l else 0.0, unpriced=not lock_l,
+                        window=f"{days}d", cta="A ratcheting stop locks the peak without capping the run."))
+    if (tr.get("trades") or 0) >= MIN_PATTERN_TRADES and _has_winner_stats and (lock_l is None or lock > 50):
         out.append(dict(agent="Leak finder", title=f"You give back a median {_pct(tm['give_back_median'])} of a winner's peak",
                         evidence=f"Winners reach a median +{_pct(tm['mfe_median_winners'], 1)} before exit; {_pct(tm['losers_that_were_green'])} of losers were green first." if tm.get("losers_that_were_green") is not None else "",
-                        counterfactual=(f"{_cf_charged(lock_l, days)}" if lock_l else
-                                        f"A trailing lock on peak gains would have kept roughly ~{_usd(lock)} over {days} days (approximate: peak size × price move)."),
-                        usd=lock, window=f"{days}d", cta="A ratcheting stop locks the peak without capping the run."))
+                        counterfactual=(_cf_charged(lock_l, days) if lock_l else _unpriced_cf),
+                        usd=lock if lock_l else 0.0, unpriced=not lock_l,
+                        window=f"{days}d", cta="A ratcheting stop locks the peak without capping the run."))
     # 5. chasing
     if tm and _n(tm, "chased_n") >= MIN_PATTERN_TRADES and _n(tm, "chased_realized") < -50 and (tm.get("calm_pf") or 0) > (tm.get("chased_pf") or 0):
         out.append(dict(agent="Smart money", title=f"Entries after a ≥3% move lose money — {tm['chased_n']} of {tm['n']} trades",
