@@ -102,7 +102,10 @@ def book_fit(book, candles, ctxs):
     else:
         fhead = "FUNDING NEAR FLAT"
     if ann is not None and abs(ann) >= 5:
-        fhead += f" ({ann:+.0f}%/yr on the book you hold)"
+        # the RATE on notional, not a share of equity. The risk dimension quotes the same funding as
+        # a share of EQUITY, which leverage makes a different number: on 0xccd2…c8a3 this read
+        # "+49%/yr on the book you hold" beside "186% of equity a year" — both true, 4x apart.
+        fhead += f" ({ann:+.0f}%/yr on notional at today's rates)"
     headline = f"{fhead} · BTC {btc['trend'] if btc else 'UNKNOWN'}"
     net = book["net_exposure"]
     stance = "net long" if net > 0 else ("net short" if net < 0 else "flat")

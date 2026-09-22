@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.12.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.16.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -126,7 +126,10 @@ def header(r):
 
 def overview(r):
     tr, d, book = r["track"], r["dimensions"], r["book"]
-    out = [f"## Quant score **{r['quant_score']}**/100", "", "| Dimension | Score | What it means |", "|---|---:|---|"]
+    q = r.get("quant_score")
+    out = [f"## Quant score **{q}**/100" if q is not None else
+           "## Quant score — _not enough of this book is measurable to score it_",
+           "", "| Dimension | Score | What it means |", "|---|---:|---|"]
     names = {"timing": "Timing / edge", "risk": "Risk management", "cost": "Cost efficiency", "sizing": "Sizing / conviction", "consistency": "Consistency", "market_fit": "Market fit"}
     for k in ("timing", "risk", "cost", "sizing", "consistency", "market_fit"):
         # An unmeasured dimension shows a dash, not a number. A number here is a claim.
@@ -166,7 +169,8 @@ def overview(r):
         top = r["leaks"][:3]
         out += ["", f"## Top {len(top)} thing{'s' if len(top) != 1 else ''} your agents found", ""]
         for i, l in enumerate(top, 1):
-            out.append(f"{i}. **{l['agent']} · ~{usd(l['usd'])} / {l['window']}** — **{l['title']}.** {l['evidence']} _{l['counterfactual']}_ → {l['cta']}")
+            head = f"**{l['agent']}**" if l.get("unpriced") else f"**{l['agent']} · ~{usd(l['usd'])} / {l['window']}**"
+            out.append(f"{i}. {head} — **{l['title']}.** {l['evidence']} _{l['counterfactual']}_ → {l['cta']}")
     return "\n".join(out)
 
 
@@ -245,11 +249,18 @@ def recoverable_line(r):
     # by noise (the fixture reads 20924%), and a number like that discredits the rest
     if share and 0 < share <= 2.0 and (net is None or net < 0):
         head += f" — {pct(share, 0)} of what your losing trades gave up"
+    # when one trade IS the number, say so in the headline. The disclosure below is the first thing
+    # a reader drops when they quote the figure, and on 0xb699…392e that figure was $1,072,010 of
+    # which 97% came from a single position on an 8-trade book.
+    top1 = ((rec.get("concentration") or {}).get("top1")) or 0
+    if top1 >= 0.8:
+        head += f" — though {pct(top1, 0)} of that is one trade, not a pattern"
     out = [head + ".", ""]
 
     fee_part = f"{usd(fees)} of it is taker fees you can stop paying on the same fills"
-    rule_part = (f"one rule — {rule} — applied to all {rec['n_trades']} complete trades and charged "
-                 f"on the ones it would have cost you")
+    n = rec["n_trades"]
+    rule_part = (f"one rule — {rule} — applied to {'your one complete trade' if n == 1 else f'all {n} complete trades'} "
+                 f"and charged on the ones it would have cost you")
     if rule and fees > 0:
         big, small = (fee_part, f"the other {usd(lever)} comes from {rule_part}") if fees >= lever \
             else (f"{usd(lever)} of it comes from {rule_part}", f"the other {usd(fees)} is taker fees on the same fills")
@@ -281,34 +292,14 @@ def leaks(r):
         out.append("Not enough closed trades to price a leak yet — the desk needs a handful of round trips before a counterfactual means anything." if (r["track"].get("trades") or 0) < 5
                    else "No leak clears the bar on this window: every counterfactual the desk tests came out flat or negative, which means the process is not where the money is going.")
     for i, l in enumerate(r["leaks"], 1):
-        out += [f"**{i:02d} · {l['title']}** — _{l['agent']}_ · **~{usd(l['usd'])} / {l['window']}**", f"{l['evidence']} {l['counterfactual']}", f"→ {l['cta']}", ""]
+        tag = f"_{l['agent']}_" + ("" if l.get("unpriced") else f" · **~{usd(l['usd'])} / {l['window']}**")
+        out += [f"**{i:02d} · {l['title']}** — {tag}", f"{l['evidence']} {l['counterfactual']}", f"→ {l['cta']}", ""]
     tm = r.get("timing") or {}
     if tm.get("n"):
         neg = [k for k, g in (("time-cut on losers", tm.get("cut")), ("trailing lock on winners", tm.get("lock")))
                if g and g.get("settings") and any(s["n"] for s in g["settings"].values()) and all(s["total"] <= 0 for s in g["settings"].values() if s["n"])]
         if neg:
             out.append(f"Tested and **rejected** for this book: a {' and a '.join(neg)} — each would have cost money on your biggest runs. Your edge is letting those run; don't fix what isn't leaking.")
-    return "\n".join(out)
-
-
-def smart(r):
-    sm = r.get("smart"); out = ["## You vs smart money", ""]
-    if not sm or not sm.get("rows"):
-        out.append("No cohort view was available for this run." if not sm else "No open positions to compare.")
-    else:
-        out += [f"_Cohort: {sm['source']}_", "", "| Coin | You | Smart money | Read |", "|---|---|---|---|"]
-        for x in sm["rows"]:
-            out.append("| {} | {} | {} | **{}** |".format(x["coin"], x["you"], x["cohort"], x["read"]))
-    bt = r.get("benchmark_table")
-    if bt and (r.get("benchmark") or {}).get("n", 0) >= 5:
-        out += ["", f"**You vs whale median** _(top-{(r.get('benchmark') or {}).get('n', '?')} whale cohort, {(r.get('benchmark') or {}).get('computed_at', '')})_", "", "| Metric | You | Whale median |", "|---|---:|---:|"]
-        for row in bt:
-            you = num(row["you"], row["unit"]); wh = num(row["whale"], row["unit"])
-            mark = ""
-            if row["you"] is not None and row["whale"] is not None and row["you"] != float("inf"):
-                worse = (row["you"] > row["whale"]) if row["better"] == "lower" else (row["you"] < row["whale"])
-                mark = " 🔴" if worse else " 🟢"
-            out.append(f"| {row['metric']} | {you}{mark} | {wh} |")
     return "\n".join(out)
 
 
@@ -369,8 +360,9 @@ def next_steps(r):
         # what is coming, without claiming a signature there is nothing to sign.
         out.append(f"{i}. **Protect first.** {', '.join(p['coin'] for p in at_risk)}: every one of these "
                    f"is naked. Let me know if you want my help."); i += 1
-    if r["leaks"]:
-        l = r["leaks"][0]
+    priced = [l for l in r["leaks"] if not l.get("unpriced")]
+    if priced:
+        l = priced[0]
         out.append(f"{i}. **Fix the biggest leak.** {l['title']} — ~{usd(l['usd'])}/{l['window']}. {l['cta']}"); i += 1
     fam = r.get("families") or []
     setup = fam[0].replace("_", " ") if fam else "your pattern"
@@ -588,7 +580,7 @@ def next_steps_other(r):
 
 
 COMPARE_ROWS = (("Weekly rank", lambda r: f"#{r['rank']['rank']:,}" if r.get("rank") else "—"), ("Archetype", lambda r: r["archetype"]),
-                ("Quant score", lambda r: str(r["quant_score"])), ("Net P&L (ledger)", lambda r: usd(r["track"].get("ledger_net"), signed=True)),
+                ("Quant score", lambda r: str(r["quant_score"]) if r.get("quant_score") is not None else "—"), ("Net P&L (ledger)", lambda r: usd(r["track"].get("ledger_net"), signed=True)),
                 ("Return on avg equity", lambda r: pct(r["equity"].get("return_on_avg_equity"), 1, signed=True)), ("Max drawdown", lambda r: pct(-(r["drawdown"].get("dd_pct") or 0), 0, signed=True)),
                 ("Trades / win rate", lambda r: f"{r['track']['trades']} / {pct(r['track'].get('win_rate'))}"), ("Profit factor", lambda r: num(r["track"].get("profit_factor"), "x")),
                 ("Taker share", lambda r: pct(r["track"].get("taker_share"))), ("Costs ÷ gross income", lambda r: pct(r["track"].get("cost_ratio"))),

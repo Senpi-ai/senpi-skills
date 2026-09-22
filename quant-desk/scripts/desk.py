@@ -45,7 +45,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.12.0"
+VERSION = "1.16.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -128,7 +128,8 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         ctx_xyz = hl.meta("xyz")
     except Exception as e:  # noqa: BLE001
         meta["warnings"].append(f"xyz contexts unavailable: {e}")
-    closed, opened = episodes_from_fills(fills)
+    pub_closed, pub_opened = episodes_from_fills(fills)
+    closed, opened = pub_closed, pub_opened
     ages = {}
     if mcp is not None:
         try:
@@ -149,7 +150,8 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         rows = senpi_history.fetch(mcp, addr, win_start, meta)
         meta["timings"]["senpi_history"] = round(time.time() - t_h, 1)
         if rows:
-            closed, source = rows, f"senpi discovery ({len(rows)} closed position{'s' if len(rows) != 1 else ''})"
+            _partial = " — PARTIAL, a page failed to read and the totals below are short" if meta.get("senpi_history_partial") else ""
+            closed, source = rows, f"senpi discovery ({len(rows)} closed position{'s' if len(rows) != 1 else ''}){_partial}"
             indexed = True
         elif public_closed and not meta.get("senpi_history_failed"):
             # The public endpoints show closed round trips in this window and senpi's index returned
@@ -162,24 +164,28 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     # on a failed read is the difference between "we don't know" and a confident wrong claim.
     meta["sources"]["trades"] = source
     meta["indexed"] = indexed
-    track = metrics.track_record(closed, opened, tr_raw["userFunding"], tr_raw["userFees"], win_start)
+    track = metrics.track_record(closed, opened, tr_raw["userFunding"], tr_raw["userFees"], win_start, tr_raw.get("userFees_xyz"))
     track["coverage"] = cov
     track["ledger_net"] = metrics.ledger_pnl(tr_raw["portfolio"], win_start)
     track["fill_taker_share"] = track["taker_share"]
     if source != "public fills":
         # senpi rows carry no maker/taker split — keep the fill-level execution read from the public stream
-        fb_closed, fb_open = episodes_from_fills(fills)
-        fb = metrics.track_record(fb_closed, fb_open, tr_raw["userFunding"], tr_raw["userFees"], win_start)
+        fb_closed, fb_open = pub_closed, pub_opened      # already built above, over the same fills
+        fb = metrics.track_record(fb_closed, fb_open, tr_raw["userFunding"], tr_raw["userFees"], win_start, tr_raw.get("userFees_xyz"))
         track["taker_share"], track["fee_recoverable"], track["volume"] = fb["taker_share"], fb["fee_recoverable"], fb["volume"]
     step(2, "auditing the live book — every position's stop, liquidation distance and funding …", t0,
          f"{len(fills):,} fills across {len({e.get('coin') for e in fills})} coins")
     book = metrics.open_book(cs, oo, ctxs, ages, tr_raw.get("clearinghouseState_xyz"), tr_raw.get("frontendOpenOrders_xyz"), ctx_xyz,
                              metrics.whole_account_value(tr_raw.get("portfolio"), tr_raw.get("spotClearinghouseState")),
                              metrics.spot_free_usdc(tr_raw.get("spotClearinghouseState")))
-    pnl_curve = metrics.pnl_series(tr_raw["portfolio"], win_start)
     fl = metrics.flows(tr_raw["ledger"], addr)
-    eq = metrics.equity_curve(tr_raw["portfolio"], [], win_start)          # raw account value over the window
-    pnl_pts = metrics.pnl_series(tr_raw["portfolio"], win_start)
+    pnl_curve = metrics.pnl_series(tr_raw["portfolio"], win_start)
+    # transfer-adjusted, as equity_curve's docstring, methodology.md and SKILL rule 3 all promise.
+    # `fl` is computed on the line above; passing [] meant a trader who withdrew their profit read as
+    # a blown account — identical trades, +$55k, scored dd 90%/risk 18 withdrawn vs dd 4%/risk 82 left
+    # on the exchange.
+    eq = metrics.equity_curve(tr_raw["portfolio"], fl, win_start)
+    pnl_pts = pnl_curve            # same call, same args — computed once
     dd = metrics.drawdown(pnl_pts, eq)
     funded = [v for _, v in eq if v > 0]
     avg_eq = (sum(funded) / len(funded)) if funded else None
@@ -289,7 +295,10 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     coin_regimes = {c: market_mod.coin_regime(c, candles, ctx_by.get(c)) for c in coins}
     step(6, "finding the leaks, pricing the fixes, running senpi-signals for live matches …", t0,
          f"{len(coins)} coins of tape")
-    lv = score.levers(tm_rows, closed, tm)          # one lever table, read by both
+    # funding is a lever too, so it is priced once here and read by both
+    _fl = min(score._funding_after(tr_raw["userFunding"], in_win, win_start, 24.0),
+              -float(track.get("funding") or 0.0))
+    lv = score.levers(tm_rows, closed, tm, funding_late=max(0.0, _fl))
     lk = score.leaks(track, book, tm, tr_raw["userFunding"], in_win, win_start, days, lv)
     # the ONE quotable number: a union over trades, never the sum of the leaks above
     rec = score.recoverable(tm_rows, closed, track, tm, lv)
@@ -431,8 +440,9 @@ def main(argv=None):
                 "address": addr, "days": a.days, "indexed": r.get("indexed"),
                 "perp_fills_in_window": 0, "open_perp_positions": 0})); return 3
         log(f"[quant-desk] done in {meta['timings']['total']}s ({meta.get('hl_calls')} reads)")
-        with open(state_path, "w") as fh:
-            json.dump(r, fh, default=float)
+        # atomic: stage 1 writes this and stages 2-4 read it, so a half-written relay file breaks
+        # the whole staged run — and JSONDecodeError is not an HLError, so the handler above misses it
+        hl_api._atomic_json(state_path, json.loads(json.dumps(r, default=float)))
     if a.deep:
         candles = {}
         if a.deep in ("protect", "replay"):
@@ -464,7 +474,8 @@ def main(argv=None):
     rel = addr_book.CLAIMED if a.claim else (addr_book.ANALYZED if whose == "other" else None)
     tr = r.get("track") or {}
     addr_book.record(book, addr, relationship=rel, indexed=r.get("indexed"),
-                     digest={"at": r.get("generated") or None, "score": (r.get("score") or {}).get("total"),
+                     # `score` and `generated` are not keys on the record — both were silently None
+                     digest={"at": r.get("now_ms"), "score": r.get("quant_score"),
                              "verdict": r.get("verdict"), "net": tr.get("ledger_net")})
     addr_book.save(a.state_dir, book)
     if a.json:

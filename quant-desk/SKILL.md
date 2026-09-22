@@ -7,7 +7,7 @@ description: >-
   leaks priced as counterfactual dollars, their book against the PROVEN cohort (top traders by all-time
   realized P&L, ≥ $1M) and the HOT 30-day cohort — side, headcount, when they moved, what they hold that
   the trader doesn't — live matches where the tape, the cohorts and the trader's own pattern agree, and
-  a bank of ten follow-ups the quant is prepared to go deeper on. Works for wallets that never touched
+  a bank of twelve follow-ups the quant is prepared to go deeper on. Works for wallets that never touched
   senpi (public onchain data, read-only); with a Senpi token the closed-trade history, both cohorts, the
   funding regime and the Hyperfeed attention layer come from Senpi's own data. The default is the
   user's OWN book: "run quant desk on 0x…" means the user is 0x… — the desk speaks to them and
@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.12.0"
+  version: "1.16.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -333,11 +333,21 @@ new-trader path (`senpi-strategy-discover`). A malformed address returns exit 2 
 Public-API rate limits (HTTP 429) are retried with backoff; a second run inside 10 minutes is served from
 the cache (`--fresh` to refetch).
 
+## Running a batch — sequentially
+
+One desk makes 100-200 reads against a per-IP weight bucket. **Run wallets one at a time.** Seven in
+parallel loses one or two runs to HTTP 429 on an essential read however long the backoff is: the
+budget is now a full refill window with jitter, and it still only gets 6 of 7 through. A lost run
+fails loudly with the read that died, so nothing silently ships on partial data — but it is a rerun
+you did not need.
+
 ## Install — the whole `scripts/` directory is required
 
-`desk.py` imports `hl_api.py`, `roundtrips.py`, `metrics.py`, `timing.py`, `market.py`, `smart_money.py`,
-`senpi_history.py`, `score.py`, `render.py` and the vendored `mcp_client.py` (used only when
-`SENPI_AUTH_TOKEN` is set). Stdlib only, Python ≥ 3.9. Fixture-driven tests in `tests/`.
+`desk.py` imports `addresses.py`, `deep.py`, `followups.py`, `hl_api.py`, `market.py`, `metrics.py`,
+`opportunities.py`, `render.py`, `roundtrips.py`, `score.py`, `senpi_history.py`, `smart_money.py`,
+`strategy_read.py`, `taxonomy.py`, `timing.py` and `voice.py`, plus the vendored `mcp_client.py` (used
+only when `SENPI_AUTH_TOKEN` is set). Copy the whole directory — a partial copy fails at import, not
+at runtime. Stdlib only, Python ≥ 3.9. Fixture-driven tests in `tests/`.
 
 ## Skill attribution
 

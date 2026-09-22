@@ -62,6 +62,11 @@ def fetch(client, addr, window_start_ms, meta):
         except Exception as e:  # noqa: BLE001
             meta.setdefault("warnings", []).append(f"senpi history page {offset // PAGE} failed: {e}")
             meta["senpi_history_failed"] = True
+            # Pages already read are a PREFIX of the history, not the history. Breaking with `out`
+            # non-empty shipped a truncated record as a complete one — same source line, same
+            # `indexed: True`, totals quietly short. (@0xsarvesh, #718.)
+            if out:
+                meta["senpi_history_partial"] = True
             break
         if isinstance(resp, dict) and resp.get("success") is False:
             # `_rows` flattens this to [] like any empty page, and it is the shape a degraded
