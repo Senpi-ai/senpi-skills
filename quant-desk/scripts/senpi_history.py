@@ -5,8 +5,14 @@ are complete where the public endpoints are not. Rows are mapped onto the same e
 fill-based tracker produces, so every downstream module is source-agnostic.
 
 Row fields (guide `senpi://guides/trader-closed-positions`): closedOrderId, coin, coinDisplayName, entryPx,
-exitPx, leverage{type,value}, maxLeverage, openTime, closeTime (ms), szi (signed size, + = closed long),
-realizedPnl (gross of fees), marginUsed, type, totalFills, totalFees (signed). Numbers arrive as strings."""
+exitPx, leverage{type,value}, maxLeverage, openTime, closeTime (ms), szi (absolute size), realizedPnl
+(gross of fees), marginUsed, type, totalFills, totalFees (signed). Numbers arrive as strings.
+
+`type` is the exchange's own label and is the ONLY place a liquidation is named: "Close Long",
+"Close Short", "Liquidated Cross Long", "Liquidated Isolated Short", "Auto-Deleveraging". A row whose
+opening side discovery could not rebuild arrives with szi, entryPx and openTime all ZERO — common on
+cross-liquidations and HIP-3 `xyz:` assets. Those rows still carry real realized P&L, so they are kept
+and marked `complete=False`/`truncated=True` rather than dropped."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 PAGE = 200
 MAX_PAGES = 25
@@ -103,16 +109,33 @@ def _direction(r, szi, ent, ext, realized):
     return "LONG" if szi > 0 else "SHORT"
 
 
+def _liquidated(r):
+    """`type` carries the exchange's own words — "Liquidated Cross Long", "Liquidated Isolated Short".
+    Matching on "LIQUIDAT" covers all four. `Auto-Deleveraging` is deliberately NOT counted: ADL is the
+    venue unwinding a profitable book, not a stop the trader failed to place."""
+    return "LIQUIDAT" in str(r.get("type") or "").upper()
+
+
 def episode(r):
     coin = r.get("coin") or r.get("coinDisplayName")
+    close_t = _ms(r.get("closeTime"))
+    if not coin or not close_t:
+        return None          # with no coin and no close there is nothing to place in the window
     szi = _num(r.get("szi"))
-    if not coin or not szi:
-        return None
     ent, ext = _num(r.get("entryPx")), _num(r.get("exitPx"))
     lev = r.get("leverage") or {}
-    open_t, close_t = _ms(r.get("openTime")), _ms(r.get("closeTime"))
-    if not open_t or not close_t:
-        return None
+    open_t = _ms(r.get("openTime"))
+    # Discovery cannot always rebuild the OPENING side of a position: a cross-liquidation arrives with
+    # szi, entryPx and openTime all zero. Requiring them dropped the whole row — and those rows carry
+    # real realized P&L. On one wallet that was $1,137,374 of a $1,496,623 loss, including a $773,802
+    # cross-liquidation; venue-wide it is 14% of realized P&L by magnitude. Keep the row so every TOTAL
+    # is right, and mark it incomplete so the statistics that genuinely need an open — hold time, entry
+    # timing, sizing, the lever grid — skip it exactly as they skip a truncated fill-built episode.
+    reconstructed = bool(szi) and bool(open_t)
+    if not open_t:
+        # never leave this 0: `score._funding_after` reads `open_time + 24h` as a real instant, and an
+        # epoch open would match every funding payment before the close.
+        open_t = close_t
     size = abs(szi); notional = size * ent
     realized = _num(r.get("realizedPnl")); fees = _num(r.get("totalFees"))
     direction = _direction(r, szi, ent, ext, realized)
@@ -120,7 +143,9 @@ def episode(r):
     return dict(coin=coin, signed=signed, direction=direction, open_time=open_t, close_time=close_t, last_time=close_t,
                 realized=realized, fees=fees, net=realized - fees, volume=size * (ent + ext), taker_volume=0.0, twap_volume=0.0,
                 adds=None, partial_closes=0, entry_qty=size, entry_val=notional, exit_qty=size,
-                exit_val=size * ext, peak_size=size, peak_notional=notional, liquidated=False, truncated=False, n_fills=int(_num(r.get("totalFills"), 0)),
-                unobserved_qty=0.0, close_observed=True, entry_vwap=ent or None, exit_vwap=ext or None, hold_h=(close_t - open_t) / 3.6e6,
-                taker_share=None, complete=True, win=realized > 0, leverage=_num(lev.get("value")) if isinstance(lev, dict) else _num(lev),
+                exit_val=size * ext, peak_size=size, peak_notional=notional, liquidated=_liquidated(r),
+                truncated=not reconstructed, n_fills=int(_num(r.get("totalFills"), 0)),
+                unobserved_qty=0.0, unobserved_notional=0.0, close_observed=True, entry_vwap=ent or None, exit_vwap=ext or None,
+                hold_h=(close_t - open_t) / 3.6e6,
+                taker_share=None, complete=reconstructed, win=realized > 0, leverage=_num(lev.get("value")) if isinstance(lev, dict) else _num(lev),
                 margin_used=_num(r.get("marginUsed")), closed_order_id=r.get("closedOrderId"), source="senpi")
