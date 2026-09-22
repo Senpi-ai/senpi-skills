@@ -1,6 +1,6 @@
 # quant-desk — methodology
 
-> **This document describes the engine as of quant-desk 1.22.0.** Nine formulas in it were stale
+> **This document describes the engine as of quant-desk 1.23.0.** Nine formulas in it were stale
 > between 1.9.0 and 1.14.0 while SKILL.md sent the agent here for them, so an agent asked "how is my
 > cost score computed?" answered with the pre-1.9.0 rule, confidently. If you change a formula in
 > `scripts/`, change it here in the same commit — `test_methodology_matches_the_engine` fails if the
@@ -75,7 +75,12 @@ cover 0; `PARTLY COVERED` = 0 < cover < 90%. Funding per day = −hourly rate ×
   ≥ +3%. The chased vs calm split reports profit factors for each.
 * MFE / MAE = best / worst excursion from the entry VWAP over the hold, from hourly highs and lows.
   Give-back = (MFE − realized%) ÷ MFE for winners.
-* Counterfactuals use peak size × price move (adds and partials ignored — stated as approximate):
+* Counterfactuals are priced on the **exposure that existed**: every fill's signed size, average
+  entry and booked P&L are carried on the episode, so "close at hour h" means the P&L already booked
+  by h plus mark-to-market on the size actually open then. It used to be `return × peak size ×
+  entry VWAP` — the peak size assumed held from entry to the exit, which on a scaled position is a
+  different trade and overstated by up to 20× on a shape nothing flagged. senpi's indexed rows are
+  aggregate positions with one size and one entry price, so for those the two forms are identical:
   * time-cut on losers at 12h / 24h / 48h — exit at the first candle past the cut if still losing;
   * trailing lock — once the peak reaches +3% (or +5%), exit when price gives back 50% (or 70%) of it.
   Every setting with ≥ `MIN_PATTERN_TRADES` (5) engaged trades enters its family; the one quoted is the
@@ -237,7 +242,7 @@ cohort → `smart`; a funding bill → `funding`; a losers leak → `replay`; re
   catalog families, and the discover/author handoff.
 * `regime`, `smart`, `scout`, `strategy`, `watch` — the corresponding sections in full.
 
-## Scoring rules as of 1.22.0 — read these, not any older formula above
+## Scoring rules as of 1.23.0 — read these, not any older formula above
 
 These nine changed between 1.9.0 and 1.15.0 while this file still described the pre-1.9.0 engine.
 
@@ -256,3 +261,4 @@ These nine changed between 1.9.0 and 1.15.0 while this file still described the 
 | Stop ladder | 1.5 × the average **daily** high-to-low, built by blocking hourly candles into rolling 24h windows. It was the mean HOURLY range under a column called "24h range" — a stop ~4.7× too tight on BTC. |
 | Fees, per dex | Taker **and** maker volume are priced on the dex they traded on, and the quoted bp is the blended rate the wallet actually faces. |
 | Beta | Each step's P&L over the transfer-adjusted equity **at that step**, not over today's account value. |
+| Counterfactual scale | Priced on the exposure held at the moment of the counterfactual exit, from the episode's own fill-by-fill size path — never on the peak size assumed held throughout. |

@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.22.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.23.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -248,16 +248,20 @@ def recoverable_line(r):
         return []
     fees, rule = rec.get("fees") or 0, rec.get("rule")
     lever = total - fees
-    # "N% of what your losing trades gave up" only frames a book that LOST money. On a 93%-win-rate
-    # book it read "116% of what your losing trades gave up" — true arithmetic (fees are spread over
-    # the winners too) and a meaningless sentence to put in front of a profitable trader.
-    share, net = rec.get("share_of_losses"), (r.get("track") or {}).get("net")
+    # "N% of what your losing trades gave up" was also gated on a NEGATIVE ledger, on the reasoning
+    # that the frame only suits a book that lost money. But a headline with no denominator is what
+    # made this number read as absurd in review: on a book that netted $36,481 after $140,698 of
+    # fees, "~$171,808" invites the reader to divide by the net and get 4.71x. The share is exactly
+    # the denominator that defuses it — 4% of what the losing trades gave up — and it is no less
+    # true on a profitable book. The `<= 1.0` guard below is what keeps the sentence meaningful.
+    # (B6, @0xsarvesh #718.)
+    share = rec.get("share_of_losses")
     head = f"**Your quant would have kept ~{usd(total)} of this**"
     # a denominator that means something: on a book with almost no losses the share is a division by
     # noise (the fixture reads 20924%). The cap was 2.0, which still left "197% of what your losing
     # trades gave up" printable — above 100% the frame stops meaning anything to a reader, however
     # true the arithmetic is once fees come off the winners too. (@danielmbirochi, #718, round 2.)
-    if share and 0 < share <= 1.0 and (net is None or net < 0):
+    if share and 0 < share <= 1.0:
         head += f" — {pct(share, 0)} of what your losing trades gave up"
     # when one trade IS the number, say so in the headline. The disclosure below is the first thing
     # a reader drops when they quote the figure, and on 0xb699…392e that figure was $1,072,010 of

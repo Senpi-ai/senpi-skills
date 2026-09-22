@@ -1472,18 +1472,29 @@ def test_market_fit_abstains_on_a_flat_book():
     assert s is None and "No open positions" in line
 
 
-def test_the_losses_frame_is_dropped_on_a_book_that_made_money():
+def test_the_losses_frame_is_dropped_only_when_it_stops_meaning_anything():
     """On 0x2e2e…1c50 (93% win rate, +$310,760 net) the headline read "116% of what your losing
     trades gave up" — arithmetically true, because fees are spread over the winners too, and a
-    meaningless sentence to put in front of a profitable trader."""
+    meaningless sentence to put in front of any trader. Above 100% it goes.
+
+    It used to be dropped on every PROFITABLE book as well, and that is the half that came back:
+    a headline with no denominator is what made this number read as absurd in review. On a live book
+    that netted $36,481 after $140,698 of fees, "~$171,808" invites the reader to divide by the net
+    and get 4.71x — where "4% of what your losing trades gave up" settles it. (B6, @0xsarvesh #718.)"""
     import render
     rec = dict(usd=27_724.0, fees=27_724.0, n_trades=400, share_of_losses=1.16, rule=None,
                concentration=None)
-    win = dict(leaks=[{"usd": 1}], timing={}, recoverable=rec, track=dict(net=310_760.0))
+    over = dict(leaks=[{"usd": 1}], timing={}, recoverable=rec, track=dict(net=310_760.0))
+    assert "losing trades gave up" not in "\n".join(render.recoverable_line(over))
+
     lose = dict(leaks=[{"usd": 1}], timing={}, recoverable=dict(rec, share_of_losses=0.42),
                 track=dict(net=-16_969.0))
-    assert "losing trades gave up" not in "\n".join(render.recoverable_line(win))
     assert "42% of what your losing trades gave up" in "\n".join(render.recoverable_line(lose))
+
+    # the profitable book gets the denominator too — that is what stops the 4.71x reading
+    win = dict(leaks=[{"usd": 1}], timing={}, recoverable=dict(rec, share_of_losses=0.04),
+               track=dict(net=36_481.0))
+    assert "4% of what your losing trades gave up" in "\n".join(render.recoverable_line(win))
 
 
 def test_senpis_trader_score_consistency_is_not_confused_with_the_desks_own():
@@ -2239,33 +2250,67 @@ def test_the_two_trader_skills_point_at_each_other_on_the_verb():
     assert "find traders for me to analyze" in theirs, "the ambiguous phrase is not disambiguated"
 
 
-def test_a_position_that_was_cycled_is_not_priced_as_one_that_was_held():
-    """The root cause behind every outsized counterfactual this build found.
+def test_a_counterfactual_is_priced_on_the_exposure_that_existed():
+    """B6 (@0xsarvesh, #718). The root cause behind every outsized counterfactual in the review.
 
-    Each exit counterfactual multiplies a RETURN by `peak_size × entry_vwap`, which assumes the peak
-    size was held from entry to the exit. On a scaled position that is false, and the error scales
-    with notional: xyz:SKHX on 0xb699…392e ran 507 fills over 29 days with $16,310,330 entered
-    against a $7,123,550 peak — rebuilt 2.3× — and its lock counterfactual came out at $1,240,071 on
-    a book that lost $233,845. The quoted total was 8.7× the book's own P&L.
+    Each exit counterfactual multiplied a RETURN by `peak_size x entry_vwap`, pricing the PEAK size
+    as if it had been held from entry through to the exit. On a scaled position that is a different
+    trade, and the error scales with notional: three of four losing books were offered a recovery
+    LARGER than their entire realized loss (2.41x, 2.24x, 1.43x), and one 11-trade book that lost
+    $80,743 was told "your quant would have kept ~$180,596 of this".
 
-    There is no per-moment exposure in this data, so the desk declines rather than guessing a
-    correction. The trade still counts in every TOTAL; only the exit grid skips it."""
+    Fills carry the whole size path, so the counterfactual no longer has to assume anything: book
+    what was actually booked by that moment, and mark the size actually open against its own average
+    entry. The `cycled` skip this replaces was right while the arithmetic was constant-size, but it
+    dropped 10 of 11 rows on one of those books — and, as below, never caught this one at all."""
     import timing
-    ep = lambda **kw: {**dict(coin="X", direction="LONG", entry_vwap=100.0, peak_size=100.0,
-                              open_time=0, close_time=10 * 3_600_000, realized=-1_000.0, win=False,
-                              complete=True, hold_h=10.0, entry_val=10_000.0), **kw}
-    candles = {"X": ([0, 3_600_000, 10 * 3_600_000],
-                     [(0, 100.0, 130.0, 95.0, 100.0), (3_600_000, 100.0, 130.0, 95.0, 128.0),
-                      (10 * 3_600_000, 128.0, 130.0, 90.0, 90.0)])}
+    # 200 units on at $100, 190 sold an hour later at $95, the last 10 held into a run to $130.
+    # entry_val == peak_notional, so the old `cycled` guard passed it through untouched.
+    fs = [fill("X", "B", 200, 100, 0, 0, 1),
+          fill("X", "A", 190, 95, H, 200, 2, pnl=-950),
+          fill("X", "A", 10, 95, 30 * H, 10, 3, pnl=-50)]
+    closed, _ = episodes_from_fills(fs)
+    e = closed[0]
+    assert e["realized"] == -1_000.0 and e["peak_size"] == 200 and e["entry_vwap"] == 100
+    assert e["entry_val"] <= 1.5 * e["peak_size"] * e["entry_vwap"], \
+        "the old cycled guard fired above 1.5x entry-value-over-notional; this shape never tripped it"
 
-    held = timing.per_trade([ep(entry_val=10_000.0)], candles)          # entered once, held
-    cycled = timing.per_trade([ep(entry_val=25_000.0)], candles)        # rebuilt 2.5x over its life
+    candles = {"X": ([i * H for i in range(0, 31)],
+                     [[i * H, 100.0, 131.0, 94.0, (130.0 if 2 <= i <= 29 else 95.0), 1.0] for i in range(0, 31)])}
+    row = timing.per_trade([e], candles)[0]
 
-    assert any(v is not None for v in held[0]["lock_cf"].values()), "a held position must still price"
-    assert all(v is None for v in cycled[0]["lock_cf"].values()), "a cycled position was priced as held"
-    assert all(v is None for v in cycled[0]["cut_cf"].values())
-    # and it is only the exit grid that skips it — the row itself is still there for the totals
-    assert cycled[0]["realized"] == -1_000.0 and cycled[0]["notional"] == 10_000.0
+    # At hour 12 the position is 10 units bought at $100, and $950 is already lost. Closing it at
+    # $130 nets -$650 against the -$1,000 actually realized: the cut is worth ~$350.
+    assert abs(row["cut_cf"]["12"] - 350.0) < 1.0, row["cut_cf"]
+    # The old arithmetic priced 200 units of a $30 move: 0.30 x $20,000 + $1,000 = $7,000. Twenty
+    # times the truth, on 190 units that had been sold eleven hours earlier.
+    assert row["cut_cf"]["12"] < 0.1 * 7_000.0
+
+    # A position genuinely held at one size is unchanged — same number the old form gave.
+    held = [fill("X", "B", 200, 100, 0, 0, 1), fill("X", "A", 200, 95, 30 * H, 200, 2, pnl=-1_000)]
+    hrow = timing.per_trade([episodes_from_fills(held)[0][0]], candles)[0]
+    assert abs(hrow["cut_cf"]["12"] - 7_000.0) < 1.0, hrow["cut_cf"]
+
+    # A SHORT is where a sign error hides: scaled out at a profit, then the price runs AGAINST the
+    # remainder. `size` is signed, so the mark-to-market has to come back negative on its own.
+    sh = [fill("X", "A", 200, 100, 0, 0, 11, dir_="Open Short"),
+          fill("X", "B", 190, 105, H, -200, 12, dir_="Close Short", pnl=-950),
+          fill("X", "B", 10, 105, 30 * H, -10, 13, dir_="Close Short", pnl=-50)]
+    se = episodes_from_fills(sh)[0][0]
+    assert se["direction"] == "SHORT" and se["realized"] == -1_000.0
+    srow = timing.per_trade([se], candles)[0]
+    # At hour 12 the short is 10 units from $100 and price is $130: closing books another -$300 on
+    # top of the -$950 already lost, so the cut is worth -$250 against the -$1,000 realized.
+    assert abs(srow["cut_cf"]["12"] - (-250.0)) < 1.0, srow["cut_cf"]
+    assert srow["cut_cf"]["12"] < 0, "a short closed into a rally cannot come back as a saving"
+
+    # And senpi's indexed rows carry no fills — one size, one entry price. The degenerate path has
+    # to reproduce the constant-size arithmetic for them to the cent, or the exit grid goes silent
+    # on exactly the wallets where the record is most complete.
+    agg = dict(coin="X", direction="LONG", entry_vwap=100.0, peak_size=200.0, signed=200.0,
+               open_time=0, close_time=30 * H, realized=-1_000.0, win=False, complete=True,
+               hold_h=30.0, entry_val=20_000.0)
+    assert abs(timing.per_trade([agg], candles)[0]["cut_cf"]["12"] - 7_000.0) < 1.0
 
 
 def test_the_worst_funding_coin_can_exceed_the_net_and_says_why():
@@ -2654,5 +2699,8 @@ def test_coverage_is_reconciled_against_the_exchanges_own_pnl():
 
     # the reconciliation itself: rebuilt + what the book still carries, against the ledger's delta
     src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    # the exposure path is an input to the lever grid, not an output: shipping it doubled the state
+    # file on a 436-trade book (0.33 MB -> 0.63 MB) for 5,317 tuples nothing downstream reads
+    assert 'if k != "size_path"} for e in in_win' in src, "the size path is back in the payload"
     assert 'cov["reconstructed_net"] = track["net"] + book["unrealized"]' in src
     assert 'cov["effective"] = min(' in src

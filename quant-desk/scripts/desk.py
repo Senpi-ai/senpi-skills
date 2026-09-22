@@ -45,7 +45,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.22.0"
+VERSION = "1.23.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -340,7 +340,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
              archetype=score.archetype(track, book, tm, act, opened), flags=score.flags(track, book, dd, tm, mf, labels), leaks=lk, recoverable=rec,
              setups=setups, families=score.families(closed, tm, track), strategy=strategy, context=context, opportunities=opps,
              benchmark=bench, benchmark_table=smart_money.benchmark_table(track, bench) if bench else None,
-             episodes=[{k: v for k, v in e.items()} for e in in_win][-300:], meta=meta)
+             episodes=[{k: v for k, v in e.items() if k != "size_path"} for e in in_win][-300:], meta=meta)
     r["whose"] = whose
     r["indexed"] = indexed
     r["verdict"] = score.verdict(track, book, dims, lk)
