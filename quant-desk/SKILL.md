@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.15.0"
+  version: "1.15.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -332,6 +332,14 @@ window and no open positions returns an error document — say "nothing to read 
 new-trader path (`senpi-strategy-discover`). A malformed address returns exit 2 with the reason.
 Public-API rate limits (HTTP 429) are retried with backoff; a second run inside 10 minutes is served from
 the cache (`--fresh` to refetch).
+
+## Running a batch — sequentially
+
+One desk makes 100-200 reads against a per-IP weight bucket. **Run wallets one at a time.** Seven in
+parallel loses one or two runs to HTTP 429 on an essential read however long the backoff is: the
+budget is now a full refill window with jitter, and it still only gets 6 of 7 through. A lost run
+fails loudly with the read that died, so nothing silently ships on partial data — but it is a rerun
+you did not need.
 
 ## Install — the whole `scripts/` directory is required
 

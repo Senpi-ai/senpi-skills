@@ -10,6 +10,7 @@ returns at most 2000 fills and `userFunding` at most 500 rows per call — both 
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import hashlib
 import json
+import random
 import socket
 import os
 import tempfile
@@ -27,7 +28,13 @@ FUNDING_PAGE = 500
 MAX_FILL_PAGES = 12           # 24k fills — past that the book is a market maker's, not a trader's
 MAX_TWAP_PAGES = 25           # TWAP slices are tiny and numerous; 50k of them is a bot
 MAX_FUNDING_PAGES = 40
-RETRIES = 4                   # 429, 5xx, and transport faults (timeout / reset) — see _request
+RETRIES = 4                   # 5xx and transport faults (timeout / reset) — see _request
+# 429 gets its own, longer budget. It is not a fault, it is the venue's per-IP weight bucket, and the
+# bucket refills on a ~minute. Four tries and 10.5s of backoff killed 3 of 7 desks run in parallel —
+# and a 15-wallet round is exactly that shape. 6 tries capped at 20s gives ~63s, one refill window.
+# (H3, @0xsarvesh #718.)
+RATE_LIMIT_RETRIES = 6
+RATE_LIMIT_MAX_SLEEP_S = 20.0
 # Retryable beyond 429: a 90-day desk makes 100-200 single-attempt requests, so one 503 or one reset
 # socket aborted the whole run with exit 1. SKILL.md's "fails open" was only ever true of the
 # OPTIONAL layers. (@0xsarvesh, #718.)
@@ -87,15 +94,24 @@ class HL:
                 return json.load(fh)
         req = urllib.request.Request(INFO_URL, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
         data = None
-        for attempt in range(RETRIES):
+        for attempt in range(max(RETRIES, RATE_LIMIT_RETRIES)):
             self.calls += 1
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as r:
                     data = json.load(r)
                 break
             except urllib.error.HTTPError as e:
-                # 429 = the per-IP weight budget; 5xx = the venue having a moment. Both pass.
-                if e.code in RETRY_CODES and attempt < RETRIES - 1:
+                if e.code == 429 and attempt < RATE_LIMIT_RETRIES - 1:
+                    # honour Retry-After when the venue sends it; it knows when the bucket refills
+                    wait = float((e.headers or {}).get("Retry-After") or 0) or min(
+                        RATE_LIMIT_MAX_SLEEP_S, BACKOFF_S * (2 ** attempt))
+                    # Jitter, because the bucket is per-IP and shared: without it every desk in a
+                    # parallel round backs off in lockstep and collides again on the same refill.
+                    # Budget alone took a 7-way round from 4/7 to 6/7; jitter is what decorrelates
+                    # the survivors.
+                    time.sleep(min(wait, RATE_LIMIT_MAX_SLEEP_S) * (0.5 + random.random()))
+                    continue
+                if e.code in RETRY_CODES and e.code != 429 and attempt < RETRIES - 1:
                     time.sleep(BACKOFF_S * (2 ** attempt))
                     continue
                 raise HLError(f"{body.get('type')}: HTTP {e.code}") from e
