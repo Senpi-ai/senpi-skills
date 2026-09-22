@@ -45,7 +45,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.24.1"
+VERSION = "1.24.2"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -178,6 +178,12 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         # schedule — leaving schedule-derived basis points sitting beside fills-derived volume, in a
         # sentence that still does not multiply out. (@0xsarvesh, #718, on 1.24.0.)
         track["fee_rate_taker"], track["fee_rate_maker"] = fb["fee_rate_taker"], fb["fee_rate_maker"]
+        # …and the fee TOTAL those rates and that volume belong to. `track["fees"]` stays discovery's,
+        # because the P&L breakdown above it is closed-trade accounting and that is the right number
+        # there — but the execution sentence quotes fills-derived volume and fills-derived rates, and
+        # was pairing them with discovery's fee total: "$218,602 in fees on $1.39B of volume at 2.8 bp
+        # taker" multiplies out to $339k, off by 1.55x. Found on the first live 1.24.1 run.
+        track["fee_total_exec"] = fb["fees"]
     step(2, "auditing the live book — every position's stop, liquidation distance and funding …", t0,
          f"{len(fills):,} fills across {len({e.get('coin') for e in fills})} coins")
     book = metrics.open_book(cs, oo, ctxs, ages, tr_raw.get("clearinghouseState_xyz"), tr_raw.get("frontendOpenOrders_xyz"), ctx_xyz,

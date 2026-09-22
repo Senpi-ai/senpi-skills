@@ -19,6 +19,16 @@ def _pct(x, d=0):
     return f"{100 * x:.{d}f}%"
 
 
+def _bp(rate):
+    """A fee rate in basis points. `-0.0 bp` is what `f"{x*1e4:.1f}"` prints for a rate that is zero
+    or a hair negative, and a book on a zero-maker-fee tier hits that every time — it read as a typo
+    in a sentence whose whole job is to reproduce the dollars beside it. A real rebate says so."""
+    bp = (rate or 0.0) * 1e4
+    if bp <= -0.05:
+        return f"{abs(bp):.1f} bp rebate"
+    return f"{max(0.0, bp):.1f} bp"
+
+
 def _usd(x):
     return f"-${abs(x):,.0f}" if x < 0 else f"${x:,.0f}"
 
@@ -608,7 +618,7 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
     # 1. costs — resting instead of crossing the spread
     if _n(tr, "fee_recoverable") >= 50 and (tr.get("taker_share") or 0) >= 0.25:
         out.append(dict(agent="Leak finder", title=f"{_pct(tr['taker_share'])} of your volume crossed the spread as a taker",
-                        evidence=f"{_usd(tr['fees'])} in fees on {_usd(tr['volume'])} of volume at {tr['fee_rate_taker'] * 1e4:.1f} bp taker / {tr['fee_rate_maker'] * 1e4:.1f} bp maker.",
+                        evidence=f"{_usd(_n(tr, 'fee_total_exec') or tr['fees'])} in fees on {_usd(tr['volume'])} of volume at {_bp(tr['fee_rate_taker'])} taker / {_bp(tr['fee_rate_maker'])} maker.",
                         counterfactual=f"Resting maker orders for the same fills would have kept ~{_usd(tr['fee_recoverable'])} over {days} days (≈{_usd(tr['fee_recoverable'] * yr)}/yr).",
                         usd=tr["fee_recoverable"], window=f"{days}d", cta=f"Execute through senpi and I'll rest your entries maker-first with a taker fallback — "
                             f"that's ~{_usd(tr['fee_recoverable'])} over {days} days (~{_usd(tr['fee_recoverable'] * yr)}/yr) "
