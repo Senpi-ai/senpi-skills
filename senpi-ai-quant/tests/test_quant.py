@@ -1,4 +1,4 @@
-"""quant-desk — offline tests: synthetic fills for the engine's rules, the recorded public fixture for the
+"""senpi-ai-quant — offline tests: synthetic fills for the engine's rules, the recorded public fixture for the
 whole pipeline. No network."""
 import json
 import re
@@ -694,14 +694,14 @@ def test_progress_streams_inside_the_long_fetches():
     msgs = []; hl.progress = msgs.append
     hl.info = lambda body: []
     hl.candles(["A", "B"], days=1)
-    assert msgs == ["[quant-desk]   · reading the tape: 2 of 2 coins …"], msgs
+    assert msgs == ["[senpi-ai-quant]   · reading the tape: 2 of 2 coins …"], msgs
     hl.candles(["A"], days=1, interval="1d")
-    assert msgs[-1] == "[quant-desk]   · reading the tape: 1 of 1 coins · daily …"
+    assert msgs[-1] == "[senpi-ai-quant]   · reading the tape: 1 of 1 coins · daily …"
     class C:
         def mcp_call(self, *a, **k):
             return {"traders": []}
     smart_money.books(C(), ["0x1", "0x2"], {}, progress=msgs.append, label="the proven cohort, ")
-    assert msgs[-1] == "[quant-desk]   · senpi-smart-money: the proven cohort, 2 of 2 wallets read …"
+    assert msgs[-1] == "[senpi-ai-quant]   · senpi-smart-money: the proven cohort, 2 of 2 wallets read …"
 
 
 def test_desk_is_chat_shaped_and_never_apologises_for_its_sources():
@@ -1056,7 +1056,7 @@ def test_the_eli5_is_called_eli5():
 def test_every_script_that_matters_carries_the_same_version():
     """A stale install passed every gate we had.
 
-    2026-09-21: an agent updated quant-desk, SKILL.md and render.py both read 1.6.0, all three gates
+    2026-09-21: an agent updated the skill, SKILL.md and render.py both read 1.6.0, all three gates
     passed — and desk.py was still old. It showed up as a progress line reading "senpi-smart-money"
     at step 4 where the shipped source says "senpi-market-pulse". desk.py does all the work and was
     the one file with no version of its own, so nothing could catch it.
@@ -1993,7 +1993,7 @@ def test_methodology_names_the_engine_version_it_describes():
     rather than in front of a user."""
     import render
     doc = _P(HERE, "..", "references", "methodology.md").read_text()
-    assert f"as of quant-desk {render.VERSION}" in doc, (
+    assert f"as of senpi-ai-quant {render.VERSION}" in doc, (
         f"methodology.md does not describe {render.VERSION} — update it in the same commit as the formula")
     for rule in ("Median within a family", "Abstention", "Charged", "spans"):
         assert rule in doc, rule

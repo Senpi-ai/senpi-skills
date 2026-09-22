@@ -1,5 +1,5 @@
 ---
-name: quant-desk
+name: senpi-ai-quant
 description: >-
   **AI Quant** (also "the quant", "quant desk"): paste ANY Hyperliquid address (0x…) and get the desk —
   what the trader has actually been doing (a strategy read with a critique), a quant score with six
@@ -32,7 +32,7 @@ metadata:
   exchange: hyperliquid
 ---
 
-# quant-desk — the desk for any Hyperliquid address
+# senpi AI Quant — the desk for any Hyperliquid address
 
 Built for one thing first: **the user's own book.** A trader joins senpi, pastes their Hyperliquid
 wallet, and gets their desk — the book they actually run, scored, protected and improved, in the second
@@ -80,7 +80,7 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    Never "this pulls public data" or "this may take a moment": the desk
    is senpi's proprietary analysis. Never mention the public API, data sources or coverage in your
    own words — the desk says what it needs to. Run the installed copy
-   (`/data/.openclaw/skills/quant-desk/scripts/desk.py`), never a backup folder: the header line carries the
+   (`/data/.openclaw/skills/senpi-ai-quant/scripts/desk.py`), never a backup folder: the header line carries the
    version — and `desk.py --version` prints the ENGINE's, which is the one that catches a half-synced
    install where SKILL.md looks current and the script is not. Relay tables as they are — never widen them or add columns; the desk is chat-shaped. Write
    **onchain**, never "on-chain", everywhere.

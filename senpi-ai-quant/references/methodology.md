@@ -1,6 +1,6 @@
-# quant-desk — methodology
+# senpi-ai-quant — methodology
 
-> **This document describes the engine as of quant-desk 1.17.0.** Nine formulas in it were stale
+> **This document describes the engine as of senpi-ai-quant 1.17.0.** Nine formulas in it were stale
 > between 1.9.0 and 1.14.0 while SKILL.md sent the agent here for them, so an agent asked "how is my
 > cost score computed?" answered with the pre-1.9.0 rule, confidently. If you change a formula in
 > `scripts/`, change it here in the same commit — `test_methodology_matches_the_engine` fails if the

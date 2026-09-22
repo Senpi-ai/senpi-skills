@@ -2,7 +2,7 @@
 """Hyperliquid public Info API — every read the desk needs for ANY address, no auth.
 
 `POST https://api.hyperliquid.xyz/info` with `{"type": ..., "user": "0x..."}`. Stdlib only. Every call
-is cached on disk (default: <tempdir>/quant-desk/cache) so a re-run inside the TTL costs nothing, and
+is cached on disk (default: <tempdir>/senpi-ai-quant/cache) so a re-run inside the TTL costs nothing, and
 a `HLFixture` serves recorded responses for tests and `--fixture` runs. Paging: `userFillsByTime`
 returns at most 2000 fills and `userFunding` at most 500 rows per call — both are paged by
 `startTime = last.time + 1` until a short page.
@@ -40,7 +40,7 @@ RATE_LIMIT_MAX_SLEEP_S = 20.0
 # OPTIONAL layers. (@0xsarvesh, #718.)
 RETRY_CODES = (429, 500, 502, 503, 504)
 BACKOFF_S = 1.5
-DEFAULT_CACHE = os.path.join(tempfile.gettempdir(), "quant-desk", "cache")
+DEFAULT_CACHE = os.path.join(tempfile.gettempdir(), "senpi-ai-quant", "cache")
 TTL = {"metaAndAssetCtxs::xyz": 120, "clearinghouseState": 120, "frontendOpenOrders": 120, "metaAndAssetCtxs": 120, "candleSnapshot": 900,
        "userFees": 3600, "portfolio": 600, "userNonFundingLedgerUpdates": 600, "userFillsByTime": 600,
        "userFunding": 600, "leaderboard": 6 * 3600}
@@ -136,7 +136,7 @@ class HL:
             if not page:
                 break
             out += page
-            self._tick(f"[quant-desk]   · {len(out):,} fills scanned …")
+            self._tick(f"[senpi-ai-quant]   · {len(out):,} fills scanned …")
             if len(page) < FILLS_PAGE:
                 break
             t = page[-1]["time"] + 1
@@ -163,7 +163,7 @@ class HL:
                 f = dict(x.get("fill") or x)
                 f["twapId"] = x.get("twapId", f.get("twapId"))
                 out.append(f)
-            self._tick(f"[quant-desk]   · {len(out):,} TWAP slices scanned …")
+            self._tick(f"[senpi-ai-quant]   · {len(out):,} TWAP slices scanned …")
             if len(page) < FILLS_PAGE:
                 break
             t = max(f["time"] for f in out) + 1
@@ -227,7 +227,7 @@ class HL:
             with lock:
                 done[0] += 1; k = done[0]
             if k % 40 == 0 or k == len(todo):
-                self._tick(f"[quant-desk]   · reading the tape: {k} of {len(todo)} coins{' · daily' if interval != '1h' else ''} …")
+                self._tick(f"[senpi-ai-quant]   · reading the tape: {k} of {len(todo)} coins{' · daily' if interval != '1h' else ''} …")
             return out
         with ThreadPoolExecutor(max_workers=workers) as ex:
             return dict(ex.map(one, todo))
