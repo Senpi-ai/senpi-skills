@@ -1509,3 +1509,87 @@ def test_the_desk_never_promises_protection_it_cannot_deliver_yet_in_any_tense()
     # close the `" "` seam between them before matching
     flat = " ".join(code.split()).replace('" "', "")
     assert "Tell me if you want help with any of them" in flat
+
+
+# ---------------------------------------------------------------- 1.12.0: the rows discovery could not rebuild
+# Live shapes, copied from `discovery_get_trader_history` on 0xdc93a8fd…d9ab and 0xe642e050…a603 —
+# not invented. A cross-liquidation arrives with szi, entryPx and openTime all "0".
+LIQ_NO_OPEN = {"closedOrderId": "0", "coin": "xyz:SKHX", "coinDisplayName": "SKHX", "entryPx": "0",
+               "exitPx": "937.975", "leverage": {"type": "cross", "value": 0}, "maxLeverage": "0",
+               "openTime": 0, "closeTime": 1785000000, "szi": "0", "realizedPnl": "-773802",
+               "marginUsed": "0", "type": "Liquidated Cross Long", "totalFills": "1", "totalFees": "0"}
+LIQ_WITH_OPEN = {"closedOrderId": "1", "coin": "xyz:UNITREE", "coinDisplayName": "UNITREE", "entryPx": "120.0",
+                 "exitPx": "100.0", "leverage": {"type": "isolated", "value": 10}, "maxLeverage": "10",
+                 "openTime": 1784900000, "closeTime": 1785000000, "szi": "5", "realizedPnl": "-119",
+                 "marginUsed": "60", "type": "Liquidated Isolated Short", "totalFills": "2", "totalFees": "1.5"}
+
+
+def test_a_position_discovery_could_not_rebuild_is_kept_not_dropped():
+    """Requiring szi and openTime threw the row away — and with it the largest loss on the book.
+
+    On 0xdc93a8fd… seven such rows carried $1,137,374 of a $1,496,623 loss, a $773,802 cross-liquidation
+    among them, so the desk reported `-$359,249`. Venue-wide these rows are 1.7% of closed positions and
+    14% of realized P&L by magnitude. The row has a coin, a close and a P&L: that is enough to count."""
+    e = senpi_history.episode(LIQ_NO_OPEN)
+    assert e is not None, "the row was dropped and its P&L with it"
+    assert e["realized"] == -773802.0 and e["coin"] == "xyz:SKHX"
+    assert e["liquidated"] is True
+    # it has no observed open, so it must not pose as a fully measured trade
+    assert e["complete"] is False and e["truncated"] is True
+    assert e["peak_notional"] == 0.0 and e["entry_vwap"] is None
+    assert e["direction"] == "LONG"                    # from `type`; szi is 0 so the sign cannot decide
+    # open_time must be a real instant, never 0 — see _funding_after
+    assert e["open_time"] == e["close_time"] and e["hold_h"] == 0.0
+
+
+def test_a_liquidation_is_flagged_as_one_on_the_discovery_path():
+    """`liquidated` was hardcoded False, so a token made every liquidation invisible: no Risk penalty,
+    no LIQUIDATED chip, no liquidation leak — on the path that is supposed to be the BETTER data.
+    The fill-built path has always read this from `dir` (roundtrips.py)."""
+    e = senpi_history.episode(LIQ_WITH_OPEN)
+    assert e["liquidated"] is True and e["complete"] is True    # a rebuildable open stays complete
+    assert senpi_history.episode(dict(LIQ_WITH_OPEN, type="Close Short"))["liquidated"] is False
+    # ADL is the venue unwinding a winner, not a stop the trader failed to place
+    assert senpi_history.episode(dict(LIQ_WITH_OPEN, type="Auto-Deleveraging"))["liquidated"] is False
+
+
+def test_the_kept_rows_reach_the_totals_but_not_the_sample_statistics():
+    win = 1_700_000_000_000
+    good = {"coin": "BTC", "entryPx": "100", "exitPx": "110", "leverage": {"value": 3},
+            "openTime": 1785000000 - 7200, "closeTime": 1785000000, "szi": "10",
+            "realizedPnl": "100", "totalFees": "1", "totalFills": "2", "type": "Close Long"}
+    eps = [senpi_history.episode(r) for r in (good, LIQ_NO_OPEN)]
+    tr = metrics.track_record(eps, [], [], {}, win)
+    assert tr["trades"] == 2
+    assert tr["gross_realized"] == -773702.0, "the unrebuildable row must count in the P&L total"
+    assert tr["liquidations"] == 1 and tr["liquidation_loss"] == -773802.0
+    # ...but it is not a measured trade: hold time and sizing read only the complete/untruncated ones
+    assert tr["complete_trades"] == 1 and tr["truncated_trades"] == 1
+    assert tr["size_median"] == 1000.0, "peak_notional of the zero-size row must not enter the sizing stats"
+
+
+def test_an_unrebuildable_open_cannot_inflate_the_funding_leak():
+    """`_funding_after` reads `open_time + 24h` as a real instant. Left at 0 the row would claim every
+    funding payment made before its close — which is why the epoch open has to be closed off."""
+    e = senpi_history.episode(LIQ_NO_OPEN)
+    close_ms = e["close_time"]
+    rows = [{"time": close_ms - 10 * 3_600_000, "delta": {"coin": "xyz:SKHX", "usdc": "-500"}}]
+    assert score._funding_after(rows, [e], 0, 24.0) == 0.0
+
+
+def test_a_normal_history_row_is_unchanged_by_the_rescue():
+    """The fix must not move a single number on a row discovery CAN rebuild."""
+    row = {"closedOrderId": "0x1", "coin": "BTC", "coinDisplayName": "BTC", "entryPx": "42150.50", "exitPx": "43200.00",
+           "leverage": {"type": "cross", "value": 5}, "openTime": 1699564800000, "closeTime": 1699651200000,
+           "szi": "-0.5", "realizedPnl": "-524.75", "marginUsed": "4215.05", "totalFills": "3", "totalFees": "8.43"}
+    e = senpi_history.episode(row)
+    assert e["complete"] is True and e["truncated"] is False and e["liquidated"] is False
+    assert e["direction"] == "SHORT" and e["hold_h"] == 24 and e["realized"] == -524.75
+    assert e["entry_vwap"] == 42150.5 and e["peak_notional"] == 0.5 * 42150.5
+
+
+def test_a_row_with_no_coin_or_no_close_is_still_dropped():
+    """The rescue widens what is kept; it does not keep everything. Without a close the row cannot be
+    placed in the window at all, and `fetch` pages on exactly that field."""
+    assert senpi_history.episode(dict(LIQ_NO_OPEN, closeTime=0)) is None
+    assert senpi_history.episode(dict(LIQ_NO_OPEN, coin=None, coinDisplayName=None)) is None
