@@ -2571,3 +2571,88 @@ def test_the_page_never_says_no_leak_over_a_number_it_just_printed():
     # and too thin to judge still outranks both
     r1 = {**r, "track": {"trades": 2}}
     assert "Not enough closed trades" in _j(render.leaks(r1))
+
+
+def test_the_smaller_reads_from_round_two_of_the_review():
+    """@danielmbirochi (#718), round 2. Five places where a number described a different thing than
+    the sentence around it claimed."""
+    import market, smart_money, strategy_read
+
+    # A. Beta divided every step's P&L by TODAY's account value, so a book that grew over the window
+    # had its early returns scaled by a denominator that did not exist yet.
+    import math
+    ts = [i * 3_600_000 for i in range(60)]
+    px = [100.0 * (1 + 0.02 * math.sin(i)) for i in range(60)]
+    btc = (ts, [[ts[i], px[i], px[i], px[i], px[i], 1.0] for i in range(60)])
+    eqv = [10_000.0 * (1.1 ** i) for i in range(60)]      # the book grows ~250x over the window
+    pv = [0.0]
+    for i in range(1, 60):                               # every step is exactly 1.5x BTC, on the
+        pv.append(pv[-1] + 1.5 * (px[i] / px[i - 1] - 1) * eqv[i - 1])   # equity of the moment
+    pnl, grew = list(zip(ts, pv)), list(zip(ts, eqv))
+    real = strategy_read.pnl_beta(pnl, btc, eqv[-1], equity=grew)
+    flat = strategy_read.pnl_beta(pnl, btc, eqv[-1])
+    assert real and abs(real["beta"] - 1.5) < 0.05, f"the true beta is 1.5: {real}"
+    assert flat and abs(flat["beta"]) < 0.5, f"today's equity flattens every early step: {flat}"
+    # and with no curve it still answers, on the old denominator
+    assert strategy_read.pnl_beta(pnl, btc, eqv[-1], equity=[])["beta"] == flat["beta"]
+
+    # B. volume_share summed the numerator over closed trades and the denominator over closed+opened,
+    # so on a book carrying large open positions every coin's share read low and none of them summed.
+    def _e(coin, vol):
+        return dict(coin=coin, volume=vol, taker_volume=vol, realized=1.0, fees=0.0, win=True,
+                    complete=True, truncated=False, hold_h=1.0, peak_notional=vol, direction="LONG",
+                    close_time=1, open_time=0, liquidated=False, adds=0, entry_vwap=1.0, peak_size=vol)
+    tr = metrics.track_record([_e("BTC", 600.0), _e("ETH", 400.0)], [_e("SOL", 9_000.0)],
+                              [], dict(userCrossRate="0.00035", userAddRate="0.0001"), 0)
+    shares = [c["volume_share"] for c in tr["coins"].values()]
+    assert abs(sum(shares) - 1.0) < 1e-9, f"the shares have to be shares of something: {shares}"
+
+    # C. "197% of what your losing trades gave up" was printable. Above 100% the frame stops meaning
+    # anything to a reader, whatever the arithmetic says.
+    import render
+    base = {"track": {"trades": 40, "net": -1_000.0}, "leaks": [{"title": "x"}], "timing": {},
+            "recoverable": {"usd": 5_000.0, "fees": 5_000.0, "rule": None, "n_trades": 40,
+                            "concentration": {}, "share_of_losses": 1.97}}
+    assert "197%" not in "\n".join(render.recoverable_line(base))
+    ok = {**base, "recoverable": {**base["recoverable"], "share_of_losses": 0.62}}
+    assert "62%" in "\n".join(render.recoverable_line(ok))
+
+    # D. A bias of exactly 0.0 — a split cohort, or one with nothing to read — rendered as SHORT.
+    assert smart_money._side(0.0) is None and smart_money._side(-0.0) is None
+    assert smart_money._side(0.4) == "LONG" and smart_money._side(-0.4) == "SHORT"
+
+    # E. Under 480 hourly candles there is no 20-day mean, and what it used instead — as few as 48
+    # candles — was fed to a +/-2% threshold and reported as a trend.
+    thin = {"NEW": ([i * 3_600_000 for i in range(200)],
+                    [[i * 3_600_000, 100.0, 101.0, 99.0, 100.0 * (1.02 ** i), 1.0] for i in range(200)])}
+    r = market.coin_regime("NEW", thin, {"funding": "0", "markPx": "1", "openInterest": "0", "dayNtlVlm": "0"})
+    assert r["trend"] == "UNKNOWN" and r["vs_20d_mean"] is None, "a 4-day mean is not a 20-day mean"
+    assert r["vol_30d"] is None, "the same defect one line down: 720 candles IS the 30-day vol"
+    assert market.fit(dict(side="SHORT"), r) == "UNKNOWN", "an unknown trend is not a market a position fits"
+    fat = {"OLD": ([i * 3_600_000 for i in range(900)],
+                   [[i * 3_600_000, 100.0, 101.0, 99.0, 100.0 * (1.002 ** i), 1.0] for i in range(900)])}
+    assert market.coin_regime("OLD", fat, {"funding": "0", "markPx": "1", "openInterest": "0", "dayNtlVlm": "0"})["trend"] == "UP"
+
+
+def test_coverage_is_reconciled_against_the_exchanges_own_pnl():
+    """@0xsarvesh (#718), B5. Coverage was measured only from `startPosition` jumps, which can only
+    see gaps the fills we DID get imply — a whole TWAP series older than the retained window leaves
+    no jump behind and reads as 100% covered. Hyperliquid's own P&L delta is the independent witness."""
+    import render
+    # 96% by the jump heuristic, but the rebuilt window nets $10k against the exchange's own $100k
+    # and the open book is carrying nothing: 90% of the P&L came from fills we never saw.
+    cov = dict(overall=0.96, effective=0.10, ledger_net=100_000.0, reconstructed_net=10_000.0, ledger_gap=90_000.0)
+    note = render.coverage_note(dict(coverage=cov), {"sources": {"trades": "public fills"}})
+    assert note and "10%" in note, note
+    assert "API" not in note and "Hyperliquid" not in note, "the desk never names a data source"
+
+    # a gap the open book explains leaves the note off the page entirely
+    ok = dict(overall=0.96, effective=0.96, ledger_net=100_000.0, reconstructed_net=99_000.0, ledger_gap=1_000.0)
+    assert render.coverage_note(dict(coverage=ok), {"sources": {"trades": "public fills"}}) is None
+    # and senpi's own record still says so, ahead of any coverage figure — the moat line
+    assert "senpi discovery" in render.coverage_note(dict(coverage=cov), {"sources": {"trades": "senpi discovery (40 closed positions)"}})
+
+    # the reconciliation itself: rebuilt + what the book still carries, against the ledger's delta
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    assert 'cov["reconstructed_net"] = track["net"] + book["unrealized"]' in src
+    assert 'cov["effective"] = min(' in src

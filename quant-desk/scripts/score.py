@@ -485,7 +485,6 @@ def levers(rows, closed, tm=None, funding_late=0.0):
         # consequence of closing at 24h is exactly the 24h time-cut. Crediting the funding saved and
         # charging nothing for the exits it forces was the fourth survivorship bug (@0xsarvesh #718);
         # the first three were fixed in #712.
-        _cut24 = _cut24_s
         # CHARGE only, never credit. A 24h cap forces exits, and if those exits cost money the
         # funding saving has to carry it — that was the survivorship gap. But when they GAIN, that
         # gain is the time-cut lever's, and adding it here summed two levers, which is the exact
@@ -493,7 +492,7 @@ def levers(rows, closed, tm=None, funding_late=0.0):
         # $4,083,959 saving.
         # The gate above guarantees a sample; without one the credit used to ship uncharged, which
         # is the fourth survivorship bug wearing a different hat. (@danielmbirochi, #718, item 9.)
-        _charge = min(0.0, float(_cut24.get("total") or 0.0))
+        _charge = min(0.0, float(_cut24_s.get("total") or 0.0))
         # The lever is legitimately worth funding + the P&L of the exits it forces. The LEAK beside
         # it is titled "you paid $X in funding", so quoting the combined figure there read as saving
         # 6x the bill ($502,094 against $80,256). Carry the two parts separately and let the leak

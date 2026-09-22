@@ -84,6 +84,10 @@ def track_record(closed, opened, funding_rows, fee_sched, window_start, fee_sche
     fee_recoverable = max(0.0, fees) * _taker_fee_share * _save_rate if vol else 0.0
     sizes = [e["peak_notional"] for e in closed if not e["truncated"] and e["peak_notional"] > 0]
     liq = [e for e in closed if e["liquidated"]]
+    # The per-coin shares divided a CLOSED-trade numerator by a closed+opened denominator, so on a
+    # book carrying large open positions every coin's share read low and none of them summed to 1.
+    # (@danielmbirochi, #718, round 2.)
+    vol_closed = sum(e["volume"] for e in closed)
     by_coin = collections.defaultdict(lambda: dict(trades=0, wins=0, realized=0.0, fees=0.0, volume=0.0, long=0, short=0, hold_h=[], sizes=[]))
     for e in closed:
         c = by_coin[e["coin"]]
@@ -94,7 +98,7 @@ def track_record(closed, opened, funding_rows, fee_sched, window_start, fee_sche
     coins = {}
     for k, v in sorted(by_coin.items(), key=lambda kv: -kv[1]["volume"]):
         coins[k] = dict(trades=v["trades"], win_rate=v["wins"] / v["trades"], realized=v["realized"], fees=v["fees"],
-                        funding=fund_by_coin.get(k, 0.0), volume_share=v["volume"] / vol if vol else 0.0, long=v["long"], short=v["short"],
+                        funding=fund_by_coin.get(k, 0.0), volume_share=v["volume"] / vol_closed if vol_closed else 0.0, long=v["long"], short=v["short"],
                         hold_median_h=med(v["hold_h"]), size_median=med(v["sizes"]))
     longs = [e for e in closed if e["direction"] == "LONG"]
     shorts = [e for e in closed if e["direction"] == "SHORT"]

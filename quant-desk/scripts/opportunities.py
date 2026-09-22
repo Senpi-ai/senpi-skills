@@ -63,7 +63,7 @@ def scout(closed, setups, book, breadth, regimes, cohorts, attention, majors, la
             pf = "∞" if pat["profit_factor"] == float("inf") else f"{pat['profit_factor']:.1f}×"
             d["score"] += 2.0; d["why"].append(f"fits how you win: {pat['label']} {pat['wins']} of {pat['n']}, profit factor {pf}")
         r = (regimes or {}).get(coin)
-        if r:
+        if r and r["trend"] != "UNKNOWN":    # under 20 days of tape: no trend credit either way
             if r["trend"] == "RANGING":
                 d["why"].append("trend: ranging")
             elif (side == "LONG") == (r["trend"] == "UP"):

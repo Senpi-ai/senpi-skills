@@ -84,7 +84,7 @@ def leg_correlation(candles, long_coins, short_coins):
     return sum((a - mx) * (b - my) for a, b in zip(x, y)) / (len(x) * sx * sy)
 
 
-def pnl_beta(pnl_curve, btc_candles, account_value):
+def pnl_beta(pnl_curve, btc_candles, account_value, equity=None):
     """How much of the P&L is just BTC: correlation and beta of P&L changes (as % of equity) to BTC returns
     over matching intervals."""
     if not pnl_curve or not btc_candles or len(pnl_curve) < 12 or not account_value:
@@ -94,11 +94,23 @@ def pnl_beta(pnl_curve, btc_candles, account_value):
     def px(t):
         i = bisect.bisect_right(times, t) - 1
         return rows[i][4] if i >= 0 else None
+    # Every step's P&L used to be divided by TODAY's account value, so a book that doubled over the
+    # window had its early returns scaled by a denominator that did not exist yet — correlation
+    # survives a constant rescale, beta does not. Divide each step by the equity AT THAT STEP, from
+    # the transfer-adjusted curve, so a deposit does not read as a return either.
+    # (@danielmbirochi, #718, round 2.)
+    eq = dict(equity or [])
+    eq_t = sorted(eq)
+    def eq_at(t):
+        i = bisect.bisect_right(eq_t, t) - 1
+        v = eq[eq_t[i]] if i >= 0 else None
+        return v if v and v > 0 else None
     xs, ys = [], []
     for (t0, v0), (t1, v1) in zip(pnl_curve, pnl_curve[1:]):
         p0, p1 = px(t0), px(t1)
-        if p0 and p1 and t1 > t0:
-            xs.append(p1 / p0 - 1); ys.append((v1 - v0) / account_value)
+        base = eq_at(t0) or account_value
+        if p0 and p1 and t1 > t0 and base:
+            xs.append(p1 / p0 - 1); ys.append((v1 - v0) / base)
     if len(xs) < 10:
         return None
     mx, my = statistics.mean(xs), statistics.mean(ys); sx, sy = statistics.pstdev(xs), statistics.pstdev(ys)
@@ -108,7 +120,7 @@ def pnl_beta(pnl_curve, btc_candles, account_value):
     return dict(corr=cov / (sx * sy), beta=cov / (sx * sx), n=len(xs))
 
 
-def fingerprint(closed, opened, book, tr, act, tm, candles, ctxs, pnl_curve, window_start, now):
+def fingerprint(closed, opened, book, tr, act, tm, candles, ctxs, pnl_curve, window_start, now, equity=None):
     majors, large = taxonomy.crypto_tiers(ctxs)
     rows = by_class_side(closed, majors, large)
     live = [dict(coin=p["coin"], side=p["side"], cls=taxonomy.classify(p["coin"], majors, large), notional=p["notional"]) for p in book["positions"]]
@@ -128,7 +140,7 @@ def fingerprint(closed, opened, book, tr, act, tm, candles, ctxs, pnl_curve, win
     sim = simultaneity(closed, opened, window_start, now)
     long_coins = {e["coin"] for e in closed if e["direction"] == "LONG"}; short_coins = {e["coin"] for e in closed if e["direction"] == "SHORT"}
     corr = leg_correlation(candles, long_coins, short_coins) if (long_coins and short_coins) else None
-    beta = pnl_beta(pnl_curve, candles.get("BTC"), book.get("account_value"))
+    beta = pnl_beta(pnl_curve, candles.get("BTC"), book.get("account_value"), equity)
     # outcome concentration
     reals = sorted((e["realized"] for e in closed), reverse=True); total = sum(reals)
     top3 = sum(reals[:3]) if reals else 0.0

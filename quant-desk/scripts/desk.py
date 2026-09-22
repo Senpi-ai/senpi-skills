@@ -45,7 +45,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.21.0"
+VERSION = "1.22.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -178,6 +178,20 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     book = metrics.open_book(cs, oo, ctxs, ages, tr_raw.get("clearinghouseState_xyz"), tr_raw.get("frontendOpenOrders_xyz"), ctx_xyz,
                              metrics.whole_account_value(tr_raw.get("portfolio"), tr_raw.get("spotClearinghouseState")),
                              metrics.spot_free_usdc(tr_raw.get("spotClearinghouseState")))
+    # B5 (@0xsarvesh, #718). The startPosition-jump heuristic can only see gaps it can infer from the
+    # fills it DID get — a whole TWAP series older than the retained window leaves no jump behind.
+    # Hyperliquid's own P&L series is an independent witness: what we rebuilt from fills, plus what
+    # the open book is carrying, should land on the ledger's own delta. It never lands exactly (a
+    # position already open when the window opened carries unrealized P&L that predates it), so this
+    # is not a gate — it LOWERS the coverage figure the desk already prints when the gap is bigger
+    # than the open book can explain, and stays out of the reader's page otherwise.
+    cov["reconstructed_net"] = track["net"] + book["unrealized"]
+    cov["ledger_net"] = track["ledger_net"]
+    if track["ledger_net"]:
+        _gap = abs(track["ledger_net"] - cov["reconstructed_net"])
+        cov["ledger_gap"] = _gap
+        cov["effective"] = min(cov["overall"] if cov["overall"] is not None else 1.0,
+                               max(0.0, 1.0 - _gap / abs(track["ledger_net"])))
     fl = metrics.flows(tr_raw["ledger"], addr)
     pnl_curve = metrics.pnl_series(tr_raw["portfolio"], win_start)
     # transfer-adjusted, as equity_curve's docstring, methodology.md and SKILL rule 3 all promise.
@@ -315,7 +329,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     setups = score.best_setups(in_win, tm_rows)
     step(7, "reading the playbook — what the book actually does, by class, side and size …", t0,
          f"{len(lk)} leak(s) priced")
-    fp = strategy_read.fingerprint(in_win, opened, book, track, act, tm, candles, ctxs, pnl_curve, win_start, now)
+    fp = strategy_read.fingerprint(in_win, opened, book, track, act, tm, candles, ctxs, pnl_curve, win_start, now, equity=eq)
     strategy = dict(fingerprint=fp, statements=strategy_read.statements(fp, track, book), critique=strategy_read.critique(fp, track, book, mf, sm, cohorts))
     context = dict(breadth=breadth, funding_regime=fregime, attention=attention, regime_days=regimes_days, regime_performance=rperf)
     opps = opportunities.scout(in_win, setups, book, breadth, coin_regimes, cohorts, attention, majors, large)

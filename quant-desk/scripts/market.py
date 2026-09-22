@@ -29,13 +29,19 @@ def coin_regime(coin, candles, ctx):
     now = close[-1]
     def chg(hours):
         return (now / close[-hours - 1] - 1) if len(close) > hours else None
-    sma20 = statistics.mean(close[-480:]) if len(close) >= 100 else statistics.mean(close)
+    # 480 hourly candles IS the 20-day mean. Below that it took whatever it had — as few as 48
+    # candles, two days — and called it the 20-day mean, then fed it to a +/-2% trend threshold that
+    # a 2-day mean can barely clear. That is a new listing: the case where a trend call is least
+    # reliable and most likely to be read as one. Abstain. (@danielmbirochi, #718, round 2.)
+    sma20 = statistics.mean(close[-480:]) if len(close) >= 480 else None
     rets = [math.log(close[i] / close[i - 1]) for i in range(1, len(close)) if close[i - 1] > 0]
     vol24 = statistics.pstdev(rets[-24:]) * math.sqrt(24) if len(rets) >= 24 else None
-    vol30 = statistics.pstdev(rets[-720:]) * math.sqrt(24) if len(rets) >= 100 else None
+    vol30 = statistics.pstdev(rets[-720:]) * math.sqrt(24) if len(rets) >= 720 else None
     c7, c30 = chg(168), chg(720)
-    vs_sma = now / sma20 - 1
-    if c7 is not None and c7 > 0.05 and vs_sma > 0.02:
+    vs_sma = (now / sma20 - 1) if sma20 else None
+    if vs_sma is None:
+        trend = "UNKNOWN"          # too little tape to confirm a direction; not the same as ranging
+    elif c7 is not None and c7 > 0.05 and vs_sma > 0.02:
         trend = "UP"
     elif c7 is not None and c7 < -0.05 and vs_sma < -0.02:
         trend = "DOWN"
@@ -50,7 +56,7 @@ def coin_regime(coin, candles, ctx):
 def fit(position, regime):
     """WITH / AGAINST / NEUTRAL: a long fits an up-trend, a short a down-trend; ranging is neutral. Funding
     is reported beside it (a long paying positive funding is a cost, not a misfit)."""
-    if not regime:
+    if not regime or regime["trend"] == "UNKNOWN":
         return "UNKNOWN"
     if regime["trend"] == "RANGING":
         return "NEUTRAL — ranging"

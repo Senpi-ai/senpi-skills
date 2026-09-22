@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.21.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.22.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -40,9 +40,13 @@ def coverage_note(tr, meta=None):
     src = ((meta or {}).get("sources") or {}).get("trades") or "public fills"
     if src != "public fills":
         return f"_Trade history: {src}._"
-    if cov.get("overall") is None or cov["overall"] >= 0.9:
+    # `effective` is `overall` after the ledger reconciliation — a book whose rebuilt P&L misses the
+    # exchange's own delta by more than the open positions can explain has volume the jump heuristic
+    # never saw, and quoting the unreconciled figure would read as fuller coverage than we have.
+    seen = cov.get("effective") if cov.get("effective") is not None else cov.get("overall")
+    if seen is None or seen >= 0.9:
         return None
-    return f"_Trade-level reads cover about {pct(cov['overall'])} of executed volume; ledger figures are complete._"
+    return f"_Trade-level reads cover about {pct(seen)} of executed volume; ledger figures are complete._"
 
 
 def hold_fallback(tr):
@@ -249,9 +253,11 @@ def recoverable_line(r):
     # the winners too) and a meaningless sentence to put in front of a profitable trader.
     share, net = rec.get("share_of_losses"), (r.get("track") or {}).get("net")
     head = f"**Your quant would have kept ~{usd(total)} of this**"
-    # a denominator that means something: on a book with almost no losses the share is a division
-    # by noise (the fixture reads 20924%), and a number like that discredits the rest
-    if share and 0 < share <= 2.0 and (net is None or net < 0):
+    # a denominator that means something: on a book with almost no losses the share is a division by
+    # noise (the fixture reads 20924%). The cap was 2.0, which still left "197% of what your losing
+    # trades gave up" printable — above 100% the frame stops meaning anything to a reader, however
+    # true the arithmetic is once fees come off the winners too. (@danielmbirochi, #718, round 2.)
+    if share and 0 < share <= 1.0 and (net is None or net < 0):
         head += f" — {pct(share, 0)} of what your losing trades gave up"
     # when one trade IS the number, say so in the headline. The disclosure below is the first thing
     # a reader drops when they quote the figure, and on 0xb699…392e that figure was $1,072,010 of
@@ -523,9 +529,10 @@ def render_deep(mode, d, r):
         # Same overclaim as the next-steps block: there is no signature to give for a book on the
         # reader's own wallet. These levels are still the most actionable thing on the page — they are
         # a worksheet, so say that plainly.
-        out += ["", "The hard stop sits beyond one and a half days of normal range — the average 24-hour "
-                    "high-to-low of the last two weeks — and above the liquidation price; the lock "
-                    "trails at half the peak gain once the trade is two ranges in the money.",
+        out += ["", "The hard stop sits one and a half days of normal range from the mark — the average "
+                    "24-hour high-to-low of the last two weeks — or closer when liquidation is nearer "
+                    "than that, because the stop has to trigger first. The lock trails at half the peak "
+                    "gain once the trade is two ranges in the money.",
                 "", "**These are yours to place.** The *Hard stop* column is the number to set on each "
                     "position onchain on Hyperliquid; the *Lock arms at* column is where a trailing "
                     "stop should begin once the trade is in the money. Tell me if you want help with "
