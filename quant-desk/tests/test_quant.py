@@ -3085,3 +3085,25 @@ def test_the_empty_window_exit_points_a_senpi_user_at_their_strategy_wallets():
     # the banned phrase is guarded against the PAYLOAD in
     # test_an_empty_window_still_reports_whether_senpi_has_the_wallet — not against the source,
     # where it appears in the comment explaining why the payload must not say it
+
+
+def test_an_address_the_reader_already_claimed_is_not_forgotten():
+    """@betashop on 1.26.0: a reader who previously gave an address and said it was their book
+    should still have it remembered — the senpi strategy wallets are a FALLBACK, not a replacement.
+
+    A trader who arrives from Hyperliquid with their own external wallet does not stop owning it the
+    moment they have senpi strategies, and the address book already records exactly this: `claimed`
+    for an address they typed and called theirs, `verified` for a Senpi-issued one. 1.26.0 went
+    straight to `strategy_list` and never consulted it."""
+    skill = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
+    own = skill[skill.index("If they mean their OWN book"):skill.index("If they want someone ELSE")]
+
+    assert "--addresses" in own, "the own-book branch never reads the address book"
+    assert "claimed" in own and "verified" in own, "the two tiers of 'theirs' are not distinguished"
+    assert own.index("address book") < own.index("strategy_list"), \
+        "the address book must be consulted BEFORE falling back to senpi wallets"
+    assert "do not forget an address they already claimed" in own.lower() or \
+           "do not forget an address they already claimed" in own, "the rule is not stated"
+    # and when both exist the reader decides — not us
+    assert "Both?" in own and "ask" in own.lower(), "ambiguity must go back to the reader"
+    assert "Never guess" in own or "never guess" in own, "the no-guessing rule must survive"
