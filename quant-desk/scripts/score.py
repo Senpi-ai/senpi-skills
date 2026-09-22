@@ -29,6 +29,15 @@ def _bp(rate):
     return f"{max(0.0, bp):.1f} bp"
 
 
+def _lower_first(s):
+    """Lower the first letter so a sentence reads on after "and …" — unless the first word is a
+    TICKER. `s[0].lower()` turned the market-fit line "ETH, AVAX, TAO, xyz:MU — short into an
+    up-trend" into "eTH, AVAX, …" on the headline, which is the most-read sentence on the page.
+    Second character lower-case means an ordinary capitalised word; upper means an acronym.
+    (Seen on a live 1.25.1 run, M408027.)"""
+    return (s[0].lower() + s[1:]) if (s and s[1:2].islower()) else s
+
+
 def _usd(x):
     return f"-${abs(x):,.0f}" if x < 0 else f"${x:,.0f}"
 
@@ -409,7 +418,7 @@ def verdict(tr, book, dims, leaks):
         # above "Entries are not systematically late or chased over this window." Timing scores low
         # for give-back too, and the headline was naming the wrong half of it.
         _own = (dims[weakest].get("line") or "").strip().rstrip(".")
-        weak_line = (_own[0].lower() + _own[1:]) if _own else {
+        weak_line = _lower_first(_own) if _own else {
             "risk": "you're carrying unprotected risk" if book["naked"] else "the risk side is where it leaks",
             "cost": "execution and funding are eating the gains" if (tr.get("funding") or 0) < 0 else "execution is eating the gains",
             "timing": "the timing side is where it leaks", "sizing": "sizing is working against you",

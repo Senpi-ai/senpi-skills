@@ -2984,3 +2984,40 @@ def test_the_page_never_shows_two_different_totals_for_fees():
     src = _P(HERE, "..", "scripts", "score.py").read_text()
     assert "in fees across every fill in the window" in src, \
         "the execution sentence must name the population it counts"
+
+
+def test_the_headline_never_lowercases_a_ticker():
+    """Live 1.25.1 run, M408027 on a senpi strategy wallet. The verdict read:
+
+        Down $149 on the ledger over the window — and eTH, AVAX, TAO, xyz:MU — short into an
+        up-trend. Get on the right side of the regime first.
+
+    `_own[0].lower() + _own[1:]` lowers the first letter so the dimension's own sentence reads on
+    after "and …". That is right for "You give back…" and wrong for a market-fit line that starts
+    with a ticker — on the most-read sentence on the page."""
+    assert score._lower_first("ETH, AVAX, TAO, xyz:MU — short into an up-trend").startswith("ETH")
+    assert score._lower_first("BTC — short into an up-trend").startswith("BTC")
+    # ordinary sentences still join cleanly
+    assert score._lower_first("You give back a median 23% of a winner's peak").startswith("you give")
+    assert score._lower_first("Win rate 78%, profit factor 0.8").startswith("win rate")
+    # already-lowercase and numeric openings are untouched either way
+    assert score._lower_first("xyz:SPCX, xyz:SKHY — short").startswith("xyz:")
+    assert score._lower_first("2 of 2 open positions have no stop").startswith("2 of 2")
+    assert score._lower_first("") == "" and score._lower_first("A") == "A"
+
+    # end to end through the verdict, on the shape that produced it
+    dims = {"market_fit": dict(score=35, line="ETH, AVAX, TAO, xyz:MU — short into an up-trend."),
+            "risk": dict(score=85, line="Every position carries a full stop."),
+            "cost": dict(score=90, line="Costs are light."),
+            "timing": dict(score=88, line="Entries are fine."),
+            "sizing": dict(score=80, line="Sizing is steady."),
+            "consistency": dict(score=75, line="Results repeat.")}
+    tr = dict(trades=7, profit_factor=0.9, payoff_ratio=1.0, win_rate=0.4, net=-149.0,
+              ledger_net=-149.0, fees=3.0, funding=0.0, gross_realized=-146.0, liquidations=0)
+    book = dict(naked=[], positions=[], account_value=432.0)
+    v = score.verdict(tr, book, dims, [])
+    assert "eTH" not in str(v), v
+    assert "ETH, AVAX" in str(v), v
+
+    src = _P(HERE, "..", "scripts", "followups.py").read_text()
+    assert "top[1:2].islower()" in src, "the same idiom in followups can lowercase a ticker too"

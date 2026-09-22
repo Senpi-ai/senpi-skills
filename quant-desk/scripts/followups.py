@@ -111,6 +111,7 @@ def _fill(keys, bank, r):
         if "{leak}" in prompt:
             if not top:
                 continue
-            prompt = prompt.replace("{leak}", top[0].lower() + top[1:] if top else top)
+            # same shape as score._lower_first: a leak title can begin with a ticker
+            prompt = prompt.replace("{leak}", (top[0].lower() + top[1:]) if (top and top[1:2].islower()) else top)
         out.append(dict(mode=None if k in MODELESS else k, prompt=prompt))
     return out
