@@ -10,7 +10,7 @@ description: >-
   Requires a USER-scoped Senpi token.
   NOT for reading a book to LEARN from rather than mirror — "run AI quant on 0x…", "score my
   trading", "find leaks", "find traders for me to analyze", "how does this trader actually trade" —
-  that is `senpi-ai-quant`, which needs no token and works on any address. The split is the verb:
+  that is `quant-desk`, which needs no token and works on any address. The split is the verb:
   COPY comes here, ANALYSE goes there.
 license: Apache-2.0
 metadata:
@@ -23,7 +23,7 @@ metadata:
 # Senpi Trader Research — find & vet copy candidates
 
 > **Not this skill?** "Analyze this trader", "how do they trade", "where do they leak", "score my
-> trading", "find traders for me to analyze" → **`senpi-ai-quant`**. It reads any Hyperliquid
+> trading", "find traders for me to analyze" → **`quant-desk`**. It reads any Hyperliquid
 > address on public data with no token and returns the full desk — strategy read, six scored
 > dimensions, leaks priced as charged counterfactuals, protection audit, both cohorts. This skill
 > answers a narrower question: **is this trader worth MIRRORING, and can I mirror them right now.**

@@ -1,4 +1,4 @@
-"""senpi-ai-quant — offline tests: synthetic fills for the engine's rules, the recorded public fixture for the
+"""quant-desk — offline tests: synthetic fills for the engine's rules, the recorded public fixture for the
 whole pipeline. No network."""
 import json
 import re
@@ -694,14 +694,14 @@ def test_progress_streams_inside_the_long_fetches():
     msgs = []; hl.progress = msgs.append
     hl.info = lambda body: []
     hl.candles(["A", "B"], days=1)
-    assert msgs == ["[senpi-ai-quant]   · reading the tape: 2 of 2 coins …"], msgs
+    assert msgs == ["[quant-desk]   · reading the tape: 2 of 2 coins …"], msgs
     hl.candles(["A"], days=1, interval="1d")
-    assert msgs[-1] == "[senpi-ai-quant]   · reading the tape: 1 of 1 coins · daily …"
+    assert msgs[-1] == "[quant-desk]   · reading the tape: 1 of 1 coins · daily …"
     class C:
         def mcp_call(self, *a, **k):
             return {"traders": []}
     smart_money.books(C(), ["0x1", "0x2"], {}, progress=msgs.append, label="the proven cohort, ")
-    assert msgs[-1] == "[senpi-ai-quant]   · senpi-smart-money: the proven cohort, 2 of 2 wallets read …"
+    assert msgs[-1] == "[quant-desk]   · senpi-smart-money: the proven cohort, 2 of 2 wallets read …"
 
 
 def test_desk_is_chat_shaped_and_never_apologises_for_its_sources():
@@ -1993,7 +1993,7 @@ def test_methodology_names_the_engine_version_it_describes():
     rather than in front of a user."""
     import render
     doc = _P(HERE, "..", "references", "methodology.md").read_text()
-    assert f"as of senpi-ai-quant {render.VERSION}" in doc, (
+    assert f"as of quant-desk {render.VERSION}" in doc, (
         f"methodology.md does not describe {render.VERSION} — update it in the same commit as the formula")
     for rule in ("Median within a family", "Abstention", "Charged", "spans"):
         assert rule in doc, rule
@@ -2155,8 +2155,11 @@ def test_the_skill_answers_to_ai_quant_as_well_as_quant_desk():
     skill = _P(HERE, "..", "SKILL.md").read_text()
     desc = " ".join(skill[:skill.index("license: Apache-2.0")].split())
 
-    assert "**AI Quant**" in desc, "the primary name is not in the description"
-    for phrase in ("run AI quant", "run quant", "quant desk",
+    # Quant Desk is the product name (the roadmap's own item 7); AI Quant is the umbrella brand and
+    # the persona that produces it. BOTH have to select the skill — users hear either.
+    assert "**Quant Desk**" in desc and "**AI Quant**" in desc, "the naming hierarchy is not stated"
+    # spaced AND hyphenated — Jason: "User can say run ai-quant run quant or run quant-desk"
+    for phrase in ("run AI quant", "run ai-quant", "run quant", "run quant desk", "run quant-desk",
                    "score my trading", "find leaks on my Hyperliquid wallet",
                    "what did I miss", "master my week",
                    "run AI quant on my Hyperliquid wallet",
@@ -2220,7 +2223,7 @@ def test_the_two_trader_skills_point_at_each_other_on_the_verb():
     theirs = " ".join((_P(HERE, "..", "..", "senpi-trader-research", "SKILL.md")).read_text().split())
 
     assert "senpi-trader-research" in mine, "this skill does not hand off for copy vetting"
-    assert "senpi-ai-quant" in theirs, "trader-research does not point back for analysis"
+    assert "quant-desk" in theirs, "trader-research does not point back for analysis"
     assert "COPY comes here, ANALYSE goes there" in theirs
     assert "find traders for me to analyze" in theirs, "the ambiguous phrase is not disambiguated"
 
