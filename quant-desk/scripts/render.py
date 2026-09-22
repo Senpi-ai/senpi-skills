@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.21.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.24.1"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -40,9 +40,13 @@ def coverage_note(tr, meta=None):
     src = ((meta or {}).get("sources") or {}).get("trades") or "public fills"
     if src != "public fills":
         return f"_Trade history: {src}._"
-    if cov.get("overall") is None or cov["overall"] >= 0.9:
+    # `effective` is `overall` after the ledger reconciliation — a book whose rebuilt P&L misses the
+    # exchange's own delta by more than the open positions can explain has volume the jump heuristic
+    # never saw, and quoting the unreconciled figure would read as fuller coverage than we have.
+    seen = cov.get("effective") if cov.get("effective") is not None else cov.get("overall")
+    if seen is None or seen >= 0.9:
         return None
-    return f"_Trade-level reads cover about {pct(cov['overall'])} of executed volume; ledger figures are complete._"
+    return f"_Trade-level reads cover about {pct(seen)} of executed volume; ledger figures are complete._"
 
 
 def hold_fallback(tr):
@@ -236,18 +240,28 @@ def recoverable_line(r):
     crediting a trailing stop with money that came from not crossing the spread."""
     rec = r.get("recoverable") or {}
     total = rec.get("usd") or 0
-    if total <= 0 or not r.get("leaks"):
+    # It used to also return [] when the leak list was empty, so a book whose only recoverable money
+    # was TAKER FEES — measured, not a counterfactual, and always real — got no number at all, while
+    # the sentence underneath said no leak clears the bar. The JSON still carried the figure, so the
+    # agent could quote a number the desk had just denied. (@danielmbirochi, #718, item 10.)
+    if total <= 0:
         return []
     fees, rule = rec.get("fees") or 0, rec.get("rule")
     lever = total - fees
-    # "N% of what your losing trades gave up" only frames a book that LOST money. On a 93%-win-rate
-    # book it read "116% of what your losing trades gave up" — true arithmetic (fees are spread over
-    # the winners too) and a meaningless sentence to put in front of a profitable trader.
-    share, net = rec.get("share_of_losses"), (r.get("track") or {}).get("net")
+    # "N% of what your losing trades gave up" was also gated on a NEGATIVE ledger, on the reasoning
+    # that the frame only suits a book that lost money. But a headline with no denominator is what
+    # made this number read as absurd in review: on a book that netted $36,481 after $140,698 of
+    # fees, "~$171,808" invites the reader to divide by the net and get 4.71x. The share is exactly
+    # the denominator that defuses it — 4% of what the losing trades gave up — and it is no less
+    # true on a profitable book. The `<= 1.0` guard below is what keeps the sentence meaningful.
+    # (B6, @0xsarvesh #718.)
+    share = rec.get("share_of_losses")
     head = f"**Your quant would have kept ~{usd(total)} of this**"
-    # a denominator that means something: on a book with almost no losses the share is a division
-    # by noise (the fixture reads 20924%), and a number like that discredits the rest
-    if share and 0 < share <= 2.0 and (net is None or net < 0):
+    # a denominator that means something: on a book with almost no losses the share is a division by
+    # noise (the fixture reads 20924%). The cap was 2.0, which still left "197% of what your losing
+    # trades gave up" printable — above 100% the frame stops meaning anything to a reader, however
+    # true the arithmetic is once fees come off the winners too. (@danielmbirochi, #718, round 2.)
+    if share and 0 < share <= 1.0:
         head += f" — {pct(share, 0)} of what your losing trades gave up"
     # when one trade IS the number, say so in the headline. The disclosure below is the first thing
     # a reader drops when they quote the figure, and on 0xb699…392e that figure was $1,072,010 of
@@ -279,9 +293,10 @@ def recoverable_line(r):
         out += [f"No single trade dominates it — the largest is {pct(c['top1'], 0)}, spread over "
                 f"{c['n_positive']} of your trades. This one is a habit, not an accident.", ""]
 
-    out += ["_The leaks below price each fix on its own. They land on the same trades — one oversized, "
-            "chased, held-too-long position shows up in several — so **they do not add up**. The number "
-            "above is the single best change, and it is the one to quote._", ""]
+    if r.get("leaks"):
+        out += ["_The leaks below price each fix on its own. They land on the same trades — one oversized, "
+                "chased, held-too-long position shows up in several — so **they do not add up**. The number "
+                "above is the single best change, and it is the one to quote._", ""]
     return out
 
 
@@ -289,8 +304,18 @@ def leaks(r):
     out = ["## Leaks — ranked by $ impact · counterfactual, not history", ""]
     out += recoverable_line(r)
     if not r["leaks"]:
-        out.append("Not enough closed trades to price a leak yet — the desk needs a handful of round trips before a counterfactual means anything." if (r["track"].get("trades") or 0) < 5
-                   else "No leak clears the bar on this window: every counterfactual the desk tests came out flat or negative, which means the process is not where the money is going.")
+        _rec = r.get("recoverable") or {}
+        if (r["track"].get("trades") or 0) < 5:
+            out.append("Not enough closed trades to price a leak yet — the desk needs a handful of round trips before a counterfactual means anything.")
+        elif (_rec.get("usd") or 0) > 0:
+            # "No leak clears the bar" sat directly under a positive recoverable figure. Both were
+            # true of different things: no PROCESS counterfactual survived being charged, and the
+            # costs above are measured rather than counterfactual. Say which is which.
+            out.append("No *process* leak clears the bar on this window — every exit, sizing and entry rule the desk tests "
+                       "came out flat or negative once it was charged on the trades it would have cost. The figure above is "
+                       "not one of those: costs are measured, not modelled, which is why it stands on its own.")
+        else:
+            out.append("No leak clears the bar on this window: every counterfactual the desk tests came out flat or negative, which means the process is not where the money is going.")
     for i, l in enumerate(r["leaks"], 1):
         tag = f"_{l['agent']}_" + ("" if l.get("unpriced") else f" · **~{usd(l['usd'])} / {l['window']}**")
         out += [f"**{i:02d} · {l['title']}** — {tag}", f"{l['evidence']} {l['counterfactual']}", f"→ {l['cta']}", ""]
@@ -501,16 +526,17 @@ def followups_section(r):
 def render_deep(mode, d, r):
     if mode == "protect":
         out = ["## Stop ladder — every open position", "", f"Dollars at risk before: **{usd(d['total_risk_now'])}** → after: **{usd(d['total_risk_after'])}**", "",
-               "| Coin | Side | Mark | Hard stop | Distance | 24h range | Lock arms at | Covered today | Note |", "|---|---|---:|---:|---:|---:|---:|---:|---|"]
+               "| Coin | Side | Mark | Hard stop | Distance | Daily range | Lock arms at | Covered today | Note |", "|---|---|---:|---:|---:|---:|---:|---:|---|"]
         for x in d["rows"]:
             atr = "—" if x["atr_pct"] is None else "{:.1f}%".format(x["atr_pct"])
             out.append("| {} | {} | {:,.4g} | {:,.4g} | {:.1f}% | {} | {:,.4g} | {} | {} |".format(x["coin"], x["side"], x["mark"], x["hard_stop"], x["hard_stop_pct"], atr, x["lock_arms_at"], pct(x["covered_now"]), x["note"]))
         # Same overclaim as the next-steps block: there is no signature to give for a book on the
         # reader's own wallet. These levels are still the most actionable thing on the page — they are
         # a worksheet, so say that plainly.
-        out += ["", "The hard stop sits beyond one and a half days of normal range and above the "
-                    "liquidation price; the lock trails at half the peak gain once the trade is two "
-                    "ranges in the money.",
+        out += ["", "The hard stop sits one and a half days of normal range from the mark — the average "
+                    "24-hour high-to-low of the last two weeks — or closer when liquidation is nearer "
+                    "than that, because the stop has to trigger first. The lock trails at half the peak "
+                    "gain once the trade is two ranges in the money.",
                 "", "**These are yours to place.** The *Hard stop* column is the number to set on each "
                     "position onchain on Hyperliquid; the *Lock arms at* column is where a trailing "
                     "stop should begin once the trade is in the money. Tell me if you want help with "

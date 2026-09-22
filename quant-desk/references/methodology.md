@@ -1,6 +1,6 @@
 # quant-desk — methodology
 
-> **This document describes the engine as of quant-desk 1.21.0.** Nine formulas in it were stale
+> **This document describes the engine as of quant-desk 1.24.1.** Nine formulas in it were stale
 > between 1.9.0 and 1.14.0 while SKILL.md sent the agent here for them, so an agent asked "how is my
 > cost score computed?" answered with the pre-1.9.0 rule, confidently. If you change a formula in
 > `scripts/`, change it here in the same commit — `test_methodology_matches_the_engine` fails if the
@@ -57,7 +57,10 @@ ones.
 * Hold times: medians over complete episodes, stated only with ≥ 5 complete winners **and** ≥ 5 complete
   losers.
 * Cost ratio = (fees − funding) ÷ gross realized, when gross > 0.
-* Fee recoverable = taker volume × (taker rate − maker rate) from the wallet's own schedule.
+* Fee recoverable = fees **actually paid** (summed from fills) × the taker share of those fees ×
+  the spread between crossing and resting. Both the apportionment and the spread are computed per
+  dex — main and HIP-3 (`xyz:`) volume bill on different schedules, and a book can be almost
+  entirely on one of them. Rebates (negative fees) are earned, never recoverable.
 * Sizing: coefficient of variation and max ÷ median of peak notional over episodes whose open was observed.
 
 ## Protection audit
@@ -72,15 +75,31 @@ cover 0; `PARTLY COVERED` = 0 < cover < 90%. Funding per day = −hourly rate ×
   ≥ +3%. The chased vs calm split reports profit factors for each.
 * MFE / MAE = best / worst excursion from the entry VWAP over the hold, from hourly highs and lows.
   Give-back = (MFE − realized%) ÷ MFE for winners.
-* Counterfactuals use peak size × price move (adds and partials ignored — stated as approximate):
+* Counterfactuals are priced on the **exposure that existed**: every fill's signed size, average
+  entry and booked P&L are carried on the episode, so "close at hour h" means the P&L already booked
+  by h plus mark-to-market on the size actually open then. It used to be `return × peak size ×
+  entry VWAP` — the peak size assumed held from entry to the exit, which on a scaled position is a
+  different trade and overstated by up to 20× on a shape nothing flagged. senpi's indexed rows are
+  aggregate positions with one size and one entry price, so for those the two forms are identical:
   * time-cut on losers at 12h / 24h / 48h — exit at the first candle past the cut if still losing;
   * trailing lock — once the peak reaches +3% (or +5%), exit when price gives back 50% (or 70%) of it.
-  A rule becomes a leak only when its total is positive in **at least two of three** settings; the figure
-  shown is the median setting. Rules that fail the bar are printed as **tested and rejected**.
+  Every setting with ≥ `MIN_PATTERN_TRADES` (5) engaged trades enters its family; the one quoted is the
+  family's **lower median**, and the family is dropped if that median hands back more than
+  1 − `NOISE_SHARE` (85%) of what it saves. Selection runs over every adequately-sampled setting, never
+  over a set the noise bar has already filtered by score — otherwise a family with one survivor quotes
+  that survivor and the grid search comes back as a finding. Rules that fail the bar are printed as
+  **tested and rejected**.
 * Funding leak = funding paid on payments landing more than 24h after the episode holding that coin
-  opened — the part hold time alone would have avoided.
-* Liquidation leak ≈ half the liquidation loss (a stop halfway to liquidation).
-* Sizing leak = for losers sized > 1.5× the median winner, the loss × (1 − median ÷ size).
+  opened — the part hold time alone would have avoided. Capping a hold at 24h also **closes** it, so the
+  lever carries the P&L of the exits it forces (charged, never credited — that gain belongs to the
+  time-cut). With no 24h-cut sample there is nothing to charge, so the fix is left unpriced and only the
+  measured funding cost is stated.
+* Liquidations are stated, not priced: where a stop would have gone is a guess, and a guess must not
+  top a ranking of measured fixes.
+* Sizing leak = over every trade sized > 1.5× the median winner, realized × (1 − median ÷ size) —
+  winners charged alongside losers, or the cap only ever shrinks the losses.
+* Chase leak = realized on entries that had already run ≥ 3%, at the same sample and noise bar as
+  every other pattern lever.
 
 ## Six dimensions (0–100) and the quant score
 
@@ -121,7 +140,9 @@ come back nearly empty.
 
 ## Market fit
 
-Trend from hourly candles: UP when the 7-day change > +5% and the close > +2% above its 20-day mean; DOWN
+The 20-day mean needs 20 days: under 480 hourly candles the trend reads `UNKNOWN` rather than calling a
+direction off whatever tape a new listing has. Trend from hourly candles: UP when the 7-day change > +5%
+and the close > +2% above its 20-day mean; DOWN
 symmetric; else RANGING. Funding in bp per 8h = hourly rate × 8 × 10⁴. Fit: long ↔ UP, short ↔ DOWN =
 WITH; opposite = AGAINST; RANGING = NEUTRAL. Regime headline from the median funding across the coins held
 (≥ 10 bp/8h HIGH POSITIVE, ≥ 3 POSITIVE, ≤ −3 NEGATIVE, ≤ −10 DEEPLY NEGATIVE) and BTC's trend.
@@ -207,8 +228,10 @@ A bank of ten, scored for relevance (naked or near-liquidation positions → `pr
 cohort → `smart`; a funding bill → `funding`; a losers leak → `replay`; regime cells present → `regime`;
 ≥ 30 trades → `compare`; a best setup → `rules`/`scout`). Three to five are offered; each maps to
 `--deep <mode>`:
-* `protect` — hard stop = the further of 1.5 × the 24h average true range and 40% of the way to
-  liquidation; the trailing lock arms two ranges in the money and trails at half the peak gain; dollars at
+* `protect` — hard stop = 1.5 × the average **daily** range (each day's high-to-low over the last two
+  weeks of hourly candles, not the average of a day's hourly ranges), pulled in toward the mark when
+  liquidation is nearer than that so the stop still triggers first, keeping a 40% buffer above the
+  liquidation price; the trailing lock arms two ranges in the money and trails at half the peak gain; dollars at
   risk before (margin at risk to liquidation) vs after (distance to the stop × size).
 * `replay` — the worst 7-day window by realized, its trades, and the time-cut / trailing-lock grid on
   exactly those trades.
@@ -219,7 +242,7 @@ cohort → `smart`; a funding bill → `funding`; a losers leak → `replay`; re
   catalog families, and the discover/author handoff.
 * `regime`, `smart`, `scout`, `strategy`, `watch` — the corresponding sections in full.
 
-## Scoring rules as of 1.21.0 — read these, not any older formula above
+## Scoring rules as of 1.24.1 — read these, not any older formula above
 
 These nine changed between 1.9.0 and 1.15.0 while this file still described the pre-1.9.0 engine.
 
@@ -234,3 +257,12 @@ These nine changed between 1.9.0 and 1.15.0 while this file still described the 
 | Leak values | Charged — each fix nets the trades it costs. `leaks()` and `recoverable()` read one `levers()` table, so the list and the headline cannot disagree. |
 | Liquidations | Stated, not priced. "A stop halfway would have kept half" was a guess. |
 | Series selection | The portfolio window that **spans** the most of the analysis window, never the one with the most points. |
+| Every lever, one bar | Sample (`MIN_PATTERN_TRADES`) and noise (`NOISE_SHARE`) apply to every pattern lever, chase included, and selection runs before the noise bar rather than after it. |
+| Stop ladder | 1.5 × the average **daily** high-to-low, built by blocking hourly candles into rolling 24h windows. It was the mean HOURLY range under a column called "24h range" — a stop ~4.7× too tight on BTC. |
+| Fees, per dex | Taker **and** maker volume are priced on the dex they traded on, and the quoted bp is the blended rate the wallet actually faces. |
+| Beta | Each step's P&L over the transfer-adjusted equity **at that step**, not over today's account value. |
+| Counterfactual scale | Priced on the exposure held at the moment of the counterfactual exit, from the episode's own fill-by-fill size path — never on the peak size assumed held throughout. |
+| Where the grid reads | Totals come from senpi's indexed history where it is available; the counterfactual grid always reads the FILLS-derived episodes, which carry a real size path. A discovery row's `size` accumulates over the position's life — one row on one wallet is 13,651 fills over 20 days — so it is not an exposure to price an exit against. |
+| Quoted fee rates | Measured from the fills (taker fees ÷ taker volume), not from `userFees` — the xyz schedule comes back identical to main, so the quoted bp would not reproduce the quoted dollars. |
+| Beta denominator | Floored at a tenth of the window's median equity; steps below it are dropped rather than divided by a collapsed tail. |
+| One bar, one table | `leaks()` and `recoverable()` read the same `levers()` table and nothing else. A family the lever bar declines is stated **unpriced**, with the measured pattern that survives it; there is no second path that reports a number the bar rejected. |

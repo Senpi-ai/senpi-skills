@@ -19,8 +19,15 @@ SAMPLE_CAP = 150
 STATE_BATCH = 50
 MIN_MEMBERS = 3
 LEAN = 0.2            # |bias| below this = the cohort is split
+
 LATE_H = 4.0          # entering this much after the cohort's median entry = "late"
 RECENT_H = 14 * 24.0  # a cohort entry older than this is a hold, not a move: no lag is read against it
+def _side(bias):
+    """LONG / SHORT / None. `bias > 0 else "SHORT"` made a bias of exactly 0.0 — a perfectly split
+    cohort, or one with nothing to read at all (`bias` is set to 0.0 when gross is 0) — render as a
+    SHORT cohort. Zero is the absence of a lean, not a lean the other way.
+    (@danielmbirochi, #718, round 2.)"""
+    return None if not bias else ("LONG" if bias > 0 else "SHORT")
 
 
 def _ok(resp):
@@ -177,7 +184,7 @@ def compare(per, book, opened_episodes, ages=None, now_ms=None):
             read = "NO COHORT VIEW"
         elif abs(bias) < LEAN:
             read = "COHORT SPLIT"
-        elif (bias > 0) == (p["side"] == "LONG"):
+        elif _side(bias) == p["side"]:
             read = "WITH"
             ent = d["entries_long" if p["side"] == "LONG" else "entries_short"]
             if ent and p["coin"] in opens:
@@ -193,11 +200,12 @@ def compare(per, book, opened_episodes, ages=None, now_ms=None):
         if not d:
             cohort = "no whale holds it"
         elif members < MIN_MEMBERS:
-            cohort = f"{'LONG' if bias > 0 else 'SHORT'} · {members} wallet{'s' if members != 1 else ''} (thin)"
+            cohort = (f"{_side(bias)} · {members} wallet{'s' if members != 1 else ''} (thin)"
+                      if _side(bias) else f"SPLIT · {members} wallet{'s' if members != 1 else ''} (thin)")
         elif abs(bias) < LEAN:
             cohort = f"SPLIT · {members} wallets"
         else:
-            cohort = f"{'LONG' if bias > 0 else 'SHORT'} · {members} wallets ({bias:+.2f})"
+            cohort = f"{_side(bias)} · {members} wallets ({bias:+.2f})"
         rows.append(dict(coin=p["coin"], you=f"{p['side']} {p['leverage']}x" if p.get("leverage") else p["side"], cohort=cohort,
                          bias=bias, members=members, read=read, lag_h=lag))
     return dict(rows=rows, against=[r["coin"] for r in rows if r["read"].startswith("AGAINST")],
@@ -334,11 +342,13 @@ def cohort_view(name, bks, book, opened, majors, large, ages=None, now_ms=None):
     agree = 0.0; wsum = 0.0
     for cls, y in yours.items():
         t = tilt.get(cls)
-        if t and t["weight"] > 0:
-            agree += y["weight"] * (1 if (y["bias"] > 0) == (t["bias"] > 0) else -1) * min(1.0, abs(t["bias"]) / LEAN)
+        # A class with no lean on either side contributed a full-weight AGREEMENT, because
+        # `False == False` is True — two books with no opinion were scored as being of one mind.
+        if t and t["weight"] > 0 and _side(y["bias"]) and _side(t["bias"]):
+            agree += y["weight"] * (1 if _side(y["bias"]) == _side(t["bias"]) else -1) * min(1.0, abs(t["bias"]) / LEAN)
             wsum += y["weight"]
     return dict(name=name, wallets=len(bks), coins=len(per), rows=cmp_["rows"], against=cmp_["against"], entry_lag_h=cmp_["entry_lag_h"], lag_coins=cmp_.get("lag_coins") or [],
                 tilt=sorted(tilt.values(), key=lambda t: -t["weight"])[:6], yours=sorted(yours.values(), key=lambda t: -t["weight"]),
                 agreement=(agree / wsum) if wsum else None,
-                they_hold=[dict(coin=c, members=m, bias=d["bias"], side="LONG" if d["bias"] > 0 else "SHORT", n_long=d["n_long"], n_short=d["n_short"]) for m, c, d in theirs[:8]],
+                they_hold=[dict(coin=c, members=m, bias=d["bias"], side=_side(d["bias"]), n_long=d["n_long"], n_short=d["n_short"]) for m, c, d in theirs[:8]],
                 you_alone=orphans)

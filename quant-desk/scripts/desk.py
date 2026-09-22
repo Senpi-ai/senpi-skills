@@ -45,7 +45,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.21.0"
+VERSION = "1.24.1"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -173,11 +173,30 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         fb_closed, fb_open = pub_closed, pub_opened      # already built above, over the same fills
         fb = metrics.track_record(fb_closed, fb_open, tr_raw["userFunding"], tr_raw["userFees"], win_start, tr_raw.get("userFees_xyz"))
         track["taker_share"], track["fee_recoverable"], track["volume"] = fb["taker_share"], fb["fee_recoverable"], fb["volume"]
+        # …and the RATES with them. Item 12 measures them from the fills, and discovery episodes carry
+        # no `taker_fees`, so on the indexed path `_tk_fees` sums to 0 and both rates fall back to the
+        # schedule — leaving schedule-derived basis points sitting beside fills-derived volume, in a
+        # sentence that still does not multiply out. (@0xsarvesh, #718, on 1.24.0.)
+        track["fee_rate_taker"], track["fee_rate_maker"] = fb["fee_rate_taker"], fb["fee_rate_maker"]
     step(2, "auditing the live book — every position's stop, liquidation distance and funding …", t0,
          f"{len(fills):,} fills across {len({e.get('coin') for e in fills})} coins")
     book = metrics.open_book(cs, oo, ctxs, ages, tr_raw.get("clearinghouseState_xyz"), tr_raw.get("frontendOpenOrders_xyz"), ctx_xyz,
                              metrics.whole_account_value(tr_raw.get("portfolio"), tr_raw.get("spotClearinghouseState")),
                              metrics.spot_free_usdc(tr_raw.get("spotClearinghouseState")))
+    # B5 (@0xsarvesh, #718). The startPosition-jump heuristic can only see gaps it can infer from the
+    # fills it DID get — a whole TWAP series older than the retained window leaves no jump behind.
+    # Hyperliquid's own P&L series is an independent witness: what we rebuilt from fills, plus what
+    # the open book is carrying, should land on the ledger's own delta. It never lands exactly (a
+    # position already open when the window opened carries unrealized P&L that predates it), so this
+    # is not a gate — it LOWERS the coverage figure the desk already prints when the gap is bigger
+    # than the open book can explain, and stays out of the reader's page otherwise.
+    cov["reconstructed_net"] = track["net"] + book["unrealized"]
+    cov["ledger_net"] = track["ledger_net"]
+    if track["ledger_net"]:
+        _gap = abs(track["ledger_net"] - cov["reconstructed_net"])
+        cov["ledger_gap"] = _gap
+        cov["effective"] = min(cov["overall"] if cov["overall"] is not None else 1.0,
+                               max(0.0, 1.0 - _gap / abs(track["ledger_net"])))
     fl = metrics.flows(tr_raw["ledger"], addr)
     pnl_curve = metrics.pnl_series(tr_raw["portfolio"], win_start)
     # transfer-adjusted, as equity_curve's docstring, methodology.md and SKILL rule 3 all promise.
@@ -274,7 +293,11 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     # ---- candles: every coin the trader touched or holds, BTC, and what the cohorts and top traders are in
     t1 = time.time()
     step(5, "reading the tape — 90 days of candles for every coin touched, regime by regime …", t0)
-    coins = {e["coin"] for e in closed + opened if metrics.in_window(e, win_start)} | {p["coin"] for p in book["positions"]} | {"BTC"}
+    # `closed` is discovery's rows on the indexed path, but the lever grid reads the FILLS-derived
+    # episodes (B6's discovery half below) — so the tape has to cover both, or the grid silently
+    # finds no candles for the coins it was just pointed at and abstains on the whole book.
+    coins = {e["coin"] for e in closed + opened + pub_closed + pub_opened if metrics.in_window(e, win_start)} \
+        | {p["coin"] for p in book["positions"]} | {"BTC"}
     for cv in cohorts:
         coins |= {h["coin"] for h in cv.get("they_hold") or []}
     if attention:
@@ -290,7 +313,23 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         daily = {}; meta["warnings"].append(f"daily candles unavailable: {e}")
     meta["timings"]["candles"] = round(time.time() - t1, 1)
     in_win = [e for e in closed if metrics.in_window(e, win_start)]
-    tm_rows = timing_mod.per_trade(in_win, candles)
+    # B6, the discovery half (@0xsarvesh, #718). A discovery row is NOT a position held at one size:
+    # the largest xyz:SKHX row on 0x615f9484… is 13,651 fills over 20 days carrying `size` 7,999
+    # against a peak concurrent exposure near 880 — `size` accumulates over the position's life. The
+    # degenerate one-step path priced an exit counterfactual on $9.9M of notional that never existed
+    # at once: the same constant-size bug B6 removed on the fills path, on a LARGER base. Measured on
+    # one wallet, same window, same minute: fills $35,032 (0.188 of losses) vs discovery $1,043,709
+    # (1.032) — 30x apart, and the indexed number is the one every token-holding user gets.
+    #
+    # The fills are fetched on every run whatever the source, so the split is: TOTALS from discovery,
+    # where it is genuinely more complete, and the LEVER GRID from episodes that carry a real size
+    # path. An incomplete real exposure beats a complete fictional one.
+    lev_win = in_win
+    if source != "public fills":
+        lev_win = [e for e in pub_closed if metrics.in_window(e, win_start)]
+        meta["sources"]["levers"] = (f"public fills ({len(lev_win)} rebuildable round trips) — the "
+                                     f"counterfactual grid needs the size path discovery rows do not carry")
+    tm_rows = timing_mod.per_trade(lev_win, candles)
     tm = timing_mod.summarize(tm_rows) if tm_rows else None
     mf = market_mod.book_fit(book, candles, ctxs)
     regimes_days = market_mod.daily_regimes(daily, basket)
@@ -308,14 +347,14 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     # `closed` runs days+60 so episodes opening before the window can still be completed; every
     # figure the reader sees is 90-day. Handing the raw set to the levers put the size lever's
     # median-winner threshold on up to 150 days inside a 90-day desk. (@danielmbirochi, #718.)
-    lv = score.levers(tm_rows, in_win, tm, funding_late=max(0.0, _fl))
+    lv = score.levers(tm_rows, lev_win, tm, funding_late=max(0.0, _fl))
     lk = score.leaks(track, book, tm, tr_raw["userFunding"], in_win, win_start, days, lv)
     # the ONE quotable number: a union over trades, never the sum of the leaks above
-    rec = score.recoverable(tm_rows, closed, track, tm, lv)
-    setups = score.best_setups(in_win, tm_rows)
+    rec = score.recoverable(tm_rows, lev_win, track, tm, lv)
+    setups = score.best_setups(lev_win, tm_rows)
     step(7, "reading the playbook — what the book actually does, by class, side and size …", t0,
          f"{len(lk)} leak(s) priced")
-    fp = strategy_read.fingerprint(in_win, opened, book, track, act, tm, candles, ctxs, pnl_curve, win_start, now)
+    fp = strategy_read.fingerprint(in_win, opened, book, track, act, tm, candles, ctxs, pnl_curve, win_start, now, equity=eq)
     strategy = dict(fingerprint=fp, statements=strategy_read.statements(fp, track, book), critique=strategy_read.critique(fp, track, book, mf, sm, cohorts))
     context = dict(breadth=breadth, funding_regime=fregime, attention=attention, regime_days=regimes_days, regime_performance=rperf)
     opps = opportunities.scout(in_win, setups, book, breadth, coin_regimes, cohorts, attention, majors, large)
@@ -326,7 +365,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
              archetype=score.archetype(track, book, tm, act, opened), flags=score.flags(track, book, dd, tm, mf, labels), leaks=lk, recoverable=rec,
              setups=setups, families=score.families(closed, tm, track), strategy=strategy, context=context, opportunities=opps,
              benchmark=bench, benchmark_table=smart_money.benchmark_table(track, bench) if bench else None,
-             episodes=[{k: v for k, v in e.items()} for e in in_win][-300:], meta=meta)
+             episodes=[{k: v for k, v in e.items() if k != "size_path"} for e in in_win][-300:], meta=meta)
     r["whose"] = whose
     r["indexed"] = indexed
     r["verdict"] = score.verdict(track, book, dims, lk)
@@ -394,7 +433,16 @@ def main(argv=None):
     book = addr_book.load(a.state_dir)
     if a.find:
         hl = hl_api.HL(cache_dir=a.cache or None)
-        rows = hl_api.find_traders(hl.leaderboard(), band=a.find, window=a.find_window,
+        # A ~40 MB public fetch with no auth and no SLA. Everywhere else the desk degrades on it
+        # (`leaderboard unavailable` as a warning); here it was the whole answer and outside any try,
+        # so a slow venue printed a traceback for the agent to read back to the reader.
+        try:
+            lb = hl.leaderboard()
+        except Exception as e:  # noqa: BLE001
+            print(json.dumps({"error": f"Hyperliquid's leaderboard did not answer: {e}",
+                              "retry": "it is a large public file — worth one more try in a minute"}))
+            return 2
+        rows = hl_api.find_traders(lb, band=a.find, window=a.find_window,
                                    losers=a.find_losers)
         print(json.dumps({"band": a.find, "window": a.find_window,
                           "worst_first": bool(a.find_losers), "candidates": rows}, indent=2))

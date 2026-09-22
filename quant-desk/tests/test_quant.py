@@ -1472,18 +1472,29 @@ def test_market_fit_abstains_on_a_flat_book():
     assert s is None and "No open positions" in line
 
 
-def test_the_losses_frame_is_dropped_on_a_book_that_made_money():
+def test_the_losses_frame_is_dropped_only_when_it_stops_meaning_anything():
     """On 0x2e2e…1c50 (93% win rate, +$310,760 net) the headline read "116% of what your losing
     trades gave up" — arithmetically true, because fees are spread over the winners too, and a
-    meaningless sentence to put in front of a profitable trader."""
+    meaningless sentence to put in front of any trader. Above 100% it goes.
+
+    It used to be dropped on every PROFITABLE book as well, and that is the half that came back:
+    a headline with no denominator is what made this number read as absurd in review. On a live book
+    that netted $36,481 after $140,698 of fees, "~$171,808" invites the reader to divide by the net
+    and get 4.71x — where "4% of what your losing trades gave up" settles it. (B6, @0xsarvesh #718.)"""
     import render
     rec = dict(usd=27_724.0, fees=27_724.0, n_trades=400, share_of_losses=1.16, rule=None,
                concentration=None)
-    win = dict(leaks=[{"usd": 1}], timing={}, recoverable=rec, track=dict(net=310_760.0))
+    over = dict(leaks=[{"usd": 1}], timing={}, recoverable=rec, track=dict(net=310_760.0))
+    assert "losing trades gave up" not in "\n".join(render.recoverable_line(over))
+
     lose = dict(leaks=[{"usd": 1}], timing={}, recoverable=dict(rec, share_of_losses=0.42),
                 track=dict(net=-16_969.0))
-    assert "losing trades gave up" not in "\n".join(render.recoverable_line(win))
     assert "42% of what your losing trades gave up" in "\n".join(render.recoverable_line(lose))
+
+    # the profitable book gets the denominator too — that is what stops the 4.71x reading
+    win = dict(leaks=[{"usd": 1}], timing={}, recoverable=dict(rec, share_of_losses=0.04),
+               track=dict(net=36_481.0))
+    assert "4% of what your losing trades gave up" in "\n".join(render.recoverable_line(win))
 
 
 def test_senpis_trader_score_consistency_is_not_confused_with_the_desks_own():
@@ -1620,11 +1631,19 @@ def test_a_lever_that_gives_back_what_it_saves_is_not_a_fix():
     printing it invites "why is this on my list?"."""
     noise = [_tm_row(cut_cf={"48": v}) for v in (5_701.0, -1_500.0, -1_500.0, -1_268.0, -1_268.0)]
     tm = dict(cut={"settings": {"48": dict(n=5, total=165.0)}})
-    assert score.levers(noise, [], tm) == [], "a 3% keep-rate lever is noise"
+    lv = score.levers(noise, [], tm)
+    # It is carried, flagged, and unquotable. It used to be dropped outright, which is what let
+    # best_lever take a "median" over a set the noise gate had already filtered by score.
+    assert [x["noisy"] for x in lv] == [True], lv
+    assert score.best_lever(lv) is None, "a 3% keep-rate lever is noise"
+    assert score.leaks(dict(trades=40), {}, tm, [], [], 0, 90, lv=lv) == [] or \
+        all("24h" not in (l.get("counterfactual") or "") for l in score.leaks(dict(trades=40), {}, tm, [], [], 0, 90, lv=lv))
 
     real = [_tm_row(cut_cf={"48": v}) for v in (5_701.0, -300.0, -300.0, -200.0, -200.0)]
     tm2 = dict(cut={"settings": {"48": dict(n=5, total=4_701.0)}})
-    assert len(score.levers(real, [], tm2)) == 1, "an 82% keep-rate lever is a real fix"
+    lv2 = score.levers(real, [], tm2)
+    assert len(lv2) == 1 and not lv2[0]["noisy"], "an 82% keep-rate lever is a real fix"
+    assert score.best_lever(lv2) is lv2[0]
 
 
 def test_the_headline_is_never_smaller_than_a_leak_listed_under_it():
@@ -1632,9 +1651,12 @@ def test_the_headline_is_never_smaller_than_a_leak_listed_under_it():
     was excluded from the levers because capping a funding-paying hold IS the time-cut — but the
     union only ever credits ONE lever, so there was no double-count to prevent, and the exclusion
     made the headline understate whenever funding was the biggest fix."""
-    lv = score.levers([_tm_row()], [], {}, funding_late=114_566.0)
-    assert [x["kind"] for x in lv] == ["funding"], lv
-    assert score.best_lever(lv)["total"] == 114_566.0
+    # The 24h cap CLOSES the position, so the lever only exists where the exits it forces can be
+    # priced — see the abstention test below.
+    _c24 = dict(cut={"settings": {"24": dict(n=6, total=0.0)}})
+    lv = score.levers([_tm_row()], [], _c24, funding_late=114_566.0)
+    assert "funding" in [x["kind"] for x in lv], lv
+    assert score.best_lever(lv)["kind"] == "funding" and score.best_lever(lv)["total"] == 114_566.0
     # …and it competes with the exits rather than adding to them
     tm = dict(lock={"settings": {"0.03/0.5": dict(n=5, total=200_000.0)}})
     rows = [_tm_row(lock_cf={"0.03/0.5": 40_000.0}) for _ in range(5)]
@@ -2228,33 +2250,67 @@ def test_the_two_trader_skills_point_at_each_other_on_the_verb():
     assert "find traders for me to analyze" in theirs, "the ambiguous phrase is not disambiguated"
 
 
-def test_a_position_that_was_cycled_is_not_priced_as_one_that_was_held():
-    """The root cause behind every outsized counterfactual this build found.
+def test_a_counterfactual_is_priced_on_the_exposure_that_existed():
+    """B6 (@0xsarvesh, #718). The root cause behind every outsized counterfactual in the review.
 
-    Each exit counterfactual multiplies a RETURN by `peak_size × entry_vwap`, which assumes the peak
-    size was held from entry to the exit. On a scaled position that is false, and the error scales
-    with notional: xyz:SKHX on 0xb699…392e ran 507 fills over 29 days with $16,310,330 entered
-    against a $7,123,550 peak — rebuilt 2.3× — and its lock counterfactual came out at $1,240,071 on
-    a book that lost $233,845. The quoted total was 8.7× the book's own P&L.
+    Each exit counterfactual multiplied a RETURN by `peak_size x entry_vwap`, pricing the PEAK size
+    as if it had been held from entry through to the exit. On a scaled position that is a different
+    trade, and the error scales with notional: three of four losing books were offered a recovery
+    LARGER than their entire realized loss (2.41x, 2.24x, 1.43x), and one 11-trade book that lost
+    $80,743 was told "your quant would have kept ~$180,596 of this".
 
-    There is no per-moment exposure in this data, so the desk declines rather than guessing a
-    correction. The trade still counts in every TOTAL; only the exit grid skips it."""
+    Fills carry the whole size path, so the counterfactual no longer has to assume anything: book
+    what was actually booked by that moment, and mark the size actually open against its own average
+    entry. The `cycled` skip this replaces was right while the arithmetic was constant-size, but it
+    dropped 10 of 11 rows on one of those books — and, as below, never caught this one at all."""
     import timing
-    ep = lambda **kw: {**dict(coin="X", direction="LONG", entry_vwap=100.0, peak_size=100.0,
-                              open_time=0, close_time=10 * 3_600_000, realized=-1_000.0, win=False,
-                              complete=True, hold_h=10.0, entry_val=10_000.0), **kw}
-    candles = {"X": ([0, 3_600_000, 10 * 3_600_000],
-                     [(0, 100.0, 130.0, 95.0, 100.0), (3_600_000, 100.0, 130.0, 95.0, 128.0),
-                      (10 * 3_600_000, 128.0, 130.0, 90.0, 90.0)])}
+    # 200 units on at $100, 190 sold an hour later at $95, the last 10 held into a run to $130.
+    # entry_val == peak_notional, so the old `cycled` guard passed it through untouched.
+    fs = [fill("X", "B", 200, 100, 0, 0, 1),
+          fill("X", "A", 190, 95, H, 200, 2, pnl=-950),
+          fill("X", "A", 10, 95, 30 * H, 10, 3, pnl=-50)]
+    closed, _ = episodes_from_fills(fs)
+    e = closed[0]
+    assert e["realized"] == -1_000.0 and e["peak_size"] == 200 and e["entry_vwap"] == 100
+    assert e["entry_val"] <= 1.5 * e["peak_size"] * e["entry_vwap"], \
+        "the old cycled guard fired above 1.5x entry-value-over-notional; this shape never tripped it"
 
-    held = timing.per_trade([ep(entry_val=10_000.0)], candles)          # entered once, held
-    cycled = timing.per_trade([ep(entry_val=25_000.0)], candles)        # rebuilt 2.5x over its life
+    candles = {"X": ([i * H for i in range(0, 31)],
+                     [[i * H, 100.0, 131.0, 94.0, (130.0 if 2 <= i <= 29 else 95.0), 1.0] for i in range(0, 31)])}
+    row = timing.per_trade([e], candles)[0]
 
-    assert any(v is not None for v in held[0]["lock_cf"].values()), "a held position must still price"
-    assert all(v is None for v in cycled[0]["lock_cf"].values()), "a cycled position was priced as held"
-    assert all(v is None for v in cycled[0]["cut_cf"].values())
-    # and it is only the exit grid that skips it — the row itself is still there for the totals
-    assert cycled[0]["realized"] == -1_000.0 and cycled[0]["notional"] == 10_000.0
+    # At hour 12 the position is 10 units bought at $100, and $950 is already lost. Closing it at
+    # $130 nets -$650 against the -$1,000 actually realized: the cut is worth ~$350.
+    assert abs(row["cut_cf"]["12"] - 350.0) < 1.0, row["cut_cf"]
+    # The old arithmetic priced 200 units of a $30 move: 0.30 x $20,000 + $1,000 = $7,000. Twenty
+    # times the truth, on 190 units that had been sold eleven hours earlier.
+    assert row["cut_cf"]["12"] < 0.1 * 7_000.0
+
+    # A position genuinely held at one size is unchanged — same number the old form gave.
+    held = [fill("X", "B", 200, 100, 0, 0, 1), fill("X", "A", 200, 95, 30 * H, 200, 2, pnl=-1_000)]
+    hrow = timing.per_trade([episodes_from_fills(held)[0][0]], candles)[0]
+    assert abs(hrow["cut_cf"]["12"] - 7_000.0) < 1.0, hrow["cut_cf"]
+
+    # A SHORT is where a sign error hides: scaled out at a profit, then the price runs AGAINST the
+    # remainder. `size` is signed, so the mark-to-market has to come back negative on its own.
+    sh = [fill("X", "A", 200, 100, 0, 0, 11, dir_="Open Short"),
+          fill("X", "B", 190, 105, H, -200, 12, dir_="Close Short", pnl=-950),
+          fill("X", "B", 10, 105, 30 * H, -10, 13, dir_="Close Short", pnl=-50)]
+    se = episodes_from_fills(sh)[0][0]
+    assert se["direction"] == "SHORT" and se["realized"] == -1_000.0
+    srow = timing.per_trade([se], candles)[0]
+    # At hour 12 the short is 10 units from $100 and price is $130: closing books another -$300 on
+    # top of the -$950 already lost, so the cut is worth -$250 against the -$1,000 realized.
+    assert abs(srow["cut_cf"]["12"] - (-250.0)) < 1.0, srow["cut_cf"]
+    assert srow["cut_cf"]["12"] < 0, "a short closed into a rally cannot come back as a saving"
+
+    # And senpi's indexed rows carry no fills — one size, one entry price. The degenerate path has
+    # to reproduce the constant-size arithmetic for them to the cent, or the exit grid goes silent
+    # on exactly the wallets where the record is most complete.
+    agg = dict(coin="X", direction="LONG", entry_vwap=100.0, peak_size=200.0, signed=200.0,
+               open_time=0, close_time=30 * H, realized=-1_000.0, win=False, complete=True,
+               hold_h=30.0, entry_val=20_000.0)
+    assert abs(timing.per_trade([agg], candles)[0]["cut_cf"]["12"] - 7_000.0) < 1.0
 
 
 def test_the_worst_funding_coin_can_exceed_the_net_and_says_why():
@@ -2376,8 +2432,443 @@ def test_every_figure_is_computed_on_the_window_the_desk_claims():
     so the size lever's median-winner threshold and the sizing dimension's abstention gate ran on up
     to 150 days inside a desk whose every other number says 90."""
     src = _P(HERE, "..", "scripts", "desk.py").read_text()
-    assert "score.levers(tm_rows, in_win, tm" in src, "levers are back on the unfiltered set"
+    # The lever set is `lev_win` now — the fills-derived episodes on the indexed path (B6's discovery
+    # half) — but it is window-filtered exactly as `in_win` is, which is what this test is about.
+    assert "score.levers(tm_rows, lev_win, tm" in src, "levers are back on the unfiltered set"
+    assert "lev_win = [e for e in pub_closed if metrics.in_window(e, win_start)]" in src
+    assert "lev_win = in_win" in src
     assert "score.dimensions(track, book, dd, tm, mf, sm, in_win, pnl_curve)" in src, \
         "dim_sizing is back on the unfiltered set"
     # the wider fetch itself is deliberate and must stay
     assert "days + 60" in src or "days+60" in src or "FETCH_PAD" in src or "win_start" in src
+
+
+def test_the_stop_ladder_measures_a_day_not_an_hour():
+    """@danielmbirochi (#718), B7. `deep._atr` averaged `high - low` over the last 24 HOURLY candles
+    and the table called it "24h range", so the hard stop sat 1.5 HOURLY ranges out while the copy
+    promised "one and a half days of normal range". On live BTC that is 0.98% where a real daily
+    range gives 4.60% — a stop ~4.7x too tight, on the one screen that tells the reader to go place
+    these numbers themselves."""
+    # A steady one-way hour: every hour swings 1.0, but a whole day travels 24.
+    rows = [[i * 3_600_000, 100.0 + i, 100.5 + i, 99.5 + i, 100.0 + i, 1.0] for i in range(48)]
+    c = timing.load_candles({"X": rows})
+    assert deep._atr(c, "X") == 24.0, "a day's range is its high-to-low, not the mean of its hours"
+    assert deep._atr(c, "X") != 1.0, "this is the shipped bug: the mean hourly range"
+
+    # Blocks end at the NEWEST candle: a partial block is dropped from the old end, never the new one.
+    noisy = [[i * 3_600_000, 100.0, 900.0, 1.0, 100.0, 1.0] for i in range(6)] + rows[:24]
+    assert deep._atr(timing.load_candles({"X": noisy}), "X") == 24.0, "stale hours leaked into today's range"
+
+    # Too little tape to make one day is no answer at all, not a partial day dressed as one.
+    assert deep._atr(timing.load_candles({"X": rows[:12]}), "X") is None
+
+    # A coin with no candles falls back on a DAILY-scale stand-in (the fallback used to be sized
+    # against the hourly number), and the table still says "—" rather than quoting a made-up range.
+    r = {"book": {"positions": [dict(coin="NOPE", side="LONG", mark=100.0, size=1.0, liq_px=None,
+                                     margin_used=50.0, notional=100.0, stop_covered_share=0.0)]}}
+    row = deep.protect(r, {})["rows"][0]
+    assert row["atr_pct"] is None, "an unmeasured range must not be quoted as measured"
+    assert row["hard_stop_pct"] > 3.0, "the no-candle stop is back on the hourly scale"
+
+    src = _P(HERE, "..", "scripts", "render.py").read_text()
+    assert "| Daily range |" in src and "24h range" not in src, "the column still promises a day it does not measure"
+
+
+def test_the_venue_can_fail_in_the_three_ways_it_actually_fails():
+    """@danielmbirochi (#718), items 13/14/15. Three unguarded edges, all on the public path."""
+    import datetime, email.utils
+
+    # 13. Retry-After is delta-seconds OR an HTTP-date (RFC 7231). float() parses one of them, and
+    # the ValueError escaped from inside the 429 handler — the header that says when the bucket
+    # refills was turning a retryable rate-limit into a crash.
+    assert hl_api._retry_after({"Retry-After": "12"}) == 12.0
+    soon = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=30)
+    got = hl_api._retry_after({"Retry-After": email.utils.format_datetime(soon)})
+    assert 20 <= got <= 40, "the HTTP-date form has to yield seconds, not raise"
+    assert hl_api._retry_after({"Retry-After": "not a date"}) == 0.0  # fall through to backoff
+    assert hl_api._retry_after({}) == 0.0 and hl_api._retry_after(None) == 0.0
+    past = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)
+    assert hl_api._retry_after({"Retry-After": email.utils.format_datetime(past)}) == 0.0, "never negative"
+
+    # 15. A cache is an optimisation. A truncated file used to be terminal — every later run re-read
+    # the same bytes and died instead of refetching.
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+        fh.write('{"half a respon')
+        bad = fh.name
+    assert hl_api._cached(bad) is None, "a corrupt cache must read as a miss"
+    assert hl_api._cached(bad + ".nope") is None
+    hl_api._atomic_json(bad, {"ok": 1})
+    assert hl_api._cached(bad) == {"ok": 1}
+    os.unlink(bad)
+
+    # 14. `--find` fetches a ~40 MB public file with no auth and no SLA, and it was the only
+    # leaderboard call outside a try — a slow venue printed a traceback for the agent to read out.
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    find_branch = src.split("if a.find:", 1)[1].split("if a.addresses:", 1)[0]
+    assert "try:" in find_branch and "hl.leaderboard()" in find_branch, "--find is back outside a try"
+    assert '"error"' in find_branch, "a failure here has to come back as the desk's error shape"
+
+
+def test_a_lever_is_only_quoted_where_the_bar_is_the_same_for_every_lever():
+    """@danielmbirochi (#718), items 7/8/9. Three places where a lever got in on easier terms than
+    the levers it then out-scored."""
+    # 7. The chase lever was admitted at n>=3 and skipped the noise gate entirely, so three trades
+    # could out-rank a five-trade exit rule that had to keep 15% of what it saved.
+    tm3 = dict(n=10, chased_n=3, chased_realized=-9_000.0, calm_pf=2.0, chased_pf=0.2)
+    rows3 = [_tm_row(realized=-3_000.0, chased=True) for _ in range(3)]
+    assert [x["kind"] for x in score.levers(rows3, [], tm3)] == [], "three trades is not a pattern"
+    tm5 = {**tm3, "chased_n": 5}
+    rows5 = [_tm_row(realized=-1_800.0, chased=True) for _ in range(5)]
+    assert [x["kind"] for x in score.levers(rows5, [], tm5)] == ["chase"]
+    # and it answers to the same noise bar: hands back all but 5% of what it saves
+    tm_noise = {**tm5, "chased_realized": -500.0}
+    rows_noise = [_tm_row(realized=-2_000.0, chased=True) for _ in range(4)] + [_tm_row(realized=7_500.0, chased=True)]
+    lvn = score.levers(rows_noise, [], tm_noise)
+    assert lvn and lvn[0]["noisy"] and score.best_lever(lvn) is None
+
+    # 8. Six settings that clear the sample bar, five of them noise. The family median is a noisy
+    # setting, so the family does not get quoted — where before, the one survivor WAS the "median"
+    # and the grid search came back as a finding.
+    keys = ["12", "24", "48"]
+    settings = {"12": dict(n=6, total=100.0), "24": dict(n=6, total=120.0), "48": dict(n=6, total=9_000.0)}
+    rows8 = [_tm_row(cut_cf={k: 3_000.0 for k in keys}) for _ in range(6)]
+    lv8 = score.levers(rows8, [], dict(cut={"settings": settings}))
+    assert sorted(x["key"] for x in lv8) == ["12", "24", "48"], "the gate may not remove a setting from its own family"
+    assert [x["noisy"] for x in sorted(lv8, key=lambda x: x["key"])] == [True, True, False]
+    assert score.best_lever(lv8) is None, "one survivor out of six is a grid search, not a median"
+
+    # 9. The 24h funding cap credits the funding saved AND has to charge the exits it forces. With
+    # no 24h-cut sample there is nothing to charge, and crediting the whole bill uncharged is the
+    # survivorship shape this lever was rewritten to remove — so it abstains, and the leak beside it
+    # states the measured cost without putting a number on the fix.
+    assert score.levers([_tm_row()], [], {}, funding_late=114_566.0) == []
+    ep = [dict(coin="BTC", open_time=0, close_time=10 * 86_400_000)]
+    pay = [dict(time=5 * 86_400_000, delta=dict(usdc="-114566", coin="BTC"))]
+    lk = score.leaks(dict(trades=40, funding=-114_566.0, coins={"BTC": dict(funding=-114_566.0)}),
+                     dict(funding_per_day=-500.0), {}, pay, ep, 0, 90, lv=[])
+    fund = [l for l in lk if "funding" in l["title"]]
+    assert fund and fund[0]["usd"] == 0.0 and fund[0]["unpriced"], fund
+    assert "114,566" in fund[0]["title"], "the measured cost still has to be stated"
+
+
+def test_the_fee_split_prices_both_sides_on_the_dex_they_traded_on():
+    """@danielmbirochi (#718), items 6 and 12. B2 split TAKER volume across the main and HIP-3
+    schedules and left the MAKER side entirely on the main-dex rate — on the book where 98.9% of
+    taker volume is xyz:, that skews the very taker/maker ratio the split exists to compute. The
+    evidence line then quoted the main-dex bp beside a fee figure apportioned across both."""
+    def _e(coin, vol, taker):
+        return dict(coin=coin, volume=vol, taker_volume=taker, realized=0.0, fees=0.0, win=False,
+                    complete=True, truncated=False, hold_h=1.0, peak_notional=vol, direction="LONG",
+                    close_time=1, open_time=0, liquidated=False, adds=0, entry_vwap=1.0, peak_size=vol)
+    main = dict(userCrossRate="0.00035", userAddRate="0.0001")
+    xyz = dict(userCrossRate="0.0007", userAddRate="0.0004")
+    # Everything on xyz:, half taker half maker, and $1,000 of fees actually paid.
+    rows = [_e("xyz:UNITREE", 1_000_000.0, 500_000.0)]
+    rows[0]["fees"] = 1_000.0
+    tr = metrics.track_record(rows, [], [], main, 0, fee_sched_xyz=xyz)
+    # 6. The maker side is priced at the xyz maker rate, so the taker share is 0.0007/(0.0007+0.0004).
+    assert abs(tr["fee_rate_maker"] - 0.0004) < 1e-9, "maker fills were priced on a dex they never touched"
+    assert abs(tr["fee_rate_taker"] - 0.0007) < 1e-9
+    # 12. What the reader is quoted is what the reader pays; the main-dex schedule is still carried
+    # for anyone who needs it, it just no longer stands in for the book.
+    assert tr["fee_rate_taker_main"] == 0.00035 and tr["fee_rate_maker_main"] == 0.0001
+    # and the saving is the xyz spread (1 - 4/7), not the main-dex one (1 - 1/3.5)
+    assert abs(tr["fee_recoverable"] - 1_000.0 * (7 / 11) * (1 - 4 / 7)) < 1e-6
+
+    # A book on the main dex only is unchanged by any of it.
+    plain = [_e("BTC", 1_000_000.0, 500_000.0)]
+    plain[0]["fees"] = 1_000.0
+    t2 = metrics.track_record(plain, [], [], main, 0, fee_sched_xyz=None)
+    assert t2["fee_rate_taker"] == 0.00035 and t2["fee_rate_maker"] == 0.0001
+
+    src = _P(HERE, "..", "scripts", "score.py").read_text()
+    assert "tr['fee_rate_taker'] * 1e4" in src, "the leak evidence must quote the rate the reader faces"
+
+
+def test_a_zero_percent_win_rate_is_a_measurement_not_a_missing_value():
+    """@danielmbirochi (#718), item 11. `(wr or 0.5)` sits inside a branch that already handles
+    wr is None, so it only ever fires on a win rate of exactly 0.0 — the worst record there is,
+    scored as if it were a coin flip, worth +20 points."""
+    zero = dict(trades=20, win_rate=0.0, profit_factor=0.0)
+    half = dict(trades=20, win_rate=0.5, profit_factor=0.0)
+    s0, _ = score.dim_consistency(zero, None)
+    s5, _ = score.dim_consistency(half, None)
+    assert s0 < s5, "0% and 50% cannot score the same"
+    none = dict(trades=20, win_rate=None, profit_factor=1.0)
+    assert score.dim_consistency(none, None)[0] is not None, "a missing win rate still abstains, not crashes"
+
+
+def test_the_page_never_says_no_leak_over_a_number_it_just_printed():
+    """@danielmbirochi (#718), item 10. recoverable_line returned [] whenever the leak list was
+    empty, so a book whose recoverable money was taker fees — measured, not counterfactual — got the
+    sentence "No leak clears the bar" and no figure, while the JSON handed the agent the figure."""
+    import render
+    r = {"track": {"trades": 40, "net": -5_000.0}, "leaks": [],
+         "recoverable": {"usd": 18_898.0, "fees": 18_898.0, "rule": None, "n_trades": 40,
+                         "concentration": {}, "share_of_losses": None}, "timing": {}}
+    md = render.leaks(r)
+    md = "\n".join(md) if isinstance(md, list) else md
+    assert "18,898" in md, "the desk computed a number and then refused to print it"
+    assert "No leak clears the bar" not in md
+    assert "process" in md, "say which kind of leak came up empty"
+
+    # nothing recoverable at all still reads the old way
+    r0 = {**r, "recoverable": {"usd": 0.0}}
+    _j = lambda x: "\n".join(x) if isinstance(x, list) else x
+    assert "No leak clears the bar" in _j(render.leaks(r0))
+    # and too thin to judge still outranks both
+    r1 = {**r, "track": {"trades": 2}}
+    assert "Not enough closed trades" in _j(render.leaks(r1))
+
+
+def test_the_smaller_reads_from_round_two_of_the_review():
+    """@danielmbirochi (#718), round 2. Five places where a number described a different thing than
+    the sentence around it claimed."""
+    import market, smart_money, strategy_read
+
+    # A. Beta divided every step's P&L by TODAY's account value, so a book that grew over the window
+    # had its early returns scaled by a denominator that did not exist yet.
+    import math
+    ts = [i * 3_600_000 for i in range(60)]
+    px = [100.0 * (1 + 0.02 * math.sin(i)) for i in range(60)]
+    btc = (ts, [[ts[i], px[i], px[i], px[i], px[i], 1.0] for i in range(60)])
+    eqv = [10_000.0 * (1.1 ** i) for i in range(60)]      # the book grows ~250x over the window
+    pv = [0.0]
+    for i in range(1, 60):                               # every step is exactly 1.5x BTC, on the
+        pv.append(pv[-1] + 1.5 * (px[i] / px[i - 1] - 1) * eqv[i - 1])   # equity of the moment
+    pnl, grew = list(zip(ts, pv)), list(zip(ts, eqv))
+    real = strategy_read.pnl_beta(pnl, btc, eqv[-1], equity=grew)
+    flat = strategy_read.pnl_beta(pnl, btc, eqv[-1])
+    assert real and abs(real["beta"] - 1.5) < 0.05, f"the true beta is 1.5: {real}"
+    assert flat and abs(flat["beta"]) < 0.5, f"today's equity flattens every early step: {flat}"
+    # and with no curve it still answers, on the old denominator
+    assert strategy_read.pnl_beta(pnl, btc, eqv[-1], equity=[])["beta"] == flat["beta"]
+
+    # B. volume_share summed the numerator over closed trades and the denominator over closed+opened,
+    # so on a book carrying large open positions every coin's share read low and none of them summed.
+    def _e(coin, vol):
+        return dict(coin=coin, volume=vol, taker_volume=vol, realized=1.0, fees=0.0, win=True,
+                    complete=True, truncated=False, hold_h=1.0, peak_notional=vol, direction="LONG",
+                    close_time=1, open_time=0, liquidated=False, adds=0, entry_vwap=1.0, peak_size=vol)
+    tr = metrics.track_record([_e("BTC", 600.0), _e("ETH", 400.0)], [_e("SOL", 9_000.0)],
+                              [], dict(userCrossRate="0.00035", userAddRate="0.0001"), 0)
+    shares = [c["volume_share"] for c in tr["coins"].values()]
+    assert abs(sum(shares) - 1.0) < 1e-9, f"the shares have to be shares of something: {shares}"
+
+    # C. "197% of what your losing trades gave up" was printable. Above 100% the frame stops meaning
+    # anything to a reader, whatever the arithmetic says.
+    import render
+    base = {"track": {"trades": 40, "net": -1_000.0}, "leaks": [{"title": "x"}], "timing": {},
+            "recoverable": {"usd": 5_000.0, "fees": 5_000.0, "rule": None, "n_trades": 40,
+                            "concentration": {}, "share_of_losses": 1.97}}
+    assert "197%" not in "\n".join(render.recoverable_line(base))
+    ok = {**base, "recoverable": {**base["recoverable"], "share_of_losses": 0.62}}
+    assert "62%" in "\n".join(render.recoverable_line(ok))
+
+    # D. A bias of exactly 0.0 — a split cohort, or one with nothing to read — rendered as SHORT.
+    assert smart_money._side(0.0) is None and smart_money._side(-0.0) is None
+    assert smart_money._side(0.4) == "LONG" and smart_money._side(-0.4) == "SHORT"
+
+    # E. Under 480 hourly candles there is no 20-day mean, and what it used instead — as few as 48
+    # candles — was fed to a +/-2% threshold and reported as a trend.
+    thin = {"NEW": ([i * 3_600_000 for i in range(200)],
+                    [[i * 3_600_000, 100.0, 101.0, 99.0, 100.0 * (1.02 ** i), 1.0] for i in range(200)])}
+    r = market.coin_regime("NEW", thin, {"funding": "0", "markPx": "1", "openInterest": "0", "dayNtlVlm": "0"})
+    assert r["trend"] == "UNKNOWN" and r["vs_20d_mean"] is None, "a 4-day mean is not a 20-day mean"
+    assert r["vol_30d"] is None, "the same defect one line down: 720 candles IS the 30-day vol"
+    assert market.fit(dict(side="SHORT"), r) == "UNKNOWN", "an unknown trend is not a market a position fits"
+    fat = {"OLD": ([i * 3_600_000 for i in range(900)],
+                   [[i * 3_600_000, 100.0, 101.0, 99.0, 100.0 * (1.002 ** i), 1.0] for i in range(900)])}
+    assert market.coin_regime("OLD", fat, {"funding": "0", "markPx": "1", "openInterest": "0", "dayNtlVlm": "0"})["trend"] == "UP"
+
+
+def test_coverage_is_reconciled_against_the_exchanges_own_pnl():
+    """@0xsarvesh (#718), B5. Coverage was measured only from `startPosition` jumps, which can only
+    see gaps the fills we DID get imply — a whole TWAP series older than the retained window leaves
+    no jump behind and reads as 100% covered. Hyperliquid's own P&L delta is the independent witness."""
+    import render
+    # 96% by the jump heuristic, but the rebuilt window nets $10k against the exchange's own $100k
+    # and the open book is carrying nothing: 90% of the P&L came from fills we never saw.
+    cov = dict(overall=0.96, effective=0.10, ledger_net=100_000.0, reconstructed_net=10_000.0, ledger_gap=90_000.0)
+    note = render.coverage_note(dict(coverage=cov), {"sources": {"trades": "public fills"}})
+    assert note and "10%" in note, note
+    assert "API" not in note and "Hyperliquid" not in note, "the desk never names a data source"
+
+    # a gap the open book explains leaves the note off the page entirely
+    ok = dict(overall=0.96, effective=0.96, ledger_net=100_000.0, reconstructed_net=99_000.0, ledger_gap=1_000.0)
+    assert render.coverage_note(dict(coverage=ok), {"sources": {"trades": "public fills"}}) is None
+    # and senpi's own record still says so, ahead of any coverage figure — the moat line
+    assert "senpi discovery" in render.coverage_note(dict(coverage=cov), {"sources": {"trades": "senpi discovery (40 closed positions)"}})
+
+    # the reconciliation itself: rebuilt + what the book still carries, against the ledger's delta
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    # the exposure path is an input to the lever grid, not an output: shipping it doubled the state
+    # file on a 436-trade book (0.33 MB -> 0.63 MB) for 5,317 tuples nothing downstream reads
+    assert 'if k != "size_path"} for e in in_win' in src, "the size path is back in the payload"
+    assert 'cov["reconstructed_net"] = track["net"] + book["unrealized"]' in src
+    assert 'cov["effective"] = min(' in src
+
+
+def test_a_leak_cannot_walk_around_the_bar_the_lever_answers_to():
+    """Found running 1.23.0 on 0xb699…392e — the same wallet MIN_PATTERN_TRADES was written for.
+
+    `leaks()` fell back to `timing.summarize`'s `robust` whenever `best_lever` declined a family.
+    `robust` is the pre-levers path: the median of every setting's total, sample gate or not. So the
+    gates went on `levers()` and the leak walked around them — that book's 24h setting had n=3 and
+    48h n=2, the family was correctly declined, and the page still printed "~$341,779" beside a
+    headline that said $2,709. One table, one bar: a declined lever means an unpriced claim, and
+    only a leak with measured evidence of its own still has anything to say."""
+    tm = dict(n=9, give_back_median=0.88, mfe_median_winners=0.046, losers_that_were_green=1.0,
+              cut={"settings": {"12": dict(n=5, total=29_524.0), "24": dict(n=3, total=341_779.0),
+                                "48": dict(n=2, total=368_250.0)},
+                   "robust": 341_779.0},
+              lock={"settings": {"0.03/0.5": dict(n=2, total=46_644.0)}, "robust": 46_644.0})
+    tr = dict(trades=9, complete_trades=8, hold_ratio=3.1, hold_losers_h=40.0, hold_winners_h=13.0,
+              funding=0.0, coins={}, liquidations=0)
+    rows = [_tm_row(cut_cf={"12": 6_000.0}) for _ in range(5)]
+    lv = score.levers(rows, [], tm)
+    assert {x["key"] for x in lv} == {"12"}, "only the sampled setting may enter the family"
+
+    lk = score.leaks(tr, {}, tm, [], [], 0, 90, lv=lv)
+    priced = {l["title"]: l["usd"] for l in lk if not l.get("unpriced")}
+    assert 341_779.0 not in priced.values(), "a three-trade counterfactual reached the page"
+    assert 46_644.0 not in priced.values()
+
+    # the measured half survives, unpriced and saying so
+    gb = [l for l in lk if "give back" in l["title"]]
+    assert gb and gb[0]["unpriced"] and gb[0]["usd"] == 0.0
+    assert "88%" in gb[0]["title"] and "does not put a number" in gb[0]["counterfactual"]
+    # the hold leak IS priced here — but from the 12h setting that cleared the sample bar, not from
+    # `robust`. That is the whole distinction: a number, when one survives the gate.
+    hold = [l for l in lk if "hold losers" in l["title"]]
+    assert hold and not hold[0].get("unpriced")
+    assert hold[0]["usd"] == score.best_lever(lv, "cut")["total"] < 341_779.0
+
+    # and a claim with no measured evidence of its own does not appear at all
+    assert not [l for l in lk if l["title"].startswith("Positions still open at 24h")]
+
+    # nothing in leaks() may read `robust` again
+    src = _P(HERE, "..", "scripts", "score.py").read_text()
+    assert '.get("robust")' not in src, "the pre-levers fallback is back"
+
+
+def test_the_lever_grid_never_runs_on_a_size_that_never_existed():
+    """B6, the discovery half (@0xsarvesh, #718). B6 landed on the fills path and reached 0 of 161
+    discovery episodes, so every user with a token still got constant-size counterfactuals.
+
+    The premise in the first fix was wrong: a discovery row is not a position held at one size. The
+    largest xyz:SKHX row on 0x615f9484… carries 13,651 fills over 20 days with `size` 7,999 against a
+    peak concurrent exposure near 880 — `size` accumulates over the position's life, and the lever
+    priced $9.9M of notional on it. Same wallet, same window, same minute: fills $35,032 (0.188 of
+    losses) against discovery $1,043,709 (1.032). The desk fetches the fills on every run whatever
+    the source, so totals come from discovery and the grid comes from episodes with a real path."""
+    import desk
+    with open(FIXTURE) as fh:
+        rec = json.load(fh)
+    addr, now = rec["address"], rec["now_ms"]
+    rec = dict(rec)
+    # one discovery row per coin the fixture trades, each an aggregate with no intra-trade path
+    rec[f"discovery_get_trader_history::{addr}"] = {"success": True, "data": {"closedPositions": [
+        {"closedOrderId": f"0x{i}", "coin": "ETH", "entryPx": "2500", "exitPx": "2450",
+         "leverage": {"type": "cross", "value": 10}, "openTime": now - (i + 1) * 30 * H,
+         "closeTime": now - i * 30 * H + 6 * H, "szi": "2", "realizedPnl": "-100",
+         "marginUsed": "500", "totalFills": "900", "totalFees": "2.5"} for i in range(24)],
+        "pageInfo": {"totalCount": 24, "hasNextPage": False}}}
+    r = desk.analyze(addr, hl_api.HLFixture(rec), days=90, mcp=desk._MCPFixture(rec), bench=None)
+
+    # totals still come from discovery — that half of the split is the point of the indexed path
+    assert r["meta"]["sources"]["trades"].startswith("senpi discovery (24"), r["meta"]["sources"]
+    assert r["track"]["trades"] == 24
+    # …and the grid says, on the page's own record, where it had to get its exposure from
+    assert "public fills" in r["meta"]["sources"]["levers"]
+    assert "size path" in r["meta"]["sources"]["levers"]
+
+    # behavioural, not just structural: the fixture's discovery rows are 24 ETH aggregates while its
+    # fills rebuild a different book entirely, so the grid's own sample says which set it read
+    pub, _ = episodes_from_fills(hl_api.HLFixture(rec).trader(addr, days=90)["fills"])
+    want = len([e for e in pub if e.get("complete") and metrics.in_window(e, rec["now_ms"] - 90 * 24 * H)])
+    assert r["timing"] and r["timing"]["n"] != 24, "the grid counted discovery aggregates"
+    assert r["timing"]["n"] <= want, (r["timing"]["n"], want)
+
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    assert "timing_mod.per_trade(lev_win, candles)" in src, "the grid is back on discovery rows"
+    assert "score.recoverable(tm_rows, lev_win" in src and "score.best_setups(lev_win" in src, \
+        "the quotable number and the setups must read the same episode set the grid did"
+
+
+def test_the_quoted_fee_rate_is_the_one_the_fills_actually_paid():
+    """Item 12 (@0xsarvesh, #718). Deriving the rate per dex did not survive contact: `userFees`
+    with dex:"xyz" returns the IDENTICAL schedule to main, so the split always fell back and the
+    evidence still read "4.0 bp taker / 1.4 bp maker" beside a fee figure those rates multiply out
+    to 4.03x. Same principle as the dollars — take what was actually paid."""
+    def _e(coin, vol, taker, fee, tk_fee):
+        return dict(coin=coin, volume=vol, taker_volume=taker, fees=fee, taker_fees=tk_fee,
+                    realized=0.0, win=False, complete=True, truncated=False, hold_h=1.0,
+                    peak_notional=vol, direction="LONG", close_time=1, open_time=0,
+                    liquidated=False, adds=0, entry_vwap=1.0, peak_size=vol)
+    # the schedule says 3.5/0.8 bp; the fills say 10 bp taker and 2 bp maker, and the fills win
+    sched = dict(userCrossRate="0.00035", userAddRate="0.00008")
+    rows = [_e("xyz:UNITREE", 1_000_000.0, 500_000.0, 6_000.0, 5_000.0)]
+    tr = metrics.track_record(rows, [], [], sched, 0, fee_sched_xyz=sched)
+    assert abs(tr["fee_rate_taker"] - 0.010) < 1e-9, tr["fee_rate_taker"]
+    assert abs(tr["fee_rate_maker"] - 0.002) < 1e-9, tr["fee_rate_maker"]
+    # the quoted rates now reproduce the quoted fee, which is what item 12 was about
+    quoted = tr["fee_rate_taker"] * 500_000.0 + tr["fee_rate_maker"] * 500_000.0
+    assert abs(quoted - tr["fees"]) < 1e-6, (quoted, tr["fees"])
+    # with no fill-level split recorded, the schedule estimate still answers
+    bare = metrics.track_record([{**rows[0], "taker_fees": 0.0}], [], [], sched, 0, fee_sched_xyz=sched)
+    assert bare["fee_rate_taker"] == 0.00035
+
+    # and the episode builder has to carry the split, or none of the above ever fires in production
+    fs = [fill("ETH", "B", 1, 100, 0, 0, 1, fee=0.5, crossed=True),
+          fill("ETH", "B", 1, 100, H, 1, 2, fee=0.1, crossed=False),
+          fill("ETH", "A", 2, 100, 2 * H, 2, 3, fee=0.5, crossed=True, pnl=0.0)]
+    e = episodes_from_fills(fs)[0][0]
+    assert e["taker_fees"] == 1.0 and e["fees"] == 1.1, e
+    assert e["taker_volume"] == 300.0 and e["volume"] == 400.0
+
+
+def test_beta_is_not_measured_against_a_collapsed_equity_tail():
+    """@0xsarvesh (#718). Dividing each step by the equity at that step is right in form, and
+    unbounded in practice: 0xdc93a8fd… read beta 35.43. Gated off the page today by |corr| >= 0.5,
+    but a collapsed tail with a real correlation would print "a 1% BTC move swings your equity by
+    about 35%"."""
+    import math, strategy_read
+    ts = [i * 3_600_000 for i in range(60)]
+    px = [100.0 * (1 + 0.02 * math.sin(i)) for i in range(60)]
+    btc = (ts, [[ts[i], px[i], px[i], px[i], px[i], 1.0] for i in range(60)])
+    eqv = [100_000.0] * 50 + [1.0] * 10          # the account collapses at the end of the window
+    pv = [0.0]
+    for i in range(1, 60):
+        pv.append(pv[-1] + 1.5 * (px[i] / px[i - 1] - 1) * 100_000.0)
+    pnl, curve = list(zip(ts, pv)), list(zip(ts, eqv))
+    b = strategy_read.pnl_beta(pnl, btc, 1.0, equity=curve)
+    assert b and abs(b["beta"] - 1.5) < 0.25, f"the tail swamped the measurement: {b}"
+    assert abs(b["beta"]) < 5, "a near-zero denominator is a division by the tail, not a return"
+
+
+def test_the_indexed_path_quotes_the_rate_the_fills_paid_too():
+    """@0xsarvesh on 1.24.0. Item 12 measures the rates from the fills, and discovery episodes carry
+    no `taker_fees` — so on the indexed path `_tk_fees` sums to 0, both rates fall back to the
+    schedule, and desk.py patched `taker_share`/`fee_recoverable`/`volume` in from the fills track
+    but not the two rates. Schedule basis points beside fills volume: the evidence sentence still
+    failed to multiply out (1.97x, down from 4.03x — better, not closed)."""
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    blk = src.split('if source != "public fills":', 1)[1].split("step(2,", 1)[0]
+    for k in ("taker_share", "fee_recoverable", "volume", "fee_rate_taker", "fee_rate_maker"):
+        assert f'fb["{k}"]' in blk, f"{k} is not carried over from the fill-level read"
+
+    # and the fills track is the one that measures them, so the two must agree
+    def _e(vol, taker, fee, tk_fee):
+        return dict(coin="xyz:X", volume=vol, taker_volume=taker, fees=fee, taker_fees=tk_fee,
+                    realized=0.0, win=False, complete=True, truncated=False, hold_h=1.0,
+                    peak_notional=vol, direction="LONG", close_time=1, open_time=0,
+                    liquidated=False, adds=0, entry_vwap=1.0, peak_size=vol)
+    sched = dict(userCrossRate="0.00045", userAddRate="0.00015")
+    fb = metrics.track_record([_e(1_000_000.0, 500_000.0, 6_000.0, 5_000.0)], [], [], sched, 0)
+    # discovery rows: same book, no fill-level split — the schedule is all they can offer
+    disc = metrics.track_record([{**_e(1_000_000.0, 500_000.0, 6_000.0, 0.0), "taker_fees": 0.0}], [], [], sched, 0)
+    assert disc["fee_rate_taker"] == 0.00045 and abs(fb["fee_rate_taker"] - 0.010) < 1e-9
+    assert fb["fee_rate_taker"] * 500_000.0 + fb["fee_rate_maker"] * 500_000.0 == fb["fees"], \
+        "the quoted rates have to reproduce the quoted fee"

@@ -27,7 +27,7 @@ def _new(coin, f, signed, truncated=False):
     return dict(coin=coin, signed=signed, open_time=f["time"], close_time=None, last_time=f["time"], realized=0.0, fees=0.0,
                 volume=0.0, taker_volume=0.0, twap_volume=0.0, adds=0, partial_closes=0, entry_qty=0.0, entry_val=0.0, exit_qty=0.0,
                 exit_val=0.0, peak_size=0.0, peak_notional=0.0, liquidated=False, truncated=truncated, n_fills=0, unobserved_qty=0.0, unobserved_notional=0.0,
-                close_observed=True, entry_orders=set())
+                close_observed=True, entry_orders=set(), size_path=[], avg_entry=None, taker_fees=0.0)
 
 
 def _sign(x):
@@ -62,7 +62,7 @@ def episodes_from_fills(fills):
         ep["n_fills"] += 1; ep["realized"] += float(f["closedPnl"]); ep["fees"] += float(f["fee"])
         ep["volume"] += sz * px
         if f.get("crossed"):
-            ep["taker_volume"] += sz * px
+            ep["taker_volume"] += sz * px; ep["taker_fees"] += float(f["fee"])
         if f.get("twapId") is not None:
             ep["twap_volume"] += sz * px
         if "Liquidated" in f.get("dir", ""):
@@ -78,12 +78,25 @@ def episodes_from_fills(fills):
         ep["peak_size"] = max(ep["peak_size"], abs(after), abs(before))
         ep["peak_notional"] = max(ep["peak_notional"], max(abs(after), abs(before)) * px)
         ep["last_time"] = f["time"]
+        # The exposure actually held, fill by fill: (time, signed size after, average entry after,
+        # booked P&L after). Hyperliquid's own convention — an increase moves the average, a decrease
+        # books `closedPnl` against it and leaves it alone — so a counterfactual can be priced on the
+        # position that existed at a moment instead of on the peak size assumed held throughout.
+        # (B6, @0xsarvesh #718.)
+        if before == 0.0 or _sign(after) == _sign(before) or after == 0.0:
+            if abs(after) > abs(before) + EPS:
+                prev = ep["avg_entry"] if ep["avg_entry"] is not None else px
+                ep["avg_entry"] = (prev * abs(before) + px * (abs(after) - abs(before))) / abs(after)
+            elif ep["avg_entry"] is None:
+                ep["avg_entry"] = px
+        ep["size_path"].append((f["time"], 0.0 if flipped else after, ep["avg_entry"], ep["realized"]))
         tracked[coin] = after
         if after == 0.0 or flipped:
             ep["close_time"] = f["time"]; done.append(ep); del open_ep[coin]
             if flipped:
                 ne = _new(coin, f, after); ne["entry_qty"], ne["entry_val"] = abs(after), abs(after) * px
                 ne["peak_size"], ne["peak_notional"] = abs(after), abs(after) * px; ne["n_fills"] = 1
+                ne["avg_entry"] = px; ne["size_path"] = [(f["time"], after, px, 0.0)]
                 open_ep[coin] = ne
     for ep in done + list(open_ep.values()):
         _finish(ep)
