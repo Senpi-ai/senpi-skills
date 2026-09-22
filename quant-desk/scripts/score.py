@@ -370,12 +370,18 @@ def verdict(tr, book, dims, leaks):
     weakest = ranked[0] if ranked else None
     weak_line = imperative = None
     if weakest is not None and dims[weakest]["score"] < 60:
-        weak_line = {
+        # Use the dimension's OWN sentence. Keying a fixed phrase off the dimension NAME asserted a
+        # reason the dimension had just denied: "your entries are late or chased" printed directly
+        # above "Entries are not systematically late or chased over this window." Timing scores low
+        # for give-back too, and the headline was naming the wrong half of it.
+        _own = (dims[weakest].get("line") or "").strip().rstrip(".")
+        weak_line = (_own[0].lower() + _own[1:]) if _own else {
             "risk": "you're carrying unprotected risk" if book["naked"] else "the risk side is where it leaks",
             "cost": "execution and funding are eating the gains" if (tr.get("funding") or 0) < 0 else "execution is eating the gains",
-            "timing": "your entries are late or chased", "sizing": "sizing is working against you", "consistency": "the results are not repeatable yet",
+            "timing": "the timing side is where it leaks", "sizing": "sizing is working against you",
+            "consistency": "the results are not repeatable yet",
             "market_fit": "the book is fighting the market it sits in"}[weakest]
-        imperative = {"risk": "Fix the risk first.", "cost": "Cut the costs first.", "timing": "Fix the entries first.", "sizing": "Fix the sizing first.",
+        imperative = {"risk": "Fix the risk first.", "cost": "Cut the costs first.", "timing": "Fix the timing first.", "sizing": "Fix the sizing first.",
                       "consistency": "Build the sample before scaling.", "market_fit": "Get on the right side of the regime first."}[weakest]
     near = [p for p in book["positions"] if p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5]
     if near:
@@ -461,9 +467,19 @@ def levers(rows, closed, tm=None, funding_late=0.0):
         # charging nothing for the exits it forces was the fourth survivorship bug (@0xsarvesh #718);
         # the first three were fixed in #712.
         _cut24 = (((tm.get("cut") or {}).get("settings")) or {}).get("24") or {}
-        _charge = float(_cut24.get("total") or 0.0) if _cut24.get("n") else 0.0
+        # CHARGE only, never credit. A 24h cap forces exits, and if those exits cost money the
+        # funding saving has to carry it — that was the survivorship gap. But when they GAIN, that
+        # gain is the time-cut lever's, and adding it here summed two levers, which is the exact
+        # double-count the union exists to prevent. It made a $122,440 funding bill read as a
+        # $4,083,959 saving.
+        _charge = min(0.0, float(_cut24.get("total") or 0.0)) if _cut24.get("n") else 0.0
+        # The lever is legitimately worth funding + the P&L of the exits it forces. The LEAK beside
+        # it is titled "you paid $X in funding", so quoting the combined figure there read as saving
+        # 6x the bill ($502,094 against $80,256). Carry the two parts separately and let the leak
+        # say which is which.
         out.append(dict(kind="funding", key="24h", label="capping holds that pay funding at 24h",
-                        total=float(funding_late) + _charge, gross=float(funding_late), vals=[],
+                        total=float(funding_late) + _charge, gross=float(funding_late),
+                        funding_saved=float(funding_late), exit_effect=_charge, vals=[],
                         n=len(rows)))
 
     if (tm.get("chased_n") or 0) >= 3 and (tm.get("chased_realized") or 0) < -50 \
@@ -581,7 +597,12 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
         worst = min(tr["coins"].items(), key=lambda kv: kv[1]["funding"])
         out.append(dict(agent="Market regime", title=f"You paid {_usd(-tr['funding'])} in funding over {days} days",
                         evidence=f"{worst[0]} alone cost {_usd(-worst[1]['funding'])}; the book pays {_usd(-book['funding_per_day'])}/day at today's rates." if _n(book, "funding_per_day") < 0 else f"{worst[0]} alone cost {_usd(-worst[1]['funding'])}.",
-                        counterfactual=f"A 24h cap on holds that pay funding would have kept ~{_usd(paid_late)} over {days} days.",
+                        counterfactual=(
+                            f"A 24h cap on those holds would have kept ~{_usd(_fl['total'])} over {days} days — "
+                            f"{_usd(_fl['funding_saved'])} of funding, and {_usd(_fl['exit_effect'])} from closing "
+                            f"the positions that much earlier."
+                            if (_fl := ch.get("funding")) and abs(_fl.get("exit_effect") or 0) > 50 else
+                            f"A 24h cap on holds that pay funding would have kept ~{_usd(paid_late)} over {days} days."),
                         usd=paid_late, window=f"{days}d", cta="A funding-aware hold rule caps the cost without changing the thesis."))
     # 3. losers held too long — only when the time cut is robust
     cut_l = best_lever(lv, "cut")
