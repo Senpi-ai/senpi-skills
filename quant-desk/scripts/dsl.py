@@ -17,7 +17,7 @@ protection already in force.
 share of the HIGH-WATER GAIN, not an absolute: floor = entry + lock% x (high_water - entry).
 Saying "protected in all tiers" would claim tier 3's 88% floor when 35% is locked — on the worked
 example, 1.45% of entry at 5x of protection that does not exist. An agent made exactly that
-mistake in production once (M405775: reported "Tier 3 locked 17.7%" when only breakeven was).
+mistake in production once: it reported "Tier 3 locked 17.7%" when only breakeven was locked.
 
 Shapes here come from captured production responses, not from a live call — every read is
 `.get()`, and any failure leaves the book exactly as it was.
