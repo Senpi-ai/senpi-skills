@@ -110,7 +110,10 @@ def test_track_record_and_costs():
     tr = metrics.track_record(closed, opened, funding, {"userCrossRate": "0.0004", "userAddRate": "0.0001"}, 0)
     assert tr["trades"] == 2 and tr["win_rate"] == 0.5 and tr["profit_factor"] == 2 and tr["gross_realized"] == 10 and tr["fees"] == 4 and tr["funding"] == -2
     assert tr["net"] == 4 and abs(tr["cost_ratio"] - 0.6) < 1e-9 and tr["hold_winners_h"] is None      # below MIN_HOLD_N on purpose
-    assert abs(tr["taker_share"] - 310 / 410) < 1e-9 and abs(tr["fee_recoverable"] - 310 * 0.0003) < 1e-9
+    assert abs(tr["taker_share"] - 310 / 410) < 1e-9
+    # the saving is anchored on fees PAID, not rebuilt from volume x schedule (B2, #718), so the
+    # property is what holds: some of the bill is recoverable, never more than the bill
+    assert 0 < tr["fee_recoverable"] < abs(tr["fees"])
     assert tr["coins"]["ETH"]["trades"] == 2 and tr["long"]["trades"] == 2 and tr["short"]["trades"] == 0
 
 
@@ -1198,13 +1201,17 @@ def test_recoverable_will_not_pick_a_rule_that_costs_money_on_the_trades_it_hurt
     assert rec["usd"] == 0.0 and rec["rule"] is None, "no lever beat what the trader actually did"
 
 
-def test_recoverable_prefers_the_setting_with_the_best_book_total_not_the_best_trade():
+def test_recoverable_ranks_on_book_totals_and_quotes_the_family_median():
+    """Two things at once. The ranking is on each setting's whole-book total, never on its best
+    trade — and within the lock family the MEDIAN setting is quoted, not the best of the grid
+    (#718 Q1). The 0.05/0.5 setting is the middle of the three here."""
     tm = dict(lock={"settings": {"0.03/0.5": dict(n=9, total=9_000.0),
-                                 "0.05/0.5": dict(n=5, total=1_000.0)}})
+                                 "0.05/0.5": dict(n=5, total=4_000.0),
+                                 "0.05/0.3": dict(n=5, total=1_000.0)}})
     rec = score.recoverable([_tm_row()], [], {}, tm)
-    assert rec["usd"] == 9_000.0
-    # the lever's label is the finished sentence, so nothing has to parse "0.03/0.5" back out
-    assert rec["rule"] == "a trailing stop that arms at +3% and keeps 50% of the peak"
+    assert rec["usd"] == 4_000.0, "quoted the best of the grid rather than its median"
+    # the lever's label is the finished sentence, so nothing has to parse "0.05/0.5" back out
+    assert rec["rule"] == "a trailing stop that arms at +5% and keeps 50% of the peak"
 
 
 def test_recoverable_chase_term_is_unavailable_when_chasing_is_not_this_book_s_problem():
@@ -1713,3 +1720,120 @@ def test_the_thin_record_verdict_does_not_point_at_a_live_book_that_is_not_there
     v_held = score.verdict(tr, held, {}, [])
     assert "nothing for the desk to protect" in v_flat, v_flat
     assert "live book is where the desk earns its keep" in v_held, v_held
+
+
+def test_the_portfolio_series_is_chosen_by_span_not_by_point_count():
+    """B1 (@0xsarvesh, #718). HL samples `month` far more densely than `allTime`, so
+    `len(pts) > len(best)` picked a 31-day series and every caller labelled it 90 days. On a live
+    wallet the ledger P&L flipped sign: -$48,360 by point count, +$38,636 by span.
+
+    methodology.md has documented the span rule since 1.0; the code did not implement it."""
+    import metrics
+    day = 86_400_000
+    dense_month = [(i * day // 4, float(i)) for i in range(0, 120)]       # 30d, 120 points
+    sparse_all = [(i * day, float(i) * 10) for i in range(0, 90)]         # 89d, 90 points
+    pf = [("month", dict(pnlHistory=dense_month)), ("allTime", dict(pnlHistory=sparse_all))]
+
+    got = metrics.pnl_series(pf, 0)
+    assert (got[-1][0] - got[0][0]) // day == 89, "took the denser, shorter series"
+    assert got[-1][1] == 890.0, "the 90-day P&L, not the 30-day one"
+
+
+def test_the_perps_only_series_wins_an_equal_span_tie():
+    """Every other number on the desk is perps-only, so a whole-account P&L must not sit beside it."""
+    import metrics
+    day = 86_400_000
+    pts = lambda m: [(i * day, float(i) * m) for i in range(0, 90)]
+    pf = [("allTime", dict(pnlHistory=pts(10))), ("perpAllTime", dict(pnlHistory=pts(3)))]
+    assert metrics.pnl_series(pf, 0)[-1][1] == 267.0, "took the whole-account series on a tie"
+
+
+def test_the_equity_curve_is_actually_transfer_adjusted():
+    """B3 (@0xsarvesh). equity_curve's docstring, methodology.md and SKILL rule 3 all promise the
+    curve is transfer-adjusted. desk.py computed the flow list and then passed `[]` on the next
+    line, so a trader who withdrew their profit read as a blown account."""
+    import pathlib, re
+    src = pathlib.Path(__file__).resolve().parents[1].joinpath("scripts", "desk.py").read_text()
+    call = re.search(r"metrics\.equity_curve\(([^)]*)\)", src)
+    assert call and "[]" not in call.group(1), f"flow list dropped again: {call and call.group(0)}"
+    assert "fl" in call.group(1)
+
+    # and the adjustment actually moves the curve
+    day = 86_400_000
+    series = [("allTime", dict(accountValueHistory=[(i * day, 1_000.0) for i in range(5)]))]
+    flat = metrics.equity_curve(series, [], 0)
+    withdrew = metrics.equity_curve(series, [(2 * day, -400.0)], 0)
+    assert [v for _, v in flat] == [1_000.0] * 5
+    assert [v for _, v in withdrew][-1] == 1_400.0, "a withdrawal must not read as a loss"
+
+
+def test_the_fee_leak_is_anchored_on_fees_actually_paid():
+    """B2 (@0xsarvesh, #718). The saving was rebuilt from volume x schedule. `userFees` returns the
+    MAIN-dex schedule and HIP-3 volume does not bill at it — on a book with $91M of xyz: taker volume
+    that implied $49,434 against $12,863 really paid (3.84x), and the fee leak inherited all of it.
+
+    Anchoring on the fees summed from fills makes the claim un-inflatable: you cannot save more than
+    you spent. Rates are still used, but only to apportion real fees between taker and maker fills."""
+    import metrics
+    ep = lambda coin, tv, fee: dict(coin=coin, volume=tv, taker_volume=tv, direction="LONG",
+                                    realized=0.0, fees=fee, win=False, truncated=True, complete=False,
+                                    peak_notional=0.0, liquidated=False, hold_h=1.0, open_time=0, close_time=1)
+    sched = dict(userCrossRate=0.00035, userAddRate=0.00008)
+
+    tr = metrics.track_record([ep("xyz:SKHX", 100_000_000.0, 12_863.0)], [], [], sched, 0)
+    assert tr["fee_recoverable"] < abs(tr["fees"]), "cannot save more than was paid"
+    assert round(tr["fee_recoverable"]) == round(12_863.0 * (1 - 0.00008 / 0.00035))
+    assert tr["fee_recoverable"] < 100_000_000.0 * (0.00035 - 0.00008), "volume x schedule is gone"
+
+
+def test_the_volume_diagnostic_compares_like_with_like():
+    """`dailyUserVlm` is the MAIN-dex figure, so counting xyz: fills in the numerator made the
+    coverage diagnostic read 2.26x — "we saw 226% of the volume"."""
+    import pathlib
+    src = pathlib.Path(__file__).resolve().parents[1].joinpath("scripts", "metrics.py").read_text()
+    i = src.index("def _daily_ratio")
+    assert 'startswith("xyz:")' in src[i:i + 700], "xyz: fills are back in the main-dex comparison"
+
+
+def test_a_maker_rebate_is_not_counted_as_a_cost():
+    """#718 Q2 (@0xsarvesh). `abs(fees)` turned negative fees — a rebate, money EARNED — into an
+    equal-sized cost. 0.51% of books with 5+ trades run a net rebate, and they are exactly the
+    sophisticated books worth reading correctly."""
+    rebate = dict(cost_ratio=None, taker_share=0.1, fees=-5_000.0, funding=0.0,
+                  gross_realized=-10_000.0, ledger_net=-10_000.0, net=-10_000.0)
+    paid = dict(rebate, fees=5_000.0)
+    s_rebate, line = score.dim_cost(rebate)
+    s_paid, _ = score.dim_cost(paid)
+    assert s_rebate > s_paid, f"a rebate ({s_rebate}) scored no better than paying ({s_paid})"
+    assert s_rebate == 100, "no costs at all is a clean 100"
+    assert "EARNED in maker rebates" in line and "$5,000" in line, line
+
+
+def test_cost_is_measured_against_the_ledger_the_user_would_use():
+    """Realized-only net puts a book whose result lives in unrealized P&L against the wrong base."""
+    tr = dict(cost_ratio=None, taker_share=0.1, fees=10_000.0, funding=0.0,
+              gross_realized=-20_000.0, net=-30_000.0, ledger_net=-100_000.0)
+    s_ledger, line = score.dim_cost(tr)
+    s_realized, _ = score.dim_cost({k: v for k, v in tr.items() if k != "ledger_net"})
+    assert s_ledger > s_realized, "ignored the ledger"
+    assert "$100,000" in line, line
+
+
+def test_the_quoted_lever_is_the_median_of_its_family_not_the_best_of_a_grid():
+    """#718 Q1 (@0xsarvesh). 3 lock settings x 3 cut settings are six in-sample estimates of one
+    thing — exit discipline — and taking the largest is a grid search reported as a finding. Charging
+    each setting fixed the per-trade asymmetry; the SELECTION step was still biased upward."""
+    lv = [dict(kind="lock", key=k, label=f"lock {k}", total=t, gross=t, vals=[t], n=5)
+          for k, t in (("a", 10_000.0), ("b", 6_000.0), ("c", 2_000.0))]
+    assert score.best_lever(lv)["total"] == 6_000.0, "took the best of the grid"
+
+    # across FAMILIES the max is right — different fixes, not readings of one
+    lv += [dict(kind="size", key="1.5x", label="size cap", total=8_000.0, gross=8_000.0,
+                vals=[8_000.0], n=5, losers=3, median_winner=1.0)]
+    assert score.best_lever(lv)["kind"] == "size"
+    assert score.best_lever(lv, "lock")["total"] == 6_000.0
+
+    # an even-sized family takes the LOWER median: a tie goes to the more conservative reading
+    ev = [dict(kind="cut", key=k, label=f"cut {k}", total=t, gross=t, vals=[t], n=5)
+          for k, t in (("12", 100.0), ("24", 300.0))]
+    assert score.best_lever(ev)["total"] == 100.0

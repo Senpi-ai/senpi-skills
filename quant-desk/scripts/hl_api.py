@@ -155,6 +155,9 @@ class HL:
             "fills": merge_fills(self.fills(addr, start), self.twap_slices(addr, start)),
             "userFunding": self.funding(addr, win_start),
             "userFees": self.info({"type": "userFees", "user": addr}),
+            # HIP-3 assets bill on their own schedule. Pricing xyz: volume with the main-dex rate
+            # overstated one book's fees 4.01x (B2, #718).
+            "userFees_xyz": self._optional({"type": "userFees", "user": addr, "dex": "xyz"}),
             "portfolio": self.info({"type": "portfolio", "user": addr}),
             "ledger": self.info({"type": "userNonFundingLedgerUpdates", "user": addr, "startTime": win_start}),
         }

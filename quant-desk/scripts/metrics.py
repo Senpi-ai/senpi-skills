@@ -27,7 +27,7 @@ def in_window(ep, start_ms):
     return (ep["close_time"] or ep["last_time"]) >= start_ms
 
 
-def track_record(closed, opened, funding_rows, fee_sched, window_start):
+def track_record(closed, opened, funding_rows, fee_sched, window_start, fee_sched_xyz=None):
     closed = [e for e in closed if in_window(e, window_start)]
     complete = [e for e in closed if e["complete"]]
     wins = [e for e in closed if e["win"]]
@@ -45,7 +45,27 @@ def track_record(closed, opened, funding_rows, fee_sched, window_start):
     loss_sum = -sum(e["realized"] for e in losses)
     vol = sum(e["volume"] for e in closed + opened)
     taker_vol = sum(e["taker_volume"] for e in closed + opened)
-    cross, add = _f(fee_sched.get("userCrossRate")), _f(fee_sched.get("userAddRate"))
+    # Fees are billed per dex. `userFees` returns the MAIN-dex schedule; applying it to HIP-3
+    # (`xyz:`) volume overstated one book's fee leak 4.01x, and on that wallet 98.9% of taker volume
+    # was xyz:. Split the volume and price each side on its own schedule (B2, @0xsarvesh #718).
+    _rate = lambda sch, k: _f((sch or {}).get(k))
+    cross, add = _rate(fee_sched, "userCrossRate"), _rate(fee_sched, "userAddRate")
+    x_cross = _rate(fee_sched_xyz, "userCrossRate") or cross
+    x_add = _rate(fee_sched_xyz, "userAddRate") or add
+    _xyz = lambda e: str(e.get("coin", "")).startswith("xyz:")
+    tv_main = sum(e["taker_volume"] for e in closed + opened if not _xyz(e))
+    tv_xyz = taker_vol - tv_main
+    # Anchor the saving on the fees ACTUALLY PAID (summed from fills), not on volume x schedule.
+    # `userFees` returns the main-dex schedule and HIP-3 volume does not bill at it: on a book with
+    # $91M of xyz: taker volume, volume x schedule implied $49,434 against $12,863 really paid —
+    # 3.84x, and the fee leak inherited all of it. The rates are still used, but only to APPORTION
+    # real fees between taker and maker fills, which is schedule-independent as long as the ratio
+    # holds. (B2, @0xsarvesh #718.)
+    _t_est = tv_main * cross + tv_xyz * x_cross
+    _m_est = max(0.0, vol - taker_vol) * add
+    _taker_fee_share = (_t_est / (_t_est + _m_est)) if (_t_est + _m_est) > 0 else 0.0
+    _save_rate = max(0.0, 1.0 - (add / cross)) if cross else 0.0
+    fee_recoverable = abs(fees) * _taker_fee_share * _save_rate if vol else 0.0
     sizes = [e["peak_notional"] for e in closed if not e["truncated"] and e["peak_notional"] > 0]
     liq = [e for e in closed if e["liquidated"]]
     by_coin = collections.defaultdict(lambda: dict(trades=0, wins=0, realized=0.0, fees=0.0, volume=0.0, long=0, short=0, hold_h=[], sizes=[]))
@@ -77,7 +97,8 @@ def track_record(closed, opened, funding_rows, fee_sched, window_start):
         hold_ratio=(med([e["hold_h"] for e in cl]) / med([e["hold_h"] for e in cw])) if (len(cw) >= MIN_HOLD_N and len(cl) >= MIN_HOLD_N and med([e["hold_h"] for e in cw])) else None,
         hold_n=dict(winners=len(cw), losers=len(cl)),
         taker_share=taker_vol / vol if vol else None, volume=vol, fee_rate_taker=cross, fee_rate_maker=add,
-        fee_recoverable=taker_vol * max(0.0, cross - add) if vol else 0.0,
+        fee_recoverable=fee_recoverable, fee_rate_taker_xyz=x_cross, fee_rate_maker_xyz=x_add,
+        taker_volume_xyz=tv_xyz,
         liquidations=len(liq), liquidation_loss=sum(e["realized"] for e in liq),
         size_cv=(statistics.pstdev(sizes) / statistics.mean(sizes)) if len(sizes) > 1 and statistics.mean(sizes) else None,
         size_max_over_median=(max(sizes) / med(sizes)) if sizes and med(sizes) else None, size_median=med(sizes),
@@ -202,16 +223,32 @@ def flows(ledger, addr):
     return sorted(out)
 
 
+# The portfolio series to read. Ranked by the SPAN a series covers, never by how many POINTS it
+# has: HL samples `month` far more densely than `allTime`, so `len(pts) > len(best)` picked a 31-day
+# series and every caller labelled it 90 days. The ledger verdict, the drawdown search and
+# return-on-avg-equity all inherited it — one book read "Down $4,614 over the window" to a trader up
+# $29,003 over the 90 days it claimed to cover. `methodology.md` has documented the span rule since
+# 1.0; the code did not implement it.
+#
+# Ties go to the order below, which puts the perps-only series first: every other number on this
+# desk is perps-only, so a whole-account P&L must not sit beside a perps-only anything.
+_SERIES_PREF = ("perpAllTime", "allTime", "perpMonth", "month")
+
+
+def _longest(portfolio, key, window_start):
+    windows = dict(portfolio or [])
+    best, best_span = [], -1
+    for name in _SERIES_PREF:
+        pts = [(t, _f(v)) for t, v in ((windows.get(name) or {}).get(key) or []) if t >= window_start]
+        if len(pts) >= 2 and (pts[-1][0] - pts[0][0]) > best_span:
+            best, best_span = pts, pts[-1][0] - pts[0][0]
+    return best
+
+
 def equity_curve(portfolio, flow_list, window_start):
     """Transfer-adjusted equity over the window (account value + cumulative net outflows), from the longest
     portfolio series that covers it. A withdrawal must not read as a loss."""
-    windows = dict(portfolio or [])
-    series = []
-    for name in ("allTime", "perpAllTime", "month", "perpMonth"):
-        w = windows.get(name) or {}
-        pts = [(t, _f(v)) for t, v in (w.get("accountValueHistory") or []) if t >= window_start]
-        if len(pts) >= 2 and len(pts) > len(series):
-            series = pts
+    series = _longest(portfolio, "accountValueHistory", window_start)
     adj, j, cum_out = [], 0, 0.0
     for t, v in series:
         while j < len(flow_list) and flow_list[j][0] <= t:
@@ -244,13 +281,7 @@ def drawdown(pnl_pts, av_pts):
 
 
 def pnl_series(portfolio, window_start):
-    windows = dict(portfolio or [])
-    best = []
-    for name in ("allTime", "perpAllTime", "month", "perpMonth"):
-        w = windows.get(name) or {}
-        pts = [(t, _f(v)) for t, v in (w.get("pnlHistory") or []) if t >= window_start]
-        if len(pts) >= 2 and len(pts) > len(best):
-            best = pts
+    best = _longest(portfolio, "pnlHistory", window_start)
     if not best:
         return []
     base = best[0][1]
@@ -277,7 +308,9 @@ def _daily_ratio(fills, fee_sched):
         return None
     seen = collections.defaultdict(lambda: [0.0, 0.0])
     for f in fills:
-        if not is_perp(f["coin"]):
+        # main-dex only: `dailyUserVlm` is the main-dex figure, so counting xyz: fills in the
+        # numerator made the diagnostic read 2.26x — "we saw 226% of the volume" (B2, #718)
+        if not is_perp(f["coin"]) or str(f["coin"]).startswith("xyz:"):
             continue
         d = datetime.datetime.fromtimestamp(f["time"] / 1000, datetime.timezone.utc).strftime("%Y-%m-%d")
         seen[d][1 if f.get("crossed") else 0] += _f(f["sz"]) * _f(f["px"])

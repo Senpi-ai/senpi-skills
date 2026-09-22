@@ -162,24 +162,28 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     # on a failed read is the difference between "we don't know" and a confident wrong claim.
     meta["sources"]["trades"] = source
     meta["indexed"] = indexed
-    track = metrics.track_record(closed, opened, tr_raw["userFunding"], tr_raw["userFees"], win_start)
+    track = metrics.track_record(closed, opened, tr_raw["userFunding"], tr_raw["userFees"], win_start, tr_raw.get("userFees_xyz"))
     track["coverage"] = cov
     track["ledger_net"] = metrics.ledger_pnl(tr_raw["portfolio"], win_start)
     track["fill_taker_share"] = track["taker_share"]
     if source != "public fills":
         # senpi rows carry no maker/taker split — keep the fill-level execution read from the public stream
         fb_closed, fb_open = episodes_from_fills(fills)
-        fb = metrics.track_record(fb_closed, fb_open, tr_raw["userFunding"], tr_raw["userFees"], win_start)
+        fb = metrics.track_record(fb_closed, fb_open, tr_raw["userFunding"], tr_raw["userFees"], win_start, tr_raw.get("userFees_xyz"))
         track["taker_share"], track["fee_recoverable"], track["volume"] = fb["taker_share"], fb["fee_recoverable"], fb["volume"]
     step(2, "auditing the live book — every position's stop, liquidation distance and funding …", t0,
          f"{len(fills):,} fills across {len({e.get('coin') for e in fills})} coins")
     book = metrics.open_book(cs, oo, ctxs, ages, tr_raw.get("clearinghouseState_xyz"), tr_raw.get("frontendOpenOrders_xyz"), ctx_xyz,
                              metrics.whole_account_value(tr_raw.get("portfolio"), tr_raw.get("spotClearinghouseState")),
                              metrics.spot_free_usdc(tr_raw.get("spotClearinghouseState")))
-    pnl_curve = metrics.pnl_series(tr_raw["portfolio"], win_start)
     fl = metrics.flows(tr_raw["ledger"], addr)
-    eq = metrics.equity_curve(tr_raw["portfolio"], [], win_start)          # raw account value over the window
-    pnl_pts = metrics.pnl_series(tr_raw["portfolio"], win_start)
+    pnl_curve = metrics.pnl_series(tr_raw["portfolio"], win_start)
+    # transfer-adjusted, as equity_curve's docstring, methodology.md and SKILL rule 3 all promise.
+    # `fl` is computed on the line above; passing [] meant a trader who withdrew their profit read as
+    # a blown account — identical trades, +$55k, scored dd 90%/risk 18 withdrawn vs dd 4%/risk 82 left
+    # on the exchange.
+    eq = metrics.equity_curve(tr_raw["portfolio"], fl, win_start)
+    pnl_pts = pnl_curve            # same call, same args — computed once
     dd = metrics.drawdown(pnl_pts, eq)
     funded = [v for _, v in eq if v > 0]
     avg_eq = (sum(funded) / len(funded)) if funded else None
