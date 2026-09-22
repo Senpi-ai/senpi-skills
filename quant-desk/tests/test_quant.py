@@ -2918,3 +2918,32 @@ def test_a_cost_share_over_one_hundred_percent_is_said_in_words():
     ok = dict(tr, fees=5_000.0, funding=-2_000.0)
     _, l2 = score.dim_cost(ok)
     assert "of what you lost was cost" in l2 and "bigger than the loss" not in l2
+
+
+def test_every_in_product_suggested_prompt_is_in_the_description():
+    """The suggested-prompt buttons in the product are the highest-traffic way into this skill, and
+    the `description` frontmatter is what the agent matches at SELECTION time — the body is only
+    read once the skill is already chosen. A button whose words are not in the description is a
+    coin flip between skills.
+
+    One of them is a live mis-route risk: `senpi-trader-research` contains "find traders for me to
+    analyze" verbatim (vetting a trader to COPY). The button says "…with quant desk" (reading a
+    trader to LEARN from), so the shared prefix matches the other skill exactly and only the suffix
+    separates them. Both skills have to carry the distinction."""
+    desc = _P(HERE, "..", "SKILL.md").read_text().split("license:")[0].lower()
+    desc = " ".join(desc.split())
+    for prompt in ("run quant desk on your hyperliquid wallet",
+                   "run quant desk on any hyperliquid wallet",
+                   "score my trading",
+                   "find leaks on your hyperliquid wallet",
+                   "find traders for me to analyze with quant desk",
+                   "run quant desk",
+                   "what did i miss"):
+        assert prompt in desc, f"in-product prompt not in the selection surface: {prompt!r}"
+
+    # the product speaks in the second person; the skill's own examples are first person. Both.
+    assert "your hyperliquid wallet" in desc and "my hyperliquid wallet" in desc
+
+    # and the ambiguous half still routes the other way for COPY
+    theirs = " ".join(_P(HERE, "..", "..", "senpi-trader-research", "SKILL.md").read_text().split())
+    assert "find traders for me to analyze" in theirs and "COPY comes here, ANALYSE goes there" in theirs
