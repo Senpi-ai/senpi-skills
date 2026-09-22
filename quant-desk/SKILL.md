@@ -18,7 +18,15 @@ description: >-
   wallet / my Hyperliquid address", "how am I doing", "what's my strategy", "am I on the right side of
   smart money", "are my positions protected", "what should I fix first", "compare me to the whales",
   "scout setups for me", "find traders for me to analyze with AI quant", "run AI quant on any
-  Hyperliquid wallet". No address given? `desk.py --find <band>` offers candidates by account size
+  Hyperliquid wallet".
+  THE IN-PRODUCT SUGGESTED PROMPTS, verbatim — these are buttons users click, so they must match
+  exactly, in the product's own second person ("your wallet", not "my wallet"): "Run quant desk on
+  your Hyperliquid wallet", "Run quant desk on any Hyperliquid wallet", "Score my trading", "Find
+  leaks on your Hyperliquid wallet", "Find traders for me to analyze with quant desk", "Run quant
+  desk", "What did I miss?". Note "find traders for me to analyze" ALONE belongs to
+  senpi-trader-research (vetting a trader to COPY); with "quant desk" or "AI quant" it is this skill
+  (reading a trader to LEARN from). "your Hyperliquid wallet" in a suggested prompt means the
+  READER's own wallet — ask for their address and run the own-book desk, never someone else's. No address given? `desk.py --find <band>` offers candidates by account size
   ($5k-10k through whales) and by this week's winners, the month's, or this week's worst — ask which,
   never guess an address and never answer from memory.
   The default is the user's OWN book: "run AI quant on 0x…" means the user is 0x… — the desk speaks to
@@ -30,7 +38,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.24.2"
+  version: "1.25.0"
   platform: senpi
   exchange: hyperliquid
 ---
