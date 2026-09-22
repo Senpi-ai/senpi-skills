@@ -10,6 +10,7 @@ import statistics
 H = 3_600_000.0
 CUT_GRID_H = (12.0, 24.0, 48.0)                 # time-cut on losers
 LOCK_GRID = ((0.03, 0.5), (0.05, 0.5), (0.05, 0.3))  # (arm at +peak%, lock this share of the peak)
+SCALED_ENTRY_RATIO = 1.5   # entry value over peak notional above which a position was cycled, not held
 CHASE_PCT = 0.03                                 # an entry after a ≥3% move in its direction over 24h
 
 
@@ -51,6 +52,18 @@ def per_trade(episodes, candles):
         pre24 = sgn * (ent / p24 - 1) if p24 else None
         rows = [r for r in path(c, e["open_time"] - H, e["close_time"]) if r[0] >= e["open_time"] - H]
         ntl = e["peak_size"] * ent
+        # Every exit counterfactual below multiplies a RETURN by `ntl`, which assumes the peak size
+        # was held from entry to the exit. On a position that was scaled in and out that is false,
+        # and the error scales with the notional: xyz:SKHX on 0xb699…392e ran 507 fills over 29 days
+        # with $16,310,330 entered against a $7,123,550 peak — rebuilt 2.3x — and its lock
+        # counterfactual came out at $1,240,071 on a book that lost $233,845.
+        #
+        # There is no per-moment exposure in this data, so the honest move is to decline rather than
+        # to guess a correction: a position whose total entry value exceeds its peak notional by half
+        # again was not "held", and the constant-size counterfactual does not describe it. Those
+        # trades still count in every TOTAL — only the exit grid skips them, exactly as it skips a
+        # truncated episode.
+        cycled = (e.get("entry_val") or 0) > SCALED_ENTRY_RATIO * ntl if ntl else False
         mfe = mae = 0.0
         cut_pnl = {h: None for h in CUT_GRID_H}
         for r in rows:
@@ -62,14 +75,14 @@ def per_trade(episodes, candles):
         give_back = ((mfe - realized_pct) / mfe) if (mfe > 0 and realized_pct < mfe) else 0.0
         locks = {}
         for arm, share in LOCK_GRID:
-            locks[f"{arm:.2f}/{share:.1f}"] = _lock_cf(rows, e, sgn, ent, ntl, mfe, arm, share)
+            locks[f"{arm:.2f}/{share:.1f}"] = None if cycled else _lock_cf(rows, e, sgn, ent, ntl, mfe, arm, share)
         cuts = {}
         for h in CUT_GRID_H:
             v = cut_pnl[h]
             # every trade still open at hour h, winner or loser. Charging a time-cut only on the
             # losers is survivorship bias — at hour h you do not yet know which is which — and it
             # inflated the cut counterfactual to more than the book's whole equity.
-            cuts[f"{h:.0f}"] = (v * ntl - e["realized"]) if (e["hold_h"] > h and v is not None) else None
+            cuts[f"{h:.0f}"] = (v * ntl - e["realized"]) if (not cycled and e["hold_h"] > h and v is not None) else None
         out.append(dict(coin=e["coin"], direction=e["direction"], realized=e["realized"], hold_h=e["hold_h"], win=e["win"], pre24=pre24,
                         chased=(pre24 is not None and pre24 >= CHASE_PCT), mfe=mfe, mae=mae, realized_pct=realized_pct, give_back=give_back,
                         notional=ntl, lock_cf=locks, cut_cf=cuts, open_time=e["open_time"]))

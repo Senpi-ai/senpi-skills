@@ -2223,3 +2223,44 @@ def test_the_two_trader_skills_point_at_each_other_on_the_verb():
     assert "senpi-ai-quant" in theirs, "trader-research does not point back for analysis"
     assert "COPY comes here, ANALYSE goes there" in theirs
     assert "find traders for me to analyze" in theirs, "the ambiguous phrase is not disambiguated"
+
+
+def test_a_position_that_was_cycled_is_not_priced_as_one_that_was_held():
+    """The root cause behind every outsized counterfactual this build found.
+
+    Each exit counterfactual multiplies a RETURN by `peak_size × entry_vwap`, which assumes the peak
+    size was held from entry to the exit. On a scaled position that is false, and the error scales
+    with notional: xyz:SKHX on 0xb699…392e ran 507 fills over 29 days with $16,310,330 entered
+    against a $7,123,550 peak — rebuilt 2.3× — and its lock counterfactual came out at $1,240,071 on
+    a book that lost $233,845. The quoted total was 8.7× the book's own P&L.
+
+    There is no per-moment exposure in this data, so the desk declines rather than guessing a
+    correction. The trade still counts in every TOTAL; only the exit grid skips it."""
+    import timing
+    ep = lambda **kw: {**dict(coin="X", direction="LONG", entry_vwap=100.0, peak_size=100.0,
+                              open_time=0, close_time=10 * 3_600_000, realized=-1_000.0, win=False,
+                              complete=True, hold_h=10.0, entry_val=10_000.0), **kw}
+    candles = {"X": ([0, 3_600_000, 10 * 3_600_000],
+                     [(0, 100.0, 130.0, 95.0, 100.0), (3_600_000, 100.0, 130.0, 95.0, 128.0),
+                      (10 * 3_600_000, 128.0, 130.0, 90.0, 90.0)])}
+
+    held = timing.per_trade([ep(entry_val=10_000.0)], candles)          # entered once, held
+    cycled = timing.per_trade([ep(entry_val=25_000.0)], candles)        # rebuilt 2.5x over its life
+
+    assert any(v is not None for v in held[0]["lock_cf"].values()), "a held position must still price"
+    assert all(v is None for v in cycled[0]["lock_cf"].values()), "a cycled position was priced as held"
+    assert all(v is None for v in cycled[0]["cut_cf"].values())
+    # and it is only the exit grid that skips it — the row itself is still there for the totals
+    assert cycled[0]["realized"] == -1_000.0 and cycled[0]["notional"] == 10_000.0
+
+
+def test_the_worst_funding_coin_can_exceed_the_net_and_says_why():
+    """"xyz:SKHX alone cost $125,867" printed under "Paid $122,257 in funding" reads as an
+    arithmetic error. It is the net across coins; others collected."""
+    tr = dict(funding=-122_257.0, coins={"xyz:SKHX": dict(funding=-125_867.0)}, trades=9,
+              fee_recoverable=0.0, taker_share=0.0, liquidations=0)
+    rows = [dict(time=200_000_000, delta=dict(usdc="-125867", coin="xyz:SKHX"))]
+    closed = [dict(coin="xyz:SKHX", open_time=0, close_time=4e12)]
+    out = score.leaks(tr, dict(funding_per_day=-271.0), {}, rows, closed, 0, 90)
+    ev = next(l for l in out if "funding" in l["title"])["evidence"]
+    assert "more than the $122,257 net" in ev and "other coins collected" in ev, ev
