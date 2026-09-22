@@ -45,7 +45,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.20.0"
+VERSION = "1.21.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -185,8 +185,15 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     # a blown account — identical trades, +$55k, scored dd 90%/risk 18 withdrawn vs dd 4%/risk 82 left
     # on the exchange.
     eq = metrics.equity_curve(tr_raw["portfolio"], fl, win_start)
+    # drawdown needs the RAW curve, not this one. Its numerator (cumulative P&L) is already
+    # transfer-immune; its denominator is "the equity the fall came out of", and feeding it the
+    # transfer-ADJUSTED curve made `av_at` go negative on an account funded mid-window — base
+    # collapsed to ~0, dd_pct read 0%, and a real drawdown lost its risk penalty. The mirror case
+    # saturated to 100% and printed "the account went to zero" on a live funded book. My B3 fix in
+    # #733 introduced this. (@danielmbirochi, #718.)
+    eq_raw = metrics.equity_curve(tr_raw["portfolio"], [], win_start)
     pnl_pts = pnl_curve            # same call, same args — computed once
-    dd = metrics.drawdown(pnl_pts, eq)
+    dd = metrics.drawdown(pnl_pts, eq_raw)
     funded = [v for _, v in eq if v > 0]
     avg_eq = (sum(funded) / len(funded)) if funded else None
     equity = dict(points=len(eq), start=eq[0][1] if eq else None, end=eq[-1][1] if eq else None, avg=avg_eq,
@@ -298,7 +305,10 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     # funding is a lever too, so it is priced once here and read by both
     _fl = min(score._funding_after(tr_raw["userFunding"], in_win, win_start, 24.0),
               -float(track.get("funding") or 0.0))
-    lv = score.levers(tm_rows, closed, tm, funding_late=max(0.0, _fl))
+    # `closed` runs days+60 so episodes opening before the window can still be completed; every
+    # figure the reader sees is 90-day. Handing the raw set to the levers put the size lever's
+    # median-winner threshold on up to 150 days inside a 90-day desk. (@danielmbirochi, #718.)
+    lv = score.levers(tm_rows, in_win, tm, funding_late=max(0.0, _fl))
     lk = score.leaks(track, book, tm, tr_raw["userFunding"], in_win, win_start, days, lv)
     # the ONE quotable number: a union over trades, never the sum of the leaks above
     rec = score.recoverable(tm_rows, closed, track, tm, lv)
@@ -310,7 +320,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     context = dict(breadth=breadth, funding_regime=fregime, attention=attention, regime_days=regimes_days, regime_performance=rperf)
     opps = opportunities.scout(in_win, setups, book, breadth, coin_regimes, cohorts, attention, majors, large)
     step(8, "scoring the book on six dimensions, comparing to the top traders, scouting today's matches …", t0)
-    dims, quant = score.dimensions(track, book, dd, tm, mf, sm, closed, pnl_curve)
+    dims, quant = score.dimensions(track, book, dd, tm, mf, sm, in_win, pnl_curve)   # 90-day window, as everything else
     r = dict(address=addr, days=days, now_ms=now, window_start_ms=win_start, activity=act, track=track, book=book, equity=equity, drawdown=dd,
              pnl_curve=pnl_curve[-120:], timing=tm, market=mf, rank=rank, smart=sm, cohorts=cohorts, labels=labels, dimensions=dims, quant_score=quant,
              archetype=score.archetype(track, book, tm, act, opened), flags=score.flags(track, book, dd, tm, mf, labels), leaks=lk, recoverable=rec,

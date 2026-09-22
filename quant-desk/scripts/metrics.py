@@ -65,7 +65,10 @@ def track_record(closed, opened, funding_rows, fee_sched, window_start, fee_sche
     _m_est = max(0.0, vol - taker_vol) * add
     _taker_fee_share = (_t_est / (_t_est + _m_est)) if (_t_est + _m_est) > 0 else 0.0
     _save_rate = max(0.0, 1.0 - (add / cross)) if cross else 0.0
-    fee_recoverable = abs(fees) * _taker_fee_share * _save_rate if vol else 0.0
+    # NOT abs(): a maker REBATE is negative fees, money EARNED. dim_cost was fixed for exactly this
+    # in #733 and this site was missed — it turned a rebate into recoverable dollars, which
+    # recoverable() then added on top of the lever. (@danielmbirochi, #718.)
+    fee_recoverable = max(0.0, fees) * _taker_fee_share * _save_rate if vol else 0.0
     sizes = [e["peak_notional"] for e in closed if not e["truncated"] and e["peak_notional"] > 0]
     liq = [e for e in closed if e["liquidated"]]
     by_coin = collections.defaultdict(lambda: dict(trades=0, wins=0, realized=0.0, fees=0.0, volume=0.0, long=0, short=0, hold_h=[], sizes=[]))

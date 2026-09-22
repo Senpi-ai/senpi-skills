@@ -644,7 +644,20 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
     # 4. giving back winners — only when the lock is robust
     lock_l = best_lever(lv, "lock")
     lock = lock_l["total"] if lock_l else ((tm or {}).get("lock") or {}).get("robust")
-    if lock and lock > 50 and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES:
+    # `give_back_median` and `mfe_median_winners` are taken over WINNERS only, so a book with no
+    # winning complete trade has both as None — and `lock` still fires, because losers that armed
+    # and retraced do produce a lever. _pct(None) then raised TypeError, which is not an HLError, so
+    # desk.py printed a traceback and no desk at all. That is exactly the book
+    # `--find --find-losers` sends a reader to. (@danielmbirochi, #718.)
+    _has_winner_stats = tm and tm.get("give_back_median") is not None
+    if lock and lock > 50 and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES and not _has_winner_stats:
+        out.append(dict(agent="Leak finder", title="Your positions give back their peak before you exit",
+                        evidence=f"No complete trade closed green in this window, but {tm['n']} of them were in profit "
+                                 f"at some point first.",
+                        counterfactual=_cf_charged(lock_l, days) if lock_l else
+                                       f"A trailing lock on peak gains would have kept roughly ~{_usd(lock)} over {days} days.",
+                        usd=lock, window=f"{days}d", cta="A ratcheting stop locks the peak without capping the run."))
+    if lock and lock > 50 and (tr.get("trades") or 0) >= MIN_PATTERN_TRADES and _has_winner_stats:
         out.append(dict(agent="Leak finder", title=f"You give back a median {_pct(tm['give_back_median'])} of a winner's peak",
                         evidence=f"Winners reach a median +{_pct(tm['mfe_median_winners'], 1)} before exit; {_pct(tm['losers_that_were_green'])} of losers were green first." if tm.get("losers_that_were_green") is not None else "",
                         counterfactual=(f"{_cf_charged(lock_l, days)}" if lock_l else
