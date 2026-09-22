@@ -1,28 +1,33 @@
 ---
 name: quant-desk
 description: >-
-  Hire your AI quant: paste ANY Hyperliquid address (0x…) and get the desk — what the trader has actually
-  been doing (a strategy read with a critique), a quant score with six explained dimensions, the market
-  they are trading in right now and how they trade each regime, the live book with a protection audit,
-  leaks priced as counterfactual dollars, their book against the PROVEN cohort (top traders by all-time
-  realized P&L, ≥ $1M) and the HOT 30-day cohort — side, headcount, when they moved, what they hold that
-  the trader doesn't — live matches where the tape, the cohorts and the trader's own pattern agree, and
-  a bank of twelve follow-ups the quant is prepared to go deeper on. Works for wallets that never touched
-  senpi (public onchain data, read-only); with a Senpi token the closed-trade history, both cohorts, the
-  funding regime and the Hyperfeed attention layer come from Senpi's own data. The default is the
-  user's OWN book: "run quant desk on 0x…" means the user is 0x… — the desk speaks to them and
-  recommends their next steps. "Run quant desk analyst on 0x…" (or "review this trader 0x…") means
-  the user is analyzing someone else. Use for "analyze my wallet / my Hyperliquid address", "how am I
-  doing", "what's my strategy", "where am I leaking money", "am I on the right side of smart money",
-  "are my positions protected", "what should I fix first", "rate my trading", "compare me to the
-  whales", "scout setups for me", "quant desk analyst on 0x…", "review this trader 0x…".
+  **AI Quant** (also "the quant", "quant desk"): paste ANY Hyperliquid address (0x…) and get the desk —
+  what the trader has actually been doing (a strategy read with a critique), a quant score with six
+  explained dimensions, the market they are trading in right now and how they trade each regime, the
+  live book with a protection audit, leaks priced as counterfactual dollars, their book against the
+  PROVEN cohort (top traders by all-time realized P&L, ≥ $1M) and the HOT 30-day cohort — side,
+  headcount, when they moved, what they hold that the trader doesn't — live matches where the tape,
+  the cohorts and the trader's own pattern agree, and a bank of twelve follow-ups the quant is
+  prepared to go deeper on. Works for wallets that never touched senpi (public onchain data,
+  read-only); with a Senpi token the closed-trade history, both cohorts, the funding regime and the
+  Hyperfeed attention layer come from Senpi's own data.
+  TRIGGERS — any of these, with or without an address: "run AI quant", "run AI quant on my Hyperliquid wallet", "run AI quant on any Hyperliquid wallet", "run quant", "run the quant on 0x…", "run quant
+  desk on 0x…", "score my trading", "rate my trading", "find leaks on my Hyperliquid wallet", "where am
+  I leaking money", "what did I miss" (about a book, a week or a trade), "master my week", "analyze my
+  wallet / my Hyperliquid address", "how am I doing", "what's my strategy", "am I on the right side of
+  smart money", "are my positions protected", "what should I fix first", "compare me to the whales",
+  "scout setups for me". No address given? Ask for one, or read the user's own connected wallet — do
+  not answer from memory.
+  The default is the user's OWN book: "run AI quant on 0x…" means the user is 0x… — the desk speaks to
+  them and recommends their next steps. "Run AI quant analyst on 0x…" (or "review this trader 0x…")
+  means the user is analyzing someone else.
   Hidden engine: scripts/desk.py. NOT for choosing or deploying a strategy (senpi-strategy-discover /
   -ops), reviewing a Senpi strategy's own trades (senpi-improve-trades), or vetting a trader to copy
   (senpi-trader-research).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.16.2"
+  version: "1.17.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -32,8 +37,8 @@ metadata:
 Built for one thing first: **the user's own book.** A trader joins senpi, pastes their Hyperliquid
 wallet, and gets their desk — the book they actually run, scored, protected and improved, in the second
 person, with the next steps recommended to them. That is the default and the experience to design for:
-**"run quant desk on 0x…" means the user is 0x…**, whoever the address belongs to. The same engine
-also reads **someone else's book** — **"run quant desk analyst on 0x…"**, "review this trader", a
+**"run AI quant on 0x…" means the user is 0x…**, whoever the address belongs to. The same engine
+also reads **someone else's book** — **"run AI quant analyst on 0x…"**, "review this trader", a
 leaderboard pick, a whale — to learn from it (third person, learn-from-them follow-ups, a side-by-side
 compare). Run it plain (`--mine`) unless the user asks for the analyst read; then `--other` (alias
 `--analyst`), and never let that desk say "you".
@@ -125,7 +130,7 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 7. **Address hygiene and whose book it is.** Show the address shortened (`0x2999…65de`). Never post
    the desk of a wallet the user did not name.
 
-   **An address is the reader's own book unless we know otherwise.** "Run quant desk on 0x…" means the
+   **An address is the reader's own book unless we know otherwise.** "Run AI quant on 0x…" means the
    user is 0x… — run it plain and speak to them. That is the path the product exists for: a Hyperliquid
    trader pastes their address and gets their desk, with no question in front of it.
 
@@ -142,7 +147,7 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    covers the address a reader hands you; it is not a licence to read a wallet they never claimed as
    their own.
 
-   "Run quant desk analyst on 0x…" (or
+   "Run AI quant analyst on 0x…" (or
    "this trader", "their wallet", a leaderboard pick) means the user is analyzing 0x…: run with
    `--other` (alias `--analyst`): the desk speaks in the third
    person, the closing becomes *what to take from this trader*, and the follow-ups are the learning
@@ -161,7 +166,7 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    figure from `references/coverage.json`, never from memory; if `as_of` is more than `stale_after_days`
    old, say "over 25,000" rather than a precise number that has moved:
 
-   > senpi is rolling out the AI Quant Desk to every trader on Hyperliquid in waves. We're at
+   > senpi is rolling out the AI Quant to every trader on Hyperliquid in waves. We're at
    > **26,188** wallets so far and yours isn't in that set yet. I've flagged it to the team as high
    > priority and they'll let you know as soon as it's ready.
 
@@ -206,14 +211,14 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 
 | User says | Run | Then |
 |---|---|---|
-| "run quant desk on 0x…", "analyze my wallet 0x…", "how am I doing", "rate my trading" | `desk.py 0x…` | relay the full desk — the user is 0x… |
+| "run AI quant / run quant / run quant desk on 0x…", "score my trading", "find leaks", "what did I miss", "master my week", "how am I doing" | `desk.py 0x…` | relay the full desk — the user is 0x… |
 | "are my positions protected", "am I at risk" | `desk.py 0x… --section protection` | relay; the AT RISK rows first |
 | "where am I leaking money", "what's costing me" | `desk.py 0x… --section leaks` | relay, biggest first, with the rejected rules |
 | "am I with or against smart money", "compare me to whales" | `desk.py 0x… --section smart` | relay both tables |
 | "does my book fit this market" | `desk.py 0x… --section market` | relay |
 | "where's my edge", "what am I good at" | `desk.py 0x… --section edge` | relay; then the closing (rule 9) |
 | "what should I fix first" | `desk.py 0x… --section next` | relay the three steps |
-| "run quant desk analyst on 0x…", "review this trader 0x…", a leaderboard pick | `desk.py 0x… --other` (alias `--analyst`) | relay in the third person; copying → `senpi-trader-research` |
+| "run AI quant analyst on 0x…", "review this trader 0x…", a leaderboard pick | `desk.py 0x… --other` (alias `--analyst`) | relay in the third person; copying → `senpi-trader-research` |
 | "how do they stack up", after two or more desks | `desk.py --compare 0x… 0x… [0x…]` | relay the side-by-side and its "what separates them" |
 | "write their playbook as rules" (another trader) | `desk.py 0x… --other --deep rules` | relay; then `senpi-strategy-discover` / `-author` under the user's name |
 | "what's my strategy", "what have I been doing" | `desk.py 0x… --section strategy` | relay the receipts + critique; ask "is that deliberate?" |

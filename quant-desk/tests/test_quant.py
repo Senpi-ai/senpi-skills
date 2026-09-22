@@ -2146,3 +2146,22 @@ def test_a_recovered_drawdown_is_not_reported_as_a_blown_account():
     s_dn, line_dn = score.dim_risk(dict(base, ledger_net=-16_969.0), flat, dict(dd_pct=0.93))
     assert "went to zero" in line_dn, line_dn
     assert s_up == s_dn, "the penalty should not depend on how the window happened to end"
+
+
+def test_the_skill_answers_to_ai_quant_as_well_as_quant_desk():
+    """Jason: "AI Quant" is the name users are prompted with; "quant desk" must keep working. The
+    `description` frontmatter is what the agent matches at SELECTION time, so the trigger phrases
+    have to live there — not in the body, which is only read once the skill is already chosen."""
+    skill = _P(HERE, "..", "SKILL.md").read_text()
+    desc = " ".join(skill[:skill.index("license: Apache-2.0")].split())
+
+    assert "**AI Quant**" in desc, "the primary name is not in the description"
+    for phrase in ("run AI quant", "run quant", "quant desk",
+                   "score my trading", "find leaks on my Hyperliquid wallet",
+                   "what did I miss", "master my week",
+                   "run AI quant on my Hyperliquid wallet",
+                   "run AI quant on any Hyperliquid wallet"):
+        assert phrase in desc, f"{phrase!r} will not select this skill"
+
+    # the ambiguous two are scoped so they do not hijack unrelated requests
+    assert '"what did I miss" (about a book, a week or a trade)' in desc
