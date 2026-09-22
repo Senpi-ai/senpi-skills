@@ -3025,9 +3025,9 @@ def test_portfolio_hands_a_scoring_request_to_quant_desk():
     """Three users on 2026-09-22 typed a quant-desk chip and landed elsewhere, on boxes that
     already carried the manifest:
 
-        M196561  "Score my trading"  20:45, runtime 3.0.120 since 19:57  -> portfolio.py
-        M415985  "Score my trading"  19:47, runtime 3.0.120 since 19:30  -> senpi-portfolio
-        M418433  "Run quant desk"    19:49, runtime 3.0.120 since 19:45  -> strategy-author
+        "Score my trading"  20:45, runtime 3.0.120 since 19:57  -> portfolio.py
+        "Score my trading"  19:47, runtime 3.0.120 since 19:30  -> senpi-portfolio
+        "Run quant desk"    19:49, runtime 3.0.120 since 19:45  -> strategy-author
 
     quant-desk lists "score my trading" verbatim, so the words were not the problem.
     senpi-portfolio claims "Use this skill FIRST for ANY portfolio / strategies / positions /
