@@ -13,10 +13,14 @@ description: >-
   trade actually go through / do I still hold X" — the authority for position facts, OPEN and CLOSED, which
   come from a fresh engine read, never from memory or a raw order response. A hidden engine (scripts/portfolio.py)
   does the multi-wallet pull and taxonomy; you narrate. Requires a USER-scoped Senpi token.
+  Asked to SCORE, RATE or GRADE their trading — "score my trading", "rate my trading", "find leaks
+  on my wallet" — run **quant-desk** on the wallets this skill just resolved; it returns a quant
+  score, the six dimensions behind it and leaks priced in dollars. Everything else about holdings,
+  strategies, positions and closed-position facts stays here.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.27.0"
+  version: "1.28.0"
   platform: senpi
   exchange: hyperliquid
   requires:

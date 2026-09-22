@@ -34,7 +34,8 @@ description: >-
   means the user is analyzing someone else.
   Hidden engine: scripts/desk.py. NOT for choosing or deploying a strategy (senpi-strategy-discover /
   -ops), reviewing a Senpi strategy's own trades (senpi-improve-trades), or vetting a trader to copy
-  (senpi-trader-research).
+  (senpi-trader-research). senpi-portfolio resolves the reader's wallets and answers what they
+  hold; a request to SCORE or RATE that trading comes here, on those wallets.
 license: Apache-2.0
 metadata:
   author: Senpi
