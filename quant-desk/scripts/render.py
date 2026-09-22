@@ -501,16 +501,16 @@ def followups_section(r):
 def render_deep(mode, d, r):
     if mode == "protect":
         out = ["## Stop ladder — every open position", "", f"Dollars at risk before: **{usd(d['total_risk_now'])}** → after: **{usd(d['total_risk_after'])}**", "",
-               "| Coin | Side | Mark | Hard stop | Distance | 24h range | Lock arms at | Covered today | Note |", "|---|---|---:|---:|---:|---:|---:|---:|---|"]
+               "| Coin | Side | Mark | Hard stop | Distance | Daily range | Lock arms at | Covered today | Note |", "|---|---|---:|---:|---:|---:|---:|---:|---|"]
         for x in d["rows"]:
             atr = "—" if x["atr_pct"] is None else "{:.1f}%".format(x["atr_pct"])
             out.append("| {} | {} | {:,.4g} | {:,.4g} | {:.1f}% | {} | {:,.4g} | {} | {} |".format(x["coin"], x["side"], x["mark"], x["hard_stop"], x["hard_stop_pct"], atr, x["lock_arms_at"], pct(x["covered_now"]), x["note"]))
         # Same overclaim as the next-steps block: there is no signature to give for a book on the
         # reader's own wallet. These levels are still the most actionable thing on the page — they are
         # a worksheet, so say that plainly.
-        out += ["", "The hard stop sits beyond one and a half days of normal range and above the "
-                    "liquidation price; the lock trails at half the peak gain once the trade is two "
-                    "ranges in the money.",
+        out += ["", "The hard stop sits beyond one and a half days of normal range — the average 24-hour "
+                    "high-to-low of the last two weeks — and above the liquidation price; the lock "
+                    "trails at half the peak gain once the trade is two ranges in the money.",
                 "", "**These are yours to place.** The *Hard stop* column is the number to set on each "
                     "position onchain on Hyperliquid; the *Lock arms at* column is where a trailing "
                     "stop should begin once the trade is in the money. Tell me if you want help with "

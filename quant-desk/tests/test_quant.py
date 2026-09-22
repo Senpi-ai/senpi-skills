@@ -2381,3 +2381,34 @@ def test_every_figure_is_computed_on_the_window_the_desk_claims():
         "dim_sizing is back on the unfiltered set"
     # the wider fetch itself is deliberate and must stay
     assert "days + 60" in src or "days+60" in src or "FETCH_PAD" in src or "win_start" in src
+
+
+def test_the_stop_ladder_measures_a_day_not_an_hour():
+    """@danielmbirochi (#718), B7. `deep._atr` averaged `high - low` over the last 24 HOURLY candles
+    and the table called it "24h range", so the hard stop sat 1.5 HOURLY ranges out while the copy
+    promised "one and a half days of normal range". On live BTC that is 0.98% where a real daily
+    range gives 4.60% — a stop ~4.7x too tight, on the one screen that tells the reader to go place
+    these numbers themselves."""
+    # A steady one-way hour: every hour swings 1.0, but a whole day travels 24.
+    rows = [[i * 3_600_000, 100.0 + i, 100.5 + i, 99.5 + i, 100.0 + i, 1.0] for i in range(48)]
+    c = timing.load_candles({"X": rows})
+    assert deep._atr(c, "X") == 24.0, "a day's range is its high-to-low, not the mean of its hours"
+    assert deep._atr(c, "X") != 1.0, "this is the shipped bug: the mean hourly range"
+
+    # Blocks end at the NEWEST candle: a partial block is dropped from the old end, never the new one.
+    noisy = [[i * 3_600_000, 100.0, 900.0, 1.0, 100.0, 1.0] for i in range(6)] + rows[:24]
+    assert deep._atr(timing.load_candles({"X": noisy}), "X") == 24.0, "stale hours leaked into today's range"
+
+    # Too little tape to make one day is no answer at all, not a partial day dressed as one.
+    assert deep._atr(timing.load_candles({"X": rows[:12]}), "X") is None
+
+    # A coin with no candles falls back on a DAILY-scale stand-in (the fallback used to be sized
+    # against the hourly number), and the table still says "—" rather than quoting a made-up range.
+    r = {"book": {"positions": [dict(coin="NOPE", side="LONG", mark=100.0, size=1.0, liq_px=None,
+                                     margin_used=50.0, notional=100.0, stop_covered_share=0.0)]}}
+    row = deep.protect(r, {})["rows"][0]
+    assert row["atr_pct"] is None, "an unmeasured range must not be quoted as measured"
+    assert row["hard_stop_pct"] > 3.0, "the no-candle stop is back on the hourly scale"
+
+    src = _P(HERE, "..", "scripts", "render.py").read_text()
+    assert "| Daily range |" in src and "24h range" not in src, "the column still promises a day it does not measure"
