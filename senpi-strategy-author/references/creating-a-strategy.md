@@ -1,9 +1,10 @@
 # Creating a Strategy from Scratch — Senpi Runtime 3.0
 
-> **Who follows this guide.** The headless build engine (Claude Code, started by `author_build.py`)
-> does — it is the one writing files. **The chat agent on a host where `author_build.py doctor` says
-> `"ready": true` does not:** it runs the interview and hands the confirmed spec to the engine
-> (SKILL.md → "The build engine"). Read on as that agent only to explain choices, never to write the package.
+> **Who follows this guide.** On a host where `openclaw senpi author check` exits 0, nobody here
+> does: the build runs inside the trading runtime, against a contract generated from the runtime's
+> own schema. This file is the INLINE fallback for a host without the engine, and a reference for
+> explaining choices to a user. It is not the contract — where the two disagree, the runtime wins,
+> and it is the runtime the package has to satisfy.
 
 > **The one rule that governs everything below:** *every guess in this system fails silently.* A wrong MCP field → a scanner that ticks clean and emits nothing. A drifted DSL → an exit that doesn't fire. A made-up catalog facet → a strategy nobody is ever shown. So: **anchor on the references** (the MCP I/O guide, `dsl-presets.yaml`, the discovery `glossary.yaml`), and **confirm it actually operates** — never assume.
 

@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.14.0"
+  version: "4.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -120,12 +120,12 @@ of an import-stage run. The gate is stage 9, and it takes no `--stage` flag.
 
 ## ⛔ Who writes the package — decide this once, before the interview ends
 
-Run `python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py doctor` once.
+Run `openclaw senpi author check` once.
 **If it prints `"ready": true`, you do NOT write `strategy.yaml`, `runtime.yaml` or any scanner file —
 not from scratch, not by copying another package.** You run the interview and the replay, then hand the
-confirmed spec to the build engine (section "The build engine" below; `doctor` prints the exact
+confirmed spec to the build engine (section "The build engine" below; `check` prints the exact
 commands). Writing the package yourself when the engine is ready is the wrong path, even if you know how.
-Only when `doctor` is not ready do you build inline (stages 2–9).
+Only when `check` reports not ready do you build inline (stages 2–9).
 
 ## ▶ DEFAULT behavior — the rules of this conversation (do this every time)
 
@@ -227,37 +227,37 @@ For each: ask the question, offer the options as plain choices, then map the ans
    stop**. Losers are the cost of the strategy; winners that run far enough pay for them.
    `validate_strategy.py` warns on a stop that is too tight at the recipe's leverage — relay it.
 
-## The build engine — after the "yes", hand the build to Claude Code when this host has it
+## The build engine — after the "yes", hand the build to the runtime
 
-The interview is yours; the build does not have to be. Once stage 1 has its explicit **yes**, check
-the engine once — `python3 /data/.openclaw/skills/senpi-strategy-author/scripts/author_build.py doctor`.
-**Exit 0 → hand off; `doctor` prints the exact commands.** Anything else → build inline, stages 2–9.
+The interview is yours; the build is not. Once stage 1 has its explicit **yes**, run
+`openclaw senpi author check` once. **Exit 0 → hand off; it prints the exact commands.** Anything
+else → build inline, stages 2–9.
 
-1. **Write the confirmed spec** to `/data/workspace/.author-specs/<id>.json` — the user's words, all 7
-   decisions, every opening constraint, `user_confirmed: true` because they said yes to the replay.
-2. **`start --detach --spec <file>`** (add `--edit <pkg-dir>` to change a package that is not live).
-   Returns a job id at once; tell the user it is building.
-3. **`wait --job <job>`, then poll it.** `exec` backgrounds it after ~10s: poll that session
-   (`process`, `poll`, `timeout: 30000`) and **relay one short line per poll** from the stage it
-   reports (`· writing the scanner`, `· running the gate (attempt 2)`). A stage is a fact about the
-   build, not a claim about the result. Never poll on a cron — a scheduled check is a paid model call.
-4. **Branch on the final state** — `status --job <job>`:
-   - `needs_input` → ask the `question` verbatim with its `options`; `answer --detach --job <job>
-     --text "<their answer>"` resumes the same session, then wait as in 3.
-   - `done` → relay `summary`, `validate.stage_lines` verbatim, every `warnings` entry, and
-     `exit_preview`; keep `key_choices` (that is what "why is it 72?" is answered with later). The
-     engine returns `done` only after the wrapper re-checked the proof against the package bytes —
-     that is stage 9's PASS. Then go to **Handoff**. Edit jobs are staged: after the user's yes,
-     `promote --job <job>`.
-   - `failed` → relay `blocking_finding` in its own words; let the user decide. Never silently retry inline.
-   - `error` → the harness broke, not the strategy (`message` says how). Build inline instead.
+The runtime owns the contract the engine builds against; what you remember of the YAML is a copy, and copies drift.
 
-Spec shape, the edit/resume rules and what the engine may touch: [`engine/README.md`](engine/README.md).
-The engine never deploys and cannot move money. Budget and deploy stay here — Handoff below.
+1. **Write the confirmed spec** to `/data/workspace/.author-specs/<id>.json` — the user's words, all
+   7 decisions, every constraint, and `user_confirmed: true` because they said yes to the replay.
+   A spec without that flag is refused before a model is billed.
+2. **`openclaw senpi author start -p <file>`** (`--edit <pkg-dir>` to change an existing package —
+   it works on a staged copy, so a live strategy is untouched). Returns an id in ~1s.
+3. **Poll `openclaw senpi author status <id> --after-seq <n>`**, **relaying one short line per poll**
+   from its events (`· writing the scanner`, `· running the gate`) — a phase is a fact about where the
+   build is, never a claim about the result. Never poll on a cron; that is a paid model call.
+4. **Branch on the exit code**, which IS the answer:
+   - **6** running → keep polling. **5** interrupted → `status` says if it can resume.
+   - **7** needs input → ask the `question` verbatim with its `options`, then
+     `openclaw senpi author answer <id> --text "<their answer>"` resumes the same build.
+   - **0** done → relay `summary`, `validate.stage_lines` verbatim and every `warnings`. `done` means
+     the RUNTIME re-ran the gate and the proof matches the bytes on disk, not that the model said so.
+   - **3** failed → relay `blocking_finding` verbatim; the user decides. Never retry inline.
+   - **2** refused → obey it, never retry. **1** → transport; state unknown, ask `status` first.
+
+The engine cannot deploy or move money: package dir only, no network, every position-moving Senpi
+tool refused. Budget and deploy stay here — Handoff.
 
 ## After the 7 — build it in STAGES, narrating as you go
 
-> **Engine ready (`doctor` → `"ready": true`)? Skip stages 2–9 below — the engine runs them.** Stage 1
+> **Engine ready (`openclaw senpi author check` → exit 0)? Skip stages 2–9 below — the engine runs them.** Stage 1
 > (the confirmed replay) is still yours. Everything below is the inline path for a host without the engine.
 
 The build is the part that takes longest, and it's where the user is most likely to be left staring at a
