@@ -1878,9 +1878,25 @@ def test_transport_faults_and_5xx_are_retried_not_just_429():
     import hl_api
     assert 429 in hl_api.RETRY_CODES and 503 in hl_api.RETRY_CODES and 500 in hl_api.RETRY_CODES
     src = _P(HERE, "..", "scripts", "hl_api.py").read_text()
-    body = src[src.index("for attempt in range(RETRIES)"):src.index("for attempt in range(RETRIES)") + 1400]
+    i = src.index("for attempt in range(")
+    body = src[i:i + 1600]
     for exc in ("URLError", "TimeoutError", "ConnectionError"):
         assert exc in body, f"{exc} still fails on the first attempt"
+
+
+def test_a_rate_limit_is_given_a_refill_window_not_a_fault_budget():
+    """H3 (@0xsarvesh, #718). 429 is not a fault — it is the venue's per-IP weight bucket, and the
+    bucket refills on a ~minute. Four tries and 10.5s of backoff killed 3 of 7 desks run in parallel,
+    which is exactly the shape of a 15-wallet round."""
+    import hl_api
+    budget = sum(min(hl_api.RATE_LIMIT_MAX_SLEEP_S, hl_api.BACKOFF_S * (2 ** a))
+                 for a in range(hl_api.RATE_LIMIT_RETRIES - 1))
+    assert budget >= 40, f"only {budget:.1f}s of backoff — a refill window is ~60s"
+    assert hl_api.RATE_LIMIT_RETRIES > hl_api.RETRIES, "429 must outlast a transport fault"
+
+    src = _P(HERE, "..", "scripts", "hl_api.py").read_text()
+    assert "Retry-After" in src, "the venue tells us when the bucket refills; listen to it"
+    assert "min(wait, RATE_LIMIT_MAX_SLEEP_S)" in src, "an unbounded Retry-After can hang a run"
 
 
 def test_cache_and_relay_files_are_written_atomically():
