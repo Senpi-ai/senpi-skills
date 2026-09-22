@@ -1899,3 +1899,57 @@ def test_cache_and_relay_files_are_written_atomically():
         src = f.read_text()
         assert 'open(path, "w")' not in src and 'open(state_path, "w")' not in src, \
             f"{site} writes JSON non-atomically again"
+
+
+def test_a_truncated_history_is_not_reported_as_a_complete_one():
+    """#718 (@0xsarvesh). `fetch` breaks on the first failed page. If pages 0-3 land and page 4
+    fails, `rows` is truthy — so the source line read "senpi discovery (800 closed positions)" with
+    `indexed: True` and totals quietly short. The pages read are a PREFIX, not the history."""
+    import senpi_history
+
+    class _Client:
+        def __init__(self): self.n = 0
+        def mcp_call(self, *a, **kw):
+            self.n += 1
+            if self.n > 2:
+                raise RuntimeError("page 3 timed out")
+            return {"success": True, "data": {"closed_positions": [
+                dict(coin="BTC", szi="1", entryPx="100", exitPx="110", openTime=1, closeTime=2,
+                     realizedPnl="10", totalFees="1", leverage={"value": 1}, totalFills="2")
+                for _ in range(senpi_history.PAGE)]}}
+
+    meta = {}
+    rows = senpi_history.fetch(_Client(), "0x" + "a" * 40, 0, meta)
+    assert rows, "the successful pages are still returned"
+    assert meta.get("senpi_history_failed") is True
+    assert meta.get("senpi_history_partial") is True, "a truncated read was not declared"
+
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    assert "senpi_history_partial" in src, "desk.py does not surface the truncation"
+
+
+def test_the_address_book_digest_reads_keys_that_exist():
+    """#718 (@0xsarvesh). `digest["score"]` read `r["score"]` where the key is `quant_score`, and
+    `digest["at"]` read a `generated` key nothing ever sets — so both were always None."""
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    i = src.index("digest={")
+    block = src[i:i + 200]
+    assert 'r.get("quant_score")' in block, "digest still reads a key that does not exist"
+    assert '"generated"' not in block
+
+
+def test_the_public_fill_episodes_are_built_once():
+    """`episodes_from_fills(fills)` ran twice on every token-path run — the second a full recompute
+    over the whole fill stream to rebuild what stage 1 already had."""
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    body = src[src.index("def analyze("):src.index("def main(")]
+    assert body.count("episodes_from_fills(fills)") == 1, "the fill stream is walked twice again"
+
+
+def test_the_unreachable_whale_table_copy_is_gone():
+    """`render.smart` was unreferenced — RENDERERS["smart"] points at smart_v2 — and held a second,
+    diverged copy of the whale-median table, so a fix there had even odds of landing in the copy
+    nobody renders."""
+    import render
+    assert not hasattr(render, "smart"), "the dead renderer is back"
+    assert render.RENDERERS["smart"] is render.smart_v2

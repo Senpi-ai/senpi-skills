@@ -303,27 +303,6 @@ def leaks(r):
     return "\n".join(out)
 
 
-def smart(r):
-    sm = r.get("smart"); out = ["## You vs smart money", ""]
-    if not sm or not sm.get("rows"):
-        out.append("No cohort view was available for this run." if not sm else "No open positions to compare.")
-    else:
-        out += [f"_Cohort: {sm['source']}_", "", "| Coin | You | Smart money | Read |", "|---|---|---|---|"]
-        for x in sm["rows"]:
-            out.append("| {} | {} | {} | **{}** |".format(x["coin"], x["you"], x["cohort"], x["read"]))
-    bt = r.get("benchmark_table")
-    if bt and (r.get("benchmark") or {}).get("n", 0) >= 5:
-        out += ["", f"**You vs whale median** _(top-{(r.get('benchmark') or {}).get('n', '?')} whale cohort, {(r.get('benchmark') or {}).get('computed_at', '')})_", "", "| Metric | You | Whale median |", "|---|---:|---:|"]
-        for row in bt:
-            you = num(row["you"], row["unit"]); wh = num(row["whale"], row["unit"])
-            mark = ""
-            if row["you"] is not None and row["whale"] is not None and row["you"] != float("inf"):
-                worse = (row["you"] > row["whale"]) if row["better"] == "lower" else (row["you"] < row["whale"])
-                mark = " 🔴" if worse else " 🟢"
-            out.append(f"| {row['metric']} | {you}{mark} | {wh} |")
-    return "\n".join(out)
-
-
 def market(r):
     m = r.get("market")
     if not m:

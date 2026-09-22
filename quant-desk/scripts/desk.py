@@ -128,7 +128,8 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         ctx_xyz = hl.meta("xyz")
     except Exception as e:  # noqa: BLE001
         meta["warnings"].append(f"xyz contexts unavailable: {e}")
-    closed, opened = episodes_from_fills(fills)
+    pub_closed, pub_opened = episodes_from_fills(fills)
+    closed, opened = pub_closed, pub_opened
     ages = {}
     if mcp is not None:
         try:
@@ -149,7 +150,8 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         rows = senpi_history.fetch(mcp, addr, win_start, meta)
         meta["timings"]["senpi_history"] = round(time.time() - t_h, 1)
         if rows:
-            closed, source = rows, f"senpi discovery ({len(rows)} closed position{'s' if len(rows) != 1 else ''})"
+            _partial = " — PARTIAL, a page failed to read and the totals below are short" if meta.get("senpi_history_partial") else ""
+            closed, source = rows, f"senpi discovery ({len(rows)} closed position{'s' if len(rows) != 1 else ''}){_partial}"
             indexed = True
         elif public_closed and not meta.get("senpi_history_failed"):
             # The public endpoints show closed round trips in this window and senpi's index returned
@@ -168,7 +170,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     track["fill_taker_share"] = track["taker_share"]
     if source != "public fills":
         # senpi rows carry no maker/taker split — keep the fill-level execution read from the public stream
-        fb_closed, fb_open = episodes_from_fills(fills)
+        fb_closed, fb_open = pub_closed, pub_opened      # already built above, over the same fills
         fb = metrics.track_record(fb_closed, fb_open, tr_raw["userFunding"], tr_raw["userFees"], win_start, tr_raw.get("userFees_xyz"))
         track["taker_share"], track["fee_recoverable"], track["volume"] = fb["taker_share"], fb["fee_recoverable"], fb["volume"]
     step(2, "auditing the live book — every position's stop, liquidation distance and funding …", t0,
@@ -472,7 +474,8 @@ def main(argv=None):
     rel = addr_book.CLAIMED if a.claim else (addr_book.ANALYZED if whose == "other" else None)
     tr = r.get("track") or {}
     addr_book.record(book, addr, relationship=rel, indexed=r.get("indexed"),
-                     digest={"at": r.get("generated") or None, "score": (r.get("score") or {}).get("total"),
+                     # `score` and `generated` are not keys on the record — both were silently None
+                     digest={"at": r.get("now_ms"), "score": r.get("quant_score"),
                              "verdict": r.get("verdict"), "net": tr.get("ledger_net")})
     addr_book.save(a.state_dir, book)
     if a.json:
