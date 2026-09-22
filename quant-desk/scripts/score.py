@@ -34,7 +34,7 @@ def _lower_first(s):
     TICKER. `s[0].lower()` turned the market-fit line "ETH, AVAX, TAO, xyz:MU — short into an
     up-trend" into "eTH, AVAX, …" on the headline, which is the most-read sentence on the page.
     Second character lower-case means an ordinary capitalised word; upper means an acronym.
-    (Seen on a live 1.25.1 run, M408027.)"""
+    (Seen on a live 1.25.1 run.)"""
     return (s[0].lower() + s[1:]) if (s and s[1:2].islower()) else s
 
 

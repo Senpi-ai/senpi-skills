@@ -2987,7 +2987,7 @@ def test_the_page_never_shows_two_different_totals_for_fees():
 
 
 def test_the_headline_never_lowercases_a_ticker():
-    """Live 1.25.1 run, M408027 on a senpi strategy wallet. The verdict read:
+    """Live 1.25.1 run, on a senpi strategy wallet. The verdict read:
 
         Down $149 on the ledger over the window — and eTH, AVAX, TAO, xyz:MU — short into an
         up-trend. Get on the right side of the regime first.
