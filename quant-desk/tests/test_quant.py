@@ -2583,7 +2583,8 @@ def test_the_fee_split_prices_both_sides_on_the_dex_they_traded_on():
     assert t2["fee_rate_taker"] == 0.00035 and t2["fee_rate_maker"] == 0.0001
 
     src = _P(HERE, "..", "scripts", "score.py").read_text()
-    assert "tr['fee_rate_taker'] * 1e4" in src, "the leak evidence must quote the rate the reader faces"
+    assert "_bp(tr['fee_rate_taker'])" in src and "fee_rate_taker_main" not in src.split("evidence=")[1][:400], \
+        "the leak evidence must quote the rate the reader faces, not the main-dex schedule"
 
 
 def test_a_zero_percent_win_rate_is_a_measurement_not_a_missing_value():
@@ -2872,3 +2873,48 @@ def test_the_indexed_path_quotes_the_rate_the_fills_paid_too():
     assert disc["fee_rate_taker"] == 0.00045 and abs(fb["fee_rate_taker"] - 0.010) < 1e-9
     assert fb["fee_rate_taker"] * 500_000.0 + fb["fee_rate_maker"] * 500_000.0 == fb["fees"], \
         "the quoted rates have to reproduce the quoted fee"
+
+
+def test_the_execution_sentence_multiplies_out_on_the_indexed_path_too():
+    """Found on the first live 1.24.1 run, `0x020c…5872`. The evidence read "$218,602 in fees on
+    $1.39B of volume at 2.8 bp taker / -0.0 bp maker" — 2.8bp x $1.21B taker is $339k, off by 1.55x.
+
+    Two bugs in one sentence. `volume` and both rates are carried over from the fills track on the
+    indexed path; the fee TOTAL was not, so discovery's closed-trade fee sat beside fills-derived
+    volume. And a book on a zero-maker-fee tier renders `-0.0 bp`, which reads as a typo in the one
+    sentence whose job is to reproduce its own dollars."""
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    blk = src.split('if source != "public fills":', 1)[1].split("step(2,", 1)[0]
+    for k in ("volume", "fee_rate_taker", "fee_rate_maker"):
+        assert f'fb["{k}"]' in blk, f"{k} is not carried from the fill-level read"
+    assert 'track["fee_total_exec"] = fb["fees"]' in blk, "the fee total those rates belong to is not carried"
+
+    # the evidence prefers the carried total and falls back on the public path, where they are equal
+    assert "_n(tr, 'fee_total_exec') or tr['fees']" in _P(HERE, "..", "scripts", "score.py").read_text()
+
+    # -0.0 never reaches a reader; a real rebate says what it is
+    assert score._bp(0.00028) == "2.8 bp"
+    assert score._bp(-0.0000001) == "0.0 bp", "negative zero rendered as a rate"
+    assert score._bp(0.0) == "0.0 bp"
+    assert score._bp(-0.00002) == "0.2 bp rebate"
+    assert "-0.0" not in score._bp(-0.0000004)
+
+
+def test_a_cost_share_over_one_hundred_percent_is_said_in_words():
+    """Live 1.24.1 run, `0xea66…61ee`: "513% of what you lost was cost, not bad trades". True, and
+    it reads as a broken number. Above 100% the share framing stops parsing — and what it means is
+    stronger than the percentage: the costs are bigger than the whole loss, so the trading was ahead
+    before them. The `cost_ratio > 1` branch already says it that way."""
+    tr = dict(cost_ratio=None, taker_share=0.74, fees=46_786.0, funding=-125_909.0,
+              ledger_net=-33_647.0, net=-33_647.0, gross_realized=-1_056_065.0, trades=32)
+    s, line = score.dim_cost(tr)
+    cost_clause = line.split(" 74%")[0]
+    assert "513%" not in line and "%" not in cost_clause, cost_clause
+    assert "bigger than the loss itself" in line
+    assert "$139,048 ahead before costs" in line, line          # 46,786 + 125,909 - 33,647
+    assert s == 20, s                            # 100 - min(70, 5.13x150) = 30, then -10 for taker
+
+    # under 100% the share framing still reads fine and stays
+    ok = dict(tr, fees=5_000.0, funding=-2_000.0)
+    _, l2 = score.dim_cost(ok)
+    assert "of what you lost was cost" in l2 and "bigger than the loss" not in l2

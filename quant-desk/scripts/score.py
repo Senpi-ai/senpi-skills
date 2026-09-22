@@ -19,6 +19,16 @@ def _pct(x, d=0):
     return f"{100 * x:.{d}f}%"
 
 
+def _bp(rate):
+    """A fee rate in basis points. `-0.0 bp` is what `f"{x*1e4:.1f}"` prints for a rate that is zero
+    or a hair negative, and a book on a zero-maker-fee tier hits that every time — it read as a typo
+    in a sentence whose whole job is to reproduce the dollars beside it. A real rebate says so."""
+    bp = (rate or 0.0) * 1e4
+    if bp <= -0.05:
+        return f"{abs(bp):.1f} bp rebate"
+    return f"{max(0.0, bp):.1f} bp"
+
+
 def _usd(x):
     return f"-${abs(x):,.0f}" if x < 0 else f"${x:,.0f}"
 
@@ -158,10 +168,20 @@ def dim_cost(tr):
         # a rebate is money EARNED — say so, rather than printing it as a bill
         _fee = float(tr.get("fees") or 0)
         _fee_txt = f"{_usd(-_fee)} EARNED in maker rebates" if _fee < 0 else f"{_usd(_fee)} of fees"
-        line = (f"{_pct_cost(drag)} of what you lost was cost, not bad trades: {_fee_txt}"
-                + (f" and {_usd(-tr['funding'])} of funding" if (tr.get("funding") or 0) < 0 else "")
-                + f" against a {_usd(net)} net result"
-                + (f" — funding paid you {_usd(tr['funding'])}" if (tr.get("funding") or 0) > 0 else "") + ".")
+        # Above 100% the share framing stops parsing: "513% of what you lost was cost, not bad
+        # trades" is arithmetically true and reads as a broken number. What it actually means is
+        # stronger and simpler — costs are bigger than the entire loss, so the trading was ahead
+        # before them. The `cost_ratio > 1` branch above already says it that way; say it here too.
+        # (Live 1.24.1 run, 0xea66…61ee: $46,786 fees + $125,909 funding on a -$33,647 result.)
+        _costs_txt = _fee_txt + (f" and {_usd(-tr['funding'])} of funding" if (tr.get("funding") or 0) < 0 else "")
+        if drag > 1.0 and net < 0:
+            line = (f"Costs are bigger than the loss itself: {_costs_txt} against a {_usd(net)} net "
+                    f"result — the trading was {_usd(costs + net)} ahead before costs.")
+        else:
+            line = (f"{_pct_cost(drag)} of what you lost was cost, not bad trades: {_fee_txt}"
+                    + (f" and {_usd(-tr['funding'])} of funding" if (tr.get("funding") or 0) < 0 else "")
+                    + f" against a {_usd(net)} net result"
+                    + (f" — funding paid you {_usd(tr['funding'])}" if (tr.get("funding") or 0) > 0 else "") + ".")
     if ts is not None and ts > 0.6:
         s -= 10
         line += f" {_pct(ts)} of your volume crossed the spread as a taker."
@@ -608,7 +628,7 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
     # 1. costs — resting instead of crossing the spread
     if _n(tr, "fee_recoverable") >= 50 and (tr.get("taker_share") or 0) >= 0.25:
         out.append(dict(agent="Leak finder", title=f"{_pct(tr['taker_share'])} of your volume crossed the spread as a taker",
-                        evidence=f"{_usd(tr['fees'])} in fees on {_usd(tr['volume'])} of volume at {tr['fee_rate_taker'] * 1e4:.1f} bp taker / {tr['fee_rate_maker'] * 1e4:.1f} bp maker.",
+                        evidence=f"{_usd(_n(tr, 'fee_total_exec') or tr['fees'])} in fees on {_usd(tr['volume'])} of volume at {_bp(tr['fee_rate_taker'])} taker / {_bp(tr['fee_rate_maker'])} maker.",
                         counterfactual=f"Resting maker orders for the same fills would have kept ~{_usd(tr['fee_recoverable'])} over {days} days (≈{_usd(tr['fee_recoverable'] * yr)}/yr).",
                         usd=tr["fee_recoverable"], window=f"{days}d", cta=f"Execute through senpi and I'll rest your entries maker-first with a taker fallback — "
                             f"that's ~{_usd(tr['fee_recoverable'])} over {days} days (~{_usd(tr['fee_recoverable'] * yr)}/yr) "

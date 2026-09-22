@@ -5,9 +5,10 @@
 import datetime
 
 import metrics
+import score as score_mod
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.24.1"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.24.2"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -223,7 +224,7 @@ def performance(r):
     L, S = tr["long"], tr["short"]
     out += ["", f"**Long / short:** longs {L['trades']} trades · win {pct(L['wins'] / L['trades']) if L['trades'] else '—'} · {usd(L['realized'], signed=True)}; shorts {S['trades']} trades · win {pct(S['wins'] / S['trades']) if S['trades'] else '—'} · {usd(S['realized'], signed=True)}",
             (f"**Hold time (median):** winners {hrs(tr['hold_winners_h'])} · losers {hrs(tr['hold_losers_h'])}" + (f" — you hold losers {tr['hold_ratio']:.1f}× longer" if tr.get('hold_ratio') and tr['hold_ratio'] > 1.2 else (f" — you cut losers {1 / tr['hold_ratio']:.1f}× faster than you let winners run" if tr.get('hold_ratio') and 0 < tr['hold_ratio'] < 0.8 else ""))) if (tr.get('hold_winners_h') is not None and tr.get('hold_losers_h') is not None) else hold_fallback(tr),
-            f"**Execution:** {pct(tr['taker_share'])} taker · {tr['fee_rate_taker'] * 1e4:.1f} bp taker / {tr['fee_rate_maker'] * 1e4:.1f} bp maker · {tr['liquidations']} liquidation(s)"]
+            f"**Execution:** {pct(tr['taker_share'])} taker · {score_mod._bp(tr['fee_rate_taker'])} taker / {score_mod._bp(tr['fee_rate_maker'])} maker · {tr['liquidations']} liquidation(s)"]
     sb = tr.get("size_buckets") or {}
     if sb.get("bands"):
         out += ["", f"**Size vs outcome** (median position {usd(sb['median_notional'])} notional):", "", "| Size band | Winners | Losers | Realized |", "|---|---:|---:|---:|"]
