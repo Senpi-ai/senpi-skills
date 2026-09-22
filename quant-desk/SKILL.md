@@ -39,7 +39,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.26.0"
+  version: "1.26.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -358,7 +358,22 @@ book** or **someone else's**. Settle that first — it is one question and it de
 
 > Your own book, or do you want me to find you someone to read?
 
-### If they mean their OWN book — offer the STRATEGY wallets first
+### If they mean their OWN book — read the address book FIRST, then the strategy wallets
+
+**Check `desk.py --addresses` before anything else.** A reader who has already told this box an
+address is theirs is recorded there as `claimed`, and a Senpi-issued wallet as `verified`. A trader
+who came from Hyperliquid with their own external wallet and said "this is my book" does not stop
+owning it the moment they have senpi strategies — **do not forget an address they already claimed**,
+and do not silently swap it for a senpi wallet.
+
+So the precedence is:
+
+1. **Claimed or verified in the address book** — offer it by name, it is the one they told you about.
+2. **Their senpi strategy wallets** (`strategy_list`) — where their senpi perp history actually is.
+3. **Both?** Then ask, because only they know which they mean today: *"Your external wallet
+   `0x5a10…2c37`, or your senpi strategies — Aegis, Phalanx?"* Offer to run both and compare; that
+   is often the more interesting read, and the desk prices them the same way.
+4. **Neither?** Ask for an address. Never guess one.
 
 **A senpi user's perp history lives in their strategy wallets, not their embedded wallet.** The
 embedded wallet is a FUNDING wallet: deposits land there and move out to the strategy subwallets that
@@ -371,8 +386,8 @@ both got a dead end. A third user pointed the desk at three strategy wallets the
 three full desks, a priced leak, and a DSL fix off the back of it. Same product, same hour; the only
 difference was which wallet.
 
-So: resolve their wallets with `strategy_list` and **offer the strategy wallets first**, named by
-their strategy. Offer the embedded wallet second and label it — "your funding wallet, usually no
+So, where the address book has nothing claimed: resolve their wallets with `strategy_list` and
+**offer the strategy wallets first**, named by their strategy. Offer the embedded wallet second and label it — "your funding wallet, usually no
 trades of its own". If they have several strategies, offer to run the desk on each and compare.
 
 > You trade through three strategies — **Aegis**, **Phalanx**, **Signals Hunter**. Want the desk on
