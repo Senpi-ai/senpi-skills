@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.20.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.21.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):

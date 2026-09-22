@@ -30,7 +30,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.20.0"
+  version: "1.21.0"
   platform: senpi
   exchange: hyperliquid
 ---

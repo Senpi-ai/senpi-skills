@@ -55,7 +55,7 @@ def fetch(client, addr, window_start_ms, meta):
     the team, promises something about a wallet that is already there.
     """
     out, offset = [], 0
-    for _ in range(MAX_PAGES):
+    for _page in range(MAX_PAGES):
         try:
             resp = client.mcp_call("discovery_get_trader_history", trader_address=addr, latest=True, limit=PAGE, offset=offset,
                                    sort_by="CLOSED_TIME", sort_direction="DESC", timeout=20)
@@ -85,6 +85,15 @@ def fetch(client, addr, window_start_ms, meta):
         if _ms(rows[-1].get("closeTime")) < window_start_ms or len(rows) < PAGE:
             break
         offset += PAGE
+    else:
+        # Fell out of the loop without ever hitting a short page: there is more history than
+        # MAX_PAGES covers and what we hold is a PREFIX. This exits NORMALLY, so #733's flag — set
+        # only in the except branch — never fired, and a truncated record shipped as complete with
+        # indexed=True. (@danielmbirochi, #718.)
+        if out:
+            meta.setdefault("warnings", []).append(
+                f"senpi history hit the {MAX_PAGES}-page ceiling; older closed positions are not included")
+            meta["senpi_history_partial"] = True
     return sorted(out, key=lambda e: e["close_time"])
 
 

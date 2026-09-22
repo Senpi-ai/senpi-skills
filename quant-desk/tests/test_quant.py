@@ -2295,3 +2295,89 @@ def test_a_lever_that_wins_the_headline_always_has_a_visible_leak():
     tr_slow = dict(tr, hold_ratio=2.6, hold_losers_h=52.0, hold_winners_h=20.0)
     out2 = score.leaks(tr_slow, dict(funding_per_day=0.0), tm, [], [], 0, 90, lv)
     assert any("hold losers 2.6× longer" in l["title"] for l in out2), [l["title"] for l in out2]
+
+
+def test_a_book_with_no_winning_trade_still_renders(_=None):
+    """@danielmbirochi (#718), critical 1. `give_back_median` and `mfe_median_winners` are taken over
+    WINNERS only, so a book where every trade closed red has both as None — while the lock lever
+    still fires, because losers that armed and retraced produce one. `_pct(None)` raised TypeError,
+    which is not an HLError, so desk.py printed a traceback and no desk.
+
+    That is exactly the book `--find --find-losers` sends a reader to, which I added in 1.18.0."""
+    tm = dict(n=6, lock={"settings": {"0.03/0.5": dict(n=6, total=9_000.0)}}, cut={"settings": {}},
+              give_back_median=None, mfe_median_winners=None, losers_that_were_green=1.0,
+              chased_n=0, chased_realized=0.0, calm_pf=None, chased_pf=None)
+    tr = dict(trades=6, complete_trades=6, fee_recoverable=0.0, taker_share=0.0, funding=0.0,
+              liquidations=0, coins={}, hold_ratio=None)
+    rows = [_tm_row(realized=-500.0, win=False, mfe=0.08, lock_cf={"0.03/0.5": 1_500.0}) for _ in range(6)]
+
+    out = score.leaks(tr, dict(funding_per_day=0.0), tm, [], [], 0, 90, score.levers(rows, [], tm))
+    lock = next(l for l in out if "peak" in l["title"])
+    assert lock["usd"] == 9_000.0
+    assert "No complete trade closed green" in lock["evidence"], lock["evidence"]
+
+    # and the winners-present path still uses the median framing
+    tm2 = dict(tm, give_back_median=0.54, mfe_median_winners=0.058)
+    out2 = score.leaks(tr, dict(funding_per_day=0.0), tm2, [], [], 0, 90, score.levers(rows, [], tm2))
+    assert any("give back a median 54%" in l["title"] for l in out2), [l["title"] for l in out2]
+
+
+def test_a_maker_rebate_is_not_recoverable_money():
+    """@danielmbirochi (#718), critical 3. dim_cost was fixed for this in #733 and `fee_recoverable`
+    was missed — `abs(fees)` turned a net rebate into recoverable dollars, which recoverable() then
+    added on top of the lever."""
+    import metrics
+    ep = lambda fee: dict(coin="BTC", volume=1_000_000.0, taker_volume=900_000.0, direction="LONG",
+                          realized=0.0, fees=fee, win=False, truncated=True, complete=False,
+                          peak_notional=0.0, liquidated=False, hold_h=1.0, open_time=0, close_time=1)
+    sched = dict(userCrossRate=0.00035, userAddRate=0.00008)
+    assert metrics.track_record([ep(-4_000.0)], [], [], sched, 0)["fee_recoverable"] == 0.0, \
+        "a rebate was reported as recoverable"
+    assert metrics.track_record([ep(4_000.0)], [], [], sched, 0)["fee_recoverable"] > 0
+
+
+def test_drawdown_reads_raw_equity_not_the_transfer_adjusted_curve():
+    """@danielmbirochi (#718), critical 2 — a regression from my own B3 fix in #733.
+
+    drawdown's numerator (cumulative P&L) is already transfer-immune; its denominator is "the equity
+    the fall came out of". Feeding it the transfer-ADJUSTED curve made `av_at` go negative on an
+    account funded mid-window, base collapsed toward zero and dd_pct read 0% — no risk penalty, no
+    IN DRAWDOWN flag on a book that really did draw down."""
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    assert "metrics.drawdown(pnl_pts, eq_raw)" in src, "drawdown is back on the adjusted curve"
+    assert 'eq_raw = metrics.equity_curve(tr_raw["portfolio"], [], win_start)' in src
+    # and the adjusted curve is still what everything else uses
+    assert 'eq = metrics.equity_curve(tr_raw["portfolio"], fl, win_start)' in src
+
+
+def test_hitting_the_page_ceiling_declares_a_partial_history():
+    """@danielmbirochi (#718), critical 5. #733 set the PARTIAL flag only in the except branch.
+    Exhausting MAX_PAGES exits the loop NORMALLY, so a wallet with more closed positions than the
+    ceiling covers shipped a prefix as a complete record, indexed=True and no suffix."""
+    import senpi_history
+
+    class _Client:
+        def mcp_call(self, *a, **kw):
+            return {"success": True, "data": {"closed_positions": [
+                dict(coin="BTC", szi="1", entryPx="100", exitPx="110", openTime=1, closeTime=4_000_000_000,
+                     realizedPnl="10", totalFees="1", leverage={"value": 1}, totalFills="2")
+                for _ in range(senpi_history.PAGE)]}}
+
+    meta = {}
+    rows = senpi_history.fetch(_Client(), "0x" + "a" * 40, 0, meta)
+    assert len(rows) == senpi_history.PAGE * senpi_history.MAX_PAGES
+    assert meta.get("senpi_history_partial") is True, "the ceiling shipped a prefix as complete"
+    assert meta.get("senpi_history_failed") is not True, "nothing actually failed"
+
+
+def test_every_figure_is_computed_on_the_window_the_desk_claims():
+    """@danielmbirochi (#718), critical 4. `hl.trader()` fetches days+60 so an episode opening before
+    the window can still be completed — but the raw set was handed to `levers()` and `dim_sizing()`,
+    so the size lever's median-winner threshold and the sizing dimension's abstention gate ran on up
+    to 150 days inside a desk whose every other number says 90."""
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    assert "score.levers(tm_rows, in_win, tm" in src, "levers are back on the unfiltered set"
+    assert "score.dimensions(track, book, dd, tm, mf, sm, in_win, pnl_curve)" in src, \
+        "dim_sizing is back on the unfiltered set"
+    # the wider fetch itself is deliberate and must stay
+    assert "days + 60" in src or "days+60" in src or "FETCH_PAD" in src or "win_start" in src
