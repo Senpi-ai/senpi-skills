@@ -2846,3 +2846,29 @@ def test_beta_is_not_measured_against_a_collapsed_equity_tail():
     b = strategy_read.pnl_beta(pnl, btc, 1.0, equity=curve)
     assert b and abs(b["beta"] - 1.5) < 0.25, f"the tail swamped the measurement: {b}"
     assert abs(b["beta"]) < 5, "a near-zero denominator is a division by the tail, not a return"
+
+
+def test_the_indexed_path_quotes_the_rate_the_fills_paid_too():
+    """@0xsarvesh on 1.24.0. Item 12 measures the rates from the fills, and discovery episodes carry
+    no `taker_fees` — so on the indexed path `_tk_fees` sums to 0, both rates fall back to the
+    schedule, and desk.py patched `taker_share`/`fee_recoverable`/`volume` in from the fills track
+    but not the two rates. Schedule basis points beside fills volume: the evidence sentence still
+    failed to multiply out (1.97x, down from 4.03x — better, not closed)."""
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    blk = src.split('if source != "public fills":', 1)[1].split("step(2,", 1)[0]
+    for k in ("taker_share", "fee_recoverable", "volume", "fee_rate_taker", "fee_rate_maker"):
+        assert f'fb["{k}"]' in blk, f"{k} is not carried over from the fill-level read"
+
+    # and the fills track is the one that measures them, so the two must agree
+    def _e(vol, taker, fee, tk_fee):
+        return dict(coin="xyz:X", volume=vol, taker_volume=taker, fees=fee, taker_fees=tk_fee,
+                    realized=0.0, win=False, complete=True, truncated=False, hold_h=1.0,
+                    peak_notional=vol, direction="LONG", close_time=1, open_time=0,
+                    liquidated=False, adds=0, entry_vwap=1.0, peak_size=vol)
+    sched = dict(userCrossRate="0.00045", userAddRate="0.00015")
+    fb = metrics.track_record([_e(1_000_000.0, 500_000.0, 6_000.0, 5_000.0)], [], [], sched, 0)
+    # discovery rows: same book, no fill-level split — the schedule is all they can offer
+    disc = metrics.track_record([{**_e(1_000_000.0, 500_000.0, 6_000.0, 0.0), "taker_fees": 0.0}], [], [], sched, 0)
+    assert disc["fee_rate_taker"] == 0.00045 and abs(fb["fee_rate_taker"] - 0.010) < 1e-9
+    assert fb["fee_rate_taker"] * 500_000.0 + fb["fee_rate_maker"] * 500_000.0 == fb["fees"], \
+        "the quoted rates have to reproduce the quoted fee"

@@ -45,7 +45,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.24.0"
+VERSION = "1.24.1"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -173,6 +173,11 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         fb_closed, fb_open = pub_closed, pub_opened      # already built above, over the same fills
         fb = metrics.track_record(fb_closed, fb_open, tr_raw["userFunding"], tr_raw["userFees"], win_start, tr_raw.get("userFees_xyz"))
         track["taker_share"], track["fee_recoverable"], track["volume"] = fb["taker_share"], fb["fee_recoverable"], fb["volume"]
+        # …and the RATES with them. Item 12 measures them from the fills, and discovery episodes carry
+        # no `taker_fees`, so on the indexed path `_tk_fees` sums to 0 and both rates fall back to the
+        # schedule — leaving schedule-derived basis points sitting beside fills-derived volume, in a
+        # sentence that still does not multiply out. (@0xsarvesh, #718, on 1.24.0.)
+        track["fee_rate_taker"], track["fee_rate_maker"] = fb["fee_rate_taker"], fb["fee_rate_maker"]
     step(2, "auditing the live book — every position's stop, liquidation distance and funding …", t0,
          f"{len(fills):,} fills across {len({e.get('coin') for e in fills})} coins")
     book = metrics.open_book(cs, oo, ctxs, ages, tr_raw.get("clearinghouseState_xyz"), tr_raw.get("frontendOpenOrders_xyz"), ctx_xyz,
