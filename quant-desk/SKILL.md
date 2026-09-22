@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.26.3"
+  version: "1.27.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -452,7 +452,7 @@ you did not need.
 
 ## Install — the whole `scripts/` directory is required
 
-`desk.py` imports `addresses.py`, `deep.py`, `followups.py`, `hl_api.py`, `market.py`, `metrics.py`,
+`desk.py` imports `addresses.py`, `deep.py`, `dsl.py`, `followups.py`, `hl_api.py`, `market.py`, `metrics.py`,
 `opportunities.py`, `render.py`, `roundtrips.py`, `score.py`, `senpi_history.py`, `smart_money.py`,
 `strategy_read.py`, `taxonomy.py`, `timing.py` and `voice.py`, plus the vendored `mcp_client.py` (used
 only when `SENPI_AUTH_TOKEN` is set). Copy the whole directory — a partial copy fails at import, not

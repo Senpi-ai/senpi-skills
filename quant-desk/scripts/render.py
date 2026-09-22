@@ -5,10 +5,11 @@
 import datetime
 
 import metrics
+import dsl as dsl_mod
 import score as score_mod
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.26.3"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.27.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -197,6 +198,19 @@ def protection(r):
             out.append(f"| {p['coin']} | {p['side']} {p['leverage'] or '—'}x | {held} | {usd(p['notional'])} | {usd(p['unrealized'], signed=True)} · {pct(p['roe'], 0, signed=True)} | {usd(p['funding_per_day'], signed=True)} | {liq} | {pct(p['stop_covered_share'])} | {status} |")
             if status != "PROTECTED":
                 todo.append(f"- **{p['coin']}** — {note}.")
+        # What senpi's runtime is doing to these positions, where it is doing anything. The stop in
+        # the table above is already correct — phase 1 posts it at entry — but a price with no
+        # context reads as a static stop when it is a floor that ratchets. State what is LOCKED;
+        # never present the ladder ahead as protection already in force.
+        _dsl = [q for q in b["positions"] if q.get("dsl")]
+        if _dsl:
+            out += ["", "**Your runtime is managing these stops.**"]
+            for q in _dsl:
+                ln = dsl_mod.line(q)
+                if ln:
+                    out.append(f"- **{q['coin']}** — {ln}")
+            out += ["", "_A tier that has not armed is a rule, not protection: the floor it would "
+                        "set is not in force until its trigger is reached._"]
         out += ["", "**Your quant would…**"] + (todo or ["- nothing here — every position carries a full stop."])
     else:
         out.append("\nNo open positions right now.")

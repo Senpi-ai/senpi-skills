@@ -32,6 +32,7 @@ import opportunities  # noqa: E402
 import render  # noqa: E402
 import score  # noqa: E402
 import addresses as addr_book
+import dsl as dsl_mod  # noqa: E402
 import senpi_history  # noqa: E402
 import smart_money  # noqa: E402
 import strategy_read  # noqa: E402
@@ -45,7 +46,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.26.3"
+VERSION = "1.27.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -203,6 +204,16 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         cov["ledger_gap"] = _gap
         cov["effective"] = min(cov["overall"] if cov["overall"] is not None else 1.0,
                                max(0.0, 1.0 - _gap / abs(track["ledger_net"])))
+    # What senpi's own runtime is doing to these positions. The desk already reads the resting stop
+    # off the exchange — phase 1 posts it at entry, so a DSL position is correctly PROTECTED today —
+    # but a price with no context reads as a static stop when it is a floor that ratchets. Silent
+    # no-op without a token, on an external wallet, or on any failure.
+    try:
+        _n_dsl = dsl_mod.attach(mcp, addr, book, meta)
+        if _n_dsl:
+            meta["timings"]["dsl"] = round(time.time() - t1, 1)
+    except Exception as e:  # noqa: BLE001
+        meta["warnings"].append(f"runtime DSL state unavailable: {e}")
     fl = metrics.flows(tr_raw["ledger"], addr)
     pnl_curve = metrics.pnl_series(tr_raw["portfolio"], win_start)
     # transfer-adjusted, as equity_curve's docstring, methodology.md and SKILL rule 3 all promise.

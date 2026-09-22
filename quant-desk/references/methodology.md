@@ -1,6 +1,6 @@
 # quant-desk — methodology
 
-> **This document describes the engine as of quant-desk 1.26.3.** Nine formulas in it were stale
+> **This document describes the engine as of quant-desk 1.27.0.** Nine formulas in it were stale
 > between 1.9.0 and 1.14.0 while SKILL.md sent the agent here for them, so an agent asked "how is my
 > cost score computed?" answered with the pre-1.9.0 rule, confidently. If you change a formula in
 > `scripts/`, change it here in the same commit — `test_methodology_matches_the_engine` fails if the
@@ -242,7 +242,7 @@ cohort → `smart`; a funding bill → `funding`; a losers leak → `replay`; re
   catalog families, and the discover/author handoff.
 * `regime`, `smart`, `scout`, `strategy`, `watch` — the corresponding sections in full.
 
-## Scoring rules as of 1.26.3 — read these, not any older formula above
+## Scoring rules as of 1.27.0 — read these, not any older formula above
 
 These nine changed between 1.9.0 and 1.15.0 while this file still described the pre-1.9.0 engine.
 
@@ -265,4 +265,5 @@ These nine changed between 1.9.0 and 1.15.0 while this file still described the 
 | Where the grid reads | Totals come from senpi's indexed history where it is available; the counterfactual grid always reads the FILLS-derived episodes, which carry a real size path. A discovery row's `size` accumulates over the position's life — one row on one wallet is 13,651 fills over 20 days — so it is not an exposure to price an exit against. |
 | Quoted fee rates | Measured from the fills (taker fees ÷ taker volume), not from `userFees` — the xyz schedule comes back identical to main, so the quoted bp would not reproduce the quoted dollars. |
 | Beta denominator | Floored at a tenth of the window's median equity; steps below it are dropped rather than divided by a collapsed tail. |
+| DSL tiers | Where senpi's runtime manages a position, the desk names the ARMED tier and its floor, and lists the ladder ahead as unarmed. `lockRoe` is a share of the HIGH-WATER GAIN (floor = entry + lock% x (HW - entry)), so an unarmed tier's floor is not in force; presenting the ladder as protection would claim a floor that does not exist. |
 | One bar, one table | `leaks()` and `recoverable()` read the same `levers()` table and nothing else. A family the lever bar declines is stated **unpriced**, with the measured pattern that survives it; there is no second path that reports a number the bar rejected. |
