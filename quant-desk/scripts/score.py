@@ -133,13 +133,22 @@ def dim_cost(tr):
         # lost $180,996 on $7,143 of fees scores 94/100, which is not cost efficiency, just a large
         # loss. Against |net| the question is the one that matters: how much of what you lost went
         # to cost rather than to bad trades.
-        net = float(tr.get("net") or 0.0)
-        costs = abs(tr.get("fees") or 0) + max(0.0, -(tr.get("funding") or 0))
+        # The ledger is what the user lost, so it is the denominator they would use. Realized-only
+        # net puts a book whose result lives in unrealized P&L against the wrong base (#718 Q2);
+        # with B1 fixed, ledger_net is finally a 90-day number and safe to prefer.
+        net = float(tr.get("ledger_net") if tr.get("ledger_net") is not None else (tr.get("net") or 0.0))
+        # NOT abs(): a maker REBATE is negative fees, and abs() turned money earned into an
+        # equal-sized cost. 0.51% of books with 5+ trades run a net rebate, and they are exactly the
+        # sophisticated books worth reading correctly.
+        costs = max(0.0, float(tr.get("fees") or 0)) + max(0.0, -(tr.get("funding") or 0))
         if abs(net) < 1 and costs < 1:
             return None, "Not measurable this window: no trading result, and no costs to price against it."
         drag = costs / max(abs(net), 1.0)
         s = 100 - min(70, drag * 150)
-        line = (f"{_pct_cost(drag)} of what you lost was cost, not bad trades: {_usd(abs(tr.get('fees') or 0))} of fees"
+        # a rebate is money EARNED — say so, rather than printing it as a bill
+        _fee = float(tr.get("fees") or 0)
+        _fee_txt = f"{_usd(-_fee)} EARNED in maker rebates" if _fee < 0 else f"{_usd(_fee)} of fees"
+        line = (f"{_pct_cost(drag)} of what you lost was cost, not bad trades: {_fee_txt}"
                 + (f" and {_usd(-tr['funding'])} of funding" if (tr.get("funding") or 0) < 0 else "")
                 + f" against a {_usd(net)} net result"
                 + (f" — funding paid you {_usd(tr['funding'])}" if (tr.get("funding") or 0) > 0 else "") + ".")
@@ -447,8 +456,15 @@ def levers(rows, closed, tm=None, funding_late=0.0):
     # No sample gate: funding paid is a measured cost, like fees, not a pattern estimated from a
     # handful of trades.
     if funding_late > 50:
+        # A 24h cap does not only stop the funding bill — it CLOSES the position, and the P&L
+        # consequence of closing at 24h is exactly the 24h time-cut. Crediting the funding saved and
+        # charging nothing for the exits it forces was the fourth survivorship bug (@0xsarvesh #718);
+        # the first three were fixed in #712.
+        _cut24 = (((tm.get("cut") or {}).get("settings")) or {}).get("24") or {}
+        _charge = float(_cut24.get("total") or 0.0) if _cut24.get("n") else 0.0
         out.append(dict(kind="funding", key="24h", label="capping holds that pay funding at 24h",
-                        total=float(funding_late), gross=float(funding_late), vals=[], n=len(rows)))
+                        total=float(funding_late) + _charge, gross=float(funding_late), vals=[],
+                        n=len(rows)))
 
     if (tm.get("chased_n") or 0) >= 3 and (tm.get("chased_realized") or 0) < -50 \
             and (tm.get("calm_pf") or 0) > (tm.get("chased_pf") or 0):
@@ -460,10 +476,27 @@ def levers(rows, closed, tm=None, funding_late=0.0):
 
 
 def best_lever(lv, kind=None):
-    """The highest-scoring lever, optionally of one kind. None when nothing beats doing nothing."""
+    """The lever to quote. MEDIAN within a family, max across families.
+
+    Taking the max over all of them was a grid search reported as a finding: 3 lock settings and 3
+    cut settings are six in-sample estimates of the same underlying thing — exit discipline — and
+    the largest of six is biased high by construction. Charging each setting fixed the per-trade
+    asymmetry (#712); the SELECTION step was still optimistic and nothing measured it (@0xsarvesh,
+    #718). methodology.md has described the median-of-robust figure since 1.0.
+
+    Across families the max is right: a size cap, a funding cap and an exit rule are different
+    fixes, not six readings of one.
+    """
     c = [x for x in (lv or []) if kind is None or x["kind"] == kind]
-    b = max(c, key=lambda x: x["total"], default=None)
-    return b if b and b["total"] > 0 else None
+    if not c:
+        return None
+    best = None
+    for k in {x["kind"] for x in c}:
+        fam = sorted((x for x in c if x["kind"] == k), key=lambda x: x["total"])
+        rep = fam[(len(fam) - 1) // 2]              # lower median: ties go to the more conservative
+        if best is None or rep["total"] > best["total"]:
+            best = rep
+    return best if best and best["total"] > 0 else None
 
 
 def recoverable(rows, closed, tr, tm=None, lv=None):
@@ -576,11 +609,15 @@ def leaks(tr, book, tm, funding_rows, closed, window_start, days, lv=None):
                         usd=-tm["chased_realized"], window=f"{days}d", cta="Enter with the flow, not after it — a signal-driven entry does this."))
     # 6. liquidations
     if tr.get("liquidations"):
-        half = -tr["liquidation_loss"] / 2
+        # "a stop halfway to liquidation would have kept half" was a GUESS, not a counterfactual: it
+        # charges nothing for the positions that stop would have cut early and which then recovered,
+        # and we do not know where the trader would have put it. Priced at $0 it states the fact and
+        # stops topping a ranking it was never measured for — on one book it led the page at
+        # $169,425 and next_steps sent the reader at it. (@0xsarvesh, #718.)
         out.append(dict(agent="Risk guard", title=f"{tr['liquidations']} liquidation(s) cost {_usd(-tr['liquidation_loss'])}",
                         evidence="A liquidation surrenders the whole margin plus the liquidation fee.",
-                        counterfactual=f"A stop halfway to liquidation would have kept roughly ~{_usd(half)} of it.",
-                        usd=half, window=f"{days}d", cta="A hard stop is the cheapest insurance there is."))
+                        counterfactual="How much a stop would have saved depends where you put it, so the desk does not price this one — but the cost above is what it actually took.",
+                        usd=0.0, unpriced=True, window=f"{days}d", cta="A hard stop is the cheapest insurance there is."))
     # 7. sizing — oversized losers
     size_l = ch.get("size")
     if size_l and size_l["total"] > 50 and size_l.get("losers", 0) >= 2:

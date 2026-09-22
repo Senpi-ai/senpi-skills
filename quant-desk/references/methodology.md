@@ -1,5 +1,12 @@
 # quant-desk — methodology
 
+> **This document describes the engine as of quant-desk 1.15.0.** Nine formulas in it were stale
+> between 1.9.0 and 1.14.0 while SKILL.md sent the agent here for them, so an agent asked "how is my
+> cost score computed?" answered with the pre-1.9.0 rule, confidently. If you change a formula in
+> `scripts/`, change it here in the same commit — `test_methodology_matches_the_engine` fails if the
+> versions drift.
+
+
 Every number on the desk is a function of public onchain data (or Senpi discovery when a token is
 present). This file is the formula sheet. Nothing here is a prediction; every dollar figure on a leak is a
 counterfactual of a process rule applied to the trades that happened.
@@ -211,3 +218,19 @@ cohort → `smart`; a funding bill → `funding`; a losers leak → `replay`; re
 * `rules` — entries (best setups), entry timing (chased vs calm profit factors), holding, sizing, risk,
   catalog families, and the discover/author handoff.
 * `regime`, `smart`, `scout`, `strategy`, `watch` — the corresponding sections in full.
+
+## Scoring rules as of 1.15.0 — read these, not any older formula above
+
+These nine changed between 1.9.0 and 1.15.0 while this file still described the pre-1.9.0 engine.
+
+| Rule | Current |
+|---|---|
+| Cost efficiency | `100 − min(70, costs/|ledger_net| × 150)`. Base is the money actually lost, not gross — measuring cost against a loss measures the loss. A maker **rebate** is earned, never counted as a cost. |
+| Drawdown penalty | `min(75, dd_pct × 75)`. The old `min(20, ×60)` saturated at 33%, scoring a wipeout the same as a third. |
+| Funding penalty | `min(45, yr × 50)`. Saturated at 40%/yr. |
+| Abstention | All six dimensions return `None` rather than score when they have nothing to measure — below `MIN_PATTERN_TRADES` closed trades, or with no open book for market fit. |
+| Headline | Re-normalised over the dimensions that measured. Below `MIN_DIMENSIONS` (3) the desk declines to score at all. |
+| Which lever is quoted | **Median within a family, max across families.** Taking the max over 3 lock × 3 cut settings was a grid search reported as a finding. |
+| Leak values | Charged — each fix nets the trades it costs. `leaks()` and `recoverable()` read one `levers()` table, so the list and the headline cannot disagree. |
+| Liquidations | Stated, not priced. "A stop halfway would have kept half" was a guess. |
+| Series selection | The portfolio window that **spans** the most of the analysis window, never the one with the most points. |

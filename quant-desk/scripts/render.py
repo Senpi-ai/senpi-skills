@@ -7,7 +7,7 @@ import datetime
 import metrics
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.14.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.15.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -169,7 +169,8 @@ def overview(r):
         top = r["leaks"][:3]
         out += ["", f"## Top {len(top)} thing{'s' if len(top) != 1 else ''} your agents found", ""]
         for i, l in enumerate(top, 1):
-            out.append(f"{i}. **{l['agent']} · ~{usd(l['usd'])} / {l['window']}** — **{l['title']}.** {l['evidence']} _{l['counterfactual']}_ → {l['cta']}")
+            head = f"**{l['agent']}**" if l.get("unpriced") else f"**{l['agent']} · ~{usd(l['usd'])} / {l['window']}**"
+            out.append(f"{i}. {head} — **{l['title']}.** {l['evidence']} _{l['counterfactual']}_ → {l['cta']}")
     return "\n".join(out)
 
 
@@ -291,34 +292,14 @@ def leaks(r):
         out.append("Not enough closed trades to price a leak yet — the desk needs a handful of round trips before a counterfactual means anything." if (r["track"].get("trades") or 0) < 5
                    else "No leak clears the bar on this window: every counterfactual the desk tests came out flat or negative, which means the process is not where the money is going.")
     for i, l in enumerate(r["leaks"], 1):
-        out += [f"**{i:02d} · {l['title']}** — _{l['agent']}_ · **~{usd(l['usd'])} / {l['window']}**", f"{l['evidence']} {l['counterfactual']}", f"→ {l['cta']}", ""]
+        tag = f"_{l['agent']}_" + ("" if l.get("unpriced") else f" · **~{usd(l['usd'])} / {l['window']}**")
+        out += [f"**{i:02d} · {l['title']}** — {tag}", f"{l['evidence']} {l['counterfactual']}", f"→ {l['cta']}", ""]
     tm = r.get("timing") or {}
     if tm.get("n"):
         neg = [k for k, g in (("time-cut on losers", tm.get("cut")), ("trailing lock on winners", tm.get("lock")))
                if g and g.get("settings") and any(s["n"] for s in g["settings"].values()) and all(s["total"] <= 0 for s in g["settings"].values() if s["n"])]
         if neg:
             out.append(f"Tested and **rejected** for this book: a {' and a '.join(neg)} — each would have cost money on your biggest runs. Your edge is letting those run; don't fix what isn't leaking.")
-    return "\n".join(out)
-
-
-def smart(r):
-    sm = r.get("smart"); out = ["## You vs smart money", ""]
-    if not sm or not sm.get("rows"):
-        out.append("No cohort view was available for this run." if not sm else "No open positions to compare.")
-    else:
-        out += [f"_Cohort: {sm['source']}_", "", "| Coin | You | Smart money | Read |", "|---|---|---|---|"]
-        for x in sm["rows"]:
-            out.append("| {} | {} | {} | **{}** |".format(x["coin"], x["you"], x["cohort"], x["read"]))
-    bt = r.get("benchmark_table")
-    if bt and (r.get("benchmark") or {}).get("n", 0) >= 5:
-        out += ["", f"**You vs whale median** _(top-{(r.get('benchmark') or {}).get('n', '?')} whale cohort, {(r.get('benchmark') or {}).get('computed_at', '')})_", "", "| Metric | You | Whale median |", "|---|---:|---:|"]
-        for row in bt:
-            you = num(row["you"], row["unit"]); wh = num(row["whale"], row["unit"])
-            mark = ""
-            if row["you"] is not None and row["whale"] is not None and row["you"] != float("inf"):
-                worse = (row["you"] > row["whale"]) if row["better"] == "lower" else (row["you"] < row["whale"])
-                mark = " 🔴" if worse else " 🟢"
-            out.append(f"| {row['metric']} | {you}{mark} | {wh} |")
     return "\n".join(out)
 
 
@@ -379,8 +360,9 @@ def next_steps(r):
         # what is coming, without claiming a signature there is nothing to sign.
         out.append(f"{i}. **Protect first.** {', '.join(p['coin'] for p in at_risk)}: every one of these "
                    f"is naked. Let me know if you want my help."); i += 1
-    if r["leaks"]:
-        l = r["leaks"][0]
+    priced = [l for l in r["leaks"] if not l.get("unpriced")]
+    if priced:
+        l = priced[0]
         out.append(f"{i}. **Fix the biggest leak.** {l['title']} — ~{usd(l['usd'])}/{l['window']}. {l['cta']}"); i += 1
     fam = r.get("families") or []
     setup = fam[0].replace("_", " ") if fam else "your pattern"
