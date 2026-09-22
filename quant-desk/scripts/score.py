@@ -99,7 +99,17 @@ def dim_risk(tr, book, dd):
         # outcome the dimension exists to catch.
         s -= min(75, dd["dd_pct"] * 75)
         if dd["dd_pct"] >= 0.9:
-            lines.append((6, "The account went to zero inside the window — a full loss of the equity at risk."))
+            # dd_pct is scale-relative: giving back $5k of a $5.4k account is 93%. Saying "the
+            # account went to zero — a full loss of the equity at risk" about a book that ENDED the
+            # window up $25,008 and holds $28,420 is false, and 1.16.1 promoted this sentence into
+            # the headline, so it sat directly beside "Net $25,008 on the ledger".
+            # The penalty stands either way — they really did nearly lose it — but a drawdown that
+            # was recovered is a different sentence from one that was not.
+            if (tr.get("ledger_net") or 0) > 0:
+                lines.append((4, f"A {_pct(dd['dd_pct'])} drawdown inside the window — nearly the whole "
+                                 f"book at the trough — though it ended up {_usd(tr['ledger_net'])}."))
+            else:
+                lines.append((6, "The account went to zero inside the window — a full loss of the equity at risk."))
         elif dd["dd_pct"] >= 0.25:
             lines.append((2, f"Max drawdown {_pct(dd['dd_pct'])} of equity over the window."))
     if not lines:

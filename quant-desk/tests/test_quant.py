@@ -2127,3 +2127,22 @@ def test_the_verdict_does_not_assert_a_reason_the_dimension_denies():
     v = score.verdict(tr, dict(positions=[], naked=[], gross=0.0, net_exposure=0.0), dims, [])
     assert "entries are late or chased" not in v, v
     assert "give back a median 37%" in v, v
+
+
+def test_a_recovered_drawdown_is_not_reported_as_a_blown_account():
+    """`dd_pct` is scale-relative: giving back $5k of a $5.4k account is 93%. On 0x2257…a360 that
+    printed "the account went to zero inside the window — a full loss of the equity at risk" about a
+    book holding $28,420 and UP $25,008 — and 1.16.1 promoted the risk line into the headline, so it
+    sat directly beside "Net $25,008 on the ledger".
+
+    The penalty stands either way. The sentence has to match what happened."""
+    flat = dict(positions=[], naked=[], margin_utilization=None, account_value=28_420.0)
+    base = dict(hold_ratio=None, liquidations=0, trades=5)
+
+    s_up, line_up = score.dim_risk(dict(base, ledger_net=25_008.0), flat, dict(dd_pct=0.93))
+    assert "went to zero" not in line_up, line_up
+    assert "ended up $25,008" in line_up and "93%" in line_up
+
+    s_dn, line_dn = score.dim_risk(dict(base, ledger_net=-16_969.0), flat, dict(dd_pct=0.93))
+    assert "went to zero" in line_dn, line_dn
+    assert s_up == s_dn, "the penalty should not depend on how the window happened to end"
