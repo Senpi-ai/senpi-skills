@@ -2081,3 +2081,49 @@ def test_a_row_with_no_coin_or_no_close_is_still_dropped():
     placed in the window at all, and `fetch` pages on exactly that field."""
     assert senpi_history.episode(dict(LIQ_NO_OPEN, closeTime=0)) is None
     assert senpi_history.episode(dict(LIQ_NO_OPEN, coin=None, coinDisplayName=None)) is None
+
+
+def test_the_funding_leak_separates_the_bill_from_the_exits_it_forces():
+    """A regression I introduced. 1.12.0 capped the funding claim at the bill; 1.15.0 added the
+    time-cut charge for the exits a 24h cap forces — correct for the LEVER — without re-capping the
+    LEAK. When cutting at 24h SAVES money the charge is positive, so on 0x7e23…5a5a the leak titled
+    "You paid $80,256 in funding" claimed a saving of $502,094. Six times the bill.
+
+    The combined figure is real; the leak just has to say which half is which."""
+    # a PROFITABLE 24h cut belongs to the time-cut lever, not to funding — summing them is the
+    # double-count the union exists to prevent, and it made a $122,440 bill read as $4,083,959
+    gain = dict(cut={"settings": {"24": dict(n=6, total=421_838.0)}})
+    f = next(x for x in score.levers([_tm_row() for _ in range(6)], [], gain, funding_late=80_256.0)
+             if x["kind"] == "funding")
+    assert f["total"] == 80_256.0, "a profitable cut was credited to funding"
+
+    # a COSTLY one is charged — that was the survivorship gap
+    tm = dict(cut={"settings": {"24": dict(n=6, total=-30_000.0)}})
+    lv = score.levers([_tm_row() for _ in range(6)], [], tm, funding_late=80_256.0)
+    f = next(x for x in lv if x["kind"] == "funding")
+    assert f["total"] == 50_256.0 and f["funding_saved"] == 80_256.0 and f["exit_effect"] == -30_000.0
+
+    tr = dict(funding=-80_256.0, coins={"xyz:SKHX": dict(funding=-28_457.0)}, trades=22,
+              fee_recoverable=0.0, taker_share=0.0, liquidations=0)
+    rows = [dict(time=200_000_000, delta=dict(usdc="-80256", coin="xyz:SKHX"))]
+    closed = [dict(coin="xyz:SKHX", open_time=0, close_time=4e12)]
+    out = score.leaks(tr, dict(funding_per_day=-1256.0), tm, rows, closed, 0, 90, lv)
+    leak = next(l for l in out if "funding" in l["title"])
+    assert "$80,256 of funding" in leak["counterfactual"], leak["counterfactual"]
+    assert "from closing the positions that much earlier" in leak["counterfactual"]
+
+
+def test_the_verdict_does_not_assert_a_reason_the_dimension_denies():
+    """On 0x7e23…5a5a the headline read "your entries are late or chased. Fix the entries first."
+    directly above a timing line reading "Entries are not systematically late or chased over this
+    window." Timing scores low for give-back too, and the fixed phrase keyed off the dimension NAME
+    named the wrong half of it."""
+    dims = {"timing": dict(score=51, line="You give back a median 37% of a winner's peak gain before you exit."),
+            "risk": dict(score=88, line="ok"), "cost": dict(score=90, line="ok"),
+            "sizing": dict(score=90, line="ok"), "consistency": dict(score=90, line="ok"),
+            "market_fit": dict(score=90, line="ok")}
+    tr = dict(trades=12, net=661_373.0, win_rate=0.92, profit_factor=36.6, ledger_net=852_881.0,
+              funding=-80_256.0)
+    v = score.verdict(tr, dict(positions=[], naked=[], gross=0.0, net_exposure=0.0), dims, [])
+    assert "entries are late or chased" not in v, v
+    assert "give back a median 37%" in v, v
