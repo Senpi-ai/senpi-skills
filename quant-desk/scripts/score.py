@@ -168,10 +168,20 @@ def dim_cost(tr):
         # a rebate is money EARNED — say so, rather than printing it as a bill
         _fee = float(tr.get("fees") or 0)
         _fee_txt = f"{_usd(-_fee)} EARNED in maker rebates" if _fee < 0 else f"{_usd(_fee)} of fees"
-        line = (f"{_pct_cost(drag)} of what you lost was cost, not bad trades: {_fee_txt}"
-                + (f" and {_usd(-tr['funding'])} of funding" if (tr.get("funding") or 0) < 0 else "")
-                + f" against a {_usd(net)} net result"
-                + (f" — funding paid you {_usd(tr['funding'])}" if (tr.get("funding") or 0) > 0 else "") + ".")
+        # Above 100% the share framing stops parsing: "513% of what you lost was cost, not bad
+        # trades" is arithmetically true and reads as a broken number. What it actually means is
+        # stronger and simpler — costs are bigger than the entire loss, so the trading was ahead
+        # before them. The `cost_ratio > 1` branch above already says it that way; say it here too.
+        # (Live 1.24.1 run, 0xea66…61ee: $46,786 fees + $125,909 funding on a -$33,647 result.)
+        _costs_txt = _fee_txt + (f" and {_usd(-tr['funding'])} of funding" if (tr.get("funding") or 0) < 0 else "")
+        if drag > 1.0 and net < 0:
+            line = (f"Costs are bigger than the loss itself: {_costs_txt} against a {_usd(net)} net "
+                    f"result — the trading was {_usd(costs + net)} ahead before costs.")
+        else:
+            line = (f"{_pct_cost(drag)} of what you lost was cost, not bad trades: {_fee_txt}"
+                    + (f" and {_usd(-tr['funding'])} of funding" if (tr.get("funding") or 0) < 0 else "")
+                    + f" against a {_usd(net)} net result"
+                    + (f" — funding paid you {_usd(tr['funding'])}" if (tr.get("funding") or 0) > 0 else "") + ".")
     if ts is not None and ts > 0.6:
         s -= 10
         line += f" {_pct(ts)} of your volume crossed the spread as a taker."

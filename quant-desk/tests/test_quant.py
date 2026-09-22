@@ -2898,3 +2898,23 @@ def test_the_execution_sentence_multiplies_out_on_the_indexed_path_too():
     assert score._bp(0.0) == "0.0 bp"
     assert score._bp(-0.00002) == "0.2 bp rebate"
     assert "-0.0" not in score._bp(-0.0000004)
+
+
+def test_a_cost_share_over_one_hundred_percent_is_said_in_words():
+    """Live 1.24.1 run, `0xea66…61ee`: "513% of what you lost was cost, not bad trades". True, and
+    it reads as a broken number. Above 100% the share framing stops parsing — and what it means is
+    stronger than the percentage: the costs are bigger than the whole loss, so the trading was ahead
+    before them. The `cost_ratio > 1` branch already says it that way."""
+    tr = dict(cost_ratio=None, taker_share=0.74, fees=46_786.0, funding=-125_909.0,
+              ledger_net=-33_647.0, net=-33_647.0, gross_realized=-1_056_065.0, trades=32)
+    s, line = score.dim_cost(tr)
+    cost_clause = line.split(" 74%")[0]
+    assert "513%" not in line and "%" not in cost_clause, cost_clause
+    assert "bigger than the loss itself" in line
+    assert "$139,048 ahead before costs" in line, line          # 46,786 + 125,909 - 33,647
+    assert s == 20, s                            # 100 - min(70, 5.13x150) = 30, then -10 for taker
+
+    # under 100% the share framing still reads fine and stays
+    ok = dict(tr, fees=5_000.0, funding=-2_000.0)
+    _, l2 = score.dim_cost(ok)
+    assert "of what you lost was cost" in l2 and "bigger than the loss" not in l2
