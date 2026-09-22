@@ -45,7 +45,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.17.0"
+VERSION = "1.18.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "senpi-ai-quant")
 FRESH_S = 600
@@ -369,12 +369,26 @@ def main(argv=None):
     ap.add_argument("--cache", default=hl_api.DEFAULT_CACHE, help="HTTP cache dir ('' to disable)")
     ap.add_argument("--state-dir", default=DEFAULT_STATE_DIR)
     ap.add_argument("--fresh", action="store_true", help="ignore a cached analysis")
+    ap.add_argument("--find", metavar="BAND", choices=sorted(hl_api.FIND_BANDS),
+                    help="candidate wallets to run the desk on, by account size: "
+                         + ", ".join(sorted(hl_api.FIND_BANDS)))
+    ap.add_argument("--find-window", default="week", choices=("week", "month", "allTime"),
+                    help="who is hot right now (week) or who has held up (month/allTime)")
+    ap.add_argument("--find-losers", action="store_true",
+                    help="the worst in the band instead of the best — the desk reads a losing book just as well")
     ap.add_argument("--addresses", action="store_true",
                     help="print this box's address book as JSON and exit — which wallets are the reader's, "
                          "which they have read, and which are not in senpi's index yet")
     a = ap.parse_args(argv)
     os.makedirs(a.state_dir, exist_ok=True)
     book = addr_book.load(a.state_dir)
+    if a.find:
+        hl = hl_api.HL(cache_dir=a.cache or None)
+        rows = hl_api.find_traders(hl.leaderboard(), band=a.find, window=a.find_window,
+                                   losers=a.find_losers)
+        print(json.dumps({"band": a.find, "window": a.find_window,
+                          "worst_first": bool(a.find_losers), "candidates": rows}, indent=2))
+        return 0
     if a.addresses:
         print(json.dumps(book, indent=2, sort_keys=True)); return 0
     if a.compare:

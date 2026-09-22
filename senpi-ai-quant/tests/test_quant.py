@@ -2165,3 +2165,61 @@ def test_the_skill_answers_to_ai_quant_as_well_as_quant_desk():
 
     # the ambiguous two are scoped so they do not hijack unrelated requests
     assert '"what did I miss" (about a book, a week or a trade)' in desc
+
+
+def test_a_bare_run_ai_quant_offers_candidates_instead_of_guessing():
+    """Jason: "Run AI quant on any Hyperliquid wallet" and "find traders for me to analyze with AI
+    quant" must both work with no address. The failure to avoid is inventing one, or answering from
+    memory — both produce a confident desk about a wallet nobody asked for."""
+    skill = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
+    desc = " ".join(skill[:skill.index("license: Apache-2.0")].split())
+
+    assert "find traders for me to analyze with AI quant" in desc
+    assert "run AI quant on any Hyperliquid wallet" in desc
+    assert "never guess an address and never answer from memory" in desc
+
+    assert "No address given — find them some" in skill
+    # prose uses en-dashes; the CLI flags use hyphens — both must be present and must agree
+    import hl_api
+    for band in ("$5k\u201310k", "$10k\u201325k", "$25k\u2013100k", "$100k\u20131M", "whales ($1M+)"):
+        assert band in skill, f"{band} is not offered to the reader"
+    for flag in hl_api.FIND_BANDS:
+        assert f"--find {flag}" in skill or flag in skill, f"--find {flag} is not documented"
+    assert "this week's worst" in skill, "a losing book is the instructive read"
+    assert "Vetting a trader to mirror is `senpi-trader-research`" in skill
+
+
+def test_the_finder_screens_by_band_and_can_look_for_losers():
+    """A $9k book and a $9M book teach different lessons, so size is the first question. Vault and
+    yield accounts hold equity and never trade — they render as an empty desk and must not appear."""
+    import hl_api
+    lb = {"leaderboardRows": [
+        {"ethAddress": "0x" + "a" * 40, "accountValue": "9000",
+         "windowPerformances": [["week", {"pnl": "5000", "roi": "0.5", "vlm": "900000"}]]},
+        {"ethAddress": "0x" + "b" * 40, "accountValue": "9000",
+         "windowPerformances": [["week", {"pnl": "-4000", "roi": "-0.4", "vlm": "900000"}]]},
+        {"ethAddress": "0x" + "c" * 40, "accountValue": "9000",          # a vault: equity, no fills
+         "windowPerformances": [["week", {"pnl": "8000", "roi": "0.9", "vlm": "0"}]]},
+        {"ethAddress": "0x" + "d" * 40, "accountValue": "5000000",
+         "windowPerformances": [["week", {"pnl": "50000", "roi": "0.01", "vlm": "9000000"}]]},
+    ]}
+    best = hl_api.find_traders(lb, band="5k-10k", window="week")
+    assert [r["address"][:4] for r in best] == ["0xaa"], "band, volume floor or sign filter is wrong"
+
+    worst = hl_api.find_traders(lb, band="5k-10k", window="week", losers=True)
+    assert [r["address"][:4] for r in worst] == ["0xbb"]
+
+    assert [r["address"][:4] for r in hl_api.find_traders(lb, band="whales", window="week")] == ["0xdd"]
+    assert best[0]["turnover"] == 100.0 and best[0]["account_value"] == 9_000.0
+
+
+def test_the_two_trader_skills_point_at_each_other_on_the_verb():
+    """Both skills now answer "find me traders". The split is the VERB — COPY is trader-research,
+    ANALYSE is this one — and each has to name the other, or selection is a coin flip."""
+    mine = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
+    theirs = " ".join((_P(HERE, "..", "..", "senpi-trader-research", "SKILL.md")).read_text().split())
+
+    assert "senpi-trader-research" in mine, "this skill does not hand off for copy vetting"
+    assert "senpi-ai-quant" in theirs, "trader-research does not point back for analysis"
+    assert "COPY comes here, ANALYSE goes there" in theirs
+    assert "find traders for me to analyze" in theirs, "the ambiguous phrase is not disambiguated"

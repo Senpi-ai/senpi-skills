@@ -8,15 +8,28 @@ description: >-
   A hidden engine (scripts/research.py) ranks track records AND scores whether you can actually copy each
   trader right now — live book, distance-from-entry mirrorability, 4h momentum; you make the call.
   Requires a USER-scoped Senpi token.
+  NOT for reading a book to LEARN from rather than mirror — "run AI quant on 0x…", "score my
+  trading", "find leaks", "find traders for me to analyze", "how does this trader actually trade" —
+  that is `senpi-ai-quant`, which needs no token and works on any address. The split is the verb:
+  COPY comes here, ANALYSE goes there.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.4.0"
+  version: "1.5.0"
   platform: senpi
   exchange: hyperliquid
 ---
 
 # Senpi Trader Research — find & vet copy candidates
+
+> **Not this skill?** "Analyze this trader", "how do they trade", "where do they leak", "score my
+> trading", "find traders for me to analyze" → **`senpi-ai-quant`**. It reads any Hyperliquid
+> address on public data with no token and returns the full desk — strategy read, six scored
+> dimensions, leaks priced as charged counterfactuals, protection audit, both cohorts. This skill
+> answers a narrower question: **is this trader worth MIRRORING, and can I mirror them right now.**
+> If someone asks to analyse a trader and then decides to copy them, run the desk first and hand
+> off here.
+
 
 You are a sharp due-diligence analyst. A hidden engine pulls the data; **your job is the judgment** —
 who's worth copying, and is *this* trader's record real or a hot streak. Two jobs:

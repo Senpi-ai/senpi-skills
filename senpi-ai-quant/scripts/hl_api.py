@@ -329,6 +329,46 @@ def weekly_rank(leaderboard, addr):
             "windows": windows, "account_value": float(me.get("accountValue") or 0)}
 
 
+# The bands a reader actually thinks in. "Find me traders to analyse" is a size question first —
+# a $9k book and a $9M book teach different lessons — then a style question.
+FIND_BANDS = {
+    "5k-10k":   (5_000.0, 10_000.0),
+    "10k-25k":  (10_000.0, 25_000.0),
+    "25k-100k": (25_000.0, 100_000.0),
+    "100k-1m":  (100_000.0, 1_000_000.0),
+    "whales":   (1_000_000.0, float("inf")),
+}
+
+
+def find_traders(leaderboard, band=None, window="month", n=8, min_volume=250_000.0, losers=False):
+    """Candidate wallets to run the desk on, from public leaderboard data alone.
+
+    `band` is an account-size bracket (see FIND_BANDS) — the first thing a reader picks, because a
+    $9k book and a $9M book teach different lessons. `window` is "week" for who is hot right now or
+    "month"/"allTime" for who has held up. `min_volume` drops the vault and yield accounts that hold
+    equity but never trade — they render as an empty desk.
+
+    Returns dicts, not bare addresses: whoever is choosing needs to see why each one is on the list.
+    """
+    lo, hi = FIND_BANDS.get(band or "", (0.0, float("inf")))
+    out = []
+    for r in leaderboard.get("leaderboardRows") or []:
+        av = float(r.get("accountValue") or 0)
+        if not (lo <= av <= hi):
+            continue
+        w = _window(r, window)
+        if w.get("vlm", 0) < min_volume:
+            continue
+        pnl = w.get("pnl", 0)
+        if (pnl >= 0) if losers else (pnl <= 0):
+            continue
+        out.append(dict(address=r["ethAddress"], account_value=av, pnl=pnl,
+                        roi=w.get("roi", 0), volume=w.get("vlm", 0), window=window,
+                        turnover=(w.get("vlm", 0) / av) if av > 0 else 0.0))
+    out.sort(key=lambda x: x["pnl"], reverse=not losers)
+    return out[:n]
+
+
 def public_cohort(leaderboard, n=40, min_account_value=1_000_000.0, min_month_roi=0.05, min_month_volume=1_000_000.0):
     """The whale cohort from public data alone: large accounts that are up on the month and all-time AND
     actually trade (monthly volume ≥ $1M — the leaderboard also lists vault and yield accounts with equity

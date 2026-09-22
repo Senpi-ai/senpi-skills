@@ -1,6 +1,6 @@
 # senpi-ai-quant — methodology
 
-> **This document describes the engine as of senpi-ai-quant 1.17.0.** Nine formulas in it were stale
+> **This document describes the engine as of senpi-ai-quant 1.18.0.** Nine formulas in it were stale
 > between 1.9.0 and 1.14.0 while SKILL.md sent the agent here for them, so an agent asked "how is my
 > cost score computed?" answered with the pre-1.9.0 rule, confidently. If you change a formula in
 > `scripts/`, change it here in the same commit — `test_methodology_matches_the_engine` fails if the
@@ -219,7 +219,7 @@ cohort → `smart`; a funding bill → `funding`; a losers leak → `replay`; re
   catalog families, and the discover/author handoff.
 * `regime`, `smart`, `scout`, `strategy`, `watch` — the corresponding sections in full.
 
-## Scoring rules as of 1.17.0 — read these, not any older formula above
+## Scoring rules as of 1.18.0 — read these, not any older formula above
 
 These nine changed between 1.9.0 and 1.15.0 while this file still described the pre-1.9.0 engine.
 
