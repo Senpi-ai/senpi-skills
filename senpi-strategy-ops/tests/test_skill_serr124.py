@@ -52,13 +52,14 @@ class Serr124IsThisAccountsPoolNotARetry(unittest.TestCase):
 
 
 class DiagnoseFromTheRuntimesOwnNumbers(unittest.TestCase):
-    """runCount counts emits, stops are said as ROE and as price, an edit's exposure is named, and the runtime's
+    """Scanner fields are read per scheduleMode, stops are said as ROE and as price, an edit's exposure is named,
+    and the runtime's
     state is read before a top-up is advised. Every needle is absent from the pre-change skill, so each one
     fails if its rule is removed."""
 
     def test_the_runtime_first_rules_are_in_the_skill(self):
         text = SKILL.read_text()
-        for needle in ("`runCount` counts signals EMITTED, not ticks", "never a reason to close and recreate",
+        for needle in ("climbs **every tick**", "only on a tick that emits", "never a reason to close and recreate",
                        "Say every stop twice", "ROE ÷ leverage", "max_entries_per_day × marginPct",
                        "Read the runtime's own state first", "interval under 60 s"):
             self.assertIn(needle, text, needle)
@@ -67,9 +68,15 @@ class DiagnoseFromTheRuntimesOwnNumbers(unittest.TestCase):
         # The runtime arms a timer only for `interval` mode, so an `external` scanner reads
         # intervalSeconds 0 / nextRunAt null by construction. Read as "the runtime never wired it",
         # that tells a funded user their money is in a broken thing while it is scanning.
-        for needle in ('`scheduleMode: "external"`', "`intervalSeconds: 0` / `nextRunAt: null` are the correct values",
-                       "never call a strategy dead without checking its ticks first"):
-            self.assertIn(needle, SKILL.read_text(), needle)
+        text = SKILL.read_text()
+        for needle in ('`scheduleMode`', "`intervalSeconds: 0` / `nextRunAt: null` are the correct values",
+                       "`initialized` stays `false` until the first", "`lastAliveAt` is the tick",
+                       "is the scaffold's", "never call a strategy dead without checking its ticks first"):
+            self.assertIn(needle, text, needle)
+        # The claim this PR started from was itself wrong: runCount counts ticks on `interval`
+        # (complete, skip and error each increment it) and only emits on `external`. Teaching the
+        # one-line version re-creates the misdiagnosis from the other side.
+        self.assertNotIn("counts signals EMITTED, not ticks", text)
         liveness = (OPS / "references" / "liveness-verification.md").read_text()
         for needle in ("Read the schedule fields against `scheduleMode` first",
                        "is **not** an unwired scanner", "Never call a strategy dead without a tick check"):
