@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.11.0"
+  version: "3.12.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -190,8 +190,8 @@ For each: ask the question, offer the options as plain choices, then map the ans
    long-only / short-only / mixed-on-one-wallet = **1 instance**; independent long + short books or
    different cadences = **multiple instances** (each its own wallet + `funding_share`).
 5. **Cardinality — "One best trade at a time, or several?"**
-   single best pick (`slots: 1`) · a gated portfolio (`slots: 3–6`, runtime caps it). Add
-   `max_entries_per_day` if they want a pace limit.
+   single best pick (`slots: 1`) · a gated portfolio (`slots: 3–6`, runtime caps it). `max_entries_per_day` is a
+   **daily ceiling, not a pace** — the whole allowance can fire in the minutes after 00:00 UTC; say so when offering it.
 6. **Memory — "Does it need to remember anything between scans?"**
    none · signal-dedup (don't re-fire the same name) · first-seen ledger (catch new listings) ·
    rolling history · **pool/cohort cache with a refresh cadence** ← *this is where "rotate every N
@@ -394,7 +394,7 @@ the worst day would have run to the drawdown halt") and an explicit yes before y
 
 Same references; usually no rebuild: tune `runtime.yaml` `inputs` (universe/thresholds/sizing), swap
 the `dsl_preset`, adjust `risk.guard_rails`, or change the `scoring.py` math. Re-validate, then
-re-smoke-test if you touched `scan.py`/`runtime.yaml` — on the runtime (`senpi validate`, or a floor-budget wallet), **never by scheduling agent turns to watch it**: an `openclaw cron` job is a model call every time it fires, and a 5-minute one is 288 a day — [`references/shadow-testing.md`](references/shadow-testing.md).
+re-smoke-test if you touched `scan.py`/`runtime.yaml` — on the runtime (`senpi validate`, or a floor-budget wallet), **never by scheduling agent turns to watch it**: an `openclaw cron` job is a model call every time it fires, and a 5-minute one is 288 a day — [`references/shadow-testing.md`](references/shadow-testing.md). **Describe the edit in the values you actually wrote:** re-read the file and quote `max_entries_per_day`, `slots` and the thresholds from it — never a number you merely expect it to produce. Telling someone "this will open 4–6 trades" over a file that says 12 is how they learn the strategy does not do what you say. **Count your own edits, too:** several configs on one strategy inside an hour means it has never run long enough to judge — say that and stop, rather than applying the next one.
 
 **Forking a template before it goes live** (the bespoke-edit route): edit the copy ops made under the
 user's name at the durable root `deploy.py where` prints (`/data/workspace/strategies/<template>-<user>/`;

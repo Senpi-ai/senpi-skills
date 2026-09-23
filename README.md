@@ -70,7 +70,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-account-status`](senpi-account-status/) | 1.4.0 | Points, loyalty tier, fees, referrals — and the AI-credits usage meter: chat + tool turns spend plan credits; not trading money; the balance is the meter in the app header, which no tool reads. Carries the plan catalog (Starter/Pro/Advanced/Quant) and the free-credit milestone ladder |
 | **Run a strategy** | | |
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.34.0 | Conversational picker — rank the catalog against your worldview |
-| [`senpi-strategy-author`](senpi-strategy-author/) | 3.11.0 | Build/edit a DSL-protected strategy package, one decision at a time |
+| [`senpi-strategy-author`](senpi-strategy-author/) | 3.12.0 | Build/edit a DSL-protected strategy package, one decision at a time |
 | [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.22.0 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
 | [`senpi-trade`](senpi-trade/) | 1.6.0 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
 | [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.4 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
