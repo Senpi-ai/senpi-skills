@@ -32,7 +32,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.22.0"
+  version: "3.23.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -290,7 +290,16 @@ Keep it to ~5 short lines per strategy. Multi-instance packages whose legs diffe
 
 ## Monitor — what am I running? / is it actually live?
 
-**"What strategies am I running?" / "list my strategies" / "is my fleet healthy?"** → **`runCount` counts signals EMITTED, not ticks** — a scanner with a fresh heartbeat and `runCount: 0` is alive and found nothing that passed its gates (all night on a small book is normal): never a fault, never a reason to close and recreate (each new strategy wallet costs a real creation fee); the fix for "it isn't trading" is the gates or the budget, applied in place (below). A scanner interval under 60 s on a small book is fee churn — refuse it with the arithmetic (fills × fee against the budget), not a claim about timing. Decision tree: [`references/liveness-verification.md`](references/liveness-verification.md).
+**"What strategies am I running?" / "list my strategies" / "is my fleet healthy?"** → **Read the scanner fields by `scheduleMode` — the same value means different things.**
+On `interval`, `runCount` climbs **every tick** (complete, skip and error alike; the signals it emitted are
+`signalsProduced`, a separate counter). On `external` — every signal scanner the catalog ships; `position_tracker`
+is `interval` — the scaffold POSTs on every tick, but an empty list updates the liveness clock and returns before
+ingest, so `runCount` climbs **only on a tick that emits**, `initialized` stays `false` until the first non-empty
+POST, and `intervalSeconds: 0` / `nextRunAt: null` are the correct values rather than an unwired runtime.
+`lastAliveAt` is the tick. So `runCount: 0` with a fresh `lastAliveAt` is a scanner finding nothing, not one that
+never ran — and the recipe's own `interval_seconds` is the scaffold's POST cadence, so a file saying 60 while the
+runtime reports 0 is not a contradiction either
+— never call a strategy dead without checking its ticks first: never a fault, never a reason to close and recreate (each new strategy wallet costs a real creation fee); the fix for "it isn't trading" is the gates or the budget, applied in place (below). A scanner interval under 60 s on a small book is fee churn — refuse it with the arithmetic (fills × fee against the budget), not a claim about timing. Decision tree: [`references/liveness-verification.md`](references/liveness-verification.md).
 `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py` (`<id>` filters, `--fast` skips the per-runtime health call, `--json` for
 machine output). It is the single source of truth — live `strategy_list` ∪ `runtime list` (the same runtime-CLI
 read `senpi-portfolio` also quotes — neither surface independently confirms the other), never the
