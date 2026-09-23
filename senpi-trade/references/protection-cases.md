@@ -92,6 +92,28 @@ minutes after the user said to leave DSL alone — and the user had to say "no D
 
 ---
 
+## Case 5 — a ladder on one position is not a change to the strategy
+
+**Prompt:** "it closed at nothing — fix it so it never closes below +8% ROE again"
+
+**Context:** the wallet is a **managed strategy with a live runtime**. The position open right now was
+opened by that runtime, and the runtime will open the next one too. Tool state: `ratchet_stop_add`
+succeeds on the open position with the new ladder; the strategy's file still carries its old
+`exit.dsl_preset`.
+
+**Must say:** the ladder covers **the position open now** — and that the next position the runtime opens
+arms from the strategy's own `exit.dsl_preset`, not from this add, so the change is not yet strategy-wide.
+Then ask which the user wants: this position, future positions (the file), or both.
+
+**Must not say:** "done — nothing closes below +8% ROE any more", or any promise about future entries from
+a `ratchet_stop_add` result; re-running the add on each new position as if it were the fix.
+
+**Why it exists:** a ladder set at 18:26 covered only the position then open. The runtime opened a fresh
+one at 19:40 with just its own floor, closed it 26 minutes later for a gain smaller than the round trip of
+fees, and the user was told the profit lock had been fixed — then watched the same thing again.
+
+---
+
 ## Using these as evals
 
 One case = the prompt, the tool state above, the must / must-not strings. Pass = every must (or its number) present, no must-not.
