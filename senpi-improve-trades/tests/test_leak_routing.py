@@ -45,6 +45,15 @@ def test_the_hand_off_lives_in_the_body_where_it_is_free():
     assert "--book" in body, "a senpi user's whole book is the case that produced this"
 
 
+def test_the_command_we_route_to_actually_exists():
+    """Routing to a flag that is not on main sends every "find leaks" into an argparse error, which
+    is worse than the collision it replaces. `--book` arrives with #755; this goes red until it
+    lands, so the two cannot merge out of order."""
+    desk = (ROOT / "quant-desk/scripts/desk.py").read_text()
+    assert 'add_argument("--book"' in desk, \
+        "senpi-improve-trades routes 'find leaks' to `desk.py --book`, which desk.py does not accept"
+
+
 def test_improve_trades_keeps_the_single_trade_and_single_strategy_questions():
     """The correction that matters: this is a cross-reference, not a surrender. 'did I sell too
     early' and 'why is [strategy] losing' are still this skill's, and a carve-out would lose them."""

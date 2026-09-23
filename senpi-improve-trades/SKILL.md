@@ -114,9 +114,8 @@ step(s) the ask needs; route every fix through the depth choice at the end — n
 as a charged counterfactual and reads any Hyperliquid wallet, several at once:
 `desk.py --book 0x… 0x…` over the wallets this skill has already resolved. A senpi user with
 fifteen live strategies asked exactly that on 2026-09-23 and got a hand-rolled analysis instead,
-because both skills claimed the phrase. This skill still owns the same ground narrowed to ONE closed
-trade or ONE strategy's exits — "did I sell too early", "why is [strategy] losing", "what did my own
-limits block" — which is a different question and stays below.
+because both skills claimed the phrase. One closed trade or one strategy's exits is a different
+question and stays below.
 
 | Intent (what the user asks) | Step(s) to run | Data (engine output) | Actionable lever |
 |---|---|---|---|
