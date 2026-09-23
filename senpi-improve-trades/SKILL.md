@@ -5,8 +5,12 @@ description: >-
   too early or late", "what did I miss this week", "master my week", "compare my trades to the market /
   to the best whales", "how could I make more gains", "suggest improvements", "review my trades", "am I
   getting shaken out too early / how are my exits firing", "what did my own limits block / what couldn't
-  I take", "where am I leaking", "walk me through / explain my [asset] trade", "what am I paying in fees /
-  maker vs taker", "why is [strategy] losing". When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then shortlist a fit (senpi-strategy-discover); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reconstructs every
+  I take", "walk me through / explain my [asset] trade", "what am I paying in fees /
+  maker vs taker", "why is [strategy] losing". **"FIND LEAKS" / "where am I leaking" is quant-desk**,
+  which prices each leak as a charged counterfactual across any Hyperliquid wallet — run it on the
+  wallets this skill already knows (`desk.py --book 0x… 0x…` for a senpi user's whole book). This
+  skill still owns the same ground for ONE closed trade or ONE strategy's exits: "did I sell too
+  early", "why is [strategy] losing", "what did my limits block". When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then shortlist a fit (senpi-strategy-discover); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reconstructs every
   CLOSED trade from discovery, enriches each exit reason + blocked signals from the runtime telemetry
   event log, computes the honest "if I'd held to now" counterfactual, and crosses the book against what
   the market did — you narrate it under strict guardrails: process over outcome (lead with the aggregate,
@@ -17,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.12.0"
+  version: "1.13.0"
   platform: senpi
   exchange: hyperliquid
 ---
