@@ -81,8 +81,8 @@ the fact is not that consent.
 what the *platform* accepts; the calculated minimum is what the *design* needs, and below it the smallest
 slot cannot reach the engine's bumped notional, so the strategy **no-trades**: it funds, it installs, it
 scans, and it never opens. `min_budget.py` is the arithmetic —
-`max($10, $12 / (marginPct/100 × min_leverage) + $1.50)` per wallet — so a 15%-margin, 3× sleeve needs about
-$28, not $11.50, and quoting the floor hands the user a funded strategy that cannot trade. Quote the
+`max($10, $12 / (marginPct/100 × min_leverage) + $1.50)` per wallet — so a 15%-margin, 3× sleeve needs
+$30 (the card rounds 28.17 up to the next step), not $11.50, and quoting the floor hands the user a funded strategy that cannot trade. Quote the
 calculated figure (`minBudget` on the deploy report, `min_budget` on the catalog card), and if neither is to
 hand, do that division before naming a number. **Never describe a below-minimum deploy as "tight, but it'll
 trade."**
