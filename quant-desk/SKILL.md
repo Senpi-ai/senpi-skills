@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.28.0"
+  version: "1.29.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -62,7 +62,24 @@ routing-only because OpenClaw drops every skill's description once the catalog o
 
 **HARD RULES — obey these even if you skim the rest.**
 
-1. **Relay it in STAGES — never as one block.** The analysis takes 30-60s on a busy book and the
+0. **ONE desk at a time, and NEVER re-run one that is still going.** A desk is a long command, so
+   `exec` hands you back `{"status":"running", "sessionId": …}` and the real result arrives on a
+   later `process` poll. That handoff is not a failure. **Poll the session you already have.**
+
+   Launching a second run does not make the first one finish. Both hammer the same per-IP rate
+   limit, so two runs are slower than one and three usually kill each other. On 2026-09-23 an agent
+   that could not see a result launched **five concurrent runs of the same wallet**, inventing
+   `sleep 15 &&` and `sleep 30 &&` workarounds; three died with `HTTP 429` and the reader waited six
+   minutes for nothing. The desk now refuses a second run (**exit 5**, `already_running`) — treat
+   that as "your first one is still working", not as an error to route around.
+
+   If a run really is dead, the state dir is the shared surface: the finished desk lands in the same
+   file, so a fresh `--section overview` after it completes is instant. Give a desk on a wide book
+   **at least 180s** of `timeout` — at 120s the exec tool SIGTERMs it mid-run and you get nothing
+   after paying the whole cost.
+
+1. **Relay it in STAGES — never as one block.** The analysis takes 30-60s on a typical book, up to
+   ~2 MINUTES on a very wide one (100+ coins), and the
    whole desk is thousands of words. Delivering it as a single wall after a silent wait is the worst
    possible shape: the reader waits with nothing, then gets more than they can read. The first run
    caches for 10 minutes, so every section after it returns instantly.
@@ -379,7 +396,19 @@ So the precedence is:
 3. **Both?** Then ask, because only they know which they mean today: *"Your external wallet
    `0x5a10…2c37`, or your senpi strategies — Aegis, Phalanx?"* Offer to run both and compare; that
    is often the more interesting read, and the desk prices them the same way.
-4. **Neither?** Ask for an address. Never guess one.
+4. **Neither?** Ask for an address — and **offer to show them the desk on a real book in the same
+   breath**. Never guess an address, but never leave a new reader with only a question either.
+
+   On 2026-09-23 a brand-new user's FIRST EVER prompt was the quant-desk chip. Their agent did
+   everything right — read this file, checked the address book (empty), checked `strategy_list`
+   (empty, they had no strategies yet) — and asked for an address. One turn, eight seconds, and
+   they never came back. A question is the one answer that shows them nothing.
+
+   > I don't have a wallet for you yet — paste any Hyperliquid address and I'll read it. Or I can
+   > run it on one of this week's top traders right now so you can see what it gives you.
+
+   `desk.py --find <band>` returns real candidates by account size. Running one on a stranger is
+   analyst mode (`--other`), which is the correct voice for it.
 
 **A senpi user's perp history lives in their strategy wallets, not their embedded wallet.** The
 embedded wallet is a FUNDING wallet: deposits land there and move out to the strategy subwallets that
@@ -420,7 +449,7 @@ per-address fact), and a coin traded from two wallets stays two rows in the live
 are two positions with two entries and two stops.
 
 **Several wallets at once: `desk.py --book 0x… 0x… 0x…` or `desk.py --compare 0x… 0x… 0x…`, in ONE
-call.** Not one invocation per wallet. A desk takes 20-60s, so a separate call per wallet backgrounds
+call.** Not one invocation per wallet. A desk takes 30-60s (up to ~2 min on a wide book), so a separate call per wallet backgrounds
 each and the agent must poll for every result — a teammate's agent launched six that way and
 collected one; the other five desks were computed and thrown away. Both flags take every address in
 a single invocation and reuse any cached run, so it is faster as well as safer.
@@ -435,6 +464,22 @@ side. Run a single desk only when they ask about one wallet by name.
 
 **"Never guess an address" still holds.** This is about which wallets to OFFER once you have resolved
 them, never about inventing one or answering from memory.
+
+### Not every address is a trader — `exit 4`, `not_a_trader`
+
+Some addresses on Hyperliquid are **vaults**: pooled books run by a leader, including Hyperliquid's
+own market makers. The desk checks before it reads (one call) and refuses, with the vault's real
+name and a line you can say.
+
+A reader who asks for "my Hyperliquid score" and gets pointed at the all-time P&L leaderboard lands
+on exactly these — `HLP`, `HLP Liquidator`, `HLP Strategy B` sit at the top of it. That happened on
+2026-09-23: a full 90-day sweep on **HLP Strategy B**, a component market-making strategy inside
+Hyperliquid's HLP vault. 174 coins, 177 open positions, 76% resting, zero fees paid. Every line the
+desk would have produced was wrong for it — there is no entry thesis to time on a quoting engine, no
+stop to place, and the P&L belongs to depositors.
+
+Relay the `say_to_the_reader` line and offer their own wallet. Do not re-run it with `--force`
+unless the reader explicitly asks to read a vault as if it were a trader.
 
 ### If they want someone ELSE to read — find them some
 

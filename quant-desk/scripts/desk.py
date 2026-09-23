@@ -47,7 +47,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.28.0"
+VERSION = "1.29.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -105,6 +105,41 @@ class _MCPFixture:
         if tool in self._r:
             return self._r[tool]
         raise RuntimeError(f"fixture has no {tool}")
+
+
+# Hourly candles over 91 days, one request per coin, six at a time. It is the single most expensive
+# step in the desk and it scales with how many names a book touches — which is unbounded. A wallet
+# trading 174 coins asked for 187 candle pulls and the run was SIGTERM'd by the agent's exec timeout
+# at "reading the tape: 120 of 187", having done all the work and produced nothing. Breadth is not a
+# defect (a systematic book legitimately runs 80 names), so this caps the READ rather than refusing
+# the book, and says in `meta` what it covered. (a live desk, 2026-09-23.)
+MAX_TAPE_COINS = 60
+
+
+def _tape(coins, book, track, meta):
+    """The coins to pull hourly candles for, in priority order, capped at MAX_TAPE_COINS.
+
+    Priority is where the reader's money is, not alphabetical: every OPEN position first (the
+    protection audit and the stop ladder are about those, and dropping one would silently omit a
+    live position), then BTC (every beta and correlation figure is against it), then traded coins by
+    volume. Cohort and attention coins fill whatever is left — they colour the read, they are not
+    the read.
+    """
+    held = {p["coin"] for p in book["positions"]}
+    by_vol = sorted((track.get("coins") or {}).items(), key=lambda kv: -(kv[1].get("volume") or 0))
+    order, seen = [], set()
+    for c in list(held) + ["BTC"] + [c for c, _ in by_vol] + sorted(coins):
+        if c in coins and c not in seen:
+            seen.add(c); order.append(c)
+    if len(order) <= MAX_TAPE_COINS:
+        return set(order)
+    kept, dropped = order[:MAX_TAPE_COINS], order[MAX_TAPE_COINS:]
+    meta["tape"] = {"coins_touched": len(order), "coins_read": len(kept), "dropped": len(dropped),
+                    "rule": f"every open position and BTC, then the {MAX_TAPE_COINS} largest by volume"}
+    meta.setdefault("warnings", []).append(
+        f"wide book: {len(order)} coins touched, hourly tape read for the {len(kept)} that carry the "
+        f"position risk and the volume")
+    return set(kept)
 
 
 def _ratio_or_none(num, base, cap=10.0):
@@ -341,6 +376,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         coins |= {h["coin"] for h in cv.get("they_hold") or []}
     if attention:
         coins |= {m["coin"] for m in attention["markets"] if m.get("coin")}
+    coins = _tape(coins, book, track, meta)
     try:
         candles = timing_mod.load_candles(hl.candles(sorted(coins), days=days + 1))
     except Exception as e:  # noqa: BLE001
@@ -447,6 +483,65 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     return r
 
 
+class _Flight:
+    """One desk per address per box, via a PID file in the state dir.
+
+    Deliberately not a hard mutex: the only job is to stop an agent that cannot see a result from
+    launching a second, third and fifth sweep of the same wallet into the same rate bucket. A stale
+    file (the process died, or was SIGTERM'd by an exec timeout — which is exactly how this starts)
+    must never wedge the address, so a lock whose PID is gone, or which is older than STALE_S, is
+    taken over rather than respected.
+    """
+    STALE_S = 15 * 60
+
+    def __init__(self, state_dir, addr, force=False):
+        self.path = os.path.join(state_dir, f"flight-{addr}.pid")
+        self.force = force
+        self.held = False
+        self._age = 0
+
+    def _alive(self, pid):
+        try:
+            os.kill(pid, 0)
+            return True
+        except (ProcessLookupError, ValueError, TypeError):
+            return False
+        except PermissionError:
+            return True          # someone else's process, but it exists
+
+    def age_s(self):
+        return self._age
+
+    def acquire(self):
+        try:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            if os.path.exists(self.path) and not self.force:
+                age = int(time.time() - os.path.getmtime(self.path))
+                try:
+                    with open(self.path) as fh:
+                        pid = int((fh.read() or "0").strip() or 0)
+                except (OSError, ValueError):
+                    pid = 0
+                if pid and pid != os.getpid() and self._alive(pid) and age < self.STALE_S:
+                    self._age = age
+                    return False
+            with open(self.path, "w") as fh:
+                fh.write(str(os.getpid()))
+            self.held = True
+        except OSError:
+            self.held = False    # a state dir we cannot write is not a reason to refuse the desk
+        return True
+
+    def release(self):
+        if not self.held:
+            return
+        self.held = False
+        try:
+            os.remove(self.path)
+        except OSError:
+            pass
+
+
 def resolve_whose(book, addr, other=False, mine=False, claim=False):
     """Whose book this is. **An address is the reader's own book unless we know otherwise.**
 
@@ -495,6 +590,9 @@ def main(argv=None):
     ap.add_argument("--no-rank", action="store_true"); ap.add_argument("--no-cohort", action="store_true")
     ap.add_argument("--cache", default=hl_api.DEFAULT_CACHE, help="HTTP cache dir ('' to disable)")
     ap.add_argument("--state-dir", default=DEFAULT_STATE_DIR)
+    ap.add_argument("--force", action="store_true",
+                    help="read a vault as if it were a trader's wallet, and ignore a desk already in "
+                         "flight on this address (both are refusals that are usually right)")
     ap.add_argument("--fresh", action="store_true", help="ignore a cached analysis")
     ap.add_argument("--find", metavar="BAND", choices=sorted(hl_api.FIND_BANDS),
                     help="candidate wallets to run the desk on, by account size: "
@@ -597,13 +695,60 @@ def main(argv=None):
             if a.dry:
                 print(json.dumps({"error": "--dry needs --fixture"})); return 2
             hl = hl_api.HL(cache_dir=a.cache or None); hl.progress = log; mcp = _mcp_client(meta)
+        # ---- is this even a trader? One call, before ~200. See hl_api.subject().
+        subj = hl.subject(addr) if not a.fixture else {"role": "user"}
+        if subj.get("role") == "vault" and not a.force:
+            nm = subj.get("name") or "a vault"
+            desc = (subj.get("description") or "").strip()
+            print(json.dumps({
+                "not_a_trader": "vault",
+                "name": subj.get("name"), "description": desc or None, "address": addr,
+                "error": f"{nm} is a Hyperliquid VAULT, not a trader's wallet — the desk reads how "
+                         f"someone trades, and a vault is a pooled book run by its leader.",
+                "say_to_the_reader": (
+                    f"That address is **{nm}**"
+                    + (f" — {desc[0].lower() + desc[1:]}" if desc else "")
+                    + " A trader scorecard does not describe it: there is no entry thesis to time, "
+                      "no stop to place, and the P&L belongs to its depositors rather than to one "
+                      "trader. Want me to run the desk on your own wallet instead?"),
+                "if_you_meant_it": "re-run with --force to read it as a trader anyway",
+                "leader": subj.get("leader")}, indent=2))
+            return 4
+        # ---- one desk per address per box. The desk takes 20-60s (longer on a wide book), so an
+        # agent that does not see a result re-runs it — and on 2026-09-23 one agent had FIVE
+        # concurrent runs on the same wallet, each making ~200 requests into the same per-IP rate
+        # bucket. The 429s that killed three of them were entirely self-inflicted: siblings
+        # competing for a bucket that refills on a minute. A second run adds nothing a first is not
+        # already computing, so refuse it and say where the real one is.
+        lock = _Flight(a.state_dir, addr, force=a.force)
+        if not lock.acquire():
+            print(json.dumps({
+                "already_running": True, "address": addr, "since_s": lock.age_s(),
+                "error": f"a desk on {addr[:6]}…{addr[-4:]} has been running on this box for "
+                         f"{lock.age_s()}s. Starting a second one does not make the first finish — "
+                         f"they compete for the same rate limit, which is how runs die.",
+                "what_to_do": "wait for the run in flight; its result lands in the same state file. "
+                              "Poll the exec session you already started rather than launching another."},
+                indent=2))
+            return 5
         log(f"[quant-desk] running senpi quant desk on {addr[:6]}…{addr[-4:]}")
         try:
             r = analyze(addr, hl, days=a.days, mcp=mcp, want_rank=not a.no_rank and not wallets,
                         want_cohort=not a.no_cohort, bench=bench, meta=meta, whose=whose, wallets=wallets)
         except hl_api.HLError as e:
-            print(json.dumps({"error": f"Hyperliquid read failed: {e}",
-                              **({"wallets": wallets} if wallets else {"address": addr})})); return 1
+            # A 429 here is the venue's rate bucket, not a broken wallet, and it is the one failure
+            # a reader can act on — so say which it was rather than printing the raw exception.
+            rate = "429" in str(e)
+            print(json.dumps({
+                "error": f"Hyperliquid read failed: {e}",
+                **({"wallets": wallets} if wallets else {"address": addr}),
+                "rate_limited": rate,
+                "what_to_do": ("Hyperliquid rate-limited this box. Wait about a minute and run it "
+                               "ONCE more — do not launch a second run while one is in flight, that "
+                               "is what exhausts the budget.") if rate else
+                              "a transient read failure — one retry is worth it"})); return 1
+        finally:
+            lock.release()
         if not r["activity"]["fills"] and not r["book"]["positions"] and wallets:
             # A book that reads empty is a different dead end: this reader already resolved their
             # wallets, so pointing them back at strategy_list is noise.
