@@ -206,7 +206,9 @@ def protection(r):
         # this block can never contradict the PROTECTED column beside it.
         _dsl = [q for q in b["positions"] if q.get("dsl")]
         if _dsl:
-            out += ["", "**Your runtime is managing these stops.**"]
+            # not necessarily "your runtime": a row can come from a direct `ratchet_stop_add` on a
+            # raw position, with no runtime involved. (@0xsarvesh, #753.)
+            out += ["", "**Senpi's ratchet stop is managing these.**"]
             for q in _dsl:
                 ln = dsl_mod.line(q)
                 if ln:

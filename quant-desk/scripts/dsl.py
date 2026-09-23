@@ -16,11 +16,12 @@ backend row it cannot corroborate.
 * **The backend row appears at the phase-2 handoff.** `addRatchetStop` is gated on
   `next.phase === 2` (`:807`/`:824`). **A position in phase 1 normally has no `ratchet_stop_list`
   row at all.**
-* So `currentTierIndex: -1` does **NOT** mean "phase 1". An ACTIVE row with no tier armed is most
-  likely stale — `backendHasLiveSl()` (`:1052`) exists precisely because a row can name an exchange
-  SL that is no longer resting, and a ratchet can stay ACTIVE after its stop filled and the
-  strategy re-entered. It can also be a direct `ratchet_stop_add` on a raw position, which is
-  profit-lock only.
+* So `currentTierIndex: -1` does **NOT** mean "phase 1". An ACTIVE row with no tier armed may be
+  stale — `backendHasLiveSl()` (`:1052`) exists precisely because a row can name an exchange SL
+  that is no longer resting, and a ratchet can stay ACTIVE after its stop filled and the strategy
+  re-entered. It can also be a direct `ratchet_stop_add` on a raw position, which is profit-lock
+  only. **"Stale" is an inference from the runtime source; neither of us has confirmed it in
+  telemetry** — which is the point, and why the desk corroborates instead of deciding.
 
 An earlier draft of this module read 7,778 telemetry rows of `ACTIVE / currentTierIndex: -1 /
 activeSLOrderId: null` as "phase 1, stop posted at entry". The conclusion it drew (the positions
@@ -46,10 +47,17 @@ Every read is `.get()`, and any failure leaves the book exactly as it was.
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 
 # How close a row's claimed floor must sit to a stop actually resting on the venue before the desk
-# will repeat it. The runtime derives the exchange trigger from the floor and the venue rounds it to
-# a tick, so this cannot be exact; it is tight enough that a row belonging to a different entry does
-# not pass, and the claim is self-verifying anyway — we only ever quote a price an order rests at.
-FLOOR_TOL = 0.005
+# will believe the row describes that order. Rounding is 5 significant figures (~0.01-0.02%), so
+# 0.5% was two orders of magnitude looser than the thing it was correcting for: @0xsarvesh
+# reproduced a stale row sitting 0.45% from an unrelated stop, passing, and having its floor
+# rendered — 0.5% of price at 5x is 2.5% of ROE. Tolerance is for rounding, nothing else.
+FLOOR_TOL = 0.0005
+# Entry is what actually distinguishes a row written for THIS position from one left behind by an
+# earlier entry on the same coin — two stops can sit a tick apart for unrelated reasons, two entries
+# rarely do. Required only on the weak path: an `activeSLOrderId` that names an order resting right
+# now is conclusive on its own, and demanding entry as well would drop the annotation every time a
+# reader adds to a position and moves their average.
+ENTRY_TOL = 0.001
 
 
 def _rows(resp, key):
@@ -79,16 +87,30 @@ def strategies_for(mcp, addr):
             if str(s.get("strategyWalletAddress") or "").lower() == a]
 
 
+def _near(a, b, tol):
+    return bool(a and b and abs(a - b) <= abs(b) * tol)
+
+
 def corroborated(row, p):
     """Does the exchange agree with this backend row, for THIS position?
 
-    Two ways, strongest first: the row names an order that is genuinely resting in the book the desk
-    already read, or its floor sits where a resting stop actually sits. Also requires the side to
-    match when the row states one — a stale row from the opposite direction is the case that renders
-    a floor on the wrong side of the mark.
-
     Returns False when there is no resting stop at all, which is the important one: a position the
     table calls UNPROTECTED must never carry a sentence claiming a floor.
+
+    Two paths, and they are not equally strong:
+
+    * **The row names an order resting right now.** Conclusive — nothing else is needed. Note the
+      ids are compared AS STRINGS: `activeSLOrderId` comes off the wire as a string
+      (`"413893122747"`) while Hyperliquid's `oid` is an int, so a direct `in` test is always False
+      and every row silently fell through to the weak path below. It passed its test only because
+      the fixture I wrote used an int on both sides. (@0xsarvesh, #753, second pass — reproduced
+      against the wire data rather than the source.)
+    * **The floor sits on a resting stop.** Weak: two stops can land a tick apart for unrelated
+      reasons. So this path also requires the row's ENTRY to match the live position's, which is
+      what actually rules out a row left behind by an earlier entry on the same coin.
+
+    Either way the side must match when the row states one — a row from the opposite direction
+    renders a floor on the wrong side of the mark.
     """
     if not p.get("stop_covered_share"):
         return False
@@ -96,10 +118,11 @@ def corroborated(row, p):
     if side in ("LONG", "SHORT") and side != p["side"]:
         return False
     oid = row.get("activeSLOrderId")
-    if oid is not None and oid in (p.get("stop_oids") or []):
+    if oid is not None and str(oid) in {str(o) for o in (p.get("stop_oids") or [])}:
         return True
-    floor, stop = _f(row.get("tierFloorPrice")), _f(p.get("stop_px"))
-    return bool(floor and stop and abs(floor - stop) <= abs(stop) * FLOOR_TOL)
+    if not _near(_f(row.get("entryPrice")), _f(p.get("entry")), ENTRY_TOL):
+        return False
+    return _near(_f(row.get("tierFloorPrice")), _f(p.get("stop_px")), FLOOR_TOL)
 
 
 def attach(mcp, addr, book, meta=None):
@@ -128,8 +151,15 @@ def attach(mcp, addr, book, meta=None):
         except Exception:  # noqa: BLE001
             continue
         for r in _rows(resp, "positions"):
-            if r.get("status") == "ACTIVE" and r.get("asset"):
-                by_coin.setdefault(r["asset"], (r, s))
+            if r.get("status") != "ACTIVE" or not r.get("asset"):
+                continue
+            # A HIP-3 row may carry `asset: "GOLD"` with `dex: "xyz"` where the book's coin is
+            # always "xyz:GOLD". Index both spellings rather than assume which one arrives.
+            # (@0xsarvesh, #753 — unconfirmed from the captured data, so handle both.)
+            by_coin.setdefault(r["asset"], (r, s))
+            dex = r.get("dex")
+            if dex and ":" not in str(r["asset"]):
+                by_coin.setdefault(f"{dex}:{r['asset']}", (r, s))
     found = 0
     for p in book.get("positions") or []:
         hit = by_coin.get(p["coin"])
@@ -150,6 +180,7 @@ def attach(mcp, addr, book, meta=None):
             strategy=s.get("strategyName"), tiers=tiers, tier_index=idx, n_tiers=len(tiers),
             floor_px=r.get("tierFloorPrice"), high_water_px=r.get("highWaterPrice"),
             high_water_roe=r.get("highWaterRoe"), armed=tiers[idx],
+            stop_px=p.get("stop_px"),
             next_tier=tiers[idx + 1] if idx + 1 < len(tiers) else None,
         )
         found += 1
@@ -168,7 +199,11 @@ def line(p):
     if not d:
         return None
     a, nxt = d.get("armed") or {}, d.get("next_tier")
-    floor = d.get("floor_px")
+    # The price quoted is the one RESTING ON THE VENUE, not the row's `tierFloorPrice`. I claimed
+    # the sentence was self-verifying — "we only ever quote a price an order really rests at" — and
+    # it was not: it quoted the row. Corroboration proves the two agree; printing the venue's number
+    # makes that true by construction rather than by argument. (@0xsarvesh, #753, second pass.)
+    floor = d.get("stop_px") if d.get("stop_px") is not None else d.get("floor_px")
     # .4g turns 3.1134 into 3.113. This is a price the reader may place by hand —
     # keep the venue's own precision.
     floor_s = f"{float(floor):,.6g}" if floor is not None else "its floor"

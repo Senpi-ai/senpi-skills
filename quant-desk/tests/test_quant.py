@@ -3174,7 +3174,7 @@ def test_the_desk_says_which_dsl_tier_is_armed_and_never_claims_the_rest():
              naked=[], partial=[], account_value=5000.0, margin_utilization=0.2, withdrawable=100.0,
              unrealized=10.0, funding_per_day=0.0)
     md = render.protection({"book": b, "now_ms": 1, "market": {"stance": "RISK-ON"}})
-    assert "Your runtime is managing these stops" in md
+    assert "Senpi's ratchet stop is managing these" in md
     assert "tier 1 of 4" in md
     assert "not in force until its trigger is reached" in md, \
         "the page must say an unarmed tier is a rule, not protection"

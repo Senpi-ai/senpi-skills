@@ -43,15 +43,20 @@ class FakeMCP:
 
 
 def row(**kw):
+    # the WIRE shape: activeSLOrderId is a STRING and entryPrice is present. The first draft of this
+    # fixture used an int oid on both sides, which is exactly why the never-matching oid comparison
+    # passed its own test. (@0xsarvesh, #753, second pass.)
     base = dict(asset="ETH", status="ACTIVE", currentTierIndex=0, tierFloorPrice=3.1134,
-                highWaterPrice=3.1684, highWaterRoe=13.7, direction="LONG",
-                activeSLOrderId=777, dslConfig={"tiered": {"tiers": TIERS}})
+                highWaterPrice=3.1684, highWaterRoe=13.7, direction="LONG", entryPrice=3.0838,
+                activeSLOrderId="413893122747", dslConfig={"tiered": {"tiers": TIERS}})
     base.update(kw)
     return base
 
 
 def pos(**kw):
-    base = dict(coin="ETH", side="LONG", stop_covered_share=1.0, stop_px=3.1134, stop_oids=[777])
+    # and Hyperliquid's `oid` is an INT
+    base = dict(coin="ETH", side="LONG", stop_covered_share=1.0, stop_px=3.1134, entry=3.0838,
+                stop_oids=[413893122747])
     base.update(kw)
     return base
 
@@ -103,6 +108,49 @@ def test_a_position_with_no_resting_stop_never_carries_a_floor_sentence():
     assert "dsl" not in b["positions"][0]
 
 
+def test_a_string_order_id_matches_hyperliquids_int_oid():
+    """`activeSLOrderId` is a string on the wire, HL's `oid` is an int, so `str in [int]` was always
+    False and EVERY row fell through to the weak floor path. Reproduced in prod by @0xsarvesh."""
+    b = _book(pos())
+    assert dsl.corroborated(row(), b["positions"][0]) is True
+    # and it is the oid doing the work, not the floor: break the floor and the entry, keep the oid
+    assert dsl.corroborated(row(tierFloorPrice=99.0, entryPrice=99.0), pos()) is True
+
+
+def test_the_oid_path_does_not_need_the_entry_to_match():
+    """A reader who ADDS to a position moves their average entry; the row keeps the entry it was
+    registered with. An order id resting right now is conclusive on its own, so this must not cost
+    them the annotation."""
+    assert dsl.corroborated(row(entryPrice=2.5), pos(entry=3.0838)) is True
+
+
+def test_a_near_miss_floor_from_an_unrelated_stop_is_refused():
+    """@0xsarvesh reproduced this: a stale row 0.45% from an unrelated stop passed the old 0.5%
+    tolerance and had its floor rendered. 0.5% of price at 5x is 2.5% of ROE. Runtime rounding is
+    5 significant figures, so the tolerance is for rounding and nothing else."""
+    near = 3.1134 * 1.0045
+    assert dsl.corroborated(row(activeSLOrderId=None, tierFloorPrice=near), pos()) is False
+
+
+def test_the_weak_path_requires_the_entry_to_match():
+    """Entry is what actually rules out a row left behind by an earlier entry on the same coin."""
+    assert dsl.corroborated(row(activeSLOrderId=None), pos()) is True
+    assert dsl.corroborated(row(activeSLOrderId=None, entryPrice=2.80), pos(entry=3.0838)) is False
+
+
+def test_the_sentence_quotes_the_venues_price_not_the_rows():
+    """The self-verifying property has to be true by construction, not by argument."""
+    b = _book(pos(stop_px=3.1130))
+    assert dsl.attach(FakeMCP([row(tierFloorPrice=3.1134)]), ADDR, b) == 1
+    ln = dsl.line(b["positions"][0])
+    assert "3.113" in ln and "3.1134" not in ln
+
+
+def test_a_hip3_row_without_its_prefix_still_matches_the_book():
+    b = _book(pos(coin="xyz:GOLD"))
+    assert dsl.attach(FakeMCP([row(asset="GOLD", dex="xyz")]), ADDR, b) == 1
+
+
 def test_the_floor_price_alone_can_corroborate_when_the_oid_is_absent():
     """Older rows carry no usable activeSLOrderId; a stop resting AT the claimed floor is still
     proof enough, because the sentence only ever quotes a price an order really rests at."""
@@ -115,8 +163,9 @@ def test_a_floor_that_does_not_match_the_resting_stop_is_refused():
     assert dsl.attach(FakeMCP([row(activeSLOrderId=None)]), ADDR, b) == 0
 
 
-def test_tick_rounding_still_corroborates():
-    b = _book(pos(stop_oids=[], stop_px=3.1134 * 1.001))
+def test_rounding_still_corroborates():
+    """5 significant figures is ~0.01-0.02%; the tolerance has to clear that and little else."""
+    b = _book(pos(stop_oids=[], stop_px=3.1134 * 1.0002))
     assert dsl.attach(FakeMCP([row(activeSLOrderId=None)]), ADDR, b) == 1
 
 
