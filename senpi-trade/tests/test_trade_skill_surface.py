@@ -38,6 +38,14 @@ class ProtectionProtocolIsResident(unittest.TestCase):
                        "The add binds to the position open now"):
             self.assertIn(needle, body, needle)
 
+    def test_a_close_reason_is_read_from_the_record(self):
+        # The agent closed a position by hand, then told the user its take-profit had hit. Both halves
+        # of the rule have to stay: read the record, and your own close is not a TP fill.
+        body = _body(SKILL)
+        for needle in ('**"Why did it close?" is a record question.**', "execution_get_closed_position_details",
+                       "did not hit its take-profit"):
+            self.assertIn(needle, body, needle)
+
     def test_the_pair_is_never_promised(self):
         body = _body(SKILL)
         self.assertNotIn("Offer both; don't call the pair", body)
