@@ -3107,3 +3107,34 @@ def test_an_address_the_reader_already_claimed_is_not_forgotten():
     # and when both exist the reader decides — not us
     assert "Both?" in own and "ask" in own.lower(), "ambiguity must go back to the reader"
     assert "Never guess" in own or "never guess" in own, "the no-guessing rule must survive"
+
+
+def test_the_plural_of_wallet_belongs_to_this_skill_too():
+    """A teammate: "find leaks on my wallets is not making use of the quant desk skill." Telemetry
+    shows their agent read senpi-portfolio's SKILL.md first and only reached the desk 45 seconds
+    later — by which point they had given up and reported it.
+
+    The words were the problem again, and it is the PLURAL. quant-desk claimed "find leaks on my
+    Hyperliquid wallet" (singular) while senpi-portfolio owns "across all wallets". A senpi user has
+    strategy subwallets, so plural is the phrasing they reach for first."""
+    desc = " ".join(_P(HERE, "..", "SKILL.md").read_text().split("license:")[0].lower().split())
+    for p in ("find leaks on my wallets", "score my wallets",
+              "run quant desk on my wallets", "leaks across my wallets"):
+        assert p in desc, f"the plural form is not on the selection surface: {p!r}"
+    # and the split against portfolio is stated, not left to chance
+    assert "across all wallets" in desc and "holdings" in desc, \
+        "the holdings-vs-leaks split against senpi-portfolio is not stated"
+
+
+def test_several_of_the_readers_wallets_are_one_compare_call():
+    """Same session: the agent launched SIX desks as six separate backgrounded invocations 30s
+    apart, then polled once. One real desk came back (quant score 28); the other five were computed
+    and thrown away. `--compare` takes 2+ addresses in a single call and reuses cached runs — it
+    already existed, the skill only ever framed it as comparing OTHER traders."""
+    skill = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
+    assert "Several wallets at once" in skill, "nothing tells the agent how to do several at once"
+    assert "--compare 0x… 0x… 0x…" in skill and "in ONE call" in skill
+    assert "Not one invocation per wallet" in skill, "the failure mode is not named"
+    # the flag really does take several
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    assert 'ap.add_argument("--compare", nargs="+"' in src

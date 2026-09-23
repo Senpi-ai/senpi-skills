@@ -26,7 +26,12 @@ description: >-
   desk", "What did I miss?". Note "find traders for me to analyze" ALONE belongs to
   senpi-trader-research (vetting a trader to COPY); with "quant desk" or "AI quant" it is this skill
   (reading a trader to LEARN from). "your Hyperliquid wallet" in a suggested prompt means the
-  READER's own wallet — ask for their address and run the own-book desk, never someone else's. No address given? `desk.py --find <band>` offers candidates by account size
+  READER's own wallet — ask for their address and run the own-book desk, never someone else's.
+  PLURAL COUNTS, and it is what a senpi user reaches for first, because they HAVE several: "find
+  leaks on my wallets", "score my wallets", "run quant desk on my wallets", "leaks across my
+  wallets". senpi-portfolio owns "across all wallets" for HOLDINGS; the leaks and the score on those
+  same wallets are THIS skill. A teammate's agent read portfolio's SKILL.md first on "find leaks on
+  my wallets" and only reached the desk forty-five seconds later. No address given? `desk.py --find <band>` offers candidates by account size
   ($5k-10k through whales) and by this week's winners, the month's, or this week's worst — ask which,
   never guess an address and never answer from memory.
   The default is the user's OWN book: "run AI quant on 0x…" means the user is 0x… — the desk speaks to
@@ -39,7 +44,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.26.1"
+  version: "1.26.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -389,6 +394,12 @@ difference was which wallet.
 So, where the address book has nothing claimed: resolve their wallets with `strategy_list` and
 **offer the strategy wallets first**, named by their strategy. Offer the embedded wallet second and label it — "your funding wallet, usually no
 trades of its own". If they have several strategies, offer to run the desk on each and compare.
+
+**Several wallets at once: `desk.py --compare 0x… 0x… 0x…`, in ONE call.** Not one invocation per
+wallet. A desk takes 20-60s, so a separate call per wallet backgrounds each and the agent must poll
+for every result — a teammate's agent launched six that way and collected one; the other five desks
+were computed and thrown away. `--compare` does them in a single invocation and reuses any cached
+run, so it is faster as well as safer. Run a single desk only when they ask about one wallet.
 
 > You trade through three strategies — **Aegis**, **Phalanx**, **Signals Hunter**. Want the desk on
 > one of them, or all three side by side? (Your embedded wallet is the funding one — it usually has
