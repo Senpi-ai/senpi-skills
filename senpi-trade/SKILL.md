@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.6.0"
+  version: "1.7.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -89,7 +89,7 @@ arithmetic that caught it.
 
 Worked example, a short: entry $80,890, price $77,300, manual stop $77,500, ratchet floor $78,370. The
 price reaches $77,500 first, so the manual stop is the tighter one and it keeps `(80,890 − 77,500) × size`;
-the floor keeps less. Adding the ratchet would replace that stop — say so before it happens. The four
+the floor keeps less. Adding the ratchet would replace that stop — say so before it happens. The five
 regression cases behind these rules, with the expected answers, are in
 [`references/protection-cases.md`](references/protection-cases.md).
 
@@ -308,6 +308,7 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
 | Place or grow a hand position without the three numbers | A wallet went almost entirely into one thin coin and a "keep it tight" stop was widened to over 40% of the account, one small request at a time — nothing ever said the total | Share of account, dollars at the stop, applied leverage — before the replay; above 50% / 20%, a fresh yes to that sentence |
 | Quote the leverage the user asked for after the venue clipped it | 10× asked, 3× applied, the position still labelled "10x" | Read `leverage.value` from the position; say the clip; label by what applies |
 | Offer a cron as "watch it for me" on a raw position | Every firing is a full agent turn, and it is not a stop | `ratchet_stop_add` — the ladder watches for free (profit-lock only; say so) |
+| Promise a `ratchet_stop_add` on a runtime-managed position covers future entries | **The add binds to the position open now.** The runtime arms the next one from the strategy's own `exit.dsl_preset` — so "it never closes below +X again" is false, and the next entry closes the old way | Say the ladder covers this position only, then route the file half to `senpi-strategy-ops` (a DSL change has two targets — the file for future positions, the ratchet for open ones; the user picks) |
 | Say anything about a stop or ladder, or change one, outside the protection protocol | Every rule in it was broken on a live short — the user caught each one | The six rules above, in order |
 
 > **State machine is transient, not terminal — *up to a point*.** `CREATE_WALLET` → `FUND_WALLET` /
