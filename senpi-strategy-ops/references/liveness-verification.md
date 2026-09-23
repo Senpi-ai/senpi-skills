@@ -110,7 +110,7 @@ modes, and every zero in the `external` column is the runtime working:
 |---|---|---|
 | `intervalSeconds` | the cadence, `> 0` | **`0` — correct**, the scanner is not timer-driven |
 | `nextRunAt` | a timestamp | **`null` — correct**, no timer is armed |
-| `runCount` | climbs per emit | `0` until the runtime processes a POST |
+| `runCount` | climbs **every tick** (complete, skip, error) | climbs **only on a tick that emits** |
 | liveness comes from | the tick | `health` + `lastAliveAt` (the intake heartbeat) |
 
 `intervalSeconds: 0` / `nextRunAt: null` on an `external` scanner is **not** an unwired scanner and not a
