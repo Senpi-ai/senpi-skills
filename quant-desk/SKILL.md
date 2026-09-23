@@ -1,50 +1,23 @@
 ---
 name: quant-desk
 description: >-
-  **Quant Desk** — the desk your **AI Quant** produces. Users reach it by either name, spaced or
-  hyphenated: "run AI quant", "run ai-quant", "run quant", "run quant desk", "run quant-desk". Paste ANY Hyperliquid address (0x…) and get the desk —
-  what the trader has actually been doing (a strategy read with a critique), a quant score with six
-  explained dimensions, the market they are trading in right now and how they trade each regime, the
-  live book with a protection audit, leaks priced as counterfactual dollars, their book against the
-  PROVEN cohort (top traders by all-time realized P&L, ≥ $1M) and the HOT 30-day cohort — side,
-  headcount, when they moved, what they hold that the trader doesn't — live matches where the tape,
-  the cohorts and the trader's own pattern agree, and a bank of twelve follow-ups the quant is
-  prepared to go deeper on. Works for wallets that never touched senpi (public onchain data,
-  read-only); with a Senpi token the closed-trade history, both cohorts, the funding regime and the
-  Hyperfeed attention layer come from Senpi's own data.
-  TRIGGERS — any of these, with or without an address: "run AI quant", "run ai-quant", "run quant-desk", "run AI quant on my Hyperliquid wallet", "run AI quant on any Hyperliquid wallet", "run quant", "run the quant on 0x…", "run quant
-  desk on 0x…", "score my trading", "rate my trading", "find leaks on my Hyperliquid wallet", "where am
-  I leaking money", "what did I miss" (about a book, a week or a trade), "master my week", "analyze my
-  wallet / my Hyperliquid address", "how am I doing", "what's my strategy", "am I on the right side of
-  smart money", "are my positions protected", "what should I fix first", "compare me to the whales",
-  "scout setups for me", "find traders for me to analyze with AI quant", "run AI quant on any
-  Hyperliquid wallet".
-  THE IN-PRODUCT SUGGESTED PROMPTS, verbatim — these are buttons users click, so they must match
-  exactly, in the product's own second person ("your wallet", not "my wallet"): "Run quant desk on
-  your Hyperliquid wallet", "Run quant desk on any Hyperliquid wallet", "Score my trading", "Find
-  leaks on your Hyperliquid wallet", "Find traders for me to analyze with quant desk", "Run quant
-  desk", "What did I miss?". Note "find traders for me to analyze" ALONE belongs to
-  senpi-trader-research (vetting a trader to COPY); with "quant desk" or "AI quant" it is this skill
-  (reading a trader to LEARN from). "your Hyperliquid wallet" in a suggested prompt means the
-  READER's own wallet — ask for their address and run the own-book desk, never someone else's.
-  PLURAL COUNTS, and it is what a senpi user reaches for first, because they HAVE several: "find
-  leaks on my wallets", "score my wallets", "run quant desk on my wallets", "leaks across my
-  wallets". senpi-portfolio owns "across all wallets" for HOLDINGS; the leaks and the score on those
-  same wallets are THIS skill. A teammate's agent read portfolio's SKILL.md first on "find leaks on
-  my wallets" and only reached the desk forty-five seconds later. No address given? `desk.py --find <band>` offers candidates by account size
-  ($5k-10k through whales) and by this week's winners, the month's, or this week's worst — ask which,
-  never guess an address and never answer from memory.
-  The default is the user's OWN book: "run AI quant on 0x…" means the user is 0x… — the desk speaks to
-  them and recommends their next steps. "Run AI quant analyst on 0x…" (or "review this trader 0x…")
-  means the user is analyzing someone else.
-  Hidden engine: scripts/desk.py. NOT for choosing or deploying a strategy (senpi-strategy-discover /
-  -ops), reviewing a Senpi strategy's own trades (senpi-improve-trades), or vetting a trader to copy
-  (senpi-trader-research). senpi-portfolio resolves the reader's wallets and answers what they
-  hold; a request to SCORE or RATE that trading comes here, on those wallets.
+  **Quant Desk**, made by your **AI Quant**: scores ANY Hyperliquid address (0x…), the reader's OWN
+  book by default — quant score, leaks as counterfactual dollars, protection audit, smart-money
+  cohorts. Triggers (spaced or hyphenated): run AI quant; run ai-quant; run quant; run quant desk;
+  run quant-desk; run AI quant on my Hyperliquid wallet; run AI quant on any Hyperliquid wallet; Run
+  quant desk on your Hyperliquid wallet; Run quant desk on any Hyperliquid wallet; score my trading;
+  rate my trading; where am I leaking money; find leaks on my Hyperliquid wallet; Find leaks on your
+  Hyperliquid wallet; find leaks on my wallets; score my wallets; run quant desk on my wallets; leaks
+  across my wallets; "what did I miss" (about a book, a week or a trade); master my week; find
+  traders for me to analyze with AI quant; find traders for me to analyze with quant desk. No
+  address: offer candidates; never guess an address and never answer from memory. Elsewhere: vet a
+  trader to COPY → senpi-trader-research; pick/run a strategy → senpi-strategy-discover / -ops; a
+  Senpi strategy's trades → senpi-improve-trades; holdings across all wallets → senpi-portfolio
+  (scoring is here).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.26.2"
+  version: "1.26.3"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -59,6 +32,33 @@ also reads **someone else's book** — **"run AI quant analyst on 0x…"**, "rev
 leaderboard pick, a whale — to learn from it (third person, learn-from-them follow-ups, a side-by-side
 compare). Run it plain (`--mine`) unless the user asks for the analyst read; then `--other` (alias
 `--analyst`), and never let that desk say "you".
+
+**What the desk holds, and what routes here.** (Kept out of the `description` frontmatter, which is
+routing-only because OpenClaw drops every skill's description once the catalog outgrows its budget.)
+
+- **The desk:** what the trader has actually been doing (a strategy read with a critique), a quant
+  score with six explained dimensions, the market they trade in right now and how they trade each
+  regime, the live book with a protection audit, leaks priced as counterfactual dollars, their book
+  against the PROVEN cohort (top traders by all-time realized P&L, ≥ $1M) and the HOT 30-day cohort
+  (side, headcount, when they moved, what they hold that the trader doesn't), live matches where the
+  tape, the cohorts and the trader's own pattern agree, and a bank of twelve follow-ups. Works for
+  wallets that never touched senpi (public onchain data, read-only); with a Senpi token the
+  closed-trade history, both cohorts, the funding regime and the Hyperfeed attention layer come from
+  Senpi's own data.
+- **Also routes here:** "run the quant on 0x…", "analyze my wallet / my Hyperliquid address", "how
+  am I doing", "what's my strategy", "am I on the right side of smart money", "are my positions
+  protected", "what should I fix first", "compare me to the whales", "scout setups for me".
+- **In-product suggested prompts** are buttons, in the product's second person: "your Hyperliquid
+  wallet" means the READER's own wallet — ask for their address and run the own-book desk, never
+  someone else's.
+- **"find traders for me to analyze" ALONE** belongs to senpi-trader-research (vetting a trader to
+  COPY); with "quant desk" or "AI quant" it is this skill (reading a trader to LEARN from).
+- **Plural wallets:** a senpi user has several, so "my wallets" is what they type first. senpi-portfolio
+  resolves the reader's wallets and answers what they hold ("across all wallets" for HOLDINGS); a
+  request to SCORE or RATE that trading, or find its leaks, comes here, on those wallets, and several
+  wallets are one `--compare` call (below).
+- **No address given?** `desk.py --find <band>` offers candidates by account size ($5k-10k through
+  whales) and by this week's winners, the month's, or this week's worst — ask which.
 
 **HARD RULES — obey these even if you skim the rest.**
 
