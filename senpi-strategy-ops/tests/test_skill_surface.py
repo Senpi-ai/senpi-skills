@@ -54,7 +54,11 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # ops 335: saved is not applied — a plan says so only in its first line (no tail/head), an edit is live only once
 # `--apply` exits 0 and the running strategy shows it, and until then the user hears "saved, not applied". Resident
 # because it fires on every edit to a live strategy; the two confirming reads live in references/editing-a-live-strategy.md.
-BODY_BUDGET = {"senpi-strategy-ops": 335, "senpi-strategy-author": 425}
+# author 425 -> 430 (2026-09-23): three edit rules from live incidents — max_entries_per_day is a
+# ceiling not a pace, describe an edit in the values written, notice repeated retuning. Raised
+# rather than absorbed: the first draft held 425 by growing one line to 828 chars against a 341
+# next-longest, which is the same resident context without the line count showing it.
+BODY_BUDGET = {"senpi-strategy-ops": 335, "senpi-strategy-author": 430}
 
 
 def _skill_body(path):
