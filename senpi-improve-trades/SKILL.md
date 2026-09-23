@@ -6,11 +6,7 @@ description: >-
   to the best whales", "how could I make more gains", "suggest improvements", "review my trades", "am I
   getting shaken out too early / how are my exits firing", "what did my own limits block / what couldn't
   I take", "walk me through / explain my [asset] trade", "what am I paying in fees /
-  maker vs taker", "why is [strategy] losing". **"FIND LEAKS" / "where am I leaking" is quant-desk**,
-  which prices each leak as a charged counterfactual across any Hyperliquid wallet — run it on the
-  wallets this skill already knows (`desk.py --book 0x… 0x…` for a senpi user's whole book). This
-  skill still owns the same ground for ONE closed trade or ONE strategy's exits: "did I sell too
-  early", "why is [strategy] losing", "what did my limits block". When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then shortlist a fit (senpi-strategy-discover); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reconstructs every
+  maker vs taker", "why is [strategy] losing". When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then shortlist a fit (senpi-strategy-discover); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reconstructs every
   CLOSED trade from discovery, enriches each exit reason + blocked signals from the runtime telemetry
   event log, computes the honest "if I'd held to now" counterfactual, and crosses the book against what
   the market did — you narrate it under strict guardrails: process over outcome (lead with the aggregate,
@@ -113,6 +109,14 @@ exactly how much enrichment landed; surface that honestly.
 Each intent maps to the **minimal engine step(s)** to run (fastest for a narrow ask — see "Run it in
 steps"), a specific engine output (its data), and a specific **actionable lever** (the fix). Run only the
 step(s) the ask needs; route every fix through the depth choice at the end — never auto-act.
+
+**"Find leaks" / "where am I leaking" is not this skill — it is quant-desk**, which prices each leak
+as a charged counterfactual and reads any Hyperliquid wallet, several at once:
+`desk.py --book 0x… 0x…` over the wallets this skill has already resolved. A senpi user with
+fifteen live strategies asked exactly that on 2026-09-23 and got a hand-rolled analysis instead,
+because both skills claimed the phrase. This skill still owns the same ground narrowed to ONE closed
+trade or ONE strategy's exits — "did I sell too early", "why is [strategy] losing", "what did my own
+limits block" — which is a different question and stays below.
 
 | Intent (what the user asks) | Step(s) to run | Data (engine output) | Actionable lever |
 |---|---|---|---|

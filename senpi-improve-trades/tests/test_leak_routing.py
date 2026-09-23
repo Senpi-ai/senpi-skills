@@ -26,25 +26,23 @@ def _desc(skill):
 
 
 def test_find_leaks_is_not_claimed_by_both_skills():
-    """The phrase may still APPEAR here — it has to, to redirect — but never as a trigger this
-    skill claims. Every occurrence must sit next to the hand-off, which is the difference between
-    "ask me this" and "ask the desk this"."""
+    """Deletion, not redirection. The description is the SELECTION surface and every char of it is
+    rendered on every turn against a hard catalog budget — improve-trades is the second-largest
+    description we ship. Adding a hand-off there costs +77 escaped chars to say what removing the
+    trigger says for -32. quant-desk already claims the phrase; this skill simply stops."""
     mine, desk = _desc("senpi-improve-trades"), _desc("quant-desk")
     assert "where am i leaking money" in desk, "quant-desk no longer claims the leak question"
-    i = 0
-    seen = 0
-    while (i := mine.find("where am i leaking", i)) != -1:
-        seen += 1
-        assert "quant-desk" in mine[i:i + 120], \
-            "improve-trades claims the leak question without handing it off"
-        i += 1
-    assert seen, "the redirect is gone — an agent reading this skill learns nothing about the desk"
+    assert "where am i leaking" not in mine, \
+        "improve-trades still claims the leak question on the selection surface"
+    assert "find leaks" not in mine
 
 
-def test_improve_trades_points_at_the_desk_by_name_and_command():
-    mine = _desc("senpi-improve-trades")
-    assert "quant-desk" in mine, "the agent is told the question is not ours but not where it goes"
-    assert "--book" in mine, "a senpi user's whole book is the case that produced this"
+def test_the_hand_off_lives_in_the_body_where_it_is_free():
+    """The body is read only AFTER the skill is chosen, so it costs nothing at selection time — the
+    right home for anything that is not a trigger phrase."""
+    body = (_P(HERE).parent / "SKILL.md").read_text().split("license:")[1]
+    assert "quant-desk" in body, "an agent that lands here anyway is told nothing about the desk"
+    assert "--book" in body, "a senpi user's whole book is the case that produced this"
 
 
 def test_improve_trades_keeps_the_single_trade_and_single_strategy_questions():
