@@ -205,13 +205,17 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         cov["effective"] = min(cov["overall"] if cov["overall"] is not None else 1.0,
                                max(0.0, 1.0 - _gap / abs(track["ledger_net"])))
     # What senpi's own runtime is doing to these positions. The desk already reads the resting stop
-    # off the exchange — phase 1 posts it at entry, so a DSL position is correctly PROTECTED today —
-    # but a price with no context reads as a static stop when it is a floor that ratchets. Silent
-    # no-op without a token, on an external wallet, or on any failure.
+    # off the exchange, so a DSL position is correctly PROTECTED today — but a price with no context
+    # reads as a static stop when it is a floor that ratchets. Only ever annotates a position whose
+    # backend row the exchange corroborates (see dsl.corroborated). Silent no-op without a token, on
+    # an external wallet, or on any failure.
+    _t_dsl = time.time()
     try:
         _n_dsl = dsl_mod.attach(mcp, addr, book, meta)
         if _n_dsl:
-            meta["timings"]["dsl"] = round(time.time() - t1, 1)
+            # was measured from `t1`, an earlier mark, so this read as the cumulative time to here
+            # rather than what the DSL calls cost. (@0xsarvesh, #753.)
+            meta["timings"]["dsl"] = round(time.time() - _t_dsl, 1)
     except Exception as e:  # noqa: BLE001
         meta["warnings"].append(f"runtime DSL state unavailable: {e}")
     fl = metrics.flows(tr_raw["ledger"], addr)

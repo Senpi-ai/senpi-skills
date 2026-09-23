@@ -199,9 +199,11 @@ def protection(r):
             if status != "PROTECTED":
                 todo.append(f"- **{p['coin']}** — {note}.")
         # What senpi's runtime is doing to these positions, where it is doing anything. The stop in
-        # the table above is already correct — phase 1 posts it at entry — but a price with no
-        # context reads as a static stop when it is a floor that ratchets. State what is LOCKED;
-        # never present the ladder ahead as protection already in force.
+        # the table above is read off the exchange and is already correct; what it lacks is context,
+        # because a price with no context reads as a static stop when it is a floor that ratchets.
+        # State what is LOCKED; never present the ladder ahead as protection already in force. Only
+        # corroborated, armed tiers reach here — a row the venue does not confirm says nothing, so
+        # this block can never contradict the PROTECTED column beside it.
         _dsl = [q for q in b["positions"] if q.get("dsl")]
         if _dsl:
             out += ["", "**Your runtime is managing these stops.**"]

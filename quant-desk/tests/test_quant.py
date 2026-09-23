@@ -3139,11 +3139,10 @@ def test_several_of_the_readers_wallets_are_one_compare_call():
     src = _P(HERE, "..", "scripts", "desk.py").read_text()
     assert 'ap.add_argument("--compare", nargs="+"' in src
 def test_the_desk_says_which_dsl_tier_is_armed_and_never_claims_the_rest():
-    """A DSL position already reads PROTECTED — phase 1 posts the stop at entry, verified against
-    the public order book on three positions whose ratchet had not armed (`activeSLOrderId` null on
-    all three, a full-size reduce-only trigger resting on all three). What the desk could not say is
-    WHAT that stop is: a price with no context reads as a static stop when it is a floor that
-    ratchets.
+    """A DSL position already reads PROTECTED — the desk reads the resting order off the exchange
+    and finds a real one, verified against the public order book on three wallets (a full-size
+    reduce-only trigger on all three). What the desk could not say is WHAT that stop is: a price
+    with no context reads as a static stop when it is a floor that ratchets.
 
     The one thing this must never do is present the ladder as protection in force. `lockRoe` is a
     share of the HIGH-WATER GAIN, so "protected in all tiers" on the worked example would claim
@@ -3163,20 +3162,15 @@ def test_the_desk_says_which_dsl_tier_is_armed_and_never_claims_the_rest():
     for never in ("3.1582", "88% of the gain", "all tiers", "fully protected"):
         assert never not in ln, f"the unarmed ladder is being claimed as protection: {never}"
 
-    # phase 1: a floor exists and is posted, but no profit tier has armed
-    p1 = {"dsl": dict(strategy="Aegis", tiers=[{"triggerRoe": 15, "lockRoe": 0}], tier_index=-1,
-                      n_tiers=1, phase=1, floor_px=None, high_water_px=None, high_water_roe=0.3,
-                      armed=None, next_tier={"triggerRoe": 15, "lockRoe": 0})}
-    l1 = dsl.line(p1)
-    assert "phase 1" in l1 and "No profit tier armed yet" in l1 and "+15% ROE" in l1
-    assert "armed — floor" not in l1, "phase 1 must not read as an armed tier"
-
+    assert "only ever tightens" in ln and "only ever rises" not in ln, \
+        "a SHORT's floor ratchets downward — 'rises' tells that reader their stop moves away"
     assert dsl.line({}) is None, "a position with no DSL gets no line"
 
     # and the render states the distinction in its own words, not only per position
     b = dict(positions=[dict(armed, coin="xyz:NATGAS", side="LONG", leverage=5, notional=1000.0,
                              unrealized=10.0, roe=0.1, funding_per_day=0.0, liq_distance_pct=50.0,
-                             stop_covered_share=1.0, opened_ms=None, stop_px=3.1134, stop_distance_pct=3.0, take_profit=False)],
+                             stop_covered_share=1.0, opened_ms=None, stop_px=3.1134, stop_oids=[1],
+                             stop_distance_pct=3.0, take_profit=False)],
              naked=[], partial=[], account_value=5000.0, margin_utilization=0.2, withdrawable=100.0,
              unrealized=10.0, funding_per_day=0.0)
     md = render.protection({"book": b, "now_ms": 1, "market": {"stance": "RISK-ON"}})
