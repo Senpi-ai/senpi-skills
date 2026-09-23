@@ -19,6 +19,13 @@ jobs:
       - name: install deps
         run: pip install pyyaml pytest
 
+      # OpenClaw renders every skill's `description` into one <available_skills> block with a char
+      # budget (default 18,000). Over it, EVERY skill falls back to name + location with no
+      # description — all-or-nothing, so one long description breaks routing for all of them. Prod
+      # ran that way from #654 (2026-09-17). Gate and rationale: the script's constants.
+      - name: skills catalog — rendered description budget (OpenClaw compact fallback)
+        run: python3 .github/scripts/check_skill_catalog_budget.py
+
       - name: min_budget — vendor parity (byte-identical across the two skills)
         run: python3 senpi-strategy-ops/tests/test_min_budget_vendor_parity.py
 

@@ -1,38 +1,20 @@
 ---
 name: senpi-strategy-ops
 description: >-
-  Deploy / monitor / close a NAMED Senpi trading strategy. Monitoring is on demand:
-  never an agent-turn cron to watch a strategy (a model call per firing) — the runtime
-  supervises it at zero model cost, and there is no paper-trading mode ($10 floor = the test).
-  Use when the user names a strategy to run — "install spider", "deploy polar",
-  "set up kodiak", "reinstall athena", "run the spider strategy", "is my strategy live?",
-  "what am I running", "list my strategies" (→ status.py),
-  A STRATEGY IS A PACKAGE, NEVER A SKILL: "install/reinstall <name>" is
-  `deploy.py create <id>` here — never `openclaw skills install`, never clawhub, and
-  never a GitHub user or repo named after the strategy. A package missing from disk is
-  normal (it was closed, or never fetched) and `deploy.py` fetches it by id.
-  "are my positions protected? / do they have a stop-loss (DSL)?",
-  "stop/close/uninstall polar" — and for teardown like "close all strategies",
-  "return funds to main", "tear everything down" (→ close.py --all). ALWAYS tear
-  down via close.py, never a raw strategy_close (that strands the runtime). ops
-  deploys / closes / monitors; it does NOT author or edit strategy files — an edit
-  ("make my live strategy more aggressive", change leverage/sizing/DSL) is authored
-  in senpi-strategy-author, the only skill that knows the scanner / yaml / DSL
-  schema. A strategy is a PACKAGE (strategy.yaml + one runtime.yaml per instance +
-  scanners/) the runtime supervises in-process — no scanner daemon. `deploy.py
-  create <id> --budget <usd>` takes a package live end to end (it gates the package,
-  then runs the runtime's detached deploy job; watch with `senpi deploy status`);
-  close.py tears down (stop runtime + strategy_close → flattens positions,
-  returns funds). Before the budget question ops runs THE WALKTHROUGH (Step 0.75):
-  what the template does, how it is set, the two levers worth shifting — all in
-  bullets and plain words, never a config key — and its name: every template deploys
-  as the user's own fork, named after their Senpi username (`deploy.py create <template>` → `ignas-phalanx`,
-  spoken as "Ignas's Phalanx"; `--name` for their own words), as-is or with levers moved. The id (spider, polar, kodiak) is the package folder. NOT for choosing WHICH strategy
-  (senpi-strategy-discover) or authoring / editing the strategy files themselves (senpi-strategy-author).
+  Deploy / monitor / close a NAMED Senpi trading strategy: a package (strategy.yaml + one
+  runtime.yaml per instance + scanners/) that the runtime supervises. Use when the user names a
+  strategy to run or asks about running ones: install spider; deploy polar; set up kodiak;
+  reinstall athena; run the spider strategy; is my strategy live?; what am I running; list my
+  strategies; are my positions protected / do they have a stop-loss (DSL)?; stop/close/uninstall
+  polar; close all strategies; return funds to main; tear everything down. A strategy is a PACKAGE,
+  never a skill: "install <name>" is deploy.py create <id> here, never openclaw skills install or
+  clawhub. Tear down only via close.py, never a raw strategy_close. NOT for choosing WHICH strategy
+  (senpi-strategy-discover) or editing a strategy's files, leverage, sizing or DSL, e.g. "make my
+  live strategy more aggressive" (senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.22.0"
+  version: "3.22.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -58,7 +40,7 @@ openclaw senpi deploy status                                            # 2. pol
 python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py                            # what am I running? (+ health)
 python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/close.py <id> | --all                # teardown one strategy | EVERY open strategy
 ```
-**"Install"/"reinstall <name>" = `deploy.py create <id>`** — a strategy is a package, not an openclaw/clawhub skill; not on disk just means fetch it by id. **Fund through `deploy.py create|runtime <id>`, not through the bare verb.** Both resolve the package,
+**"Install"/"reinstall <name>" = `deploy.py create <id>`** — a strategy is a package, not an openclaw/clawhub skill; not on disk just means fetch it by id, never from a GitHub user or repo named after the strategy. **Fund through `deploy.py create|runtime <id>`, not through the bare verb.** Both resolve the package,
 run the structural preflight, then start the runtime's `senpi deploy` job, poll it, and relay its
 report **verbatim**. The wrapper's value is resolution, that structural pass and the verbatim relay —
 **not** a gate the verb lacks: the live-universe gate is the verb's own and it fires **pre-money**. Use
@@ -124,7 +106,7 @@ then `create <dir>`). A user ID is never a name; with no username to read, a bar
 lever language, the name rules and the fork: [`references/walkthrough.md`](references/walkthrough.md).
 
 **Step 1 — start the deploy.** Budget splits across instances by `funding_share`, **min $10 each** (the
-platform wallet floor) — **ask for the amount now — after the walkthrough, never before it — and confirm
+platform wallet floor; there is no paper-trading mode, so $10 is the test) — **ask for the amount now — after the walkthrough, never before it — and confirm
 it**. Two tiers, and only the first
 stops anything: below the $10/wallet floor the deploy **refuses**; a wallet left with less than **its
 own** sizing needs still **deploys**, with a `[W_BUDGET_BELOW_STRATEGY_MIN]` warn to relay.
