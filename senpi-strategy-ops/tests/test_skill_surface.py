@@ -63,7 +63,11 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # first non-empty POST. Resident because it fires whenever anyone reads a scanner. Taken in LINES: the
 # first draft held 335 by growing one line to 914 chars (main's longest is 839), which is the same
 # resident context with the count hiding it (2026-09-23).
-BODY_BUDGET = {"senpi-strategy-ops": 344, "senpi-strategy-author": 430}
+# author 430 -> 432: +2 lines separating "what opens a wallet" from "what lets it trade". ~$11.50
+# was stated four times in this body including the scripted heads-up, and telemetry had 37 agent
+# outputs quoting it in two days, several near-verbatim from that script — a funded strategy that
+# installs, scans and never opens. Resident: it fires before Decision 1 on every build (2026-09-23).
+BODY_BUDGET = {"senpi-strategy-ops": 344, "senpi-strategy-author": 432}
 
 
 def _skill_body(path):

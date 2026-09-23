@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.13.0"
+  version: "3.14.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -124,17 +124,19 @@ of an import-stage run. The gate is stage 9, and it takes no `--stage` flag.
 
 Before the template offer / Decision 1, read the user's accessible balance ONCE:
 `account_get_portfolio` → `data.portfolio.total_in_hyperliquid` (fall back to
-`total_withdrawable`). Deploy needs a little **over $10 USDC per wallet (~$11.50, to cover
-the ~$1.50 creation fee)** — `deploy.py create` reserves the fee first, so a wallet funded
-to exactly $10 still refuses with `[E_FUNDS_BELOW_FLOOR]`. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scan re-run on a timer is a model call per tick, not a simulation — [`references/shadow-testing.md`](references/shadow-testing.md).
+`total_withdrawable`). **~$11.50/wallet opens a wallet; it is not what the strategy needs to
+trade.** `deploy.py create` reserves the ~$1.50 fee first, so exactly $10 refuses with
+`[E_FUNDS_BELOW_FLOOR]` — but clearing that floor buys a strategy that installs, scans and never
+opens. The number to quote is the design's own minimum (`min_budget` on the catalog card,
+`minBudget` on the deploy report), which for a 15%-margin 3× sleeve is ~$30. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scan re-run on a timer is a model call per tick, not a simulation — [`references/shadow-testing.md`](references/shadow-testing.md).
 
-- **Balance ≥ ~$11.50/wallet, or unreadable** → say nothing about funding and move on. Unreadable
+- **Balance ≥ that minimum, or unreadable** → say nothing about funding and move on. Unreadable
   means move on too — no retry loop, no blocking; funding is re-checked at deploy anyway.
-- **Balance < ~$11.50/wallet** → tell the user NOW, in one line, then keep building:
-  > "Heads-up before we design: deploying needs a little over $10 USDC per wallet (a small
-  > creation fee sits on top of the $10 minimum), and your accessible balance is $<X>. We
-  > can build the whole strategy now and deploy the moment you've topped up — want me to
-  > pull up your deposit info when we're done?"
+- **Balance < that minimum** → tell the user NOW, in one line, then keep building:
+  > "Heads-up before we design: this one needs about $<min_budget> per wallet to actually trade —
+  > a wallet opens at ~$11.50, but under the design minimum it installs and never opens a
+  > position. Your accessible balance is $<X>. We can build the whole strategy now and deploy
+  > the moment you've topped up — want me to pull up your deposit info when we're done?"
   (deposit flow = the `senpi-deposit-withdraw-transfer` skill)
 - One heads-up total. NEVER hold the interview hostage on funding, never re-ask
   mid-interview, and never refuse to build.
