@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.7.0"
+  version: "1.8.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -185,6 +185,12 @@ Then **replay the full spec, get an explicit "yes"**, and place.
 - **Edit:** `edit_position` — `targetMargin` is **absolute, not a delta**; a direction flip does NOT carry
   SL/TP over. Partial close = `edit_position` with a lower `targetMargin`.
 - **Close:** `close_position` (full only; best-effort cancels resting SL/TP + DSL).
+- **"Why did it close?" is a record question.** Read the close before naming a reason —
+  `execution_get_closed_position_details`, or the wallet's `discovery_get_trader_history`. **A position
+  you closed with `close_position` did not hit its take-profit:** an agent close, a stop fill and a TP
+  fill are three different outcomes and only the record says which. Never report a TP or stop as "hit"
+  from the protection you configured, or from what you remember doing — a realized return far below the
+  TP you set is the tell that something else closed it.
 
 ---
 
