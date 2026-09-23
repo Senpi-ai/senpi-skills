@@ -9,7 +9,7 @@ import dsl as dsl_mod
 import score as score_mod
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.27.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.28.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -112,7 +112,12 @@ def short(addr):
 
 def header(r):
     a, tr, act, rank = r["address"], r["track"], r["activity"], r.get("rank")
-    lines = [f"# Your desk — `{short(a)}`",
+    # A book is not an address. Titling a union of six strategy wallets with the first one's hex is
+    # the same mistake the desk made by running on one wallet in the first place: it tells the reader
+    # they are looking at a wallet when they are looking at everything they trade.
+    ws = r.get("wallets") or []
+    title = f"across {len(ws)} wallets" if len(ws) > 1 else f"`{short(a)}`"
+    lines = [f"# Your desk — {title}",
              f"{r['days']} days · {act['fills']:,} fills · {act['coins']} coins · updated {datetime.datetime.fromtimestamp(r['now_ms'] / 1000, datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} · **YOUR QUANT — LIVE · READ-ONLY** · v{VERSION}"]
     if rank:
         lines.append(rank_line(rank))
@@ -234,6 +239,22 @@ def _protection_note(p, smrow):
     return "PROTECTED", "stop in place — looks good" + (" — but the whale cohort is on the other side" if against else "")
 
 
+def by_wallet_table(r):
+    """Which wallet carried the book. Only on a --book run, and only when more than one traded."""
+    rows = [w for w in (r.get("by_wallet") or []) if w["trades"] or w["open"]]
+    if len(rows) < 2:
+        return ""
+    out = ["", "**By wallet**", "",
+           "| Wallet | Trades | Win rate | Gross | Fees | Funding | Net | Open | Unrealized |",
+           "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    for w in rows:
+        wr = pct(w["wins"] / w["trades"]) if w["trades"] else "—"
+        out.append(f"| `{short(w['wallet'])}` | {w['trades']} | {wr} | {usd(w['realized'], signed=True)} "
+                   f"| {usd(-w['fees'], signed=True)} | {usd(w.get('funding') or 0.0, signed=True)} "
+                   f"| {usd(w['net'], signed=True)} | {w['open']} | {usd(w['unrealized'], signed=True)} |")
+    return "\n".join(out)
+
+
 def performance(r):
     tr = r["track"]
     out = ["## Performance", "", "| Coin | Trades | Win rate | Realized | Fees | Funding | Share of volume | Median hold |", "|---|---:|---:|---:|---:|---:|---:|---:|"]
@@ -247,6 +268,9 @@ def performance(r):
     if sb.get("bands"):
         out += ["", f"**Size vs outcome** (median position {usd(sb['median_notional'])} notional):", "", "| Size band | Winners | Losers | Realized |", "|---|---:|---:|---:|"]
         out += [f"| {b['band']} | {b['winners']} | {b['losers']} | {usd(b['realized'], signed=True)} |" for b in sb["bands"]]
+    bw = by_wallet_table(r)
+    if bw:
+        out.append(bw)
     return "\n".join(out)
 
 

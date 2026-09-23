@@ -173,6 +173,11 @@ def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=Non
     open_orders = list(open_orders or []) + list(open_orders_xyz or [])
     for ap in (cs.get("assetPositions") or []) + ((cs_xyz or {}).get("assetPositions") or []):
         p = ap["position"]; szi = _f(p["szi"]); coin = p["coin"]; side = "LONG" if szi > 0 else "SHORT"
+        # On a merged book (--book) two strategy wallets can hold the SAME coin. Matching a resting
+        # trigger to a position by coin alone then credits one wallet's stop to the other's naked
+        # position — the protection audit's one job, answered wrong in the dangerous direction.
+        # Untagged reads (every single-wallet run) match as before.
+        wal = p.get("wallet")
         size = abs(szi); mark = marks.get(coin) or _f(p["entryPx"])
         if size * mark < DUST_USD:
             continue                                            # dust left behind by a partial close: not a position
@@ -182,6 +187,8 @@ def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=Non
         for o in open_orders or []:
             if o.get("coin") != coin or not o.get("isTrigger") or o.get("side") != exit_side:
                 continue
+            if wal and o.get("wallet") and o["wallet"] != wal:
+                continue                                        # a sibling wallet's stop is not this position's
             tp_ = _f(o.get("triggerPx"))
             (stops if ((side == "LONG" and tp_ < mark) or (side == "SHORT" and tp_ > mark)) else tps).append(o)
         covered = min(size, sum(_f(o["sz"]) for o in stops))
@@ -201,7 +208,7 @@ def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=Non
                         stop_distance_pct=(abs(mark - nearest) / mark * 100) if (nearest and mark) else None, take_profit=bool(tps),
                         funding_rate_hourly=rate, funding_per_day=-(rate * notional * 24) * (1 if side == "LONG" else -1),
                         funding_since_open=_f((p.get("cumFunding") or {}).get("sinceOpen")),
-                        opened_ms=(ages or {}).get(coin)))
+                        opened_ms=(ages or {}).get(coin), wallet=wal))
     ms = cs.get("marginSummary") or {}; mx = (cs_xyz or {}).get("marginSummary") or {}
     perps_av = _f(ms.get("accountValue")) + _f(mx.get("accountValue")); mu = _f(ms.get("totalMarginUsed")) + _f(mx.get("totalMarginUsed"))
     av = total_account_value if (total_account_value and total_account_value > 0) else perps_av
@@ -236,13 +243,19 @@ def whole_account_value(portfolio, spot):
 
 def flows(ledger, addr):
     """Signed transfers in the window: + into this account, − out. Sends carry `user` (sender) and
-    `destination`; deposits and withdrawals carry their own types. Other ledger types are ignored."""
-    a = addr.lower(); out = []
+    `destination`; deposits and withdrawals carry their own types. Other ledger types are ignored.
+
+    `addr` may be ONE address or every wallet of a merged book. A book's inbound transfer is one
+    that landed on any of its wallets from outside it — internal moves are already dropped upstream
+    (book._internal), but matching on a single address would have signed a sibling's deposit as an
+    outflow."""
+    a = {addr.lower()} if isinstance(addr, str) else {x.lower() for x in addr}
+    out = []
     for x in ledger or []:
         d = x.get("delta") or {}; t = d.get("type")
         amt = _f(d.get("amount") if d.get("amount") is not None else d.get("usdc"))
         if t == "send":
-            sign = 1 if (d.get("destination") or "").lower() == a else -1
+            sign = 1 if (d.get("destination") or "").lower() in a else -1
         elif t == "deposit":
             sign = 1
         elif t == "withdraw":
