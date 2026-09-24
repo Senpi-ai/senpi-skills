@@ -115,6 +115,61 @@ class _MCPFixture:
 # the book, and says in `meta` what it covered. (a live desk, 2026-09-23.)
 MAX_TAPE_COINS = 60
 
+# A market maker's desk is wrong in every line and expensive to produce. `userRole` catches the ones
+# that are VAULTS; it returns `user` for a market maker quoting from a plain address, and those exist
+# on the leaderboard today (`0x956a…`, 99% resting at 0.34 bp across 24 coins, role `user`).
+#
+# What separates them is not how much they rest. Measured over 7 days on 13 real wallets: HLP
+# Strategy B — the one that actually burned a user session — is 41% maker, BELOW several ordinary
+# traders, while a perfectly normal whale is 91% maker. Maker share would have missed the real one
+# and refused a real reader.
+#
+# The fee rate was tried as that line and does NOT hold. (@im-vignesh, #763.) Hyperliquid PUBLISHES
+# the schedule that produces a low rate: `userFees.feeSchedule.tiers.vip` sets the maker fee to
+# 0.0 above $500M of 14-day volume, so effective = taker_share x 2.8bp and any patient limit trader
+# at scale crosses 0.5 bp at ~18% taker share, on fees anyone can get. Re-sampled over the top 30 of
+# the leaderboard by weekly volume, 25 wallets with >=200 perp fills:
+#     -0.30 -0.25 -0.21 -0.10 -0.04 -0.02 0.05 0.11 0.15 0.21 0.24
+#      0.42  0.50  0.57  0.78  0.79  1.04 1.23 1.24 1.36 1.54 1.89 2.37 2.47 2.82
+# Nine sit inside the "structural gap" the earlier comment claimed; the distribution is continuous
+# and 13 of 25 would have been refused, including VIP traders at 0.42 and 0.50 bp. The gap was an
+# artefact of a 13-wallet sample.
+#
+# So the gate is no longer a CLASSIFIER of who someone is — a claim that can be false and insulting
+# when it is. It is a statement about what this tool can do: the desk pulls hourly candles per coin
+# and caps that read at MAX_TAPE_COINS. Past the cap it is scoring a SAMPLE of the book while
+# printing a verdict about the book. That is the actual harm, it is measured rather than inferred,
+# and it is true of a systematic trader on 200 names exactly as it is of a quoting engine — both
+# deserve the same honest answer instead of an accusation.
+#
+# Measured on the same 29 wallets: the breadth line refuses 1 (115 coins, 5,514 fills/h) where the
+# fee line refused 13. It still refuses the book that prompted this work (172 coins, 177 positions,
+# 13,722 fills), and it serves every VIP trader the fee line wrongly turned away.
+MM_MIN_FILLS = 200            # below this the fee rate is noise, not a schedule
+
+
+def market_maker_rate(fills):
+    """Effective fee in basis points across every fill, or None when there is too little to judge.
+
+    NOT abs(): a maker rebate is negative fees, money earned, and the most market-maker-ish signal
+    there is — taking the absolute value would hide the clearest case.
+    """
+    perp = [f for f in fills if metrics.is_perp(f.get("coin", ""))]
+    if len(perp) < MM_MIN_FILLS:
+        return None
+    vol = sum(float(f["sz"]) * float(f["px"]) for f in perp)
+    if vol <= 0:
+        return None
+    return sum(float(f["fee"]) for f in perp) / vol * 1e4
+
+
+class NotATraderError(Exception):
+    """Raised before the expensive work when the subject is not a trader's book."""
+
+    def __init__(self, payload):
+        super().__init__(payload.get("error") or "not a trader")
+        self.payload = payload
+
 
 def _tape(coins, book, track, meta):
     """The coins to pull hourly candles for, in priority order, capped at MAX_TAPE_COINS.
@@ -182,7 +237,7 @@ def _ratio_or_none(num, base, cap=10.0):
 
 
 def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench=None, meta=None, whose="mine",
-            wallets=None):
+            wallets=None, force=False):
     """One desk. `wallets`, when given, is every wallet of a senpi user's book: each is read on its
     own and the reads are unioned into a single `tr_raw` (see book.py). `addr` stays the label."""
     meta = meta if meta is not None else {}
@@ -199,6 +254,34 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     meta["timings"]["trader"] = round(time.time() - t0, 1)
     fills, cs, oo = tr_raw["fills"], tr_raw["clearinghouseState"], tr_raw["frontendOpenOrders"]
     win_start, now = tr_raw["window_start_ms"], tr_raw["now_ms"]
+    # Stop here, not later. Everything past this point is the expensive half — hourly candles for
+    # every coin touched and two 100-wallet cohort reads, ~60-90s of a ~120s run. Bailing now costs
+    # the reader ~30s instead of an exec timeout, and costs us one trader read instead of a sweep.
+    _bp = market_maker_rate(fills)
+    _coins = sorted({f["coin"] for f in fills if metrics.is_perp(f.get("coin", ""))})
+    if len(_coins) > MAX_TAPE_COINS and not force:
+        _read_pct = MAX_TAPE_COINS / len(_coins)
+        raise NotATraderError({
+            "not_a_trader": "book_wider_than_the_desk_reads",
+            "coins": len(_coins), "tape_cap": MAX_TAPE_COINS,
+            "readable_share": round(_read_pct, 3),
+            "effective_fee_bp": None if _bp is None else round(_bp, 3),
+            "fills_read": len(fills), "address": addr,
+            "error": f"this book touches {len(_coins)} coins and the desk reads the tape for at most "
+                     f"{MAX_TAPE_COINS}. Every score past that point describes {_read_pct:.0%} of the "
+                     f"book while claiming to describe the book.",
+            "say_to_the_reader": (
+                f"That book is across **{len(_coins)} coins**. I read the tape for {MAX_TAPE_COINS} "
+                f"at a time, so anything I scored would cover about {_read_pct:.0%} of it and still "
+                f"read like a verdict on the whole thing — I would rather say that than hand you a "
+                f"number I cannot stand behind. If there are particular names you care about, give "
+                f"me those and I will read them properly."),
+            "if_you_meant_it": "re-run with --force to score the readable slice anyway"})
+    if _bp is not None and _bp < 0:
+        meta.setdefault("warnings", []).append(
+            f"this book EARNS {abs(_bp):.2f} bp on its fills rather than paying — a rebate the "
+            f"published schedule does not offer (it floors the maker fee at 0.0). Read the edge "
+            f"figures below as a quoting book's, not a directional trader's")
     ctxs = hl.meta()
     ctx_xyz = None
     try:
@@ -765,7 +848,12 @@ def main(argv=None):
         log(f"[quant-desk] running senpi quant desk on {addr[:6]}…{addr[-4:]}")
         try:
             r = analyze(addr, hl, days=a.days, mcp=mcp, want_rank=not a.no_rank and not wallets,
-                        want_cohort=not a.no_cohort, bench=bench, meta=meta, whose=whose, wallets=wallets)
+                        want_cohort=not a.no_cohort, bench=bench, meta=meta, whose=whose, wallets=wallets,
+                        force=a.force)
+        except NotATraderError as e:
+            # same exit code as the vault gate: both mean "this address is not a trader's book",
+            # and an agent should treat them identically.
+            print(json.dumps(e.payload, indent=2)); return 4
         except hl_api.HLError as e:
             # A 429 here is the venue's rate bucket, not a broken wallet, and it is the one failure
             # a reader can act on — so say which it was rather than printing the raw exception.
