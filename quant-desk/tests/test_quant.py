@@ -3138,3 +3138,16 @@ def test_several_of_the_readers_wallets_are_one_compare_call():
     # the flag really does take several
     src = _P(HERE, "..", "scripts", "desk.py").read_text()
     assert 'ap.add_argument("--compare", nargs="+"' in src
+
+
+def test_skill_forbids_internal_identifiers_in_a_reply():
+    """2026-09-24. Two brand-new users, 25 minutes apart, whose first ever prompt was the quant-desk
+    chip, were answered with `--days` / `--days 365` as their way to widen the window and a bare
+    `senpi-strategy-discover` as their next step. Both agents quoted the Resilience line, which used
+    to hand them the backticked skill id to 'offer'. Fleet: 24 users / 47 turns in 7 days carried
+    `senpi-strategy-discover`, `desk.py` or `--days` into user-facing text."""
+    skill = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
+    assert "no script name, flag or skill id ever reaches the reader" in skill
+    resilience = skill.split("## Resilience", 1)[1].split("##", 1)[0]
+    assert "never name the skill to the reader" in resilience
+    assert "(`senpi-strategy-discover`)" not in resilience
