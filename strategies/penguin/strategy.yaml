@@ -1,0 +1,51 @@
+# Penguin — Concentrated Striker. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. Penguin takes ORCA's signal verbatim — the same
+# top-50 4h-leaderboard rank-jump detector, the same score/jump/prev-rank/volume thresholds,
+# the same "let winners run" DSL ladder — and changes only what happens AFTER the signal
+# fires: one position instead of three, 90% margin at 10x instead of 18% at 7x, and four
+# hours to work instead of forty-five minutes.
+#
+# That is the entire thesis, and it is a sizing thesis, not a signal one: Orca's detector is
+# selective enough that the binding constraint is not finding setups, it is being paid enough
+# when one lands. Penguin trades roughly 7x Orca's exposure per signal.
+#
+# It also runs with the four risk guard rails OFF (daily loss, entries/day, consecutive
+# losses, drawdown halt). That is deliberate and it is the reason this is `tier: advanced`
+# and `risk_level: aggressive` — nothing halts this package except its own stop.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: penguin
+version: "1.0.0"
+
+catalog:
+  name: "Penguin — Concentrated Striker"
+  emoji: "🐧"
+  tagline: "Orca's rank-jump signal, sized to matter: it watches the same top-50 rows of the 4h leaderboard and fires on the same fresh 15+ rank jump out of the deep field — then commits the whole book to that one name at 10x and gives it four hours instead of forty-five minutes. One dive, all in, and nothing to surface it early but the stop."
+  belief_plain: "It looks for the same thing Orca does — a coin suddenly rocketing up the leaderboard of what winning traders are piling into, young enough to still be moving and backed by a real volume spike. The difference is what it does next. Orca spreads across three names and cuts them inside the hour. Penguin takes one name, commits the whole account to it, and gives the move four hours to prove itself — one deep dive rather than three shallow ones. Bigger wins when it is right, and a much larger dent when it is not."
+  thesis: "Orca's detector is the selective part — a fresh rank jump with trend, freshness and volume confirming at once is rare, and every threshold here is Orca's unchanged. What is changed is the payoff. Three concurrent 18%-margin positions at 7x, each cut at 45 minutes, dilute a rare signal across names that did not fire and exit it before a breakout has room to run. Penguin removes the dilution: one slot, 90% margin, 10x, a 4-hour hard timeout and a 3-hour weak-peak cut, and a 15% ROE stop wide enough to sit outside ordinary noise at that leverage. The same ratcheting DSL ladder then decides the exit, locking nothing until +20% ROE so a real trend is never capped early. The detector and the universe are Orca's, unfiltered — the only changes are to size, clock and brakes. This concentration cuts both ways and there is no portfolio effect to soften it: one stop-out costs about 13.5% of the account before fees (a 15% ROE stop on 90% margin), and with the guard rails off nothing halts a losing run but the stop itself."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: rank_jump
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: intraday
+  leverage_max: 10
+  max_slots: 1
+  assets: []                # derived universe — coins come from the top-50 rows of the 4h leaderboard each tick, not a fixed list
+  tags: [leader-momentum, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, concentrated, single-slot, high-leverage]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: PENGUIN_WALLET
+    funding_share: 1.0

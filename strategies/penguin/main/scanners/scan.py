@@ -1,4 +1,4 @@
-"""SHRIKE — supervised scanner (Orca's Gen-1 Vanilla Striker detector, conviction-sized).
+"""PENGUIN — supervised scanner (Orca's Gen-1 Vanilla Striker detector, conviction-sized).
 
 UNIVERSE scanner. Per tick: read the account + held set (clearinghouse, dual-DEX
 equity via max()), fetch the top-100 smart-money leaderboard markets and slice to the
@@ -19,8 +19,8 @@ files (scan-history.json / asset-cooldowns.json) collapse into ctx.state records
 FIDELITY NOTES vs orca-producer.py v4.0.1:
   - v2 emitted exactly ONE signal (the single highest-scoring `best`). Preserved:
     scan() emits <= 1 signal/tick.
-  - SIZING IS WHERE SHRIKE DEPARTS. v2/Orca sized at MARGIN_PCT 0.18 and a FIXED 7x;
-    Shrike ships marginPct 90 and leverageDefault 10 in runtime.yaml (~9x equity exposure
+  - SIZING IS WHERE PENGUIN DEPARTS. v2/Orca sized at MARGIN_PCT 0.18 and a FIXED 7x;
+    Penguin ships marginPct 90 and leverageDefault 10 in runtime.yaml (~9x equity exposure
     against Orca's ~1.26x). The runtime resolves a per-signal `marginPct` BEFORE config
     `strategy.margin_pct`, so the scanner inputs — not the strategy block — are what size
     the trade. The module defaults below mirror the shipped values so a missing `inputs:`
@@ -57,7 +57,7 @@ import scoring
 _DEFAULT_MIN_SCORE = scoring.STRIKER_MIN_SCORE        # 9
 _DEFAULT_MARGIN_PCT = 90.0                            # PERCENT — mirrors runtime.yaml (Orca: 18)
 _DEFAULT_LEVERAGE = 10                                # mirrors runtime.yaml (Orca: fixed 7)
-_DEFAULT_MAX_POSITIONS = 1                            # ONE strike at a time (Shrike: Orca ran 3)
+_DEFAULT_MAX_POSITIONS = 1                            # ONE strike at a time (Penguin: Orca ran 3)
 _DEFAULT_TOP_N = scoring.TOP_N                        # 50 — score only the top-50 SM markets
 _DEFAULT_LEADERBOARD_LIMIT = 100                     # v2 fetch_markets limit=100
 _DEFAULT_MIN_VOL_RATIO = scoring.STRIKER_MIN_VOL_RATIO  # 1.5 volume confirmation
@@ -77,7 +77,7 @@ def _read(ctx, name, args):
     try:
         return ctx.senpi_mcp.call_tool(name, args)
     except Exception as exc:  # noqa: BLE001
-        print(f"[shrike.scan] {name} read failed: {exc!r}", file=sys.stderr)
+        print(f"[penguin.scan] {name} read failed: {exc!r}", file=sys.stderr)
         return None
 
 
@@ -121,7 +121,7 @@ def _get_account(ctx):
         _use = max(_use, scoring.safe_float(_ms.get("totalMarginUsed", 0)),
                    abs(scoring.safe_float(_ms.get("totalNtlPos", 0))))
     if _use > 1.0 and not positions:
-        print("[shrike.scan] read-sanity guard: margin in use but empty positions — skipping tick",
+        print("[penguin.scan] read-sanity guard: margin in use but empty positions — skipping tick",
               file=sys.stderr)
         return 0.0, []
     return account_value, positions
@@ -255,7 +255,7 @@ def scan(inputs, ctx):
     # ~100x small (resolve-margin sizes (marginPct/100)*withdrawable).
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
     if margin_pct <= 1.0:
-        print(f"[shrike.scan] marginPct={margin_pct} looks like a v2 fraction; "
+        print(f"[penguin.scan] marginPct={margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0
 
@@ -279,13 +279,13 @@ def scan(inputs, ctx):
         try:
             ctx.state.append(rec)
         except Exception as exc:  # noqa: BLE001
-            print(f"[shrike.scan] WARNING: state append failed; next tick may re-emit "
+            print(f"[penguin.scan] WARNING: state append failed; next tick may re-emit "
                   f"a suppressed signal: {exc!r}", file=sys.stderr)
 
     # ── account state + held assets ──
     account_value, positions = _get_account(ctx)
     if account_value <= 0:
-        print("[shrike.scan] cannot read account value (<=0); skip tick", file=sys.stderr)
+        print("[penguin.scan] cannot read account value (<=0); skip tick", file=sys.stderr)
         _persist({"result": {"emitted": False, "gate": "no_account"}})
         return []
     held_assets = [p["coin"] for p in positions if p.get("coin")]
@@ -293,7 +293,7 @@ def scan(inputs, ctx):
 
     # ── max-positions guard (v2 MAX_POSITIONS=3) ──
     if len(positions) >= max_positions:
-        print(f"[shrike.scan] at max positions ({len(positions)}/{max_positions}): "
+        print(f"[penguin.scan] at max positions ({len(positions)}/{max_positions}): "
               f"{sorted(held_set)}", file=sys.stderr)
         _persist({"result": {"emitted": False, "gate": "max_positions", "held": sorted(held_set)}})
         return []
@@ -302,7 +302,7 @@ def scan(inputs, ctx):
     markets = _fetch_markets(ctx, leaderboard_limit, top_n, xyz_banned,
                              int(inputs.get("minTraderCount", 10)))
     if markets is None:
-        print("[shrike.scan] failed to fetch leaderboard_get_markets; skip tick", file=sys.stderr)
+        print("[penguin.scan] failed to fetch leaderboard_get_markets; skip tick", file=sys.stderr)
         _persist({"result": {"emitted": False, "gate": "no_markets"}})
         return []
 
@@ -311,7 +311,7 @@ def scan(inputs, ctx):
     current_snapshot = _snapshot_of(markets)
     if not scan_history:
         scan_history.append(current_snapshot)
-        print(f"[shrike.scan] WAITING — seeding scan history (scanned={len(markets)}); "
+        print(f"[penguin.scan] WAITING — seeding scan history (scanned={len(markets)}); "
               "need a prior scan to measure rank-jumps", file=sys.stderr)
         _persist({"result": {"emitted": False, "gate": "history_seed", "scanned": len(markets)}})
         return []
@@ -383,7 +383,7 @@ def scan(inputs, ctx):
     scan_history = scan_history[-_SCAN_HISTORY_MAX:]
 
     if not candidates:
-        print(f"[shrike.scan] WAITING — no Striker signal (min score {min_score:.0f}); "
+        print(f"[penguin.scan] WAITING — no Striker signal (min score {min_score:.0f}); "
               f"scanned={len(markets)} scored={scored} held={sorted(held_set)}", file=sys.stderr)
         _persist({"result": {"emitted": False, "gate": "no_candidate",
                              "scanned": len(markets), "scored": scored,
@@ -425,7 +425,7 @@ def scan(inputs, ctx):
     # mark per-asset emit cooldown + signal-dedup for the emitted asset.
     emit_cooldowns[best["token"]] = now
     recent[best["token"]] = now
-    print(f"[shrike.scan] EMIT {best['token']} {best['direction']} score={best['score']} "
+    print(f"[penguin.scan] EMIT {best['token']} {best['direction']} score={best['score']} "
           f"{leverage}x marginPct={margin_pct:.2f}% | {' | '.join(best['reasons'][:6])}",
           file=sys.stderr)
     _persist({"result": {"emitted": True, "asset": best["token"], "direction": best["direction"],
