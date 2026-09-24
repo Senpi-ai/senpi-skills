@@ -1084,12 +1084,11 @@ def fetch_strategies(client, meta):
         s["hours_since_last_close"] = h = _age_hours(s["last_close_utc"])
         if h is not None and h >= QUIET_AFTER_HOURS and not s.get("empty"):
             quiet.append({"name": s.get("name"), "hours": h, "holding": len(s.get("positions") or [])})
+    # Data, NOT a `meta.warnings` line: warnings are this file's fault channel (degraded, not running,
+    # a failed read), and a slow-clock sleeve holding a book for days is working as designed. A warning
+    # that is usually benign is one people learn to skip. SKILL.md says when it is worth narrating.
     if quiet:
         meta["quiet_strategies"] = quiet
-        meta.setdefault("warnings", []).append(
-            f"{len(quiet)} strategy(ies) have not CLOSED a trade in over {QUIET_AFTER_HOURS}h: "
-            + ", ".join(f"{q['name']} ({q['hours']}h, holding {q['holding']})" for q in quiet)
-            + ". Last CLOSE, not last entry. Quiet is not broken — check slots and entry gates first.")
     return strategies
 
 

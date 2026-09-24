@@ -81,12 +81,20 @@ def test_a_strategy_holding_a_stale_book_is_reported_quiet():
     meta = _run(_mcp(close_age_hours=60, positions=pos))["meta"]
     assert meta["quiet_strategies"][0]["hours"] == 60
     assert meta["quiet_strategies"][0]["holding"] == 1
-    # the claim stays inside what a close record can prove
-    assert "Last CLOSE, not last entry" in " ".join(meta["warnings"])
+    # reported as DATA, never as a fault — `warnings` is for degraded / not running / failed reads,
+    # and a slow-clock sleeve holding by design must not train anyone to skip that channel
+    assert not any("CLOSED a trade" in w for w in meta["warnings"])
 
 
 def test_a_recent_close_is_not_quiet():
     assert "quiet_strategies" not in _run(_mcp(close_age_hours=2))["meta"]
+
+
+def test_the_threshold_fires_at_the_hour_the_constant_names():
+    """`// 3600` floors the reported AGE, which does not move the boundary: floor(e/3600) >= 48 is
+    e >= 48h exactly. 47h59m is out, 48h00m is in."""
+    assert "quiet_strategies" not in _run(_mcp(close_age_hours=portfolio.QUIET_AFTER_HOURS - 1/60.))["meta"]
+    assert _run(_mcp(close_age_hours=portfolio.QUIET_AFTER_HOURS))["meta"]["quiet_strategies"]
 
 
 def test_a_strategy_with_no_closed_record_is_never_called_quiet():
@@ -97,9 +105,22 @@ def test_a_strategy_with_no_closed_record_is_never_called_quiet():
 
 
 def test_age_hours_reads_utc_without_a_local_timezone_shift():
-    """`timegm`, not `mktime` — on a non-UTC host mktime skews this by the offset."""
-    assert portfolio._age_hours(
-        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3 * 3600))) == 3
+    """`timegm`, not `mktime`. The TZ has to be PINNED: on a UTC host both agree and the test cannot
+    tell them apart — measured mktime=3 under UTC, 0 under Chicago, 12 under Tokyo. Both signs of
+    offset, so an implementation wrong in only one direction still fails."""
+    saved = os.environ.get("TZ")
+    try:
+        for tz in ("America/Chicago", "Asia/Tokyo"):
+            os.environ["TZ"] = tz
+            time.tzset()
+            stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3 * 3600))
+            assert portfolio._age_hours(stamp) == 3, tz
+    finally:
+        if saved is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = saved
+        time.tzset()
 
 
 def test_age_hours_never_invents_an_age():
