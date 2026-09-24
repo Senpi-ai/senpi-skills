@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.28.0"
+  version: "1.29.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -293,6 +293,12 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
   `running_blind` (up, no entry scanners). This is the one that always deserved the warning. Say
   **"⚠ runtime degraded — running but not healthy,"** not a clean all-clear. Flagged in `meta.warnings`.
 - **`not_running`** — no runtime at all (above). ⛔ NOT RUNNING / UNPROTECTED.
+- **`last_close_utc` / `hours_since_last_close`** (per strategy) + **`meta.quiet_strategies`** — the
+  newest close and its age, past 48h. **Say "has not CLOSED a trade in Xh", never "has not traded"**: a
+  position carries no open time, so an entry taken since that close is invisible here. Quiet while
+  **holding** means fully allocated, not stuck — check slots and entry gates first, and note every guard
+  rail halts ENTRIES only, so a gate counter is moot while every slot is full. No closed record is never
+  flagged: "never closed" cannot be told apart from "deployed ten minutes ago".
 - **`risk_pause`** (beside `runtime_health`, never instead of it) — the runtime's OWN entry gate says
   `CLOSED` or `COOLDOWN`: the strategy is **healthy and paused by its own rule** (daily entry cap, daily
   loss halt, drawdown halt, a cooldown). Name the gate and quote its `reason` verbatim ("Max Entries/Day —
