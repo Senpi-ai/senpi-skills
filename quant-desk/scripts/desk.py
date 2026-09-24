@@ -45,7 +45,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.31.0"
+VERSION = "1.32.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -476,7 +476,13 @@ def main(argv=None):
         print(json.dumps({"error": "an address is required (or --compare 0x… 0x…)"})); return 2
     addr = a.address.strip()
     if not ADDR_RE.match(addr):
-        print(json.dumps({"error": "not a Hyperliquid address — expected 0x followed by 40 hex characters"})); return 2
+        # The likelier cause is US, not them: an address typed out again from the request instead of
+        # copied loses or doubles a character, and the count then reads as the reader's mistake.
+        n = len(addr[2:]) if addr[:2].lower() == "0x" else len(addr)
+        print(json.dumps({"error": "not a Hyperliquid address — expected 0x followed by 40 hex "
+                                   f"characters, got {n}. Before telling the reader their address is "
+                                   "wrong, copy it again from their own message, character for "
+                                   "character, and re-run: retyping it is the likelier cause."})); return 2
     addr = addr.lower()
     # Whose book this is comes from the address book, not from how the request was phrased. An
     # UNKNOWN address is someone else's: the desk gives advice in the second person, and delivering
