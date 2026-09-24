@@ -120,13 +120,19 @@ def _tape(coins, book, track, meta):
     """The coins to pull hourly candles for, in priority order, capped at MAX_TAPE_COINS.
 
     Priority is where the reader's money is, not alphabetical: every OPEN position first (the
-    protection audit and the stop ladder are about those, and dropping one would silently omit a
-    live position), then BTC (every beta and correlation figure is against it), then traded coins by
-    volume. Cohort and attention coins fill whatever is left — they colour the read, they are not
-    the read.
+    stop ladder and the regime read are about those), then BTC (every beta and correlation figure is
+    against it), then traded coins by volume. Cohort and attention coins fill whatever is left — they
+    colour the read, they are not the read.
+
+    The cap binds on held coins only when the held set alone outruns it. That happens — the book
+    this was written for had 177 open positions — and when it does `meta["tape"]` says so rather
+    than reporting "every open position" over a silent truncation.
     """
     held = {p["coin"] for p in book["positions"]}
-    by_vol = sorted((track.get("coins") or {}).items(), key=lambda kv: -(kv[1].get("volume") or 0))
+    # metrics.py emits `volume_share` per coin — `volume` lives only on the internal accumulator
+    # and was never in this dict, so every key read 0. The order looked right only because metrics
+    # already sorts by volume and Python's sort is stable: a real no-op wearing a correct result.
+    by_vol = sorted((track.get("coins") or {}).items(), key=lambda kv: -(kv[1].get("volume_share") or 0))
     order, seen = [], set()
     for c in list(held) + ["BTC"] + [c for c, _ in by_vol] + sorted(coins):
         if c in coins and c not in seen:
@@ -134,11 +140,36 @@ def _tape(coins, book, track, meta):
     if len(order) <= MAX_TAPE_COINS:
         return set(order)
     kept, dropped = order[:MAX_TAPE_COINS], order[MAX_TAPE_COINS:]
-    meta["tape"] = {"coins_touched": len(order), "coins_read": len(kept), "dropped": len(dropped),
-                    "rule": f"every open position and BTC, then the {MAX_TAPE_COINS} largest by volume"}
-    meta.setdefault("warnings", []).append(
-        f"wide book: {len(order)} coins touched, hourly tape read for the {len(kept)} that carry the "
-        f"position risk and the volume")
+    if "BTC" in order and "BTC" not in kept:
+        # Held coins lead the order, so a book with more open positions than the cap pushed BTC out
+        # entirely — and every beta and correlation figure in the desk is measured against it. One
+        # reserved slot is cheaper than a beta that is quietly wrong.
+        displaced = kept[-1]
+        kept[-1] = "BTC"
+        dropped = [c for c in dropped if c != "BTC"] + [displaced]
+    # Held coins lead `order`, so they are dropped only when the held set ALONE outruns the cap —
+    # the 177-position book this PR was written for. Lifting the cap to cover it would mean ~178
+    # candle requests, which is the timeout this function exists to prevent. The tape drives the
+    # regime/timing read, not the protection audit (that reads resting orders), so a dropped held
+    # coin loses its regime colour and keeps its stop check. What must not happen is claiming
+    # otherwise: state the shortfall instead of printing "every open position" over a truncation.
+    held_dropped = [c for c in dropped if c in held]
+    if held_dropped:
+        meta["tape"] = {"coins_touched": len(order), "coins_read": len(kept), "dropped": len(dropped),
+                        "held_dropped": len(held_dropped),
+                        "rule": f"the {MAX_TAPE_COINS} largest of {len(held)} open positions, by volume — "
+                                f"{len(held_dropped)} held coins are past the cap and have no tape"}
+        meta.setdefault("warnings", []).append(
+            f"wide book: {len(held)} open positions exceed the {MAX_TAPE_COINS}-coin tape cap, so "
+            f"{len(held_dropped)} of them are read without candles — their stops are still audited, "
+            f"their regime is not")
+    else:
+        meta["tape"] = {"coins_touched": len(order), "coins_read": len(kept), "dropped": len(dropped),
+                        "held_dropped": 0,
+                        "rule": f"every open position and BTC, then the largest by volume up to {MAX_TAPE_COINS}"}
+        meta.setdefault("warnings", []).append(
+            f"wide book: {len(order)} coins touched, hourly tape read for the {len(kept)} that carry the "
+            f"position risk and the volume")
     return set(kept)
 
 

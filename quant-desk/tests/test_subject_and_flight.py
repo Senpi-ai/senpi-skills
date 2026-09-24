@@ -106,12 +106,50 @@ def test_release_is_idempotent(tmp_path):
 
 
 # ---------------------------------------------------------------- wide books
+def _real_coin_row(volume, vol_closed):
+    """The per-coin dict shape metrics.summarize actually emits. Hand-writing a `volume` key here
+    is what hid the bug: the engine has never emitted one."""
+    return dict(trades=1, win_rate=1.0, realized=1.0, fees=0.0, funding=0.0,
+                volume_share=volume / vol_closed, long=1, short=0,
+                hold_median_h=1.0, size_median=volume)
+
+
+def test_the_tape_sorts_by_a_key_the_engine_actually_emits():
+    """The ordering read `coins[c]["volume"]`. metrics emits `volume_share`; `volume` lives only on
+    the internal accumulator, so every key resolved to 0 and the sort was a no-op. It looked correct
+    because metrics already sorts by volume and Python's sort is stable — a silent dependency on
+    insertion order. Pin the contract: whatever _tape sorts by must be a key metrics emits."""
+    import metrics
+    closed = [dict(coin="AAA", volume=100.0, taker_volume=100.0, realized=1.0, fees=0.0, win=True,
+                   direction="LONG", complete=True, truncated=False, hold_h=1.0, peak_notional=100.0,
+                   unobserved_notional=0.0, adds=0, entry_vwap=1.0, close_time=1, last_time=1,
+                   liquidated=False, open_time=0, taker_fees=0.0),
+              dict(coin="BBB", volume=900.0, taker_volume=900.0, realized=1.0, fees=0.0, win=True,
+                   direction="LONG", complete=True, truncated=False, hold_h=1.0, peak_notional=900.0,
+                   unobserved_notional=0.0, adds=0, entry_vwap=1.0, close_time=1, last_time=1,
+                   liquidated=False, open_time=0, taker_fees=0.0)]
+    emitted = metrics.track_record(closed, [], [], {"userCrossRate": "0.0004", "userAddRate": "0.0001"}, 0)["coins"]
+    assert "volume_share" in emitted["BBB"], emitted["BBB"].keys()
+    assert "volume" not in emitted["BBB"], "metrics now emits `volume` — revisit the _tape sort key"
+
+    # And the ordering must genuinely RANK, not ride insertion order. Two coins cannot show that —
+    # a stable sort keeps them in place either way, which is why this hid. Insert ASCENDING by
+    # volume and overflow the cap: with the dead key every row reads 0, insertion order survives,
+    # and the biggest coin is the one dropped.
+    n = desk.MAX_TAPE_COINS + 1
+    ascending = {f"C{i:03d}": _real_coin_row(float(i + 1), 100_000.0) for i in range(n)}
+    assert list(ascending) == sorted(ascending), "fixture must be inserted smallest-first"
+    biggest, smallest = f"C{n - 1:03d}", "C000"
+    out = desk._tape(set(ascending), {"positions": []}, {"coins": ascending}, {})
+    assert biggest in out, "the largest coin by volume was dropped — the sort key is dead again"
+    assert smallest not in out, "the smallest coin survived a full cap — ordering is insertion order"
+
+
 def test_the_tape_read_is_capped_and_keeps_every_open_position():
-    """The candle pull is the most expensive step and scales with how many names a book touches.
-    Capping it must never drop a coin the reader has money in — the protection audit is about those."""
+    """Capping must never drop a coin the reader has money in — while the held set fits."""
     held = [f"H{i}" for i in range(5)]
     book = {"positions": [{"coin": c} for c in held]}
-    track = {"coins": {f"V{i}": {"volume": 1000 - i} for i in range(200)}}
+    track = {"coins": {f"V{i}": _real_coin_row(1000 - i, 200_000.0) for i in range(200)}}
     coins = set(held) | set(track["coins"]) | {"BTC", "NOISE1", "NOISE2"}
     meta = {}
     out = desk._tape(coins, book, track, meta)
@@ -121,8 +159,27 @@ def test_the_tape_read_is_capped_and_keeps_every_open_position():
     assert "BTC" in out, "the beta benchmark was dropped"
     assert "V0" in out and "V1" in out, "the highest-volume coins were dropped"
     assert meta["tape"]["coins_touched"] == len(coins) and meta["tape"]["dropped"] > 0
+    assert meta["tape"]["held_dropped"] == 0
     assert any("wide book" in w for w in meta["warnings"])
 
+
+def test_more_open_positions_than_the_cap_is_declared_not_silently_truncated():
+    """The book this was written for held 177 positions. Past the cap the old rule string still read
+    "every open position and BTC" while 117 of them had no tape at all. Lifting the cap would mean
+    ~178 candle requests — the timeout this function exists to prevent — so the requirement is that
+    the shortfall is STATED."""
+    held = [f"H{i}" for i in range(177)]
+    book = {"positions": [{"coin": c} for c in held]}
+    track = {"coins": {}}
+    meta = {}
+    out = desk._tape(set(held) | {"BTC"}, book, track, meta)
+    assert len(out) == desk.MAX_TAPE_COINS
+    t = meta["tape"]
+    assert t["held_dropped"] == 177 - (desk.MAX_TAPE_COINS - 1), t   # BTC keeps one reserved slot
+    assert "BTC" in out, "the beta benchmark was pushed out by a wide book"
+    assert "every open position" not in t["rule"], f"still claims what it did not do: {t['rule']}"
+    assert "past the cap" in t["rule"], t["rule"]
+    assert any("stops are still audited" in w for w in meta["warnings"]), meta["warnings"]
 
 def test_a_normal_book_is_not_capped_and_says_nothing():
     book = {"positions": [{"coin": "ETH"}]}
