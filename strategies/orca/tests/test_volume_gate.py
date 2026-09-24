@@ -129,3 +129,24 @@ def test_penguin_matches_orca():
     assert _fn(orca) == _fn(penguin), (
         "orca and penguin's _check_asset_volume have diverged — a fix to one skipped the other"
     )
+
+
+def test_a_degraded_read_is_not_reported_as_confirmed():
+    """The 982 telemetry lines all read `VOL_CONFIRMED 0.0x` — a dead gate wearing the same label
+    as a real confirmation, which is why it went unnoticed for so long. After the fix the fail-open
+    path still exists (a genuinely failed read), so the LABEL has to carry the difference or the
+    same blind spot returns in a rarer form."""
+    import re
+    here = os.path.dirname(__file__)
+    for pkg in ("orca", "penguin"):
+        path = os.path.join(here, "..", "..", pkg, "main", "scanners", "scan.py")
+        if not os.path.exists(path):
+            continue
+        body = open(path, encoding="utf-8").read()
+        emit = [ln for ln in body.splitlines() if "VOL_CONFIRMED" in ln and "reasons" in ln]
+        assert emit, f"{pkg}: no VOL_CONFIRMED emit line found — did the reason string move?"
+        joined = "\n".join(emit)
+        assert re.search(r"vol_ratio\s*>\s*0", joined), (
+            f"{pkg}: VOL_CONFIRMED is emitted without guarding on a non-zero ratio, so a "
+            f"fail-open read would print 'VOL_CONFIRMED 0.0x' again:\n{joined}"
+        )

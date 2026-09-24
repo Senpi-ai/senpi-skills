@@ -379,7 +379,11 @@ def scan(inputs, ctx):
         vol_ratio, vol_strong = _check_asset_volume(ctx, token, dex, min_vol_ratio)
         if not vol_strong:
             continue
-        reasons = list(reasons) + [f"VOL_CONFIRMED {vol_ratio:.1f}x"]
+        # ratio 0 with strong=True is the FAIL-OPEN path (read failed, or <48 candles) — say so.
+        # "VOL_CONFIRMED 0.0x" is the exact string the dead gate emitted 982 times; a degraded read
+        # must never again be indistinguishable from a real confirmation in the tape.
+        reasons = list(reasons) + [f"VOL_CONFIRMED {vol_ratio:.1f}x" if vol_ratio > 0
+                                   else "VOL_UNVERIFIED (volume read degraded)"]
 
         cand = dict(meta)
         cand["token"] = token
