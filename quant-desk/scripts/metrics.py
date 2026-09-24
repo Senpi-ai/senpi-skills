@@ -283,26 +283,55 @@ def equity_curve(portfolio, flow_list, window_start):
     return adj
 
 
+def _dd_basis(av_at, peak_t, trough_t, fall):
+    """The equity a fall came out of, or None when the series cannot say.
+
+    Equity AT THE PEAK is the direct answer: that is the capital the drawdown ate into. The older
+    form, `equity at the trough + the fall`, only equals it when nothing was deposited or withdrawn
+    in between — and that is precisely the assumption a senpi strategy wallet breaks. Such a wallet
+    is funded, traded, then SWEPT back to the funding wallet when the strategy closes, so its
+    account-value history reads 0.0 long after real money passed through it.
+
+    When the chosen series carries 0.0 at every point (a swept wallet's sparse perpAllTime history),
+    the old form degenerated to `0 + fall = fall` and every closed wallet scored a 100% drawdown —
+    "the account went to zero, a full loss of the equity at risk" printed over books that fell 12%
+    and one that ended the window UP $57. There is no basis for a percentage there, so say None and
+    let callers render "—" rather than invent the most alarming number in the range.
+    """
+    at_peak = av_at(peak_t) or 0.0
+    if at_peak > 0:
+        return at_peak
+    at_trough = av_at(trough_t) or 0.0
+    if at_trough > 0:
+        return at_trough + fall
+    return None
+
+
 def drawdown(pnl_pts, av_pts):
     """Max drawdown from Hyperliquid's own P&L series (transfer-immune by construction): the deepest
-    peak-to-trough fall in cumulative P&L, as a share of the account value at the peak. Capped at 100%."""
+    peak-to-trough fall in cumulative P&L, as a share of the equity that fall came out of. Capped at
+    100%. `dd` (the dollar fall) is always meaningful; `dd_pct` is None when the account-value series
+    has no positive reading to divide by — see _dd_basis."""
     if not pnl_pts:
         return dict(dd=0.0, dd_pct=0.0, span=None, in_drawdown=False, current_dd_pct=None)
     av = dict(av_pts or [])
     def av_at(t):
         ks = [k for k in av if k <= t]
         return av[max(ks)] if ks else (av[min(av)] if av else 0.0)
-    peak, peak_t, dd, dd_pct, span = -1e18, None, 0.0, 0.0, None
+    peak, peak_t, dd, dd_pct, span = -1e18, None, 0.0, None, None
     for t, v in pnl_pts:
         if v > peak:
             peak, peak_t = v, t
         fall = peak - v
         if fall > dd:
-            # the equity the fall came out of = equity at the trough + the fall (no transfer assumed between)
-            base = (av_at(t) or 0.0) + fall
-            dd, dd_pct, span = fall, min(1.0, fall / base) if base > 0 else 0.0, (peak_t, t)
-    last_t, last = pnl_pts[-1]; base_now = (av_at(last_t) or 0.0) + (peak - last)
-    cur = min(1.0, (peak - last) / base_now) if base_now > 0 and peak > last else 0.0
+            base = _dd_basis(av_at, peak_t, t, fall)
+            dd, span = fall, (peak_t, t)
+            dd_pct = min(1.0, fall / base) if base and base > 0 else None
+    last_t, last = pnl_pts[-1]
+    base_now = _dd_basis(av_at, peak_t, last_t, peak - last) if peak > last else None
+    cur = min(1.0, (peak - last) / base_now) if base_now and base_now > 0 and peak > last else None
+    if dd == 0.0 and dd_pct is None:
+        dd_pct = 0.0          # no fall at all is a real 0%, not an unknown
     return dict(dd=dd, dd_pct=dd_pct, span=span, in_drawdown=bool(cur and cur > 0.05), current_dd_pct=cur)
 
 

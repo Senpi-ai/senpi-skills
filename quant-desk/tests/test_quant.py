@@ -3138,3 +3138,90 @@ def test_several_of_the_readers_wallets_are_one_compare_call():
     # the flag really does take several
     src = _P(HERE, "..", "scripts", "desk.py").read_text()
     assert 'ap.add_argument("--compare", nargs="+"' in src
+
+
+# ── drawdown: the denominator, and the swept-wallet case (1.30.1) ────────────────────────────
+# A senpi strategy wallet is funded, traded, then SWEPT back to the funding wallet when the
+# strategy closes. Its account-value history then reads 0.0 long after real money passed through
+# it, and `equity at the trough + the fall` degenerated to `0 + fall = fall` — every closed wallet
+# scored a 100% drawdown. Live, this printed "the account went to zero — a full loss of the equity
+# at risk" over a book that fell 12%, and over one that ended the window UP $57. Both then took the
+# full -75 risk penalty. Found running the desk across a user's 137 strategy wallets.
+
+def _swept(pnl, av):
+    return metrics.drawdown(pnl, av)
+
+
+def test_a_swept_wallet_reports_no_percentage_rather_than_one_hundred():
+    """The bug. Equity 0.0 at every point: there is no basis to divide by, so dd_pct must be None
+    — NOT 1.0, which reads as a total loss and costs the full risk penalty."""
+    pnl = [(1, 0.0), (2, 100.0), (3, -124.0)]          # peak +100, trough -124 -> $224 fall
+    av = [(1, 0.0), (2, 0.0), (3, 0.0)]                # swept: no usable equity reading anywhere
+    dd = _swept(pnl, av)
+    assert abs(dd["dd"] - 224.0) < 1e-9, dd            # the dollar fall is still real and reported
+    assert dd["dd_pct"] is None, f"a swept wallet must not claim {dd['dd_pct']}"
+
+
+def test_a_profitable_swept_wallet_is_not_called_a_wipeout():
+    """The phalanx case: ended the window UP, yet was reported as a 100% drawdown."""
+    pnl = [(1, 0.0), (2, 238.0), (3, -88.0), (4, 57.0)]   # ends POSITIVE
+    av = [(1, 0.0), (2, 0.0), (3, 0.0), (4, 0.0)]
+    dd = _swept(pnl, av)
+    assert dd["dd_pct"] is None, f"a book that ended +$57 was called a total loss ({dd})"
+
+
+def test_a_real_wipeout_still_reads_one_hundred_percent():
+    """The guard must not blunt the case the dimension exists to catch: equity known at the peak,
+    and the whole of it lost."""
+    pnl = [(1, 0.0), (2, 0.0), (3, -2000.0)]
+    av = [(1, 2000.0), (2, 2000.0), (3, 0.0)]          # $2000 at the peak, gone at the trough
+    dd = metrics.drawdown(pnl, av)
+    assert dd["dd_pct"] == 1.0, dd
+    assert abs(dd["dd"] - 2000.0) < 1e-9
+
+
+def test_basis_is_equity_at_the_peak_and_agrees_with_the_old_form_when_nothing_moved():
+    """Measured on a live wallet: equity at the peak ($191.83) and `equity at trough + fall`
+    ($191.83) are identical when no transfer happened in between. The change is a no-op for a
+    clean book and only bites where the old assumption was false."""
+    pnl = [(1, 0.0), (2, 150.0), (3, 0.0)]
+    av = [(1, 500.0), (2, 650.0), (3, 500.0)]          # no deposits/withdrawals
+    dd = metrics.drawdown(pnl, av)
+    assert abs(dd["dd_pct"] - 150.0 / 650.0) < 1e-9, dd
+
+
+def test_a_peak_before_the_wallet_was_funded_falls_back_rather_than_abstaining():
+    """A fresh wallet's P&L peaks at 0 on day one, when equity is still 0 — that is not a swept
+    wallet, and a real later fall must still get a percentage. (signals-hunter, funded mid-window.)"""
+    pnl = [(1, 0.0), (2, -36.0)]
+    av = [(1, 0.0), (2, 663.0)]                        # funded after the peak timestamp
+    dd = metrics.drawdown(pnl, av)
+    assert dd["dd_pct"] is not None, "fell back to abstaining on a funded book"
+    assert abs(dd["dd_pct"] - 36.0 / 699.0) < 1e-6, dd
+
+
+def test_no_fall_is_zero_percent_not_unknown():
+    dd = metrics.drawdown([(1, 0.0), (2, 10.0), (3, 25.0)], [(1, 0.0), (2, 0.0), (3, 0.0)])
+    assert dd["dd"] == 0.0 and dd["dd_pct"] == 0.0, dd
+
+
+def test_an_unknown_drawdown_costs_no_risk_points_and_renders_as_a_dash():
+    """dd_pct=None must flow through the scorer and the renderer without becoming 0% or 100%."""
+    cs, oo, ctxs = _book_inputs()
+    book = metrics.open_book(cs, oo, ctxs)
+    tr = dict(trades=20, complete_trades=20, wins=9, losses=11, win_rate=0.45, profit_factor=1.8,
+              gross_realized=1000, fees=150, funding=-50, net=800, cost_ratio=0.2, payoff_ratio=2.2,
+              hold_winners_h=10, hold_losers_h=30, hold_ratio=3.0, taker_share=0.8, liquidations=0,
+              liquidation_loss=0, size_cv=0.4, size_max_over_median=2,
+              coins={"ETH": {"volume_share": 0.6, "funding": -50}}, coverage=None,
+              fee_recoverable=100, volume=100000, fee_rate_taker=0.0004, fee_rate_maker=0.0001,
+              long_share=0.7)
+    fit = market.book_fit(book, {}, ctxs)
+    unknown = {"dd_pct": None, "in_drawdown": False}
+    wiped = {"dd_pct": 1.0, "in_drawdown": True}
+    d_unknown, _ = score.dimensions(tr, book, unknown, None, fit, None, [], [])
+    d_wiped, _ = score.dimensions(tr, book, wiped, None, fit, None, [], [])
+    ru, rw = d_unknown["risk"]["score"], d_wiped["risk"]["score"]
+    assert ru is None or rw is None or ru > rw, (
+        f"an unknown drawdown scored no better than a total loss ({ru} vs {rw})")
+    assert "went to zero" not in (d_unknown["risk"]["line"] or ""), d_unknown["risk"]["line"]
