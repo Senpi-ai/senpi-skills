@@ -3138,3 +3138,34 @@ def test_several_of_the_readers_wallets_are_one_compare_call():
     # the flag really does take several
     src = _P(HERE, "..", "scripts", "desk.py").read_text()
     assert 'ap.add_argument("--compare", nargs="+"' in src
+
+
+# ── the desk must not hand itself back to the reader half-finished (1.32.0) ──────────────────
+def test_the_skill_forbids_ending_a_turn_mid_desk():
+    """Measured live, 2026-09-24: an agent relayed stage 1, wrote "Next I'll pull the protection
+    audit", and ENDED ITS TURN. The reader waited, then had to ask "Did you pull it?" and was told
+    "Not yet." Stage 2 then closed with "Want me to continue?" and stopped again.
+
+    Rule 1 said "Each stage is its own message". In an agent loop an assistant message ends the
+    turn, so "its own message" read as "its own turn" and the desk became the reader's job to
+    chase. A silent wait at least ends by itself; this does not."""
+    skill = _P(HERE, "..", "SKILL.md").read_text()
+    assert "All four stages belong to ONE turn" in skill
+    assert "never end a turn mid-desk" in skill
+    assert "never announce a stage you are not about to run" in skill
+
+
+def test_the_skill_keeps_the_stage_numbers_internal():
+    """"Stage 2 — protection audit" reached 4 of 34 users as a visible heading in 36 hours. A reader
+    shown the scaffolding waits for a Stage 3 they now have to ask for."""
+    skill = _P(HERE, "..", "SKILL.md").read_text()
+    assert "The stage numbers are internal" in skill
+    assert 'never the word "stage"' in skill
+
+
+def test_the_skill_forbids_promising_a_backgrounded_run():
+    """70 of 273 desk invocations in 36h backgrounded. Nothing wakes an agent when a detached
+    process finishes, so "I'll relay the rest as they come in" strands the reader permanently."""
+    skill = _P(HERE, "..", "SKILL.md").read_text()
+    assert "Never promise delivery you cannot perform" in skill
+    assert "does not come back to you on its own" in skill
