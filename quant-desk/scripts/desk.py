@@ -124,17 +124,28 @@ MAX_TAPE_COINS = 60
 # traders, while a perfectly normal whale is 91% maker. Maker share would have missed the real one
 # and refused a real reader.
 #
-# The effective fee rate does separate them, and nothing sits in the gap:
-#     <= 0.5 bp   0.00 (HLP Strategy B) · 0.34 (0x956a…) · 0.41 (drkmttr)
-#     >= 1.5 bp   1.48 · 1.97 · 2.07 · 2.73 · 2.90 · 3.14 · 3.51 · 3.64 · 7.91
-# That gap is structural rather than statistical: paying essentially nothing to trade means a
-# venue-level maker rebate or market-maker agreement, which a retail reader does not have. It is the
-# economic definition of the thing being excluded, and it cannot be faked by trading differently.
+# The fee rate was tried as that line and does NOT hold. (@im-vignesh, #763.) Hyperliquid PUBLISHES
+# the schedule that produces a low rate: `userFees.feeSchedule.tiers.vip` sets the maker fee to
+# 0.0 above $500M of 14-day volume, so effective = taker_share x 2.8bp and any patient limit trader
+# at scale crosses 0.5 bp at ~18% taker share, on fees anyone can get. Re-sampled over the top 30 of
+# the leaderboard by weekly volume, 25 wallets with >=200 perp fills:
+#     -0.30 -0.25 -0.21 -0.10 -0.04 -0.02 0.05 0.11 0.15 0.21 0.24
+#      0.42  0.50  0.57  0.78  0.79  1.04 1.23 1.24 1.36 1.54 1.89 2.37 2.47 2.82
+# Nine sit inside the "structural gap" the earlier comment claimed; the distribution is continuous
+# and 13 of 25 would have been refused, including VIP traders at 0.42 and 0.50 bp. The gap was an
+# artefact of a 13-wallet sample.
 #
-# Deliberately NOT gated on coin breadth or fill count: a systematic trader legitimately runs 80
-# names, and drkmttr is a market maker on 11.
-MM_FEE_BP = 0.5
-MM_MIN_FILLS = 200            # below this the rate is noise, not a fee schedule
+# So the gate is no longer a CLASSIFIER of who someone is — a claim that can be false and insulting
+# when it is. It is a statement about what this tool can do: the desk pulls hourly candles per coin
+# and caps that read at MAX_TAPE_COINS. Past the cap it is scoring a SAMPLE of the book while
+# printing a verdict about the book. That is the actual harm, it is measured rather than inferred,
+# and it is true of a systematic trader on 200 names exactly as it is of a quoting engine — both
+# deserve the same honest answer instead of an accusation.
+#
+# Measured on the same 29 wallets: the breadth line refuses 1 (115 coins, 5,514 fills/h) where the
+# fee line refused 13. It still refuses the book that prompted this work (172 coins, 177 positions,
+# 13,722 fills), and it serves every VIP trader the fee line wrongly turned away.
+MM_MIN_FILLS = 200            # below this the fee rate is noise, not a schedule
 
 
 def market_maker_rate(fills):
@@ -216,21 +227,30 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     # every coin touched and two 100-wallet cohort reads, ~60-90s of a ~120s run. Bailing now costs
     # the reader ~30s instead of an exec timeout, and costs us one trader read instead of a sweep.
     _bp = market_maker_rate(fills)
-    if _bp is not None and _bp <= MM_FEE_BP and not force:
+    _coins = sorted({f["coin"] for f in fills if metrics.is_perp(f.get("coin", ""))})
+    if len(_coins) > MAX_TAPE_COINS and not force:
+        _read_pct = MAX_TAPE_COINS / len(_coins)
         raise NotATraderError({
-            "not_a_trader": "market_maker",
-            "effective_fee_bp": round(_bp, 3), "threshold_bp": MM_FEE_BP,
+            "not_a_trader": "book_wider_than_the_desk_reads",
+            "coins": len(_coins), "tape_cap": MAX_TAPE_COINS,
+            "readable_share": round(_read_pct, 3),
+            "effective_fee_bp": None if _bp is None else round(_bp, 3),
             "fills_read": len(fills), "address": addr,
-            "error": f"this book pays {_bp:.2f} bp in fees — a venue-level maker rebate or "
-                     f"market-maker agreement, not a retail schedule. The desk reads how someone "
-                     f"TRADES, and a quoting engine is not doing that.",
+            "error": f"this book touches {len(_coins)} coins and the desk reads the tape for at most "
+                     f"{MAX_TAPE_COINS}. Every score past that point describes {_read_pct:.0%} of the "
+                     f"book while claiming to describe the book.",
             "say_to_the_reader": (
-                f"That wallet pays **{_bp:.2f} basis points** in fees. Retail pays roughly 2-8. A "
-                f"rate that low is a market-maker agreement with the venue, which means the book is "
-                f"quoting both sides rather than taking positions — there is no entry thesis to "
-                f"time, no stop to place, and no edge to score. Want me to run the desk on your own "
-                f"wallet instead?"),
-            "if_you_meant_it": "re-run with --force to read it as a trader anyway"})
+                f"That book is across **{len(_coins)} coins**. I read the tape for {MAX_TAPE_COINS} "
+                f"at a time, so anything I scored would cover about {_read_pct:.0%} of it and still "
+                f"read like a verdict on the whole thing — I would rather say that than hand you a "
+                f"number I cannot stand behind. If there are particular names you care about, give "
+                f"me those and I will read them properly."),
+            "if_you_meant_it": "re-run with --force to score the readable slice anyway"})
+    if _bp is not None and _bp < 0:
+        meta.setdefault("warnings", []).append(
+            f"this book EARNS {abs(_bp):.2f} bp on its fills rather than paying — a rebate the "
+            f"published schedule does not offer (it floors the maker fee at 0.0). Read the edge "
+            f"figures below as a quoting book's, not a directional trader's")
     ctxs = hl.meta()
     ctx_xyz = None
     try:

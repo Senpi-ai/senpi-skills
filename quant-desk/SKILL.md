@@ -470,14 +470,27 @@ them, never about inventing one or answering from memory.
 Two shapes reach this exit, and an agent should treat them the same: relay `say_to_the_reader`,
 then offer the reader their own wallet.
 
-**`"not_a_trader": "market_maker"`** — the book pays under 0.5 basis points in fees. Retail pays
-2–8. A rate that low is a venue-level maker rebate or market-maker agreement, so the wallet is
-quoting both sides rather than taking positions: there is no entry thesis to time, no stop to place
-and no edge to score. The desk stops as soon as it has read the fills, before the tape and the
-cohorts — which is most of the run — so this costs ~30s rather than a two-minute timeout.
+**`"not_a_trader": "book_wider_than_the_desk_reads"`** — the book touches more coins than the desk
+reads tape for (`coins` vs `tape_cap`, with `readable_share` saying how much of it a score would
+have covered). Past that point every figure describes a sample while reading like a verdict on the
+whole book, so the desk says so instead. The refusal makes **no claim about who the reader is** —
+it is a statement about this tool's reach, and it is equally true of a systematic trader on 200
+names and of a quoting engine. Relay it as the limit it is, and take up the offer in
+`say_to_the_reader`: ask which names they care about and read those properly.
 
-Do not argue with it on the reader's behalf by pointing at a high win rate or a big P&L; a market
-maker has both, and neither means what it means for a trader.
+The desk stops as soon as it has read the fills, before the tape and the cohorts — which is most of
+the run — so this costs ~30s rather than a two-minute timeout.
+
+Earlier versions refused on **maker share** and then on **effective fee rate**. Both were measured
+and both were wrong: Hyperliquid publishes a VIP schedule that floors the maker fee at 0.0 above
+$500M of 14-day volume, so a patient limit trader at scale pays under 0.5 bp on terms anyone can
+get. The fee rule would have refused 13 of 25 sampled wallets and told VIP traders they had a
+venue agreement they do not have. Do not reintroduce either — and if a reader's rate is low, that
+is not evidence of anything on its own.
+
+A book that EARNS on its fills (a negative effective rate) is not refused; it is **disclosed** as a
+warning, because the published schedule floors the maker fee at zero and cannot produce one. Read
+the edge figures on such a book as a quoting book's, and say so.
 
 Some addresses on Hyperliquid are **vaults**: pooled books run by a leader, including Hyperliquid's
 own market makers. The desk checks before it reads (one call) and refuses, with the vault's real
