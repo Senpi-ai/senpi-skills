@@ -27,6 +27,7 @@ engine always passes forceFetch. Per-strategy truth comes from live strategy_get
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
+import calendar
 import json
 import os
 import subprocess
@@ -38,6 +39,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MARKET_ENRICH_CAP = 24      # cap the per-asset market pull
 CLOSED_HISTORY_CAP = 5      # recent closed trades to surface per strategy (realized PnL is over the full pull)
 CLOSED_HISTORY_PULL = 50    # closed positions to pull for the realized-PnL total (API default page)
+QUIET_AFTER_HOURS = 48      # a strategy whose newest CLOSE is older than this is reported as quiet
 
 # WHAT A STRATEGY DOES = its `profile`, and the load-bearing field is `profile.description`, taken from
 # the descriptor the RUNTIME renders for each runtime it has. This is UNIVERSAL: it works for a user's
@@ -1071,6 +1073,22 @@ def fetch_strategies(client, meta):
     recovering = [s["name"] for s in strategies if s.get("runtime_health") == "recovering"]
     if recovering:
         meta["recovering_runtimes"] = recovering
+    # RECENCY — the newest CLOSE per strategy, with its age. This is the last CLOSE, not the last
+    # activity: a clearinghouse position carries no open time, so an entry taken since it is invisible.
+    # A strategy with NO close on record is never flagged — `strategy_list` carries no creation date, so
+    # "never closed" cannot be told apart from "deployed ten minutes ago".
+    quiet = []
+    for s in strategies:
+        c = s.get("closed") if isinstance(s.get("closed"), dict) else {}
+        s["last_close_utc"] = c.get("closed_record_newest_utc")
+        s["hours_since_last_close"] = h = _age_hours(s["last_close_utc"])
+        if h is not None and h >= QUIET_AFTER_HOURS and not s.get("empty"):
+            quiet.append({"name": s.get("name"), "hours": h, "holding": len(s.get("positions") or [])})
+    # Data, NOT a `meta.warnings` line: warnings are this file's fault channel (degraded, not running,
+    # a failed read), and a slow-clock sleeve holding a book for days is working as designed. A warning
+    # that is usually benign is one people learn to skip. SKILL.md says when it is worth narrating.
+    if quiet:
+        meta["quiet_strategies"] = quiet
     return strategies
 
 
@@ -1103,6 +1121,19 @@ def _utc_iso(ts):
     if not 1e9 <= secs < 1e10:
         return None
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(secs))
+
+
+def _age_hours(iso):
+    """Whole hours between a `_utc_iso` stamp and now, or None when it does not read as one.
+    `timegm` (not `mktime`) because the stamp is UTC and the host's local zone must not shift it.
+    An unparseable stamp is "cannot tell" → None, never an age invented from it."""
+    if not isinstance(iso, str):
+        return None
+    try:
+        secs = calendar.timegm(time.strptime(iso, "%Y-%m-%dT%H:%M:%SZ"))
+    except Exception:  # noqa — bad stamp in, None out
+        return None
+    return max(0, int((time.time() - secs) // 3600))
 
 
 def fetch_closed(client, wallet, meta):
