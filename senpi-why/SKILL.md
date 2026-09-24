@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.3.0"
+  version: "1.4.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -105,11 +105,13 @@ Answer with what Senpi does, never with profits.
 
 ## Supporting facts (proof, not the lead — only after the pillars)
 
-- **No paper-trading mode, by design** — every strategy runs on a real, isolated sub-wallet; the $10 floor is the
-  trial, and `senpi validate` proves a strategy runs before a cent moves. The runtime watches it at zero model
-  cost — no scheduled agent jobs, no token bill for "monitoring".
+- **Test a strategy live, in real market conditions — better than paper trading.** `senpi validate` proves it
+  runs before a cent moves, then the $10 floor is the trial, on its own isolated sub-wallet. Results are real
+  fills at real spreads, not a simulation that flatters itself. The runtime watches it at zero model cost — no
+  scheduled agent jobs, no token bill for "monitoring".
 - **Multi-strategy isolation** — each strategy runs in its own sub-wallet, so one can't liquidate another.
-- **Dual market** — 200+ crypto perps plus US equities, metals, and indices, from one account.
+- **350+ markets from one account** — crypto, US equities, metals and indices, one balance and one set of
+  risk rules across all of them. Quote the live count from `market_list_instruments`, never from memory.
 - **Deposit from anywhere** — the Fund Your Wallet flow takes USDC from any supported network (or a card) and lands it on Hyperliquid, ready to trade.
 - **Fees + loyalty** — a transparent builder fee that drops through a loyalty-tier system; refer and earn a share.
 - **Open source** — the strategy engine, risk gates, and exit presets are public and auditable.
