@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "4.0.0"
+  version: "4.1.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -245,9 +245,15 @@ else → build inline, stages 2–9.
      nets a long+short in one wallet to flat), numbers a backtest produced, an approach the user
      rejected and why. Stops the engine re-deriving it, or contradicting what the user was told.
 2. **Pass the conversation**: add `--session-file /data/.openclaw/agents/main/sessions/<your
-   session id>.jsonl`. The runtime pulls YOUR turns out of it and seeds them as intent. A spec keeps
-   what was stated and loses what was negotiated — this is how the second survives. The spec still
-   wins on any conflict; a disagreement comes back in `assumptions`.
+   session id>.jsonl`. The runtime seeds **both sides of it** — the trader's turns AND yours — as
+   intent. Both, because half a trader's turns are answers: "I prefer A" or "2" carries a
+   requirement only beside the options you had just listed, and seeding the user's side alone
+   produced a seed where three of five turns answered questions that had been stripped out. A spec
+   keeps what was stated and loses what was negotiated — this is how the second survives. The spec
+   still wins on any conflict; a disagreement comes back in `assumptions`.
+
+   Observed: a trader lowered a swap threshold from 8 to 7 by answering "2" to a menu. Every earlier
+   turn said 8. The package came out with 7.
 3. **`openclaw senpi author start -p <file> --session-file <session>`** (`--edit <dir>` changes an
    existing package on a staged copy, so a live strategy is untouched). Returns an id in ~1s.
 4. **Poll `openclaw senpi author status <id> --after-seq <n>`**, **relaying one short line per poll**
@@ -261,11 +267,25 @@ else → build inline, stages 2–9.
      a question they can still answer: it quotes the spec and names the reading NOT built. Wrong
      assumption costs an edit here, a position after funding. `done` means the RUNTIME re-ran the
      gate and the proof matches the bytes, not that the model said so.
+     Relay **`review`** the same way when it is present: an independent reviewer read the finished
+     package against the spec, and it did NOT build it and could not see the build conversation.
+     The gate proves the package RUNS; this is the only step that asks whether it does what was
+     ASKED, and the builder's own tests cannot — they encode the builder's understanding. Each
+     finding quotes the spec's own words, so put it to the user as something they can check rather
+     than a verdict: it reports and never blocks, a proven package ships regardless, and one
+     observed review returned five findings of which one was wrong at high severity.
    - **3** failed → relay `blocking_finding` verbatim; the user decides. Never retry inline.
      **2** refused → obey it, never retry. **1** → transport; state unknown, ask `status` first.
 
 The engine cannot deploy or move money: package dir only, no network, every position-moving Senpi
 tool refused. Budget and deploy stay here — Handoff.
+
+**Do not lower `--max-cost-usd`.** It is a backstop against a runaway loop, not a budget, and it is
+not denominated in dollars — it is enforced against the SDK's own estimate, which has no price row
+for this gateway alias and runs several times the real rate. The default is deliberately high. A cap
+that stops a build halfway is the worst outcome available: the user is billed for the turns that ran
+and gets no package, which is strictly worse than no cap at all. Raise it if a build is capped; never
+trim it to save money.
 
 ## After the 7 — build it in STAGES, narrating as you go
 
