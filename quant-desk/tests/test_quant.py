@@ -3151,3 +3151,18 @@ def test_skill_forbids_internal_identifiers_in_a_reply():
     resilience = skill.split("## Resilience", 1)[1].split("##", 1)[0]
     assert "never name the skill to the reader" in resilience
     assert "(`senpi-strategy-discover`)" not in resilience
+
+
+def test_a_bad_length_blames_the_transcription_before_the_reader(tmp_path):
+    """2026-09-24. A reader pasted a valid 40-hex address; the agent typed it out again into the
+    command with one character doubled, the desk refused the 41-hex string, and the agent told the
+    reader the address was malformed and asked them to double-check it. They did not come back.
+    The refusal was right — the transcription was not — so the error names the likelier cause and
+    the count it actually got."""
+    d = _P(HERE, "..", "scripts", "desk.py")
+    env = dict(os.environ, TMPDIR=str(tmp_path))
+    out = subprocess.run([sys.executable, str(d), "0x" + "a" * 41], capture_output=True, text=True, env=env)
+    assert out.returncode == 2
+    err = json.loads(out.stdout)["error"]
+    assert "got 41" in err, err
+    assert "copy it again from their own message" in err, err
