@@ -182,10 +182,24 @@ def _find_in_snapshot(snapshot, token, dex):
 
 
 def _check_asset_volume(ctx, token, dex, min_ratio):
-    """v2 check_asset_volume — (ratio, strong). dayNtlVlm / prevDayNtlVlm via
-    market_get_asset_data(1h). READ-GUARDED: v2 returns the PERMISSIVE (0, True) on any
-    failure or missing prevDayNtlVlm (a missing volume reference never blocks a strong
-    signal), so degrade to (0, True) here too."""
+    """v2 check_asset_volume — (ratio, strong): 24h notional volume over the PRIOR 24h,
+    confirmed at >= min_ratio.
+
+    FIXED 2026-09-24. v2 read this as `dayNtlVlm / prevDayNtlVlm` off the asset context,
+    but HL's asset context has NO `prevDayNtlVlm`. Its eleven keys are coin, dayBaseVlm,
+    dayNtlVlm, funding, impactPxs, markPx, midPx, openInterest, oraclePx, premium and
+    prevDayPx — the previous-day field carries a PRICE, not a volume. So `prev` was always
+    0, the ratio branch never ran, and this returned the permissive (0, True) on EVERY
+    call: the gate was dead from launch while still printing VOL_CONFIRMED downstream.
+
+    Restored by computing both days from the 1h candles the same read already returns
+    (~169 of them, 7 days), notional per candle as volume x close — which is the quantity
+    the two v2 field names named. No extra MCP call.
+
+    READ-GUARDED: still degrades to the PERMISSIVE (0, True) when the read fails or fewer
+    than 48 candles come back, preserving v2's documented "a missing volume reference never
+    blocks a strong signal". That guard was always meant for a failed read; it is no longer
+    the only path through the function."""
     md = _read(ctx, "market_get_asset_data", {
         "asset": token, "candle_intervals": ["1h"], "include_funding": False,
         "dex": ("xyz" if str(dex).lower() == "xyz" else ""),
@@ -195,13 +209,19 @@ def _check_asset_volume(ctx, token, dex, min_ratio):
     ad = md.get("data", md) if isinstance(md, dict) else md
     if not isinstance(ad, dict):
         return 0, True
-    ac = ad.get("asset_context", ad.get("assetContext", {}))
-    if not isinstance(ac, dict):
+    candles = ad.get("candles") or {}
+    series = candles.get("1h") if isinstance(candles, dict) else None
+    if not isinstance(series, list) or len(series) < 48:
         return 0, True
-    vol = scoring.safe_float(ac.get("dayNtlVlm", 0))
-    prev = scoring.safe_float(ac.get("prevDayNtlVlm", 0))
+
+    def _ntl(c):
+        # candle o/h/l/c/v arrive as STRINGS; v is base volume, so x close = notional
+        return scoring.safe_float(c.get("v", 0)) * scoring.safe_float(c.get("c", 0))
+
+    cur = sum(_ntl(c) for c in series[-24:])
+    prev = sum(_ntl(c) for c in series[-48:-24])
     if prev > 0:
-        ratio = vol / prev
+        ratio = cur / prev
         return ratio, ratio >= min_ratio
     return 0, True
 
