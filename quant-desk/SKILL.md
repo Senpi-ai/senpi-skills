@@ -44,7 +44,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.26.2"
+  version: "1.31.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -96,7 +96,10 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 
    Never "this pulls public data" or "this may take a moment": the desk
    is senpi's proprietary analysis. Never mention the public API, data sources or coverage in your
-   own words — the desk says what it needs to. Run the installed copy
+   own words — the desk says what it needs to. **Our machinery stays ours: no script name, flag or
+   skill id ever reaches the reader** — not `desk.py`, not `--days`, not `senpi-strategy-discover`.
+   Say the thing in plain words and then do it ("I can look further back — how far?", "I can help you
+   pick a strategy"), never the identifier that does it. Run the installed copy
    (`/data/.openclaw/skills/quant-desk/scripts/desk.py`), never a backup folder: the header line carries the
    version — and `desk.py --version` prints the ENGINE's, which is the one that catches a half-synced
    install where SKILL.md looks current and the script is not. Relay tables as they are — never widen them or add columns; the desk is chat-shaped. Write
@@ -352,7 +355,9 @@ winners should hear which candidate takes that decision away from them.
 The engine fails open: every optional layer (rank, cohort, candles, Senpi) degrades to a line under
 `Notes:`; the trade-level analysis needs only the public fills. An address with no perp activity in the
 window and no open positions returns an error document — say "nothing to read here yet" and offer the
-new-trader path (`senpi-strategy-discover`). A malformed address returns exit 2 with the reason.
+new-trader path in plain words ("I can help you find a strategy that fits how you want to trade"),
+routing to senpi-strategy-discover yourself; never name the skill to the reader. A malformed address
+returns exit 2 with the reason.
 Public-API rate limits (HTTP 429) are retried with backoff; a second run inside 10 minutes is served from
 the cache (`--fresh` to refetch).
 
