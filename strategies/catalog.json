@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-09-21",
+  "_updated": "2026-09-24",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -2188,6 +2188,53 @@
       "max_slots": 1,
       "branch": "main",
       "sort_order": 27
+    },
+    {
+      "id": "shrike",
+      "name": "Shrike — Concentrated Striker",
+      "emoji": "🦅",
+      "tagline": "Orca's rank-jump signal, sized to matter: it watches the same top-50 rows of the 4h leaderboard and fires on the same fresh 15+ rank jump out of the deep field — then puts the whole book behind that one name at 10x and gives it four hours instead of forty-five minutes.",
+      "belief_plain": "It looks for the same thing Orca does — a coin suddenly rocketing up the leaderboard of what winning traders are piling into, young enough to still be moving and backed by a real volume spike. The difference is what it does next. Orca spreads across three names and cuts them inside the hour. Shrike takes one name, commits the whole account to it, and gives the move four hours to prove itself. Bigger wins when it is right, and a much larger dent when it is not.",
+      "version": "1.0.0",
+      "thesis": "Orca's detector is the selective part — a fresh rank jump with trend, freshness and volume confirming at once is rare, and every threshold here is Orca's unchanged. What is changed is the payoff. Three concurrent 18%-margin positions at 7x, each cut at 45 minutes, dilute a rare signal across names that did not fire and exit it before a breakout has room to run. Shrike removes the dilution: one slot, 90% margin, 10x, a 4-hour hard timeout and a 3-hour weak-peak cut, and a 15% ROE stop wide enough to sit outside ordinary noise at that leverage. The same ratcheting DSL ladder then decides the exit, locking nothing until +20% ROE so a real trend is never capped early. The detector and the universe are Orca's, unfiltered — the only changes are to size, clock and brakes. This concentration cuts both ways and there is no portfolio effect to soften it: one stop-out costs about 13.5% of the account before fees (a 15% ROE stop on 90% margin), and with the guard rails off nothing halts a losing run but the stop itself.",
+      "tags": [
+        "leader-momentum",
+        "momentum",
+        "breakout",
+        "rank-jump",
+        "first-jump",
+        "striker",
+        "universe-scanner",
+        "concentrated",
+        "single-slot",
+        "high-leverage"
+      ],
+      "group": "momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "rank_jump",
+      "sub_style_label": "Catches leaderboard rank-jumps early.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "intraday",
+      "cadence_seconds": 90,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 28
     },
     {
       "id": "jaguar",
