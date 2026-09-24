@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.29.0"
+  version: "1.30.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -466,6 +466,18 @@ side. Run a single desk only when they ask about one wallet by name.
 them, never about inventing one or answering from memory.
 
 ### Not every address is a trader — `exit 4`, `not_a_trader`
+
+Two shapes reach this exit, and an agent should treat them the same: relay `say_to_the_reader`,
+then offer the reader their own wallet.
+
+**`"not_a_trader": "market_maker"`** — the book pays under 0.5 basis points in fees. Retail pays
+2–8. A rate that low is a venue-level maker rebate or market-maker agreement, so the wallet is
+quoting both sides rather than taking positions: there is no entry thesis to time, no stop to place
+and no edge to score. The desk stops as soon as it has read the fills, before the tape and the
+cohorts — which is most of the run — so this costs ~30s rather than a two-minute timeout.
+
+Do not argue with it on the reader's behalf by pointing at a high win rate or a big P&L; a market
+maker has both, and neither means what it means for a trader.
 
 Some addresses on Hyperliquid are **vaults**: pooled books run by a leader, including Hyperliquid's
 own market makers. The desk checks before it reads (one call) and refuses, with the vault's real

@@ -47,7 +47,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.29.0"
+VERSION = "1.30.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -115,6 +115,50 @@ class _MCPFixture:
 # the book, and says in `meta` what it covered. (a live desk, 2026-09-23.)
 MAX_TAPE_COINS = 60
 
+# A market maker's desk is wrong in every line and expensive to produce. `userRole` catches the ones
+# that are VAULTS; it returns `user` for a market maker quoting from a plain address, and those exist
+# on the leaderboard today (`0x956a…`, 99% resting at 0.34 bp across 24 coins, role `user`).
+#
+# What separates them is not how much they rest. Measured over 7 days on 13 real wallets: HLP
+# Strategy B — the one that actually burned a user session — is 41% maker, BELOW several ordinary
+# traders, while a perfectly normal whale is 91% maker. Maker share would have missed the real one
+# and refused a real reader.
+#
+# The effective fee rate does separate them, and nothing sits in the gap:
+#     <= 0.5 bp   0.00 (HLP Strategy B) · 0.34 (0x956a…) · 0.41 (drkmttr)
+#     >= 1.5 bp   1.48 · 1.97 · 2.07 · 2.73 · 2.90 · 3.14 · 3.51 · 3.64 · 7.91
+# That gap is structural rather than statistical: paying essentially nothing to trade means a
+# venue-level maker rebate or market-maker agreement, which a retail reader does not have. It is the
+# economic definition of the thing being excluded, and it cannot be faked by trading differently.
+#
+# Deliberately NOT gated on coin breadth or fill count: a systematic trader legitimately runs 80
+# names, and drkmttr is a market maker on 11.
+MM_FEE_BP = 0.5
+MM_MIN_FILLS = 200            # below this the rate is noise, not a fee schedule
+
+
+def market_maker_rate(fills):
+    """Effective fee in basis points across every fill, or None when there is too little to judge.
+
+    NOT abs(): a maker rebate is negative fees, money earned, and the most market-maker-ish signal
+    there is — taking the absolute value would hide the clearest case.
+    """
+    perp = [f for f in fills if metrics.is_perp(f.get("coin", ""))]
+    if len(perp) < MM_MIN_FILLS:
+        return None
+    vol = sum(float(f["sz"]) * float(f["px"]) for f in perp)
+    if vol <= 0:
+        return None
+    return sum(float(f["fee"]) for f in perp) / vol * 1e4
+
+
+class NotATraderError(Exception):
+    """Raised before the expensive work when the subject is not a trader's book."""
+
+    def __init__(self, payload):
+        super().__init__(payload.get("error") or "not a trader")
+        self.payload = payload
+
 
 def _tape(coins, book, track, meta):
     """The coins to pull hourly candles for, in priority order, capped at MAX_TAPE_COINS.
@@ -151,7 +195,7 @@ def _ratio_or_none(num, base, cap=10.0):
 
 
 def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench=None, meta=None, whose="mine",
-            wallets=None):
+            wallets=None, force=False):
     """One desk. `wallets`, when given, is every wallet of a senpi user's book: each is read on its
     own and the reads are unioned into a single `tr_raw` (see book.py). `addr` stays the label."""
     meta = meta if meta is not None else {}
@@ -168,6 +212,25 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     meta["timings"]["trader"] = round(time.time() - t0, 1)
     fills, cs, oo = tr_raw["fills"], tr_raw["clearinghouseState"], tr_raw["frontendOpenOrders"]
     win_start, now = tr_raw["window_start_ms"], tr_raw["now_ms"]
+    # Stop here, not later. Everything past this point is the expensive half — hourly candles for
+    # every coin touched and two 100-wallet cohort reads, ~60-90s of a ~120s run. Bailing now costs
+    # the reader ~30s instead of an exec timeout, and costs us one trader read instead of a sweep.
+    _bp = market_maker_rate(fills)
+    if _bp is not None and _bp <= MM_FEE_BP and not force:
+        raise NotATraderError({
+            "not_a_trader": "market_maker",
+            "effective_fee_bp": round(_bp, 3), "threshold_bp": MM_FEE_BP,
+            "fills_read": len(fills), "address": addr,
+            "error": f"this book pays {_bp:.2f} bp in fees — a venue-level maker rebate or "
+                     f"market-maker agreement, not a retail schedule. The desk reads how someone "
+                     f"TRADES, and a quoting engine is not doing that.",
+            "say_to_the_reader": (
+                f"That wallet pays **{_bp:.2f} basis points** in fees. Retail pays roughly 2-8. A "
+                f"rate that low is a market-maker agreement with the venue, which means the book is "
+                f"quoting both sides rather than taking positions — there is no entry thesis to "
+                f"time, no stop to place, and no edge to score. Want me to run the desk on your own "
+                f"wallet instead?"),
+            "if_you_meant_it": "re-run with --force to read it as a trader anyway"})
     ctxs = hl.meta()
     ctx_xyz = None
     try:
@@ -734,7 +797,12 @@ def main(argv=None):
         log(f"[quant-desk] running senpi quant desk on {addr[:6]}…{addr[-4:]}")
         try:
             r = analyze(addr, hl, days=a.days, mcp=mcp, want_rank=not a.no_rank and not wallets,
-                        want_cohort=not a.no_cohort, bench=bench, meta=meta, whose=whose, wallets=wallets)
+                        want_cohort=not a.no_cohort, bench=bench, meta=meta, whose=whose, wallets=wallets,
+                        force=a.force)
+        except NotATraderError as e:
+            # same exit code as the vault gate: both mean "this address is not a trader's book",
+            # and an agent should treat them identically.
+            print(json.dumps(e.payload, indent=2)); return 4
         except hl_api.HLError as e:
             # A 429 here is the venue's rate bucket, not a broken wallet, and it is the one failure
             # a reader can act on — so say which it was rather than printing the raw exception.
