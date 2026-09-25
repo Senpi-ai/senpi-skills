@@ -75,7 +75,7 @@ when to run it, whose book, in which voice, and what to say about the numbers.
    urgent:** `openclaw senpi quant show <runId> --section protection`. **Stage 3 — the money:** `openclaw
    senpi quant show <runId> --section leaks`. **Stage 4 — the rest**, in one call: `openclaw senpi quant show
    <runId> --section strategy --section context --section performance --section smart --section market
-   --section edge --section scout --section next --section followups`.
+   --section edge --section scout --section followups`.
    **All four stages belong to ONE turn** — never end a turn mid-desk, and never announce a stage you are not
    about to run. If you name the next stage, the call for it goes in the same turn. Stop only when the desk is
    finished, or when something actually failed — and then say so plainly rather than promising. Do not batch
@@ -144,18 +144,17 @@ when to run it, whose book, in which voice, and what to say about the numbers.
    a wallet whose public fills show them, say so instead of presenting the desk as complete. Take the count
    from the runtime's text, never from memory (if it gives none, say "over 25,000"): *"senpi is rolling out
    the AI Quant to every trader on Hyperliquid in waves. We're at **N** wallets so far and yours isn't in that
-   set yet. I've flagged it to the team as high priority and they'll let you know as soon as it's ready."*
-   Never promise a date. Offer the desk on the public reads, but say plainly that trade-level detail will be
-   thinner until the wallet is indexed.
+   set yet — it comes in a later wave."* Never promise a date. Offer the desk on the public reads, but say
+   plainly that trade-level detail will be thinner until the wallet is indexed.
 7c. **The desk reads any book on Hyperliquid, not just theirs.** Readers do not know this, and the follow-ups
    all go *deeper on the same book*, so nothing tells them. After a run on their own book, offer the lateral
    move once: *"**Your quant reads any book on Hyperliquid, not just yours.** Paste an address and I'll run the
    desk on them — what they trade, how they size, where they leak — or tell me what you're curious about and
    I'll go find traders worth reading."* After an analyst run, offer the mirror of it: *"That was someone
    else's book. Your quant works the same way on yours — paste your address and I'll run it."* "Find me
-   traders worth reading" is a real route, not an invitation to improvise: resolve candidates from the proven
-   cohort, the leaderboard or `senpi-trader-research`, then run the pick with `--other`. **Never invent an
-   address.** Relay three to five with their numbers — a book to READ, never a recommendation to copy.
+   traders worth reading" is a real route, not an invitation to improvise: resolve candidates with the
+   `senpi-trader-research` skill, then run the pick with `--other`. **Never invent an address.** Relay three
+   to five with their numbers — a book to READ, never a recommendation to copy.
 8. **Hold three to five things back — on purpose.** The desk ends with the follow-ups it earned. Offer them as
    questions, in the desk's words; answer each from its section (`openclaw senpi quant show <runId> --section
    <name>`: protect → `protection`, smart money → `smart`, setups → `scout`, regime → `context`, funding →
@@ -177,13 +176,13 @@ Every command is `openclaw senpi quant …` through your exec tool, with rule 0'
 | User says | `openclaw senpi quant …` | Then |
 |---|---|---|
 | "run AI quant / run quant / run quant desk on 0x…", "score my trading", "find leaks", "how am I doing" | `run 0x… --section overview`, then rule 1's stages | the full desk — the user is 0x… |
-| a senpi user's "score my trading" / "find my leaks" | `run 0x… 0x… 0x… --book` — every strategy wallet, closed ones included | one desk, with its by-wallet table |
+| a senpi user's "score my trading" / "find my leaks" | `run 0x… 0x… 0x… --book --section overview`, then rule 1's stages — every strategy wallet, closed ones included | one desk, with its by-wallet table |
 | one question: protected? leaking? smart money? strategy? market? edge? fix first? | `run 0x… --section protection` · `leaks` · `smart` · `strategy` · `context` · `edge` · `next` | `strategy` → "is that deliberate?"; `edge`/`next` → the closing |
 | more on a desk already run · which desks have I run | `show <runId> --section <name>` · `list` · `status [runId]` | `show` never recomputes |
 
 `--days N` changes the 90-day window. A finished run of the same addresses and `--days` younger than 10 minutes
-is reused; `--fresh` recomputes. `--json` is for your own lookups, never to restate its numbers differently.
-Deep dives, side-by-side compares and candidate search are not in this version (`[E_QUANT_UNSUPPORTED]`).
+is reused; `--fresh` recomputes. `--json`: never relay from it — relay the rendered sections.
+Deep dives and side-by-side compares are not in this version (`[E_QUANT_UNSUPPORTED]`).
 Each section's contents and sources: `references/desk-contract.md`; formulas: `references/methodology.md`.
 
 ## When the runtime says no
@@ -195,7 +194,7 @@ the desk did not run, once, and stop.
 | Code | Means | You |
 |---|---|---|
 | `[E_QUANT_IN_PROGRESS]` | a run on these addresses is still working | poll the run id it names; never a second run |
-| `[E_QUANT_NO_ACTIVITY]` | no perp activity in the window, no open positions | "nothing to read here yet" and the new-trader path (`senpi-strategy-discover`); a senpi user's funding wallet → their strategy wallets |
+| `[E_QUANT_NO_ACTIVITY]` | no perp activity in the window, no open positions | "nothing to read here yet" and the new-trader path (`senpi-strategy-discover`); a senpi user's funding wallet → their strategy wallets; if it says the wallet is not indexed yet → rule 7b |
 | `[E_QUANT_NOT_A_TRADER]` | a vault, or a book wider than the desk reads | relay its `say_to_the_reader` line and offer their own wallet — it is a statement about this tool's reach and makes **no claim about who the reader is**; never `--force` unless the reader explicitly asks to read a vault as if it were a trader |
 | `[E_QUANT_UNSUPPORTED]` | a mode this version does not run | say it is not available yet; offer what it names |
 | `[E_QUANT_UPSTREAM]` | a data source failed mid-run | relay its `what_to_do`; say plainly what did not run |
@@ -207,9 +206,10 @@ so. Every optional layer (rank, cohort, candles, Senpi) fails open to a line und
 ## Mandatory closing (verbatim structure, after any full desk or `--section edge/next`)
 
 **The next steps go to the card:** call `show_widget` with `widget_type: "quant_desk_recommendations"` and `run_id` set to the run id, nothing else.
-When the card is shown, the closing is one framing sentence, not the list — the cards carry the steps and
-their figures; answer anything after it in text. If `show_widget` is not available in this host, relay the
-desk's next-steps section as prose, in this structure:
+Own-book desks only; an `--other` desk has no card — close with rule 7's *what to take from this trader* from
+`--section next`. When the card is shown, the closing is one framing sentence, not the list — the cards carry
+the steps and their figures; answer anything after it in text. If `show_widget` is not available in this host,
+relay the desk's next-steps section as prose (`show <runId> --section next`), in this structure:
 
 1. **Protect first** — name the AT RISK / UNPROTECTED positions and offer to help. Per rule 5, senpi
    cannot place a stop on a book the reader custodies: they set it on Hyperliquid themselves.
@@ -230,16 +230,19 @@ one question decides everything after: *"Your own book, or do you want me to fin
 
 Someone else's → rule 7c. **Their own**, in this precedence: (1) **an address they told you is theirs** — a
 trader who came from Hyperliquid with their own wallet does not stop owning it the moment they have senpi
-strategies, so **do not forget an address they already claimed** (`openclaw senpi quant list` shows what this
-box has read); (2) **their senpi strategy wallets** (`strategy_list`); (3) **both** — ask which they mean
-today; (4) **neither** — ask for an address and **offer to show them the desk on a real book in the same
-breath**: *"I don't have a wallet for you yet — paste any Hyperliquid address and I'll read it. Or I can run
-it on one of this week's top traders right now so you can see what it gives you."*
+strategies, so **do not forget an address they already claimed**. `openclaw senpi quant list` shows every
+address this box has read with whose book it was (mine / other); only a `mine` row is theirs — ask before
+treating anything else as theirs. (2) **their senpi strategy wallets** (`strategy_list`); (3) **both** — ask
+which they mean today; (4) **neither** — ask for an address and **offer to show them the desk on a real book in
+the same breath**: *"I don't have a wallet for you yet — paste any Hyperliquid address and I'll read it. Or I
+can find you a trader worth reading so you can see what it gives you."* For that, resolve candidates with the
+`senpi-trader-research` skill, then run the pick with `--other`.
 
 **A senpi user's perp history lives in their strategy wallets, not their embedded wallet.** The embedded
 wallet is a FUNDING wallet — a desk on it reads "no PERP activity" on a book that may trade every day. So
 **offer the strategy wallets first**, named by their strategy, and the embedded wallet second, labelled "your
 funding wallet, usually no trades of its own". Their whole book is one desk, `openclaw senpi quant run 0x…
-0x… 0x… --book`, in ONE call. **Include CLOSED and PAUSED strategies, not just ACTIVE.** The window is 90
-days, and a strategy they shut down six weeks ago still traded inside it. A side-by-side desk per wallet is
-not in this version — offer the whole book or one wallet, and never improvise the comparison yourself.
+0x… 0x… --book --section overview`, in ONE call, then rule 1's stages. **Include CLOSED and PAUSED
+strategies, not just ACTIVE.** The window is 90 days, and a strategy they shut down six weeks ago still
+traded inside it. A side-by-side desk per wallet is not in this version — offer the whole book or one
+wallet, and never improvise the comparison yourself.

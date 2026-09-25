@@ -198,7 +198,7 @@ def test_whose_book_doctrine_survives():
              "**A senpi user's perp history lives in their strategy wallets, not their embedded wallet.**",
              "**offer the strategy wallets first**",
              "**Include CLOSED and PAUSED strategies, not just ACTIVE.**",
-             "`openclaw senpi quant run 0x… 0x… 0x… --book`",
+             "`openclaw senpi quant run 0x… 0x… 0x… --book --section overview`",
              "**Use `--other` whenever the request is about someone else**",
              "**offer to show them the desk on a real book in the same breath**")
 
@@ -259,6 +259,78 @@ def test_public_repo_hygiene():
         text = _read(path)
         assert not re.search(r"\bM\d{5,}\b", text), f"a user id leaked into {path}"
         assert not re.search(r"0x[0-9a-fA-F]{40}", text), f"a wallet address leaked into {path}"
+
+
+
+# --- final-review fix wave ----------------------------------------------------------------------
+
+def _stage4():
+    flat = _flat(_skill())
+    m = re.search(r"\*\*Stage 4 — the rest\*\*(.*?)\*\*All four stages", flat)
+    assert m, "stage 4 not found"
+    return m.group(1)
+
+
+def test_find_traders_has_one_named_route():
+    """The proven cohort and the leaderboard are not tools; `--find` is gone. The one route is the
+    trader-research skill, and candidate search is not claimed missing."""
+    _needles("resolve candidates with the `senpi-trader-research` skill, then run the pick with `--other`")
+    flat = _flat(_skill())
+    assert flat.count("resolve candidates with the `senpi-trader-research` skill") == 2, "7c and branch (4)"
+    assert "the proven cohort, the leaderboard" not in flat
+    assert "candidate search" not in flat
+    assert "this week's top traders right now" not in flat
+    _needles("Deep dives and side-by-side compares are not in this version (`[E_QUANT_UNSUPPORTED]`).")
+
+
+def test_stage_4_leaves_next_to_the_card():
+    assert "--section next" not in _stage4(), _stage4()
+    assert "--section followups" in _stage4()
+    _needles("relay the desk's next-steps section as prose (`show <runId> --section next`)")
+
+
+def test_analyst_desks_have_no_card():
+    _needles("Own-book desks only; an `--other` desk has no card — close with rule 7's *what to take from "
+             "this trader* from `--section next`.")
+
+
+def test_book_path_is_staged():
+    _needles("`run 0x… 0x… 0x… --book --section overview`, then rule 1's stages")
+
+
+def test_list_shows_whose_book():
+    _needles("`openclaw senpi quant list` shows every address this box has read with whose book it was "
+             "(mine / other); only a `mine` row is theirs — ask before treating anything else as theirs.")
+
+
+def test_not_indexed_makes_no_team_promise():
+    flat = _flat(_skill())
+    assert "flagged it to the team" not in flat
+    assert "they'll let you know" not in flat
+    _needles("in waves", "Never promise a date.")
+
+
+def test_no_activity_points_to_7b():
+    _needles("if it says the wallet is not indexed yet → rule 7b")
+
+
+def test_json_is_never_relayed():
+    flat = _flat(_skill())
+    assert "is for your own lookups" not in flat
+    _needles("`--json`: never relay from it — relay the rendered sections.")
+
+
+def test_methodology_offers_no_deep_modes():
+    """Deep modes are not in 2.0, and a full protect-stop formula invites a hand-computed stop."""
+    doc = _flat(_read(os.path.join(REFS, "methodology.md")))
+    assert ("replay / compare / watch / the protect stop ladder are not in 2.0 — say so; never compute "
+            "them from this sheet.") in doc
+    for needle in ("* `replay` —", "* `compare` —", "`watch` — the corresponding", "hard stop = 1.5 ×",
+                   "a formula change there updates this file in the same release"):
+        assert needle not in doc, needle
+    assert "if the desk's header version is newer, say the formula may have changed" in doc
+    assert not re.search(r"^#+ .*\.py", _read(os.path.join(REFS, "methodology.md")), re.M), \
+        "section headings still name deleted scripts"
 
 
 if __name__ == "__main__":

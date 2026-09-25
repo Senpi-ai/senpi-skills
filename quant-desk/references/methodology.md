@@ -3,8 +3,8 @@
 > **This document describes the quant-desk engine at 1.38.0, the version it had when it moved from
 > this skill into the trading runtime (`@senpi-ai/runtime`).** Nine formulas in it were stale between
 > 1.9.0 and 1.14.0 while SKILL.md sent the agent here for them, so an agent asked "how is my cost
-> score computed?" answered with the pre-1.9.0 rule, confidently. The engine now lives in the
-> runtime: a formula change there updates this file in the same release.
+> score computed?" answered with the pre-1.9.0 rule, confidently. The engine now lives in the runtime.
+> This sheet describes 1.38.0; if the desk's header version is newer, say the formula may have changed.
 
 
 Every number on the desk is a function of public onchain data (or Senpi discovery when a token is
@@ -167,14 +167,14 @@ breakout_momentum; buys weakness → contrarian_fade; one coin ≥ 50% of volume
 
 # v2 — the strategy read, the market context, two cohorts, live matches, follow-ups
 
-## Asset classes (`taxonomy.py`)
+## Asset classes
 
 Crypto tiers come from live open interest on the main dex: **majors** = top 3 by OI, **large caps** =
 the next 12, **alts** = the rest. **Memecoins** = every 1000×-denominated `k…` name plus a short documented
 list (a taxonomy, never a trading whitelist). xyz assets use senpi-market-pulse's own groups verbatim
 (equities, indices, commodities, FX/macro).
 
-## The strategy read (`strategy_read.py`)
+## The strategy read
 
 * **Where the trades went** — trades, wins, realized and profit factor by class × side.
 * **Simultaneity** — the share of the window with at least one long AND one short open, and the class
@@ -194,7 +194,7 @@ list (a taxonomy, never a trading whitelist). xyz assets use senpi-market-pulse'
   edge in three trades; a dead side; losers outliving winners; against the proven cohort. Each is one
   paragraph; the agent relays and asks "is that deliberate?".
 
-## The market context (`market.py`)
+## The market context
 
 * **Breadth** — 24h change per asset (mark vs previous day) from the live contexts of both dexes, grouped
   by class; the day is `risk_off` when ≥ 3 groups are down ≥ 0.5% and at least twice as many groups are down
@@ -209,7 +209,7 @@ list (a taxonomy, never a trading whitelist). xyz assets use senpi-market-pulse'
   overlap with the trader's book as WITH / AGAINST), `leaderboard_get_momentum_events` (coin × direction
   counts in the last 4h; with / against the trader's positions).
 
-## Two cohorts (`smart_money.py`)
+## Two cohorts
 
 * **Proven** — `discovery_get_top_traders(ALL_TIME, sort PROFIT_AND_LOSS_REALIZED)`, members with ≥ $1M
   realized, top 100. **Hot** — `MONTHLY, sort PROFIT_AND_LOSS, open_position_filter`, top 100. Books via
@@ -222,7 +222,7 @@ list (a taxonomy, never a trading whitelist). xyz assets use senpi-market-pulse'
   trader's own. **They hold, you don't** — coins with ≥ 3 members and |bias| ≥ 0.2 the trader is not in,
   by headcount. **You alone** — coins the trader holds that no cohort member does.
 
-## Live matches (`opportunities.py`)
+## Live matches
 
 Candidates: coins a cohort leans on (≥ 5 members: proven +2, hot +1), coins the cohort is with the
 trader on (+1), the top traders' gain markets (≥ 5 traders, +1), momentum events (+0.5), and the trader's
@@ -231,25 +231,13 @@ factor ≥ 1.5, +2); trend with (+2) / against (−2.5); funding the side would 
 collect below −3 (+0.5); already moved ≥ 5% today in that direction (−1, "a chase"). Top six with a
 positive score, each with its reasons. Process only.
 
-## Follow-ups (`followups.py`, `deep.py`)
+## Follow-ups
 
 A bank of ten, scored for relevance (naked or near-liquidation positions → `protect` first; against the
 cohort → `smart`; a funding bill → `funding`; a losers leak → `replay`; regime cells present → `regime`;
-≥ 30 trades → `compare`; a best setup → `rules`/`scout`). Three to five are offered; each names a
-deep mode (in quant-desk 2.0 the skill answers them from the desk's sections):
-* `protect` — hard stop = 1.5 × the average **daily** range (each day's high-to-low over the last two
-  weeks of hourly candles, not the average of a day's hourly ranges), pulled in toward the mark when
-  liquidation is nearer than that so the stop still triggers first, keeping a 40% buffer above the
-  liquidation price; the trailing lock arms two ranges in the money and trails at half the peak gain; dollars at
-  risk before (margin at risk to liquidation) vs after (distance to the stop × size).
-* `replay` — the worst 7-day window by realized, its trades, and the time-cut / trailing-lock grid on
-  exactly those trades.
-* `funding` — funding per day at today's rates × 30 per position, total as a share of equity.
-* `compare` — last 30 days vs the 60 before on trades, win rate, profit factor, realized, fees, size,
-  holds, taker share.
-* `rules` — entries (best setups), entry timing (chased vs calm profit factors), holding, sizing, risk,
-  catalog families, and the discover/author handoff.
-* `regime`, `smart`, `scout`, `strategy`, `watch` — the corresponding sections in full.
+≥ 30 trades → `compare`; a best setup → `rules`/`scout`). Three to five are offered; in quant-desk 2.0
+the skill answers them from the desk's sections.
+replay / compare / watch / the protect stop ladder are not in 2.0 — say so; never compute them from this sheet.
 
 ## Scoring rules as of 1.38.0 — read these, not any older formula above
 
