@@ -47,7 +47,10 @@ scanners:
       leaderboardLimit: 100                 # v2 fetch_markets limit=100
       leverageDefault: 7                    # v2 DEFAULT_LEVERAGE/MIN_LEVERAGE/MAX_LEVERAGE (fixed 7), venue-clamped in scan.py
       marginPct: 18                         # PERCENT of withdrawable (0,100]; v2 MARGIN_PCT=0.18 (fraction) -> 18%
-      minVolRatio: 1.5                      # v2 STRIKER_MIN_VOL_RATIO (volume confirmation)
+      minVolRatio: 1.5                      # v2 STRIKER_MIN_VOL_RATIO — 24h notional volume vs the
+                                            # prior 24h. LIVE AS OF 2026-09-24: the gate read a
+                                            # field HL does not return, so it passed everything
+                                            # from launch until now. Threshold left at v2's 1.5.
       xyzBanned: true                       # v2 XYZ_BANNED — drop dex==xyz / xyz: markets
       minTraderCount: 10                    # skip a board side thinner than this many traders at the read — a thin side never enters the rank order
       # ── cooldowns (v2 assetCooldownMinutes=120; runtime per-asset gate is primary) ──

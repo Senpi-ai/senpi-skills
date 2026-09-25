@@ -44,7 +44,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.31.0"
+  version: "1.36.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -75,10 +75,26 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    **Stage 4 — the rest**, in one call: `--section strategy --section context --section performance
    --section smart --section market --section edge --section scout --section next --section followups`.
 
-   Each stage is its own message. The reader is reading stage 1 while stage 2 renders, so the wait
-   disappears without anything being rushed. Do not batch stages 1-3 together to save calls — the
-   staging IS the feature. `--json` or a plain `desk.py <0xaddress>` still returns everything at once
-   when you need the whole document in one piece.
+   **All four stages belong to ONE turn.** The reader is reading stage 1 while stage 2 renders, so
+   the wait disappears without anything being rushed — but that only works if you keep going. Ending
+   your turn after a stage hands the desk back to a reader who has no idea they are now the thing
+   blocking it. Measured live: an agent delivered stage 1, wrote "Next I'll pull the protection
+   audit", and stopped. The reader waited, then had to ask "Did you pull it?" and was told "Not yet."
+   It then finished stage 2 with "Want me to continue?" and stopped again. A desk delivered that way
+   is worse than a silent wait, because a wait ends by itself and this does not.
+
+   So: **never end a turn mid-desk, and never announce a stage you are not about to run.** If you
+   name the next stage, the call for it goes in the same turn. Stop only when the desk is finished,
+   or when something actually failed — and if it failed, say so plainly rather than promising.
+
+   Do not batch stages 1-3 into a single call to save calls — the staging IS the feature, and each
+   stage lands as its own message. `--json` or a plain `desk.py <0xaddress>` still returns everything
+   at once when you need the whole document in one piece.
+
+   **The stage numbers are internal.** They order YOUR work; they are not headings. A reader who
+   sees "Stage 2 — protection audit" has been shown the scaffolding and will reasonably wait for a
+   Stage 3 that they now have to ask for. Relay each stage under its own real heading — the score,
+   what is at risk, what it costs — and never the word "stage".
 
    Relay it; do not recompute, reorder or "improve" its numbers.
 
@@ -394,6 +410,13 @@ difference was which wallet.
 So, where the address book has nothing claimed: resolve their wallets with `strategy_list` and
 **offer the strategy wallets first**, named by their strategy. Offer the embedded wallet second and label it — "your funding wallet, usually no
 trades of its own". If they have several strategies, offer to run the desk on each and compare.
+
+**Never promise delivery you cannot perform.** A desk that backgrounds ("Command still running")
+does not come back to you on its own — nothing wakes an agent when a detached process finishes. So
+"I'll relay the rest as they come in" is a promise the loop cannot keep, and the reader is left
+holding a partial answer forever. Measured: 70 of 273 desk invocations in 36 hours backgrounded.
+Either poll it to completion inside the turn, or tell the reader plainly what you have and what you
+did not run — and let them ask for the rest.
 
 **Several wallets at once: `desk.py --compare 0x… 0x… 0x…`, in ONE call.** Not one invocation per
 wallet. A desk takes 20-60s, so a separate call per wallet backgrounds each and the agent must poll

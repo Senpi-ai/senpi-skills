@@ -66,7 +66,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-signals`](senpi-signals/) | 2.4.0 | Non-obvious market developments (funding extremes, proven cohort vs the 4h crowd, momentum events, cross-asset laggards) from one on-demand reading, ranked through a trade lens and a news lens — no cron, no history (compare over periods is v2) |
 | [`senpi-trader-research`](senpi-trader-research/) | 1.5.0 | Rank + vet Hyperliquid traders before copying them (mirror-aware: copyability, min-budget, live book) |
 | [`senpi-improve-trades`](senpi-improve-trades/) | 1.12.0 | Retrospective review + health checks off the **telemetry event log**: exit quality, missed signals, leaks, crashes, "if I'd held" counterfactual |
-| [`quant-desk`](quant-desk/) | 1.31.0 | **Quant Desk** — the desk your AI Quant produces. "run AI quant" / "run quant" / "run quant desk" on **any** Hyperliquid address → 90 days of fills, fees, funding; six 0–100 dimensions, a quant score, leaks priced as charged counterfactuals, protection audit, you vs the proven and hot cohorts, market fit, where your edge is. No address? It finds you candidates by account size. Public data, read-only; Senpi discovery when a token is present |
+| [`quant-desk`](quant-desk/) | 1.36.0 | **Quant Desk** — the desk your AI Quant produces. "run AI quant" / "run quant" / "run quant desk" on **any** Hyperliquid address → 90 days of fills, fees, funding; six 0–100 dimensions, a quant score, leaks priced as charged counterfactuals, protection audit, you vs the proven and hot cohorts, market fit, where your edge is. No address? It finds you candidates by account size. Public data, read-only; Senpi discovery when a token is present |
 | [`senpi-account-status`](senpi-account-status/) | 1.4.0 | Points, loyalty tier, fees, referrals — and the AI-credits usage meter: chat + tool turns spend plan credits; not trading money; the balance is the meter in the app header, which no tool reads. Carries the plan catalog (Starter/Pro/Advanced/Quant) and the free-credit milestone ladder |
 | **Run a strategy** | | |
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.35.0 | Conversational picker — rank the catalog against your worldview |
@@ -76,7 +76,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.4 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
 | **Move money / positioning** | | |
 | [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.6.0 | The money-movement rails (funds in via the funding card — deposit address or in-card USDC purchase; out via the app); top-ups prechecked against perps and recovered from Spot when they fail, withdrawals at the exact available figure, fees stated before money moves |
-| [`senpi-why`](senpi-why/) | 1.3.0 | "Why Senpi / vs. other tools" — the positioning answer |
+| [`senpi-why`](senpi-why/) | 1.4.0 | "Why Senpi / vs. other tools" — the positioning answer |
 
 Skills **compose**: `improve-trades` pulls in `market-pulse` + `smart-money` + `portfolio`; `discover` hands a chosen package to `ops`; `author` hands a built package to `ops`. The agent routes by **intent**, not keywords, and never re-implements one skill inside another.
 
