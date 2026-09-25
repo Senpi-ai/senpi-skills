@@ -102,12 +102,46 @@ def test_signals_hunter_is_offered_as_this_feeds_own_engine():
     import hashlib
     closing = _closing(_flat(SKILL))
     assert "byte-identical to the scripts behind" in closing
-    for f in ("sweep.py", "score.py", "smartmoney.py"):
-        a = (SKILL_DIR / "scripts" / f).read_bytes()
-        b = (SKILL_DIR.parent / "strategies" / "signals-hunter" / "main" / "scanners" / f).read_bytes()
-        assert hashlib.sha256(a).hexdigest() == hashlib.sha256(b).hexdigest(), f
+    # Both packages the closing offers as "this feed's own engine" — signals-hunter and its
+    # concentrated variant puffin — must actually carry these bytes, or the pitch becomes marketing.
+    for pkg in ("signals-hunter", "puffin"):
+        for f in ("sweep.py", "score.py", "smartmoney.py"):
+            a = (SKILL_DIR / "scripts" / f).read_bytes()
+            b = (SKILL_DIR.parent / "strategies" / pkg / "main" / "scanners" / f).read_bytes()
+            assert hashlib.sha256(a).hexdigest() == hashlib.sha256(b).hexdigest(), (pkg, f)
     # and the expectation it sets: a correct run acts on fewer reads than the feed prints
     assert "acts on fewer reads than the feed shows" in closing
+
+
+def test_the_concentrated_route_is_offered_with_its_cost_attached():
+    """Puffin is the aggressive answer to "can I just trade these?" — the same vendored engine on one
+    position. Concentration is the whole product, so the number that bounds it has to travel with the
+    offer: an agent that pitches 10x on one name without the per-stop and fee cost is selling, not
+    advising. signals-hunter must also stay the DEFAULT — the concentrated one is opt-in."""
+    closing = _closing(_flat(SKILL))
+    assert "**Puffin**, that same engine concentrated into one position at a time" in closing
+    assert "**(2, concentrated) Puffin → senpi-strategy-ops.**" in closing
+    for cost in ("19-23% of the account",            # one stop-out, at 75-90% margin x a 25% ROE stop
+                 "0.8-0.9% of the",                   # one round trip at 10x
+                 "no second position to average against the first"):
+        assert cost in closing, cost
+    assert "never as the default" in closing
+    assert "`signals-hunter` stays the default answer for this feed." in closing
+
+
+def test_penguin_is_named_without_implying_it_trades_this_feed():
+    """Users ask for Penguin by name, but it trades Orca's leaderboard rank-jump signal, not these
+    detectors. Offering it after a signals run without that caveat tells the user their read is being
+    traded when it is not. The puffin/penguin difference must also be given as BOTH facts — puffin
+    risks more per trade, penguin has no guard rails to stop a losing run — because ranking them on
+    one axis alone is what makes "aggressive" vs "more aggressive" misleading."""
+    closing = _closing(_flat(SKILL))
+    assert "`penguin`" in closing
+    assert "does **not** trade this feed" in closing
+    assert "rank-jump" in closing
+    assert "all four\nrisk guard rails OFF" in closing or "all four risk guard rails OFF" in _flat(SKILL)
+    assert "50%\ndrawdown or three consecutive losses" in closing or "drawdown or three consecutive losses" in _flat(SKILL)
+    assert 'neither is simply "the safer one"' in closing
 
 
 def test_a_template_is_a_starting_point_never_a_promise():

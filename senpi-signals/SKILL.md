@@ -16,7 +16,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.4.0"
+  version: "2.5.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -211,7 +211,8 @@ After the feed and your few sentences, end the turn with **one question**, and n
 > **Want to act on any of these?** I can set up a **single trade** on one read — you see the size, the
 > stop and the liquidation price before anything is placed. Or run it as a strategy, three ways:
 > **(1) build one around these reads** with you, **(2) Signals Hunter**, which trades this same feed on
-> a clock, or **(3) Athena**, the smart-money hedge fund, forked under your name.
+> a clock — or **Puffin**, that same engine concentrated into one position at a time, at much
+> higher risk — or **(3) Athena**, the smart-money hedge fund, forked under your name.
 
 Offer **all three** strategy routes, every time. Athena was the only one named for a while, which sent
 every user who wanted a strategy to the same place regardless of what they had just read.
@@ -231,10 +232,27 @@ every user who wanted a strategy to the same place regardless of what they had j
   or short. Its floor is deliberately higher than the feed's TRADE floor, so it acts on fewer reads
   than the feed shows. Say that — a user who expects every line above to become a position will be
   disappointed by a correct run.
+- **(2, concentrated) Puffin → senpi-strategy-ops.** `puffin` is the SAME vendored engine and the same
+  reads as `signals-hunter`, pointed at **one position at a time**: a score floor of 85 rather than 65,
+  75-90% of the wallet at 10x rather than 20-25% at 5x, and a 15-minute clock rather than an hour. It is
+  the aggressive answer to "can I just trade these?", and its trade-off is not subtle, so name it in the
+  same breath as the upside: there is no second position to average against the first, one stop-out
+  costs about **19-23% of the account**, and at 10x a single round trip pays roughly **0.8-0.9% of the
+  wallet in fees** — about 27% a month at one completed trade a day, before direction earns anything.
+  Offer it when the user asks for size, conviction or "the aggressive one" — never as the default, and
+  never to someone funding a first strategy. `signals-hunter` stays the default answer for this feed.
 - **(3) Fork Athena → senpi-strategy-ops.** `athena` for the smart-money hedge fund: its Phalanx sleeve
   follows the same proven cohort these reads come from, and its Aegis sleeve reads the tape to hedge
   the regime. `athena-x` is the same two sleeves at conviction size (25% at 5x rather than 15% at 3x)
   — offer it only when the user asks for size, and name the trade-off rather than just the numbers.
+- **Concentration on a different read: Penguin.** `penguin` is the other one-position-at-a-time
+  template and users ask for it by name, but it does **not** trade this feed — it takes Orca's
+  4h-leaderboard rank-jump signal, not the detectors above. Name it only when the user wants
+  concentration in general rather than these reads, and say which signal it actually trades rather than
+  letting "aggressive, one position" imply it acts on what they just read. Between the two: `puffin`
+  risks more per trade (a ~2.5% price stop at 10x on 75-90% margin), while `penguin` runs with all four
+  risk guard rails OFF, so nothing halts a losing run but its own stop — `puffin` halts at a 50%
+  drawdown or three consecutive losses. Give both facts; neither is simply "the safer one".
 - **Ops runs the walkthrough first, then asks the budget.** Read the minimum budget from the catalog,
   never from memory.
 - **Narrowing by the read.** When the user picks one read rather than a route, the template built on
@@ -243,6 +261,7 @@ every user who wanted a strategy to the same place regardless of what they had j
   | The read | Start from |
   |---|---|
   | Any of them, traded as a feed | **Signals Hunter** (`signals-hunter`) — this same engine on a clock |
+  | Any of them, but one position at a time | **Puffin** (`puffin`) — the same engine, score floor 85, 10x on one name; state the per-stop and fee cost |
   | A whale open or add | **Signals Hunter** (`signals-hunter`); note it parks `whale_open` as non-tradeable and acts on whale *moves* |
   | Smart money vs the crowd | **Athena** (`athena`), with a hedge, or **Phalanx** (`phalanx`), the cohort sleeve alone |
   | A funding extreme | **Pangolin** (`pangolin`), which fades the crowd paying to hold, or **Camel** (`camel`), which collects the carry on two books |
