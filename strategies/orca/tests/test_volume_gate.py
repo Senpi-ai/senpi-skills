@@ -9,8 +9,8 @@ The sibling guard `strategies/tests/test_no_phantom_asset_context_keys.py` stops
 back. This file covers what that one cannot: that the arithmetic is right and that a real ratio is
 actually returned rather than the fail-open default.
 
-`penguin` carries a byte-identical copy of this function; test_penguin_matches_orca below pins them
-together so a fix to one cannot silently skip the other.
+`penguin` and `razorbill` each carry a byte-identical copy of this function;
+test_forks_match_orca below pins them together so a fix to one cannot silently skip the others.
 
 Run: python3 -m pytest strategies/orca/tests -q
 """
@@ -113,22 +113,25 @@ def test_no_phantom_previous_day_volume_field():
     assert ratio == 3.0 and strong is True, (ratio, strong)
 
 
-def test_penguin_matches_orca():
-    """penguin was forked from orca and inherited this bug. Pin the two implementations together."""
+def test_forks_match_orca():
+    """Every fork of orca inherited this bug and the fix. Pin the implementations together so a
+    later fix to one cannot silently skip the others. `razorbill` is a penguin fork that changes
+    only the xyz universe flag, so it carries this function unchanged too."""
     here = os.path.dirname(__file__)
     orca = os.path.join(here, "..", "main", "scanners", "scan.py")
-    penguin = os.path.join(here, "..", "..", "penguin", "main", "scanners", "scan.py")
-    if not os.path.exists(penguin):
-        return  # penguin retired or renamed; nothing to pin
 
     def _fn(path):
         body = open(path, encoding="utf-8").read()
         start = body.index("def _check_asset_volume(")
         return body[start:body.index("\ndef ", start + 1)]
 
-    assert _fn(orca) == _fn(penguin), (
-        "orca and penguin's _check_asset_volume have diverged — a fix to one skipped the other"
-    )
+    for fork in ("penguin", "razorbill"):
+        path = os.path.join(here, "..", "..", fork, "main", "scanners", "scan.py")
+        if not os.path.exists(path):
+            continue  # fork retired or renamed; nothing to pin
+        assert _fn(orca) == _fn(path), (
+            f"orca and {fork}'s _check_asset_volume have diverged — a fix to one skipped the other"
+        )
 
 
 def test_a_degraded_read_is_not_reported_as_confirmed():
@@ -138,7 +141,7 @@ def test_a_degraded_read_is_not_reported_as_confirmed():
     same blind spot returns in a rarer form."""
     import re
     here = os.path.dirname(__file__)
-    for pkg in ("orca", "penguin"):
+    for pkg in ("orca", "penguin", "razorbill"):
         path = os.path.join(here, "..", "..", pkg, "main", "scanners", "scan.py")
         if not os.path.exists(path):
             continue

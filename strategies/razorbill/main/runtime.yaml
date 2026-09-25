@@ -1,0 +1,173 @@
+# ── RAZORBILL · single instance — Concentrated Striker (Orca's signal, conviction sizing) ──
+# UNIVERSE scanner. Scans the top-50 rows of the 4h leaderboard (leaderboard_get_markets)
+# every tick, detects FIRST_JUMP / IMMEDIATE_MOVER rank explosions (rank-jump >= 15 off a
+# prev-rank >= 25), scores the base Striker model (score >= 9 with a 4-reason floor: first-jump,
+# immediate, contrib-explosion, velocity, deep-climber, climbing, US-session), confirms the 15m
+# freshness gate + volume (>=1.5x), and emits ONE signal for the single strongest candidate at
+# 10x on 90% margin. XYZ banned, ONE position at a time, 120-min per-asset cooldown.
+# DSL is the ONLY exit.
+#
+# Razorbill keeps Orca's ENTRY MODEL UNCHANGED — every score threshold, the rank-jump gate and the
+# freshness/volume confirmations are Orca's, verbatim. What differs is everything after the
+# signal: one slot instead of three, 90% margin instead of 18%, 10x instead of 7x (~9x equity
+# exposure against Orca's ~1.26x), a 4-hour hold instead of 45 minutes, and the four guard rails
+# switched off. Nothing else — no added filter, no altered threshold. A deliberately
+# concentrated, high-variance expression of the same read; see strategy.yaml for the risk.
+name: razorbill-main
+group: razorbill
+version: 3.0.0
+description: >
+  RAZORBILL — Concentrated Striker. Universe rank-jump sniper on Orca's entry model: scans the
+  top-50 rows of the 4h leaderboard (leaderboard_get_markets — a momentum read of who is
+  winning right now, not a proven cohort) every tick and fires only on a fresh FIRST_JUMP /
+  IMMEDIATE_MOVER explosion (rank-jump >= 15 off a prev-rank >= 25, 4h-aligned, 15m-fresh,
+  volume >=1.5x) that clears the base Striker score 9 with a 4-reason floor. Commits the book
+  to ONE position at 10x on 90% margin — roughly 9x equity exposure, against Orca's 1.26x.
+  XYZ banned. The detector and the universe are Orca's, unfiltered. DSL is the ONLY
+  exit: a 15% ROE floor, a profit ladder whose first lock arrives at +20% ROE, and a 4-hour
+  hard timeout. Guard rails are OFF by design — the stop is the only brake.
+strategy:
+  wallet: "${RAZORBILL_WALLET}"
+  slots: 1                                 # ONE strike at a time — the whole book rides each signal
+  margin_pct: 90                           # 90% of withdrawable per trade
+  default_leverage: 10                     # 10x
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: razorbill_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 90                    # v2 producer_daemon interval_seconds=90
+    timeout_seconds: 75                     # < interval_seconds: a tick that reaches its timeout wedges
+                                            # the MCP session. Orca measures 16.9% of a 120s budget
+                                            # (~20s/tick) and Razorbill's tick does the same work; 75s
+                                            # is ~3.7x the measured average.
+    default_signal_validity_seconds: 180    # 2x tick; a fresh re-score arrives next tick (rule action)
+    state_history_max_count: 100            # rank-history window (5 scans) + emit-cooldown/dedup maps
+    inputs:
+      minScore: 9                           # v2 STRIKER_MIN_SCORE
+      maxPositions: 1                       # mirrors slots:1
+      topN: 50                              # v2 TOP_N — score only the top-50 SM markets
+      leaderboardLimit: 100                 # v2 fetch_markets limit=100
+      leverageDefault: 10                   # 10x — clamped per name to the venue cap in scan.py
+      marginPct: 90                         # PERCENT of withdrawable (0,100]. The runtime resolves a
+                                            # per-signal marginPct BEFORE strategy.margin_pct, so this
+                                            # line — not margin_pct below — is what sizes the trade.
+      minVolRatio: 1.5                      # v2 STRIKER_MIN_VOL_RATIO — 24h notional volume vs the
+                                            # prior 24h. LIVE AS OF 2026-09-24: the gate read a
+                                            # field HL does not return, so it passed everything
+                                            # from launch until now. Threshold left at v2's 1.5.
+      xyzBanned: false                      # THE ONE DIFFERENCE FROM PENGUIN. Orca/Penguin drop
+                                            # dex==xyz / `xyz:` markets (v2 XYZ_BANNED); Razorbill
+                                            # scores them alongside crypto. Measured 2026-09-25:
+                                            # 109 xyz instruments traded in 7d, top names 200-770
+                                            # distinct traders, active in EVERY UTC hour — so they
+                                            # clear minTraderCount easily and are not a thin-book
+                                            # risk. Venue leverage caps are also kinder than the
+                                            # alt book (XYZ100 30x, GOLD 25x, TSLA/NVDA/META/AAPL
+                                            # 20x, HOOD/INTC/PLTR/COIN 10x), so the per-name clamp
+                                            # in scan.py bites LESS here than on a 3x-capped alt.
+                                            # Read the card for what this does to the thesis.
+      minTraderCount: 10                    # skip a board side thinner than this many traders at the read — a thin side never enters the rank order
+      # ── cooldowns (v2 assetCooldownMinutes=120; runtime per-asset gate is primary) ──
+      perAssetCooldownSeconds: 7200         # v2 assetCooldownMinutes=120 -> 7200s (emit-time analogue)
+      recentSignalTtlSeconds: 7200          # signal-dedup TTL (mirrors per-asset cooldown)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      mode: { type: string, required: false }
+      currentRank: { type: number, required: false }
+      rankJump: { type: number, required: false }
+      isFirstJump: { type: boolean, required: false }
+      isContribExplosion: { type: boolean, required: false }
+      contribVelocity: { type: number, required: false }
+      volRatio: { type: number, required: false }
+      contribution: { type: number, required: false }
+      traders: { type: number, required: false }
+      priceChg4h: { type: number, required: false }
+      reasons: { type: string, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: razorbill_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [razorbill_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT       # v2 entry order_type
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true     # v2: a fresh-jump strike must fill — taker fallback at 60s
+        execution_timeout_seconds: 60       # v2 execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: razorbill_main_signals
+
+# ── EXIT (DSL) ───────────────────────────────────────────────────────────────
+# Orca's "let winners run" ladder, held verbatim (phase 2 tiers 20/30/50/75/100 — the first
+# lock arrives at +20% ROE, locking 25% of high-water, so a mover is not capped early).
+# What Razorbill changes is the clock and the floor: hard_timeout 45m -> 240m and weak_peak_cut
+# 25m -> 180m (a 4-hour thesis needs hours to develop), dead_weight_cut OFF (a 15-minute cut
+# fights a 4-hour hold), and phase-1 max_loss 8% -> 15% ROE.
+# order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen).
+exit:
+  engine: dsl
+  interval_seconds: 30                      # v2 exit interval_seconds=30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true                         # v2: enabled, 45m
+      interval_in_minutes: 240            # 4h — let a trend actually develop
+    weak_peak_cut:
+      enabled: true                         # v2: enabled, 25m / min_value 3.0
+      interval_in_minutes: 180            # 3h before cutting a position that never reached +3% ROE
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                        # a 15-minute cut fights a 4-hour hold
+      interval_in_minutes: 15
+    phase1:
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct carries the whole
+      # per-trade risk cap instead. retrace_threshold below is inert while enabled: false.
+      enabled: false
+      max_loss_pct: 15.0  # 15% ROE — at 10x that is a 1.5% price move, outside ordinary noise
+      retrace_threshold: 8                   # inert while phase1.enabled is false
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                                 # v2 v4.0.1 "let winners run" ladder (verbatim)
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200            # v2 data_retention_hours 72 -> 259200s (within [3600, 604800])
+  guard_rails:
+    daily_loss_limit_pct: 100               # OFF
+    max_entries_per_day: 999                # OFF
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 999             # OFF
+    cooldown_seconds: 1800                  # v2 cooldown_minutes:30 -> 1800s (post-loss cooldown)
+    drawdown_halt_pct: 100                  # OFF
+    drawdown_reset_on_day_rollover: false   # v2: avoid the next-day reset leak
+    per_asset_cooldown_seconds: 7200        # v2 per_asset_cooldown_minutes:120 -> 7200s (2h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

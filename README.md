@@ -69,7 +69,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`quant-desk`](quant-desk/) | 1.38.0 | **Quant Desk** — the desk your AI Quant produces. "run AI quant" / "run quant" / "run quant desk" on **any** Hyperliquid address → 90 days of fills, fees, funding; six 0–100 dimensions, a quant score, leaks priced as charged counterfactuals, protection audit, you vs the proven and hot cohorts, market fit, where your edge is. No address? It finds you candidates by account size. A senpi user's whole book — every strategy wallet, closed ones included — is one desk via `--book`. Public data, read-only; Senpi discovery when a token is present |
 | [`senpi-account-status`](senpi-account-status/) | 1.4.0 | Points, loyalty tier, fees, referrals — and the AI-credits usage meter: chat + tool turns spend plan credits; not trading money; the balance is the meter in the app header, which no tool reads. Carries the plan catalog (Starter/Pro/Advanced/Quant) and the free-credit milestone ladder |
 | **Run a strategy** | | |
-| [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.36.0 | Conversational picker — rank the catalog against your worldview |
+| [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.37.0 | Conversational picker — rank the catalog against your worldview |
 | [`senpi-strategy-author`](senpi-strategy-author/) | 3.13.0 | Build/edit a DSL-protected strategy package, one decision at a time |
 | [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.23.1 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
 | [`senpi-trade`](senpi-trade/) | 1.8.0 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
