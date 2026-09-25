@@ -165,7 +165,7 @@ raises `PermissionError` (loud, fail-fast — never a silent `None`).
   `strategy_get*`, `strategy_list`, `execution_get*`, `user_get*`, `arena_*`, `audit_*`, `get_*`,
   `ratchet_stop_get`/`list`/`events`, guides — everything not in the mutation set.
 - **Mutations blocked (raise `PermissionError`):** `create_position`, `close_position`,
-  `edit_position`, `cancel_order`, `send_usdc`, `transfer_spot_to_perps`, `strategy_create`,
+  `edit_position`, `cancel_order`, `send_usdc`, `strategy_create`,
   `strategy_create_custom_strategy`, `strategy_close`, `strategy_close_positions`, `strategy_update`,
   `strategy_pause`, `strategy_top_up`, `strategy_withdraw_funds`,
   `ratchet_stop_add`/`edit`/`delete`, `user_claim_referral_rewards`.

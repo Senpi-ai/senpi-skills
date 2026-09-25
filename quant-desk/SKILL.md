@@ -254,6 +254,7 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 | "what should I fix first" | `desk.py 0x… --section next` | relay the three steps |
 | "run AI quant analyst on 0x…", "review this trader 0x…", a leaderboard pick | `desk.py 0x… --other` (alias `--analyst`) | relay in the third person; copying → `senpi-trader-research` |
 | "how do they stack up", after two or more desks | `desk.py --compare 0x… 0x… [0x…]` | relay the side-by-side and its "what separates them" |
+| a senpi user: "score my trading", "find my leaks", "how am I doing" | `desk.py --book 0x… 0x… 0x…` over EVERY strategy wallet, closed ones included | one desk over the whole book; relay the by-wallet table with it |
 | "write their playbook as rules" (another trader) | `desk.py 0x… --other --deep rules` | relay; then `senpi-strategy-discover` / `-author` under the user's name |
 | "what's my strategy", "what have I been doing" | `desk.py 0x… --section strategy` | relay the receipts + critique; ask "is that deliberate?" |
 | "what's the market doing", "does my book fit today" | `desk.py 0x… --section context` | relay; the regime table + today's label |
@@ -409,7 +410,7 @@ difference was which wallet.
 
 So, where the address book has nothing claimed: resolve their wallets with `strategy_list` and
 **offer the strategy wallets first**, named by their strategy. Offer the embedded wallet second and label it — "your funding wallet, usually no
-trades of its own". If they have several strategies, offer to run the desk on each and compare.
+trades of its own".
 
 **Never promise delivery you cannot perform.** A desk that backgrounds ("Command still running")
 does not come back to you on its own — nothing wakes an agent when a detached process finishes. So
@@ -418,11 +419,38 @@ holding a partial answer forever. Measured: 70 of 273 desk invocations in 36 hou
 Either poll it to completion inside the turn, or tell the reader plainly what you have and what you
 did not run — and let them ask for the rest.
 
-**Several wallets at once: `desk.py --compare 0x… 0x… 0x…`, in ONE call.** Not one invocation per
-wallet. A desk takes 20-60s, so a separate call per wallet backgrounds each and the agent must poll
-for every result — a teammate's agent launched six that way and collected one; the other five desks
-were computed and thrown away. `--compare` does them in a single invocation and reuses any cached
-run, so it is faster as well as safer. Run a single desk only when they ask about one wallet.
+### A senpi user's book is ALL their strategy wallets — `--book`, not one wallet
+
+`desk.py --book 0x… 0x… 0x…` reads every wallet and **unions them into ONE desk**: one score, one
+P&L, one set of leaks, plus a per-wallet table showing which strategy carried it. That is the
+default for "how am I trading" / "score my trading" / "find my leaks" from a senpi user.
+
+Running the desk on a single strategy wallet answers a question they did not ask. A user with four
+strategies has four books, and the leak that is costing them money is usually visible only in the
+total — the same coin traded from two strategies, funding paid on one side while the other is long,
+fees that are trivial per wallet and material across the book.
+
+**Include CLOSED and PAUSED strategies, not just ACTIVE.** The window is 90 days and a strategy they
+shut down six weeks ago still traded inside it. `strategy_list` returns `ACTIVE`, `PAUSED` and
+`CLOSED` rows; take the wallet from every one of them, and drop only those with no address at all.
+A desk that silently omits the strategy they closed is a desk that hides the losses they closed it
+for — which is very often the most useful thing on the page.
+
+    desk.py --book 0xaaa… 0xbbb… 0xccc…      # their whole book, closed strategies included
+
+Two things the union does NOT do, on purpose: there is no leaderboard rank for a book (rank is a
+per-address fact), and a coin traded from two wallets stays two rows in the live book, because they
+are two positions with two entries and two stops.
+
+**Several wallets at once: `desk.py --book 0x… 0x… 0x…` or `desk.py --compare 0x… 0x… 0x…`, in ONE
+call.** Not one invocation per wallet. A desk takes 20-60s, so a separate call per wallet backgrounds
+each and the agent must poll for every result — a teammate's agent launched six that way and
+collected one; the other five desks were computed and thrown away. Both flags take every address in
+a single invocation and reuse any cached run, so it is faster as well as safer.
+
+**Which of the two.** `--book` = "how am I trading" — one desk over everything, the default for a
+senpi user. `--compare` = "which of my strategies is working" — a separate desk per wallet, side by
+side. Run a single desk only when they ask about one wallet by name.
 
 > You trade through three strategies — **Aegis**, **Phalanx**, **Signals Hunter**. Want the desk on
 > one of them, or all three side by side? (Your embedded wallet is the funding one — it usually has
@@ -475,7 +503,7 @@ you did not need.
 
 ## Install — the whole `scripts/` directory is required
 
-`desk.py` imports `addresses.py`, `deep.py`, `followups.py`, `hl_api.py`, `market.py`, `metrics.py`,
+`desk.py` imports `addresses.py`, `book.py`, `deep.py`, `followups.py`, `hl_api.py`, `market.py`, `metrics.py`,
 `opportunities.py`, `render.py`, `roundtrips.py`, `score.py`, `senpi_history.py`, `smart_money.py`,
 `strategy_read.py`, `taxonomy.py`, `timing.py` and `voice.py`, plus the vendored `mcp_client.py` (used
 only when `SENPI_AUTH_TOKEN` is set). Copy the whole directory — a partial copy fails at import, not

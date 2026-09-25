@@ -1089,7 +1089,7 @@ def test_an_empty_window_still_reports_whether_senpi_has_the_wallet():
     src = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "desk.py").read_text()
     # isolate the json.dumps({...}) that this exit prints — a byte window around it would also pick
     # up the comment explaining the fix, which quotes the old wording
-    i = src.index("no PERP activity in the last")
+    i = src.index('"if_this_is_your_own_wallet"')          # the single-wallet exit; --book has its own
     start = src.rindex("print(json.dumps({", 0, i)
     payload = src[start:src.index("return 3", i)]
     assert '"indexed": r.get("indexed")' in payload, "the empty-window exit still drops `indexed`"
@@ -2002,7 +2002,7 @@ def test_skill_states_the_real_follow_up_count_and_module_list():
     assert f"a bank of twelve follow-ups" in skill and len(followups.BANK) == 12
     src = _P(HERE, "..", "scripts", "desk.py").read_text()
     local = {m for m in re.findall(r"^(?:import|from) ([a-z_]+)", src, re.M)}
-    stdlib = {"argparse", "json", "os", "re", "sys", "tempfile", "time", "collections", "statistics",
+    stdlib = {"argparse", "hashlib", "json", "os", "re", "sys", "tempfile", "time", "collections", "statistics",
               "datetime", "math", "bisect", "urllib", "socket"}
     for mod in local - stdlib:
         assert f"`{mod}.py`" in skill, f"{mod}.py is imported but not in the install list"
@@ -3076,15 +3076,27 @@ def test_the_empty_window_exit_points_a_senpi_user_at_their_strategy_wallets():
     left at a dead end. The guidance is fixed in SKILL.md; the exit says it too, so a wrong wallet
     corrects itself rather than reading as "you have nothing"."""
     src = _P(HERE, "..", "scripts", "desk.py").read_text()
-    blk = src.split('if not r["activity"]["fills"] and not r["book"]["positions"]:', 1)[1][:2000]
+    i = src.index('"if_this_is_your_own_wallet"')            # the single-wallet exit specifically
+    blk = src[src.rindex("print(json.dumps({", 0, i):src.index("return 3", i) + len("return 3")]
     assert '"if_this_is_your_own_wallet"' in blk, "the empty exit gives a senpi user no way forward"
     assert "STRATEGY wallets" in blk and "funding wallet" in blk
     assert "strategy_list" in blk, "it does not say how to resolve them"
     # the existing guarantees still hold — this exit must stay machine-readable and keep `indexed`
     assert '"indexed": r.get("indexed")' in blk and "return 3" in blk
-    # the banned phrase is guarded against the PAYLOAD in
-    # test_an_empty_window_still_reports_whether_senpi_has_the_wallet — not against the source,
-    # where it appears in the comment explaining why the payload must not say it
+
+
+def test_an_empty_book_does_not_send_the_reader_back_to_strategy_list():
+    """The --book reader has ALREADY resolved their wallets — that is how they got here. Repeating
+    the single-wallet advice ("resolve them with strategy_list") reads as the desk not knowing what
+    it was just asked. An empty book needs its own explanation, and still owes the reader the spot
+    caveat and `indexed`."""
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    i = src.index("across any of these")
+    blk = src[src.rindex("print(json.dumps({", 0, i):src.index("return 3", i)]
+    assert "Spot trades and transfers are not perp activity" in blk
+    assert '"indexed": r.get("indexed")' in blk
+    assert '"what_this_usually_means"' in blk
+    assert "strategy_list" not in blk, "the book exit repeats advice this reader has already taken"
 
 
 def test_an_address_the_reader_already_claimed_is_not_forgotten():
@@ -3129,13 +3141,14 @@ def test_the_plural_of_wallet_belongs_to_this_skill_too():
 def test_several_of_the_readers_wallets_are_one_compare_call():
     """Same session: the agent launched SIX desks as six separate backgrounded invocations 30s
     apart, then polled once. One real desk came back (quant score 28); the other five were computed
-    and thrown away. `--compare` takes 2+ addresses in a single call and reuses cached runs — it
-    already existed, the skill only ever framed it as comparing OTHER traders."""
+    and thrown away. Both multi-wallet flags take 2+ addresses in a single call and reuse cached
+    runs — `--compare` already existed, the skill only ever framed it as comparing OTHER traders."""
     skill = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
     assert "Several wallets at once" in skill, "nothing tells the agent how to do several at once"
     assert "--compare 0x… 0x… 0x…" in skill and "in ONE call" in skill
+    assert "--book 0x… 0x… 0x…" in skill, "the union flag is not on the one-call instruction"
     assert "Not one invocation per wallet" in skill, "the failure mode is not named"
-    # the flag really does take several
+    # the flags really do take several
     src = _P(HERE, "..", "scripts", "desk.py").read_text()
     assert 'ap.add_argument("--compare", nargs="+"' in src
 
