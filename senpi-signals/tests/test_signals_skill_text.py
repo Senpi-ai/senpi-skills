@@ -61,8 +61,9 @@ def test_every_run_ends_with_one_question_to_trade_or_build():
                      "I can set up a **single trade** on one read",
                      "**(1) Signals Hunter**, which trades this same feed on",
                      "**(2) Puffin**, that same engine",
-                     "**(3) Athena**, the smart-money hedge fund, forked under your name",
-                     "**(4) roll your own**, built around these reads with you"):
+                     "**(3) Athena**, a hedge fund built on these same smart-money signals",
+                     "**(4) a different type of signal**",
+                     "**(5) roll your own**, built around these reads with you"):
         assert fragment in skill, fragment
     assert "Place nothing until the user says yes to that exact order." in skill
     assert "The stop must sit before liquidation." in skill
@@ -76,23 +77,24 @@ def _closing(skill):
     return skill[skill.index("## How every run ends — one question"):skill.index("## Where it lives")]
 
 
-def test_the_offer_carries_all_four_routes_and_every_template_it_names_is_real():
-    """Four strategy routes are offered every time — Signals Hunter, Puffin, fork Athena, roll your own
-    — and each read type names the template built on that kind of read. A name that isn't in the catalog
-    would send the user to a template ops can't deploy, so every id named here must exist in
-    strategies/catalog.json."""
+def test_the_offer_carries_all_five_routes_and_every_template_it_names_is_real():
+    """Five strategy routes are offered every time — Signals Hunter, Puffin, fork Athena, a different
+    type of signal, roll your own — and each read type names the template built on that kind of read. A
+    name that isn't in the catalog would send the user to a template ops can't deploy, so every id named
+    here must exist in strategies/catalog.json."""
     closing = _closing(_flat(SKILL))
     for route in ("**(1) Signals Hunter → senpi-strategy-ops.**",
                   "**(2) Puffin → senpi-strategy-ops.**",
                   "**(3) Fork Athena → senpi-strategy-ops.**",
-                  "**(4) Roll your own → senpi-strategy-author.**"):
+                  "**(4) A different type of signal → senpi-strategy-ops, or senpi-strategy-discover.**",
+                  "**(5) Roll your own → senpi-strategy-author.**"):
         assert route in closing, route
-    assert "Offer **all four** strategy routes, every time." in closing
+    assert "Offer **all five** strategy routes, every time." in closing
     named = re.findall(r"`([a-z0-9-]+)`", closing)
     ids = {s["id"] for s in json.loads(
         (SKILL_DIR.parent / "strategies" / "catalog.json").read_text(encoding="utf-8"))["skills"]}
     template_ids = {n for n in named if n in ids}
-    assert {"signals-hunter", "puffin", "athena", "athena-x", "phalanx"} <= template_ids, template_ids
+    assert {"signals-hunter", "puffin", "athena", "athena-x", "phalanx", "penguin"} <= template_ids, template_ids
     # any id-shaped token that looks like a template but isn't in the catalog is a dead end
     assert not {n for n in named if n.endswith(("-hunter", "-x")) } - ids
     assert "the minimum budget from the catalog, never from memory" in closing
@@ -131,27 +133,38 @@ def test_the_concentrated_route_is_offered_with_its_cost_attached():
     assert "`signals-hunter` stays the default answer for this feed." in closing
 
 
-def test_every_route_offered_can_actually_trade_these_reads():
-    """The menu is Signals Hunter, Puffin, Athena, roll your own — and deliberately nothing else.
+def test_an_off_feed_route_announces_itself_as_a_different_signal():
+    """Route (4) exists to offer a template that does NOT trade these reads, and the honest form of
+    that offer is structural, not a caveat bolted on afterwards: the route is worded as a different
+    *type of signal* before any template is named.
 
-    Penguin was offered here briefly and removed: it is the other one-position-at-a-time template and
-    users ask for it by name, but it trades Orca's 4h-leaderboard rank-jump signal, not these
+    The trap it closes is real. Penguin is the template users ask for here by name — it is the other
+    one-position-at-a-time book — but it trades Orca's 4h-leaderboard rank-jump detector, not these
     detectors. "Want to act on any of these?" answered with a template that cannot act on them is a
-    promise the deploy will not keep — the aggression matched, the signal did not. This pins the
-    decision so the next person reaching for a template by risk level alone has to read why.
+    promise the deploy will not keep, so the route label carries the disclosure and the bullet names
+    the actual signal in the same sentence as the template.
 
-    The rule generalises past Penguin, so assert the rule: every template id named as a ROUTE runs the
-    reads this skill produces. (The narrowing table below is a different thing — it maps one read type
-    to the template built on it, and is allowed to name templates outside this feed.)"""
+    Asserted as the rule rather than as a Penguin special case, so the next off-feed template offered
+    here has to be introduced the same way."""
     closing = _closing(_flat(SKILL))
-    routes = closing[:closing.index("**Narrowing by the read.**")]
-    assert "penguin" not in routes.lower(), "penguin is back in the routes without its caveat"
-    assert "A template that trades a" in closing and "DIFFERENT signal does not belong in this question" in closing
-    # the three template routes, and only those, appear as ids in the route section
-    named = {n for n in re.findall(r"`([a-z0-9-]+)`", routes)}
-    ids = {s_["id"] for s_ in json.loads(
-        (SKILL_DIR.parent / "strategies" / "catalog.json").read_text(encoding="utf-8"))["skills"]}
-    assert named & ids == {"signals-hunter", "puffin", "athena", "athena-x"}, named & ids
+    assert "Routes (1)-(3) trade the reads above. Route (4) deliberately does **not**" in closing
+    assert "worded as a different *type of signal* before any template is named" in closing
+    assert "offered AS a different signal, never as another way to trade what they just read" in closing
+    # the example, and the signal it actually trades, in the route itself
+    assert "`penguin`" in closing and "Orca's detector rather than this feed's" in closing
+    assert "4h leaderboard" in closing
+    # and the open-ended case routes to the picker, not to an improvised shortlist
+    assert "senpi-strategy-discover" in closing
+    assert "never improvise a shortlist from memory" in closing
+
+
+def test_the_closing_question_is_treated_as_a_major_entry_point():
+    """For most users this question is where a read first becomes a position. An agent that treats it
+    as a footer — abbreviating it, dropping routes, asking it only sometimes — is where the funnel
+    leaks, so the skill says so in as many words."""
+    closing = _closing(_flat(SKILL))
+    assert "**This is a major entry point.**" in closing
+    assert "Ask it every time, in full, with all five routes." in closing
 
 
 def test_a_template_is_a_starting_point_never_a_promise():
