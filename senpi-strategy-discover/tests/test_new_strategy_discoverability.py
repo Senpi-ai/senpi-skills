@@ -54,6 +54,9 @@ _CASES = [
     ("kite",     _intent(), "smc ict break of structure fibonacci divergence"),
     # ── dynamic pump/breakout screener (from the 2026-08-12 pump-hunter build) ──
     ("barracuda", _intent(), "pump hunter breakout momentum screener"),
+    # ── concentrated signals variant (2026-09-25): one slot, score floor 85, 10x ──
+    ("puffin",   _intent(), "one signal at a time all in high conviction"),
+    ("puffin",   _intent(), "concentrated single position high leverage"),
 ]
 
 

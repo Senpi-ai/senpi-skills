@@ -1,0 +1,167 @@
+# ── PUFFIN · the Senpi Signals engine, concentrated into one conviction position ──
+name: puffin-main
+group: puffin
+version: 1.0.0
+description: >
+  PUFFIN — the same senpi-signals gather and detector library as SIGNALS-HUNTER, vendored
+  byte-identically, but pointed at one position instead of five. A much higher score floor (85 vs
+  65), a single slot, most of the wallet behind it at 10x, and a 15-minute clock so the entry lands
+  near the signal rather than up to an hour after it. Skips the tick outright when the proven-cohort
+  lens is dark, because a score without it is OI/funding/price wearing the same name.
+
+strategy:
+  wallet: "${PUFFIN_WALLET}"
+  slots: 1
+  margin_pct: 75
+  default_leverage: 10
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: puffin_scan
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    # 15 minutes, not the hour SIGNALS-HUNTER runs. With one slot the scarce thing is not the
+    # number of signals — the feed produces thousands a day and this floor takes ~3 — it is
+    # TIME-TO-ENTRY on the one that clears. An hourly clock finds a crossing up to 60 minutes
+    # after it happened; this finds it within 15. See the ring note in scan.py for why that does
+    # NOT shorten what the detectors can see.
+    interval_seconds: 900
+    # Unchanged from SIGNALS-HUNTER and still well inside the interval (240 < 900). The gather
+    # carries its own deadline (gatherDeadlineSeconds) and a 15s-per-read timeout inside the
+    # engine, so it returns on its own terms; this is only the runtime's backstop.
+    timeout_seconds: 240
+    # One tick plus slack. SIGNALS-HUNTER's 3600 was its whole interval; carried onto a 15-minute
+    # clock it would let a signal fire three ticks after the reading that produced it.
+    default_signal_validity_seconds: 1200
+    state_history_max_count: 4           # the ring lives INSIDE one record; history depth is not it
+    inputs:
+      # ── the lens ──
+      # 85, not SIGNALS-HUNTER's 65. Measured over 14 days of feed output: 82 of 116 observations
+      # clear 65, 39 clear 85, 33 clear 90 — and 21 sit at exactly 100, so the score SATURATES and
+      # stops discriminating above ~90. 85 is the last floor that still separates.
+      minScore: 85
+      highScoreThreshold: 93             # at/above this, size the full tier (the saturated top)
+      topN: 6                            # score.TOP_N — the ranked pool; one slot takes its head
+      familyCap: 1                       # one funding flood must not BE the candidate pool
+      # ── sizing (conviction; see the card) ──
+      # Per-signal marginPct/leverage OUTRANK strategy.margin_pct/default_leverage in the runtime,
+      # so THESE are the numbers that ship. The strategy block above mirrors them so a dropped
+      # inputs block degrades to the same sizing rather than an ancestor's.
+      marginPct: 75
+      highMarginPct: 90
+      leverage: 10
+      # MUST exceed highMarginPct or nothing ever opens: the emit guard rejects a signal when
+      # committed + want > this cap, and SIGNALS-HUNTER leaves it at the module default of 80 —
+      # which at a 90% tier means 0 + 90 > 80 on an EMPTY book, every tick, forever. 92 admits one
+      # position and, because the counter is seeded with margin already at risk, still blocks a
+      # second (90 + 90 > 92) independently of `slots`.
+      maxTotalMarginPct: 92
+      # ── gather ──
+      universeTopN: 120                  # sweep.UNIVERSE_TOP_N — a wide net is what a high bar needs
+      gatherDeadlineSeconds: 100         # sweep.FEED_DEADLINE_S
+      # Ring depth is now a CAP, not the thing that sets the span — see _prune_ring in scan.py.
+      # The stratified keep spans ~25h in ~21 snapshots at this clock, so 24 does not bind.
+      ringMax: 24
+      ringDenseMinutes: 120              # keep every snapshot inside 2h (serves the ~60min fast arm)
+      ringSparseStepMinutes: 120         # beyond that, ~1 per 2h out to score.SNAP_MAX_AGE_MIN
+      # ── dedup ──
+      recentSignalTtlSeconds: 7200       # 2h — one name+direction per reversion, not per tick
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      detector: { type: string, required: false }
+      credibility: { type: number, required: false }
+      oneSidedness: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: puffin_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [puffin_scan]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true   # a signal names a moment; a resting maker order misses it
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: puffin_scan
+
+# ── EXIT — every ROE threshold sized for 10x, so each one is stated in PRICE in the bracket ──
+# This is the trap SIGNALS-HUNTER documents and it bites HARDER here: its ladder is tuned for 5x,
+# and carrying those same ROE numbers onto a 10x book would halve every exit measured in price.
+# The ladder below was rebuilt from the price move up, then multiplied by leverage. Leverage, stop
+# width and this ladder are one system: change them together.
+exit:
+  engine: dsl
+  interval_seconds: 30                   # 10x on one name deserves a faster look than 60s
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 1440          # 24h — between SIGNALS-HUNTER's 72h swing and a scalp.
+                                         # At 9x notional, holding a stale thesis across days is
+                                         # the exposure, and the one slot is worth more free.
+    weak_peak_cut:
+      enabled: true                      # ON, unlike SIGNALS-HUNTER — with ONE slot a position
+                                         # going nowhere is not just dead money, it is the whole
+                                         # book blocking the next signal.
+      interval_in_minutes: 240           # 4h to reach +10% ROE …
+      min_value: 10.0                    # … = a 1.0% price move at 10x. SIGNALS-HUNTER's 3.0 would
+                                         # be 0.3% of price here — a bar almost anything clears,
+                                         # which would make the cut fire on noise instead of death.
+    dead_weight_cut:
+      enabled: false                     # a 15-minute cut fights a multi-hour signal thesis
+    phase1:
+      # Trailing OFF. The phase-1 floor trails high-water, so after a favourable move it can sit
+      # BELOW entry and ratchet a winner into a loss. Disabling it does NOT remove the stop:
+      # buildInitialState seeds floorPrice from max_loss_pct either way and simply starts the
+      # position in phase 2 (senpi-trading-runtime/src/dsl/events/initial-state.ts:63-95).
+      enabled: false
+      max_loss_pct: 25.0                 # 25% ROE = a 2.5% price move at 10x. Wider than PENGUIN's
+                                         # 1.5% because a signal thesis is not a scalp, and far
+                                         # tighter than SIGNALS-HUNTER's 5.0% because this book is
+                                         # twice the leverage. Costs 18.8% of the wallet at the 75%
+                                         # tier, 22.5% at the 90% tier — size the budget for that.
+      retrace_threshold: 10              # INERT while phase1.enabled is false
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                             # ROE triggers; the price move each represents at 10x
+        - { trigger_pct: 25,  lock_hw_pct: 30 }   # 2.5% of price — risk 2.5%, first lock at 2.5%
+        - { trigger_pct: 40,  lock_hw_pct: 45 }   # 4% of price
+        - { trigger_pct: 70,  lock_hw_pct: 60 }   # 7% of price
+        - { trigger_pct: 120, lock_hw_pct: 75 }   # 12% of price
+        - { trigger_pct: 200, lock_hw_pct: 85 }   # 20% of price
+
+risk:
+  data_retention_seconds: 345600
+  guard_rails:
+    # NO daily_loss_limit_pct, for the reason SIGNALS-HUNTER gives: every gate here halts ENTRIES
+    # and none of them closes a position, so a daily halt only stops the strategy acting on the
+    # feed while it is underwater — which is when the feed is most worth acting on.
+    max_consecutive_losses: 3            # 4 on a 5-slot book is 4 partial losses; here it is 3
+                                         # whole-wallet ones, so the count comes down.
+    cooldown_seconds: 7200
+    # One full stop-out costs ~19-23% of the wallet, so two consecutive never halt and three do
+    # (1 - 0.775^3 = 53%). This is deliberately a real floor rather than PENGUIN's 100 (= OFF):
+    # PENGUIN is a verbatim port of a live user's own config, this is an authored template, and
+    # 9x notional with no drawdown halt is not a default anyone should inherit.
+    drawdown_halt_pct: 50
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 21600    # 6h — the same name should not be re-entered next tick
