@@ -236,3 +236,42 @@ def test_a_book_is_the_readers_own_even_if_one_wallet_was_once_analysed():
     blk = src[i:i + 200]
     assert '"other" if a.other else "mine"' in blk and "if wallets" in blk, \
         "a --book run still resolves its voice through the address book"
+
+
+# ── @shnoodles's two blocking findings on #773 ──────────────────────────────────────────────
+def test_a_book_and_a_single_wallet_do_not_share_a_state_file():
+    """Reproduced by @shnoodles: the state file keyed on `wallets[0]`, so `desk.py A` and
+    `desk.py --book A B` both wrote desk-A.json and read each other back inside the 10-minute
+    freshness window. Whichever ran first was served as the other — a single wallet returned as
+    "across 2 wallets" (11,594 fills), or a two-wallet book returned as A alone (5,797).
+    `--compare` reads the same file for an hour, so a book also surfaced as its first column."""
+    import re as _re
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    i = src.index("state_path = os.path.join(")
+    line = src[i:i + 200]
+    assert "_state_key" in line, f"the state file is still keyed on a bare address: {line[:90]}"
+    assert _re.search(r'book-"\s*\+\s*hashlib\.sha1', src), "a book is not keyed on its whole set"
+    # the key must depend on EVERY wallet, and not on their order
+    import hashlib
+    k = lambda ws: "book-" + hashlib.sha1("|".join(sorted(ws)).encode()).hexdigest()[:16]
+    a, b, c = "0xaaa", "0xbbb", "0xccc"
+    assert k([a, b]) == k([b, a]), "the key depends on wallet order"
+    assert k([a, b]) != k([a]), "a book and its first wallet share a key"
+    assert k([a, b]) != k([a, b, c]), "adding a wallet does not change the key"
+
+
+def test_one_indexed_wallet_does_not_erase_the_others_trades():
+    """Reproduced by @shnoodles: `closed = rows` replaced the WHOLE book's public episodes with
+    whatever senpi returned. Wallet B held 48 public closed trades and had no senpi rows; the book
+    reported 3 trades, by_wallet B = 0, source "senpi discovery (3 closed positions)", indexed True.
+    A failed read on B did the same, and `senpi_history_partial` is set only when a LATER page
+    fails — so the only trace was a footnote."""
+    src = _P(HERE, "..", "scripts", "desk.py").read_text()
+    blk = src[src.index("        if rows:"):]
+    blk = blk[:blk.index("meta[\"sources\"][\"trades\"]")]
+    assert "public_fallback_wallets" in blk, "the book still takes senpi rows for every wallet"
+    assert "closed = sorted(rows + _pub" in blk, \
+        "a wallet senpi has no rows for still contributes nothing"
+    assert "not indexed" in blk, "the source line does not name the fallback wallets"
+    # and the single-wallet path must be untouched
+    assert "closed, source = rows," in blk, "the single-wallet path changed shape"

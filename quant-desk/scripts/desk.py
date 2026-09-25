@@ -13,6 +13,7 @@ the weekly rank, and — when a Senpi token is present — the smart-money cohor
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -169,7 +170,27 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         meta["timings"]["senpi_history"] = round(time.time() - t_h, 1)
         if rows:
             _partial = " — PARTIAL, a page failed to read and the totals below are short" if meta.get("senpi_history_partial") else ""
-            closed, source = rows, f"senpi discovery ({len(rows)} closed position{'s' if len(rows) != 1 else ''}){_partial}"
+            _n = f"{len(rows)} closed position{'s' if len(rows) != 1 else ''}"
+            if wallets:
+                # PER WALLET, not per book. `closed = rows` replaced the whole book's public
+                # episodes with whatever senpi returned, so a wallet senpi has no rows for
+                # contributed ZERO and one indexed wallet erased the others. Measured: B held 48
+                # public closed trades and no senpi rows; the book reported 3 trades and
+                # by_wallet B = 0, sourced "senpi discovery (3 closed positions)", indexed True.
+                # A failed read on B did the same — senpi_history_partial is set only when a LATER
+                # page fails, so the only trace was a footnote. (@shnoodles, #755/#773.)
+                _idx = {e.get("wallet") for e in rows if e.get("wallet")}
+                _fb = [w for w in wallets if w not in _idx]
+                _pub = [e for e in closed if e.get("wallet") in set(_fb)] if _fb else []
+                closed = sorted(rows + _pub,
+                                key=lambda e: e.get("close_time") or e.get("open_time") or 0)
+                meta["indexed_wallets"] = sorted(_idx)
+                meta["public_fallback_wallets"] = _fb
+                source = (f"senpi discovery ({_n}){_partial}" + (
+                    f" + public fills for {len(_fb)} wallet{'s' if len(_fb) != 1 else ''} senpi has "
+                    f"not indexed ({', '.join(w[:6] + '…' + w[-4:] for w in _fb)})" if _fb else ""))
+            else:
+                closed, source = rows, f"senpi discovery ({_n}){_partial}"
             indexed = True
         elif public_closed and not meta.get("senpi_history_failed"):
             # The public endpoints show closed round trips in this window and senpi's index returned
@@ -563,7 +584,14 @@ def main(argv=None):
     # to the person who owns them. Only an explicit --other overrides that.
     whose = ("other" if a.other else "mine") if wallets else \
         resolve_whose(book, addr, other=a.other, mine=a.mine, claim=a.claim)
-    state_path = os.path.join(a.state_dir, f"desk-{addr}.json")
+    # A BOOK is keyed on its whole SET, not on its first wallet. Keying on wallets[0] made
+    # `desk.py A` and `desk.py --book A B` share desk-A.json for the 10-minute freshness window, so
+    # whichever ran first was served as the other: a single wallet returned as "across 2 wallets"
+    # (11,594 fills), or a two-wallet book returned as A alone (5,797). `--compare` reads the same
+    # file for an hour, so a book also surfaced as its first wallet's column. (@shnoodles, #773.)
+    _state_key = ("book-" + hashlib.sha1("|".join(sorted(wallets)).encode()).hexdigest()[:16]
+                  if wallets else addr)
+    state_path = os.path.join(a.state_dir, f"desk-{_state_key}.json")
     meta = {}
     bench = None
     if os.path.exists(BENCH_PATH):

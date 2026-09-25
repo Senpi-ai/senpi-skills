@@ -2002,7 +2002,7 @@ def test_skill_states_the_real_follow_up_count_and_module_list():
     assert f"a bank of twelve follow-ups" in skill and len(followups.BANK) == 12
     src = _P(HERE, "..", "scripts", "desk.py").read_text()
     local = {m for m in re.findall(r"^(?:import|from) ([a-z_]+)", src, re.M)}
-    stdlib = {"argparse", "json", "os", "re", "sys", "tempfile", "time", "collections", "statistics",
+    stdlib = {"argparse", "hashlib", "json", "os", "re", "sys", "tempfile", "time", "collections", "statistics",
               "datetime", "math", "bisect", "urllib", "socket"}
     for mod in local - stdlib:
         assert f"`{mod}.py`" in skill, f"{mod}.py is imported but not in the install list"
