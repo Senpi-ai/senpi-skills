@@ -173,6 +173,11 @@ def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=Non
     open_orders = list(open_orders or []) + list(open_orders_xyz or [])
     for ap in (cs.get("assetPositions") or []) + ((cs_xyz or {}).get("assetPositions") or []):
         p = ap["position"]; szi = _f(p["szi"]); coin = p["coin"]; side = "LONG" if szi > 0 else "SHORT"
+        # On a merged book (--book) two strategy wallets can hold the SAME coin. Matching a resting
+        # trigger to a position by coin alone then credits one wallet's stop to the other's naked
+        # position — the protection audit's one job, answered wrong in the dangerous direction.
+        # Untagged reads (every single-wallet run) match as before.
+        wal = p.get("wallet")
         size = abs(szi); mark = marks.get(coin) or _f(p["entryPx"])
         if size * mark < DUST_USD:
             continue                                            # dust left behind by a partial close: not a position
@@ -182,6 +187,8 @@ def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=Non
         for o in open_orders or []:
             if o.get("coin") != coin or not o.get("isTrigger") or o.get("side") != exit_side:
                 continue
+            if wal and o.get("wallet") and o["wallet"] != wal:
+                continue                                        # a sibling wallet's stop is not this position's
             tp_ = _f(o.get("triggerPx"))
             (stops if ((side == "LONG" and tp_ < mark) or (side == "SHORT" and tp_ > mark)) else tps).append(o)
         covered = min(size, sum(_f(o["sz"]) for o in stops))
@@ -201,7 +208,7 @@ def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=Non
                         stop_distance_pct=(abs(mark - nearest) / mark * 100) if (nearest and mark) else None, take_profit=bool(tps),
                         funding_rate_hourly=rate, funding_per_day=-(rate * notional * 24) * (1 if side == "LONG" else -1),
                         funding_since_open=_f((p.get("cumFunding") or {}).get("sinceOpen")),
-                        opened_ms=(ages or {}).get(coin)))
+                        opened_ms=(ages or {}).get(coin), wallet=wal))
     ms = cs.get("marginSummary") or {}; mx = (cs_xyz or {}).get("marginSummary") or {}
     perps_av = _f(ms.get("accountValue")) + _f(mx.get("accountValue")); mu = _f(ms.get("totalMarginUsed")) + _f(mx.get("totalMarginUsed"))
     av = total_account_value if (total_account_value and total_account_value > 0) else perps_av
@@ -236,13 +243,19 @@ def whole_account_value(portfolio, spot):
 
 def flows(ledger, addr):
     """Signed transfers in the window: + into this account, − out. Sends carry `user` (sender) and
-    `destination`; deposits and withdrawals carry their own types. Other ledger types are ignored."""
-    a = addr.lower(); out = []
+    `destination`; deposits and withdrawals carry their own types. Other ledger types are ignored.
+
+    `addr` may be ONE address or every wallet of a merged book. A book's inbound transfer is one
+    that landed on any of its wallets from outside it — internal moves are already dropped upstream
+    (book._internal), but matching on a single address would have signed a sibling's deposit as an
+    outflow."""
+    a = {addr.lower()} if isinstance(addr, str) else {x.lower() for x in addr}
+    out = []
     for x in ledger or []:
         d = x.get("delta") or {}; t = d.get("type")
         amt = _f(d.get("amount") if d.get("amount") is not None else d.get("usdc"))
         if t == "send":
-            sign = 1 if (d.get("destination") or "").lower() == a else -1
+            sign = 1 if (d.get("destination") or "").lower() in a else -1
         elif t == "deposit":
             sign = 1
         elif t == "withdraw":
@@ -287,26 +300,55 @@ def equity_curve(portfolio, flow_list, window_start):
     return adj
 
 
+def _dd_basis(av_at, peak_t, trough_t, fall):
+    """The equity a fall came out of, or None when the series cannot say.
+
+    Equity AT THE PEAK is the direct answer: that is the capital the drawdown ate into. The older
+    form, `equity at the trough + the fall`, only equals it when nothing was deposited or withdrawn
+    in between — and that is precisely the assumption a senpi strategy wallet breaks. Such a wallet
+    is funded, traded, then SWEPT back to the funding wallet when the strategy closes, so its
+    account-value history reads 0.0 long after real money passed through it.
+
+    When the chosen series carries 0.0 at every point (a swept wallet's sparse perpAllTime history),
+    the old form degenerated to `0 + fall = fall` and every closed wallet scored a 100% drawdown —
+    "the account went to zero, a full loss of the equity at risk" printed over books that fell 12%
+    and one that ended the window UP $57. There is no basis for a percentage there, so say None and
+    let callers render "—" rather than invent the most alarming number in the range.
+    """
+    at_peak = av_at(peak_t) or 0.0
+    if at_peak > 0:
+        return at_peak
+    at_trough = av_at(trough_t) or 0.0
+    if at_trough > 0:
+        return at_trough + fall
+    return None
+
+
 def drawdown(pnl_pts, av_pts):
     """Max drawdown from Hyperliquid's own P&L series (transfer-immune by construction): the deepest
-    peak-to-trough fall in cumulative P&L, as a share of the account value at the peak. Capped at 100%."""
+    peak-to-trough fall in cumulative P&L, as a share of the equity that fall came out of. Capped at
+    100%. `dd` (the dollar fall) is always meaningful; `dd_pct` is None when the account-value series
+    has no positive reading to divide by — see _dd_basis."""
     if not pnl_pts:
         return dict(dd=0.0, dd_pct=0.0, span=None, in_drawdown=False, current_dd_pct=None)
     av = dict(av_pts or [])
     def av_at(t):
         ks = [k for k in av if k <= t]
         return av[max(ks)] if ks else (av[min(av)] if av else 0.0)
-    peak, peak_t, dd, dd_pct, span = -1e18, None, 0.0, 0.0, None
+    peak, peak_t, dd, dd_pct, span = -1e18, None, 0.0, None, None
     for t, v in pnl_pts:
         if v > peak:
             peak, peak_t = v, t
         fall = peak - v
         if fall > dd:
-            # the equity the fall came out of = equity at the trough + the fall (no transfer assumed between)
-            base = (av_at(t) or 0.0) + fall
-            dd, dd_pct, span = fall, min(1.0, fall / base) if base > 0 else 0.0, (peak_t, t)
-    last_t, last = pnl_pts[-1]; base_now = (av_at(last_t) or 0.0) + (peak - last)
-    cur = min(1.0, (peak - last) / base_now) if base_now > 0 and peak > last else 0.0
+            base = _dd_basis(av_at, peak_t, t, fall)
+            dd, span = fall, (peak_t, t)
+            dd_pct = min(1.0, fall / base) if base and base > 0 else None
+    last_t, last = pnl_pts[-1]
+    base_now = _dd_basis(av_at, peak_t, last_t, peak - last) if peak > last else None
+    cur = min(1.0, (peak - last) / base_now) if base_now and base_now > 0 and peak > last else None
+    if dd == 0.0 and dd_pct is None:
+        dd_pct = 0.0          # no fall at all is a real 0%, not an unknown
     return dict(dd=dd, dd_pct=dd_pct, span=span, in_drawdown=bool(cur and cur > 0.05), current_dd_pct=cur)
 
 
