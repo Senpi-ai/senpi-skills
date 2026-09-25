@@ -32,7 +32,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.23.0"
+  version: "3.24.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -299,7 +299,7 @@ POST, and `intervalSeconds: 0` / `nextRunAt: null` are the correct values rather
 `lastAliveAt` is the tick. So `runCount: 0` with a fresh `lastAliveAt` is a scanner finding nothing, not one that
 never ran — and the recipe's own `interval_seconds` is the scaffold's POST cadence, so a file saying 60 while the
 runtime reports 0 is not a contradiction either
-— never call a strategy dead without checking its ticks first: never a fault, never a reason to close and recreate (each new strategy wallet costs a real creation fee); the fix for "it isn't trading" is the gates or the budget, applied in place (below). A scanner interval under 60 s on a small book is fee churn — refuse it with the arithmetic (fills × fee against the budget), not a claim about timing. Decision tree: [`references/liveness-verification.md`](references/liveness-verification.md).
+— never call a strategy dead without checking its ticks first: never a fault, never a reason to close and recreate (each new strategy wallet costs a real creation fee); the fix for "it isn't trading" is the gates or the budget, applied in place (below) — and a live strategy that has never traded gets its binding gate, that gate's threshold and its universe count named from its own runtime.yaml, never "being selective". A scanner interval under 60 s on a small book is fee churn — refuse it with the arithmetic (fills × fee against the budget), not a claim about timing. Decision tree: [`references/liveness-verification.md`](references/liveness-verification.md).
 `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py` (`<id>` filters, `--fast` skips the per-runtime health call, `--json` for
 machine output). It is the single source of truth — live `strategy_list` ∪ `runtime list` (the same runtime-CLI
 read `senpi-portfolio` also quotes — neither surface independently confirms the other), never the
