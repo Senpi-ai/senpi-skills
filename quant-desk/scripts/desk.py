@@ -32,6 +32,7 @@ import opportunities  # noqa: E402
 import render  # noqa: E402
 import score  # noqa: E402
 import addresses as addr_book
+import book as book_mod  # noqa: E402
 import senpi_history  # noqa: E402
 import smart_money  # noqa: E402
 import strategy_read  # noqa: E402
@@ -45,7 +46,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.32.0"
+VERSION = "1.33.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -113,12 +114,21 @@ def _ratio_or_none(num, base, cap=10.0):
     return None if abs(r) > cap else r
 
 
-def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench=None, meta=None, whose="mine"):
+def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench=None, meta=None, whose="mine",
+            wallets=None):
+    """One desk. `wallets`, when given, is every wallet of a senpi user's book: each is read on its
+    own and the reads are unioned into a single `tr_raw` (see book.py). `addr` stays the label."""
     meta = meta if meta is not None else {}
     meta.setdefault("warnings", []); meta["timings"] = {}; meta["sources"] = {}
     t0 = time.time()
-    step(1, "scanning every fill, funding payment, transfer and resting order …")
-    tr_raw = hl.trader(addr, days=days)
+    pre_closed = pre_opened = None
+    if wallets:
+        step(1, f"scanning every fill across {len(wallets)} wallets …")
+        tr_raw, pre_closed, pre_opened, per_wallet = book_mod.read(hl, wallets, days=days, progress=log)
+        meta["wallets"] = per_wallet
+    else:
+        step(1, "scanning every fill, funding payment, transfer and resting order …")
+        tr_raw = hl.trader(addr, days=days)
     meta["timings"]["trader"] = round(time.time() - t0, 1)
     fills, cs, oo = tr_raw["fills"], tr_raw["clearinghouseState"], tr_raw["frontendOpenOrders"]
     win_start, now = tr_raw["window_start_ms"], tr_raw["now_ms"]
@@ -128,7 +138,9 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         ctx_xyz = hl.meta("xyz")
     except Exception as e:  # noqa: BLE001
         meta["warnings"].append(f"xyz contexts unavailable: {e}")
-    pub_closed, pub_opened = episodes_from_fills(fills)
+    # Episodes for a book are built PER WALLET upstream: `episodes_from_fills` follows position per
+    # coin through `startPosition`, and two wallets both trading BTC interleave into one broken track.
+    pub_closed, pub_opened = (pre_closed, pre_opened) if pre_closed is not None else episodes_from_fills(fills)
     closed, opened = pub_closed, pub_opened
     ages = {}
     if mcp is not None:
@@ -147,7 +159,13 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     if mcp is not None:
         public_closed = len(closed)
         t_h = time.time()
-        rows = senpi_history.fetch(mcp, addr, win_start, meta)
+        rows = []
+        for _w in (wallets or [addr]):
+            _r = senpi_history.fetch(mcp, _w, win_start, meta)
+            for _e in _r:
+                _e["wallet"] = _w
+            rows.extend(_r)
+        rows.sort(key=lambda e: e.get("close_time") or e.get("open_time") or 0)
         meta["timings"]["senpi_history"] = round(time.time() - t_h, 1)
         if rows:
             _partial = " — PARTIAL, a page failed to read and the totals below are short" if meta.get("senpi_history_partial") else ""
@@ -203,7 +221,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         cov["ledger_gap"] = _gap
         cov["effective"] = min(cov["overall"] if cov["overall"] is not None else 1.0,
                                max(0.0, 1.0 - _gap / abs(track["ledger_net"])))
-    fl = metrics.flows(tr_raw["ledger"], addr)
+    fl = metrics.flows(tr_raw["ledger"], wallets or addr)
     pnl_curve = metrics.pnl_series(tr_raw["portfolio"], win_start)
     # transfer-adjusted, as equity_curve's docstring, methodology.md and SKILL rule 3 all promise.
     # `fl` is computed on the line above; passing [] meant a trader who withdrew their profit read as
@@ -233,14 +251,14 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     # ---- cohorts + attention first (they name coins the candle pull must cover)
     rank, labels, lb = None, None, None
     cohorts, attention, fregime = [], None, None
-    if want_rank or (want_cohort and mcp is None):
+    if (want_rank and not wallets) or (want_cohort and mcp is None):
         t2 = time.time()
         try:
             lb = hl.leaderboard()
         except Exception as e:  # noqa: BLE001
             meta["warnings"].append(f"leaderboard unavailable: {e}")
         meta["timings"]["leaderboard"] = round(time.time() - t2, 1)
-    if want_rank and lb:
+    if want_rank and lb and not wallets:
         rank = hl_api.weekly_rank(lb, addr)
         if rank is None:
             meta["warnings"].append("address is not on Hyperliquid's leaderboard this week (no rank)")
@@ -374,6 +392,40 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
              episodes=[{k: v for k, v in e.items() if k != "size_path"} for e in in_win][-300:], meta=meta)
     r["whose"] = whose
     r["indexed"] = indexed
+    if wallets:
+        r["wallets"] = list(wallets)
+        # Which wallet did what. A book answers "how am I trading"; this answers "and which of my
+        # strategies is carrying it" — the question a reader asks next, and the only one the union
+        # destroys by construction.
+        _bw = {w: dict(wallet=w, trades=0, wins=0, realized=0.0, fees=0.0, volume=0.0, unrealized=0.0, open=0) for w in wallets}
+        for e in in_win:
+            row = _bw.get(e.get("wallet"))
+            if row is None:
+                continue
+            row["trades"] += 1; row["wins"] += 1 if e["win"] else 0
+            row["realized"] += e["realized"]; row["fees"] += e["fees"]; row["volume"] += e["volume"]
+        # track_record charges fees on STILL-OPEN episodes to the window too (the entry was paid for
+        # inside it). Leaving them out here made the per-wallet nets sum to $71,221 under a headline
+        # net of $67,207 — a table that does not add up to the number above it.
+        for e in opened:
+            row = _bw.get(e.get("wallet"))
+            if row is not None:
+                row["fees"] += e["fees"]
+        for pos in book["positions"]:
+            row = _bw.get(pos.get("wallet"))
+            if row is not None:
+                row["unrealized"] += pos["unrealized"]; row["open"] += 1
+        for x in (tr_raw["userFunding"] or []):
+            row = _bw.get(x.get("wallet"))
+            if row is not None and x["time"] >= win_start:
+                row["funding"] = row.get("funding", 0.0) + float(x["delta"]["usdc"])
+        # `realized` on an episode is GROSS. The desk's own headline number is net of fees and
+        # funding, and a column headed "Realized" sitting under it had better mean the same thing —
+        # the two wallets here summed to +$123,624 gross beside a net of +$67,207 on the same page.
+        for row in _bw.values():
+            row["funding"] = row.get("funding", 0.0)
+            row["net"] = row["realized"] - row["fees"] + row["funding"]
+        r["by_wallet"] = sorted(_bw.values(), key=lambda x: -(x["net"] + x["unrealized"]))
     r["verdict"] = score.verdict(track, book, dims, lk)
     r["followups"] = followups.offer(r, whose=whose)
     meta["timings"]["total"] = round(time.time() - t0, 1); meta["hl_calls"] = hl.calls
@@ -412,6 +464,11 @@ def main(argv=None):
                         "(a claim, not proof — we cannot verify ownership of an address from a message)")
     g.add_argument("--other", "--analyst", dest="other", action="store_true", help="someone else's book (analyst mode): third person, learn-from-them follow-ups")
     ap.add_argument("--compare", nargs="+", metavar="0x", help="two or more addresses side by side (cached runs are reused)")
+    ap.add_argument("--book", nargs="+", metavar="0x",
+                    help="ONE desk over several wallets — a senpi user's whole book. Every wallet is read "
+                         "and the reads are unioned: one score, one set of leaks, one P&L. Use this for a "
+                         "senpi user (every strategy wallet, closed ones included), not --compare, which "
+                         "scores each wallet separately and answers a different question.")
     ap.add_argument("--days", type=int, default=90)
     ap.add_argument("--version", action="version", version=f"quant-desk desk.py {VERSION}",
                     help="print this script's version — the one gate that catches a stale desk.py")
@@ -472,17 +529,40 @@ def main(argv=None):
             with open(sp) as fh:
                 rs.append(json.load(fh))
         print(render.render_compare(rs)); return 0
-    if not a.address:
-        print(json.dumps({"error": "an address is required (or --compare 0x… 0x…)"})); return 2
-    addr = a.address.strip()
-    if not ADDR_RE.match(addr):
-        print(json.dumps({"error": "not a Hyperliquid address — expected 0x followed by 40 hex characters"})); return 2
-    addr = addr.lower()
+    # A book runs the SAME path as one address — analyze, the empty check, the state file, --deep,
+    # --section, the render all work unchanged on a merged read. The only things that differ are
+    # which wallets get read, what an empty result means, and that a book is not an address to
+    # remember. Everything else is shared, deliberately: a parallel branch here drifts.
+    wallets = None
+    if a.book:
+        wallets = []
+        for x in a.book:
+            x = x.strip().lower()
+            if not ADDR_RE.match(x):
+                print(json.dumps({"error": f"not a Hyperliquid address: {x}"})); return 2
+            if x not in wallets:
+                wallets.append(x)
+        # The label is the first wallet: the state file and the header key on it, and a book is not
+        # itself an address. `wallets` carries the truth, and the header reads "across N wallets".
+        addr = wallets[0]
+    elif not a.address:
+        print(json.dumps({"error": "an address is required (or --book 0x… 0x… for a whole senpi book, "
+                                   "or --compare 0x… 0x… to score wallets separately)"})); return 2
+    else:
+        addr = a.address.strip()
+        if not ADDR_RE.match(addr):
+            print(json.dumps({"error": "not a Hyperliquid address — expected 0x followed by 40 hex characters"})); return 2
+        addr = addr.lower()
     # Whose book this is comes from the address book, not from how the request was phrased. An
     # UNKNOWN address is someone else's: the desk gives advice in the second person, and delivering
     # that about a stranger's trading is the failure worth defaulting against. Owner voice needs a
     # wallet senpi issued, a claim the reader already made, or an explicit flag on this run.
-    whose = resolve_whose(book, addr, other=a.other, mine=a.mine, claim=a.claim)
+    # A BOOK is the reader's own by construction — they resolved these wallets from their own
+    # `strategy_list`. Running it through the address book let one stale `analyzed` mark on one of N
+    # wallets flip the voice of the whole book to the third person: "Their desk — across 2 wallets",
+    # to the person who owns them. Only an explicit --other overrides that.
+    whose = ("other" if a.other else "mine") if wallets else \
+        resolve_whose(book, addr, other=a.other, mine=a.mine, claim=a.claim)
     state_path = os.path.join(a.state_dir, f"desk-{addr}.json")
     meta = {}
     bench = None
@@ -504,9 +584,24 @@ def main(argv=None):
             hl = hl_api.HL(cache_dir=a.cache or None); hl.progress = log; mcp = _mcp_client(meta)
         log(f"[quant-desk] running senpi quant desk on {addr[:6]}…{addr[-4:]}")
         try:
-            r = analyze(addr, hl, days=a.days, mcp=mcp, want_rank=not a.no_rank, want_cohort=not a.no_cohort, bench=bench, meta=meta, whose=whose)
+            r = analyze(addr, hl, days=a.days, mcp=mcp, want_rank=not a.no_rank and not wallets,
+                        want_cohort=not a.no_cohort, bench=bench, meta=meta, whose=whose, wallets=wallets)
         except hl_api.HLError as e:
-            print(json.dumps({"error": f"Hyperliquid read failed: {e}", "address": addr})); return 1
+            print(json.dumps({"error": f"Hyperliquid read failed: {e}",
+                              **({"wallets": wallets} if wallets else {"address": addr})})); return 1
+        if not r["activity"]["fills"] and not r["book"]["positions"] and wallets:
+            # A book that reads empty is a different dead end: this reader already resolved their
+            # wallets, so pointing them back at strategy_list is noise.
+            print(json.dumps({
+                "error": f"no PERP activity in the last {a.days} days across any of these "
+                         f"{len(wallets)} wallets, and no open perp positions. "
+                         f"Spot trades and transfers are not perp activity and are not read here.",
+                "what_this_usually_means": "a strategy that was funded but never filled has no history "
+                                           "to read, and a wallet that only ever held spot or moved "
+                                           "funds has none either. If some of these were closed "
+                                           "strategies, they may simply predate the window.",
+                "wallets": wallets, "days": a.days, "indexed": r.get("indexed"),
+                "perp_fills_in_window": 0, "open_perp_positions": 0})); return 3
         if not r["activity"]["fills"] and not r["book"]["positions"]:
             # Carry `indexed` out even here. Without it a caller cannot tell "senpi has never seen this
             # wallet" from "senpi has it and there is simply nothing in the window" — and those two need
@@ -560,6 +655,15 @@ def main(argv=None):
         r["whose"] = whose; r["followups"] = followups.offer(r, whose=whose)     # a cached run re-voiced
     rel = addr_book.CLAIMED if a.claim else (addr_book.ANALYZED if whose == "other" else None)
     tr = r.get("track") or {}
+    if wallets:
+        # Recording a book under its first wallet would file the whole book's verdict against one
+        # subwallet, and a later single-wallet run on that address would read back the wrong digest.
+        addr_book.save(a.state_dir, book)
+        if a.json:
+            print(json.dumps({k: v for k, v in r.items() if k != "episodes"}, default=float))
+        else:
+            print(render.render(r, a.section))
+        return 0
     addr_book.record(book, addr, relationship=rel, indexed=r.get("indexed"),
                      # `score` and `generated` are not keys on the record — both were silently None
                      digest={"at": r.get("now_ms"), "score": r.get("quant_score"),
