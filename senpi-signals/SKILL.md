@@ -16,7 +16,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.4.0"
+  version: "2.5.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -209,32 +209,69 @@ kept on Senpi's side rather than on a user's box, so nothing here schedules, dep
 After the feed and your few sentences, end the turn with **one question**, and nothing after it:
 
 > **Want to act on any of these?** I can set up a **single trade** on one read — you see the size, the
-> stop and the liquidation price before anything is placed. Or run it as a strategy, three ways:
-> **(1) build one around these reads** with you, **(2) Signals Hunter**, which trades this same feed on
-> a clock, or **(3) Athena**, the smart-money hedge fund, forked under your name.
+> stop and the liquidation price before anything is placed. Or run it as a strategy, five ways:
+> **(1) Signals Hunter**, which trades this same feed on a clock;
+> **(2) Puffin**, that same engine concentrated into one position at a time, at much higher
+> risk/reward;
+> **(3) Athena**, a hedge fund built on these same smart-money signals, forked under your name;
+> **(4) a different type of signal** — such as **Penguin**, which chases recent high-conviction
+> smart-money wins;
+> or **(5) roll your own**, built around these reads with you.
 
-Offer **all three** strategy routes, every time. Athena was the only one named for a while, which sent
-every user who wanted a strategy to the same place regardless of what they had just read.
+Offer **all five** strategy routes, every time. Athena was the only one named for a while, which sent
+every user who wanted a strategy to the same place regardless of what they had just read. The order is
+deliberate: the template that trades THIS feed comes first, and designing one from scratch — the most
+work, and the only one with no track record at all — comes last rather than leading.
+
+**This is a major entry point.** For most users it is the first time a read becomes a position, so the
+question is the product, not a footer. Ask it every time, in full, with all five routes.
+
+Routes (1)-(3) trade the reads above. Route (4) deliberately does **not**, and that is why it is worded
+as a different *type of signal* before any template is named: "want to act on any of these?" answered
+with a template that cannot act on them is a promise the deploy will not keep. Offering a different
+signal is fine and often right — the user may want the shape of the trade rather than these particular
+reads — but it is offered AS a different signal, never as another way to trade what they just read.
 
 - **A trade on one read → senpi-trade.** Take the side the read names. Before any order, show the
   margin and its share of the account, the leverage, the stop price and the liquidation price. The
   stop must sit before liquidation. Place nothing until the user says yes to that exact order. A
   funding extreme names no side, so it is never a one-trade setup.
-- **(1) Build one around these reads → senpi-strategy-author.** The read is the brief: the asset, the
-  side, what the read is and its numbers. Build with the author's guardrails — a DSL stop on every
-  position, leverage 3x or less, few trades, and the minimum budget plus the wallet-creation fee
-  stated before anything is funded. It is a new strategy with no track record, and you say so.
-- **(2) Signals Hunter → senpi-strategy-ops.** `signals-hunter` runs **this** detector library on an
+- **(1) Signals Hunter → senpi-strategy-ops.** `signals-hunter` runs **this** detector library on an
   hourly clock — `sweep.py`, `score.py` and `smartmoney.py` are byte-identical to the scripts behind
   the feed the user just read, held that way by a parity test. So it is the literal answer to "can I
   just trade these?": it scores the same whole-book sweep and opens what clears its score floor, long
   or short. Its floor is deliberately higher than the feed's TRADE floor, so it acts on fewer reads
   than the feed shows. Say that — a user who expects every line above to become a position will be
   disappointed by a correct run.
+- **(2) Puffin → senpi-strategy-ops.** `puffin` is the SAME vendored engine and the same
+  reads as `signals-hunter`, pointed at **one position at a time**: a score floor of 85 rather than 65,
+  75-90% of the wallet at 10x rather than 20-25% at 5x, and a 15-minute clock rather than an hour. It is
+  the aggressive answer to "can I just trade these?", and its trade-off is not subtle, so name it in the
+  same breath as the upside: there is no second position to average against the first, one stop-out
+  costs about **19-23% of the account**, and at 10x a single round trip pays roughly **0.8-0.9% of the
+  wallet in fees** — about 27% a month at one completed trade a day, before direction earns anything.
+  Offer it when the user asks for size, conviction or "the aggressive one" — never as the default, and
+  never to someone funding a first strategy. `signals-hunter` stays the default answer for this feed.
 - **(3) Fork Athena → senpi-strategy-ops.** `athena` for the smart-money hedge fund: its Phalanx sleeve
   follows the same proven cohort these reads come from, and its Aegis sleeve reads the tape to hedge
   the regime. `athena-x` is the same two sleeves at conviction size (25% at 5x rather than 15% at 3x)
   — offer it only when the user asks for size, and name the trade-off rather than just the numbers.
+- **(4) A different type of signal → senpi-strategy-ops, or senpi-strategy-discover.** Some users want
+  the shape of the trade rather than these particular reads. Name which signal the template actually
+  trades in the same sentence as the template. The worked example is `penguin`: it chases recent
+  high-conviction smart-money wins — a coin jumping 15+ places up the top-50 rows of the 4h leaderboard
+  of what winning traders are piling into, fresh and volume-confirmed — and commits one position at 10x
+  to it. That is Orca's detector rather than this feed's, and a user who arrived from these reads has to
+  hear that. It also runs with all four risk guard rails off, so nothing halts a losing run but its own
+  stop, where `puffin` halts at a 50% drawdown or three consecutive losses. When the user wants
+  something else entirely rather than this example, hand off to **senpi-strategy-discover** and let the
+  picker rank the whole catalog against what they describe — never improvise a shortlist from memory.
+- **(5) Roll your own → senpi-strategy-author.** The read is the brief: the asset, the side, what the
+  read is and its numbers. Build with the author's guardrails — a DSL stop on every position, leverage
+  3x or less, few trades, and the minimum budget plus the wallet-creation fee stated before anything is
+  funded. It is a new strategy with no track record, and you say so. Offer it as a real peer of the
+  three templates, not a consolation prize: a user who wants something none of them do should be
+  building, not talked into the nearest fork.
 - **Ops runs the walkthrough first, then asks the budget.** Read the minimum budget from the catalog,
   never from memory.
 - **Narrowing by the read.** When the user picks one read rather than a route, the template built on
@@ -243,13 +280,14 @@ every user who wanted a strategy to the same place regardless of what they had j
   | The read | Start from |
   |---|---|
   | Any of them, traded as a feed | **Signals Hunter** (`signals-hunter`) — this same engine on a clock |
+  | Any of them, but one position at a time | **Puffin** (`puffin`) — the same engine, score floor 85, 10x on one name; state the per-stop and fee cost |
   | A whale open or add | **Signals Hunter** (`signals-hunter`); note it parks `whale_open` as non-tradeable and acts on whale *moves* |
   | Smart money vs the crowd | **Athena** (`athena`), with a hedge, or **Phalanx** (`phalanx`), the cohort sleeve alone |
   | A funding extreme | **Pangolin** (`pangolin`), which fades the crowd paying to hold, or **Camel** (`camel`), which collects the carry on two books |
   | A momentum event | **Meerkat** (`meerkat`) |
   | A laggard behind BTC | **Mantis** (`mantis`) |
 
-  From scratch → senpi-strategy-author, under route (1)'s guardrails above.
+  From scratch → senpi-strategy-author, under route (5)'s guardrails above.
 - **Every template is a starting point the user makes their own.** It deploys under their name, as-is
   or with levers moved. Never promise or imply results, and never call a template proven. Deploy only on
   the user's yes.
