@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-09-24",
+  "_updated": "2026-09-25",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -5629,6 +5629,64 @@
       "sort_order": 5
     },
     {
+      "id": "puffin",
+      "name": "Puffin — One Signal, All In",
+      "emoji": "🎯",
+      "tagline": "Signals Hunter's detector library with the aperture closed: a score floor of 85 instead of 65, one position instead of five, three quarters to nine tenths of the wallet behind it at 10x, and a 15-minute clock so the entry lands near the signal rather than up to an hour after it. One name at a time, chosen from the whole universe, and nothing beside it to average against.",
+      "belief_plain": "Senpi Signals already tells you where the proven cohort is positioned, where funding is dislocated and where open interest is surging. Signals Hunter trades that feed across five names at a fifth of the wallet each. Puffin runs the identical engine and asks a harder question: out of everything scored in the last quarter hour, is there ONE name good enough to put the whole book behind? Most ticks the answer is no and it holds cash. That floor is set from measurement, not taste — over 14 days of feed output, 82 of 116 scored observations clear Signals Hunter's 65 but only 39 clear 85, and since 21 of them sit at exactly 100 the score saturates, so 85 is close to the last level that still separates one signal from another. Know what the concentration costs before funding. There is no portfolio effect to soften anything: one stop-out takes about 19-23% of the account, and because the position is 10x, a single round trip pays roughly 0.8-0.9% of the wallet in fees every time it trades — at one completed trade a day that is about 27% a month before direction earns anything. It trades both directions, because the cohort is short about as often as it is long. When the cohort read fails it opens nothing and says so, rather than quietly scoring on price and funding alone and calling that a smart-money read.",
+      "version": "1.0.0",
+      "thesis": "The detector library is the edge, so it is vendored rather than reimplemented: sweep.py, score.py and smartmoney.py are byte-identical to the skill's and a drift test enforces it, which means a detector fixed in the feed is fixed here. What this package changes is everything downstream of the score. One slot at 75% margin, 90% above a score of 93, at 10x — up to 9x gross exposure on a single name. The scan clock drops from an hour to fifteen minutes, which buys entry timing rather than more trades: with one slot, turnover is set by the exit ladder and the cooldowns, not by how often the scanner looks. That faster clock forced a real fix rather than a config edit. score.py chooses both diff baselines by wall-clock age — a roughly 60-minute fast arm and a roughly 12-hour trend arm that refuses below six — so the inherited 24-deep ring, which spans a day at hourly ticks, spans only six hours at fifteen-minute ones and would have handed the trend arm a six-hour baseline while still printing it as twelve. The ring is kept stratified instead: dense inside two hours, then about one snapshot per two hours out to a day, which covers a longer span in fewer snapshots and gives both arms a properly aged partner. Exits were rebuilt from the price move upward and then multiplied by leverage, so the 25% ROE stop is a 2.5% move in price and each ladder tier means at 10x what Signals Hunter's means at 5x — carrying its ROE numbers across unchanged would have halved every exit. One detector is still not traded: whale_open rests on a third-party startTime caught resetting on an unchanged position, which is a discountable sentence in a feed and the entire book here.",
+      "tags": [
+        "signals",
+        "senpi-signals",
+        "detector-library",
+        "whale",
+        "whale-moves",
+        "proven-cohort",
+        "cohort",
+        "smart-money",
+        "copy-trading",
+        "follows-traders",
+        "funding",
+        "open-interest",
+        "long-short",
+        "concentrated",
+        "single-slot",
+        "high-leverage",
+        "high-conviction",
+        "selective",
+        "always-on"
+      ],
+      "group": "smart-money",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "signal_feed",
+      "sub_style_label": "Trades a published signal feed's own detector library, engine vendored verbatim.",
+      "asset_classes": [
+        "universe_crypto",
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "intraday",
+      "cadence_seconds": 900,
+      "min_budget": 50,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 6
+    },
+    {
       "id": "remora",
       "name": "Remora — Autonomous Smart-Money Whale Mirror",
       "emoji": "🐟",
@@ -5672,7 +5730,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 6
+      "sort_order": 7
     },
     {
       "id": "shadow",
@@ -5716,7 +5774,7 @@
       ],
       "max_slots": 5,
       "branch": "main",
-      "sort_order": 7
+      "sort_order": 8
     },
     {
       "id": "signals-hunter",
@@ -5771,7 +5829,7 @@
       ],
       "max_slots": 5,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 9
     },
     {
       "id": "whalehunter",
@@ -5816,7 +5874,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 10
     },
     {
       "id": "osprey",
