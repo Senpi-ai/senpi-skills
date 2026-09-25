@@ -5,10 +5,11 @@
 import datetime
 
 import metrics
+import dsl as dsl_mod
 import score as score_mod
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.35.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.38.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -111,7 +112,12 @@ def short(addr):
 
 def header(r):
     a, tr, act, rank = r["address"], r["track"], r["activity"], r.get("rank")
-    lines = [f"# Your desk — `{short(a)}`",
+    # A book is not an address. Titling a union of six strategy wallets with the first one's hex is
+    # the same mistake the desk made by running on one wallet in the first place: it tells the reader
+    # they are looking at a wallet when they are looking at everything they trade.
+    ws = r.get("wallets") or []
+    title = f"across {len(ws)} wallets" if len(ws) > 1 else f"`{short(a)}`"
+    lines = [f"# Your desk — {title}",
              f"{r['days']} days · {act['fills']:,} fills · {act['coins']} coins · updated {datetime.datetime.fromtimestamp(r['now_ms'] / 1000, datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} · **YOUR QUANT — LIVE · READ-ONLY** · v{VERSION}"]
     if rank:
         lines.append(rank_line(rank))
@@ -197,6 +203,23 @@ def protection(r):
             out.append(f"| {p['coin']} | {p['side']} {p['leverage'] or '—'}x | {held} | {usd(p['notional'])} | {usd(p['unrealized'], signed=True)} · {pct(p['roe'], 0, signed=True)} | {usd(p['funding_per_day'], signed=True)} | {liq} | {pct(p['stop_covered_share'])} | {status} |")
             if status != "PROTECTED":
                 todo.append(f"- **{p['coin']}** — {note}.")
+        # What senpi's runtime is doing to these positions, where it is doing anything. The stop in
+        # the table above is read off the exchange and is already correct; what it lacks is context,
+        # because a price with no context reads as a static stop when it is a floor that ratchets.
+        # State what is LOCKED; never present the ladder ahead as protection already in force. Only
+        # corroborated, armed tiers reach here — a row the venue does not confirm says nothing, so
+        # this block can never contradict the PROTECTED column beside it.
+        _dsl = [q for q in b["positions"] if q.get("dsl")]
+        if _dsl:
+            # not necessarily "your runtime": a row can come from a direct `ratchet_stop_add` on a
+            # raw position, with no runtime involved. (@0xsarvesh, #753.)
+            out += ["", "**Senpi's ratchet stop is managing these.**"]
+            for q in _dsl:
+                ln = dsl_mod.line(q)
+                if ln:
+                    out.append(f"- **{q['coin']}** — {ln}")
+            out += ["", "_A tier that has not armed is a rule, not protection: the floor it would "
+                        "set is not in force until its trigger is reached._"]
         out += ["", "**Your quant would…**"] + (todo or ["- nothing here — every position carries a full stop."])
     else:
         out.append("\nNo open positions right now.")
@@ -216,6 +239,22 @@ def _protection_note(p, smrow):
     return "PROTECTED", "stop in place — looks good" + (" — but the whale cohort is on the other side" if against else "")
 
 
+def by_wallet_table(r):
+    """Which wallet carried the book. Only on a --book run, and only when more than one traded."""
+    rows = [w for w in (r.get("by_wallet") or []) if w["trades"] or w["open"]]
+    if len(rows) < 2:
+        return ""
+    out = ["", "**By wallet**", "",
+           "| Wallet | Trades | Win rate | Gross | Fees | Funding | Net | Open | Unrealized |",
+           "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    for w in rows:
+        wr = pct(w["wins"] / w["trades"]) if w["trades"] else "—"
+        out.append(f"| `{short(w['wallet'])}` | {w['trades']} | {wr} | {usd(w['realized'], signed=True)} "
+                   f"| {usd(-w['fees'], signed=True)} | {usd(w.get('funding') or 0.0, signed=True)} "
+                   f"| {usd(w['net'], signed=True)} | {w['open']} | {usd(w['unrealized'], signed=True)} |")
+    return "\n".join(out)
+
+
 def performance(r):
     tr = r["track"]
     out = ["## Performance", "", "| Coin | Trades | Win rate | Realized | Fees | Funding | Share of volume | Median hold |", "|---|---:|---:|---:|---:|---:|---:|---:|"]
@@ -229,6 +268,9 @@ def performance(r):
     if sb.get("bands"):
         out += ["", f"**Size vs outcome** (median position {usd(sb['median_notional'])} notional):", "", "| Size band | Winners | Losers | Realized |", "|---|---:|---:|---:|"]
         out += [f"| {b['band']} | {b['winners']} | {b['losers']} | {usd(b['realized'], signed=True)} |" for b in sb["bands"]]
+    bw = by_wallet_table(r)
+    if bw:
+        out.append(bw)
     return "\n".join(out)
 
 
@@ -614,7 +656,7 @@ def next_steps_other(r):
 
 COMPARE_ROWS = (("Weekly rank", lambda r: f"#{r['rank']['rank']:,}" if r.get("rank") else "—"), ("Archetype", lambda r: r["archetype"]),
                 ("Quant score", lambda r: str(r["quant_score"]) if r.get("quant_score") is not None else "—"), ("Net P&L (ledger)", lambda r: usd(r["track"].get("ledger_net"), signed=True)),
-                ("Return on avg equity", lambda r: pct(r["equity"].get("return_on_avg_equity"), 1, signed=True)), ("Max drawdown", lambda r: pct(-(r["drawdown"].get("dd_pct") or 0), 0, signed=True)),
+                ("Return on avg equity", lambda r: pct(r["equity"].get("return_on_avg_equity"), 1, signed=True)), ("Max drawdown", lambda r: pct(-r["drawdown"]["dd_pct"], 0, signed=True) if r["drawdown"].get("dd_pct") is not None else "—"),
                 ("Trades / win rate", lambda r: f"{r['track']['trades']} / {pct(r['track'].get('win_rate'))}"), ("Profit factor", lambda r: num(r["track"].get("profit_factor"), "x")),
                 ("Taker share", lambda r: pct(r["track"].get("taker_share"))), ("Costs ÷ gross income", lambda r: pct(r["track"].get("cost_ratio"))),
                 ("Open positions · unprotected", lambda r: f"{len(r['book']['positions'])} · {len(r['book']['naked'])}"), ("Margin used", lambda r: pct(r["book"].get("margin_utilization"))),

@@ -1,6 +1,6 @@
 # quant-desk — methodology
 
-> **This document describes the engine as of quant-desk 1.35.0.** Nine formulas in it were stale
+> **This document describes the engine as of quant-desk 1.38.0.** Nine formulas in it were stale
 > between 1.9.0 and 1.14.0 while SKILL.md sent the agent here for them, so an agent asked "how is my
 > cost score computed?" answered with the pre-1.9.0 rule, confidently. If you change a formula in
 > `scripts/`, change it here in the same commit — `test_methodology_matches_the_engine` fails if the
@@ -51,9 +51,18 @@ ones.
 * Net (observed) = gross realized − fees + funding. **Net P&L (ledger)** = the `pnlHistory` delta over the
   window — Hyperliquid's own figure, fees, funding and unrealized included; complete regardless of coverage.
 * Return on average equity = ledger net ÷ mean transfer-adjusted equity over the window.
-* Max drawdown: on the transfer-adjusted equity curve (account value + cumulative net outflows), so a
-  withdrawal never reads as a loss; % of the adjusted peak. `IN DRAWDOWN` when the last point sits > 5%
+* Max drawdown: the deepest peak-to-trough fall in Hyperliquid's own **cumulative P&L** series, which
+  is transfer-immune by construction — a withdrawal moves account value, never P&L, so it can never read
+  as a loss. The percentage divides that fall by **the equity it came out of: account value at the
+  peak**, read from the RAW (not transfer-adjusted) curve. `IN DRAWDOWN` when the last point sits > 5%
   under the peak.
+* When the peak carries no positive equity reading, the older form — `equity at the trough + the fall`
+  — is used instead; the two are identical whenever nothing was deposited or withdrawn in between.
+  When **neither** carries one, the drawdown percentage is **unknown** (`None`, rendered `—`) rather
+  than invented. A senpi strategy wallet is funded, traded, then swept back to the funding wallet on
+  close, so its account-value history reads 0.0 long after real money passed through it; dividing the
+  fall by that zero made `dd_pct` saturate to 100% and printed "the account went to zero" over books
+  that fell 12% — and over one that ended the window up $57. The dollar fall is always reported.
 * Hold times: medians over complete episodes, stated only with ≥ 5 complete winners **and** ≥ 5 complete
   losers.
 * Cost ratio = (fees − funding) ÷ gross realized, when gross > 0.
@@ -242,14 +251,14 @@ cohort → `smart`; a funding bill → `funding`; a losers leak → `replay`; re
   catalog families, and the discover/author handoff.
 * `regime`, `smart`, `scout`, `strategy`, `watch` — the corresponding sections in full.
 
-## Scoring rules as of 1.35.0 — read these, not any older formula above
+## Scoring rules as of 1.38.0 — read these, not any older formula above
 
 These nine changed between 1.9.0 and 1.15.0 while this file still described the pre-1.9.0 engine.
 
 | Rule | Current |
 |---|---|
 | Cost efficiency | `100 − min(70, costs/|ledger_net| × 150)`. Base is the money actually lost, not gross — measuring cost against a loss measures the loss. A maker **rebate** is earned, never counted as a cost. |
-| Drawdown penalty | `min(75, dd_pct × 75)`. The old `min(20, ×60)` saturated at 33%, scoring a wipeout the same as a third. |
+| Drawdown penalty | `min(75, dd_pct × 75)`. The old `min(20, ×60)` saturated at 33%, scoring a wipeout the same as a third. An **unknown** `dd_pct` (no equity basis — see Max drawdown) costs nothing: an unmeasurable drawdown is not evidence of a bad one. |
 | Funding penalty | `min(45, yr × 50)`. Saturated at 40%/yr. |
 | Abstention | All six dimensions return `None` rather than score when they have nothing to measure — below `MIN_PATTERN_TRADES` closed trades, or with no open book for market fit. |
 | Headline | Re-normalised over the dimensions that measured. Below `MIN_DIMENSIONS` (3) the desk declines to score at all. |
@@ -265,4 +274,6 @@ These nine changed between 1.9.0 and 1.15.0 while this file still described the 
 | Where the grid reads | Totals come from senpi's indexed history where it is available; the counterfactual grid always reads the FILLS-derived episodes, which carry a real size path. A discovery row's `size` accumulates over the position's life — one row on one wallet is 13,651 fills over 20 days — so it is not an exposure to price an exit against. |
 | Quoted fee rates | Measured from the fills (taker fees ÷ taker volume), not from `userFees` — the xyz schedule comes back identical to main, so the quoted bp would not reproduce the quoted dollars. |
 | Beta denominator | Floored at a tenth of the window's median equity; steps below it are dropped rather than divided by a collapsed tail. |
+| DSL tiers | Where senpi's runtime manages a position, the desk names the ARMED tier and its floor, and lists the ladder ahead as unarmed. `lockRoe` is a share of the HIGH-WATER GAIN (floor = entry + lock% x (HW - entry)), so an unarmed tier's floor is not in force; presenting the ladder as protection would claim a floor that does not exist. **A tier is named only where the exchange corroborates the backend row** — its `activeSLOrderId` matches an order resting in the book the desk already read, or its `tierFloorPrice` sits where a resting stop sits, and the side agrees. A backend ratchet row can outlive the position it was written for (`backendHasLiveSl`, `process-one-position.ts:1052`), so an uncorroborated row is not repeated. |
+| DSL phases | Phase 1 is **runtime-local**: the runtime posts its own exchange stop via `editPosition({stopLoss})` at `phase1.absoluteFloor`, which is the strategy's `max_loss_pct` — no backend ratchet is registered. The `ratchet_stop_list` row appears only at the **phase-2 handoff** (`addRatchetStop`, gated on `phase === 2`). So `currentTierIndex: -1` does NOT mean "phase 1"; the desk says nothing for such a row. |
 | One bar, one table | `leaks()` and `recoverable()` read the same `levers()` table and nothing else. A family the lever bar declines is stated **unpriced**, with the measured pattern that survives it; there is no second path that reports a number the bar rejected. |
