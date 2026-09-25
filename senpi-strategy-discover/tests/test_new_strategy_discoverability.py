@@ -57,6 +57,9 @@ _CASES = [
     # ── concentrated signals variant (2026-09-25): one slot, score floor 85, 10x ──
     ("puffin",   _intent(), "one signal at a time all in high conviction"),
     ("puffin",   _intent(), "concentrated single position high leverage"),
+    # ── the xyz-inclusive striker (2026-09-25): penguin with the xyz ban lifted ──
+    ("razorbill", _intent(), "rank jump striker stocks and crypto"),
+    ("razorbill", _intent(), "all markets striker tradfi and perps"),
 ]
 
 

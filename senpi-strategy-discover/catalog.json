@@ -1982,6 +1982,67 @@
       "sort_order": 23
     },
     {
+      "id": "razorbill",
+      "name": "Razorbill — Concentrated Striker, All Markets",
+      "emoji": "🗡️",
+      "tagline": "Penguin with the whole venue in scope: the identical rank-jump detector, one slot, 90% of the wallet at 10x — but it scores equities, commodities, indices and pre-IPO alongside crypto perps instead of dropping them. One strike at a time, chosen from everything Hyperliquid lists.",
+      "belief_plain": "It looks for the same thing Orca and Penguin do — a name suddenly rocketing up the leaderboard of what winning traders are piling into, young enough to still be moving and backed by a real volume spike — then commits the whole account to that one name at 10x for up to four hours. What is different is where it looks. Penguin only ever sees crypto perps; Razorbill also sees the equities, commodities, indices and pre-IPO markets on the venue, which is a large and busy part of it: 109 of those instruments traded in the last week, the most active carrying hundreds of distinct traders, around the clock. Know the honest caveat before funding. The detector was built on crypto, where a leaderboard jump means someone rotated into a name. Equities all move together when the US market opens, so on any given weekday this may fire on whichever stock jumped at the open rather than on a rotation — and with one slot, that is the whole book. Bigger opportunity set, and a real chance the signal means something different in half of it.",
+      "version": "1.0.0",
+      "thesis": "Razorbill is Penguin with one constant flipped. The detector, the thresholds, the sizing, the clock and the brakes are Penguin's to the byte — scoring.py is identical and scan.py differs by the single flag that drops `xyz:` markets. So everything Penguin's card says about the payoff still holds: one slot, 90% margin, 10x, a 4-hour hard timeout and a 3-hour weak-peak cut, a 15% ROE stop sized to sit outside ordinary noise at that leverage, and a ratcheting ladder that locks nothing until +20% ROE. One stop-out still costs about 13.5% of the account before fees, and with the four risk guard rails off nothing halts a losing run but the stop itself. What changes is the pool the detector draws from. Three things were measured before shipping rather than assumed: the xyz book is not thin (109 instruments, top names at 200-770 distinct traders), it does not go dark overnight (active in every UTC hour, with a session swing of roughly 8x against crypto's own 6x), and its leverage caps are higher than much of the alt book, so the per-name venue clamp that decides this package's whole trade bites less often. One thing was NOT settled: whether a leaderboard rank jump carries the same meaning on an instrument whose underlying opens at a fixed hour. Crypto rotation is idiosyncratic; an equity complex moves as one at 13:30 UTC. Run this if you want the detector pointed at the whole venue and you accept that half the universe may be answering a different question.",
+      "tags": [
+        "leader-momentum",
+        "momentum",
+        "breakout",
+        "rank-jump",
+        "first-jump",
+        "striker",
+        "universe-scanner",
+        "concentrated",
+        "single-slot",
+        "high-leverage",
+        "xyz",
+        "equities",
+        "stocks",
+        "commodities",
+        "gold",
+        "oil",
+        "indices",
+        "pre-ipo",
+        "all-markets",
+        "tradfi"
+      ],
+      "group": "momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "rank_jump",
+      "sub_style_label": "Catches leaderboard rank-jumps early.",
+      "asset_classes": [
+        "universe_crypto",
+        "xyz_equities",
+        "commodities",
+        "indices",
+        "pre_ipo"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "intraday",
+      "cadence_seconds": 90,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 24
+    },
+    {
       "id": "roach",
       "name": "Roach — Striker Rank-Jump Sniper",
       "emoji": "🪳",
@@ -2025,7 +2086,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 24
+      "sort_order": 25
     },
     {
       "id": "rooster",
@@ -2075,7 +2136,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 25
+      "sort_order": 26
     },
     {
       "id": "sailfish",
@@ -2127,7 +2188,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 26
+      "sort_order": 27
     },
     {
       "id": "salamander",
@@ -2179,7 +2240,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 27
+      "sort_order": 28
     },
     {
       "id": "sheep",
@@ -2234,7 +2295,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 28
+      "sort_order": 29
     },
     {
       "id": "jaguar",
