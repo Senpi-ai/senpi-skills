@@ -194,6 +194,10 @@ def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=Non
                         notional=notional, margin_used=_f(p.get("marginUsed")), unrealized=_f(p.get("unrealizedPnl")), roe=_f(p.get("returnOnEquity")),
                         liq_px=liq_px, liq_distance_pct=(abs(mark - liq_px) / mark * 100) if (liq_px and mark) else None,
                         stop_covered_share=(covered / size) if size else 0.0, stop_px=nearest,
+                        # the ids of the orders actually resting. A backend ratchet row names the
+                        # order it believes it owns; being able to check that against the book is
+                        # what separates a live row from a stale one. (@0xsarvesh, #753.)
+                        stop_oids=[o.get("oid") for o in stops if o.get("oid") is not None],
                         stop_distance_pct=(abs(mark - nearest) / mark * 100) if (nearest and mark) else None, take_profit=bool(tps),
                         funding_rate_hourly=rate, funding_per_day=-(rate * notional * 24) * (1 if side == "LONG" else -1),
                         funding_since_open=_f((p.get("cumFunding") or {}).get("sinceOpen")),
