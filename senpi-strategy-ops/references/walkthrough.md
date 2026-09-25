@@ -63,11 +63,44 @@ list shows the id the deploy verb derives from the package (`<owner>-<template>`
 `ignas-phalanx`). Their own words win: `--name "Shield Wall"` → `shield-wall`. A second fork of the same
 template needs a name that tells them apart — ask.
 
-## 4. The question
+## 4. The question — and the alternatives beside it
 
 *"Run it as-is, or shift one of these first? Say **go** and it deploys as-is."* A bare "go", "deploy",
 "yes" or "as-is" = the defaults, under their name. A status check — "did you finish?", "how's it going?" —
 is not a yes: answer it and wait. Never a gate, never re-asked; the budget question comes after the answer.
+
+**Name the alternatives in the same breath, before the money question.** A user who clicked a quick
+action, or typed the one template name they had seen, has not chosen it over the others — they have
+chosen the only one they were shown. Funding it without ever hearing that a variant exists is a worse
+outcome for them than a slightly longer message, and it is the difference between a picker and a funnel.
+
+Derive the list from the catalog rather than from memory, in this order — five short lines, one clause
+each, no second walkthrough:
+
+1. **The one they asked for** — the walkthrough above, in a phrase.
+2. **Its variants** — every other catalog entry sharing this template's `sub_style`, with the ONE thing
+   that differs. That is almost always slots, leverage or universe, and it is already in the catalog:
+   `max_slots`, `leverage_max`, `asset_classes`. `sub_style` is what makes a family a family
+   (`signal_feed` = signals-hunter + puffin; `rank_jump` = orca + penguin + razorbill + roach;
+   `sm_hedge_fund` = athena + athena-x), so a template added later joins its family here with no edit.
+3. **The same conviction at a different shape** — the nearest entry in the same `group` when one reads
+   as a peer rather than a variant.
+4. **A different type of signal** — hand to **senpi-strategy-discover** and let the picker rank the
+   whole catalog. Never improvise a shortlist from memory; name at most one example.
+5. **Build your own** — **senpi-strategy-author**, offered as a real peer, not a consolation prize.
+
+Worked example, for a user who arrived on "run a Signals Hunter strategy" — the walkthrough is Signals
+Hunter's, and the alternatives are:
+
+> **(1) Signals Hunter** — what you just read: the feed's own engine on an hourly clock, five slots at 5x.
+> **(2) Puffin** — that same engine concentrated into one position at a time, at much higher risk/reward.
+> **(3) Athena** — the smart-money hedge fund built on these same signals, forked under your name.
+> **(4) A different type of signal** — Penguin, say, which chases recent high-conviction smart-money wins.
+> **(5) Roll your own** — built around these reads, with me.
+
+Route 4 names a template that trades a DIFFERENT signal, so say which one it trades in the same
+sentence — "want to act on these?" answered with something that cannot act on them is a promise the
+deploy will not keep. Cost class stays a fact beside each line, never a discouragement.
 
 ## 5. Fee load and the design budget
 
