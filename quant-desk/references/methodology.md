@@ -1,10 +1,10 @@
 # quant-desk — methodology
 
-> **This document describes the engine as of quant-desk 1.38.0.** Nine formulas in it were stale
-> between 1.9.0 and 1.14.0 while SKILL.md sent the agent here for them, so an agent asked "how is my
-> cost score computed?" answered with the pre-1.9.0 rule, confidently. If you change a formula in
-> `scripts/`, change it here in the same commit — `test_methodology_matches_the_engine` fails if the
-> versions drift.
+> **This document describes the quant-desk engine at 1.38.0, the version it had when it moved from
+> this skill into the trading runtime (`@senpi-ai/runtime`).** Nine formulas in it were stale between
+> 1.9.0 and 1.14.0 while SKILL.md sent the agent here for them, so an agent asked "how is my cost
+> score computed?" answered with the pre-1.9.0 rule, confidently. The engine now lives in the
+> runtime: a formula change there updates this file in the same release.
 
 
 Every number on the desk is a function of public onchain data (or Senpi discovery when a token is
@@ -142,7 +142,7 @@ Quant score = Σ weight × dimension, rounded.
 Cohort bias per coin = net ÷ gross signed notional over cohort members holding it ([−1, +1]); a read needs
 ≥ 3 members; |bias| < 0.2 is `COHORT SPLIT`. `WITH — BUT LATE (+h)` when your entry sits more than 4h after
 the cohort's median entry on your side (Senpi source only — the public source carries no entry times).
-Whale median table: `benchmark.json`, medians computed by `scripts/benchmark.py` with this same engine over
+Whale median table: medians computed by the engine's benchmark builder with this same engine over
 the Senpi discovery cohort (members with ≥ 10 trades); rendered only when the benchmark holds ≥ 5 such
 members. A public-leaderboard run is diagnostic only — whales are TWAP-heavy and their public round trips
 come back nearly empty.
@@ -235,8 +235,8 @@ positive score, each with its reasons. Process only.
 
 A bank of ten, scored for relevance (naked or near-liquidation positions → `protect` first; against the
 cohort → `smart`; a funding bill → `funding`; a losers leak → `replay`; regime cells present → `regime`;
-≥ 30 trades → `compare`; a best setup → `rules`/`scout`). Three to five are offered; each maps to
-`--deep <mode>`:
+≥ 30 trades → `compare`; a best setup → `rules`/`scout`). Three to five are offered; each names a
+deep mode (in quant-desk 2.0 the skill answers them from the desk's sections):
 * `protect` — hard stop = 1.5 × the average **daily** range (each day's high-to-low over the last two
   weeks of hourly candles, not the average of a day's hourly ranges), pulled in toward the mark when
   liquidation is nearer than that so the stop still triggers first, keeping a 40% buffer above the
