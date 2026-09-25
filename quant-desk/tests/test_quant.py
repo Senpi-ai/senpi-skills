@@ -3267,3 +3267,47 @@ def test_the_skill_forbids_promising_a_backgrounded_run():
     skill = _P(HERE, "..", "SKILL.md").read_text()
     assert "Never promise delivery you cannot perform" in skill
     assert "does not come back to you on its own" in skill
+def test_the_desk_says_which_dsl_tier_is_armed_and_never_claims_the_rest():
+    """A DSL position already reads PROTECTED — the desk reads the resting order off the exchange
+    and finds a real one, verified against the public order book on three wallets (a full-size
+    reduce-only trigger on all three). What the desk could not say is WHAT that stop is: a price
+    with no context reads as a static stop when it is a floor that ratchets.
+
+    The one thing this must never do is present the ladder as protection in force. `lockRoe` is a
+    share of the HIGH-WATER GAIN, so "protected in all tiers" on the worked example would claim
+    tier 3's 88% floor (3.1582) when 35% is locked (3.1134) — 1.45% of entry at 5x of protection
+    that does not exist. An agent made exactly that mistake in production once."""
+    import dsl, render
+
+    tiers = [{"triggerRoe": 8, "lockRoe": 35}, {"triggerRoe": 18, "lockRoe": 60},
+             {"triggerRoe": 35, "lockRoe": 75}, {"triggerRoe": 60, "lockRoe": 88}]
+    armed = {"dsl": dict(strategy="Phalanx", tiers=tiers, tier_index=0, n_tiers=4, phase=2,
+                         floor_px=3.1134, high_water_px=3.1684, high_water_roe=13.716843,
+                         armed=tiers[0], next_tier=tiers[1])}
+    ln = dsl.line(armed)
+    assert "tier 1 of 4" in ln, "the reader cannot tell WHERE in the ladder they are"
+    assert "3.1134" in ln, "the floor is truncated — this is a price someone may place"
+    assert "35%" in ln and "Next: +18% ROE locks 60%" in ln
+    for never in ("3.1582", "88% of the gain", "all tiers", "fully protected"):
+        assert never not in ln, f"the unarmed ladder is being claimed as protection: {never}"
+
+    assert "only ever tightens" in ln and "only ever rises" not in ln, \
+        "a SHORT's floor ratchets downward — 'rises' tells that reader their stop moves away"
+    assert dsl.line({}) is None, "a position with no DSL gets no line"
+
+    # and the render states the distinction in its own words, not only per position
+    b = dict(positions=[dict(armed, coin="xyz:NATGAS", side="LONG", leverage=5, notional=1000.0,
+                             unrealized=10.0, roe=0.1, funding_per_day=0.0, liq_distance_pct=50.0,
+                             stop_covered_share=1.0, opened_ms=None, stop_px=3.1134, stop_oids=[1],
+                             stop_distance_pct=3.0, take_profit=False)],
+             naked=[], partial=[], account_value=5000.0, margin_utilization=0.2, withdrawable=100.0,
+             unrealized=10.0, funding_per_day=0.0)
+    md = render.protection({"book": b, "now_ms": 1, "market": {"stance": "RISK-ON"}})
+    assert "Senpi's ratchet stop is managing these" in md
+    assert "tier 1 of 4" in md
+    assert "not in force until its trigger is reached" in md, \
+        "the page must say an unarmed tier is a rule, not protection"
+
+    # the side read must never be able to break the desk
+    assert dsl.attach(None, "0xabc", {"positions": []}) == 0
+    assert dsl.strategies_for(None, "0xabc") == []
