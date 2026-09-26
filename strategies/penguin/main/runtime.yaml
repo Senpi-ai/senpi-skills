@@ -148,13 +148,67 @@ exit:
     phase2:
       enabled: true
       tiers:                                 # ROE triggers; the price move each is at 10x in brackets.
-                                             # Tiers 1-2 lock harder than the v2 ladder did (35/45 vs
-                                             # 25/40) because with hard_timeout off a position can now
-                                             # be held indefinitely — the floor has to do that work.
-        - { trigger_pct: 20,  lock_hw_pct: 35 }   # 2.0% of price
-        - { trigger_pct: 30,  lock_hw_pct: 45 }   # 3.0% of price
-        - { trigger_pct: 50,  lock_hw_pct: 60 }   # 5.0% of price
-        - { trigger_pct: 75,  lock_hw_pct: 75 }   # 7.5% of price
+                                             # Seven rungs, retuned 2026-09-26 (second pass) off the WLD
+                                             # short on this template: 118,414 WLD, $6,290 margin, peak
+                                             # +29.1% ROE / $1,830 unrealised, realised +$545 gross. The
+                                             # old tier 1 locked 35% of high-water, so the stop trailed
+                                             # 1.89% behind a 2.91% move and could only ever keep a third
+                                             # of it. Of the $1,426 given back, $1,189 was this line —
+                                             # not fees ($142) or stop slippage ($95).
+                                             #
+                                             # Two faults in the old shape. (a) Rungs sat at 2/3/5/7.5/10%
+                                             # of price while the trades live at 2-3%: of 506 fleet
+                                             # positions that armed rung 1 in 7 days, 117 reached rung 2,
+                                             # 27 rung 3, 8 rung 4 and ONE rung 5 — four of five rungs
+                                             # were decoration. (b) Inside a rung the lock is fixed while
+                                             # high-water grows, so the leash was LOOSEST when the position
+                                             # was most proven (1.30% at arm, 1.89% by the peak). Backwards.
+                                             #
+                                             # Leash = (1 - lock) x trigger / leverage, i.e. how far price
+                                             # may retrace off high-water before the floor fires. Measured
+                                             # noise band, WLD 24h of 1m bars, largest bounce off a running
+                                             # high-water per 30m window: p50 1.18%, p75 1.90%, p90 3.16%.
+                                             # Every leash below is >= 1.20%, so none sits under the median
+                                             # bounce; the old 1.00%-equivalent settings did.
+                                             #
+                                             # 1.20% is where runner-rescue SATURATES. Widening rung 1 from
+                                             # 1.00% to 1.20% rescues 13 of 60 stopped positions and they go
+                                             # on to a median peak of 30.6% ROE instead of the 22.2% where
+                                             # the tighter leash cut them. 1.30% and 1.40% rescue the same
+                                             # 13 to the same peak — no further gain. At 1.60% the rescued
+                                             # count rises to 24 but their median peak DROPS to 24.5%: past
+                                             # 1.20% you stop saving runners and start holding losers.
+                                             #
+                                             # Rung 1 at trigger 15 was considered and REJECTED: at 10x a
+                                             # 1.5% trigger is inside the churn — it armed 144 times in 24h,
+                                             # the leash fired on 88% of them at a median high-water of only
+                                             # 18.0% ROE, banking +2.8% of account. It stops being a safety
+                                             # net and becomes the strategy.
+                                             #
+                                             # 1-win-pays-3-losses: floor must reach 3 x (max_loss + fee)
+                                             # + fee = 3 x (15 + 2.26) + 2.26 = +54.0% ROE, which this
+                                             # ladder hits at a 7.2% price move. (Independent of
+                                             # margin_pct — it cancels.) Fleet P(reach 7.2%) is ~1.5-4%, so
+                                             # the tail tier is table stakes; the 2-3% band, which is 77%
+                                             # of armed positions, is what actually pays for the losers.
+                                             #
+                                             # Replayed on the WLD tape this exits 20:56 at 0.52348 for
+                                             # +$915 gross / +$773 net vs the +$404 actually realised, and
+                                             # is identical under both intra-bar orderings (not sitting on
+                                             # a whipsaw knife edge). E[% of account] per armed position
+                                             # across the fleet peak distribution: 12.70 vs 8.98 for the
+                                             # old ladder. CAVEAT: the noise band and the 1.20% saturation
+                                             # point come from ONE asset over 24h (n=60, rescue cohort 13).
+                                             # If a wider study lands saturation at 1.40%, rung 1 becomes
+                                             # 20/30. Leash per rung, at arm -> at the next trigger:
+                                             # 1.20->1.50, 1.25->1.50, 1.20->1.60, 1.40->1.75,
+                                             # 1.50->2.10, 1.75->2.50, 1.50->unbounded.
+        - { trigger_pct: 20,  lock_hw_pct: 40 }   # 2.0% of price
+        - { trigger_pct: 25,  lock_hw_pct: 50 }   # 2.5% of price
+        - { trigger_pct: 30,  lock_hw_pct: 60 }   # 3.0% of price
+        - { trigger_pct: 40,  lock_hw_pct: 65 }   # 4.0% of price
+        - { trigger_pct: 50,  lock_hw_pct: 70 }   # 5.0% of price
+        - { trigger_pct: 70,  lock_hw_pct: 75 }   # 7.0% of price
         - { trigger_pct: 100, lock_hw_pct: 85 }   # 10% of price
 
 # ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
