@@ -58,8 +58,8 @@ _CASES = [
     ("puffin",   _intent(), "one signal at a time all in high conviction"),
     ("puffin",   _intent(), "concentrated single position high leverage"),
     # ── the xyz-inclusive striker (2026-09-25): penguin with the xyz ban lifted ──
-    ("razorbill", _intent(), "rank jump striker stocks and crypto"),
-    ("razorbill", _intent(), "all markets striker tradfi and perps"),
+    ("pelican", _intent(), "rank jump striker stocks and crypto"),
+    ("pelican", _intent(), "all markets striker tradfi and perps"),
 ]
 
 

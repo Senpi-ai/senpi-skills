@@ -9,7 +9,7 @@ The sibling guard `strategies/tests/test_no_phantom_asset_context_keys.py` stops
 back. This file covers what that one cannot: that the arithmetic is right and that a real ratio is
 actually returned rather than the fail-open default.
 
-`penguin` and `razorbill` each carry a byte-identical copy of this function;
+`penguin` and `pelican` each carry a byte-identical copy of this function;
 test_forks_match_orca below pins them together so a fix to one cannot silently skip the others.
 
 Run: python3 -m pytest strategies/orca/tests -q
@@ -115,7 +115,7 @@ def test_no_phantom_previous_day_volume_field():
 
 def test_forks_match_orca():
     """Every fork of orca inherited this bug and the fix. Pin the implementations together so a
-    later fix to one cannot silently skip the others. `razorbill` is a penguin fork that changes
+    later fix to one cannot silently skip the others. `pelican` is a penguin fork that changes
     only the xyz universe flag, so it carries this function unchanged too."""
     here = os.path.dirname(__file__)
     orca = os.path.join(here, "..", "main", "scanners", "scan.py")
@@ -125,7 +125,7 @@ def test_forks_match_orca():
         start = body.index("def _check_asset_volume(")
         return body[start:body.index("\ndef ", start + 1)]
 
-    for fork in ("penguin", "razorbill"):
+    for fork in ("penguin", "pelican"):
         path = os.path.join(here, "..", "..", fork, "main", "scanners", "scan.py")
         if not os.path.exists(path):
             continue  # fork retired or renamed; nothing to pin
@@ -141,7 +141,7 @@ def test_a_degraded_read_is_not_reported_as_confirmed():
     same blind spot returns in a rarer form."""
     import re
     here = os.path.dirname(__file__)
-    for pkg in ("orca", "penguin", "razorbill"):
+    for pkg in ("orca", "penguin", "pelican"):
         path = os.path.join(here, "..", "..", pkg, "main", "scanners", "scan.py")
         if not os.path.exists(path):
             continue
