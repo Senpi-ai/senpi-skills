@@ -75,7 +75,7 @@ _MISSED_RESULTS = ("rejected", "blocked")     # signal.outcome results that neve
 # re-fetch. Every aggregation is fail-open: no events → empty aggregate, never a crash.
 #
 # The DSL terminal enum (the telemetry `close_reason`, from references/event-log.md). A trade's exit lands
-# in ONE of these; the ratchet fallback's SL_TRIGGERED/MANUAL_CLOSE/LIQUIDATED/ADL and the honest UNKNOWN
+# in ONE of these; the ratchet fallback's SL_TRIGGERED/CLOSED_OFF_LADDER/LIQUIDATED/ADL and the honest UNKNOWN
 # also bucket here (whatever `exit_reason.terminal` holds). PREMATURE = the early/shaken-out cohort.
 _PREMATURE_TERMINALS = ("trailing_floor", "weak_peak", "max_retrace")   # the "shaken out too early" bucket
 _PREMATURE_TIER_MAX = 1        # a low tier_index (<=1) locked with a small roe reads as a premature lock too
@@ -465,7 +465,12 @@ def _load_ratchet_records(client, strat, meta):
 # no ratchet record for a closed trade means we don't KNOW the mechanism — never guess it (guardrail 6).
 _TERMINAL_MAP = {
     "SL_TRIGGERED": "SL_TRIGGERED",     # the DSL fired — a hard stop or a locked profit tier
-    "MANUALLY_CLOSED": "MANUAL_CLOSE",
+    # NOT "the user closed it". `MANUALLY_CLOSED` is a DSL *ladder* status: the ladder ended because the
+    # position went away by some route other than its own stop. The runtime closing on signal invalidation
+    # or a time cut, the agent calling close_position, and the user closing on the venue all land here —
+    # the DSL record cannot tell them apart. Naming it MANUAL_CLOSE told one user he had hand-closed nine
+    # positions his runtime had closed (2026-09-25).
+    "MANUALLY_CLOSED": "CLOSED_OFF_LADDER",
     "LIQUIDATED": "LIQUIDATED",
     "ADL": "ADL",
 }
