@@ -119,7 +119,7 @@ def test_refusal_codes_are_named():
 
 
 def test_run_id_line_and_exit_codes():
-    _needles("`[quant-desk] run <runId>`",
+    _needles("`[quant-desk] run `",
              "Exit `2` is a refusal and exit `3` a failure",
              "Exit `6` is still running",
              "Exit `1` is transport")
@@ -299,8 +299,10 @@ def test_book_path_is_staged():
 
 
 def test_list_shows_whose_book():
-    _needles("`openclaw senpi quant list` shows every address this box has read with whose book it was "
-             "(mine / other); only a `mine` row is theirs — ask before treating anything else as theirs.")
+    _needles("`openclaw senpi quant list` shows the last 20 runs with their voice (mine / other); a `mine` "
+             "row means the desk was read in the reader's voice, not that they claimed it — when unsure "
+             "whose it is, ask.")
+    assert "every address this box has read" not in _flat(_skill())
 
 
 def test_not_indexed_makes_no_team_promise():
@@ -338,3 +340,44 @@ if __name__ == "__main__":
     for fn in fns:
         fn(); print(f"  ✓ {fn.__name__}")
     print(f"\n{len(fns)}/{len(fns)} passed")
+
+
+# --- fix wave 2: the skill's words match what the runtime does ---------------------------------
+
+def test_run_id_is_prefix_matched():
+    """A cached run suffixes the run line; a first-line / exact-match reading loses the id."""
+    _needles("keep the run id from the stderr line that starts with `[quant-desk] run ` (match the "
+             "prefix; a cached run adds a suffix)")
+    assert "keep the run id from its first line" not in _flat(_skill())
+
+
+def test_exit_1_is_only_before_a_run_started():
+    """The runtime never exits 1 once a run line printed; poll failures are exit 6."""
+    _needles("Exit `1` is transport before a run started: say the desk did not run, once, and stop. "
+             "If a `[quant-desk] run` line was printed, the desk is running or done — poll "
+             "`openclaw senpi quant status <runId>` first.",
+             "Exit `6` is still running / state unknown — poll")
+
+
+def test_freshness_key_names_voice_and_book():
+    _needles("the same addresses, `--days`, voice (`--mine`/`--other`) and `--book`",
+             "switching voice or book is a new run")
+
+
+def test_bare_rerun_is_mine_so_other_is_passed_every_time():
+    """The runtime keeps no per-address voice memory: a bare re-run is `mine`."""
+    flat = _flat(_skill())
+    assert "stays someone else's on a bare re-run" not in flat
+    _needles("pass `--other` every time")
+
+
+def test_timeout_row_matches_the_runtime_next_step():
+    row = [l for l in _skill().splitlines() if "[E_QUANT_TIMEOUT]" in l]
+    assert len(row) == 1, row
+    assert "if the reader asks" not in row[0], row[0]
+    assert "one more try, then tell the reader it timed out" in row[0], row[0]
+
+
+def test_book_limit_is_25():
+    _needles("a book reads at most 25 wallets; if the reader has more, pass the 25 with the most "
+             "recent activity")

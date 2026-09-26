@@ -67,15 +67,15 @@ when to run it, whose book, in which voice, and what to say about the numbers.
    run. If exec hands back `{"status":"running", "sessionId": …}`, poll that session with the `process` tool
    until it ends, inside the same turn — nothing wakes you when it finishes. A second `run` is refused with
    `[E_QUANT_IN_PROGRESS]`, naming the run still working: poll it with `openclaw senpi quant status <runId>`.
-1. **Relay it in STAGES — never as one block.** The analysis takes 30-60s on a typical book, up to ~2 MINUTES
-   on a very wide one (100+ coins), and the whole desk is thousands of words. Only the first call computes;
-   every later section is read back from the stored run, instantly. **Stage 1 — the hook:** `openclaw senpi
-   quant run <0xaddress> --section overview` prints only the score, the rank and the verdict — relay it the
-   moment it lands, and keep the run id from its first line, `[quant-desk] run <runId>`. **Stage 2 — what is
-   urgent:** `openclaw senpi quant show <runId> --section protection`. **Stage 3 — the money:** `openclaw
-   senpi quant show <runId> --section leaks`. **Stage 4 — the rest**, in one call: `openclaw senpi quant show
-   <runId> --section strategy --section context --section performance --section smart --section market
-   --section edge --section scout --section followups`.
+1. **Relay it in STAGES — never as one block.** The analysis takes 30-60s on a typical book, up to ~2 MINUTES on a
+   very wide one (100+ coins), and the whole desk is thousands of words. Only the first call computes; every later
+   section is read back from the stored run, instantly. **Stage 1 — the hook:** `openclaw senpi quant run
+   <0xaddress> --section overview` prints only the score, the rank and the verdict — relay it the moment it lands;
+   keep the run id from the stderr line that starts with `[quant-desk] run ` (match the prefix; a cached run adds a
+   suffix). **Stage 2 — what is urgent:** `openclaw senpi quant show <runId> --section protection`. **Stage 3 — the
+   money:** `openclaw senpi quant show <runId> --section leaks`. **Stage 4 — the rest**, in one call: `openclaw
+   senpi quant show <runId> --section strategy --section context --section performance --section smart --section
+   market --section edge --section scout --section followups`.
    **All four stages belong to ONE turn** — never end a turn mid-desk, and never announce a stage you are not
    about to run. If you name the next stage, the call for it goes in the same turn. Stop only when the desk is
    finished, or when something actually failed — and then say so plainly rather than promising. Do not batch
@@ -131,15 +131,14 @@ when to run it, whose book, in which voice, and what to say about the numbers.
    > promise that lands a week early is the one that gets remembered as a lie.
 6. **Say "quant", "desk", "agents", "leak", "protect".** Never "report", "analyst", "bot", "AI assistant".
    Lowercase `senpi`. No outcome guarantees. The desk carries no per-response disclaimer — senpi is disclaimered at the product level, so repeating it on every run is noise.
-7. **Address hygiene and whose book it is.** Show the address shortened (`0x2999…65de`). Never post the desk
-   of a wallet the user did not name. **An address is the reader's own book unless we know otherwise** — run it
-   plain and speak to them. An address already read as someone else's stays someone else's on a bare re-run (a
-   whale they looked at last week must not start handing them the whale's leaks to fix); when it is unclear
-   whose book it is, ask. **Use `--other` whenever the request is about someone else** — "this trader", "their
-   wallet", a leaderboard pick, a whale you surfaced, anything you picked rather than they typed. That desk
-   speaks in the third person, the closing becomes *what to take from this trader*, and the follow-ups are the
-   learning ones (their playbook as rules under **your** name, the smart-money picture on their coins, whether
-   they are worth copying → `senpi-trader-research`). It is analysis of onchain data, never advice to copy.
+7. **Address hygiene and whose book it is.** Show the address shortened (`0x2999…65de`). Never post the desk of a
+   wallet the user did not name. **An address is the reader's own book unless we know otherwise** — run it plain
+   and speak to them. A bare re-run reads as theirs, so pass `--other` every time for someone else's book; when
+   unclear whose, ask. **Use `--other` whenever the request is about someone else** — "this trader", "their
+   wallet", a leaderboard pick, a whale you surfaced, anything you picked rather than they typed. That desk speaks
+   in the third person, the closing becomes *what to take from this trader*, and the follow-ups are the learning
+   ones (their playbook as rules under **your** name, the smart-money picture on their coins, whether they are
+   worth copying → `senpi-trader-research`). It is analysis of onchain data, never advice to copy.
 7b. **An address senpi has not indexed yet.** When the desk says senpi's own history has no closed trades for
    a wallet whose public fills show them, say so instead of presenting the desk as complete. Take the count
    from the runtime's text, never from memory (if it gives none, say "over 25,000"): *"senpi is rolling out
@@ -176,20 +175,22 @@ Every command is `openclaw senpi quant …` through your exec tool, with rule 0'
 | User says | `openclaw senpi quant …` | Then |
 |---|---|---|
 | "run AI quant / run quant / run quant desk on 0x…", "score my trading", "find leaks", "how am I doing" | `run 0x… --section overview`, then rule 1's stages | the full desk — the user is 0x… |
-| a senpi user's "score my trading" / "find my leaks" | `run 0x… 0x… 0x… --book --section overview`, then rule 1's stages — every strategy wallet, closed ones included | one desk, with its by-wallet table |
+| a senpi user's "score my trading" / "find my leaks" | `run 0x… 0x… 0x… --book --section overview`, then rule 1's stages — every strategy wallet (up to 25), closed ones included | one desk, with its by-wallet table |
 | one question: protected? leaking? smart money? strategy? market? edge? fix first? | `run 0x… --section protection` · `leaks` · `smart` · `strategy` · `context` · `edge` · `next` | `strategy` → "is that deliberate?"; `edge`/`next` → the closing |
 | more on a desk already run · which desks have I run | `show <runId> --section <name>` · `list` · `status [runId]` | `show` never recomputes |
 
-`--days N` changes the 90-day window. A finished run of the same addresses and `--days` younger than 10 minutes
-is reused; `--fresh` recomputes. `--json`: never relay from it — relay the rendered sections.
-Deep dives and side-by-side compares are not in this version (`[E_QUANT_UNSUPPORTED]`).
+`--days N` changes the 90-day window. A run under 10 minutes old on the same addresses, `--days`, voice
+(`--mine`/`--other`) and `--book` is reused — switching voice or book is a new run; `--fresh` recomputes. `--json`:
+never relay from it — relay the rendered sections. Deep dives and side-by-side compares are not in this version
+(`[E_QUANT_UNSUPPORTED]`).
 Each section's contents and sources: `references/desk-contract.md`; formulas: `references/methodology.md`.
 
 ## When the runtime says no
 
 Exit `0` is done. Exit `2` is a refusal and exit `3` a failure: both print a bracketed code and the next step —
-obey it, never retry around it. Exit `6` is still running: poll `status <runId>`. Exit `1` is transport: say
-the desk did not run, once, and stop.
+obey it, never retry around it. Exit `6` is still running / state unknown — poll `status <runId>`. Exit `1` is
+transport before a run started: say the desk did not run, once, and stop. If a `[quant-desk] run` line was printed,
+the desk is running or done — poll `openclaw senpi quant status <runId>` first.
 
 | Code | Means | You |
 |---|---|---|
@@ -198,7 +199,7 @@ the desk did not run, once, and stop.
 | `[E_QUANT_NOT_A_TRADER]` | a vault, or a book wider than the desk reads | relay its `say_to_the_reader` line and offer their own wallet — it is a statement about this tool's reach and makes **no claim about who the reader is**; never `--force` unless the reader explicitly asks to read a vault as if it were a trader |
 | `[E_QUANT_UNSUPPORTED]` | a mode this version does not run | say it is not available yet; offer what it names |
 | `[E_QUANT_UPSTREAM]` | a data source failed mid-run | relay its `what_to_do`; say plainly what did not run |
-| `[E_QUANT_TIMEOUT]` | the run passed the runtime's 240s ceiling | say it did not finish; one fresh try if the reader asks, never a loop |
+| `[E_QUANT_TIMEOUT]` | the run passed the runtime's 240s ceiling | say it did not finish; one more try, then tell the reader it timed out — never a loop |
 
 A book that EARNS on its fills is disclosed, not refused: read its edge figures as a quoting book's, and say
 so. Every optional layer (rank, cohort, candles, Senpi) fails open to a line under `Notes:`.
@@ -228,21 +229,21 @@ and carries no attribution; `senpi-strategy-ops` attributes what it deploys.
 A bare "run quant desk" with no `0x…` may mean **their own book** or **someone else's**. Settle that first —
 one question decides everything after: *"Your own book, or do you want me to find you someone to read?"*
 
-Someone else's → rule 7c. **Their own**, in this precedence: (1) **an address they told you is theirs** — a
-trader who came from Hyperliquid with their own wallet does not stop owning it the moment they have senpi
-strategies, so **do not forget an address they already claimed**. `openclaw senpi quant list` shows every
-address this box has read with whose book it was (mine / other); only a `mine` row is theirs — ask before
-treating anything else as theirs. (2) **their senpi strategy wallets** (`strategy_list`); (3) **both** — ask
-which they mean today; (4) **neither** — ask for an address and **offer to show them the desk on a real book in
-the same breath**: *"I don't have a wallet for you yet — paste any Hyperliquid address and I'll read it. Or I
-can find you a trader worth reading so you can see what it gives you."* For that, resolve candidates with the
-`senpi-trader-research` skill, then run the pick with `--other`.
+Someone else's → rule 7c. **Their own**, in this precedence: (1) **an address they told you is theirs** — a trader
+who came from Hyperliquid with their own wallet does not stop owning it the moment they have senpi strategies, so
+**do not forget an address they already claimed**. `openclaw senpi quant list` shows the last 20 runs with their
+voice (mine / other); a `mine` row means the desk was read in the reader's voice, not that they claimed it — when
+unsure whose it is, ask. (2) **their senpi strategy wallets** (`strategy_list`); (3) **both** — ask which they mean
+today; (4) **neither** — ask for an address and **offer to show them the desk on a real book in the same breath**:
+*"I don't have a wallet for you yet — paste any Hyperliquid address and I'll read it. Or I can find you a trader
+worth reading so you can see what it gives you."* For that, resolve candidates with the `senpi-trader-research`
+skill, then run the pick with `--other`.
 
-**A senpi user's perp history lives in their strategy wallets, not their embedded wallet.** The embedded
-wallet is a FUNDING wallet — a desk on it reads "no PERP activity" on a book that may trade every day. So
-**offer the strategy wallets first**, named by their strategy, and the embedded wallet second, labelled "your
-funding wallet, usually no trades of its own". Their whole book is one desk, `openclaw senpi quant run 0x…
-0x… 0x… --book --section overview`, in ONE call, then rule 1's stages. **Include CLOSED and PAUSED
-strategies, not just ACTIVE.** The window is 90 days, and a strategy they shut down six weeks ago still
-traded inside it. A side-by-side desk per wallet is not in this version — offer the whole book or one
-wallet, and never improvise the comparison yourself.
+**A senpi user's perp history lives in their strategy wallets, not their embedded wallet.** The embedded wallet is
+a FUNDING wallet — a desk on it reads "no PERP activity" on a book that may trade every day. So **offer the
+strategy wallets first**, named by their strategy, and the embedded wallet second, labelled "your funding wallet,
+usually no trades of its own". Their whole book is one desk, `openclaw senpi quant run 0x… 0x… 0x… --book --section
+overview`, in ONE call, then rule 1's stages; a book reads at most 25 wallets; if the reader has more, pass the 25
+with the most recent activity. **Include CLOSED and PAUSED strategies, not just ACTIVE.** The window is 90 days,
+and a strategy they shut down six weeks ago still traded inside it. A side-by-side desk per wallet is not in this
+version — offer the whole book or one wallet, and never improvise the comparison yourself.
