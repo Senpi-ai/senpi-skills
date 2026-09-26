@@ -1165,3 +1165,23 @@ if __name__ == "__main__":
         fn()
         print(f"  ok {fn.__name__}")
     print(f"\n{len(fns)}/{len(fns)} passed")
+
+
+def test_a_ratchet_sourced_exit_never_attributes_the_close_to_the_user():
+    """2026-09-25: a user was told he had hand-closed nine positions his runtime closed. The DSL status
+    `MANUALLY_CLOSED` is a LADDER status — it says the ladder ended for a reason that was not its own
+    stop, and cannot distinguish the runtime, the agent, or the user. Mapping it to `MANUAL_CLOSE` made
+    that ambiguity read as a statement about the trader. 173 runs / 20 users in the 7 days before."""
+    import review
+    assert review._TERMINAL_MAP["MANUALLY_CLOSED"] == "CLOSED_OFF_LADDER"
+    # nothing on the ratchet path may imply the trader acted
+    for value in review._TERMINAL_MAP.values():
+        assert "MANUAL" not in value.upper(), f"{value} reads as an act by the user"
+    # the contract and the skill must both carry the caveat, or the narrator re-invents the claim
+    from pathlib import Path as _P
+    root = _P(__file__).resolve().parents[2]
+    shape = (root / "senpi-improve-trades/references/output-shape.md").read_text(encoding="utf-8")
+    skill = (root / "senpi-improve-trades/SKILL.md").read_text(encoding="utf-8")
+    assert "does NOT mean the user closed it" in shape
+    assert "never closed by its stop" in skill or "not closed by its stop" in skill
+    assert "CLOSED_OFF_LADDER" in shape and "CLOSED_OFF_LADDER" in skill

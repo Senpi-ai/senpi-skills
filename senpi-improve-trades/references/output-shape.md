@@ -87,6 +87,9 @@ meta          { warnings[], sources[], window, degraded,
 `exit_reason.terminal` — **when telemetry enriched it** (`source: "telemetry"`) it's the native
 `close_reason`: `tier_breach`, `max_retrace`, `trailing_floor`, `weak_peak`, `dead_weight`, `hard_timeout`,
 `manual`, `sl_hit`. **When it fell back to the ratchet record** (`source: "ratchet"`) it's `SL_TRIGGERED`,
-`MANUAL_CLOSE`, `LIQUIDATED`, `ADL`. Neither available → `UNKNOWN` (`source: "unknown"`) — say "exit mechanism
-not recorded on this build," never guess. `tier_index`/`tier_reached` = the tier that locked; `high_water_roe`
+`CLOSED_OFF_LADDER`, `LIQUIDATED`, `ADL`. Neither available → `UNKNOWN` (`source: "unknown"`) — say "exit mechanism
+not recorded on this build," never guess. **`CLOSED_OFF_LADDER` does NOT mean the user closed it** — it is the
+DSL ladder saying it ended for a reason that was not its own stop. The runtime closing on signal invalidation
+or a time cut, the agent calling `close_position`, and the user closing on the venue are indistinguishable in
+this record. Say "not closed by its stop"; never attribute it to the trader. `tier_index`/`tier_reached` = the tier that locked; `high_water_roe`
 = the peak ROE — together they tell you *which lever* to tune.
