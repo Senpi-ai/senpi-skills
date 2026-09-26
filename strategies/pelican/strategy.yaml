@@ -1,0 +1,60 @@
+# Pelican — Concentrated Striker, All Markets. A single-instance PACKAGE: this manifest +
+# one self-contained runtime.yaml + scanners/. Pelican is PENGUIN with the xyz ban lifted,
+# and nothing else: same Orca detector, same score/jump/prev-rank/volume thresholds, same one
+# slot at 90% margin and 10x, same exit ladder and no hard timeout, same guard rails (off).
+# scoring.py is byte-identical to Penguin's; scan.py differs by one constant.
+#
+# The one difference is the UNIVERSE. Orca and Penguin drop `xyz:` markets (v2 XYZ_BANNED);
+# Pelican scores them alongside crypto, so the same detector now ranges over equities,
+# commodities, indices and pre-IPO as well as perps.
+#
+# Measured before shipping (2026-09-25): 109 xyz instruments traded in 7 days, the top names
+# carrying 200-770 distinct traders and active in EVERY UTC hour — so they clear the
+# 10-trader board floor easily and are not a thin-book risk. Venue leverage caps are kinder
+# than the alt book (XYZ100 30x, GOLD 25x, TSLA/NVDA/META/AAPL 20x, the 10x names at exactly
+# Pelican's request), so the per-name clamp bites LESS here than on a 3x-capped alt.
+#
+# The open question is on the card and is NOT settled: the US cash open moves the whole equity
+# complex at once (xyz notional goes ~$190M to ~$1,021M between 12:00 and 13:00 UTC), and a
+# rank-jump detector may read one session opening as many simultaneous signals.
+#
+# It also runs with the four risk guard rails OFF (daily loss, entries/day, consecutive
+# losses, drawdown halt). That is deliberate and it is the reason this is `tier: advanced`
+# and `risk_level: aggressive` — nothing halts this package except its own stop.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: pelican
+version: "1.0.0"
+
+catalog:
+  name: "Pelican — Concentrated Striker, All Markets"
+  emoji: "🌊"
+  tagline: "A penguin only eats what swims through its own patch of ocean; a pelican takes whatever is in the water. Same rank-jump detector as Penguin, same one slot at 90% of the wallet and 10x — but it scores equities, commodities, indices and pre-IPO alongside crypto perps instead of dropping them. One strike at a time, chosen from everything Hyperliquid lists."
+  belief_plain: "It looks for the same thing Orca and Penguin do — a name suddenly rocketing up the leaderboard of what winning traders are piling into, young enough to still be moving and backed by a real volume spike — then commits the whole account to that one name at 10x with no clock on the hold. What is different is where it looks. Penguin only ever sees crypto perps; Pelican also sees the equities, commodities, indices and pre-IPO markets on the venue, which is a large and busy part of it: 109 of those instruments traded in the last week, the most active carrying hundreds of distinct traders, around the clock. Know the honest caveat before funding. The detector was built on crypto, where a leaderboard jump means someone rotated into a name. Equities all move together when the US market opens, so on any given weekday this may fire on whichever stock jumped at the open rather than on a rotation — and with one slot, that is the whole book. Bigger opportunity set, and a real chance the signal means something different in half of it."
+  thesis: "Pelican is Penguin with one constant flipped. The detector, the thresholds, the sizing, the clock and the brakes are Penguin's to the byte — scoring.py is identical and scan.py differs by the single flag that drops `xyz:` markets. So everything Penguin's card says about the payoff still holds: one slot, 90% margin, 10x, a 15% ROE stop sized to sit outside ordinary noise at that leverage, no hard timeout, and a ratcheting ladder that arms at +20% ROE and locks 35% of the peak before stepping to 45/60/75/85. One stop-out still costs about 13.5% of the account before fees, and with the four risk guard rails off nothing halts a losing run but the stop itself. What changes is the pool the detector draws from. Three things were measured before shipping rather than assumed: the xyz book is not thin (109 instruments, top names at 200-770 distinct traders), it does not go dark overnight (active in every UTC hour, with a session swing of roughly 8x against crypto's own 6x), and its leverage caps are higher than much of the alt book, so the per-name venue clamp that decides this package's whole trade bites less often. One thing was NOT settled: whether a leaderboard rank jump carries the same meaning on an instrument whose underlying opens at a fixed hour. Crypto rotation is idiosyncratic; an equity complex moves as one at 13:30 UTC. Run this if you want the detector pointed at the whole venue and you accept that half the universe may be answering a different question."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: rank_jump
+  asset_classes: [universe_crypto, xyz_equities, commodities, indices, pre_ipo]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: intraday
+  leverage_max: 10
+  max_slots: 1
+  assets: []                # derived universe — names come from the top-50 rows of the 4h leaderboard each tick, crypto AND xyz, not a fixed list
+  tags: [leader-momentum, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, concentrated, single-slot, high-leverage, xyz, equities, stocks, commodities, gold, oil, indices, pre-ipo, all-markets, tradfi]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: PELICAN_WALLET
+    funding_share: 1.0
