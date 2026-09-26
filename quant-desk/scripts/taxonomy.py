@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Asset classes for the strategy read. Crypto tiers come from LIVE open interest (majors = top 3 by OI,
 large caps = the next 12, alts = the rest); memecoins are the 1000×-denominated `k…` names plus a short,
-documented list; xyz groups are senpi-market-pulse's own (verbatim), so the two skills agree."""
+documented list; xyz groups are senpi-market-pulse's own (verbatim), so the two skills agree.
+A coin from another builder's perp dex (`flx:`, `km:`, `hyna:` …) is that dex's market, not an alt, and
+Hyperliquid names some markets only by index (`#14731`) — those are "unnamed", never guessed at."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 XYZ_GROUPS = {
     "semis_memory":   ["MU", "SNDK", "SKHX", "DRAM", "WDC"],
@@ -23,7 +25,8 @@ for _g, _names in XYZ_GROUPS.items():
 MEMES = {"DOGE", "WIF", "FARTCOIN", "PUMP", "TRUMP", "MOODENG", "POPCAT", "PNUT", "PEPE", "SHIB", "BONK", "FLOKI", "GOAT", "CHILLGUY",
          "MEW", "BRETT", "TURBO", "NEIRO", "SPX", "CASHCAT", "PONS", "MELANIA", "AI16Z", "VVV", "GRIFFAIN"}
 LABELS = {"majors": "majors", "large_caps": "large caps", "alts": "alts", "memes": "memecoins", "xyz_equities": "equities", "xyz_indices": "indices",
-          "xyz_commodities": "commodities", "xyz_macro_fx": "FX / macro", "xyz_other": "other xyz"}
+          "xyz_commodities": "commodities", "xyz_macro_fx": "FX / macro", "xyz_other": "other xyz",
+          "other_dex": "other dexes", "unnamed": "unnamed markets"}
 
 
 def crypto_tiers(ctxs):
@@ -42,6 +45,10 @@ def crypto_tiers(ctxs):
 def classify(coin, majors, large):
     if coin.startswith("xyz:"):
         return XYZ_CLASS.get(coin[4:], "xyz_other")
+    if coin.startswith("#"):
+        return "unnamed"
+    if ":" in coin:
+        return "other_dex"
     if coin in majors:
         return "majors"
     if coin.startswith("k") and coin[1:2].isupper() or coin in MEMES:

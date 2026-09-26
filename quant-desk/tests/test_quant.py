@@ -329,6 +329,18 @@ def test_taxonomy_tiers_and_memes():
     assert taxonomy.classify("OBSCURE", majors, large) == "alts" and taxonomy.classify("xyz:NVDA", majors, large) == "xyz_equities" and taxonomy.classify("xyz:GOLD", majors, large) == "xyz_commodities"
 
 
+def test_other_dex_and_unnamed_markets_are_not_alts():
+    """A market we cannot name, and another builder's dex, must not be reported as an alt."""
+    ctxs = _ctxs([("BTC", 100), ("ETH", 90), ("HYPE", 80)])
+    majors, large = taxonomy.crypto_tiers(ctxs)
+    # Hyperliquid names some live markets only by index; no meta endpoint resolves them.
+    assert taxonomy.classify("#14731", majors, large) == "unnamed"
+    # Another builder's perp dex — km:US500 is the S&P, hyna:BTC is bitcoin. Neither is an alt.
+    for coin in ("km:US500", "hyna:BTC", "flx:TSLA", "vntl:SPACEX"):
+        assert taxonomy.classify(coin, majors, large) == "other_dex"
+    assert taxonomy.label("unnamed") == "unnamed markets" and taxonomy.label("other_dex") == "other dexes"
+
+
 def _ep(coin, side, open_h, close_h, realized, win=None, notional=1000.0):
     return dict(coin=coin, direction=side, open_time=open_h * H, close_time=close_h * H, last_time=close_h * H, realized=realized, win=(realized > 0) if win is None else win,
                 fees=1.0, volume=notional, taker_volume=notional, peak_notional=notional, complete=True, truncated=False, hold_h=close_h - open_h, adds=0, entry_vwap=1.0)
