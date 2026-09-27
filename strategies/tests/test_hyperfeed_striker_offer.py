@@ -34,14 +34,14 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 # skill -> fragments that must appear somewhere in its SKILL.md
 OFFER = {
-    "senpi-market-pulse":        ["Penguin", "Pelican", "senpi Hyperfeed", "13.5% of the wallet"],
-    "senpi-smart-money":         ["Penguin", "Pelican", "senpi Hyperfeed", "13.5% of the wallet"],
+    "senpi-market-pulse":        ["Penguin", "Pelican", "senpi Hyperfeed", "-15% SL", "90% margin"],
+    "senpi-smart-money":         ["Penguin", "Pelican", "senpi Hyperfeed", "-15% SL", "90% margin"],
     "senpi-portfolio":           ["Penguin", "Pelican", "Puffin", "Signals Hunter", "Athena",
-                                  "13.5% of that wallet"],
+                                  "-15% SL", "90% margin"],
     "senpi-signals":             ["Penguin", "Pelican", "Hyperfeed"],
     "senpi-trader-research":     ["senpi-signals", "hands-off"],
-    "senpi-improve-trades":      ["Penguin", "Pelican", "Hyperfeed"],
-    "senpi-strategy-discover":   ["Penguin", "Pelican", "Start here", "13.5% of that wallet"],
+    "senpi-improve-trades":      ["Penguin", "Pelican", "Hyperfeed", "-15% SL"],
+    "senpi-strategy-discover":   ["Penguin", "Pelican", "Start here", "-15% SL", "90% margin"],
 }
 
 # Every surface that pitches the strikers must also carry the honest cost, and must not sell them
@@ -82,16 +82,29 @@ class HyperfeedStrikerOffer(unittest.TestCase):
                                     f"{skill}/SKILL.md pitches the detector as a pump signal: "
                                     f"...{body[max(0, m.start() - 80):m.end() + 40].strip()}...")
 
-    def test_cost_is_stated_per_stop_out(self):
-        """13.5% of the wallet, and 'each' — never '-15%' as a cap on total downside."""
+    def test_the_sl_is_unpacked_as_roe_not_a_price_move(self):
+        """The pitch says "-15% SL". Every surface carrying it must also say what that IS.
+
+        "-15% SL" reads as a 15% adverse PRICE move to most perps traders. It is 15% ROE — at 10x a
+        1.5% price move, ten times tighter than the plain reading. The user-facing line stays short by
+        design (Jason's wording), so the disambiguation lives in the agent guidance directly beneath
+        it: an agent asked "what does -15% mean?" must answer in price, and must give the wallet cost
+        per stop-out rather than let it read as a cap on total downside (guard rails are off, so three
+        stops is ~40% of the wallet).
+        """
         for skill in PITCHES:
             body = _body(skill)
-            self.assertIn("13.5%", body, f"{skill}/SKILL.md dropped the per-stop wallet cost")
-            self.assertRegex(body, r"\*\*each\*\*|each stop-out",
-                             f"{skill}/SKILL.md dropped the per-trade qualifier on the stop cost")
+            self.assertIn("15% ROE", body,
+                          f"{skill}/SKILL.md carries '-15% SL' with nothing saying it is ROE")
+            self.assertIn("1.5%", body,
+                          f"{skill}/SKILL.md never converts the stop to a price move")
+            self.assertIn("13.5%", body,
+                          f"{skill}/SKILL.md dropped the per-stop wallet cost")
+            self.assertIn("per stop-out", body,
+                          f"{skill}/SKILL.md dropped the per-trade qualifier — '-15% SL' then reads as "
+                          f"a cap on total downside, and stops compound with the guard rails off")
             self.assertNotRegex(body, r"limiting losses to -?15%",
-                                f"{skill}/SKILL.md states the stop as a cap on total downside; it is "
-                                f"15% ROE per trade (~13.5% of the wallet), and stops compound")
+                                f"{skill}/SKILL.md states the stop as a cap on total downside")
 
     def test_no_outcome_promise(self):
         """The pitch is what the machinery does, never what it will return.

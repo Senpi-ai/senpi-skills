@@ -906,8 +906,9 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
 
   > **What should the idle go into?**
   >
-  > 1. **Penguin** — the Hyperfeed striker, crypto only: one position at up to 10x on the strongest live
-  >    rotation, with a DSL floor that ratchets up to lock gains. High risk, high reward.
+  > 1. **Penguin** — the Hyperfeed striker, crypto only: one position at up to 10x, 90% margin, on the
+  >    strongest live rotation, with a DSL floor that ratchets up to lock gains. High risk, high reward,
+  >    with -15% SL.
   > 2. **Pelican** — the same striker across all assets: crypto plus stocks, commodities, indices
   >    and pre-IPO.
   > 3. **Puffin** — the smart-money signal feed, concentrated into one position at a time at high
@@ -917,9 +918,12 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
   > 6. Or **something else** — tell me how you want to trade and we'll find or build it.
 
   Penguin and Pelican are the two most people start with, because a live rotation shows up fast and
-  they are built to be forked and modified. State the cost honestly with the offer: each stop-out is
-  about 13.5% of that wallet (a 15% ROE stop on 90% margin), **each** — their risk guard rails are off,
-  so stops compound. Say **rotations**, never "pumps". Routes 1-5 hand to **senpi-strategy-ops**;
+  they are built to be forked and modified. Be able to unpack the numbers: **-15% SL is 15% ROE, not a
+  15% price move** — at 10x that is a **1.5%** move, so answer in price when asked. On 90% margin it is
+  **~13.5% of that wallet per stop-out**, and say **per stop-out** — their risk guard rails are off, so
+  stops compound. **Up to 10x**, never a flat 10x: the per-name venue cap clamps many instruments, which
+  moves the price behind every number, not the wallet cost. Say **rotations**, never "pumps".
+  Routes 1-5 hand to **senpi-strategy-ops**;
   route 6 to **senpi-strategy-discover** (find one) or **senpi-strategy-author** (build one). Topping up
   an existing *whole* strategy via `strategy_top_up` stays available whenever that fits better.
   Propose; never deploy without confirmation.

@@ -184,19 +184,19 @@ four hours has a four-hour record, and offering them would read as a recommendat
 
   > Want a feel for what senpi Hyperfeed can do? **Penguin** (crypto only) or **Pelican** (all assets)
   > react only to the strongest live rotations on the feed — a name suddenly rocketing up what winning
-  > traders hold — then commit one position at up to 10x with a DSL floor that ratchets up to lock gains as it
-  > runs. High risk, high reward: each stop-out costs about 13.5% of the wallet. Built to be forked and
-  > made your own.
+  > traders hold — then commit one position at up to 10x, 90% margin, with a DSL floor that ratchets up
+  > to lock gains as it runs. High risk, high reward, with -15% SL.
 
-  Say **rotations**, never "pumps": the detector fires on a jump in what winning traders HOLD, not on
-  price, so a pumping name no smart money rotated into does not fire at all. The stop is 15% **ROE** —
-  a 1.5% price move at 10x — which on 90% margin is the ~13.5% of the wallet quoted above; quote the
-  wallet number, and say **each**, because Penguin's risk guard rails are off and stops compound.
-  Say **up to 10x**, never a flat 10x: the per-name venue cap clamps leverage below 10 on plenty of
-  instruments, and it is the clamp that decides this package's whole trade. What the clamp changes is
-  the PRICE move behind a number, not the wallet cost — ROE is return on margin, so a 15% ROE stop is
-  ~13.5% of the wallet at any leverage, while the price move it takes doubles at 5x (3.0%, not 1.5%),
-  and every ladder trigger moves with it (tier 1's +20% ROE is a 4% move at 5x, not 2%).
+  Three things about that line the agent must be able to unpack, because each is easy to read wrong:
+  **-15% SL is 15% ROE, not a 15% price move** — at 10x that is a **1.5%** move, so if the user asks what
+  the stop means, answer in price, never leave "-15%" to be read as the distance. On 90% margin it costs
+  **~13.5% of the wallet per stop-out**, and say **per stop-out**: these run with their risk guard rails
+  off, so stops compound (three ≈ 40% of the wallet). **Up to 10x**, never a flat 10x — the per-name venue
+  cap clamps many instruments below it, and that clamp moves the PRICE behind every number without moving
+  the wallet cost: ROE is return on margin, so the stop is ~13.5% at any leverage while the move it takes
+  doubles at 5x (3.0%), and tier 1's +20% ROE becomes a 4% move rather than 2%. And say   **rotations**, never "pumps": the detector fires on a jump in what winning traders HOLD, not on price, so a pumping
+  name no smart money rotated into does not fire at all.
+
   Its peer is a strategy built from the thesis you just produced: hand
   **senpi-strategy-author** a structured brief (e.g. *"semi-led risk-off, memory −10%/logic −3%,
   software green, gold & DXY calm = orderly rotation → candidate: long asset-light software / short

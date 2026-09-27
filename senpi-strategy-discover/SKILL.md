@@ -287,7 +287,8 @@ worldview/fund picks; offer the stack on single-wallet picks only.
   >
   > 1. **Penguin** — crypto only. The Hyperfeed striker: it reacts only to the strongest live rotations
   >    on the feed — a name suddenly rocketing up what winning traders hold — then commits one position
-  >    at up to 10x with a DSL floor that ratchets up to lock gains as it runs.
+  >    at up to 10x, 90% margin, with a DSL floor that ratchets up to lock gains as it runs. High risk,
+  >    high reward, with -15% SL.
   > 2. **Pelican** — the same striker across all assets: crypto plus stocks, commodities, indices
   >    and pre-IPO.
   > 3. **Signals Hunter** — the smart-money signal feed traded on a clock, spread across several slots.
@@ -296,12 +297,15 @@ worldview/fund picks; offer the stack on single-wallet picks only.
   > 5. Or tell me **how you want to trade** and I'll rank the whole catalog against it.
 
   Lead with 1 and 2: a live rotation shows up fast, so the reader sees what the machinery actually does
-  early, and both are built to be forked and modified once they have a feel for it. **High risk, high
-  reward, and say the cost in the same breath** — each stop-out is about 13.5% of that wallet (a 15% ROE
-  stop on 90% margin), **each**, because their risk guard rails are off and stops compound. Say
-  **rotations**, never "pumps": the detector fires on a jump in what winning traders HOLD, not on price,
-  so a pumping name no smart money rotated into does not fire. Never promise a runner, a win rate or a
-  timeframe — the pitch is what the machinery does, never what it will return.
+  early, and both are built to be forked and modified once they have a feel for it. **Unpack the numbers
+  if they ask, and never leave them to be misread.** **-15% SL is 15% ROE, not a 15% price move** — at 10x
+  that is a **1.5%** move, so answer in price when asked what the stop means. On 90% margin it costs
+  **~13.5% of the wallet per stop-out**, and say **per stop-out**: their risk guard rails are off, so stops
+  compound (three ≈ 40% of the wallet). **Up to 10x**, never a flat 10x — the per-name venue cap clamps
+  many instruments below it, and that clamp moves the PRICE behind every number, not the wallet cost
+  (ROE is return on margin: ~13.5% at any leverage, while the move doubles at 5x). Say   **rotations**, never "pumps": the detector fires on a jump in what winning traders HOLD, not on price, so a pumping
+  name no smart money rotated into does not fire. Never promise a runner, a win rate or a timeframe —
+  the pitch is what the machinery does, never what it will return.
 - **"What's winning"** → reframe honestly: *"I rank by what's set up well right now, not last week's
   winner."* Read the market; lead with the best current setup from `market_facts`. Never imply a real
   per-package performance leaderboard.
