@@ -72,6 +72,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import striker_scoring as scoring  # noqa: E402 — byte-identical to penguin's scoring.py
 
 # ── freshness windows (seconds). The scanner itself re-reads every 90s; see the docstring. ──
+MIN_BASELINE_S = 30        # below this there is nothing to diff: see classify()
 LIVE_MAX_S = 300           # <= 5 min: Penguin-comparable
 WIDE_MAX_S = 1800          # <= 30 min: scored, labelled as a wider window
 RING_MAX = 12              # snapshots kept; a dozen covers a working session
@@ -186,8 +187,18 @@ def snapshot_of(markets, ts):
 
 
 def classify(age_s):
+    """Bands by baseline age. Note BOTH ends are refused, not just the stale one.
+
+    TOOFRESH exists because the first live run produced a 3-SECOND baseline (two reads back to
+    back) and the block called it "comparable to the scanner's own 90-second cadence". Nothing
+    rank-jumps in 3 seconds; the board is usually byte-identical. Claiming a real comparison off a
+    3s diff is the same error as scoring an 11-hour one — an honest window has a floor as well as
+    a ceiling.
+    """
     if age_s is None:
         return "NONE"
+    if age_s < MIN_BASELINE_S:
+        return "TOOFRESH"
     if age_s <= LIVE_MAX_S:
         return "LIVE"
     if age_s <= WIDE_MAX_S:
@@ -213,8 +224,17 @@ def tier_a(markets, top):
         if m["cc_15m"] <= 0:
             continue
         rows.append(m)
-    rows.sort(key=lambda m: (-m["cc_15m"], m["rank"]))
+    # cc_15m comes off the feed QUANTIZED to 0.1%, so on a quiet board the whole top slice ties at
+    # the same value (first live run: six rows, five of them +0.5%). Sorting on it alone then hands
+    # back an order that looks ranked and is not. Tiebreak on share of top-trader gains, which is
+    # the magnitude behind the change, then on rank.
+    rows.sort(key=lambda m: (-m["cc_15m"], -m["contribution"], m["rank"]))
     return rows[:top]
+
+
+def delta_is_flat(rows):
+    """True when the 15m change cannot separate the slice — the caller must say so."""
+    return len(rows) > 1 and len({round(r["cc_15m"], 1) for r in rows}) == 1
 
 
 def score_against(markets, ring, now_s, hour_utc, top):
@@ -224,7 +244,7 @@ def score_against(markets, ring, now_s, hour_utc, top):
     baseline = ring[-1]
     age_s = max(0.0, now_s - baseline["ts"])
     band = classify(age_s)
-    if band == "STALE":
+    if band in ("STALE", "TOOFRESH"):
         return [], age_s, band
     prev_by_key = {(m["token"], m.get("dex", "")): m for m in baseline.get("markets", [])}
     prev_tokens = set(prev_by_key)
@@ -314,12 +334,18 @@ def render(rep):
         L.append("*Hottest right now* — by the feed's own 15-minute change in top-trader "
                  "contribution, on the names Penguin would look at:")
         L.append("")
-        L.append("| # | market | side | 15m contrib Δ | rank | traders | 1h | 4h |")
-        L.append("|---|---|---|---|---|---|---|---|")
+        L.append("| # | market | side | 15m contrib Δ | share of gains | rank | traders | 1h | 4h |")
+        L.append("|---|---|---|---|---|---|---|---|---|")
         for i, m in enumerate(rep["movers"], 1):
             nm = f"{m['token']}" + (f" ({m['dex']})" if m["dex"] else "")
-            L.append(f"| {i} | {nm} | {m['direction']} | {m['cc_15m']:+.1f}% | #{m['rank']} "
-                     f"| {m['traders']} | {m['price_chg_1h']:+.2f}% | {m['price_chg_4h']:+.2f}% |")
+            L.append(f"| {i} | {nm} | {m['direction']} | {m['cc_15m']:+.1f}% | {m['contribution']:.1f}% "
+                     f"| #{m['rank']} | {m['traders']} | {m['price_chg_1h']:+.2f}% "
+                     f"| {m['price_chg_4h']:+.2f}% |")
+        if delta_is_flat(rep["movers"]):
+            L.append("")
+            L.append("> The feed's 15-minute change is **flat across all of these** (it is quantized "
+                     "to 0.1%), so this is not a ranking — it is the eligible set, ordered by share "
+                     "of top-trader gains. Do not present the top row as the hottest name.")
     else:
         L.append("*No name currently clears the gates* — nothing outside the top 10 has a rising "
                  "15-minute contribution with the 4h move agreeing. That is a real read: the feed "
@@ -345,6 +371,18 @@ def render(rep):
                      f"≥ {rep['thresholds']['min_reasons']} reasons, rank jump ≥ "
                      f"{rep['thresholds']['min_rank_jump']}). No rotation is the common case — it is "
                      f"what the strategy waits through, and saying so is the read.")
+    elif b["band"] == "SWEEP":
+        # Inside a sweep there is never a baseline and never will be — a sweep is one reading and
+        # keeps no history. So do NOT print "ask again in ~2 minutes": a second sweep would say
+        # exactly this again. Point at the command that does own a ring.
+        L.append(f"*Rotations* — not measured here. A sweep is a single reading and keeps no history, "
+                 f"so there is nothing to diff a rank jump against. For Penguin's own scorer — "
+                 f"FIRST_JUMP, IMMEDIATE_MOVER, CONTRIB_EXPLOSION and the rest — run "
+                 f"`python3 scripts/hyperfeed.py` twice, a couple of minutes apart.")
+    elif b["band"] == "TOOFRESH":
+        L.append(f"*Rotations* — not measured: the baseline is only {b['age_s']:.0f}s old. Nothing "
+                 f"rank-jumps in that time and the board is usually unchanged, so a diff this short "
+                 f"would report movement that has not happened. **Ask again in ~2 minutes.**")
     elif b["band"] == "STALE":
         L.append(f"*Rotations* — not measured. The only baseline is {b['age_s']:.0f}s old, past the "
                  f"{rep['thresholds']['wide_max_s']}s limit, and a rank jump over that long is a "
