@@ -260,15 +260,25 @@ def read(call_tool, state_dir=None, now=None, top=6, xyz_banned=False, persist=T
     now_s = now if now is not None else time.time()
     hour_utc = datetime.fromtimestamp(now_s, timezone.utc).hour
 
-    raw = call_tool("leaderboard_get_markets", {"limit": LEADERBOARD_LIMIT})
-    if isinstance(raw, dict) and raw.get("success") is False:
-        return {"ok": False, "degraded": "leaderboard_get_markets failed",
-                "error": raw.get("error"), "movers": [], "rotations": [],
+    # GUARDED READ, the same shape penguin's scanner uses (scan.py `_read`): the transport RAISES
+    # on a failed tool — mcp_client._unwrap turns a `success: false` envelope into MCPError — so a
+    # bare call leaks a traceback where this section promises to say "unavailable" and invent
+    # nothing. The first live run did exactly that against a down leaderboard API. The envelope
+    # branch is kept too: a caller that injects its own call_tool (the runtime, the tests) may hand
+    # back the envelope instead of raising, and both paths must degrade identically.
+    def _degraded(why, error=None):
+        return {"ok": False, "degraded": why, "error": error, "movers": [], "rotations": [],
                 "baseline": {"band": "NONE", "age_s": None}}
+
+    try:
+        raw = call_tool("leaderboard_get_markets", {"limit": LEADERBOARD_LIMIT})
+    except Exception as exc:  # noqa: BLE001 — transport; a feed outage is a read, not a crash
+        return _degraded(f"leaderboard_get_markets failed: {type(exc).__name__}: {exc}")
+    if isinstance(raw, dict) and raw.get("success") is False:
+        return _degraded("leaderboard_get_markets failed", raw.get("error"))
     markets = normalize(raw, xyz_banned=xyz_banned)
     if not markets:
-        return {"ok": False, "degraded": "leaderboard returned no usable rows",
-                "movers": [], "rotations": [], "baseline": {"band": "NONE", "age_s": None}}
+        return _degraded("leaderboard returned no usable rows")
 
     ring = load_ring(state_dir, now_s)
     rotations, age_s, band = score_against(markets, ring, now_s, hour_utc, top)

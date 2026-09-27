@@ -175,6 +175,43 @@ class Degradation(unittest.TestCase):
         self.assertIn("unavailable", block)
         self.assertIn("rather than filling the gap from memory", block)
 
+    def test_a_raising_transport_degrades_instead_of_tracebacking(self):
+        """The real client RAISES; it does not return a `success: false` envelope.
+
+        mcp_client._unwrap converts a failed tool into MCPError, so the envelope test above passed
+        while the CLI tracebacked at a down leaderboard API — the section promises "unavailable and
+        invents nothing" and instead printed a stack. Both failure shapes must degrade identically.
+        """
+        class Boom(Exception):
+            pass
+
+        def raising(name, args):
+            raise Boom("tool failed: UNAVAILABLE: Leaderboard API error")
+
+        with tempfile.TemporaryDirectory() as d:
+            rep = hyperfeed.read(raising, state_dir=d, now=T0)
+        self.assertFalse(rep["ok"])
+        self.assertEqual(rep["movers"], [])
+        self.assertEqual(rep["rotations"], [])
+        self.assertIn("Boom", rep["degraded"])
+        self.assertIn("UNAVAILABLE", rep["degraded"])
+        block = hyperfeed.render(rep)
+        self.assertIn("unavailable", block)
+        self.assertIn("rather than filling the gap from memory", block)
+
+    def test_a_raising_transport_does_not_poison_the_ring(self):
+        """A failed read must not append a snapshot — an empty baseline would silently become the
+        thing the next successful read diffs against."""
+        with tempfile.TemporaryDirectory() as d:
+            hyperfeed.read(_call(), state_dir=d, now=T0)
+            before = hyperfeed.load_ring(d, T0)
+
+            def raising(name, args):
+                raise RuntimeError("down")
+
+            hyperfeed.read(raising, state_dir=d, now=T0 + 60)
+            self.assertEqual(len(hyperfeed.load_ring(d, T0 + 60)), len(before))
+
     def test_a_corrupt_ring_degrades_to_tier_a(self):
         with tempfile.TemporaryDirectory() as d:
             with open(hyperfeed.ring_path(d), "w") as fh:
