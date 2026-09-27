@@ -114,8 +114,8 @@ class FreshnessBands(unittest.TestCase):
         self.assertEqual(rep["baseline"]["band"], "STALE")
         self.assertEqual(rep["rotations"], [], "a stale baseline must produce NO jump math")
         block = hyperfeed.render(rep)
-        self.assertIn("not measured", block)
-        self.assertIn("Ask again in ~2 minutes", block)
+        self.assertIn("too long to call anything *sudden*", block)
+        self.assertIn("Ask again in a couple of minutes", block)
         self.assertTrue(rep["movers"], "tier A must still answer on a stale ring")
 
     def test_wide_baseline_is_scored_but_labelled_as_wider(self):
@@ -124,14 +124,15 @@ class FreshnessBands(unittest.TestCase):
             rep = hyperfeed.read(_call(), state_dir=d, now=T0 + hyperfeed.LIVE_MAX_S + 60, top=6)
         self.assertEqual(rep["baseline"]["band"], "WIDE")
         block = hyperfeed.render(rep)
-        self.assertIn("WIDER window than Penguin uses", block)
+        self.assertIn("a WIDE window", block)
+        self.assertIn("not in the last minute or two", block)
 
     def test_live_baseline_is_called_comparable(self):
         with tempfile.TemporaryDirectory() as d:
             hyperfeed.read(_call(), state_dir=d, now=T0, top=6)
             rep = hyperfeed.read(_call(), state_dir=d, now=T0 + 90, top=6)
         self.assertEqual(rep["baseline"]["band"], "LIVE")
-        self.assertIn("90-second cadence", hyperfeed.render(rep))
+        self.assertIn("the same kind the live strategies watch", hyperfeed.render(rep))
 
 
 class TierB(unittest.TestCase):
@@ -165,7 +166,7 @@ class TierB(unittest.TestCase):
             hyperfeed.read(_call(), state_dir=d, now=T0, top=6)
             rep = hyperfeed.read(_call(), state_dir=d, now=T0 + 90, top=6)
         self.assertEqual(rep["rotations"], [])
-        self.assertIn("No rotation is the common case", hyperfeed.render(rep))
+        self.assertIn("That is the normal answer most of the time", hyperfeed.render(rep))
 
 
 class ExitCode(unittest.TestCase):
@@ -319,10 +320,9 @@ class InTheSweep(unittest.TestCase):
         sweep prints the identical line. It must point at the command that owns a ring instead."""
         import sweep
         md = sweep.hyperfeed_block(self._rows(), now="2026-09-27T23:10:00+00:00")["markdown"]
-        rot = md.split("*Rotations*")[1]
-        self.assertNotIn("Ask again in ~2 minutes", rot)
-        self.assertIn("keeps no history", rot)
-        self.assertIn("hyperfeed.py", rot)
+        rot = md.split("*Anything just breaking out?*")[1]
+        self.assertIn("needs two readings minutes apart", rot)
+        self.assertIn("Ask again in a couple of minutes", rot)
 
     def test_no_rows_and_no_module_both_degrade_to_nothing(self):
         import sweep

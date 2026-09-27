@@ -331,21 +331,28 @@ def render(rep):
              f"{rep['generated_at'][11:16]} UTC")
     L.append("")
     if rep["movers"]:
-        L.append("*Hottest right now* — by the feed's own 15-minute change in top-trader "
-                 "contribution, on the names Penguin would look at:")
+        L.append("*These trades are earning top traders the most right now.*")
         L.append("")
-        L.append("| # | market | side | 15m contrib Δ | share of gains | rank | traders | 1h | 4h |")
-        L.append("|---|---|---|---|---|---|---|---|---|")
+        L.append("| # | market | side | share of top traders' gains | change, last 15 min "
+                 "| price, last 4h | traders on it |")
+        L.append("|---|---|---|---|---|---|---|")
         for i, m in enumerate(rep["movers"], 1):
             nm = f"{m['token']}" + (f" ({m['dex']})" if m["dex"] else "")
-            L.append(f"| {i} | {nm} | {m['direction']} | {m['cc_15m']:+.1f}% | {m['contribution']:.1f}% "
-                     f"| #{m['rank']} | {m['traders']} | {m['price_chg_1h']:+.2f}% "
-                     f"| {m['price_chg_4h']:+.2f}% |")
+            L.append(f"| {i} | {nm} | {'long' if m['direction'] == 'LONG' else 'short'} "
+                     f"| {m['contribution']:.1f}% | {m['cc_15m']:+.1f}% "
+                     f"| {m['price_chg_4h']:+.2f}% | {m['traders']} |")
+        L.append("")
+        L.append("> **Share of top traders' gains** is how much of everything the winning traders made "
+                 "is sitting in that one position — so 4% means a twenty-fifth of all their profit is "
+                 "in that name, on that side. **Change, last 15 min** is whether that share is growing "
+                 "right now, which is what makes it *hot* rather than merely large. **Price, last 4h** "
+                 "is the token itself, for context — a big share with a flat price means they are "
+                 "positioned and the move has not happened yet.")
         if delta_is_flat(rep["movers"]):
             L.append("")
-            L.append("> The feed's 15-minute change is **flat across all of these** (it is quantized "
-                     "to 0.1%), so this is not a ranking — it is the eligible set, ordered by share "
-                     "of top-trader gains. Do not present the top row as the hottest name.")
+            L.append("> The 15-minute change is **the same for every row here** (the feed reports it in "
+                     "0.1% steps), so this is not a ranking — it is the list of names that qualify, in "
+                     "order of share. Do not call the top row the hottest.")
     else:
         L.append("*No name currently clears the gates* — nothing outside the top 10 has a rising "
                  "15-minute contribution with the 4h move agreeing. That is a real read: the feed "
@@ -357,40 +364,43 @@ def render(rep):
     # for a 90-second one on the quiet days, which are most days.
     if b["band"] in ("LIVE", "WIDE"):
         window = f"{b['age_s']:.0f}s" if b["age_s"] is not None else "?"
-        note = ("comparable to the scanner's own 90-second cadence"
+        note = ("a tight window, the same kind the live strategies watch"
                 if b["band"] == "LIVE" else
-                f"a WIDER window than Penguin uses — {window} rotations, not 90-second ones")
-        L.append(f"*Rotations* — Penguin's own scorer, baseline {window} old ({note}):")
+                f"a WIDE window — these built up over {window}, not in the last minute or two")
+        L.append(f"*Suddenly climbing* — compared against a reading from {window} ago ({note}):")
         L.append("")
         if rep["rotations"]:
             for r in rep["rotations"]:
                 nm = f"{r['token']}" + (f" ({r['dex']})" if r["dex"] else "")
-                L.append(f"- **{nm} {r['direction']}** score {r['score']} — {' · '.join(r['reasons'])}")
+                side = 'long' if r['direction'] == 'LONG' else 'short'
+                L.append(f"- **{nm} {side}** — jumped {r['meta']['rankJump']} places, now #{r['rank']} "
+                         f"with {r['traders']} traders on it _(strength {r['score']}: "
+                         f"{' · '.join(r['reasons'])})_")
         else:
-            L.append(f"- None. No name clears the bar (score ≥ {rep['thresholds']['min_score']}, "
-                     f"≥ {rep['thresholds']['min_reasons']} reasons, rank jump ≥ "
-                     f"{rep['thresholds']['min_rank_jump']}). No rotation is the common case — it is "
-                     f"what the strategy waits through, and saying so is the read.")
+            L.append("- Nothing. No name jumped far enough or fast enough to count. That is the normal "
+                     "answer most of the time — it is what the strategies spend their day waiting "
+                     "through, and it is a real read, not a missing one.")
     elif b["band"] == "SWEEP":
         # Inside a sweep there is never a baseline and never will be — a sweep is one reading and
         # keeps no history. So do NOT print "ask again in ~2 minutes": a second sweep would say
         # exactly this again. Point at the command that does own a ring.
-        L.append(f"*Rotations* — not measured here. A sweep is a single reading and keeps no history, "
-                 f"so there is nothing to diff a rank jump against. For Penguin's own scorer — "
-                 f"FIRST_JUMP, IMMEDIATE_MOVER, CONTRIB_EXPLOSION and the rest — run "
-                 f"`python3 scripts/hyperfeed.py` twice, a couple of minutes apart.")
+        L.append("*Anything just breaking out?* — can't tell from one look. Spotting a name that is "
+                 "**suddenly** climbing needs two readings minutes apart, and this is one. Ask again in "
+                 "a couple of minutes and I can tell you which of these the top traders are piling "
+                 "into right now, versus which were already there.")
     elif b["band"] == "TOOFRESH":
-        L.append(f"*Rotations* — not measured: the baseline is only {b['age_s']:.0f}s old. Nothing "
-                 f"rank-jumps in that time and the board is usually unchanged, so a diff this short "
-                 f"would report movement that has not happened. **Ask again in ~2 minutes.**")
+        L.append(f"*Suddenly climbing* — can't say yet. The last reading was only {b['age_s']:.0f} "
+                 f"seconds ago, and nothing moves that fast, so anything I reported would be noise. "
+                 f"**Ask again in a couple of minutes.**")
     elif b["band"] == "STALE":
-        L.append(f"*Rotations* — not measured. The only baseline is {b['age_s']:.0f}s old, past the "
-                 f"{rep['thresholds']['wide_max_s']}s limit, and a rank jump over that long is a "
-                 f"different thing from the 90-second jump Penguin trades. **Ask again in ~2 minutes** "
-                 f"and this run becomes the baseline.")
+        L.append(f"*Suddenly climbing* — can't say. My last reading was {b['age_s'] / 60:.0f} minutes "
+                 f"ago, which is too long to call anything *sudden* — a name can climb that far in half "
+                 f"an hour without it meaning much. **Ask again in a couple of minutes** and this "
+                 f"reading becomes the comparison point.")
     else:
-        L.append("*Rotations* — not measured: this is the first read, so there is no baseline to "
-                 "diff against. **Ask again in ~2 minutes** and Penguin's own scorer runs on it.")
+        L.append("*Suddenly climbing* — can't say yet: this is my first reading, so there is nothing to "
+                 "compare it against. **Ask again in a couple of minutes** and I can tell you which "
+                 "names are climbing right now rather than just sitting high.")
     return "\n".join(L)
 
 
