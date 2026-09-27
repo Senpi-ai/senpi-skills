@@ -36,7 +36,7 @@ catalog:
   leverage_max: 10
   max_slots: 1
   assets: []                # derived universe — coins come from the top-50 rows of the 4h leaderboard each tick, not a fixed list
-  tags: [leader-momentum, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, concentrated, single-slot, high-leverage]
+  tags: [leader-momentum, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, concentrated, single-slot, high-leverage, hyperfeed, high-risk-high-reward, aggressive, start-here]
 
 requires:
   runtime: ">=3.0.0"
