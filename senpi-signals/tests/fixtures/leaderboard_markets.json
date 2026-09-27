@@ -1,0 +1,199 @@
+{
+  "success": true,
+  "data": {
+    "markets": {
+      "markets": [
+        {
+          "token": "BTC",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 22.0,
+          "trader_count": 410,
+          "token_price_change_pct_4h": 1.9,
+          "token_price_change_pct_1h": 0.4,
+          "contribution_pct_change_15m": 3.1
+        },
+        {
+          "token": "ETH",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 18.0,
+          "trader_count": 380,
+          "token_price_change_pct_4h": 1.2,
+          "token_price_change_pct_1h": 0.2,
+          "contribution_pct_change_15m": 1.0
+        },
+        {
+          "token": "SOL",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 11.0,
+          "trader_count": 250,
+          "token_price_change_pct_4h": 0.8,
+          "token_price_change_pct_1h": 0.1,
+          "contribution_pct_change_15m": -2.0
+        },
+        {
+          "token": "HYPE",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 9.0,
+          "trader_count": 190,
+          "token_price_change_pct_4h": 2.2,
+          "token_price_change_pct_1h": 0.6,
+          "contribution_pct_change_15m": 8.0
+        },
+        {
+          "token": "XRP",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 8.0,
+          "trader_count": 170,
+          "token_price_change_pct_4h": 0.5,
+          "token_price_change_pct_1h": 0.1,
+          "contribution_pct_change_15m": 0.5
+        },
+        {
+          "token": "PUMP",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 7.0,
+          "trader_count": 160,
+          "token_price_change_pct_4h": 1.1,
+          "token_price_change_pct_1h": 0.3,
+          "contribution_pct_change_15m": 4.0
+        },
+        {
+          "token": "ENA",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 6.0,
+          "trader_count": 150,
+          "token_price_change_pct_4h": 0.9,
+          "token_price_change_pct_1h": 0.2,
+          "contribution_pct_change_15m": 2.0
+        },
+        {
+          "token": "ZEC",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 5.5,
+          "trader_count": 140,
+          "token_price_change_pct_4h": 1.4,
+          "token_price_change_pct_1h": 0.4,
+          "contribution_pct_change_15m": 1.5
+        },
+        {
+          "token": "NEAR",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 5.0,
+          "trader_count": 130,
+          "token_price_change_pct_4h": 0.7,
+          "token_price_change_pct_1h": 0.1,
+          "contribution_pct_change_15m": 0.8
+        },
+        {
+          "token": "TIA",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 4.8,
+          "trader_count": 120,
+          "token_price_change_pct_4h": 0.6,
+          "token_price_change_pct_1h": 0.1,
+          "contribution_pct_change_15m": 0.6
+        },
+        {
+          "token": "WLD",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 4.5,
+          "trader_count": 118,
+          "token_price_change_pct_4h": 2.6,
+          "token_price_change_pct_1h": 1.1,
+          "contribution_pct_change_15m": 14.2
+        },
+        {
+          "token": "ARB",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 4.0,
+          "trader_count": 110,
+          "token_price_change_pct_4h": 1.8,
+          "token_price_change_pct_1h": 0.5,
+          "contribution_pct_change_15m": 9.5
+        },
+        {
+          "token": "OP",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 3.6,
+          "trader_count": 100,
+          "token_price_change_pct_4h": -1.2,
+          "token_price_change_pct_1h": -0.3,
+          "contribution_pct_change_15m": 7.0
+        },
+        {
+          "token": "SUI",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 3.2,
+          "trader_count": 95,
+          "token_price_change_pct_4h": 1.5,
+          "token_price_change_pct_1h": 0.4,
+          "contribution_pct_change_15m": -3.0
+        },
+        {
+          "token": "THIN",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 3.0,
+          "trader_count": 4,
+          "token_price_change_pct_4h": 2.0,
+          "token_price_change_pct_1h": 0.6,
+          "contribution_pct_change_15m": 20.0
+        },
+        {
+          "token": "DOGE",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 2.8,
+          "trader_count": 90,
+          "token_price_change_pct_4h": 1.1,
+          "token_price_change_pct_1h": 0.2,
+          "contribution_pct_change_15m": 5.5
+        },
+        {
+          "token": "APT",
+          "dex": "",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 2.5,
+          "trader_count": 85,
+          "token_price_change_pct_4h": 0.9,
+          "token_price_change_pct_1h": 0.3,
+          "contribution_pct_change_15m": 2.2
+        },
+        {
+          "token": "GOLD",
+          "dex": "xyz",
+          "direction": "LONG",
+          "pct_of_top_traders_gain": 2.2,
+          "trader_count": 80,
+          "token_price_change_pct_4h": 1.0,
+          "token_price_change_pct_1h": 0.2,
+          "contribution_pct_change_15m": 6.0
+        },
+        {
+          "token": "FIL",
+          "dex": "",
+          "direction": "SHORT",
+          "pct_of_top_traders_gain": 2.0,
+          "trader_count": 75,
+          "token_price_change_pct_4h": -0.9,
+          "token_price_change_pct_1h": -0.2,
+          "contribution_pct_change_15m": 3.0
+        }
+      ]
+    }
+  }
+}

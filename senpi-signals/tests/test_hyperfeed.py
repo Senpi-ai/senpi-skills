@@ -1,0 +1,198 @@
+"""Hyperfeed Movers: the two tiers, and the rule that a stale baseline is never scored quietly.
+
+The section exists because users ask "what's pumping right now?" and the strategies cannot answer
+on demand — Penguin's detector is a diff against a scan 90 seconds old, held in runtime state. The
+danger is not that a skill can't reproduce that; it is that it CAN reproduce something that looks
+identical from a baseline hours old, and present it in the same words. These tests pin the
+separation:
+
+  Tier A never depends on history at all. It ranks on `contribution_pct_change_15m`, a delta the
+  FEED computes, and applies only Penguin's stateless gates (rank > 10, 4h/direction agreement,
+  cc_15m > 0, the trader floor).
+
+  Tier B runs the verbatim scorer, and only inside a freshness window whose band is printed.
+  STALE means NOT SCORED — not "scored with a caveat".
+
+Run:
+  python3 -m pytest senpi-signals/tests/test_hyperfeed.py -q
+"""
+import json
+import os
+import sys
+import tempfile
+import unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
+import hyperfeed  # noqa: E402
+
+FIXTURE = os.path.join(HERE, "fixtures", "leaderboard_markets.json")
+T0 = 1790000000.0          # a fixed clock; hour_utc is derived from it, so US_SESSION is deterministic
+
+
+def _raw():
+    with open(FIXTURE) as fh:
+        return json.load(fh)
+
+
+def _call(raw=None):
+    payload = raw if raw is not None else _raw()
+    return lambda name, args: payload
+
+
+class Normalize(unittest.TestCase):
+    def test_rank_is_prefilter_index_and_thin_sides_are_dropped(self):
+        m = hyperfeed.normalize(_raw())
+        by = {r["token"]: r for r in m}
+        self.assertNotIn("THIN", by, "a 4-trader side must not enter the rank order")
+        # THIN sat at feed index 15 (rank 15). Dropping it must NOT renumber the rows after it:
+        # every jump threshold is expressed in the feed's own rank.
+        self.assertEqual(by["DOGE"]["rank"], 16)
+        self.assertEqual(by["WLD"]["rank"], 11)
+
+    def test_xyz_ban_is_opt_in(self):
+        self.assertIn("GOLD", {r["token"] for r in hyperfeed.normalize(_raw())})
+        self.assertNotIn("GOLD", {r["token"] for r in hyperfeed.normalize(_raw(), xyz_banned=True)})
+
+    def test_envelope_shapes_all_unwrap(self):
+        rows = _raw()["data"]["markets"]["markets"]
+        for shape in (_raw(), {"data": {"markets": rows}}, {"data": rows}, rows):
+            self.assertTrue(hyperfeed.normalize(shape), f"failed to unwrap {type(shape)}")
+
+
+class TierA(unittest.TestCase):
+    def test_gates_are_penguins_stateless_ones(self):
+        rows = hyperfeed.tier_a(hyperfeed.normalize(_raw()), top=20)
+        toks = [r["token"] for r in rows]
+        self.assertNotIn("BTC", toks, "rank <= 10 has no jump room; penguin skips it")
+        self.assertNotIn("HYPE", toks, "rank 4 is inside the top-10 gate")
+        self.assertNotIn("OP", toks, "4h move disagrees with the LONG side")
+        self.assertNotIn("SUI", toks, "cc_15m <= 0 is penguin's freshness gate")
+        self.assertIn("WLD", toks)
+        self.assertIn("FIL", toks, "SHORT with the 4h move down IS aligned")
+
+    def test_ranked_by_the_feeds_own_15m_delta(self):
+        rows = hyperfeed.tier_a(hyperfeed.normalize(_raw()), top=3)
+        # GOLD is an xyz row at cc 6.0 and outranks DOGE at 5.5 — xyz is in the universe unless the
+        # caller bans it, so the order is by the delta alone, never by venue.
+        self.assertEqual([r["token"] for r in rows], ["WLD", "ARB", "GOLD"])
+        self.assertEqual(rows[0]["cc_15m"], 14.2)
+        self.assertEqual([r["token"] for r in
+                          hyperfeed.tier_a(hyperfeed.normalize(_raw(), xyz_banned=True), top=3)],
+                         ["WLD", "ARB", "DOGE"])
+
+    def test_tier_a_needs_no_history_whatsoever(self):
+        """The whole point: a first-ever read still answers "what's hot right now"."""
+        with tempfile.TemporaryDirectory() as d:
+            rep = hyperfeed.read(_call(), state_dir=d, now=T0, top=4)
+        self.assertTrue(rep["ok"])
+        self.assertTrue(rep["movers"], "first read produced no movers")
+        self.assertEqual(rep["baseline"]["band"], "NONE")
+        self.assertEqual(rep["rotations"], [])
+
+
+class FreshnessBands(unittest.TestCase):
+    def test_classify_boundaries(self):
+        self.assertEqual(hyperfeed.classify(None), "NONE")
+        self.assertEqual(hyperfeed.classify(0), "LIVE")
+        self.assertEqual(hyperfeed.classify(hyperfeed.LIVE_MAX_S), "LIVE")
+        self.assertEqual(hyperfeed.classify(hyperfeed.LIVE_MAX_S + 0.1), "WIDE")
+        self.assertEqual(hyperfeed.classify(hyperfeed.WIDE_MAX_S), "WIDE")
+        self.assertEqual(hyperfeed.classify(hyperfeed.WIDE_MAX_S + 0.1), "STALE")
+
+    def test_a_stale_baseline_is_not_scored_at_all(self):
+        """The failure this whole design exists to prevent: a rank jump measured over hours,
+        reported in the same words as one measured over 90 seconds."""
+        with tempfile.TemporaryDirectory() as d:
+            hyperfeed.read(_call(), state_dir=d, now=T0, top=6)
+            stale_at = T0 + hyperfeed.WIDE_MAX_S + 60
+            rep = hyperfeed.read(_call(), state_dir=d, now=stale_at, top=6)
+        self.assertEqual(rep["baseline"]["band"], "STALE")
+        self.assertEqual(rep["rotations"], [], "a stale baseline must produce NO jump math")
+        block = hyperfeed.render(rep)
+        self.assertIn("not measured", block)
+        self.assertIn("Ask again in ~2 minutes", block)
+        self.assertTrue(rep["movers"], "tier A must still answer on a stale ring")
+
+    def test_wide_baseline_is_scored_but_labelled_as_wider(self):
+        with tempfile.TemporaryDirectory() as d:
+            hyperfeed.read(_call(), state_dir=d, now=T0, top=6)
+            rep = hyperfeed.read(_call(), state_dir=d, now=T0 + hyperfeed.LIVE_MAX_S + 60, top=6)
+        self.assertEqual(rep["baseline"]["band"], "WIDE")
+        block = hyperfeed.render(rep)
+        self.assertIn("WIDER window than Penguin uses", block)
+
+    def test_live_baseline_is_called_comparable(self):
+        with tempfile.TemporaryDirectory() as d:
+            hyperfeed.read(_call(), state_dir=d, now=T0, top=6)
+            rep = hyperfeed.read(_call(), state_dir=d, now=T0 + 90, top=6)
+        self.assertEqual(rep["baseline"]["band"], "LIVE")
+        self.assertIn("90-second cadence", hyperfeed.render(rep))
+
+
+class TierB(unittest.TestCase):
+    def test_a_real_rank_jump_scores_with_penguins_own_reasons(self):
+        """Second read where WLD has climbed 11 -> ... no: build the jump explicitly.
+
+        Baseline puts WLD deep (rank 62) with a small contribution; the current read has it at 11
+        with a 4.5 contribution. That is a +51 jump off a >=25 prior rank with a >=3x contribution
+        explosion — IMMEDIATE_MOVER + FIRST_JUMP + CONTRIB_EXPLOSION, which is what penguin fires on.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            ring = [{"ts": T0, "markets": [{"token": "WLD", "dex": "", "rank": 62,
+                                            "contribution": 0.2}]}]
+            hyperfeed.save_ring(d, ring)
+            rep = hyperfeed.read(_call(), state_dir=d, now=T0 + 90, top=6)
+        self.assertEqual(rep["baseline"]["band"], "LIVE")
+        wld = [r for r in rep["rotations"] if r["token"] == "WLD"]
+        self.assertTrue(wld, f"WLD should have scored; got {[r['token'] for r in rep['rotations']]}")
+        r = wld[0]
+        self.assertGreaterEqual(r["score"], hyperfeed.scoring.STRIKER_MIN_SCORE)
+        self.assertGreaterEqual(len(r["reasons"]), hyperfeed.scoring.STRIKER_MIN_REASONS)
+        joined = " ".join(r["reasons"])
+        self.assertIn("IMMEDIATE_MOVER", joined)
+        self.assertIn("FIRST_JUMP", joined)
+        self.assertIn("CONTRIB_EXPLOSION", joined)
+        self.assertEqual(r["meta"]["rankJump"], 51)
+
+    def test_no_rotation_is_reported_as_a_real_read(self):
+        """Same board twice = no jumps. That is the common case and must not read as a failure."""
+        with tempfile.TemporaryDirectory() as d:
+            hyperfeed.read(_call(), state_dir=d, now=T0, top=6)
+            rep = hyperfeed.read(_call(), state_dir=d, now=T0 + 90, top=6)
+        self.assertEqual(rep["rotations"], [])
+        self.assertIn("No rotation is the common case", hyperfeed.render(rep))
+
+
+class Degradation(unittest.TestCase):
+    def test_a_failed_feed_read_says_so_and_invents_nothing(self):
+        err = {"success": False, "error": {"code": "UNAVAILABLE", "message": "Leaderboard API error"}}
+        with tempfile.TemporaryDirectory() as d:
+            rep = hyperfeed.read(_call(err), state_dir=d, now=T0)
+        self.assertFalse(rep["ok"])
+        self.assertEqual(rep["movers"], [])
+        block = hyperfeed.render(rep)
+        self.assertIn("unavailable", block)
+        self.assertIn("rather than filling the gap from memory", block)
+
+    def test_a_corrupt_ring_degrades_to_tier_a(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(hyperfeed.ring_path(d), "w") as fh:
+                fh.write("{not json")
+            rep = hyperfeed.read(_call(), state_dir=d, now=T0, top=4)
+        self.assertTrue(rep["ok"])
+        self.assertTrue(rep["movers"])
+        self.assertEqual(rep["baseline"]["band"], "NONE")
+
+    def test_ring_is_ttl_pruned_and_capped(self):
+        with tempfile.TemporaryDirectory() as d:
+            old = [{"ts": T0 - hyperfeed.RING_TTL_S - 10, "markets": []}]
+            hyperfeed.save_ring(d, old + [{"ts": T0 - 60, "markets": []}])
+            self.assertEqual(len(hyperfeed.load_ring(d, T0)), 1, "TTL did not drop the old snapshot")
+            hyperfeed.save_ring(d, [{"ts": T0 - i, "markets": []}
+                                    for i in range(hyperfeed.RING_MAX + 10, 0, -1)])
+            self.assertLessEqual(len(hyperfeed.load_ring(d, T0)), hyperfeed.RING_MAX)
+
+
+if __name__ == "__main__":
+    unittest.main()

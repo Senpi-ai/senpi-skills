@@ -11,7 +11,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.6.0"
+  version: "1.7.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -138,14 +138,22 @@ Top-down, always this shape:
 7. **Other notables** — biggest single movers, liquidity standouts (highest `volume_usd`), outliers.
 8. **Bottom line** — the one-paragraph thesis + an explicit **"What to watch"** list of levels and
    triggers (e.g. "BTC $62k holds → flush done; VIX > 25 → selloff broadening").
-9. **Senpi Signals, in brief** — the closing section below.
-10. **The closing question** (same section).
+9. **Hyperfeed Movers** — what the 4h leader board is doing *right now*, from the senpi-signals
+   folder: `python3 scripts/hyperfeed.py --top 5`. Present its block as it stands. This is the
+   minute-scale layer the rest of the read does not have — the sections above are today's structure,
+   this is the last fifteen minutes — and it is the one place a reader sees the detector Penguin and
+   Pelican actually trade. **Never call it smart money** (see the rule below). If the senpi-signals
+   folder isn't there, skip it silently, exactly as with the brief.
+10. **Senpi Signals, in brief** — the closing section below.
+11. **The closing question** (same section).
 
 Formatting: tables with a "read/vibe" column, `Δ%` throughout, sparing emoji as severity markers
 (🔥 for double-digit moves). Always show the daily move, not just the price. **A missing change is `—`, never `0.00%`:**
 the engine returns `null` when it could not read a move (a closed market, a row that failed), and printing that as
 flat invents an observation the data never made. If `smart_money` is present, add a short **4h leaders** note
 (e.g. "in the last 4h, 22% of the winners' gains sit in ZEC longs, across 228 traders") — it's high-signal.
+That note is the 4h *level*; the Hyperfeed Movers block in step 9 is the 15-minute *change* on the same
+board, so give the note here and let the block carry the movement rather than describing it twice.
 **Never call it smart money.** That layer is `leaderboard_get_markets`: who is winning *right now*, survivorship
 included. senpi-signals' "smart money" is the >= $1M lifetime-realized cohort, and the two are regularly on
 opposite sides of the same name in the same answer — so the words have to say which population each one is.
@@ -159,6 +167,11 @@ after the narrow answer):
    one), run `python3 scripts/sweep.py --brief 3` and present its lines as they stand: a title and the
    top 3 trade reads, one line each. Narrate nothing about it. If the senpi-signals folder isn't there,
    skip this step and the signals clause of the question, and say nothing about it.
+   The **Hyperfeed Movers** block (output-contract step 9) comes from the same folder —
+   `python3 scripts/hyperfeed.py --top 5`. Two different populations, and the answer must not blur
+   them: the brief is the >= $1M lifetime-realized cohort over days, the movers block is who is
+   winning over the last 4h with a 15-minute change on top. They are regularly on opposite sides of
+   the same name, which is the whole reason both are worth printing.
 2. **Three numbered next steps, last block of the answer.** A reader who has just been handed a
    market read and a signals brief is deciding, not reading — so the routes are a short numbered
    list they can answer with a digit, not a sentence they have to unpick. The signals offer is

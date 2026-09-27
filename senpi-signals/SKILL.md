@@ -16,7 +16,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.6.0"
+  version: "2.7.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -196,6 +196,64 @@ python3 scripts/sweep.py                # debugging: run JSON, coverage lines, r
   `leaderboard_get_trader_positions`). A quiet "nothing notable" is a correct answer.
 - The full detector library, the scoring rubric and every field the sweep declares per asset:
   [`references/detectors.md`](references/detectors.md).
+
+## Hyperfeed Movers — "what's hot RIGHT NOW?"
+
+A different question from the sweep, and it gets its own read. The sweep ranks the **>= $1M
+lifetime-realized cohort** over days. These ask about the last few minutes:
+
+> *"What's pumping right now?"* · *"Where are traders making money on Hyperliquid right now?"*
+> *"What's the Hyperfeed telling us?"* · *"Analyze what's hot this minute"* · *"Anything moving?"*
+
+Run **`python3 scripts/hyperfeed.py`** (add `--json` for structure, `--xyz-banned` for Penguin's
+crypto-only universe). One `leaderboard_get_markets` read. **No cron, no background sampling** — the
+only thing that ever fills its history is a run somebody asked for.
+
+**Never call this layer smart money.** It is `leaderboard_get_markets`: who is winning *right now*
+over a 4h rolling window, survivorship included. senpi-signals' smart money is the lifetime-realized
+cohort, and the two are regularly on **opposite sides of the same name in the same answer**. Say
+Hyperfeed, the 4h leaders, or top traders. (senpi-market-pulse carries this rule too.)
+
+### The two tiers, and why the section always tells you which one answered
+
+The scoring is **Penguin's own**, vendored byte-identical (`scripts/striker_scoring.py`, locked by
+`tests/test_striker_scoring_vendor_parity.py`). But that detector is **stateful**: every one of its
+six reasons — FIRST_JUMP, IMMEDIATE_MOVER, CONTRIB_EXPLOSION, HIGH_VELOCITY, DEEP_CLIMBER, CLIMBING —
+is a delta against a scan the live runtime took **90 seconds** earlier. A skill answering a question
+has no such history, and the tempting fix is the trap: "+42 ranks" measured against a baseline from
+eleven hours ago is a *different claim* in identical words.
+
+So:
+
+- **Tier A — the snapshot. Always available, needs no history at all.** Ranked by
+  `contribution_pct_change_15m`, which the **feed computes**, not us — a real 15-minute momentum
+  number. Penguin's stateless gates are applied so the names shown are ones it would look at: rank
+  outside the top 10 (a top-10 name has no jump room left), the 4h move agreeing with the leaders'
+  direction, a rising 15m contribution, and the >= 10-trader floor. **This is a complete answer to
+  "what's hot this minute."** Give it and stop; do not apologise for the absence of Tier B.
+- **Tier B — the rotations. Needs a second read, minutes apart.** Penguin's verbatim scorer against
+  the freshest baseline, reported with its real score and real reasons. The baseline age is printed
+  every time and banded: **LIVE** (<= 5 min, comparable to the scanner's own cadence) · **WIDE**
+  (<= 30 min, scored but labelled a wider window, never presented as the same signal) · **STALE**
+  (> 30 min — **not scored at all**, and the block says so).
+
+**A STALE baseline is never quietly scored at a wider window.** That is the one rule in this section
+that is not a preference. When it fires, the honest offer is the one the block already prints — *ask
+again in ~2 minutes and this run becomes the baseline* — and a user asking "what's hot right now" is
+very likely to ask again anyway. Never offer to schedule a cron to fill it.
+
+**No rotation is a real read, not a failure.** Most reads find none; it is what the strategy waits
+through. Say it plainly rather than reaching for the next-best name.
+
+**If the feed read fails**, the block says `unavailable` and invents nothing. Report that and stop —
+never substitute a price screen or a remembered board for a Hyperfeed read.
+
+### Handing off from it
+
+A user who just saw a name at the top of this block is one question away from wanting it traded.
+That is the family question below, and **Penguin (crypto) or Pelican (all assets) are the two that
+trade this exact detector** — the block they just read is literally their scoring. Offer them by name
+when the handoff comes, with the honest cost in the same breath.
 
 ## v2 — compare over periods (not in 2.0)
 
