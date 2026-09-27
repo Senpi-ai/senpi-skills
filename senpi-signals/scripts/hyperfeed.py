@@ -372,7 +372,14 @@ def _adapter(client):
     return call_tool
 
 
-def main(argv=None):
+def main(argv=None, _call_tool=None):
+    """`_call_tool` is a TEST SEAM, not an option — it is how the CLI path gets covered at all.
+
+    The two bugs that reached a live box both lived between main() and the transport (a wrong method
+    name, then an unguarded raise), and both survived a green suite because every test called `read`
+    with its own injected call_tool and never went through here. Passing one in lets a test drive
+    the real argv parsing, rendering and exit code without an MCP session.
+    """
     ap = argparse.ArgumentParser(description="Hyperfeed Movers — the live top-trader feed read")
     ap.add_argument("--json", action="store_true", help="structured output instead of the block")
     ap.add_argument("--top", type=int, default=6)
@@ -381,14 +388,21 @@ def main(argv=None):
     ap.add_argument("--no-persist", action="store_true", help="do not write this run into the ring")
     a = ap.parse_args(argv)
 
-    from mcp_client import MCPClient  # noqa: E402 — byte-identical to senpi-smart-money's
-    client = MCPClient()
-    call_tool = _adapter(client)
+    if _call_tool is None:
+        from mcp_client import MCPClient  # noqa: E402 — byte-identical to senpi-smart-money's
+        _call_tool = _adapter(MCPClient())
+    call_tool = _call_tool
 
     rep = read(call_tool, state_dir=a.state_dir, top=a.top,
                xyz_banned=a.xyz_banned, persist=not a.no_persist)
     print(json.dumps(rep, indent=2) if a.json else render(rep))
-    return 0 if rep.get("ok") else 1
+    # EXIT 0 EVEN WHEN THE FEED IS DOWN. A handled outage is a READ, not a crash: the block already
+    # says "unavailable" and names the reason, and sweep.py sets the house precedent — it exits 0
+    # with "Not measured this run: the 4h leaderboard, …" rather than failing. Live proof this
+    # matters: run side by side on a box that could not reach the leaderboard, sweep.py exited 0 and
+    # this exited 1, so the agent reported a crashed script instead of presenting the honest block.
+    # `rep["ok"]` is in the JSON for a caller that wants to branch on it.
+    return 0
 
 
 if __name__ == "__main__":

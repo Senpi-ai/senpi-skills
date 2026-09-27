@@ -164,6 +164,34 @@ class TierB(unittest.TestCase):
         self.assertIn("No rotation is the common case", hyperfeed.render(rep))
 
 
+class ExitCode(unittest.TestCase):
+    """A handled feed outage exits 0, like sweep.py's "Not measured this run" degrade.
+
+    Found live: run side by side on a box that could not reach the leaderboard, sweep.py exited 0
+    and this exited 1 — so the agent driving it reported a crashed script rather than presenting the
+    block, which already said "unavailable" and named the reason. Nonzero here buys nothing a caller
+    cannot get from rep["ok"] in --json, and costs the section its voice.
+    """
+
+    def test_main_exits_zero_on_a_handled_outage(self):
+        import contextlib
+        import io
+
+        class Boom(Exception):
+            pass
+
+        def raising(name, args, timeout=None):
+            raise Boom("tool failed: UNAVAILABLE: Leaderboard API error")
+
+        with tempfile.TemporaryDirectory() as d:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = hyperfeed.main(["--state-dir", d, "--no-persist"],
+                                    _call_tool=raising)
+        self.assertEqual(rc, 0, "a handled outage must not look like a crash")
+        self.assertIn("unavailable", buf.getvalue())
+
+
 class Degradation(unittest.TestCase):
     def test_a_failed_feed_read_says_so_and_invents_nothing(self):
         err = {"success": False, "error": {"code": "UNAVAILABLE", "message": "Leaderboard API error"}}
@@ -265,8 +293,8 @@ class CliWiring(unittest.TestCase):
     def test_the_adapter_is_what_main_uses(self):
         """Guards the specific regression: main() must not hand-roll its own client call again."""
         src = open(os.path.join(HERE, "..", "scripts", "hyperfeed.py")).read()
-        main_src = src[src.index("def main(argv=None):"):]
-        self.assertIn("_adapter(client)", main_src)
+        main_src = src[src.index("def main(argv=None, _call_tool=None):"):]
+        self.assertIn("_adapter(MCPClient())", main_src)
         self.assertNotIn("client.call_tool", main_src)
 
 
