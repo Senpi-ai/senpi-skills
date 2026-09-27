@@ -16,7 +16,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.7.0"
+  version: "2.8.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -205,9 +205,19 @@ lifetime-realized cohort** over days. These ask about the last few minutes:
 > *"What's pumping right now?"* · *"Where are traders making money on Hyperliquid right now?"*
 > *"What's the Hyperfeed telling us?"* · *"Analyze what's hot this minute"* · *"Anything moving?"*
 
-Run **`python3 scripts/hyperfeed.py`** (add `--json` for structure, `--xyz-banned` for Penguin's
-crypto-only universe). One `leaderboard_get_markets` read. **No cron, no background sampling** — the
-only thing that ever fills its history is a run somebody asked for.
+**Every sweep already prints it.** `sweep.py` reads `leaderboard_get_markets` for its own 4h-board
+lens, so the movers section is built from those same rows — no second call, and it can never disagree
+with the board read above it. It lands at the end of `signals.md`, which means a user sees it without
+knowing it exists, and the brief carries the top three as one line. That is deliberate: this is the
+question people actually ask, and a section you have to request is one most people never see.
+
+**The sweep carries Tier A only**, and that is a constraint rather than a shortcut — a sweep is ONE
+READING (its out dir holds `current.json` and `signals.md` and nothing else, enforced by
+`test_a_sweep_is_one_reading_so_a_second_sweep_compares_nothing`). Rotations need a stored baseline,
+which would make the sweep keep history. So for those run **`python3 scripts/hyperfeed.py`** twice, a
+couple of minutes apart — it owns its own ring (`--json` for structure, `--xyz-banned` for Penguin's
+crypto-only universe). **No cron, no background sampling** — the only thing that ever fills that ring
+is a run somebody asked for.
 
 **Never call this layer smart money.** It is `leaderboard_get_markets`: who is winning *right now*
 over a 4h rolling window, survivorship included. senpi-signals' smart money is the lifetime-realized
