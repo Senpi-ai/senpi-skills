@@ -45,7 +45,7 @@ catalog:
   leverage_max: 10
   max_slots: 1
   assets: []                # derived universe — names come from the top-50 rows of the 4h leaderboard each tick, crypto AND xyz, not a fixed list
-  tags: [leader-momentum, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, concentrated, single-slot, high-leverage, xyz, equities, stocks, commodities, gold, oil, indices, pre-ipo, all-markets, tradfi]
+  tags: [leader-momentum, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, concentrated, single-slot, high-leverage, xyz, equities, stocks, commodities, gold, oil, indices, pre-ipo, all-markets, tradfi, hyperfeed, high-risk-high-reward, aggressive, start-here]
 
 requires:
   runtime: ">=3.0.0"

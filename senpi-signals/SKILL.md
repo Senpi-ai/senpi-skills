@@ -16,7 +16,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.5.0"
+  version: "2.6.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -214,8 +214,8 @@ After the feed and your few sentences, end the turn with **one question**, and n
 > **(2) Puffin**, that same engine concentrated into one position at a time, at much higher
 > risk/reward;
 > **(3) Athena**, a hedge fund built on these same smart-money signals, forked under your name;
-> **(4) a different type of signal** — such as **Penguin**, which chases recent high-conviction
-> smart-money wins;
+> **(4) a different type of signal** — such as **Penguin** (crypto) or **Pelican** (all assets),
+> which chase the strongest live rotations on Hyperfeed;
 > or **(5) roll your own**, built around these reads with you.
 
 Offer **all five** strategy routes, every time. Athena was the only one named for a while, which sent

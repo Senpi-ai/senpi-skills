@@ -15,7 +15,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.5.0"
+  version: "1.6.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -276,15 +276,19 @@ End with these two as a real numbered list on **separate lines** — never colla
 
 > **What next?**
 > 1. **Set up the mirror** — I'll simulate it at your budget first (show exactly what would open), then fund it.
-> 2. **Or explore first** — compare a couple side by side · vet a specific wallet in depth · or go hands-off with a managed template.
+> 2. **Or explore first** — compare a couple side by side · vet a specific wallet in depth · or go hands-off and let senpi trade the smart-money feed for you.
 
 - **CTA 1 → mirror. Hand off to the `senpi-trade` skill** — it owns the mirror mechanics (slippage,
   sizing / `mirrorMultiplier`, the pre-fund deployability sim, optional DSL, execution + verification).
   Do **not** call `strategy_create` from here; pass the vetted trader's **full `address`** (not the short
   form) to `senpi-trade` and let it drive.
-- **CTA 2 → compare / vet / template.** Re-run the engine (`--trader <addr>` to vet one in depth, or the
-  default ranking to compare); or hand to a managed **Copy-Trader template** via `senpi-strategy-discover`
-  for the hands-off route.
+- **CTA 2 → compare / vet / hands-off.** Re-run the engine (`--trader <addr>` to vet one in depth, or the
+  default ranking to compare). For the **hands-off** route, hand to **senpi-signals** — it owns the read of
+  the live smart-money feed and closes with the full set of strategy routes built on it (Signals Hunter,
+  Puffin, Athena, the Hyperfeed strikers Penguin and Pelican, or one rolled with the user). Prefer that
+  over naming a single template from here: mirroring one wallet and trading the whole cohort's feed are
+  different bets, and the reader is choosing between them. A managed **Copy-Trader template** via
+  `senpi-strategy-discover` remains the route for someone who specifically wants one wallet copied.
 
 ## ⚠ Token scope
 

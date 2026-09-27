@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.39.0"
+  version: "2.40.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -278,6 +278,30 @@ worldview/fund picks; offer the stack on single-wallet picks only.
 
 ## Special paths
 
+- **"I don't know what to try" / "what should I start with?" / no thesis at all** → **start here, do not
+  run the ranker cold.** With no worldview to rank against, a shortlist beats a filtered list: the engine
+  scores keyword overlap against what the user says, and someone who has said nothing gets noise. Offer
+  these, one per line, answerable with a digit:
+
+  > **Don't know what to try? Start here.**
+  >
+  > 1. **Penguin** — crypto only. The Hyperfeed striker: it reacts only to the strongest live rotations
+  >    on the feed — a name suddenly rocketing up what winning traders hold — then commits one position
+  >    at 10x with a DSL floor that ratchets up to lock gains as it runs.
+  > 2. **Pelican** — the same striker across all assets: crypto plus stocks, commodities, indices
+  >    and pre-IPO.
+  > 3. **Signals Hunter** — the smart-money signal feed traded on a clock, spread across several slots.
+  >    Slower and less concentrated than 1 or 2.
+  > 4. **Athena** — a smart-money hedge fund, forked under your name.
+  > 5. Or tell me **how you want to trade** and I'll rank the whole catalog against it.
+
+  Lead with 1 and 2: a live rotation shows up fast, so the reader sees what the machinery actually does
+  early, and both are built to be forked and modified once they have a feel for it. **High risk, high
+  reward, and say the cost in the same breath** — each stop-out is about 13.5% of that wallet (a 15% ROE
+  stop on 90% margin), **each**, because their risk guard rails are off and stops compound. Say
+  **rotations**, never "pumps": the detector fires on a jump in what winning traders HOLD, not on price,
+  so a pumping name no smart money rotated into does not fire. Never promise a runner, a win rate or a
+  timeframe — the pitch is what the machinery does, never what it will return.
 - **"What's winning"** → reframe honestly: *"I rank by what's set up well right now, not last week's
   winner."* Read the market; lead with the best current setup from `market_facts`. Never imply a real
   per-package performance leaderboard.

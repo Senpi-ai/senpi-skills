@@ -10,7 +10,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.4.0"
+  version: "1.5.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -166,7 +166,17 @@ bias with its member count — conviction is the whole point.
   divergence (e.g. *"proven cohort short HYPE −0.8/30 vs crowd long +0.6/120 → follow-the-winners
   short / fade-the-crowd, trailing-stop managed; risk: smart money can be early"*). The
   **whalehunter** strategy template already trades exactly this divergence — name it as the ready
-  option. **Propose; never auto-build or trade.**
+  option. Also offer the Hyperfeed strikers, for a reader who wants the feed itself rather than a
+  divergence thesis:
+
+  > Want a feel for what senpi Hyperfeed can do? **Penguin** (crypto only) or **Pelican** (all assets)
+  > react only to the strongest live rotations on the feed — a name suddenly rocketing up what winning
+  > traders hold — then commit one position at 10x with a DSL floor that ratchets up to lock gains as it
+  > runs. High risk, high reward: each stop-out costs about 13.5% of the wallet. Built to be forked and
+  > made your own.
+
+  Say **rotations**, never "pumps" — the detector fires on a jump in what winning traders HOLD, not on
+  price. **Propose; never auto-build or trade.**
 - **CTA 3 → mirror a smart-money trader.** You just surfaced the individual proven wallets — offer to
   copy one. Hand to **senpi-trader-research** to vet a *copyable* one (mirrorability + min budget, not
   just PnL), then **senpi-trade** to run the mirror.
