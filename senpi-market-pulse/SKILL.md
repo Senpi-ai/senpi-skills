@@ -184,7 +184,7 @@ four hours has a four-hour record, and offering them would read as a recommendat
 
   > Want a feel for what senpi Hyperfeed can do? **Penguin** (crypto only) or **Pelican** (all assets)
   > react only to the strongest live rotations on the feed — a name suddenly rocketing up what winning
-  > traders hold — then commit one position at 10x with a DSL floor that ratchets up to lock gains as it
+  > traders hold — then commit one position at up to 10x with a DSL floor that ratchets up to lock gains as it
   > runs. High risk, high reward: each stop-out costs about 13.5% of the wallet. Built to be forked and
   > made your own.
 
@@ -192,6 +192,11 @@ four hours has a four-hour record, and offering them would read as a recommendat
   price, so a pumping name no smart money rotated into does not fire at all. The stop is 15% **ROE** —
   a 1.5% price move at 10x — which on 90% margin is the ~13.5% of the wallet quoted above; quote the
   wallet number, and say **each**, because Penguin's risk guard rails are off and stops compound.
+  Say **up to 10x**, never a flat 10x: the per-name venue cap clamps leverage below 10 on plenty of
+  instruments, and it is the clamp that decides this package's whole trade. What the clamp changes is
+  the PRICE move behind a number, not the wallet cost — ROE is return on margin, so a 15% ROE stop is
+  ~13.5% of the wallet at any leverage, while the price move it takes doubles at 5x (3.0%, not 1.5%),
+  and every ladder trigger moves with it (tier 1's +20% ROE is a 4% move at 5x, not 2%).
   Its peer is a strategy built from the thesis you just produced: hand
   **senpi-strategy-author** a structured brief (e.g. *"semi-led risk-off, memory −10%/logic −3%,
   software green, gold & DXY calm = orderly rotation → candidate: long asset-light software / short

@@ -110,6 +110,25 @@ class HyperfeedStrikerOffer(unittest.TestCase):
                                     f"{skill}/SKILL.md promises an outcome: "
                                     f"...{body[max(0, m.start() - 60):m.end() + 30].strip()}...")
 
+    def test_leverage_is_up_to_ten_never_a_flat_ten(self):
+        """"up to 10x", never "at 10x": the per-name venue cap clamps plenty of instruments below 10.
+
+        The clamp changes the PRICE move behind a number, not the wallet cost — ROE is return on
+        margin, so a 15% ROE stop is ~13.5% of the wallet at any leverage, while the move it takes
+        doubles at 5x. So this guards only the leverage clause of the PITCH; the 13.5% figure is
+        leverage-independent and pinned separately above.
+
+        Matched as exact pitch constructions, not a pattern around "position": senpi-portfolio
+        carries an unrelated and correct ROE explainer ("a 1% price move at 10x is a 10% return on
+        margin"), and a looser regex flags that instead of a real regression.
+        """
+        for skill in OFFER:
+            body = _body(skill)
+            for bad in ("one position at 10x", "at 10x with a DSL", "position at 10x on the"):
+                self.assertNotIn(bad, body,
+                                 f"{skill}/SKILL.md pitches a flat 10x ({bad!r}); the per-name venue "
+                                 f"cap clamps many instruments below it — say 'up to 10x'")
+
     def test_tags_reach_the_ranker(self):
         """discover ranks by keyword overlap on tags (weight 3) — no boosts. The tags are the lever."""
         for pkg in ("penguin", "pelican"):

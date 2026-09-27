@@ -906,7 +906,7 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
 
   > **What should the idle go into?**
   >
-  > 1. **Penguin** — the Hyperfeed striker, crypto only: one position at 10x on the strongest live
+  > 1. **Penguin** — the Hyperfeed striker, crypto only: one position at up to 10x on the strongest live
   >    rotation, with a DSL floor that ratchets up to lock gains. High risk, high reward.
   > 2. **Pelican** — the same striker across all assets: crypto plus stocks, commodities, indices
   >    and pre-IPO.

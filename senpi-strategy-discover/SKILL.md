@@ -287,7 +287,7 @@ worldview/fund picks; offer the stack on single-wallet picks only.
   >
   > 1. **Penguin** — crypto only. The Hyperfeed striker: it reacts only to the strongest live rotations
   >    on the feed — a name suddenly rocketing up what winning traders hold — then commits one position
-  >    at 10x with a DSL floor that ratchets up to lock gains as it runs.
+  >    at up to 10x with a DSL floor that ratchets up to lock gains as it runs.
   > 2. **Pelican** — the same striker across all assets: crypto plus stocks, commodities, indices
   >    and pre-IPO.
   > 3. **Signals Hunter** — the smart-money signal feed traded on a clock, spread across several slots.

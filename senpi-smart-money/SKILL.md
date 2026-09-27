@@ -171,7 +171,7 @@ bias with its member count — conviction is the whole point.
 
   > Want a feel for what senpi Hyperfeed can do? **Penguin** (crypto only) or **Pelican** (all assets)
   > react only to the strongest live rotations on the feed — a name suddenly rocketing up what winning
-  > traders hold — then commit one position at 10x with a DSL floor that ratchets up to lock gains as it
+  > traders hold — then commit one position at up to 10x with a DSL floor that ratchets up to lock gains as it
   > runs. High risk, high reward: each stop-out costs about 13.5% of the wallet. Built to be forked and
   > made your own.
 
