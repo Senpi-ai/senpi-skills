@@ -194,5 +194,44 @@ class Degradation(unittest.TestCase):
             self.assertLessEqual(len(hyperfeed.load_ring(d, T0)), hyperfeed.RING_MAX)
 
 
+class CliWiring(unittest.TestCase):
+    """The entry point nothing else covers.
+
+    Every test above injects `call_tool` directly, which is right for the engine and useless for the
+    CLI: the first live run of this script died with `AttributeError: 'MCPClient' object has no
+    attribute 'call_tool'` while the whole suite was green. The engine was fine; the one line that
+    connects it to a real MCP session was not. So the adapter's contract is pinned against the real
+    class, by name.
+    """
+
+    def test_mcpclient_exposes_mcp_call_and_not_call_tool(self):
+        import mcp_client
+        self.assertTrue(hasattr(mcp_client.MCPClient, "mcp_call"),
+                        "MCPClient lost mcp_call — the adapter in hyperfeed.py routes through it")
+        self.assertFalse(hasattr(mcp_client.MCPClient, "call_tool"),
+                         "MCPClient grew a call_tool; simplify _adapter rather than keeping both")
+
+    def test_adapter_routes_name_and_args_through_mcp_call(self):
+        seen = {}
+
+        class FakeClient:
+            def mcp_call(self, tool, timeout=12, **arguments):
+                seen.update(tool=tool, timeout=timeout, arguments=arguments)
+                return {"success": True, "data": {"markets": {"markets": []}}}
+
+        hyperfeed._adapter(FakeClient())("leaderboard_get_markets", {"limit": 100})
+        self.assertEqual(seen["tool"], "leaderboard_get_markets")
+        self.assertEqual(seen["arguments"], {"limit": 100},
+                         "args must reach the server as the tool-arguments payload, unwrapped")
+        self.assertEqual(seen["timeout"], hyperfeed.READ_TIMEOUT_S)
+
+    def test_the_adapter_is_what_main_uses(self):
+        """Guards the specific regression: main() must not hand-roll its own client call again."""
+        src = open(os.path.join(HERE, "..", "scripts", "hyperfeed.py")).read()
+        main_src = src[src.index("def main(argv=None):"):]
+        self.assertIn("_adapter(client)", main_src)
+        self.assertNotIn("client.call_tool", main_src)
+
+
 if __name__ == "__main__":
     unittest.main()

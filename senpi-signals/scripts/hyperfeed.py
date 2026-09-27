@@ -346,6 +346,22 @@ def render(rep):
     return "\n".join(L)
 
 
+READ_TIMEOUT_S = 20          # one leaderboard read; generous, and the only read this script makes
+
+
+def _adapter(client):
+    """`call_tool(name, args)` over an MCPClient — same contract as sweep.py's `_adapter`.
+
+    MCPClient exposes `mcp_call(tool, timeout=..., **arguments)`, NOT `call_tool`. The first cut of
+    this script called `client.call_tool(name, args)` and died with AttributeError on the very first
+    live run: the engine and its tests inject `call_tool` themselves, so every test passed while the
+    only real entry point was broken. `test_cli_adapter_matches_mcpclient` now pins it.
+    """
+    def call_tool(name, args, timeout=READ_TIMEOUT_S):
+        return client.mcp_call(name, timeout=timeout, **args)
+    return call_tool
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Hyperfeed Movers — the live top-trader feed read")
     ap.add_argument("--json", action="store_true", help="structured output instead of the block")
@@ -357,9 +373,7 @@ def main(argv=None):
 
     from mcp_client import MCPClient  # noqa: E402 — byte-identical to senpi-smart-money's
     client = MCPClient()
-
-    def call_tool(name, args):
-        return client.call_tool(name, args)
+    call_tool = _adapter(client)
 
     rep = read(call_tool, state_dir=a.state_dir, top=a.top,
                xyz_banned=a.xyz_banned, persist=not a.no_persist)
