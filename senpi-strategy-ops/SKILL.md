@@ -18,7 +18,8 @@ description: >-
   deploys / closes / monitors; it does NOT author or edit strategy files — an edit
   ("make my live strategy more aggressive", change leverage/sizing/DSL) is authored
   in senpi-strategy-author, the only skill that knows the scanner / yaml / DSL
-  schema. A strategy is a PACKAGE (strategy.yaml + one runtime.yaml per instance +
+  schema — and "tighten the ratchet / change the tiers / the locks" on a LIVE strategy
+  is applied here (update --apply), never parked "for the next position". A strategy is a PACKAGE (strategy.yaml + one runtime.yaml per instance +
   scanners/) the runtime supervises in-process — no scanner daemon. `deploy.py
   create <id> --budget <usd>` takes a package live end to end (it gates the package,
   then runs the runtime's detached deploy job; watch with `senpi deploy status`);
@@ -32,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.23.1"
+  version: "3.23.2"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -350,8 +351,7 @@ is strategy-driven: close also cleans up an attributed package's **orphaned** (n
 ## Applying an edit to a strategy that is already LIVE
 
 "Make my live strategy more aggressive." **The edit is authored in `senpi-strategy-author`**, never here. **Read the runtime's own state first** (`status.py <id>` / `openclaw senpi status -r <runtime>`): a `Runtime paused: Max Entries/Day` line or a gate that is not `OPEN` means nothing opens today at any balance — a top-up "for a fifth position" is the wrong advice; free margin for a perp book is the perps `withdrawable`, never spot-side USDC. The clearinghouse alone cannot say why nothing is opening.
-**Re-running `create` (or `senpi deploy`) will NOT apply it** — it is idempotent, so it adopts the existing wallet and leaves
-the deployed scanner as it is.
+**Re-running `create` (or `senpi deploy`) will NOT apply it** — it is idempotent, so it adopts the existing wallet and leaves the deployed scanner as it is.
 
 **Apply it in place — `openclaw senpi update`.** No close, no fresh wallet, no market exit; DSL state,
 scanner stores and action history survive. `senpi validate <instance-dir>` writes the proof `--apply`
@@ -362,15 +362,16 @@ fields, e.g. `order_type`, DO reach open positions) — never let "tighter" be h
 (b) the positions open now — `ratchet_stop_edit`, one call and one approval per position; (c) both.** Read
 both first (the file and `ratchet_stop_list`), show the drift and each position's new floor in numbers, then
 ask (a), (b) or (c) — never assume (a), never touch an open position without its own approval:
-[`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md). Call it an **update** to the user, never a
+[`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md). **No open positions → there is only (a), so do it now:** when `ratchet_stop_list` shows no ACTIVE or PAUSED row, skip the
+three-way question — edit, validate, `deploy.py update … --apply`, read back, in the turn the numbers were confirmed, never parked until the user says "update the runtime" (a flat book is the best moment: forward-only leaves nothing behind).
+Never promise to "apply it to each new position as it opens" — nothing does that; the runtime arms a new position from the FILE at handoff — and never offer a DELETED row as a "template" (the engine ignores terminal rows). Call it an **update** to the user, never a
 "redeploy" — that word is the market-exit path below; an edit that closes nothing must never sound like one.
 **Saved is not applied.** `update` without `--apply` only plans — its first line reads `Dry run for <runtime_id> — nothing has been applied.` —
 so never pipe `openclaw senpi` output through `tail`/`head`. An edit is live only once `--apply` exits `0` and the running strategy
 shows the change (the two reads: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md)); until then tell
 the user it is **saved, not applied** — never "done" or "live".
 
-**Only a changed `strategy.wallet`, a renamed or moved external scanner, or a changed `action_type` still need
-close-and-redeploy**, which market-exits every open position and drops any custom ratchet ladder — take
+**Only a changed `strategy.wallet`, a renamed or moved external scanner, or a changed `action_type` still need close-and-redeploy**, which market-exits every open position and drops any custom ratchet ladder — take
 **explicit consent in those words first**. Everything else: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md).
 
 ## Invariants

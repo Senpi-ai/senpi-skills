@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "4.1.5"
+  version: "4.1.6"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -99,7 +99,10 @@ openclaw senpi update ./pkg --apply               # commit (needs the same proof
 openclaw senpi update ./pkg --apply --code-only   # assert only scan.py changed; refuses if not
 ```
 
-It plans by default; `--apply` is the only way to commit. **`dsl_preset` changes are forward-only** — new
+It plans by default; `--apply` is the only way to commit. The `phase2.tiers` ladder is what the user calls
+the **ratchet**: the runtime registers the backend Ratchet Stop itself at handoff, from the ladder the file
+had when the position opened, so with no open position the file edit plus `--apply` IS the whole change —
+there is no "apply it on the next position" step. **`dsl_preset` changes are forward-only** — new
 entries only, while every open position keeps a snapshot of the preset it was opened under (other `exit:`
 fields, e.g. `order_type`, are read live and DO reach open positions). Refused outright, changing
 nothing: a different `strategy.wallet` (that is a new deployment, and the old wallet's positions

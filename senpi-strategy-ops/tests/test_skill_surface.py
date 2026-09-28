@@ -297,6 +297,18 @@ class DslChangeHasTwoTargets(unittest.TestCase):
             self.assertIn(needle, body)
         self.assertIn("senpi://guides/ratchet_stop", (REPO / "senpi-strategy-ops" / "references" / "editing-a-live-strategy.md").read_text())
 
+    def test_a_flat_book_collapses_the_question_to_the_file(self):
+        # #production-issues 2026-09-26: asked to tighten the ratchet on a flat book, the agent found no row to
+        # edit and promised to "apply this ladder to each new position as it opens" — a mechanism that does
+        # not exist. The runtime arms a new position from the file at handoff, so with no open position the
+        # file edit plus --apply is the whole change, and the user must not have to ask for it by name.
+        body = _skill_body(REPO / "senpi-strategy-ops" / "SKILL.md")
+        self.assertIn("No open positions → there is only (a)", body)
+        self.assertIn("each new position as it opens", body)
+        ref = (REPO / "senpi-strategy-ops" / "references" / "editing-a-live-strategy.md").read_text()
+        for needle in ("Exception — no open positions", "no such mechanism exists", "DELETED row as a template"):
+            self.assertIn(needle, ref)
+
 
 class TemplatesDeployUnderTheUsersName(unittest.TestCase):
     """A template never deploys as the bare template: the verb forks it under the user's name, the walkthrough
