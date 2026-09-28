@@ -138,7 +138,8 @@ def _load_state(ctx):
 
 def scan(inputs, ctx):
     now = time.time()
-    asset = str(inputs.get("asset", _DEFAULT_ASSET) or _DEFAULT_ASSET).upper()
+    # Verbatim — see beaver: upper() breaks `xyz:` prefixes and kPEPE/kBONK.
+    asset = str(inputs.get("asset", _DEFAULT_ASSET) or _DEFAULT_ASSET)
     fire_once = bool(inputs.get("fireOnceMode", _DEFAULT_FIRE_ONCE))
     cooldown_hours = float(inputs.get("reEntryCooldownHours", _DEFAULT_RE_ENTRY_COOLDOWN_HOURS))
     leverage = int(inputs.get("leverage", _DEFAULT_LEVERAGE))

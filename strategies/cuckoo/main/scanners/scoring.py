@@ -109,12 +109,16 @@ def tally_consensus(entries):
     (asset, direction) -> {"asset","direction","count","weight"}. Verbatim."""
     agg = {}
     for e in entries:
-        asset = str(e.get("asset", "")).upper()
+        asset = str(e.get("asset", ""))
         direction = e.get("direction")
         if not asset or direction not in ("LONG", "SHORT"):
             continue
         weight = safe_float(e.get("weight"), 1.0)
-        key = (asset, direction)
+        # Upper-case the KEY only, per _coin_of()'s contract: the aggregated
+        # `asset` is emitted into a Senpi tool call and HL names are
+        # case-sensitive (kPEPE/kBONK, lowercase `xyz:`). Keying on the
+        # upper form still merges votes that differ only by case.
+        key = (asset.upper(), direction)
         rec = agg.setdefault(key, {"asset": asset, "direction": direction, "count": 0, "weight": 0.0})
         rec["count"] += 1
         rec["weight"] += weight
