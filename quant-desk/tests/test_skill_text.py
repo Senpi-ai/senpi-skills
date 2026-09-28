@@ -179,7 +179,7 @@ def test_kept_doctrine_is_verbatim():
              "Summing them produced $68k on a book that lost $65k.",
              "the honest combined figure is the best single lever plus fees, ~$9.5k/yr.",
              "**Never a call to buy or sell a coin.**",
-             "**senpi cannot put a stop on a position held in the reader's own wallet today.**",
+             "senpi cannot put a stop on a position held in the reader's own wallet except through the Set stop button.",
              "**name the naked positions and ask how you can help.**",
              "As of 2026-09-28 that button's fixed stop is the only stop senpi offers on a custodied book — never promise trailing.",
              "Never imply senpi holds or moves their funds.",
@@ -396,7 +396,8 @@ def test_the_set_stop_button_is_the_one_exception_to_custody_language():
 
 
 def test_without_the_marker_the_old_custody_rule_holds():
-    _needles("Otherwise (no `Set stop button:` in the text): **name the naked positions and ask how you can help.**",
+    _needles("Otherwise (the card closed with no `Set stop button:` in its text, or the prose fallback): senpi cannot "
+             "stop it today, so **name the naked positions and ask how you can help.**",
              '"set it yourself on Hyperliquid" is the fact, not the offer.')
 
 
@@ -405,3 +406,14 @@ def test_the_button_never_leaks_into_the_prose_fallback():
     closing = _flat(_skill()).split("## Mandatory closing")[1].split("## No address given")[0]
     assert "Set stop" not in closing, closing
     _needles("senpi cannot place a stop on a book the reader custodies")
+
+
+def test_the_custody_limit_waits_for_the_card():
+    """The marker only arrives with the closing card, after stage 2 and any early protect follow-up:
+    stating the limit before it would be contradicted minutes later by a Set stop button."""
+    _needles("**Before an own-book desk's closing, never state that limit:** at stage 2 and at an early "
+             "*protect* follow-up, name the naked positions and say the next steps follow at the end of the desk.")
+
+
+def test_positions_the_marker_does_not_list_follow_otherwise():
+    _needles("A naked position it does not list follows Otherwise.")
