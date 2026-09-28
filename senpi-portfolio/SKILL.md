@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.29.0"
+  version: "1.30.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -901,8 +901,31 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
   before any change; never trade unprompted.
 - **CTA 2 → deploy idle.** If there's meaningful **truly-free** idle capital (lead from
   `signals.idle_drag_pct` and `idle_in_embedded` — NOT a flat sleeve of a live multi-wallet strategy,
-  which is committed), offer to hand it to **senpi-strategy-discover** / **senpi-strategy-author** — fund
-  a new strategy from the embedded idle, or top up an existing *whole* strategy via `strategy_top_up`.
+  which is committed), name the ready options rather than opening a blank picker. One per line, so it
+  can be answered with a digit:
+
+  > **What should the idle go into?**
+  >
+  > 1. **Penguin** — the Hyperfeed striker, crypto only: one position at up to 10x, 90% margin, on the
+  >    strongest live rotation, with a DSL floor that ratchets up to lock gains. High risk, high reward,
+  >    with -15% SL.
+  > 2. **Pelican** — the same striker across all assets: crypto plus stocks, commodities, indices
+  >    and pre-IPO.
+  > 3. **Puffin** — the smart-money signal feed, concentrated into one position at a time at high
+  >    leverage.
+  > 4. **Signals Hunter** — that same feed traded on a clock, spread across several slots.
+  > 5. **Athena** — a smart-money hedge fund, forked under your name.
+  > 6. Or **something else** — tell me how you want to trade and we'll find or build it.
+
+  Penguin and Pelican are the two most people start with, because a live rotation shows up fast and
+  they are built to be forked and modified. Be able to unpack the numbers: **-15% SL is 15% ROE, not a
+  15% price move** — at 10x that is a **1.5%** move, so answer in price when asked. On 90% margin it is
+  **~13.5% of that wallet per stop-out**, and say **per stop-out** — their risk guard rails are off, so
+  stops compound. **Up to 10x**, never a flat 10x: the per-name venue cap clamps many instruments, which
+  moves the price behind every number, not the wallet cost. Say **rotations**, never "pumps".
+  Routes 1-5 hand to **senpi-strategy-ops**;
+  route 6 to **senpi-strategy-discover** (find one) or **senpi-strategy-author** (build one). Topping up
+  an existing *whole* strategy via `strategy_top_up` stays available whenever that fits better.
   Propose; never deploy without confirmation.
 
 ## Resilience (engine handles; narrate honestly)

@@ -11,7 +11,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.5.0"
+  version: "1.7.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -138,14 +138,22 @@ Top-down, always this shape:
 7. **Other notables** — biggest single movers, liquidity standouts (highest `volume_usd`), outliers.
 8. **Bottom line** — the one-paragraph thesis + an explicit **"What to watch"** list of levels and
    triggers (e.g. "BTC $62k holds → flush done; VIX > 25 → selloff broadening").
-9. **Senpi Signals, in brief** — the closing section below.
-10. **The closing question** (same section).
+9. **Hyperfeed Movers** — what the 4h leader board is doing *right now*, from the senpi-signals
+   folder: `python3 scripts/hyperfeed.py --top 5`. Present its block as it stands. This is the
+   minute-scale layer the rest of the read does not have — the sections above are today's structure,
+   this is the last fifteen minutes — and it is the one place a reader sees the detector Penguin and
+   Pelican actually trade. **Never call it smart money** (see the rule below). If the senpi-signals
+   folder isn't there, skip it silently, exactly as with the brief.
+10. **Senpi Signals, in brief** — the closing section below.
+11. **The closing question** (same section).
 
 Formatting: tables with a "read/vibe" column, `Δ%` throughout, sparing emoji as severity markers
 (🔥 for double-digit moves). Always show the daily move, not just the price. **A missing change is `—`, never `0.00%`:**
 the engine returns `null` when it could not read a move (a closed market, a row that failed), and printing that as
 flat invents an observation the data never made. If `smart_money` is present, add a short **4h leaders** note
 (e.g. "in the last 4h, 22% of the winners' gains sit in ZEC longs, across 228 traders") — it's high-signal.
+That note is the 4h *level*; the Hyperfeed Movers block in step 9 is the 15-minute *change* on the same
+board, so give the note here and let the block carry the movement rather than describing it twice.
 **Never call it smart money.** That layer is `leaderboard_get_markets`: who is winning *right now*, survivorship
 included. senpi-signals' "smart money" is the >= $1M lifetime-realized cohort, and the two are regularly on
 opposite sides of the same name in the same answer — so the words have to say which population each one is.
@@ -159,6 +167,11 @@ after the narrow answer):
    one), run `python3 scripts/sweep.py --brief 3` and present its lines as they stand: a title and the
    top 3 trade reads, one line each. Narrate nothing about it. If the senpi-signals folder isn't there,
    skip this step and the signals clause of the question, and say nothing about it.
+   The **Hyperfeed Movers** block (output-contract step 9) comes from the same folder —
+   `python3 scripts/hyperfeed.py --top 5`. Two different populations, and the answer must not blur
+   them: the brief is the >= $1M lifetime-realized cohort over days, the movers block is who is
+   winning over the last 4h with a 15-minute change on top. They are regularly on opposite sides of
+   the same name, which is the whole reason both are worth printing.
 2. **Three numbered next steps, last block of the answer.** A reader who has just been handed a
    market read and a signals brief is deciding, not reading — so the routes are a short numbered
    list they can answer with a digit, not a sentence they have to unpick. The signals offer is
@@ -179,9 +192,25 @@ four hours has a four-hour record, and offering them would read as a recommendat
 - **Positions → positions read.** Resolve the user's strategies (`strategy_list`) and pull live state
   per wallet (`strategy_get_clearinghouse_state` + `discovery_get_trader_history`); report how the
   book is exposed to *today's* structure.
-- **Strategy → Athena first, or one built for this market.** Offer the user's own **Athena**, the
-  smart-money hedge fund, as the quick start: **senpi-strategy-ops** runs its walkthrough and deploys it
-  under their name. Its peer is a strategy built from the thesis you just produced: hand
+- **Strategy → Penguin or Pelican first, or one built for this market.** As the quick start, offer the
+  Hyperfeed strikers — **senpi-strategy-ops** runs the walkthrough and deploys under their name:
+
+  > Want a feel for what senpi Hyperfeed can do? **Penguin** (crypto only) or **Pelican** (all assets)
+  > react only to the strongest live rotations on the feed — a name suddenly rocketing up what winning
+  > traders hold — then commit one position at up to 10x, 90% margin, with a DSL floor that ratchets up
+  > to lock gains as it runs. High risk, high reward, with -15% SL.
+
+  Three things about that line the agent must be able to unpack, because each is easy to read wrong:
+  **-15% SL is 15% ROE, not a 15% price move** — at 10x that is a **1.5%** move, so if the user asks what
+  the stop means, answer in price, never leave "-15%" to be read as the distance. On 90% margin it costs
+  **~13.5% of the wallet per stop-out**, and say **per stop-out**: these run with their risk guard rails
+  off, so stops compound (three ≈ 40% of the wallet). **Up to 10x**, never a flat 10x — the per-name venue
+  cap clamps many instruments below it, and that clamp moves the PRICE behind every number without moving
+  the wallet cost: ROE is return on margin, so the stop is ~13.5% at any leverage while the move it takes
+  doubles at 5x (3.0%), and tier 1's +20% ROE becomes a 4% move rather than 2%. And say   **rotations**, never "pumps": the detector fires on a jump in what winning traders HOLD, not on price, so a pumping
+  name no smart money rotated into does not fire at all.
+
+  Its peer is a strategy built from the thesis you just produced: hand
   **senpi-strategy-author** a structured brief (e.g. *"semi-led risk-off, memory −10%/logic −3%,
   software green, gold & DXY calm = orderly rotation → candidate: long asset-light software / short
   memory, or fade if washout; risk: timing"*). Never promise or imply results. **Propose the strategy

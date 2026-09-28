@@ -16,7 +16,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.5.0"
+  version: "2.9.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -197,6 +197,74 @@ python3 scripts/sweep.py                # debugging: run JSON, coverage lines, r
 - The full detector library, the scoring rubric and every field the sweep declares per asset:
   [`references/detectors.md`](references/detectors.md).
 
+## Hyperfeed Movers — "what's hot RIGHT NOW?"
+
+A different question from the sweep, and it gets its own read. The sweep ranks the **>= $1M
+lifetime-realized cohort** over days. These ask about the last few minutes:
+
+> *"What's pumping right now?"* · *"Where are traders making money on Hyperliquid right now?"*
+> *"What's the Hyperfeed telling us?"* · *"Analyze what's hot this minute"* · *"Anything moving?"*
+
+**Every sweep already prints it.** `sweep.py` reads `leaderboard_get_markets` for its own 4h-board
+lens, so the movers section is built from those same rows — no second call, and it can never disagree
+with the board read above it. It lands at the end of `signals.md`, which means a user sees it without
+knowing it exists, and the brief carries the top three as one line. That is deliberate: this is the
+question people actually ask, and a section you have to request is one most people never see.
+
+**The sweep carries Tier A only**, and that is a constraint rather than a shortcut — a sweep is ONE
+READING (its out dir holds `current.json` and `signals.md` and nothing else, enforced by
+`test_a_sweep_is_one_reading_so_a_second_sweep_compares_nothing`). Rotations need a stored baseline,
+which would make the sweep keep history. So for those run **`python3 scripts/hyperfeed.py`** twice, a
+couple of minutes apart — it owns its own ring (`--json` for structure, `--xyz-banned` for Penguin's
+crypto-only universe). **No cron, no background sampling** — the only thing that ever fills that ring
+is a run somebody asked for.
+
+**Never call this layer smart money.** It is `leaderboard_get_markets`: who is winning *right now*
+over a 4h rolling window, survivorship included. senpi-signals' smart money is the lifetime-realized
+cohort, and the two are regularly on **opposite sides of the same name in the same answer**. Say
+Hyperfeed, the 4h leaders, or top traders. (senpi-market-pulse carries this rule too.)
+
+### The two tiers, and why the section always tells you which one answered
+
+The scoring is **Penguin's own**, vendored byte-identical (`scripts/striker_scoring.py`, locked by
+`tests/test_striker_scoring_vendor_parity.py`). But that detector is **stateful**: every one of its
+six reasons — FIRST_JUMP, IMMEDIATE_MOVER, CONTRIB_EXPLOSION, HIGH_VELOCITY, DEEP_CLIMBER, CLIMBING —
+is a delta against a scan the live runtime took **90 seconds** earlier. A skill answering a question
+has no such history, and the tempting fix is the trap: "+42 ranks" measured against a baseline from
+eleven hours ago is a *different claim* in identical words.
+
+So:
+
+- **Tier A — the snapshot. Always available, needs no history at all.** Ranked by
+  `contribution_pct_change_15m`, which the **feed computes**, not us — a real 15-minute momentum
+  number. Penguin's stateless gates are applied so the names shown are ones it would look at: rank
+  outside the top 10 (a top-10 name has no jump room left), the 4h move agreeing with the leaders'
+  direction, a rising 15m contribution, and the >= 10-trader floor. **This is a complete answer to
+  "what's hot this minute."** Give it and stop; do not apologise for the absence of Tier B.
+- **Tier B — the rotations. Needs a second read, minutes apart.** Penguin's verbatim scorer against
+  the freshest baseline, reported with its real score and real reasons. The baseline age is printed
+  every time and banded: **LIVE** (<= 5 min, comparable to the scanner's own cadence) · **WIDE**
+  (<= 30 min, scored but labelled a wider window, never presented as the same signal) · **STALE**
+  (> 30 min — **not scored at all**, and the block says so).
+
+**A STALE baseline is never quietly scored at a wider window.** That is the one rule in this section
+that is not a preference. When it fires, the honest offer is the one the block already prints — *ask
+again in ~2 minutes and this run becomes the baseline* — and a user asking "what's hot right now" is
+very likely to ask again anyway. Never offer to schedule a cron to fill it.
+
+**No rotation is a real read, not a failure.** Most reads find none; it is what the strategy waits
+through. Say it plainly rather than reaching for the next-best name.
+
+**If the feed read fails**, the block says `unavailable` and invents nothing. Report that and stop —
+never substitute a price screen or a remembered board for a Hyperfeed read.
+
+### Handing off from it
+
+A user who just saw a name at the top of this block is one question away from wanting it traded.
+That is the family question below, and **Penguin (crypto) or Pelican (all assets) are the two that
+trade this exact detector** — the block they just read is literally their scoring. Offer them by name
+when the handoff comes, with the honest cost in the same breath.
+
 ## v2 — compare over periods (not in 2.0)
 
 Everything that needs an earlier reading — whale **adds and flips**, OI surges, funding flips,
@@ -210,25 +278,25 @@ After the feed and your few sentences, end the turn with **one question**, and n
 
 > **Want to act on any of these?** I can set up a **single trade** on one read — you see the size, the
 > stop and the liquidation price before anything is placed. Or run it as a strategy, five ways:
-> **(1) Signals Hunter**, which trades this same feed on a clock;
-> **(2) Puffin**, that same engine concentrated into one position at a time, at much higher
-> risk/reward;
-> **(3) Athena**, a hedge fund built on these same smart-money signals, forked under your name;
-> **(4) a different type of signal** — such as **Penguin**, which chases recent high-conviction
-> smart-money wins;
-> or **(5) roll your own**, built around these reads with you.
+> **(1) Signals Hunter** — trades the smart-money signals;
+> **(2) Puffin** — same smart money engine, one position at a time, higher risk/reward (one stop-out
+> ≈ 19-23% of the account);
+> **(3) Athena** — hedge fund built on these smart-money signals, forked under your name;
+> **(4) Trade the Hyperfeed momentum** — e.g. **Penguin** (crypto) or **Pelican** (all assets), which
+> chase live Hyperfeed rotations.
 
-Offer **all five** strategy routes, every time. Athena was the only one named for a while, which sent
+Offer **all four** strategy routes, every time. Athena was the only one named for a while, which sent
 every user who wanted a strategy to the same place regardless of what they had just read. The order is
-deliberate: the template that trades THIS feed comes first, and designing one from scratch — the most
-work, and the only one with no track record at all — comes last rather than leading.
+deliberate: the template that trades THIS feed comes first.
 
 **This is a major entry point.** For most users it is the first time a read becomes a position, so the
-question is the product, not a footer. Ask it every time, in full, with all five routes.
+question is the product, not a footer. Ask it every time, in full, with all four routes.
 
-Routes (1)-(3) trade the reads above. Route (4) deliberately does **not**, and that is why it is worded
-as a different *type of signal* before any template is named: "want to act on any of these?" answered
-with a template that cannot act on them is a promise the deploy will not keep. Offering a different
+Routes (1)-(3) trade the reads above. Route (4) deliberately does **not**, and that is why its label
+names **the Hyperfeed** rather than these signals: "want to act on any of these?" answered with a
+template that cannot act on them is a promise the deploy will not keep. The label is the disclosure —
+Hyperfeed momentum is a different source from the smart-money cohort above, and the user must be able
+to see that before a template is named. Offering a different
 signal is fine and often right — the user may want the shape of the trade rather than these particular
 reads — but it is offered AS a different signal, never as another way to trade what they just read.
 
@@ -256,17 +324,20 @@ reads — but it is offered AS a different signal, never as another way to trade
   follows the same proven cohort these reads come from, and its Aegis sleeve reads the tape to hedge
   the regime. `athena-x` is the same two sleeves at conviction size (25% at 5x rather than 15% at 3x)
   — offer it only when the user asks for size, and name the trade-off rather than just the numbers.
-- **(4) A different type of signal → senpi-strategy-ops, or senpi-strategy-discover.** Some users want
+- **(4) Trade the Hyperfeed momentum → senpi-strategy-ops, or senpi-strategy-discover.** Some users want
   the shape of the trade rather than these particular reads. Name which signal the template actually
   trades in the same sentence as the template. The worked example is `penguin`: it chases recent
   high-conviction smart-money wins — a coin jumping 15+ places up the top-50 rows of the 4h leaderboard
-  of what winning traders are piling into, fresh and volume-confirmed — and commits one position at 10x
+  of what winning traders are piling into, fresh and volume-confirmed — and commits one position at up to 10x
   to it. That is Orca's detector rather than this feed's, and a user who arrived from these reads has to
   hear that. It also runs with all four risk guard rails off, so nothing halts a losing run but its own
   stop, where `puffin` halts at a 50% drawdown or three consecutive losses. When the user wants
   something else entirely rather than this example, hand off to **senpi-strategy-discover** and let the
   picker rank the whole catalog against what they describe — never improvise a shortlist from memory.
-- **(5) Roll your own → senpi-strategy-author.** The read is the brief: the asset, the side, what the
+- **Roll your own → senpi-strategy-author.** Not one of the four offered routes any more (Jason's
+  call, 2026-09-27: the question got long and the four templates carry it), but still the right answer
+  the moment a user asks for something none of them do — offer it then, without being asked twice.
+  The read is the brief: the asset, the side, what the
   read is and its numbers. Build with the author's guardrails — a DSL stop on every position, leverage
   3x or less, few trades, and the minimum budget plus the wallet-creation fee stated before anything is
   funded. It is a new strategy with no track record, and you say so. Offer it as a real peer of the

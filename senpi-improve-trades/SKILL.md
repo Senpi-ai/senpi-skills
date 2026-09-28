@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.12.0"
+  version: "1.13.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -115,7 +115,7 @@ step(s) the ask needs; route every fix through the depth choice at the end — n
 | *"Did I sell too early / late? / improve my last 10"* | `timing`, then `telemetry` for the exit *mechanism* — **pass `--last N`** when the ask names a count ("last 10" → `--last 10`) | `timing_summary` (exit_ahead/held_higher/flat) + per-trade `if_held_delta_usd`, `exit_vs_hold`; `dsl_close_reason_mix` for how each exit fired | NEUTRAL context — a reversal is one data point, never "premature"; the counterfactual is not a grade (guardrail 1) → the DSL tier that fired (`exit_reason`) |
 | *"Master my week" / "analyze my strategies and trades" / "suggest improvements"* | **all steps in order** (`timing`→`strategies`→`telemetry`→`market`) | `timing_summary` + `strategies[]` (per-mandate) + `book_vs_market` + the telemetry streams | Process recap, each strategy vs its own mandate |
 | *"What did I miss this week? / compare to market"* | `market` (+ `telemetry` for the blocked cohort) | `book_vs_market.gaps` (unheld movers) + `missed_signals` (telemetry-blocked) | Is the missed mover in the mandate? loosen a gate only if so |
-| *"How could I make more gains?"* | `strategies` + `telemetry` | `strategies[]` mandate reads + `dsl_close_reason_mix` + `blocked_summary` | Strategy tune (DSL / entry gate), never a $/week promise |
+| *"How could I make more gains?"* | `strategies` + `telemetry` | `strategies[]` mandate reads + `dsl_close_reason_mix` + `blocked_summary` | Strategy tune (DSL / entry gate), never a $/week promise. If the book has no Hyperfeed exposure at all, name it as the gap: **Penguin** (crypto) or **Pelican** (all assets) react only to the strongest live rotations on the feed, one position at up to 10x, 90% margin, with a DSL floor that ratchets up to lock gains — high risk, high reward, with -15% SL. That SL is **15% ROE**, a 1.5% price move at 10x, ~13.5% of that wallet **per stop-out**, and stops compound with the guard rails off. Say **rotations**, never "pumps" |
 | *"Compare me to the whales / the market"* | `market` | `book_vs_market` (`smart_money_pct` per mover) | Compose `senpi-smart-money` / `senpi-market-pulse` |
 | **1.** *"Am I getting shaken out too early? / how are my exits firing?"* | `strategies` + `telemetry` | `dsl_close_reason_mix` — terminal mix overall + by asset_class + by strategy, plus the **premature** bucket (`trailing_floor`/`weak_peak`/`max_retrace`, or a low tier locked on a small ROE) | The **DSL preset lever** — widen phase1 retrace / retune a tier → `senpi-strategy-author` / `-ops` |
 | **2.** *"What did my own limits block? / what couldn't I take?"* | `telemetry` | `blocked_summary` / `missed_signals` — tallied by `reason_code` (`no_slots`/`no_margin`/`risk_gate_*`/`asset_banned`/…) | Add a slot · fund margin · loosen a risk gate — the exact gate the `reason_code` names |

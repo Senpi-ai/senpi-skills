@@ -1,4 +1,4 @@
-# ── PENGUIN · single instance — Concentrated Striker (Orca's signal, conviction sizing) ──
+# ── PELICAN · single instance — Concentrated Striker (Orca's signal, conviction sizing) ──
 # UNIVERSE scanner. Scans the top-50 rows of the 4h leaderboard (leaderboard_get_markets)
 # every tick, detects FIRST_JUMP / IMMEDIATE_MOVER rank explosions (rank-jump >= 15 off a
 # prev-rank >= 25), scores the base Striker model (score >= 9 with a 4-reason floor: first-jump,
@@ -7,17 +7,17 @@
 # 10x on 90% margin. XYZ banned, ONE position at a time, 120-min per-asset cooldown.
 # DSL is the ONLY exit.
 #
-# Penguin keeps Orca's ENTRY MODEL UNCHANGED — every score threshold, the rank-jump gate and the
+# Pelican keeps Orca's ENTRY MODEL UNCHANGED — every score threshold, the rank-jump gate and the
 # freshness/volume confirmations are Orca's, verbatim. What differs is everything after the
 # signal: one slot instead of three, 90% margin instead of 18%, 10x instead of 7x (~9x equity
 # exposure against Orca's ~1.26x), a 4-hour hold instead of 45 minutes, and the four guard rails
 # switched off. Nothing else — no added filter, no altered threshold. A deliberately
 # concentrated, high-variance expression of the same read; see strategy.yaml for the risk.
-name: penguin-main
-group: penguin
+name: pelican-main
+group: pelican
 version: 3.0.0
 description: >
-  PENGUIN — Concentrated Striker. Universe rank-jump sniper on Orca's entry model: scans the
+  PELICAN — Concentrated Striker. Universe rank-jump sniper on Orca's entry model: scans the
   top-50 rows of the 4h leaderboard (leaderboard_get_markets — a momentum read of who is
   winning right now, not a proven cohort) every tick and fires only on a fresh FIRST_JUMP /
   IMMEDIATE_MOVER explosion (rank-jump >= 15 off a prev-rank >= 25, 4h-aligned, 15m-fresh,
@@ -27,7 +27,7 @@ description: >
   exit: a 15% ROE floor, a profit ladder whose first lock arrives at +20% ROE, and a 4-hour
   hard timeout. Guard rails are OFF by design — the stop is the only brake.
 strategy:
-  wallet: "${PENGUIN_WALLET}"
+  wallet: "${PELICAN_WALLET}"
   slots: 1                                 # ONE strike at a time — the whole book rides each signal
   margin_pct: 90                           # 90% of withdrawable per trade
   default_leverage: 10                     # 10x
@@ -38,14 +38,14 @@ scanners:
   - name: position_tracker
     type: position_tracker
     interval_seconds: 10
-  - name: penguin_main_signals
+  - name: pelican_main_signals
     type: external_scanner
     path: ./scanners
     entrypoint: scan.py
     interval_seconds: 90                    # v2 producer_daemon interval_seconds=90
     timeout_seconds: 75                     # < interval_seconds: a tick that reaches its timeout wedges
                                             # the MCP session. Orca measures 16.9% of a 120s budget
-                                            # (~20s/tick) and Penguin's tick does the same work; 75s
+                                            # (~20s/tick) and Pelican's tick does the same work; 75s
                                             # is ~3.7x the measured average.
     default_signal_validity_seconds: 180    # 2x tick; a fresh re-score arrives next tick (rule action)
     state_history_max_count: 100            # rank-history window (5 scans) + emit-cooldown/dedup maps
@@ -62,7 +62,17 @@ scanners:
                                             # prior 24h. LIVE AS OF 2026-09-24: the gate read a
                                             # field HL does not return, so it passed everything
                                             # from launch until now. Threshold left at v2's 1.5.
-      xyzBanned: true                       # v2 XYZ_BANNED — drop dex==xyz / xyz: markets
+      xyzBanned: false                      # THE ONE DIFFERENCE FROM PENGUIN. Orca/Penguin drop
+                                            # dex==xyz / `xyz:` markets (v2 XYZ_BANNED); Pelican
+                                            # scores them alongside crypto. Measured 2026-09-25:
+                                            # 109 xyz instruments traded in 7d, top names 200-770
+                                            # distinct traders, active in EVERY UTC hour — so they
+                                            # clear minTraderCount easily and are not a thin-book
+                                            # risk. Venue leverage caps are also kinder than the
+                                            # alt book (XYZ100 30x, GOLD 25x, TSLA/NVDA/META/AAPL
+                                            # 20x, HOOD/INTC/PLTR/COIN 10x), so the per-name clamp
+                                            # in scan.py bites LESS here than on a 3x-capped alt.
+                                            # Read the card for what this does to the thesis.
       minTraderCount: 10                    # skip a board side thinner than this many traders at the read — a thin side never enters the rank order
       # ── cooldowns (v2 assetCooldownMinutes=120; runtime per-asset gate is primary) ──
       perAssetCooldownSeconds: 7200         # v2 assetCooldownMinutes=120 -> 7200s (emit-time analogue)
@@ -89,10 +99,10 @@ actions:
     action_type: POSITION_TRACKER
     decision_mode: rule
     scanners: [position_tracker]
-  - name: penguin_main_entry
+  - name: pelican_main_entry
     action_type: OPEN_POSITION
     decision_mode: rule                     # the scan already applied every filter (v2 LLM gate was pass-through)
-    scanners: [penguin_main_signals]
+    scanners: [pelican_main_signals]
     params:
       order_type: FEE_OPTIMIZED_LIMIT       # v2 entry order_type
       fee_optimized_limit_options:
@@ -100,12 +110,12 @@ actions:
         execution_timeout_seconds: 60       # v2 execution_timeout_seconds
     context:
       - type: signal
-        scanner: penguin_main_signals
+        scanner: pelican_main_signals
 
 # ── EXIT (DSL) ───────────────────────────────────────────────────────────────
 # Orca's "let winners run" ladder, held verbatim (phase 2 tiers 20/30/50/75/100 — the first
 # lock arrives at +20% ROE, locking 25% of high-water, so a mover is not capped early).
-# What Penguin changes is the clock and the floor: hard_timeout 45m -> 240m and weak_peak_cut
+# What Pelican changes is the clock and the floor: hard_timeout 45m -> 240m and weak_peak_cut
 # 25m -> 180m (a 4-hour thesis needs hours to develop), dead_weight_cut OFF (a 15-minute cut
 # fights a 4-hour hold), and phase-1 max_loss 8% -> 15% ROE.
 # order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen).
