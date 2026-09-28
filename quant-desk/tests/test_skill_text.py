@@ -61,12 +61,13 @@ def _markdown_files():
 
 # --- frontmatter -------------------------------------------------------------------------------
 
-def test_frontmatter_is_2_0_0_and_requires_the_runtime():
-    """A major: boxes gate skill majors on the runtime's manifest ceiling, so 2.x only lands where
-    the runtime has the `senpi quant` verb."""
+def test_frontmatter_is_2_1_0_and_requires_the_runtime():
+    """Still major 2: boxes gate skill majors on the runtime's manifest ceiling (quant-desk maxMajor 2),
+    so 2.x only lands where the runtime has the `senpi quant` verb. The Set stop doctrine is a minor:
+    on a runtime without the button its text never says `Set stop button:`, and rule 5 holds as before."""
     meta = yaml.safe_load(_frontmatter())
     assert meta["name"] == "quant-desk"
-    assert meta["metadata"]["version"] == "2.0.0", meta["metadata"]["version"]
+    assert meta["metadata"]["version"] == "2.1.0", meta["metadata"]["version"]
     assert "senpi-trading-runtime" in (meta["metadata"].get("requires") or []), meta["metadata"]
 
 
@@ -180,7 +181,7 @@ def test_kept_doctrine_is_verbatim():
              "**Never a call to buy or sell a coin.**",
              "**senpi cannot put a stop on a position held in the reader's own wallet today.**",
              "**name the naked positions and ask how you can help.**",
-             "As of 2026-09-21 the ability to attach a DSL or a stop to any position",
+             "As of 2026-09-28 that button's fixed stop is the only stop senpi offers on a custodied book — never promise trailing.",
              "Never imply senpi holds or moves their funds.",
              'Never "report", "analyst", "bot", "AI assistant".',
              "**Your quant reads any book on Hyperliquid, not just yours.**",
@@ -381,3 +382,26 @@ def test_timeout_row_matches_the_runtime_next_step():
 def test_book_limit_is_25():
     _needles("a book reads at most 25 wallets; if the reader has more, pass the 25 with the most "
              "recent activity")
+
+
+# --- the Set stop button (runtime widget v2) ----------------------------------------------------
+
+def test_the_set_stop_button_is_the_one_exception_to_custody_language():
+    """The runtime's result text is the model's only view of the button (history strips the card
+    payload): `Set stop button:` is the marker it prints, pinned by the runtime's widget test."""
+    _needles("**The one exception is the Set stop button:** when the card's result text lists "
+             "`Set stop button:` stops, the reader signs those stops in their own wallet — tell them to "
+             "use **Set stop** on the protect card, never say senpi cannot stop those positions, and never "
+             "describe a button on any other card or for any position it does not list.")
+
+
+def test_without_the_marker_the_old_custody_rule_holds():
+    _needles("Otherwise (no `Set stop button:` in the text): **name the naked positions and ask how you can help.**",
+             '"set it yourself on Hyperliquid" is the fact, not the offer.')
+
+
+def test_the_button_never_leaks_into_the_prose_fallback():
+    """The prose closing is the no-widget path: there is no card, so there is no button to name."""
+    closing = _flat(_skill()).split("## Mandatory closing")[1].split("## No address given")[0]
+    assert "Set stop" not in closing, closing
+    _needles("senpi cannot place a stop on a book the reader custodies")
