@@ -138,8 +138,12 @@ def _load_state(ctx):
 
 def scan(inputs, ctx):
     now = time.time()
-    # Verbatim — see beaver: upper() breaks `xyz:` prefixes and kPEPE/kBONK.
+    # `asset` is emitted and sent to the venue, so it keeps the operator's casing:
+    # upper() breaks `xyz:` prefixes and kPEPE/kBONK. `asset_key` is the upper form
+    # used ONLY for the held-membership and signalled-dedup joins, whose other side
+    # is upper — keeping both sides symmetric.
     asset = str(inputs.get("asset", _DEFAULT_ASSET) or _DEFAULT_ASSET)
+    asset_key = asset.upper()
     fire_once = bool(inputs.get("fireOnceMode", _DEFAULT_FIRE_ONCE))
     cooldown_hours = float(inputs.get("reEntryCooldownHours", _DEFAULT_RE_ENTRY_COOLDOWN_HOURS))
     leverage = int(inputs.get("leverage", _DEFAULT_LEVERAGE))
@@ -175,10 +179,10 @@ def scan(inputs, ctx):
     else:
         # Detect a closed position: had a first_entry but the asset is no longer
         # held and no exit was recorded -> log the exit (verbatim v2 main()).
-        if koala.get("first_entry_at") and asset not in held_set and koala.get("last_exit_at") is None:
+        if koala.get("first_entry_at") and asset_key not in held_set and koala.get("last_exit_at") is None:
             koala = scoring.record_exit(koala, now)
 
-        if asset in held_set:
+        if asset_key in held_set:
             # Currently held -> do nothing (DSL is in charge).
             result = {"ts": now, "asset": asset, "emitted": False, "gate": "holding",
                       "first_entry_at": koala.get("first_entry_at"),
@@ -211,7 +215,7 @@ def scan(inputs, ctx):
                   file=sys.stderr)
         else:
             # ── EMIT: one LONG, fixed sizing. Record the entry into state. ──
-            signaled[asset] = now
+            signaled[asset_key] = now
             koala = scoring.record_entry(koala, now)
             koala["last_exit_at"] = None     # new lifecycle started (verbatim v2)
             result = {"ts": now, "asset": asset, "emitted": True, "gate": "pass",

@@ -8,9 +8,8 @@ lowercase `xyz:`). Callers needing a case-insensitive COMPARISON upper-case at t
 comparison site instead."
 
 `tally_consensus()` then upper-cased the value it aggregates, and that value is what
-reaches the signal — so every kPEPE vote emitted as KPEPE and every xyz: name as XYZ:.
-Observed live on a user's book: KPEPE re-emitted every ~30s for days, rejected each
-time with `Unknown coin "KPEPE" on the main Hyperliquid dex`, never filling.
+reaches the signal — so every kPEPE vote emitted as KPEPE and every xyz: name as XYZ:,
+which the venue rejects as an unknown coin.
 
 The key stays upper-cased so votes differing only by case still merge.
 """
@@ -41,6 +40,10 @@ def test_votes_differing_only_by_case_still_merge():
     assert len(agg) == 1
     rec = next(iter(agg.values()))
     assert rec["count"] == 2 and rec["weight"] == 3.0
+    # setdefault => first-write-wins on the emitted casing. Benign here because
+    # every vote is _coin_of(position), i.e. the venue's own spelling, so a mixed
+    # pair does not arise in practice — but pin it so a later change is deliberate.
+    assert rec["asset"] == "kPEPE"
 
 
 def test_plain_uppercase_coin_is_unchanged():
