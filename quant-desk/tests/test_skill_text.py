@@ -396,8 +396,8 @@ def test_the_set_stop_button_is_the_one_exception_to_custody_language():
 
 
 def test_without_the_marker_the_old_custody_rule_holds():
-    _needles("Otherwise (the card closed with no `Set stop button:` in its text, or the prose fallback): senpi cannot "
-             "stop it today, so **name the naked positions and ask how you can help.**",
+    _needles("or the card closed with no `Set stop button:` in its text, or the prose fallback): senpi cannot "
+             "stop them today, so **name the naked positions and ask how you can help.**",
              '"set it yourself on Hyperliquid" is the fact, not the offer.')
 
 
@@ -417,3 +417,12 @@ def test_the_custody_limit_waits_for_the_card():
 
 def test_positions_the_marker_does_not_list_follow_otherwise():
     _needles("A naked position it does not list follows Otherwise.")
+
+
+def test_a_lone_protection_section_follows_otherwise():
+    """`run 0x… --section protection` ("am I protected?") ends without a closing card, so it can never
+    carry the marker and never reaches "the end of the desk": it must fall under Otherwise, not hang
+    on the hold clause."""
+    _needles("Otherwise (a desk with no closing card — a single-section run — or the card closed with no "
+             "`Set stop button:` in its text, or the prose fallback): senpi cannot stop them today",
+             "`run 0x… --section protection`")
