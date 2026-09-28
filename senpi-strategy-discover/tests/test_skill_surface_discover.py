@@ -25,3 +25,17 @@ def test_skill_says_the_fee_math_on_micro_specs_and_links_the_public_source():
                    "https://github.com/Senpi-ai/senpi-skills/tree/main/strategies/",
                    "Never hand-roll a tarball"):
         assert needle in text, needle
+
+
+def test_card_format_never_prints_the_raw_tier_field():
+    """The card example once ended in a `[{tier}]` placeholder, so every template line came out as a raw
+    `[{tier: advanced}]` tag. The badge is the literal `[STARTER]`, only for `tier == "starter"`."""
+    text = open(SKILL, encoding="utf-8").read()
+    section = text.split("### Card format", 1)[1].split("\n## ", 1)[0]
+    example = section.split("```")[1]
+    assert "{tier" not in example and "[{" not in example, example
+    flat = " ".join(section.split())
+    for needle in ('`[STARTER]` after the name iff `tier == "starter"`',
+                   "carries no tier label at all",
+                   "never printed raw"):
+        assert needle in flat, needle

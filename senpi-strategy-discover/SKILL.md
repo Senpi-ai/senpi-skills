@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.40.0"
+  version: "2.40.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -267,13 +267,16 @@ They lack the vocabulary; recommend *without* making them self-classify:
 ### Card format
 ```
 {lead: top pick + why-now from market_facts}.
-🦏  Rhino — Tail-Risk / Crisis-Alpha   [{tier}]
+🦏  Rhino — Tail-Risk / Crisis-Alpha
     {thesis}.   Minimum ~${min_budget}{ + funding_split if multi-instance}
 {2nd / 3rd card}.   {caveats, verbatim}.
 "You've got ~${user_context.budget} free — start from {top} (I'll walk you through how it's set and the levers before we fund it; it deploys as {user}'s {top} — or a name of your own), add a hedge alongside it, or build your own?"
 ```
 Every card is a starting point — say so once (*"each of these is a starting point you can fork"*), and
-never present a pick as our strategy the user adopts. Show the STARTER badge iff `tier == "starter"`; show `archetype_label`; lead with `thesis` for the
+never present a pick as our strategy the user adopts. Tier label: `[STARTER]` after the name iff
+`tier == "starter"`; an `advanced` card carries no tier label at all. `tier` is for your ranking, never
+printed raw (no `tier:` key, no braces, no `[advanced]`). The example line has no tier placeholder on
+purpose: one there printed as a raw tag on every card. Show `archetype_label`; lead with `thesis` for the
 worldview/fund picks; offer the stack on single-wallet picks only.
 
 ## Special paths
