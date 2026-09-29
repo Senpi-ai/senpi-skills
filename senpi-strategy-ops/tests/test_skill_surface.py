@@ -63,7 +63,9 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # first non-empty POST. Resident because it fires whenever anyone reads a scanner. Taken in LINES: the
 # first draft held 335 by growing one line to 914 chars (main's longest is 839), which is the same
 # resident context with the count hiding it (2026-09-23).
-BODY_BUDGET = {"senpi-strategy-ops": 344, "senpi-strategy-author": 430}
+# ops: 344 → 345 for the one-line flat-book rule beside the two-targets rule it completes; the depth is in
+# references/editing-a-live-strategy.md §4.
+BODY_BUDGET = {"senpi-strategy-ops": 345, "senpi-strategy-author": 430}
 
 
 def _skill_body(path):
@@ -303,10 +305,11 @@ class DslChangeHasTwoTargets(unittest.TestCase):
         # not exist. The runtime arms a new position from the file at handoff, so with no open position the
         # file edit plus --apply is the whole change, and the user must not have to ask for it by name.
         body = _skill_body(REPO / "senpi-strategy-ops" / "SKILL.md")
-        self.assertIn("No open positions → there is only (a)", body)
-        self.assertIn("each new position as it opens", body)
+        self.assertIn("No open positions → only (a), now", body)
+        self.assertIn("never park it for \"the next position\"", body)
         ref = (REPO / "senpi-strategy-ops" / "references" / "editing-a-live-strategy.md").read_text()
-        for needle in ("Exception — no open positions", "no such mechanism exists", "DELETED row as a template"):
+        for needle in ("Exception — no open positions", "no such mechanism exists", "terminal row as a template",
+                       "MANUALLY_CLOSED", "strategy_get_clearinghouse_state"):
             self.assertIn(needle, ref)
 
 
