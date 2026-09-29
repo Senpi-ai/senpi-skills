@@ -63,8 +63,8 @@ def _markdown_files():
 
 def test_frontmatter_is_2_1_0_and_requires_the_runtime():
     """Still major 2: boxes gate skill majors on the runtime's manifest ceiling (quant-desk maxMajor 2),
-    so 2.x only lands where the runtime has the `senpi quant` verb. The Set stop doctrine is a minor:
-    on a runtime without the button its text never says `Set stop button:`, and rule 5 holds as before."""
+    so 2.x only lands where the runtime has the `senpi quant` verb. The Set stop loss doctrine is a minor:
+    on a runtime without the button its text never says `Set stop loss button:`, and rule 5 holds as before."""
     meta = yaml.safe_load(_frontmatter())
     assert meta["name"] == "quant-desk"
     assert meta["metadata"]["version"] == "2.1.0", meta["metadata"]["version"]
@@ -179,9 +179,9 @@ def test_kept_doctrine_is_verbatim():
              "Summing them produced $68k on a book that lost $65k.",
              "the honest combined figure is the best single lever plus fees, ~$9.5k/yr.",
              "**Never a call to buy or sell a coin.**",
-             "senpi cannot put a stop on a position held in the reader's own wallet except through the Set stop button.",
+             "senpi cannot put a stop on a position held in the reader's own wallet except through the Set stop loss button.",
              "**name the naked positions and ask how you can help.**",
-             "As of 2026-09-28 that button's fixed stop is the only stop senpi offers on a custodied book — never promise trailing.",
+             "As of 2026-09-28 that button's fixed stop loss is the only stop senpi offers on a custodied book — never promise trailing.",
              "Never imply senpi holds or moves their funds.",
              'Never "report", "analyst", "bot", "AI assistant".',
              "**Your quant reads any book on Hyperliquid, not just yours.**",
@@ -384,19 +384,19 @@ def test_book_limit_is_25():
              "recent activity")
 
 
-# --- the Set stop button (runtime widget v2) ----------------------------------------------------
+# --- the Set stop loss button (runtime widget v2) -----------------------------------------------
 
-def test_the_set_stop_button_is_the_one_exception_to_custody_language():
+def test_the_set_stop_loss_button_is_the_one_exception_to_custody_language():
     """The runtime's result text is the model's only view of the button (history strips the card
-    payload): `Set stop button:` is the marker it prints, pinned by the runtime's widget test."""
-    _needles("**The one exception is the Set stop button:** when the card's result text lists "
-             "`Set stop button:` stops, the reader signs those stops in their own wallet — tell them to "
-             "use **Set stop** on the protect card, never say senpi cannot stop those positions, and never "
+    payload): `Set stop loss button:` is the marker it prints, pinned by the runtime's widget test."""
+    _needles("**The one exception is the Set stop loss button:** when the card's result text lists "
+             "`Set stop loss button:` stop losses, the reader signs those stop losses in their own wallet — tell them to "
+             "use **Set stop loss** on the protect card, never say senpi cannot stop those positions, and never "
              "describe a button on any other card or for any position it does not list.")
 
 
 def test_without_the_marker_the_old_custody_rule_holds():
-    _needles("or the card closed with no `Set stop button:` in its text, or the prose fallback): the desk "
+    _needles("or the card closed with no `Set stop loss button:` in its text, or the prose fallback): the desk "
              "cannot stop them, so **name the naked positions and ask how you can help.**",
              '"set it yourself on Hyperliquid" is the fact, not the offer.')
 
@@ -410,7 +410,7 @@ def test_the_button_never_leaks_into_the_prose_fallback():
 
 def test_the_custody_limit_waits_for_the_card():
     """The marker only arrives with the closing card, after stage 2 and any early protect follow-up:
-    stating the limit before it would be contradicted minutes later by a Set stop button."""
+    stating the limit before it would be contradicted minutes later by a Set stop loss button."""
     _needles("**Before an own-book desk's closing, never state that limit:** at stage 2 and at an early "
              "*protect* follow-up, name the naked positions and say the next steps follow at the end of the desk.")
 
@@ -424,5 +424,5 @@ def test_a_lone_protection_section_follows_otherwise():
     carry the marker and never reaches "the end of the desk": it must fall under Otherwise, not hang
     on the hold clause."""
     _needles("Otherwise (a desk with no closing card — a one-question run — or the card closed with no "
-             "`Set stop button:` in its text, or the prose fallback): the desk cannot stop them",
+             "`Set stop loss button:` in its text, or the prose fallback): the desk cannot stop them",
              "`run 0x… --section protection`")
