@@ -3311,3 +3311,31 @@ def test_the_desk_says_which_dsl_tier_is_armed_and_never_claims_the_rest():
     # the side read must never be able to break the desk
     assert dsl.attach(None, "0xabc", {"positions": []}) == 0
     assert dsl.strategies_for(None, "0xabc") == []
+
+
+def test_the_header_carries_the_full_address_not_just_a_truncation():
+    """A reader researching a trader has to be able to COPY the address out of the desk.
+
+    Every mention in the desk is short() — `0x514a…aa76` — which reads well and is useless: it
+    cannot be pasted into a block explorer, a copy-trade setup, or back into this desk. Truncated is
+    the right call for the forty places it recurs and the wrong call for all forty, so the full hex
+    is printed once, near the top, on its own line so it survives being copied out of a chat bubble.
+    A book prints every wallet: the union is the subject and a reader checking one needs all of them.
+    """
+    import render
+    addr = "0x514a1234567890abcdef1234567890abcdefaa76"
+    base = {"address": addr, "track": {}, "activity": {"fills": 5885, "coins": 1}, "rank": None,
+            "days": 90, "now_ms": 1790640000000, "archetype": "Careful opportunist", "labels": {},
+            "verdict": "Real edge but no stops", "flags": [], "wallets": []}
+
+    head = render.header(base)
+    assert addr in head, "the full address never appears in the header"
+    assert f"`{addr}`" in head, "the address must be code-formatted so it copies cleanly"
+    # near the top: before the verdict, so a truncated chat preview still carries it
+    assert head.index(addr) < head.index("Real edge but no stops")
+
+    ws = ["0xaaa1111111111111111111111111111111111111",
+          "0xbbb2222222222222222222222222222222222222"]
+    book_head = render.header(dict(base, wallets=ws))
+    for w in ws:
+        assert w in book_head, f"a book header dropped {w}"

@@ -44,7 +44,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.38.0"
+  version: "1.40.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -74,9 +74,32 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    that as "your first one is still working", not as an error to route around.
 
    If a run really is dead, the state dir is the shared surface: the finished desk lands in the same
-   file, so a fresh `--section overview` after it completes is instant. Give a desk on a wide book
-   **at least 180s** of `timeout` — at 120s the exec tool SIGTERMs it mid-run and you get nothing
-   after paying the whole cost.
+   file, so a fresh `--section overview` after it completes is instant.
+
+   **PASS `yieldMs`, NOT JUST `timeout` — this is the single most common way a reader gets no desk.**
+   `timeout` is the hard kill; **`yieldMs` is how long exec WAITS before handing you a background
+   handle instead of the output.** Without it the tool backgrounds the run at **~10 seconds** no
+   matter how large a `timeout` you passed, and you get
+   `Command still running (session …, pid …)` with a progress tail — not a desk. Measured over 24h:
+
+   | `yieldMs` passed | what came back | runs | got the score |
+   |---|---|---|---|
+   | none | backgrounded at 10.1s | 19 | **0** |
+   | 5000 / 15000 | backgrounded at exactly that | 2 | **0** |
+   | 120000 / 190000 | the finished desk, in 39-49s | 3 | **3** |
+
+   So: **`yieldMs: 190000` together with `timeout: 200`** on the first desk call. The desk itself is
+   not slow — it lands in well under a minute on a normal book. Twenty-one runs across seventeen
+   users produced nothing last window purely because the wait was ten seconds.
+
+   `timeout` still matters as the hard kill — give a desk on a wide book **at least 180s** of
+   `timeout`, because at 120s the exec tool SIGTERMs it mid-run and you get nothing after paying the
+   whole cost. The two are not alternatives: `timeout` decides when the run is killed, `yieldMs`
+   decides when you stop waiting for it. You need both.
+
+   If you DO get a background handle, you are not finished: poll it (`process poll <sessionId>`)
+   until it exits and relay what it printed. Abandoning the handle is how a user ends up with a
+   half-sentence of progress log and no score.
 
 1. **Relay it in STAGES — never as one block.** The analysis takes 30-60s on a typical book, up to
    ~2 MINUTES on a very wide one (100+ coins), and the

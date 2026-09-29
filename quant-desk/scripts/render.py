@@ -9,7 +9,7 @@ import dsl as dsl_mod
 import score as score_mod
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.38.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.40.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -119,6 +119,13 @@ def header(r):
     title = f"across {len(ws)} wallets" if len(ws) > 1 else f"`{short(a)}`"
     lines = [f"# Your desk — {title}",
              f"{r['days']} days · {act['fills']:,} fills · {act['coins']} coins · updated {datetime.datetime.fromtimestamp(r['now_ms'] / 1000, datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} · **YOUR QUANT — LIVE · READ-ONLY** · v{VERSION}"]
+    # THE FULL ADDRESS, ONCE, AT THE TOP. Every other mention in this desk is `short()` — 0x514a…aa76
+    # reads well and is useless: a reader researching a trader cannot paste it into a block explorer,
+    # a copy-trade setup, or back into this desk. Truncated is right for the forty places it recurs,
+    # wrong for all forty. So it is printed in full here and nowhere else, on its own line so it
+    # survives being copied out of a chat bubble. A book prints every wallet — the union is the
+    # subject, and a reader who wants to check one of them needs all of them.
+    lines.append("`" + "`  ·  `".join(ws) + "`" if len(ws) > 1 else f"`{a}`")
     if rank:
         lines.append(rank_line(rank))
     lines.append(f"**{r['archetype']}**")
