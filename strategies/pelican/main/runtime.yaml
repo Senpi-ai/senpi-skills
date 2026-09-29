@@ -10,7 +10,7 @@
 # Pelican keeps Orca's ENTRY MODEL UNCHANGED — every score threshold, the rank-jump gate and the
 # freshness/volume confirmations are Orca's, verbatim. What differs is everything after the
 # signal: one slot instead of three, 90% margin instead of 18%, 10x instead of 7x (~9x equity
-# exposure against Orca's ~1.26x), a 4-hour hold instead of 45 minutes, and the four guard rails
+# exposure against Orca's ~1.26x), an uncapped hold instead of 45 minutes, and the four guard rails
 # switched off. Nothing else — no added filter, no altered threshold. A deliberately
 # concentrated, high-variance expression of the same read; see strategy.yaml for the risk.
 name: pelican-main
@@ -24,8 +24,9 @@ description: >
   volume >=1.5x) that clears the base Striker score 9 with a 4-reason floor. Commits the book
   to ONE position at 10x on 90% margin — roughly 9x equity exposure, against Orca's 1.26x.
   XYZ banned. The detector and the universe are Orca's, unfiltered. DSL is the ONLY
-  exit: a 15% ROE floor, a profit ladder whose first lock arrives at +20% ROE, and a 4-hour
-  hard timeout. Guard rails are OFF by design — the stop is the only brake.
+  exit: a 15% ROE floor and an eight-rung ladder whose first floor arrives at +10% ROE, set just
+  clear of round-trip fees — a loss reducer, not a profit lock. No time cap on a winner. Guard
+  rails are OFF by design — the stop is the only brake.
 strategy:
   wallet: "${PELICAN_WALLET}"
   slots: 1                                 # ONE strike at a time — the whole book rides each signal
@@ -113,11 +114,12 @@ actions:
         scanner: pelican_main_signals
 
 # ── EXIT (DSL) ───────────────────────────────────────────────────────────────
-# Orca's "let winners run" ladder, held verbatim (phase 2 tiers 20/30/50/75/100 — the first
-# lock arrives at +20% ROE, locking 25% of high-water, so a mover is not capped early).
-# What Pelican changes is the clock and the floor: hard_timeout 45m -> 240m and weak_peak_cut
-# 25m -> 180m (a 4-hour thesis needs hours to develop), dead_weight_cut OFF (a 15-minute cut
-# fights a 4-hour hold), and phase-1 max_loss 8% -> 15% ROE.
+# An eight-rung ladder. Rung 1 is a LOSS REDUCER, not a profit lock: at +10% ROE the floor
+# moves to +2% and rises with high-water to +4% by the time rung 2 takes over. That is what
+# turns a round-tripper into a scratch instead of a -15% stop. Rungs 2 onward are Orca's
+# "let winners run" shape, held verbatim. What Pelican changes vs Orca: hard_timeout OFF (see
+# below), weak_peak_cut 25m -> 300m, dead_weight_cut OFF (a 15-minute cut fights a multi-hour
+# hold), phase-1 max_loss 8% -> 15% ROE.
 # order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen).
 exit:
   engine: dsl
@@ -189,11 +191,38 @@ exit:
                                              # count rises to 24 but their median peak DROPS to 24.5%: past
                                              # 1.20% you stop saving runners and start holding losers.
                                              #
-                                             # Rung 1 at trigger 15 was considered and REJECTED: at 10x a
-                                             # 1.5% trigger is inside the churn — it armed 144 times in 24h,
-                                             # the leash fired on 88% of them at a median high-water of only
-                                             # 18.0% ROE, banking +2.8% of account. It stops being a safety
-                                             # net and becomes the strategy.
+                                             # RUNG 1 (10/20), added 2026-09-29. Full replay of the 12 closed
+                                             # positions on this template's wallet on 1m bars, engine ported
+                                             # from floors.ts/tick.ts, validated 12/12 within 2 ROE points of
+                                             # the real exits and within $154 on net dollars. vs the shipped
+                                             # ladder: +$2,740, and positive under EVERY leave-one-out
+                                             # deletion (min +$1,502) — the strongest floor of anything tested.
+                                             # 
+                                             # It is a LOSS REDUCER. Floor is HW x 0.20, so +2.0% ROE at arm
+                                             # rising to +4.0% by trigger 20 — it cannot bank a winner, and it
+                                             # clears the 21.9bps round trip (2.19 ROE pts at 10x, 1.09 at 5x)
+                                             # so the exit is a scratch rather than a fee loss. lock_hw_pct: 0
+                                             # was measured first and is BANNED fleet-wide for exactly that
+                                             # reason; it also scored worse here (+$2,020).
+                                             # 
+                                             # It fired on 4 of 12 positions: three rescues off the -15% stop
+                                             # (UNI -1,270, ADA -1,362, XLM -1,056 all cut to small scratches)
+                                             # and one scratched winner (LINK +787 -> -212).
+                                             # 
+                                             # SUPERSEDES the note previously here rejecting a rung at trigger
+                                             # 15 (144 arms/24h, leash fired on 88% at median HW 18.0%). That
+                                             # test locked 40% at trigger 15 — a floor at +6% ROE, a
+                                             # profit-banker, not this shape.
+                                             # 
+                                             # Trigger 12 is worse (+$941): it misses a high-water of 11.0%.
+                                             # A SECOND rung in the band is worse than this one alone —
+                                             # 10/20+15/30 is -$237 against it. One rung, not two: with lock 20
+                                             # the floor already rises continuously across HW 10-20, so there
+                                             # is no flat band for a second rung to fill.
+                                             # 
+                                             # The exact LOCK is NOT resolvable at n=12 — 20, 22 and 25 all sit
+                                             # inside each other's leave-one-out ranges. Do not re-tune it on
+                                             # the next dozen trades.
                                              #
                                              # 1-win-pays-3-losses: floor must reach 3 x (max_loss + fee)
                                              # + fee = 3 x (15 + 2.26) + 2.26 = +54.0% ROE, which this
@@ -211,8 +240,9 @@ exit:
                                              # point come from ONE asset over 24h (n=60, rescue cohort 13).
                                              # If a wider study lands saturation at 1.40%, rung 1 becomes
                                              # 20/30. Leash per rung, at arm -> at the next trigger:
-                                             # 1.20->1.50, 1.25->1.50, 1.20->1.60, 1.40->1.75,
+                                             # 0.80->1.60, 1.20->1.50, 1.25->1.50, 1.20->1.60, 1.40->1.75,
                                              # 1.50->2.10, 1.75->2.50, 1.50->unbounded.
+        - { trigger_pct: 10,  lock_hw_pct: 20 }   # 1.0% of price — LOSS REDUCER (see note above)
         - { trigger_pct: 20,  lock_hw_pct: 40 }   # 2.0% of price
         - { trigger_pct: 25,  lock_hw_pct: 50 }   # 2.5% of price
         - { trigger_pct: 30,  lock_hw_pct: 60 }   # 3.0% of price
