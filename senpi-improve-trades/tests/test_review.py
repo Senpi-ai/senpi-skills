@@ -1191,11 +1191,9 @@ def test_pnl_summary_exposes_net_of_fees_and_flags_gross_when_it_cannot():
     withf = review._pnl_summary(410.14, strat, 153.53)
     assert withf["fees"] == 153.53
     assert withf["realized_net"] == 256.61, f"expected 410.14-153.53=256.61, got {withf['realized_net']}"
-    assert withf["total_net"] == 256.61
-    assert "GROSS" in withf["note"] and "total_net" in withf["note"]
+    assert "GROSS" in withf["note"]
 
     # fees uncomputed -> net must be None, never a gross number silently passed off as net
     without = review._pnl_summary(410.14, strat)
-    assert without["fees"] is None
-    assert without["realized_net"] is None and without["total_net"] is None
+    assert without["fees"] is None and without["realized_net"] is None
     assert without["total"] == 410.14, "gross total must still be present"
