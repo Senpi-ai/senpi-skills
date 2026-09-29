@@ -43,7 +43,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.0.0"
+  version: "2.1.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -113,22 +113,22 @@ when to run it, whose book, in which voice, and what to say about the numbers.
    Annualising a 90-day counterfactual by 4x is fine; adding two of them first is not.
 4. **Process only.** Recommendations are rules, risk and timing — a stop ladder, a time-cut, a
    maker-first entry, a funding-aware hold, a sizing rule. **Never a call to buy or sell a coin.**
-5. **Custody language.** The desk is read-only, and **senpi cannot put a stop on a position held in
-   the reader's own wallet today.** `ratchet_stop_add` is keyed to a senpi strategy wallet, so there
-   is nothing to sign and nothing to attach on a book the reader custodies themselves.
+5. **Custody language.** The desk is read-only. `ratchet_stop_add` is keyed to a senpi strategy wallet, so
+   senpi cannot put a stop on a position held in the reader's own wallet except through the Set stop loss button.
+   **Before an own-book desk's closing, never state that limit:** at stage 2 and at an early *protect*
+   follow-up, name the naked positions and say the next steps follow at the end of the desk.
+   **The one exception is the Set stop loss button:** when the card's result text lists `Set stop loss button:`
+   stop losses, the reader signs those stop losses in their own wallet — tell them to use **Set stop loss** on the
+   protect card, never say senpi cannot stop those positions, and never describe a button on any other
+   card or for any position it does not list. A naked position it does not list follows Otherwise.
 
-   So: **name the naked positions and ask how you can help.** Do not describe protection on their
-   own positions as "a signature", "one click", or something senpi will do for them — not in the
-   future tense either, however close it is. Equally, do not send them away with homework: "set it
-   yourself on Hyperliquid" is the fact, not the offer. Offer the help and let them ask.
+   Otherwise (a desk with no closing card — a one-question run — or the card closed with no `Set stop loss button:` in its
+   text, or the prose fallback): the desk cannot stop them, so **name the naked positions and ask how you can help.**
+   Never call protection on their own positions "a signature", "one click", or something senpi will do — not in the future
+   tense either, and no homework: "set it yourself on Hyperliquid" is the fact, not the offer. Senpi's protection is for
+   strategies senpi runs; funding a quant is only for autonomous trading. Never imply senpi holds or moves their funds.
 
-   Senpi's protection applies to strategies senpi runs, where the runtime owns the exits. Funding a
-   quant is only for autonomous trading. Never imply senpi holds or moves their funds.
-
-   > **Dated, revisit this.** As of 2026-09-21 the ability to attach a DSL or a stop to any position
-   > already on Hyperliquid is about a week out. When it ships this rule changes and the protect step
-   > becomes a real offer — until then the restriction above holds exactly as written, because a
-   > promise that lands a week early is the one that gets remembered as a lie.
+   > **Dated, revisit this.** As of 2026-09-28 that button's fixed stop loss is the only stop senpi offers on a custodied book — never promise trailing.
 6. **Say "quant", "desk", "agents", "leak", "protect".** Never "report", "analyst", "bot", "AI assistant".
    Lowercase `senpi`. No outcome guarantees. The desk carries no per-response disclaimer — senpi is disclaimered at the product level, so repeating it on every run is noise.
 7. **Address hygiene and whose book it is.** Show the address shortened (`0x2999…65de`). Never post the desk of a
