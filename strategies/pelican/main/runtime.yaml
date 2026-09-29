@@ -180,8 +180,16 @@ exit:
                                              # may retrace off high-water before the floor fires. Measured
                                              # noise band, WLD 24h of 1m bars, largest bounce off a running
                                              # high-water per 30m window: p50 1.18%, p75 1.90%, p90 3.16%.
-                                             # Every leash below is >= 1.20%, so none sits under the median
-                                             # bounce; the old 1.00%-equivalent settings did.
+                                             # Every PROFIT rung below is >= 1.20%, so none sits under the
+                                             # median bounce; the old 1.00%-equivalent settings did. RUNG 1
+                                             # is deliberately tighter — 0.80% at arm at 10x, rising to
+                                             # 1.59% by trigger 20 — and is the one leash here that sits
+                                             # UNDER the p50 bounce. That is the trade it exists to make:
+                                             # firing costs a scratch at +2% ROE, not a capped winner, so a
+                                             # hair trigger is cheap. At 5x the same rung is 1.60% at arm,
+                                             # so the tightness is a 10x effect. The replay that sized it
+                                             # (+$2,740) already has this leash in force; LINK (+787 -> -212)
+                                             # is what it costs when it fires on a runner.
                                              #
                                              # 1.20% is where runner-rescue SATURATES. Widening rung 1 from
                                              # 1.00% to 1.20% rescues 13 of 60 stopped positions and they go
