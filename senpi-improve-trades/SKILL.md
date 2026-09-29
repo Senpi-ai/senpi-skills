@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.13.0"
+  version: "1.14.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -40,6 +40,13 @@ more" questions; use `senpi-portfolio` for live state.
 
 **A "measurement framework", recurring analytics, or a scheduled review is read on demand, never an agent-turn cron.** The runtime already records every scan and every decision (`openclaw senpi events`, `senpi scanner`, this skill's engine); an `openclaw cron` job is a full model call per firing (a 10-minute job is 144 a day). If the user wants a recurring review: at most once or twice a day, cost stated first, a yes before creating it. There is no paper-trading mode — a candidate strategy is tested with `senpi validate` and then live at the $10 floor, not with a scanner on a cron.
 
+0. **Say whether the number is NET of fees.** `realized` and `total` are HL `closedPnl` — **GROSS**. When
+   `pnl_summary.total_net` / `realized_net` are present, **LEAD WITH NET** and show the fee line. When they are
+   `null`, say *"gross — fees not netted"* rather than presenting gross as the result. This is not a rounding
+   point: a measured AVAX round trip on `penguin` closed **+$410.14 gross on $153.53 of fees → +$256.61 net**,
+   so the gross headline overstated it by **60%**. Fee load scales with leverage x turnover, so a 10x
+   single-slot striker is the worst case in the fleet (measured 28.6 bps round trip = 2.86 ROE points at 10x).
+   Never quote a $ PnL without saying which side of fees it is on.
 1. **Lead with TOTAL PnL** (`pnl_summary.total` = realized + unrealized), never realized alone. Realized-only
    is half the ledger — it calls a book riding open winners a "loser" and penalizes hold-strategies. **If
    `pnl_summary.unrealized_partial` is true (or `unrealized_coverage.read < .current_strategies`), TOTAL is a
@@ -289,6 +296,24 @@ blind to the open positions is the core failure this skill exists to prevent.
 **What `if_all_reclosed_now_total` is NOT:** the counterfactual on the **closed** trades only — it says nothing
 about current OPEN positions or live drawdown; don't read it as "the book is bleeding."
 
+### 1b. Peak-to-exit GIVE-BACK is the counterfactual that *is* diagnostic
+
+Guardrail 1 correctly neuters hold-to-now. It does **not** excuse you from the one comparison that is
+legitimately attributable to config: **how much of the high-water the exit actually kept.**
+
+Hold-to-now is hindsight — the price after the exit was unknowable at exit time. **High-water is not.** It
+happened *during* the hold, the position was worth it, and the floor that failed to capture it is a config
+choice. So give-back is fair game where "it kept going up" is not.
+
+Report, per trade and in aggregate: **peak ROE, exit ROE, and the share of peak kept.** The AVAX trade above
+peaked **+20.56% ROE** and exited **+7.67%** — it kept 37% of its peak. That, not the $189 the price drifted
+afterwards, is the number a ladder change answers. A book that habitually keeps a small share of peak has a
+lock that is too low or a first rung that arms too late — a named lever, not a lecture about selling early.
+
+Where the resting stop is still on the book, you can also state **floor vs fill**: the floor the ladder had
+set against the fill that happened. On AVAX the floor was +8.23% ROE and it filled +7.67% — 0.55 ROE points of
+slippage, which is execution, not calibration. Do not conflate the two.
+
 ### 2. It's the strategy, not you — fixes route to the strategy config
 
 These are **autonomous strategy** trades. The strategy exited them, not the user clicking sell. So **never**
@@ -374,6 +399,17 @@ otherwise it's just an asset the strategy was never designed to trade.
   `undetermined`), **do NOT diagnose exit calibration at all** (no "phase-1 too tight," no "scanner false
   signals") — you have no attributed exit; say "exit mechanism undetermined — I'd need the runtime event log,"
   and stop.
+- **Before you write "undetermined", check what the CHAIN already answers.** Telemetry being down does not
+  make these unknown, and calling them unknown is a false negative that reads as a platform failure:
+  - **Maker vs taker** — the `crossed` flag on every fill. No telemetry, no join. Report it.
+  - **Fees in $** — `fee` + `builderFee` on every fill (the engine now sums both). No per-order join needed;
+    the note below about `execution_get_closed_position_details` is about *reconciliation*, not availability.
+  - **The floor the ladder had set** — a resting reduce-only trigger price, against entry and leverage, gives
+    the floor in ROE; high-water x the rung's lock identifies which rung was governing.
+  - **Peak ROE** — 1m candles over the hold window.
+  Say "undetermined" for the things that genuinely need the event log (the close-reason enum, blocked signals,
+  protection gaps), and answer the rest. "The event log timed out so I cannot tell you anything about the
+  exit" is wrong when the exit left a trigger price and a fill on chain.
 - **Name your source (onchain vs runtime).** Closed trades + every onchain fact come from **`discovery`**
   (`discovery_get_trader_history`) — **never `audit_*`** (deprecated). Exit reason, blocked signals, leaks and
   maker/taker come from **telemetry** (the event log) and *enrich* those discovery trades. See the "Sources —
@@ -387,10 +423,16 @@ otherwise it's just an asset the strategy was never designed to trade.
   say so ("couldn't compare — no current price"), don't invent a comparison.
 - Read `meta.warnings` and surface material gaps plainly. Missing data is a caveat, not a thing to paper over.
 
-### 7. The user chooses the fix depth — never auto-act
+### 7. The user chooses the fix depth — never auto-act, and never offer a tune off one trade
 
 After you diagnose, **offer a choice and stop.** Never apply a config change or place a trade. Present three
 depths (below) and let the user pick.
+
+**Gate the two config branches on sample size.** One closed trade cannot justify a ladder change, and offering
+to route one invites exactly the over-fitting that config churn is made of. With **fewer than ~8 attributed
+closes on that strategy**, offer "explain only" and say plainly that the sample is too small to tune on —
+naming what you would measure with more closes. A lever is worth pulling when the same pattern survives
+dropping any single trade, not when one trade is disappointing.
 
 ### 8. Verdicts are for the CURRENT book only — closed strategies are HISTORY, not a live problem
 
@@ -507,6 +549,10 @@ Never pick for the user, and never act unprompted.
 Don't re-implement these — call them and weave their output into the four-part contract above.
 
 ## The one pending upgrade — authoritative fee $
+
+**Fees in $ now ship** — every trade row carries `fee` (exchange **+ builder**; reading only the exchange leg
+under-reported the load by ~32% on the penguin book) and `pnl_summary` carries `fees` / `realized_net` /
+`total_net`. What remains below is *reconciliation against the ledger*, not basic availability.
 
 `execution_quality` reports the maker-vs-taker **rate** today, not fee dollars. The authoritative fee **$**
 lives in the ledger — `order.filled` / `position.closed` carry `senpi.order.id`, which joins to

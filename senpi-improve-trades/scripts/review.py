@@ -824,7 +824,11 @@ def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
                 "open_time": open_time,
                 "close_time": t,
                 "closed_order_id": f.get("oid"),
-                "fee": _num(f.get("fee")),
+                # BOTH legs of the fee. `fee` is the exchange fee; `builderFee` is senpi's builder fee,
+                # charged on the same fill and measured at ~32% of the real load on the penguin book
+                # (exchange $868.94 + builder $409.84 across 96 fills, 2026-09-29). Reading only `fee`
+                # under-reports every fee figure this engine emits by a third.
+                "fee": round((_num(f.get("fee")) or 0.0) + (_num(f.get("builderFee")) or 0.0), 4),
                 "source": "onchain_fills",
             })
     out = []
@@ -1729,7 +1733,7 @@ def _telemetry_source(source_counts, telemetry_warned):
 
 
 # ──────────────────────────────────────────────── total-ledger PnL + the 'undetermined ≠ all-clear' signal
-def _pnl_summary(realized_total, strat_reads):
+def _pnl_summary(realized_total, strat_reads, fees_total=None):
     """The TOTAL-ledger headline the narrator LEADS with — realized (closed trades) + unrealized (current
     open positions) + total — PLUS the current-vs-closed realized split (so the narrator QUOTES it and never
     re-derives a wrong closed-book figure). `realized_total` is ALL closed trades; current-book realized = the
@@ -1737,12 +1741,19 @@ def _pnl_summary(realized_total, strat_reads):
     sums only the current strategies whose open book was READABLE → None when none were, so `total` stays an
     honest UNKNOWN rather than collapsing to a realized-only headline."""
     realized = round(_num(realized_total) or 0.0, 2)
+    # Fees. `realized` is HL closedPnl, which is GROSS — it does not net the fees paid to get in and out.
+    # On a high-leverage striker that gap is not cosmetic: one measured AVAX round trip closed +$410.14
+    # gross on $153.53 of fees, so NET was +$256.61 — the gross headline overstated it by 60%.
+    fees = round(_num(fees_total), 2) if fees_total is not None else None
+    realized_net = round(realized - fees, 2) if fees is not None else None
     current_realized = round(sum(_num(s.get("realized_pnl")) or 0.0 for s in strat_reads), 2)
     closed_realized = round(realized - current_realized, 2)
     known = [u for u in (s.get("unrealized_pnl") for s in strat_reads)
              if isinstance(u, (int, float)) and not isinstance(u, bool)]
     unrealized = round(sum(known), 2) if known else None
     total = round(realized + unrealized, 2) if unrealized is not None else None
+    total_net = (round(realized_net + unrealized, 2)
+                 if (realized_net is not None and unrealized is not None) else None)
     # PARTIAL coverage: some current wallets were readable, some were NOT — so `unrealized` (and therefore
     # `total`) sums only the readable ones: a FLOOR, not a complete number. Flag it so the narrator says
     # "at least $X (N of M wallets readable)" and never presents a partial sum as the finished total. (0
@@ -1755,10 +1766,15 @@ def _pnl_summary(realized_total, strat_reads):
         "unrealized_coverage": {"read": len(known), "current_strategies": len(strat_reads)},
         "unrealized_partial": partial,            # True → unrealized/total are a FLOOR (some wallets UNKNOWN)
         "total": total,                           # realized + unrealized; None when UNKNOWN; a FLOOR when partial
+        "fees": fees,                             # exchange + builder fee on the closed legs; None = not computed
+        "realized_net": realized_net,             # realized MINUS fees — what actually landed
+        "total_net": total_net,                   # realized_net + unrealized; None when either is UNKNOWN
         "note": ("TOTAL = realized (closed trades) + unrealized (current open positions). LEAD with TOTAL, "
                  "not realized alone. unrealized None = the open book couldn't be read (UNKNOWN, not 0). "
                  "unrealized_partial True = only some current wallets read, so unrealized/total are a FLOOR "
-                 "('at least $X, N of M wallets readable') — never present them as complete."),
+                 "('at least $X, N of M wallets readable') — never present them as complete. `realized` and "
+                 "`total` are GROSS of fees; when `total_net` is present LEAD WITH IT, and when it is None "
+                 "say the headline is gross and fees are not netted."),
     }
 
 
@@ -1944,7 +1960,12 @@ def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_m
     strat_reads = _strategy_reads(trades, strategies, open_book)
     closed_reads = _closed_strategy_rollup(trades, strategies)
     realized_total = round(sum(_num(t.get("realized_pnl")) or 0.0 for t in trades), 2)
-    pnl_summary = _pnl_summary(realized_total, strat_reads)
+    # Fees on the closed legs, from the same trade rows the realized total came from (each row's `fee`
+    # is exchange + builder). None when no row carried one, so the narrator says 'gross' rather than
+    # silently presenting a gross number as net.
+    _fee_rows = [_num(t.get("fee")) for t in (trades or []) if t.get("fee") is not None]
+    fees_total = round(sum(x for x in _fee_rows if x is not None), 2) if _fee_rows else None
+    pnl_summary = _pnl_summary(realized_total, strat_reads, fees_total)
     dsl_mix = _dsl_close_reason_mix(trades)   # from whatever exit_reason is in state (UNKNOWN until telemetry)
     current_count = sum(1 for s in strategies if _is_current(s.get("status")))
     closed_count = len(strategies) - current_count

@@ -1165,3 +1165,37 @@ if __name__ == "__main__":
         fn()
         print(f"  ok {fn.__name__}")
     print(f"\n{len(fns)}/{len(fns)} passed")
+
+
+# ── fees: gross vs net, and BOTH fee legs ────────────────────────────────────────────────────────
+# Regression guards for a live review that headlined "+$410.14" on a trade whose net was +$256.61.
+# Two separate bugs produced that: the engine read only the exchange `fee` and never HL's `builderFee`
+# (measured at ~32% of the real load on the penguin book), and `pnl_summary` carried no net at all, so
+# the narrator had nothing but a gross figure to lead with.
+
+def test_fee_sums_both_the_exchange_and_the_builder_leg():
+    """`builderFee` is charged on the same fill. Reading only `fee` under-reports every fee figure."""
+    fills = [{"coin": "AVAX", "dir": "Open Long", "px": "10.0", "sz": "100", "closedPnl": "0.0",
+              "time": 1_000_000, "fee": "7.40", "builderFee": "3.50", "oid": 1},
+             {"coin": "AVAX", "dir": "Close Long", "px": "11.0", "sz": "100", "closedPnl": "100.0",
+              "time": 2_000_000, "fee": "7.40", "builderFee": "3.50", "oid": 2}]
+    rows = review._reconstruct_closed_from_fills(fills, None, None, 50)
+    fees = [r["fee"] for r in rows if r.get("fee") is not None]
+    assert fees, "no trade row carried a fee"
+    assert abs(fees[0] - 10.90) < 1e-6, f"expected 7.40+3.50=10.90, got {fees[0]} (builderFee dropped?)"
+
+
+def test_pnl_summary_exposes_net_of_fees_and_flags_gross_when_it_cannot():
+    """`realized`/`total` are HL closedPnl = GROSS. The narrator must be handed a net, or an explicit None."""
+    strat = [{"realized_pnl": 410.14, "unrealized_pnl": 0.0}]
+    withf = review._pnl_summary(410.14, strat, 153.53)
+    assert withf["fees"] == 153.53
+    assert withf["realized_net"] == 256.61, f"expected 410.14-153.53=256.61, got {withf['realized_net']}"
+    assert withf["total_net"] == 256.61
+    assert "GROSS" in withf["note"] and "total_net" in withf["note"]
+
+    # fees uncomputed -> net must be None, never a gross number silently passed off as net
+    without = review._pnl_summary(410.14, strat)
+    assert without["fees"] is None
+    assert without["realized_net"] is None and without["total_net"] is None
+    assert without["total"] == 410.14, "gross total must still be present"
