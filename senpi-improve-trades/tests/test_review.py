@@ -1173,9 +1173,10 @@ if __name__ == "__main__":
 #   2. the on-chain path counted only the CLOSING fill's fee, dropping the open leg.
 #   3. the PRIMARY (discovery) path carried no fee field whatsoever — and that is the path a
 #      CURRENT strategy runs on, so the headline stayed gross no matter what else was fixed.
-# NOT a defect: `fee` vs `builderFee`. HL's `fee` already INCLUDES the builder leg (measured on 18
-# AVAX fills: fee 9.32 bps taker / 6.44 maker, builderFee a flat 5.00, difference exactly the
-# venue's 4.32 / 1.44 after discount). Summing them overstates by the builder leg.
+# NOT a defect: `fee` vs `builderFee`. HL's `fee` already INCLUDES the builder leg. Shown across two
+# wallets on different loyalty tiers — builder 5.00 bps (fee 9.32/6.44) and builder 4.00 bps (fee
+# 8.32/5.44) — where subtracting the builder leg leaves the same exchange rate (4.32/1.44) both times.
+# Summing them overstates by the builder leg. The builder rate is tier-dependent, never a constant.
 
 def test_fee_is_inclusive_of_builder_and_counts_BOTH_legs():
     """`builderFee` is a breakdown of `fee`, never an addition — and a round trip pays on both legs."""
@@ -1272,6 +1273,15 @@ def test_skill_forbids_taking_leverage_from_the_config():
     assert "ACTUAL" in block.upper(), "the rule must say to use the actual leverage"
     assert "silently" in block or "DOES NOT ERROR" in block, \
         "the rule must explain that the venue clips without erroring"
+
+
+def test_skill_treats_the_builder_fee_as_tier_dependent():
+    """Senpi's builder fee falls with the user's points tier (0.05% Bronze to 0.025% Legend), so a
+    hardcoded rate is wrong for most users. The skill must name where to read the user's own."""
+    skill = " ".join(open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read().split())
+    assert "user_get_senpi_points" in skill, "the skill must name where to read the user's own fee tier"
+    assert "Bronze" in skill and "Legend" in skill, "the tier range is not stated"
+    assert "not a constant" in skill.lower(), "the skill must say the rate is not a constant"
 
 
 def test_the_raw_mcp_rule_does_not_contradict_the_6b_reads():

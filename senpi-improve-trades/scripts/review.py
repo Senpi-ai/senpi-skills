@@ -830,11 +830,15 @@ def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
                 "open_time": open_time,
                 "close_time": t,
                 "closed_order_id": f.get("oid"),
-                # `fee` ALREADY INCLUDES `builderFee` — do not add them. Measured on 18 AVAX fills
-                # 2026-09-29: fee 9.32 bps taker / 6.44 maker, builderFee a flat 5.00, and the
-                # difference is exactly 4.32 / 1.44 — the venue's 4.5/1.5 after the 4% discount.
-                # `builderFee` is a breakdown line, not a second charge. Summing them overstated the
-                # AVAX round trip's fees $99.92 -> $153.53.
+                # `fee` ALREADY INCLUDES `builderFee` — do not add them. Shown across two wallets on
+                # DIFFERENT loyalty tiers: one at builder 5.00 bps had fee 9.32 taker / 6.44 maker,
+                # one at builder 4.00 bps had 8.32 / 5.44. Subtract the builder leg and both give the
+                # same exchange rate (4.32 / 1.44), and `fee` differs by exactly the builder delta.
+                # `builderFee` is a breakdown line, not a second charge. Summing them overstated one
+                # AVAX round trip $99.92 -> $153.53.
+                # NOTE the builder rate is NOT a constant — it falls with the user's points tier
+                # (0.05% Bronze down to 0.025% Legend). Never hardcode it; `user_get_senpi_points`
+                # returns the user's own rate.
                 "fee": round(_close_fee + _open_fee_consumed, 4),
                 "source": "onchain_fills",
             })
@@ -894,10 +898,10 @@ def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
             "entry_px": entry_px,
             "exit_px": exit_px,
             "realized_pnl": pnl,
-            # `totalFees` = totalHyperliquidFees + totalBuilderFees, and discovery SPLITS those two
-            # (verified: a row's builder leg at the flat 5.00 bps implies a notional on which its
-            # exchange leg is 2.85 bps — the 2.88 expected from one maker + one taker leg). So
-            # totalFees is the true round-trip total, the equivalent of HL's inclusive raw `fee`.
+            # `totalFees` = totalHyperliquidFees + totalBuilderFees — discovery SPLITS the two where
+            # HL's raw `fee` is already inclusive (a sample row: 0.096208 + 0.168641 = 0.264849). So
+            # totalFees is the true round-trip total, the equivalent of that inclusive `fee`. This
+            # holds at any loyalty tier; it is a sum of two reported fields, not a rate assumption.
             # WITHOUT this the headline stays GROSS for every CURRENT strategy, which is the path
             # the AVAX review ran on — it reported +$410.14 where the net was +$310.23.
             "fee": _f(p, "totalFees", "total_fees", default=None),

@@ -45,6 +45,12 @@ more" questions; use `senpi-portfolio` for live state.
    `fees` is `null` say *"gross — fees not netted"*. A live review headlined **+$410.14** on a trade whose
    net was **+$310.23** ($99.92 of fees), and it never mentioned fees at all. `fee` already INCLUDES
    `builderFee` — never add them.
+   **The fee rate is NOT a constant — never quote one from memory.** Senpi's builder fee falls with the
+   user's points tier: **0.05% Bronze → 0.047% Silver → 0.045% Gold → 0.04% Platinum → 0.035% Diamond →
+   0.03% Apex → 0.025% Legend**. Two wallets on different tiers show it plainly — builder 5.00 bps vs
+   4.00 bps, identical exchange legs underneath. Read the user's own rate with **`user_get_senpi_points`**
+   (their tier + fee), or the whole table with **`get_loyalty_tiers`**. Quote the *measured* fee from the
+   trade whenever you can; when you must state a rate, state theirs.
 0b. **Never take leverage from the config — read what the position ACTUALLY opened at.** The venue caps
    leverage per asset and **clips silently**: `strategy_create_custom_strategy`'s own schema warns
    "EXCEEDING THE ASSET CAP DOES NOT ERROR", so a strategy asking `default_leverage: 10` opens PONS at **3x**.
