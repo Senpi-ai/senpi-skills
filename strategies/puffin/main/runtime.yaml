@@ -1,7 +1,7 @@
 # ── PUFFIN · the Senpi Signals engine, concentrated into one conviction position ──
 name: puffin-main
 group: puffin
-version: 1.0.0
+version: 1.1.0
 description: >
   PUFFIN — the same senpi-signals gather and detector library as SIGNALS-HUNTER, vendored
   byte-identically, but pointed at one position instead of five. A much higher score floor (85 vs
@@ -102,8 +102,16 @@ actions:
 # ── EXIT — every ROE threshold sized for 10x, so each one is stated in PRICE in the bracket ──
 # This is the trap SIGNALS-HUNTER documents and it bites HARDER here: its ladder is tuned for 5x,
 # and carrying those same ROE numbers onto a 10x book would halve every exit measured in price.
-# The ladder below was rebuilt from the price move up, then multiplied by leverage. Leverage, stop
-# width and this ladder are one system: change them together.
+# Leverage, stop width and this ladder are one system: change them together.
+#
+# REBUILT 2026-09-30 (v1.1.0) — DSL ONLY. Both time cuts are now OFF and the ladder is PENGUIN's,
+# which is also 10x, so every ROE number below means the same price move it means there.
+#
+# The reasoning is the strategy's own thesis. This package follows smart-money positioning, funding
+# dislocation and OI surges — a rotation thesis that plays out over hours, not a snipe. A clock
+# cannot tell a thesis that is wrong from one that has not happened yet, so every time-based close
+# here was cutting the second case along with the first. The DSL's floor is the only exit that
+# reads the position instead of the clock, so it is now the only exit.
 exit:
   engine: dsl
   interval_seconds: 30                   # 10x on one name deserves a faster look than 60s
@@ -113,18 +121,24 @@ exit:
     execution_timeout_seconds: 30
   dsl_preset:
     hard_timeout:
-      enabled: true
-      interval_in_minutes: 1440          # 24h — between SIGNALS-HUNTER's 72h swing and a scalp.
-                                         # At 9x notional, holding a stale thesis across days is
-                                         # the exposure, and the one slot is worth more free.
+      # OFF as of 2026-09-30, matching PENGUIN. The evidence: of 142 hard_timeout closes across
+      # the fleet in 7 days, 110 (77.5%) were in profit when the clock cut them and 93 (65.5%)
+      # kept moving the right way for the next hour. Measured on a momentum chase; it binds harder
+      # on a thesis that is slower. Values below are kept so re-enabling is a one-line change.
+      enabled: false
+      interval_in_minutes: 1440
     weak_peak_cut:
-      enabled: true                      # ON, unlike SIGNALS-HUNTER — with ONE slot a position
-                                         # going nowhere is not just dead money, it is the whole
-                                         # book blocking the next signal.
-      interval_in_minutes: 240           # 4h to reach +10% ROE …
-      min_value: 10.0                    # … = a 1.0% price move at 10x. SIGNALS-HUNTER's 3.0 would
-                                         # be 0.3% of price here — a bar almost anything clears,
-                                         # which would make the cut fire on noise instead of death.
+      # OFF as of 2026-09-30. This was the last time-based close and it was the wrong instrument
+      # for this thesis. It demanded +10% ROE (a 1.0% price move) inside 4h or the slot was freed —
+      # but a whale rotation or a funding dislocation routinely takes longer than 4h to pay, so the
+      # cut fired on positions whose thesis was still intact and merely slow. It also fires ONLY
+      # while peak ROE has never cleared min_value, so it selected precisely the quiet early phase
+      # of a slow mover. Ladder rung 1 below now covers what this was reaching for: once a position
+      # shows +10% ROE it can no longer round-trip to a loss, and one that never shows it is held
+      # by the -25% stop rather than by a clock.
+      enabled: false
+      interval_in_minutes: 240
+      min_value: 10.0
     dead_weight_cut:
       enabled: false                     # a 15-minute cut fights a multi-hour signal thesis
     phase1:
@@ -138,16 +152,36 @@ exit:
                                          # tighter than SIGNALS-HUNTER's 5.0% because this book is
                                          # twice the leverage. Costs 18.8% of the wallet at the 75%
                                          # tier, 22.5% at the 90% tier — size the budget for that.
+                                         # v1.1.0 took PENGUIN's ladder but NOT its 15% stop, on
+                                         # that same reasoning. Rung 1 below is what the tighter
+                                         # stop would have bought, and it costs nothing on the
+                                         # loser side.
       retrace_threshold: 10              # INERT while phase1.enabled is false
       consecutive_breaches_required: 1
     phase2:
       enabled: true
-      tiers:                             # ROE triggers; the price move each represents at 10x
-        - { trigger_pct: 25,  lock_hw_pct: 30 }   # 2.5% of price — risk 2.5%, first lock at 2.5%
-        - { trigger_pct: 40,  lock_hw_pct: 45 }   # 4% of price
-        - { trigger_pct: 70,  lock_hw_pct: 60 }   # 7% of price
-        - { trigger_pct: 120, lock_hw_pct: 75 }   # 12% of price
-        - { trigger_pct: 200, lock_hw_pct: 85 }   # 20% of price
+      tiers:                             # PENGUIN's ladder verbatim — see strategies/penguin/main/
+                                         # runtime.yaml for how each rung was sized (1m-bar replay,
+                                         # validated 12/12) and do not re-tune it here. Price moves
+                                         # in brackets.
+                                         #
+                                         # Why it replaced the old one: that ladder's first rung was
+                                         # at trigger 25, the SAME distance as the stop, so nothing
+                                         # locked until a 2.5% price move and a position could
+                                         # round-trip a whole winner. RUNG 1 (10/20) is a LOSS
+                                         # REDUCER — floor is high-water x 0.20, so +2.0% ROE at arm
+                                         # — and it arms INSIDE the stop distance on purpose: that
+                                         # is what stops a position that went green from coming back
+                                         # through entry. It is why the ladder test no longer
+                                         # asserts trig[0] >= max_loss_pct.
+        - { trigger_pct: 10,  lock_hw_pct: 20 }   # 1.0% of price — LOSS REDUCER (see note above)
+        - { trigger_pct: 20,  lock_hw_pct: 40 }   # 2.0% of price
+        - { trigger_pct: 25,  lock_hw_pct: 50 }   # 2.5% of price
+        - { trigger_pct: 30,  lock_hw_pct: 60 }   # 3.0% of price
+        - { trigger_pct: 40,  lock_hw_pct: 65 }   # 4.0% of price
+        - { trigger_pct: 50,  lock_hw_pct: 70 }   # 5.0% of price
+        - { trigger_pct: 70,  lock_hw_pct: 75 }   # 7.0% of price
+        - { trigger_pct: 100, lock_hw_pct: 85 }   # 10% of price
 
 risk:
   data_retention_seconds: 345600
