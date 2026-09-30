@@ -435,7 +435,7 @@ def test_a_lone_protection_section_follows_otherwise():
 def test_trailing_is_mentioned_only_where_the_result_text_offers_it():
     """`Trailing stop offered:` is the runtime's marker (quant-desk-recommendations.ts
     TRAILING_OFFERED_MARKER): the model sees no other evidence that the button can trail."""
-    _needles("**Trailing.** When that result text also carries `Trailing stop offered:`, the same button can place a "
+    _needles("**Trailing.** When the card's result text also carries `Trailing stop offered:`, the same button can place a "
              "trailing stop instead of the fixed one, for the coins that line lists and no others.",
              "Say it trails on Hyperliquid from the price when the reader signs.")
 
@@ -443,8 +443,15 @@ def test_trailing_is_mentioned_only_where_the_result_text_offers_it():
 def test_trailing_is_never_oversold():
     _needles("Never say it follows the position's size, never say senpi moves or manages it, and never offer it on "
              "any other card or for a coin that line does not list.",
-             "Without that line, do not mention trailing at all.")
+             "Without that line, never say the button can place a trailing stop.")
 
 
 def test_the_old_blanket_ban_on_trailing_is_gone():
     assert "never promise trailing" not in _flat(_skill())
+
+
+def test_the_trailing_rule_binds_the_button_not_the_word():
+    """Rule 3b relays the desk's leaks headline verbatim, and that headline names a trailing stop as a
+    counterfactual: a ban on the word would forbid the relay. Only the claim about the button is gated."""
+    _needles("a trailing stop that arms at +3% and keeps 50% of the peak")
+    assert "do not mention trailing at all" not in _flat(_skill())
