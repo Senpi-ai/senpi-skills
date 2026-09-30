@@ -61,13 +61,15 @@ def _markdown_files():
 
 # --- frontmatter -------------------------------------------------------------------------------
 
-def test_frontmatter_is_2_1_0_and_requires_the_runtime():
+def test_frontmatter_is_2_2_0_and_requires_the_runtime():
     """Still major 2: boxes gate skill majors on the runtime's manifest ceiling (quant-desk maxMajor 2),
     so 2.x only lands where the runtime has the `senpi quant` verb. The Set stop loss doctrine is a minor:
-    on a runtime without the button its text never says `Set stop loss button:`, and rule 5 holds as before."""
+    on a runtime without the button its text never says `Set stop loss button:`, and rule 5 holds as before.
+    The trailing doctrine is a minor too: on a runtime that does not offer it the text never says
+    `Trailing stop offered:`."""
     meta = yaml.safe_load(_frontmatter())
     assert meta["name"] == "quant-desk"
-    assert meta["metadata"]["version"] == "2.1.0", meta["metadata"]["version"]
+    assert meta["metadata"]["version"] == "2.2.0", meta["metadata"]["version"]
     assert "senpi-trading-runtime" in (meta["metadata"].get("requires") or []), meta["metadata"]
 
 
@@ -181,7 +183,7 @@ def test_kept_doctrine_is_verbatim():
              "**Never a call to buy or sell a coin.**",
              "senpi cannot put a stop on a position held in the reader's own wallet except through the Set stop loss button.",
              "**name the naked positions and ask how you can help.**",
-             "As of 2026-09-28 that button's fixed stop loss is the only stop senpi offers on a custodied book — never promise trailing.",
+             "As of 2026-09-30 the button's fixed stop loss and, where the text offers it, its trailing stop are the only stops senpi offers on a custodied book.",
              "Never imply senpi holds or moves their funds.",
              'Never "report", "analyst", "bot", "AI assistant".',
              "**Your quant reads any book on Hyperliquid, not just yours.**",
@@ -426,3 +428,23 @@ def test_a_lone_protection_section_follows_otherwise():
     _needles("Otherwise (a desk with no closing card — a one-question run — or the card closed with no "
              "`Set stop loss button:` in its text, or the prose fallback): the desk cannot stop them",
              "`run 0x… --section protection`")
+
+
+# --- the trailing stop on the Set stop loss button ------------------------------------------------
+
+def test_trailing_is_mentioned_only_where_the_result_text_offers_it():
+    """`Trailing stop offered:` is the runtime's marker (quant-desk-recommendations.ts
+    TRAILING_OFFERED_MARKER): the model sees no other evidence that the button can trail."""
+    _needles("**Trailing.** When that result text also carries `Trailing stop offered:`, the same button can place a "
+             "trailing stop instead of the fixed one, for the coins that line lists and no others.",
+             "Say it trails on Hyperliquid from the price when the reader signs.")
+
+
+def test_trailing_is_never_oversold():
+    _needles("Never say it follows the position's size, never say senpi moves or manages it, and never offer it on "
+             "any other card or for a coin that line does not list.",
+             "Without that line, do not mention trailing at all.")
+
+
+def test_the_old_blanket_ban_on_trailing_is_gone():
+    assert "never promise trailing" not in _flat(_skill())
