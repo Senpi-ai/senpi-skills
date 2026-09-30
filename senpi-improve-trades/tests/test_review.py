@@ -1213,21 +1213,12 @@ def test_the_PRIMARY_discovery_path_carries_fees():
     # and it must reach the headline
     summ = review._pnl_summary(t["realized_pnl"], [{"realized_pnl": t["realized_pnl"],
                                                     "unrealized_pnl": 0.0}], t["fee"])
-    assert summ["realized_net"] == 310.22 or summ["realized_net"] == 310.23, \
-        f"expected ~310.23 net, got {summ['realized_net']}"
-
-
-def test_pnl_summary_exposes_net_of_fees_and_flags_gross_when_it_cannot():
-    """`realized`/`total` are HL closedPnl = GROSS. The narrator must be handed a net, or an explicit None."""
-    strat = [{"realized_pnl": 410.14, "unrealized_pnl": 0.0}]
-    withf = review._pnl_summary(410.14, strat, 99.92)
-    assert withf["fees"] == 99.92
-    assert withf["realized_net"] == 310.22, f"expected 410.14-99.92, got {withf['realized_net']}"
-    assert "GROSS" in withf["note"]
-
-    without = review._pnl_summary(410.14, strat)
-    assert without["fees"] is None and without["realized_net"] is None
-    assert without["total"] == 410.14, "gross total must still be present"
+    assert summ["realized_net"] == 310.22, f"expected 410.14-99.92, got {summ['realized_net']}"
+    assert "GROSS" in summ["note"]
+    # and with no fee computed the net must be None, never gross silently passed off as net
+    bare = review._pnl_summary(410.14, [{"realized_pnl": 410.14, "unrealized_pnl": 0.0}])
+    assert bare["fees"] is None and bare["realized_net"] is None
+    assert bare["total"] == 410.14, "gross total must still be present"
 
 
 # ── guardrail 6b: the skill must TEACH how to tell whether the DSL closed a position ─────────────
@@ -1241,7 +1232,8 @@ def test_skill_names_the_runtime_commands_that_ANSWER_why_it_closed():
     `senpi dsl closes` is purpose-built ("archived closes with reason and ROE") and an earlier
     version of this guardrail never mentioned it — it sent the agent down an inference ladder
     that ended in guessing from fill shapes."""
-    skill = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
+    raw = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
+    skill = " ".join(raw.split())          # prose wraps; assert on meaning, not on line breaks
     assert "6b." in skill, "the exit-attribution guardrail is gone"
     for cmd in ("senpi dsl closes", "senpi dsl inspect", "senpi dsl positions"):
         assert cmd in skill, f"the skill no longer names `{cmd}`"
@@ -1252,8 +1244,8 @@ def test_skill_names_the_runtime_commands_that_ANSWER_why_it_closed():
     for reason in ("exchange_sl_hit", "dsl_breach", "hard_timeout", "weak_peak_cut", "dead_weight_cut"):
         assert reason in skill, f"closeReason `{reason}` is not explained"
     # inference is corroboration only, and MANUAL_CLOSE is not an answer
-    assert "never a substitute" in skill or "corroboration" in skill, \
-        "inference is no longer scoped as a last resort"
+    assert "corroborate" in skill and "never substitute" in skill, \
+        "inference is no longer scoped as corroboration-only"
     assert "not who placed it" in skill, "the maker tell is overstated"
     k = skill.find("MANUAL_CLOSE")
     assert k > 0 and "UNKNOWN" in skill[k:k + 300], "MANUAL_CLOSE must be treated as UNKNOWN"
@@ -1264,7 +1256,8 @@ def test_skill_names_the_runtime_commands_that_ANSWER_why_it_closed():
 def test_skill_forbids_taking_leverage_from_the_config():
     """A review called PONS "10x" (the config's default_leverage) when the venue capped it at 3x, and
     then stated both "~15% ROE" and "~49% of margin" in one answer. ROE is price move x ACTUAL leverage."""
-    skill = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
+    raw = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
+    skill = " ".join(raw.split())
     assert "0b." in skill, "the leverage rule is gone"
     assert "DslState.leverage" in skill or "strategy_get_asset_trading_limits" in skill, \
         "the skill must name where the REAL leverage is read from"
@@ -1279,7 +1272,7 @@ def test_skill_forbids_taking_leverage_from_the_config():
 def test_the_raw_mcp_rule_does_not_contradict_the_6b_reads():
     """Guardrail 6b asks for targeted reads; line ~71 bars 'raw MCP'. The bar must be scoped or the
     skill tells the agent to do something it also forbids."""
-    skill = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
+    skill = " ".join(open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read().split())
     i = skill.find("Use this skill FIRST")
     assert i > 0, "the raw-MCP rule moved"
     window = skill[i:i + 600]

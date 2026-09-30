@@ -43,20 +43,16 @@ more" questions; use `senpi-portfolio` for live state.
 0. **Never quote a $ PnL without saying which side of fees it is on.** `realized` and `total` are HL
    `closedPnl` — **GROSS**. Quote `pnl_summary.realized_net` for the closed book and show the fee line; when
    `fees` is `null` say *"gross — fees not netted"*. A live review headlined **+$410.14** on a trade whose
-   net was **+$310.23** ($99.92 of fees) — a **32%** overstatement, and it never mentioned fees at all.
-   Round trip measured there: 18.7 bps = **1.87 ROE points at 10x**. There is no `total_net`: the open leg
-   has not paid exit fees yet. NOTE `fee` already INCLUDES `builderFee` — never add them.
+   net was **+$310.23** ($99.92 of fees), and it never mentioned fees at all. `fee` already INCLUDES
+   `builderFee` — never add them.
 0b. **Never take leverage from the config — read what the position ACTUALLY opened at.** The venue caps
    leverage per asset and **clips silently**: `strategy_create_custom_strategy`'s own schema warns
-   "EXCEEDING THE ASSET CAP DOES NOT ERROR". A strategy asking `default_leverage: 10` opens PONS at **3x**
-   and GRASS at **3x**, because that is their venue cap. Every ROE number you state is wrong by that ratio
-   if you use the config's figure.
-   **ROE = price move % x ACTUAL leverage.** Read it from `DslState.leverage` (`senpi dsl inspect <asset>
-   --json`), the clearinghouse position, or `strategy_get_asset_trading_limits` — never from runtime.yaml.
-   A live review said PONS was "10x" and then produced both "~15% ROE" and "~49% of margin" in one answer
-   before moving on. It was 3x: -5.094% price x 3 = **-15.3% ROE**, exactly the `max_loss_pct: 15.0` floor.
-   **And say so when they differ** — "3x, the venue cap; the strategy asked for 10x" is a material fact
-   about the user's exposure, not a footnote.
+   "EXCEEDING THE ASSET CAP DOES NOT ERROR", so a strategy asking `default_leverage: 10` opens PONS at **3x**.
+   **ROE = price move % x ACTUAL leverage** — read it from `DslState.leverage` (`senpi dsl inspect <asset>
+   --json`), the clearinghouse position, or `strategy_get_asset_trading_limits`, never from runtime.yaml.
+   A review that used the config's 10x on that PONS trade stated "~15% ROE" and "~49% of margin" in one
+   answer; at its real 3x it was -5.094% x 3 = **-15.3%**, exactly the `max_loss_pct: 15.0` floor.
+   **Say so when they differ** — the venue cap is a fact about the user's exposure, not a footnote.
 1. **Lead with TOTAL PnL** (`pnl_summary.total` = realized + unrealized), never realized alone. Realized-only
    is half the ledger — it calls a book riding open winners a "loser" and penalizes hold-strategies. **If
    `pnl_summary.unrealized_partial` is true (or `unrealized_coverage.read < .current_strategies`), TOTAL is a
@@ -80,9 +76,8 @@ more" questions; use `senpi-portfolio` for live state.
 
 The detailed guardrails below explain each; these five are the floor.
 
-> **Use this skill FIRST — before any raw MCP.** (This bars *replacing* the engine with raw dumps. It does
-> not bar the targeted reads in guardrail 6b when exit attribution came back UNKNOWN — one `ratchet_stop_events`
-> or one open-orders read to answer a specific question is the skill working, not bypassed.) For any
+> **Use this skill FIRST — before any raw MCP.** (Bars *replacing* the engine with raw dumps; not the
+> targeted reads in guardrail 6b.) For any
 > "review my trades / did I sell too early / what did
 > I miss / master my week / how could I make more gains" question, run this engine **before** reaching for
 > raw `discovery_get_trader_history` / `market_get_prices` / `execution_get_closed_position_details`. Those
@@ -316,9 +311,8 @@ the floor that failed to capture it is a config choice. So give-back is fair gam
 is not.
 
 Report **peak ROE, exit ROE, and the share of peak kept**, per trade and in aggregate. The AVAX trade peaked
-**+20.56% ROE** and exited **+7.67%** — kept 37%. That, not the $189 the price drifted afterwards, is what a
-ladder change answers. Habitually keeping a small share of peak means a lock too low or a first rung arming
-too late — a named lever.
+**+20.56% ROE** and exited **+7.67%** — kept 37%. Habitually keeping a small share of peak means a lock too
+low or a first rung arming too late — a named lever.
 
 Keep **floor vs fill** separate: on AVAX the floor was +8.23% and it filled +7.67%, which is 0.55 ROE points of
 execution slippage, not calibration.
@@ -409,7 +403,7 @@ otherwise it's just an asset the strategy was never designed to trade.
   signals") — you have no attributed exit; say "exit mechanism undetermined — I'd need the runtime event log,"
   and stop.
 - **Three things never need telemetry** — answer them before writing "undetermined": **maker vs taker**
-  (`crossed` on every fill), **fees in $** (`fee`, which already includes `builderFee`), and **peak ROE**
+  (`crossed` on every fill), **fees in $** (`fee`), and **peak ROE**
   (1m candles over the hold). Scope "undetermined" to blocked signals and protection gaps — and for *how the
   position closed*, work the ladder in 6b before you ever say you could not tell.
 - **Name your source (onchain vs runtime).** Closed trades + every onchain fact come from **`discovery`**
@@ -437,13 +431,13 @@ Each row is the answer *and* the details:
 | --- | --- |
 | `closeReason` | **why it closed** (vocabulary below) |
 | `phase` + `currentTierIndex` | **which rung was governing** at the close |
-| `currentROE` | the ROE it closed at — already computed at the REAL leverage, so quote it |
-| `entryPrice` / `lastPrice` | the round trip |
-| `elapsedMinutes` / `closedAt` | how long it was held |
+| `currentROE` | the ROE it closed at — already at the REAL leverage, so quote it |
+
+…plus `entryPrice` / `lastPrice` / `elapsedMinutes` / `closedAt`.
 
 Translate `closeReason`, never paste the enum:
 - **`exchange_sl_hit`** — the resting exchange stop fired. It fills at **market**, so expect a burst of taker
-  fills at one timestamp and some overshoot past the floor. This is the most common DSL exit by far.
+  fills at one timestamp and some overshoot past the floor. The most common DSL exit by far.
 - **`dsl_breach`** — the DSL's own floor broke and the runtime closed it via `closePosition`, honouring
   `exit.order_type`.
 - **`hard_timeout`** — the clock, regardless of PnL. OFF on penguin / pelican.
@@ -466,17 +460,13 @@ protected?") and **`senpi explain <asset>`** (the stitched opened → dsl → cl
 run"*. **Say that.** An unreadable record is an unreadable record — do not fall back to guessing a mechanism
 from fill shapes and present it as fact.
 
-**Only when the record is genuinely unavailable**, these are honest *corroboration*, never a substitute:
-- A burst of close fills on one timestamp, all `crossed`, is consistent with `exchange_sl_hit`.
-- A maker fill on the close leg shows the **order type, not who placed it** — `close_position` and
-  `strategy_close_positions` also use `FEE_OPTIMIZED_LIMIT`, and a DSL exit set to `order_type: MARKET`
-  produces none. It can rule the exchange stop *out*; it can never rule the DSL *in*.
-- A closed trade has no *resting* trigger left. Read the one that fired from
-  `execution_get_closed_position_details` → `orderDetails[].triggerPrice`, or HL `historicalOrders`.
-- `exit_reason.terminal` from the engine: `SL_TRIGGERED` / `LIQUIDATED` / `ADL` name a mechanism.
-  **`MANUAL_CLOSE` does not** — it means only "the ladder ended for a reason that was not its own stop", so a
-  signal close, a time cut, `close_position` and a human on the venue all land in it. Treat it as UNKNOWN.
-  (#784 fixes this mapping; settle changes to it there, not here.)
+**If the record cannot be read, say so.** Fill shapes corroborate, they never substitute: a burst of
+`crossed` close fills at one timestamp fits `exchange_sl_hit`, but a maker fill shows the **order type, not
+who placed it** (`close_position` uses `FEE_OPTIMIZED_LIMIT` too, and a DSL exit set to `order_type: MARKET`
+produces none) — so it can rule the exchange stop *out*, never rule the DSL *in*. A closed trade has no
+*resting* trigger left; read the one that fired from `execution_get_closed_position_details` →
+`orderDetails[].triggerPrice`. And `exit_reason.terminal` of **`MANUAL_CLOSE` is not an answer** — it means
+only "ended for a reason that was not its own stop", so treat it as UNKNOWN (#784 fixes that mapping).
 
 Label the source in the answer: *"the runtime's close record says …"* reads differently from
 *"the fills are consistent with …"*, and the user is entitled to know which one they are getting.
