@@ -48,6 +48,7 @@ FIDELITY NOTES vs orca-producer.py v4.0.1:
     report.)
 """
 
+import json
 import sys
 import time
 from datetime import datetime, timezone
@@ -358,6 +359,7 @@ def scan(inputs, ctx):
     # ── score every eligible market (held / cooldown / dedup filtered as in v2 main) ──
     candidates = []
     scored = 0
+    near_miss = 0
     for market in markets:
         token = market["token"]
         dex = market.get("dex", "")
@@ -373,14 +375,51 @@ def scan(inputs, ctx):
                 recent_contribs.append(m["contribution"])
         recent_contribs.append(market["contribution"])
 
+        # floor=False returns candidates that cleared the HARD gates even when they miss the
+        # score/reason floor, so the near-miss band can be logged. The floor itself is enforced
+        # below, unchanged — meta["passedFloor"] is the identical condition, precomputed.
         res = scoring.score_market(market, prev_market, old_market,
-                                   prev_top50_tokens, recent_contribs, hour_utc)
+                                   prev_top50_tokens, recent_contribs, hour_utc,
+                                   floor=False)
         if res is None:
             continue
         score, reasons, meta = res
-        scored += 1
-        if score < min_score:
+
+        # ── CAND: one structured line per candidate that cleared the HARD gates ──
+        # The score/reason floor used to live INSIDE score_market and return None, so a
+        # near-miss left no trace anywhere but the `scored=N` count on the WAITING line. The
+        # fleet therefore has no data at all on the 7-8 band: 11 sub-9 emits in 14 days, all
+        # from one wallet running a lowered floor. That makes three questions undecidable
+        # without risking capital — is the 7-8 band worth trading, does a finer score separate
+        # 9.45 from 9.01, and should the 4h alignment window be 1h or 2h. All three are
+        # answerable offline from this line plus the forward price tape.
+        #
+        # Cheap because the hard gates run first: jump >= 15, prev_rank >= 25 and the 4h
+        # alignment kill nearly everything, so this is ~1-3 lines per 90s tick, not 50.
+        #
+        # NOTE volRatio is absent by construction — the volume MCP read runs AFTER the floor
+        # and only for passers, so any study of the sub-floor band is pre-volume-confirmation.
+        print(f"[pelican.scan] CAND " + json.dumps({
+            "token": token, "dex": dex or None, "direction": market["direction"],
+            "score": score, "scoreFine": meta["scoreFine"], "passed": meta["passedFloor"],
+            "rankJump": meta["rankJump"], "prevRank": meta["prevRank"],
+            "currentRank": meta["currentRank"], "contribRatio": meta["contribRatio"],
+            "contribVelocity": meta["contribVelocity"], "totalClimb": meta["totalClimb"],
+            "priceChg1h": meta["priceChg1h"], "priceChg4h": meta["priceChg4h"],
+            "traders": meta["traders"], "reasons": reasons,
+        }, separators=(",", ":")), file=sys.stderr)
+
+        # THE FLOOR. `minScore` from runtime.yaml is now authoritative: it used to be shadowed
+        # by the identical hardcoded 9 inside score_market, so setting it lower had no effect at
+        # all. It defaults to scoring.STRIKER_MIN_SCORE, and the templates ship 9, so every wallet
+        # on the shipped config is unaffected — but a package that wants a different floor can now
+        # actually have one (see purple-penguin). The reasons floor is still the module's.
+        # `scored` keeps its old meaning — candidates PAST the floor — so the WAITING line stays
+        # comparable with every tick already in the tape.
+        if score < min_score or len(reasons) < scoring.STRIKER_MIN_REASONS:
+            near_miss += 1
             continue
+        scored += 1
 
         # 15m velocity freshness gate (v2: `if cc_15m <= 0: continue`).
         if scoring.safe_float(market.get("cc_15m", 0)) <= 0:
@@ -423,9 +462,10 @@ def scan(inputs, ctx):
 
     if not candidates:
         print(f"[pelican.scan] WAITING — no Striker signal (min score {min_score:.0f}); "
-              f"scanned={len(markets)} scored={scored} held={sorted(held_set)}", file=sys.stderr)
+              f"scanned={len(markets)} scored={scored} near_miss={near_miss} "
+              f"held={sorted(held_set)}", file=sys.stderr)
         _persist({"result": {"emitted": False, "gate": "no_candidate",
-                             "scanned": len(markets), "scored": scored,
+                             "scanned": len(markets), "scored": scored, "nearMiss": near_miss,
                              "held": sorted(held_set)}})
         return []
 
