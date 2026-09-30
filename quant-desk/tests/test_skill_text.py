@@ -435,14 +435,16 @@ def test_a_lone_protection_section_follows_otherwise():
 def test_trailing_is_mentioned_only_where_the_result_text_offers_it():
     """`Trailing stop offered:` is the runtime's marker (quant-desk-recommendations.ts
     TRAILING_OFFERED_MARKER): the model sees no other evidence that the button can trail."""
-    _needles("**Trailing.** When the card's result text also carries `Trailing stop offered:`, the same button can place a "
+    _needles("**Trailing.** When the card's result text carries `Set stop loss button:` and also "
+             "`Trailing stop offered:`, the same button can place a "
              "trailing stop instead of the fixed one, for the coins that line lists and no others.",
              "When you mention it, say it trails on Hyperliquid from the price when the order lands, or from a start "
              "price the reader sets (no protection from it until then).")
 
 
 def test_trailing_is_never_oversold():
-    _needles("It is not the leaks section's trailing lock: never attach a leak's figure to it.",
+    _needles("It is not the desk's trailing lock: never attach a leak's figure or settings to it, and never state its "
+             "retracement — the confirm step shows it.",
              "Never say it follows the position's size, never say senpi moves or manages it, and never offer it on "
              "any other card.",
              "Without that line, never say the button can place a trailing stop.")
