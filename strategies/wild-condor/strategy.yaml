@@ -1,0 +1,52 @@
+# Wild Condor — CONDOR at conviction size with the clocks removed. AN EXPERIMENT.
+#
+# Same detector, universe, score floor, clock and guard rails as CONDOR. Three differences:
+# margin 80-90% (from 20-32%), both time cuts OFF, and PENGUIN's measured ladder.
+#
+# ⚠️ THIS SIZE HAS BEEN TRIED. Condor's own inputs record the margins being divided by 2.5 after
+# 80/70/50% at 10x produced a median live drawdown of 10.6% and one wallet at -99%. This package
+# re-raises exactly that number. The bet is that the EXITS were the problem — a 24h timeout and a
+# 60-minute dead-weight cut on a thesis needing 4-8h, plus a first ladder rung that armed on only
+# about half of positions. That is a hypothesis, not evidence.
+#
+# The guard rails are KEPT (penguin runs with them off). Note what they do: all four halt ENTRIES,
+# none closes an open position. At 90% margin and 10x the position is 9x the account.
+#
+# catalog.status: blocked — never reaches a user. Deploy by explicit path:
+#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/wild-condor --budget <small>
+schema_version: 1
+
+id: wild-condor
+version: "1.0.0"
+
+catalog:
+  name: "Wild Condor — Condor at conviction size (experiment)"
+  emoji: "🪶"
+  tagline: "Condor's detector at the size Condor was originally built for, with the clocks taken out. Same universe, same 4h/1h/15m alignment, same leader-consensus gate, same one-position-at-a-time — but 80-90% of the book behind each trade instead of 20-32%, no timeout, no dead-weight cut, and Penguin's measured profit ladder. An experiment, and a pointed one: this size has been tried before and it hurt."
+  belief_plain: "This is Condor with the volume turned up and the clocks removed. Condor waits, doing nothing until one setup is near-perfect — trend, momentum and the traders winning the last four hours all pointing the same way — and then takes a single position. Wild Condor takes that same rare setup and puts most of the account behind it instead of a fifth. Two things make that a different proposition than it was the last time it was tried. Nothing closes a position on a clock any more: Condor cut trades at 60 minutes for not moving and again at 24 hours regardless of how they were doing, and measured across the fleet that kind of clock mostly closes trades that were working. And the profit floor now arms far earlier, so a trade that goes your way locks in a gain rather than round-tripping. What has NOT changed is the risk: at this size the position is roughly nine times the account, one stop-out costs about a tenth of it, and the safety rails only stop it opening NEW trades — they never close the one that is open. Fund this with money you are prepared to see halved."
+  thesis: "Three changes to Condor, all deliberate. (1) Margin 80/85/90% by score tier instead of 20/28/32. (2) Both time cuts off — hard_timeout at 24h and dead_weight_cut at 60 minutes, the latter directly contradicting the weak_peak_cut comment in the same file saying an apex thesis needs four to eight hours. (3) Penguin's eight-rung ladder replaces Condor's six; both packages run 10x so every ROE trigger means the same price move and the port needs no rescaling. Condor's first rung armed at +8% ROE, a 0.80% price move, against a measured median peak of 0.84% across 92 ladder-driven closes on 41 assets — so it armed on about half of all positions and the rest reached the stop having never set a profit floor. Its later rungs locked tighter still, leaving a 0.75% leash where the median 10x asset bounces 1.58% at p75. The honest caveat is that this size is not new and did not go well: Condor's own config records margins of 80/70/50 divided by 2.5 after a median live drawdown of 10.6% and one wallet at -99%. The bet here is that the exits were the problem rather than the size, and that is a hypothesis, not a result. The guard rails are therefore kept where Penguin runs without them — though every one of them halts entries and none closes an open position, so the stop and the ladder carry the whole risk."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: trend_continuation
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  status: blocked           # experiment — deliberately kept out of the catalog and discover
+  tier: advanced
+  leverage_max: 10
+  max_slots: 1
+  assets: []
+  tags: [momentum, trend-continuation, universe, leader-momentum, apex-sniper, one-trade-per-day, conviction-sizing, experiment, not-for-users, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: WILD_CONDOR_WALLET
+    funding_share: 1.0

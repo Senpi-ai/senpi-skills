@@ -1,7 +1,7 @@
 # ── CHEETAH · single instance — multi-signal confluence sniper (Runtime 3.0 port of v2 Cheetah v7.2.0) ──
 name: cheetah-main
 group: cheetah
-version: 3.0.0
+version: 3.1.0
 description: >
   CHEETAH — universe confluence sniper. Scans the top-100 markets on the 4h leader board
   (leaderboard_get_markets — which side the last four hours' winners sit on) every tick,
@@ -16,7 +16,7 @@ description: >
 strategy:
   wallet: "${CHEETAH_WALLET}"
   slots: 1                                # 1-slot sniper, not a scalper (v2 MAX_POSITIONS=1)
-  default_leverage: 5                     # fallback; scan emits per-signal 3/5/7/8 by score (v2 DEFAULT_LEVERAGE=5)
+  default_leverage: 5                     # FLAT — conviction is scaled through margin, not leverage
   trading_risk: aggressive
   enabled: true
 
@@ -34,7 +34,13 @@ scanners:
     state_history_max_count: 100           # dedup/cooldown maps + held set + scan-rank history (20 scans) + quality cache
     inputs:
       minScore: 10                         # v2 MIN_SCORE_DEFAULT (v6.0 restored from v5.2's 11)
-      marginPct: 30                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable.
+      # 18, not 30. This is a FALLBACK ONLY — the tiers below cover every score from minScore 10
+      # up, so a real emit always takes a tier value and never reads this. It is set to the
+      # SMALLEST tier for two reasons: a fallback should be the conservative one, and min_budget
+      # reads marginPct from an explicit key allowlist that does NOT include the third element of
+      # leverageTiers, so leaving it at 30 made the computed minimum budget too low and would have
+      # under-funded a wallet whose first signal landed on the 18% tier.
+      marginPct: 18                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable.
                                            # v2 producer MARGIN_PCT=0.30 (30%); v2 runtime.yaml had margin_pct:25 — producer wins per port rule.
       maxPositions: 1                      # producer-side held/slot guard (mirrors slots:1)
       xyzBanned: true                      # v2 XYZ_BANNED — drop dex==xyz markets
@@ -54,7 +60,17 @@ scanners:
       qtConsistency: ["ELITE", "RELIABLE", "STREAKY"]
       qtCacheSeconds: 900                  # v2 QT_CACHE_MINUTES=15
       # ── leverage tiers (v2 LEVERAGE_TIERS, verbatim): [min_score, leverage] desc ──
-      leverageTiers: [[14, 8], [12, 7], [11, 5], [10, 3]]
+      # [min_score, leverage, marginPct]. REWORKED: leverage is now FLAT at 5 and conviction is
+      # scaled through MARGIN instead. Exposure per tier is UNCHANGED — each row is the old
+      # leverage x the old flat 30% margin, re-expressed at 5x: 8x30=2.40x equity -> 5x48,
+      # 7x30=2.10x -> 5x42, 5x30=1.50x -> 5x30, 3x30=0.90x -> 5x18. Same risk, same ordering.
+      #
+      # WHY. Every DSL threshold is ROE, so an exit's distance IN PRICE is (ROE / leverage).
+      # Scaling conviction through leverage rescaled the entire ladder per trade, backwards: a
+      # score-10 signal got a 3.33%-of-price stop and its first profit floor 6.67% away, while a
+      # score-14 signal got 1.25% and 2.50%. The weakest signal was handed the widest stop and the
+      # most distant floor. With leverage flat, one ladder is correct for every trade.
+      leverageTiers: [[14, 5, 48], [12, 5, 42], [11, 5, 30], [10, 5, 18]]
       # ── cooldowns (v2 producer-side backstops; runtime per-asset gate is primary) ──
       emitCooldownSeconds: 14400           # v2 ASSET_COOLDOWN_MINUTES=240 (post-emit anti-spam)
       postCloseCooldownSeconds: 14400      # v2 POST_CLOSE_COOLDOWN_MINUTES=240 (post-close backstop)
@@ -131,12 +147,29 @@ exit:
       consecutive_breaches_required: 1
     phase2:
       enabled: true
-      tiers:                               # v2 v7.2.0 "let winners run" ladder (verbatim)
-        - { trigger_pct: 20, lock_hw_pct: 25 }
-        - { trigger_pct: 30, lock_hw_pct: 40 }
-        - { trigger_pct: 50, lock_hw_pct: 60 }
-        - { trigger_pct: 75, lock_hw_pct: 75 }
-        - { trigger_pct: 100, lock_hw_pct: 85 }
+      tiers:                               # PENGUIN's ladder, re-expressed for 5x (ROE = price% x 5)
+                                           # so each rung means the SAME price move it means there.
+                                           # See strategies/penguin/main/runtime.yaml for the sizing
+                                           # study (1m-bar replay, 92 closes, 41 assets).
+                                           #
+                                           # What it replaces: the v7.2.0 ladder's first rung armed
+                                           # at +20% ROE. At the old tiers that was a 2.50%-of-price
+                                           # move on a score-14 trade and 6.67% on a score-10 one,
+                                           # against a MEASURED median peak of 0.84% of price. The
+                                           # ladder essentially never armed at any tier — the stop
+                                           # did all the work and a position that went green could
+                                           # round-trip the whole way back with no floor under it.
+                                           # Price move each rung represents at 5x, in brackets.
+        - { trigger_pct: 3,   lock_hw_pct: 30 }   # 0.6% of price — LOSS REDUCER. Floor is HW x 0.30,
+                                                  # so +0.9 ROE pts at arm, which clears the ~0.75
+                                                  # ROE-pt round trip at 5x: a scratch, not a fee loss.
+        - { trigger_pct: 10,  lock_hw_pct: 40 }   # 2.0% of price
+        - { trigger_pct: 13,  lock_hw_pct: 50 }   # 2.6% of price
+        - { trigger_pct: 15,  lock_hw_pct: 60 }   # 3.0% of price
+        - { trigger_pct: 20,  lock_hw_pct: 65 }   # 4.0% of price
+        - { trigger_pct: 25,  lock_hw_pct: 70 }   # 5.0% of price
+        - { trigger_pct: 35,  lock_hw_pct: 75 }   # 7.0% of price
+        - { trigger_pct: 50,  lock_hw_pct: 85 }   # 10% of price
 
 risk:
   guard_rails:

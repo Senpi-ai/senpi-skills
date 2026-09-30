@@ -46,6 +46,29 @@ def get_leverage_for_score(score, tiers=None):
     return DEFAULT_LEVERAGE
 
 
+def get_sizing_for_score(score, tiers=None):
+    """Resolve (leverage, marginPct) for a score. Accepts BOTH tier shapes.
+
+    `[min_score, leverage]`            -> (leverage, None); caller falls back to the flat marginPct.
+                                          This is the v2 shape and is still honoured verbatim.
+    `[min_score, leverage, marginPct]` -> (leverage, marginPct), the shape condor uses.
+
+    WHY THE THIRD ELEMENT EXISTS. Every DSL threshold is expressed in ROE, so the PRICE distance
+    of every exit is (ROE / leverage). Scaling conviction through LEVERAGE therefore rescales the
+    whole exit ladder per trade, and in the wrong direction: on the old 3/5/7/8 tiers a score-10
+    signal got a 3.33%-of-price stop and a rung-1 floor 6.67% away, while a score-14 signal got
+    1.25% and 2.50%. The weakest signal was given the widest stop and the most distant profit
+    floor. Scaling conviction through MARGIN instead leaves leverage — and therefore the whole
+    ladder's meaning in price — constant across every trade, which is the only way one ladder can
+    be correct for all of them."""
+    if tiers is None:
+        tiers = DEFAULT_LEVERAGE_TIERS
+    for t in tiers:
+        if score >= t[0]:
+            return int(t[1]), (float(t[2]) if len(t) > 2 else None)
+    return DEFAULT_LEVERAGE, None
+
+
 def score_confluence(market, quality_positions, rank_climb, thresholds=None):
     """Score a single normalized market for confluence. Returns (score, reasons).
     Hard gates reject with score=0 and an empty reasons list.

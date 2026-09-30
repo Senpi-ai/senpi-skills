@@ -369,7 +369,12 @@ def scan(inputs, ctx):
     # ── pick the single strongest candidate (v2 emits only top candidate per tick) ──
     candidates.sort(key=lambda c: c["score"], reverse=True)
     best = candidates[0]
-    leverage = scoring.get_leverage_for_score(best["score"], tiers)   # runtime clamps to venue max
+    # Conviction is sized through MARGIN now, not leverage — see get_sizing_for_score for why.
+    # A 2-element tier still resolves to (lev, None) and falls back to the flat marginPct, so an
+    # old-shape config behaves exactly as before.
+    leverage, tier_margin = scoring.get_sizing_for_score(best["score"], tiers)
+    if tier_margin:
+        margin_pct = tier_margin
 
     vol_ratio = round(best["volume"] / best["avg_volume_6h"], 2) if best["avg_volume_6h"] > 0 else 0
     out = [{

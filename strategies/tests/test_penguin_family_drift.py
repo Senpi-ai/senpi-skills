@@ -104,3 +104,36 @@ def test_purple_penguin_stays_out_of_the_catalog():
         "purple-penguin lost catalog.status: blocked — gen_catalog would publish it to the "
         "catalog AND to senpi-strategy-discover, offering an untested score floor to users. "
         "Deploy it by explicit path instead; deploy.py honours a path regardless of status.")
+
+
+# ── the leverage/ROE coherence invariant (cheetah, 2026-09-30) ──
+
+def test_a_variable_leverage_book_cannot_carry_a_fixed_roe_ladder():
+    """Every DSL threshold is ROE, so an exit's distance IN PRICE is (ROE / leverage).
+
+    A package that scales conviction through LEVERAGE therefore rescales its entire exit ladder
+    per trade — and backwards: cheetah's old 3/5/7/8 tiers gave a score-10 signal a 3.33%-of-price
+    stop with its first profit floor 6.67% away, while a score-14 signal got 1.25% and 2.50%. The
+    weakest signal was handed the widest stop and the most distant floor, and against a measured
+    median peak of 0.84% of price the ladder never armed at any tier.
+
+    The fix was to scale conviction through MARGIN and hold leverage flat. This pins that: if a
+    package's tiers ever spread leverage again, one ROE ladder can no longer be correct for all
+    of its trades."""
+    for pkg in ("cheetah",):
+        rt = _yaml(f"strategies/{pkg}/main/runtime.yaml")
+        sc = next(s for s in rt["scanners"] if s.get("type") == "external_scanner")
+        tiers = sc["inputs"].get("leverageTiers") or []
+        levs = {int(t[1]) for t in tiers}
+        assert len(levs) == 1, (
+            f"{pkg} spreads leverage across {sorted(levs)} while its DSL ladder is fixed in ROE, "
+            f"so every exit means a different price move per tier. Scale conviction through the "
+            f"third tier element (marginPct) and keep leverage flat.")
+        assert all(len(t) > 2 for t in tiers), (
+            f"{pkg} tiers lost their marginPct element — conviction is no longer sized at all")
+        lev = levs.pop()
+        rungs = rt["exit"]["dsl_preset"]["phase2"]["tiers"]
+        first = rungs[0]["trigger_pct"] / lev
+        assert first <= 1.0, (
+            f"{pkg}'s first rung arms at {first:.2f}% of price. The measured median position peaks "
+            f"at 0.84%, so a rung above ~1% never arms and the position has no profit floor.")
