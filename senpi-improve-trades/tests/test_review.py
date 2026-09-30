@@ -1261,6 +1261,21 @@ def test_skill_names_the_runtime_commands_that_ANSWER_why_it_closed():
     assert "gateway" in skill.lower(), "the skill must say what to do when the record cannot be read"
 
 
+def test_skill_forbids_taking_leverage_from_the_config():
+    """A review called PONS "10x" (the config's default_leverage) when the venue capped it at 3x, and
+    then stated both "~15% ROE" and "~49% of margin" in one answer. ROE is price move x ACTUAL leverage."""
+    skill = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
+    assert "0b." in skill, "the leverage rule is gone"
+    assert "DslState.leverage" in skill or "strategy_get_asset_trading_limits" in skill, \
+        "the skill must name where the REAL leverage is read from"
+    assert "default_leverage" in skill, "it must name the config field NOT to use"
+    i = skill.find("0b.")
+    block = skill[i:i + 1400]
+    assert "ACTUAL" in block.upper(), "the rule must say to use the actual leverage"
+    assert "silently" in block or "DOES NOT ERROR" in block, \
+        "the rule must explain that the venue clips without erroring"
+
+
 def test_the_raw_mcp_rule_does_not_contradict_the_6b_reads():
     """Guardrail 6b asks for targeted reads; line ~71 bars 'raw MCP'. The bar must be scoped or the
     skill tells the agent to do something it also forbids."""

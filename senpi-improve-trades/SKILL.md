@@ -46,6 +46,17 @@ more" questions; use `senpi-portfolio` for live state.
    net was **+$310.23** ($99.92 of fees) — a **32%** overstatement, and it never mentioned fees at all.
    Round trip measured there: 18.7 bps = **1.87 ROE points at 10x**. There is no `total_net`: the open leg
    has not paid exit fees yet. NOTE `fee` already INCLUDES `builderFee` — never add them.
+0b. **Never take leverage from the config — read what the position ACTUALLY opened at.** The venue caps
+   leverage per asset and **clips silently**: `strategy_create_custom_strategy`'s own schema warns
+   "EXCEEDING THE ASSET CAP DOES NOT ERROR". A strategy asking `default_leverage: 10` opens PONS at **3x**
+   and GRASS at **3x**, because that is their venue cap. Every ROE number you state is wrong by that ratio
+   if you use the config's figure.
+   **ROE = price move % x ACTUAL leverage.** Read it from `DslState.leverage` (`senpi dsl inspect <asset>
+   --json`), the clearinghouse position, or `strategy_get_asset_trading_limits` — never from runtime.yaml.
+   A live review said PONS was "10x" and then produced both "~15% ROE" and "~49% of margin" in one answer
+   before moving on. It was 3x: -5.094% price x 3 = **-15.3% ROE**, exactly the `max_loss_pct: 15.0` floor.
+   **And say so when they differ** — "3x, the venue cap; the strategy asked for 10x" is a material fact
+   about the user's exposure, not a footnote.
 1. **Lead with TOTAL PnL** (`pnl_summary.total` = realized + unrealized), never realized alone. Realized-only
    is half the ledger — it calls a book riding open winners a "loser" and penalizes hold-strategies. **If
    `pnl_summary.unrealized_partial` is true (or `unrealized_coverage.read < .current_strategies`), TOTAL is a
@@ -426,7 +437,7 @@ Each row is the answer *and* the details:
 | --- | --- |
 | `closeReason` | **why it closed** (vocabulary below) |
 | `phase` + `currentTierIndex` | **which rung was governing** at the close |
-| `currentROE` | the ROE it closed at |
+| `currentROE` | the ROE it closed at — already computed at the REAL leverage, so quote it |
 | `entryPrice` / `lastPrice` | the round trip |
 | `elapsedMinutes` / `closedAt` | how long it was held |
 
