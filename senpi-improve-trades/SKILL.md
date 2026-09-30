@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.13.0"
+  version: "1.14.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -40,6 +40,25 @@ more" questions; use `senpi-portfolio` for live state.
 
 **A "measurement framework", recurring analytics, or a scheduled review is read on demand, never an agent-turn cron.** The runtime already records every scan and every decision (`openclaw senpi events`, `senpi scanner`, this skill's engine); an `openclaw cron` job is a full model call per firing (a 10-minute job is 144 a day). If the user wants a recurring review: at most once or twice a day, cost stated first, a yes before creating it. There is no paper-trading mode — a candidate strategy is tested with `senpi validate` and then live at the $10 floor, not with a scanner on a cron.
 
+0. **Never quote a $ PnL without saying which side of fees it is on.** `realized` and `total` are HL
+   `closedPnl` — **GROSS**. Quote `pnl_summary.realized_net` for the closed book and show the fee line; when
+   `fees` is `null` say *"gross — fees not netted"*. A live review headlined **+$410.14** on a trade whose
+   net was **+$310.23** ($99.92 of fees), and it never mentioned fees at all. `fee` already INCLUDES
+   `builderFee` — never add them.
+   **The fee rate is NOT a constant — never quote one from memory.** Senpi's builder fee falls with the
+   user's points tier: **0.05% Bronze → 0.047% Silver → 0.045% Gold → 0.04% Platinum → 0.035% Diamond →
+   0.03% Apex → 0.025% Legend**. Two wallets on different tiers show it plainly — builder 5.00 bps vs
+   4.00 bps, identical exchange legs underneath. Read the user's own rate with **`user_get_senpi_points`**
+   (their tier + fee), or the whole table with **`get_loyalty_tiers`**. Quote the *measured* fee from the
+   trade whenever you can; when you must state a rate, state theirs.
+0b. **Never take leverage from the config — read what the position ACTUALLY opened at.** The venue caps
+   leverage per asset and **clips silently**: `strategy_create_custom_strategy`'s own schema warns
+   "EXCEEDING THE ASSET CAP DOES NOT ERROR", so a strategy asking `default_leverage: 10` opens PONS at **3x**.
+   **ROE = price move % x ACTUAL leverage** — read it from `DslState.leverage` (`senpi dsl inspect <asset>
+   --json`), the clearinghouse position, or `strategy_get_asset_trading_limits`, never from runtime.yaml.
+   A review that used the config's 10x on that PONS trade stated "~15% ROE" and "~49% of margin" in one
+   answer; at its real 3x it was -5.094% x 3 = **-15.3%**, exactly the `max_loss_pct: 15.0` floor.
+   **Say so when they differ** — the venue cap is a fact about the user's exposure, not a footnote.
 1. **Lead with TOTAL PnL** (`pnl_summary.total` = realized + unrealized), never realized alone. Realized-only
    is half the ledger — it calls a book riding open winners a "loser" and penalizes hold-strategies. **If
    `pnl_summary.unrealized_partial` is true (or `unrealized_coverage.read < .current_strategies`), TOTAL is a
@@ -63,7 +82,9 @@ more" questions; use `senpi-portfolio` for live state.
 
 The detailed guardrails below explain each; these five are the floor.
 
-> **Use this skill FIRST — before any raw MCP.** For any "review my trades / did I sell too early / what did
+> **Use this skill FIRST — before any raw MCP.** (Bars *replacing* the engine with raw dumps; not the
+> targeted reads in guardrail 6b.) For any
+> "review my trades / did I sell too early / what did
 > I miss / master my week / how could I make more gains" question, run this engine **before** reaching for
 > raw `discovery_get_trader_history` / `market_get_prices` / `execution_get_closed_position_details`. Those
 > return un-attributed dumps that invite exactly the failure modes below (skipping the current-price
@@ -289,6 +310,19 @@ blind to the open positions is the core failure this skill exists to prevent.
 **What `if_all_reclosed_now_total` is NOT:** the counterfactual on the **closed** trades only — it says nothing
 about current OPEN positions or live drawdown; don't read it as "the book is bleeding."
 
+### 1b. Peak-to-exit GIVE-BACK is the counterfactual that *is* diagnostic
+
+Hold-to-now is hindsight — unknowable at exit time. **High-water is not:** it happened *during* the hold, and
+the floor that failed to capture it is a config choice. So give-back is fair game where "it kept going up"
+is not.
+
+Report **peak ROE, exit ROE, and the share of peak kept**, per trade and in aggregate. The AVAX trade peaked
+**+20.56% ROE** and exited **+7.67%** — kept 37%. Habitually keeping a small share of peak means a lock too
+low or a first rung arming too late — a named lever.
+
+Keep **floor vs fill** separate: on AVAX the floor was +8.23% and it filled +7.67%, which is 0.55 ROE points of
+execution slippage, not calibration.
+
 ### 2. It's the strategy, not you — fixes route to the strategy config
 
 These are **autonomous strategy** trades. The strategy exited them, not the user clicking sell. So **never**
@@ -374,6 +408,10 @@ otherwise it's just an asset the strategy was never designed to trade.
   `undetermined`), **do NOT diagnose exit calibration at all** (no "phase-1 too tight," no "scanner false
   signals") — you have no attributed exit; say "exit mechanism undetermined — I'd need the runtime event log,"
   and stop.
+- **Three things never need telemetry** — answer them before writing "undetermined": **maker vs taker**
+  (`crossed` on every fill), **fees in $** (`fee`), and **peak ROE**
+  (1m candles over the hold). Scope "undetermined" to blocked signals and protection gaps — and for *how the
+  position closed*, work the ladder in 6b before you ever say you could not tell.
 - **Name your source (onchain vs runtime).** Closed trades + every onchain fact come from **`discovery`**
   (`discovery_get_trader_history`) — **never `audit_*`** (deprecated). Exit reason, blocked signals, leaks and
   maker/taker come from **telemetry** (the event log) and *enrich* those discovery trades. See the "Sources —
@@ -387,10 +425,74 @@ otherwise it's just an asset the strategy was never designed to trade.
   say so ("couldn't compare — no current price"), don't invent a comparison.
 - Read `meta.warnings` and surface material gaps plainly. Missing data is a caveat, not a thing to paper over.
 
-### 7. The user chooses the fix depth — never auto-act
+### 6b. Why the runtime closed it — READ THE RECORD. Never infer a mechanism.
+
+**The runtime archives every close with its reason.** There is nothing to deduce. A live review once
+answered *"Exit mechanism: undetermined"* because one command timed out, while the record sat one call away.
+
+**A CLOSED position — `senpi dsl closes --runtime <id> --json`** ("archived closes with reason and ROE").
+Each row is the answer *and* the details:
+
+| field | what it tells the user |
+| --- | --- |
+| `closeReason` | **why it closed** (vocabulary below) |
+| `phase` + `currentTierIndex` | **which rung was governing** at the close |
+| `currentROE` | the ROE it closed at — already at the REAL leverage, so quote it |
+
+…plus `entryPrice` / `lastPrice` / `elapsedMinutes` / `closedAt`.
+
+Translate `closeReason`, never paste the enum:
+- **`exchange_sl_hit`** — the resting exchange stop fired. It fills at **market**, so expect a burst of taker
+  fills at one timestamp and some overshoot past the floor. The most common DSL exit by far.
+- **`dsl_breach`** — the DSL's own floor broke and the runtime closed it via `closePosition`, honouring
+  `exit.order_type`.
+- **`hard_timeout`** — the clock, regardless of PnL. OFF on penguin / pelican.
+- **`weak_peak_cut`** — never reached `min_value` ROE inside the window. A **death** cut, not a profit cut.
+- **`dead_weight_cut`** — stagnation cut.
+
+**The three above are TIMERS, not reactions to price, and none is phase-scoped.** State the configured
+interval and the actual hold, or the reason is not explained: *"held 5.03h against a 300-minute
+`weak_peak_cut` with `min_value` 5.0 — it never cleared +5% ROE in that window, so the slot was freed."*
+Saying it "detected the position rolling over" or "cut early before the hard stop" invents a mechanism —
+a real review did exactly that on a position whose hold time (5.03h vs a 300m timer) was the giveaway.
+`weak_peak_cut`'s timer also RESETS whenever ROE clears `min_value`, so it bounds DEAD positions, not
+slow ones.
+
+**A LIVE position — `senpi dsl inspect <asset> --json`** returns the full `DslState`, which already holds
+every number users ask for. Quote these rather than computing anything:
+- `floorPrice` / `tierFloorPrice` — where the stop actually is
+- **`lockedProfitPct`** — what is locked in *right now* (the answer to "at what point does it lock profits")
+- `highWaterRoe` / `peakROE` — the best it has seen
+- `currentTierIndex` + `phase` — which rung is governing
+- `distanceToNextTierPct` — how far to the next rung
+- `slOrderId` / `lastSyncedFloorPrice` — the resting exchange order the floor is synced to
+
+Two more: **`senpi dsl positions --json`** (what is under DSL management at all — the answer to "is this
+protected?") and **`senpi explain <asset>`** (the stitched opened → dsl → closed narrative).
+
+**If the gateway is down**, `senpi dsl closes` exits non-zero and prints *"start it with: openclaw gateway
+run"*. **Say that.** An unreadable record is an unreadable record — do not fall back to guessing a mechanism
+from fill shapes and present it as fact.
+
+**If the record cannot be read, say so.** Fill shapes corroborate, they never substitute: a burst of
+`crossed` close fills at one timestamp fits `exchange_sl_hit`, but a maker fill shows the **order type, not
+who placed it** (`close_position` uses `FEE_OPTIMIZED_LIMIT` too, and a DSL exit set to `order_type: MARKET`
+produces none) — so it can rule the exchange stop *out*, never rule the DSL *in*. A closed trade has no
+*resting* trigger left; read the one that fired from `execution_get_closed_position_details` →
+`orderDetails[].triggerPrice`. And `exit_reason.terminal` of **`MANUAL_CLOSE` is not an answer** — it means
+only "ended for a reason that was not its own stop", so treat it as UNKNOWN (#784 fixes that mapping).
+
+Label the source in the answer: *"the runtime's close record says …"* reads differently from
+*"the fills are consistent with …"*, and the user is entitled to know which one they are getting.
+
+### 7. The user chooses the fix depth — never auto-act, and never offer a tune off one trade
 
 After you diagnose, **offer a choice and stop.** Never apply a config change or place a trade. Present three
 depths (below) and let the user pick.
+
+**Gate the two config branches on sample size.** With **fewer than ~8 attributed closes on that strategy**,
+offer "explain only" and say the sample is too small to tune on, naming what more closes would measure. A lever
+is worth pulling when the pattern survives dropping any single trade — not when one trade disappointed.
 
 ### 8. Verdicts are for the CURRENT book only — closed strategies are HISTORY, not a live problem
 
@@ -507,6 +609,11 @@ Never pick for the user, and never act unprompted.
 Don't re-implement these — call them and weave their output into the four-part contract above.
 
 ## The one pending upgrade — authoritative fee $
+
+**Fees in $ now ship on both paths** — discovery rows carry `totalFees` (its `totalHyperliquidFees` +
+`totalBuilderFees`; discovery splits those two, unlike HL's raw `fee`, which is already inclusive), on-chain
+rows carry both legs of the round trip, and `pnl_summary` carries `fees` / `realized_net`. What remains below
+is *reconciliation against the ledger*, not availability.
 
 `execution_quality` reports the maker-vs-taker **rate** today, not fee dollars. The authoritative fee **$**
 lives in the ledger — `order.filled` / `position.closed` carry `senpi.order.id`, which joins to

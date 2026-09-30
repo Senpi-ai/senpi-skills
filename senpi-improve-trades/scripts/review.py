@@ -797,15 +797,21 @@ def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
         if not coin or sz <= 0:
             continue
         if d.startswith("Open"):
-            lots[coin].append({"px": px, "sz": sz, "time": t})
+            # fee_per_sz lets a later close claim this open leg's share. Without it a round trip
+            # reports only the closing fill's fee — on the AVAX trade $77.07 against a true $99.92.
+            lots[coin].append({"px": px, "sz": sz, "time": t,
+                               "fee_per_sz": ((_num(f.get("fee")) or 0.0) / sz) if sz > 0 else 0.0})
         elif d.startswith("Close"):
             side = "long" if "Long" in d else ("short" if "Short" in d else None)
             remaining, entry_notional, matched, open_time = sz, 0.0, 0.0, t
+            _close_fee = _num(f.get("fee")) or 0.0
+            _open_fee_consumed = 0.0
             q = lots[coin]
             while remaining > 1e-9 and q:                # FIFO-match the closed size against open lots
                 lot = q[0]
                 take = min(remaining, lot["sz"])
                 entry_notional += take * (lot["px"] or 0.0)
+                _open_fee_consumed += take * (lot.get("fee_per_sz") or 0.0)
                 matched += take
                 open_time = lot["time"] or open_time
                 lot["sz"] -= take
@@ -824,7 +830,16 @@ def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
                 "open_time": open_time,
                 "close_time": t,
                 "closed_order_id": f.get("oid"),
-                "fee": _num(f.get("fee")),
+                # `fee` ALREADY INCLUDES `builderFee` — do not add them. Shown across two wallets on
+                # DIFFERENT loyalty tiers: one at builder 5.00 bps had fee 9.32 taker / 6.44 maker,
+                # one at builder 4.00 bps had 8.32 / 5.44. Subtract the builder leg and both give the
+                # same exchange rate (4.32 / 1.44), and `fee` differs by exactly the builder delta.
+                # `builderFee` is a breakdown line, not a second charge. Summing them overstated one
+                # AVAX round trip $99.92 -> $153.53.
+                # NOTE the builder rate is NOT a constant — it falls with the user's points tier
+                # (0.05% Bronze down to 0.025% Legend). Never hardcode it; `user_get_senpi_points`
+                # returns the user's own rate.
+                "fee": round(_close_fee + _open_fee_consumed, 4),
                 "source": "onchain_fills",
             })
     out = []
@@ -883,6 +898,13 @@ def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
             "entry_px": entry_px,
             "exit_px": exit_px,
             "realized_pnl": pnl,
+            # `totalFees` = totalHyperliquidFees + totalBuilderFees — discovery SPLITS the two where
+            # HL's raw `fee` is already inclusive (a sample row: 0.096208 + 0.168641 = 0.264849). So
+            # totalFees is the true round-trip total, the equivalent of that inclusive `fee`. This
+            # holds at any loyalty tier; it is a sum of two reported fields, not a rate assumption.
+            # WITHOUT this the headline stays GROSS for every CURRENT strategy, which is the path
+            # the AVAX review ran on — it reported +$410.14 where the net was +$310.23.
+            "fee": _f(p, "totalFees", "total_fees", default=None),
             "margin_used": _f(p, "marginUsed", "margin_used", default=None),
             "open_time": _ms(_field(p, "openTime", "open_time")),
             "close_time": close_ms,
@@ -1729,7 +1751,7 @@ def _telemetry_source(source_counts, telemetry_warned):
 
 
 # ──────────────────────────────────────────────── total-ledger PnL + the 'undetermined ≠ all-clear' signal
-def _pnl_summary(realized_total, strat_reads):
+def _pnl_summary(realized_total, strat_reads, fees_total=None):
     """The TOTAL-ledger headline the narrator LEADS with — realized (closed trades) + unrealized (current
     open positions) + total — PLUS the current-vs-closed realized split (so the narrator QUOTES it and never
     re-derives a wrong closed-book figure). `realized_total` is ALL closed trades; current-book realized = the
@@ -1737,6 +1759,10 @@ def _pnl_summary(realized_total, strat_reads):
     sums only the current strategies whose open book was READABLE → None when none were, so `total` stays an
     honest UNKNOWN rather than collapsing to a realized-only headline."""
     realized = round(_num(realized_total) or 0.0, 2)
+    # `realized` is HL closedPnl = GROSS. One measured AVAX round trip: +$410.14 gross, $99.92 fees,
+    # +$310.23 net — a 32% overstatement if the narrator leads with gross.
+    fees = round(_num(fees_total), 2) if fees_total is not None else None
+    realized_net = round(realized - fees, 2) if fees is not None else None
     current_realized = round(sum(_num(s.get("realized_pnl")) or 0.0 for s in strat_reads), 2)
     closed_realized = round(realized - current_realized, 2)
     known = [u for u in (s.get("unrealized_pnl") for s in strat_reads)
@@ -1755,10 +1781,14 @@ def _pnl_summary(realized_total, strat_reads):
         "unrealized_coverage": {"read": len(known), "current_strategies": len(strat_reads)},
         "unrealized_partial": partial,            # True → unrealized/total are a FLOOR (some wallets UNKNOWN)
         "total": total,                           # realized + unrealized; None when UNKNOWN; a FLOOR when partial
+        "fees": fees,                             # exchange + builder fee on the closed legs; None = not computed
+        "realized_net": realized_net,             # realized MINUS fees — what actually landed
         "note": ("TOTAL = realized (closed trades) + unrealized (current open positions). LEAD with TOTAL, "
                  "not realized alone. unrealized None = the open book couldn't be read (UNKNOWN, not 0). "
                  "unrealized_partial True = only some current wallets read, so unrealized/total are a FLOOR "
-                 "('at least $X, N of M wallets readable') — never present them as complete."),
+                 "('at least $X, N of M wallets readable') — never present them as complete. `realized` and "
+                 "`total` are GROSS of fees — quote `realized_net` for the closed book, and say 'gross' when "
+                 "`fees` is None. There is deliberately no total_net: the OPEN leg has not paid exit fees yet."),
     }
 
 
@@ -1944,7 +1974,10 @@ def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_m
     strat_reads = _strategy_reads(trades, strategies, open_book)
     closed_reads = _closed_strategy_rollup(trades, strategies)
     realized_total = round(sum(_num(t.get("realized_pnl")) or 0.0 for t in trades), 2)
-    pnl_summary = _pnl_summary(realized_total, strat_reads)
+    # None (not 0.0) when no row carried a fee, so the narrator says 'gross' instead of implying net.
+    _fees = [x for x in (_num(t.get("fee")) for t in trades) if x is not None]
+    fees_total = round(sum(_fees), 2) if _fees else None
+    pnl_summary = _pnl_summary(realized_total, strat_reads, fees_total)
     dsl_mix = _dsl_close_reason_mix(trades)   # from whatever exit_reason is in state (UNKNOWN until telemetry)
     current_count = sum(1 for s in strategies if _is_current(s.get("status")))
     closed_count = len(strategies) - current_count

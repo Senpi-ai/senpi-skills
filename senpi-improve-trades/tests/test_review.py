@@ -1165,3 +1165,130 @@ if __name__ == "__main__":
         fn()
         print(f"  ok {fn.__name__}")
     print(f"\n{len(fns)}/{len(fns)} passed")
+
+
+# ── fees: the agent reported +$410.14 on a trade that netted +$310.23 ─────────────────────────────
+# Three separate defects produced that, and only the third is the one that actually fired:
+#   1. pnl_summary had no net at all, so the narrator had only a gross figure to lead with.
+#   2. the on-chain path counted only the CLOSING fill's fee, dropping the open leg.
+#   3. the PRIMARY (discovery) path carried no fee field whatsoever — and that is the path a
+#      CURRENT strategy runs on, so the headline stayed gross no matter what else was fixed.
+# NOT a defect: `fee` vs `builderFee`. HL's `fee` already INCLUDES the builder leg. Shown across two
+# wallets on different loyalty tiers — builder 5.00 bps (fee 9.32/6.44) and builder 4.00 bps (fee
+# 8.32/5.44) — where subtracting the builder leg leaves the same exchange rate (4.32/1.44) both times.
+# Summing them overstates by the builder leg. The builder rate is tier-dependent, never a constant.
+
+def test_fee_is_inclusive_of_builder_and_counts_BOTH_legs():
+    """`builderFee` is a breakdown of `fee`, never an addition — and a round trip pays on both legs."""
+    fills = [{"coin": "AVAX", "dir": "Open Long", "px": "10.0", "sz": "100", "closedPnl": "0.0",
+              "time": 1_000_000, "fee": "7.40", "builderFee": "3.50", "oid": 1},
+             {"coin": "AVAX", "dir": "Close Long", "px": "11.0", "sz": "100", "closedPnl": "100.0",
+              "time": 2_000_000, "fee": "7.40", "builderFee": "3.50", "oid": 2}]
+    rows = review._reconstruct_closed_from_fills(fills, None, None, 50)
+    fees = [r["fee"] for r in rows if r.get("fee") is not None]
+    assert fees, "no trade row carried a fee"
+    assert abs(fees[0] - 14.80) < 1e-6, (
+        f"expected 7.40 open + 7.40 close = 14.80, got {fees[0]}. "
+        "21.80 means builderFee was added (it is already inside fee); "
+        "7.40 means the open leg was dropped.")
+
+
+def test_the_PRIMARY_discovery_path_carries_fees():
+    """The bug that actually fired. onmyoji-penguin is a CURRENT strategy, so the review ran on
+    discovery — which had no fee field, so realized_net stayed None and the headline stayed gross."""
+    class _C:
+        def mcp_call(self, name, **kw):
+            assert name == "discovery_get_trader_history"
+            return {"closedPositions": [{
+                "coin": "AVAX", "side": "long", "szi": 4713.68,
+                "entryPx": 11.33099, "exitPx": 11.41791,
+                "realizedPnl": 410.14, "totalFees": 99.92,
+                "openTime": 1_790_706_133_000, "closeTime": 1_790_713_518_000,
+                "leverage": {"value": 10}, "closedOrderId": "x1"}]}
+    meta = {}
+    trades = review.fetch_closed_trades(_C(), "0xaa9f", None, None, 50, meta)
+    assert trades, "discovery returned no trades"
+    t = trades[0]
+    assert t["source"] == "discovery"
+    assert t.get("fee") == 99.92, f"discovery row must carry totalFees, got {t.get('fee')!r}"
+    # and it must reach the headline
+    summ = review._pnl_summary(t["realized_pnl"], [{"realized_pnl": t["realized_pnl"],
+                                                    "unrealized_pnl": 0.0}], t["fee"])
+    assert summ["realized_net"] == 310.22, f"expected 410.14-99.92, got {summ['realized_net']}"
+    assert "GROSS" in summ["note"]
+    # and with no fee computed the net must be None, never gross silently passed off as net
+    bare = review._pnl_summary(410.14, [{"realized_pnl": 410.14, "unrealized_pnl": 0.0}])
+    assert bare["fees"] is None and bare["realized_net"] is None
+    assert bare["total"] == 410.14, "gross total must still be present"
+
+
+# ── guardrail 6b: the skill must TEACH how to tell whether the DSL closed a position ─────────────
+# A live review answered "Exit mechanism: undetermined" because one telemetry path timed out, while the
+# answer sat on chain in the fill shape. The engine's only fallback is ratchet_stop_list, which reads
+# MCP-created ratchet stops — a runtime DSL ladder (penguin/pelican) may produce no such record, so the
+# skill, not the engine, has to carry the procedure.
+
+def test_skill_names_the_runtime_commands_that_ANSWER_why_it_closed():
+    """The agent must be told to READ the runtime's close record, not deduce a mechanism.
+    `senpi dsl closes` is purpose-built ("archived closes with reason and ROE") and an earlier
+    version of this guardrail never mentioned it — it sent the agent down an inference ladder
+    that ended in guessing from fill shapes."""
+    raw = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
+    skill = " ".join(raw.split())          # prose wraps; assert on meaning, not on line breaks
+    assert "6b." in skill, "the exit-attribution guardrail is gone"
+    for cmd in ("senpi dsl closes", "senpi dsl inspect", "senpi dsl positions"):
+        assert cmd in skill, f"the skill no longer names `{cmd}`"
+    # the fields that carry the answer
+    for fld in ("closeReason", "currentTierIndex", "lockedProfitPct", "floorPrice", "highWaterRoe"):
+        assert fld in skill, f"`{fld}` is not named — the agent has to compute what it could read"
+    # every close reason must be translated, not left as an enum
+    for reason in ("exchange_sl_hit", "dsl_breach", "hard_timeout", "weak_peak_cut", "dead_weight_cut"):
+        assert reason in skill, f"closeReason `{reason}` is not explained"
+    # the time cuts are timers — a review read `weak_peak_cut` correctly then invented a mechanism
+    # for it ("detected the position rolling over"), on a position held 5.03h against a 300m timer
+    assert "TIMERS" in skill or "timers" in skill, "the time cuts are not identified as timers"
+    assert "interval" in skill and "actual hold" in skill, \
+        "the skill must require stating the configured interval AND the elapsed hold"
+    # inference is corroboration only, and MANUAL_CLOSE is not an answer
+    assert "corroborate" in skill and "never substitute" in skill, \
+        "inference is no longer scoped as corroboration-only"
+    assert "not who placed it" in skill, "the maker tell is overstated"
+    k = skill.find("MANUAL_CLOSE")
+    assert k > 0 and "UNKNOWN" in skill[k:k + 300], "MANUAL_CLOSE must be treated as UNKNOWN"
+    # and a dead gateway must be reported, not papered over with a guess
+    assert "gateway" in skill.lower(), "the skill must say what to do when the record cannot be read"
+
+
+def test_skill_forbids_taking_leverage_from_the_config():
+    """A review called PONS "10x" (the config's default_leverage) when the venue capped it at 3x, and
+    then stated both "~15% ROE" and "~49% of margin" in one answer. ROE is price move x ACTUAL leverage."""
+    raw = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
+    skill = " ".join(raw.split())
+    assert "0b." in skill, "the leverage rule is gone"
+    assert "DslState.leverage" in skill or "strategy_get_asset_trading_limits" in skill, \
+        "the skill must name where the REAL leverage is read from"
+    assert "default_leverage" in skill, "it must name the config field NOT to use"
+    i = skill.find("0b.")
+    block = skill[i:i + 1400]
+    assert "ACTUAL" in block.upper(), "the rule must say to use the actual leverage"
+    assert "silently" in block or "DOES NOT ERROR" in block, \
+        "the rule must explain that the venue clips without erroring"
+
+
+def test_skill_treats_the_builder_fee_as_tier_dependent():
+    """Senpi's builder fee falls with the user's points tier (0.05% Bronze to 0.025% Legend), so a
+    hardcoded rate is wrong for most users. The skill must name where to read the user's own."""
+    skill = " ".join(open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read().split())
+    assert "user_get_senpi_points" in skill, "the skill must name where to read the user's own fee tier"
+    assert "Bronze" in skill and "Legend" in skill, "the tier range is not stated"
+    assert "not a constant" in skill.lower(), "the skill must say the rate is not a constant"
+
+
+def test_the_raw_mcp_rule_does_not_contradict_the_6b_reads():
+    """Guardrail 6b asks for targeted reads; line ~71 bars 'raw MCP'. The bar must be scoped or the
+    skill tells the agent to do something it also forbids."""
+    skill = " ".join(open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read().split())
+    i = skill.find("Use this skill FIRST")
+    assert i > 0, "the raw-MCP rule moved"
+    window = skill[i:i + 600]
+    assert "6b" in window, "the raw-MCP rule does not carve out the 6b reads — contradiction"
