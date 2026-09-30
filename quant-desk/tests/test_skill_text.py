@@ -61,13 +61,14 @@ def _markdown_files():
 
 # --- frontmatter -------------------------------------------------------------------------------
 
-def test_frontmatter_is_2_1_0_and_requires_the_runtime():
+def test_frontmatter_is_2_2_0_and_requires_the_runtime():
     """Still major 2: boxes gate skill majors on the runtime's manifest ceiling (quant-desk maxMajor 2),
-    so 2.x only lands where the runtime has the `senpi quant` verb. The Set stop loss doctrine is a minor:
-    on a runtime without the button its text never says `Set stop loss button:`, and rule 5 holds as before."""
+    so 2.x only lands where the runtime has the `senpi quant` verb. The Set stop loss doctrine (2.1) and the
+    per-coin buttons, `No stop loss button:` list and report turn (2.2) are minors: on a runtime without a
+    marker its text never prints it, and rule 5 holds as before."""
     meta = yaml.safe_load(_frontmatter())
     assert meta["name"] == "quant-desk"
-    assert meta["metadata"]["version"] == "2.1.0", meta["metadata"]["version"]
+    assert meta["metadata"]["version"] == "2.2.0", meta["metadata"]["version"]
     assert "senpi-trading-runtime" in (meta["metadata"].get("requires") or []), meta["metadata"]
 
 
