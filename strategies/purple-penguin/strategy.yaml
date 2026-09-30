@@ -1,0 +1,55 @@
+# Purple Penguin — PENGUIN at a score floor of 8. AN EXPERIMENT, not a product.
+#
+# Byte-for-byte PENGUIN except for one input: `minScore: 8` instead of 9. Same detector, same
+# hard gates, same sizing, same clock, same DSL ladder, same guard rails, same scoring.py.
+#
+# The question it exists to answer: 48% of live penguin emits land on EXACTLY 9, so the score
+# floor is the most binding constraint on the strategy — and the score is a coarse sum of
+# +1/+2/+3 buckets, so one bucket below it may well be tradeable. Nobody knows, because the 9
+# floor was hardcoded inside score_market and returned None, leaving a near-miss no trace but a
+# count. Eleven sub-9 emits exist in 14 days of fleet telemetry, all from a single wallet.
+#
+# `catalog.status: blocked` keeps it out of the catalog and out of discover, so it never reaches
+# a user. deploy.py resolves an explicit path regardless of catalog status:
+#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/purple-penguin --budget <small>
+#
+# FUND IT SMALL. One slot at 90% margin and 10x means the budget IS the risk unit, and the whole
+# premise is that the 8-band is unmeasured. Read it against penguin over the same window using
+# the CAND telemetry both packages now emit.
+schema_version: 1
+
+id: purple-penguin
+version: "1.0.0"
+
+catalog:
+  name: "Purple Penguin — Striker at score 8 (experiment)"
+  emoji: "🟣"
+  tagline: "Penguin with the conviction bar one notch lower: the same rank-jump detector, the same hard gates, the same whole-book commitment at 10x — but it will take a score of 8 where Penguin insists on 9. An experiment in whether that floor is set too high, and the only thing in this package that differs."
+  belief_plain: "This is Penguin with one number changed, run deliberately small to find something out. Penguin only acts when its signal scores 9 or better out of a possible 12, and almost half of everything it trades sits at exactly 9 — right on the line. The score is built from a handful of chunky all-or-nothing bonuses, so an 8 is not really a weak signal, it is one that missed a single bonus — and nobody knows whether those trade well or badly, because the old code discarded them without keeping a record. Purple Penguin keeps every structural filter Penguin has: the coin must still have jumped at least 15 places from a genuinely deep starting rank, the 4-hour trend must still agree with the direction, and the volume spike must still confirm. It loosens only how much conviction it asks for on top of those. Everything about the risk is Penguin's, which means one stop-out still costs about 13.5% of the account before fees. Fund it at a fraction of what you would give Penguin — the entire point is that this band has never been measured."
+  thesis: "One input differs from Penguin: minScore 8 rather than 9. Everything else — scoring.py itself, the four hard gates (current rank above 10, 4h alignment, prev-rank at least 25, rank-jump at least 15), the 1.5x volume confirmation, the 4-reason floor, one slot at 90% margin and 10x, the eight-rung DSL ladder, the 15% ROE stop, the guard rails — is Penguin's, unchanged. The experiment is worth running because the floor is the binding constraint on the whole strategy and its calibration has never been tested: 48% of live penguin emits score exactly 9, and the score is a sum of 3/2/2/2/1/1/1 buckets, so a 15-place jump and a 90-place jump score identically whenever they trip the same flags. Because IMMEDIATE_MOVER's 2 points are always earned and four reasons are still required, an 8 is a signal that cleared every structural filter and missed exactly one bonus: first-jump plus one 2-pointer plus one 1-pointer, or both 2-pointers plus both 1-pointers. That loosens conviction, never a filter. Judge it against Penguin over the same window using the per-candidate CAND telemetry both packages now emit, which records the continuous components behind each integer score, rather than on its own P&L in isolation."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: rank_jump
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  status: blocked           # experiment — deliberately kept out of the catalog and discover
+  tier: advanced
+  time_horizon: intraday
+  leverage_max: 10
+  max_slots: 1
+  assets: []                # derived universe — coins come from the top-50 rows of the 4h leaderboard each tick, not a fixed list
+  tags: [leader-momentum, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, concentrated, single-slot, high-leverage, hyperfeed, high-risk-high-reward, aggressive, experiment, score-floor-8, not-for-users]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: PURPLE_PENGUIN_WALLET
+    funding_share: 1.0
