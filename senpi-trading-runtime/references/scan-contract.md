@@ -173,6 +173,27 @@ raises `PermissionError` (loud, fail-fast — never a silent `None`).
 The allowlist is scaffold-owned in source and **empty by default** — there is no env/operator/author
 knob. As an author: **assume you cannot mutate anything.** Produce signals; the runtime executes.
 
+### What the runtime executes does NOT include a partial exit
+
+There is no way to close **part** of a position from a runtime package today. Three separate layers
+each block it, so working around one does not help:
+
+| Layer | Why it cannot |
+|---|---|
+| Scanner | `edit_position` — the MCP's only reduce primitive (`targetMargin` below current margin) — is in the blocked mutation set above. |
+| DSL | Every DSL exit is a **full** close; `closePosition(coin, reason, …)` takes no size. See `runtime-concepts.md` → "DSL Exit Engine". |
+| `CLOSE_POSITION` action | Closes by coin. No size, no fraction. |
+
+So a rule like *"take 25% off at +10% ROE and let the rest run on the trailing stop"* **cannot be
+authored**, however it is expressed. A scanner that tries computes the reduce correctly and then
+raises `PermissionError` on every tick — which reads as a working rule in the logs and executes
+nothing. Seen live 2026-09-25: 134 consecutive failures across two assets, the strategy's own log
+line printing `PARTIAL FIXATION: … closing 25% (margin 16.77 -> 12.58)` each time it failed.
+
+Design exits around a full close. If partial exits are genuinely required, raise it with the runtime
+maintainers rather than routing around the boundary — the boundary is deliberate and pinned by a
+test (`python-tests/scaffold/test_preflight.py`).
+
 ---
 
 ## Market data types

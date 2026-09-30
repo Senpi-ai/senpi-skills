@@ -124,6 +124,14 @@ starts tracking a position when `ON_POSITION_OPENED` fires, then evaluates exit 
 `interval_seconds` (integer, 5–3600). When a condition is met it closes the position and records the
 close reason. No LLM is involved — every decision is deterministic from the configured parameters.
 
+**Every DSL exit is a FULL close.** Phase-1 floors, phase-2 tiers and all three time cuts close 100%
+of the position — the underlying `closePosition(coin, reason, …)` takes no size argument. This is
+worth stating because the phase-2 vocabulary invites the opposite reading: a tier's `lock_hw_pct` of
+60 does **not** sell 60% of the position. It moves the protective floor to 60% of the high-water ROE
+and still exits the whole position if that floor breaks. There is no scale-out tier, and partial
+take-profits are not available anywhere in a runtime package — see `scan-contract.md` →
+"What the runtime executes does NOT include a partial exit".
+
 ### How a tick works
 
 Every `interval_seconds`, for each tracked position, the DSL engine:
