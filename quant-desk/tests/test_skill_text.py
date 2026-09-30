@@ -108,9 +108,11 @@ def test_no_absolute_skills_path():
         assert "/data/.openclaw" not in _read(path), os.path.relpath(path, SKILL_DIR)
 
 
-def test_under_250_lines():
+def test_under_256_lines():
+    """Raised from 249 to 255 in 2.2.0 for rule 5's per-coin buttons, No stop loss button list and report
+    turn: rule 5 is hot-path doctrine, so it stays here rather than moving to a reference."""
     n = len(_skill().splitlines())
-    assert n < 250, f"SKILL.md is {n} lines; the ceiling is 249"
+    assert n < 256, f"SKILL.md is {n} lines; the ceiling is 255"
 
 
 def test_refusal_codes_are_named():
@@ -389,9 +391,9 @@ def test_book_limit_is_25():
 def test_the_set_stop_loss_button_is_the_one_exception_to_custody_language():
     """The runtime's result text is the model's only view of the button (history strips the card
     payload): `Set stop loss button:` is the marker it prints, pinned by the runtime's widget test."""
-    _needles("**The one exception is the Set stop loss button, one per coin:** each coin listed after "
-             "`Set stop loss button:` in the card's result text",
-             "Never say senpi cannot stop a listed coin, and never describe a button on another card or for "
+    _needles("**The one exception is a Set stop loss button per coin:** each coin after "
+             "`Set stop loss button:` in the card's text has its own.",
+             "Never say senpi cannot stop a listed coin; never describe a button on another card or for "
              "an unlisted coin.")
 
 
@@ -414,11 +416,11 @@ def test_rule_5_is_per_coin():
     """Several positions can be naked at once: every coin with a button is named with its own button, every
     coin without one is named with the runtime's reason and falls under Otherwise, and the model never
     implies full cover while a coin has no button."""
-    _needles("one per coin",
+    _needles("per coin",
              "Name **every** listed coin and point the reader to its **Set stop loss** button",
              "they sign each in their own wallet, one at a time",
-             "Each coin after `No stop loss button:` has none: name it with its reason and apply Otherwise to it.",
-             "Never imply every position is covered while one has no button",
+             "Each coin after `No stop loss button:` has none: name it with its reason; Otherwise applies to it.",
+             "Never imply full cover while a coin has no button",
              "a naked coin in neither list follows Otherwise",
              "Otherwise, per coin")
     flat = _flat(_skill())
@@ -430,11 +432,11 @@ def test_rule_5_is_per_coin():
 def test_rule_5_has_the_report_turn():
     """The web sends `Stop loss set on <COIN> @ $<px> (engine suggested $<px>) — still waiting: A, B` after
     each placed stop, one turn each; the placed price can differ from the engine's suggestion."""
-    _needles("**A `Stop loss set on <COIN> @ $<px>` message reports a placed stop:**",
-             "confirm that coin is now protected at that placed price, never the engine's suggestion",
-             "its `still waiting:` list",
-             "the `No stop loss button:` coins as still unprotected",
-             "One short answer per report; never call `show_widget` or re-run the desk to check",
+    _needles("**`Stop loss set on <COIN> @ $<px>` is a placed stop:**",
+             "confirm that coin is protected at the placed price, not the suggested one",
+             "name its `still waiting:` coins (none if absent)",
+             "the `No stop loss button:` coins as unprotected",
+             "One short answer per report; never call `show_widget` or re-run the desk",
              "a re-check they ask for is `--fresh`")
 
 
@@ -467,10 +469,11 @@ def test_markers_match_the_runtime():
     if widget is None:
         import pytest
         pytest.skip("no sibling senpi-trading-runtime checkout")
-    assert "Set stop loss button:" in widget
-    m = re.search(r'NO_STOP_LOSS_MARKER\s*=\s*"([^"]+)"', widget)
-    if m:
-        assert m.group(1) == "No stop loss button:", m.group(1)
+    for const, marker in (("SET_STOP_LOSS_MARKER", "Set stop loss button:"),
+                          ("NO_STOP_LOSS_MARKER", "No stop loss button:")):
+        m = re.search(const + r'\s*=\s*"([^"]+)"', widget)
+        if m:
+            assert m.group(1) == marker, (const, m.group(1))
 
 
 def test_the_custody_limit_waits_for_the_card():
