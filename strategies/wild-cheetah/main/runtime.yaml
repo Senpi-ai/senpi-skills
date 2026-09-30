@@ -1,0 +1,210 @@
+# ── WILD CHEETAH · CHEETAH at higher conviction and higher size. AN EXPERIMENT ──
+#
+# CHEETAH's detector, universe, clock, exits and ladder, unchanged. TWO things differ, and they
+# are ONE idea rather than two changes: the score floor moves 10 -> 12, and margin moves 30% ->
+# 80/90% by tier. Raising size without raising the bar is just leverage with extra steps; raising
+# the bar without the size leaves the rare signal underpaid. They move together or not at all.
+#
+# DERIVED, not picked. Cheetah's scale maxes at 15 (SM 4 + velocity 2 + accel 2 + dual-price 2 +
+# volume 1 + quality-align 3 + rank-climb 1) and its shipped floor of 10 is 67% of that. PENGUIN's
+# 9 of a possible 12 is 75% — the selectivity a one-slot, whole-book position is built around.
+# 75% of 15 is 11.25, and 12 is both the next integer and cheetah's OWN second tier boundary.
+#
+# Leverage stays FLAT at 5. That is not conservatism, it is the coherence fix: every DSL threshold
+# is ROE, so an exit's distance in PRICE is (ROE / leverage), and a book that spreads leverage
+# cannot carry one ladder. Conviction is expressed in MARGIN, which leaves the ladder meaningful.
+# At 90% and 5x the position is 4.5x the account and the -10% ROE stop costs 9% of equity.
+#
+# FIRING RATE IS UNMEASURED at this floor — cheetah already refuses most ticks, and a 4h emit
+# cooldown sits on top. If score 12+ proves too rare to keep a slot busy, the fallback is 11
+# (cheetah's third tier), NOT a return to 10.
+#
+# Not in the catalog (catalog.status: blocked) — deploy by path:
+#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/wild-cheetah --budget <small>
+#
+# ── inherited from CHEETAH, unchanged ──
+# ── CHEETAH · single instance — multi-signal confluence sniper (Runtime 3.0 port of v2 Cheetah v7.2.0) ──
+name: wild-cheetah-main
+group: wild-cheetah
+version: 1.0.0
+description: >
+  CHEETAH — universe confluence sniper. Scans the top-100 markets on the 4h leader board
+  (leaderboard_get_markets — which side the last four hours' winners sit on) every tick,
+  scores each on a 7-component confluence model (max 15: 4h-leader consensus, velocity,
+  acceleration, dual-price, volume, quality-trader
+  alignment, rank-climb), and emits ONE signal for the single strongest candidate that
+  clears score 10. Score-scaled leverage: 3x @10, 5x @11, 7x @12, 8x @14+. XYZ banned,
+  one slot, 30% margin. DSL is the ONLY exit ("let winners run": first lock at +20% ROE
+  keeps 25% of the peak; the rare +50-100% mover pays for the quiet weeks). Faithful port
+  of the v2 producer thesis.
+
+strategy:
+  wallet: "${WILD_CHEETAH_WALLET}"
+  slots: 1                                # 1-slot sniper, not a scalper (v2 MAX_POSITIONS=1)
+  default_leverage: 5                     # FLAT — conviction is scaled through margin, not leverage
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: cheetah_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min)
+    timeout_seconds: 240                   # up to ~26 leaderboard reads/tick (markets + 25 trader pos); v2 WARN_OVER_120S budget
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # dedup/cooldown maps + held set + scan-rank history (20 scans) + quality cache
+    inputs:
+      minScore: 12                         # v2 MIN_SCORE_DEFAULT (v6.0 restored from v5.2's 11)
+      # 80 — the SMALLEST reachable tier, matching the rule cheetah uses: a fallback should be the
+      # conservative one, and min_budget reads marginPct from a key allowlist that cannot see the
+      # third element of leverageTiers, so a value above the smallest tier under-computes the
+      # minimum budget and under-funds the wallet.
+      marginPct: 80                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable.
+                                           # v2 producer MARGIN_PCT=0.30 (30%); v2 runtime.yaml had margin_pct:25 — producer wins per port rule.
+      maxPositions: 1                      # producer-side held/slot guard (mirrors slots:1)
+      xyzBanned: true                      # v2 XYZ_BANNED — drop dex==xyz markets
+      leaderboardLimit: 100                # v2 fetch_sm_markets limit=100
+      # ── score-component thresholds (v2 producer constants, verbatim) ──
+      smMinPct: 10.0
+      smMinTraders: 25                     # floor on trader_count per board side — a thinner side never becomes a candidate
+      velMin15m: 1.0
+      velMin1h: 3.0
+      priceMin4h: 2.0
+      volMinRatio: 2.0
+      rankClimbMin: 5
+      rankClimbTopN: 15
+      # ── quality-trader pool (v7.1.0 widened filter, verbatim) ──
+      qtPoolSize: 25
+      qtTimeframe: "MONTHLY"
+      qtConsistency: ["ELITE", "RELIABLE", "STREAKY"]
+      qtCacheSeconds: 900                  # v2 QT_CACHE_MINUTES=15
+      # ── leverage tiers (v2 LEVERAGE_TIERS, verbatim): [min_score, leverage] desc ──
+      # [min_score, leverage, marginPct]. REWORKED: leverage is now FLAT at 5 and conviction is
+      # scaled through MARGIN instead. Exposure per tier is UNCHANGED — each row is the old
+      # leverage x the old flat 30% margin, re-expressed at 5x: 8x30=2.40x equity -> 5x48,
+      # 7x30=2.10x -> 5x42, 5x30=1.50x -> 5x30, 3x30=0.90x -> 5x18. Same risk, same ordering.
+      #
+      # WHY. Every DSL threshold is ROE, so an exit's distance IN PRICE is (ROE / leverage).
+      # Scaling conviction through leverage rescaled the entire ladder per trade, backwards: a
+      # score-10 signal got a 3.33%-of-price stop and its first profit floor 6.67% away, while a
+      # score-14 signal got 1.25% and 2.50%. The weakest signal was handed the widest stop and the
+      # most distant floor. With leverage flat, one ladder is correct for every trade.
+      # Two rows, because the floor above is cheetah's second tier — 11 and 10 are unreachable and
+      # are deleted rather than left as dead config. Leverage stays FLAT (see the header); only the
+      # margin scales, so one ROE ladder stays correct for every trade. Exposure: 5x90 = 4.50x
+      # equity at the top, 5x80 = 4.00x below it, against cheetah's 2.40x/2.10x.
+      leverageTiers: [[14, 5, 90], [12, 5, 80]]
+      # ── cooldowns (v2 producer-side backstops; runtime per-asset gate is primary) ──
+      emitCooldownSeconds: 14400           # v2 ASSET_COOLDOWN_MINUTES=240 (post-emit anti-spam)
+      postCloseCooldownSeconds: 14400      # v2 POST_CLOSE_COOLDOWN_MINUTES=240 (post-close backstop)
+      recentSignalTtlSeconds: 14400        # signal-dedup TTL (mirrors emit cooldown)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: string, required: false }
+      smPct: { type: number, required: false }
+      smTraders: { type: number, required: false }
+      rank: { type: number, required: false }
+      contrib15m: { type: number, required: false }
+      contrib1h: { type: number, required: false }
+      priceChg4hPct: { type: number, required: false }
+      priceChg1hPct: { type: number, required: false }
+      volRatio: { type: number, required: false }
+      qualityAlign: { type: number, required: false }
+      rankClimb: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: cheetah_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [cheetah_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # a confluence strike must fill — taker fallback at 60s
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: cheetah_main_signals
+
+# EXIT — DSL, "let winners run": no time-based cuts. Cheetah waits weeks for one confluence
+# and then lets the ratchet — not a fixed target and not a clock — decide the exit, so a
+# position exits on the hard stop (phase1.max_loss_pct) or the profit-lock ladder
+# (phase2.tiers) only. The 12h hard_timeout counted from entry and fired in either phase:
+# it closed positions that had not reached the first tier (+20% ROE) — including ones
+# sitting in profit below it — and tier-armed winners mid-run, which made a clock the
+# profit-taker the thesis hands to the ladder. Removed 2026-09-15 (Cheetah 1.1.1). First
+# lock at +20% ROE keeps 25% of the peak (the old "+10% / lock 0" copy predated the
+# breakeven-rung ban); the right tail pays for the quiet weeks.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: false                       # was 12h — fired in either phase; see EXIT note
+    weak_peak_cut:
+      enabled: false                       # v7.2.0: disabled — was chopping winners-in-waiting
+      interval_in_minutes: 90
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                       # v7.2.0: disabled — forced exits before trenders accelerate
+      interval_in_minutes: 60
+    phase1:
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
+      # retrace (10% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
+      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      enabled: false
+      max_loss_pct: 10
+      retrace_threshold: 10                # v2: raised 6->10 to avoid firing on normal 2-3% pullbacks in strong trends
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # PENGUIN's ladder, re-expressed for 5x (ROE = price% x 5)
+                                           # so each rung means the SAME price move it means there.
+                                           # See strategies/penguin/main/runtime.yaml for the sizing
+                                           # study (1m-bar replay, 92 closes, 41 assets).
+                                           #
+                                           # What it replaces: the v7.2.0 ladder's first rung armed
+                                           # at +20% ROE. At the old tiers that was a 2.50%-of-price
+                                           # move on a score-14 trade and 6.67% on a score-10 one,
+                                           # against a MEASURED median peak of 0.84% of price. The
+                                           # ladder essentially never armed at any tier — the stop
+                                           # did all the work and a position that went green could
+                                           # round-trip the whole way back with no floor under it.
+                                           # Price move each rung represents at 5x, in brackets.
+        - { trigger_pct: 3,   lock_hw_pct: 30 }   # 0.6% of price — LOSS REDUCER. Floor is HW x 0.30,
+                                                  # so +0.9 ROE pts at arm, which clears the ~0.75
+                                                  # ROE-pt round trip at 5x: a scratch, not a fee loss.
+        - { trigger_pct: 10,  lock_hw_pct: 40 }   # 2.0% of price
+        - { trigger_pct: 13,  lock_hw_pct: 50 }   # 2.6% of price
+        - { trigger_pct: 15,  lock_hw_pct: 60 }   # 3.0% of price
+        - { trigger_pct: 20,  lock_hw_pct: 65 }   # 4.0% of price
+        - { trigger_pct: 25,  lock_hw_pct: 70 }   # 5.0% of price
+        - { trigger_pct: 35,  lock_hw_pct: 75 }   # 7.0% of price
+        - { trigger_pct: 50,  lock_hw_pct: 85 }   # 10% of price
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 25               # v2 daily_loss_limit_pct
+    max_entries_per_day: 8                 # v2 max_entries_per_day (v5.2 dynamic cap upper bound)
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3              # v2 max_consecutive_losses
+    cooldown_seconds: 1800                 # v2 cooldown_minutes:30
+    drawdown_halt_pct: 25                  # v2 drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false  # v2: avoid the next-day reset leak
+    per_asset_cooldown_seconds: 14400      # v2 per_asset_cooldown_minutes:240 (4h)

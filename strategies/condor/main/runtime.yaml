@@ -1,7 +1,7 @@
 # ── CONDOR · single instance — One Amazing Trade per Day (Runtime 3.0 port of v2 CONDOR v4.0.1) ──
 name: condor-main
 group: condor
-version: 3.0.1
+version: 3.1.0
 description: >
   CONDOR — multi-asset trend-continuation apex sniper ("One Amazing Trade per Day").
   Scans the top 50 HL crypto assets by 24h notional volume and fires ONLY when 4h +
@@ -105,15 +105,32 @@ exit:
     execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: true
-      interval_in_minutes: 1440            # 24h — one trade per day discipline
+      # OFF. "One trade per day" is an ENTRY cadence and max_entries_per_day below enforces it; it
+      # was never a reason to close a WORKING position on the clock. Fleet-wide, of 142
+      # hard_timeout closes in 7 days 110 (77.5%) were in profit when the clock cut them and 93
+      # (65.5%) kept moving the right way for the next hour. Value kept — re-enabling is one line.
+      enabled: false
+      interval_in_minutes: 1440
     weak_peak_cut:
-      enabled: false                       # v2 v3.3: DISABLED. Apex thesis needs 4-8h to develop.
-      interval_in_minutes: 120
-      min_value: 3.0
-    dead_weight_cut:
+      # THE ONLY TIME CUT, and it is a DEATH cut rather than a profit cut: five hours to show
+      # +5% ROE (a 0.5% price move at 10x) or the slot is freed. Raised from 120m/3.0.
+      #
+      # It fires only while peakROE has NEVER reached min_value, and entering phase 2 implies
+      # peakROE >= the first tier's trigger_pct — so with min_value 5 below that trigger this can
+      # only ever fire in PHASE 1 (dsl-configuration.md). A position that reaches +5% is therefore
+      # permanently safe from it, which is precisely the intent: bound DEAD positions, not slow
+      # ones. Five hours also sits inside the 4-8h window this file has always said an apex thesis
+      # needs, so it no longer contradicts that.
       enabled: true
-      interval_in_minutes: 60              # 60 min no movement = dead
+      interval_in_minutes: 300
+      min_value: 5.0
+    dead_weight_cut:
+      # OFF. It closed at 60 minutes on any tick with currentROE <= 0, against a thesis this same
+      # file says needs 4-8h to develop — the two settings contradicted each other and the
+      # 60-minute one was winning. weak_peak_cut above now carries the death case, on a horizon
+      # that matches the thesis. Value kept — re-enabling is one line.
+      enabled: false
+      interval_in_minutes: 60
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable
       # move it can still sit BELOW entry and close a WINNER at a loss — churning fees.

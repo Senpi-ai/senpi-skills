@@ -1,7 +1,10 @@
 # ── WILD CONDOR · CONDOR at conviction size, DSL-only. AN EXPERIMENT ──
 #
-# CONDOR's detector, universe, clock, score floor and guard rails, unchanged. Three things differ:
-# margin (80-90% instead of 20-32%), both time cuts OFF, and PENGUIN's ladder.
+# CONDOR's detector, universe, clock, guard rails AND exits, unchanged. TWO things differ:
+#   CONVICTION + SIZE, as one idea — score floor 15 at a flat 90% margin, against 12 at 20-32%.
+#   PENGUIN's ladder, which both packages can share because both run 10x.
+# The time cuts moved to the same shape on BOTH packages in the same change, so they are no
+# longer a difference between them.
 #
 # ⚠️ READ THIS BEFORE FUNDING IT. Condor HAS been run at this size and it went badly. The sizing
 # comment in condor's own inputs records why the margins were divided by 2.5: at 80/70/50% margin
@@ -35,7 +38,7 @@ description: >
   1h + 15m momentum are perfectly aligned, the 4h leaders' dominant side (leaderboard_get_markets
   — a momentum read, not a proven cohort) points the same way and holds a meaningful share of
   their gains, OI >= $1M and trader depth >= 50, and the move isn't a runaway counter-trend
-  (MACRO_TREND_GATE). Score-scaled sizing (80%/85%/90% margin) at a 10x leverage cap;
+  (MACRO_TREND_GATE). A single 90% margin tier at a 10x cap, gated to score 15+ (condor's own top tier);
   one position at a time; a wide DSL lets apex setups breathe. Faithful port of the v2
   producer thesis (XYZ + stablecoins banned). NOTE: XYZ is filtered by the 'XYZ:' name
   prefix (the live combined instruments response has no dex field — see scan.py).
@@ -64,12 +67,23 @@ scanners:
       universeSize: 50                     # top N HL crypto by 24h notional volume
       minOiUsd: 1000000                    # OI >= $1M hard floor
       smLimit: 100                         # leaderboard_get_markets aggregation depth
-      minScore: 12                         # v2 MIN_SCORE (v3.4 calibration)
-      # 80, not CONDOR's 20. THE POINT OF THIS PACKAGE. Only reached by a score of exactly 12
-      # (minScore), since the tiers below cover 13+. At 10x this is 8x the account in one position
-      # and the -12% ROE stop costs 9.6% of equity per stop-out. See the header for the history
-      # behind the number this replaces.
-      marginPct: 80
+      # 15, not CONDOR's 12. THE POINT OF THIS PACKAGE, together with the margin below — the two
+      # are ONE idea, not two changes: only take what you would already size biggest, then size it
+      # that way. Raising margin without raising the bar is just leverage with extra steps.
+      #
+      # DERIVED, not picked. Condor's scale maxes at 19 (4h 4 + 1h 2 + 15m 2 + 3TF 3 + SM 4 +
+      # depth 1 + funding 1 + BTC 1 + session 1) and its shipped floor of 12 is 63% of that.
+      # PENGUIN's 9 of a possible 12 is 75%, and that is the selectivity a one-slot, whole-book
+      # position is built around. 75% of 19 is 14.25 — and 15 is both the next integer and
+      # condor's OWN top tier boundary, the score at which it already chose to pay the most.
+      #
+      # ⚠️ FIRING RATE IS UNMEASURED. Nobody has counted how often condor scores 15+. If it turns
+      # out too rare to keep a slot busy, the fallback is 13 (condor's middle tier, 68% of max) —
+      # NOT a return to 12, which would leave the size without the conviction to justify it.
+      minScore: 15
+      # 90 flat. At 10x this is 9x the account in one position and the -12% ROE stop costs 10.8%
+      # of equity per stop-out. See the header for the history behind the number this replaces.
+      marginPct: 90
       maxPositions: 1                      # "one amazing trade per day"
       # SM gates. `minSmConsensusPct: 70` used to live here and gated
       # `pct_of_top_traders_gain` — a share of TOTAL top-trader gain spread across the
@@ -89,10 +103,12 @@ scanners:
       convergentPct: 8                     # SM concentration scoring tier (+3)
       recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC race-window dedup
       # leverageTiers: per-score [min_score, leverage, marginPct(PERCENT)]; omit -> scoring defaults
-      # [min_score, leverage, marginPct]. CONDOR ships 32/28/20 here; these are the pre-de-risking
-      # magnitudes restored and then some. Conviction scaling is KEPT rather than flattened — it is
-      # condor's own mechanism and the higher tiers are the ones worth the size.
-      leverageTiers: [[15, 10, 90], [13, 10, 85], [11, 10, 80]]
+      # ONE row, because the floor above IS the top tier: every signal this package trades is
+      # already top-conviction, so there is no band left to scale across. That is deliberately
+      # PENGUIN's shape — one bar, one size — rather than condor's three-tier ramp. The 13 and 11
+      # rows are deleted rather than left unreachable, because dead config is how the next reader
+      # learns the wrong thing. Restore them alongside a lower minScore if the floor is walked back.
+      leverageTiers: [[15, 10, 90]]
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }
@@ -143,9 +159,18 @@ exit:
       enabled: false
       interval_in_minutes: 1440
     weak_peak_cut:
-      enabled: false                       # v2 v3.3: DISABLED. Apex thesis needs 4-8h to develop.
-      interval_in_minutes: 120
-      min_value: 3.0
+      # THE ONLY TIME CUT, and it is a DEATH cut rather than a profit cut: five hours to show
+      # +5% ROE (a 0.5% price move at 10x) or the slot is freed. Raised from 120m/3.0.
+      #
+      # It fires only while peakROE has NEVER reached min_value, and entering phase 2 implies
+      # peakROE >= the first tier's trigger_pct — so with min_value 5 below that trigger this can
+      # only ever fire in PHASE 1 (dsl-configuration.md). A position that reaches +5% is therefore
+      # permanently safe from it, which is precisely the intent: bound DEAD positions, not slow
+      # ones. Five hours also sits inside the 4-8h window this file has always said an apex thesis
+      # needs, so it no longer contradicts that.
+      enabled: true
+      interval_in_minutes: 300
+      min_value: 5.0
     dead_weight_cut:
       # OFF. It cut at 60 minutes while weak_peak_cut directly above is disabled on the grounds that
       # "Apex thesis needs 4-8h to develop" — the two settings contradicted each other, and the
