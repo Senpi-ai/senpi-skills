@@ -1,7 +1,7 @@
 # ── PUFFIN · the Senpi Signals engine, concentrated into one conviction position ──
 name: puffin-main
 group: puffin
-version: 1.1.0
+version: 1.2.0
 description: >
   PUFFIN — the same senpi-signals gather and detector library as SIGNALS-HUNTER, vendored
   byte-identically, but pointed at one position instead of five. A much higher score floor (85 vs
@@ -161,20 +161,20 @@ exit:
     phase2:
       enabled: true
       tiers:                             # PENGUIN's ladder verbatim — see strategies/penguin/main/
-                                         # runtime.yaml for how each rung was sized (1m-bar replay,
-                                         # validated 12/12) and do not re-tune it here. Price moves
-                                         # in brackets.
+                                         # runtime.yaml for how each rung was sized (1m-bar replay
+                                         # over 92 closes on 41 assets) and do not re-tune it here.
+                                         # Price moves in brackets.
                                          #
                                          # Why it replaced the old one: that ladder's first rung was
                                          # at trigger 25, the SAME distance as the stop, so nothing
                                          # locked until a 2.5% price move and a position could
-                                         # round-trip a whole winner. RUNG 1 (10/20) is a LOSS
-                                         # REDUCER — floor is high-water x 0.20, so +2.0% ROE at arm
+                                         # round-trip a whole winner. RUNG 1 (6/30) is a LOSS
+                                         # REDUCER — floor is high-water x 0.30, so +1.8% ROE at arm
                                          # — and it arms INSIDE the stop distance on purpose: that
                                          # is what stops a position that went green from coming back
                                          # through entry. It is why the ladder test no longer
                                          # asserts trig[0] >= max_loss_pct.
-        - { trigger_pct: 10,  lock_hw_pct: 20 }   # 1.0% of price — LOSS REDUCER (see note above)
+        - { trigger_pct: 6,   lock_hw_pct: 30 }   # 0.6% of price — LOSS REDUCER (see note above)
         - { trigger_pct: 20,  lock_hw_pct: 40 }   # 2.0% of price
         - { trigger_pct: 25,  lock_hw_pct: 50 }   # 2.5% of price
         - { trigger_pct: 30,  lock_hw_pct: 60 }   # 3.0% of price

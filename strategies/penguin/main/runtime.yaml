@@ -15,7 +15,7 @@
 # concentrated, high-variance expression of the same read; see strategy.yaml for the risk.
 name: penguin-main
 group: penguin
-version: 3.0.0
+version: 3.1.0
 description: >
   PENGUIN — Concentrated Striker. Universe rank-jump sniper on Orca's entry model: scans the
   top-50 rows of the 4h leaderboard (leaderboard_get_markets — a momentum read of who is
@@ -150,7 +150,7 @@ exit:
     phase2:
       enabled: true
       tiers:                                 # ROE triggers; the price move each is at 10x in brackets.
-                                             # Seven rungs, retuned 2026-09-26 (second pass) off the WLD
+                                             # Eight rungs, last retuned 2026-09-30 (see RUNG 1 below) off the WLD
                                              # short on this template: 118,414 WLD, $6,290 margin, peak
                                              # +29.1% ROE / $1,830 unrealised, realised +$545 gross. The
                                              # old tier 1 locked 35% of high-water, so the stop trailed
@@ -172,11 +172,11 @@ exit:
                                              # high-water per 30m window: p50 1.18%, p75 1.90%, p90 3.16%.
                                              # Every PROFIT rung below is >= 1.20%, so none sits under the
                                              # median bounce; the old 1.00%-equivalent settings did. RUNG 1
-                                             # is deliberately tighter — 0.80% at arm at 10x, rising to
-                                             # 1.59% by trigger 20 — and is the one leash here that sits
+                                             # is deliberately tighter — 0.42% at arm at 10x, rising to
+                                             # 1.40% by trigger 20 — and is the one leash here that sits
                                              # UNDER the p50 bounce. That is the trade it exists to make:
-                                             # firing costs a scratch at +2% ROE, not a capped winner, so a
-                                             # hair trigger is cheap. At 5x the same rung is 1.60% at arm,
+                                             # firing costs a scratch at +1.8% ROE, not a capped winner, so
+                                             # a hair trigger is cheap. At 5x the same rung is 0.84% at arm,
                                              # so the tightness is a 10x effect. The replay that sized it
                                              # (+$2,740) already has this leash in force; LINK (+787 -> -212)
                                              # is what it costs when it fires on a runner.
@@ -189,37 +189,40 @@ exit:
                                              # count rises to 24 but their median peak DROPS to 24.5%: past
                                              # 1.20% you stop saving runners and start holding losers.
                                              #
-                                             # RUNG 1 (10/20), added 2026-09-29. Full replay of the 12 closed
-                                             # positions on this template's wallet on 1m bars, engine ported
-                                             # from floors.ts/tick.ts, validated 12/12 within 2 ROE points of
-                                             # the real exits and within $154 on net dollars. vs the shipped
-                                             # ladder: +$2,740, and positive under EVERY leave-one-out
-                                             # deletion (min +$1,502) — the strongest floor of anything tested.
-                                             # 
-                                             # It is a LOSS REDUCER. Floor is HW x 0.20, so +2.0% ROE at arm
-                                             # rising to +4.0% by trigger 20 — it cannot bank a winner, and it
-                                             # clears the 21.9bps round trip (2.19 ROE pts at 10x, 1.09 at 5x)
-                                             # so the exit is a scratch rather than a fee loss. lock_hw_pct: 0
-                                             # was measured first and is BANNED fleet-wide for exactly that
-                                             # reason; it also scored worse here (+$2,020).
-                                             # 
-                                             # It fired on 4 of 12 positions: three rescues off the -15% stop
-                                             # (UNI -1,270, ADA -1,362, XLM -1,056 all cut to small scratches)
-                                             # and one scratched winner (LINK +787 -> -212).
-                                             # 
-                                             # SUPERSEDES the note previously here rejecting a rung at trigger
-                                             # 15 (144 arms/24h, leash fired on 88% at median HW 18.0%). That
-                                             # test locked 40% at trigger 15 — a floor at +6% ROE, a
-                                             # profit-banker, not this shape.
-                                             # 
-                                             # Trigger 12 is worse (+$941): it misses a high-water of 11.0%.
-                                             # A SECOND rung in the band is worse than this one alone —
-                                             # 10/20+15/30 is -$237 against it. One rung, not two: with lock 20
-                                             # the floor already rises continuously across HW 10-20, so there
-                                             # is no flat band for a second rung to fill.
-                                             # 
-                                             # The exact LOCK is NOT resolvable at n=12 — 20, 22 and 25 all sit
-                                             # inside each other's leave-one-out ranges. Do not re-tune it on
+                                             # RUNG 1 (6/30), retuned 2026-09-30. SUPERSEDES the 10/20 tuning below it,
+                                             # which was measured on 12 positions from ONE wallet. This is 92 ladder-driven
+                                             # closes (exchange_sl_hit) across 41 assets and ~30 wallets over 7 days, replayed
+                                             # on 1m bars with the same engine.
+                                             #
+                                             # Why it moved: under 10/20, 55% of floor-exits NEVER ARMED A SINGLE RUNG — they
+                                             # went from entry straight to the -15% stop. Another 25% armed rung 1 and no more.
+                                             # Median peak ROE across the sample was 8.4%, i.e. BELOW the old trigger of 10. The
+                                             # ladder was tuning a mechanism four fifths of positions never reached.
+                                             #
+                                             # At 6/30 vs 10/20, stop unchanged: arms on 64% of positions instead of 48%, win
+                                             # rate 42% -> 51%, median outcome -2.3 -> +0.1 ROE points, total +121 ROE points.
+                                             # Bootstrap (4000 resamples) 90% CI [+17, +230], P(>0) = 99%, and positive under
+                                             # every leave-one-out deletion.
+                                             #
+                                             # Still a LOSS REDUCER, not a profit banker: floor is HW x 0.30, so +1.8% ROE at
+                                             # arm rising to +6.0% by trigger 20. It cannot bank a winner; it stops one that
+                                             # went green from coming back through entry. +1.8 clears the ~15bps round trip
+                                             # (1.5 ROE pts at 10x) — a scratch, not a fee loss. lock_hw_pct: 0 stays BANNED
+                                             # fleet-wide (CI): a 0% floor exits flat and still pays the round trip.
+                                             #
+                                             # TESTED AND REJECTED in the same study: scaling the leash by each asset's own
+                                             # volatility. The mis-sizing is real — the leash is (1-lock) x trigger / leverage
+                                             # and the venue leverage clamp has nothing to do with volatility, so it runs from
+                                             # 0.4x a p75 bounce (PUMP, 10x) to 2.8x (XMR, 5x), and by clamp: 3x assets get
+                                             # 1.9x their p75, 10x assets 0.8x. But it only binds on the 20% of positions that
+                                             # reach rung 2+, where the best variant was worth +1.1 ROE pts/position — about
+                                             # +0.2 fleet-wide. Not worth the complexity. Do not rebuild it without new evidence.
+                                             #
+                                             # A SECOND rung in the band is worse than this one alone (10/20+15/30 was -$237
+                                             # against 10/20 on the older sample); with lock 30 the floor rises continuously
+                                             # across HW 6-20, so there is no flat band for one to fill. And the exact LOCK is
+                                             # still not resolvable to a point estimate — do not re-tune it on a handful of
+                                             # trades.
                                              # the next dozen trades.
                                              #
                                              # 1-win-pays-3-losses: floor must reach 3 x (max_loss + fee)
@@ -234,13 +237,14 @@ exit:
                                              # is identical under both intra-bar orderings (not sitting on
                                              # a whipsaw knife edge). E[% of account] per armed position
                                              # across the fleet peak distribution: 12.70 vs 8.98 for the
-                                             # old ladder. CAVEAT: the noise band and the 1.20% saturation
-                                             # point come from ONE asset over 24h (n=60, rescue cohort 13).
-                                             # If a wider study lands saturation at 1.40%, rung 1 becomes
-                                             # 20/30. Leash per rung, at arm -> at the next trigger:
-                                             # 0.80->1.60, 1.20->1.50, 1.25->1.50, 1.20->1.60, 1.40->1.75,
+                                             # old ladder. The noise band and the 1.20% saturation point above
+                                             # come from ONE asset over 24h (n=60, rescue cohort 13). The
+                                             # wider study that caveat asked for has since run — 92 closes
+                                             # on 41 assets — and it moved RUNG 1 rather than widening it;
+                                             # see that note. Leash per rung, at arm -> at the next trigger:
+                                             # 0.42->1.40, 1.20->1.50, 1.25->1.50, 1.20->1.60, 1.40->1.75,
                                              # 1.50->2.10, 1.75->2.50, 1.50->unbounded.
-        - { trigger_pct: 10,  lock_hw_pct: 20 }   # 1.0% of price — LOSS REDUCER (see note above)
+        - { trigger_pct: 6,   lock_hw_pct: 30 }   # 0.6% of price — LOSS REDUCER (see note above)
         - { trigger_pct: 20,  lock_hw_pct: 40 }   # 2.0% of price
         - { trigger_pct: 25,  lock_hw_pct: 50 }   # 2.5% of price
         - { trigger_pct: 30,  lock_hw_pct: 60 }   # 3.0% of price
