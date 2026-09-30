@@ -42,9 +42,10 @@ more" questions; use `senpi-portfolio` for live state.
 
 0. **Never quote a $ PnL without saying which side of fees it is on.** `realized` and `total` are HL
    `closedPnl` — **GROSS**. Quote `pnl_summary.realized_net` for the closed book and show the fee line; when
-   `fees` is `null` say *"gross — fees not netted"*. One measured AVAX round trip: **+$410.14 gross, $153.53
-   fees, +$256.61 net** — a 60% overstatement. Worst on a high-leverage striker (28.6 bps round trip = 2.86
-   ROE points at 10x). There is no `total_net`: the open leg has not paid exit fees yet.
+   `fees` is `null` say *"gross — fees not netted"*. A live review headlined **+$410.14** on a trade whose
+   net was **+$310.23** ($99.92 of fees) — a **32%** overstatement, and it never mentioned fees at all.
+   Round trip measured there: 18.7 bps = **1.87 ROE points at 10x**. There is no `total_net`: the open leg
+   has not paid exit fees yet. NOTE `fee` already INCLUDES `builderFee` — never add them.
 1. **Lead with TOTAL PnL** (`pnl_summary.total` = realized + unrealized), never realized alone. Realized-only
    is half the ledger — it calls a book riding open winners a "loser" and penalizes hold-strategies. **If
    `pnl_summary.unrealized_partial` is true (or `unrealized_coverage.read < .current_strategies`), TOTAL is a
@@ -397,7 +398,7 @@ otherwise it's just an asset the strategy was never designed to trade.
   signals") — you have no attributed exit; say "exit mechanism undetermined — I'd need the runtime event log,"
   and stop.
 - **Three things never need telemetry** — answer them before writing "undetermined": **maker vs taker**
-  (`crossed` on every fill), **fees in $** (`fee` + `builderFee`, which the engine sums), and **peak ROE**
+  (`crossed` on every fill), **fees in $** (`fee`, which already includes `builderFee`), and **peak ROE**
   (1m candles over the hold). Scope "undetermined" to blocked signals and protection gaps — and for *how the
   position closed*, work the ladder in 6b before you ever say you could not tell.
 - **Name your source (onchain vs runtime).** Closed trades + every onchain fact come from **`discovery`**
@@ -415,14 +416,18 @@ otherwise it's just an asset the strategy was never designed to trade.
 
 ### 6b. "Did the DSL close it?" — the ladder. Never stop at "undetermined"
 
-`exit_reason.terminal` is the engine's answer, sourced from `ratchet_stop_list`. That record exists for ratchet
-stops created through MCP. A **runtime DSL ladder** (`phase2.tiers` in runtime.yaml — penguin, pelican, the
-striker family) is a *different mechanism*, so `terminal` can be UNKNOWN on a completely normal DSL exit.
-UNKNOWN there means "no ratchet record", **not** "nobody can know".
+`exit_reason.terminal` is the engine's answer, sourced from `ratchet_stop_list`. The runtime **does** register
+a record of its own (`process-one-position.ts` → `attemptHandoffRegistration` → `ratchet_stop_add`), so a DSL
+ladder is not invisible here. The trap is the opposite one: the status it leaves is often **ambiguous**.
+`MANUALLY_CLOSED` means only *"the ladder ended for a reason that was not its own stop"* — a signal close, a
+time cut, `close_position`, or a human closing on the venue all land in it. So a present `terminal` is not
+automatically an answer.
 
 Work down until one answers:
 
-1. **`exit_reason.terminal`** — SL_TRIGGERED / MANUAL_CLOSE / LIQUIDATED / ADL. Present → done.
+1. **`exit_reason.terminal`** — `SL_TRIGGERED`, `LIQUIDATED` and `ADL` name a mechanism → done.
+   **`MANUAL_CLOSE` does NOT** — treat it exactly like UNKNOWN and keep going down the ladder. (See #784,
+   which fixes this mapping; settle any change to this rung together with it, not against it.)
 2. **`ratchet_stop_events`** (asset + wallet) — the firing events, not the config. The engine calls
    `ratchet_stop_list`, not this, so it is worth one call when `terminal` is UNKNOWN.
 3. **`openclaw senpi explain <asset> --runtime <id> --json`** — the native lifecycle, carrying `closeReason`
@@ -433,10 +438,14 @@ Work down until one answers:
      trigger → `exchange_sl_hit`.** The exchange stop fired: it sweeps at market, which is why it prints as a
      burst. Measured fleet-wide on penguin: **140 `exchange_sl_hit` against 10 `dsl_breach`**, and the wallets
      dominated by it show **~0% maker** closes.
-   - **Any maker fill on the close leg → the DSL issued the close itself** (`dsl_breach` or a time cut) through
-     `FEE_OPTIMIZED_LIMIT`. Time-cut-heavy penguin wallets run **20–36% maker**.
-   - **No reduce-only trigger, and a fill matching no computable floor → not a DSL exit.** A scanner/signal
-     close, or manual.
+   - **A maker fill on the close leg shows the ORDER TYPE, not who placed it.** It means *something* closed
+     with `FEE_OPTIMIZED_LIMIT` — which `close_position` and `strategy_close_positions` also use. And a DSL
+     exit configured `order_type: MARKET` produces no maker fill at all. Use it to rule the exchange stop
+     *out*, never to rule the DSL *in*.
+   - **On a closed trade there is no resting trigger left to compare against.** Read the one that actually
+     fired: `execution_get_closed_position_details` → `orderDetails[].triggerPrice`, or HL `historicalOrders`.
+   - **No trigger fired, and a fill matching no computable floor → not a DSL exit.** A scanner/signal close,
+     or manual.
 5. **Which rung.** For a LONG: `floor_roe = (trigger − entry) / entry × leverage × 100` (shorts invert).
    `floor_roe / high_water_roe` is the lock that was governing, which names the rung. Worked: AVAX trigger
    11.356, entry 11.3309, 10x → a **+2.22% ROE** floor against **+11.08%** high-water = the 20%-lock rung.
@@ -569,9 +578,10 @@ Don't re-implement these — call them and weave their output into the four-part
 
 ## The one pending upgrade — authoritative fee $
 
-**Fees in $ now ship** — every trade row carries `fee` (exchange **+ builder**; the exchange leg alone
-under-reported by ~32% on the penguin book) and `pnl_summary` carries `fees` / `realized_net`. What remains
-below is *reconciliation against the ledger*, not availability.
+**Fees in $ now ship on both paths** — discovery rows carry `totalFees` (its `totalHyperliquidFees` +
+`totalBuilderFees`; discovery splits those two, unlike HL's raw `fee`, which is already inclusive), on-chain
+rows carry both legs of the round trip, and `pnl_summary` carries `fees` / `realized_net`. What remains below
+is *reconciliation against the ledger*, not availability.
 
 `execution_quality` reports the maker-vs-taker **rate** today, not fee dollars. The authoritative fee **$**
 lives in the ledger — `order.filled` / `position.closed` carry `senpi.order.id`, which joins to

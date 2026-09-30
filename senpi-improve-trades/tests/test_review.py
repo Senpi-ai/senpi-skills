@@ -1167,14 +1167,18 @@ if __name__ == "__main__":
     print(f"\n{len(fns)}/{len(fns)} passed")
 
 
-# ── fees: gross vs net, and BOTH fee legs ────────────────────────────────────────────────────────
-# Regression guards for a live review that headlined "+$410.14" on a trade whose net was +$256.61.
-# Two separate bugs produced that: the engine read only the exchange `fee` and never HL's `builderFee`
-# (measured at ~32% of the real load on the penguin book), and `pnl_summary` carried no net at all, so
-# the narrator had nothing but a gross figure to lead with.
+# ── fees: the agent reported +$410.14 on a trade that netted +$310.23 ─────────────────────────────
+# Three separate defects produced that, and only the third is the one that actually fired:
+#   1. pnl_summary had no net at all, so the narrator had only a gross figure to lead with.
+#   2. the on-chain path counted only the CLOSING fill's fee, dropping the open leg.
+#   3. the PRIMARY (discovery) path carried no fee field whatsoever — and that is the path a
+#      CURRENT strategy runs on, so the headline stayed gross no matter what else was fixed.
+# NOT a defect: `fee` vs `builderFee`. HL's `fee` already INCLUDES the builder leg (measured on 18
+# AVAX fills: fee 9.32 bps taker / 6.44 maker, builderFee a flat 5.00, difference exactly the
+# venue's 4.32 / 1.44 after discount). Summing them overstates by the builder leg.
 
-def test_fee_sums_both_the_exchange_and_the_builder_leg():
-    """`builderFee` is charged on the same fill. Reading only `fee` under-reports every fee figure."""
+def test_fee_is_inclusive_of_builder_and_counts_BOTH_legs():
+    """`builderFee` is a breakdown of `fee`, never an addition — and a round trip pays on both legs."""
     fills = [{"coin": "AVAX", "dir": "Open Long", "px": "10.0", "sz": "100", "closedPnl": "0.0",
               "time": 1_000_000, "fee": "7.40", "builderFee": "3.50", "oid": 1},
              {"coin": "AVAX", "dir": "Close Long", "px": "11.0", "sz": "100", "closedPnl": "100.0",
@@ -1182,18 +1186,45 @@ def test_fee_sums_both_the_exchange_and_the_builder_leg():
     rows = review._reconstruct_closed_from_fills(fills, None, None, 50)
     fees = [r["fee"] for r in rows if r.get("fee") is not None]
     assert fees, "no trade row carried a fee"
-    assert abs(fees[0] - 10.90) < 1e-6, f"expected 7.40+3.50=10.90, got {fees[0]} (builderFee dropped?)"
+    assert abs(fees[0] - 14.80) < 1e-6, (
+        f"expected 7.40 open + 7.40 close = 14.80, got {fees[0]}. "
+        "21.80 means builderFee was added (it is already inside fee); "
+        "7.40 means the open leg was dropped.")
+
+
+def test_the_PRIMARY_discovery_path_carries_fees():
+    """The bug that actually fired. onmyoji-penguin is a CURRENT strategy, so the review ran on
+    discovery — which had no fee field, so realized_net stayed None and the headline stayed gross."""
+    class _C:
+        def mcp_call(self, name, **kw):
+            assert name == "discovery_get_trader_history"
+            return {"closedPositions": [{
+                "coin": "AVAX", "side": "long", "szi": 4713.68,
+                "entryPx": 11.33099, "exitPx": 11.41791,
+                "realizedPnl": 410.14, "totalFees": 99.92,
+                "openTime": 1_790_706_133_000, "closeTime": 1_790_713_518_000,
+                "leverage": {"value": 10}, "closedOrderId": "x1"}]}
+    meta = {}
+    trades = review.fetch_closed_trades(_C(), "0xaa9f", None, None, 50, meta)
+    assert trades, "discovery returned no trades"
+    t = trades[0]
+    assert t["source"] == "discovery"
+    assert t.get("fee") == 99.92, f"discovery row must carry totalFees, got {t.get('fee')!r}"
+    # and it must reach the headline
+    summ = review._pnl_summary(t["realized_pnl"], [{"realized_pnl": t["realized_pnl"],
+                                                    "unrealized_pnl": 0.0}], t["fee"])
+    assert summ["realized_net"] == 310.22 or summ["realized_net"] == 310.23, \
+        f"expected ~310.23 net, got {summ['realized_net']}"
 
 
 def test_pnl_summary_exposes_net_of_fees_and_flags_gross_when_it_cannot():
     """`realized`/`total` are HL closedPnl = GROSS. The narrator must be handed a net, or an explicit None."""
     strat = [{"realized_pnl": 410.14, "unrealized_pnl": 0.0}]
-    withf = review._pnl_summary(410.14, strat, 153.53)
-    assert withf["fees"] == 153.53
-    assert withf["realized_net"] == 256.61, f"expected 410.14-153.53=256.61, got {withf['realized_net']}"
+    withf = review._pnl_summary(410.14, strat, 99.92)
+    assert withf["fees"] == 99.92
+    assert withf["realized_net"] == 310.22, f"expected 410.14-99.92, got {withf['realized_net']}"
     assert "GROSS" in withf["note"]
 
-    # fees uncomputed -> net must be None, never a gross number silently passed off as net
     without = review._pnl_summary(410.14, strat)
     assert without["fees"] is None and without["realized_net"] is None
     assert without["total"] == 410.14, "gross total must still be present"
@@ -1213,10 +1244,18 @@ def test_skill_teaches_how_to_attribute_a_dsl_exit_without_telemetry():
         assert probe.lower() in skill.lower(), f"rung missing from the ladder: {probe}"
     # the decisive on-chain tells
     assert "exchange_sl_hit" in skill and "crossed" in skill, "the fill-shape tell is not stated"
-    assert "maker fill on the close leg" in skill.lower(), "the DSL-initiated-close tell is not stated"
-    # and it must say why the engine's own answer can be UNKNOWN on a DSL strategy
-    assert "no ratchet record" in skill and "nobody can know" in skill, \
-        "the skill no longer explains that UNKNOWN != unknowable"
+    # MANUAL_CLOSE is ambiguous (#784): "the ladder ended for a reason that was not its own stop".
+    # Treating it as an answer is the misreading that rung 1 must not make.
+    i = skill.find("1. **`exit_reason.terminal`**")
+    assert i > 0, "rung 1 is gone"
+    rung1 = skill[i:i + 420]
+    assert "MANUAL_CLOSE" in rung1 and "UNKNOWN" in rung1, \
+        "rung 1 must say MANUAL_CLOSE is not an answer and to keep going"
+    # the maker tell shows the ORDER TYPE, not who placed the order
+    assert "not who placed it" in skill, \
+        "the maker tell is overstated — close_position also uses FEE_OPTIMIZED_LIMIT"
+    assert "orderDetails" in skill or "historicalOrders" in skill, \
+        "a closed trade has no resting trigger; the skill must say where to read the one that fired"
     # the ROE arithmetic agents get wrong
     assert "leverage" in skill and "floor_roe" in skill, "the floor-ROE formula is missing"
 

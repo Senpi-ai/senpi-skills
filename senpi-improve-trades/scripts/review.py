@@ -797,15 +797,21 @@ def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
         if not coin or sz <= 0:
             continue
         if d.startswith("Open"):
-            lots[coin].append({"px": px, "sz": sz, "time": t})
+            # fee_per_sz lets a later close claim this open leg's share. Without it a round trip
+            # reports only the closing fill's fee — on the AVAX trade $77.07 against a true $99.92.
+            lots[coin].append({"px": px, "sz": sz, "time": t,
+                               "fee_per_sz": ((_num(f.get("fee")) or 0.0) / sz) if sz > 0 else 0.0})
         elif d.startswith("Close"):
             side = "long" if "Long" in d else ("short" if "Short" in d else None)
             remaining, entry_notional, matched, open_time = sz, 0.0, 0.0, t
+            _close_fee = _num(f.get("fee")) or 0.0
+            _open_fee_consumed = 0.0
             q = lots[coin]
             while remaining > 1e-9 and q:                # FIFO-match the closed size against open lots
                 lot = q[0]
                 take = min(remaining, lot["sz"])
                 entry_notional += take * (lot["px"] or 0.0)
+                _open_fee_consumed += take * (lot.get("fee_per_sz") or 0.0)
                 matched += take
                 open_time = lot["time"] or open_time
                 lot["sz"] -= take
@@ -824,9 +830,12 @@ def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
                 "open_time": open_time,
                 "close_time": t,
                 "closed_order_id": f.get("oid"),
-                # BOTH legs: `builderFee` rides the same fill and was ~32% of the real load on the
-                # penguin book (exchange $868.94 + builder $409.84, 2026-09-29). Do not drop it again.
-                "fee": round((_num(f.get("fee")) or 0.0) + (_num(f.get("builderFee")) or 0.0), 4),
+                # `fee` ALREADY INCLUDES `builderFee` — do not add them. Measured on 18 AVAX fills
+                # 2026-09-29: fee 9.32 bps taker / 6.44 maker, builderFee a flat 5.00, and the
+                # difference is exactly 4.32 / 1.44 — the venue's 4.5/1.5 after the 4% discount.
+                # `builderFee` is a breakdown line, not a second charge. Summing them overstated the
+                # AVAX round trip's fees $99.92 -> $153.53.
+                "fee": round(_close_fee + _open_fee_consumed, 4),
                 "source": "onchain_fills",
             })
     out = []
@@ -885,6 +894,13 @@ def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
             "entry_px": entry_px,
             "exit_px": exit_px,
             "realized_pnl": pnl,
+            # `totalFees` = totalHyperliquidFees + totalBuilderFees, and discovery SPLITS those two
+            # (verified: a row's builder leg at the flat 5.00 bps implies a notional on which its
+            # exchange leg is 2.85 bps — the 2.88 expected from one maker + one taker leg). So
+            # totalFees is the true round-trip total, the equivalent of HL's inclusive raw `fee`.
+            # WITHOUT this the headline stays GROSS for every CURRENT strategy, which is the path
+            # the AVAX review ran on — it reported +$410.14 where the net was +$310.23.
+            "fee": _f(p, "totalFees", "total_fees", default=None),
             "margin_used": _f(p, "marginUsed", "margin_used", default=None),
             "open_time": _ms(_field(p, "openTime", "open_time")),
             "close_time": close_ms,
@@ -1739,8 +1755,8 @@ def _pnl_summary(realized_total, strat_reads, fees_total=None):
     sums only the current strategies whose open book was READABLE → None when none were, so `total` stays an
     honest UNKNOWN rather than collapsing to a realized-only headline."""
     realized = round(_num(realized_total) or 0.0, 2)
-    # `realized` is HL closedPnl = GROSS. One measured AVAX round trip: +$410.14 gross, $153.53 fees,
-    # +$256.61 net — a 60% overstatement if the narrator leads with gross.
+    # `realized` is HL closedPnl = GROSS. One measured AVAX round trip: +$410.14 gross, $99.92 fees,
+    # +$310.23 net — a 32% overstatement if the narrator leads with gross.
     fees = round(_num(fees_total), 2) if fees_total is not None else None
     realized_net = round(realized - fees, 2) if fees is not None else None
     current_realized = round(sum(_num(s.get("realized_pnl")) or 0.0 for s in strat_reads), 2)
