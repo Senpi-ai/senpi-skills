@@ -68,7 +68,10 @@ more" questions; use `senpi-portfolio` for live state.
 
 The detailed guardrails below explain each; these five are the floor.
 
-> **Use this skill FIRST — before any raw MCP.** For any "review my trades / did I sell too early / what did
+> **Use this skill FIRST — before any raw MCP.** (This bars *replacing* the engine with raw dumps. It does
+> not bar the targeted reads in guardrail 6b when exit attribution came back UNKNOWN — one `ratchet_stop_events`
+> or one open-orders read to answer a specific question is the skill working, not bypassed.) For any
+> "review my trades / did I sell too early / what did
 > I miss / master my week / how could I make more gains" question, run this engine **before** reaching for
 > raw `discovery_get_trader_history` / `market_get_prices` / `execution_get_closed_position_details`. Those
 > return un-attributed dumps that invite exactly the failure modes below (skipping the current-price
@@ -393,14 +396,10 @@ otherwise it's just an asset the strategy was never designed to trade.
   `undetermined`), **do NOT diagnose exit calibration at all** (no "phase-1 too tight," no "scanner false
   signals") — you have no attributed exit; say "exit mechanism undetermined — I'd need the runtime event log,"
   and stop.
-- **Before you write "undetermined", check what the CHAIN already answers.** Telemetry being down does not
-  make these unknown — answer them, then scope "undetermined" to what actually needs the event log
-  (close-reason enum, blocked signals, protection gaps):
-  - **Maker vs taker** — the `crossed` flag on every fill.
-  - **Fees in $** — `fee` + `builderFee` on every fill (the engine sums both).
-  - **The floor the ladder set** — a resting reduce-only trigger vs entry and leverage gives it in ROE;
-    high-water x the rung's lock says which rung governed.
-  - **Peak ROE** — 1m candles over the hold.
+- **Three things never need telemetry** — answer them before writing "undetermined": **maker vs taker**
+  (`crossed` on every fill), **fees in $** (`fee` + `builderFee`, which the engine sums), and **peak ROE**
+  (1m candles over the hold). Scope "undetermined" to blocked signals and protection gaps — and for *how the
+  position closed*, work the ladder in 6b before you ever say you could not tell.
 - **Name your source (onchain vs runtime).** Closed trades + every onchain fact come from **`discovery`**
   (`discovery_get_trader_history`) — **never `audit_*`** (deprecated). Exit reason, blocked signals, leaks and
   maker/taker come from **telemetry** (the event log) and *enrich* those discovery trades. See the "Sources —
@@ -413,6 +412,37 @@ otherwise it's just an asset the strategy was never designed to trade.
 - When a price / horizon is missing, `if_held_delta_usd` is `null` and the trade counts as `exits_unknown` —
   say so ("couldn't compare — no current price"), don't invent a comparison.
 - Read `meta.warnings` and surface material gaps plainly. Missing data is a caveat, not a thing to paper over.
+
+### 6b. "Did the DSL close it?" — the ladder. Never stop at "undetermined"
+
+`exit_reason.terminal` is the engine's answer, sourced from `ratchet_stop_list`. That record exists for ratchet
+stops created through MCP. A **runtime DSL ladder** (`phase2.tiers` in runtime.yaml — penguin, pelican, the
+striker family) is a *different mechanism*, so `terminal` can be UNKNOWN on a completely normal DSL exit.
+UNKNOWN there means "no ratchet record", **not** "nobody can know".
+
+Work down until one answers:
+
+1. **`exit_reason.terminal`** — SL_TRIGGERED / MANUAL_CLOSE / LIQUIDATED / ADL. Present → done.
+2. **`ratchet_stop_events`** (asset + wallet) — the firing events, not the config. The engine calls
+   `ratchet_stop_list`, not this, so it is worth one call when `terminal` is UNKNOWN.
+3. **`openclaw senpi explain <asset> --runtime <id> --json`** — the native lifecycle, carrying `closeReason`
+   (`exchange_sl_hit`, `dsl_breach`, `hard_timeout`, `weak_peak_cut`, `dead_weight_cut`). A timeout here is
+   ONE path failing — keep going.
+4. **The fill shape. Always available, and decisive.**
+   - **Every close fill on one timestamp, all `crossed: true`, at a price matching a resting reduce-only
+     trigger → `exchange_sl_hit`.** The exchange stop fired: it sweeps at market, which is why it prints as a
+     burst. Measured fleet-wide on penguin: **140 `exchange_sl_hit` against 10 `dsl_breach`**, and the wallets
+     dominated by it show **~0% maker** closes.
+   - **Any maker fill on the close leg → the DSL issued the close itself** (`dsl_breach` or a time cut) through
+     `FEE_OPTIMIZED_LIMIT`. Time-cut-heavy penguin wallets run **20–36% maker**.
+   - **No reduce-only trigger, and a fill matching no computable floor → not a DSL exit.** A scanner/signal
+     close, or manual.
+5. **Which rung.** For a LONG: `floor_roe = (trigger − entry) / entry × leverage × 100` (shorts invert).
+   `floor_roe / high_water_roe` is the lock that was governing, which names the rung. Worked: AVAX trigger
+   11.356, entry 11.3309, 10x → a **+2.22% ROE** floor against **+11.08%** high-water = the 20%-lock rung.
+
+Only after 4 has *also* failed may you say the mechanism is undetermined — and then say which rung of this
+ladder you reached, so the gap is locatable.
 
 ### 7. The user chooses the fix depth — never auto-act, and never offer a tune off one trade
 

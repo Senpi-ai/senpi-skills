@@ -1197,3 +1197,35 @@ def test_pnl_summary_exposes_net_of_fees_and_flags_gross_when_it_cannot():
     without = review._pnl_summary(410.14, strat)
     assert without["fees"] is None and without["realized_net"] is None
     assert without["total"] == 410.14, "gross total must still be present"
+
+
+# ── guardrail 6b: the skill must TEACH how to tell whether the DSL closed a position ─────────────
+# A live review answered "Exit mechanism: undetermined" because one telemetry path timed out, while the
+# answer sat on chain in the fill shape. The engine's only fallback is ratchet_stop_list, which reads
+# MCP-created ratchet stops — a runtime DSL ladder (penguin/pelican) may produce no such record, so the
+# skill, not the engine, has to carry the procedure.
+
+def test_skill_teaches_how_to_attribute_a_dsl_exit_without_telemetry():
+    skill = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
+    assert "6b." in skill, "the exit-attribution ladder (6b) is gone"
+    # the four rungs must all be named
+    for probe in ("exit_reason.terminal", "ratchet_stop_events", "senpi explain", "fill shape"):
+        assert probe.lower() in skill.lower(), f"rung missing from the ladder: {probe}"
+    # the decisive on-chain tells
+    assert "exchange_sl_hit" in skill and "crossed" in skill, "the fill-shape tell is not stated"
+    assert "maker fill on the close leg" in skill.lower(), "the DSL-initiated-close tell is not stated"
+    # and it must say why the engine's own answer can be UNKNOWN on a DSL strategy
+    assert "no ratchet record" in skill and "nobody can know" in skill, \
+        "the skill no longer explains that UNKNOWN != unknowable"
+    # the ROE arithmetic agents get wrong
+    assert "leverage" in skill and "floor_roe" in skill, "the floor-ROE formula is missing"
+
+
+def test_the_raw_mcp_rule_does_not_contradict_the_6b_reads():
+    """Guardrail 6b asks for targeted reads; line ~71 bars 'raw MCP'. The bar must be scoped or the
+    skill tells the agent to do something it also forbids."""
+    skill = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
+    i = skill.find("Use this skill FIRST")
+    assert i > 0, "the raw-MCP rule moved"
+    window = skill[i:i + 600]
+    assert "6b" in window, "the raw-MCP rule does not carve out the 6b reads — contradiction"
