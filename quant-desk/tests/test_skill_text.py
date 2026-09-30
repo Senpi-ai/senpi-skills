@@ -399,7 +399,7 @@ def test_the_set_stop_loss_button_is_the_one_exception_to_custody_language():
 
 
 def test_without_the_marker_the_old_custody_rule_holds():
-    _needles("a card with no `Set stop loss button:` in its text, the prose fallback, or a coin with no button): "
+    _needles("a card with no `Set stop loss button:` in its text, the prose fallback, or another coin with no button): "
              "the desk cannot stop those coins, so **name the naked positions and ask how you can help.**",
              '"set it yourself on Hyperliquid" is the fact, not the offer.')
 
@@ -420,14 +420,22 @@ def test_rule_5_is_per_coin():
     _needles("per coin",
              "Name **every** listed coin and point the reader to its **Set stop loss** button",
              "they sign each in their own wallet, one at a time",
-             "Each coin after `No stop loss button:` has none: name it with its reason; Otherwise applies to it.",
+             "Each coin after `No stop loss button:` has none: name it with its reason; it follows Otherwise",
              "Never imply full cover while a coin has no button",
              "a naked coin in neither list follows Otherwise",
-             "Otherwise, per coin")
+             "**Otherwise, per coin**")
     flat = _flat(_skill())
     for singular in ("never say senpi cannot stop those positions", "for any position it does not list",
                      "A naked position it does not list follows Otherwise."):
         assert singular not in flat, singular
+
+
+def test_a_strategy_wallet_coin_is_never_sent_to_set_it_themselves():
+    """The runtime's `strategy_wallet` / `book_run` copy both start "a senpi strategy wallet": senpi custodies
+    that wallet, so the reader cannot sign a stop for it and Otherwise's "set it yourself" would be false.
+    The audit found it at risk, so it is never called protected either."""
+    _needles("unless its reason is a senpi strategy wallet: only its senpi runtime can place that stop, so never "
+             "tell them to set it or call it protected; suggest checking that strategy.")
 
 
 def test_rule_5_has_the_report_turn():
@@ -435,9 +443,9 @@ def test_rule_5_has_the_report_turn():
     each placed stop, one turn each; the placed price can differ from the engine's suggestion."""
     _needles("**`Stop loss set on <COIN> @ $<px>` is a placed stop:**",
              "confirm that coin is protected at the placed price, not the suggested one",
-             "name its `still waiting:` coins (none if absent)",
-             "the `No stop loss button:` coins as unprotected",
-             "One short answer per report; never call `show_widget` or re-run the desk",
+             "name as unprotected its `still waiting:` coins (none if absent), each still with its Set stop loss "
+             "button, and the `No stop loss button:` coins.",
+             "One short answer per report, no `show_widget`, no re-run;",
              "a re-check they ask for is `--fresh`")
 
 
@@ -473,8 +481,29 @@ def test_markers_match_the_runtime():
     for const, marker in (("SET_STOP_LOSS_MARKER", "Set stop loss button:"),
                           ("NO_STOP_LOSS_MARKER", "No stop loss button:")):
         m = re.search(const + r'\s*=\s*"([^"]+)"', widget)
-        if m:
-            assert m.group(1) == marker, (const, m.group(1))
+        assert m, f"{const} not found in the runtime widget"
+        assert m.group(1) == marker, (const, m.group(1))
+
+
+WEB_REPORT = os.path.join("src", "screens", "Chat", "tools", "ShowWidget", "widgets",
+                          "QuantDeskRecommendations", "report.ts")
+
+
+def test_report_text_matches_the_web():
+    """The report turn keys on web's message: `Stop loss set on <COIN> @ $<px> …` plus ` — still waiting: A, B`."""
+    _needles("`Stop loss set on <COIN> @ $<px>`", "`still waiting:`")
+    roots = [os.environ.get("SENPI_WEB_DIR"), os.path.join(SKILL_DIR, "..", "..", "senpi-web")]
+    path = next((os.path.join(r, WEB_REPORT) for r in filter(None, roots)
+                 if os.path.exists(os.path.join(r, WEB_REPORT))), None)
+    if path is None:
+        import pytest
+        pytest.skip("no sibling senpi-web checkout")
+    report = _read(path)
+    m = re.search(r"`Stop loss set on \$\{coin\} @ \$", report)
+    assert m, "web's report message no longer starts `Stop loss set on ${coin} @ $`"
+    m = re.search(r'STILL_WAITING_SEPARATOR\s*=\s*"([^"]+)"', report)
+    assert m, "STILL_WAITING_SEPARATOR not found in web's report.ts"
+    assert m.group(1) == " — still waiting: ", m.group(1)
 
 
 def test_the_custody_limit_waits_for_the_card():
@@ -492,7 +521,7 @@ def test_a_lone_protection_section_follows_otherwise():
     """`run 0x… --section protection` ("am I protected?") ends without a closing card, so it can never
     carry the marker and never reaches "the end of the desk": it must fall under Otherwise, not hang
     on the hold clause."""
-    _needles("Otherwise, per coin (a desk with no closing card — a one-question run — a card with no "
-             "`Set stop loss button:` in its text, the prose fallback, or a coin with no button): the desk "
+    _needles("**Otherwise, per coin** (a desk with no closing card — a one-question run — a card with no "
+             "`Set stop loss button:` in its text, the prose fallback, or another coin with no button): the desk "
              "cannot stop those coins",
              "`run 0x… --section protection`")
