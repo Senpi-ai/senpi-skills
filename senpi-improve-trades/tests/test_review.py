@@ -1243,6 +1243,11 @@ def test_skill_names_the_runtime_commands_that_ANSWER_why_it_closed():
     # every close reason must be translated, not left as an enum
     for reason in ("exchange_sl_hit", "dsl_breach", "hard_timeout", "weak_peak_cut", "dead_weight_cut"):
         assert reason in skill, f"closeReason `{reason}` is not explained"
+    # the time cuts are timers — a review read `weak_peak_cut` correctly then invented a mechanism
+    # for it ("detected the position rolling over"), on a position held 5.03h against a 300m timer
+    assert "TIMERS" in skill or "timers" in skill, "the time cuts are not identified as timers"
+    assert "interval" in skill and "actual hold" in skill, \
+        "the skill must require stating the configured interval AND the elapsed hold"
     # inference is corroboration only, and MANUAL_CLOSE is not an answer
     assert "corroborate" in skill and "never substitute" in skill, \
         "inference is no longer scoped as corroboration-only"

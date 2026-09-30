@@ -444,6 +444,14 @@ Translate `closeReason`, never paste the enum:
 - **`weak_peak_cut`** — never reached `min_value` ROE inside the window. A **death** cut, not a profit cut.
 - **`dead_weight_cut`** — stagnation cut.
 
+**The three above are TIMERS, not reactions to price, and none is phase-scoped.** State the configured
+interval and the actual hold, or the reason is not explained: *"held 5.03h against a 300-minute
+`weak_peak_cut` with `min_value` 5.0 — it never cleared +5% ROE in that window, so the slot was freed."*
+Saying it "detected the position rolling over" or "cut early before the hard stop" invents a mechanism —
+a real review did exactly that on a position whose hold time (5.03h vs a 300m timer) was the giveaway.
+`weak_peak_cut`'s timer also RESETS whenever ROE clears `min_value`, so it bounds DEAD positions, not
+slow ones.
+
 **A LIVE position — `senpi dsl inspect <asset> --json`** returns the full `DslState`, which already holds
 every number users ask for. Quote these rather than computing anything:
 - `floorPrice` / `tierFloorPrice` — where the stop actually is
