@@ -284,6 +284,7 @@ def scan(inputs, ctx):
     scan_history = list(last.get("scan_history") or [])     # [ [ {token,dex,rank,contribution}... ] ... ]
     emit_cooldowns = dict(last.get("emit_cooldowns") or {})  # {ASSET: ts} — per-asset suppression
     recent = dict(last.get("recent") or {})                  # {ASSET: ts} — signal-dedup
+    history_ts = float(last.get("history_ts") or 0)          # when scan_history[-1] was recorded
 
     def _persist(extra=None):
         if ctx.state is None:
@@ -291,6 +292,7 @@ def scan(inputs, ctx):
         rec = {
             "ts": now,
             "scan_history": scan_history[-_SCAN_HISTORY_MAX:],
+            "history_ts": history_ts,
             "emit_cooldowns": emit_cooldowns,
             "recent": recent,
         }
@@ -329,8 +331,16 @@ def scan(inputs, ctx):
     # Build this scan's snapshot; need a prior scan to measure rank-jumps (v2:
     # detect_signals returns [] when history is empty — still record this scan).
     current_snapshot = _snapshot_of(markets)
+    # Rank jumps are only measured between CONSECUTIVE scans. The early returns above (max
+    # positions, no account, no markets) record no snapshot, so after a held position
+    # scan_history[-1] can be an hour old and a slow climb reads as an IMMEDIATE_MOVER.
+    # More than one missed tick = the history is stale: drop it and re-seed.
+    interval = float(getattr(ctx, "interval_seconds", 0) or 0)
+    if interval and now - history_ts > 2.5 * interval:
+        scan_history = []
     if not scan_history:
         scan_history.append(current_snapshot)
+        history_ts = now
         print(f"[penguin.scan] WAITING — seeding scan history (scanned={len(markets)}); "
               "need a prior scan to measure rank-jumps", file=sys.stderr)
         _persist({"result": {"emitted": False, "gate": "history_seed", "scanned": len(markets)}})
@@ -404,6 +414,7 @@ def scan(inputs, ctx):
 
     # always record this scan into the rolling history (v2 always appended).
     scan_history.append(current_snapshot)
+    history_ts = now
     scan_history = scan_history[-_SCAN_HISTORY_MAX:]
 
     if not candidates:
