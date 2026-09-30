@@ -153,11 +153,13 @@ tiers / the stop / the DSL" request:
 4. **Ask exactly this:** *"Apply it to (a) future positions only — the file; (b) the N positions open now
    — one approval each; or (c) both?"* Never assume (a). "Change the config" without more is ambiguous:
    ask, don't guess.
-   **Exception — no open positions.** When `ratchet_stop_list` returns no ACTIVE or PAUSED row, (b) is
-   empty and the question has one answer: go straight to step 5 (a) in the same turn. Confirm "flat"
-   from `strategy_get_clearinghouse_state`, not from the rows alone — an aborted handoff leaves an open
-   position whose only row is terminal. Then say so in one line ("your book is flat, so this is a file
-   change — applying it now, it covers every position from here").
+   **Exception — no open positions.** When `strategy_get_clearinghouse_state` shows no open position, (b)
+   is empty and the question has one answer: go straight to step 5 (a) in the same turn. The test is the
+   clearinghouse, never the row list: the runtime registers a row only once a position reaches Phase 2,
+   so an open position has no live row when it opened within the last monitor interval, when its handoff
+   aborted (its only row is terminal), or when the recipe omits `phase1.enabled` (it defaults to `true`,
+   and the row waits for the first tier). Rows still feed the drift table. Then say so in one line
+   ("your book is flat, so this is a file change — applying it now, it covers every position from here").
    Do NOT say "I'll apply it to each new position as it opens" — no such mechanism exists; the runtime
    registers the ratchet itself, at handoff, from the ladder the file had when the position was born.
    Do NOT offer a terminal row as a template — any row that is not ACTIVE or PAUSED (SL_TRIGGERED,
