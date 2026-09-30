@@ -39,8 +39,8 @@ scanners:
       smLimit: 100                         # leaderboard_get_markets aggregation depth
       minScore: 12                         # v2 MIN_SCORE (v3.4 calibration)
       marginPct: 20                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable.
-                                           # Was 50: at 10x that is 5x the account in one position, so a -12% stop cost 6%
-                                           # of equity (median drawdown 10.6% live, one wallet -99%)
+                                           # Was 50: at 10x that is 5x the account in one position,
+                                           # so a -12% ROE stop costs 6% of equity per stop-out.
       maxPositions: 1                      # "one amazing trade per day"
       # SM gates. `minSmConsensusPct: 70` used to live here and gated
       # `pct_of_top_traders_gain` — a share of TOTAL top-trader gain spread across the
@@ -112,15 +112,15 @@ exit:
       enabled: false
       interval_in_minutes: 1440
     weak_peak_cut:
-      # THE ONLY TIME CUT, and it is a DEATH cut rather than a profit cut: five hours to show
-      # +5% ROE (a 0.5% price move at 10x) or the slot is freed. Raised from 120m/3.0.
+      # The only time cut. Five hours to show +5% ROE (a 0.5% price move at 10x) or the slot is
+      # freed. Raised from 120m / 3.0.
       #
-      # It fires only while peakROE has NEVER reached min_value, and entering phase 2 implies
-      # peakROE >= the first tier's trigger_pct — so with min_value 5 below that trigger this can
-      # only ever fire in PHASE 1 (dsl-configuration.md). A position that reaches +5% is therefore
-      # permanently safe from it, which is precisely the intent: bound DEAD positions, not slow
-      # ones. Five hours also sits inside the 4-8h window this file has always said an apex thesis
-      # needs, so it no longer contradicts that.
+      # It fires only while peak ROE has not reached min_value, and entering phase 2 implies peak
+      # ROE >= the first tier's trigger_pct. With min_value 5 below that trigger, it can only fire
+      # in phase 1 (see senpi-strategy-author/references/dsl-configuration.md) — a position that
+      # reaches +5% is no longer eligible for it. That bounds positions that never moved, rather
+      # than slow ones. Five hours also sits inside the 4-8h window this file gives for an apex
+      # thesis to develop, which the 60-minute dead_weight_cut did not.
       enabled: true
       interval_in_minutes: 300
       min_value: 5.0

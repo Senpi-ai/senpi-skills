@@ -1,26 +1,28 @@
-# ── WILD CHEETAH · CHEETAH at higher conviction and higher size. AN EXPERIMENT ──
+# ── WILD CHEETAH · CHEETAH at a higher score floor and a higher margin ──
 #
-# CHEETAH's detector, universe, clock, exits and ladder, unchanged. TWO things differ, and they
-# are ONE idea rather than two changes: the score floor moves 10 -> 12, and margin moves 30% ->
-# 80/90% by tier. Raising size without raising the bar is just leverage with extra steps; raising
-# the bar without the size leaves the rare signal underpaid. They move together or not at all.
+# Differs from CHEETAH in two settings, which are meant to move together:
+#   minScore  12 instead of 10  — cheetah's second scoring tier
+#   margin    80/90% by tier instead of 18/30/42/48%
 #
-# DERIVED, not picked. Cheetah's scale maxes at 15 (SM 4 + velocity 2 + accel 2 + dual-price 2 +
-# volume 1 + quality-align 3 + rank-climb 1) and its shipped floor of 10 is 67% of that. PENGUIN's
-# 9 of a possible 12 is 75% — the selectivity a one-slot, whole-book position is built around.
-# 75% of 15 is 11.25, and 12 is both the next integer and cheetah's OWN second tier boundary.
+# Everything else — detector, universe, clock, cooldowns, exits and ladder — is cheetah's.
 #
-# Leverage stays FLAT at 5. That is not conservatism, it is the coherence fix: every DSL threshold
-# is ROE, so an exit's distance in PRICE is (ROE / leverage), and a book that spreads leverage
-# cannot carry one ladder. Conviction is expressed in MARGIN, which leaves the ladder meaningful.
-# At 90% and 5x the position is 4.5x the account and the -10% ROE stop costs 9% of equity.
+# The floor is derived from the score scale. Cheetah's maximum is 15 (SM 4 + velocity 2 +
+# acceleration 2 + dual-price 2 + volume 1 + quality-align 3 + rank-climb 1); its shipped floor of
+# 10 is 67% of that. Penguin, the reference for a one-slot whole-book position, sits at 9 of 12 =
+# 75%. 75% of 15 is 11.25, and 12 is both the next integer and cheetah's second tier.
 #
-# FIRING RATE IS UNMEASURED at this floor — cheetah already refuses most ticks, and a 4h emit
-# cooldown sits on top. If score 12+ proves too rare to keep a slot busy, the fallback is 11
-# (cheetah's third tier), NOT a return to 10.
+# Leverage stays flat at 5. Every DSL threshold is ROE, so an exit's distance in price is
+# (ROE / leverage); holding leverage constant is what lets one ladder be correct for every tier.
+# Conviction is expressed in margin instead.
 #
-# Not in the catalog (catalog.status: blocked) — deploy by path:
-#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/wild-cheetah --budget <small>
+# Sizing arithmetic: 90% margin at 5x is 4.5x the account in one position, and the -10% ROE stop
+# is 9% of equity per stop-out.
+#
+# The rate at which cheetah scores 12+ has not been measured, and a 4h emit cooldown sits on top
+# of it. If it is too low to keep the single slot occupied, the next step down is 11.
+#
+# Not in the catalog (catalog.status: blocked). Deploy by explicit path:
+#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/wild-cheetah --budget <amount>
 #
 # ── inherited from CHEETAH, unchanged ──
 # ── CHEETAH · single instance — multi-signal confluence sniper (Runtime 3.0 port of v2 Cheetah v7.2.0) ──

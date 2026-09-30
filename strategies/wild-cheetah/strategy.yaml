@@ -1,17 +1,14 @@
-# Wild Cheetah — CHEETAH at higher conviction and higher size. AN EXPERIMENT.
+# Wild Cheetah — Cheetah at a higher score floor and a higher margin.
 #
-# TWO differences from cheetah, and they are ONE idea: score floor 10 -> 12, margin 30% -> 80/90%.
-# Conviction and size move together or the change is pointless in both directions.
+# Two settings differ from cheetah, meant to move together: minScore 12 instead of 10 (cheetah's
+# second scoring tier), and 80/90% margin instead of 18/30/42/48%. Leverage stays flat at 5x, so
+# one ROE ladder stays correct for every tier. Everything else is cheetah's.
 #
-# The floor is DERIVED: cheetah maxes at 15 and ships a floor of 10 (67%); penguin's 9-of-12 is
-# 75%, the selectivity a one-slot whole-book position is built around; 75% of 15 is 11.25, and 12
-# is cheetah's own second tier boundary.
+# The floor is derived from the score scale: cheetah's maximum is 15, its shipped floor of 10 is
+# 67% of that, penguin's 9 of 12 is 75%, and 75% of 15 rounds to 12.
 #
-# Leverage stays FLAT at 5x — every DSL threshold is ROE, so exit distance in price is
-# (ROE / leverage), and a book spreading leverage cannot carry one ladder. Size scales, not leverage.
-#
-# catalog.status: blocked — never reaches a user. Deploy by explicit path:
-#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/wild-cheetah --budget <small>
+# catalog.status: blocked — not offered in the catalog or discover. Deploy by explicit path:
+#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/wild-cheetah --budget <amount>
 schema_version: 1
 
 id: wild-cheetah
@@ -20,9 +17,9 @@ version: "1.0.0"
 catalog:
   name: "Wild Cheetah — Confluence Sniper at score 12 (experiment)"
   emoji: "🌶️"
-  tagline: "Cheetah's confluence detector with the bar raised and the size raised to match: it only fires on a score of 12 out of a possible 15 instead of 10, and puts 80-90% of the book behind that one position instead of 18-48%. Conviction and size move together — the whole point is not to trade bigger, it is to trade bigger ONLY on what already cleared a higher bar."
-  belief_plain: "This is Cheetah, made pickier and paid more when it is right. Cheetah already does nothing most of the time, waiting for a setup where the traders winning the last four hours, the velocity, the acceleration and the price on two timeframes all line up at once. Wild Cheetah demands more of that agreement before it acts — a score of 12 out of 15 rather than 10 — and in exchange puts most of the account behind the trade rather than a fifth of it. The reasoning is simply that a rare, strong signal is worth more than a common, adequate one, and that sizing them the same wastes the difference. Leverage does not change: it stays at 5x, because every exit threshold is measured as a percentage of your margin, so changing leverage silently moves every stop and profit floor. Size changes instead. Know the cost before funding it: one stop-out takes about 9% of the account, there is no second position to soften it, and nobody has yet measured how often a score of 12 actually appears."
-  thesis: "Two changes to Cheetah, and they are one idea: minScore 10 -> 12, and margin 30% -> 80/90% by tier. Raising size without raising the bar is leverage with extra steps; raising the bar without the size leaves a rarer signal paid the same as a common one. The floor is derived rather than chosen — cheetah's scale maxes at 15 (SM 4 + velocity 2 + acceleration 2 + dual-price 2 + volume 1 + quality-align 3 + rank-climb 1), its shipped floor of 10 is 67% of that, and penguin's 9-of-12 is 75%, which is the selectivity a one-slot whole-book position is built around; 75% of 15 is 11.25, and 12 is both the next integer and cheetah's own second tier boundary. Leverage stays flat at 5x deliberately: every DSL threshold is ROE, so an exit's distance in price is ROE divided by leverage, and a book that spreads leverage across tiers cannot carry a single coherent ladder. Everything else is Cheetah's — the detector, the universe, the 4h cooldowns, the exits, and the ladder whose first rung arms at 0.6% of price. The open question is frequency: cheetah already refuses most ticks and a 4h emit cooldown sits on top, so if a score of 12 proves too rare to keep one slot busy the fallback is 11, not a return to 10."
+  tagline: "Cheetah's confluence detector at a higher score floor and a higher margin: it fires only on a score of 12 out of 15 instead of 10, and sizes one position at 80-90% of the book instead of 18-48%. Leverage stays at 5x; the size changes, not the leverage."
+  belief_plain: "Cheetah with a higher bar and a larger size. Cheetah already does nothing most of the time, waiting for a setup where the traders winning the last four hours, the velocity, the acceleration and the price on two timeframes all agree. This version asks for more of that agreement before it acts, and puts most of the account behind the trade in exchange. Leverage stays at 5x deliberately: every exit threshold is measured against your margin, so changing leverage would move every stop and profit floor at the same time. Size changes instead. Know the sizing before funding it — 90% margin at 5x is four and a half times the account in one position, one stop-out is about 9% of equity, and there is no second position to offset it."
+  thesis: "Two settings differ from Cheetah and they are meant to move together: the score floor goes 10 to 12, and margin goes 18/30/42/48% by tier to 80/90%. The floor is derived from the score scale rather than chosen: cheetah's maximum is 15 (4h leader strength 4, velocity 2, acceleration 2, dual-timeframe price 2, volume 1, quality-trader alignment 3, rank climb 1), its shipped floor of 10 is 67% of that, penguin's 9 of 12 is 75%, and 75% of 15 rounds to 12 — which is also cheetah's second tier. Leverage stays flat at 5x because every DSL threshold is expressed in ROE, so an exit's distance in price is ROE divided by leverage; a book that spreads leverage across tiers cannot carry one coherent ladder, which is why conviction is expressed in margin here. Everything else is Cheetah's: the detector, the universe, the 4h cooldowns, the exits, and the ladder whose first rung arms at 0.6% of price. The frequency of a score of 12 or better has not been measured and a 4h emit cooldown sits on top of it; if it is too low to keep one slot occupied, the next step down is 11."
   group: momentum
   archetype: breakout_momentum
   sub_style: confluence_sniper

@@ -1,42 +1,25 @@
-# ── PURPLE PENGUIN · PENGUIN with the score floor at 8 instead of 9 — AN EXPERIMENT ──
+# ── PURPLE PENGUIN · PENGUIN with the score floor at 8 instead of 9 ──
 #
-# Identical to PENGUIN in every other respect: same detector, same hard gates, same sizing, same
-# clock, same DSL ladder, same guard rails. The ONE difference in this package is `minScore: 8`.
+# Identical to penguin in every other respect: same detector, same hard gates, same sizing, same
+# clock, same DSL ladder, same guard rails. The one difference is `minScore: 8`.
 #
-# WHY IT EXISTS. 48% of live penguin emits land on EXACTLY 9, so the floor is the single most
-# binding constraint on the strategy, and the score is a coarse sum of +1/+2/+3 buckets — there is
-# plausibly tradeable signal one bucket below it. The fleet had no data either way: the 9 floor was
-# hardcoded inside score_market and returned None, so a near-miss left no trace anywhere but a
-# count, and the only sub-9 emits in 14 days were 11 from one wallet on a modified instance.
+# Why the setting exists. 48% of penguin emits land on exactly 9, so the floor is the most binding
+# constraint on the strategy, and the score is a sum of +1/+2/+3 buckets rather than a continuum —
+# one bucket below it may still be tradeable. There was no data either way, because the 9 floor was
+# hardcoded inside score_market and returned None, leaving a near-miss no trace but a count.
 #
-# WHAT 8 ADMITS. IMMEDIATE_MOVER's +2 is always earned and the >= 4 reason floor still applies, so
-# the reachable 8-point shapes are FIRST_JUMP + IMM + one 2-pointer + one 1-pointer; IMM + both
-# 2-pointers + both 1-pointers; or FIRST_JUMP + IMM + all three 1-pointers. Every HARD gate is
-# UNCHANGED — rank > 10, 4h alignment, prev_rank >= 25, jump >= 15 — as is the 1.5x volume
-# confirmation. This loosens CONVICTION only, never a structural filter.
+# What 8 admits. IMMEDIATE_MOVER's +2 is always earned and the 4-reason floor still applies, so the
+# reachable 8-point shapes are FIRST_JUMP + IMM + one 2-pointer + one 1-pointer; IMM + both
+# 2-pointers + both 1-pointers; or FIRST_JUMP + IMM + all three 1-pointers. Every hard gate is
+# unchanged — rank > 10, 4h alignment, prev_rank >= 25, jump >= 15 — as is the 1.5x volume
+# confirmation. The change is to the conviction bar, not to a structural filter.
 #
-# RUN IT SMALL. One slot at 90% margin and 10x means the budget IS the risk unit, and the whole
-# point of the experiment is that the 8-band is unmeasured. Fund it at a fraction of a penguin book.
+# Sizing arithmetic: one slot at 90% margin and 10x is 9x the account in one position, so the
+# budget is the risk unit.
 #
-# NOT IN THE CATALOG (catalog.status: blocked) so it never reaches users via discover. deploy.py
-# resolves an explicit path regardless of catalog status, so deploy it as:
-#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/purple-penguin --budget <small>
+# catalog.status: blocked — not offered in the catalog or discover. Deploy by explicit path:
+#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/purple-penguin --budget <amount>
 #
-# ── inherited from PENGUIN, unchanged ──
-# UNIVERSE scanner. Scans the top-50 rows of the 4h leaderboard (leaderboard_get_markets)
-# every tick, detects FIRST_JUMP / IMMEDIATE_MOVER rank explosions (rank-jump >= 15 off a
-# prev-rank >= 25), scores the base Striker model (score >= 9 with a 4-reason floor: first-jump,
-# immediate, contrib-explosion, velocity, deep-climber, climbing, US-session), confirms the 15m
-# freshness gate + volume (>=1.5x), and emits ONE signal for the single strongest candidate at
-# 10x on 90% margin. XYZ banned, ONE position at a time, 120-min per-asset cooldown.
-# DSL is the ONLY exit.
-#
-# Penguin keeps Orca's ENTRY MODEL UNCHANGED (Purple Penguin changes only the score floor) — every score threshold, the rank-jump gate and the
-# freshness/volume confirmations are Orca's, verbatim. What differs is everything after the
-# signal: one slot instead of three, 90% margin instead of 18%, 10x instead of 7x (~9x equity
-# exposure against Orca's ~1.26x), an uncapped hold instead of 45 minutes, and the four guard rails
-# switched off. Nothing else — no added filter, no altered threshold. A deliberately
-# concentrated, high-variance expression of the same read; see strategy.yaml for the risk.
 name: purple-penguin-main
 group: purple-penguin
 version: 1.0.0
