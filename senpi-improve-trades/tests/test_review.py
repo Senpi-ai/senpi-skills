@@ -1236,28 +1236,29 @@ def test_pnl_summary_exposes_net_of_fees_and_flags_gross_when_it_cannot():
 # MCP-created ratchet stops — a runtime DSL ladder (penguin/pelican) may produce no such record, so the
 # skill, not the engine, has to carry the procedure.
 
-def test_skill_teaches_how_to_attribute_a_dsl_exit_without_telemetry():
+def test_skill_names_the_runtime_commands_that_ANSWER_why_it_closed():
+    """The agent must be told to READ the runtime's close record, not deduce a mechanism.
+    `senpi dsl closes` is purpose-built ("archived closes with reason and ROE") and an earlier
+    version of this guardrail never mentioned it — it sent the agent down an inference ladder
+    that ended in guessing from fill shapes."""
     skill = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
-    assert "6b." in skill, "the exit-attribution ladder (6b) is gone"
-    # the four rungs must all be named
-    for probe in ("exit_reason.terminal", "ratchet_stop_events", "senpi explain", "fill shape"):
-        assert probe.lower() in skill.lower(), f"rung missing from the ladder: {probe}"
-    # the decisive on-chain tells
-    assert "exchange_sl_hit" in skill and "crossed" in skill, "the fill-shape tell is not stated"
-    # MANUAL_CLOSE is ambiguous (#784): "the ladder ended for a reason that was not its own stop".
-    # Treating it as an answer is the misreading that rung 1 must not make.
-    i = skill.find("1. **`exit_reason.terminal`**")
-    assert i > 0, "rung 1 is gone"
-    rung1 = skill[i:i + 420]
-    assert "MANUAL_CLOSE" in rung1 and "UNKNOWN" in rung1, \
-        "rung 1 must say MANUAL_CLOSE is not an answer and to keep going"
-    # the maker tell shows the ORDER TYPE, not who placed the order
-    assert "not who placed it" in skill, \
-        "the maker tell is overstated — close_position also uses FEE_OPTIMIZED_LIMIT"
-    assert "orderDetails" in skill or "historicalOrders" in skill, \
-        "a closed trade has no resting trigger; the skill must say where to read the one that fired"
-    # the ROE arithmetic agents get wrong
-    assert "leverage" in skill and "floor_roe" in skill, "the floor-ROE formula is missing"
+    assert "6b." in skill, "the exit-attribution guardrail is gone"
+    for cmd in ("senpi dsl closes", "senpi dsl inspect", "senpi dsl positions"):
+        assert cmd in skill, f"the skill no longer names `{cmd}`"
+    # the fields that carry the answer
+    for fld in ("closeReason", "currentTierIndex", "lockedProfitPct", "floorPrice", "highWaterRoe"):
+        assert fld in skill, f"`{fld}` is not named — the agent has to compute what it could read"
+    # every close reason must be translated, not left as an enum
+    for reason in ("exchange_sl_hit", "dsl_breach", "hard_timeout", "weak_peak_cut", "dead_weight_cut"):
+        assert reason in skill, f"closeReason `{reason}` is not explained"
+    # inference is corroboration only, and MANUAL_CLOSE is not an answer
+    assert "never a substitute" in skill or "corroboration" in skill, \
+        "inference is no longer scoped as a last resort"
+    assert "not who placed it" in skill, "the maker tell is overstated"
+    k = skill.find("MANUAL_CLOSE")
+    assert k > 0 and "UNKNOWN" in skill[k:k + 300], "MANUAL_CLOSE must be treated as UNKNOWN"
+    # and a dead gateway must be reported, not papered over with a guess
+    assert "gateway" in skill.lower(), "the skill must say what to do when the record cannot be read"
 
 
 def test_the_raw_mcp_rule_does_not_contradict_the_6b_reads():

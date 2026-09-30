@@ -414,44 +414,61 @@ otherwise it's just an asset the strategy was never designed to trade.
   say so ("couldn't compare — no current price"), don't invent a comparison.
 - Read `meta.warnings` and surface material gaps plainly. Missing data is a caveat, not a thing to paper over.
 
-### 6b. "Did the DSL close it?" — the ladder. Never stop at "undetermined"
+### 6b. Why the runtime closed it — READ THE RECORD. Never infer a mechanism.
 
-`exit_reason.terminal` is the engine's answer, sourced from `ratchet_stop_list`. The runtime **does** register
-a record of its own (`process-one-position.ts` → `attemptHandoffRegistration` → `ratchet_stop_add`), so a DSL
-ladder is not invisible here. The trap is the opposite one: the status it leaves is often **ambiguous**.
-`MANUALLY_CLOSED` means only *"the ladder ended for a reason that was not its own stop"* — a signal close, a
-time cut, `close_position`, or a human closing on the venue all land in it. So a present `terminal` is not
-automatically an answer.
+**The runtime archives every close with its reason.** There is nothing to deduce. A live review once
+answered *"Exit mechanism: undetermined"* because one command timed out, while the record sat one call away.
 
-Work down until one answers:
+**A CLOSED position — `senpi dsl closes --runtime <id> --json`** ("archived closes with reason and ROE").
+Each row is the answer *and* the details:
 
-1. **`exit_reason.terminal`** — `SL_TRIGGERED`, `LIQUIDATED` and `ADL` name a mechanism → done.
-   **`MANUAL_CLOSE` does NOT** — treat it exactly like UNKNOWN and keep going down the ladder. (See #784,
-   which fixes this mapping; settle any change to this rung together with it, not against it.)
-2. **`ratchet_stop_events`** (asset + wallet) — the firing events, not the config. The engine calls
-   `ratchet_stop_list`, not this, so it is worth one call when `terminal` is UNKNOWN.
-3. **`openclaw senpi explain <asset> --runtime <id> --json`** — the native lifecycle, carrying `closeReason`
-   (`exchange_sl_hit`, `dsl_breach`, `hard_timeout`, `weak_peak_cut`, `dead_weight_cut`). A timeout here is
-   ONE path failing — keep going.
-4. **The fill shape. Always available, and decisive.**
-   - **Every close fill on one timestamp, all `crossed: true`, at a price matching a resting reduce-only
-     trigger → `exchange_sl_hit`.** The exchange stop fired: it sweeps at market, which is why it prints as a
-     burst. Measured fleet-wide on penguin: **140 `exchange_sl_hit` against 10 `dsl_breach`**, and the wallets
-     dominated by it show **~0% maker** closes.
-   - **A maker fill on the close leg shows the ORDER TYPE, not who placed it.** It means *something* closed
-     with `FEE_OPTIMIZED_LIMIT` — which `close_position` and `strategy_close_positions` also use. And a DSL
-     exit configured `order_type: MARKET` produces no maker fill at all. Use it to rule the exchange stop
-     *out*, never to rule the DSL *in*.
-   - **On a closed trade there is no resting trigger left to compare against.** Read the one that actually
-     fired: `execution_get_closed_position_details` → `orderDetails[].triggerPrice`, or HL `historicalOrders`.
-   - **No trigger fired, and a fill matching no computable floor → not a DSL exit.** A scanner/signal close,
-     or manual.
-5. **Which rung.** For a LONG: `floor_roe = (trigger − entry) / entry × leverage × 100` (shorts invert).
-   `floor_roe / high_water_roe` is the lock that was governing, which names the rung. Worked: AVAX trigger
-   11.356, entry 11.3309, 10x → a **+2.22% ROE** floor against **+11.08%** high-water = the 20%-lock rung.
+| field | what it tells the user |
+| --- | --- |
+| `closeReason` | **why it closed** (vocabulary below) |
+| `phase` + `currentTierIndex` | **which rung was governing** at the close |
+| `currentROE` | the ROE it closed at |
+| `entryPrice` / `lastPrice` | the round trip |
+| `elapsedMinutes` / `closedAt` | how long it was held |
 
-Only after 4 has *also* failed may you say the mechanism is undetermined — and then say which rung of this
-ladder you reached, so the gap is locatable.
+Translate `closeReason`, never paste the enum:
+- **`exchange_sl_hit`** — the resting exchange stop fired. It fills at **market**, so expect a burst of taker
+  fills at one timestamp and some overshoot past the floor. This is the most common DSL exit by far.
+- **`dsl_breach`** — the DSL's own floor broke and the runtime closed it via `closePosition`, honouring
+  `exit.order_type`.
+- **`hard_timeout`** — the clock, regardless of PnL. OFF on penguin / pelican.
+- **`weak_peak_cut`** — never reached `min_value` ROE inside the window. A **death** cut, not a profit cut.
+- **`dead_weight_cut`** — stagnation cut.
+
+**A LIVE position — `senpi dsl inspect <asset> --json`** returns the full `DslState`, which already holds
+every number users ask for. Quote these rather than computing anything:
+- `floorPrice` / `tierFloorPrice` — where the stop actually is
+- **`lockedProfitPct`** — what is locked in *right now* (the answer to "at what point does it lock profits")
+- `highWaterRoe` / `peakROE` — the best it has seen
+- `currentTierIndex` + `phase` — which rung is governing
+- `distanceToNextTierPct` — how far to the next rung
+- `slOrderId` / `lastSyncedFloorPrice` — the resting exchange order the floor is synced to
+
+Two more: **`senpi dsl positions --json`** (what is under DSL management at all — the answer to "is this
+protected?") and **`senpi explain <asset>`** (the stitched opened → dsl → closed narrative).
+
+**If the gateway is down**, `senpi dsl closes` exits non-zero and prints *"start it with: openclaw gateway
+run"*. **Say that.** An unreadable record is an unreadable record — do not fall back to guessing a mechanism
+from fill shapes and present it as fact.
+
+**Only when the record is genuinely unavailable**, these are honest *corroboration*, never a substitute:
+- A burst of close fills on one timestamp, all `crossed`, is consistent with `exchange_sl_hit`.
+- A maker fill on the close leg shows the **order type, not who placed it** — `close_position` and
+  `strategy_close_positions` also use `FEE_OPTIMIZED_LIMIT`, and a DSL exit set to `order_type: MARKET`
+  produces none. It can rule the exchange stop *out*; it can never rule the DSL *in*.
+- A closed trade has no *resting* trigger left. Read the one that fired from
+  `execution_get_closed_position_details` → `orderDetails[].triggerPrice`, or HL `historicalOrders`.
+- `exit_reason.terminal` from the engine: `SL_TRIGGERED` / `LIQUIDATED` / `ADL` name a mechanism.
+  **`MANUAL_CLOSE` does not** — it means only "the ladder ended for a reason that was not its own stop", so a
+  signal close, a time cut, `close_position` and a human on the venue all land in it. Treat it as UNKNOWN.
+  (#784 fixes this mapping; settle changes to it there, not here.)
+
+Label the source in the answer: *"the runtime's close record says …"* reads differently from
+*"the fills are consistent with …"*, and the user is entitled to know which one they are getting.
 
 ### 7. The user chooses the fix depth — never auto-act, and never offer a tune off one trade
 
