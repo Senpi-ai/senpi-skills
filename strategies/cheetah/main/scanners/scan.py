@@ -256,6 +256,7 @@ def scan(inputs, ctx):
     previously_held = set(last.get("previously_held") or [])
     scan_history = list(last.get("scan_history") or [])           # [ [ {token,dex,rank,direction}... ] ... ]
     recent = dict(last.get("recent") or {})                       # {ASSET: ts} signal-dedup
+    history_ts = float(last.get("history_ts") or 0)          # when scan_history[-1] was recorded
     quality_cache = last.get("quality_cache") or {}               # {ts, positions_map}
 
     def _persist(extra=None):
@@ -267,6 +268,7 @@ def scan(inputs, ctx):
             "last_closed": last_closed,
             "previously_held": sorted(previously_held),
             "scan_history": scan_history[-_SCAN_HISTORY_MAX:],
+            "history_ts": history_ts,
             "recent": recent,
             "quality_cache": quality_cache,
         }
@@ -304,12 +306,19 @@ def scan(inputs, ctx):
         return []
 
     # ── update scan-rank history (for rank-climb scoring) ──
+    # Rank climb is measured against the PREVIOUS tick. The early returns above (riding a
+    # position, no account, no markets) record no snapshot, so after a held position
+    # scan_history[-1] can be hours old. More than one missed tick = stale: do not measure across it.
+    interval = float(getattr(ctx, "interval_seconds", 0) or 0)
+    if interval and now - history_ts > 2.5 * interval:
+        scan_history = []
     prev_snapshot = scan_history[-1] if scan_history else None
     current_snapshot = [
         {"token": m["token"], "dex": m["dex"], "rank": m["rank"], "direction": m["direction"]}
         for m in markets
     ]
     scan_history.append(current_snapshot)
+    history_ts = now
     scan_history = scan_history[-_SCAN_HISTORY_MAX:]
 
     # ── quality-trader positions (cached qt_cache seconds in ctx.state) ──
