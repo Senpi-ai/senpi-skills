@@ -439,7 +439,15 @@ def test_trailing_is_mentioned_only_where_the_result_text_offers_it():
              "`Trailing stop offered:`, the same button can place a "
              "trailing stop instead of the fixed one, for the coins the trailing line lists and no others.",
              "When you mention it, say it trails on Hyperliquid from the price when the order lands, or from a start "
-             "price the reader sets (no protection from it until then).")
+             "price the reader sets (the position has no stop at all until then).")
+
+
+def test_a_start_price_leaves_the_position_with_no_stop():
+    """The trailing stop is placed instead of the fixed one, so with a start price nothing protects the
+    position until that price is reached (the runtime's own confirm text says so). "No protection from
+    it" read as if another stop still covered the position."""
+    _needles("from a start price the reader sets (the position has no stop at all until then)")
+    assert "no protection from it" not in _flat(_skill())
 
 
 def test_trailing_is_never_oversold():
