@@ -104,3 +104,105 @@ def test_purple_penguin_stays_out_of_the_catalog():
         "purple-penguin lost catalog.status: blocked — gen_catalog would publish it to the "
         "catalog AND to senpi-strategy-discover, offering an untested score floor to users. "
         "Deploy it by explicit path instead; deploy.py honours a path regardless of status.")
+
+
+# ── the leverage/ROE coherence invariant (cheetah, 2026-09-30) ──
+
+def test_a_variable_leverage_book_cannot_carry_a_fixed_roe_ladder():
+    """Every DSL threshold is ROE, so an exit's distance IN PRICE is (ROE / leverage).
+
+    A package that scales conviction through LEVERAGE therefore rescales its entire exit ladder
+    per trade — and backwards: cheetah's old 3/5/7/8 tiers gave a score-10 signal a 3.33%-of-price
+    stop with its first profit floor 6.67% away, while a score-14 signal got 1.25% and 2.50%. The
+    weakest signal was handed the widest stop and the most distant floor, and against a measured
+    median peak of 0.84% of price the ladder never armed at any tier.
+
+    The fix was to scale conviction through MARGIN and hold leverage flat. This pins that: if a
+    package's tiers ever spread leverage again, one ROE ladder can no longer be correct for all
+    of its trades."""
+    for pkg in ("cheetah", "wild-cheetah"):
+        rt = _yaml(f"strategies/{pkg}/main/runtime.yaml")
+        sc = next(s for s in rt["scanners"] if s.get("type") == "external_scanner")
+        tiers = sc["inputs"].get("leverageTiers") or []
+        levs = {int(t[1]) for t in tiers}
+        assert len(levs) == 1, (
+            f"{pkg} spreads leverage across {sorted(levs)} while its DSL ladder is fixed in ROE, "
+            f"so every exit means a different price move per tier. Scale conviction through the "
+            f"third tier element (marginPct) and keep leverage flat.")
+        assert all(len(t) > 2 for t in tiers), (
+            f"{pkg} tiers lost their marginPct element — conviction is no longer sized at all")
+        lev = levs.pop()
+        rungs = rt["exit"]["dsl_preset"]["phase2"]["tiers"]
+        first = rungs[0]["trigger_pct"] / lev
+        assert first <= 1.0, (
+            f"{pkg}'s first rung arms at {first:.2f}% of price. The measured median position peaks "
+            f"at 0.84%, so a rung above ~1% never arms and the position has no profit floor.")
+
+
+# ── weak_peak_cut must stay a DEATH cut, never a profit cut ──
+
+def test_weak_peak_cut_can_only_fire_before_the_ladder_arms():
+    """`weak_peak_cut` closes when peakROE never reached `min_value` and current ROE has fallen
+    off that peak. Entering phase 2 implies peakROE >= the first tier's `trigger_pct`, so while
+    `min_value < trigger_pct` the guard is unsatisfiable once a rung arms — the cut can only ever
+    fire in phase 1 (senpi-strategy-author/references/dsl-configuration.md).
+
+    That is the whole reason it is safe to leave enabled: it bounds a position that NEVER worked,
+    and cannot touch one that did. Raise `min_value` above the first trigger, or drop the first
+    trigger below `min_value`, and it silently becomes able to close a position that already armed
+    a profit floor — a death cut turning into a profit cut without anyone changing its settings."""
+    for pkg in ("condor", "wild-condor", "penguin", "pelican", "puffin", "purple-penguin"):
+        rt = _yaml(f"strategies/{pkg}/main/runtime.yaml")
+        preset = rt["exit"]["dsl_preset"]
+        wpc = preset.get("weak_peak_cut") or {}
+        if not wpc.get("enabled"):
+            continue
+        first_trigger = preset["phase2"]["tiers"][0]["trigger_pct"]
+        assert wpc["min_value"] < first_trigger, (
+            f"{pkg}: weak_peak_cut min_value {wpc['min_value']} is not below the first tier "
+            f"trigger {first_trigger}, so it can fire AFTER the ladder has armed — closing a "
+            f"position that reached a profit floor. Keep min_value strictly under the first rung.")
+
+
+# ── the "wild" variants: conviction and size move TOGETHER ──
+
+WILD_PAIRS = [("wild-condor", "condor"), ("wild-cheetah", "cheetah")]
+
+
+def _sizing(pkg):
+    rt = _yaml(f"strategies/{pkg}/main/runtime.yaml")
+    inp = next(s for s in rt["scanners"] if s.get("type") == "external_scanner")["inputs"]
+    tiers = inp.get("leverageTiers") or []
+    margins = [t[2] for t in tiers if len(t) > 2] or [inp.get("marginPct")]
+    return float(inp["minScore"]), max(float(m) for m in margins)
+
+
+def test_a_wild_variant_raises_the_bar_and_the_size_together():
+    """The point of a `wild-` package is NOT to trade bigger. It is to trade bigger ONLY on what
+    already cleared a higher bar.
+
+    Raising margin alone is leverage with extra steps — the same signal distribution, more money
+    behind each one, and a worse expectancy per dollar the moment the marginal signal is weak.
+    Raising the floor alone leaves a rarer, better signal paid exactly what a common one was. The
+    two only make sense as one change, so this fails if either half is ever walked back on its own.
+
+    (Deliberately NOT asserted of purple-penguin: that one LOWERS the floor to measure an
+    unmeasured band, which is a different experiment with its own justification.)"""
+    for wild, parent in WILD_PAIRS:
+        w_score, w_margin = _sizing(wild)
+        p_score, p_margin = _sizing(parent)
+        assert w_score > p_score, (
+            f"{wild} does not raise the score floor above {parent} ({w_score} vs {p_score}) — "
+            f"it is then just {parent} with more money on the same signals.")
+        assert w_margin > p_margin, (
+            f"{wild} does not raise margin above {parent} ({w_margin}% vs {p_margin}%) — "
+            f"a higher bar with the same size leaves the rarer signal underpaid.")
+
+
+def test_every_wild_variant_stays_out_of_the_catalog():
+    """Unmeasured floors on whole-book positions. None of these may reach a user via discover."""
+    for wild, _ in WILD_PAIRS:
+        card = _yaml(f"strategies/{wild}/strategy.yaml")
+        assert card["catalog"].get("status") == "blocked", (
+            f"{wild} lost catalog.status: blocked — gen_catalog would publish it to the catalog "
+            f"AND to senpi-strategy-discover. Deploy experiments by explicit path instead.")

@@ -41,7 +41,7 @@ def _read(ctx, name, args):
     try:
         return ctx.senpi_mcp.call_tool(name, args)
     except Exception as exc:  # noqa: BLE001
-        print(f"[cheetah.scan] {name} read failed: {exc!r}", file=sys.stderr)
+        print(f"[wild-cheetah.scan] {name} read failed: {exc!r}", file=sys.stderr)
         return None
 
 
@@ -197,12 +197,12 @@ def _fetch_quality_positions(ctx, inputs):
                     if isinstance(nested, list):
                         positions = nested
                     elif not shape_warned:
-                        print(f"[cheetah.scan] POSITIONS_SHAPE_WARN nested dict for {addr[:10]}: "
+                        print(f"[wild-cheetah.scan] POSITIONS_SHAPE_WARN nested dict for {addr[:10]}: "
                               f"keys={list(raw_positions.keys())[:8]}; treating as empty.",
                               file=sys.stderr)
                         shape_warned = True
                 elif not shape_warned:
-                    print(f"[cheetah.scan] POSITIONS_SHAPE_WARN type "
+                    print(f"[wild-cheetah.scan] POSITIONS_SHAPE_WARN type "
                           f"{type(raw_positions).__name__} for {addr[:10]}: treating as empty.",
                           file=sys.stderr)
                     shape_warned = True
@@ -229,7 +229,7 @@ def _fetch_quality_positions(ctx, inputs):
             positions_map.setdefault(key, []).append(addr)
 
     if len(addresses) < max(2, pool_size // 2) or not positions_map:
-        print(f"[cheetah.scan] QT_POOL_WARN traders={len(addresses)} (configured {pool_size}), "
+        print(f"[wild-cheetah.scan] QT_POOL_WARN traders={len(addresses)} (configured {pool_size}), "
               f"positions_map_size={len(positions_map)}; +3 QUALITY_TRADER bonus may not fire.",
               file=sys.stderr)
     return positions_map
@@ -277,12 +277,12 @@ def scan(inputs, ctx):
         try:
             ctx.state.append(rec)
         except Exception as exc:  # noqa: BLE001
-            print(f"[cheetah.scan] WARNING: state append failed: {exc!r}", file=sys.stderr)
+            print(f"[wild-cheetah.scan] WARNING: state append failed: {exc!r}", file=sys.stderr)
 
     # ── account state + held assets ──
     account_value, pos_count, held_assets = _account_state(ctx, wallet)
     if account_value is None or account_value <= 0:
-        print("[cheetah.scan] cannot read account value; skip tick", file=sys.stderr)
+        print("[wild-cheetah.scan] cannot read account value; skip tick", file=sys.stderr)
         _persist({"result": {"emitted": False, "gate": "no_account"}})
         return []
 
@@ -294,14 +294,14 @@ def scan(inputs, ctx):
 
     # ── max-positions guard (1-slot sniper) ──
     if pos_count >= max_positions:
-        print(f"[cheetah.scan] riding open position(s): {sorted(held_assets)}", file=sys.stderr)
+        print(f"[wild-cheetah.scan] riding open position(s): {sorted(held_assets)}", file=sys.stderr)
         _persist({"result": {"emitted": False, "gate": "max_positions", "held": sorted(held_assets)}})
         return []
 
     # ── fetch SM markets ──
     markets = _fetch_sm_markets(ctx, leaderboard_limit, xyz_banned)
     if not markets:
-        print("[cheetah.scan] failed to fetch leaderboard_get_markets; skip tick", file=sys.stderr)
+        print("[wild-cheetah.scan] failed to fetch leaderboard_get_markets; skip tick", file=sys.stderr)
         _persist({"result": {"emitted": False, "gate": "no_markets"}})
         return []
 
@@ -360,7 +360,7 @@ def scan(inputs, ctx):
 
     if not candidates:
         top3 = sorted(all_scored, key=lambda s: s["score"], reverse=True)[:3]
-        print(f"[cheetah.scan] 0 candidates >= {min_score:.0f} ({len(all_scored)} scored); top={top3}",
+        print(f"[wild-cheetah.scan] 0 candidates >= {min_score:.0f} ({len(all_scored)} scored); top={top3}",
               file=sys.stderr)
         _persist({"result": {"emitted": False, "gate": "no_candidate", "scored": len(all_scored),
                              "top": top3, "closed": sorted(closed_this_tick)}})
@@ -404,7 +404,7 @@ def scan(inputs, ctx):
     # ── mark emit cooldown + signal-dedup for the emitted asset ──
     emit_cooldowns[best["token"]] = now
     recent[best["token"]] = now
-    print(f"[cheetah.scan] EMIT {best['token']} {best['direction']} score={best['score']} "
+    print(f"[wild-cheetah.scan] EMIT {best['token']} {best['direction']} score={best['score']} "
           f"{leverage}x | {' | '.join(best['reasons'][:5])}", file=sys.stderr)
     _persist({"result": {"emitted": True, "asset": best["token"], "direction": best["direction"],
                          "score": best["score"], "leverage": leverage,

@@ -1,0 +1,48 @@
+# Wild Cheetah — Cheetah at a higher score floor and a higher margin.
+#
+# Two settings differ from cheetah, meant to move together: minScore 12 instead of 10 (cheetah's
+# second scoring tier), and 80/90% margin instead of 18/30/42/48%. Leverage stays flat at 5x, so
+# one ROE ladder stays correct for every tier. Everything else is cheetah's.
+#
+# The floor is derived from the score scale: cheetah's maximum is 15, its shipped floor of 10 is
+# 67% of that, penguin's 9 of 12 is 75%, and 75% of 15 rounds to 12.
+#
+# catalog.status: blocked — not offered in the catalog or discover. Deploy by explicit path:
+#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/wild-cheetah --budget <amount>
+schema_version: 1
+
+id: wild-cheetah
+version: "1.0.0"
+
+catalog:
+  name: "Wild Cheetah — Confluence Sniper at score 12 (experiment)"
+  emoji: "🌶️"
+  tagline: "Cheetah's confluence detector at a higher score floor and a higher margin: it fires only on a score of 12 out of 15 instead of 10, and sizes one position at 80-90% of the book instead of 18-48%. Leverage stays at 5x; the size changes, not the leverage."
+  belief_plain: "Cheetah with a higher bar and a larger size. Cheetah already does nothing most of the time, waiting for a setup where the traders winning the last four hours, the velocity, the acceleration and the price on two timeframes all agree. This version asks for more of that agreement before it acts, and puts most of the account behind the trade in exchange. Leverage stays at 5x deliberately: every exit threshold is measured against your margin, so changing leverage would move every stop and profit floor at the same time. Size changes instead. Know the sizing before funding it — 90% margin at 5x is four and a half times the account in one position, one stop-out is about 9% of equity, and there is no second position to offset it."
+  thesis: "Two settings differ from Cheetah and they are meant to move together: the score floor goes 10 to 12, and margin goes 18/30/42/48% by tier to 80/90%. The floor is derived from the score scale rather than chosen: cheetah's maximum is 15 (4h leader strength 4, velocity 2, acceleration 2, dual-timeframe price 2, volume 1, quality-trader alignment 3, rank climb 1), its shipped floor of 10 is 67% of that, penguin's 9 of 12 is 75%, and 75% of 15 rounds to 12 — which is also cheetah's second tier. Leverage stays flat at 5x because every DSL threshold is expressed in ROE, so an exit's distance in price is ROE divided by leverage; a book that spreads leverage across tiers cannot carry one coherent ladder, which is why conviction is expressed in margin here. Everything else is Cheetah's: the detector, the universe, the 4h cooldowns, the exits, and the ladder whose first rung arms at 0.6% of price. The frequency of a score of 12 or better has not been measured and a 4h emit cooldown sits on top of it; if it is too low to keep one slot occupied, the next step down is 11."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: confluence_sniper
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  status: blocked           # experiment — deliberately kept out of the catalog and discover
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 1
+  assets: []                # derived universe — coins come from the top-100 4h leader board each tick, not a fixed list
+  tags: [leader-momentum, momentum, confluence, universe-scanner, sniper, conviction-leverage, single-slot, experiment, not-for-users, high-conviction]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: WILD_CHEETAH_WALLET
+    funding_share: 1.0
