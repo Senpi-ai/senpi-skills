@@ -389,23 +389,88 @@ def test_book_limit_is_25():
 def test_the_set_stop_loss_button_is_the_one_exception_to_custody_language():
     """The runtime's result text is the model's only view of the button (history strips the card
     payload): `Set stop loss button:` is the marker it prints, pinned by the runtime's widget test."""
-    _needles("**The one exception is the Set stop loss button:** when the card's result text lists "
-             "`Set stop loss button:` stop losses, the reader signs those stop losses in their own wallet — tell them to "
-             "use **Set stop loss** on the protect card, never say senpi cannot stop those positions, and never "
-             "describe a button on any other card or for any position it does not list.")
+    _needles("**The one exception is the Set stop loss button, one per coin:** each coin listed after "
+             "`Set stop loss button:` in the card's result text",
+             "Never say senpi cannot stop a listed coin, and never describe a button on another card or for "
+             "an unlisted coin.")
 
 
 def test_without_the_marker_the_old_custody_rule_holds():
-    _needles("or the card closed with no `Set stop loss button:` in its text, or the prose fallback): the desk "
-             "cannot stop them, so **name the naked positions and ask how you can help.**",
+    _needles("a card with no `Set stop loss button:` in its text, the prose fallback, or a coin with no button): "
+             "the desk cannot stop those coins, so **name the naked positions and ask how you can help.**",
              '"set it yourself on Hyperliquid" is the fact, not the offer.')
 
 
 def test_the_button_never_leaks_into_the_prose_fallback():
-    """The prose closing is the no-widget path: there is no card, so there is no button to name."""
+    """The prose closing is the no-widget path: there is no card, so there is no button to name. Its one
+    mention of the button is the condition that there is none."""
     closing = _flat(_skill()).split("## Mandatory closing")[1].split("## No address given")[0]
-    assert "Set stop" not in closing, closing
+    assert closing.count("Set stop") == 1, closing
+    assert "use **Set stop loss**" not in closing and "Set stop loss button:" not in closing, closing
     _needles("senpi cannot place a stop on a book the reader custodies")
+
+
+def test_rule_5_is_per_coin():
+    """Several positions can be naked at once: every coin with a button is named with its own button, every
+    coin without one is named with the runtime's reason and falls under Otherwise, and the model never
+    implies full cover while a coin has no button."""
+    _needles("one per coin",
+             "Name **every** listed coin and point the reader to its **Set stop loss** button",
+             "they sign each in their own wallet, one at a time",
+             "Each coin after `No stop loss button:` has none: name it with its reason and apply Otherwise to it.",
+             "Never imply every position is covered while one has no button",
+             "a naked coin in neither list follows Otherwise",
+             "Otherwise, per coin")
+    flat = _flat(_skill())
+    for singular in ("never say senpi cannot stop those positions", "for any position it does not list",
+                     "A naked position it does not list follows Otherwise."):
+        assert singular not in flat, singular
+
+
+def test_rule_5_has_the_report_turn():
+    """The web sends `Stop loss set on <COIN> @ $<px> (engine suggested $<px>) — still waiting: A, B` after
+    each placed stop, one turn each; the placed price can differ from the engine's suggestion."""
+    _needles("**A `Stop loss set on <COIN> @ $<px>` message reports a placed stop:**",
+             "confirm that coin is now protected at that placed price, never the engine's suggestion",
+             "its `still waiting:` list",
+             "the `No stop loss button:` coins as still unprotected",
+             "One short answer per report; never call `show_widget` or re-run the desk to check",
+             "a re-check they ask for is `--fresh`")
+
+
+def test_prose_fallback_is_conditioned_on_no_card():
+    _needles("With no card there is no Set stop loss button, so per rule 5 senpi cannot place a stop on a book "
+             "the reader custodies: they set it on Hyperliquid themselves.")
+    assert "Per rule 5, senpi cannot place a stop" not in _flat(_skill())
+
+
+RUNTIME_WIDGET = os.path.join("src", "widgets", "widgets", "quant-desk-recommendations.ts")
+
+
+def _runtime_widget():
+    """A sibling runtime checkout, when there is one (SENPI_RUNTIME_DIR, or ../senpi-trading-runtime)."""
+    roots = [os.environ.get("SENPI_RUNTIME_DIR"),
+             os.path.join(SKILL_DIR, "..", "..", "senpi-trading-runtime")]
+    for root in filter(None, roots):
+        path = os.path.join(root, RUNTIME_WIDGET)
+        if os.path.exists(path):
+            return _read(path)
+    return None
+
+
+def test_markers_match_the_runtime():
+    """The two result-text markers are a cross-repo contract: the runtime widget prints them, rule 5 reads them."""
+    text = _skill()
+    for marker in ("`Set stop loss button:`", "`No stop loss button:`", "`Stop loss set on "):
+        assert marker in text, marker
+    widget = _runtime_widget()
+    if widget is None:
+        import pytest
+        pytest.skip("no sibling senpi-trading-runtime checkout")
+    assert "Set stop loss button:" in widget
+    m = re.search(r'NO_STOP_LOSS_MARKER\s*=\s*"([^"]+)"', widget)
+    if m:
+        assert m.group(1) == "No stop loss button:", m.group(1)
 
 
 def test_the_custody_limit_waits_for_the_card():
@@ -416,13 +481,14 @@ def test_the_custody_limit_waits_for_the_card():
 
 
 def test_positions_the_marker_does_not_list_follow_otherwise():
-    _needles("A naked position it does not list follows Otherwise.")
+    _needles("a naked coin in neither list follows Otherwise.")
 
 
 def test_a_lone_protection_section_follows_otherwise():
     """`run 0x… --section protection` ("am I protected?") ends without a closing card, so it can never
     carry the marker and never reaches "the end of the desk": it must fall under Otherwise, not hang
     on the hold clause."""
-    _needles("Otherwise (a desk with no closing card — a one-question run — or the card closed with no "
-             "`Set stop loss button:` in its text, or the prose fallback): the desk cannot stop them",
+    _needles("Otherwise, per coin (a desk with no closing card — a one-question run — a card with no "
+             "`Set stop loss button:` in its text, the prose fallback, or a coin with no button): the desk "
+             "cannot stop those coins",
              "`run 0x… --section protection`")
