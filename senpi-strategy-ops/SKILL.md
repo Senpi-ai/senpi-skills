@@ -365,7 +365,7 @@ both first (the file and `ratchet_stop_list`), show the drift and each position'
 ask (a), (b) or (c) — never assume (a), never touch an open position without its own approval:
 [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md). Call it an **update** to the user, never a
 "redeploy" — that word is the market-exit path below; an edit that closes nothing must never sound like one.
-**No open positions → only (a), now:** no ACTIVE/PAUSED row → edit, validate, `deploy.py update … --apply`, read back in the same turn; never park it for "the next position", never offer a terminal row as a template — reference §4.
+**No open positions → only (a), now:** `strategy_get_clearinghouse_state` shows none (never infer it from `ratchet_stop_list` — an open position can have no live row yet) → edit, validate, `deploy.py update … --apply`, read back in the same turn; never park it for "the next position", never offer a row that is not ACTIVE or PAUSED (SL_TRIGGERED, MANUALLY_CLOSED, LIQUIDATED, ADL, DELETED) as a template — reference §4.
 **Saved is not applied.** `update` without `--apply` only plans — its first line reads `Dry run for <runtime_id> — nothing has been applied.` —
 so never pipe `openclaw senpi` output through `tail`/`head`. An edit is live only once `--apply` exits `0` and the running strategy
 shows the change (the two reads: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md)); until then tell
