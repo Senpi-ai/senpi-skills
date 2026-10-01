@@ -1,8 +1,10 @@
 # ── WILD CONDOR · CONDOR at a higher score floor and a higher margin ──
 #
-# Differs from CONDOR in two settings, which are meant to move together:
+# Differs from CONDOR in three settings. The first two are meant to move together:
 #   minScore  15 instead of 12  — condor's own top scoring tier
 #   margin    one flat 90% row instead of 20/28/32% by score tier
+# and the third exists so the experiment can produce a sample:
+#   max_entries_per_day  OFF instead of 1 — the loss budget caps entries now, not a trade count
 #
 # The DSL ladder is penguin's. Both packages run 10x, so each ROE trigger is the same price move
 # in both and the ladder needs no rescaling. Everything else — detector, universe, clock, score
@@ -18,7 +20,7 @@
 # ── inherited from CONDOR, unchanged ──
 name: wild-condor-main
 group: wild-condor
-version: 1.2.0
+version: 1.3.0
 description: >
   WILD CONDOR — CONDOR at conviction size, DSL-only. Multi-asset trend-continuation apex sniper ("One Amazing Trade per Day").
   Scans the top 50 HL crypto assets by 24h notional volume and fires ONLY when 4h +
@@ -207,7 +209,16 @@ risk:
   # of these halts ENTRIES; none closes an open position.
   guard_rails:
     daily_loss_limit_pct: 15
-    max_entries_per_day: 1                  # one amazing trade per day
+    # OFF (condor ships 1). "One amazing trade per day" is condor's product identity; it is not
+    # this package's. An experiment needs a sample, and at one entry per day a few dozen trades
+    # takes a couple of months — long enough that the config would change underneath the data.
+    #
+    # Removing it does NOT make entries unbounded. daily_loss_limit_pct 15 still halts entries for
+    # the day, and at 90% margin / 10x one stop-out costs 10.8% of equity, so two losing trades
+    # trip it. max_consecutive_losses 3 with a 2h freeze and the 25% drawdown halt are unchanged,
+    # as is the 2h per-asset cooldown that stops it re-entering the same name. The effective cap is
+    # now the loss budget rather than a trade count, which is the right shape for a test.
+    max_entries_per_day: 999
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 3
     cooldown_seconds: 7200                  # v2 cooldown_minutes 120 (2h post-loss freeze)
