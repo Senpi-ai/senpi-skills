@@ -30,6 +30,8 @@ def test_offenders_flags_fraction_passes_percent():
     # legit percents + non-margin keys never flag
     assert off({"strategy": {"margin_pct": 20}, "inputs": {"marginPctBase": 18, "marginPctCap": 25}}) == []
     assert off({"inputs": {"minScore": 0.5, "leverage": 0.5}}) == []
+    # exactly 1 is a legal 1% — never rewritten to 100 (that sizes the slot at all of withdrawable)
+    assert off({"inputs": {"marginPct": 1}, "strategy": {"margin_pct": 1}}) == []
 
 
 def test_offenders_ignores_scanner_private_tunables():

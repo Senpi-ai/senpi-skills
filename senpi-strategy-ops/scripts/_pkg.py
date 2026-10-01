@@ -36,8 +36,10 @@ _SIZING_PARENTS = {"strategy", "inputs"}
 
 
 def margin_fraction_offenders(doc, path="", parent=None):
-    """Slot-size keys whose value is a fraction (0,1] where a PERCENT (0,100] is required
+    """Slot-size keys whose value is a fraction (0,1) where a PERCENT (0,100] is required
     (`marginPct: 0.10` meant 10 — 100× too small, so every order lands under the min notional).
+    Exactly 1 passes: it is a legal 1%, and "fixing" it to 100 sizes the slot at all of withdrawable
+    (the runtime's `findMarginPctFraction` lets 1 through for the same reason).
     Scoped to `_SIZING_KEYS` under `_SIZING_PARENTS`; an emitted per-signal value is checked at the
     live stage instead, where the real number is visible rather than inferred. Mirrors
     senpi-strategy-author validate_strategy so author-green == deploy-green. [(key, value), ...]."""
@@ -46,7 +48,7 @@ def margin_fraction_offenders(doc, path="", parent=None):
         for k, v in doc.items():
             kp = f"{path}.{k}" if path else str(k)
             if parent in _SIZING_PARENTS and str(k).lower() in _SIZING_KEYS \
-                    and isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v <= 1:
+                    and isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v < 1:
                 out.append((kp, v))
             else:
                 out.extend(margin_fraction_offenders(v, kp, str(k).lower()))
@@ -348,7 +350,7 @@ def validate(pkg: Package) -> list:
         expect_name = f"{pkg.id}-{inst.name}"
         if inst.runtime_name != expect_name:
             errs.append(f"{tag}: set runtime `name: {expect_name}` (found {inst.runtime_name!r})")
-        # marginPct is a PERCENT in (0,100]; a value <= 1 is the fraction slip (0.10 meant 10, 100x too
+        # marginPct is a PERCENT in (0,100]; a value below 1 is the fraction slip (0.10 meant 10, 100x too
         # small). Refuse to fund it (author's validate_strategy flags it too; ops re-checks fetched packages).
         for kp, val in margin_fraction_offenders(inst.runtime_doc):
             errs.append(f"{tag}: `{kp}` must be a PERCENT in (0,100] — set {val * 100:g} (not {val})")
