@@ -72,7 +72,7 @@ def _safe_leverage(ctx, asset, dex, requested):
     return requested
 
 
-def _pick_leverable(ctx, candidates, min_leverage, requested_for):
+def _pick_leverable(ctx, candidates, min_leverage, requested_for, strict=False):
     """Walk the ranking and take the first name the venue will actually lever.
 
     WHY THIS EXISTS. Every DSL threshold is ROE, and the engine converts ROE to a price floor by
@@ -86,7 +86,12 @@ def _pick_leverable(ctx, candidates, min_leverage, requested_for):
     clears it — and only adds the warning. Raise it to the leverage the ladder was authored for to
     make the scanner prefer a lower-scoring name the ladder actually fits.
 
-    Returns (candidate, venue_clamped_leverage).
+    `strict` decides what happens when NOTHING clears the floor. Default False falls back to the
+    top candidate with a warning, because a scanner that goes silent on every clamped tick stops
+    being the strategy the user deployed. True emits nothing instead — correct for a package whose
+    ladder is calibrated for one leverage band and would be materially wrong outside it.
+
+    Returns (candidate, venue_clamped_leverage), or (None, None) when strict and nothing clears.
     """
     fallback = None
     for rank, cand in enumerate(candidates):
@@ -103,6 +108,12 @@ def _pick_leverable(ctx, candidates, min_leverage, requested_for):
                       f"every ROE threshold is {want / lev:.1f}x its intended price move "
                       f"(ladder calibrated for {want}x)", file=sys.stderr)
             return cand, lev
+    if strict:
+        cand, lev, want = fallback
+        print(f"[wild-condor.scan] LEVERAGE_FLOOR_UNMET_STRICT no candidate reaches minLeverage="
+              f"{min_leverage}x (best was {cand['coin']} at {lev}x) — emitting nothing rather than "
+              f"running a ladder calibrated for {want}x on it", file=sys.stderr)
+        return None, None
     cand, lev, want = fallback
     print(f"[wild-condor.scan] LEVERAGE_FLOOR_UNMET no candidate reaches minLeverage={min_leverage}x; taking "
           f"{cand['coin']} at {lev}x vs {want}x authored — every ROE threshold is "
@@ -253,6 +264,7 @@ def _held_assets(ctx, inputs):
 def scan(inputs, ctx):
     max_positions = int(inputs.get("maxPositions", 1))     # v2 "one amazing trade per day"
     min_leverage = float(inputs.get("minLeverage", _DEFAULT_MIN_LEVERAGE))
+    min_leverage_strict = bool(inputs.get("minLeverageStrict", False))
     min_score = float(inputs.get("minScore", scoring.MIN_SCORE))
     margin_default = float(inputs.get("marginPct", 50))    # PERCENT of withdrawable (0,100]
     tiers = inputs.get("leverageTiers")                    # optional [[min_score, lev, margin_pct], ...]
@@ -321,7 +333,11 @@ def scan(inputs, ctx):
     # for one the venue will lever; minLeverage 0 keeps the previous pick and only warns.
     best, _venue_leverage = _pick_leverable(
         ctx, candidates, min_leverage,
-        lambda c: scoring.get_sizing_for_score(c["score"], _coerce_tiers(tiers))[0])
+        lambda c: scoring.get_sizing_for_score(c["score"], _coerce_tiers(tiers))[0],
+        strict=min_leverage_strict)
+    if best is None:
+        return []
+
     bu = best["coin"].upper()
 
     # Defense in depth: never emit on a held coin, and dedup the race window.

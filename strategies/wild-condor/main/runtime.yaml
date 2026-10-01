@@ -18,7 +18,7 @@
 # ── inherited from CONDOR, unchanged ──
 name: wild-condor-main
 group: wild-condor
-version: 1.1.0
+version: 1.2.0
 description: >
   WILD CONDOR — CONDOR at conviction size, DSL-only. Multi-asset trend-continuation apex sniper ("One Amazing Trade per Day").
   Scans the top 50 HL crypto assets by 24h notional volume and fires ONLY when 4h +

@@ -1,7 +1,7 @@
 # ── CONDOR · single instance — One Amazing Trade per Day (Runtime 3.0 port of v2 CONDOR v4.0.1) ──
 name: condor-main
 group: condor
-version: 3.2.0
+version: 3.3.0
 description: >
   CONDOR — multi-asset trend-continuation apex sniper ("One Amazing Trade per Day").
   Scans the top 50 HL crypto assets by 24h notional volume and fires ONLY when 4h +

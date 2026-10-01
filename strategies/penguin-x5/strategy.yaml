@@ -1,0 +1,52 @@
+# Penguin X5 — Penguin with every exit re-expressed for 5x.
+#
+# Same detector, gates and one-slot 90%-margin shape. It requests 5x and halves every ROE threshold,
+# so each rung and the stop sit at the SAME distance in price that penguin's do at 10x.
+#
+# A ROE ladder is authored for one leverage and the venue picks the other: the engine divides ROE by
+# actual leverage to get a price floor, so a clamp to 5x doubles every exit distance. 21 assets in
+# this universe cap below 10x; nine cap at 3x. minLeverageStrict skips anything below 5x rather than
+# trading it with the wrong exits.
+#
+# A separate PACKAGE, not a second instance — instances are separate wallets with their own slots,
+# so splitting penguin into instances would run concurrent positions at a fraction of the book each.
+#
+# catalog.status: blocked — not offered in the catalog or discover. Deploy by explicit path:
+#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/penguin-x5 --budget <amount>
+schema_version: 1
+
+id: penguin-x5
+version: "1.0.0"
+
+catalog:
+  name: "Penguin X5 — Concentrated Striker at 5x"
+  emoji: "🧊"
+  tagline: "Penguin's detector with every exit re-expressed for 5x: the same rank-jump signal, the same one slot at 90% margin, but a ladder whose ROE numbers are exactly half Penguin's so each rung sits at the identical distance in price. It trades only names the venue will lever at 5x and skips the rest rather than running a ladder calibrated for something else."
+  belief_plain: "Penguin, for the coins Hyperliquid will not lever at 10x. The exit ladder is written as a percentage of your margin, and the engine turns that into a price by dividing by leverage — so the same ladder means a different price move on a coin capped at 5x than on one that allows 10x. Twenty-one coins in this universe are capped below 10x and nine are capped at 3x, where Penguin's first profit lock sits more than three times further away than intended and the later ones are effectively unreachable. This package halves every number so the exits land exactly where Penguin's do in price terms, and it skips any coin the venue will not lever at 5x rather than trading it with the wrong exits. Same concentration, same risk per trade in price terms: one stop-out is about 6.75% of the account, which is a 1.5% move against you, the same move that costs 13.5% on Penguin at 10x."
+  thesis: "Identical to Penguin except that it requests 5x and halves every ROE threshold, which leaves each rung and the stop at the same distance in price: rung 0 at 0.60%, rung 1 at 2.00%, the stop at 1.50%. Locks are dimensionless and unchanged. The reason the split has to exist at all is that a ROE ladder is implicitly authored for one leverage and the venue picks the other — the engine divides ROE by actual leverage to get a price floor, so a clamp from 10x to 5x doubles every exit distance and a clamp to 3x more than triples it. minLeverageStrict is enabled so a 3x-capped name is skipped rather than traded with exits 1.67 times too wide; with one slot and a 90-second clock that costs an opportunity, not a day. It is a separate package rather than a second instance on purpose: instances are separate wallets with their own slots, so a multi-instance split would run concurrent positions at a fraction of the book each, which is the dilution Penguin exists to remove. Fund this or Penguin, not two halves of one budget."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: rank_jump
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  status: blocked           # not offered in the catalog or discover
+  tier: advanced
+  time_horizon: intraday
+  leverage_max: 5
+  max_slots: 1
+  assets: []                # derived universe — coins come from the top-50 rows of the 4h leaderboard each tick, not a fixed list
+  tags: [leader-momentum, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, concentrated, single-slot, high-leverage, hyperfeed, high-risk-high-reward, aggressive, leverage-band, not-for-users]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: PENGUIN_X5_WALLET
+    funding_share: 1.0

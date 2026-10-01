@@ -9,7 +9,7 @@
 # (math reproduced verbatim, v2-quirks flagged).
 name: orca-main
 group: orca
-version: 3.2.0
+version: 3.3.0
 description: >
   ORCA — Gen-1 Vanilla Striker. Universe rank-jump sniper: scans the top-50 rows of the 4h
   leaderboard (leaderboard_get_markets — a momentum read of who is winning right now, not a

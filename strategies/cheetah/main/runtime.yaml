@@ -1,7 +1,7 @@
 # ── CHEETAH · single instance — multi-signal confluence sniper (Runtime 3.0 port of v2 Cheetah v7.2.0) ──
 name: cheetah-main
 group: cheetah
-version: 3.2.0
+version: 3.3.0
 description: >
   CHEETAH — universe confluence sniper. Scans the top-100 markets on the 4h leader board
   (leaderboard_get_markets — which side the last four hours' winners sit on) every tick,

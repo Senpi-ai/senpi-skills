@@ -250,7 +250,7 @@ def _safe_leverage(ctx, asset, dex, requested):
     return requested
 
 
-def _pick_leverable(ctx, candidates, min_leverage, requested_for):
+def _pick_leverable(ctx, candidates, min_leverage, requested_for, strict=False):
     """Walk the ranking and take the first name the venue will actually lever.
 
     WHY THIS EXISTS. Every DSL threshold is ROE, and the engine converts ROE to a price floor by
@@ -264,7 +264,12 @@ def _pick_leverable(ctx, candidates, min_leverage, requested_for):
     clears it — and only adds the warning. Raise it to the leverage the ladder was authored for to
     make the scanner prefer a lower-scoring name the ladder actually fits.
 
-    Returns (candidate, venue_clamped_leverage).
+    `strict` decides what happens when NOTHING clears the floor. Default False falls back to the
+    top candidate with a warning, because a scanner that goes silent on every clamped tick stops
+    being the strategy the user deployed. True emits nothing instead — correct for a package whose
+    ladder is calibrated for one leverage band and would be materially wrong outside it.
+
+    Returns (candidate, venue_clamped_leverage), or (None, None) when strict and nothing clears.
     """
     fallback = None
     for rank, cand in enumerate(candidates):
@@ -281,6 +286,12 @@ def _pick_leverable(ctx, candidates, min_leverage, requested_for):
                       f"every ROE threshold is {want / lev:.1f}x its intended price move "
                       f"(ladder calibrated for {want}x)", file=sys.stderr)
             return cand, lev
+    if strict:
+        cand, lev, want = fallback
+        print(f"[orca.scan] LEVERAGE_FLOOR_UNMET_STRICT no candidate reaches minLeverage="
+              f"{min_leverage}x (best was {cand['token']} at {lev}x) — emitting nothing rather than "
+              f"running a ladder calibrated for {want}x on it", file=sys.stderr)
+        return None, None
     cand, lev, want = fallback
     print(f"[orca.scan] LEVERAGE_FLOOR_UNMET no candidate reaches minLeverage={min_leverage}x; taking "
           f"{cand['token']} at {lev}x vs {want}x authored — every ROE threshold is "
@@ -292,6 +303,7 @@ def scan(inputs, ctx):
     now = time.time()
     hour_utc = datetime.now(timezone.utc).hour
     min_leverage = float(inputs.get("minLeverage", _DEFAULT_MIN_LEVERAGE))
+    min_leverage_strict = bool(inputs.get("minLeverageStrict", False))
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
     max_positions = int(inputs.get("maxPositions", _DEFAULT_MAX_POSITIONS))
     top_n = int(inputs.get("topN", _DEFAULT_TOP_N))
@@ -463,7 +475,10 @@ def scan(inputs, ctx):
     # and take the first that clears minLeverage; fall back to the top name with a warning.
     candidates.sort(key=lambda c: c["score"], reverse=True)
     best, leverage = _pick_leverable(ctx, candidates, min_leverage,
-                                     lambda _c: leverage_default)
+                                     lambda _c: leverage_default, strict=min_leverage_strict)
+
+    if best is None:
+        return []
 
     out = [{
         "asset": best["token"],

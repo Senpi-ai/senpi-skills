@@ -15,7 +15,7 @@
 # concentrated, high-variance expression of the same read; see strategy.yaml for the risk.
 name: penguin-main
 group: penguin
-version: 3.3.0
+version: 3.4.0
 description: >
   PENGUIN — Concentrated Striker. Universe rank-jump sniper on Orca's entry model: scans the
   top-50 rows of the 4h leaderboard (leaderboard_get_markets — a momentum read of who is

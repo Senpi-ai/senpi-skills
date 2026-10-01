@@ -185,3 +185,46 @@ def test_the_walk_replaced_the_silent_pick_everywhere(pkg, key):
     assert "_pick_leverable(" in src, f"{pkg} lost the leverage walk"
     assert 'best = candidates[0]' not in src, (
         f"{pkg} still takes candidates[0] directly — the walk is bypassed")
+
+
+# ── strict mode: refuse rather than run a ladder calibrated for another leverage ──
+
+@pytest.mark.parametrize("pkg,key", PACKAGES)
+def test_strict_defaults_off_so_a_scanner_never_goes_silent_by_accident(pkg, key):
+    mod = _load(pkg)
+    cands = [{key: "LOW", "score": 12}]
+    ctx = _Ctx({"LOW": 3})
+    best, lev = mod._pick_leverable(ctx, cands, 10, lambda _c: 10)
+    assert (best[key], lev) == ("LOW", 3), (
+        "strict must default off — a package that silently stops trading when the venue clamps is "
+        "not the strategy the user deployed")
+
+
+@pytest.mark.parametrize("pkg,key", PACKAGES)
+def test_strict_emits_nothing_when_no_candidate_fits_the_ladder(pkg, key):
+    """For a package whose ladder is calibrated for one leverage band, trading outside it is worse
+    than not trading: every exit distance is wrong by the clamp ratio."""
+    mod = _load(pkg)
+    cands = [{key: "LOW", "score": 12}, {key: "MID", "score": 11}]
+    ctx = _Ctx({"LOW": 3, "MID": 4})
+    best, lev = mod._pick_leverable(ctx, cands, 5, lambda _c: 5, strict=True)
+    assert best is None and lev is None, "strict must return (None, None) when nothing clears"
+
+
+@pytest.mark.parametrize("pkg,key", PACKAGES)
+def test_strict_still_trades_when_something_does_fit(pkg, key):
+    mod = _load(pkg)
+    cands = [{key: "LOW", "score": 12}, {key: "FITS", "score": 11}]
+    ctx = _Ctx({"LOW": 3, "FITS": 5})
+    best, lev = mod._pick_leverable(ctx, cands, 5, lambda _c: 5, strict=True)
+    assert (best[key], lev) == ("FITS", 5)
+
+
+@pytest.mark.parametrize("pkg,key", PACKAGES)
+def test_the_scanner_handles_a_strict_no_emit_without_crashing(pkg, key):
+    """`_pick_leverable` returning (None, None) must be guarded at every call site — an unguarded
+    `best["token"]` would raise and the contract zeroes every emit for the whole tick."""
+    src = open(os.path.join(ROOT, "strategies", pkg, "main", "scanners", "scan.py"),
+               encoding="utf-8").read()
+    assert "if best is None:" in src, f"{pkg} does not guard the strict no-emit path"
+    assert "strict=min_leverage_strict" in src, f"{pkg} never passes strict through from inputs"

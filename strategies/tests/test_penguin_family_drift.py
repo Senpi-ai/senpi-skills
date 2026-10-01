@@ -18,6 +18,7 @@ Run: python3 -m pytest strategies/tests/test_penguin_family_drift.py -q
 """
 import os
 
+import pytest
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -206,3 +207,48 @@ def test_every_wild_variant_stays_out_of_the_catalog():
         assert card["catalog"].get("status") == "blocked", (
             f"{wild} lost catalog.status: blocked — gen_catalog would publish it to the catalog "
             f"AND to senpi-strategy-discover. Deploy experiments by explicit path instead.")
+
+
+# ── per-leverage sibling packages must land on the SAME price distances ──
+
+LEVERAGE_SIBLINGS = [("penguin-x5", "penguin")]
+
+
+def _lev_and_ladder(pkg):
+    rt = _yaml(f"strategies/{pkg}/main/runtime.yaml")
+    inp = next(s for s in rt["scanners"] if s.get("type") == "external_scanner")["inputs"]
+    lev = float(inp.get("leverageDefault") or rt["strategy"]["default_leverage"])
+    preset = rt["exit"]["dsl_preset"]
+    return lev, preset["phase2"]["tiers"], preset["phase1"]["max_loss_pct"], inp
+
+
+@pytest.mark.parametrize("sibling,base", LEVERAGE_SIBLINGS)
+def test_a_leverage_sibling_keeps_every_exit_at_the_same_price_distance(sibling, base):
+    """The whole reason the sibling exists: every DSL threshold is ROE and the engine divides by
+    leverage to get a price floor, so a ladder is authored for ONE leverage. A sibling for another
+    band is only correct if trigger/leverage matches rung for rung — otherwise it is not the same
+    strategy at a different size, it is a different strategy."""
+    s_lev, s_tiers, s_stop, s_inp = _lev_and_ladder(sibling)
+    b_lev, b_tiers, b_stop, _ = _lev_and_ladder(base)
+    assert s_lev != b_lev, f"{sibling} requests the same leverage as {base}; it has no reason to exist"
+    assert len(s_tiers) == len(b_tiers), "the sibling must mirror the base ladder rung for rung"
+    for i, (st, bt) in enumerate(zip(s_tiers, b_tiers)):
+        assert abs(st["trigger_pct"] / s_lev - bt["trigger_pct"] / b_lev) < 1e-9, (
+            f"rung {i}: {sibling} arms at {st['trigger_pct'] / s_lev:.3f}% of price but {base} arms "
+            f"at {bt['trigger_pct'] / b_lev:.3f}%. Re-derive it as base_trigger * {s_lev}/{b_lev}.")
+        assert st["lock_hw_pct"] == bt["lock_hw_pct"], (
+            f"rung {i}: locks are a fraction of high-water and carry no leverage, so they must match")
+    assert abs(s_stop / s_lev - b_stop / b_lev) < 1e-9, (
+        f"the stop sits at {s_stop / s_lev:.3f}% of price vs {base}'s {b_stop / b_lev:.3f}%")
+
+
+@pytest.mark.parametrize("sibling,base", LEVERAGE_SIBLINGS)
+def test_a_leverage_sibling_refuses_names_outside_its_band(sibling, base):
+    """Its ladder is correct at its own leverage and wrong below it, so it must skip rather than
+    trade — otherwise the sibling reintroduces exactly the mis-calibration it was built to remove."""
+    _lev, _t, _s, inp = _lev_and_ladder(sibling)
+    assert inp.get("minLeverageStrict") is True, (
+        f"{sibling} must set minLeverageStrict — without it the venue can hand it a lower leverage "
+        f"and its halved ladder becomes wrong in the other direction")
+    assert float(inp["minLeverage"]) == _lev, (
+        f"{sibling} must floor minLeverage at the leverage its ladder is authored for ({_lev})")
