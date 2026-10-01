@@ -1,7 +1,7 @@
 # ── PANGOLIN · single instance — extreme funding-rate fader (Runtime 3.0 port of v2 Pangolin) ──
 name: pangolin-main
 group: pangolin
-version: 3.1.0
+version: 3.2.0
 description: >
   PANGOLIN — multi-asset funding-rate fader. Scans every liquid perp (OI > $10M, derived
   live from market_list_instruments) for funding that has been EXTREME (>= 0.0000228/hr,
@@ -102,10 +102,15 @@ actions:
         scanner: pangolin_main_signals
 
 # EXIT — DSL with maker-exit recovery, ported VERBATIM from v2.2.0.
-#   hard_timeout 720m — funding fade takes 24-48h; 12h cap is the absolute fail-safe
-#   weak_peak DISABLED — time cuts pre-empt the thesis (v1.6 decision)
-#   dead_weight 480m — one full funding cycle (8h); cuts trades that get no funding payment
-#   phase1 max_loss 30% / retrace 10 / 1-breach — 10% price buffer at 3x for funding-induced spikes
+#   hard_timeout OFF — a clock knows nothing about the trade: of 142 clock closes across the fleet
+#     in one week, 110 (77.5%) were in profit when the clock cut them. The ladder and stop decide.
+#   weak_peak DISABLED — funding fade takes 24-48h (v1.6 decision, unchanged)
+#   dead_weight OFF — same reason as hard_timeout
+#   phase1 max_loss 10% ROE = 3.33% of price at 3x / retrace inert / 1-breach
+#   NOTE: this ladder is deliberately NOT penguin's. Penguin's rungs are calibrated on the 4h
+#     leaderboard universe (median favourable peak 0.84% of price); pangolin draws a different
+#     universe from market_list_instruments whose own measured peaks are median 0.57% / p75 3.51%,
+#     so porting penguin's 0.60%-of-price rung 0 here would arm on noise and scratch the runners.
 #   phase2 ladder T0 8/50 (FIRST LOCK reachable at ~2.7% price move at 3x), 16/65, 30/85, 50/92
 exit:
   engine: dsl
@@ -116,14 +121,14 @@ exit:
     execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: true
+      enabled: false                       # #819b: clock cuts winners (110/142 in profit)
       interval_in_minutes: 720               # 12h fail-safe
     weak_peak_cut:
       enabled: false                         # v1.6 disabled — funding fade takes 24-48h
       interval_in_minutes: 180
       min_value: 2.0
     dead_weight_cut:
-      enabled: true
+      enabled: false                       # #819b: a clock knows nothing about the trade
       interval_in_minutes: 480               # 8h = one full funding cycle
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable

@@ -1,7 +1,7 @@
 # ── RAPTOR · single instance — hot-streak follower (Runtime 3.0 port of v2 Raptor v4.0.0) ──
 name: raptor-main
 group: raptor
-version: 3.1.0
+version: 3.2.0
 description: >
   RAPTOR — quality-first hot-streak follower. Pulls ELITE/RELIABLE traders winning the
   WEEKLY window (discovery_get_top_traders, unrealized >= $500k), isolates each one's
@@ -9,9 +9,8 @@ description: >
   which side the last four hours' winners sit on; >= 2% of top-trader gain, >= 10
   traders), applies whale
   entry-price discipline (skip if price already ran > 5% past the whale's entry in the
-  whale's favor), scores, and follows ONLY the single best candidate. Conviction-tiered
-  leverage: 7x base, 8x at score >= 8, 10x apex at >= 10; conviction-scaled margin (25%
-  base, 35% at score >= 10). Derived universe (XYZ banned). Faithful port of the v2
+  whale's favor), scores, and follows ONLY the single best candidate. Flat 10x leverage with
+  conviction sized in margin (17.5% base, 20% at score >= 8, 35% at >= 10). Derived universe (XYZ banned). Faithful port of the v2
   producer thesis — scoring reproduced verbatim.
 
 strategy:
@@ -138,18 +137,20 @@ exit:
       # max_loss_pct := the old retrace (10.0% ROE), which is what the trail was already
       # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
       enabled: false
-      max_loss_pct: 10.0   # was 25.0 — set to the old retrace so the risk cap is unchanged
+      max_loss_pct: 15   # 1.5% of price at 10x — was 10.0 ROE (=1.00% px), inside the measured 1.38% p75 bounce
       retrace_threshold: 10
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 8,  lock_hw_pct: 25 }   # first lock reachable at +8%
-        - { trigger_pct: 15, lock_hw_pct: 50 }
-        - { trigger_pct: 25, lock_hw_pct: 65 }
-        - { trigger_pct: 40, lock_hw_pct: 80 }
-        - { trigger_pct: 60, lock_hw_pct: 88 }
-
+        - { trigger_pct: 6,     lock_hw_pct: 30 }   # 0.6% of price   <- LOSS REDUCER
+        - { trigger_pct: 20,    lock_hw_pct: 40 }   # 2% of price
+        - { trigger_pct: 25,    lock_hw_pct: 50 }   # 2.5% of price
+        - { trigger_pct: 30,    lock_hw_pct: 60 }   # 3% of price
+        - { trigger_pct: 40,    lock_hw_pct: 65 }   # 4% of price
+        - { trigger_pct: 50,    lock_hw_pct: 70 }   # 5% of price
+        - { trigger_pct: 70,    lock_hw_pct: 75 }   # 7% of price
+        - { trigger_pct: 100,   lock_hw_pct: 85 }   # 10% of price
 risk:
   guard_rails:
     daily_loss_limit_pct: 15

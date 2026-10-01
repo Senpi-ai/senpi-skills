@@ -1,14 +1,14 @@
 # ── OWL · single instance — Pure Contrarian Crowding-Unwind Hunter (Runtime 3.0 port of v2 OWL v8.0.1) ──
 name: owl-main
 group: owl
-version: 3.1.0
+version: 3.2.0
 description: >
   OWL — pure contrarian crowding-unwind hunter. Scans EVERY liquid HL crypto perp
   (OI > $3M, no top-N truncation; XYZ banned) for one-sided crowding (extreme funding +
   the last four hours' winners lopsided to one side + concentrated OI), waits for crowding to PERSIST >=1h AND for
   exhaustion confluence to fire (volume declining, price stalling vs the crowd, capitulation
-  wick, 4h RSI divergence), then fades the crowd. Combined score >=12 to fire; conviction-
-  scaled leverage (7/8/10 by score) at 25% margin. MACRO_TREND_GATE blocks all fades when
+  wick, 4h RSI divergence), then fades the crowd. Combined score >=12 to fire; flat 8x leverage
+  with conviction sized in margin (21.9 / 25 / 31.2% by score). MACRO_TREND_GATE blocks all fades when
   |BTC 4h move| > 3% (mean reversion fails in trending regimes). One emit/tick; the runtime
   sizes, owns cooldowns/risk gates/slots, and trails the DSL exit. Faithful port of the v2
   producer thesis (frozen at v7.1). NOTE: XYZ is filtered by the 'XYZ:' name prefix (the live
@@ -47,7 +47,8 @@ scanners:
       macroGateBtc4hPct: 3.0                # v2 MACRO_GATE_BTC_4H_PCT (v7.1)
       assetCooldownMinutes: 360             # v2 ASSET_COOLDOWN_MINUTES — 6h post-emit per-asset cooldown
       marginPct: 25                         # PERCENT of withdrawable (0,100]; v2 MARGIN_PCT 0.25 (fraction) x100
-      # leverageTiers: per-score [min_score, leverage]; omit -> scoring defaults (7/8/10 by score)
+      # leverageTiers: per-score [min_score, leverage, marginPct]. Leverage is FLAT 8x — one ROE
+      # ladder can only be correct for one leverage — and conviction is sized in marginPct.
       # [min_score, leverage, marginPct]. Leverage FLATTENED to 8x and conviction
       # scaled through margin instead. Exposure per tier is UNCHANGED — each row is the old
       # leverage x the old flat marginPct, re-expressed at 8x.
@@ -112,7 +113,7 @@ exit:
     execution_timeout_seconds: 60           # v2 exit execution_timeout_seconds
   dsl_preset:
     hard_timeout:
-      enabled: true
+      enabled: false                       # #819b: clock cuts winners (110/142 in profit)
       interval_in_minutes: 480              # 8h max — contrarian thesis unwind window
     weak_peak_cut:
       # DISABLED - this cut closes at MARKET at whatever price is there, with no floor, so on a
@@ -123,7 +124,7 @@ exit:
       interval_in_minutes: 120
       min_value: 2.0                        # peak ROE floor; below this in 2h = thesis failed
     dead_weight_cut:
-      enabled: true
+      enabled: false                       # #819b: a clock knows nothing about the trade
       interval_in_minutes: 30               # v6.0 Lemon-pattern fast loser cut
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable
@@ -132,24 +133,25 @@ exit:
       # max_loss_pct := the old retrace (8.0% ROE), which is what the trail was already
       # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
       enabled: false
-      max_loss_pct: 8.0   # was 35.0 — set to the old retrace so the risk cap is unchanged
+      max_loss_pct: 12   # 1.5% of price at 8x — was 8.0 ROE (=1.00% px), inside the measured 1.38% p75 bounce
       retrace_threshold: 8                   # v2 dsl_preset block value (NOT the "15" in the prose)
       consecutive_breaches_required: 1       # v2 dsl_preset block value (NOT the "3" in the prose)
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 5,  lock_hw_pct: 20 }   # v6.0 first-leg capture (Lemon-pattern). REACHABLE.
-        - { trigger_pct: 10, lock_hw_pct: 35 }
-        - { trigger_pct: 20, lock_hw_pct: 50 }
-        - { trigger_pct: 35, lock_hw_pct: 65 }
-        - { trigger_pct: 50, lock_hw_pct: 78 }
-        - { trigger_pct: 75, lock_hw_pct: 88 }   # rare but happens — full unwind cascade
-
 # RISK GUARDRAILS — declarative; runtime enforces. v2 risk fields converted to seconds.
 # The producer's PnL-aware dynamic daily cap + post-loss asset cooldown were defense-in-depth;
 # the runtime guard_rails now own enforcement (per v2 config _runtime_owns). The scanner ALSO
 # keeps a per-asset emit cooldown in ctx.state (belt-and-suspenders) and the crowding-
 # persistence ledger that gates the thesis.
+        - { trigger_pct: 4.8,   lock_hw_pct: 30 }   # 0.6% of price   <- LOSS REDUCER
+        - { trigger_pct: 16,    lock_hw_pct: 40 }   # 2% of price
+        - { trigger_pct: 20,    lock_hw_pct: 50 }   # 2.5% of price
+        - { trigger_pct: 24,    lock_hw_pct: 60 }   # 3% of price
+        - { trigger_pct: 32,    lock_hw_pct: 65 }   # 4% of price
+        - { trigger_pct: 40,    lock_hw_pct: 70 }   # 5% of price
+        - { trigger_pct: 56,    lock_hw_pct: 75 }   # 7% of price
+        - { trigger_pct: 80,    lock_hw_pct: 85 }   # 10% of price
 risk:
   data_retention_seconds: 259200            # v2 data_retention_hours 72 -> 72*3600
   guard_rails:

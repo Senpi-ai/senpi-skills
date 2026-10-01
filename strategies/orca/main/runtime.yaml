@@ -9,7 +9,7 @@
 # (math reproduced verbatim, v2-quirks flagged).
 name: orca-main
 group: orca
-version: 3.3.0
+version: 3.4.0
 description: >
   ORCA — Gen-1 Vanilla Striker. Universe rank-jump sniper: scans the top-50 rows of the 4h
   leaderboard (leaderboard_get_markets — a momentum read of who is winning right now, not a
@@ -102,8 +102,11 @@ actions:
 # v2 v4.0.1 "let winners run" ladder. Phase 2 FIRST lock is REACHABLE at +10% (lock 0)
 # — let a +10% mover retrace fully before any profit lock so the rare +50-100% trend
 # isn't capped (the HYPE post-mortem migrated Orca to the Bison ladder). Phase 1
-# max_loss 20%, retrace 8 (raised 3->8 in the 2026-05-21 HYPE post-mortem). Time cuts
-# preserved verbatim from v2 (hard_timeout 45m, weak_peak_cut 25m/3.0, dead_weight 15m).
+# max_loss is now 1.50% of PRICE (10.5% ROE at 7x) — penguin's measured stop. The old 8.0 ROE was
+# 1.14% of price, INSIDE the measured 1.38% p75 adverse bounce, so ordinary noise was taking it out.
+# Clock cuts OFF (hard_timeout, dead_weight): of 142 clock closes in a week, 110 (77.5%) were in
+# profit when the clock cut them. weak_peak_cut stays on at 300m/3.0 — min_value sits below rung 0,
+# so it can only ever bound a position that never armed a floor. retrace_threshold is inert.
 # order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen).
 exit:
   engine: dsl
@@ -114,14 +117,14 @@ exit:
     execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: true                         # v2: enabled, 45m
+      enabled: false                       # #819b: clock cuts winners (110/142 in profit)
       interval_in_minutes: 45
     weak_peak_cut:
       enabled: true                         # v2: enabled, 25m / min_value 3.0
-      interval_in_minutes: 25
+      interval_in_minutes: 300                 # penguin parity: a dead position gets 5h, not 25m
       min_value: 3.0
     dead_weight_cut:
-      enabled: true                         # v2: enabled, 15m
+      enabled: false                       # #819b: a clock knows nothing about the trade
       interval_in_minutes: 15
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
@@ -129,19 +132,21 @@ exit:
       # retrace (8% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
       # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
       enabled: false
-      max_loss_pct: 8.0   # was 20.0 — set to the old retrace so the risk cap is unchanged
+      max_loss_pct: 10.5   # 1.5% of price at 7x — was 8.0 ROE (=1.14% px), inside the measured 1.38% p75 bounce
       retrace_threshold: 8                   # v2: raised 3->8 (HYPE post-mortem) to give trends room
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:                                 # v2 v4.0.1 "let winners run" ladder (verbatim)
-        - { trigger_pct: 20,  lock_hw_pct: 25 }
-        - { trigger_pct: 30,  lock_hw_pct: 40 }
-        - { trigger_pct: 50,  lock_hw_pct: 60 }
-        - { trigger_pct: 75,  lock_hw_pct: 75 }
-        - { trigger_pct: 100, lock_hw_pct: 85 }
-
 # ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+        - { trigger_pct: 4.2,   lock_hw_pct: 30 }   # 0.6% of price   <- LOSS REDUCER
+        - { trigger_pct: 14,    lock_hw_pct: 40 }   # 2% of price
+        - { trigger_pct: 17.5,  lock_hw_pct: 50 }   # 2.5% of price
+        - { trigger_pct: 21,    lock_hw_pct: 60 }   # 3% of price
+        - { trigger_pct: 28,    lock_hw_pct: 65 }   # 4% of price
+        - { trigger_pct: 35,    lock_hw_pct: 70 }   # 5% of price
+        - { trigger_pct: 49,    lock_hw_pct: 75 }   # 7% of price
+        - { trigger_pct: 70,    lock_hw_pct: 85 }   # 10% of price
 risk:
   data_retention_seconds: 259200            # v2 data_retention_hours 72 -> 259200s (within [3600, 604800])
   guard_rails:

@@ -1,7 +1,7 @@
 # ── CONDOR · single instance — One Amazing Trade per Day (Runtime 3.0 port of v2 CONDOR v4.0.1) ──
 name: condor-main
 group: condor
-version: 3.3.0
+version: 3.4.0
 description: >
   CONDOR — multi-asset trend-continuation apex sniper ("One Amazing Trade per Day").
   Scans the top 50 HL crypto assets by 24h notional volume and fires ONLY when 4h +
@@ -47,7 +47,8 @@ scanners:
       minScore: 12                         # v2 MIN_SCORE (v3.4 calibration)
       marginPct: 20                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable.
                                            # Was 50: at 10x that is 5x the account in one position,
-                                           # so a -12% ROE stop costs 6% of equity per stop-out.
+                                           # so the -15% ROE stop would cost 7.5% of equity per
+                                           # stop-out. At 20% it is 2x the account and 3.0%.
       maxPositions: 1                      # "one amazing trade per day"
       # SM gates. `minSmConsensusPct: 70` used to live here and gated
       # `pct_of_top_traders_gain` — a share of TOTAL top-trader gain spread across the
@@ -145,19 +146,20 @@ exit:
       # max_loss_pct := the old retrace (12.0% ROE), which is what the trail was already
       # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
       enabled: false
-      max_loss_pct: 12.0   # was 20.0 — set to the old retrace so the risk cap is unchanged
+      max_loss_pct: 15   # 1.5% of price at 10x — was 12.0 ROE (=1.20% px), inside the measured 1.38% p75 bounce
       retrace_threshold: 12                # v2: raised 8 -> 12 (don't pre-exit the one amazing trade)
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 8,   lock_hw_pct: 30 }   # first lock reachable at +8% (Kodiak mid-beta Tier 1)
-        - { trigger_pct: 15,  lock_hw_pct: 50 }
-        - { trigger_pct: 25,  lock_hw_pct: 70 }   # Kodiak's #3 exit tier
-        - { trigger_pct: 40,  lock_hw_pct: 85 }   # Kodiak's #1/#2 exit tier
-        - { trigger_pct: 60,  lock_hw_pct: 90 }   # infinite trail
-        - { trigger_pct: 100, lock_hw_pct: 94 }   # monster winners
-
+        - { trigger_pct: 6,     lock_hw_pct: 30 }   # 0.6% of price   <- LOSS REDUCER
+        - { trigger_pct: 20,    lock_hw_pct: 40 }   # 2% of price
+        - { trigger_pct: 25,    lock_hw_pct: 50 }   # 2.5% of price
+        - { trigger_pct: 30,    lock_hw_pct: 60 }   # 3% of price
+        - { trigger_pct: 40,    lock_hw_pct: 65 }   # 4% of price
+        - { trigger_pct: 50,    lock_hw_pct: 70 }   # 5% of price
+        - { trigger_pct: 70,    lock_hw_pct: 75 }   # 7% of price
+        - { trigger_pct: 100,   lock_hw_pct: 85 }   # 10% of price
 risk:
   guard_rails:
     daily_loss_limit_pct: 15
