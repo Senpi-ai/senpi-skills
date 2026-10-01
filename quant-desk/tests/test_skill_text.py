@@ -61,13 +61,14 @@ def _markdown_files():
 
 # --- frontmatter -------------------------------------------------------------------------------
 
-def test_frontmatter_is_2_1_0_and_requires_the_runtime():
+def test_frontmatter_is_2_3_0_and_requires_the_runtime():
     """Still major 2: boxes gate skill majors on the runtime's manifest ceiling (quant-desk maxMajor 2),
-    so 2.x only lands where the runtime has the `senpi quant` verb. The Set stop loss doctrine is a minor:
-    on a runtime without the button its text never says `Set stop loss button:`, and rule 5 holds as before."""
+    so 2.x only lands where the runtime has the `senpi quant` verb. The Set stop loss doctrine (2.1), the
+    per-coin buttons, `No stop loss button:` list and report turn (2.2) and the trailing doctrine (2.3) are
+    minors: on a runtime without a marker its text never prints it, and rule 5 holds as before."""
     meta = yaml.safe_load(_frontmatter())
     assert meta["name"] == "quant-desk"
-    assert meta["metadata"]["version"] == "2.1.0", meta["metadata"]["version"]
+    assert meta["metadata"]["version"] == "2.3.0", meta["metadata"]["version"]
     assert "senpi-trading-runtime" in (meta["metadata"].get("requires") or []), meta["metadata"]
 
 
@@ -108,9 +109,16 @@ def test_no_absolute_skills_path():
         assert "/data/.openclaw" not in _read(path), os.path.relpath(path, SKILL_DIR)
 
 
-def test_under_250_lines():
+def test_under_259_lines():
+    """Raised from 249 to 255 in 2.2.0 for rule 5's per-coin buttons, No stop loss button list and report
+    turn: rule 5 is hot-path doctrine, so it stays here rather than moving to a reference. Raised to 257 in
+    2.3.0 for the trailing report turn (`Trailing stop set on <COIN>:`, and `arms at` = no stop yet): every
+    other sentence of rule 5 and **Trailing.** is pinned doctrine, so tightening could not free the two lines.
+    Raised to 258, still in 2.3.0, to split that turn into two cases (`Trailing stop set on <COIN>:` protected,
+    `Trailing stop waiting on <COIN>:` not a stop): the E2E agent called a waiting stop protected when one
+    sentence covered both. The new clause is already tightened; the rest of rule 5 is pinned."""
     n = len(_skill().splitlines())
-    assert n < 250, f"SKILL.md is {n} lines; the ceiling is 249"
+    assert n < 259, f"SKILL.md is {n} lines; the ceiling is 258"
 
 
 def test_refusal_codes_are_named():
@@ -181,7 +189,7 @@ def test_kept_doctrine_is_verbatim():
              "**Never a call to buy or sell a coin.**",
              "senpi cannot put a stop on a position held in the reader's own wallet except through the Set stop loss button.",
              "**name the naked positions and ask how you can help.**",
-             "As of 2026-09-28 that button's fixed stop loss is the only stop senpi offers on a custodied book — never promise trailing.",
+             "As of 2026-09-30 the button's fixed stop loss and, where the text offers it, its trailing stop are the only stops senpi offers on a custodied book.",
              "Never imply senpi holds or moves their funds.",
              'Never "report", "analyst", "bot", "AI assistant".',
              "**Your quant reads any book on Hyperliquid, not just yours.**",
@@ -389,23 +397,149 @@ def test_book_limit_is_25():
 def test_the_set_stop_loss_button_is_the_one_exception_to_custody_language():
     """The runtime's result text is the model's only view of the button (history strips the card
     payload): `Set stop loss button:` is the marker it prints, pinned by the runtime's widget test."""
-    _needles("**The one exception is the Set stop loss button:** when the card's result text lists "
-             "`Set stop loss button:` stop losses, the reader signs those stop losses in their own wallet — tell them to "
-             "use **Set stop loss** on the protect card, never say senpi cannot stop those positions, and never "
-             "describe a button on any other card or for any position it does not list.")
+    _needles("**The one exception is a Set stop loss button per coin:** each coin after "
+             "`Set stop loss button:` in the card's text has its own.",
+             "Never say senpi cannot stop a listed coin; never describe a button on another card or for "
+             "an unlisted coin.")
 
 
 def test_without_the_marker_the_old_custody_rule_holds():
-    _needles("or the card closed with no `Set stop loss button:` in its text, or the prose fallback): the desk "
-             "cannot stop them, so **name the naked positions and ask how you can help.**",
+    _needles("a card with no `Set stop loss button:` in its text, the prose fallback, or another coin with no button): "
+             "the desk cannot stop those coins, so **name the naked positions and ask how you can help.**",
              '"set it yourself on Hyperliquid" is the fact, not the offer.')
 
 
 def test_the_button_never_leaks_into_the_prose_fallback():
-    """The prose closing is the no-widget path: there is no card, so there is no button to name."""
+    """The prose closing is the no-widget path: there is no card, so there is no button to name. Its one
+    mention of the button is the condition that there is none."""
     closing = _flat(_skill()).split("## Mandatory closing")[1].split("## No address given")[0]
-    assert "Set stop" not in closing, closing
+    assert closing.count("Set stop") == 1, closing
+    assert "use **Set stop loss**" not in closing and "Set stop loss button:" not in closing, closing
     _needles("senpi cannot place a stop on a book the reader custodies")
+
+
+def test_rule_5_is_per_coin():
+    """Several positions can be naked at once: every coin with a button is named with its own button, every
+    coin without one is named with the runtime's reason and falls under Otherwise, and the model never
+    implies full cover while a coin has no button."""
+    _needles("per coin",
+             "Name **every** listed coin and point the reader to its **Set stop loss** button",
+             "they sign each in their own wallet, one at a time",
+             "Each coin after `No stop loss button:` has none: name it with its reason; it follows Otherwise",
+             "Never imply full cover while a coin has no button",
+             "a naked coin in neither list follows Otherwise",
+             "**Otherwise, per coin**")
+    flat = _flat(_skill())
+    for singular in ("never say senpi cannot stop those positions", "for any position it does not list",
+                     "A naked position it does not list follows Otherwise."):
+        assert singular not in flat, singular
+
+
+def test_a_strategy_wallet_coin_is_never_sent_to_set_it_themselves():
+    """The runtime's `strategy_wallet` / `book_run` copy both start "a senpi strategy wallet": senpi custodies
+    that wallet, so the reader cannot sign a stop for it and Otherwise's "set it yourself" would be false.
+    The audit found it at risk, so it is never called protected either."""
+    _needles("unless its reason is a senpi strategy wallet: only its senpi runtime can place that stop, so never "
+             "tell them to set it or call it protected; suggest checking that strategy.")
+
+
+def test_rule_5_has_the_report_turn():
+    """The web sends `Stop loss set on <COIN> @ $<px> (engine suggested $<px>) — still waiting: A, B` after
+    each placed stop, one turn each; the placed price can differ from the engine's suggestion."""
+    _needles("**`Stop loss set on <COIN> @ $<px>` is a placed stop:**",
+             "confirm that coin is protected at the placed price, not the suggested one",
+             "name as unprotected its `still waiting:` coins (none if absent), each still with its Set stop loss "
+             "button, and the `No stop loss button:` coins.",
+             "One short answer per report, no `show_widget`, no re-run;",
+             "a re-check they ask for is `--fresh`")
+
+
+def test_rule_5_has_the_trailing_report_turn():
+    """Web sends a trailing report through the same queue as the fixed report, in one of two shapes.
+    `Trailing stop set on <COIN>:` is an active trailing stop: protected, with a moving trigger.
+    `Trailing stop waiting on <COIN>:` has not armed: the coin has no stop at all until the price reaches its
+    start price. The 2026-10-01 E2E agent, given one sentence for both, called a waiting coin protected and
+    said all positions had stops, so the two are separate sentences and the waiting one is never protection."""
+    _needles("**`Trailing stop set on <COIN>:` is a placed, active trailing stop:** that coin is protected; its "
+             "trigger moves, so never promise a fixed level or state its retracement.",
+             "**`Trailing stop waiting on <COIN>:` is not a stop yet:** the coin has no stop until the price "
+             "reaches the named price; list it with the unprotected coins, say so in one line, never call it "
+             "protected, and never say all positions have stops while one waits.",
+             "For each report, name as unprotected its `still waiting:` coins")
+    flat = _flat(_skill())
+    assert "arms at $<px>" not in flat, "rule 5 still keys the waiting case on the old `arms at` wording"
+    assert "So is `Trailing stop set on" not in flat, "rule 5 still folds the trailing report into the fixed one"
+
+
+def test_prose_fallback_is_conditioned_on_no_card():
+    _needles("With no card there is no Set stop loss button, so per rule 5 senpi cannot place a stop on a book "
+             "the reader custodies: they set it on Hyperliquid themselves.")
+    assert "Per rule 5, senpi cannot place a stop" not in _flat(_skill())
+
+
+RUNTIME_WIDGET = os.path.join("src", "widgets", "widgets", "quant-desk-recommendations.ts")
+
+
+def _runtime_widget():
+    """A sibling runtime checkout, when there is one (SENPI_RUNTIME_DIR, or ../senpi-trading-runtime)."""
+    roots = [os.environ.get("SENPI_RUNTIME_DIR"),
+             os.path.join(SKILL_DIR, "..", "..", "senpi-trading-runtime")]
+    for root in filter(None, roots):
+        path = os.path.join(root, RUNTIME_WIDGET)
+        if os.path.exists(path):
+            return _read(path)
+    return None
+
+
+def test_markers_match_the_runtime():
+    """The two result-text markers are a cross-repo contract: the runtime widget prints them, rule 5 reads them."""
+    text = _skill()
+    for marker in ("`Set stop loss button:`", "`No stop loss button:`", "`Stop loss set on "):
+        assert marker in text, marker
+    widget = _runtime_widget()
+    if widget is None:
+        import pytest
+        pytest.skip("no sibling senpi-trading-runtime checkout")
+    for const, marker in (("SET_STOP_LOSS_MARKER", "Set stop loss button:"),
+                          ("NO_STOP_LOSS_MARKER", "No stop loss button:")):
+        m = re.search(const + r'\s*=\s*"([^"]+)"', widget)
+        assert m, f"{const} not found in the runtime widget"
+        assert m.group(1) == marker, (const, m.group(1))
+
+
+WEB_REPORT = os.path.join("src", "screens", "Chat", "tools", "ShowWidget", "widgets",
+                          "QuantDeskRecommendations", "report.ts")
+
+
+def test_report_text_matches_the_web():
+    """The report turn keys on web's messages: `Stop loss set on <COIN> @ $<px> …`, `Trailing stop set on <COIN>: …`
+    once active or `Trailing stop waiting on <COIN>: no stop until the price reaches $<px>; …` before it arms
+    (stopLossCopy.ts trailingReportLine), plus ` — still waiting: A, B`."""
+    _needles("`Stop loss set on <COIN> @ $<px>`", "`still waiting:`")
+    roots = [os.environ.get("SENPI_WEB_DIR"), os.path.join(SKILL_DIR, "..", "..", "senpi-web")]
+    path = next((os.path.join(r, WEB_REPORT) for r in filter(None, roots)
+                 if os.path.exists(os.path.join(r, WEB_REPORT))), None)
+    if path is None:
+        import pytest
+        pytest.skip("no sibling senpi-web checkout")
+    report = _read(path)
+    m = re.search(r"`Stop loss set on \$\{coin\} @ \$", report)
+    assert m, "web's report message no longer starts `Stop loss set on ${coin} @ $`"
+    m = re.search(r'STILL_WAITING_SEPARATOR\s*=\s*"([^"]+)"', report)
+    assert m, "STILL_WAITING_SEPARATOR not found in web's report.ts"
+    assert m.group(1) == " — still waiting: ", m.group(1)
+    copy_path = os.path.join(os.path.dirname(path), "stopLossCopy.ts")
+    assert os.path.exists(copy_path), "web's stopLossCopy.ts not found next to report.ts"
+    copy = _read(copy_path)
+    _needles("`Trailing stop set on <COIN>:`", "`Trailing stop waiting on <COIN>:`")
+    assert "trailingReportLine(result)" in report, "web's trailing report no longer builds on trailingReportLine"
+    m = re.search(r"export function trailingReportLine\(.*?\n\}", copy, re.S)
+    assert m, "trailingReportLine not found in web's stopLossCopy.ts"
+    line = m.group(0)
+    assert "`Trailing stop set on ${result.coin}: " in line, \
+        "web's active trailing line no longer starts `Trailing stop set on ${result.coin}: `"
+    assert "`Trailing stop waiting on ${result.coin}: no stop until the price reaches $" in line, \
+        "web's waiting trailing line no longer starts `Trailing stop waiting on ${result.coin}: no stop until ...`"
 
 
 def test_the_custody_limit_waits_for_the_card():
@@ -416,13 +550,53 @@ def test_the_custody_limit_waits_for_the_card():
 
 
 def test_positions_the_marker_does_not_list_follow_otherwise():
-    _needles("A naked position it does not list follows Otherwise.")
+    _needles("a naked coin in neither list follows Otherwise.")
 
 
 def test_a_lone_protection_section_follows_otherwise():
     """`run 0x… --section protection` ("am I protected?") ends without a closing card, so it can never
     carry the marker and never reaches "the end of the desk": it must fall under Otherwise, not hang
     on the hold clause."""
-    _needles("Otherwise (a desk with no closing card — a one-question run — or the card closed with no "
-             "`Set stop loss button:` in its text, or the prose fallback): the desk cannot stop them",
+    _needles("**Otherwise, per coin** (a desk with no closing card — a one-question run — a card with no "
+             "`Set stop loss button:` in its text, the prose fallback, or another coin with no button): the desk "
+             "cannot stop those coins",
              "`run 0x… --section protection`")
+
+
+# --- the trailing stop on the Set stop loss button ------------------------------------------------
+
+def test_trailing_is_mentioned_only_where_the_result_text_offers_it():
+    """`Trailing stop offered:` is the runtime's marker (quant-desk-recommendations.ts
+    TRAILING_OFFERED_MARKER): the model sees no other evidence that the button can trail."""
+    _needles("**Trailing.** When the card's result text carries `Set stop loss button:` and also "
+             "`Trailing stop offered:`, the same button can place a "
+             "trailing stop instead of the fixed one, for the coins the trailing line lists and no others.",
+             "When you mention it, say it trails on Hyperliquid from the price when the order lands, or from a start "
+             "price the reader sets (the position has no stop at all until then).")
+
+
+def test_a_start_price_leaves_the_position_with_no_stop():
+    """The trailing stop is placed instead of the fixed one, so with a start price nothing protects the
+    position until that price is reached (the runtime's own confirm text says so). "No protection from
+    it" read as if another stop still covered the position."""
+    _needles("from a start price the reader sets (the position has no stop at all until then)")
+    assert "no protection from it" not in _flat(_skill())
+
+
+def test_trailing_is_never_oversold():
+    _needles("It is not the desk's trailing lock: never attach a leak's figure or settings to it, and never state its "
+             "retracement — the confirm step shows it.",
+             "Never say it follows the position's size, never say senpi moves or manages it, and never offer it on "
+             "any other card.",
+             "Without the trailing line, never say the button can place a trailing stop.")
+
+
+def test_the_old_blanket_ban_on_trailing_is_gone():
+    assert "never promise trailing" not in _flat(_skill())
+
+
+def test_the_trailing_rule_binds_the_button_not_the_word():
+    """Rule 3b relays the desk's leaks headline verbatim, and that headline names a trailing stop as a
+    counterfactual: a ban on the word would forbid the relay. Only the claim about the button is gated."""
+    _needles("a trailing stop that arms at +3% and keeps 50% of the peak")
+    assert "do not mention trailing at all" not in _flat(_skill())
