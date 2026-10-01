@@ -115,21 +115,23 @@ when to run it, whose book, in which voice, and what to say about the numbers.
    own-book desk's closing, never state that limit:** at stage 2 and at an early *protect* follow-up, name the naked
    positions and say the next steps follow at the end of the desk.
    **The one exception is a Set stop loss button per coin:** each coin after `Set stop loss button:` in the card's text
-   has its own. Name **every** listed coin and point the reader to its **Set stop loss** button; they sign each in
-   their own wallet, one at a time. Never say senpi cannot stop a listed coin; never describe a button on another card
-   or for an unlisted coin. Each coin after `No stop loss button:` has none: name it with its reason; it follows
-   Otherwise — unless its reason is a senpi strategy wallet: only its senpi runtime can place that stop, so never tell
-   them to set it or call it protected; suggest checking that strategy. Never imply full cover while a coin has no
-   button; a naked coin in neither list follows Otherwise.
-   **`Stop loss set on <COIN> @ $<px>` is a placed stop:** confirm that coin is protected at the placed price, not the
-   suggested one; name as unprotected its `still waiting:` coins (none if absent), each still with its Set stop loss
-   button, and the `No stop loss button:` coins. One short answer per report, no `show_widget`, no re-run; a re-check
-   they ask for is `--fresh`. **Otherwise, per coin** (a desk with no closing card — a one-question run — a card with
-   no `Set stop loss button:` in its text, the prose fallback, or another coin with no button): the desk cannot stop
-   those coins, so **name the naked positions and ask how you can help.** Never call protection on their own positions
-   "a signature", "one click", or something senpi will do — not in the future tense either, and no homework: "set it
-   yourself on Hyperliquid" is the fact, not the offer. Senpi's protection is for strategies senpi runs; funding a
-   quant is only for autonomous trading. Never imply senpi holds or moves their funds.
+   has its own. Name **every** listed coin and point the reader to its **Set stop loss** button; they sign each in their
+   own wallet, one at a time. Never say senpi cannot stop a listed coin; never describe a button on another card or for
+   an unlisted coin. Each coin after `No stop loss button:` has none: name it with its reason; it follows Otherwise —
+   unless its reason is a senpi strategy wallet: only its senpi runtime can place that stop, so never tell them to set
+   it or call it protected; suggest checking that strategy. Never imply full cover while a coin has no button; a naked
+   coin in neither list follows Otherwise. **`Stop loss set on <COIN> @ $<px>` is a placed stop:** confirm that coin is
+   protected at the placed price, not the suggested one. **So is `Trailing stop set on <COIN>:`**: a trailing stop
+   protects that coin and its trigger moves, so never promise a fixed level or restate its retracement; if it says `arms
+   at $<px>`, the coin has no stop until the price reaches $<px> — say so in one line, never call it protected yet. For
+   either, name as unprotected its `still waiting:` coins (none if absent), each still with its Set stop loss button,
+   and the `No stop loss button:` coins. One short answer per report, no `show_widget`, no re-run; a re-check they ask
+   for is `--fresh`. **Otherwise, per coin** (a desk with no closing card — a one-question run — a card with no `Set
+   stop loss button:` in its text, the prose fallback, or another coin with no button): the desk cannot stop those
+   coins, so **name the naked positions and ask how you can help.** Never call protection on their own positions "a
+   signature", "one click", or something senpi will do — not in the future tense either, and no homework: "set it
+   yourself on Hyperliquid" is the fact, not the offer. Senpi's protection is for strategies senpi runs; funding a quant
+   is only for autonomous trading. Never imply senpi holds or moves their funds.
 
    **Trailing.** When the card's result text carries `Set stop loss button:` and also `Trailing stop offered:`, the same button can place a trailing
    stop instead of the fixed one, for the coins the trailing line lists and no others. When you mention it, say it trails on Hyperliquid from the price

@@ -109,11 +109,13 @@ def test_no_absolute_skills_path():
         assert "/data/.openclaw" not in _read(path), os.path.relpath(path, SKILL_DIR)
 
 
-def test_under_256_lines():
+def test_under_258_lines():
     """Raised from 249 to 255 in 2.2.0 for rule 5's per-coin buttons, No stop loss button list and report
-    turn: rule 5 is hot-path doctrine, so it stays here rather than moving to a reference."""
+    turn: rule 5 is hot-path doctrine, so it stays here rather than moving to a reference. Raised to 257 in
+    2.3.0 for the trailing report turn (`Trailing stop set on <COIN>:`, and `arms at` = no stop yet): every
+    other sentence of rule 5 and **Trailing.** is pinned doctrine, so tightening could not free the two lines."""
     n = len(_skill().splitlines())
-    assert n < 256, f"SKILL.md is {n} lines; the ceiling is 255"
+    assert n < 258, f"SKILL.md is {n} lines; the ceiling is 257"
 
 
 def test_refusal_codes_are_named():
@@ -449,6 +451,17 @@ def test_rule_5_has_the_report_turn():
              "a re-check they ask for is `--fresh`")
 
 
+def test_rule_5_has_the_trailing_report_turn():
+    """Web sends `Trailing stop set on <COIN>: …` through the same queue as the fixed report. It is a placed
+    stop, handled the same way, but while it says `arms at $<px>` the coin has no stop at all: the trailing
+    stop replaced the fixed one, and it protects nothing until the price reaches its start price."""
+    _needles("**So is `Trailing stop set on <COIN>:`**: a trailing stop protects that coin and its trigger moves, "
+             "so never promise a fixed level or restate its retracement;",
+             "if it says `arms at $<px>`, the coin has no stop until the price reaches $<px> — say so in one line, "
+             "never call it protected yet.",
+             "For either, name as unprotected its `still waiting:` coins")
+
+
 def test_prose_fallback_is_conditioned_on_no_card():
     _needles("With no card there is no Set stop loss button, so per rule 5 senpi cannot place a stop on a book "
              "the reader custodies: they set it on Hyperliquid themselves.")
@@ -490,7 +503,8 @@ WEB_REPORT = os.path.join("src", "screens", "Chat", "tools", "ShowWidget", "widg
 
 
 def test_report_text_matches_the_web():
-    """The report turn keys on web's message: `Stop loss set on <COIN> @ $<px> …` plus ` — still waiting: A, B`."""
+    """The report turn keys on web's messages: `Stop loss set on <COIN> @ $<px> …` or `Trailing stop set on <COIN>: …`
+    (`arms at $<px>` while it waits; stopLossCopy.ts trailingDoneLine), plus ` — still waiting: A, B`."""
     _needles("`Stop loss set on <COIN> @ $<px>`", "`still waiting:`")
     roots = [os.environ.get("SENPI_WEB_DIR"), os.path.join(SKILL_DIR, "..", "..", "senpi-web")]
     path = next((os.path.join(r, WEB_REPORT) for r in filter(None, roots)
@@ -504,6 +518,15 @@ def test_report_text_matches_the_web():
     m = re.search(r'STILL_WAITING_SEPARATOR\s*=\s*"([^"]+)"', report)
     assert m, "STILL_WAITING_SEPARATOR not found in web's report.ts"
     assert m.group(1) == " — still waiting: ", m.group(1)
+    copy_path = os.path.join(os.path.dirname(path), "stopLossCopy.ts")
+    assert os.path.exists(copy_path), "web's stopLossCopy.ts not found next to report.ts"
+    copy = _read(copy_path)
+    _needles("`Trailing stop set on <COIN>:`", "`arms at $<px>`")
+    assert "trailingDoneLine(result)" in report, "web's trailing report no longer builds on trailingDoneLine"
+    assert re.search(r"`Trailing stop set on \$\{result\.coin\}: ", copy), \
+        "web's trailing line no longer starts `Trailing stop set on ${result.coin}: `"
+    assert re.search(r"`Trailing stop set on \$\{result\.coin\}: arms at \$\$\{result\.activationPx\}", copy), \
+        "web's waiting trailing line no longer says `arms at $${result.activationPx}`"
 
 
 def test_the_custody_limit_waits_for_the_card():
