@@ -93,8 +93,26 @@ def test_gold_resolves_from_gold_and_xauusd():
     assert ("class", "commodities") in discover._norm_assets("XAU", w)
 
 
+def test_fx_resolves_from_the_words_users_say():
+    for word in ("fx", "forex", "currencies", "dollar", "DXY", "eurusd"):
+        w = []
+        assert ("class", "fx") in discover._norm_assets(word, w), f"{word!r} did not resolve to fx"
+
+
+def test_every_catalog_asset_class_is_expressible():
+    # The catalog is generated from the templates; discover's vocabulary is hand-written.
+    # When they drift, the class silently stops being filterable and its domain goes empty
+    # (fx did: 7 templates declared it, no user word reached it).
+    declared = {c for r in _RECORDS for c in (r.get("asset_classes") or [])} - {"none"}
+    assert declared <= discover.CLASS_TAGS, f"catalog classes discover cannot express: {declared - discover.CLASS_TAGS}"
+    assert declared <= (discover.CRYPTO_CLASSES | discover.XYZ_CLASSES), \
+        f"catalog classes with no domain: {declared - (discover.CRYPTO_CLASSES | discover.XYZ_CLASSES)}"
+
+
 if __name__ == "__main__":
     test_each_new_strategy_ranks_top3_for_its_prompt()
     test_gecko_survives_any_named_asset()
     test_gold_resolves_from_gold_and_xauusd()
+    test_fx_resolves_from_the_words_users_say()
+    test_every_catalog_asset_class_is_expressible()
     print("ALL DISCOVERABILITY TESTS PASS")
