@@ -504,7 +504,7 @@ WEB_REPORT = os.path.join("src", "screens", "Chat", "tools", "ShowWidget", "widg
 
 def test_report_text_matches_the_web():
     """The report turn keys on web's messages: `Stop loss set on <COIN> @ $<px> …` or `Trailing stop set on <COIN>: …`
-    (`arms at $<px>` while it waits; stopLossCopy.ts trailingDoneLine), plus ` — still waiting: A, B`."""
+    (`arms at $<px>` while it waits; stopLossCopy.ts trailingReportLine), plus ` — still waiting: A, B`."""
     _needles("`Stop loss set on <COIN> @ $<px>`", "`still waiting:`")
     roots = [os.environ.get("SENPI_WEB_DIR"), os.path.join(SKILL_DIR, "..", "..", "senpi-web")]
     path = next((os.path.join(r, WEB_REPORT) for r in filter(None, roots)
@@ -522,7 +522,7 @@ def test_report_text_matches_the_web():
     assert os.path.exists(copy_path), "web's stopLossCopy.ts not found next to report.ts"
     copy = _read(copy_path)
     _needles("`Trailing stop set on <COIN>:`", "`arms at $<px>`")
-    assert "trailingDoneLine(result)" in report, "web's trailing report no longer builds on trailingDoneLine"
+    assert "trailingReportLine(result)" in report, "web's trailing report no longer builds on trailingReportLine"
     assert re.search(r"`Trailing stop set on \$\{result\.coin\}: ", copy), \
         "web's trailing line no longer starts `Trailing stop set on ${result.coin}: `"
     assert re.search(r"`Trailing stop set on \$\{result\.coin\}: arms at \$\$\{result\.activationPx\}", copy), \
