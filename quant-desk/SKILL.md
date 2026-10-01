@@ -43,7 +43,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.2.0"
+  version: "2.3.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -111,25 +111,31 @@ when to run it, whose book, in which voice, and what to say about the numbers.
 4. **Process only.** Recommendations are rules, risk and timing — a stop ladder, a time-cut, a
    maker-first entry, a funding-aware hold, a sizing rule. **Never a call to buy or sell a coin.**
 5. **Custody language.** The desk is read-only. `ratchet_stop_add` is keyed to a senpi strategy wallet, so senpi cannot
-   put a stop on a position held in the reader's own wallet except through the Set stop loss button. **Before an own-book
-   desk's closing, never state that limit:** at stage 2 and at an early *protect* follow-up, name the naked positions and
-   say the next steps follow at the end of the desk. **The one exception is the Set stop loss button:** when the card's
-   result text lists `Set stop loss button:` stop losses, the reader signs those stop losses in their own wallet — tell
-   them to use **Set stop loss** on the protect card, never say senpi cannot stop those positions, and never describe a
-   button on any other card or for any position it does not list. A naked position it does not list follows Otherwise.
-
-   Otherwise (a desk with no closing card — a one-question run — or the card closed with no `Set stop loss button:` in its
-   text, or the prose fallback): the desk cannot stop them, so **name the naked positions and ask how you can help.**
-   Never call protection on their own positions "a signature", "one click", or something senpi will do — not in the future
-   tense either, and no homework: "set it yourself on Hyperliquid" is the fact, not the offer. Senpi's protection is for
-   strategies senpi runs; funding a quant is only for autonomous trading. Never imply senpi holds or moves their funds.
+   put a stop on a position held in the reader's own wallet except through the Set stop loss button. **Before an
+   own-book desk's closing, never state that limit:** at stage 2 and at an early *protect* follow-up, name the naked
+   positions and say the next steps follow at the end of the desk.
+   **The one exception is a Set stop loss button per coin:** each coin after `Set stop loss button:` in the card's text
+   has its own. Name **every** listed coin and point the reader to its **Set stop loss** button; they sign each in
+   their own wallet, one at a time. Never say senpi cannot stop a listed coin; never describe a button on another card
+   or for an unlisted coin. Each coin after `No stop loss button:` has none: name it with its reason; it follows
+   Otherwise — unless its reason is a senpi strategy wallet: only its senpi runtime can place that stop, so never tell
+   them to set it or call it protected; suggest checking that strategy. Never imply full cover while a coin has no
+   button; a naked coin in neither list follows Otherwise.
+   **`Stop loss set on <COIN> @ $<px>` is a placed stop:** confirm that coin is protected at the placed price, not the
+   suggested one; name as unprotected its `still waiting:` coins (none if absent), each still with its Set stop loss
+   button, and the `No stop loss button:` coins. One short answer per report, no `show_widget`, no re-run; a re-check
+   they ask for is `--fresh`. **Otherwise, per coin** (a desk with no closing card — a one-question run — a card with
+   no `Set stop loss button:` in its text, the prose fallback, or another coin with no button): the desk cannot stop
+   those coins, so **name the naked positions and ask how you can help.** Never call protection on their own positions
+   "a signature", "one click", or something senpi will do — not in the future tense either, and no homework: "set it
+   yourself on Hyperliquid" is the fact, not the offer. Senpi's protection is for strategies senpi runs; funding a
+   quant is only for autonomous trading. Never imply senpi holds or moves their funds.
 
    **Trailing.** When the card's result text carries `Set stop loss button:` and also `Trailing stop offered:`, the same button can place a trailing
    stop instead of the fixed one, for the coins the trailing line lists and no others. When you mention it, say it trails on Hyperliquid from the price
    when the order lands, or from a start price the reader sets (the position has no stop at all until then). It is not the desk's trailing lock: never
    attach a leak's figure or settings to it, and never state its retracement — the confirm step shows it. Never say it follows the position's size,
    never say senpi moves or manages it, and never offer it on any other card. Without the trailing line, never say the button can place a trailing stop.
-
    > **Dated, revisit this.** As of 2026-09-30 the button's fixed stop loss and, where the text offers it, its trailing stop are the only stops senpi offers on a custodied book.
 6. **Say "quant", "desk", "agents", "leak", "protect".** Never "report", "analyst", "bot", "AI assistant".
    Lowercase `senpi`. No outcome guarantees. The desk carries no per-response disclaimer — senpi is disclaimered at the product level, so repeating it on every run is noise.
@@ -212,8 +218,8 @@ Own-book desks only; an `--other` desk has no card — close with rule 7's *what
 the steps and their figures; answer anything after it in text. If `show_widget` is not available in this host,
 relay the desk's next-steps section as prose (`show <runId> --section next`), in this structure:
 
-1. **Protect first** — name the AT RISK / UNPROTECTED positions and offer to help. Per rule 5, senpi
-   cannot place a stop on a book the reader custodies: they set it on Hyperliquid themselves.
+1. **Protect first** — name the AT RISK / UNPROTECTED positions and offer to help. With no card there is no Set stop
+   loss button, so per rule 5 senpi cannot place a stop on a book the reader custodies: they set it on Hyperliquid themselves.
 2. **Fix the biggest leak** — the top leak's title and its counterfactual $; the one-line fix.
 3. **Keep the agents on** — "say *hire my quant* and senpi runs this desk on your book — risk guard,
    smart money, market regime, leak finder — and can code your best setup into a strategy you approve,
