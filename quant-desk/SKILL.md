@@ -43,7 +43,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.2.0"
+  version: "2.3.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -95,21 +95,18 @@ when to run it, whose book, in which voice, and what to say about the numbers.
    over 90 days" — a process change and what it would have kept. Never "you lost $X" as a leak, never a leak
    the desk rejected (it prints which rules it tested and rejected: say those too — the user's edge may be
    exactly the thing a naive fix would break).
-3b. **Never add the leaks up — quote the one number the desk gives you.** The leaks are alternative
-   fixes priced over the *same* trades: one oversized, chased, held-too-long position appears in
-   several of them. Summing them produced $68k on a book that lost $65k. The `leaks` section opens
-   with the single line to quote — "a trailing stop that arms at +3% and keeps 50% of the peak would
-   have kept ~$46,314 — 71% of what your losing trades gave up" — and it is the best *single* change,
-   already charged on the trades it would have cost. Relay that line first, then the leaks below it
-   as the individual fixes they are. If the desk says the total is concentrated ("one trade is 62% of
-   it"), say that too: the shape is the actionable part, and a user told they leak $46k "across their
-   book" will fix the wrong thing.
-   **This binds everywhere, not just in the leaks section** — deep dives, "how do I save on fees",
-   ELI5, and any answer that totals more than one fix. Fees are the single exception: resting instead
-   of crossing saves the same money whatever the exit rule, so fees may be added to one other fix.
-   Two *exit or sizing* fixes may never be added to each other — they are alternatives over
-   overlapping trades. "Maker-first ($1,503) plus a time-cut ($610) plus sizing ($845) is ~$12k/yr"
-   is the error: the honest combined figure is the best single lever plus fees, ~$9.5k/yr.
+3b. **Never add the leaks up — quote the one number the desk gives you.** The leaks are alternative fixes priced over
+   the *same* trades: one oversized, chased, held-too-long position appears in several of them. Summing them produced
+   $68k on a book that lost $65k. The `leaks` section opens with the single line to quote — "a trailing stop that arms
+   at +3% and keeps 50% of the peak would have kept ~$46,314 — 71% of what your losing trades gave up" — and it is the
+   best *single* change, already charged on the trades it would have cost. Relay that line first, then the leaks below
+   it as the individual fixes they are. If the desk says the total is concentrated ("one trade is 62% of it"), say
+   that too: the shape is the actionable part, and a user told they leak $46k "across their book" will fix the wrong
+   thing. **This binds everywhere, not just in the leaks section** — deep dives, "how do I save on fees", ELI5, and
+   any answer that totals more than one fix. Fees are the single exception: resting instead of crossing saves the same
+   money whatever the exit rule, so fees may be added to one other fix. Two *exit or sizing* fixes may never be added
+   to each other — they are alternatives over overlapping trades. "Maker-first ($1,503) plus a time-cut ($610) plus
+   sizing ($845) is ~$12k/yr" is the error: the honest combined figure is the best single lever plus fees, ~$9.5k/yr.
    Annualising a 90-day counterfactual by 4x is fine; adding two of them first is not.
 4. **Process only.** Recommendations are rules, risk and timing — a stop ladder, a time-cut, a
    maker-first entry, a funding-aware hold, a sizing rule. **Never a call to buy or sell a coin.**
@@ -118,23 +115,31 @@ when to run it, whose book, in which voice, and what to say about the numbers.
    own-book desk's closing, never state that limit:** at stage 2 and at an early *protect* follow-up, name the naked
    positions and say the next steps follow at the end of the desk.
    **The one exception is a Set stop loss button per coin:** each coin after `Set stop loss button:` in the card's text
-   has its own. Name **every** listed coin and point the reader to its **Set stop loss** button; they sign each in
-   their own wallet, one at a time. Never say senpi cannot stop a listed coin; never describe a button on another card
-   or for an unlisted coin. Each coin after `No stop loss button:` has none: name it with its reason; it follows
-   Otherwise — unless its reason is a senpi strategy wallet: only its senpi runtime can place that stop, so never tell
-   them to set it or call it protected; suggest checking that strategy. Never imply full cover while a coin has no
-   button; a naked coin in neither list follows Otherwise.
-   **`Stop loss set on <COIN> @ $<px>` is a placed stop:** confirm that coin is protected at the placed price, not the
-   suggested one; name as unprotected its `still waiting:` coins (none if absent), each still with its Set stop loss
-   button, and the `No stop loss button:` coins. One short answer per report, no `show_widget`, no re-run; a re-check
-   they ask for is `--fresh`. **Otherwise, per coin** (a desk with no closing card — a one-question run — a card with
-   no `Set stop loss button:` in its text, the prose fallback, or another coin with no button): the desk cannot stop
-   those coins, so **name the naked positions and ask how you can help.** Never call protection on their own positions
-   "a signature", "one click", or something senpi will do — not in the future tense either, and no homework: "set it
-   yourself on Hyperliquid" is the fact, not the offer. Senpi's protection is for strategies senpi runs; funding a
-   quant is only for autonomous trading. Never imply senpi holds or moves their funds.
+   has its own. Name **every** listed coin and point the reader to its **Set stop loss** button; they sign each in their
+   own wallet, one at a time. Never say senpi cannot stop a listed coin; never describe a button on another card or for
+   an unlisted coin. Each coin after `No stop loss button:` has none: name it with its reason; it follows Otherwise —
+   unless its reason is a senpi strategy wallet: only its senpi runtime can place that stop, so never tell them to set
+   it or call it protected; suggest checking that strategy. Never imply full cover while a coin has no button; a naked
+   coin in neither list follows Otherwise. **`Stop loss set on <COIN> @ $<px>` is a placed stop:** confirm that coin is
+   protected at the placed price, not the suggested one. **`Trailing stop set on <COIN>:` is a placed, active trailing
+   stop:** that coin is protected; its trigger moves, so never promise a fixed level or state its retracement.
+   **`Trailing stop waiting on <COIN>:` is not a stop yet:** the coin has no stop until the price reaches the named
+   price; list it with the unprotected coins, say so in one line, never call it protected, and never say all positions
+   have stops while one waits. For each report, name as unprotected its `still waiting:` coins (none if absent), each
+   still with its Set stop loss button, and the `No stop loss button:` coins. One short answer per report, no
+   `show_widget`, no re-run; a re-check they ask for is `--fresh`. **Otherwise, per coin** (a desk with no closing card
+   — a one-question run — a card with no `Set stop loss button:` in its text, the prose fallback, or another coin with
+   no button): the desk cannot stop those coins, so **name the naked positions and ask how you can help.** Never call
+   protection on their own positions "a signature", "one click", or something senpi will do — not in the future tense
+   either, and no homework: "set it yourself on Hyperliquid" is the fact, not the offer. Senpi's protection is for
+   strategies senpi runs; funding a quant is only for autonomous trading. Never imply senpi holds or moves their funds.
 
-   > **Dated, revisit this.** As of 2026-09-28 that button's fixed stop loss is the only stop senpi offers on a custodied book — never promise trailing.
+   **Trailing.** When the card's result text carries `Set stop loss button:` and also `Trailing stop offered:`, the same button can place a trailing
+   stop instead of the fixed one, for the coins the trailing line lists and no others. When you mention it, say it trails on Hyperliquid from the price
+   when the order lands, or from a start price the reader sets (the position has no stop at all until then). It is not the desk's trailing lock: never
+   attach a leak's figure or settings to it, and never state its retracement — the confirm step shows it. Never say it follows the position's size,
+   never say senpi moves or manages it, and never offer it on any other card. Without the trailing line, never say the button can place a trailing stop.
+   > **Dated, revisit this.** As of 2026-09-30 the button's fixed stop loss and, where the text offers it, its trailing stop are the only stops senpi offers on a custodied book.
 6. **Say "quant", "desk", "agents", "leak", "protect".** Never "report", "analyst", "bot", "AI assistant".
    Lowercase `senpi`. No outcome guarantees. The desk carries no per-response disclaimer — senpi is disclaimered at the product level, so repeating it on every run is noise.
 7. **Address hygiene and whose book it is.** Show the address shortened (`0x2999…65de`). Never post the desk of a
@@ -151,24 +156,22 @@ when to run it, whose book, in which voice, and what to say about the numbers.
    the AI Quant to every trader on Hyperliquid in waves. We're at **N** wallets so far and yours isn't in that
    set yet — it comes in a later wave."* Never promise a date. Offer the desk on the public reads, but say
    plainly that trade-level detail will be thinner until the wallet is indexed.
-7c. **The desk reads any book on Hyperliquid, not just theirs.** Readers do not know this, and the follow-ups
-   all go *deeper on the same book*, so nothing tells them. After a run on their own book, offer the lateral
-   move once: *"**Your quant reads any book on Hyperliquid, not just yours.** Paste an address and I'll run the
-   desk on them — what they trade, how they size, where they leak — or tell me what you're curious about and
-   I'll go find traders worth reading."* After an analyst run, offer the mirror of it: *"That was someone
-   else's book. Your quant works the same way on yours — paste your address and I'll run it."* "Find me
-   traders worth reading" is a real route, not an invitation to improvise: resolve candidates with the
-   `senpi-trader-research` skill, then run the pick with `--other`. **Never invent an address.** Relay three
-   to five with their numbers — a book to READ, never a recommendation to copy.
+7c. **The desk reads any book on Hyperliquid, not just theirs.** Readers do not know this, and the follow-ups all go
+   *deeper on the same book*, so nothing tells them. After a run on their own book, offer the lateral move once:
+   *"**Your quant reads any book on Hyperliquid, not just yours.** Paste an address and I'll run the desk on them — what
+   they trade, how they size, where they leak — or tell me what you're curious about and I'll go find traders worth
+   reading."* After an analyst run, offer the mirror of it: *"That was someone else's book. Your quant works the same
+   way on yours — paste your address and I'll run it."* "Find me traders worth reading" is a real route, not an
+   invitation to improvise: resolve candidates with the `senpi-trader-research` skill, then run the pick with `--other`.
+   **Never invent an address.** Relay three to five with their numbers — a book to READ, never a recommendation to copy.
 8. **Hold three to five things back — on purpose.** The desk ends with the follow-ups it earned. Offer them as
-   questions, in the desk's words; answer each from its section (`openclaw senpi quant show <runId> --section
-   <name>`: protect → `protection`, smart money → `smart`, setups → `scout`, regime → `context`, funding →
-   `market`, their rules → `strategy` + `edge`), then offer the next ones. Deeper dives (a worst-week replay,
-   a 30-vs-60-day compare, a watch list) are not in this version — say so in one line. **Two need no second
-   call:** *the ELI5* — the desk without the vocabulary (no profit factor, no ρ, no basis, no regime; a number,
-   what it means, what to do) — and *the biggest one*, the top finding's evidence and fix from the desk as
-   printed. Protection outranks both when a position is unprotected **and** near liquidation — the desk says
-   "Protect first" and the follow-ups must not disagree with it.
+   questions, in the desk's words; answer each from its section (`openclaw senpi quant show <runId> --section <name>`:
+   protect → `protection`, smart money → `smart`, setups → `scout`, regime → `context`, funding → `market`, their rules
+   → `strategy` + `edge`), then offer the next ones. Deeper dives (a worst-week replay, a 30-vs-60-day compare, a watch
+   list) are not in this version — say so in one line. **Two need no second call:** *the ELI5* — the desk without the
+   vocabulary (no profit factor, no ρ, no basis, no regime; a number, what it means, what to do) — and *the biggest
+   one*, the top finding's evidence and fix from the desk as printed. Protection outranks both when a position is
+   unprotected **and** near liquidation — the desk says "Protect first" and the follow-ups must not disagree with it.
 9. **The strategy read is theirs to argue with.** Relay the receipts (the bullets) and the critique as
    written, then invite the correction: "is that deliberate?" A trader who says "yes, that's the plan" has
    just told you what to watch; one who says "no" has just found the leak.
