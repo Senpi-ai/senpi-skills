@@ -17,7 +17,7 @@ FIDELITY NOTES vs sheep-producer.py v1.0.1:
   - v2 DEFAULT_MARGIN_PCT / config marginPct was 0.20 (a FRACTION) * account_value
     -> marginUsd. This port carries marginPct=20 (a PERCENT) in runtime.yaml and
     emits a top-level `marginPct`; the runtime sizes (marginPct/100)*withdrawable.
-    A defensive guard converts a value <= 1.0 (an operator who pasted the v2
+    A defensive guard converts a value < 1.0 (an operator who pasted the v2
     fraction) to a PERCENT (*100) and logs it. FLAGGED.
   - v2 emitted exactly one signal (best, sorted by score then 4h spread). Preserved:
     scan() emits <= 1 signal/tick.
@@ -233,11 +233,11 @@ def scan(inputs, ctx):
     lev_default = int(inputs.get("leverage", _DEFAULT_LEVERAGE))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
 
-    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value <= 1.0
+    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value < 1.0
     # (an operator who pasted the v2 FRACTION 0.20) into a PERCENT so it never
     # silently sizes ~100x small (the runtime sizes (marginPct/100)*withdrawable).
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         print(f"[sheep.scan] marginPct={margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0

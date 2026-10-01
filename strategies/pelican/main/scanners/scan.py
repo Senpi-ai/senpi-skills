@@ -26,7 +26,7 @@ FIDELITY NOTES vs orca-producer.py v4.0.1:
     `strategy.margin_pct`, so the scanner inputs — not the strategy block — are what size
     the trade. The module defaults below mirror the shipped values so a missing `inputs:`
     cannot silently revert this template to Orca's sizing. marginPct is a PERCENT; the
-    dire/koala defensive "<=1.0 means a pasted v2 fraction -> x100" guard is included.
+    dire/koala defensive "<1.0 means a pasted v2 fraction -> x100" guard is included.
   - Leverage is still run through get_safe_leverage(wallet, asset, N) = min(N, venue_max)
     against strategy_get_asset_trading_limits (read-guarded; degrades to the default on a
     read failure, exactly as v2 did) — at N=10 rather than v2's 7. NOTE: with a single
@@ -326,11 +326,11 @@ def scan(inputs, ctx):
     per_asset_cooldown = float(inputs.get("perAssetCooldownSeconds", _DEFAULT_PER_ASSET_COOLDOWN))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
 
-    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value <= 1 (an
+    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value < 1 (an
     # operator who pasted the v2 FRACTION 0.18) into a PERCENT so it never silently sizes
     # ~100x small (resolve-margin sizes (marginPct/100)*withdrawable).
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         print(f"[pelican.scan] marginPct={margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0

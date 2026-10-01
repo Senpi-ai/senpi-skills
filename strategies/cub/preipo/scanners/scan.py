@@ -21,7 +21,7 @@ FIDELITY NOTES vs cub-producer.py v1.0.0 (CUB_LEG=preipo):
     (marginPct/100)*withdrawable. The budget-relative IPOP liquidity floor uses the FRACTION form
     (base_margin_pct/100) so it reproduces v2's exact threshold:
       min_day_vol = ipopLiqVolMultiple × (account_value × margin_frac × max_lev).
-    `<=1.0 means a pasted fraction -> x100` guard converts a fraction supplied via inputs.
+    `<1.0 means a pasted fraction -> x100` guard converts a fraction supplied via inputs.
   - v2 ranked the discovered IPOPs leaders-first (reverse=True for the LONG preipo leg); the
     too-thin guard is len(rs) < 1 (vs < 2 for long/short). Both preserved.
   - v2 funding cap (free margin, 1.1 headroom); ported.
@@ -61,7 +61,7 @@ def _unwrap(resp):
 
 def _resolve_margin_pct(inputs, default_pct):
     mp = scoring._f(inputs.get("marginPct", default_pct), default_pct)
-    if mp <= 1.0:                 # a fraction was pasted (e.g. 0.15) -> percent
+    if mp < 1.0:                 # a fraction was pasted (e.g. 0.15) -> percent
         mp *= 100.0
     return mp
 

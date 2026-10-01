@@ -31,7 +31,7 @@ FIDELITY NOTES vs the v2 producer (badger-producer.py v1.0.1):
   - v2 sizing used marginPct (a FRACTION, 0.20 in badger-config.json) * account_value
     -> marginUsd. This port uses marginPct=20 (a PERCENT) and emits `marginPct`;
     the runtime sizes (marginPct/100)*withdrawable. Value preserved (0.20 -> 20%).
-    Defensive koala-pattern guard: a value <= 1.0 is treated as a pasted v2
+    Defensive koala-pattern guard: a value < 1.0 is treated as a pasted v2
     fraction and x100'd.
   - v2 emitted exactly one signal (best). Preserved: scan() emits <= 1 signal/tick.
   - v2 recent-signals JSON cache (RECENT_SIGNAL_TTL_SEC=240) -> ctx.state dedup map
@@ -275,10 +275,10 @@ def scan(inputs, ctx):
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
 
     # marginPct is a PERCENT in (0,100]. Defensive koala-pattern guard: a value
-    # <= 1.0 (operator pasted the v2 FRACTION 0.20) is treated as a fraction and
+    # < 1.0 (operator pasted the v2 FRACTION 0.20) is treated as a fraction and
     # x100'd so it never silently sizes ~100x small.
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         print(f"[badger.scan] marginPct={margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0

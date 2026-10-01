@@ -253,9 +253,9 @@ def scan(inputs, ctx):
     crowded_funding = float(inputs.get("crowdedLongFundingThreshold", _DEFAULT_CROWDED_FUNDING))
 
     # marginPct: PERCENT in (0,100]. Defensive fraction guard (dire/koala/bobcat
-    # pattern): a value <= 1.0 is a pasted FRACTION (e.g. 0.15) -> *100 -> 15.
+    # pattern): a value < 1.0 is a pasted FRACTION (e.g. 0.15) -> *100 -> 15.
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if 0 < margin_pct <= 1.0:
+    if 0 < margin_pct < 1.0:
         margin_pct *= 100.0
 
     # ── account + held ──

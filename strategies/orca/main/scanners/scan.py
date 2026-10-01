@@ -22,7 +22,7 @@ FIDELITY NOTES vs orca-producer.py v4.0.1:
   - v2 MARGIN_PCT was the FRACTION 0.18 (margin_usd = account_value * 0.18). This port
     emits `marginPct` = 18 (PERCENT) at the top level; the runtime sizes
     (marginPct/100)*withdrawable. Same dollar size for the same account. The dire/koala
-    defensive "<=1.0 means a pasted v2 fraction -> x100" guard is included.
+    defensive "<1.0 means a pasted v2 fraction -> x100" guard is included.
   - v2 leverage is FIXED 7 (MIN_LEVERAGE==MAX_LEVERAGE==DEFAULT_LEVERAGE==7), then run
     through get_safe_leverage(wallet, asset, 7) = min(7, venue_max). Preserved verbatim:
     the scan reads strategy_get_asset_trading_limits and clamps the fixed 7 to the venue
@@ -314,11 +314,11 @@ def scan(inputs, ctx):
     per_asset_cooldown = float(inputs.get("perAssetCooldownSeconds", _DEFAULT_PER_ASSET_COOLDOWN))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
 
-    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value <= 1 (an
+    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value < 1 (an
     # operator who pasted the v2 FRACTION 0.18) into a PERCENT so it never silently sizes
     # ~100x small (resolve-margin sizes (marginPct/100)*withdrawable).
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         print(f"[orca.scan] marginPct={margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0

@@ -30,7 +30,7 @@ FIDELITY NOTES vs camel-producer.py v1.0.0:
     mutation-bearing was dropped beyond the daemon loop + push_signal + the JSON cache file.
   - v2 config stored marginPct as a FRACTION (0.18). This port treats inputs.marginPct as a
     PERCENT (18) and emits top-level marginPct; the runtime sizes (marginPct/100)*withdrawable.
-    The runtime.yaml inputs ship marginPct: 18. A defensive guard converts a value <= 1.0
+    The runtime.yaml inputs ship marginPct: 18. A defensive guard converts a value < 1.0
     (a pasted fraction) to a percent so a mis-set config can't silently 1/100th the size.
   - v2 computed margin_usd = account_value * margin_pct then affordability off free margin.
     This port emits the marginPct INTENT (runtime owns the $ sizing) but preserves the v2
@@ -213,10 +213,10 @@ def scan(inputs, ctx):
     min_score = int(inputs.get("minScore", 4))
 
     # marginPct is a PERCENT in (0,100]. v2 stored it as a FRACTION (0.18); a defensive
-    # guard converts a pasted fraction (<= 1.0) to a percent so a mis-set config can't
+    # guard converts a pasted fraction (< 1.0) to a percent so a mis-set config can't
     # silently 1/100th the size (dire/koala guard).
     margin_pct = float(inputs.get("marginPct", 18))
-    if 0 < margin_pct <= 1.0:
+    if 0 < margin_pct < 1.0:
         margin_pct *= 100.0
 
     max_lev = int(inputs.get("maxLeverage", 5))

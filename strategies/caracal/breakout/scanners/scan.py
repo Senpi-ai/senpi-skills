@@ -26,7 +26,7 @@ FIDELITY NOTES vs caracal-producer.py v1.0.0 (CARACAL_LEG=breakout):
   - v2 stored marginPct=0.18 as a FRACTION and computed marginUsd =
     account_value * 0.18 itself. This port emits `marginPct`=18 (PERCENT) at
     the top level; the runtime sizes (marginPct/100)*withdrawable. A defensive
-    "<=1.0 means a pasted fraction -> ×100" guard is applied. TIERS/CLAMPS
+    "<1.0 means a pasted fraction -> ×100" guard is applied. TIERS/CLAMPS
     otherwise verbatim.
   - v2's recent-signals JSON cache (RECENT_SIGNAL_TTL_SEC=180) -> ctx.state
     dedup map with the same TTL + 4x-TTL prune semantics.
@@ -228,10 +228,10 @@ def _was_recently_signaled(signaled, coin, ttl, now):
 
 
 def _norm_margin_pct(raw):
-    """Defensive fraction->percent guard (dire/koala pattern): a value <=1.0 was
+    """Defensive fraction->percent guard (dire/koala pattern): a value <1.0 was
     almost certainly pasted as a FRACTION (v2 stored 0.18); ×100 -> a PERCENT."""
     mp = float(raw)
-    if 0 < mp <= 1.0:
+    if 0 < mp < 1.0:
         mp *= 100.0
     return mp
 

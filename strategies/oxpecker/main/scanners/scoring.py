@@ -361,13 +361,13 @@ def margin_pct_for(cand, inputs):
     Default is FLAT at the base marginPct (convictionMarginScale defaults to 0).
     When an operator opts in (>0), margin scales up toward maxMarginPct by the
     candidate's conviction mass (quality x concentration). Defensive fraction guard
-    (dire/koala/remora pattern): a base/cap pasted as a fraction (<= 1.0, e.g. 0.15)
+    (dire/koala/remora pattern): a base/cap pasted as a fraction (< 1.0, e.g. 0.15)
     is multiplied x100 to a percent."""
     base = float(inputs.get("marginPct", 15))
-    if base <= 1.0:                       # pasted fraction (0.15) -> percent (15)
+    if base < 1.0:                       # pasted fraction (0.15) -> percent (15)
         base *= 100.0
     cap = float(inputs.get("maxMarginPct", base))
-    if cap <= 1.0:
+    if cap < 1.0:
         cap *= 100.0
     scale = float(inputs.get("convictionMarginScale", 0.0))   # 0 => faithful flat
     if scale <= 0:
