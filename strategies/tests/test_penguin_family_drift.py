@@ -121,7 +121,7 @@ def test_a_variable_leverage_book_cannot_carry_a_fixed_roe_ladder():
     The fix was to scale conviction through MARGIN and hold leverage flat. This pins that: if a
     package's tiers ever spread leverage again, one ROE ladder can no longer be correct for all
     of its trades."""
-    for pkg in ("cheetah", "wild-cheetah"):
+    for pkg in COHERENT:
         rt = _yaml(f"strategies/{pkg}/main/runtime.yaml")
         sc = next(s for s in rt["scanners"] if s.get("type") == "external_scanner")
         tiers = sc["inputs"].get("leverageTiers") or []
@@ -132,15 +132,6 @@ def test_a_variable_leverage_book_cannot_carry_a_fixed_roe_ladder():
             f"third tier element (marginPct) and keep leverage flat.")
         assert all(len(t) > 2 for t in tiers), (
             f"{pkg} tiers lost their marginPct element — conviction is no longer sized at all")
-        lev = levs.pop()
-        rungs = rt["exit"]["dsl_preset"]["phase2"]["tiers"]
-        first = rungs[0]["trigger_pct"] / lev
-        assert first <= 1.0, (
-            f"{pkg}'s first rung arms at {first:.2f}% of price. The measured median position peaks "
-            f"at 0.84%, so a rung above ~1% never arms and the position has no profit floor.")
-
-
-# ── weak_peak_cut must stay a DEATH cut, never a profit cut ──
 
 def test_weak_peak_cut_can_only_fire_before_the_ladder_arms():
     """`weak_peak_cut` closes when peakROE never reached `min_value` and current ROE has fallen
@@ -252,3 +243,96 @@ def test_a_leverage_sibling_refuses_names_outside_its_band(sibling, base):
         f"and its halved ladder becomes wrong in the other direction")
     assert float(inp["minLeverage"]) == _lev, (
         f"{sibling} must floor minLeverage at the leverage its ladder is authored for ({_lev})")
+
+
+# ── no ELEVENTH package may grow a split-leverage ladder ──
+#
+# Ten live packages still spread leverage across score tiers while carrying a fixed-ROE ladder, so
+# every exit means a different price move per tier (lowest conviction gets the WIDEST stop). They
+# are not a mechanical sweep: exposure can be held constant, but the ladder's price meaning must
+# change for whichever tiers are not the one you flatten to, and choosing that leverage needs the
+# score distribution from telemetry. Two are a different bug entirely — `raptor` sizes via
+# marginPctBase/marginPctHighConv with no marginPct, and `wolverine`'s third tier element is a
+# LABEL ('apex'/'standard'), not a margin.
+#
+# Full per-package table, the arithmetic, and the procedure:
+#   strategies/references/ladder-leverage-coherence.md
+#
+# This list is a DEBT REGISTER, not a permission slip. Shrink it; never add to it.
+KNOWN_SPLIT_LEVERAGE = {
+    # Measured 2026-10-01 over 14 days of real emits. FIVE of these produce no signals at all —
+    # otter 0 emits from 4,059 scan lines, kodiak 0 from 206, lemon not deployed, polar 6,
+    # kestrel 4 — so their ladders are theory rather than live behaviour. Fix them when they trade.
+    "lemon", "otter", "polar", "kestrel", "kodiak", "wolverine",
+    # raptor and pangolin were here and are now FIXED — see COHERENT.
+}
+
+COHERENT = ["cheetah", "wild-cheetah", "owl", "jaguar", "raptor", "pangolin"]
+
+
+def test_no_new_package_grows_a_split_leverage_ladder():
+    """The ten above are known. An eleventh is a regression, and this is where it gets caught."""
+    import glob
+    offenders = set()
+    for rt in glob.glob(os.path.join(ROOT, "strategies", "*", "*", "runtime.yaml")):
+        pkg = os.path.relpath(rt, os.path.join(ROOT, "strategies")).split(os.sep)[0]
+        try:
+            d = yaml.safe_load(open(rt, encoding="utf-8"))
+        except Exception:
+            continue
+        scanners = [s for s in (d.get("scanners") or [])
+                    if isinstance(s, dict) and s.get("type") == "external_scanner"]
+        if not scanners:
+            continue
+        tiers = (scanners[0].get("inputs") or {}).get("leverageTiers")
+        if not isinstance(tiers, list):
+            continue
+        levs = {t[1] for t in tiers
+                if isinstance(t, (list, tuple)) and len(t) > 1 and isinstance(t[1], (int, float))}
+        preset = (d.get("exit") or {}).get("dsl_preset") or {}
+        if len(levs) > 1 and (preset.get("phase2") or {}).get("tiers"):
+            offenders.add(pkg)
+    new = offenders - KNOWN_SPLIT_LEVERAGE
+    assert not new, (
+        f"{sorted(new)} spread leverage across score tiers while carrying a fixed-ROE ladder, so "
+        f"each exit means a different price move depending on which tier fired — and the weakest "
+        f"signal gets the widest stop. Scale conviction through the third tier element (marginPct) "
+        f"and keep leverage flat. See strategies/references/ladder-leverage-coherence.md.")
+    gone = KNOWN_SPLIT_LEVERAGE - offenders
+    assert not gone, (
+        f"{sorted(gone)} no longer spread leverage — remove them from KNOWN_SPLIT_LEVERAGE and add "
+        f"them to COHERENT so the stronger assertion covers them from now on.")
+
+
+
+
+# Rung-0 arming is a SEPARATE claim from leverage coherence, and the two were wrongly coupled: the
+# 1%-of-price bar came from PENGUIN's universe (median peak 0.84%) and does not transfer. pangolin,
+# measured on its OWN 20 closes, has a median peak of 0.57% but a p75 of 3.51% — a different shape,
+# where a rung at 2.67% still arms on 40% of positions. So the bar is per-package, and an exemption
+# has to carry its measurement.
+RUNG0_MAX_PRICE_PCT = {
+    # pkg: (max % of price, why)
+    "pangolin": (2.70, "own 20 closes: median peak 0.57%, p75 3.51%, p90 5.39% — its rung 0 at "
+                       "2.67% arms on 40% of positions, and n=20 is too thin to retune a ladder"),
+}
+_DEFAULT_RUNG0_MAX = 1.0   # penguin's universe: median peak 0.84% of price
+
+
+@pytest.mark.parametrize("pkg", COHERENT)
+def test_rung_zero_arms_often_enough(pkg):
+    """A first rung above a package's own peak distribution never arms, so a position that goes
+    green has no floor under it and can round-trip to the stop."""
+    rt = _yaml(f"strategies/{pkg}/main/runtime.yaml")
+    sc = next(s for s in rt["scanners"] if s.get("type") == "external_scanner")
+    tiers = sc["inputs"].get("leverageTiers") or []
+    lev = {t[1] for t in tiers}.pop() if tiers else rt["strategy"]["default_leverage"]
+    first = rt["exit"]["dsl_preset"]["phase2"]["tiers"][0]["trigger_pct"] / lev
+    cap, why = RUNG0_MAX_PRICE_PCT.get(pkg, (_DEFAULT_RUNG0_MAX, "penguin's measured 0.84% median peak"))
+    assert first <= cap, (
+        f"{pkg}'s rung 0 arms at {first:.2f}% of price, above its {cap:.2f}% bar ({why}). Either "
+        f"lower the trigger or record a measured exemption in RUNG0_MAX_PRICE_PCT — never raise "
+        f"the cap without the package's own peak distribution behind it.")
+
+
+# ── weak_peak_cut must stay a DEATH cut, never a profit cut ──

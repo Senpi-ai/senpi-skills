@@ -1,7 +1,7 @@
 # ── OWL · single instance — Pure Contrarian Crowding-Unwind Hunter (Runtime 3.0 port of v2 OWL v8.0.1) ──
 name: owl-main
 group: owl
-version: 3.0.0
+version: 3.1.0
 description: >
   OWL — pure contrarian crowding-unwind hunter. Scans EVERY liquid HL crypto perp
   (OI > $3M, no top-N truncation; XYZ banned) for one-sided crowding (extreme funding +
@@ -48,7 +48,19 @@ scanners:
       assetCooldownMinutes: 360             # v2 ASSET_COOLDOWN_MINUTES — 6h post-emit per-asset cooldown
       marginPct: 25                         # PERCENT of withdrawable (0,100]; v2 MARGIN_PCT 0.25 (fraction) x100
       # leverageTiers: per-score [min_score, leverage]; omit -> scoring defaults (7/8/10 by score)
-      leverageTiers: [[16, 10], [14, 8], [12, 7]]
+      # [min_score, leverage, marginPct]. Leverage FLATTENED to 8x and conviction
+      # scaled through margin instead. Exposure per tier is UNCHANGED — each row is the old
+      # leverage x the old flat marginPct, re-expressed at 8x.
+      #
+      # WHY 8x: MEASURED, not chosen. Over 14 days of real emits, 66% of this
+      # package's 645 signals fired at 8x — it is the leverage its trades actually run
+      # at, so calibrating the ladder for it is calibrating for the common case.
+      #
+      # WHY FLAT: every DSL threshold is ROE and the engine divides by leverage to get a price
+      # floor, so spread leverage rescaled the whole ladder per tier — and backwards, since the
+      # lowest-conviction tier got the lowest leverage and therefore the WIDEST stop.
+      # Was [[16, 10], [14, 8], [12, 7]].
+      leverageTiers: [[16, 8, 31.2], [14, 8, 25.0], [12, 8, 21.9]]
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }
