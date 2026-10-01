@@ -35,6 +35,9 @@ import scoring
 _DEFAULT_TTL = 240            # 4min — mirror v2 RECENT_SIGNAL_TTL_SEC (held-asset race-fix)
 
 
+_DEFAULT_MIN_LEVERAGE = 0    # 0 = accept any venue cap (warn only); raise to the ladder's leverage
+
+
 def _read(ctx, name, args):
     """Guarded MCP read: a transient/permission error on a read must NOT roll
     back the whole tick. Returns None on failure so the existing degrade paths
@@ -44,6 +47,78 @@ def _read(ctx, name, args):
     except Exception as exc:  # noqa: BLE001
         print(f"[wild-condor.scan] {name} read failed: {exc!r}", file=sys.stderr)
         return None
+
+
+def _safe_leverage(ctx, asset, dex, requested):
+    """v2 get_safe_leverage — clamp the fixed request to the venue max from
+    strategy_get_asset_trading_limits. READ-GUARDED: degrade to `requested` on any failure
+    (v2's `except: pass; return requested_leverage`)."""
+    limits = _read(ctx, "strategy_get_asset_trading_limits",
+                   {"strategy_wallet": ctx.wallet, "coin": asset})
+    if not limits:
+        return requested
+    data = limits.get("data", limits) if isinstance(limits, dict) else limits
+    if not isinstance(data, dict):
+        return requested
+    lev = data.get("leverage", {})
+    try:
+        if isinstance(lev, dict):
+            max_lev = int(float(lev.get("value", requested)))
+            return min(requested, max_lev)
+        if isinstance(lev, (int, float)):
+            return min(requested, int(lev))
+    except (TypeError, ValueError):
+        return requested
+    return requested
+
+
+def _pick_leverable(ctx, candidates, min_leverage, requested_for, strict=False):
+    """Walk the ranking and take the first name the venue will actually lever.
+
+    WHY THIS EXISTS. Every DSL threshold is ROE, and the engine converts ROE to a price floor by
+    DIVIDING BY LEVERAGE (senpi-strategy-author/references/dsl-configuration.md). So a ladder
+    authored at Nx silently stretches every exit distance in PRICE by N/actual when the venue caps
+    an asset below N. A 10x ladder on a 5x-capped name arms its first rung at twice the intended
+    price move and may put its later rungs out of reach entirely — the position rides a ladder that
+    was never calibrated for it, and nothing in the config says so.
+
+    `minLeverage: 0` (the default) keeps the previous behaviour exactly — the first candidate always
+    clears it — and only adds the warning. Raise it to the leverage the ladder was authored for to
+    make the scanner prefer a lower-scoring name the ladder actually fits.
+
+    `strict` decides what happens when NOTHING clears the floor. Default False falls back to the
+    top candidate with a warning, because a scanner that goes silent on every clamped tick stops
+    being the strategy the user deployed. True emits nothing instead — correct for a package whose
+    ladder is calibrated for one leverage band and would be materially wrong outside it.
+
+    Returns (candidate, venue_clamped_leverage), or (None, None) when strict and nothing clears.
+    """
+    fallback = None
+    for rank, cand in enumerate(candidates):
+        want = requested_for(cand)
+        lev = _safe_leverage(ctx, cand['coin'], cand.get("dex"), want)
+        if fallback is None:
+            fallback = (cand, lev, want)
+        if lev >= min_leverage:
+            if rank:
+                print(f"[wild-condor.scan] LEVERAGE_SKIP passed over {rank} higher-scoring name(s) the venue "
+                      f"caps below minLeverage={min_leverage}x", file=sys.stderr)
+            if lev < want:
+                print(f"[wild-condor.scan] LEVERAGE_CLAMP {cand['coin']} {lev}x vs {want}x authored — "
+                      f"every ROE threshold is {want / lev:.1f}x its intended price move "
+                      f"(ladder calibrated for {want}x)", file=sys.stderr)
+            return cand, lev
+    if strict:
+        cand, lev, want = fallback
+        print(f"[wild-condor.scan] LEVERAGE_FLOOR_UNMET_STRICT no candidate reaches minLeverage="
+              f"{min_leverage}x (best was {cand['coin']} at {lev}x) — emitting nothing rather than "
+              f"running a ladder calibrated for {want}x on it", file=sys.stderr)
+        return None, None
+    cand, lev, want = fallback
+    print(f"[wild-condor.scan] LEVERAGE_FLOOR_UNMET no candidate reaches minLeverage={min_leverage}x; taking "
+          f"{cand['coin']} at {lev}x vs {want}x authored — every ROE threshold is "
+          f"{want / lev:.1f}x its intended price move", file=sys.stderr)
+    return cand, lev
 
 
 def _is_xyz(coin):
@@ -188,6 +263,8 @@ def _held_assets(ctx, inputs):
 
 def scan(inputs, ctx):
     max_positions = int(inputs.get("maxPositions", 1))     # v2 "one amazing trade per day"
+    min_leverage = float(inputs.get("minLeverage", _DEFAULT_MIN_LEVERAGE))
+    min_leverage_strict = bool(inputs.get("minLeverageStrict", False))
     min_score = float(inputs.get("minScore", scoring.MIN_SCORE))
     margin_default = float(inputs.get("marginPct", 50))    # PERCENT of withdrawable (0,100]
     tiers = inputs.get("leverageTiers")                    # optional [[min_score, lev, margin_pct], ...]
@@ -251,7 +328,16 @@ def scan(inputs, ctx):
 
     # Pick the single highest-scoring candidate (v2 "one amazing trade").
     candidates.sort(key=lambda c: c["score"], reverse=True)
-    best = candidates[0]
+    # Every DSL threshold is ROE and the engine divides by leverage to get a price floor, so a
+    # ladder authored at Nx stretches in PRICE on any name the venue caps below N. Walk the ranking
+    # for one the venue will lever; minLeverage 0 keeps the previous pick and only warns.
+    best, _venue_leverage = _pick_leverable(
+        ctx, candidates, min_leverage,
+        lambda c: scoring.get_sizing_for_score(c["score"], _coerce_tiers(tiers))[0],
+        strict=min_leverage_strict)
+    if best is None:
+        return []
+
     bu = best["coin"].upper()
 
     # Defense in depth: never emit on a held coin, and dedup the race window.
@@ -269,6 +355,9 @@ def scan(inputs, ctx):
     leverage, margin_pct = scoring.get_sizing_for_score(
         best["score"], _coerce_tiers(tiers))
     margin_pct = margin_pct if margin_pct else margin_default
+    # the venue cap resolved during the walk wins — emit what will ACTUALLY be levered, so
+    # the signal and the tape carry the truth rather than the request
+    leverage = _venue_leverage
     recent[bu] = now
 
     result = {"ts": now, "emitted": True, "gate": "pass", "coin": best["coin"],

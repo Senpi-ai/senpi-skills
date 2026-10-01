@@ -1,30 +1,37 @@
-# ── PURPLE PENGUIN · PENGUIN with the score floor at 8 instead of 9 ──
+# ── PENGUIN X5 · PENGUIN with every exit re-expressed for 5x ──
 #
-# Identical to penguin in every other respect: same detector, same hard gates, same sizing, same
-# clock, same DSL ladder, same guard rails. The one difference is `minScore: 8`.
+# Same detector, same gates, same one-slot 90%-margin shape. What differs is that this package
+# requests 5x and carries a ladder whose ROE numbers are exactly half PENGUIN's, so every rung and
+# the stop sit at the SAME DISTANCE IN PRICE that penguin's do at 10x.
 #
-# Why the setting exists. 48% of penguin emits land on exactly 9, so the floor is the most binding
-# constraint on the strategy, and the score is a sum of +1/+2/+3 buckets rather than a continuum —
-# one bucket below it may still be tradeable. There was no data either way, because the 9 floor was
-# hardcoded inside score_market and returned None, leaving a near-miss no trace but a count.
+# Why it exists. Every DSL threshold is ROE, and the engine converts ROE to a price floor by
+# dividing by leverage. A ladder is therefore authored for one leverage, and the venue decides the
+# other: 21 assets in this universe cap below 10x and nine cap at 3x, where penguin's rungs land
+# 3.3x further away in price than they were tuned for and the upper rungs fall out of reach. This
+# package covers the 5x band properly instead of running a 10x ladder badly on it.
 #
-# What 8 admits. IMMEDIATE_MOVER's +2 is always earned and the 4-reason floor still applies, so the
-# reachable 8-point shapes are FIRST_JUMP + IMM + one 2-pointer + one 1-pointer; IMM + both
-# 2-pointers + both 1-pointers; or FIRST_JUMP + IMM + all three 1-pointers. Every hard gate is
-# unchanged — rank > 10, 4h alignment, prev_rank >= 25, jump >= 15 — as is the 1.5x volume
-# confirmation. The change is to the conviction bar, not to a structural filter.
+# minLeverageStrict is ON. The ladder below is correct at 5x and wrong anywhere else, so a name the
+# venue caps at 3x is skipped rather than traded with exits 1.67x too wide. The scanner emits
+# nothing on such a tick; with one slot and a 90-second clock that costs an opportunity, not a day.
 #
-# Sizing arithmetic: one slot at 90% margin and 10x is 9x the account in one position, so the
-# budget is the risk unit.
+# NOT a second instance of penguin. Instances are separate wallets with their own slots — three
+# instances would mean three concurrent positions at a third of the book each, which is Orca, the
+# dilution penguin exists to remove. This is a separate package: fund penguin OR this, not both
+# halves of one budget.
+#
+# Sizing: 90% margin at 5x is 4.5x the account in one position, and the -7.5% ROE stop is 6.75% of
+# equity per stop-out — half penguin's 13.5%, because the stop is half as deep in ROE terms while
+# sitting at the same 1.5% of price.
 #
 # catalog.status: blocked — not offered in the catalog or discover. Deploy by explicit path:
-#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/purple-penguin --budget <amount>
+#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/penguin-x5 --budget <amount>
 #
-name: purple-penguin-main
-group: purple-penguin
-version: 1.2.0
+# ── inherited from PENGUIN, unchanged ──
+name: penguin-x5-main
+group: penguin-x5
+version: 1.0.0
 description: >
-  PURPLE PENGUIN — Concentrated Striker at a score floor of 8 (experiment). Universe rank-jump sniper on Orca's entry model: scans the
+  PENGUIN — Concentrated Striker. Universe rank-jump sniper on Orca's entry model: scans the
   top-50 rows of the 4h leaderboard (leaderboard_get_markets — a momentum read of who is
   winning right now, not a proven cohort) every tick and fires only on a fresh FIRST_JUMP /
   IMMEDIATE_MOVER explosion (rank-jump >= 15 off a prev-rank >= 25, 4h-aligned, 15m-fresh,
@@ -35,10 +42,10 @@ description: >
   clear of round-trip fees — a loss reducer, not a profit lock. No time cap on a winner. Guard
   rails are OFF by design — the stop is the only brake.
 strategy:
-  wallet: "${PURPLE_PENGUIN_WALLET}"
+  wallet: "${PENGUIN_X5_WALLET}"
   slots: 1                                 # ONE strike at a time — the whole book rides each signal
   margin_pct: 90                           # 90% of withdrawable per trade
-  default_leverage: 10                     # 10x
+  default_leverage: 5                      # 5x — the band this package's ladder is authored for
   trading_risk: aggressive
   enabled: true
 
@@ -58,22 +65,19 @@ scanners:
     default_signal_validity_seconds: 180    # 2x tick; a fresh re-score arrives next tick (rule action)
     state_history_max_count: 100            # rank-history window (5 scans) + emit-cooldown/dedup maps
     inputs:
-      # 8, not PENGUIN's 9 — THE ONE DIFFERENCE IN THIS PACKAGE. This input became
-      # authoritative in the same change that created this package: it used to be shadowed by an
-      # identical hardcoded 9 inside score_market, so setting it lower had no effect at all. The
-      # 4-reason floor is untouched and still applies.
       # 0 = accept whatever the venue will lever and only WARN when it is below the leverage this
       # ladder was authored for. Every DSL threshold is ROE and the engine divides by leverage to
       # get a price floor, so on a name the venue caps at half this package's leverage every exit
       # distance DOUBLES in price and the upper rungs can fall out of reach. Raise this to the
       # package's leverage to make the scanner prefer a lower-scoring name the ladder actually fits;
       # it falls back to the top candidate with a warning rather than skipping the tick.
-      minLeverage: 0
-      minScore: 8
+      minLeverage: 5
+      minLeverageStrict: true
+      minScore: 9                           # v2 STRIKER_MIN_SCORE
       maxPositions: 1                       # mirrors slots:1
       topN: 50                              # v2 TOP_N — score only the top-50 SM markets
       leaderboardLimit: 100                 # v2 fetch_markets limit=100
-      leverageDefault: 10                   # 10x — clamped per name to the venue cap in scan.py
+      leverageDefault: 5                    # 5x — the ladder below is authored for exactly this
       marginPct: 90                         # PERCENT of withdrawable (0,100]. The runtime resolves a
                                             # per-signal marginPct BEFORE strategy.margin_pct, so this
                                             # line — not margin_pct below — is what sizes the trade.
@@ -153,7 +157,7 @@ exit:
       # min_value (runtime: DslState.weakPeakCutStartedAt), so this bounds DEAD positions, not slow ones.
       enabled: true
       interval_in_minutes: 300
-      min_value: 5.0
+      min_value: 2.5      # 2.5% ROE at 5x = the 0.5% price move penguin's 5.0 means at 10x
     dead_weight_cut:
       enabled: false                        # a 15-minute cut fights a multi-hour hold
       interval_in_minutes: 15
@@ -162,7 +166,7 @@ exit:
       # could sit BELOW entry and close a winner at a loss. max_loss_pct carries the whole
       # per-trade risk cap instead. retrace_threshold below is inert while enabled: false.
       enabled: false
-      max_loss_pct: 15.0  # 15% ROE — at 10x that is a 1.5% price move, outside ordinary noise
+      max_loss_pct: 7.5   # 7.5% ROE — at 5x that is the SAME 1.5% price move penguin stops at
       retrace_threshold: 8                   # inert while phase1.enabled is false
       consecutive_breaches_required: 1
     phase2:
@@ -262,14 +266,16 @@ exit:
                                              # see that note. Leash per rung, at arm -> at the next trigger:
                                              # 0.42->1.40, 1.20->1.50, 1.25->1.50, 1.20->1.60, 1.40->1.75,
                                              # 1.50->2.10, 1.75->2.50, 1.50->unbounded.
-        - { trigger_pct: 6,   lock_hw_pct: 30 }   # 0.6% of price — LOSS REDUCER (see note above)
-        - { trigger_pct: 20,  lock_hw_pct: 40 }   # 2.0% of price
-        - { trigger_pct: 25,  lock_hw_pct: 50 }   # 2.5% of price
-        - { trigger_pct: 30,  lock_hw_pct: 60 }   # 3.0% of price
-        - { trigger_pct: 40,  lock_hw_pct: 65 }   # 4.0% of price
-        - { trigger_pct: 50,  lock_hw_pct: 70 }   # 5.0% of price
-        - { trigger_pct: 70,  lock_hw_pct: 75 }   # 7.0% of price
-        - { trigger_pct: 100, lock_hw_pct: 85 }   # 10% of price
+        # PENGUIN's ladder with every trigger HALVED, so each rung sits at the identical price
+        # distance at 5x that penguin's sits at 10x. Locks are dimensionless and unchanged.
+        - { trigger_pct: 3,    lock_hw_pct: 30 }   # 0.6% of price — LOSS REDUCER (see note above)
+        - { trigger_pct: 10,   lock_hw_pct: 40 }   # 2.0% of price
+        - { trigger_pct: 12.5, lock_hw_pct: 50 }   # 2.5% of price
+        - { trigger_pct: 15,   lock_hw_pct: 60 }   # 3.0% of price
+        - { trigger_pct: 20,   lock_hw_pct: 65 }   # 4.0% of price
+        - { trigger_pct: 25,   lock_hw_pct: 70 }   # 5.0% of price
+        - { trigger_pct: 35,   lock_hw_pct: 75 }   # 7.0% of price
+        - { trigger_pct: 50,   lock_hw_pct: 85 }   # 10% of price
 
 # ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
 risk:
