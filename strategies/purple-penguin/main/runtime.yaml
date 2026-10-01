@@ -22,7 +22,7 @@
 #
 name: purple-penguin-main
 group: purple-penguin
-version: 1.0.0
+version: 1.1.0
 description: >
   PURPLE PENGUIN — Concentrated Striker at a score floor of 8 (experiment). Universe rank-jump sniper on Orca's entry model: scans the
   top-50 rows of the 4h leaderboard (leaderboard_get_markets — a momentum read of who is
@@ -62,6 +62,13 @@ scanners:
       # authoritative in the same change that created this package: it used to be shadowed by an
       # identical hardcoded 9 inside score_market, so setting it lower had no effect at all. The
       # 4-reason floor is untouched and still applies.
+      # 0 = accept whatever the venue will lever and only WARN when it is below the leverage this
+      # ladder was authored for. Every DSL threshold is ROE and the engine divides by leverage to
+      # get a price floor, so on a name the venue caps at half this package's leverage every exit
+      # distance DOUBLES in price and the upper rungs can fall out of reach. Raise this to the
+      # package's leverage to make the scanner prefer a lower-scoring name the ladder actually fits;
+      # it falls back to the top candidate with a warning rather than skipping the tick.
+      minLeverage: 0
       minScore: 8
       maxPositions: 1                       # mirrors slots:1
       topN: 50                              # v2 TOP_N — score only the top-50 SM markets

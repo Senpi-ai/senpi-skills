@@ -18,7 +18,7 @@
 # ── inherited from CONDOR, unchanged ──
 name: wild-condor-main
 group: wild-condor
-version: 1.0.0
+version: 1.1.0
 description: >
   WILD CONDOR — CONDOR at conviction size, DSL-only. Multi-asset trend-continuation apex sniper ("One Amazing Trade per Day").
   Scans the top 50 HL crypto assets by 24h notional volume and fires ONLY when 4h +
@@ -64,6 +64,13 @@ scanners:
       #
       # The rate at which condor scores 15+ has not been measured. If it is too low to keep the
       # single slot occupied, the next step down is 13 (condor's middle tier, 68%).
+      # 0 = accept whatever the venue will lever and only WARN when it is below the leverage this
+      # ladder was authored for. Every DSL threshold is ROE and the engine divides by leverage to
+      # get a price floor, so on a name the venue caps at half this package's leverage every exit
+      # distance DOUBLES in price and the upper rungs can fall out of reach. Raise this to the
+      # package's leverage to make the scanner prefer a lower-scoring name the ladder actually fits;
+      # it falls back to the top candidate with a warning rather than skipping the tick.
+      minLeverage: 0
       minScore: 15
       # 90 flat — see the header for the arithmetic.
       marginPct: 90

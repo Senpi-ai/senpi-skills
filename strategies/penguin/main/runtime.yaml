@@ -15,7 +15,7 @@
 # concentrated, high-variance expression of the same read; see strategy.yaml for the risk.
 name: penguin-main
 group: penguin
-version: 3.2.0
+version: 3.3.0
 description: >
   PENGUIN — Concentrated Striker. Universe rank-jump sniper on Orca's entry model: scans the
   top-50 rows of the 4h leaderboard (leaderboard_get_markets — a momentum read of who is
@@ -51,6 +51,13 @@ scanners:
     default_signal_validity_seconds: 180    # 2x tick; a fresh re-score arrives next tick (rule action)
     state_history_max_count: 100            # rank-history window (5 scans) + emit-cooldown/dedup maps
     inputs:
+      # 0 = accept whatever the venue will lever and only WARN when it is below the leverage this
+      # ladder was authored for. Every DSL threshold is ROE and the engine divides by leverage to
+      # get a price floor, so on a name the venue caps at half this package's leverage every exit
+      # distance DOUBLES in price and the upper rungs can fall out of reach. Raise this to the
+      # package's leverage to make the scanner prefer a lower-scoring name the ladder actually fits;
+      # it falls back to the top candidate with a warning rather than skipping the tick.
+      minLeverage: 0
       minScore: 9                           # v2 STRIKER_MIN_SCORE
       maxPositions: 1                       # mirrors slots:1
       topN: 50                              # v2 TOP_N — score only the top-50 SM markets

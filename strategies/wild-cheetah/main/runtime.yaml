@@ -28,7 +28,7 @@
 # ── CHEETAH · single instance — multi-signal confluence sniper (Runtime 3.0 port of v2 Cheetah v7.2.0) ──
 name: wild-cheetah-main
 group: wild-cheetah
-version: 1.0.0
+version: 1.1.0
 description: >
   CHEETAH — universe confluence sniper. Scans the top-100 markets on the 4h leader board
   (leaderboard_get_markets — which side the last four hours' winners sit on) every tick,
@@ -60,6 +60,13 @@ scanners:
     default_signal_validity_seconds: 1800
     state_history_max_count: 100           # dedup/cooldown maps + held set + scan-rank history (20 scans) + quality cache
     inputs:
+      # 0 = accept whatever the venue will lever and only WARN when it is below the leverage this
+      # ladder was authored for. Every DSL threshold is ROE and the engine divides by leverage to
+      # get a price floor, so on a name the venue caps at half this package's leverage every exit
+      # distance DOUBLES in price and the upper rungs can fall out of reach. Raise this to the
+      # package's leverage to make the scanner prefer a lower-scoring name the ladder actually fits;
+      # it falls back to the top candidate with a warning rather than skipping the tick.
+      minLeverage: 0
       minScore: 12                         # v2 MIN_SCORE_DEFAULT (v6.0 restored from v5.2's 11)
       # 80 — the SMALLEST reachable tier, matching the rule cheetah uses: a fallback should be the
       # conservative one, and min_budget reads marginPct from a key allowlist that cannot see the

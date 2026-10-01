@@ -34,6 +34,9 @@ _DEFAULT_QT_TIMEFRAME = "MONTHLY"     # v2 QT_TIMEFRAME
 _DEFAULT_QT_CONSISTENCY = ["ELITE", "RELIABLE", "STREAKY"]  # v2 QT_CONSISTENCY
 
 
+_DEFAULT_MIN_LEVERAGE = 0    # 0 = accept any venue cap (warn only); raise to the ladder's leverage
+
+
 def _read(ctx, name, args):
     """Guarded MCP read: a transient/permission error on a read must NOT roll back the
     whole tick. Returns None on failure so the existing degrade paths apply (markets
@@ -43,6 +46,67 @@ def _read(ctx, name, args):
     except Exception as exc:  # noqa: BLE001
         print(f"[wild-cheetah.scan] {name} read failed: {exc!r}", file=sys.stderr)
         return None
+
+
+def _safe_leverage(ctx, asset, dex, requested):
+    """v2 get_safe_leverage — clamp the fixed request to the venue max from
+    strategy_get_asset_trading_limits. READ-GUARDED: degrade to `requested` on any failure
+    (v2's `except: pass; return requested_leverage`)."""
+    limits = _read(ctx, "strategy_get_asset_trading_limits",
+                   {"strategy_wallet": ctx.wallet, "coin": asset})
+    if not limits:
+        return requested
+    data = limits.get("data", limits) if isinstance(limits, dict) else limits
+    if not isinstance(data, dict):
+        return requested
+    lev = data.get("leverage", {})
+    try:
+        if isinstance(lev, dict):
+            max_lev = int(float(lev.get("value", requested)))
+            return min(requested, max_lev)
+        if isinstance(lev, (int, float)):
+            return min(requested, int(lev))
+    except (TypeError, ValueError):
+        return requested
+    return requested
+
+
+def _pick_leverable(ctx, candidates, min_leverage, requested_for):
+    """Walk the ranking and take the first name the venue will actually lever.
+
+    WHY THIS EXISTS. Every DSL threshold is ROE, and the engine converts ROE to a price floor by
+    DIVIDING BY LEVERAGE (senpi-strategy-author/references/dsl-configuration.md). So a ladder
+    authored at Nx silently stretches every exit distance in PRICE by N/actual when the venue caps
+    an asset below N. A 10x ladder on a 5x-capped name arms its first rung at twice the intended
+    price move and may put its later rungs out of reach entirely — the position rides a ladder that
+    was never calibrated for it, and nothing in the config says so.
+
+    `minLeverage: 0` (the default) keeps the previous behaviour exactly — the first candidate always
+    clears it — and only adds the warning. Raise it to the leverage the ladder was authored for to
+    make the scanner prefer a lower-scoring name the ladder actually fits.
+
+    Returns (candidate, venue_clamped_leverage).
+    """
+    fallback = None
+    for rank, cand in enumerate(candidates):
+        want = requested_for(cand)
+        lev = _safe_leverage(ctx, cand['token'], cand.get("dex"), want)
+        if fallback is None:
+            fallback = (cand, lev, want)
+        if lev >= min_leverage:
+            if rank:
+                print(f"[wild-cheetah.scan] LEVERAGE_SKIP passed over {rank} higher-scoring name(s) the venue "
+                      f"caps below minLeverage={min_leverage}x", file=sys.stderr)
+            if lev < want:
+                print(f"[wild-cheetah.scan] LEVERAGE_CLAMP {cand['token']} {lev}x vs {want}x authored — "
+                      f"every ROE threshold is {want / lev:.1f}x its intended price move "
+                      f"(ladder calibrated for {want}x)", file=sys.stderr)
+            return cand, lev
+    cand, lev, want = fallback
+    print(f"[wild-cheetah.scan] LEVERAGE_FLOOR_UNMET no candidate reaches minLeverage={min_leverage}x; taking "
+          f"{cand['token']} at {lev}x vs {want}x authored — every ROE threshold is "
+          f"{want / lev:.1f}x its intended price move", file=sys.stderr)
+    return cand, lev
 
 
 # ── ACCOUNT + HELD ASSETS (v2 get_account_state, verbatim shape) ──
@@ -237,6 +301,7 @@ def _fetch_quality_positions(ctx, inputs):
 
 def scan(inputs, ctx):
     wallet = ctx.wallet
+    min_leverage = float(inputs.get("minLeverage", _DEFAULT_MIN_LEVERAGE))
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))   # PERCENT (0,100]
     max_positions = int(inputs.get("maxPositions", _DEFAULT_MAX_POSITIONS))
@@ -368,13 +433,21 @@ def scan(inputs, ctx):
 
     # ── pick the single strongest candidate (v2 emits only top candidate per tick) ──
     candidates.sort(key=lambda c: c["score"], reverse=True)
-    best = candidates[0]
+    # Every DSL threshold is ROE and the engine divides by leverage to get a price floor, so a
+    # ladder authored at Nx stretches in PRICE on any name the venue caps below N. Walk the ranking
+    # for one the venue will lever; minLeverage 0 keeps the previous pick and only warns.
+    best, _venue_leverage = _pick_leverable(
+        ctx, candidates, min_leverage,
+        lambda c: scoring.get_sizing_for_score(c["score"], tiers)[0])
     # Conviction is sized through MARGIN now, not leverage — see get_sizing_for_score for why.
     # A 2-element tier still resolves to (lev, None) and falls back to the flat marginPct, so an
     # old-shape config behaves exactly as before.
     leverage, tier_margin = scoring.get_sizing_for_score(best["score"], tiers)
     if tier_margin:
         margin_pct = tier_margin
+    # the venue cap resolved during the walk wins — emit what will ACTUALLY be levered, so
+    # the signal and the tape carry the truth rather than the request
+    leverage = _venue_leverage
 
     vol_ratio = round(best["volume"] / best["avg_volume_6h"], 2) if best["avg_volume_6h"] > 0 else 0
     out = [{

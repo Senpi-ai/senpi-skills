@@ -1,7 +1,7 @@
 # ── CHEETAH · single instance — multi-signal confluence sniper (Runtime 3.0 port of v2 Cheetah v7.2.0) ──
 name: cheetah-main
 group: cheetah
-version: 3.1.0
+version: 3.2.0
 description: >
   CHEETAH — universe confluence sniper. Scans the top-100 markets on the 4h leader board
   (leaderboard_get_markets — which side the last four hours' winners sit on) every tick,
@@ -33,6 +33,13 @@ scanners:
     default_signal_validity_seconds: 1800
     state_history_max_count: 100           # dedup/cooldown maps + held set + scan-rank history (20 scans) + quality cache
     inputs:
+      # 0 = accept whatever the venue will lever and only WARN when it is below the leverage this
+      # ladder was authored for. Every DSL threshold is ROE and the engine divides by leverage to
+      # get a price floor, so on a name the venue caps at half this package's leverage every exit
+      # distance DOUBLES in price and the upper rungs can fall out of reach. Raise this to the
+      # package's leverage to make the scanner prefer a lower-scoring name the ladder actually fits;
+      # it falls back to the top candidate with a warning rather than skipping the tick.
+      minLeverage: 0
       minScore: 10                         # v2 MIN_SCORE_DEFAULT (v6.0 restored from v5.2's 11)
       # 18, not 30. This is a FALLBACK ONLY — the tiers below cover every score from minScore 10
       # up, so a real emit always takes a tier value and never reads this. It is set to the

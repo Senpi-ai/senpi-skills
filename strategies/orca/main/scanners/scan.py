@@ -49,6 +49,7 @@ from datetime import datetime, timezone
 import scoring
 
 # v2 producer constants (defaults; overridable via inputs)
+_DEFAULT_MIN_LEVERAGE = 0    # 0 = accept any venue cap (warn only); raise to the ladder's leverage
 _DEFAULT_MIN_SCORE = scoring.STRIKER_MIN_SCORE        # 9
 _DEFAULT_MARGIN_PCT = scoring.MARGIN_PCT              # 18 PERCENT (v2 0.18 fraction)
 _DEFAULT_LEVERAGE = scoring.DEFAULT_LEVERAGE          # fixed 7
@@ -249,9 +250,48 @@ def _safe_leverage(ctx, asset, dex, requested):
     return requested
 
 
+def _pick_leverable(ctx, candidates, min_leverage, requested_for):
+    """Walk the ranking and take the first name the venue will actually lever.
+
+    WHY THIS EXISTS. Every DSL threshold is ROE, and the engine converts ROE to a price floor by
+    DIVIDING BY LEVERAGE (senpi-strategy-author/references/dsl-configuration.md). So a ladder
+    authored at Nx silently stretches every exit distance in PRICE by N/actual when the venue caps
+    an asset below N. A 10x ladder on a 5x-capped name arms its first rung at twice the intended
+    price move and may put its later rungs out of reach entirely — the position rides a ladder that
+    was never calibrated for it, and nothing in the config says so.
+
+    `minLeverage: 0` (the default) keeps the previous behaviour exactly — the first candidate always
+    clears it — and only adds the warning. Raise it to the leverage the ladder was authored for to
+    make the scanner prefer a lower-scoring name the ladder actually fits.
+
+    Returns (candidate, venue_clamped_leverage).
+    """
+    fallback = None
+    for rank, cand in enumerate(candidates):
+        want = requested_for(cand)
+        lev = _safe_leverage(ctx, cand['token'], cand.get("dex"), want)
+        if fallback is None:
+            fallback = (cand, lev, want)
+        if lev >= min_leverage:
+            if rank:
+                print(f"[orca.scan] LEVERAGE_SKIP passed over {rank} higher-scoring name(s) the venue "
+                      f"caps below minLeverage={min_leverage}x", file=sys.stderr)
+            if lev < want:
+                print(f"[orca.scan] LEVERAGE_CLAMP {cand['token']} {lev}x vs {want}x authored — "
+                      f"every ROE threshold is {want / lev:.1f}x its intended price move "
+                      f"(ladder calibrated for {want}x)", file=sys.stderr)
+            return cand, lev
+    cand, lev, want = fallback
+    print(f"[orca.scan] LEVERAGE_FLOOR_UNMET no candidate reaches minLeverage={min_leverage}x; taking "
+          f"{cand['token']} at {lev}x vs {want}x authored — every ROE threshold is "
+          f"{want / lev:.1f}x its intended price move", file=sys.stderr)
+    return cand, lev
+
+
 def scan(inputs, ctx):
     now = time.time()
     hour_utc = datetime.now(timezone.utc).hour
+    min_leverage = float(inputs.get("minLeverage", _DEFAULT_MIN_LEVERAGE))
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
     max_positions = int(inputs.get("maxPositions", _DEFAULT_MAX_POSITIONS))
     top_n = int(inputs.get("topN", _DEFAULT_TOP_N))
@@ -417,12 +457,13 @@ def scan(inputs, ctx):
                              "held": sorted(held_set)}})
         return []
 
-    # ── pick the single strongest candidate (v2 sorted by score desc, emits best) ──
+    # ── pick the single strongest candidate the venue will actually lever ──
+    # Every DSL threshold is ROE and the engine divides by leverage to get a price floor, so a
+    # ladder authored at Nx stretches in PRICE on any name the venue caps below N. Walk the ranking
+    # and take the first that clears minLeverage; fall back to the top name with a warning.
     candidates.sort(key=lambda c: c["score"], reverse=True)
-    best = candidates[0]
-
-    # fixed 7x, clamped to the venue max (v2 get_safe_leverage on DEFAULT_LEVERAGE).
-    leverage = _safe_leverage(ctx, best["token"], best.get("dex"), leverage_default)
+    best, leverage = _pick_leverable(ctx, candidates, min_leverage,
+                                     lambda _c: leverage_default)
 
     out = [{
         "asset": best["token"],
