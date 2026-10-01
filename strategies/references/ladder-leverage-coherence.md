@@ -83,6 +83,81 @@ that also returns the tier's margin, so any other caller is unaffected.
 | `raptor` | 2 | 7/8/10 | None | 0.80% | 1.14% | 1.4× | no marginPct |
 | `kodiak` | 1 | 5/6/7 | 20 | 1.43% | 2.00% | 1.4× | ok |
 
+## The second half: one ladder, expressed in PRICE (2026-10-01)
+
+Flattening leverage made each package's ladder *internally* coherent. It did not make the ladders
+agree with each other, or with what the universe actually does. Because every threshold is ROE and
+price distance is `ROE / leverage`, the portable form of a ladder is **% of price**:
+
+| rung | % of price | lock (% of high-water) | 3x | 5x | 7x | 8x | 10x |
+|---|---|---|---|---|---|---|---|
+| 0 | **0.60%** | 30 — loss reducer | 1.8 | 3 | 4.2 | 4.8 | 6 |
+| 1 | 2.00% | 40 | 6 | 10 | 14 | 16 | 20 |
+| 2 | 2.50% | 50 | 7.5 | 12.5 | 17.5 | 20 | 25 |
+| 3 | 3.00% | 60 | 9 | 15 | 21 | 24 | 30 |
+| 4 | 4.00% | 65 | 12 | 20 | 28 | 32 | 40 |
+| 5 | 5.00% | 70 | 15 | 25 | 35 | 40 | 50 |
+| 6 | 7.00% | 75 | 21 | 35 | 49 | 56 | 70 |
+| 7 | 10.00% | 85 | 30 | 50 | 70 | 80 | 100 |
+| stop | **1.50%** | — | 4.5 | 7.5 | 10.5 | 12 | 15 |
+
+The two numbers that set it, both measured on the 4h-leaderboard universe:
+
+- **median favourable peak per position = 0.84% of price** (92 closes, 41 assets). Rung 0 at 0.60%
+  arms on the majority of positions. It is a *loss reducer*, not a profit taker — it cannot bank a
+  winner, it stops one that went green from round-tripping to the stop.
+- **p75 adverse bounce off a running favourable extreme = 1.38% of price** (3-day 1m baseline). The
+  stop sits at 1.50%, outside it.
+
+Five packages had a stop **inside** that bounce band, which means ordinary noise was taking them out
+rather than the thesis failing:
+
+| package | stop before | = % of price | after |
+|---|---|---|---|
+| `jaguar` | 8.0 ROE @ 10x | 0.80% | 15.0 ROE |
+| `owl` | 8.0 ROE @ 8x | 1.00% | 12.0 ROE |
+| `raptor` | 10.0 ROE @ 10x | 1.00% | 15.0 ROE |
+| `orca` | 8.0 ROE @ 7x | 1.14% | 10.5 ROE |
+| `condor` | 12.0 ROE @ 10x | 1.20% | 15.0 ROE |
+| `wild-condor` | 12.0 ROE @ 10x | 1.20% | 15.0 ROE |
+
+`orca` was the worst case on the other end too: its rung 0 armed at **2.86% of price**, 3.4× the
+median peak, so on most positions no profit floor ever armed at all and the clock did the exiting.
+
+### The clock cuts are gone
+
+`hard_timeout` and `dead_weight_cut` fire on elapsed time and read nothing about the trade. Across
+the fleet, of **142 clock-driven closes in one week, 110 (77.5%) were in profit** when the clock cut
+them. Both are now off on orca, owl, jaguar, condor, raptor and pangolin.
+
+`weak_peak_cut` is **not** a pure clock cut — its timer resets every time ROE clears `min_value`, so
+it bounds a position that never worked rather than one that is merely slow. Each package's own
+enabled-flag was left exactly as it was. Two are off for documented, thesis-specific reasons that
+still hold: `owl`'s (it closes at market with no floor, which on a longer-hold book realises a small
+loss on a position that simply had not moved yet — observed live on `xyz:PLTR` in cougar) and
+`pangolin`'s (funding fade takes 24-48h). 65 packages fleet-wide still carry a clock cut and are
+**not** covered by this change; each needs its own hold horizon considered.
+
+### Three deliberate divergences
+
+A shared ladder is only correct where the noise band it was measured on applies. These are off it on
+purpose, and `strategies/tests/test_one_price_ladder.py` fails in **both** directions for them — so
+converging them onto the shared ladder is a failing change, not a silent one.
+
+| package | own measurement | why the shared numbers are wrong for it |
+|---|---|---|
+| `pangolin` | own 20 closes: median peak 0.57%, p75 3.51%, p90 5.39% | far more skewed. Rung 0 at 2.67% arms on 40%; stop at 3.33% is already outside its band. Penguin's 0.60% rung 0 would arm on noise and scratch runners. |
+| `grizzly` | BTC, 3 days of 1m bars (4,321 bars, 144 30m windows): bounce p50 0.23% / p75 0.35% / p90 **0.51%** | ~4× quieter than the leaderboard universe. Its stop at 0.80% of price is already above that p90; penguin's 1.50% would double the loss per stop-out for nothing. |
+| `grizzly-wild` | inherits grizzly's | same. |
+
+`cheetah` and `wild-cheetah` ship rung 2 at `13` ROE on a 5x book = 2.60% of price where the exact
+value is 12.5. Both are live and the gap is 0.10pp, so it is recorded as a rounding rather than
+chased with a redeploy.
+
+**The rule this leaves behind:** port the *principles* — DSL-only exits, a rung 0 below the
+universe's median peak, a stop outside its p75 bounce — and re-derive the *numbers* from the
+asset's own band. Never copy ROE values between packages.
+
 ## Why this is not a sweep
 
 **There is no neutral direction.** Exposure can be held exactly constant (`new_margin =
