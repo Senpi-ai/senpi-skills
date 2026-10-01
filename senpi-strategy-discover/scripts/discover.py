@@ -324,8 +324,10 @@ def _candidate(r, intent):
     }
     if r.get("tag_labels"):
         cand["tag_labels"] = r.get("tag_labels")
-    if (r.get("instance_count") or 1) > 1:
-        cand["funding_split"] = r.get("funding_split")
+    # Always present — a single-wallet design is [1.0], which the catalog already carries. Omitting
+    # it made every candidate a different shape, and callers that read it across the list crashed on
+    # the single-wallet ones. "Already a fund" is wallet_count > 1, not whether this key exists.
+    cand["funding_split"] = r.get("funding_split") or [1.0]
     return cand
 
 

@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.40.0"
+  version: "2.41.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -123,7 +123,7 @@ Each candidate is a flat record. You rank on the soft fields; you narrate from t
 | `thesis`, `tags` | **worldview / theme match** — your main lever for "war / hedge fund / all-weather / one coin wins" |
 | `belief_plain`, `archetype_label` | belief match (ride trends vs fade vs copy …) |
 | `risk_level`, `time_horizon`, `tier` | risk / horizon / newcomer match |
-| `direction`, `funding_split` | direction match · whether it's already a multi-wallet fund (skip stacking) |
+| `direction`, `wallet_count`, `funding_split` | direction match · `wallet_count` > 1 means it is already a multi-wallet fund (skip stacking); `funding_split` is on every card ([1.0] when single-wallet) |
 | `market_facts` | the live "why now" for your lead |
 | `caveats` | honesty — surface **verbatim** |
 | `min_budget` | the **computed** minimum to run the design (`min_budget.py`; also carries `wallet_count`) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; NOT a recommendation. Size the actual budget from the user's funds (`meta.user_context.budget`); see Layer 3 |
@@ -230,14 +230,14 @@ They lack the vocabulary; recommend *without* making them self-classify:
 
 ### Stack, don't isolate (on every pick that isn't already a fund)
 
-- **Single-wallet pick** (no `funding_split` on its card): *"One strategy is one bet — want a hedge
+- **Single-wallet pick** (`wallet_count` 1 on its card): *"One strategy is one bet — want a hedge
   alongside it to cut drawdown?"* To find the complement, **re-run the engine broadly** (drop the
   narrowing, or flip `--direction`) and offer a candidate that *complements* the pick — a fader/defensive
   or tail-risk one for a momentum pick (read `archetype_label`/`tags`/`direction` to choose), à la
   Spider + Dog. Phalanx has one built as its pair: **Aegis** (reads the tape where Phalanx reads the
   crowd) — and **Athena** is the two as one fund (65/35 by default, the weighting is theirs). Stacking by
   hand, size ~70/30 toward the primary — it's a cushion, not a co-bet.
-- **Fund pick** (`funding_split` present → already a multi-wallet long/short book): **don't push
+- **Fund pick** (`wallet_count` > 1 → already a multi-wallet long/short book): **don't push
   stacking — it's internally hedged.** Just show the funding split when you present it.
 
 ### Few-shot: utterance → concrete flags (+ what you keep in your head to rank on)
