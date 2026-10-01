@@ -87,8 +87,9 @@ dump when the user asked about their **strategies** — is a failure. The user w
 >   scanner-managed wallet can be reconciled as foreign and DSL-flattened within minutes (order "succeeds,"
 >   position gone; a raw read of the wrong sub-wallet then shows it "phantom").
 > - **"What happened to my [asset] / my closed trades"** → read the authoritative CLOSED record
->   (`closed.recent[]` / `closed.realized_pnl` here, or hand to `senpi-improve-trades` for why-it-closed).
->   Never narrate a closed-position story from memory.
+>   (`closed.recent[]` / `closed.realized_pnl` here, or hand to `senpi-improve-trades` for why-it-closed
+>   (a strategy's close; a manual or mirrored one is `senpi-trade`)). Never narrate a closed-position
+>   story from memory.
 > - **Quote a close with its UTC date and time from `closed_at_utc`, never from a raw epoch** such as
 >   `closed_time` — a bare number read by eye is how an older close gets called today's.
 > - **The closed record can arrive hours after a close.** A close the user saw may not be in `closed` yet

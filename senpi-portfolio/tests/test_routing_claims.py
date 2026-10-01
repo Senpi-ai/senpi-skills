@@ -112,3 +112,14 @@ def test_every_description_is_a_folded_scalar_that_parses():
         assert style in (">-", ">"), f"{name}: description is not a folded scalar ({style!r})"
         desc = yaml.safe_load(raw)["description"]
         assert isinstance(desc, str) and desc.strip(), f"{name}: description did not parse to text"
+
+
+def test_closed_trades_rule_does_not_send_every_why_close_to_improve_trades():
+    """The body's "What happened to my [asset] / my closed trades" rule handed every why-it-closed to
+    senpi-improve-trades, which contradicts the split above for a manual or mirrored close."""
+    body = _body("senpi-portfolio").replace(" > ", " ")  # the rule sits in a blockquote
+    start = body.index("**\"What happened to my [asset] / my closed trades\"**")
+    rule = body[start:body.index("Never narrate a closed-position story", start)]
+    assert "`senpi-improve-trades` for why-it-closed" in rule
+    assert "a manual or mirrored one is `senpi-trade`" in rule, \
+        "the closed-trades rule must name senpi-trade for a manual or mirrored close"
