@@ -287,9 +287,9 @@ def scan(inputs, ctx):
     universe_max_names = int(inputs.get("universeMaxNames", 50))
 
     # marginPct: PERCENT in (0,100]. Defensive fraction guard (dire/koala pattern):
-    # a value <= 1.0 is a pasted FRACTION (e.g. 0.15) -> *100 -> 15.
+    # a value < 1.0 is a pasted FRACTION (e.g. 0.15) -> *100 -> 15.
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         print(f"[barnacle.scan] marginPct={margin_pct} looks like a fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0

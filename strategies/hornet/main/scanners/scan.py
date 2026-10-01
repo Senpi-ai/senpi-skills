@@ -270,9 +270,9 @@ def scan(inputs, ctx):
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
 
     # marginPct: PERCENT in (0,100]. Defensive fraction guard (bobcat/dire/koala
-    # pattern): a value <= 1.0 is a pasted FRACTION (e.g. 0.18) -> *100 -> 18.
+    # pattern): a value < 1.0 is a pasted FRACTION (e.g. 0.18) -> *100 -> 18.
     margin_pct = float(inputs.get("marginPctBase", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         margin_pct = margin_pct * 100
 
     # leverage: clamp to [1,5].

@@ -279,9 +279,9 @@ def scan(inputs, ctx):
     min_score = inputs.get("minScore", 5)
     min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
     # margin PERCENT of equity in (0,100] (source fraction 0.28 -> 28). Defensive
-    # guard: a value <=1.0 is a pasted FRACTION -> x100.
+    # guard: a value <1.0 is a pasted FRACTION -> x100.
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         margin_pct *= 100
     leg_max_lev = inputs.get("maxLeverage", 10)
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))

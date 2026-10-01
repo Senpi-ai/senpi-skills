@@ -31,7 +31,7 @@ FIDELITY NOTES vs owl-producer.py v8.0.1 (thesis frozen at v7.1):
   - SIZING: v2 MARGIN_PCT 0.25 was a FRACTION; the producer emitted
     marginUsd = account_value * 0.25. This port emits a top-level `marginPct`
     PERCENT (25) and the runtime sizes (marginPct/100)*withdrawable. Defensive
-    <=1.0 guard treats a pasted fraction as a percent (x100).
+    <1.0 guard treats a pasted fraction as a percent (x100).
   - PERSISTENCE STATE: v2 persisted crowding-history.json / asset-cooldowns.json
     under state/<wallet-hash>/. This port keeps the crowding-persistence ledger
     AND a per-asset emit-cooldown map in ctx.state (transactional, rolled back on
@@ -323,7 +323,7 @@ def scan(inputs, ctx):
     macro_gate = float(inputs.get("macroGateBtc4hPct", scoring.MACRO_GATE_BTC_4H_PCT))
     cooldown_minutes = float(inputs.get("assetCooldownMinutes", scoring.ASSET_COOLDOWN_MINUTES))
     margin_pct = float(inputs.get("marginPct", 25))             # PERCENT in (0,100]
-    if margin_pct <= 1.0:                                       # defensive: a pasted fraction -> percent
+    if margin_pct < 1.0:                                       # defensive: a pasted fraction -> percent
         margin_pct *= 100.0
     tiers = _coerce_tiers(inputs.get("leverageTiers"))
 

@@ -29,7 +29,7 @@ VERSION constant 1.0.1 is cited as authoritative):
   - v2 DEFAULT_MARGIN_PCT was 0.50 (a FRACTION) * account_value -> marginUsd.
     This port carries marginPct=50 (a PERCENT) in runtime.yaml and emits a
     top-level `marginPct`; the runtime sizes (marginPct/100)*withdrawable. A
-    defensive guard converts a value <= 1 (an operator who pasted the v2
+    defensive guard converts a value < 1 (an operator who pasted the v2
     fraction) to a PERCENT (*100) and logs it. FLAGGED below.
   - v2 leverage default 2, hard-capped at MAX_LEVERAGE=3 (Koala is HODL, not
     gambling). Preserved verbatim (min(leverage, maxLeverage)).
@@ -150,11 +150,11 @@ def scan(inputs, ctx):
     max_leverage = int(inputs.get("maxLeverage", _DEFAULT_MAX_LEVERAGE))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
 
-    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value <= 1
+    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value < 1
     # (an operator who pasted the v2 FRACTION 0.50) into a PERCENT so it never
     # silently sizes ~100x small (resolve-margin sizes (marginPct/100)*withdrawable).
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         print(f"[koala.scan] marginPct={margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0

@@ -31,7 +31,7 @@ FIDELITY NOTES vs boar-producer.py v1.0.0
   cancel_order / has_resting_orders / stale-order purge — it only pushed signals), so
   nothing to drop. The runtime's reconciliation owns order lifecycle.
 - v2 marginPct is a FRACTION (0.18 long / 0.15 short); this port carries it as a PERCENT
-  input (18 / 15). A defensive guard ×100's any value <= 1.0 (a pasted fraction).
+  input (18 / 15). A defensive guard ×100's any value < 1.0 (a pasted fraction).
 - Per-name conviction weight is BAKED INTO the emitted marginPct (see scoring.sizing_weight)
   so the runtime reproduces v2's account_value * marginPct(fraction) * weight exactly.
 - The free-margin affordability cap is per-name (weight-aware), mirroring v2's
@@ -196,8 +196,8 @@ def scan(inputs, ctx):
     weights = inputs.get("sizingWeights", {"_default": 1.0})
     min_score = int(inputs.get("minScore", 5))
     base_margin_pct = float(inputs.get("marginPct", 18))     # PERCENT of withdrawable (0,100]
-    # defensive: a pasted v2 FRACTION (<= 1.0, e.g. 0.18) -> percent (dire/koala guard)
-    if base_margin_pct <= 1.0:
+    # defensive: a pasted v2 FRACTION (< 1.0, e.g. 0.18) -> percent (dire/koala guard)
+    if base_margin_pct < 1.0:
         base_margin_pct *= 100.0
     max_lev = int(inputs.get("maxLeverage", 5))
     max_slots = int(inputs.get("maxSlots", 4))

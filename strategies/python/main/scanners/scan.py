@@ -351,9 +351,9 @@ def scan(inputs, ctx):
     # Conviction-scaled sizing — per-score leverage tier + margin PERCENT intent.
     leverage = scoring.get_leverage_for_score(best["score"])
     margin_pct = scoring.get_margin_pct(best["score"])
-    # Defensive fraction->percent guard (per dire/koala): a value <= 1.0 is a
+    # Defensive fraction->percent guard (per dire/koala): a value < 1.0 is a
     # pasted FRACTION (e.g. 0.25); scale ×100. v2 tiers already emit 25/30/40.
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         margin_pct = margin_pct * 100
     recent[bu] = now
 
