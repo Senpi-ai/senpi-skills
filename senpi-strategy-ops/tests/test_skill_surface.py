@@ -63,7 +63,9 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # first non-empty POST. Resident because it fires whenever anyone reads a scanner. Taken in LINES: the
 # first draft held 335 by growing one line to 914 chars (main's longest is 839), which is the same
 # resident context with the count hiding it (2026-09-23).
-BODY_BUDGET = {"senpi-strategy-ops": 344, "senpi-strategy-author": 430}
+# ops: 344 → 345 for the one-line flat-book rule beside the two-targets rule it completes; the depth is in
+# references/editing-a-live-strategy.md §4.
+BODY_BUDGET = {"senpi-strategy-ops": 345, "senpi-strategy-author": 430}
 
 
 def _skill_body(path):
@@ -296,6 +298,23 @@ class DslChangeHasTwoTargets(unittest.TestCase):
         for needle in ("ratchet_stop_edit", "ratchet_stop_list"):
             self.assertIn(needle, body)
         self.assertIn("senpi://guides/ratchet_stop", (REPO / "senpi-strategy-ops" / "references" / "editing-a-live-strategy.md").read_text())
+
+    def test_a_flat_book_collapses_the_question_to_the_file(self):
+        # #production-issues 2026-09-26: asked to tighten the ratchet on a flat book, the agent found no row to
+        # edit and promised to "apply this ladder to each new position as it opens" — a mechanism that does
+        # not exist. The runtime arms a new position from the file at handoff, so with no open position the
+        # file edit plus --apply is the whole change, and the user must not have to ask for it by name.
+        body = _skill_body(REPO / "senpi-strategy-ops" / "SKILL.md")
+        self.assertIn("No open positions → only (a), now", body)
+        # "Flat" is read from the clearinghouse: a row exists only after the Phase-2 handoff, so an open
+        # position can have none (pre-handoff tick, aborted handoff, phase1.enabled defaulting to true).
+        self.assertIn("`strategy_get_clearinghouse_state` shows none", body)
+        self.assertIn("MANUALLY_CLOSED", body)
+        self.assertIn("never park it for \"the next position\"", body)
+        ref = (REPO / "senpi-strategy-ops" / "references" / "editing-a-live-strategy.md").read_text()
+        for needle in ("Exception — no open positions", "no such mechanism exists", "terminal row as a template",
+                       "MANUALLY_CLOSED", "The test is the\n   clearinghouse, never the row list", "phase1.enabled"):
+            self.assertIn(needle, ref)
 
 
 class TemplatesDeployUnderTheUsersName(unittest.TestCase):
