@@ -47,9 +47,9 @@ def default_catalog():
 # ---------------------------------------------------------------- vocabulary (concrete filters only)
 # A synonym map is kept ONLY because the SCRIPT acts on the field. risk/belief/horizon/scope/goal are
 # the LLM's job now (it ranks the returned set on them) — no flags, no maps for those.
-CLASS_TAGS = {"btc_eth", "major_alts", "universe_crypto", "xyz_equities", "commodities", "indices", "pre_ipo"}
+CLASS_TAGS = {"btc_eth", "major_alts", "universe_crypto", "xyz_equities", "commodities", "fx", "indices", "pre_ipo"}
 CRYPTO_CLASSES = {"btc_eth", "major_alts", "universe_crypto"}
-XYZ_CLASSES = {"xyz_equities", "commodities", "indices", "pre_ipo"}
+XYZ_CLASSES = {"xyz_equities", "commodities", "fx", "indices", "pre_ipo"}
 
 ASSET_SYN = {**{t: t for t in CLASS_TAGS},
              "btc": "btc_eth", "eth": "btc_eth", "bitcoin": "btc_eth", "ethereum": "btc_eth", "btceth": "btc_eth",
@@ -58,6 +58,8 @@ ASSET_SYN = {**{t: t for t in CLASS_TAGS},
              "stocks": "xyz_equities", "stock": "xyz_equities", "equities": "xyz_equities", "equity": "xyz_equities", "tech": "xyz_equities",
              "oil": "commodities", "gold": "commodities", "silver": "commodities", "metals": "commodities", "commodity": "commodities",
              "xauusd": "commodities", "xau": "commodities", "xagusd": "commodities",
+             "forex": "fx", "currencies": "fx", "currency": "fx", "dollar": "fx", "dxy": "fx",
+             "eurusd": "fx", "gbpusd": "fx", "usdjpy": "fx",
              "index": "indices", "sp500": "indices", "nasdaq": "indices",
              "pre-ipo": "pre_ipo", "preipo": "pre_ipo", "ipo": "pre_ipo", "spacex": "pre_ipo"}
 DIRECTION_SYN = {"long_only": "long_only", "long-only": "long_only", "longonly": "long_only", "long": "long_only",
