@@ -19,7 +19,7 @@ description: >-
   score, the six dimensions behind it and leaks priced in dollars. Everything else about holdings,
   strategies, positions and closed-position facts stays here. Why a position CLOSED is
   senpi-improve-trades when the user's strategy closed it and senpi-trade for a manual or mirrored
-  one; the stop on a position opened by hand is senpi-trade, a wallet traded outside Senpi quant-desk.
+  one; the stop on a position opened by hand is senpi-trade; a wallet traded outside Senpi is quant-desk.
 license: Apache-2.0
 metadata:
   author: Senpi
@@ -183,24 +183,25 @@ The engine's read cannot answer this: a position carries no open time and no rea
 the user's box keeps both, per runtime. Three reads, then quote what they say:
 
 ```bash
-openclaw senpi runtime list --json                             # the row whose wallet is the strategy's → its id
+openclaw senpi runtime list --json                             # the row whose wallet holds the position → its id
 openclaw senpi explain <ASSET> -r <runtime_id> --json          # that asset's events, oldest first
 openclaw senpi action decisions -r <runtime_id> --json         # where the decision engine ran, with its reasoning
 openclaw senpi audit -r <runtime_id> --json                    # the backend trail: create_position + ai_reasoning
 ```
 
 - **The trigger is the `signal.outcome` just before the `position.opened`** in `explain`, with
-  `senpi.outcome.result: accepted`, on the same asset and direction. The open's `senpi.position.id` threads it to its
-  fill and its later DSL events. Name the asset, direction and `senpi.signal.score` the scanner emitted.
-- **The reasoning, when there is one,** is the matching `action decisions` row (an `llm`-mode action's own
-  words) or the `create_position` row's `ai_reasoning` in `audit`, which is timestamped in ISO, not epoch ms.
-  A `rule`-mode strategy opens on every accepted signal and can have no decision row at all; then the
-  accepted signal is the whole answer. Say that, rather than reading a missing row as a fault.
-- **Quote, never reconstruct.** Do not build a thesis from the mandate, the market or the scanner's code.
-  If the entry is older than the event log (a recent-only ring) or a read fails (non-zero exit,
+  `senpi.outcome.result: accepted`, on the same asset and direction. The open's `senpi.position.id`
+  threads it to its fill and its later DSL events. Name the asset, direction and `senpi.signal.score`
+  the scanner emitted.
+- **The reasoning, when there is one,** is the matching `action decisions` row (an `llm`-mode action's
+  own words) or the `create_position` row's `ai_reasoning` in `audit`, timestamped in ISO, not epoch
+  ms. A `rule`-mode strategy opens on every accepted signal and can have no decision row at all; then
+  the accepted signal is the whole answer. Say that, rather than reading a missing row as a fault.
+- **Quote, never reconstruct.** Do not build a thesis from the mandate, the market or the scanner's
+  code. If the entry is older than the event log (a recent-only ring) or a read fails (non-zero exit,
   `unknown method`), say the record could not be read and stop there.
-- **Why it CLOSED is not this section:** a strategy's close is `senpi-improve-trades`; a manual or mirrored
-  position's close is `senpi-trade`.
+- **Why it CLOSED is not this section:** a strategy's close is `senpi-improve-trades`; a manual or
+  mirrored position's close is `senpi-trade`.
 
 ### "Why hasn't it traded?" / "why didn't it open that position?" — answer from the outcome codes
 
