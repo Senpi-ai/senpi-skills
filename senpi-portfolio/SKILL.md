@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.30.0"
+  version: "1.30.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -194,7 +194,7 @@ so is the useful reply.
 | `no_slots` | Every slot is already holding a position — working as designed. | no |
 | `below_min_notional` | The position would be smaller than the $10 exchange minimum. More budget, or higher leverage, would clear it. | their call |
 | `risk_gate_COOLDOWN` | A guard rail is holding it back — the per-asset or global cooldown from its own config. | no |
-| `risk_gate_CLOSED` | A guard rail tripped — daily loss limit, drawdown halt, or consecutive-loss brake. The gate carries its own `reason`, so name **which one**; never just "a risk gate". | no, until it resets |
+| `risk_gate_CLOSED` | A guard rail tripped — daily loss limit, drawdown halt, or consecutive-loss brake. The gate carries its own `reason`, so name **which one**; never just "a risk gate". The daily loss and drawdown halts **latch**: they stay closed after PnL recovers. | no, until it resets — but a drawdown halt with `drawdown_reset_on_day_rollover: false` never resets on its own: that is **the user's decision**, never clear it for them |
 | `position_already_exists` | It already holds that asset; it will not double up. | no |
 | `strategy_backend_paused` | The strategy is paused — it will not open anything until it is resumed. | **yes** — unpause it |
 | `position_open_failed` | It tried to open and the exchange rejected the order. Give the exchange's own message, which rides the outcome. | depends on the message |
@@ -303,7 +303,8 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
   `CLOSED` or `COOLDOWN`: the strategy is **healthy and paused by its own rule** (daily entry cap, daily
   loss halt, drawdown halt, a cooldown). Name the gate and quote its `reason` verbatim ("Max Entries/Day —
   Max entries: 4/4 entries today"), say when it lets go (`reset`: daily gates at 00:00 UTC, cooldowns on
-  their own), and that nothing is broken. **Never send the user to redeploy over it** — a fresh wallet
+  their own; a latched drawdown halt with `drawdown_reset_on_day_rollover: false` never lets go on its own —
+  it waits for the user's decision, and you never clear it or resume entries without their explicit approval), and that nothing is broken. **Never send the user to redeploy over it** — a fresh wallet
   market-exits the book and starts the same gate again from zero. `meta.paused_by_risk_gate` lists them.
 
 #### Corroborate the verdict before you assert it — in either direction

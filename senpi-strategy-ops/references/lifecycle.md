@@ -545,8 +545,12 @@ own verdict + active-position count. Classes:
 - **⏸ paused** (a second fact beside health, never a health class) — the runtime's OWN risk gate
   (`status --json` → `components.risk.eligibility` `CLOSED`/`COOLDOWN`) holds entries; the row shows
   `⏸ CLOSED`, and a section prints each gate's `reason` verbatim plus when it lets go (daily cap and
-  daily loss halt: 00:00 UTC; cooldowns: on their own). Health stays `healthy`: it ticks, it manages what
-  it holds, it opens nothing. By design — say so; never close/redeploy to clear it.
+  daily loss halt: 00:00 UTC; drawdown halt: 00:00 UTC only with `drawdown_reset_on_day_rollover: true`,
+  otherwise never on its own; cooldowns: on their own). The two halts **latch** — they stay CLOSED after
+  PnL recovers, and survive restarts and updates; a reason starting `<Gate> latched …` says so. Health stays `healthy`: it ticks, it manages what
+  it holds, it opens nothing. By design — say so; never close/redeploy to clear it. A latched halt is the
+  user's call: report it and wait; never clear it or resume entries without their explicit approval
+  (levers: `senpi-strategy-author/references/risk-gates.md` → *Halt latch*).
 - **✎ running recipe ≠ disk** — the descriptor the runtime renders (`runtime list --json`) differs from
   the package on disk (`dsl_preset` name, `description`, or the recipe hash when the runtime publishes
   one): an edit that was never applied. Printed with `deploy.py update <pkg> --id <rt>`.
