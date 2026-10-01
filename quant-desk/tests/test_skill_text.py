@@ -61,13 +61,15 @@ def _markdown_files():
 
 # --- frontmatter -------------------------------------------------------------------------------
 
-def test_frontmatter_is_2_1_0_and_requires_the_runtime():
+def test_frontmatter_is_2_2_0_and_requires_the_runtime():
     """Still major 2: boxes gate skill majors on the runtime's manifest ceiling (quant-desk maxMajor 2),
     so 2.x only lands where the runtime has the `senpi quant` verb. The Set stop loss doctrine is a minor:
-    on a runtime without the button its text never says `Set stop loss button:`, and rule 5 holds as before."""
+    on a runtime without the button its text never says `Set stop loss button:`, and rule 5 holds as before.
+    The trailing doctrine is a minor too: on a runtime that does not offer it the text never says
+    `Trailing stop offered:`."""
     meta = yaml.safe_load(_frontmatter())
     assert meta["name"] == "quant-desk"
-    assert meta["metadata"]["version"] == "2.1.0", meta["metadata"]["version"]
+    assert meta["metadata"]["version"] == "2.2.0", meta["metadata"]["version"]
     assert "senpi-trading-runtime" in (meta["metadata"].get("requires") or []), meta["metadata"]
 
 
@@ -181,7 +183,7 @@ def test_kept_doctrine_is_verbatim():
              "**Never a call to buy or sell a coin.**",
              "senpi cannot put a stop on a position held in the reader's own wallet except through the Set stop loss button.",
              "**name the naked positions and ask how you can help.**",
-             "As of 2026-09-28 that button's fixed stop loss is the only stop senpi offers on a custodied book — never promise trailing.",
+             "As of 2026-09-30 the button's fixed stop loss and, where the text offers it, its trailing stop are the only stops senpi offers on a custodied book.",
              "Never imply senpi holds or moves their funds.",
              'Never "report", "analyst", "bot", "AI assistant".',
              "**Your quant reads any book on Hyperliquid, not just yours.**",
@@ -426,3 +428,42 @@ def test_a_lone_protection_section_follows_otherwise():
     _needles("Otherwise (a desk with no closing card — a one-question run — or the card closed with no "
              "`Set stop loss button:` in its text, or the prose fallback): the desk cannot stop them",
              "`run 0x… --section protection`")
+
+
+# --- the trailing stop on the Set stop loss button ------------------------------------------------
+
+def test_trailing_is_mentioned_only_where_the_result_text_offers_it():
+    """`Trailing stop offered:` is the runtime's marker (quant-desk-recommendations.ts
+    TRAILING_OFFERED_MARKER): the model sees no other evidence that the button can trail."""
+    _needles("**Trailing.** When the card's result text carries `Set stop loss button:` and also "
+             "`Trailing stop offered:`, the same button can place a "
+             "trailing stop instead of the fixed one, for the coins the trailing line lists and no others.",
+             "When you mention it, say it trails on Hyperliquid from the price when the order lands, or from a start "
+             "price the reader sets (the position has no stop at all until then).")
+
+
+def test_a_start_price_leaves_the_position_with_no_stop():
+    """The trailing stop is placed instead of the fixed one, so with a start price nothing protects the
+    position until that price is reached (the runtime's own confirm text says so). "No protection from
+    it" read as if another stop still covered the position."""
+    _needles("from a start price the reader sets (the position has no stop at all until then)")
+    assert "no protection from it" not in _flat(_skill())
+
+
+def test_trailing_is_never_oversold():
+    _needles("It is not the desk's trailing lock: never attach a leak's figure or settings to it, and never state its "
+             "retracement — the confirm step shows it.",
+             "Never say it follows the position's size, never say senpi moves or manages it, and never offer it on "
+             "any other card.",
+             "Without the trailing line, never say the button can place a trailing stop.")
+
+
+def test_the_old_blanket_ban_on_trailing_is_gone():
+    assert "never promise trailing" not in _flat(_skill())
+
+
+def test_the_trailing_rule_binds_the_button_not_the_word():
+    """Rule 3b relays the desk's leaks headline verbatim, and that headline names a trailing stop as a
+    counterfactual: a ban on the word would forbid the relay. Only the claim about the button is gated."""
+    _needles("a trailing stop that arms at +3% and keeps 50% of the peak")
+    assert "do not mention trailing at all" not in _flat(_skill())
