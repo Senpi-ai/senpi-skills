@@ -158,7 +158,8 @@ def test_weak_peak_cut_can_only_fire_before_the_ladder_arms():
 
 # ── the "wild" variants: conviction and size move TOGETHER ──
 
-WILD_PAIRS = [("wild-condor", "condor"), ("wild-cheetah", "cheetah")]
+WILD_PAIRS = [("wild-condor", "condor"), ("wild-cheetah", "cheetah"),
+              ("grizzly-wild", "grizzly")]
 
 
 def _sizing(pkg):
@@ -267,7 +268,11 @@ KNOWN_SPLIT_LEVERAGE = {
     # raptor and pangolin were here and are now FIXED — see COHERENT.
 }
 
-COHERENT = ["cheetah", "wild-cheetah", "owl", "jaguar", "raptor", "pangolin"]
+# condor joined when its ladder was re-derived onto the shared price ladder (see
+# test_one_price_ladder.py). orca is coherent by construction rather than by a flat tier list —
+# it has no leverageTiers at all, one leverageDefault for every signal — so it cannot be asserted
+# here; test_one_price_ladder.py covers it instead.
+COHERENT = ["cheetah", "wild-cheetah", "owl", "jaguar", "raptor", "pangolin", "condor"]
 
 
 def test_no_new_package_grows_a_split_leverage_ladder():
@@ -336,3 +341,45 @@ def test_rung_zero_arms_often_enough(pkg):
 
 
 # ── weak_peak_cut must stay a DEATH cut, never a profit cut ──
+
+
+# ── grizzly-wild is grizzly in exactly two inputs ──
+
+def test_grizzly_wild_differs_from_grizzly_in_exactly_two_inputs():
+    """Same contract as purple-penguin, for the other direction.
+
+    grizzly-wild exists to ask one question: does grizzly's BTC thesis pay for a bigger position when
+    it clears a higher bar? That is only answerable if the floor and the size are the ONLY things
+    that differ — any third change and a difference in results stops being attributable."""
+    g = _yaml("strategies/grizzly/main/runtime.yaml")
+    w = _yaml("strategies/grizzly-wild/main/runtime.yaml")
+    gi = next(s for s in g["scanners"] if s.get("type") == "external_scanner")["inputs"]
+    wi = next(s for s in w["scanners"] if s.get("type") == "external_scanner")["inputs"]
+    differ = {k for k in set(gi) | set(wi) if gi.get(k) != wi.get(k)}
+    assert differ == {"minScore", "marginPct"}, (
+        f"grizzly-wild differs from grizzly in {sorted(differ)}. Only minScore and marginPct may "
+        f"differ — revert anything else or the experiment reads nothing.")
+    assert (gi["minScore"], wi["minScore"]) == (12, 14), (
+        f"the floor pair moved: grizzly {gi['minScore']}, grizzly-wild {wi['minScore']}. 14 is "
+        f"grizzly's own apex tier, the score at which it already sized largest.")
+    assert (gi["marginPct"], wi["marginPct"]) == (50, 90)
+
+
+def test_grizzly_wild_inherits_grizzlys_exits_untouched():
+    """Its whole exit thesis is "grizzly's, because BTC is not the leaderboard universe"."""
+    g = _yaml("strategies/grizzly/main/runtime.yaml")
+    w = _yaml("strategies/grizzly-wild/main/runtime.yaml")
+    assert w["exit"] == g["exit"], (
+        "grizzly-wild's exit block diverged from grizzly's. BTC's measured adverse bounce is p90 "
+        "0.51% of price and grizzly's stop is 0.80%, already outside it — there is no measurement "
+        "behind changing it on the wild variant alone.")
+
+
+def test_grizzly_wild_vendors_grizzlys_scanners_byte_for_byte():
+    """A forked scanner is a silent divergence in the entry model, which is the thing being held
+    constant. If grizzly's detector is fixed, grizzly-wild must get the same fix."""
+    for f in ("scan.py", "scoring.py"):
+        assert _read(f"strategies/grizzly-wild/main/scanners/{f}") == \
+               _read(f"strategies/grizzly/main/scanners/{f}"), (
+            f"grizzly-wild/{f} has drifted from grizzly/{f}. Port the change to both in the same "
+            f"commit, or the two stop being comparable.")

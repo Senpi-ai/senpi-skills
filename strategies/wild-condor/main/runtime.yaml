@@ -20,7 +20,7 @@
 # ── inherited from CONDOR, unchanged ──
 name: wild-condor-main
 group: wild-condor
-version: 1.3.0
+version: 1.4.0
 description: >
   WILD CONDOR — CONDOR at conviction size, DSL-only. Multi-asset trend-continuation apex sniper ("One Amazing Trade per Day").
   Scans the top 50 HL crypto assets by 24h notional volume and fires ONLY when 4h +
@@ -174,7 +174,9 @@ exit:
       # max_loss_pct := the old retrace (12.0% ROE), which is what the trail was already
       # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
       enabled: false
-      max_loss_pct: 12.0   # was 20.0 — set to the old retrace so the risk cap is unchanged
+      max_loss_pct: 15.0   # 1.50% of price at 10x — condor 3.4.0 parity. Was 12.0 (= 1.20% of
+                           # price), INSIDE the measured 1.38% p75 adverse bounce on this
+                           # universe, so ordinary noise was taking the stop out.
       retrace_threshold: 12                # v2: raised 8 -> 12 (don't pre-exit the one amazing trade)
       consecutive_breaches_required: 1
     phase2:
