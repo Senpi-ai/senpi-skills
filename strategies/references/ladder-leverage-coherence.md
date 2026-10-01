@@ -1,4 +1,4 @@
-# Leverage/ROE ladder coherence — ten pending packages
+# Leverage/ROE ladder coherence
 
 Every DSL threshold is ROE, and the engine converts ROE to a price floor by **dividing by
 leverage** (`senpi-strategy-author/references/dsl-configuration.md`). A package that spreads
@@ -9,6 +9,44 @@ widest stop.
 `cheetah` had this and was fixed in #806 by flattening leverage and scaling conviction through
 `marginPct` instead. These ten still have it. They are NOT a mechanical sweep, for the reasons
 under each table.
+
+## Measured 2026-10-01 — which of these actually fire
+
+Flattening needs a target, and the only defensible one is the leverage a package's trades actually
+run at. From 14 days of real emits:
+
+| package | wallets | scan lines | emits | modal leverage | status |
+|---|---|---|---|---|---|
+| `raptor` | 6 | 13,314 | **1,066** | 10x (67%) | pending — bespoke sizing |
+| `jaguar` | 2 | 2,169 | **684** | 10x (67%) | **FIXED** → flat 10x |
+| `owl` | 6 | 2,716 | **645** | 8x (66%) | **FIXED** → flat 8x |
+| `pangolin` | 4 | 4,455 | **252** | 3x (63%) | pending — needs a ladder re-expression |
+| `wolverine` | 5 | 4,403 | 11 | — | ~dormant |
+| `polar` | 2 | 1,888 | 6 | — | ~dormant |
+| `kestrel` | 1 | 1,255 | 4 | — | ~dormant |
+| `otter` | 2 | 4,059 | **0** | — | scans, never emits |
+| `kodiak` | 1 | 206 | **0** | — | scans, never emits |
+| `lemon` | — | — | — | — | not deployed |
+
+**Five of the ten produce no signals at all**, so their ladders are theory. `otter` ran 4,059 scan
+lines and emitted nothing; `kodiak` 206 and nothing.
+
+**Two fire but are not config-only.** `raptor` sizes through `marginPctBase` (25) and
+`marginPctHighConv` (35) with no flat `marginPct`. `pangolin`'s modal leverage is 3x, where its
+rung 0 lands at 2.67% of price against the 0.84% median peak — the flatten must come with the
+re-expression or it ships a ladder that still never arms.
+
+## What was fixed
+
+| | before | after | exposure |
+|---|---|---|---|
+| `owl` | 7/8/10x at a flat 25% | flat **8x** at 31.2 / 25.0 / 21.9% | identical per tier |
+| `jaguar` | 7/10x at a flat 50% | flat **10x** at 50.0 / 35.0% | identical per tier |
+
+`new_margin = old_lev × old_margin / flat_lev`, so each tier's exposure is unchanged to the
+decimal. Both now arm rung 0 inside the median peak — owl at 0.62% of price, jaguar at 0.70%.
+Each scanner keeps `get_leverage_for_score` as a thin wrapper over a new `get_sizing_for_score`
+that also returns the tier's margin, so any other caller is unaffected.
 
 ## The spread, per package
 

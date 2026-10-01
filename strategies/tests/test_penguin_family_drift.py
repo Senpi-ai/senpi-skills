@@ -269,11 +269,20 @@ def test_a_leverage_sibling_refuses_names_outside_its_band(sibling, base):
 #
 # This list is a DEBT REGISTER, not a permission slip. Shrink it; never add to it.
 KNOWN_SPLIT_LEVERAGE = {
-    "lemon", "otter", "polar", "kestrel", "pangolin",
-    "wolverine", "jaguar", "owl", "raptor", "kodiak",
+    # Measured 2026-10-01 over 14 days of real emits. FIVE of these produce no signals at all —
+    # otter 0 emits from 4,059 scan lines, kodiak 0 from 206, lemon not deployed, polar 6,
+    # kestrel 4 — so their ladders are theory rather than live behaviour. Fix them when they trade.
+    "lemon", "otter", "polar", "kestrel", "kodiak", "wolverine",
+    # These two DO fire, and are not a config edit:
+    #   raptor    1,066 emits / 6 wallets. Sizes via marginPctBase + marginPctHighConv with no flat
+    #             marginPct, so flattening needs a design for that mechanism, not a tier edit.
+    #   pangolin    252 emits / 4 wallets. Modal leverage is 3x, and at 3x its rung 0 sits at
+    #             2.67% of price against a measured 0.84% median peak — flattening alone would
+    #             leave a ladder that never arms, so it needs the re-expression in the same change.
+    "raptor", "pangolin",
 }
 
-COHERENT = ["cheetah", "wild-cheetah"]
+COHERENT = ["cheetah", "wild-cheetah", "owl", "jaguar"]
 
 
 def test_no_new_package_grows_a_split_leverage_ladder():

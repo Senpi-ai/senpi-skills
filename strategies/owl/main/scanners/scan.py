@@ -307,7 +307,12 @@ def _coerce_tiers(tiers):
         if isinstance(t, dict):
             out.append(t)
         elif isinstance(t, (list, tuple)) and len(t) >= 2:
-            out.append({"min_score": t[0], "leverage": t[1]})
+            # a THIRD element is a per-tier marginPct — that is how conviction is scaled now, so
+            # leverage can stay flat and one ROE ladder stays correct for every tier
+            d = {"min_score": t[0], "leverage": t[1]}
+            if len(t) > 2:
+                d["marginPct"] = t[2]
+            out.append(d)
     return out or None
 
 
@@ -462,7 +467,11 @@ def scan(inputs, ctx):
                   "candidates": len(candidates), "held": sorted(held)})
         return []
 
-    leverage = scoring.get_leverage_for_score(best["combined_score"], tiers)
+    # conviction is sized through MARGIN now, not leverage — see get_sizing_for_score. A tier with
+    # no marginPct yields None and falls back to the flat value, so an old config is unchanged.
+    leverage, tier_margin = scoring.get_sizing_for_score(best["combined_score"], tiers)
+    if tier_margin:
+        margin_pct = tier_margin
     cooldowns[best["asset"]] = {"emittedTimestamp": now}    # v2 mark_asset_emitted
 
     result = {"ts": now, "emitted": True, "gate": "pass", "coin": best["asset"],

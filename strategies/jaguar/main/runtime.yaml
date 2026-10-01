@@ -1,7 +1,7 @@
 # ── JAGUAR · single instance — Striker rank-jump detector (Runtime 3.0 port of v2 JAGUAR v4.0.2) ──
 name: jaguar-main
 group: jaguar
-version: 3.0.0
+version: 3.1.0
 description: >
   JAGUAR — multi-asset Striker. A derived-universe rank-jump detector: reads the live 4h
   leaderboard concentration feed (leaderboard_get_markets — a momentum read of who is
@@ -36,7 +36,19 @@ scanners:
       marketLimit: 100                      # leaderboard_get_markets top-N traders to aggregate
       minScore: 9                           # v2 MIN_SCORE entry floor
       marginPct: 50                         # PERCENT of withdrawable (0,100] — v2 MARGIN_PCT 0.50 as a percent
-      leverageTiers: [[10, 10], [9, 7]]     # per-signal conviction tiers: >=10 -> 10x apex, >=9 -> 7x conviction
+      # [min_score, leverage, marginPct]. Leverage FLATTENED to 10x and conviction
+      # scaled through margin instead. Exposure per tier is UNCHANGED — each row is the old
+      # leverage x the old flat marginPct, re-expressed at 10x.
+      #
+      # WHY 10x: MEASURED, not chosen. Over 14 days of real emits, 67% of this
+      # package's 684 signals fired at 10x — it is the leverage its trades actually run
+      # at, so calibrating the ladder for it is calibrating for the common case.
+      #
+      # WHY FLAT: every DSL threshold is ROE and the engine divides by leverage to get a price
+      # floor, so spread leverage rescaled the whole ladder per tier — and backwards, since the
+      # lowest-conviction tier got the lowest leverage and therefore the WIDEST stop.
+      # Was [[10, 10], [9, 7]].
+      leverageTiers: [[10, 10, 50.0], [9, 10, 35.0]]     # per-signal conviction tiers: >=10 -> 10x apex, >=9 -> 7x conviction
       scanHistoryLen: 60                    # how many prior snapshots to compare velocity across
       minTraderCount: 10                    # skip a board side thinner than this many traders at the read — a thin side never enters the rank order
     signal_data_schema:
