@@ -9,11 +9,11 @@ description: >-
   the DSL exit engine — including verifying open positions are protected by DSL (have a
   working stop-loss). The shared runtime contract the lifecycle skills reference. NOT
   for building, installing, or picking a strategy (→ senpi-strategy-author /
-  senpi-strategy-ops / senpi-strategy-discover).
+  senpi-strategy-ops / senpi-strategy-discover), or why a position was opened (→ senpi-portfolio).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "4.1.7"
+  version: "4.1.8"
   platform: senpi
   exchange: hyperliquid
 ---

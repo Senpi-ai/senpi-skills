@@ -79,6 +79,29 @@ def test_portfolio_hands_why_closed_and_a_hand_opened_stop_to_their_owners():
     assert "outside Senpi" in handoff and "quant-desk" in handoff
 
 
+def test_improve_trades_claims_why_the_strategy_closed_a_position():
+    """p12-shaped questions fired portfolio at 0.64-0.72 while improve-trades sat at 0.36-0.41, and
+    the record that answers them (`senpi dsl closes`, section 6b of its body) is improve-trades'."""
+    desc = _desc("senpi-improve-trades").lower()
+    assert "why did my strategy close x" in desc
+
+
+def test_trade_claims_a_manual_close_and_a_hand_opened_stop():
+    """p14-shaped questions fired portfolio at 0.67-0.69 while senpi-trade sat at 0.11-0.12. Its body
+    already rules "Why did it close?" is a record question; the description never said so."""
+    desc = _desc("senpi-trade").lower()
+    assert "why did my manual or mirrored position close" in desc
+    assert "the stop on a position i opened by hand" in desc
+
+
+def test_trading_runtime_disclaims_the_reason_behind_one_entry():
+    """p03-shaped questions reached the runtime contract at 0.48-0.53 through "scanner" and "bot".
+    It documents the decision-layer CLI; it does not own the question one entry raises."""
+    desc = _desc("senpi-trading-runtime")
+    tail = desc[desc.index("NOT"):]
+    assert "why a position was opened" in tail and "senpi-portfolio" in tail
+
+
 def test_every_description_is_a_folded_scalar_that_parses():
     """A description that fails to parse, or changes scalar style, changes what every agent reads."""
     skills = sorted(p.parent.name for p in REPO.glob("*/SKILL.md"))
