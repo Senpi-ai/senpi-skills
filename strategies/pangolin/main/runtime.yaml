@@ -1,7 +1,7 @@
 # ── PANGOLIN · single instance — extreme funding-rate fader (Runtime 3.0 port of v2 Pangolin) ──
 name: pangolin-main
 group: pangolin
-version: 3.0.0
+version: 3.1.0
 description: >
   PANGOLIN — multi-asset funding-rate fader. Scans every liquid perp (OI > $10M, derived
   live from market_list_instruments) for funding that has been EXTREME (>= 0.0000228/hr,
@@ -43,7 +43,21 @@ scanners:
                                             # only a few million of open interest clear every gate; a fade needs a book to exit into
       minPersistenceHours: 3                # hard gate against fresh spikes (v1.4)
       marginPct: 25                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable. v2 margin_pct=25.
-      leverageTiers: [[13, 5], [9, 3]]      # v1.4 carryover: score>=13 -> 5x, else 3x
+      # [min_score, leverage, marginPct]. Leverage FLATTENED to 3x and conviction scaled
+      # through margin instead. Exposure per tier UNCHANGED: 5x25%=1.25x, 3x25%=0.75x
+      # -> 3x41.7%, 3x25%. Two slots x 41.7% = 83% of the wallet worst case.
+      #
+      # WHY 3x: MEASURED. 63% of this package's 252 emits over 14 days fired at 3x.
+      #
+      # THE LADDER IS DELIBERATELY UNCHANGED. Measured on pangolin's OWN 20 closed positions
+      # (not penguin's universe): median peak 0.57% of price, p75 3.51%, p90 5.39%. At 3x its
+      # rung 0 needs 2.67% and arms on 40% of positions; rung 1 needs 5.33% and arms on 10%.
+      # The top two rungs (10.0% and 16.7% of price) did not arm in 20 positions — but a tail
+      # rung exists for the rare runner and removing it would cap winners, which is the same
+      # reasoning penguin's ladder records for its own 1.5-4% tail tier. n=20 is also too thin
+      # to retune a four-rung ladder on. Revisit when there are more closes.
+      # Was [[13, 5], [9, 3]].
+      leverageTiers: [[13, 3, 41.7], [9, 3, 25.0]]
       defaultLeverage: 3
       quietHoursStartUtc: 0                 # quiet-hours gate (TASK SPEC): no entries 00:00-04:00 UTC
       quietHoursEndUtc: 4

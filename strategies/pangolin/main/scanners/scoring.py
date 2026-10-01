@@ -30,13 +30,25 @@ def _f(v, d=0.0):
 
 
 def get_leverage(score, tiers, default_leverage=3):
-    """Conviction-tiered leverage. tiers = [[min_score, leverage], ...] desc by score.
-    v2-quirk: LEVERAGE_TIERS = [{min_score:13, leverage:5}, {min_score:9, leverage:3}],
-    DEFAULT_LEVERAGE = 3 — ported verbatim from v1.4 (crowded unwinds are violent)."""
+    """Conviction-tiered leverage. Kept for callers that only want the leverage."""
+    return get_sizing(score, tiers, default_leverage)[0]
+
+
+def get_sizing(score, tiers, default_leverage=3):
+    """Resolve (leverage, marginPct) for a score. tiers = [[min_score, leverage]] or
+    [[min_score, leverage, marginPct]] desc by score.
+
+    The third element is how conviction is scaled now, so leverage can stay FLAT: every DSL
+    threshold is ROE and the engine converts ROE to a price floor by DIVIDING BY LEVERAGE, so
+    spread leverage rescaled the whole exit ladder per tier — and backwards, since the
+    lowest-conviction tier got the lowest leverage and therefore the WIDEST stop. A tier with no
+    third element returns margin None and the caller falls back to the flat marginPct, so an
+    old-shape config behaves exactly as before.
+    (DEFAULT_LEVERAGE 3 is ported verbatim from v1.4 — crowded unwinds are violent.)"""
     for t in tiers:
         if score >= t[0]:
-            return int(t[1])
-    return int(default_leverage)
+            return int(t[1]), (float(t[2]) if len(t) > 2 else None)
+    return int(default_leverage), None
 
 
 # ═══════════════════════════════════════════════════════════════

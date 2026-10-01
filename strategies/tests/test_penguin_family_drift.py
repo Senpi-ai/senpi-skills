@@ -132,15 +132,6 @@ def test_a_variable_leverage_book_cannot_carry_a_fixed_roe_ladder():
             f"third tier element (marginPct) and keep leverage flat.")
         assert all(len(t) > 2 for t in tiers), (
             f"{pkg} tiers lost their marginPct element — conviction is no longer sized at all")
-        lev = levs.pop()
-        rungs = rt["exit"]["dsl_preset"]["phase2"]["tiers"]
-        first = rungs[0]["trigger_pct"] / lev
-        assert first <= 1.0, (
-            f"{pkg}'s first rung arms at {first:.2f}% of price. The measured median position peaks "
-            f"at 0.84%, so a rung above ~1% never arms and the position has no profit floor.")
-
-
-# ── weak_peak_cut must stay a DEATH cut, never a profit cut ──
 
 def test_weak_peak_cut_can_only_fire_before_the_ladder_arms():
     """`weak_peak_cut` closes when peakROE never reached `min_value` and current ROE has fallen
@@ -273,16 +264,10 @@ KNOWN_SPLIT_LEVERAGE = {
     # otter 0 emits from 4,059 scan lines, kodiak 0 from 206, lemon not deployed, polar 6,
     # kestrel 4 — so their ladders are theory rather than live behaviour. Fix them when they trade.
     "lemon", "otter", "polar", "kestrel", "kodiak", "wolverine",
-    # These two DO fire, and are not a config edit:
-    #   raptor    1,066 emits / 6 wallets. Sizes via marginPctBase + marginPctHighConv with no flat
-    #             marginPct, so flattening needs a design for that mechanism, not a tier edit.
-    #   pangolin    252 emits / 4 wallets. Modal leverage is 3x, and at 3x its rung 0 sits at
-    #             2.67% of price against a measured 0.84% median peak — flattening alone would
-    #             leave a ladder that never arms, so it needs the re-expression in the same change.
-    "raptor", "pangolin",
+    # raptor and pangolin were here and are now FIXED — see COHERENT.
 }
 
-COHERENT = ["cheetah", "wild-cheetah", "owl", "jaguar"]
+COHERENT = ["cheetah", "wild-cheetah", "owl", "jaguar", "raptor", "pangolin"]
 
 
 def test_no_new_package_grows_a_split_leverage_ladder():
@@ -317,3 +302,37 @@ def test_no_new_package_grows_a_split_leverage_ladder():
     assert not gone, (
         f"{sorted(gone)} no longer spread leverage — remove them from KNOWN_SPLIT_LEVERAGE and add "
         f"them to COHERENT so the stronger assertion covers them from now on.")
+
+
+
+
+# Rung-0 arming is a SEPARATE claim from leverage coherence, and the two were wrongly coupled: the
+# 1%-of-price bar came from PENGUIN's universe (median peak 0.84%) and does not transfer. pangolin,
+# measured on its OWN 20 closes, has a median peak of 0.57% but a p75 of 3.51% — a different shape,
+# where a rung at 2.67% still arms on 40% of positions. So the bar is per-package, and an exemption
+# has to carry its measurement.
+RUNG0_MAX_PRICE_PCT = {
+    # pkg: (max % of price, why)
+    "pangolin": (2.70, "own 20 closes: median peak 0.57%, p75 3.51%, p90 5.39% — its rung 0 at "
+                       "2.67% arms on 40% of positions, and n=20 is too thin to retune a ladder"),
+}
+_DEFAULT_RUNG0_MAX = 1.0   # penguin's universe: median peak 0.84% of price
+
+
+@pytest.mark.parametrize("pkg", COHERENT)
+def test_rung_zero_arms_often_enough(pkg):
+    """A first rung above a package's own peak distribution never arms, so a position that goes
+    green has no floor under it and can round-trip to the stop."""
+    rt = _yaml(f"strategies/{pkg}/main/runtime.yaml")
+    sc = next(s for s in rt["scanners"] if s.get("type") == "external_scanner")
+    tiers = sc["inputs"].get("leverageTiers") or []
+    lev = {t[1] for t in tiers}.pop() if tiers else rt["strategy"]["default_leverage"]
+    first = rt["exit"]["dsl_preset"]["phase2"]["tiers"][0]["trigger_pct"] / lev
+    cap, why = RUNG0_MAX_PRICE_PCT.get(pkg, (_DEFAULT_RUNG0_MAX, "penguin's measured 0.84% median peak"))
+    assert first <= cap, (
+        f"{pkg}'s rung 0 arms at {first:.2f}% of price, above its {cap:.2f}% bar ({why}). Either "
+        f"lower the trigger or record a measured exemption in RUNG0_MAX_PRICE_PCT — never raise "
+        f"the cap without the package's own peak distribution behind it.")
+
+
+# ── weak_peak_cut must stay a DEATH cut, never a profit cut ──

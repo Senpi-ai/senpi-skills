@@ -1,7 +1,7 @@
 # ── RAPTOR · single instance — hot-streak follower (Runtime 3.0 port of v2 Raptor v4.0.0) ──
 name: raptor-main
 group: raptor
-version: 3.0.0
+version: 3.1.0
 description: >
   RAPTOR — quality-first hot-streak follower. Pulls ELITE/RELIABLE traders winning the
   WEEKLY window (discovery_get_top_traders, unrealized >= $500k), isolates each one's
@@ -52,11 +52,25 @@ scanners:
       eventDedupeHours: 4                   # per-(trader,asset) re-fire window
       # ── entry / sizing ──
       minScore: 6                           # score floor to fire
-      marginPctBase: 25                     # PERCENT of withdrawable (0,100] — v2 fraction 0.25 -> 25
-      marginPctHighConv: 35                 # PERCENT, used at score >= highConvScore — v2 0.35 -> 35
-      highConvScore: 10                     # score at/above which marginPctHighConv applies
+      # 17.5 — the SMALLEST reachable tier margin, and a fallback only: every tier above
+      # carries its own marginPct. It is kept at the smallest because min_budget reads
+      # marginPctBase from an explicit allowlist and cannot see the third tier element,
+      # so a higher value here under-computes the minimum budget.
+      marginPctBase: 17.5
       # ── leverage tiers (conviction-scaled) — verbatim from v2 config ──
-      leverageTiers: [[10, 10], [8, 8], [6, 7]]
+      # [min_score, leverage, marginPct]. Leverage FLATTENED to 10x and conviction scaled
+      # through margin instead. Exposure per tier is UNCHANGED: 10x35%=3.50x, 8x25%=2.00x,
+      # 7x25%=1.75x  ->  10x35%, 10x20%, 10x17.5%.
+      #
+      # WHY 10x: MEASURED. Over 14 days, 67% of this package's 1,066 emits fired at 10x —
+      # the leverage its trades actually run at, so the ladder is calibrated for the common
+      # case. rung 0 (trigger 8) then sits at 0.80% of price, inside the measured median peak.
+      #
+      # WHY FLAT: every DSL threshold is ROE and the engine divides by leverage to get a price
+      # floor, so spread leverage rescaled the ladder per tier — and backwards, since the
+      # lowest-conviction tier got the lowest leverage and therefore the WIDEST stop.
+      # Was [[10, 10], [8, 8], [6, 7]] with margin stepping separately on highConvScore.
+      leverageTiers: [[10, 10, 35.0], [8, 10, 20.0], [6, 10, 17.5]]
       defaultLeverage: 7
       recentSignalTtlSeconds: 14400         # 240m — mirror the per-asset cooldown (anti re-fire)
     signal_data_schema:

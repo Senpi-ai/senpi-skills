@@ -260,7 +260,10 @@ def scan(inputs, ctx):
 
     # ── emit ONLY the top candidate per tick (v2 behavior; runtime owns slot parallelism) ──
     c = eligible[0]
-    leverage = scoring.get_leverage(c["score"], tiers, default_leverage)
+    # conviction is sized through MARGIN now, not leverage — see get_sizing
+    leverage, tier_margin = scoring.get_sizing(c["score"], tiers, default_leverage)
+    if tier_margin:
+        margin_pct = tier_margin
     emitted[c["token"]] = now
     out = [{
         "asset": c["token"],

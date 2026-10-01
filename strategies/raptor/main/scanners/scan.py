@@ -281,8 +281,9 @@ def scan(inputs, ctx):
                   "score": best["score"], "asset": best["asset"], "direction": best["direction"]})
         return []
 
+    # ONE conviction ladder: the tier carries both leverage (now flat) and marginPct.
     leverage = scoring.get_leverage_for_score(best["score"], tiers, default_leverage)
-    margin_pct = scoring.margin_pct_for(best["score"], inputs)
+    margin_pct = scoring.margin_pct_for(best["score"], inputs, tiers)
 
     # mark the (trader,asset) event seen so we don't re-fire it within the dedupe window
     seen[_seen_key(best["fullTraderId"], best["asset"])] = now

@@ -17,10 +17,10 @@ run at. From 14 days of real emits:
 
 | package | wallets | scan lines | emits | modal leverage | status |
 |---|---|---|---|---|---|
-| `raptor` | 6 | 13,314 | **1,066** | 10x (67%) | pending — bespoke sizing |
+| `raptor` | 6 | 13,314 | **1,066** | 10x (67%) | **FIXED** → flat 10x |
 | `jaguar` | 2 | 2,169 | **684** | 10x (67%) | **FIXED** → flat 10x |
 | `owl` | 6 | 2,716 | **645** | 8x (66%) | **FIXED** → flat 8x |
-| `pangolin` | 4 | 4,455 | **252** | 3x (63%) | pending — needs a ladder re-expression |
+| `pangolin` | 4 | 4,455 | **252** | 3x (63%) | **FIXED** → flat 3x, ladder kept |
 | `wolverine` | 5 | 4,403 | 11 | — | ~dormant |
 | `polar` | 2 | 1,888 | 6 | — | ~dormant |
 | `kestrel` | 1 | 1,255 | 4 | — | ~dormant |
@@ -31,10 +31,11 @@ run at. From 14 days of real emits:
 **Five of the ten produce no signals at all**, so their ladders are theory. `otter` ran 4,059 scan
 lines and emitted nothing; `kodiak` 206 and nothing.
 
-**Two fire but are not config-only.** `raptor` sizes through `marginPctBase` (25) and
-`marginPctHighConv` (35) with no flat `marginPct`. `pangolin`'s modal leverage is 3x, where its
-rung 0 lands at 2.67% of price against the 0.84% median peak — the flatten must come with the
-re-expression or it ships a ladder that still never arms.
+**All four that fire are now fixed.** The five dormant ones were checked rather than assumed:
+`otter` logs *"no candidate passed score+cooldown"* (1,360x) and *"all top 3 failed spread/dedup"*
+(1,233x) with near-misses at score 8.0 needing 9 — a working, selective scanner finding nothing.
+`kodiak` logs *"SOL HOLD (gate): 4h=BULLISH 80% | 1h=BEARISH"* — one asset, held by its own
+multi-timeframe gate. Neither is a dead gate like condor's old unreachable threshold.
 
 ## What was fixed
 
@@ -42,6 +43,25 @@ re-expression or it ships a ladder that still never arms.
 |---|---|---|---|
 | `owl` | 7/8/10x at a flat 25% | flat **8x** at 31.2 / 25.0 / 21.9% | identical per tier |
 | `jaguar` | 7/10x at a flat 50% | flat **10x** at 50.0 / 35.0% | identical per tier |
+| `raptor` | 7/8/10x, margin stepping separately on `highConvScore` | flat **10x** at 35.0 / 20.0 / 17.5% | identical per tier |
+| `pangolin` | 3/5x at a flat 25% | flat **3x** at 41.7 / 25.0% | identical per tier |
+
+`raptor` had TWO conviction ladders on different boundaries — leverage stepped on 10/8/6 while
+margin flipped at `highConvScore` 10 via `margin_pct_for`. Both now ride one per-tier value;
+`margin_pct_for` survives as a thin wrapper and `marginPctBase` is kept at the **smallest** tier
+margin (17.5) because `min_budget` reads it from an allowlist and cannot see the third tier element,
+so a higher value there under-computes the minimum budget.
+
+`pangolin`'s LADDER IS DELIBERATELY UNCHANGED. Measured on its own 20 closes — median peak 0.57%
+of price, p75 3.51%, p90 5.39% — its rung 0 at 2.67% arms on **40%** of positions and rung 1 on
+10%. The top two rungs (10.0% and 16.7% of price) did not arm in 20 positions, but a tail rung
+exists for the rare runner and removing it caps winners, which is the reasoning penguin's own
+ladder records for its 1.5–4% tail tier. n=20 is too thin to retune four rungs on.
+
+That also corrected an earlier claim in this file: a universal "rung 0 must be under 1% of price"
+bar came from PENGUIN's median peak and does not transfer between universes. The test now keeps
+leverage-flatness and rung-0 arming as SEPARATE assertions, and an exemption must carry its own
+measurement (`RUNG0_MAX_PRICE_PCT`).
 
 `new_margin = old_lev × old_margin / flat_lev`, so each tier's exposure is unchanged to the
 decimal. Both now arm rung 0 inside the median peak — owl at 0.62% of price, jaguar at 0.70%.
