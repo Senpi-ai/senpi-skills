@@ -1,7 +1,7 @@
 # ── CONDOR · single instance — One Amazing Trade per Day (Runtime 3.0 port of v2 CONDOR v4.0.1) ──
 name: condor-main
 group: condor
-version: 3.4.0
+version: 3.5.0
 description: >
   CONDOR — multi-asset trend-continuation apex sniper ("One Amazing Trade per Day").
   Scans the top 50 HL crypto assets by 24h notional volume and fires ONLY when 4h +
@@ -44,7 +44,13 @@ scanners:
       # package's leverage to make the scanner prefer a lower-scoring name the ladder actually fits;
       # it falls back to the top candidate with a warning rather than skipping the tick.
       minLeverage: 0
-      minScore: 12                         # v2 MIN_SCORE (v3.4 calibration)
+      minScore: 13                         # v2 MIN_SCORE (v3.4 calibration)
+  # RAISED 12 -> 13: 13 is this package's own next conviction band (11/13/15).
+      # 2026-10-01: of 25 closes in 24h across the fleet, 15 never armed a single profit
+      # rung and their median peak was 2.0% ROE (~0.2% of price) — entries that never went
+      # green, which no stop placement fixes. Fees were 57% of gross over the same set.
+      # The 11 band below the floor is now UNREACHABLE. Kept deliberately: it records the author's
+      # calibration and comes back if an experiment lowers the floor again.
       marginPct: 20                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable.
                                            # Was 50: at 10x that is 5x the account in one position,
                                            # so the -15% ROE stop would cost 7.5% of equity per

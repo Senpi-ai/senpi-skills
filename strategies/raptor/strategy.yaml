@@ -13,7 +13,7 @@ version: "1.2.0"
 catalog:
   name: "Raptor — Hot-Streak Follower"
   emoji: "🦅"
-  tagline: "Hunts ELITE/RELIABLE traders who are winning big this week, reads the single bet driving their streak, confirms the 4h leaders' side agrees (where the last four hours' winners sit) and the asset hasn't already run away from the whale's entry, then piggybacks the same trade — sizing leverage to conviction (7/8/10x)."
+  tagline: "Hunts ELITE/RELIABLE traders who are winning big this week, reads the single bet driving their streak, confirms the 4h leaders' side agrees (where the last four hours' winners sit) and the asset hasn't already run away from the whale's entry, then piggybacks the same trade — sizing margin to conviction (20/35%) at a flat 10x."
   belief_plain: "Finds the traders who are crushing it right now AND have a proven track record, figures out which position is making them the money, checks the last four hours' winners are leaning the same way, and copies that trade — but skips it if the price already ran too far past where the whale got in."
   thesis: "A trader who is both proven (ELITE/RELIABLE) and hot right now is the best signal you can ride. Don't average a cohort and don't chase one-week wonders — find the quality account on a live streak, isolate the conviction bet driving it, confirm the 4h leaders' side and recent price action agree, and follow only if you can still get in near the whale's entry."
   group: copy-trading

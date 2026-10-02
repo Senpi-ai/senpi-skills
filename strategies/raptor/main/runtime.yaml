@@ -1,7 +1,7 @@
 # ── RAPTOR · single instance — hot-streak follower (Runtime 3.0 port of v2 Raptor v4.0.0) ──
 name: raptor-main
 group: raptor
-version: 3.2.0
+version: 3.3.0
 description: >
   RAPTOR — quality-first hot-streak follower. Pulls ELITE/RELIABLE traders winning the
   WEEKLY window (discovery_get_top_traders, unrealized >= $500k), isolates each one's
@@ -10,13 +10,13 @@ description: >
   traders), applies whale
   entry-price discipline (skip if price already ran > 5% past the whale's entry in the
   whale's favor), scores, and follows ONLY the single best candidate. Flat 10x leverage with
-  conviction sized in margin (17.5% base, 20% at score >= 8, 35% at >= 10). Derived universe (XYZ banned). Faithful port of the v2
+  conviction sized in margin (20% at the score-8 floor, 35% at >= 10). Derived universe (XYZ banned). Faithful port of the v2
   producer thesis — scoring reproduced verbatim.
 
 strategy:
   wallet: "${RAPTOR_WALLET}"
   slots: 2                                 # v2 maxPositions: 2
-  default_leverage: 7                      # fallback; scan emits per-signal 7/8/10 by score
+  default_leverage: 10                     # fallback; scan emits a FLAT 10x (venue-clamped in scan.py)
   trading_risk: aggressive
   enabled: true
 
@@ -50,7 +50,13 @@ scanners:
       # ── dedupe ──
       eventDedupeHours: 4                   # per-(trader,asset) re-fire window
       # ── entry / sizing ──
-      minScore: 6                           # score floor to fire
+      minScore: 8                           # score floor to fire
+  # RAISED 6 -> 8: 8 is this package's own next conviction band (6/8/10).
+      # 2026-10-01: of 25 closes in 24h across the fleet, 15 never armed a single profit
+      # rung and their median peak was 2.0% ROE (~0.2% of price) — entries that never went
+      # green, which no stop placement fixes. Fees were 57% of gross over the same set.
+      # The 6 band below the floor is now UNREACHABLE. Kept deliberately: it records the author's
+      # calibration and comes back if an experiment lowers the floor again.
       # 17.5 — the SMALLEST reachable tier margin, and a fallback only: every tier above
       # carries its own marginPct. It is kept at the smallest because min_budget reads
       # marginPctBase from an explicit allowlist and cannot see the third tier element,

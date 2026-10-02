@@ -11,7 +11,7 @@ version: "1.1.2"
 catalog:
   name: "Jaguar — Striker Rank-Jump Detector"
   emoji: "🐆"
-  tagline: "A patient momentum sniper across the whole crypto market: it watches the 4h leaderboard tick-over-tick and trades jumps in it, pouncing only on a violent rank explosion — an asset rocketing from rank 20+ into the top 10 in one move while 15m leader flow is actively building and 4h price agrees — then sizes leverage to conviction (7/10x) and trails a DSL stop."
+  tagline: "A patient momentum sniper across the whole crypto market: it watches the 4h leaderboard tick-over-tick and trades jumps in it, pouncing only on a violent rank explosion — an asset rocketing from rank 20+ into the top 10 in one move while 15m leader flow is actively building and 4h price agrees — then sizes margin to conviction (35/50%) at a flat 10x and trails a DSL stop."
   belief_plain: "Most of the time it does nothing. It only acts when an asset suddenly leaps up the 4h leaderboard (the ranking of who is winning over the last four hours — a momentum read, not a proven cohort) — from far down into the top 10 in a single step — with fresh money still piling in and price moving the same way. One amazing trade per day, not a stream of mediocre ones."
   thesis: "The 4h leaders rotate violently. When a coin jumps from rank 20+ into the top 10 in one tick with 15m contribution still accelerating, that's the 4h leaders piling in fast — a rare, high-conviction setup worth a concentrated strike. Chasing every hot coin bleeds fees; waiting for the violent first jump is the edge."
   group: multi-asset

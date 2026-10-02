@@ -12,7 +12,7 @@ version: "1.2.0"
 catalog:
   name: "Cheetah — Multi-Signal Confluence Sniper"
   emoji: "🐆"
-  tagline: "A patient universe sniper: scans the top-100 markets on the 4h leader board every tick and refuses to fire unless the 4h leaders' consensus (which side the last four hours' winners sit on), velocity, acceleration, dual-price confirmation, volume, quality-trader alignment, and rank-climb all line up — then takes ONE position, sized 3-8x by conviction, and lets the DSL ride the winner."
+  tagline: "A patient universe sniper: scans the top-100 markets on the 4h leader board every tick and refuses to fire unless the 4h leaders' consensus (which side the last four hours' winners sit on), velocity, acceleration, dual-price confirmation, volume, quality-trader alignment, and rank-climb all line up — then takes ONE position at a flat 5x, sized 30-48% of the book by conviction, and lets the DSL ride the winner."
   belief_plain: "Watches which side the last four hours' winners are crowding across the whole market, but waits for everything to agree at once — the 4h leaders' side, the price, the volume, the speed of the move — before taking a single, high-conviction bet. Most of the time it does nothing; that patience is the point."
   thesis: "Any one signal is noise. Real edge shows up only when the 4h leaders' consensus, momentum, acceleration, price, volume, and proven-trader alignment all confirm the same direction on the same coin at the same moment. That confluence is rare, so the right move is to sit on one slot, wait for it, strike once at conviction-scaled size, and let a ratcheting trailing stop — not a fixed target — decide the exit so the rare big trend pays for the quiet weeks."
   group: momentum
