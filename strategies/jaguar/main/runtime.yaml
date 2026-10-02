@@ -1,7 +1,7 @@
 # ── JAGUAR · single instance — Striker rank-jump detector (Runtime 3.0 port of v2 JAGUAR v4.0.2) ──
 name: jaguar-main
 group: jaguar
-version: 3.2.0
+version: 3.3.0
 description: >
   JAGUAR — multi-asset Striker. A derived-universe rank-jump detector: reads the live 4h
   leaderboard concentration feed (leaderboard_get_markets — a momentum read of who is
@@ -16,7 +16,7 @@ description: >
 strategy:
   wallet: "${JAGUAR_WALLET}"
   slots: 2                                  # v2 RULE 3: max 2 concurrent positions
-  default_leverage: 7                       # fallback; scan emits per-signal 7/10 by score
+  default_leverage: 10                      # fallback; scan emits a FLAT 10x (venue-clamped in scan.py)
   trading_risk: aggressive
   enabled: true
 
@@ -34,7 +34,13 @@ scanners:
     state_history_max_count: 60             # scan-history (replaces v2 scan-history.json, MAX_SCAN_HISTORY=60)
     inputs:
       marketLimit: 100                      # leaderboard_get_markets top-N traders to aggregate
-      minScore: 9                           # v2 MIN_SCORE entry floor
+      minScore: 10                           # v2 MIN_SCORE entry floor
+  # RAISED 9 -> 10: 10 is this package's own next conviction band (9/10).
+      # 2026-10-01: of 25 closes in 24h across the fleet, 15 never armed a single profit
+      # rung and their median peak was 2.0% ROE (~0.2% of price) — entries that never went
+      # green, which no stop placement fixes. Fees were 57% of gross over the same set.
+      # The 9 band below the floor is now UNREACHABLE. Kept deliberately: it records the author's
+      # calibration and comes back if an experiment lowers the floor again.
       marginPct: 50                         # PERCENT of withdrawable (0,100] — v2 MARGIN_PCT 0.50 as a percent
       # [min_score, leverage, marginPct]. Leverage FLATTENED to 10x and conviction
       # scaled through margin instead. Exposure per tier is UNCHANGED — each row is the old

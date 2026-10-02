@@ -1,13 +1,13 @@
 # ── OWL · single instance — Pure Contrarian Crowding-Unwind Hunter (Runtime 3.0 port of v2 OWL v8.0.1) ──
 name: owl-main
 group: owl
-version: 3.2.0
+version: 3.3.0
 description: >
   OWL — pure contrarian crowding-unwind hunter. Scans EVERY liquid HL crypto perp
   (OI > $3M, no top-N truncation; XYZ banned) for one-sided crowding (extreme funding +
   the last four hours' winners lopsided to one side + concentrated OI), waits for crowding to PERSIST >=1h AND for
   exhaustion confluence to fire (volume declining, price stalling vs the crowd, capitulation
-  wick, 4h RSI divergence), then fades the crowd. Combined score >=12 to fire; flat 8x leverage
+  wick, 4h RSI divergence), then fades the crowd. Combined score >=14 to fire; flat 8x leverage
   with conviction sized in margin (21.9 / 25 / 31.2% by score). MACRO_TREND_GATE blocks all fades when
   |BTC 4h move| > 3% (mean reversion fails in trending regimes). One emit/tick; the runtime
   sizes, owns cooldowns/risk gates/slots, and trails the DSL exit. Faithful port of the v2
@@ -17,7 +17,7 @@ description: >
 strategy:
   wallet: "${OWL_WALLET}"
   slots: 2                                 # v2 strategy.slots: 2
-  default_leverage: 8                      # fallback; scan emits per-score 7/8/10 (auto-clamped to venue max)
+  default_leverage: 8                      # fallback; scan emits a FLAT 8x (venue-clamped in scan.py)
   trading_risk: moderate                   # v2 trading_risk: moderate
   enabled: true
 
@@ -42,7 +42,13 @@ scanners:
       belowThresholdTolerance: 2            # v2 BELOW_THRESHOLD_TOLERANCE (v5.3 noise-tick guard)
       minExhaustionScore: 5                 # v2 MIN_EXHAUSTION_SCORE
       minExhaustionSignals: 2               # v2 MIN_EXHAUSTION_SIGNALS
-      minCombinedScore: 12                  # v2 MIN_COMBINED_SCORE (v6.0)
+      minCombinedScore: 14                  # v2 MIN_COMBINED_SCORE (v6.0)
+  # RAISED 12 -> 14: 14 is this package's own next conviction band (12/14/16).
+      # 2026-10-01: of 25 closes in 24h across the fleet, 15 never armed a single profit
+      # rung and their median peak was 2.0% ROE (~0.2% of price) — entries that never went
+      # green, which no stop placement fixes. Fees were 57% of gross over the same set.
+      # The 12 band below the floor is now UNREACHABLE. Kept deliberately: it records the author's
+      # calibration and comes back if an experiment lowers the floor again.
       minFundingAnnualizedPct: 12           # v2 MIN_FUNDING_ANNUALIZED_PCT (v5.2)
       macroGateBtc4hPct: 3.0                # v2 MACRO_GATE_BTC_4H_PCT (v7.1)
       assetCooldownMinutes: 360             # v2 ASSET_COOLDOWN_MINUTES — 6h post-emit per-asset cooldown

@@ -1,14 +1,14 @@
 # ── CHEETAH · single instance — multi-signal confluence sniper (Runtime 3.0 port of v2 Cheetah v7.2.0) ──
 name: cheetah-main
 group: cheetah
-version: 3.3.0
+version: 3.4.0
 description: >
   CHEETAH — universe confluence sniper. Scans the top-100 markets on the 4h leader board
   (leaderboard_get_markets — which side the last four hours' winners sit on) every tick,
   scores each on a 7-component confluence model (max 15: 4h-leader consensus, velocity,
   acceleration, dual-price, volume, quality-trader
   alignment, rank-climb), and emits ONE signal for the single strongest candidate that
-  clears score 10. Score-scaled leverage: 3x @10, 5x @11, 7x @12, 8x @14+. XYZ banned,
+  clears score 11. Flat 5x leverage; conviction is sized in MARGIN (30/42/48%). XYZ banned,
   one slot, 30% margin. DSL is the ONLY exit ("let winners run": first lock at +20% ROE
   keeps 25% of the peak; the rare +50-100% mover pays for the quiet weeks). Faithful port
   of the v2 producer thesis.
@@ -40,8 +40,14 @@ scanners:
       # package's leverage to make the scanner prefer a lower-scoring name the ladder actually fits;
       # it falls back to the top candidate with a warning rather than skipping the tick.
       minLeverage: 0
-      minScore: 10                         # v2 MIN_SCORE_DEFAULT (v6.0 restored from v5.2's 11)
-      # 18, not 30. This is a FALLBACK ONLY — the tiers below cover every score from minScore 10
+      minScore: 11                         # v2 MIN_SCORE_DEFAULT (v6.0 restored from v5.2's 11)
+  # RAISED 10 -> 11: 11 is this package's own next conviction band (10/11/12/14).
+      # 2026-10-01: of 25 closes in 24h across the fleet, 15 never armed a single profit
+      # rung and their median peak was 2.0% ROE (~0.2% of price) — entries that never went
+      # green, which no stop placement fixes. Fees were 57% of gross over the same set.
+      # The 10 band below the floor is now UNREACHABLE. Kept deliberately: it records the author's
+      # calibration and comes back if an experiment lowers the floor again.
+      # 18, not 30. This is a FALLBACK ONLY — the tiers below cover every score from minScore 11
       # up, so a real emit always takes a tier value and never reads this. It is set to the
       # SMALLEST tier for two reasons: a fallback should be the conservative one, and min_budget
       # reads marginPct from an explicit key allowlist that does NOT include the third element of
