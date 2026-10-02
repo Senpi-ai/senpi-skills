@@ -483,17 +483,63 @@ def _ok(resp):
     return resp
 
 
+# ── what the user can actually deploy ──
+#
+# THE BALANCE-BUCKET TRAP. `account_get_portfolio` reports several totals and only one of them is
+# money this user could put into a new strategy:
+#
+#   total_in_hyperliquid         free USDC in the FUNDING wallet's perps account
+#   total_spot_usd_in_hyperliquid  ... its Spot balance
+#   token_balances[]             ... EVM USDC, bridgeable
+#   total_withdrawable           free margin sitting INSIDE strategy wallets — ALREADY COMMITTED
+#   total_allocated_in_strategy  margin backing open strategy positions — ALREADY AT RISK
+#   total_balance_usd            the sum of ALL of the above
+#
+# Only the first three are deployable. `senpi-portfolio/scripts/portfolio.py` calls this out as the
+# balance-bucket trap and computes the same three pools; `senpi-strategy-ops/references/lifecycle.md`
+# states the same waterfall for deploy preflight ("never `total_withdrawable`"). This function is the
+# discover-side copy of that one rule.
+#
+# This read USED to be `total_balance_usd or total_in_hyperliquid`, which offers the user money that
+# is already working. On the repo's own portfolio fixture that reported **$3,102.94** against a truly
+# free balance of **$1.51** — the user had $3,101.43 live inside strategies. Observed on a real
+# account 2026-10-02: the catalog offer quoted "~$6,470 free" when $21.06 was free and the rest was
+# in seven running strategies.
+#
+# Returns 0.0 for a readable-but-empty balance. 0 is a FACT, not missing data: an `or` chain treats
+# it as absent and reaches for the next field, which is how the committed-capital figure got in.
+_DEPLOYABLE_STABLES = ("USDC", "USDC.E", "USDT")
+
+
+def _accessible_usdc(portfolio):
+    """Funding-wallet perps + Spot + EVM stables. Never strategy-held capital."""
+    def _num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return 0.0
+
+    total = _num(portfolio.get("total_in_hyperliquid"))
+    total += _num(portfolio.get("total_spot_usd_in_hyperliquid"))
+    for tb in (portfolio.get("token_balances") or []):
+        if not isinstance(tb, dict):
+            continue
+        sym = str(tb.get("tokenSymbol") or tb.get("symbol") or "").upper()
+        if sym in _DEPLOYABLE_STABLES:
+            total += _num(tb.get("balanceInUSD") or tb.get("usdValue") or tb.get("balanceUsd"))
+    return round(total, 2)
+
+
 def fetch_user_context(client):
     ctx = {"budget": None, "holdings": [], "favored_assets": [], "favored_direction": None}
     try:
         data = _ok(client.mcp_call("account_get_portfolio", timeout=15))
         # GetPortfolioV3 nests the fields under a `portfolio` key; _ok strips only the outer `data`.
-        # Unwrap it (else budget/positions read empty) and use `total_in_hyperliquid` (the real field
-        # name — `total_usdc_in_hyperliquid` does not exist). Robust to both flat and nested shapes.
+        # Unwrap it (else budget/positions read empty). Robust to both flat and nested shapes.
         if isinstance(data, dict) and isinstance(data.get("portfolio"), dict):
             data = data["portfolio"]
         if data:
-            ctx["budget"] = data.get("total_balance_usd") or data.get("total_in_hyperliquid")
+            ctx["budget"] = _accessible_usdc(data)
             for pos in (data.get("positions") or []):
                 sym = pos.get("coin") or pos.get("asset")
                 if sym:
