@@ -33,6 +33,7 @@ SCORER_COPIES = [
     # listed here, so nothing would have caught it drifting — added 2026-10-03.
     "strategies/penguin-x5/main/scanners/scoring.py",
     "strategies/penguins-duo/main/scanners/scoring.py",
+    "strategies/pelicans-duo/main/scanners/scoring.py",
     "senpi-signals/scripts/striker_scoring.py",
 ]
 
@@ -485,3 +486,93 @@ def test_penguins_duo_keeps_the_same_total_margin_as_penguin():
         f"combined margin differs: penguin {peng['slots']}x{peng['margin_pct']}% vs duo "
         f"{duo['slots']}x{duo['margin_pct']}%. Hold the total at 90% or the two are not comparable.")
     assert duo["default_leverage"] == peng["default_leverage"], "leverage must match too"
+
+
+# ── pelican and its duo ──
+#
+# Pelican is penguin with exactly ONE functional difference: `xyzBanned: false`, admitting the XYZ
+# (HIP-3) markets penguin bans. Everything else is penguin's verbatim, and that is the invariant —
+# the moment a second thing drifts, "pelican is penguin over a wider universe" stops being true and
+# a difference in their results becomes unattributable.
+
+PELICAN_ONLY_DIFFERENCE = {"xyzBanned": (True, False)}   # (penguin, pelican)
+
+
+def _depersonalise(obj, pkg):
+    """Replace a package's own id wherever it appears in a string, so two recipes can be compared on
+    BEHAVIOUR. The id is woven through identity fields — the scanner name, every action name, the
+    `scanners:` references inside actions — and none of those are behavioural differences."""
+    if isinstance(obj, dict):
+        return {k: _depersonalise(v, pkg) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_depersonalise(v, pkg) for v in obj]
+    if isinstance(obj, str):
+        return obj.replace(pkg, "<pkg>")
+    return obj
+
+
+def test_pelican_is_penguin_plus_the_wider_universe_and_nothing_else():
+    peng = _yaml("strategies/penguin/main/runtime.yaml")
+    pel = _yaml("strategies/pelican/main/runtime.yaml")
+    for k in ("name", "group", "version", "description"):
+        peng.pop(k, None); pel.pop(k, None)
+    peng["strategy"].pop("wallet", None); pel["strategy"].pop("wallet", None)
+    peng = _depersonalise(peng, "penguin")
+    pel = _depersonalise(pel, "pelican")
+    ps = next(x for x in peng["scanners"] if x.get("type") == "external_scanner")
+    qs = next(x for x in pel["scanners"] if x.get("type") == "external_scanner")
+
+    for key, (p_want, l_want) in PELICAN_ONLY_DIFFERENCE.items():
+        assert ps["inputs"][key] == p_want and qs["inputs"][key] == l_want, (
+            f"inputs.{key}: penguin {ps['inputs'][key]} / pelican {qs['inputs'][key]}, "
+            f"expected {p_want} / {l_want}")
+        ps["inputs"].pop(key); qs["inputs"].pop(key)
+
+    assert pel == peng, (
+        "pelican diverges from penguin beyond the XYZ universe flag. Exits, ladder, stop, guard "
+        "rails, cadence, score floor, leverage, margin and the pre-move gate are all meant to be "
+        "penguin's verbatim — diff the two runtime.yaml files and revert anything else.")
+
+
+def test_pelicans_duo_differs_from_pelican_in_slots_and_margin_only():
+    pel = _yaml("strategies/pelican/main/runtime.yaml")
+    duo = _yaml("strategies/pelicans-duo/main/runtime.yaml")
+    for k in ("name", "group", "version", "description"):
+        pel.pop(k, None); duo.pop(k, None)
+    pel["strategy"].pop("wallet", None); duo["strategy"].pop("wallet", None)
+    # the duo INHERITED pelican's scanner and action names verbatim, so the common token is
+    # "pelican" on both sides, not "pelicans-duo"
+    pel = _depersonalise(pel, "pelican"); duo = _depersonalise(duo, "pelican")
+
+    assert (pel["strategy"]["slots"], duo["strategy"]["slots"]) == (1, 2)
+    assert (pel["strategy"]["margin_pct"], duo["strategy"]["margin_pct"]) == (90, 40)
+    for k in ("slots", "margin_pct"):
+        pel["strategy"].pop(k); duo["strategy"].pop(k)
+
+    ps = next(x for x in pel["scanners"] if x.get("type") == "external_scanner")
+    qs = next(x for x in duo["scanners"] if x.get("type") == "external_scanner")
+    assert (ps["inputs"]["maxPositions"], qs["inputs"]["maxPositions"]) == (1, 2)
+    assert (ps["inputs"]["marginPct"], qs["inputs"]["marginPct"]) == (90, 40)
+    for k in ("maxPositions", "marginPct"):
+        ps["inputs"].pop(k); qs["inputs"].pop(k)
+
+    assert duo == pel, (
+        "pelicans-duo diverges from pelican beyond the slots/margin split — revert anything else.")
+
+
+def test_the_two_duos_do_not_split_margin_the_same_way_and_that_is_recorded():
+    """penguins-duo holds its parent's 90% (2 x 45); pelicans-duo is 80% (2 x 40), BELOW pelican's 90.
+
+    This is deliberate and specified, not a slip — but it has a consequence worth pinning: because
+    pelicans-duo is both more diversified AND smaller than its parent, a difference in its results
+    cannot be attributed to the slot count alone. penguins-duo isolates the slot count; this one does
+    not. If someone later 'fixes' the inconsistency by moving it to 45, that changes what the
+    experiment measures, so it should be a deliberate edit here rather than a silent one."""
+    pg_duo = _yaml("strategies/penguins-duo/main/runtime.yaml")["strategy"]
+    pl_duo = _yaml("strategies/pelicans-duo/main/runtime.yaml")["strategy"]
+    assert pg_duo["slots"] * pg_duo["margin_pct"] == 90, "penguins-duo must hold penguin's 90%"
+    assert pl_duo["slots"] * pl_duo["margin_pct"] == 80, (
+        f"pelicans-duo combined margin is {pl_duo['slots'] * pl_duo['margin_pct']}%, recorded as 80% "
+        f"(2 x 40). Changing it to 90% would make it comparable to penguins-duo but would also change "
+        f"what this experiment measures — do that deliberately, with the reason.")
+    assert pl_duo["default_leverage"] == pg_duo["default_leverage"] == 10
