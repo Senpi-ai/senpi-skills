@@ -1,0 +1,42 @@
+# Pelicans Duo — Pelican's signal across two slots instead of one. A single-instance PACKAGE:
+# this manifest + one self-contained runtime.yaml + scanners/. Pelican is penguin plus the XYZ
+# markets (xyzBanned: false); this adds slots 1->2 and marginPct 90->40 (80% combined, NOT
+# penguin-duo's 90%). Install via senpi-strategy-ops.
+schema_version: 1
+
+id: pelicans-duo
+version: "1.0.0"
+
+catalog:
+  name: "Pelicans Duo — Pelican across two slots"
+  emoji: "🌊"
+  tagline: "Pelican's signal spread over two positions instead of one: the same rank-jump detector over the same universe — including the XYZ markets penguin bans, so equities, commodities, indices and pre-IPO are in scope — at the same score floor, the same pre-move gate and the same exits, but taking the best TWO candidates at 40% margin each rather than the single best at 90%. Combined margin is 80%, which is lower than Pelican's 90%: this is both more diversified and smaller."
+  belief_plain: "This is Pelican with the book split in two. Pelican finds the strongest coin rocketing up the leaderboard of what winning traders are piling into — across the widest market list, including equities and commodities — and commits the whole account to that one name. This version takes the top two instead, at 40% each. Note that this is not simply the same money spread wider: two slots at 40% is 80% committed against Pelican's 90%, so it is both more diversified and slightly smaller. One stop-out costs about 6% of the account instead of 13.5%, but two positions can be open at once."
+  thesis: "Three inputs differ from Penguin: xyzBanned false (the wider market list, which is Pelican's whole reason to exist), slots 1 to 2, and marginPct 90 to 40. The slot split is the experiment; the asset breadth is inherited. Read it on slot-2 occupancy, trades per day, win rate, median ROE per trade and the tier-arming distribution rather than on account value — with one slot filled it carries 0.44x Pelican's exposure per dollar and with both filled 0.89x, so on any shared trade it books less by construction regardless of which design is better. Because the combined margin is 80% rather than Pelican's 90%, a result difference is not attributable to the slot count alone; 45% per slot is the value that would isolate it."
+  group: momentum
+  status: blocked           # unresolved comparison — one slot vs two is the question,
+                            # not a finding. Deploy by explicit path.
+  archetype: breakout_momentum
+  sub_style: rank_jump
+  asset_classes: [universe_crypto, xyz_equities, commodities, indices, pre_ipo]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: intraday
+  leverage_max: 10
+  max_slots: 2
+  assets: []                # derived universe — names come from the top-50 rows of the 4h leaderboard each tick, crypto AND xyz, not a fixed list
+  tags: [leader-momentum, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, concentrated, single-slot, high-leverage, xyz, equities, stocks, commodities, gold, oil, indices, pre-ipo, all-markets, tradfi, hyperfeed, high-risk-high-reward, aggressive, start-here]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: PELICANS_DUO_WALLET
+    funding_share: 1.0
