@@ -29,6 +29,10 @@ SCORER_COPIES = [
     "strategies/pelican/main/scanners/scoring.py",
     "strategies/orca/main/scanners/scoring.py",
     "strategies/purple-penguin/main/scanners/scoring.py",
+    # penguin-x5 and penguins-duo vendor the same scorer. penguin-x5 was byte-identical but NOT
+    # listed here, so nothing would have caught it drifting — added 2026-10-03.
+    "strategies/penguin-x5/main/scanners/scoring.py",
+    "strategies/penguins-duo/main/scanners/scoring.py",
     "senpi-signals/scripts/striker_scoring.py",
 ]
 
@@ -383,3 +387,49 @@ def test_grizzly_wild_vendors_grizzlys_scanners_byte_for_byte():
                _read(f"strategies/grizzly/main/scanners/{f}"), (
             f"grizzly-wild/{f} has drifted from grizzly/{f}. Port the change to both in the same "
             f"commit, or the two stop being comparable.")
+
+
+# ── penguins-duo: penguin across two slots ──
+
+DUO_SPLIT = {"slots": (1, 2), "margin_pct": (90, 45)}
+DUO_SPLIT_INPUTS = {"maxPositions": (1, 2), "marginPct": (90, 45)}
+
+
+def test_penguins_duo_differs_from_penguin_in_slots_and_margin_only():
+    """The comparison is only interpretable if the slot count and the per-slot margin are the ONLY
+    things that differ. Any third change and a difference in results stops being attributable to
+    one-slot-versus-two."""
+    peng = _yaml("strategies/penguin/main/runtime.yaml")
+    duo = _yaml("strategies/penguins-duo/main/runtime.yaml")
+    for k in ("name", "group", "version", "description"):
+        peng.pop(k, None); duo.pop(k, None)
+    peng["strategy"].pop("wallet", None); duo["strategy"].pop("wallet", None)
+
+    for key, (p_want, d_want) in DUO_SPLIT.items():
+        assert peng["strategy"][key] == p_want and duo["strategy"][key] == d_want, (
+            f"strategy.{key}: penguin {peng['strategy'][key]} / duo {duo['strategy'][key]}, "
+            f"expected {p_want} / {d_want}")
+        peng["strategy"].pop(key); duo["strategy"].pop(key)
+
+    ps = next(x for x in peng["scanners"] if x.get("type") == "external_scanner")
+    qs = next(x for x in duo["scanners"] if x.get("type") == "external_scanner")
+    for key, (p_want, d_want) in DUO_SPLIT_INPUTS.items():
+        assert ps["inputs"][key] == p_want and qs["inputs"][key] == d_want, (
+            f"inputs.{key}: penguin {ps['inputs'][key]} / duo {qs['inputs'][key]}, "
+            f"expected {p_want} / {d_want}")
+        ps["inputs"].pop(key); qs["inputs"].pop(key)
+
+    assert duo == peng, (
+        "penguins-duo diverges from penguin beyond the slots/margin split. Every other difference "
+        "destroys the comparison — diff the two runtime.yaml files and revert anything else.")
+
+
+def test_penguins_duo_keeps_the_same_total_margin_as_penguin():
+    """Slots x margin must stay at penguin's 90%. If the duo committed MORE in total it would be a
+    leverage change wearing a slot-count costume, and the comparison would measure size instead."""
+    peng = _yaml("strategies/penguin/main/runtime.yaml")["strategy"]
+    duo = _yaml("strategies/penguins-duo/main/runtime.yaml")["strategy"]
+    assert duo["slots"] * duo["margin_pct"] == peng["slots"] * peng["margin_pct"] == 90, (
+        f"combined margin differs: penguin {peng['slots']}x{peng['margin_pct']}% vs duo "
+        f"{duo['slots']}x{duo['margin_pct']}%. Hold the total at 90% or the two are not comparable.")
+    assert duo["default_leverage"] == peng["default_leverage"], "leverage must match too"

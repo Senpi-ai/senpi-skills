@@ -22,7 +22,7 @@
 #
 name: purple-penguin-main
 group: purple-penguin
-version: 1.2.0
+version: 1.3.0
 description: >
   PURPLE PENGUIN — Concentrated Striker at a score floor of 8 (experiment). Universe rank-jump sniper on Orca's entry model: scans the
   top-50 rows of the 4h leaderboard (leaderboard_get_markets — a momentum read of who is
@@ -70,6 +70,12 @@ scanners:
       # it falls back to the top candidate with a warning rather than skipping the tick.
       minLeverage: 0
       minScore: 8
+      # Quant desk 2026-10-02: 55% of live Penguin entries fired AFTER a >= 3% 1h pre-move and those
+      # ran a profit factor of 0.3 against 3.3 for entries taken before the move. Same detector, same
+      # universe, same score — what differed was how much of the move was left. Direction-aware, so a
+      # dip-buy or a rally-sell still passes; it only rejects chasing. Measured on PENGUIN's entries:
+      # pelican and orca share this scorer but keep the gate OFF until measured on their own books.
+      maxPreMovePct: 3.0
       maxPositions: 1                       # mirrors slots:1
       topN: 50                              # v2 TOP_N — score only the top-50 SM markets
       leaderboardLimit: 100                 # v2 fetch_markets limit=100
