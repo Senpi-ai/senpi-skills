@@ -122,9 +122,9 @@ of an import-stage run. The gate is stage 9, and it takes no `--stage` flag.
 
 ### Funding heads-up — first tool call, never a gate
 
-Before the template offer / Decision 1, read the user's accessible balance ONCE:
-`account_get_portfolio` → `data.portfolio.total_in_hyperliquid` (fall back to
-`total_withdrawable`). Deploy needs a little **over $10 USDC per wallet (~$11.50, to cover
+Before the template offer / Decision 1, read the **deployable** balance ONCE: `account_get_portfolio` → `total_in_hyperliquid` + `total_spot_usd_in_hyperliquid` + EVM stables in `token_balances[]`.
+Never `total_withdrawable`, never `total_balance_usd` — committed capital. **0 is a fact, not a missing read**: no `or` chain.
+Never say "$total free": say what is free, and that freeing the rest means withdrawing from a strategy — their call. [`references/deployable-balance.md`](references/deployable-balance.md). Deploy needs a little **over $10 USDC per wallet (~$11.50, to cover
 the ~$1.50 creation fee)** — `deploy.py create` reserves the fee first, so a wallet funded
 to exactly $10 still refuses with `[E_FUNDS_BELOW_FLOOR]`. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scan re-run on a timer is a model call per tick, not a simulation — [`references/shadow-testing.md`](references/shadow-testing.md).
 
