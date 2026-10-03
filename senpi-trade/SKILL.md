@@ -4,7 +4,8 @@ description: >-
   Execute a DIRECT trade with the user — a one-off manual position (open / edit /
   close) or mirroring a specific Hyperliquid trader — ONE decision at a time. Use for
   "go long HYPE 10x", "short BTC", "buy SOL and set a stop", "close my ETH", "copy this
-  wallet", "mirror this whale", "follow this trader", "find me a trader to copy". Both
+  wallet", "mirror this whale", "follow this trader", "find me a trader to copy", "why did my manual or
+  mirrored position close" (read from the close record), "the stop on a position I opened by hand". Both
   paths can carry protection and it is OPTIONAL: bare, a static stop/TP, or a profit-lock
   trailing ladder (`ratchet_stop_add`, no runtime) — but that ladder is profit-lock ONLY (no
   downside floor); the full two-phase DSL (a ratcheting max-loss floor + the profit locks) is
@@ -20,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.8.0"
+  version: "1.9.0"
   platform: senpi
   exchange: hyperliquid
   requires:

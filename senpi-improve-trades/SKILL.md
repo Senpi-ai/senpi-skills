@@ -1,9 +1,10 @@
 ---
 name: senpi-improve-trades
 description: >-
-  Retrospective trade review + improvement coaching for the user's Senpi trading. Answers "did I sell
-  too early or late", "what did I miss this week", "master my week", "compare my trades to the market /
-  to the best whales", "how could I make more gains", "suggest improvements", "review my trades", "am I
+  Retrospective trade review + improvement coaching for the user's Senpi trading. Answers "why did
+  my strategy close X" (the runtime's own archived close reason — stop fill, floor breach, time cut —
+  read, never inferred), "did I sell too early or late", "what did I miss this week", "master my week",
+  "compare my trades to the market / to the best whales", "how could I make more gains", "suggest improvements", "review my trades", "am I
   getting shaken out too early / how are my exits firing", "what did my own limits block / what couldn't
   I take", "where am I leaking", "walk me through / explain my [asset] trade", "what am I paying in fees /
   maker vs taker", "why is [strategy] losing". When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then shortlist a fit (senpi-strategy-discover); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reconstructs every
@@ -17,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.14.0"
+  version: "1.15.0"
   platform: senpi
   exchange: hyperliquid
 ---
