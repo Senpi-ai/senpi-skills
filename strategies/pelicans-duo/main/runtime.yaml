@@ -1,21 +1,27 @@
-# ── PELICAN · single instance — Concentrated Striker (Orca's signal, conviction sizing) ──
-# UNIVERSE scanner. Scans the top-50 rows of the 4h leaderboard (leaderboard_get_markets)
-# every tick, detects FIRST_JUMP / IMMEDIATE_MOVER rank explosions (rank-jump >= 15 off a
-# prev-rank >= 25), scores the base Striker model (score >= 9 with a 4-reason floor: first-jump,
-# immediate, contrib-explosion, velocity, deep-climber, climbing, US-session), confirms the 15m
-# freshness gate + volume (>=1.5x), and emits ONE signal for the single strongest candidate at
-# 10x on 90% margin. XYZ banned, ONE position at a time, 120-min per-asset cooldown.
-# DSL is the ONLY exit.
+# ── PELICANS-DUO · Pelican's signal across TWO slots instead of one ──
 #
-# Pelican keeps Orca's ENTRY MODEL UNCHANGED — every score threshold, the rank-jump gate and the
-# freshness/volume confirmations are Orca's, verbatim. What differs is everything after the
-# signal: one slot instead of three, 90% margin instead of 18%, 10x instead of 7x (~9x equity
-# exposure against Orca's ~1.26x), an uncapped hold instead of 45 minutes, and the four guard rails
-# switched off. Nothing else — no added filter, no altered threshold. A deliberately
-# concentrated, high-variance expression of the same read; see strategy.yaml for the risk.
-name: pelican-main
-group: pelican
-version: 3.6.0
+# Pelican is penguin with exactly ONE functional difference — `xyzBanned: false`, so it also trades
+# the XYZ (HIP-3) markets penguin bans: equities, commodities, indices, pre-IPO. Every other
+# variable, including the exits, the ladder, the stop, the guard rails, the cadence, the score floor
+# and the pre-move gate, is penguin's verbatim.
+#
+# This package changes two more inputs on top of that: `slots`/`maxPositions` 1 -> 2 and
+# `marginPct` 90 -> 40.
+#
+# NOTE THE ARITHMETIC — it does NOT mirror penguins-duo. penguins-duo splits 2 x 45% and holds the
+# combined margin at penguin's 90%, so its gross exposure with both slots filled equals its
+# parent's and the slot count is the only thing that changes. This one is 2 x 40% = 80% combined,
+# which is LOWER than pelican's 90%. That was specified deliberately, and the consequence is that
+# pelicans-duo is both MORE diversified and SMALLER than pelican — so a difference in its results
+# cannot be attributed to the slot count alone. 45% is the value that would isolate slots.
+#
+# HOW TO READ IT — not on account value. With ONE slot filled this carries 40/90 = 0.44x pelican's
+# exposure per dollar; with both filled, 0.89x. On any trade it shares with pelican it books less by
+# construction. Judge it on slot-2 occupancy, trades/day, win rate, median ROE per trade and the
+# tier-arming distribution, all of which are size-independent.
+name: pelicans-duo-main
+group: pelicans-duo
+version: 1.0.0
 description: >
   PELICAN — Concentrated Striker. Universe rank-jump sniper on Orca's entry model: scans the
   top-50 rows of the 4h leaderboard (leaderboard_get_markets — a momentum read of who is
@@ -28,9 +34,9 @@ description: >
   clear of round-trip fees — a loss reducer, not a profit lock. No time cap on a winner. Guard
   rails are OFF by design — the stop is the only brake.
 strategy:
-  wallet: "${PELICAN_WALLET}"
-  slots: 1                                 # ONE strike at a time — the whole book rides each signal
-  margin_pct: 90                           # 90% of withdrawable per trade
+  wallet: "${PELICANS_DUO_WALLET}"
+  slots: 2                                 # TWO strikes at a time — the book splits across the top two
+  margin_pct: 40                           # 40% per trade; 2 x 40% = 80% committed, NOT pelican's 90%
   default_leverage: 10                     # 10x
   trading_risk: aggressive
   enabled: true
@@ -76,11 +82,11 @@ scanners:
       # on this package, not as a filter expected to bite: on pelican's own measured distribution
       # it would have rejected nothing in 7 days.
       maxPreMovePct: 3.0
-      maxPositions: 1                       # mirrors slots:1
+      maxPositions: 2                       # mirrors slots:2
       topN: 50                              # v2 TOP_N — score only the top-50 SM markets
       leaderboardLimit: 100                 # v2 fetch_markets limit=100
       leverageDefault: 10                   # 10x — clamped per name to the venue cap in scan.py
-      marginPct: 90                         # PERCENT of withdrawable (0,100]. The runtime resolves a
+      marginPct: 40                         # PERCENT of withdrawable (0,100]. The runtime resolves a
                                             # per-signal marginPct BEFORE strategy.margin_pct, so this
                                             # line — not margin_pct below — is what sizes the trade.
       minVolRatio: 1.5                      # v2 STRIKER_MIN_VOL_RATIO — 24h notional volume vs the
