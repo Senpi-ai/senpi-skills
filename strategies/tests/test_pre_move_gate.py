@@ -4,6 +4,17 @@ Quant desk, 2026-10-02, on live Penguin entries: **55% fired after a >= 3% 1h pr
 ran a profit factor of 0.3 against 3.3** for entries taken before the move. Same detector, same
 universe, same score — the only difference was how much of the move was left to capture.
 
+**A second measurement disagrees, and both belong here.** Over 7 days of CAND telemetry to
+2026-10-03, among candidates that cleared the score floor, only **16 of 578 penguin candidates
+(2.8%)** and **0 of 84 pelican candidates (0.0%)** sat at or above a 3% pre-move. Units were
+verified against Hyperliquid 1m candles — `priceChg1h` is a PERCENT, actual/reported 0.81-1.06
+across 6 of 7 spot checks — so the comparison against 3.0 is correctly scaled and the gap is real,
+not a units error. CAND samples CANDIDATES at scan time while the quant desk measured FILLED
+ENTRIES, which are the top-scoring candidate rather than a random one; that selection effect should
+bias entries later than candidates, but it should not turn 2.8% into 55%. **The 20x gap is
+unexplained.** The gate is therefore kept as cheap, direction-aware insurance rather than as a
+filter anyone should expect to bite often.
+
 This is the one gate that reads PRICE rather than rank, which is exactly why the rank-jump model
 cannot see it: a coin climbs the leaderboard *because* it already moved, so a large pre-move and a
 high rank-jump score are the same event. Scoring higher does not mean arriving earlier.
@@ -30,10 +41,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 
 # packages whose runtime.yaml must SET the gate, and the value measured for them
-GATED = {"penguin": 3.0, "purple-penguin": 3.0, "penguin-x5": 3.0, "penguins-duo": 3.0}
-# vendor the same scorer but deliberately leave it off — separate listed templates, own users,
-# and the 55%/PF finding was measured on penguin's entries, not theirs
-UNGATED = ["pelican", "orca"]
+GATED = {"penguin": 3.0, "purple-penguin": 3.0, "penguin-x5": 3.0, "penguins-duo": 3.0,
+         # pelican added 2026-10-03 on Jason's call. Measured first rather than assumed: over 7 days
+         # of CAND telemetry, 0 of 84 pelican candidates that cleared the floor sat at or above 3%
+         # (p50 +0.26%, p90 +0.88%, max +2.79%), so on its own distribution the gate would have
+         # rejected nothing. Cheap insurance, not an active filter.
+         "pelican": 3.0}
+# vendors the same scorer but deliberately left off — a separate listed template with its own users,
+# and no measurement of its own pre-move distribution yet
+UNGATED = ["orca"]
 
 _SIBLINGS = ("scoring", "score", "sweep", "smartmoney")
 

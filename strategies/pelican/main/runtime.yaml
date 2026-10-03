@@ -15,7 +15,7 @@
 # concentrated, high-variance expression of the same read; see strategy.yaml for the risk.
 name: pelican-main
 group: pelican
-version: 3.5.0
+version: 3.6.0
 description: >
   PELICAN — Concentrated Striker. Universe rank-jump sniper on Orca's entry model: scans the
   top-50 rows of the 4h leaderboard (leaderboard_get_markets — a momentum read of who is
@@ -59,6 +59,23 @@ scanners:
       # it falls back to the top candidate with a warning rather than skipping the tick.
       minLeverage: 0
       minScore: 9                           # v2 STRIKER_MIN_SCORE
+      # Rejects an entry whose price has already moved this far in the signal's own direction over
+      # the last hour. Direction-aware, so a dip-buy or rally-sell still passes; it gates LATENESS.
+      #
+      # TWO measurements, and they disagree — both recorded rather than only the flattering one:
+      #   * Quant desk 2026-10-02, on live PENGUIN entries: 55% fired after a >= 3% pre-move and
+      #     those ran a profit factor of 0.3 against 3.3. This is the reason the gate exists.
+      #   * CAND telemetry, 7 days to 2026-10-03, candidates that cleared the floor: penguin
+      #     16/578 = 2.8% sat at or above 3%, pelican 0/84 = 0.0% (p50 +0.26%, p90 +0.88%,
+      #     max +2.79%). Units verified against Hyperliquid 1m candles — `priceChg1h` is a
+      #     PERCENT (actual/reported 0.81-1.06 across 6 of 7 spot checks), so 3.0 means 3%.
+      #
+      # The 20x gap is unexplained. CAND samples CANDIDATES at scan time while the quant desk
+      # measured FILLED ENTRIES, and entries are the top-scoring candidate rather than a random
+      # one — but selection alone should not move 2.8% to 55%. Treat the gate as cheap insurance
+      # on this package, not as a filter expected to bite: on pelican's own measured distribution
+      # it would have rejected nothing in 7 days.
+      maxPreMovePct: 3.0
       maxPositions: 1                       # mirrors slots:1
       topN: 50                              # v2 TOP_N — score only the top-50 SM markets
       leaderboardLimit: 100                 # v2 fetch_markets limit=100
