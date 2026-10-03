@@ -63,7 +63,7 @@ def time_of_day_modifier(hour_utc):
 
 
 def score_market(market, latest_prev, oldest_available, prev_top50_tokens,
-                 recent_contribs, hour_utc, floor=True):
+                 recent_contribs, hour_utc, floor=True, max_pre_move_pct=None):
     """Score a single normalized market for a Gen-1 Striker FIRST_JUMP/IMMEDIATE_MOVER.
     Returns (score, reasons, meta) or None when a hard gate rejects.
 
@@ -97,6 +97,24 @@ def score_market(market, latest_prev, oldest_available, prev_top50_tokens,
     # Hard gate: 4h trend must agree with the SM direction — v2 check_4h_alignment.
     if not check_4h_alignment(direction, market.get("price_chg_4h", 0)):
         return None
+    # Hard gate: the move must not already have HAPPENED. Direction-aware — it rejects a LONG whose
+    # price has already run up by `max_pre_move_pct` over the last hour, and a SHORT that has already
+    # fallen that far. A dip-buy (LONG after a fall) or a rally-sell (SHORT after a rise) still passes,
+    # because for those the pre-move is in the trade's favour, not spent.
+    #
+    # Quant desk, 2026-10-02, on live Penguin entries: 55% fired AFTER a >= 3% 1h pre-move, and those
+    # ran a profit factor of 0.3 against 3.3 for entries taken before the move. Same detector, same
+    # universe, same score — the difference is how much of the move was left to capture. This is the
+    # one gate that reads the PRICE rather than the rank, which is why the rank-jump model misses it:
+    # a coin can explode up the leaderboard precisely because it already moved.
+    #
+    # OFF unless the package sets `maxPreMovePct`. This scorer is vendored across packages whose own
+    # pre-move distributions have not been measured, so the default must not change their behaviour.
+    if max_pre_move_pct is not None:
+        _signed_pre_move = (1.0 if direction == "LONG" else -1.0) * safe_float(
+            market.get("price_chg_1h", 0))
+        if _signed_pre_move >= float(max_pre_move_pct):
+            return None
 
     # Need a prior observation of this exact (token,dex) to measure the jump — v2 `if not prev_market: continue`.
     prev_market = latest_prev

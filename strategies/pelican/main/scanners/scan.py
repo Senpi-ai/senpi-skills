@@ -317,6 +317,11 @@ def scan(inputs, ctx):
     min_leverage = float(inputs.get("minLeverage", _DEFAULT_MIN_LEVERAGE))
     min_leverage_strict = bool(inputs.get("minLeverageStrict", False))
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
+    # None = gate off. Set `maxPreMovePct` to reject entries whose price has already moved that far
+    # in the signal's own direction over the last hour (quant desk 2026-10-02: late entries ran
+    # PF 0.3 vs 3.3). Direction-aware inside scoring.score_market.
+    _pre = inputs.get("maxPreMovePct")
+    max_pre_move_pct = float(_pre) if _pre not in (None, "") else None
     max_positions = int(inputs.get("maxPositions", _DEFAULT_MAX_POSITIONS))
     top_n = int(inputs.get("topN", _DEFAULT_TOP_N))
     leaderboard_limit = int(inputs.get("leaderboardLimit", _DEFAULT_LEADERBOARD_LIMIT))
@@ -431,7 +436,7 @@ def scan(inputs, ctx):
         # below, unchanged — meta["passedFloor"] is the identical condition, precomputed.
         res = scoring.score_market(market, prev_market, old_market,
                                    prev_top50_tokens, recent_contribs, hour_utc,
-                                   floor=False)
+                                   floor=False, max_pre_move_pct=max_pre_move_pct)
         if res is None:
             continue
         score, reasons, meta = res
