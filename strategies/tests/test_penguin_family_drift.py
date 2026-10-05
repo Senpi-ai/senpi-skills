@@ -347,7 +347,8 @@ def test_rung_zero_arms_often_enough(pkg):
 
 # ── the penguin/puffin/pelican family closes on NOTHING but the DSL ──
 
-NO_CLOCK = ["penguin", "purple-penguin", "penguin-x5", "penguins-duo", "pelican", "puffin"]
+NO_CLOCK = ["penguin", "purple-penguin", "penguin-x5", "penguins-duo", "pelican",
+            "pelicans-duo", "puffin"]
 _TIME_CUTS = ("hard_timeout", "weak_peak_cut", "dead_weight_cut")
 
 
