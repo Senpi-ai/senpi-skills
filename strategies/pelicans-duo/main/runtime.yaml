@@ -148,8 +148,9 @@ actions:
 # moves to +2% and rises with high-water to +4% by the time rung 2 takes over. That is what
 # turns a round-tripper into a scratch instead of a -15% stop. Rungs 2 onward are Orca's
 # "let winners run" shape, held verbatim. What Pelican changes vs Orca: hard_timeout OFF (see
-# below), weak_peak_cut 25m -> 300m, dead_weight_cut OFF (a 15-minute cut fights a multi-hour
-# hold), phase-1 max_loss 8% -> 15% ROE.
+# below), EVERY time cut OFF as of 2026-10-05 (weak_peak_cut was the last one — see its note),
+# phase-1 max_loss 8% -> 15% ROE. Nothing on this template closes on a clock: the ladder and
+# the stop decide every exit.
 # order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen).
 exit:
   engine: dsl
@@ -168,12 +169,22 @@ exit:
       enabled: false
       interval_in_minutes: 240
     weak_peak_cut:
-      # The only time cut left, and it is a DEATH cut, not a profit cut: 5h to show +5% ROE (a 0.5%
-      # price move at 10x) or the slot is freed. Raised from 180m/3.0 — at 10x the old 3% ROE bar was
-      # a 0.3% move, which almost anything clears, so the cut effectively never fired and flatliners
-      # rode to the 4h timeout holding the only slot. NOTE the timer RESETS every time ROE clears
-      # min_value (runtime: DslState.weakPeakCutStartedAt), so this bounds DEAD positions, not slow ones.
-      enabled: true
+      # OFF as of 2026-10-05. The DSL manages every exit on this family now — nothing here closes on
+      # a clock. This was the last time-based close: 5h to show a peak of 0.50% of price or the slot
+      # was freed. It was defensible as a DEATH cut rather than a profit cut, because its timer
+      # RESETS every time ROE clears min_value (runtime: DslState.weakPeakCutStartedAt) and its bar
+      # sat just under rung 0's arm at 0.60% of price, so it could only ever fire on a position that
+      # never worked. But it still decided an exit on elapsed time, and the measurement that killed
+      # hard_timeout is a verdict on the instrument and not just on that one setting: of 142 clock
+      # closes in 7 days, 110 (77.5%) were in profit and 93 (65.5%) kept moving the right way for
+      # the next hour.
+      #
+      # WHAT HOLDS A DEAD POSITION NOW: the phase-1 floor at 1.50% of price, and nothing else. There
+      # is no CLOSE_POSITION scanner on this family, so a flatliner keeps its slot until the stop
+      # fires or it finally moves. That is the accepted trade — a slow winner is worth more than a
+      # freed slot — and it is the same call puffin has run under since 2026-09-30. The interval and
+      # min_value below are kept for the record; both are inert while disabled.
+      enabled: false
       interval_in_minutes: 300
       min_value: 5.0
     dead_weight_cut:
