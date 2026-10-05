@@ -344,7 +344,59 @@ def test_rung_zero_arms_often_enough(pkg):
         f"the cap without the package's own peak distribution behind it.")
 
 
-# ── weak_peak_cut must stay a DEATH cut, never a profit cut ──
+# ── the penguin/puffin/pelican family closes on NOTHING but the DSL ──
+
+NO_CLOCK = ["penguin", "purple-penguin", "penguin-x5", "penguins-duo", "pelican", "puffin"]
+_TIME_CUTS = ("hard_timeout", "weak_peak_cut", "dead_weight_cut")
+
+
+@pytest.mark.parametrize("pkg", NO_CLOCK)
+@pytest.mark.parametrize("cut", _TIME_CUTS)
+def test_no_time_cut_fires_on_this_family(pkg, cut):
+    """Jason, 2026-10-05: "remove the 5h weak peak on all versions of penguin and puffin and
+    pelican. Let DSL manage all exits." So every clock is off on this family, and this test is the
+    thing that keeps it that way.
+
+    `hard_timeout` and `dead_weight_cut` went first, on a measurement: of 142 hard_timeout closes
+    in 7 days, 110 (77.5%) were in profit and 93 (65.5%) kept moving the right way for the next
+    hour. `weak_peak_cut` survived that round because it is structurally different — its timer
+    RESETS whenever ROE clears `min_value`, and its bar sits under rung 0's arm, so it could only
+    fire on a position that never worked (see
+    test_weak_peak_cut_can_only_fire_before_the_ladder_arms, which still guards condor's). It is off
+    here anyway: the finding above is a verdict on deciding exits by elapsed time, not on one
+    setting of one cut.
+
+    The cost is real and accepted, so state it rather than discover it later: there is no
+    CLOSE_POSITION scanner on this family, so with every clock off the ONLY thing that ends a dead
+    position is the phase-1 floor. A flatliner holds its slot until that stop fires or it finally
+    moves — which on penguin, at 90% margin in one slot, is the whole strategy. The judgement is
+    that a slow winner is worth more than a freed slot.
+
+    Re-enabling any of these is a product decision with a cost: say so here with the evidence."""
+    preset = _yaml(f"strategies/{pkg}/main/runtime.yaml")["exit"]["dsl_preset"]
+    assert not (preset.get(cut) or {}).get("enabled"), (
+        f"{pkg} has {cut} back on. This family closes on the DSL ladder and the phase-1 floor "
+        f"only — no exit here is decided by elapsed time. If that is meant to change, change it "
+        f"with the measurement that justifies it, not as a default.")
+
+
+def test_the_phase1_floor_is_what_holds_a_dead_position(pkg_floor=1.5):
+    """The corollary of the test above, and the number a reader needs when they ask "so what DOES
+    close a loser?". With every clock off, the answer is this floor and nothing else — so if it
+    ever went missing or got loose, the family would have no exit for a position that never works."""
+    for pkg in NO_CLOCK:
+        rt = _yaml(f"strategies/{pkg}/main/runtime.yaml")
+        preset = rt["exit"]["dsl_preset"]
+        lev = float(rt["strategy"]["default_leverage"])
+        ml = preset["phase1"].get("max_loss_pct")
+        assert ml, f"{pkg} has no phase-1 max_loss_pct — with every clock off, nothing ends a loser"
+        px = float(ml) / lev
+        assert 1.0 <= px <= 3.0, (
+            f"{pkg}'s only backstop is {ml}% ROE at {lev}x = {px:.2f}% of price. Outside the "
+            f"1.0-3.0% band that is either inside ordinary noise (and will scratch winners) or so "
+            f"wide that a dead position is effectively never closed at all.")
+
+
 
 
 # ── grizzly-wild is grizzly in exactly two inputs ──
