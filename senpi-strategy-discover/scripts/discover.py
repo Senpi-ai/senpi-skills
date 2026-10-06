@@ -9,10 +9,10 @@ stdout, RANKS the returned set itself (on risk / belief / worldview / thesis), a
 Contract:
 - The SCRIPT only does CONCRETE set logic: it hard-rejects on the few unambiguous, explicitly-stated
   constraints (cross-domain asset, named-asset unavailable, strict-opposite direction, explicit
-  exclusions) and returns ALL survivors — no relevance score, no top-N cut. A bad rank still contains
-  the right answer; a bad cut doesn't, so we never cut.
-- Survivors are neutral-ordered (asset-match desc, then name) — lossless ordering, never a filter.
-- Each record carries its full soft-rank surface (risk_level, belief_plain, THESIS, tags, horizon,
+  exclusions). It computes the complete eligible set, reports its count, and bounds default output.
+- Survivors are neutral-ordered (asset-match desc, then name); optional theme scoring runs over the
+  complete eligible set before the output cap so a later candidate can still surface.
+- Each record carries a compact soft-rank surface (risk_level, belief_plain, THESIS, tags, horizon,
   scope, direction, asset_classes, tier) + caveats + market_facts. The LLM does ALL soft/semantic
   ranking — nothing it matches on requires a maintained glossary.
 - Fails open: unknown concrete values drop to "unstated" (widen, never dead-end); always valid JSON;
@@ -35,6 +35,11 @@ SKILL_CATALOG = os.path.join(HERE, os.pardir, "catalog.json")             # bund
 REPO_CATALOG = os.path.join(REPO_ROOT, "strategies", "catalog.json")      # dev checkout / source of truth
 _CATALOG_REPO = os.environ.get("SENPI_SKILLS_REPO", "Senpi-ai/senpi-skills")
 _CATALOG_REF = os.environ.get("SENPI_SKILLS_REF", "main")
+DEFAULT_LIMIT = 8
+OUTPUT_BUDGET = 12_000
+TEXT_FIELD_LIMIT = 120
+TAG_LIMIT = 8
+MARKET_FACT_LIMIT = 2
 
 
 def default_catalog():
@@ -302,15 +307,21 @@ def _active_constraints(intent):
     return c
 
 
+def _short_text(value):
+    value = str(value or "")
+    return value if len(value) <= TEXT_FIELD_LIMIT else value[:TEXT_FIELD_LIMIT - 1].rstrip() + "…"
+
+
 def _candidate(r, intent):
-    """A flat, labels-pre-inlined record — everything the LLM needs to rank + narrate, no extra context."""
+    """A compact, labels-pre-inlined record — enough to rank + narrate without an oversized result."""
     cand = {
         # identity + handoff
         "id": r.get("id"), "version": r.get("version"), "name": r.get("name"),
-        "emoji": r.get("emoji"), "tagline": r.get("tagline"),
+        "emoji": r.get("emoji"), "tagline": _short_text(r.get("tagline")),
         # soft-rank surface (the script never reads these — the LLM ranks on them)
         "risk_level": r.get("risk_level"), "archetype_label": r.get("archetype_label"),
-        "belief_plain": r.get("belief_plain"), "thesis": r.get("thesis"), "tags": r.get("tags") or [],
+        "belief_plain": _short_text(r.get("belief_plain")), "thesis": _short_text(r.get("thesis")),
+        "tags": (r.get("tags") or [])[:TAG_LIMIT],
         "time_horizon": r.get("time_horizon"), "asset_scope": r.get("asset_scope"),
         "direction": r.get("direction"), "asset_classes": r.get("asset_classes") or [],
         "assets": r.get("assets") or [], "tier": r.get("tier"),
@@ -323,7 +334,7 @@ def _candidate(r, intent):
         "market_facts": [],
     }
     if r.get("tag_labels"):
-        cand["tag_labels"] = r.get("tag_labels")
+        cand["tag_labels"] = r.get("tag_labels")[:TAG_LIMIT]
     if (r.get("instance_count") or 1) > 1:
         cand["funding_split"] = r.get("funding_split")
     return cand
@@ -429,6 +440,17 @@ def apply_theme(result, query):
         {"id": c["id"], "name": c.get("name"), "theme_score": c["theme_score"],
          "theme_hits": c.get("theme_hits", [])}
         for c in result["candidates"] if c.get("theme_score", 0) > 0]
+    return result
+
+
+def limit_result(result, limit):
+    """Apply the output cap after every ranking pass while preserving full-set counts."""
+    if limit is not None:
+        limit = max(0, limit)
+        result["candidates"] = result.get("candidates", [])[:limit]
+        if "theme_matches" in result.get("meta", {}):
+            result["meta"]["theme_matches"] = result["meta"]["theme_matches"][:limit]
+    result.setdefault("meta", {})["returned_n"] = len(result.get("candidates", []))
     return result
 
 
@@ -643,7 +665,8 @@ def main(argv=None):
                     help="SOFT worldview/market-structure search (e.g. 'k-shape', 'risk-off', "
                          "'market-neutral', 'AI fund'): scores candidates on thesis/tag match + regime "
                          "synonyms and floats matches to the top. Never filters — surfaces + ranks.")
-    ap.add_argument("--limit", type=int, default=None, help="safety cap on returned candidates (default: all)")
+    ap.add_argument("--limit", type=int, default=DEFAULT_LIMIT,
+                    help=f"maximum returned candidates (default: {DEFAULT_LIMIT}; explicit values override it)")
     ap.add_argument("--catalog", default=None, help="catalog.json path (default: skill-local → repo → remote fetch)")
     ap.add_argument("--no-market", action="store_true", help="skip the live market enrichment pass")
     ap.add_argument("--context-only", action="store_true", help="return user context only, no match")
@@ -667,12 +690,15 @@ def main(argv=None):
         return 0
 
     intent = normalize_intent(args)
-    result = match(intent, records, limit=args.limit)
+    # Build the complete eligible set first. Theme scoring must see every survivor; otherwise the default
+    # output cap would hide a relevant strategy merely because its neutral alphabetical order was later.
+    result = match(intent, records)
 
-    # SOFT theme surface — score/rank the survivors on a worldview keyword (no filtering). Applied before
-    # market enrichment so the theme-matched candidates' assets get first claim on the capped live fetch.
+    # SOFT theme surface — score/rank the complete survivor set on a worldview keyword (no filtering), then
+    # cap the output. Theme-matched candidates' assets therefore get first claim on the live market fetch.
     if args.theme:
         result = apply_theme(result, args.theme)
+    result = limit_result(result, args.limit)
 
     # User's available funds — ALWAYS attach (independent of market enrichment / candidate count) so the
     # LLM can size each pick from real balance, not the per-strategy floor. See SKILL.md Layer 3.
@@ -689,8 +715,8 @@ def main(argv=None):
         for cand in result["candidates"]:
             assets = by_id.get(cand["id"], {}).get("assets") or []
             pref = [a for a in assets if any(asset_matches(n, [a]) for n in user_named)] or assets
-            per_cand[cand["id"]] = pref[:3]
-            for a in pref[:3]:
+            per_cand[cand["id"]] = pref[:MARKET_FACT_LIMIT]
+            for a in pref[:MARKET_FACT_LIMIT]:
                 if a not in union:
                     union.append(a)
         try:
@@ -701,7 +727,13 @@ def main(argv=None):
         except Exception as e:  # noqa
             result["meta"].setdefault("warnings", []).append(f"market enrichment unavailable: {e}")
 
-    print(json.dumps(result, ensure_ascii=False))
+    output = json.dumps(result, ensure_ascii=False)
+    if args.limit == DEFAULT_LIMIT and len(output) > OUTPUT_BUDGET:
+        print(json.dumps({"candidates": [], "build_custom": result["build_custom"], "meta": {
+            "eligible_count": result["meta"].get("eligible_count"), "returned_n": 0,
+            "error": "discovery summary exceeded output budget"}}, ensure_ascii=False))
+        return 1
+    print(output)
     return 0
 
 

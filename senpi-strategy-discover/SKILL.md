@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.40.0"
+  version: "2.41.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -33,9 +33,9 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
 
 ## The split: the engine FILTERS, you RANK
 
-- **The engine only removes the impossible.** `scripts/discover.py` takes a few **concrete** flags and
-  returns **every** strategy that survives them — no scoring, no top-N. A big list back is normal and
-  correct (a bad cut hides the right answer; a full list never does).
+- **The engine only removes the impossible.** `scripts/discover.py` takes a few **concrete** flags,
+  computes the complete eligible set, and returns a bounded shortlist (8 by default) while reporting the
+  full `eligible_count`. An explicit `--limit` overrides the default.
 - **You rank the returned set yourself.** The engine does NOT know the user's risk appetite, belief, or
   worldview — those never go in as flags. You hold them and rank the returned candidates on them, using
   the fields on each record (`risk_level`, `belief_plain`, `archetype_label`, `thesis`, `tags`,
@@ -88,7 +88,7 @@ python3 scripts/discover.py
   [--exclude <csv: copy_trading,stocks,crypto,commodities,pre_ipo,dca,shorting>]
   [--budget <number>]
   [--theme "<worldview>"]  # SOFT surface: k-shape, risk-off, market-neutral, AI fund, divergence…
-  [--limit <int>]      # safety cap only; default returns ALL eligible
+  [--limit <int>]      # default 8; explicit values override the output cap
   [--no-market]        # skip the live read — use while narrowing/browsing
   [--context-only]     # user holdings/budget only, no match
 ```
@@ -100,8 +100,9 @@ python3 scripts/discover.py
   structural synonyms YOU know for it — you natively know "k-shape" ≈ "two-speed" ≈ "long/short" ≈
   "dispersion", so pass them: `--theme "k-shape two-speed long-short divergence dispersion winners
   laggards"`. The engine scores every survivor on thesis/tag overlap with those terms, floats the
-  matches to the top, and echoes a ranked `meta.theme_matches`. It **never drops a candidate** and holds
-  **no** maintained synonym list of its own — the vocabulary is yours. You still rank + narrate. Use it
+  matches to the top, and echoes the bounded ranked `meta.theme_matches`. It scores the complete eligible
+  set before applying the output cap and holds **no** maintained synonym list of its own — the vocabulary
+  is yours. You still rank + narrate. Use it
   for any named worldview so you don't eyeball 78 theses and miss an obvious fit (e.g. Cougar/Cub for a
   K-shape).
 - Values can be loose ("btc and eth", "no shorting") — the engine canonicalizes; unknown → ignored.

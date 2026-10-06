@@ -79,6 +79,14 @@ def test_theme_never_drops_a_candidate():
     assert any(c.get("theme_score", 0) == 0 for c in res["candidates"])
 
 
+def test_theme_ranking_precedes_default_shortlist_cap():
+    res = discover.apply_theme(discover.match(_broad(), CAT), K_SHAPE)
+    discover.limit_result(res, discover.DEFAULT_LIMIT)
+    assert len(res["candidates"]) == discover.DEFAULT_LIMIT
+    assert "cougar" in [c["id"] for c in res["candidates"][:5]]
+    assert res["meta"]["eligible_count"] == len(ALL_IDS)
+
+
 def test_a_different_theme_surfaces_a_different_set():
     """Generality: an expanded 'risk-off' worldview floats the defensive/tail-risk books."""
     res = _themed(RISK_OFF)

@@ -86,6 +86,37 @@ def test_smart_money_present_when_healthy():
     assert res["smart_money"]["concentration"]["concentration"][0]["asset"] == "HYPE"
 
 
+def test_smart_money_projects_and_bounds_live_shape():
+    """Large leaderboard envelopes must become complete, bounded JSON rather than truncated JSON."""
+    verbose = "x" * 500
+
+    class LargeClient:
+        def mcp_call(self, tool, timeout=12, **kw):
+            if tool == "leaderboard_get_status":
+                return {"window": "4h", "updated_at": "2026-10-06T00:00:00Z", "debug": verbose}
+            if tool == "leaderboard_get_markets":
+                return {"markets": [{"token": f"A{i}", "direction": "long",
+                                      "pct_of_top_traders_gain": i, "narration": verbose}
+                                     for i in range(200)]}
+            if tool == "leaderboard_get_top":
+                return {"traders": [{"wallet": f"w{i}", "delta_pnl": i, "thesis": verbose}
+                                     for i in range(200)]}
+            if tool == "leaderboard_get_momentum_events":
+                return {"events": [{"trader_id": f"t{i}", "tier": 2, "decision": "sent",
+                                     "delta_pnl": i, "top_positions": [{"market": "BTC",
+                                     "direction": "long", "delta_pnl": i, "detail": verbose}],
+                                     "detail": verbose} for i in range(200)]}
+            return None
+
+    smart = pulse.fetch_smart_money(LargeClient(), {"warnings": []})
+    assert len(json.dumps(smart, ensure_ascii=False)) <= 12_000
+    assert len(smart["concentration"]["concentration"]) == 8
+    assert len(smart["top_traders"]["traders"]) == 5
+    assert len(smart["momentum_events"]["events"]) == 8
+    assert smart["concentration"]["total_count"] == 200
+    assert "narration" not in smart["concentration"]["concentration"][0]
+
+
 def test_fails_open_on_empty():
     """No data anywhere → still valid structure, flagged degraded, no exception."""
     res = pulse.run(pulse._FixtureClient({}), want_smart=True)

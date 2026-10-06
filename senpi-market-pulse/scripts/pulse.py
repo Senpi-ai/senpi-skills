@@ -55,6 +55,13 @@ XYZ_ALL = [a for g in XYZ_GROUPS.values() for a in g]
 # how many of the biggest movers get a deep (candle/volume/funding) pull
 MOVER_DEEP_PULL = 12
 
+# OpenClaw truncates oversized exec results before the model can parse them. Keep every default slice
+# below this budget as complete JSON instead of relying on the consumer to truncate it.
+OUTPUT_BUDGET = 12_000
+SMART_MARKET_LIMIT = 8
+SMART_TRADER_LIMIT = 5
+SMART_EVENT_LIMIT = 8
+
 
 # ──────────────────────────────────────────────────────────────── guarded I/O helpers
 def _ok(resp):
@@ -214,8 +221,49 @@ def deep_pull_movers(client, movers, meta):
     return {a: v for a, v in pairs if v}, regime
 
 
+def _rows(data, keys):
+    """Unwrap the leaderboard's direct and same-key-nested list envelopes."""
+    if isinstance(data, list):
+        return [r for r in data if isinstance(r, dict)], {}
+    if not isinstance(data, dict):
+        return [], {}
+    for key in keys:
+        rows = data.get(key)
+        envelope = rows if isinstance(rows, dict) else data
+        if isinstance(rows, dict):
+            rows = rows.get(key)
+        if isinstance(rows, list):
+            return [r for r in rows if isinstance(r, dict)], envelope
+    return [], data
+
+
+def _project(row, fields):
+    out = {key: row[key] for key in fields if row.get(key) is not None}
+    if isinstance(out.get("top_positions"), list):
+        position_fields = ("market", "asset", "direction", "delta_pnl", "leverage")
+        out["top_positions"] = [
+            {key: pos[key] for key in position_fields if pos.get(key) is not None}
+            for pos in out["top_positions"][:3] if isinstance(pos, dict)
+        ]
+    return out
+
+
+def _summary(data, source_keys, output_key, fields, limit):
+    rows, envelope = _rows(data, source_keys)
+    total = envelope.get("total_count") if isinstance(envelope, dict) else None
+    summary = {output_key: [_project(row, fields) for row in rows[:limit]],
+               "total_count": total if isinstance(total, int) else len(rows)}
+    for source in (data, envelope):
+        if not isinstance(source, dict):
+            continue
+        for field in ("window", "source_trader_count", "timestamp", "query"):
+            if source.get(field) is not None:
+                summary[field] = source[field]
+    return summary
+
+
 def fetch_smart_money(client, meta):
-    """The leaderboard / Hyperfeed layer — health-gated. Returns None (cleanly) if the feed is down."""
+    """The leaderboard / Hyperfeed layer — health-gated and projected to narration-relevant fields."""
     _progress("Checking where the smart money is positioned vs the crowd…")
     try:
         status = _ok(client.mcp_call("leaderboard_get_status", timeout=8))
@@ -227,15 +275,28 @@ def fetch_smart_money(client, meta):
         meta.setdefault("warnings", []).append("smart-money layer unavailable (Hyperfeed unreachable)")
         return None
 
-    sm = {"status": status}
-    for label, tool in (("concentration", "leaderboard_get_markets"),
-                        ("top_traders", "leaderboard_get_top"),
-                        ("momentum_events", "leaderboard_get_momentum_events")):
+    sm = {"status": _project(status, ("window", "updated_at", "timestamp"))}
+    specs = (
+        ("concentration", "leaderboard_get_markets", ("markets", "concentration"), "concentration",
+         SMART_MARKET_LIMIT, ("asset", "token", "dex", "direction", "is_dominant_direction",
+          "pct_of_gains", "pct_of_top_traders_gain", "trader_count", "token_price_change_pct_15m",
+          "token_price_change_pct_1h", "token_price_change_pct_4h")),
+        ("top_traders", "leaderboard_get_top", ("traders",), "traders", SMART_TRADER_LIMIT,
+         ("wallet", "address", "trader_id", "delta_pnl", "profit_and_loss", "realizedProfitAndLoss")),
+        ("momentum_events", "leaderboard_get_momentum_events", ("events",), "events", SMART_EVENT_LIMIT,
+         ("trader_id", "tier", "tier_label", "delta_pnl", "decision", "concentration",
+          "top_positions", "trader_tags", "detected_at")),
+    )
+    for label, tool, source_keys, output_key, limit, fields in specs:
         try:
-            sm[label] = _ok(client.mcp_call(tool, timeout=10))
+            sm[label] = _summary(_ok(client.mcp_call(tool, timeout=10)), source_keys,
+                                 output_key, fields, limit)
         except Exception as e:  # noqa
             meta.setdefault("warnings", []).append(f"{tool} failed: {e}")
             sm[label] = None
+    if len(json.dumps(sm, ensure_ascii=False, default=str)) > OUTPUT_BUDGET:
+        meta.setdefault("warnings", []).append("smart-money summary exceeded output budget")
+        return None
     return sm
 
 
