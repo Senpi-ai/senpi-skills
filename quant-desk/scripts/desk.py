@@ -266,6 +266,20 @@ def _ratio_or_none(num, base, cap=10.0):
     return None if abs(r) > cap else r
 
 
+def _cached_run(path, max_age_s):
+    """A cached desk run, or None when it is absent, older than `max_age_s`, unreadable, or written by
+    another desk VERSION (or none) — a run cached under an older protection rule must never re-render
+    under this one."""
+    try:
+        if time.time() - os.path.getmtime(path) >= max_age_s:
+            return None
+        with open(path) as fh:
+            r = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return r if isinstance(r, dict) and r.get("desk_version") == VERSION else None
+
+
 def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench=None, meta=None, whose="mine",
             wallets=None, force=False):
     """One desk. `wallets`, when given, is every wallet of a senpi user's book: each is read on its
@@ -821,9 +835,9 @@ def main(argv=None):
             if not ADDR_RE.match(x):
                 print(json.dumps({"error": f"not a Hyperliquid address: {x}"})); return 2
             sp = os.path.join(a.state_dir, f"desk-{x}.json")
-            if os.path.exists(sp) and time.time() - os.path.getmtime(sp) < 6 * FRESH_S and not a.fresh:
-                with open(sp) as fh:
-                    rs.append(json.load(fh)); continue
+            cached = None if a.fresh else _cached_run(sp, 6 * FRESH_S)
+            if cached is not None:
+                rs.append(cached); continue
             sub = [x, "--json", "--state-dir", a.state_dir, "--cache", a.cache, "--other"] + (["--fixture", a.fixture] if a.fixture else []) + (["--dry"] if a.dry else []) + (["--days", str(a.days)] if a.days != 90 else [])
             rc = main(sub if not a.no_cohort else sub + ["--no-cohort"])
             if rc != 0:
@@ -891,9 +905,8 @@ def main(argv=None):
         with open(BENCH_PATH) as fh:
             bench = json.load(fh).get("benchmark")
     r = None
-    if (a.section or a.deep) and not a.fresh and os.path.exists(state_path) and time.time() - os.path.getmtime(state_path) < FRESH_S:
-        with open(state_path) as fh:
-            r = json.load(fh)
+    if (a.section or a.deep) and not a.fresh:
+        r = _cached_run(state_path, FRESH_S)
     if r is None:
         if a.fixture:
             with open(a.fixture) as fh:
@@ -997,6 +1010,7 @@ def main(argv=None):
         log(f"[quant-desk] done in {meta['timings']['total']}s ({meta.get('hl_calls')} reads)")
         # atomic: stage 1 writes this and stages 2-4 read it, so a half-written relay file breaks
         # the whole staged run — and JSONDecodeError is not an HLError, so the handler above misses it
+        r["desk_version"] = VERSION          # a cache another version wrote is stale (_cached_run)
         hl_api._atomic_json(state_path, json.loads(json.dumps(r, default=float)))
     if a.deep:
         candles = {}

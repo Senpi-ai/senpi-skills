@@ -167,7 +167,7 @@ TRAILING_ORDER_TYPE = "Trailing Stop Market"
 # in another's `children` only goes live when its parent fills) on the position's coin, in the
 # position's dex list, reduce-only, on the exit side, of one of these three types. A take-profit is
 # never a stop, and an order with no or an unknown `orderType` is not one either: the audit fails
-# toward NONE, never toward cover. Sizes are exact decimals: a float sum calls 0.1 + 0.2 < 0.3.
+# toward NONE, never toward cover. Sizes are exact decimals: a float sum calls 0.7 + 0.1 < 0.8.
 STOP_KINDS = {"Stop Market": "STOP_MARKET", "Stop Limit": "STOP_LIMIT", TRAILING_ORDER_TYPE: "TRAILING"}
 TAKE_PROFIT_ORDER_TYPES = ("Take Profit Market", "Take Profit Limit")
 ARMED, WAITING_TO_ACTIVATE = "ARMED", "WAITING_TO_ACTIVATE"
