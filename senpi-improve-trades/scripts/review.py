@@ -187,6 +187,37 @@ def _first_written(d, *names, default=None):
 # ── end vendored block
 
 
+# ── VENDORED connected-wallets reader, byte-identical in senpi-portfolio/scripts/portfolio.py,
+# ── senpi-improve-trades/scripts/review.py and quant-desk/scripts/addresses.py — skills install
+# ── standalone, so none may import another. senpi-portfolio/tests/test_name_reader_parity.py fails
+# ── the moment the copies drift.
+CONNECTED_OK = "ok"
+CONNECTED_UNAVAILABLE = "unavailable"
+
+
+def _connected_wallets(me):
+    """(status, wallets) from a `user_get_me` payload, outer `data` already stripped.
+
+    The keys live inside `user`: `connected_wallets_status` ("ok" | "unavailable") and, only when ok,
+    `connected_wallets` [{address, label, verified_at, access}]. status is "ok" or "unavailable";
+    wallets is a list only when status is "ok", else None. An ABSENT status key (an MCP older than
+    connected wallets) is "unavailable", never [] — unknown is never empty, so this never reads a
+    missing key with a default. `access` is the MCP's read-only line, carried verbatim."""
+    user = me.get("user") if isinstance(me, dict) and isinstance(me.get("user"), dict) else me
+    if not isinstance(user, dict) or user.get("connected_wallets_status") != CONNECTED_OK:
+        return CONNECTED_UNAVAILABLE, None
+    rows = user.get("connected_wallets")
+    if not isinstance(rows, list):
+        return CONNECTED_UNAVAILABLE, None
+    wallets = []
+    for w in rows:
+        if isinstance(w, dict) and isinstance(w.get("address"), str) and w["address"].strip():
+            wallets.append({"address": w["address"].strip().lower(), "label": w.get("label"),
+                            "verified_at": w.get("verified_at"), "access": w.get("access")})
+    return CONNECTED_OK, wallets
+# ── end connected-wallets reader
+
+
 def _strategy_label(s):
     """What to CALL a strategy — the label every trade, event and rollup is attributed by, and the KEY
     the `by_strategy` rollups bucket on.
