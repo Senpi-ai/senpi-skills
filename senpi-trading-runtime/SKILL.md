@@ -6,14 +6,15 @@ description: >-
   exports scan(inputs, ctx), which the runtime supervises and calls each interval, then
   owns execution, risk guard_rails, and two-phase DSL trailing-stop exits. Use when
   working with runtime.yaml, the scan(inputs, ctx) contract, external_scanner, ctx, or
-  the DSL exit engine — including verifying open positions are protected by DSL (have a
+  the DSL exit engine (the Ratchet Stop / tier ladder) or the risk guard rails (a latched
+  daily-loss or drawdown halt) — including verifying open positions are protected by DSL (have a
   working stop-loss). The shared runtime contract the lifecycle skills reference. NOT
   for building, installing, or picking a strategy (→ senpi-strategy-author /
   senpi-strategy-ops / senpi-strategy-discover).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "4.1.7"
+  version: "4.1.8"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -131,7 +132,9 @@ discards one: `references/scan-contract.md`.
 
 Beyond `validate`, `deploy`/`deploy status`, `update` and `runtime list/delete`, the CLI exposes the runtime's live state — `senpi dsl
 positions|inspect|closes` (the exit engine), `senpi action list|inspect|history|decisions` (the
-decision layer), `senpi risk` (am I allowed to trade, and why not), `senpi audit` (backend trade
+decision layer), `senpi risk` (am I allowed to trade, and why not — the daily loss and drawdown halts
+**latch**: they stay CLOSED after PnL recovers and survive restarts; a latched halt is the user's call, never
+clear it or resume entries without their explicit approval → `senpi-strategy-author/references/risk-gates.md`), `senpi audit` (backend trade
 trail with AI reasoning), `senpi scanner` (per-scanner health, liveness, and a `(no signals yet)` flag for scanners that run but produce nothing),
 `senpi events`/`senpi explain <asset>` (the local domain-event log — the trade narrative, and one
 asset's stitched lifecycle), `senpi status`/`senpi state` (health — fail-closed: an external scanner
