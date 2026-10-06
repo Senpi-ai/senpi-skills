@@ -65,7 +65,9 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # resident context with the count hiding it (2026-09-23).
 # ops: 344 → 345 for the one-line flat-book rule beside the two-targets rule it completes; the depth is in
 # references/editing-a-live-strategy.md §4.
-BODY_BUDGET = {"senpi-strategy-ops": 345, "senpi-strategy-author": 430}
+# ops: 345 → 348 for the ephemeral-path half of the durable-root rule — naming only a skill dir left a
+# /tmp clone looking safe, and a package deployed from one loses every scanner on the next restart.
+BODY_BUDGET = {"senpi-strategy-ops": 348, "senpi-strategy-author": 430}
 
 
 def _skill_body(path):

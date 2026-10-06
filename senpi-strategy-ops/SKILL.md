@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.23.3"
+  version: "3.23.4"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -68,12 +68,15 @@ the bare verb for the read-only `openclaw senpi deploy status`, and whenever res
 the strategy. A raw `strategy_close` MCP call closes the strategy but **leaves the runtime
 registered**, which collides on the next deploy.
 Pass the **strategy `id`** for a CATALOG strategy (what `senpi-strategy-discover` hands over, e.g.
-`spider`), fetched from the remote if not on disk; for a **locally-authored package, pass its DIRECTORY
-path**. Either way the package belongs in the **durable strategies root** (`SENPI_STRATEGIES_DIR` if
-set, else the agent workspace `strategies/` dir — normally `/data/workspace/strategies`) and **never
-inside a skill directory**: a package written there is destroyed on the next skill update. An on-disk
-package is authoritative; an invalid one surfaces its real errors and is never silently replaced by a
-remote fetch. Mechanics + state machine: [`references/lifecycle.md`](references/lifecycle.md) · manifest schema: [`references/strategy-yaml-schema.md`](references/strategy-yaml-schema.md).
+`spider`), fetched from the remote if not on disk; for a **locally-authored package, pass its
+DIRECTORY path**. Either way the package belongs in the **durable strategies root**
+(`SENPI_STRATEGIES_DIR` if set, else the agent workspace `strategies/` dir — normally
+`/data/workspace/strategies`): **never in a skill directory** (wiped on the next skill update) and
+**never where a restart will not keep it** — `/tmp`, a `git clone`. Scanners are read from the
+deploy directory, so a restart leaves the strategy funded, ACTIVE and scanning nothing. Copy it into
+the root first. An on-disk package is authoritative; an invalid one surfaces its real errors and is
+never silently replaced by a remote fetch.
+Mechanics + state machine: [`references/lifecycle.md`](references/lifecycle.md) · manifest schema: [`references/strategy-yaml-schema.md`](references/strategy-yaml-schema.md).
 
 ## Deploy — one lifecycle: start the verb, poll `status` until terminal
 
