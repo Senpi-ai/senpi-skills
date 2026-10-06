@@ -251,7 +251,7 @@ def _protection_note(p, smrow):
     liq = p["liq_distance_pct"]; against = smrow and smrow["read"].startswith("AGAINST")
     prot = metrics.protection_of(p)
     if prot is None:                    # the order read failed: say so, and never nudge toward a stop
-        return "UNKNOWN", f"couldn't read the orders on {metrics.dex_label(p['coin'])} — check this position's stop on Hyperliquid before acting on it"
+        return "UNKNOWN", metrics.unread_note(p["coin"])
     if liq is not None and liq < 5 and prot != metrics.FULL:
         if prot == metrics.NONE and p.get("non_reduce_only_stops"):
             return "AT RISK", (f"{liq:.1f}% from liquidation and it {metrics.NOT_REDUCE_ONLY_NOTE}; "
@@ -472,6 +472,10 @@ def next_steps(r):
         if loose:
             line += f"{', '.join(p['coin'] for p in loose)}: each {metrics.NOT_REDUCE_ONLY_NOTE}. "
         out.append(line + "Let me know if you want my help."); i += 1
+    unread = metrics.unread_coins(b)
+    if unread:
+        # an unread position must not vanish from the closing: name it, never reassure, never nudge a stop
+        out.append(f"{i}. **Check first.** {', '.join(unread)}: the desk couldn't read its orders — check its stop on Hyperliquid before acting."); i += 1
     priced = [l for l in r["leaks"] if not l.get("unpriced")]
     if priced:
         l = priced[0]
@@ -612,6 +616,7 @@ def followups_section(r):
 
 def render_deep(mode, d, r):
     if mode == "protect":
+        _unread = metrics.unread_coins(r["book"])
         out = ["## Stop ladder — every open position", "", f"Dollars at risk before: **{usd(d['total_risk_now'])}** → after: **{usd(d['total_risk_after'])}**", "",
                "| Coin | Side | Mark | Hard stop | Distance | Daily range | Lock arms at | Covered today | Note |", "|---|---|---:|---:|---:|---:|---:|---:|---|"]
         for x in d["rows"]:
@@ -625,7 +630,10 @@ def render_deep(mode, d, r):
                     "than that, because the stop has to trigger first. The lock trails at half the peak "
                     "gain once the trade is two ranges in the money.",
                 "", "**These are yours to place.** The *Hard stop* column is the number to set on each "
-                    "position onchain on Hyperliquid; the *Lock arms at* column is where a trailing "
+                    + ("position whose orders the desk read and that has no full stop "
+                       f"(for {', '.join(_unread)} it could not read the orders: check Hyperliquid for an existing stop first), "
+                       if _unread else "position ")
+                    + "onchain on Hyperliquid; the *Lock arms at* column is where a trailing "
                     "stop should begin once the trade is in the money. Tell me if you want help with "
                     "any of them."]
         return "\n".join(out)

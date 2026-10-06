@@ -255,6 +255,11 @@ def dex_label(coin):
     return f"the {coin.split(':', 1)[0]} dex" if ":" in coin else "the main dex"
 
 
+def unread_note(coin):
+    """The one sentence for a position whose orders could not be read: say so, and send the reader to check."""
+    return f"couldn't read the orders on {dex_label(coin)} — check this position's stop on Hyperliquid before acting on it"
+
+
 def protection_of(p):
     """A position's FULL / PARTIAL / NONE, or None when its dex's orders could not be read (unknown —
     never NONE). A run cached before `protection` existed (or a hand-built row) carries only
@@ -329,7 +334,7 @@ def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=Non
                         # the ids of the ARMED stops. A backend ratchet row names the order it believes
                         # it owns; being able to check that against the book is what separates a live
                         # row from a stale one. (@0xsarvesh, #753.)
-                        stop_oids=[o.get("oid") for o in armed if o.get("oid") is not None],
+                        stop_oids=[o.get("oid") for o in armed if o.get("oid") is not None] if audit else None,
                         stop_distance_pct=(abs(mark - nearest) / mark * 100) if (nearest and mark) else None, take_profit=bool(audit["tps"]) if audit else None,
                         funding_rate_hourly=rate, funding_per_day=-(rate * notional * 24) * (1 if side == "LONG" else -1),
                         funding_since_open=_f((p.get("cumFunding") or {}).get("sinceOpen")),

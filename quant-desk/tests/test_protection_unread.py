@@ -158,7 +158,7 @@ def test_every_reader_of_an_unread_book_says_unknown_never_reassures():
     assert "the desk could not read the stops on ETH" in crit and "the stops are what make" not in crit
     # 9. the protect deep dive and the stderr progress line
     [prow] = deep.protect(dict(book=bk), {})["rows"]
-    assert prow["note"] == "couldn't read the orders on the main dex"
+    assert prow["note"] == metrics.unread_note("ETH")
     src = open(os.path.join(HERE, "..", "scripts", "desk.py")).read()
     assert "{metrics.unprotected_label(book)} unprotected" in src
 
@@ -211,3 +211,54 @@ def test_a_partial_row_never_prints_100_percent():
     assert render._protection_note(p, None) == ("PARTLY COVERED", "the other 1% rides naked — extend the stop to the full size")
     assert render.cover_pct(dict(p, protection="FULL", stop_covered_share=1.0)) == "100%"
     assert render.cover_pct(dict(p, protection=None, stop_covered_share=None)) == "—"
+
+
+# ---- fix round 1 ----
+
+def test_an_unread_position_gets_a_check_first_line_in_next_steps():
+    bk = metrics.open_book(_cs(_pos("ETH", 1, 100, liq="98")), None, _ctxs("ETH"), None, _cs(), [], None)
+    ns = render.next_steps({"whose": "mine", "book": bk, "leaks": []})
+    assert "**Check first.** ETH: the desk couldn't read its orders — check its stop on Hyperliquid before acting." in ns
+    assert "Protect first" not in ns and "nothing needs protecting" not in ns
+    # a known-naked position still gets Protect first, and both lines coexist
+    both = metrics.open_book(_cs(_pos("ETH", 1, 100), _pos("xyz:XYZ100", 1, 100)), [], _ctxs("ETH"), None,
+                             _cs(_pos("xyz:XYZ100", 1, 100)), None, _ctxs("xyz:XYZ100"))
+    ns2 = render.next_steps({"whose": "mine", "book": both, "leaks": []})
+    assert "**Protect first.** ETH" in ns2 and "**Check first.**" in ns2
+
+
+def test_skill_md_names_unknown_and_check_first():
+    txt = open(os.path.join(HERE, "..", "SKILL.md")).read()
+    assert "`UNPROTECTED` / `PARTLY COVERED` /\n   `PROTECTED` / `UNKNOWN`" in txt or "`PROTECTED` / `UNKNOWN`" in txt
+    assert "name the AT RISK / UNPROTECTED positions, and **check first** on any UNKNOWN one" in txt
+
+
+def test_an_unread_position_has_no_stop_oids():
+    bk = _unknown_book()
+    assert bk["positions"][0]["stop_oids"] is None
+    read = metrics.open_book(_cs(_pos("ETH", 1, 100)), [], _ctxs("ETH"))
+    assert read["positions"][0]["stop_oids"] == []
+
+
+def test_an_unread_protect_row_says_check_before_acting_and_the_footer_does_not_nudge_a_stop():
+    bk = _unknown_book()
+    [prow] = deep.protect(dict(book=bk), {})["rows"]
+    assert prow["note"] == ("couldn't read the orders on the main dex — check this position's stop on "
+                            "Hyperliquid before acting on it")
+    out = render.render_deep("protect", dict(rows=[dict(prow)], total_risk_now=1.0, total_risk_after=1.0), {"book": bk})
+    assert "number to set on each position onchain" not in out and "on each position whose orders the desk read" in out
+    assert "ETH" in out.split("These are yours to place.")[1] and "check" in out.split("These are yours to place.")[1]
+
+
+def test_an_unread_position_near_liquidation_ranks_protect_like_a_missing_stop():
+    import followups
+    bk = metrics.open_book(_cs(_pos("ETH", 1, 100, liq="98")), None, _ctxs("ETH"), None, _cs(), [], None)
+    r = dict(book=bk, track={}, leaks=[], timing={})
+    sc = {}
+    orig = followups._fill
+    followups._fill = lambda ranked, bank, rr: ranked
+    try:
+        ranked = followups.offer(r, n=2)
+    finally:
+        followups._fill = orig
+    assert ranked[0] == "protect"
