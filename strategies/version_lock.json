@@ -21,6 +21,10 @@
       "behaviour": "e112f5757c65981c",
       "version": "1.7.0"
     },
+    "athena-concentrated": {
+      "behaviour": "483138606a37be7f",
+      "version": "1.0.0"
+    },
     "athena-x": {
       "behaviour": "907e87f6c41390d3",
       "version": "1.6.0"
@@ -325,6 +329,18 @@
       "behaviour": "6e2fe86de12e12f4",
       "version": "1.2.0"
     },
+    "penguin-chase-150bp": {
+      "behaviour": "fb8ff5be3b6ce493",
+      "version": "1.0.0"
+    },
+    "penguin-chase-200bp": {
+      "behaviour": "2a057a61a306ffb5",
+      "version": "1.0.0"
+    },
+    "penguin-chase-300bp": {
+      "behaviour": "7f7a1bb6f90b80e5",
+      "version": "1.0.0"
+    },
     "penguin-x5": {
       "behaviour": "02cd69071cc813b3",
       "version": "1.1.0"
@@ -332,6 +348,18 @@
     "penguins-duo": {
       "behaviour": "ced2b119b6f4eafb",
       "version": "1.1.0"
+    },
+    "penguins-duo-chase-150bp": {
+      "behaviour": "950a50351d6fc969",
+      "version": "1.0.0"
+    },
+    "penguins-duo-chase-200bp": {
+      "behaviour": "1f98b29d642d4d94",
+      "version": "1.0.0"
+    },
+    "penguins-duo-chase-300bp": {
+      "behaviour": "e1da4e9405bc90c1",
+      "version": "1.0.0"
     },
     "phalanx": {
       "behaviour": "16339676f63f78f3",
@@ -356,6 +384,10 @@
     "puffin": {
       "behaviour": "00a0574c5c5b7c69",
       "version": "1.2.0"
+    },
+    "puffin-duo": {
+      "behaviour": "586b0a415dd680a0",
+      "version": "1.0.0"
     },
     "purple-penguin": {
       "behaviour": "aca2ccd36b5fbc94",

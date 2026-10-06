@@ -42,7 +42,9 @@ LADDER_LOCK = [30, 40, 50, 60, 65, 70, 75, 85]
 STOP_PX = 1.50
 
 # Packages that must land on LADDER_PX exactly, at whatever leverage they run.
-ON_THE_LADDER = ["penguin", "pelican", "purple-penguin", "wild-condor", "penguin-x5", "puffin",
+ON_THE_LADDER = [f"penguin-chase-{n}bp" for n in (150, 200, 300)] \
+    + [f"penguins-duo-chase-{n}bp" for n in (150, 200, 300)] \
+    + ["penguin", "pelican", "purple-penguin", "wild-condor", "penguin-x5", "puffin",
                  "orca", "owl", "jaguar", "condor", "raptor"]
 
 # A wider stop is a THESIS choice and has to be stated, so the default is penguin's 1.50% and
