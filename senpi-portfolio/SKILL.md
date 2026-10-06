@@ -680,7 +680,8 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
 
 A **connected wallet** is a Hyperliquid wallet the user proved they own (one signature in Wallets on
 senpi.ai (web)) and trade by hand. The engine returns them in a separate top-level block,
-`connected_wallets: {status, wallets}`, from the `money` step and from `all`.
+`connected_wallets: {status, wallets}`, from every step (`money`, `strategies`, `positions`) and from `all`,
+with `meta.no_strategy_path` on each.
 
 - **Quote the access line verbatim** — every wallet carries it as `access`, and it is the whole answer to
   "can you trade it / close it / set a stop on it":

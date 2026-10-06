@@ -235,6 +235,70 @@ def test_connected_only_user_gets_a_read_not_a_fault():
     assert out["connected_wallets"]["wallets"][0]["state"]["totalValueUsd"] == "5234.10"
 
 
+class _Counting(portfolio._FixtureClient):
+    def __init__(self, fx):
+        super().__init__(fx)
+        self.calls = []
+
+    def mcp_call(self, tool, timeout=12, **kw):
+        self.calls.append(tool)
+        return super().mcp_call(tool, timeout=timeout, **kw)
+
+
+def _assert_connected_only_read(out):
+    assert out["meta"].get("no_strategy_path") is True
+    assert "degraded" not in out["meta"]
+    assert out["connected_wallets"]["status"] == "ok"
+    assert [w["address"] for w in out["connected_wallets"]["wallets"]] == [CW_A]
+    assert out["connected_wallets"]["wallets"][0]["state"]["totalValueUsd"] == "5234.10"
+
+
+def test_connected_only_strategies_and_positions_steps_carry_the_section_from_state():
+    """"Are my positions protected?" routes to the `strategies` step. For a connected-only user that step
+    must carry the connected wallets + `no_strategy_path` the `money` step persisted, or the agent reads an
+    empty strategy list as "no positions" and pitches a strategy."""
+    sp = os.path.join(tempfile.mkdtemp(), "state.json")
+    portfolio.step_money(portfolio._FixtureClient(_connected_only()), state_path=sp)
+    for step in (portfolio.step_strategies, portfolio.step_positions):
+        client = _Counting(_connected_only())
+        out = step(client, want_market=False, state_path=sp)
+        _assert_connected_only_read(out)
+        assert "account_get_connected_wallets" not in client.calls, step.__name__   # reused, not re-read
+
+
+def test_connected_only_strategies_and_positions_steps_rebuild_the_section_standalone():
+    for step in (portfolio.step_strategies, portfolio.step_positions):
+        missing = os.path.join(tempfile.mkdtemp(), "absent.json")
+        client = _Counting(_connected_only())
+        out = step(client, want_market=False, state_path=missing)
+        _assert_connected_only_read(out)
+        assert client.calls.count("user_get_me") == 1, step.__name__      # one read shared by both readers
+
+
+def test_a_state_without_the_connected_section_is_rebuilt_not_read_as_empty():
+    """A state file written before the section existed (strategies cached, no `connected_wallets`) is
+    rebuilt with the same fetch, never read as "no connected wallets"."""
+    for step in (portfolio.step_strategies, portfolio.step_positions):
+        sp = os.path.join(tempfile.mkdtemp(), "state.json")
+        portfolio.step_money(portfolio._FixtureClient(_connected_only()), state_path=sp)
+        st = json.load(open(sp))
+        st.pop("connected_wallets")
+        st["strategies_full"] = []
+        json.dump(st, open(sp, "w"))
+        _assert_connected_only_read(step(portfolio._FixtureClient(_connected_only()),
+                                         want_market=False, state_path=sp))
+
+
+def test_the_steps_pass_the_section_through_for_a_user_with_strategies():
+    fx = _with_connected(_base(), [(CW_A, "Main")], {CW_A: _state_ok()})
+    sp = os.path.join(tempfile.mkdtemp(), "state.json")
+    portfolio.step_money(portfolio._FixtureClient(fx), state_path=sp)
+    for step in (portfolio.step_strategies, portfolio.step_positions):
+        out = step(portfolio._FixtureClient(fx), want_market=False, state_path=sp)
+        assert out["connected_wallets"]["wallets"][0]["address"] == CW_A
+        assert "no_strategy_path" not in out["meta"]
+
+
 def test_a_user_with_strategies_is_not_on_the_no_strategy_path():
     out = _run(_with_connected(_base(), [(CW_A, "Main")], {CW_A: _state_ok()}))
     assert "no_strategy_path" not in out["meta"]
@@ -280,6 +344,7 @@ def test_cta_one_never_routes_a_connected_wallet_to_a_write_tool():
 def test_skill_has_no_strategy_pitch_on_the_no_strategy_path():
     sec = _skill().split("## Connected wallets (read-only)", 1)[1].split("## ", 1)[0]
     assert "`meta.no_strategy_path`" in sec
+    assert "from every step (`money`, `strategies`, `positions`) and from `all`" in sec
     assert "Never pitch a strategy" in sec
     assert "**Want me to review the trades on it, or score it on the quant desk?**" in sec
 

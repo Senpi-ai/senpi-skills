@@ -1740,10 +1740,7 @@ def run(client, want_market=True):
     # A STRATEGY IS ALL ITS WALLETS — re-unite the per-wallet rows into one entry per real strategy.
     # SUPPLEMENTS `strategies[]` (kept — bucket math + detail rely on it); groups add the strategy-level view.
     strategy_groups = group_strategies(strategies, meta)
-    if _no_strategy_path(strategies, connected):
-        meta["no_strategy_path"] = True
-    elif not strategies and not embedded.get("address"):
-        meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    _mark_no_wallet_data(meta, strategies, embedded, connected)
     # per-wallet reads run in a thread pool, so warnings land in completion order; sort them so two runs
     # over the same data are byte-identical (the `all` step is compared to run() that way)
     meta["warnings"] = sorted(meta["warnings"])
@@ -1934,7 +1931,10 @@ def _ensure_full_strategies_in_state(client, state, want_market, meta):
         return embedded, strategies, portfolio_totals
     # state absent/partial → recompute the full pull (embedded + fully-hydrated strategies). The market
     # enrichment is the `positions` step's job — skip it here (want_market only gates step 3's fold).
-    embedded, portfolio_totals = fetch_embedded(client, meta)
+    me = _read_me(client, meta)
+    embedded, portfolio_totals = fetch_embedded(client, meta, me=me)
+    if not _has_connected(state):
+        state["connected_wallets"] = fetch_connected(client, me, meta)
     strategies = fetch_strategies(client, meta)
     state["embedded_wallet"] = embedded
     state["portfolio_totals"] = portfolio_totals
@@ -1947,6 +1947,31 @@ def _ensure_full_strategies_in_state(client, state, want_market, meta):
     if "runtime_read_ok" in meta:
         state["runtime_read_ok"] = meta["runtime_read_ok"]
     return embedded, strategies, portfolio_totals
+
+
+def _has_connected(state):
+    connected = state.get("connected_wallets")
+    return isinstance(connected, dict) and "status" in connected
+
+
+def _ensure_connected_in_state(client, state, meta):
+    """The connected-wallets section for the `strategies`/`positions` steps — from state when an earlier
+    step (or the full-fetch self-heal) stored it, else the same fetch `money` makes. Without it a
+    connected-only user's empty strategy list reads as "no positions" and invites a strategy pitch."""
+    if _has_connected(state):
+        return state["connected_wallets"]
+    connected = fetch_connected(client, _read_me(client, meta), meta)
+    state["connected_wallets"] = connected
+    return connected
+
+
+def _mark_no_wallet_data(meta, strategies, embedded, connected):
+    """`meta.no_strategy_path` for a connected-only user, else the token fault when nothing came back —
+    one rule for `run()` and every step."""
+    if _no_strategy_path(strategies, connected):
+        meta["no_strategy_path"] = True
+    elif not strategies and not embedded.get("address"):
+        meta["degraded"] = "no wallet data — check the token is USER-scoped"
 
 
 def _carry_provenance(meta, state):
@@ -1982,10 +2007,7 @@ def step_money(client, want_market=True, state_path=None):
     strategies = fetch_strategy_money(client, meta)
     totals = _money_totals(embedded, strategies, portfolio_totals, meta)
     meta["strategy_count"] = len(strategies)
-    if _no_strategy_path(strategies, connected):
-        meta["no_strategy_path"] = True
-    elif not strategies and not embedded.get("address"):
-        meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    _mark_no_wallet_data(meta, strategies, embedded, connected)
     # persist the money-lite strategy rows (name/wallet/id/status/money) so the later steps reuse the
     # wallet set; the full hydrate (positions/DSL/closed/profile) is the `strategies` step's self-heal.
     state["embedded_wallet"] = embedded
@@ -2014,18 +2036,19 @@ def step_strategies(client, want_market=True, state_path=None):
     for w in state.get("meta_warnings", []):
         if w not in meta["warnings"]:
             meta["warnings"].append(w)
+    connected = _ensure_connected_in_state(client, state, meta)
     _carry_provenance(meta, state)
     meta["strategy_count"] = len(strategies)
     meta.setdefault("has_multi_wallet_strategy", False)
     strategy_groups = group_strategies(strategies, meta)
-    if not strategies and not embedded.get("address"):
-        meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    _mark_no_wallet_data(meta, strategies, embedded, connected)
     state["strategies_full"] = strategies
     state["strategy_groups"] = strategy_groups
     state["meta_warnings"] = meta.get("warnings", [])
     state["has_multi_wallet_strategy"] = meta.get("has_multi_wallet_strategy", False)
     _save_state(state_path, state)
-    return {"strategies": strategies, "strategy_groups": strategy_groups, "meta": meta}
+    return {"strategies": strategies, "strategy_groups": strategy_groups, "connected_wallets": connected,
+            "meta": meta}
 
 
 def step_positions(client, want_market=True, state_path=None):
@@ -2042,6 +2065,7 @@ def step_positions(client, want_market=True, state_path=None):
     for w in state.get("meta_warnings", []):
         if w not in meta["warnings"]:
             meta["warnings"].append(w)
+    connected = _ensure_connected_in_state(client, state, meta)
     if want_market and strategies:
         enrich_market(client, strategies, meta)
     totals, exposure, signals = compute(embedded, strategies, portfolio_totals, meta)
@@ -2052,8 +2076,7 @@ def step_positions(client, want_market=True, state_path=None):
     # positions — this is exactly run()'s order (enrich_market → group_strategies), keeping the shared
     # state after the full pipeline byte-consistent with `all`.
     strategy_groups = group_strategies(strategies, meta)
-    if not strategies and not embedded.get("address"):
-        meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    _mark_no_wallet_data(meta, strategies, embedded, connected)
     # persist the enriched strategies (market fields now folded onto positions) + exposure/signals + the
     # refreshed groups (over the enriched positions).
     state["strategies_full"] = strategies
@@ -2064,8 +2087,8 @@ def step_positions(client, want_market=True, state_path=None):
     state["meta_warnings"] = meta.get("warnings", [])
     state["has_multi_wallet_strategy"] = meta.get("has_multi_wallet_strategy", False)
     _save_state(state_path, state)
-    return {"strategies": strategies, "strategy_groups": strategy_groups, "exposure": exposure,
-            "signals": signals, "totals": totals, "meta": meta}
+    return {"strategies": strategies, "strategy_groups": strategy_groups, "connected_wallets": connected,
+            "exposure": exposure, "signals": signals, "totals": totals, "meta": meta}
 
 
 # ──────────────────────────────────────────────────────────────── CLI
