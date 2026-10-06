@@ -33,6 +33,8 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
+  version: "3.23.4"
+=======
   version: "3.24.0"
   platform: senpi
   exchange: hyperliquid
