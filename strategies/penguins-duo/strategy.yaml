@@ -5,16 +5,16 @@
 schema_version: 1
 
 id: penguins-duo
-version: "1.1.0"
+version: "1.1.1"
 
 catalog:
+  varies: penguin          # a VARIANT of this template — never outrank it
   name: "Penguins Duo — Penguin across two slots"
   emoji: "🐧"
   tagline: "Penguin's signal spread over two positions instead of one: the same top-50 rows of the 4h leaderboard, the same fresh 15+ rank jump out of the deep field, the same score floor and the same pre-move gate — but it takes the best TWO candidates at 45% margin each rather than the single best at 90%. Combined margin and leverage are unchanged; only the number of names carrying them differs."
   belief_plain: "This is Penguin with the book split in two. Penguin finds the strongest coin rocketing up the leaderboard of what winning traders are piling into, and commits the whole account to that one name. This version takes the top two instead, at half size each — the same total money at risk, spread across two bets rather than concentrated in one. It exists to answer a single question: does concentrating on the one best signal beat taking the two best? Everything else is Penguin's — the detector, the universe, the score floor, the exits, the stop. Know the sizing: two positions at 45% margin and 10x is up to nine times the account deployed, the same as Penguin; one stop-out costs about 6.75% of the account instead of 13.5%, but two can be open at once."
   thesis: "Two inputs differ from Penguin and they move together: slots 1 to 2 and marginPct 90 to 45, so combined margin stays at 90% and gross exposure with both slots filled is identical. The comparison it is built for cannot be read from account value: with only ONE slot filled this package carries half Penguin's exposure per dollar, so on any shared trade it books half the result by construction — measured on a MORPHO long both held on 2026-10-02, normalised per $1,000 funded, Penguin +$116 against the duo's +$58, exactly 0.50x and independent of which design is better. The size-independent measures are slot-2 occupancy, trades per day, win rate, median ROE per trade and the tier-arming distribution. The open question is whether the second-best candidate each tick is worth taking at all, or whether conviction concentrated in the single best name is what produces the outlier the ladder needs."
   group: momentum
-  status: blocked           # unresolved comparison — one slot vs two is the
                             # question, not a finding. Keep it out of the catalog and
                             # discover until it answers; deploy by explicit path.
   archetype: breakout_momentum
@@ -29,7 +29,6 @@ catalog:
   max_slots: 2
   assets: []                # derived universe — coins come from the top-50 rows of the 4h leaderboard each tick, not a fixed list
   tags: [leader-momentum, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, concentrated, single-slot, high-leverage, hyperfeed, high-risk-high-reward, aggressive, start-here]
-
 requires:
   runtime: ">=3.0.0"
 

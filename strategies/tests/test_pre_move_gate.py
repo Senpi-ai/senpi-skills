@@ -47,6 +47,13 @@ GATED = {"penguin": 3.0, "purple-penguin": 3.0, "penguin-x5": 3.0, "penguins-duo
          # (p50 +0.26%, p90 +0.88%, max +2.79%), so on its own distribution the gate would have
          # rejected nothing. Cheap insurance, not an active filter.
          "pelican": 3.0}
+# The six chase arms: the cap is the ONLY free variable, so each one's value is the experiment.
+GATED["penguin-chase-150bp"] = 1.5
+GATED["penguin-chase-200bp"] = 2.0
+GATED["penguin-chase-300bp"] = 3.0
+GATED["penguins-duo-chase-150bp"] = 1.5
+GATED["penguins-duo-chase-200bp"] = 2.0
+GATED["penguins-duo-chase-300bp"] = 3.0
 # vendors the same scorer but deliberately left off — a separate listed template with its own users,
 # and no measurement of its own pre-move distribution yet
 UNGATED = ["orca"]

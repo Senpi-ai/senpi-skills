@@ -1,0 +1,64 @@
+# Puffin Duo — puffin across two slots at 45% margin each.
+#
+# TWO settings differ from puffin: slots 1 -> 2, marginPct 75 -> 45. A third, highMarginPct
+# 90 -> 45, is forced arithmetic and not a free choice: see the note in main/runtime.yaml.
+# Listed in the catalog and in discover. Compare it against the parent it varies, not on its
+# own P&L — see senpi-strategy-discover/references/variant-families.md.
+schema_version: 1
+id: puffin-duo
+version: "1.0.1"
+catalog:
+  varies: puffin          # a VARIANT of this template — never outrank it
+  name: Puffin Duo — two slots at 45%
+  emoji: 🐦🐦
+  tagline: Puffin across two concurrent positions at 45% margin each instead of one at 75%. Same signal, same bar, same exits — the question is whether one deep strike or two shallower ones pays better on the same feed.
+  belief_plain: 'This is Puffin with its capital split in two. Puffin waits for a rare, high-scoring signal and then commits most of the wallet to a single name. This version takes the same signals at the same bar, but holds up to two at once and puts 45% of the wallet behind each rather than 75% behind one. Nothing about what it looks for changes. The trade-off is simple: one position concentrates everything on being right once, two spread the same capital across two chances and halve what any single wrong call costs — and also halve what a single right one pays.'
+  thesis: 'Two inputs differ from puffin: slots 1 -> 2 and marginPct 75 -> 45 (strategy.margin_pct mirrored). The detector, the 85 score floor, the universe sweep, the family cap, the DSL ladder, the stop and the exits are puffin''s, unchanged. One forced third change: highMarginPct 90 -> 45. The emit guard rejects a signal when committed + want exceeds maxTotalMarginPct (92), so at two slots any high tier above 46 silently makes the second slot unopenable whenever the first fires high — the tier and the second slot cannot both exist under a 92 cap. Read this against puffin over the same window: same feed, same bar, same exits, the only question is concentration.'
+  group: smart-money
+  archetype: copy_trading
+  sub_style: signal_feed
+  asset_classes:
+  - universe_crypto
+  - btc_eth
+  - major_alts
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: intraday
+  leverage_max: 10
+  max_slots: 2
+  assets: []
+  min_budget_floor: 50
+  tags:
+  - always-on
+  - cohort
+  - concentrated
+  - concentration
+  - copy-trading
+  - detector-library
+  - experiment
+  - follows-traders
+  - funding
+  - high-conviction
+  - high-leverage
+  - long-short
+  - open-interest
+  - proven-cohort
+  - selective
+  - senpi-signals
+  - signals
+  - single-slot
+  - smart-money
+  - two-slot
+  - whale
+  - whale-moves
+requires:
+  runtime: '>=3.0.0'
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+instances:
+- name: main
+  runtime: main/runtime.yaml
+  wallet_env: PUFFIN_WALLET
+  funding_share: 1.0

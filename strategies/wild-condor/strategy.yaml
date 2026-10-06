@@ -6,15 +6,15 @@
 #
 # The floor is derived from the score scale: condor's maximum is 19, its shipped floor of 12 is 63%
 # of that, penguin's 9 of 12 is 75%, and 75% of 19 rounds to 15.
-#
-# catalog.status: blocked — not offered in the catalog or discover. Deploy by explicit path:
-#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/wild-condor --budget <amount>
+# Listed in the catalog and in discover. Compare it against the parent it varies, not on its
+# own P&L — see senpi-strategy-discover/references/variant-families.md.
 schema_version: 1
 
 id: wild-condor
-version: "1.1.1"
+version: "1.1.2"
 
 catalog:
+  varies: condor          # a VARIANT of this template — never outrank it
   name: "Wild Condor — Condor at conviction size (experiment)"
   emoji: "🪶"
   tagline: "Condor's detector at a higher score floor and a higher margin: it fires only on a score of 15 out of 19 — condor's own top scoring tier — instead of 12, sizes one position at a flat 90% of the book instead of 20-32% by tier, and drops condor's one-trade-per-day cap so the experiment can build a sample. The two settings move together; everything else is Condor's."
@@ -27,13 +27,11 @@ catalog:
   asset_scope: universe
   direction: long_short
   risk_level: aggressive
-  status: blocked           # experiment — deliberately kept out of the catalog and discover
   tier: advanced
   leverage_max: 10
   max_slots: 1
   assets: []
-  tags: [momentum, trend-continuation, universe, leader-momentum, apex-sniper, one-trade-per-day, conviction-sizing, experiment, not-for-users, dsl-only]
-
+  tags: [momentum, trend-continuation, universe, leader-momentum, apex-sniper, one-trade-per-day, conviction-sizing, experiment, dsl-only]
 requires:
   runtime: ">=3.0.0"
 
