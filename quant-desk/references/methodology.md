@@ -83,8 +83,11 @@ price is not a positive number or a trailing stop's condition ends `best waiting
 **Covered size** = the position's size if any ARMED stop is a position TP/SL (`isPositionTpsl`, size
 `0.0`), else the exact decimal sum of the ARMED stops' sizes. `FULL` = covered ≥ size, `PARTIAL` =
 0 < covered < size, `NONE` = nothing covered. `AT RISK` = liquidation < 5% away and not `FULL`;
-`UNPROTECTED` = `NONE`; `PARTLY COVERED` = `PARTIAL`. Stop cover (the table column) = covered ÷ size,
-display only. Funding per day = −hourly rate × notional × 24 (sign by side).
+`UNPROTECTED` = `NONE`; `PARTLY COVERED` = `PARTIAL`. A dex whose open orders could not be read leaves
+its positions `UNKNOWN` (protection unknown — never `UNPROTECTED`, never covered; risk-scored like a
+missing stop). A position whose only exit-side stop orders are not reduce-only is `NONE`, and is said to
+have a stop order that isn't reduce-only — not counted as protection. Stop cover (the table column) =
+covered ÷ size, a PARTIAL row floored into 1–99%, display only. Funding per day = −hourly rate × notional × 24 (sign by side).
 
 ## Timing (complete episodes with candles)
 

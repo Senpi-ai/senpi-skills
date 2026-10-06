@@ -63,6 +63,9 @@ def copy_warnings(book, cohorts):
     if book["naked"]:
         n = len(book["naked"])
         warn.append(f"{n} of {len(book['positions'])} open positions {'has' if n == 1 else 'have'} no stop")
+    unread = metrics.unread_coins(book)
+    if unread:
+        warn.append(f"protection is unknown on {len(unread)} of {len(book['positions'])} open positions — their orders could not be read")
     against = [x for x in (cohorts or []) if x.get("agreement") is not None and x["agreement"] <= -0.5]
     if against:
         names = [{"proven": "proven cohort", "hot": "hot 30-day cohort"}.get(x["name"], x["name"]) for x in against]
@@ -198,7 +201,7 @@ def protection(r):
     out = ["## Live positions — protection audit", "",
            f"Account value **{usd(b['account_value'])}**" + (f" (perps equity {usd(b['account_value_perps'])})" if b.get("account_value_perps") and abs(b["account_value_perps"] - b["account_value"]) > 1 else "")
            + f" · margin used **{pct(b['margin_utilization'])}** · withdrawable **{usd(b['withdrawable'])}** · net uPnL **{usd(b['unrealized'], signed=True)}**",
-           f"{n} open position{'s' if n != 1 else ''} · {len(b['naked'])} with no stop · {len(b['partial'])} partly covered · {r['market']['stance'] if r.get('market') else ''}" + (f" · paying {usd(-b['funding_per_day'])}/day in funding" if b['funding_per_day'] < 0 else (f" · collecting {usd(b['funding_per_day'])}/day in funding" if b['funding_per_day'] > 0 else ""))]
+           f"{n} open position{'s' if n != 1 else ''} · {len(b['naked'])} with no stop · {len(b['partial'])} partly covered · {(str(len(b['unknown'])) + ' unknown (orders not read) · ') if b.get('unknown') else ''}{r['market']['stance'] if r.get('market') else ''}" + (f" · paying {usd(-b['funding_per_day'])}/day in funding" if b['funding_per_day'] < 0 else (f" · collecting {usd(b['funding_per_day'])}/day in funding" if b['funding_per_day'] > 0 else ""))]
     if n:
         # chat-shaped: nine short columns; the prose lives under the table, one line per position that needs a hand
         out += ["", "| Coin | Side | Held | Notional | uPnL · ROE | Funding/day | To liq. | Stop | Status |", "|---|---|---:|---:|---:|---:|---:|---:|---|"]
@@ -207,7 +210,7 @@ def protection(r):
             status, note = _protection_note(p, sm.get(p["coin"]))
             liq = "—" if p["liq_distance_pct"] is None else (">100%" if p["liq_distance_pct"] > 100 else pct(p["liq_distance_pct"] / 100, 1))
             held = hrs((r["now_ms"] - p["opened_ms"]) / 3.6e6) if p.get("opened_ms") else "—"
-            out.append(f"| {p['coin']} | {p['side']} {p['leverage'] or '—'}x | {held} | {usd(p['notional'])} | {usd(p['unrealized'], signed=True)} · {pct(p['roe'], 0, signed=True)} | {usd(p['funding_per_day'], signed=True)} | {liq} | {pct(p['stop_covered_share'])} | {status} |")
+            out.append(f"| {p['coin']} | {p['side']} {p['leverage'] or '—'}x | {held} | {usd(p['notional'])} | {usd(p['unrealized'], signed=True)} · {pct(p['roe'], 0, signed=True)} | {usd(p['funding_per_day'], signed=True)} | {liq} | {cover_pct(p)} | {status} |")
             if status != "PROTECTED":
                 todo.append(f"- **{p['coin']}** — {note}.")
         # What senpi's runtime is doing to these positions, where it is doing anything. The stop in
@@ -227,23 +230,41 @@ def protection(r):
                     out.append(f"- **{q['coin']}** — {ln}")
             out += ["", "_A tier that has not armed is a rule, not protection: the floor it would "
                         "set is not in force until its trigger is reached._"]
-        out += ["", "**Your quant would…**"] + (todo or ["- nothing here — every position carries a full stop."])
+        out += ["", "**Your quant would…**"] + (todo or ["- nothing here — every position carries a full stop."])   # todo holds every UNKNOWN row
     else:
         out.append("\nNo open positions right now.")
     return "\n".join(out)
 
 
-def _protection_note(p, smrow):
-    liq = p["liq_distance_pct"]; cov = p["stop_covered_share"]; against = smrow and smrow["read"].startswith("AGAINST")
+def cover_pct(p):
+    """The Stop column, from `protection`: FULL 100%, NONE 0%, unknown "—", and a PARTIAL row is
+    floored into 1-99% — 1.995 covered of 2.0 must never print "100%"."""
     prot = metrics.protection_of(p)
+    if prot is None:
+        return "—"
+    if prot == metrics.PARTIAL:
+        return f"{min(99, max(1, int((p.get('stop_covered_share') or 0.0) * 100)))}%"
+    return "100%" if prot == metrics.FULL else "0%"
+
+
+def _protection_note(p, smrow):
+    liq = p["liq_distance_pct"]; against = smrow and smrow["read"].startswith("AGAINST")
+    prot = metrics.protection_of(p)
+    if prot is None:                    # the order read failed: say so, and never nudge toward a stop
+        return "UNKNOWN", f"couldn't read the orders on {metrics.dex_label(p['coin'])} — check this position's stop on Hyperliquid before acting on it"
     if liq is not None and liq < 5 and prot != metrics.FULL:
+        if prot == metrics.NONE and p.get("non_reduce_only_stops"):
+            return "AT RISK", (f"{liq:.1f}% from liquidation and it {metrics.NOT_REDUCE_ONLY_NOTE}; "
+                               f"make it reduce-only or replace it with a reduce-only stop")
         return "AT RISK", f"put a stop above the liquidation price now — at {p['leverage']}x a {liq:.1f}% move takes the whole margin"
     if prot == metrics.NONE:
+        if p.get("non_reduce_only_stops"):
+            return "UNPROTECTED", f"{metrics.NOT_REDUCE_ONLY_NOTE}; make it reduce-only or replace it with a reduce-only stop"
         if p.get("stops"):              # every stop it has is WAITING_TO_ACTIVATE
             return "UNPROTECTED", "its trailing stop is waiting to activate — until it does, nothing protects this position"
         return "UNPROTECTED", "attach a stop ladder: a hard floor plus a trailing lock as it runs" + (" — and you're against the whale cohort here" if against else "")
     if prot == metrics.PARTIAL:
-        return "PARTLY COVERED", f"the other {pct(1 - cov)} rides naked — extend the stop to the full size"
+        return "PARTLY COVERED", f"the other {100 - int(cover_pct(p)[:-1])}% rides naked — extend the stop to the full size"
     if p["stop_distance_pct"] is not None and p["stop_distance_pct"] < 1.0:
         return "PROTECTED", f"stop is {p['stop_distance_pct']:.1f}% from the mark — tight enough to be noise"
     return "PROTECTED", "stop in place — looks good" + (" — but the whale cohort is on the other side" if against else "")
@@ -434,7 +455,7 @@ def next_steps(r):
         return next_steps_other(r)
     b = r["book"]; out = ["## What your quant would do next", ""]
     i = 1
-    at_risk = [p for p in b["positions"] if (p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5 and metrics.protection_of(p) != metrics.FULL)
+    at_risk = [p for p in b["positions"] if (p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5 and metrics.protection_of(p) in (metrics.NONE, metrics.PARTIAL))
                or metrics.protection_of(p) == metrics.NONE]
     if at_risk:
         # "a hard floor now, a trailing lock as it runs … a signature on positions you already hold"
@@ -443,8 +464,14 @@ def next_steps(r):
         # and `ratchet_stop_add` is keyed to a senpi strategy wallet — so for a desk reader whose book
         # sits on their own wallet, senpi cannot attach anything today. Say what they can do now, and
         # what is coming, without claiming a signature there is nothing to sign.
-        out.append(f"{i}. **Protect first.** {', '.join(p['coin'] for p in at_risk)}: every one of these "
-                   f"is naked. Let me know if you want my help."); i += 1
+        loose = [p for p in at_risk if p.get("non_reduce_only_stops")]
+        naked = [p for p in at_risk if not p.get("non_reduce_only_stops")]
+        line = f"{i}. **Protect first.** "
+        if naked:
+            line += f"{', '.join(p['coin'] for p in naked)}: every one of these is naked. "
+        if loose:
+            line += f"{', '.join(p['coin'] for p in loose)}: each {metrics.NOT_REDUCE_ONLY_NOTE}. "
+        out.append(line + "Let me know if you want my help."); i += 1
     priced = [l for l in r["leaks"] if not l.get("unpriced")]
     if priced:
         l = priced[0]
@@ -670,7 +697,7 @@ COMPARE_ROWS = (("Weekly rank", lambda r: f"#{r['rank']['rank']:,}" if r.get("ra
                 ("Return on avg equity", lambda r: pct(r["equity"].get("return_on_avg_equity"), 1, signed=True)), ("Max drawdown", lambda r: pct(-r["drawdown"]["dd_pct"], 0, signed=True) if r["drawdown"].get("dd_pct") is not None else "—"),
                 ("Trades / win rate", lambda r: f"{r['track']['trades']} / {pct(r['track'].get('win_rate'))}"), ("Profit factor", lambda r: num(r["track"].get("profit_factor"), "x")),
                 ("Taker share", lambda r: pct(r["track"].get("taker_share"))), ("Costs ÷ gross income", lambda r: pct(r["track"].get("cost_ratio"))),
-                ("Open positions · unprotected", lambda r: f"{len(r['book']['positions'])} · {len(r['book']['naked'])}"), ("Margin used", lambda r: pct(r["book"].get("margin_utilization"))),
+                ("Open positions · unprotected", lambda r: f"{len(r['book']['positions'])} · {metrics.unprotected_label(r['book'])}"), ("Margin used", lambda r: pct(r["book"].get("margin_utilization"))),
                 ("vs proven cohort", lambda r: _agree(r, "proven")), ("vs hot 30-day cohort", lambda r: _agree(r, "hot")),
                 ("Biggest leak", lambda r: f"{r['leaks'][0]['title']} (~{usd(r['leaks'][0]['usd'])})" if r["leaks"] else "—"),
                 ("Best setup", lambda r: (lambda b: f"{b['label']} ({b['wins']}/{b['n']}, PF {num(b['profit_factor'], 'x')})")(r["setups"]["best"][0]) if (r.get("setups") or {}).get("best") else "—"))
@@ -707,8 +734,8 @@ def render_compare(rs):
             if hi[0] and lo[0] is not None and (hi[0] - lo[0]) > (0.15 if k in ("taker_share", "cost_ratio", "win_rate") else 0.8):
                 best = lo if better_low else hi
                 seps.append(f"{label}: `{best[1]}` leads ({num(best[0], 'x') if k == 'profit_factor' else pct(best[0])} vs {num((hi if better_low else lo)[0], 'x') if k == 'profit_factor' else pct((hi if better_low else lo)[0])})")
-    naked = [(len(r["book"]["naked"]), short(r["address"])) for r in rs]
-    if max(n for n, _ in naked) != min(n for n, _ in naked):
+    naked = [(metrics.unprotected_label(r["book"]), short(r["address"])) for r in rs]
+    if len({n for n, _ in naked}) > 1:
         seps.append("protection: " + ", ".join(f"`{a}` {n} unprotected" for n, a in naked))
     if seps:
         out += ["", "**What separates them**"] + [f"- {s}" for s in seps]

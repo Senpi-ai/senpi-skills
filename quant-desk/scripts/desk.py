@@ -377,7 +377,10 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
          f"{len(fills):,} fills across {len({e.get('coin') for e in fills})} coins")
     book = metrics.open_book(cs, oo, ctxs, ages, tr_raw.get("clearinghouseState_xyz"), tr_raw.get("frontendOpenOrders_xyz"), ctx_xyz,
                              metrics.whole_account_value(tr_raw.get("portfolio"), tr_raw.get("spotClearinghouseState")),
-                             metrics.spot_free_usdc(tr_raw.get("spotClearinghouseState")))
+                             metrics.spot_free_usdc(tr_raw.get("spotClearinghouseState")),
+                             orders_unread_by_wallet=tr_raw.get("orders_unread_by_wallet"))
+    if book["unknown"]:
+        meta["warnings"].append("open orders unreadable: protection unknown for " + ", ".join(book["unknown"]))
     # B5 (@0xsarvesh, #718). The startPosition-jump heuristic can only see gaps it can infer from the
     # fills it DID get — a whole TWAP series older than the retained window leaves no jump behind.
     # Hyperliquid's own P&L series is an independent witness: what we rebuilt from fills, plus what
@@ -451,7 +454,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     if want_cohort:
         t3 = time.time()
         step(3, "running senpi-smart-money — the proven cohort and the hot 30-day cohort against this book …", t0,
-             f"{len(book['positions'])} open position(s), {len(book['naked'])} unprotected")
+             f"{len(book['positions'])} open position(s), {metrics.unprotected_label(book)} unprotected")
         if mcp is not None:
             for name, fetch in (("proven", smart_money.proven_cohort), ("hot", smart_money.hot_cohort)):
                 try:

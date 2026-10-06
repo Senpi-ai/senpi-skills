@@ -184,6 +184,10 @@ def read(hl, addrs, days=90, progress=None):
         "clearinghouseState_xyz": _merge_clearinghouse([r.get("clearinghouseState_xyz") for r in raws], uniq),
         "frontendOpenOrders": [dict(o, wallet=a) for a, r in zip(uniq, raws) for o in (r["frontendOpenOrders"] or [])],
         "frontendOpenOrders_xyz": [dict(o, wallet=a) for a, r in zip(uniq, raws) for o in (r.get("frontendOpenOrders_xyz") or [])],
+        # [dex, wallet] whose order read FAILED: those positions read protection unknown, never naked
+        "orders_unread_by_wallet": [[dex, a] for a, r in zip(uniq, raws)
+                                    for dex, key in (("", "frontendOpenOrders"), ("xyz", "frontendOpenOrders_xyz"))
+                                    if r.get(key) is None],
         "spotClearinghouseState": _merge_spot([r.get("spotClearinghouseState") for r in raws]),
         "fills": sorted((f for r in raws for f in r["fills"]), key=lambda f: f["time"]),
         "userFunding": sorted((dict(x, wallet=a) for a, r in zip(uniq, raws) for x in (r["userFunding"] or [])),

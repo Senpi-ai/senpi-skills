@@ -102,6 +102,11 @@ def dim_risk(tr, book, dd):
         naked = len(book["naked"]); s -= 25 * naked / n
         if naked:
             lines.append((4, f"{naked} of {n} open positions {'has' if naked == 1 else 'have'} no stop at all — {', '.join(book['naked'])}."))
+        unread = metrics.unread_coins(book)
+        if unread:
+            # an unread order book is not a protected one: it costs what a naked position costs
+            s -= 25 * len(unread) / n
+            lines.append((4, f"{len(unread)} of {n} open positions {'has' if len(unread) == 1 else 'have'} orders the desk could not read — protection unknown for {', '.join(unread)}."))
         near = [p for p in book["positions"] if p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5]
         if near:
             s -= 15; p = min(near, key=lambda p: p["liq_distance_pct"])
@@ -348,6 +353,9 @@ def flags(tr, book, dd, tm, mf, labels):
         out.append(f"NO STOPS ({len(book['naked'])}/{n})")
     elif n and book["partial"]:
         out.append(f"PARTIAL STOPS ({len(book['partial'])}/{n})")
+    unread = metrics.unread_coins(book)
+    if n and unread:
+        out.append(f"PROTECTION UNKNOWN ({len(unread)}/{n})")
     near = [p for p in book["positions"] if p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5]
     if near:
         out.append(f"NEAR LIQUIDATION {min(p['liq_distance_pct'] for p in near):.1f}%")
@@ -373,6 +381,15 @@ MIN_VERDICT_TRADES = 5   # below this, cost / timing / consistency cannot carry 
 MIN_DIMENSIONS = 3       # fewer measurable dimensions than this and there is no book to score
 NOISE_SHARE = 0.15       # a lever keeping less than this share of what it saves is a coin flip
 MIN_PATTERN_TRADES = 5   # a hold-time or give-back leak is a pattern claim: it needs a sample
+
+
+def _stop_phrase(p):
+    prot = metrics.protection_of(p)
+    if prot == metrics.NONE:
+        return "a stop order that isn't reduce-only, which is no protection" if p.get("non_reduce_only_stops") else "no stop"
+    if prot is None:
+        return "orders the desk could not read"
+    return "a partial stop" if prot == metrics.PARTIAL else "a full stop"
 
 
 def verdict(tr, book, dims, leaks):
@@ -420,7 +437,7 @@ def verdict(tr, book, dims, leaks):
         # for give-back too, and the headline was naming the wrong half of it.
         _own = (dims[weakest].get("line") or "").strip().rstrip(".")
         weak_line = _lower_first(_own) if _own else {
-            "risk": "you're carrying unprotected risk" if book["naked"] else "the risk side is where it leaks",
+            "risk": "you're carrying unprotected risk" if book["naked"] else ("the desk could not read the stops on part of the book" if metrics.unread_coins(book) else "the risk side is where it leaks"),
             "cost": "execution and funding are eating the gains" if (tr.get("funding") or 0) < 0 else "execution is eating the gains",
             "timing": "the timing side is where it leaks", "sizing": "sizing is working against you",
             "consistency": "the results are not repeatable yet",
@@ -430,11 +447,14 @@ def verdict(tr, book, dims, leaks):
     near = [p for p in book["positions"] if p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5]
     if near:
         p = min(near, key=lambda p: p["liq_distance_pct"])
-        weak_line = f"{p['coin']} sits {p['liq_distance_pct']:.1f}% from liquidation with {'no' if metrics.protection_of(p) == metrics.NONE else 'a partial'} stop"
-        imperative = "Protect that position today."
+        prot = metrics.protection_of(p)
+        weak_line = f"{p['coin']} sits {p['liq_distance_pct']:.1f}% from liquidation with {_stop_phrase(p)}"
+        imperative = ("Protect that position today." if prot in (metrics.NONE, metrics.PARTIAL)
+                      else "Check its stops on Hyperliquid — the desk couldn't read them." if prot is None
+                      else "Its stop is in place; the leverage is the risk.")
     av = book.get("account_value") or 0
     if av and (book.get("unrealized") or 0) < -0.2 * av:
-        weak_line = f"the open book is {_usd(-book['unrealized'])} under water ({_pct(-book['unrealized'] / av)} of equity) with {len(book['naked'])} of {len(book['positions'])} positions unprotected"
+        weak_line = f"the open book is {_usd(-book['unrealized'])} under water ({_pct(-book['unrealized'] / av)} of equity) with {metrics.unprotected_label(book)} of {len(book['positions'])} positions unprotected"
         imperative = "Decide the exits before the market does."
     if weak_line:
         return f"{strength} — {'and' if negative else 'but'} {weak_line}. {imperative}"

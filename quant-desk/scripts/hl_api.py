@@ -245,9 +245,11 @@ class HL:
         return {
             "address": addr, "now_ms": self.now_ms, "window_start_ms": win_start, "fetch_start_ms": start, "days": days,
             "clearinghouseState": self.info({"type": "clearinghouseState", "user": addr}),
-            "frontendOpenOrders": self.info({"type": "frontendOpenOrders", "user": addr}),
+            # None = the read FAILED (the audit then reads that dex's protection as unknown, never NONE);
+            # [] = no orders. Never fold a failure into [] — that is how a stop we could not see reads "naked".
+            "frontendOpenOrders": self._optional({"type": "frontendOpenOrders", "user": addr}),
             "clearinghouseState_xyz": self._optional({"type": "clearinghouseState", "user": addr, "dex": "xyz"}),
-            "frontendOpenOrders_xyz": self._optional({"type": "frontendOpenOrders", "user": addr, "dex": "xyz"}) or [],
+            "frontendOpenOrders_xyz": self._optional({"type": "frontendOpenOrders", "user": addr, "dex": "xyz"}),
             "spotClearinghouseState": self._optional({"type": "spotClearinghouseState", "user": addr}),
             "fills": merge_fills(self.fills(addr, start), self.twap_slices(addr, start)),
             "userFunding": self.funding(addr, win_start),
