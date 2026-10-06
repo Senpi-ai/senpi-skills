@@ -466,6 +466,81 @@ def fetch_strategies(client, meta):
     return strategies
 
 
+# ──────────────────────────────────────────────────── connected wallets (read-only, traded by hand)
+CONNECTED = "connected"            # review-set entry `kind` for a connected wallet
+CONNECTED_STATUS = "CONNECTED"     # its `status` — never ACTIVE/PAUSED, so no Senpi-only read touches it
+MANUAL_TRADE = "MANUAL_TRADE"      # exit_reason.terminal for a connected wallet's closed trade
+CONNECTED_SOURCE = "connected_wallet"
+CONNECTED_STATE_TIMEOUT_S = 25     # moxie answers within ~6.5 s; the MCP's own moxie timeout is 20 s — wait past it
+USER_GET_ME_TIMEOUT_S = 22         # user_get_me now waits on moxie's connected-wallets read (MCP 20 s timeout)
+
+
+def _is_connected(entry):
+    return isinstance(entry, dict) and entry.get("kind") == CONNECTED
+
+
+def _senpi_only(entries):
+    return [e for e in entries if not _is_connected(e)]
+
+
+def _short_addr(addr):
+    a = str(addr or "")
+    return f"{a[:6]}…{a[-4:]}" if len(a) > 10 else a
+
+
+def fetch_connected_review(client, meta):
+    """The user's CONNECTED wallets as review-set entries — wallets they proved they own and trade by
+    hand. Read-only: Senpi can analyze them and cannot place, change or cancel orders on them.
+
+    Each entry carries `kind: "connected"`, `status: "CONNECTED"` and None for every Senpi-strategy
+    field (strategy_id / runtime_id / mandate / dsl), so the ratchet and telemetry reads skip it and no
+    DSL or strategy-tuning lever is ever routed at it. `state` is `account_get_connected_wallets`' object
+    verbatim (the single producer of its open positions + protection). Sets
+    meta.connected_wallets_status: "unavailable" (absent key on an older MCP, or a failed read) is
+    unknown, never "no connected wallets"."""
+    try:
+        me = _ok(client.mcp_call("user_get_me", timeout=USER_GET_ME_TIMEOUT_S)) or {}
+    except Exception as e:  # noqa — unknown, never empty
+        meta.setdefault("warnings", []).append(f"user_get_me failed: {e}; connected wallets unavailable")
+        me = {}
+    status, wallets = _connected_wallets(me)
+    meta["connected_wallets_status"] = status
+    if status != CONNECTED_OK or not wallets:
+        return []
+    states = None
+    try:
+        resp = _ok(client.mcp_call("account_get_connected_wallets", timeout=CONNECTED_STATE_TIMEOUT_S)) or {}
+        rows = _field(resp, "connected_wallets", default=None) if isinstance(resp, dict) else None
+        if not isinstance(rows, list):
+            raise ValueError("no connected_wallets list in the response")
+        states = {str(_field(r, "address", default="")).lower(): r.get("state")
+                  for r in rows if isinstance(r, dict)}
+    except Exception as e:  # noqa — closed trades still come from fills; only the open book is unknown
+        meta.setdefault("warnings", []).append(
+            f"account_get_connected_wallets failed: {e}; open positions on connected wallets unknown")
+    out = []
+    for w in wallets:
+        st = states.get(w["address"]) if states is not None else None
+        st = st if isinstance(st, dict) else None
+        out.append({
+            "kind": CONNECTED,
+            "label": w.get("label") or _short_addr(w["address"]),
+            "wallet": w["address"],
+            "access": w.get("access"),
+            "strategy_id": None, "skill_name": None, "status": CONNECTED_STATUS, "group": None,
+            "mandate": None, "dsl": None, "runtime_id": None,
+            "state": st,
+            "state_read": "unavailable" if st is None else ("error" if st.get("readError") else "ok"),
+        })
+    return out
+
+
+def fetch_review_set(client, meta):
+    """Everything the review covers: the Senpi strategies (all statuses) followed by the connected
+    wallets. Senpi-only reads filter with `_senpi_only`; connected rows carry `kind: "connected"`."""
+    return fetch_strategies(client, meta) + fetch_connected_review(client, meta)
+
+
 # ──────────────────────────────────────────────────────────────── exit attribution (ratchet_stop_list)
 def _load_ratchet_records(client, strat, meta):
     """One ratchet_stop_list(strategyId, wallet, status:ALL) call per strategy → {asset: record}. Lifted
@@ -793,7 +868,9 @@ def _hl_info(payload, meta, client=None, timeout=12):
     (`_FixtureClient` serves a recorded `hl::<type>::<wallet>` entry). Fails OPEN → None."""
     if client is not None and hasattr(client, "_r"):          # _FixtureClient — serve recorded HL response
         u = str(payload.get("user", "")).lower()
-        return client._r.get(f"hl::{payload.get('type')}::{u}") or client._r.get(f"hl::{payload.get('type')}")
+        key = f"hl::{payload.get('type')}::{u}"
+        # a recorded [] is an ANSWER (no fills), not a miss — `or` would turn it into a failed read
+        return client._r[key] if key in client._r else client._r.get(f"hl::{payload.get('type')}")
     try:
         p = subprocess.run(
             ["curl", "-s", "-m", str(timeout), "-X", "POST", HL_INFO_URL,
@@ -885,7 +962,7 @@ def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
     return out[:cap] if cap else out
 
 
-def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
+def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta, strict=False):
     """Read-guarded closed-trade list for one strategy wallet, filtered to the review window.
 
     PRIMARY: `discovery_get_trader_history` (closedPositions[] round-trips — works for CURRENT strategies).
@@ -894,7 +971,13 @@ def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
     wallet ADDRESS, not by Senpi's strategy record), so on an empty discovery result we recover the real
     round-trips from HL `userFills` and tag them source='onchain_fills'. `realized_pnl` then comes from HL's
     own closedPnl — so a closed book is never misread as "no trades" or "drained to $0" (that $0 is the
-    withdrawal on close). Empty HL fills too ⇒ genuinely no trades. Fails OPEN → []."""
+    withdrawal on close). Empty HL fills too ⇒ genuinely no trades. Fails OPEN → [].
+
+    `strict=True` (connected wallets, where discovery is usually empty and fills are the normal path):
+    a FAILED fills read returns None and records the wallet in meta.closed_trades_unknown — unknown is
+    never "no trades". Any wallet whose fills read hit HL's HL_FILLS_CAP rows is recorded in
+    meta.fills_capped: coverage is partial, so its totals read as "at least".
+    """
     try:
         h = _ok(client.mcp_call("discovery_get_trader_history", trader_address=wallet,
                                 sort_by="CLOSED_TIME", sort_direction="DESC",
@@ -949,6 +1032,11 @@ def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
     # DISCOVERY EMPTY → recover on-chain. This is the closed-strategy trap: the trades exist, just not in
     # Senpi's index. Empty HL fills too ⇒ genuinely no trades (a brand-new book) → [].
     fills = _hl_info({"type": "userFills", "user": wallet}, meta, client)
+    if isinstance(fills, list) and len(fills) >= HL_FILLS_CAP:
+        meta.setdefault("fills_capped", []).append(wallet)
+    if strict and not isinstance(fills, list):
+        meta.setdefault("closed_trades_unknown", []).append(wallet)
+        return None
     recon = _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap)
     if recon:
         meta.setdefault("onchain_recovered_wallets", []).append(wallet)
@@ -1133,6 +1221,9 @@ def _merge_meta(dst, src):
         dst["_telemetry_dead"] = True
     if src.get("_telemetry_warned"):
         dst["_telemetry_warned"] = True
+    for k in ("closed_trades_unknown", "fills_capped"):
+        if src.get(k):
+            dst.setdefault(k, []).extend(src[k])
 
 
 def _collect_one_strategy(client, strat, meta, since_ms, until_ms, cap, enrich_exit=True):
@@ -1156,6 +1247,27 @@ def _collect_one_strategy(client, strat, meta, since_ms, until_ms, cap, enrich_e
              "protection_gaps": {"count": 0, "samples": []},
              "risk_halts": {"count": 0, "samples": []}}
     fills = {"maker": 0, "taker": 0, "unknown": 0}
+    if _is_connected(strat):
+        # a wallet the user trades by hand: no runtime, no ratchet, no telemetry ring — never read them
+        # (each would add a degraded-attribution warning or a NOT_A_STRATEGY_WALLET error). Every exit is
+        # a manual trade; no DSL lever exists to route a fix at.
+        closed = fetch_closed_trades(client, strat["wallet"], since_ms, until_ms, cap, meta, strict=True) or []
+        for t in closed:
+            asset = t.get("asset")
+            t.update({
+                "strategy_label": strat.get("label"),
+                "strategy_wallet": strat.get("wallet"),
+                "strategy_status": CONNECTED_STATUS,
+                "wallet_kind": CONNECTED,
+                "mandate": None,
+                "dex": "xyz" if str(asset).startswith("xyz:") else "main",
+                "source": CONNECTED_SOURCE,
+                "exit_reason": {"terminal": MANUAL_TRADE, "tier_reached": None, "high_water_roe": None,
+                                "source": CONNECTED_SOURCE},
+            })
+            out_trades.append(t)
+        return {"trades": out_trades, "missed_signals": missed_signals,
+                "leaks": leaks, "fills": fills, "meta": meta}
     closed = fetch_closed_trades(client, strat["wallet"], since_ms, until_ms, cap, meta)
     # telemetry ring for this runtime (enrichment only; guarded + fail-open to []). SKIPPED on the fast
     # timing path (enrich_exit=False). ALSO skipped for non-current strategies: only ACTIVE/PAUSED runtimes
@@ -1366,6 +1478,8 @@ def _enrich_exit_and_streams(client, trades, strategies, meta, since_ms):
                          "protection_gaps": {"count": 0, "samples": []},
                          "risk_halts": {"count": 0, "samples": []}},
                "fills": {"maker": 0, "taker": 0, "unknown": 0}, "meta": priv}
+        if _is_connected(strat):
+            return res                    # manual trades: no ring, no ratchet — exit_reason stays MANUAL_TRADE
         try:
             # only current (active/paused) strategies have a live on-disk ring — never shell at a closed one
             # (its ring is torn down; probing it just burns two CLI-boot processes for an immediate NOT_FOUND,
@@ -1470,6 +1584,8 @@ def _is_premature_exit(exit_reason):
     if not isinstance(exit_reason, dict):
         return False
     terminal = str(exit_reason.get("terminal") or "")
+    if terminal == MANUAL_TRADE:
+        return False                      # a connected wallet's exit is the user's own, never a DSL tier
     if terminal in _PREMATURE_TERMINALS:
         return True
     tier = _num(exit_reason.get("tier_index"))
@@ -1741,8 +1857,8 @@ def _closed_strategy_rollup(trades, strategies):
     by_wallet = _pnl_by_wallet(trades)
     out = []
     for s in strategies:
-        if _is_current(s.get("status")):
-            continue                          # current → belongs in the live-book read, not history
+        if _is_current(s.get("status")) or _is_connected(s):
+            continue                          # current → live-book read; connected → connected_wallets[]
         w = str(s.get("wallet") or "").lower()
         agg = by_wallet.get(w, {"count": 0, "pnl": 0.0})
         wallet = s.get("wallet")
@@ -1752,6 +1868,41 @@ def _closed_strategy_rollup(trades, strategies):
             "status": s.get("status"),
             "trade_count": agg["count"],
             "realized_pnl": agg["pnl"],
+        })
+    return out
+
+
+def _connected_reads(trades, entries, meta):
+    """Per CONNECTED wallet: its own closed-trade read, never folded into the Senpi aggregates
+    (pnl_summary / strategies / dsl_close_reason_mix stay Senpi-only). Unknown is never empty: a wallet
+    in meta.closed_trades_unknown reads closed_trade_count / realized_pnl / timing_summary None, never 0;
+    `fills_capped` means HL returned its 2000-fill ceiling, so the totals are "at least". `open_positions`
+    is `state.positions` verbatim (protection + stopOrders included) — None when the state couldn't load."""
+    unknown = {str(w).lower() for w in (meta.get("closed_trades_unknown") or [])}
+    capped = {str(w).lower() for w in (meta.get("fills_capped") or [])}
+    out = []
+    for e in entries:
+        if not _is_connected(e):
+            continue
+        w = str(e.get("wallet") or "").lower()
+        rows = [t for t in trades
+                if t.get("wallet_kind") == CONNECTED and str(t.get("strategy_wallet") or "").lower() == w]
+        unk = w in unknown
+        fees = [x for x in (_num(t.get("fee")) for t in rows) if x is not None]
+        st = e.get("state") if isinstance(e.get("state"), dict) else None
+        out.append({
+            "label": e.get("label"),
+            "address": e.get("wallet"),
+            "access": e.get("access"),
+            "closed_trades_unknown": unk,
+            "fills_capped": w in capped,
+            "closed_trade_count": None if unk else len(rows),
+            "realized_pnl": None if unk else round(sum(_num(t.get("realized_pnl")) or 0.0 for t in rows), 2),
+            "fees": None if (unk or not fees) else round(sum(fees), 2),
+            "timing_summary": None if unk else _timing_summary(rows),
+            "state_read": e.get("state_read"),
+            "read_error": st.get("readError") if st else None,
+            "open_positions": st.get("positions") if st else None,
         })
     return out
 
@@ -1860,6 +2011,25 @@ def _telemetry_availability(coverage, telemetry_source):
             "exit_attribution": coverage, "streams_computed": computed, "note": note}
 
 
+def _stamp_connected_meta(meta, entries, trades):
+    """The connected-wallet counts `_book_state` routes on, kept apart from the Senpi counts."""
+    meta["connected_wallet_count"] = sum(1 for e in entries if _is_connected(e))
+    meta["connected_trade_count"] = sum(1 for t in trades if t.get("wallet_kind") == CONNECTED)
+    meta["connected_unknown_count"] = len({str(w).lower() for w in meta.get("closed_trades_unknown") or []})
+    meta.setdefault("connected_wallets_status", "unavailable")
+
+
+def _degraded(senpi, entries, trades, meta):
+    """meta.degraded — Senpi-strategy wording only when there are no connected wallets to review."""
+    if not senpi and not any(_is_connected(e) for e in entries):
+        return ("strategy list unreadable — check the token is USER-scoped"
+                if any("strategy_list failed" in str(w) for w in (meta.get("warnings") or []))
+                else "no strategies deployed yet (not a fault — see meta.book_state)")
+    if not trades:
+        return "no closed trades in the window (or trade history unavailable)"
+    return None
+
+
 # ──────────────────────────────────────────────────────────────── shared state file (resumable steps)
 # The step subcommands (timing → strategies → telemetry → market) are FAST, resumable slices that persist
 # their work to a shared JSON state file so a later step never re-fetches what an earlier one already pulled.
@@ -1936,12 +2106,15 @@ def _ensure_trades_in_state(client, state, window_days, last_n, want_market, now
         return strategies, trades, state.get("window", window), since_ms
     # state absent/partial → recompute the timing slice (discovery + prices, no telemetry/ratchet).
     meta = _fresh_meta()
-    strategies = fetch_strategies(client, meta)
+    strategies = fetch_review_set(client, meta)
     trades, _ms2, _lk, _fl = _collect_trades(
         client, strategies, meta, since_ms, until_ms, last_n, want_market, enrich_exit=False)
     state["strategies"] = strategies
     state["trades"] = trades
     state["window"] = window
+    for k in ("connected_wallets_status", "closed_trades_unknown", "fills_capped"):
+        if k in meta:
+            state[k] = meta[k]
     state.setdefault("meta_warnings", [])
     state["meta_warnings"] = meta.get("warnings", [])
     state["registry_source"] = meta.get("registry_source")
@@ -1961,20 +2134,18 @@ def step_timing(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_marke
     meta = _fresh_meta()
     window, since_ms, until_ms = _window_for(window_days, last_n, now_ms=now_ms)
     meta["window"] = window
-    strategies = fetch_strategies(client, meta)
+    strategies = fetch_review_set(client, meta)
     trades, _ms2, _lk, _fl = _collect_trades(
         client, strategies, meta, since_ms, until_ms, last_n, want_market, enrich_exit=False)
-    timing = _timing_summary(trades)
-    meta["trade_count"] = len(trades)
+    senpi_trades = [t for t in trades if t.get("wallet_kind") != CONNECTED]
+    timing = _timing_summary(senpi_trades)
+    meta["trade_count"] = len(senpi_trades)
+    _stamp_connected_meta(meta, strategies, trades)
     meta.pop("_telemetry_warned", None)
     meta.pop("_telemetry_dead", None)
-    if not strategies:
-        meta["degraded"] = ("strategy list unreadable — check the token is USER-scoped"
-                            if any("strategy_list failed" in str(w)
-                                   for w in (meta.get("warnings") or []))
-                            else "no strategies deployed yet (not a fault — see meta.book_state)")
-    elif not trades:
-        meta["degraded"] = "no closed trades in the window (or trade history unavailable)"
+    degraded = _degraded(_senpi_only(strategies), strategies, trades, meta)
+    if degraded:
+        meta["degraded"] = degraded
     # persist the raw fetch for downstream steps (strategies carries mandate/dsl/runtime_id; trades carries
     # the discovery facts + placeholder exit_reason the telemetry step will overwrite).
     state["window"] = window
@@ -1983,8 +2154,15 @@ def step_timing(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_marke
     state["timing_summary"] = timing
     state["meta_warnings"] = meta.get("warnings", [])
     state["registry_source"] = meta.get("registry_source")
+    for k in ("connected_wallets_status", "closed_trades_unknown", "fills_capped"):
+        if k in meta:
+            state[k] = meta[k]
+    connected = (_connected_reads(trades, strategies, meta)
+                 if meta.get("connected_wallets_status") == CONNECTED_OK else None)   # None, never [], when unloaded
+    state["connected_wallets"] = connected
     _save_state(state_path, state)
-    return {"window": window, "trades": trades, "timing_summary": timing, "meta": meta}
+    return {"window": window, "trades": trades, "timing_summary": timing,
+            "connected_wallets": connected, "meta": meta}
 
 
 def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True,
@@ -2001,26 +2179,30 @@ def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_m
         client, state, window_days, last_n, want_market, now_ms=now_ms)
     meta["warnings"] = list(state.get("meta_warnings", []))
     meta["window"] = window
-    open_book = fetch_open_book(client, strategies, meta)   # unrealized PnL for current wallets (total ledger)
-    strat_reads = _strategy_reads(trades, strategies, open_book)
-    closed_reads = _closed_strategy_rollup(trades, strategies)
-    realized_total = round(sum(_num(t.get("realized_pnl")) or 0.0 for t in trades), 2)
+    for k in ("connected_wallets_status", "closed_trades_unknown", "fills_capped"):
+        if k in state:
+            meta[k] = state[k]
+    senpi = _senpi_only(strategies)
+    senpi_trades = [t for t in trades if t.get("wallet_kind") != CONNECTED]
+    open_book = fetch_open_book(client, senpi, meta)   # unrealized PnL for current wallets (total ledger)
+    strat_reads = _strategy_reads(senpi_trades, senpi, open_book)
+    closed_reads = _closed_strategy_rollup(senpi_trades, senpi)
+    realized_total = round(sum(_num(t.get("realized_pnl")) or 0.0 for t in senpi_trades), 2)
     # None (not 0.0) when no row carried a fee, so the narrator says 'gross' instead of implying net.
-    _fees = [x for x in (_num(t.get("fee")) for t in trades) if x is not None]
+    _fees = [x for x in (_num(t.get("fee")) for t in senpi_trades) if x is not None]
     fees_total = round(sum(_fees), 2) if _fees else None
     pnl_summary = _pnl_summary(realized_total, strat_reads, fees_total)
-    dsl_mix = _dsl_close_reason_mix(trades)   # from whatever exit_reason is in state (UNKNOWN until telemetry)
-    current_count = sum(1 for s in strategies if _is_current(s.get("status")))
-    closed_count = len(strategies) - current_count
-    meta["strategy_count"] = len(strategies)
+    dsl_mix = _dsl_close_reason_mix(senpi_trades)   # from whatever exit_reason is in state (UNKNOWN until telemetry)
+    current_count = sum(1 for s in senpi if _is_current(s.get("status")))
+    closed_count = len(senpi) - current_count
+    meta["strategy_count"] = len(senpi)
     meta["current_strategy_count"] = current_count
     meta["closed_strategy_count"] = closed_count
-    meta["trade_count"] = len(trades)
-    if not strategies:
-        meta["degraded"] = ("strategy list unreadable — check the token is USER-scoped"
-                            if any("strategy_list failed" in str(w)
-                                   for w in (meta.get("warnings") or []))
-                            else "no strategies deployed yet (not a fault — see meta.book_state)")
+    meta["trade_count"] = len(senpi_trades)
+    _stamp_connected_meta(meta, strategies, trades)
+    degraded = _degraded(senpi, strategies, trades, meta) if not senpi else None
+    if degraded:
+        meta["degraded"] = degraded
     state["strategies_read"] = strat_reads
     state["closed_strategies"] = closed_reads
     state["pnl_summary"] = pnl_summary
@@ -2046,18 +2228,19 @@ def step_telemetry(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_ma
     meta["warnings"] = list(state.get("meta_warnings", []))
     meta["window"] = window
     missed_signals, leaks, fills = _enrich_exit_and_streams(client, trades, strategies, meta, since_ms)
+    senpi_trades = [t for t in trades if t.get("wallet_kind") != CONNECTED]
     blocked = _blocked_summary(missed_signals)
     exec_quality = _execution_quality(fills)
-    dsl_mix = _dsl_close_reason_mix(trades)    # REFRESH — exit reasons are now filled in
-    src_counts = _exit_reason_source_counts(trades)
+    dsl_mix = _dsl_close_reason_mix(senpi_trades)    # REFRESH — exit reasons are now filled in
+    src_counts = _exit_reason_source_counts(senpi_trades)
     meta["exit_reason_source_counts"] = src_counts
     meta["telemetry_source"] = _telemetry_source(src_counts, meta.get("_telemetry_warned", False))
-    coverage = _exit_attribution_coverage(src_counts, len(trades))
+    coverage = _exit_attribution_coverage(src_counts, len(senpi_trades))
     meta["exit_attribution_coverage"] = coverage
     telemetry_availability = _telemetry_availability(coverage, meta["telemetry_source"])
     meta["missed_signal_count"] = len(missed_signals)
     meta["leak_counts"] = {k: v["count"] for k, v in leaks.items()}
-    meta["trade_count"] = len(trades)
+    meta["trade_count"] = len(senpi_trades)
     meta.pop("_telemetry_warned", None)
     meta.pop("_telemetry_dead", None)
     # persist the enriched trades (exit_reason now filled) + the streams for `all`-parity re-reads.
@@ -2116,47 +2299,51 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
 
     # ALL statuses are enumerated (so a churned book's CLOSED trades stay in trades[]) — but the per-strategy
     # verdict is CURRENT-only. Closed/historical strategies get a minimal rollup, never a verdict.
-    strategies = fetch_strategies(client, meta)
+    strategies = fetch_review_set(client, meta)        # Senpi strategies + connected wallets
+    senpi = _senpi_only(strategies)
     # OPEN BOOK — current strategies' unrealized PnL (strategy_get_clearinghouse_state), so the review is a
     # TOTAL ledger (realized closed + unrealized open), not realized-only. Fail-open per wallet → None (UNKNOWN).
-    open_book = fetch_open_book(client, strategies, meta)
+    # Connected wallets' open book is their `state` (account_get_connected_wallets), read in fetch_review_set.
+    open_book = fetch_open_book(client, senpi, meta)
     # DISCOVERY owns trades[] (onchain facts); TELEMETRY enriches exit_reason + yields the standalone streams
     # (missed_signals + the leak/fill rollups), all from ONE per-runtime event fetch (no re-fetch downstream).
     trades, missed_signals, leaks, fills = _collect_trades(
         client, strategies, meta, since_ms, until_ms, last_n, want_market)
-    timing = _timing_summary(trades)
+    # Senpi aggregates stay Senpi-only; connected wallets get their own read (connected_wallets[]).
+    senpi_trades = [t for t in trades if t.get("wallet_kind") != CONNECTED]
+    timing = _timing_summary(senpi_trades)
     # telemetry-derived quick-action aggregations — ALL reuse the already-fetched events + existing trades[].
-    dsl_mix = _dsl_close_reason_mix(trades)                     # 'shaken out too early / how exits fire'
+    dsl_mix = _dsl_close_reason_mix(senpi_trades)               # 'shaken out too early / how exits fire'
     blocked = _blocked_summary(missed_signals)                  # 'what did my own limits block'
     exec_quality = _execution_quality(fills)                    # 'fees — maker vs taker'
     bvm = book_vs_market(client, trades, strategies, meta, want_market)
-    strat_reads = _strategy_reads(trades, strategies, open_book)   # CURRENT book — now with unrealized/total/open
-    closed_reads = _closed_strategy_rollup(trades, strategies) # HISTORY: closed/inactive, rollup only
+    strat_reads = _strategy_reads(senpi_trades, senpi, open_book)   # CURRENT book — now with unrealized/total/open
+    closed_reads = _closed_strategy_rollup(senpi_trades, senpi) # HISTORY: closed/inactive, rollup only
     pnl_summary = _pnl_summary(timing["realized_pnl_total"], strat_reads)   # realized + unrealized = TOTAL ledger
+    # read-only wallets the user trades by hand; None (never []) when they couldn't be loaded
+    connected = (_connected_reads(trades, strategies, meta)
+                 if meta.get("connected_wallets_status") == CONNECTED_OK else None)
 
-    current_count = sum(1 for s in strategies if _is_current(s.get("status")))
-    closed_count = len(strategies) - current_count
-    meta["strategy_count"] = len(strategies)                   # every enumerated strategy (all statuses)
+    current_count = sum(1 for s in senpi if _is_current(s.get("status")))
+    closed_count = len(senpi) - current_count
+    meta["strategy_count"] = len(senpi)                        # every enumerated strategy (all statuses)
     meta["current_strategy_count"] = current_count            # the LIVE book — the "how many wallets" number
     meta["closed_strategy_count"] = closed_count              # churned/closed redeployments — HISTORY
-    meta["trade_count"] = len(trades)
+    meta["trade_count"] = len(senpi_trades)
+    _stamp_connected_meta(meta, strategies, trades)
     # telemetry rollup — how enrichment did (never affects the discovery trade list, only enrichment).
-    src_counts = _exit_reason_source_counts(trades)
+    src_counts = _exit_reason_source_counts(senpi_trades)
     meta["exit_reason_source_counts"] = src_counts             # telemetry / ratchet / unknown
     meta["telemetry_source"] = _telemetry_source(src_counts, meta.get("_telemetry_warned", False))
-    coverage = _exit_attribution_coverage(src_counts, len(trades))
+    coverage = _exit_attribution_coverage(src_counts, len(senpi_trades))
     meta["exit_attribution_coverage"] = coverage               # attributed vs UNKNOWN — 0 attributed → no calibration claim
     telemetry_availability = _telemetry_availability(coverage, meta["telemetry_source"])
     meta["missed_signal_count"] = len(missed_signals)
     meta["leak_counts"] = {k: v["count"] for k, v in leaks.items()}   # quick meta glance at the leak tallies
     meta.pop("_telemetry_warned", None)                        # internal flag — not part of the contract
-    if not strategies:
-        meta["degraded"] = ("strategy list unreadable — check the token is USER-scoped"
-                            if any("strategy_list failed" in str(w)
-                                   for w in (meta.get("warnings") or []))
-                            else "no strategies deployed yet (not a fault — see meta.book_state)")
-    elif not trades:
-        meta["degraded"] = "no closed trades in the window (or trade history unavailable)"
+    degraded = _degraded(senpi, strategies, trades, meta)
+    if degraded:
+        meta["degraded"] = degraded
 
     return {
         "window": window,
@@ -2172,6 +2359,7 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
         "strategies": strat_reads,        # CURRENT book only — each judged vs its OWN mandate (+ unrealized/total/open)
         "closed_strategies": closed_reads, # HISTORY — minimal rollup, NO verdict/mandate (never consolidate)
         "telemetry_availability": telemetry_availability,   # undetermined ≠ all-clear signal for the narrator
+        "connected_wallets": connected,   # READ-ONLY wallets traded by hand — own read, never in the Senpi totals
         "meta": meta,
     }
 
@@ -2215,6 +2403,7 @@ def _all_and_persist(client, window_days, last_n, want_market, state_path, now_m
         "closed_strategies": result.get("closed_strategies"),
         "pnl_summary": result.get("pnl_summary"),
         "telemetry_availability": result.get("telemetry_availability"),
+        "connected_wallets": result.get("connected_wallets"),
         "meta_warnings": (result.get("meta") or {}).get("warnings", []),
     }
     _save_state(state_path, state)
@@ -2231,7 +2420,8 @@ def _all_and_persist(client, window_days, last_n, want_market, state_path, now_m
 STDOUT_TRADES_SAMPLE = 12
 STDOUT_MISSED_SAMPLE = 10
 _TRADE_STDOUT_FIELDS = ("asset", "direction", "strategy_label", "realized_pnl", "close_time",
-                        "exit_vs_hold", "price_since_exit_pct", "if_held_delta_usd", "exit_reason")
+                        "exit_vs_hold", "price_since_exit_pct", "if_held_delta_usd", "exit_reason",
+                        "wallet_kind")
 
 
 def _slim_trade(t):
@@ -2264,23 +2454,45 @@ def _sample_trades(trades):
 #
 # Telling someone whose funded strategy is silently blocked to "go find a strategy" is the worst possible
 # answer, so the two are separated in the engine rather than left to narration.
-_BOOK_STATES = ("no_strategies", "strategies_no_trades", "has_trades", "unknown")
+_BOOK_STATES = ("no_strategies", "strategies_no_trades", "connected_no_trades", "has_trades", "unknown")
 
 
-def _book_state(strategy_count, trade_count, list_failed):
+def _book_state(strategy_count, trade_count, list_failed, connected_count=0, connected_trade_count=0,
+                connected_status="ok", connected_unknown_count=0):
     """(state, next_action) — what the narrator should do next. `list_failed` distinguishes a genuine
-    empty book from an unreadable one (a token/scope problem), which must never read as 'no strategies'."""
+    empty book from an unreadable one (a token/scope problem), which must never read as 'no strategies'.
+    `trade_count` is Senpi trades only; connected wallets (traded by hand) count separately, and a user
+    who has them is never pitched a strategy. `connected_status` "unavailable" is unknown, not none, and a
+    connected wallet whose fills couldn't be read (`connected_unknown_count`) is unknown, never "no trades"."""
     if list_failed:
         return "unknown", ("strategy list unreadable — this is a TOKEN/SCOPE problem, not an empty book; "
                            "say the read failed, never 'you have no strategies'")
     if not strategy_count:
+        if connected_count and connected_trade_count:
+            return "has_trades", ("lead with connected_wallets[] — manual trades, read-only; the Senpi "
+                                  "aggregates (pnl_summary / timing_summary / leaks) are Senpi-only and empty "
+                                  "here. For leaks or 'what did I miss' on these wallets run quant-desk. No "
+                                  "Senpi strategy to tune: never pitch one.")
+        if connected_count and connected_unknown_count:
+            return "unknown", ("couldn't read the trade history on the connected wallet(s) — say so, never "
+                               "'no trades'; pitch nothing")
+        if connected_count:
+            return "connected_no_trades", ("the connected wallet(s) closed no trades in this window — say "
+                                           "that in one line and offer a longer --window. They trade it by "
+                                           "hand: do NOT pitch a strategy.")
+        if connected_status != "ok":
+            return "unknown", ("no Senpi strategies, and the connected wallets couldn't be loaded — say you "
+                               "couldn't load them, never 'nothing to review', and pitch nothing until "
+                               "they load")
         return "no_strategies", ("nothing deployed yet — there is genuinely nothing to review. Pivot: read "
                                  "the market (senpi-market-pulse), then shortlist strategies that fit it "
                                  "(senpi-strategy-discover). Do NOT manufacture a review.")
-    if not trade_count:
+    unloaded = ("" if connected_status == "ok" else
+                " Your connected wallets couldn't be loaded — say so; never 'you have none'.")
+    if not trade_count and not connected_trade_count:
         return "strategies_no_trades", ("deployed but nothing has traded yet — diagnose the strategy they "
-                                        "ALREADY have. Do NOT pitch another strategy.")
-    return "has_trades", "normal review"
+                                        "ALREADY have. Do NOT pitch another strategy." + unloaded)
+    return "has_trades", "normal review" + unloaded
 
 
 def _slim_for_context(result, full=False):
@@ -2297,7 +2509,11 @@ def _slim_for_context(result, full=False):
         list_failed = any("strategy_list failed" in str(w) for w in warns)
         n_strat = meta.get("strategy_count")
         if n_strat is not None:
-            state, nxt = _book_state(n_strat, meta.get("trade_count") or 0, list_failed)
+            state, nxt = _book_state(n_strat, meta.get("trade_count") or 0, list_failed,
+                                     meta.get("connected_wallet_count") or 0,
+                                     meta.get("connected_trade_count") or 0,
+                                     meta.get("connected_wallets_status", "ok"),
+                                     meta.get("connected_unknown_count") or 0)
             meta["book_state"] = state
             meta["next_action"] = nxt
     if full:
