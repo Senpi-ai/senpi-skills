@@ -117,15 +117,16 @@ def test_the_hash_ignores_comments_and_prose():
             "a comment-only edit moved the behaviour hash — this guard would then fire on prose "
             "commits, and a guard that cries wolf gets bumped past unread")
 
-        # 2. a docstring edit in a scanner must not move it
+        # 2. a `#` comment block in a scanner must not move it either
         sc = os.path.join(dst, "main", "scanners", "scoring.py")
         with open(sc, encoding="utf-8") as fh:
             py = fh.read()
-        assert py.lstrip().startswith('"""'), "expected a module docstring to edit"
         with open(sc, "w", encoding="utf-8") as fh:
-            fh.write(py.replace('"""', '"""REWORDED. ', 1))
-        _, after_doc, _ = BH.package_hash(dst)
-        assert after_doc == base, "a docstring edit moved the behaviour hash"
+            fh.write("# a new comment block\n#   second line\n\n" + py)
+        _, after_pycomment, _ = BH.package_hash(dst)
+        assert after_pycomment == base, "a comment block in a scanner moved the behaviour hash"
+        with open(sc, "w", encoding="utf-8") as fh:
+            fh.write(py)
 
         # 3. a VALUE edit must move it — otherwise the hash is inert and proves nothing
         with open(rt, "w", encoding="utf-8") as fh:
@@ -144,6 +145,47 @@ def test_the_hash_ignores_comments_and_prose():
         assert after_code != base, "a changed default in scoring.py did not move the hash"
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_the_hash_is_portable_across_python_versions():
+    """The lock is generated on whatever interpreter the author has and verified on CI's 3.11.
+
+    The first implementation used `ast.dump`, whose output is version-dependent — the lock was
+    generated on 3.14 and CI mismatched **every** package, which would have made this guard either
+    permanently red or permanently ignored. `tokenize` has the same defect across the 3.11/3.12
+    boundary, where f-strings became FSTRING_START/MIDDLE/END.
+
+    So this pins the implementation choice, not just its output: the canonicaliser must stay
+    textual. A future "cleanup" that reaches for a parser reintroduces a bug that only shows up in
+    CI, on a different machine, as 121 simultaneous failures.
+    """
+    # Check what the module IMPORTS, via its own parse tree. A text search would match the
+    # docstring that explains why these are banned — the prohibition matching itself.
+    import ast as _ast
+    path = os.path.join(ROOT, "senpi-trading-runtime", "scripts", "behaviour_hash.py")
+    with open(path, encoding="utf-8") as fh:
+        tree = _ast.parse(fh.read())
+    imported = set()
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Import):
+            imported.update(a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, _ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+    banned = imported & {"ast", "tokenize", "dis", "marshal", "py_compile", "symtable"}
+    assert not banned, (
+        f"behaviour_hash.py imports {sorted(banned)}. Parser, token and bytecode output are NOT "
+        f"stable across Python versions, so a lock written on one interpreter would mismatch on "
+        f"another — which is how this guard first shipped red on all 121 packages. Keep the "
+        f"canonical form textual.")
+
+    # f-strings are the concrete 3.12 tripwire: canonicalising them must not depend on the lexer.
+    sample = 'x = 1\nlabel = f"{x:>{3}} and {x!r}"\n# a comment\n\n'
+    once = BH._canon_py(sample)
+    assert once == BH._canon_py(sample), "the canonicaliser is not deterministic"
+    assert b"a comment" not in once, "comment lines are not being stripped"
+    assert b'f"{x:>{3}} and {x!r}"' in once, (
+        "a nested-format f-string did not survive canonicalisation verbatim — the canonical form "
+        "is interpreting the source rather than normalising its text")
 
 
 def test_write_refuses_to_launder_a_change_past_the_guard():

@@ -20,11 +20,15 @@ The naive guard — "any change under main/ requires a version bump" — is unus
 comment and prose edits, which are most commits in this tree, and a guard that cries wolf gets
 bumped past. So this compares what the runtime READS:
 
-  * YAML: `yaml.safe_load`, then a canonical dump. Comments and key order are invisible; a changed
-    threshold is not.
-  * Python: the AST with docstrings removed. Comments, formatting, blank lines and docstrings are
-    invisible; a changed expression, gate or constant is not.
+  * YAML: `yaml.safe_load`, then a canonical JSON dump. Comments, key order and quoting style are
+    invisible; a changed threshold is not.
+  * Python: TEXT with comment-only lines, trailing whitespace and blank lines removed. Not a
+    parser — see `_canon_py` for why `ast.dump` and `tokenize` both failed here.
   * Anything else (JSON fixtures, data files): raw bytes.
+
+The hash must mean the same thing on every interpreter this repo touches — operator boxes, CI's
+3.11, the runtime image. The first attempt used `ast.dump`, whose output is version-dependent, and
+every package mismatched under CI. Portability is a correctness property of this file, not a nicety.
 
 `.senpi-proof.json`, `.deploy-state.json` and `__pycache__` are excluded — deploy-time artefacts,
 not authored behaviour.
@@ -36,7 +40,6 @@ Usage:
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
-import ast
 import hashlib
 import json
 import os
@@ -52,17 +55,35 @@ SKIP_NAMES = {".senpi-proof.json", ".deploy-state.json", ".DS_Store"}
 SKIP_DIRS = {"__pycache__", "tests", ".git"}
 
 
-def _strip_docstrings(tree):
-    """Drop docstring expressions so prose edits do not read as behaviour."""
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+def _canon_py(src):
+    """Normalise Python TEXTUALLY — deliberately not with a parser.
+
+    The first version of this used `ast.dump`, and it was wrong in a way that made the whole guard
+    useless: `ast.dump`'s output is not stable across Python versions, so a lock generated on 3.14
+    mismatched every package under CI's 3.11. `tokenize` is no better — 3.12 split f-strings into
+    FSTRING_START/MIDDLE/END, so the token stream for ordinary scanner code changes across that
+    boundary too.
+
+    These lines run on operator boxes, CI, and whatever the runtime image ships. A hash that is
+    only valid on one interpreter cannot gate anything, so the canonical form is pure text:
+
+      * drop lines whose first non-space character is `#`  (comment blocks — the bulk of the prose
+        in this tree, and the thing that would otherwise make this guard fire on every doc commit)
+      * strip trailing whitespace, drop blank lines
+
+    What that does NOT ignore, stated plainly rather than discovered later: a trailing inline
+    comment (`x = 3  # why`) and a reworded docstring both move the hash, so both need a version
+    bump. That is the cost of a guard that behaves identically everywhere, and the bump is harmless
+    — it delivers identical behaviour to boxes that were already current.
+    """
+    out = []
+    for line in src.splitlines():
+        if line.lstrip().startswith("#"):
             continue
-        body = getattr(node, "body", None)
-        if (body and isinstance(body[0], ast.Expr)
-                and isinstance(getattr(body[0], "value", None), ast.Constant)
-                and isinstance(body[0].value.value, str)):
-            node.body = body[1:] or [ast.Pass()]
-    return tree
+        line = line.rstrip()
+        if line:
+            out.append(line)
+    return "\n".join(out).encode()
 
 
 def _canon(path):
@@ -71,16 +92,12 @@ def _canon(path):
     if name.endswith((".yaml", ".yml")):
         with open(path, encoding="utf-8") as fh:
             doc = yaml.safe_load(fh)
+        # Parsed, so comments, key order and quoting style are all invisible — and `json.dumps`
+        # with sorted keys is byte-identical on every Python 3.
         return json.dumps(doc, sort_keys=True, default=str, separators=(",", ":")).encode()
     if name.endswith(".py"):
         with open(path, encoding="utf-8") as fh:
-            src = fh.read()
-        try:
-            return ast.dump(_strip_docstrings(ast.parse(src)), annotate_fields=True).encode()
-        except SyntaxError:
-            # A file that does not parse cannot be reasoned about — hash it verbatim rather than
-            # silently treating it as unchanged.
-            return b"UNPARSEABLE:" + src.encode()
+            return _canon_py(fh.read())
     with open(path, "rb") as fh:
         return fh.read()
 
