@@ -291,3 +291,44 @@ def test_degraded_does_not_claim_no_strategies_when_connected_wallets_did_not_lo
     assert "not a fault" not in msg and "couldn't be loaded" in msg
     res, _ = _run({"strategy_list": {"strategies": []}, "user_get_me": {"user": {"wallets": []}}})
     assert "not a fault" not in (res["meta"]["degraded"] or "")
+
+
+# ── narration rules ─────────────────────────────────────────────────────────────────────────────────
+def _skill():
+    return " ".join(open(SKILL, encoding="utf-8").read().split())
+
+
+def test_skill_quotes_the_access_line_and_forbids_writes():
+    sk = _skill()
+    assert ACCESS in sk
+    sec = sk.split("## Connected wallets (read-only, traded by hand)", 1)[1].split("## ", 1)[0]
+    for needle in ("`MANUAL_TRADE`", "manual trade", "no DSL-preset or strategy-tuning coaching",
+                   "`closed_trades_unknown: true`", "`fills_capped: true`", "at least", "`connected_no_trades`",
+                   "`close.py`", "`edit_position`", "`strategy_*`", "`ratchet_stop_*`", "`protection`",
+                   "Wallets on senpi.ai (web)", "no open positions on the Hyperliquid main and xyz dexes",
+                   "never a bare \"no positions\"", "`connected_wallets: null`", "A pasted address is never described as saved"):
+        assert needle in sec, needle
+
+
+def test_skill_never_prints_a_read_error_code():
+    sec = " ".join(open(SKILL, encoding="utf-8").read().split()).split(
+        "## Connected wallets (read-only, traded by hand)", 1)[1].split("## ", 1)[0]
+    assert "never print the code" in sec and "`state: null`" in sec
+
+
+def test_description_splits_leak_routing_with_quant_desk():
+    desc = _skill().split("license:", 1)[0]
+    assert "a CONNECTED wallet" in desc and "quant-desk" in desc
+    assert "Senpi strategies" in desc
+    for words in ('"my MetaMask"', '"my own Hyperliquid wallet"', '"my connected wallet"'):
+        assert words in desc, words
+
+
+def test_more_gains_never_pitches_a_connected_only_user():
+    row = next(l for l in open(SKILL, encoding="utf-8").read().splitlines() if "How could I make more gains?" in l)
+    assert "never for a connected-only user" in row
+
+
+def test_readme_row_matches_the_skill_version():
+    version = re.search(r'version: "([0-9.]+)"', open(SKILL, encoding="utf-8").read()).group(1)
+    assert f"| [`senpi-improve-trades`](senpi-improve-trades/) | {version} |" in open(README, encoding="utf-8").read()
