@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.8.0"
+  version: "1.8.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -328,6 +328,13 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
 ---
 
 ## Handoff & boundaries
+- **A request to act on one of the user's CONNECTED wallets** (close, open, set a stop, cancel — on a
+  wallet in `user_get_me`'s `connected_wallets`) → answer by quoting its `access` line, and make **no
+  write-tool attempt**: "Read-only. Senpi can analyze this wallet. It cannot place, change or cancel
+  orders on it." Reading `user_get_me` to recognise the address is fine. A write tool that comes back
+  `NOT_A_STRATEGY_WALLET` (match the error code) is the same answer — never retry it on another tool.
+  "Your wallet" means a connected wallet or one the user said is theirs in this conversation; a pasted
+  address is never described as saved — the user connects it in Wallets on senpi.ai (web).
 - **Finding / vetting the trader → `senpi-trader-research`.** It ranks records + reads current books and
   hands the *action* (set up the mirror) back to this skill; you own the mechanics — slippage, sizing,
   the pre-fund sim, execution.

@@ -58,6 +58,16 @@ class ProtectionProtocolIsResident(unittest.TestCase):
         self.assertGreaterEqual(text.count("**Must"), 10)
         self.assertIn("$2,095", text) and self.assertIn("$1,557", text)
 
+    def test_a_connected_wallet_is_answered_with_its_access_line_not_a_write(self):
+        """External Wallets R1: Senpi cannot trade a connected wallet. The answer is the MCP's access
+        line, verbatim, and no write tool is attempted on it."""
+        body = " ".join(_body(SKILL).split())
+        for needle in ("CONNECTED wallets", "`connected_wallets`", "no write-tool attempt",
+                       "Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.",
+                       "`NOT_A_STRATEGY_WALLET` (match the error code)", "Wallets on senpi.ai (web)",
+                       "a pasted address is never described as saved"):
+            self.assertIn(needle, body, needle)
+
     def test_readme_row_matches_the_skill_version(self):
         version = re.search(r'version: "([0-9.]+)"', SKILL.read_text(encoding="utf-8")).group(1)
         readme = (REPO / "README.md").read_text(encoding="utf-8")
