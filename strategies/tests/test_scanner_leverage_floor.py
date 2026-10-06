@@ -30,6 +30,12 @@ ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 # (package, the key its candidates use for the asset name)
 PACKAGES = [
     ("penguin", "token"), ("pelican", "token"), ("purple-penguin", "token"), ("orca", "token"),
+    ("penguin-chase-150bp", "token"),
+    ("penguin-chase-200bp", "token"),
+    ("penguin-chase-300bp", "token"),
+    ("penguins-duo-chase-150bp", "token"),
+    ("penguins-duo-chase-200bp", "token"),
+    ("penguins-duo-chase-300bp", "token"),
     ("condor", "coin"), ("wild-condor", "coin"),
     ("cheetah", "token"), ("wild-cheetah", "token"),
 ]
