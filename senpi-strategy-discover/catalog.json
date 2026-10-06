@@ -62,7 +62,7 @@
       "emoji": "🦅",
       "tagline": "An onboarding-grade breakout trader on the liquid majors (BTC/ETH/SOL): goes LONG when price breaks above its 7-day high AND the 4h leaders are net long, SHORT when it breaks below the 7-day low AND the 4h leaders are net short, then cuts failed breakouts fast (tight 8% Phase 1) while letting a real one run on a wide Phase 2 ratchet.",
       "belief_plain": "Watches BTC, ETH and SOL. When one of them breaks above its highest price of the last week and the traders winning the last four hours are also leaning long, it buys; when one breaks below its weekly low and those winners are leaning short, it sells short. A fake breakout gets cut quickly, but a real one is given lots of room to run.",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "thesis": "Most breakout strategies lose because they fight the trend, chase fake breakouts into stop-hunts, or hold failed breakouts too long. Hawk requires three things at once — a genuine break of the 7-day range, the 4h trend pointing the same way, and the 4h leaderboard's winners net in the breakout direction — so it only fires on confirmed breaks. Then the asymmetry does the work: an 8% Phase 1 floor cuts a breakout that fails immediately, while a wide Phase 2 ladder (first lock only at +10% ROE) keeps the rare breakout that runs, because that tail pays for the quiet weeks.",
       "tags": [
         "btc",
@@ -113,7 +113,7 @@
       "emoji": "🐫",
       "tagline": "Harvests funding carry across the liquid main-DEX crypto cross-section: the HARVEST book SHORTS the most-positive-funding names (longs pay shorts → short collects) and the PAYOUT book LONGS the most-negative-funding names (shorts pay longs → paid to hold) — both gated to EXHAUSTING crowds (4h trend + RSI confirmation) so price doesn't fight the carry — on two equally-funded wallets that net the fund slightly market-neutral.",
       "belief_plain": "On Hyperliquid you get paid (or pay) funding every hour for holding a perp. Camel always takes the side that COLLECTS that payment — it shorts coins where longs are paying through the nose, and longs coins where shorts are paying — but only on crowds that are running out of steam, so the price doesn't move against it while it banks the funding.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "Funding is a recurring, structural inefficiency: when a trade gets too crowded, the funding rate blows out and the collecting side gets paid to hold. The edge is that carry, not market direction — so Camel ranks the whole liquid crypto board by funding and takes the most-extreme collecting side, but only when the crowded trade is exhausting (4h rolling over for shorts / capitulating for longs, RSI confirming) so price doesn't fight the carry. Taking some shorts and some longs also skews the fund net-neutral as a by-product.",
       "tags": [
         "funding",
@@ -160,7 +160,7 @@
       "emoji": "🦅",
       "tagline": "A contrarian fader on the 6 deepest XYZ macro markets (oil, brent, gold, silver, SP500, XYZ100): when the 4h leaders (the traders winning the last four hours on the board) are piled into one side AND the 4h move is exhausting, it fades the 4h leaders' crowded side (takes the OPPOSITE side) and lets a wide DSL ride the mean-reversion for hours.",
       "belief_plain": "Trades only macro markets — oil, gold, silver, and the big stock indices — that run around the clock. When the traders who have been winning over the last four hours have all crowded into one direction and the move is already stretched, it bets on the snap-back the other way, sizes up when more signals agree, and trails a wide stop so a slow reversal has hours to play out.",
-      "version": "1.3.1",
+      "version": "1.3.2",
       "thesis": "Macro assets on Hyperliquid attract directional momentum traders who load up after a clean 1-3% intraday move. By the time the 4h leaders' concentration (their share of the board's 4h gains — a momentum read, not a proven cohort) crosses 10-20% on a 4h-extended move, the trade is usually exhausted — mean reversion is the positive-edge play. Bald Eagle scores 4h-leader crowding + contribution velocity + move exhaustion, hard-gates on tight book spread, fades the crowd, and gives commodities the wide exit they need to revert.",
       "tags": [
         "xyz",
@@ -217,7 +217,7 @@
       "emoji": "🐕",
       "tagline": "A patient contrarian on BTC/ETH/SOL/HYPE: waits for a major to move 3%+ in 4h while the 4h leaders (the traders winning the last four hours on the board) pile in heavily, then fades the 4h leaders' crowded, exhausted side — but only when the funding regime confirms the unwind and the move is still fresh. Conservative 7-10x leverage, wide DSL to let the reversal develop.",
       "belief_plain": "When a big coin runs hard and the traders winning the last four hours are all crowded onto the same side, the crowd is maximum exposed and the unwind is the trade. Dog bets against that exhausted consensus on BTC, ETH, SOL and HYPE — but only when the move has genuinely overextended, the crowding is still building, and market-wide funding shows the crowd really is one-sided. Most of the time it waits.",
-      "version": "1.1.2",
+      "version": "1.1.3",
       "thesis": "Hyperliquid is dominated by leverage traders chasing momentum. When a major moves 3%+ in four hours and the 4h leaders' concentration (their share of the board's 4h gains — a momentum read, not a proven cohort) piles in 15%+, the late entrants are maximally exposed and funding pressure plus mean reversion force the unwind. Dog's edge is being on the unwind side before capitulation accelerates — so it scores the 4h leaders' side, hard-gates on exhaustion (>=3% 4h move), freshness (15m contribution still rising), trader depth (>=30), and a funding regime that confirms the crowd is one-sided, then emits the OPPOSITE direction at conservative leverage and lets a wide ratcheting stop ride the reversal rather than banking too early.",
       "tags": [
         "leader-momentum",
@@ -272,7 +272,7 @@
       "emoji": "🐦",
       "tagline": "Fades an exhausted crowd: when 70%+ of the 4h leaders' gains sit on one side of BTC/ETH/SOL/HYPE but price refuses to follow (it stalls or rolls over against the crowd), the crowded side is out of fuel — Egret takes the other side, sized flat at 15% / <=5x, and banks the bounded snapback with a tight ratchet.",
       "belief_plain": "When the traders who won the last four hours are almost all leaning the same way on a coin but the price won't move with them, the trade is crowded and out of buyers (or sellers). Egret bets on the snap-back the other way, and because that bounce is small and quick, it locks in profit fast instead of holding for a big trend.",
-      "version": "1.3.1",
+      "version": "1.3.2",
       "thesis": "The 4h leaders piling onto one side is usually a confirmation signal — but at an extreme, with price refusing to confirm, it flips contrarian: a maximally-crowded side with no one left to push has only one way to resolve, the unwind. The edge is the bounded snapback, so the right design is the inverse of a momentum holder: maker-only non-urgent entry, a tight ratchet that banks the bounce, and time-cuts that exit a fade that didn't resolve quickly.",
       "tags": [
         "btc",
@@ -327,7 +327,7 @@
       "emoji": "🐺",
       "tagline": "A short-only crypto defense sleeve on majors (BTC/ETH/SOL/HYPE) plus crypto-proxy equities (xyz:MSTR/COIN/CRCL): shorts the block ONLY when risk-off confirms — the market-wide funding regime is LONG_CROWDED (crowded longs = squeeze fuel), the 4h leaders are rotating OUT of the name, and the 4h trend is breaking down. Conservative 4x, tight short-side DSL, 30h cap because squeezes resolve fast. CAVEAT: this is a hedge that pairs with long crypto exposure — it idles and emits nothing whenever risk-off conditions are not met.",
       "belief_plain": "Most of the time the safe trade on crypto is no trade. But when funding shows the crowd all long, the traders who won the last four hours start rotating out of a name, and its price begins rolling over, that crowded long is fuel for a squeeze to the downside. Hyena bets against that exhausted crowd — short only — on Bitcoin, Ether, Solana, HYPE, and the crypto-proxy stocks MicroStrategy, Coinbase and Circle. It is a defense sleeve you run alongside your long crypto bets to cushion a downturn; when the risk-off picture is not there, it does nothing and waits.",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "thesis": "The fleet has no dedicated short-biased crypto agent — every directional engine is long-or-long/short, so there is no clean defensive sleeve for a risk-off turn. Hyena fills that gap. It treats the market-wide funding regime as a master gate: it only opens new shorts when funding shows the crowd is one-sided LONG (LONG_CROWDED), because a crowded long is the squeeze that a short monetizes. On top of that gate it requires, per name, that the 4h leaders are net-SHORT (rotating out) AND that the 4h structure is making lower highs (price confirming the unwind). All three must agree, so it sits idle in normal markets and only acts on genuine risk-off confluence. It is short_only by design — a hedge meant to be paired with long crypto exposure, sized conservatively (15% margin, 4x) with a tight short-side DSL and a 30h hold cap because short squeezes resolve fast.",
       "tags": [
         "short-only",
@@ -391,7 +391,7 @@
       "emoji": "🍋",
       "tagline": "Watches where the 4h leaders (the traders winning the last four hours on the board) are most crowded across a fixed basket of 12 crypto majors and 4 commodity/index names — and once that one-sided crowd stops following through (its 15-minute momentum rolls over), fades the 4h leaders' crowded side at conviction-scaled leverage and lets a wide ratcheting stop ride the snap-back.",
       "belief_plain": "When the traders winning the last four hours crowd hard onto one side of a coin and the move starts running out of steam, that crowd usually gets unwound. Lemon waits for the crowding to actually start fading on the 15-minute clock, blocks the trade if it's really a genuine trend (big BTC move or the asset itself ripping), then bets the OPPOSITE direction and trails a wide stop while the over-stretched move mean-reverts.",
-      "version": "1.2.2",
+      "version": "1.2.3",
       "thesis": "Hyperliquid is full of high-leverage retail that piles into exhausted moves. A crowded 4h-leader consensus — the side the traders winning the last four hours are piled on, a momentum read of the board, not a proven cohort — is only a fade setup once it STOPS following through — so Lemon gates on 15m exhaustion, not just crowding, and refuses to fade a real run (crypto MACRO gate on |BTC 4h|>3%, per-asset gate on |4h|>5%) because fading genuine trend is how a contrarian dies. Concentration + velocity-fade + overextension + reversal compound into a score; it fires the single best fade at score >=9, sizes leverage to conviction, and lets a wide DSL ride the mean reversion since reversals take hours, not minutes.",
       "tags": [
         "degen-fader",
@@ -457,7 +457,7 @@
       "emoji": "🦉",
       "tagline": "Scans every liquid Hyperliquid crypto perp (OI > $3M) for one-sided crowding — extreme funding + the 4h leaders lopsided to one side (where the last four hours' winners sit) + concentrated OI — then waits for that crowding to persist 1h+ AND for exhaustion to fire (volume fading, price stalling, RSI divergence) before fading the crowd. A flat 8x with conviction sized in margin (21.9/25/31.2%), with a macro gate that stands down when BTC's 4h move is extreme.",
       "belief_plain": "The crowd is wrong at the extremes. When everyone piles onto one side of a coin — paying punishing funding, the last four hours' winners all leaning the same way, open interest stacking up — and the price then stops following through, the unwind is violent and predictable. Owl waits for both the crowded state AND the exhaustion trigger, then takes the other side. Most days it does nothing, because most days one or both is missing.",
-      "version": "1.3.2",
+      "version": "1.3.3",
       "thesis": "Crowded trades unwind violently. Owl's edge is timing the unwind: it never fades on crowding alone (which can persist and grind), it waits for crowding to PERSIST 1h+ and for distinct exhaustion signals (declining volume under extreme funding, price stalling against the crowd, capitulation wicks, 4h RSI divergence) to confirm the move is dying. Mean reversion fails in trending macro, so a hard gate blocks all fades when |BTC 4h| > 3%. XYZ banned — the funding/4h-leader scoring is calibrated on crypto data shape.",
       "tags": [
         "contrarian",
@@ -503,7 +503,7 @@
       "emoji": "🦔",
       "tagline": "Scans every liquid perp for funding that has stayed extreme for hours — the crowd piled onto one side and is paying to hold it — then fades that crowd at exhaustion, collecting funding while the over-stretched position mean-reverts.",
       "belief_plain": "When everyone crowds the same side of a trade and keeps paying a steep funding fee to stay there for hours, that crowd usually unwinds. Pangolin waits for the crowding to actually persist, checks the 4h leaders (the last four hours' winners) aren't on the crowd's side, then takes the OTHER side and gets paid funding while it waits for the snap-back.",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "thesis": "Persistent extreme funding is a crowding signal, not noise. A fresh funding spike means nothing — but funding that stays extreme for 3+ hours means real positioning that has to unwind. Fade the crowd only once the regime confirms (or is at least neutral), size conservatively because crowded unwinds are violent, and let the funding you collect pay you to be patient through a 24-48h mean reversion.",
       "tags": [
         "funding-fade",
@@ -547,7 +547,7 @@
       "emoji": "🐺",
       "tagline": "Maintains a daily-refreshed pool of the top-ROI Hyperliquid traders (win-rate + age + 30d-ROI filtered, quality-scored toward tail-winner trend-followers), watches for the moment a pool member opens a fresh position, and mirrors only the freshest entries (< 10 min old) when pool consensus and independent TA confirm — sized to the source trader's quality and ridden on its own wide DSL.",
       "belief_plain": "Keeps a shortlist of the most profitable traders on Hyperliquid and refreshes it every day. The instant one of them opens a new trade, Jackal copies that trade in the same direction — but only if the entry is brand new, other shortlisted traders are leaning the same way, and the chart agrees. It bets a bit more behind the highest-quality traders and then trails a wide stop so a good copy can run for days.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "thesis": "High-quality traders telegraph alpha, but naive copy-trading loses because winners regress, signals lag, and style mismatches amplify risk. Jackal only copies the freshest entries (< 10 min, before the alpha is public) from a pool ranked toward tail-winner trend-followers (ROI 35% / gain-to-pain 25% / age 15% / win-rate 10% — deliberately NOT high-win-rate scalpers), and confirms each copy with pool consensus + independent multi-timeframe TA + funding regime before sizing to the source's quality and riding its OWN DSL rather than the source trader's.",
       "tags": [
         "copy-trading",
@@ -592,7 +592,7 @@
       "emoji": "🦅",
       "tagline": "Hunts ELITE/RELIABLE traders who are winning big this week, reads the single bet driving their streak, confirms the 4h leaders' side agrees (where the last four hours' winners sit) and the asset hasn't already run away from the whale's entry, then piggybacks the same trade — sizing margin to conviction (20/35%) at a flat 10x.",
       "belief_plain": "Finds the traders who are crushing it right now AND have a proven track record, figures out which position is making them the money, checks the last four hours' winners are leaning the same way, and copies that trade — but skips it if the price already ran too far past where the whale got in.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "A trader who is both proven (ELITE/RELIABLE) and hot right now is the best signal you can ride. Don't average a cohort and don't chase one-week wonders — find the quality account on a live streak, isolate the conviction bet driving it, confirm the 4h leaders' side and recent price action agree, and follow only if you can still get in near the whale's entry.",
       "tags": [
         "leader-momentum",
@@ -736,7 +736,7 @@
       "emoji": "🐘",
       "tagline": "Trades the cross-asset macro complex — equity indices, precious metals, energy, FX (all on XYZ) plus BTC — on two books and two wallets: the TREND book rides the durable multi-timeframe macro trend (both directions); the FADE book fades short-TF over-extensions back to regime (both directions, with a knife guard). The edge is GLOBAL MACRO — the complex moves on regime, not crypto noise.",
       "belief_plain": "Trades the big global markets — stock indices, gold/silver/copper, oil and gas, the major currencies, and Bitcoin. One book rides the slow, durable trends (buying things going up, shorting things going down); a second book on a separate wallet bets on stretched moves snapping back. It only fades a snap-back when the bigger trend isn't fighting it.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "Crypto-only funds all crowd the same coins; the cross-asset macro complex (indices / metals / energy / FX) moves on macro regime — oil on geopolitics, indices on the AI-equity bid, metals on risk-off — and is uncorrelated with crypto noise. Running a trend book AND a mean-reversion book on the same macro whitelist, on two wallets, harvests both the durable direction and the over-extensions without the two conflicting. These markets trade 24/7 on Hyperliquid XYZ, so the fund never has to wait for a market open.",
       "tags": [
         "macro",
@@ -806,7 +806,7 @@
       "emoji": "🦡",
       "tagline": "Only takes the breakout the order flow confirms: enters a prior-24h range break on BTC/ETH/SOL/HYPE only when open interest is RISING (new money committing) AND the 4h leaderboard's winners sit on the side of the break — then sizes 20% / 5x and lets a wide DSL ratchet ride the move for days.",
       "belief_plain": "Most price breakouts fail. The single best filter for whether a breakout will follow through is open interest: if price breaks its prior 24-hour high (or low) while open interest is rising, new money is committing and the move has conviction. If open interest is flat or falling, it's just stops and short-covering — a fakeout — and Badger skips it. It also checks which side the last four hours' winners sit on, and only commits when they lean the same way.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "thesis": "Open interest is the fuel of a breakout. A price push beyond the recent range confirmed by rising OI = new positions opening in the breakout direction = real follow-through; a breakout on flat/declining OI is shorts covering or stops triggering, with no new money behind it. Gating breakouts on OI velocity (plus 4h-leader agreement) filters the fakeouts that kill a naive breakout buyer, and a wide let-winners-run exit ladder means the rare confirmed breakout that runs far pays for the ones that don't.",
       "tags": [
         "btc",
@@ -858,7 +858,7 @@
       "emoji": "🦪",
       "tagline": "An autonomous decoupler on Hyperliquid XYZ equity/commodity/index perps: it finds names quietly DECOUPLING from the broad market — outperforming the xyz index on persistent rising volume with shallow, bought dips (relentless accumulation, not a one-bar spike) — and rides the grind. No calendar, no event feed: the catalyst footprint is read straight from the tape. LONG up-accumulation, SHORT down-distribution; a wide DSL ratchet lets winners run.",
       "belief_plain": "Big catalysts — a stock getting added to an index, a buyout brewing, a sector run-up — all leave the same tell in the chart before anyone needs to know the news: the name starts beating the broad market on steady, rising volume, and every dip gets bought instead of selling off. That is accumulation, and Barnacle hunts for it automatically across the stocks, commodities and indices on Hyperliquid XYZ. It doesn't need you to feed it a calendar — it reads the footprint itself, goes long the quiet climbers (or short the quiet bleeders), and trails a stop so a real move can run for days.",
-      "version": "1.2.2",
+      "version": "1.2.3",
       "thesis": "You don't need to know WHY a name is being accumulated to trade the accumulation. Index inclusions, M&A targets, and catalyst run-ups share one observable signature: the name decouples from its benchmark (positive excess return vs the broad xyz market) on PERSISTENT rising volume, and the largest pullback within the move stays shallow because the dips are bought — a grind, not a volatile breakout. Barnacle measures exactly that footprint from market data: excess return vs xyz:XYZ100 sets direction and conviction, 4h volume persistence and a shallow-deepest-dip confirm it's accumulation not noise, 4h/1h trend structure confirms the path, and the 4h leaders' side — which side the last four hours' winners sit on — nudges the score by ±1. Because the edge is read from the tape rather than an event date, the agent needs no operator calendar and the DSL owns the exit — a wide let-winners-run ratchet rides the grind, with a 48h cap so equity/index perps don't camp through the weekend pricing gap.",
       "tags": [
         "accumulation",
@@ -1013,7 +1013,7 @@
       "emoji": "🐱",
       "tagline": "Two volatility books on two wallets — one scans liquid crypto, the other scans tokenized stocks/commodities/indices (XYZ) — for names coiled in a low-volatility squeeze that break their recent range with an expansion surge, then rides the break direction (LONG up / SHORT down). It trades MOVEMENT, not a view: the edge is that compression precedes expansion.",
       "belief_plain": "Watches the market for coins and stocks that have gone quiet (price barely moving), then pounces the moment one breaks out of its quiet range with a big jump — going long if it breaks up, short if it breaks down. It runs two separate pots: one for crypto, one for tokenized stocks and commodities. The bet is on the size of the move, not its direction.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "Volatility is the edge. A breakout FROM a low-volatility coil has far higher follow-through than a breakout in already-volatile tape — compression precedes expansion. Caracal only fires when a name has been coiling (recent ATR << baseline ATR) AND breaks its range AND the breakout bar is an outsized move, then rides whichever way it broke. Splitting crypto (breakout book) from tokenized stocks/commodities/indices (catalyst book) lets it capture oil-geopolitics and AI-infra moves 24/7 alongside crypto vol, on two separately-funded wallets that net to a direction-agnostic volatility harvester.",
       "tags": [
         "volatility",
@@ -1068,7 +1068,7 @@
       "emoji": "🐆",
       "tagline": "A patient universe sniper: scans the top-100 markets on the 4h leader board every tick and refuses to fire unless the 4h leaders' consensus (which side the last four hours' winners sit on), velocity, acceleration, dual-price confirmation, volume, quality-trader alignment, and rank-climb all line up — then takes ONE position at a flat 5x, sized 30-48% of the book by conviction, and lets the DSL ride the winner.",
       "belief_plain": "Watches which side the last four hours' winners are crowding across the whole market, but waits for everything to agree at once — the 4h leaders' side, the price, the volume, the speed of the move — before taking a single, high-conviction bet. Most of the time it does nothing; that patience is the point.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "Any one signal is noise. Real edge shows up only when the 4h leaders' consensus, momentum, acceleration, price, volume, and proven-trader alignment all confirm the same direction on the same coin at the same moment. That confluence is rare, so the right move is to sit on one slot, wait for it, strike once at conviction-scaled size, and let a ratcheting trailing stop — not a fixed target — decide the exit so the rare big trend pays for the quiet weeks.",
       "tags": [
         "leader-momentum",
@@ -1112,7 +1112,7 @@
       "emoji": "🦅",
       "tagline": "Scans the top 50 Hyperliquid crypto assets by volume and fires at most one position at a time — only when 4h, 1h and 15m momentum all align, the 4h leaders (the traders winning the last four hours on the board) are leaning the same way on a market they are actually concentrated in, and the move isn't a runaway counter-trend. Sizes margin to conviction (20/28/32%) at 10x, then rides a wide DSL.",
       "belief_plain": "Watches every liquid coin on Hyperliquid and waits, doing nothing until ONE setup is near-perfect: the trend, the momentum and the traders winning the last four hours all pointing the same direction at once. Then it rides the 4h leaders' side with a single, well-sized swing and trails a stop instead of guessing the top.",
-      "version": "1.4.0",
+      "version": "1.4.1",
       "thesis": "The biggest swings happen when 4h + 1h + 15m momentum are perfectly unified AND the 4h leaderboard (a momentum read of who is winning right now, not a proven cohort) is leaning that same way on a market its leaders have meaningful skin in — a runaway trend's continuation, not a reversal. One amazing trade a day beats a scattergun: scan broadly, fire rarely, size to conviction, and never fight a trend already up >10% on the 4h.",
       "tags": [
         "momentum",
@@ -1156,7 +1156,7 @@
       "emoji": "🦅",
       "tagline": "Watches every Hyperliquid XYZ pre-IPO perpetual and fires the moment one converts to a normal equity perp — when the company IPOs, funding jumps ~100x, the leverage cap lifts and the price throttle comes off, opening a window of free price discovery. Falcon catches that flip and rides the post-conversion momentum with a wide let-winners-run stop (7d).",
       "belief_plain": "A pre-IPO name on Hyperliquid is deliberately pinned — its price can barely move. The instant the company goes public the brakes come off all at once and the name often trends hard for days. Falcon detects that exact handover from a tell in the funding rate, then takes a single position in the direction it's already running and trails a wide stop so a real move can run.",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "thesis": "The IPOP->equity conversion is a detectable regime change: funding normalizes ~100x, the max-leverage cap lifts, and the trade.xyz Discovery-Bounds price throttle is removed. The first hours-to-days after conversion are pure price discovery, which often trends in one direction. The edge is catching that flip from the instrument's funding/leverage signature, confirming directional momentum, and letting the discovery move run rather than fading it.",
       "tags": [
         "xyz",
@@ -1253,7 +1253,7 @@
       "emoji": "🦔",
       "tagline": "Equal-weight BTC + ETH + SOL, each leg independently directional: every asset gets its own 4h-trend signal confirmed by the 4h leaders' side (long OR short), so it can hold BTC long and ETH short at the same time — three slots, three independent positions, each with its own per-position stop.",
       "belief_plain": "Trades only the three biggest crypto majors (BTC, ETH, SOL), one position per coin. For each coin it waits until the 4-hour trend and the traders winning the last four hours agree on the same direction before entering — going long if they're bullish, short if they're bearish — and manages each position on its own, so one coin going wrong doesn't drag the others down.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "thesis": "Most basket strategies force the same direction across every asset; Hedgehog doesn't. Each of BTC/ETH/SOL gets its own independent 4h-trend decision confirmed by the 4h leaders' side, so the diversification benefit is real — the per-asset directions are uncorrelated by construction. For a new user who wants 'exposure to crypto majors without picking one,' Hedgehog does the picking: it enters when the gates pass and lets a per-position DSL ratchet ride each leg on its own merits.",
       "tags": [
         "btc",
@@ -1369,7 +1369,7 @@
       "emoji": "🐝",
       "tagline": "A semiconductor / AI-capex supply-chain momentum basket on Hyperliquid XYZ (equipment ASML/AMAT/MRVL, logic NVDA/AMD/AVGO/TSM/QCOM/ARM/INTC/SMH, memory MU/SNDK/SMSN/SKHX/WDC): it only trades when the whole chain confirms as a complex — a sector-breadth gate flips it long-only when most names trend up and short-only when the chain rolls over — then rides the strongest 1-2 names, with an extra edge when the equipment makers lead the move. Flat 18% margin / 4x, wide DSL ratchet capped at 48h so it never camps through the weekend pricing gap.",
       "belief_plain": "Trades the semiconductor supply chain — the chip designers, the memory makers, and the equipment companies that build the factories — as perps on Hyperliquid XYZ, 23/5. AI spending bids the whole chain together, so Hornet refuses to trade single names in isolation: it first checks whether the sector as a whole is trending up or down, and only then takes the strongest 1-2 names in that direction. It pays special attention when the equipment makers move first, since that tends to lead the cycle. It trails a wide stop so a real move can run, but caps each hold at 48 hours so it never sits through the Friday-to-Sunday gap when these names have no external price.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "thesis": "AI capex doesn't bid one chip name — it bids the entire semiconductor supply chain: equipment makers (ASML, AMAT, MRVL), logic/compute (NVDA, AMD, AVGO, TSM, QCOM, ARM, INTC, SMH), and memory (MU, SNDK, SMSN, SKHX, WDC). A per-name momentum agent can get chopped up taking a single semi that's moving on idiosyncratic news against a flat sector. Hornet's edge is that it requires the chain to confirm as a complex first — a sector-breadth gate (the fraction of the universe whose 4h trend is bullish) flips the agent long-only above 0.55 and short-only below 0.35, and emits nothing in the chop band between. Within an open gate it rides the strongest 1-2 names (the 4h leaders' side is a score bonus, never a gate) and adds conviction when the equipment sub-group leads (capex tools bid first, then logic and memory — the classic early-cycle gradient). The 48h hard_timeout is intentional: equity perps reconcile against an internal oracle over the weekend gap where drift accumulates without external price discovery.",
       "tags": [
         "semiconductors",
@@ -1549,7 +1549,7 @@
       "emoji": "🦤",
       "tagline": "Trades pre-IPO companies as perpetuals on Hyperliquid XYZ — today just SpaceX (xyz:SPCX). Auto-discovers IPOPs via the trade.xyz funding signature (~100x smaller funding) plus a <=5x pre-listing leverage cap and a $100k liquidity floor, then goes long or short when the 4h trend structure and the 4h leaders' lean agree. Leverage auto-caps to each name's own ceiling; a moderate DSL lets multi-day theses ride.",
       "belief_plain": "Hyperliquid XYZ is one of the only places retail can trade private companies (like SpaceX) as perpetuals before they IPO. Lemur watches those pre-IPO names, waits for the 4-hour trend and the traders winning the last four hours to point the same way, then takes a single directional position and trails a stop. When a company actually goes public it stops qualifying and Lemur drops it automatically.",
-      "version": "1.1.2",
+      "version": "1.1.3",
       "thesis": "Pre-IPO perpetuals (IPOPs) are a structurally distinct product — a 0.005 funding multiplier (vs 0.5 for standard XYZ perps) and Discovery Bounds that throttle price velocity. That structural funding signature reliably identifies them with no hardcoded ticker list, so the universe future-proofs itself as trade.xyz lists new names and de-qualifies any that IPO. On those slow-moving names, a clean 4h trend confirmed by the 4h leaders' side is enough edge to hold a directional swing and let a wide DSL ratchet capture the multi-day move.",
       "tags": [
         "pre-ipo",
@@ -1597,7 +1597,7 @@
       "emoji": "🐯",
       "tagline": "A multi-asset momentum holder on liquid majors (BTC/ETH/SOL/HYPE) that learns its own conviction floor: every 6 hours it audits its own closed trades, buckets them by entry score, and ratchets its MIN_SCORE up above any score band that has been losing money — then enters only candidates that clear the learned floor and lets a wide DSL ride the move.",
       "belief_plain": "Trades the big, liquid coins (BTC, ETH, SOL, HYPE) on a simple momentum score. Every six hours it looks back at its own finished trades, figures out which score levels have actually been making money and which have been losing, and raises its own bar so it stops taking the kinds of trades that bled — it only ever raises the bar, never lowers it. When a coin clears the current bar it bets and trails a wide stop so a real move can run.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "thesis": "A fixed entry threshold is a guess that goes stale: the market regime that made score-6 trades profitable last month may make them losers this month. Instead of an operator hand-tuning MIN_SCORE off a 30-trade table, Lynx bakes that loop into a scheduled audit — it reads its own closed-trade history, buckets by the entry score it logged, and raises the floor above any band whose realized ROE has turned negative with enough samples to trust. It ratchets up only (a floor that worked is never relaxed), caps at a hard ceiling, and otherwise runs a plain momentum scorer (4h/1h trend, 4h leader momentum — which side the last four hours' winners sit on — and rising volume) so the audit always has clean data to learn from.",
       "tags": [
         "btc",
@@ -1650,7 +1650,7 @@
       "emoji": "🐟",
       "tagline": "Reads the L2 order book on BTC/ETH/SOL/HYPE — when resting depth is lopsided (bids far heavier than asks, or the reverse) that's directional pressure, but it only fires when 15m momentum and 4h leader momentum (which side the last four hours' winners sit on) agree, then hands the position to a wide DSL and lets the move run (it does not scalp).",
       "belief_plain": "Looks at how much resting buy vs sell interest is stacked in the order book of the big, liquid coins. A heavily one-sided book signals pressure in that direction — but a lopsided book alone is noise, so it only acts when short-term price momentum and the traders leading the last four hours are pointing the same way. Then it holds the trade with a wide trailing stop instead of flipping in and out.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "thesis": "Order-book imbalance is a genuine microstructure edge, but trading it as a per-tick scalp just bleeds fees. Marlin uses the imbalance differently — as the entry-timing signal on a momentum thesis: the book says which side has pressure right now, momentum and the 4h leaders' side confirm the move is real, and then you hold it with a wide ratchet and let it work. Restricting the universe to four liquid majors keeps the imbalance reading reliable (thin books give garbage ratios), and a 24h hard timeout caps the short-horizon thesis without choking a real run.",
       "tags": [
         "btc",
@@ -1703,7 +1703,7 @@
       "emoji": "🦦",
       "tagline": "A sentry that watches the momentum-event feed and snipes the freshest, highest-tier move the instant it fires: tier (the crossing's size) + freshness gate the entry, 4h leader momentum alignment and rising volume add conviction, then it takes ONE position in the momentum direction and lets a wide DSL ride the burst.",
       "belief_plain": "Watches the live feed of top traders crossing big profit thresholds — and the markets driving each crossing — and pounces only on the strongest, freshest ones, before the move is widely known. It sizes one bet in the direction of the move and trails a wide stop so a real burst can keep running, but cuts it loose after about a day and a half if it stalls.",
-      "version": "1.1.2",
+      "version": "1.1.3",
       "thesis": "Fresh momentum is the earliest, cleanest edge, and it decays fast — an event that's already 30+ minutes old is half-known and somebody else's trade. So the whole job is speed plus selectivity: only the strongest tiers, only while they're fresh, one position at a time. The 4h leaders' lean and rising volume are confirmation bonuses, not gates, because the event fires faster than that data updates — waiting for confirmation forfeits the edge. A momentum burst pays out fast or it's stale, so a short hard timeout cuts a trade that hasn't moved.",
       "tags": [
         "momentum",
@@ -1749,7 +1749,7 @@
       "emoji": "🐋",
       "tagline": "A universe rank-jump sniper that trades jumps in the 4h leaderboard: watches its top-50 rows every tick and fires only on a fresh FIRST_JUMP — a coin exploding 15+ ranks out of the deep field with 4h trend, 15m freshness, and a volume spike all confirming — then strikes ONE position at a fixed 7x and lets the DSL ride the breakout.",
       "belief_plain": "Watches which coins the traders winning the last four hours are suddenly piling into and only acts when a name rockets up the leaderboard from deep in the pack — a fresh jump, not an already-crowded top name. It wants the move to be young (climbing fast in the last 15 minutes), going the same way the price is, and backed by a real volume spike before it takes a single shot.",
-      "version": "1.1.2",
+      "version": "1.1.3",
       "thesis": "The edge is in the FIRST jump, not the established leader. By the time a coin sits at the top of the 4h leaderboard (a momentum read of who is winning right now, not a proven cohort) the move is priced in; the asymmetric entry is the moment a name explodes 15+ ranks out of the deep field (prev-rank >= 25) while its 4h trend, 15m contribution velocity, and 24h volume all confirm the same direction at once. That confluence is rare and decays fast, so the right move is to scan often (90s), strike once at a fixed 7x the instant it fires, skip the already-top names, and let a ratcheting DSL — not a fixed target — decide the exit so the occasional big breakout pays for the quiet weeks.",
       "tags": [
         "leader-momentum",
@@ -1794,7 +1794,7 @@
       "emoji": "🦦",
       "tagline": "Watches the rate of change of open interest across every liquid Hyperliquid crypto perp and fires at most a couple of positions — only when 1h OI jumps >=5% while price moves >=0.5% the same way (fresh leveraged money entering with conviction), 4h isn't unwinding, and the spread is tight. Sizes margin to conviction at 5/7/10x, then rides the flow 1-3h on a tight DSL.",
       "belief_plain": "Open interest only grows when new leveraged money enters a perp. When that money piles in fast (OI up 5%+ in an hour) AND price moves the same direction, that's real conviction — not just a wick. Otter rides that fresh flow for an hour or three, then trails a tight stop. It does nothing on the much more common days when no coin shows that burst, and it never trades unwinds.",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "thesis": "OI velocity — the delta of open interest over time — is a perp-native conviction signal nobody else in the fleet trades (others read OI only as a static size filter). Fresh OI growth aligned with price (the top two quadrants of the OI/price matrix) is new leveraged positioning with direction; unwinds (the bottom two) are exhaustion and get skipped. Confluence scoring (OI tier, 4h confirmation, price magnitude, the 4h leaders' lean, spread, time-of-day) at a high floor keeps it a sniper, and a tight DSL locks profit early because the flow edge is in the first 1-3 hours.",
       "tags": [
         "open-interest",
@@ -1956,7 +1956,7 @@
       "emoji": "🐟",
       "tagline": "Rides forced flow on crypto majors (BTC/ETH/SOL/HYPE): when open interest is unwinding fast (positions being force-closed) AND price is moving violently AND the 5-minute candle is still pushing the same way, it takes ONE position in the direction of the flow, sized 1-5x, and lets a wide DSL ratchet ride the squeeze with a 24h outer bound.",
       "belief_plain": "A liquidation cascade is the cleanest momentum in crypto — it's forced flow, not opinion. When lots of positions are being force-closed at once, price gets shoved hard in one direction and the move feeds on itself until the leverage is flushed. Piranha reads the order flow underneath price (open-interest velocity + order-book depth) to confirm the move is forced — 4h leader momentum (which side the last four hours' winners sit on) and a volume spike only add conviction — then rides it: OI down + price up = shorts squeezed, go long; OI down + price down = longs liquidated, go short.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "thesis": "Most agents react to price; the edge is reading the forced flow beneath it. Open interest dropping fast means positions are closing under duress, and when that coincides with a violent move and a thinning book on the side price is running into, there is little resistance left and the cascade continues. That signature is short-horizon and self-resolving, so the right move is one conviction entry in the flow direction, a wide ratchet that lets a squeeze extend, and a 24h hard timeout because if the cascade hasn't paid in a day it's over.",
       "tags": [
         "btc",
@@ -2010,7 +2010,7 @@
       "emoji": "🐍",
       "tagline": "Scans the top 50 Hyperliquid crypto assets by volume and waits for one multi-day setup — 4h trend with macro direction, 1h agreeing, 15m confirming, the 4h leaders not opposing, RSI not extreme — then takes a single LONG-biased swing at 3-7x, sizes margin to conviction (25/30/40%), and holds for days behind a wide DSL (96h cap).",
       "belief_plain": "Watches every liquid coin on Hyperliquid and does nothing until one setup lines up across the 4-hour, 1-hour and 15-minute timeframes with the last four hours' winners on the same side. Then it takes one well-sized, mostly-long swing and holds it for days behind a wide trailing stop, because the money is in the rare multi-day winner — not in trading often.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "thesis": "Every other agent strikes and rotates within hours; none hold for days, and that's the blind spot. The edge isn't a high win rate — it's NOT MISSING the one big multi-day move: a low win rate with a 3:1 win/loss ratio beats a high win rate with a thin one. So scan broadly, demand a real macro trend confirmed across three timeframes (never fighting a runaway counter-trend or the 4h leaders' crowded side), tilt LONG, size to conviction, and let a wide DSL ride the move for days instead of getting chopped out early.",
       "tags": [
         "momentum",
@@ -2056,7 +2056,7 @@
       "emoji": "🪳",
       "tagline": "A patient striker that trades jumps in the 4h leaderboard: watches its top-50 rows and fires only on violent FIRST_JUMP / IMMEDIATE_MOVER rank explosions confirmed by 4h trend, 1h price, fresh 15m velocity, and a 1.5x volume spike — then sizes one bet and lets a tight ratchet ride it. Long silences are expected and correct.",
       "belief_plain": "Cockroaches survive by not moving when there's nothing to chase. Roach watches which coins the traders winning the last four hours are suddenly piling into — a coin violently jumping up the leaderboard — and only buys when that rank-jump is backed by the 4-hour trend, the last hour's price, fresh momentum, and a real volume spike all agreeing. Most of the time it does nothing; the patience is the edge.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "thesis": "Most leaderboard movement is noise. Real edge is a violent, fresh rank-jump — a coin exploding from #25+ into the top of the 4h leaderboard (a momentum read of who is winning right now, not a proven cohort) in a single scan — but only when it's confirmed by trend, price, fresh velocity, and volume at the same instant. Those explosions are rare, so the right move is to ban equities, demand a high composite score with multiple confirmations, take the few that qualify at fixed 7x sizing, and let a ratcheting DSL stop bank the move. Stalker-style accumulation entries were removed — fewer, higher-quality strikes beat more, mixed ones.",
       "tags": [
         "leader-momentum",
@@ -2204,7 +2204,7 @@
       "emoji": "🦎",
       "tagline": "An onboarding-grade pullback trader on the liquid majors (BTC/ETH/SOL): buys a 3-7% dip inside an established bullish 4h trend (and shorts a 3-7% rally inside a bearish one) only when 4h leader momentum (which side the last four hours' winners sit on) agrees with the trend direction, then gives the entry room on a wide Phase 1 while a wide Phase 2 ratchet lets the resumed trend run.",
       "belief_plain": "Watches BTC, ETH and SOL. When one is in a clear up-trend on the 4-hour chart and dips 3-7% on the 1-hour chart while the last four hours' winners are still leaning long, it buys the dip; in a down-trend it shorts a 3-7% bounce. It needs all three to line up — trend, dip-in-the-band, and the 4h leaders agreeing — then it gives the trade room to work and trails a wide stop so the trend can keep running.",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "thesis": "Pullbacks inside an established trend are one of the highest-edge setups: the trend has already proved itself, the counter-move offers a better entry, and a 4h-leader agreement filter screens out trend-break risk. The 3-7% band is the sweet spot — shallower is noise, deeper means the trend may be breaking, so you don't catch a falling knife. Because a resolved pullback resumes a trend that can run far, the exit is asymmetric: a wide Phase 1 floor lets the dip develop without a premature cut, and a wide Phase 2 ratchet (first lock only at +10% ROE) keeps the continuation that pays for the quiet weeks.",
       "tags": [
         "btc",
@@ -2256,7 +2256,7 @@
       "emoji": "🐑",
       "tagline": "A long-only trend follower for beginners: buys a crypto major (BTC/ETH/SOL/HYPE) only when its fast EMA is above its slow EMA on all three timeframes (15m, 1h, 4h) at once, never shorts, and trails a balanced stop so a clean uptrend can run.",
       "belief_plain": "Only buys when a coin is clearly going up by any chart reader's standard — the fast moving average has to be above the slow one on the 15-minute, 1-hour, AND 4-hour chart simultaneously. It never shorts (so there's no 'what's a short?' to learn), bets a little bigger when the trend is wider and the 4h leaders (the last four hours' winners) agree, and then trails a stop so a real uptrend can keep running.",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "thesis": "Most trend agents pick a single timeframe; Sheep insists on agreement across three before firing. That is a stricter filter (fewer trades) but each entry is 'obviously up' to any chart reader, which is exactly the property a beginner needs to trust the agent. Long-only by design removes the cognitive load of shorting, making this the onboarding-grade entry point into the fleet.",
       "tags": [
         "btc",
@@ -2311,7 +2311,7 @@
       "emoji": "🐆",
       "tagline": "A patient momentum sniper across the whole crypto market: it watches the 4h leaderboard tick-over-tick and trades jumps in it, pouncing only on a violent rank explosion — an asset rocketing from rank 20+ into the top 10 in one move while 15m leader flow is actively building and 4h price agrees — then sizes margin to conviction (35/50%) at a flat 10x and trails a DSL stop.",
       "belief_plain": "Most of the time it does nothing. It only acts when an asset suddenly leaps up the 4h leaderboard (the ranking of who is winning over the last four hours — a momentum read, not a proven cohort) — from far down into the top 10 in a single step — with fresh money still piling in and price moving the same way. One amazing trade per day, not a stream of mediocre ones.",
-      "version": "1.1.2",
+      "version": "1.1.3",
       "thesis": "The 4h leaders rotate violently. When a coin jumps from rank 20+ into the top 10 in one tick with 15m contribution still accelerating, that's the 4h leaders piling in fast — a rare, high-conviction setup worth a concentrated strike. Chasing every hot coin bleeds fees; waiting for the violent first jump is the edge.",
       "tags": [
         "momentum",
@@ -2354,7 +2354,7 @@
       "emoji": "🐅",
       "tagline": "Longs the structural winners of a K-shaped world (the AI complex on Hyperliquid XYZ + crypto winners HYPE/SOL) and shorts the laggards (the broad U.S. market via SP500 + a gated basket of laggard alts) — both trend-confirmed on separate wallets — plus a ~10% pre-IPO ramp satellite that auto-discovers pre-IPO perpetuals (IPOPs) and rides them into their listing.",
       "belief_plain": "The world is splitting into haves and have-nots: AI companies and crypto's winners keep booming while the broad economy and the rest of crypto struggle. Cub buys the booming side and shorts the struggling side at the same time on separate wallets, so it makes money on the GAP between the two — and keeps a small slice aimed at the next SpaceX before it goes public.",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "thesis": "The edge is K-shaped DISPERSION, not market direction. Long the AI complex + HYPE/SOL only while they're actually trending up; short SP500 + laggard alts only while they're actually rolling over; the P&L is the spread between the two speeds. A ~10% pre-IPO sleeve adds optionality — it discovers IPOPs by their leverage signature (fresh perps launch capped low) and longs the ones ramping into their listing. Tokenized equities trade 24/7 on Hyperliquid, so the book never waits for a market open.",
       "tags": [
         "k-shaped",
@@ -2681,7 +2681,7 @@
       "emoji": "🦎",
       "tagline": "Watches BTC's 4-hour move via market_get_cross_asset_flows and strikes the highest-confidence correlated alt that historically follows BTC but hasn't caught up yet — entering the alt in BTC's direction, sized to the tool's confidence score, with a stop that trails the catchup.",
       "belief_plain": "When Bitcoin makes a big 4-hour move, certain alts that usually follow it lag behind for a while before catching up. Mantis spots those laggards (only the ones that follow Bitcoin reliably, with smart money already starting to rotate in) and buys the gap, betting it closes — bigger when it's more confident, with a stop that trails the move.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "thesis": "The edge is a statistical lag, not a directional view: alts with an 85%+ historical follow-rate and tight timing variance tend to catch up to a confirmed leader move within their typical lag window. Restricting the leader to BTC (the only asset with pre-computed lag data) and requiring smart-money rotation plus a meaningful gap keeps it to high-probability catchups; sizing scales with the tool's confidence, and a 4-hour ceiling — the top of the lag model's own timeout range — backstops trades where the catchup never materialises.",
       "tags": [
         "crypto",
@@ -2729,7 +2729,7 @@
       "emoji": "🐙",
       "tagline": "Ranks the live liquid main-DEX crypto cross-section by 24h relative strength every tick, then LONGS the strongest names (long book) and SHORTS the weakest (short book) — both trend-confirmed — on two equally-funded wallets so the pair is ~market-neutral and harvests crypto dispersion.",
       "belief_plain": "Buys the strongest crypto coins and shorts the weakest at the same time, on two separate wallets, so it makes money on the GAP between winners and losers instead of betting on the whole market going up or down.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "The edge is dispersion, not direction. In a HYPE-dominates / alts-crushed regime the long book gravitates to the leaders and the short book to the carnage, and the two equally-funded notionals offset market beta — so the return is driven by the spread between strong and weak names. The universe is the live liquid board, not a fixed list, so it always ranks whatever is actually trading and liquid right now.",
       "tags": [
         "crypto",
@@ -2825,7 +2825,7 @@
       "emoji": "🦌",
       "tagline": "Trades gold, crude oil, metals and the stock indices during the day rather than holding for weeks. It waits for a market to settle into an opening range, then takes the break when real volume backs it — and skips it if price has already run too far to be worth chasing. These markets trade around the clock, so there is no waiting for a bell.",
       "belief_plain": "Commodities and indices spend the start of a session finding a range, and the move that breaks that range with volume behind it tends to keep going for a few hours. Oryx watches the range form, buys the break up or sells the break down, and refuses the ones that are already extended or too quiet to cover trading costs. It never sells manually — a profit ratchet locks gains and a fixed stop caps the loss.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "You want to trade gold, oil, or the indices on an intraday clock rather than holding a swing position for weeks. Every XYZ template we ship is swing or position; this is the intraday one. Opening-range break, volume-confirmed, chase-capped, and refused outright when the market is too quiet to pay its own round trip.",
       "tags": [
         "intraday",
@@ -2929,7 +2929,7 @@
       "emoji": "🐡",
       "tagline": "Waits for a market to go quiet — unusually quiet for that particular coin — and then trades the move when it finally breaks out. Quiet stretches tend to end in a big move; the trick is being positioned for the break rather than getting chopped up inside the calm. It sits on its hands until the release, and then gives the winner a long leash.",
       "belief_plain": "When a coin's price action tightens up far more than is normal for it, pressure is building and the next move is usually a big one. Puffer measures how compressed each market is against its own history, ignores the quiet itself, and enters only when price finally breaks out with volume behind it. Then it holds on: a profit ratchet locks gains as they build, and a fixed stop caps the downside if the break fails.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "Volatility is mean-reverting: compression precedes expansion. The edge is in the reference frame — compression is measured against each asset's OWN trailing median, so a coil is detected on a sleepy index and a violent alt alike, which an absolute threshold can never do. Trades the release, never the coil, and runs the widest exit in the catalog because cutting an expansion short forfeits the entire reason for taking it.",
       "tags": [
         "volatility",
@@ -3170,7 +3170,7 @@
       "emoji": "🐦",
       "tagline": "Trades the fast money on the most liquid crypto names — but only when the market is actually moving enough to be worth the fees. Before it even looks at a setup it asks a blunt question: will this move pay for the cost of trading it? If not, it doesn't trade. Most scalpers lose to their own costs; this one refuses the trades that would.",
       "belief_plain": "Short bursts of momentum on big crypto names are tradeable, but at this speed you pay a fee every single time you go in and out — so the only setups worth taking are the ones moving enough to cover that cost several times over. Swift measures how much a market is actually moving, compares it to what a round trip costs, and skips everything that doesn't clear the bar. It never sells manually — a profit ratchet locks gains and a fixed stop caps the downside.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "You want to trade fast, and you have watched fees quietly eat a scalper alive. The edge here is not a cleverer indicator — it is a hard cost floor applied BEFORE the signal: expected capture (a fraction of ATR) must exceed the round-trip fee by a configured multiple, or the name is never scored. Entries rest as maker first. The ratchet locks gains only; it can never close a winner at a loss.",
       "tags": [
         "scalp",
@@ -3376,7 +3376,7 @@
       "emoji": "🥇",
       "tagline": "Bets on currency debasement: LONGS scarce real assets (GOLD, BTC, SILVER, PLATINUM, PALLADIUM) on the hard-money wallet and SHORTS the paper economy (SP500 + rate-sensitive growth RIVN/DKNG/HIMS) on the paper wallet — each leg trend-confirmed and conviction-sized. The P&L is the real-assets-beat-paper-claims spread.",
       "belief_plain": "Buys gold, bitcoin and other scarce real assets while shorting the broad stock market and rate-sensitive growth stocks at the same time, on two separate wallets, betting that as governments run big deficits and rates stay high, hard money beats paper claims.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "Fiscal dominance / currency debasement: as deficits compound and the term premium rises, scarce real assets (gold, BTC, silver) outperform fiat-denominated financial claims. Express it as a long/short — long hard money, short paper — so the edge is the spread, not market direction. Each name only trades when its own absolute 4h/1h trend confirms (cross-sectional relative strength only tilts ranking and size). HONEST CAVEAT: the loosest hedge of the family — in a pure liquidity melt-up gold AND stocks can rise together; the short tilts to rate-sensitive names to tighten it. Best deployed as a tilt, not a market-neutral bet.",
       "tags": [
         "debasement",
@@ -3606,7 +3606,7 @@
       "emoji": "⚡",
       "tagline": "Bets AI datacenters are a structural new source of electricity demand: LONGS the AI-power complex on Hyperliquid XYZ (uranium, gas-fired power, grid copper, fuel cells, rare-earth) and SHORTS crude oil — both trend-confirmed, on two separate wallets — so the pair is energy-sector-neutral and harvests the electrons-vs-barrels spread.",
       "belief_plain": "Buys the things that make electricity for AI datacenters (uranium, natural gas, copper, fuel cells, rare-earth) and shorts crude oil at the same time, on two separate wallets, so it makes money on power BEATING oil rather than on energy going up or down.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "AI datacenter electricity demand is a structural new bid for the power complex, while crude oil is the legacy transport fuel barely levered to AI. Both legs are energy, so a broad energy move washes out and the P&L is the dispersion — power outperforming oil. Each book only acts when ABSOLUTE trend confirms (long power on a non-bearish 4h; short oil on a non-bullish 4h, with a capitulation guard), with cross-sectional relative strength as a size/rank tiebreaker. Commodities trade ~24/7 on Hyperliquid, so the book never waits for a market open.",
       "tags": [
         "energy",
@@ -3781,7 +3781,7 @@
       "emoji": "🦁",
       "tagline": "Bets on a K-shaped divergence: LONGS the structural winners (the AI complex on Hyperliquid XYZ + the crypto winners HYPE/SOL) on the 'haves' wallet, and SHORTS the laggards (the broad U.S. market via SP500 + a gated basket of laggard alts) on the 'have-nots' wallet. Both trend-confirmed on absolute structure, with relative strength as a tiebreaker and per-name conviction sizing (HYPE big, SOL small, SP500 core). The edge is the DISPERSION between the two speeds, not market direction.",
       "belief_plain": "Buys the booming AI stocks and crypto winners while shorting the broad stock market and the alts losing ground, each on its own wallet — so it makes money on the GAP between the world's fast lane and slow lane rather than on the market going up or down. It only buys names actually trending up and only shorts names actually rolling over, and bets bigger on its highest-conviction picks.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "The world is splitting into two speeds: the AI complex and HYPE/SOL keep booming while the broad U.S. economy and the rest of crypto struggle. Express it as one thematic long/short book — long the haves, short the have-nots — and the P&L is the dispersion between the two, not the market's direction. The hard gate is ABSOLUTE trend (never long a downtrend, never short an uptrend, even for a thesis name); cross-sectional relative strength only tilts size and ranking. Net exposure is the operator's dial (default modest net-long), set by how much capital each wallet holds.",
       "tags": [
         "k-shaped",
@@ -3935,7 +3935,7 @@
       "emoji": "🪙",
       "tagline": "Bets money is migrating on-chain: LONGS the on-chain financial rails (HYPE the venue + Circle/CRCL + Coinbase/COIN + Robinhood/HOOD + BTC treasuries MSTR/PURRDAT) on one wallet and SHORTS legacy finance + broad financial-beta (Blackstone/BX + SP500) on another — both trend-confirmed on absolute 4h/1h structure — so the P&L is the disruptor-vs-incumbent spread.",
       "belief_plain": "Buys the companies and tokens that are pulling finance on-chain (the crypto exchange, the stablecoin issuer, the BTC treasuries) and at the same time shorts the old-finance incumbents and the broad market, on two separate wallets. It only buys names that are actually trending up and only shorts names actually rolling over, and it bets bigger on its highest-conviction picks (HYPE and Circle).",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "Money is migrating on-chain — stablecoins, crypto exchanges and BTC treasuries are eating legacy financial rails. You want to own the disruptors and short the incumbents so the return is the GAP between them, not the direction of the market. HONEST CAVEAT: the hedge is cross-sector and the short universe is thin (few pure legacy-finance names list on the venue yet), so the short leg leans on the broad index — it nets down market beta rather than perfectly isolating the pair, and the long book is the strong, high-conviction side.",
       "tags": [
         "on-chain-finance",
@@ -4188,7 +4188,7 @@
       "emoji": "🕷️",
       "tagline": "An AI/Tech momentum long book plus a macro/majors mean-reversion book — two legs, two wallets, one package.",
       "belief_plain": "AI/tech equities and crypto majors trend over days, while majors and energy snap back from short-term extremes — run both books side by side; the swing book adds a bonus when 4h leader momentum (which side the last four hours' winners sit on) agrees.",
-      "version": "6.2.0",
+      "version": "6.2.1",
       "thesis": null,
       "tags": [
         "ai",
@@ -4512,7 +4512,7 @@
       "emoji": "🐺",
       "tagline": "A single-asset BTC bet driven by a macro-regime read: each tick it measures BTC's 7-day trend strength and annualized realized volatility (plus cross-asset dispersion for context) and classifies the market into TREND_UP, TREND_DOWN or CHOP — going long BTC in a calm uptrend, short BTC in a high-vol crash, and staying out otherwise, then letting a balanced DSL ride the regime.",
       "belief_plain": "Coyote first asks 'what kind of market are we in?' It looks at how far Bitcoin has moved over the last week and how violent that move has been. A steady 5%+ climb with calm volatility means uptrend — it goes long BTC. A sharp 5%+ drop with a volatility spike means a panic crash — it goes short BTC. Anything in between is chop, so it stays out. Real regimes last days, so it trades rarely and lets the trend run.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "Most agents re-implement their own 'should I be active right now?' check; Coyote makes the macro regime a first-class decision. BTC's 7-day move sets the direction and realized vol confirms the character — demanding HIGH vol for a short distinguishes a panic crash worth fading-with from an orderly grind-down that's really just chop. Because regimes are persistent, the right behavior is a slow cadence, a 6h cooldown and a max of 2 entries/day so it never churns on noise, then a wide DSL trail so a real regime move runs for days.",
       "tags": [
         "btc",
@@ -4560,7 +4560,7 @@
       "emoji": "🦎",
       "tagline": "A relative-value pairs trader on correlated crypto majors: for each pair (ETH/BTC, SOL/ETH, SOL/BTC) it z-scores the latest price ratio vs its 48-bar (1h) mean, and when the ratio stretches >=2 sigma AND starts reverting, it takes a directional bet on the high-beta leg in the snap-back direction — sizing one slot and letting a tight mean-reversion DSL bank the reversion.",
       "belief_plain": "Trades the spread between two coins, not the market. When ETH gets expensive relative to BTC (or SOL vs ETH), the ratio stretches far from its usual level — and ratios snap back more reliably than outright prices. Chameleon measures how stretched a pair is, waits until the ratio starts turning back, then bets on the high-beta coin (ETH or SOL) in the direction that profits from the snap-back, and trails a tight stop to bank the reversion.",
-      "version": "1.3.1",
+      "version": "1.3.2",
       "thesis": "Correlated majors trade as a pack, but their ratios oscillate around a mean. A 3-sigma ETH/BTC extension is a cleaner edge than guessing ETH's absolute direction — the pair's correlation does the work. The Senpi runtime is single-position, so instead of a two-leg market-neutral spread Chameleon takes a directional bet on the high-beta leg (4h leader momentum on that leg — which side the last four hours' winners sit on — adds a point of conviction, never a gate); it captures most of the reversion edge without spread-level position management, and the move is bounded, so a tight ladder banks the snap-back rather than holding for a trend.",
       "tags": [
         "eth",
@@ -4611,7 +4611,7 @@
       "emoji": "🦫",
       "tagline": "An onboarding-tier BTC specialist: enters only when the 4h candle structure is trending AND the 4h leaderboard's winners sit on that side — then takes one flat-5x position and lets a wide DSL ladder ride the trend.",
       "belief_plain": "Trades only BTC. It asks two questions — is BTC trending on the 4-hour chart, and are the traders who won the last four hours leaning the same way? If both are yes it opens one position and trails a stop instead of guessing the exit. Built for first-time users.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "thesis": "New users want one clean answer, not a scattergun across the market. BTC is the most liquid, most legible asset on Hyperliquid; 'is it trending and are the 4h leaders on the same side?' is the simplest honest edge — and a wide trailing stop lets a real trend run multi-day without micromanagement.",
       "tags": [
         "btc",
@@ -4657,7 +4657,7 @@
       "emoji": "🐈",
       "tagline": "A big-tech equity-perp trend follower on Hyperliquid XYZ (NVDA/TSLA/AAPL/META/MSFT/GOOGL/AMZN/AMD/MU/INTC/TSM/ORCL): enters the single strongest name when its 4h trend is non-neutral AND the 4h leaders lean the same way (tilt >= 55%), sizes a flat 20% margin at 5x, and lets a wide DSL ratchet ride the move — with a 48h cap so positions don't camp through the weekend pricing gap.",
       "belief_plain": "Trades the big tech stocks you already know — NVDA, TSLA, AAPL and nine more — as perps on Hyperliquid XYZ, 23/5. It only enters when a stock's 4-hour trend and the traders winning the last four hours are pointing the same way, holds the single strongest setup, and trails a stop so a real move can run — but caps each hold at 48 hours so it never sits through the Friday-to-Sunday gap when these names have no external price.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "thesis": "Big tech is the most-traded equity sector, and Hyperliquid XYZ surfaces these names as leveraged perps with 23/5 hours. A clean trend + 4h-leader confluence on the highest-liquidity XYZ equities catches directional moves without the small-cap noise of a broad scanner. The 48h hard_timeout is intentional: equity perps reconcile against an internal oracle over the weekend gap, where drift accumulates without external price discovery — so winners are let to run on the 4h timescale but never held through the full Fri-Sun window.",
       "tags": [
         "big-tech",
@@ -4904,7 +4904,7 @@
       "emoji": "🪶",
       "tagline": "An onboarding-tier single-asset HYPE specialist: enters only when the 4h trend structure is directional AND the 4h leaderboard's winners sit on that side (tilt >= 60%) — then holds one flat-5x position and lets a wide DSL ladder ride the trend.",
       "belief_plain": "Trades only HYPE. It asks two simple questions — is HYPE trending on the 4-hour chart, and are the traders who won the last four hours on that side? If both are yes, it opens one position and trails a wide stop instead of guessing the exit, so winning trends can run for days.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "thesis": "New users want one clean decision, not a scattergun across the market. HYPE has the liquidity and the moves, and a one-asset, one-direction strategy with a 4h-leader confirmation gate is the simplest honest answer to 'I'm new to Senpi, where do I start?'",
       "tags": [
         "hype",
@@ -4949,7 +4949,7 @@
       "emoji": "🦎",
       "tagline": "A broad-index trend-follower on the XYZ equity indices (xyz:SP500 + xyz:XYZ100): each tick measures the 4-day move of each index, picks the stronger one past the trend floor, and rides it in that direction — no stock-picking, no commodities. The closest thing to an index fund, but 24/7 on Hyperliquid.",
       "belief_plain": "Trades only the two broad stock-market indices (S&P 500 and the XYZ 100). Every few minutes it checks which index has the bigger 4-day move; if that move is large enough it goes that way (up = long, down = short), bets bigger when the move is strong and volume is rising, and then trails a stop. The simplest stock-market exposure on Hyperliquid — no individual stocks.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "You want broad stock-market exposure on Hyperliquid without picking individual stocks, commodities, or pre-IPO names. Two liquid index instruments, one decision per tick: trend-follow whichever index has the clearer 4-day direction. The edge is in the slow index drift, so a wide DSL rides it for days and a 48h hard-timeout caps the XYZ weekend pricing-gap risk.",
       "tags": [
         "sp500",
@@ -4999,7 +4999,7 @@
       "emoji": "🐨",
       "tagline": "The simplest agent in the catalog: pick one asset (default BTC), fire LONG once on deploy, then hold with an ultra-wide DSL trail (max_loss 30%, retrace, 90-day timeout). No scoring, no scheduling — the choice to deploy Koala IS the bet.",
       "belief_plain": "Trades only the one coin you pick (BTC by default). It buys once when you turn it on, then just holds — never adding, never trading around it — with a very wide safety stop that only releases on a catastrophic reversal or after three months. The whole idea is to own the coin and have a net under it.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "Some users do not want a market-reading agent at all — they just want to own one asset and have a safety net. Koala is that answer in code: one asset, one entry, one stop. Fire-once by default (a true buy-and-forget), with an optional re-entry cycle for operators who want 'buy / DSL-exits / buy again' on a long cooldown.",
       "tags": [
         "btc",
@@ -5562,7 +5562,7 @@
       "emoji": "🐦",
       "tagline": "Auto-discovers the platform's top-performing strategies, then trades the asset + direction they agree on most — performance-weighted, so a stronger strategy gets more say (capped so one outlier can't dominate).",
       "belief_plain": "Lets the best strategies on the platform do the work. Every few minutes it finds the top performers, looks at what they're holding right now, and copies whatever the most (and best) of them are piling into together — going long what they're long and short what they're short.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "Following one trader or one leaderboard is one layer; Cuckoo is a layer above it. The strategies it follows are themselves copy/algo/trader-following strategies, so it captures the consensus of the consensus. When the best strategies independently pile into the same asset+direction, that agreement is a strong, self-cleaning signal — underperformers fall out of the top-N automatically, so the pool refreshes toward whatever is working.",
       "tags": [
         "copy-trading",
@@ -5606,7 +5606,7 @@
       "emoji": "🐦",
       "tagline": "Maintains a daily-refreshed pool of the most consistent (ELITE/RELIABLE) Hyperliquid traders, reads each one's open book, and mirrors ONLY their single highest-conviction bet — and only when that one position dominates their whole book (e.g. ~98% of capital in one 3x position). Leans hardest when several elite traders independently pile into the same concentrated trade.",
       "belief_plain": "Looks past the leaderboard noise and keeps a shortlist of the steadiest, most-proven traders on Hyperliquid. Instead of copying everything they do, Oxpecker copies only the trade they're betting their whole book on — the one position that makes up most of their capital. When more than one of those proven traders is all-in on the same trade in the same direction, it bets harder, then trails a wide stop so the conviction can run.",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "thesis": "A proven trader's signal is loudest exactly when they concentrate. Cohort copiers average a pool and whale mirrors ride a fixed name list; Oxpecker does neither — it screens for the highest consistency tier (ELITE/RELIABLE) and then, within that elite set, only acts on positions that represent real conviction: where one bet is the overwhelming majority of the trader's book. A reliable trader with ~98% of their capital in one short is telling you something an opaque cohort average buries. Quality-tier x position-concentration is the whole edge — consensus across multiple elite traders on the same concentrated trade is the strongest signal there is, and the wide let-winners-run DSL respects that conviction rather than scalping it.",
       "tags": [
         "copy-trading",
@@ -5761,7 +5761,7 @@
       "emoji": "🐟",
       "tagline": "Autonomous smart-money whale mirror — auto-builds a top-trader cohort and mirrors their highest-conviction positions; optionally mirror specific whales you name via inputs.whales. Like a remora fish riding a shark, it leans hardest when several whales pile into the same trade (consensus) or when a whale is ELITE/RELIABLE tier.",
       "belief_plain": "Out of the box, Remora finds the most proven traders on Hyperliquid, watches their open positions, and copies the strongest bets — betting bigger when several of them are in the same trade and one has an elite track record. Prefer to ride specific traders you trust? Name them and Remora mirrors exactly those instead. Either way it trails a wide stop so the trade can run.",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "thesis": "Riding the highest-conviction position of proven traders keeps your exposure tracking real smart money, and the consensus multiplier means it leans hardest exactly when those traders independently agree — one whale can be wrong, three agreeing is a much stronger signal. By default Remora is autonomous: it auto-builds a top-trader cohort (all-time realized PnL, refreshed daily) so it always has whales to mirror — no config required. Name your own whales to make it ride exactly the traders you choose. Whales hold winners, so the exit lets the mirror run and only caps staleness.",
       "tags": [
         "whale",
@@ -5851,7 +5851,7 @@
       "emoji": "📡",
       "tagline": "Runs the Senpi Signals detector library on a clock and opens what clears the score floor. Same engine as the feed you read, byte-identical and drift-tested. Conviction-sized: 5x, 20-25% per slot, 5 slots — the whole wallet committed when full. It skips a tick outright when the smart-money lens goes dark rather than scoring without it.",
       "belief_plain": "Senpi Signals already tells you where the proven cohort is positioned, where funding is dislocated, where open interest is surging and where a leader has left a laggard behind. Reading it and acting is two steps; this is the second one on a clock. Every hour it runs the same gather and the same detectors, takes the TRADE lens, and opens the names scoring 65 or better — 20% of the wallet each, 25% above 80. It is sized for conviction, not for a first strategy: five slots at 5x means a full book is most of the wallet committed. Know the fee drag before funding: at five entries a day this runs about 0.50% of the budget per day, roughly 15% a month, so direction has to beat that before the book makes anything — on a small budget that is the whole edge. It trades both directions, because the cohort is short about as often as it is long. When the cohort read fails it opens nothing and says so, rather than quietly scoring on price and funding alone and calling that a smart-money read.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "The detector library is the edge, so it is vendored rather than reimplemented: sweep.py, score.py and smartmoney.py are byte-identical to the skill's and a drift test enforces it, which means a detector fixed in the feed is fixed in the strategy. Most of that library diffs the current reading against an earlier one — OI surges, conviction builds, funding flips, whale moves — so the scanner keeps a 24-deep hourly ring in its own state to give them a baseline; the first tick after a deploy can only fire the point-in-time detectors and says so rather than looking quiet. Two failures are treated as failures rather than as silence: a universe read that returns nothing, and a proven-cohort lens that went dark. Either skips the tick. A signal whose direction the engine could not name is skipped too, never defaulted long. One detector is deliberately not traded: `whale_open` rests on a third-party `startTime` we have caught resetting on an unchanged position, which is a discountable sentence in a feed and a 5x entry here; it returns when that check reports. Emits are also capped by what the wallet actually funds, so a tick that scores well does not fail its own lowest-ranked opens. Exits are a wide let-winners-run ladder with every ROE threshold scaled for 5x, so the stops sit where they would at 3x measured in price.",
       "tags": [
         "signals",
@@ -5951,7 +5951,7 @@
       "emoji": "🦅",
       "tagline": "When BTC moves hard, crypto-correlated equities on Hyperliquid XYZ (Coinbase, MicroStrategy) follow late: Osprey self-computes each proxy's catch-up gap (leader move x its beta minus the move it has actually made), and when a proxy still owes a gap in the leader's direction it enters the proxy that way and lets a wide DSL ride the catch-up.",
       "belief_plain": "When Bitcoin makes a big move, the crypto-flavored stocks on the XYZ exchange (Coinbase, MicroStrategy) usually move the same way — but a beat late, because they are priced on a different venue. Osprey works out how far behind each one is and bets it catches up, then trails a wide stop so the catch-up can run for a day or two.",
-      "version": "1.1.3",
+      "version": "1.1.4",
       "thesis": "A crypto-correlated equity has a known beta to BTC (COIN ~1.8x, MSTR ~2.5x), so a BTC move implies an expected proxy move. But XYZ pricing trails spot crypto around its reference windows, so the proxy's actual move lags — a measurable, tradeable gap. Trading the lag (not the leader) means entering in the leader's confirmed direction only when the proxy still owes catch-up, which sidesteps the chase-the-leader failure mode and lets the structural pricing lag, not a directional guess, be the edge. The 4h leaders' side on the proxy (which side the last four hours' winners sit on) is a small score bonus, never a gate.",
       "tags": [
         "xyz",
@@ -6000,7 +6000,7 @@
       "emoji": "🦝",
       "tagline": "Trades only the weekend, only on tokenized stocks & commodities (XYZ): while the underlying markets are closed and XYZ runs on an internal oracle, Raccoon positions in the direction sentiment has been pushing the price — and captures the snap-back when real external pricing resumes Monday open. Sizes 15% / 3x and rides a tight DSL with a 48h Monday-exit cap.",
       "belief_plain": "From Friday evening to Sunday evening the real stock and commodity markets are closed, so tokenized versions on XYZ drift on an internal estimate instead of a live price. When trading resumes Monday, that estimate snaps to the true market price. Raccoon bets in the direction the weekend drift (plus the 4h leaders, the traders winning the last four hours on the board) is leaning, and exits into that Monday snap — and only ever runs on the weekend.",
-      "version": "1.2.2",
+      "version": "1.2.3",
       "thesis": "Fri 17:00 ET -> Sun 18:00 ET, trade.xyz has no external price feed for equities/commodities and runs a 30-min EWMA internal oracle that drifts on impact-price activity. Accumulated weekend sentiment (>= 2% move + volume + 4h-leader agreement — a momentum read of the board, not a proven cohort) shows up as directional oracle drift; when external pricing resumes Sunday evening the implied price reconciles to the real value. Positioning into that gap and exiting at the Monday-open snap is the edge — and confining all activity to the weekend window avoids weekday false signals and Lemur's 24/7 IPOP territory.",
       "tags": [
         "xyz",

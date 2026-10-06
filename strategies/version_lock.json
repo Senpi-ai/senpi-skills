@@ -1,0 +1,489 @@
+{
+  "_instructions": "GENERATED \u2014 run senpi-trading-runtime/scripts/behaviour_hash.py --write. Maps each strategy package to its strategy.yaml version and a hash of the behaviour the runtime executes (parsed YAML + Python AST without docstrings; comments and prose are excluded). strategies/tests/test_version_tracks_behaviour.py recomputes these and fails when a package's behaviour changed while its version did not \u2014 because deploy.py refreshes a package on VERSION INEQUALITY only, so a behavioural fix shipped without a bump never reaches a box already holding that version.",
+  "packages": {
+    "aegis": {
+      "behaviour": "e72fccd8932761ec",
+      "version": "1.5.0"
+    },
+    "ant": {
+      "behaviour": "ce151ae43ba1705d",
+      "version": "1.3.1"
+    },
+    "armadillo": {
+      "behaviour": "3fe4acde7703e73f",
+      "version": "1.2.1"
+    },
+    "asia-ai": {
+      "behaviour": "f92eeb12420e4f4a",
+      "version": "1.1.0"
+    },
+    "athena": {
+      "behaviour": "e67d0699b62cc4eb",
+      "version": "1.7.0"
+    },
+    "athena-x": {
+      "behaviour": "b248697299b52afb",
+      "version": "1.6.0"
+    },
+    "badger": {
+      "behaviour": "9c78556712420824",
+      "version": "1.1.2"
+    },
+    "bald-eagle": {
+      "behaviour": "06b4a7c77ba46537",
+      "version": "1.3.2"
+    },
+    "barnacle": {
+      "behaviour": "46452b75cd5decdc",
+      "version": "1.2.3"
+    },
+    "barracuda": {
+      "behaviour": "7c91573ecf9f8792",
+      "version": "1.2.0"
+    },
+    "beaver": {
+      "behaviour": "7feee098c611f764",
+      "version": "1.1.2"
+    },
+    "bison": {
+      "behaviour": "7cf72f13c10811f4",
+      "version": "1.3.0"
+    },
+    "bloodhound": {
+      "behaviour": "5a4b46fe4e4121c3",
+      "version": "1.2.0"
+    },
+    "boar": {
+      "behaviour": "f71ac790e8f32c08",
+      "version": "1.2.1"
+    },
+    "bobcat": {
+      "behaviour": "e21f40906ab784d9",
+      "version": "1.1.2"
+    },
+    "camel": {
+      "behaviour": "244061cc8b2801eb",
+      "version": "1.2.1"
+    },
+    "caracal": {
+      "behaviour": "2bab5a25e9cbf884",
+      "version": "1.2.1"
+    },
+    "caribou": {
+      "behaviour": "e0cfc74ce42f18cf",
+      "version": "1.2.0"
+    },
+    "chameleon": {
+      "behaviour": "cd20912dc9a54785",
+      "version": "1.3.2"
+    },
+    "cheetah": {
+      "behaviour": "b51985ea000ea971",
+      "version": "1.2.1"
+    },
+    "chimp": {
+      "behaviour": "c430d412067a86c0",
+      "version": "1.2.1"
+    },
+    "condor": {
+      "behaviour": "933cdaa60d8f1518",
+      "version": "1.4.1"
+    },
+    "cougar": {
+      "behaviour": "c143fc5080b38d44",
+      "version": "1.2.0"
+    },
+    "coyote": {
+      "behaviour": "050816332d8af1bf",
+      "version": "1.2.1"
+    },
+    "crane": {
+      "behaviour": "90bb278ac6607928",
+      "version": "1.1.0"
+    },
+    "cub": {
+      "behaviour": "b31cc344a6c54d00",
+      "version": "1.3.1"
+    },
+    "cuckoo": {
+      "behaviour": "30ffe567c65d2958",
+      "version": "1.2.1"
+    },
+    "dire": {
+      "behaviour": "ae8780442f7a60e5",
+      "version": "1.1.0"
+    },
+    "dog": {
+      "behaviour": "a5fc418422d04770",
+      "version": "1.1.3"
+    },
+    "dragonfly": {
+      "behaviour": "af2172f1cd2fd1eb",
+      "version": "1.2.2"
+    },
+    "eel": {
+      "behaviour": "a5e3a39607959a59",
+      "version": "1.2.1"
+    },
+    "egret": {
+      "behaviour": "32c1dc4ec5de4435",
+      "version": "1.3.2"
+    },
+    "elephant": {
+      "behaviour": "08f21228f5a7a52e",
+      "version": "1.2.1"
+    },
+    "falcon": {
+      "behaviour": "a2af4bd252edfdeb",
+      "version": "1.1.1"
+    },
+    "gecko": {
+      "behaviour": "7253fc0369822e9b",
+      "version": "1.2.0"
+    },
+    "gibbon": {
+      "behaviour": "f581e412fde551c7",
+      "version": "1.2.1"
+    },
+    "gorilla": {
+      "behaviour": "2a2a43a94c9d89a8",
+      "version": "1.2.1"
+    },
+    "grizzly": {
+      "behaviour": "a3e92c49dc8c5364",
+      "version": "1.1.3"
+    },
+    "grizzly-wild": {
+      "behaviour": "a5befe11b4696b56",
+      "version": "1.0.0"
+    },
+    "hare": {
+      "behaviour": "d946a2676112849b",
+      "version": "1.2.0"
+    },
+    "hawk": {
+      "behaviour": "5cb3f5cd79cebc73",
+      "version": "1.2.2"
+    },
+    "hedgehog": {
+      "behaviour": "b3e7fa412e318be7",
+      "version": "1.1.2"
+    },
+    "hen": {
+      "behaviour": "9c6e519278711003",
+      "version": "1.2.0"
+    },
+    "heron": {
+      "behaviour": "e49037ff8d171ce7",
+      "version": "1.1.1"
+    },
+    "hornet": {
+      "behaviour": "425fc0aee40484e5",
+      "version": "1.1.2"
+    },
+    "hummingbird": {
+      "behaviour": "7ac28f3e31557caf",
+      "version": "1.1.2"
+    },
+    "hydra": {
+      "behaviour": "1c70705e6b6338d6",
+      "version": "1.2.0"
+    },
+    "hyena": {
+      "behaviour": "79aab7aa01cc8291",
+      "version": "1.2.2"
+    },
+    "ibis": {
+      "behaviour": "32ec15b4203cd912",
+      "version": "1.2.0"
+    },
+    "iguana": {
+      "behaviour": "9cd8e719233d5c11",
+      "version": "1.2.1"
+    },
+    "jackal": {
+      "behaviour": "5d8fbc5bc001a2b8",
+      "version": "1.1.2"
+    },
+    "jaguar": {
+      "behaviour": "c190ab8532579ba9",
+      "version": "1.1.3"
+    },
+    "kestrel": {
+      "behaviour": "1f947b7d761dcaba",
+      "version": "1.1.2"
+    },
+    "kingfisher": {
+      "behaviour": "41ce7d2039cb60fb",
+      "version": "1.2.0"
+    },
+    "kite": {
+      "behaviour": "c0cdb4edd6ab869d",
+      "version": "1.3.0"
+    },
+    "koala": {
+      "behaviour": "e1c650788416043b",
+      "version": "1.2.1"
+    },
+    "kodiak": {
+      "behaviour": "4a7b988d786aecaa",
+      "version": "1.1.2"
+    },
+    "lemon": {
+      "behaviour": "2f5f75ad66a3b8c2",
+      "version": "1.2.3"
+    },
+    "lemur": {
+      "behaviour": "725dc36cda0b5522",
+      "version": "1.1.3"
+    },
+    "lion": {
+      "behaviour": "edc24d903a4e1f64",
+      "version": "1.2.1"
+    },
+    "lynx": {
+      "behaviour": "0f4c7fa64db9b7a6",
+      "version": "1.1.2"
+    },
+    "magpie": {
+      "behaviour": "fb438e6d9978ee1b",
+      "version": "1.1.2"
+    },
+    "mandate": {
+      "behaviour": "7b80d6aafc4b1c14",
+      "version": "1.3.0"
+    },
+    "manta": {
+      "behaviour": "28f7a753762afb49",
+      "version": "1.2.0"
+    },
+    "mantis": {
+      "behaviour": "9966c758b986c0a8",
+      "version": "1.1.2"
+    },
+    "marlin": {
+      "behaviour": "bc5cbae6a964e866",
+      "version": "1.1.2"
+    },
+    "meerkat": {
+      "behaviour": "308ca6fe95109278",
+      "version": "1.1.3"
+    },
+    "mongoose": {
+      "behaviour": "ef311f0aceee20cf",
+      "version": "1.2.1"
+    },
+    "octopus": {
+      "behaviour": "16aaa6a79d6d40c3",
+      "version": "1.2.1"
+    },
+    "orangutan": {
+      "behaviour": "b591beea810679c8",
+      "version": "1.2.1"
+    },
+    "orca": {
+      "behaviour": "d03b59f66c31e599",
+      "version": "1.1.3"
+    },
+    "oryx": {
+      "behaviour": "46134abc93cb7fdc",
+      "version": "1.0.1"
+    },
+    "osprey": {
+      "behaviour": "f9dc7a69fb077ee6",
+      "version": "1.1.4"
+    },
+    "otter": {
+      "behaviour": "4dda1f6b855c16d0",
+      "version": "1.3.1"
+    },
+    "owl": {
+      "behaviour": "90ce3ab6b27cd2bf",
+      "version": "1.3.3"
+    },
+    "ox": {
+      "behaviour": "93b2938b2becc269",
+      "version": "1.1.0"
+    },
+    "oxpecker": {
+      "behaviour": "b70afde2650890f1",
+      "version": "1.1.1"
+    },
+    "pangolin": {
+      "behaviour": "0f47c91376d13259",
+      "version": "1.3.1"
+    },
+    "pelican": {
+      "behaviour": "34aee34614297d0c",
+      "version": "1.1.0"
+    },
+    "penguin": {
+      "behaviour": "d75b30b013108946",
+      "version": "1.1.0"
+    },
+    "penguin-x5": {
+      "behaviour": "8a5288bdf9a266b2",
+      "version": "1.0.0"
+    },
+    "penguins-duo": {
+      "behaviour": "3333ae4342bdee2a",
+      "version": "1.0.0"
+    },
+    "phalanx": {
+      "behaviour": "a1a2c57dc84bdaa1",
+      "version": "1.6.0"
+    },
+    "pilotfish": {
+      "behaviour": "9564396dd7de53ec",
+      "version": "1.1.2"
+    },
+    "piranha": {
+      "behaviour": "f59f542797ee9ead",
+      "version": "1.1.2"
+    },
+    "polar": {
+      "behaviour": "30072c50fab3a56d",
+      "version": "1.1.1"
+    },
+    "puffer": {
+      "behaviour": "124651826754249a",
+      "version": "1.0.1"
+    },
+    "puffin": {
+      "behaviour": "892ec8c8de270f1f",
+      "version": "1.2.0"
+    },
+    "purple-penguin": {
+      "behaviour": "7761594729268c59",
+      "version": "1.0.0"
+    },
+    "python": {
+      "behaviour": "ce65a6893ca26136",
+      "version": "1.1.2"
+    },
+    "raccoon": {
+      "behaviour": "7684c74f9cc40714",
+      "version": "1.2.3"
+    },
+    "ram": {
+      "behaviour": "8ec80d3f596d0d76",
+      "version": "1.2.0"
+    },
+    "raptor": {
+      "behaviour": "373e9ee0a535d854",
+      "version": "1.2.1"
+    },
+    "raven": {
+      "behaviour": "4be53e2ad03b7e53",
+      "version": "1.2.2"
+    },
+    "remora": {
+      "behaviour": "1939c202ac9e85d7",
+      "version": "1.3.1"
+    },
+    "rhino": {
+      "behaviour": "af669a547dcd0cb3",
+      "version": "1.2.0"
+    },
+    "roach": {
+      "behaviour": "2821cdc2648b0a3b",
+      "version": "1.1.2"
+    },
+    "rooster": {
+      "behaviour": "02bf111876964218",
+      "version": "1.2.0"
+    },
+    "rotator": {
+      "behaviour": "75fe33c589d4a90f",
+      "version": "1.2.1"
+    },
+    "sailfish": {
+      "behaviour": "8b0714cb15ece395",
+      "version": "1.2.0"
+    },
+    "salamander": {
+      "behaviour": "2568c359c58da02b",
+      "version": "1.2.2"
+    },
+    "salmon": {
+      "behaviour": "d8535fdf9c4cc663",
+      "version": "1.2.1"
+    },
+    "scorpion": {
+      "behaviour": "97534eaf847a0fa5",
+      "version": "1.1.1"
+    },
+    "shadow": {
+      "behaviour": "0c8fb5fe5914feb6",
+      "version": "1.3.0"
+    },
+    "sheep": {
+      "behaviour": "de1c3112131b262c",
+      "version": "1.2.2"
+    },
+    "signals-hunter": {
+      "behaviour": "257549ecc2654af0",
+      "version": "1.2.1"
+    },
+    "spider": {
+      "behaviour": "c80a89a2067604d6",
+      "version": "6.2.1"
+    },
+    "stag": {
+      "behaviour": "119bf06df93af2d3",
+      "version": "1.1.1"
+    },
+    "starling": {
+      "behaviour": "d4b99ec43be6d16b",
+      "version": "1.4.2"
+    },
+    "swift": {
+      "behaviour": "3c109fff19caf6ce",
+      "version": "1.0.1"
+    },
+    "terrapin": {
+      "behaviour": "43bafb6b3cbe2f53",
+      "version": "1.2.1"
+    },
+    "thesis-fund": {
+      "behaviour": "ead6be09ccf9c1a0",
+      "version": "1.2.0"
+    },
+    "tortoise": {
+      "behaviour": "7170f660ca679326",
+      "version": "1.2.0"
+    },
+    "viper": {
+      "behaviour": "c50f78c769a77c64",
+      "version": "1.2.1"
+    },
+    "vulture": {
+      "behaviour": "5e9ca3e2e3c3081d",
+      "version": "1.2.2"
+    },
+    "weaver": {
+      "behaviour": "93d1eed557212bfe",
+      "version": "1.1.0"
+    },
+    "whalehunter": {
+      "behaviour": "a0d518325bad3a67",
+      "version": "1.3.2"
+    },
+    "wild-cheetah": {
+      "behaviour": "e90fe9d2fff2a124",
+      "version": "1.0.1"
+    },
+    "wild-condor": {
+      "behaviour": "8b154e3581f30baa",
+      "version": "1.1.1"
+    },
+    "wolf": {
+      "behaviour": "04829054614d0f99",
+      "version": "1.2.0"
+    },
+    "wolverine": {
+      "behaviour": "ad1bd17944eefb88",
+      "version": "1.1.2"
+    }
+  }
+}
