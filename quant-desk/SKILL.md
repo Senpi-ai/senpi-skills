@@ -14,9 +14,10 @@ description: >-
   Hyperfeed attention layer come from Senpi's own data.
   TRIGGERS — any of these, with or without an address: "run AI quant", "run ai-quant", "run quant-desk", "run AI quant on my Hyperliquid wallet", "run AI quant on any Hyperliquid wallet", "run quant", "run the quant on 0x…", "run quant
   desk on 0x…", "score my trading", "rate my trading", "find leaks on my Hyperliquid wallet", "where am
-  I leaking money", "what did I miss" (about a book, a week or a trade), "master my week" — on a
-  CONNECTED wallet the user trades by hand ("my MetaMask", "my own Hyperliquid wallet", "my connected
-  wallet") these are always this skill; senpi-improve-trades keeps the leaks of senpi strategies — "analyze my
+  I leaking money", "what did I miss" (about a book, a week or a trade), "master my week" (on a
+  CONNECTED wallet the user trades by hand — "my MetaMask", "my own Hyperliquid wallet", "my connected
+  wallet" — leaks and "what did I miss" are always this skill; its trade review and "master my week"
+  belong to senpi-improve-trades, which also keeps the leaks of senpi strategies), "analyze my
   wallet / my Hyperliquid address", "how am I doing", "what's my strategy", "am I on the right side of
   smart money", "are my positions protected", "what should I fix first", "compare me to the whales",
   "scout setups for me", "find traders for me to analyze with AI quant", "run AI quant on any
@@ -306,6 +307,9 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 | "what's the market doing", "does my book fit today" | `desk.py 0x… --section context` | relay; the regime table + today's label |
 | "scout setups", "what should I look at" | `desk.py 0x… --section scout` | relay; process only |
 | **a follow-up the desk offered** | `desk.py 0x… --deep <mode>` | relay; then offer the next follow-ups |
+
+On a connected wallet the desk owns leaks and "what did I miss"; the trade review and "master my week"
+go to `senpi-improve-trades`, which reviews connected wallets as manual trades.
 
 **The ten deep modes** (each answers one bank question; all read the cached run, `protect` and `replay`
 refetch candles): `protect` (a stop ladder per position with levels and dollars at risk before/after) ·

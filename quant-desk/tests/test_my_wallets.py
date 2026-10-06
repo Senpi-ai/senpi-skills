@@ -128,6 +128,27 @@ def test_the_description_owns_leaks_on_connected_wallets():
         assert words in desc, words
 
 
+def test_the_connected_wallet_routing_is_an_aside_so_the_triggers_after_it_stay_the_desks():
+    """The routing clause sits in parentheses: written as a dash clause ending in "senpi-improve-trades
+    keeps the leaks of senpi strategies —", the trigger list after it read as improve-trades'."""
+    desc = _skill().split("license:", 1)[0]
+    aside = desc.split('"master my week" (on a CONNECTED wallet', 1)[1].split(")", 1)
+    assert len(aside) == 2, "the connected-wallet routing is not a parenthetical after the trigger"
+    assert aside[1].lstrip(", ").startswith('"analyze my wallet / my Hyperliquid address"')
+    assert "senpi-improve-trades keeps the leaks of senpi strategies —" not in desc
+
+
+def test_the_desk_and_improve_trades_split_a_connected_wallet_the_same_way():
+    """Ruling (R1 final review): senpi-improve-trades owns the REVIEW of a connected wallet ("review my
+    trades", "master my week"); the desk owns leaks and "what did I miss" on it."""
+    sk = _skill()
+    desc = sk.split("license:", 1)[0]
+    assert ('leaks and "what did I miss" are always this skill; its trade review and "master my week" '
+            'belong to senpi-improve-trades') in desc
+    assert ('On a connected wallet the desk owns leaks and "what did I miss"; the trade review and '
+            '"master my week" go to `senpi-improve-trades`') in sk
+
+
 def test_readme_row_matches_the_skill_version():
     import re
     version = re.search(r'version: "([0-9.]+)"', (HERE.parent / "SKILL.md").read_text()).group(1)

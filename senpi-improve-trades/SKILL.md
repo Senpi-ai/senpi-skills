@@ -5,11 +5,12 @@ description: >-
   too early or late", "what did I miss this week", "master my week", "compare my trades to the market /
   to the best whales", "how could I make more gains", "suggest improvements", "review my trades", "am I
   getting shaken out too early / how are my exits firing", "what did my own limits block / what couldn't
-  I take", "where am I leaking" (on Senpi strategies — "where am I leaking", "what did I miss" or "master
-  my week" about a CONNECTED wallet the user trades by hand — "my MetaMask", "my own Hyperliquid
-  wallet", "my connected wallet" — go to quant-desk), "walk me through / explain
+  I take", "where am I leaking" (on Senpi strategies — "where am I leaking" or "what did I miss" about a
+  CONNECTED wallet the user trades by hand — "my MetaMask", "my own Hyperliquid wallet", "my connected
+  wallet" — go to quant-desk), "walk me through / explain
   my [asset] trade", "what am I paying in fees / maker vs taker", "why is [strategy] losing". Connected
-  wallets are reviewed too, read-only, as manual trades. When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then shortlist a fit (senpi-strategy-discover); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reconstructs every
+  wallets are reviewed here too, read-only, as manual trades — "review my trades" and "master my week"
+  on a connected wallet stay in this skill. When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then shortlist a fit (senpi-strategy-discover); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reconstructs every
   CLOSED trade from discovery, enriches each exit reason + blocked signals from the runtime telemetry
   event log, computes the honest "if I'd held to now" counterfactual, and crosses the book against what
   the market did — you narrate it under strict guardrails: process over outcome (lead with the aggregate,
@@ -238,7 +239,8 @@ strategy those Senpi aggregates are empty: lead with `connected_wallets[]`.
   Wallets on senpi.ai (web).
 - **Leaks on a connected wallet** ("where am I leaking on my MetaMask", "what did I miss on my own
   Hyperliquid wallet") belong to `quant-desk` (scored, priced leaks over 90 days) — hand them off. This
-  skill keeps the leaks of Senpi strategies.
+  skill keeps the leaks of Senpi strategies. The review itself — "review my trades", "master my week" on
+  a connected wallet — stays here.
 
 ## Run it in steps — narrate as you go
 

@@ -324,6 +324,20 @@ def test_description_splits_leak_routing_with_quant_desk():
         assert words in desc, words
 
 
+def test_the_review_of_a_connected_wallet_stays_here_only_leaks_go_to_the_desk():
+    """Ruling (R1 final review): this skill owns the REVIEW of a connected wallet ("review my trades",
+    "master my week"); only leaks and "what did I miss" on a connected wallet go to quant-desk."""
+    sk = _skill()
+    desc = sk.split("license:", 1)[0]
+    assert ('"where am I leaking" or "what did I miss" about a CONNECTED wallet the user trades by hand') in desc
+    assert '"master my week" about a CONNECTED wallet' not in desc
+    assert ('Connected wallets are reviewed here too, read-only, as manual trades — "review my trades" '
+            'and "master my week" on a connected wallet stay in this skill') in desc
+    sec = sk.split("## Connected wallets (read-only, traded by hand)", 1)[1].split("## ", 1)[0]
+    assert ('The review itself — "review my trades", "master my week" on a connected wallet — stays '
+            'here') in sec
+
+
 def test_more_gains_never_pitches_a_connected_only_user():
     row = next(l for l in open(SKILL, encoding="utf-8").read().splitlines() if "How could I make more gains?" in l)
     assert "never for a connected-only user" in row
