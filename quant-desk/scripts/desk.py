@@ -36,6 +36,7 @@ import addresses as addr_book
 import dsl as dsl_mod  # noqa: E402
 import book as book_mod  # noqa: E402
 import senpi_history  # noqa: E402
+import blacklist  # noqa: E402
 import smart_money  # noqa: E402
 import strategy_read  # noqa: E402
 import taxonomy  # noqa: E402
@@ -48,7 +49,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.40.0"
+VERSION = "1.41.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -237,6 +238,41 @@ def _ratio_or_none(num, base, cap=10.0):
     return None if abs(r) > cap else r
 
 
+def _drop_market_makers(addrs, meta, label):
+    """Take Senpi's market makers out of a COMPARISON cohort.
+
+    The subject gate above protects the reader who pastes a quoting engine's address. This protects
+    every other reader: the cohorts are what the desk measures a book AGAINST — "you hold majors
+    where the proven cohort holds alts", percentile language, the benchmark table. Both cohorts are
+    ranked by realized P&L, which is exactly the leaderboard a market maker tops without taking a
+    single directional view, so a polluted cohort quietly moves the line every desk is scored on.
+
+    Fails OPEN, unlike `blacklist.filter_out`. A cohort the desk could not screen is still far more
+    informative than no cohort at all, so an unreadable list leaves the addresses alone and says so
+    once. The subject gate is the opposite — there, unknown has to stop the claim, not the run.
+    """
+    if not addrs:
+        return addrs
+    chk = meta.setdefault("market_maker_check", {})
+    try:
+        kept, dropped = blacklist.filter_out(addrs)
+    except blacklist.BlacklistUnavailable as e:
+        # `cohorts_screened: False` is both the record and the once-only guard — two cohorts and a
+        # fallback would otherwise repeat the same sentence three times.
+        if chk.get("cohorts_screened") is not False:
+            chk["cohorts_screened"] = False
+            meta.setdefault("warnings", []).append(
+                f"could not screen the comparison cohorts for market makers ({e}) — cohort "
+                f"comparisons below may include quoting engines")
+        return addrs
+    chk.setdefault("cohorts_screened", True)
+    if dropped:
+        chk.setdefault("cohorts_filtered", {})[label] = {
+            "dropped": len(dropped), "kept": len(kept), "addresses": dropped[:20]}
+        log(f"[quant-desk]   \u00b7 dropped {len(dropped)} market maker(s) from the {label} cohort")
+    return kept
+
+
 def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench=None, meta=None, whose="mine",
             wallets=None, force=False):
     """One desk. `wallets`, when given, is every wallet of a senpi user's book: each is read on its
@@ -260,6 +296,57 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     # the reader ~30s instead of an exec timeout, and costs us one trader read instead of a sweep.
     _bp = market_maker_rate(fills)
     _coins = sorted({f["coin"] for f in fills if metrics.is_perp(f.get("coin", ""))})
+    # Senpi's market-maker blacklist — the one MM signal that is a LOOKUP rather than a guess, and
+    # the complement to the breadth line below. The fee-rate classifier was removed because it was
+    # wrong on 13 of 25 leaderboard wallets; this asks the detector instead of inferring.
+    #
+    # UNKNOWN IS NOT CLEAN. The service answers an auth failure with HTTP 200 and the error in the
+    # body, and it returns only flagged wallets, so a careless read turns "I could not check" into
+    # "nobody is flagged". blacklist.check raises instead, and an unreadable list becomes a WARNING
+    # the reader sees rather than a silent clean bill of health. It does not refuse the run: one
+    # endpoint being down should not take the whole desk with it, but the desk must not claim what
+    # it did not verify.
+    try:
+        _bl = blacklist.check([addr])
+        _low = addr.strip().lower()
+        _hit = _bl["flagged"].get(_low)
+        meta["market_maker_check"] = {"checked": True, "flagged": bool(_hit),
+                                      "newest_entry_at": _bl.get("newest_entry_at")}
+        # The table is not all market makers: `probe`, `test` and `unauth-write-poc-benign` rows
+        # exist, and refusing one of those would be a false accusation against a real trader. Only
+        # `flagged` gates. A row we do not recognise at all is surfaced, because that is the shape a
+        # NEW market-maker spelling would arrive in, and a silent miss is the worse direction.
+        _other = (_bl.get("other") or {}).get(_low)
+        if _other:
+            meta["market_maker_check"]["other_row"] = _other
+            if not _other.get("recognised"):
+                meta.setdefault("warnings", []).append(
+                    f"{addr} is in Senpi's blacklist table with an unrecognised reason "
+                    f"({_other.get('reason')!r}) — it is NOT being treated as a market maker; if "
+                    f"that reason does mean one, the client's reason match needs it")
+        if _hit and not force:
+            raise NotATraderError({
+                "not_a_trader": "market_maker_blacklisted",
+                "address": addr, "reason": _hit.get("reason"),
+                "flagged_at": _hit.get("created_at"),
+                "fills_read": len(fills), "coins": len(_coins),
+                "effective_fee_bp": None if _bp is None else round(_bp, 3),
+                "error": f"{addr} is on Senpi's market-maker blacklist "
+                         f"({_hit.get('reason')}, flagged {_hit.get('created_at')}). A quoting "
+                         f"book's desk is wrong in every line it prints.",
+                "say_to_the_reader": (
+                    "That address is a **market maker** on Senpi's list, not a directional trader. "
+                    "A quant desk reads a book for a thesis, a stop ladder and a score — none of "
+                    "which mean anything for an engine quoting both sides all day, so anything I "
+                    "produced would read like a verdict and be noise. Give me a trader's wallet and "
+                    "I will read it properly."),
+                "if_you_meant_it": "re-run with --force to score it anyway"})
+    except blacklist.BlacklistUnavailable as e:
+        meta["market_maker_check"] = {"checked": False, "flagged": None,
+                                      "error": str(e), "code": e.code}
+        meta.setdefault("warnings", []).append(
+            f"could not check Senpi's market-maker blacklist ({e}) — this desk does NOT confirm "
+            f"the wallet is a directional trader rather than a quoting engine")
     if len(_coins) > MAX_TAPE_COINS and not force:
         _read_pct = MAX_TAPE_COINS / len(_coins)
         raise NotATraderError({
@@ -455,7 +542,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
         if mcp is not None:
             for name, fetch in (("proven", smart_money.proven_cohort), ("hot", smart_money.hot_cohort)):
                 try:
-                    addrs = fetch(mcp, meta)
+                    addrs = _drop_market_makers(fetch(mcp, meta), meta, name)
                     bks = smart_money.books(mcp, addrs, meta, progress=log, label={"proven": "the proven cohort, ", "hot": "the hot 30-day cohort, "}.get(name, "")) if addrs else []
                     if bks:
                         cv = smart_money.cohort_view(name, bks, book, opened, majors, large, ages, now)
@@ -465,7 +552,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
                 except Exception as e:  # noqa: BLE001
                     meta["warnings"].append(f"{name} cohort failed: {e}")
         if not cohorts and lb:
-            addrs = hl_api.public_cohort(lb, n=PUBLIC_COHORT_N)
+            addrs = _drop_market_makers(hl_api.public_cohort(lb, n=PUBLIC_COHORT_N), meta, "public")
             states = hl.states(addrs)
             bks = smart_money.public_books(states)
             if bks:
