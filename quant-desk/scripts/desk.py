@@ -85,6 +85,35 @@ def _mcp_client(meta):
         return None
 
 
+def my_wallets(mcp):
+    """The reader's own wallets, from what Senpi can PROVE: their connected wallets (`user_get_me`, one
+    signature each) and their Senpi strategy wallets (`strategy_list`, every status — a closed strategy
+    still traded inside the window). Each half is "ok" or "unavailable" on its own; unavailable is
+    unknown, never "none". No Senpi token → both unavailable."""
+    out = {"connected_wallets_status": addr_book.CONNECTED_UNAVAILABLE, "connected_wallets": None,
+           "senpi_wallets_status": "unavailable", "senpi_wallets": None}
+    if mcp is None:
+        out["error"] = "no Senpi token on this box — ask the reader for an address"
+        return out
+    try:
+        me = (mcp.mcp_call("user_get_me", timeout=22) or {}).get("data") or {}   # waits on moxie (MCP 20 s)
+    except Exception:  # noqa: BLE001 — unknown, never empty
+        me = {}
+    status, wallets = addr_book._connected_wallets(me)
+    out["connected_wallets_status"], out["connected_wallets"] = status, wallets
+    try:
+        resp = mcp.mcp_call("strategy_list", status=["ACTIVE", "PAUSED", "CLOSED"], timeout=20)
+        rows = dsl_mod._rows(resp, "strategies")
+        out["senpi_wallets"] = [{"address": str(r["strategyWalletAddress"]).lower(),
+                                 "name": r.get("strategyName") or r.get("tradingStrategyName"),
+                                 "status": r.get("status")}
+                                for r in rows if r.get("strategyWalletAddress")]
+        out["senpi_wallets_status"] = "ok"
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
 class _MCPFixture:
     def __init__(self, recorded):
         self._r = recorded
@@ -681,7 +710,7 @@ class _Flight:
             pass
 
 
-def resolve_whose(book, addr, other=False, mine=False, claim=False):
+def resolve_whose(book, addr, other=False, mine=False, claim=False, connected=()):
     """Whose book this is. **An address is the reader's own book unless we know otherwise.**
 
     The flagship path is a Hyperliquid trader pasting their own address to see their own desk, so
@@ -692,11 +721,17 @@ def resolve_whose(book, addr, other=False, mine=False, claim=False):
     stays someone else's — the reader looked at a whale last week, and a bare re-run should not
     start giving them the whale's leaks to fix. Anything the book has not seen is theirs.
 
-    Order: an explicit flag on this run, then what the book already knows, then the default.
+    A CONNECTED wallet (proved with a signature) is the reader's whatever the book remembers: an address
+    they once read as a stranger's and then connected is theirs now.
+
+    Order: an explicit flag on this run, then a connected wallet, then what the book already knows,
+    then the default. `--claim` is a voice flag for this run only — it no longer records ownership.
     """
     if other:
         return "other"
     if mine or claim:
+        return "mine"
+    if str(addr or "").lower() in {str(c).lower() for c in connected or ()}:
         return "mine"
     if addr_book.relationship(book, addr) == addr_book.ANALYZED:
         return "other"                 # we have already established this one is not theirs
@@ -709,8 +744,8 @@ def main(argv=None):
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--mine", action="store_true", help="the reader's own book (second person)")
     g.add_argument("--claim", action="store_true",
-                   help="the reader says this address is theirs: read it as their book AND remember it "
-                        "(a claim, not proof — we cannot verify ownership of an address from a message)")
+                   help="the reader says this address is theirs: read it as their book for THIS run only. "
+                        "Nothing is saved — ownership is proven by connecting the wallet in Wallets on senpi.ai (web)")
     g.add_argument("--other", "--analyst", dest="other", action="store_true", help="someone else's book (analyst mode): third person, learn-from-them follow-ups")
     ap.add_argument("--compare", nargs="+", metavar="0x", help="two or more addresses side by side (cached runs are reused)")
     ap.add_argument("--book", nargs="+", metavar="0x",
@@ -740,6 +775,9 @@ def main(argv=None):
                     help="who is hot right now (week) or who has held up (month/allTime)")
     ap.add_argument("--find-losers", action="store_true",
                     help="the worst in the band instead of the best — the desk reads a losing book just as well")
+    ap.add_argument("--my-wallets", action="store_true",
+                    help="print the reader's own wallets as JSON and exit: connected wallets (user_get_me) "
+                         "and Senpi strategy wallets (strategy_list), each with its own ok/unavailable status")
     ap.add_argument("--addresses", action="store_true",
                     help="print this box's address book as JSON and exit — which wallets are the reader's, "
                          "which they have read, and which are not in senpi's index yet")
@@ -764,6 +802,13 @@ def main(argv=None):
         return 0
     if a.addresses:
         print(json.dumps(book, indent=2, sort_keys=True)); return 0
+    if a.my_wallets:
+        if a.fixture:
+            with open(a.fixture) as fh:
+                mw_client = _MCPFixture(json.load(fh))
+        else:
+            mw_client = _mcp_client({})
+        print(json.dumps(my_wallets(mw_client), indent=2)); return 0
     if a.compare:
         rs = []
         for x in a.compare:
@@ -813,8 +858,20 @@ def main(argv=None):
     # `strategy_list`. Running it through the address book let one stale `analyzed` mark on one of N
     # wallets flip the voice of the whole book to the third person: "Their desk — across 2 wallets",
     # to the person who owns them. Only an explicit --other overrides that.
+    # A connected wallet beats a stale `analyzed` mark. Read only when that mark is what decides the
+    # voice: the one extra MCP call is not worth paying on every run.
+    connected = ()
+    if not wallets and not (a.other or a.mine or a.claim) and \
+            addr_book.relationship(book, addr) == addr_book.ANALYZED:
+        if a.fixture:
+            with open(a.fixture) as fh:
+                _rec = json.load(fh)
+            _mw = my_wallets(_MCPFixture(_rec)) if "user_get_me" in _rec else {}
+        else:
+            _mw = my_wallets(_mcp_client({}))
+        connected = [w["address"] for w in (_mw.get("connected_wallets") or [])]
     whose = ("other" if a.other else "mine") if wallets else \
-        resolve_whose(book, addr, other=a.other, mine=a.mine, claim=a.claim)
+        resolve_whose(book, addr, other=a.other, mine=a.mine, claim=a.claim, connected=connected)
     # A BOOK is keyed on its whole SET, not on its first wallet. Keying on wallets[0] made
     # `desk.py A` and `desk.py --book A B` share desk-A.json for the 10-minute freshness window, so
     # whichever ran first was served as the other: a single wallet returned as "across 2 wallets"
@@ -964,7 +1021,8 @@ def main(argv=None):
         return 0
     if (a.other or a.mine or a.claim) and r.get("whose") != whose:
         r["whose"] = whose; r["followups"] = followups.offer(r, whose=whose)     # a cached run re-voiced
-    rel = addr_book.CLAIMED if a.claim else (addr_book.ANALYZED if whose == "other" else None)
+    # `--claim` no longer records ownership (1.41.0): a typed claim is this run's voice, not proof.
+    rel = addr_book.ANALYZED if whose == "other" else None
     tr = r.get("track") or {}
     if wallets:
         # Recording a book under its first wallet would file the whole book's verdict against one
