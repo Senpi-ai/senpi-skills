@@ -550,12 +550,20 @@ This exists because fee rate does not work as the line: re-sampled over the lead
 were running the desk on market makers and getting a confident read of a book that has no thesis,
 no stop ladder and no meaningful score.
 
+**Being in the table is not the same as being a market maker.** The table also holds `probe`, `test`
+and `unauth-write-poc-benign` rows, written while the internal write endpoint was open, and only a
+`MARKET MAKER` reason (either spelling — two real rows use `MARKET_MAKER`) causes the refusal.
+A wallet present for any other reason is **not refused and not dropped from any cohort**: calling a
+real trader a quoting engine is the failure that killed the fee-rate gate, and it is worse than
+missing one. `meta.market_maker_check.other_row` records such a row when there is one. If its reason
+is one nobody recognises, a warning says so — that is how a new market-maker spelling surfaces
+instead of being silently skipped — and it still is not a refusal.
+
 **When the blacklist cannot be read, the desk still runs** — one endpoint being down should not take
 the whole desk with it — **but it does not claim the wallet is clean.** `meta.market_maker_check`
 reports `{"checked": false, ...}` and a warning says the desk does not confirm the subject is a
-directional trader. Relay that warning: *unknown* and *verified clean* are different answers, and
-the service returns HTTP 200 with the error in the body, so silence is not reassurance. A missing
-`SENPI_AUTH_TOKEN` produces exactly this state.
+directional trader. Relay that warning: *unknown* and *verified clean* are different answers, so
+silence is not reassurance. A missing `SENPI_AUTH_TOKEN` produces exactly this state.
 
 The desk stops as soon as it has read the fills, before the tape and the cohorts — which is most of
 the run — so this costs ~30s rather than a two-minute timeout.

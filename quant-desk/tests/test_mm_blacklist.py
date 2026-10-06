@@ -20,6 +20,7 @@ API's own docs: an error means the answer is unknown, not clean.
 
 Run: python3 -m pytest quant-desk/tests/test_mm_blacklist.py -q
 """
+import io
 import os
 import sys
 
@@ -113,12 +114,12 @@ def test_a_transport_failure_raises():
 
 def test_a_flagged_wallet_is_reported_with_its_reason():
     post = _responder(lambda b: {"blacklist": [{"walletAddress": MM.upper(),
-                                                "reason": "quotes both sides, 24 coins",
+                                                "reason": "MARKET MAKER",
                                                 "createdAt": "2026-09-20T10:00:00Z"}],
                                  "newestEntryAt": "2026-10-01T00:00:00Z", "fetchedAt": "now"})
     res = blacklist.check([MM], token="t", _post_fn=post)
     hit = res["flagged"][MM.lower()]
-    assert hit["reason"] == "quotes both sides, 24 coins"
+    assert hit["reason"] == "MARKET MAKER"
     assert hit["as_stored"] == MM.upper(), "the stored casing should be preserved for display"
 
 
@@ -134,7 +135,7 @@ def test_absence_from_the_response_means_not_flagged():
 def test_matching_is_case_insensitive_in_both_directions():
     """Input may be mixed-case and `walletAddress` comes back AS STORED. Compare in one casing or a
     flagged wallet slips through on a capital letter."""
-    post = _responder(lambda b: {"blacklist": [{"walletAddress": MM.upper(), "reason": "mm",
+    post = _responder(lambda b: {"blacklist": [{"walletAddress": MM.upper(), "reason": "MARKET MAKER",
                                                 "createdAt": "2026-09-20T00:00:00Z"}]})
     assert blacklist.is_market_maker(MM.upper(), token="t", _post_fn=post)
     assert blacklist.is_market_maker(MM.lower(), token="t", _post_fn=post)
@@ -143,11 +144,12 @@ def test_matching_is_case_insensitive_in_both_directions():
 def test_duplicate_rows_for_one_wallet_collapse():
     """Case variants can produce more than one row for the same address."""
     post = _responder(lambda b: {"blacklist": [
-        {"walletAddress": MM.upper(), "reason": "later", "createdAt": "2026-09-25T00:00:00Z"},
-        {"walletAddress": MM.lower(), "reason": "earlier", "createdAt": "2026-09-20T00:00:00Z"}]})
+        {"walletAddress": MM.upper(), "reason": "MARKET MAKER", "createdAt": "2026-09-25T00:00:00Z"},
+        {"walletAddress": MM.lower(), "reason": "MARKET_MAKER", "createdAt": "2026-09-20T00:00:00Z"}]})
     res = blacklist.check([MM], token="t", _post_fn=post)
     assert len(res["flagged"]) == 1
-    assert res["flagged"][MM.lower()]["reason"] == "earlier", "keep the earliest flagging"
+    assert res["flagged"][MM.lower()]["created_at"] == "2026-09-20T00:00:00Z", (
+        "keep the earliest flagging")
 
 
 # ── batching: a silent truncation reads as "not flagged" ──
@@ -182,7 +184,7 @@ def test_a_stale_or_absent_newest_entry_does_not_change_the_verdict():
     """The detector writes only when it finds a NEW market maker, so a healthy detector with nothing
     to add looks exactly like a stopped one. Gating on this would refuse every wallet during a quiet
     week, or worse, treat a quiet week as reason to trust an empty answer."""
-    flagged = {"blacklist": [{"walletAddress": MM, "reason": "mm", "createdAt": "2026-01-01T00:00:00Z"}],
+    flagged = {"blacklist": [{"walletAddress": MM, "reason": "MARKET MAKER", "createdAt": "2026-01-01T00:00:00Z"}],
                "newestEntryAt": None}
     assert blacklist.is_market_maker(MM, token="t", _post_fn=_responder(lambda b: flagged))
     src = open(os.path.join(HERE, "..", "scripts", "blacklist.py"), encoding="utf-8").read()
@@ -193,7 +195,7 @@ def test_a_stale_or_absent_newest_entry_does_not_change_the_verdict():
 # ── filter_out, for cohort lists ──
 
 def test_filter_out_drops_only_the_flagged_and_keeps_order():
-    post = _responder(lambda b: {"blacklist": [{"walletAddress": MM, "reason": "mm",
+    post = _responder(lambda b: {"blacklist": [{"walletAddress": MM, "reason": "MARKET MAKER",
                                                 "createdAt": "2026-09-20T00:00:00Z"}]})
     kept, dropped = blacklist.filter_out([TRADER, MM, "0xabc" + "0" * 37], token="t", _post_fn=post)
     assert kept == [TRADER, "0xabc" + "0" * 37]
@@ -359,3 +361,176 @@ def test_the_two_gates_fail_in_opposite_directions():
     cohort = src[src.index("def _drop_market_makers"):src.index("def analyze(")]
     assert "return addrs" in cohort, "the cohort filter no longer fails open"
     assert "Fails OPEN" in cohort, "the asymmetry is no longer documented where it lives"
+
+
+# ── the table is NOT all market makers (Vignesh's review, 2026-10-06) ──
+#
+# "nine rows have reasons like probe, test and unauth-write-poc-benign, written while the internal
+# endpoint was open. Two other rows spell the reason MARKET_MAKER."
+#
+# So a client that treats every returned row as a market maker refuses real traders who happen to
+# sit in the table as test rows — and refusing a real trader is the exact failure that killed the
+# fee-rate classifier (13 of 25 leaderboard wallets, VIP traders among them). These use the REAL
+# reason values; the fixtures above originally said "mm" and "quotes both sides", which never occur
+# in the table and so could not catch this.
+
+REAL_MM_REASONS = ["MARKET MAKER", "MARKET_MAKER"]
+REAL_NON_MM_REASONS = ["probe", "test", "unauth-write-poc-benign"]
+
+
+@pytest.mark.parametrize("reason", REAL_MM_REASONS)
+def test_both_real_market_maker_spellings_are_flagged(reason):
+    """`MARKET_MAKER` with an underscore is two real rows in the table. Match one spelling only and
+    those two market makers go unrefused."""
+    post = _responder(lambda b: {"blacklist": [{"walletAddress": MM, "reason": reason,
+                                                "createdAt": "2026-01-06T07:41:13Z"}]})
+    res = blacklist.check([MM], token="t", _post_fn=post)
+    assert MM.lower() in res["flagged"], f"reason {reason!r} was not treated as a market maker"
+    assert res["flagged"][MM.lower()]["reason"] == reason, "the reason is not reported verbatim"
+
+
+@pytest.mark.parametrize("reason", REAL_NON_MM_REASONS)
+def test_a_non_market_maker_row_is_NOT_flagged(reason):
+    """These are test rows. The wallet is in the table; it is not a market maker. Refusing it would
+    tell a real trader they are a quoting engine, on the strength of a row someone wrote while
+    probing an open write endpoint."""
+    post = _responder(lambda b: {"blacklist": [{"walletAddress": TRADER, "reason": reason,
+                                                "createdAt": "2026-05-01T00:00:00Z"}]})
+    res = blacklist.check([TRADER], token="t", _post_fn=post)
+    assert res["flagged"] == {}, (
+        f"a row with reason {reason!r} was treated as a market maker — this refuses a real trader "
+        f"and drops them from every cohort")
+    assert res["other"][TRADER.lower()]["recognised"] is True, (
+        f"{reason!r} is a known non-market-maker reason and should be recorded as recognised")
+    assert not blacklist.is_market_maker(TRADER, token="t", _post_fn=post)
+
+
+def test_a_non_mm_row_is_kept_out_of_cohort_filtering_too():
+    """`filter_out` is what screens the comparison cohorts. A test row must not evict a real trader
+    from the cohort any more than it refuses them as a subject."""
+    post = _responder(lambda b: {"blacklist": [
+        {"walletAddress": TRADER, "reason": "probe", "createdAt": "2026-05-01T00:00:00Z"},
+        {"walletAddress": MM, "reason": "MARKET_MAKER", "createdAt": "2026-01-06T07:41:13Z"}]})
+    kept, dropped = blacklist.filter_out([TRADER, MM], token="t", _post_fn=post)
+    assert kept == [TRADER] and dropped == [MM], (
+        f"kept={kept} dropped={dropped} — only the MARKET_MAKER row may be dropped")
+
+
+def test_an_unrecognised_reason_is_surfaced_rather_than_silently_ignored():
+    """The counterweight to strict matching. Strict equality stops a false refusal, but on its own
+    it would turn a NEW market-maker spelling into a silent MISS — the worse direction, because a
+    miss is invisible. An unknown reason is therefore recorded with recognised=False."""
+    post = _responder(lambda b: {"blacklist": [
+        {"walletAddress": MM, "reason": "MARKET MAKER (HIGH CONFIDENCE)",
+         "createdAt": "2026-10-06T00:00:00Z"}]})
+    res = blacklist.check([MM], token="t", _post_fn=post)
+    assert res["flagged"] == {}, "strict matching should not flag an unknown reason"
+    row = res["other"][MM.lower()]
+    assert row["recognised"] is False, (
+        "an unknown reason was filed as a known-benign one, so a new market-maker spelling would "
+        "disappear instead of surfacing")
+    assert row["reason"] == "MARKET MAKER (HIGH CONFIDENCE)"
+
+
+def test_a_wallet_with_both_a_mm_row_and_a_test_row_is_a_market_maker():
+    """Order of rows must not decide the answer."""
+    rows = [{"walletAddress": MM, "reason": "probe", "createdAt": "2026-05-01T00:00:00Z"},
+            {"walletAddress": MM, "reason": "MARKET MAKER", "createdAt": "2026-01-06T07:41:13Z"}]
+    for ordered in (rows, list(reversed(rows))):
+        post = _responder(lambda b, _r=ordered: {"blacklist": _r})
+        res = blacklist.check([MM], token="t", _post_fn=post)
+        assert MM.lower() in res["flagged"], "a test row masked a real market-maker row"
+        assert MM.lower() not in res["other"], "reported as both flagged and not — pick one"
+
+
+def test_the_reason_matcher_normalises_case_underscores_and_whitespace():
+    for yes in ("MARKET MAKER", "MARKET_MAKER", "market maker", "  Market_Maker  "):
+        assert blacklist.is_market_maker_reason(yes), f"{yes!r} should match"
+    for no in ("probe", "test", "unauth-write-poc-benign", "", None, "MARKETMAKER",
+               "MARKET MAKER (HIGH CONFIDENCE)", "not a market maker"):
+        assert not blacklist.is_market_maker_reason(no), f"{no!r} should NOT match"
+
+
+def test_desk_gates_on_flagged_only_and_surfaces_an_unrecognised_row():
+    src = open(os.path.join(HERE, "..", "scripts", "desk.py"), encoding="utf-8").read()
+    seg = src[src.index("_bl = blacklist.check([addr])"):src.index("len(_coins) > MAX_TAPE_COINS")]
+    assert '_bl["flagged"]' in seg, "desk.py does not read `flagged`"
+    assert '_bl.get("other")' in seg, (
+        "desk.py ignores the non-market-maker rows entirely — an unrecognised reason, which is how "
+        "a new market-maker spelling arrives, would then be invisible")
+    # Assert the GUARD, not just the word: `if False:` leaves every keyword in place while making
+    # the warning unreachable, and a keyword grep passes straight through that.
+    assert 'if not _other.get("recognised"):' in seg, (
+        "the unrecognised-reason branch is not guarded on `recognised` — a new market-maker "
+        "spelling would be filed silently")
+    i_guard = seg.index('if not _other.get("recognised"):')
+    assert "warnings" in seg[i_guard:i_guard + 400], "that branch does not raise a warning"
+
+
+# ── the 401 Vignesh shipped on 2026-10-06 ──
+
+def test_an_http_401_still_carries_the_graphql_error_inside_it():
+    """Auth failures used to answer HTTP 200 with the error in the body; as of 2026-10-06 they
+    answer 401 with the same body. urllib raises HTTPError BEFORE the body is read, so without
+    reading it here the reader gets a bare "HTTP 401" and loses which failure it was."""
+    import json as _json
+    import urllib.error as _ue
+    import urllib.request as _ur
+
+    body = _json.dumps({"errors": [{"message": "Authorization token is required.",
+                                    "code": "NO_TOKEN_PROVIDED", "statusCode": 401}],
+                        "data": None}).encode()
+
+    def _raise(req, timeout=None):
+        raise _ue.HTTPError(blacklist.URL, 401, "Unauthorized", {}, io.BytesIO(body))
+
+    orig = _ur.urlopen
+    _ur.urlopen = _raise
+    try:
+        with pytest.raises(blacklist.BlacklistUnavailable) as ei:
+            blacklist.check([MM], token="stale")
+        assert ei.value.code == "NO_TOKEN_PROVIDED", f"the error code is lost: {ei.value.code}"
+        assert "Authorization token" in str(ei.value), f"the message is lost: {ei.value}"
+    finally:
+        _ur.urlopen = orig
+
+
+def test_a_500_with_an_unhelpful_body_is_still_unavailable_not_clean():
+    """Vignesh, 2026-10-06: every non-auth error currently comes back as INTERNAL_ERROR / 500
+    rather than a specific code. Treating any error as unknown is what makes that harmless."""
+    import json as _json
+    import urllib.error as _ue
+    import urllib.request as _ur
+
+    body = _json.dumps({"errors": [{"message": "internal error",
+                                    "code": "INTERNAL_ERROR", "statusCode": 500}]}).encode()
+
+    def _raise(req, timeout=None):
+        raise _ue.HTTPError(blacklist.URL, 500, "Server Error", {}, io.BytesIO(body))
+
+    orig = _ur.urlopen
+    _ur.urlopen = _raise
+    try:
+        with pytest.raises(blacklist.BlacklistUnavailable) as ei:
+            blacklist.check([MM], token="t")
+        assert ei.value.code == "INTERNAL_ERROR"
+    finally:
+        _ur.urlopen = orig
+
+
+def test_a_non_json_error_body_does_not_mask_the_failure():
+    """An HTML error page from a proxy must not turn into a clean answer, or into a crash."""
+    import urllib.error as _ue
+    import urllib.request as _ur
+
+    def _raise(req, timeout=None):
+        raise _ue.HTTPError(blacklist.URL, 502, "Bad Gateway", {}, io.BytesIO(b"<html>nope</html>"))
+
+    orig = _ur.urlopen
+    _ur.urlopen = _raise
+    try:
+        with pytest.raises(blacklist.BlacklistUnavailable) as ei:
+            blacklist.check([MM], token="t")
+        assert ei.value.code == "HTTP_502"
+    finally:
+        _ur.urlopen = orig

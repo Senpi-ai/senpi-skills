@@ -308,9 +308,22 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     # it did not verify.
     try:
         _bl = blacklist.check([addr])
-        _hit = _bl["flagged"].get(addr.strip().lower())
+        _low = addr.strip().lower()
+        _hit = _bl["flagged"].get(_low)
         meta["market_maker_check"] = {"checked": True, "flagged": bool(_hit),
                                       "newest_entry_at": _bl.get("newest_entry_at")}
+        # The table is not all market makers: `probe`, `test` and `unauth-write-poc-benign` rows
+        # exist, and refusing one of those would be a false accusation against a real trader. Only
+        # `flagged` gates. A row we do not recognise at all is surfaced, because that is the shape a
+        # NEW market-maker spelling would arrive in, and a silent miss is the worse direction.
+        _other = (_bl.get("other") or {}).get(_low)
+        if _other:
+            meta["market_maker_check"]["other_row"] = _other
+            if not _other.get("recognised"):
+                meta.setdefault("warnings", []).append(
+                    f"{addr} is in Senpi's blacklist table with an unrecognised reason "
+                    f"({_other.get('reason')!r}) — it is NOT being treated as a market maker; if "
+                    f"that reason does mean one, the client's reason match needs it")
         if _hit and not force:
             raise NotATraderError({
                 "not_a_trader": "market_maker_blacklisted",
