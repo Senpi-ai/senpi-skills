@@ -88,7 +88,7 @@ exit:
     execution_timeout_seconds: 45
   dsl_preset:
     hard_timeout:
-      enabled: true
+      enabled: false
       interval_in_minutes: 4320           # 3d — funding regimes decay
     weak_peak_cut:
       # DISABLED - this cut closes at MARKET at whatever price is there, with no floor, so on a
@@ -99,7 +99,7 @@ exit:
       interval_in_minutes: 240            # 4h
       min_value: 1.5
     dead_weight_cut:
-      enabled: true
+      enabled: false
       interval_in_minutes: 480            # 8h — recycle a flat carry position
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
@@ -124,11 +124,17 @@ exit:
       #   rung 2   100% ROE = 10.0% of price   (camel: 50% @5x = 10.0%)  lock 80%
       #   rung 3   180% ROE = 18.0% of price   (camel: 90% @5x = 18.0%)  lock 90%
       #
-      # The CLOCKS ARE camel's, UNCHANGED, deliberately. The fleet measurement that turned every
-      # clock off on the penguin family was taken on 4h hard_timeouts cutting winners mid-move
-      # (110 of 142 clock closes in profit). camel's are 72h and 8h on a CARRY trade: if the funding
-      # dislocation has not paid in three days the thesis is stale, and the 8h dead-weight cut frees
-      # a slot that never worked. Applying a 4h finding to a 72h instrument is not the same claim.
+      # EVERY CLOCK OFF. Jason, 2026-10-06, as a standing preference and not a one-off: "i prefer to
+      # just let DSL do its job vs hard cuts of any sort". camel ships a 72h hard_timeout and an 8h
+      # dead-weight cut and I argued to keep them — a 3-day cut on a CARRY trade reads differently
+      # from the 4h cuts that were measured clipping winners mid-move (110 of 142 clock closes in
+      # profit). That argument is not wrong, it is just not the call: the preference is that the
+      # ladder and the stop decide every exit, at any horizon.
+      #
+      # WHAT HOLDS A DEAD CARRY NOW: the phase-1 floor at 1.20% of price, and nothing else. There is
+      # no CLOSE_POSITION scanner here, so a funding dislocation that never reverts keeps its slot —
+      # and concentrated, that slot IS the arm. The funding itself still accrues while it waits,
+      # which is the one way this differs from a momentum trade going nowhere.
       tiers:
         - { trigger_pct: 28,   lock_hw_pct: 45 }   #  2.80% of price
         - { trigger_pct: 56,   lock_hw_pct: 65 }   #  5.60% of price

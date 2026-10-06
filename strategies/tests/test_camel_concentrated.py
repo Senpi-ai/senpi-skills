@@ -93,15 +93,30 @@ def test_every_dsl_price_distance_equals_camels(arm):
 
 
 @pytest.mark.parametrize("arm", ARMS)
-def test_the_clocks_are_camels_untouched(arm):
-    """Deliberately NOT the penguin treatment. That measurement — 110 of 142 clock closes in profit
-    — was taken on 4h hard_timeouts cutting winners mid-move. camel's are 72h and 8h on a CARRY
-    trade: three days without the dislocation paying means the thesis is stale, and the 8h
-    dead-weight cut frees a slot that never worked. Turning these off would be applying a finding
-    outside the window it was measured in."""
-    da, dp = _rt(ARM_PKG, arm)["exit"]["dsl_preset"], _rt(PARENT, arm)["exit"]["dsl_preset"]
-    for cut in ("hard_timeout", "weak_peak_cut", "dead_weight_cut"):
-        assert da.get(cut) == dp.get(cut), f"{cut} diverged from camel's"
+def test_no_clock_decides_an_exit(arm):
+    """Jason, 2026-10-06, as a standing preference rather than a one-off: "i prefer to just let DSL
+    do its job vs hard cuts of any sort".
+
+    I argued the other way first and the argument was defensible — camel's cuts are 72h and 8h,
+    while the measurement that removed clocks from the penguin family (110 of 142 clock closes in
+    profit) was taken on 4h cuts clipping winners mid-move. Different instrument, different claim.
+    It was still not the call to make: the preference is that the ladder and the stop decide every
+    exit, at any horizon. Recorded here so the 72h argument does not get re-derived and re-applied.
+
+    The cost, stated rather than discovered: with every clock off, the phase-1 floor at 1.20% of
+    price is the ONLY thing that ends a dead carry, and there is no CLOSE_POSITION scanner here. A
+    dislocation that never reverts keeps its slot — and concentrated, that slot IS the arm. The one
+    thing that softens it is that funding keeps accruing while it waits, which is not true of a
+    momentum trade going nowhere."""
+    d = _rt(ARM_PKG, arm)["exit"]["dsl_preset"]
+    on = [c for c in ("hard_timeout", "weak_peak_cut", "dead_weight_cut")
+          if (d.get(c) or {}).get("enabled")]
+    assert not on, (
+        f"{arm} has {on} back on. Nothing in this package closes on a clock — the DSL ladder and "
+        f"the phase-1 floor decide every exit. If that is meant to change, it is a product "
+        f"decision, not a consistency sweep against the parent.")
+    assert d["phase1"].get("max_loss_pct"), (
+        f"{arm} has no phase-1 floor and no clocks — nothing would ever end a losing carry")
 
 
 @pytest.mark.parametrize("arm", ARMS)

@@ -86,7 +86,9 @@ The pitch is as much about the bill as the bet: camel pays **58% of its gross pr
 one position costs roughly a quarter of the fees four do for the same money at work.
 
 Offer it only to someone who has said they want leverage *and* concentration. It is the most
-aggressive thing in the catalog: one stop-out costs **8.6% of the arm**, against 1.08% on camel.
+aggressive thing in the catalog: one stop-out costs **8.6% of the arm**, against 1.08% on camel,
+and **no clock closes anything** — the ladder and the 1.20%-of-price stop are the only exits, so
+a carry that never reverts holds the arm until the stop. Funding does keep accruing while it waits.
 
 ### 5. Concentration — fewer, larger bets inside a multi-arm strategy
 
