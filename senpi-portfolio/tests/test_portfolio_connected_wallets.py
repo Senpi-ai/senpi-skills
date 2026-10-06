@@ -238,3 +238,54 @@ def test_connected_only_user_gets_a_read_not_a_fault():
 def test_a_user_with_strategies_is_not_on_the_no_strategy_path():
     out = _run(_with_connected(_base(), [(CW_A, "Main")], {CW_A: _state_ok()}))
     assert "no_strategy_path" not in out["meta"]
+
+
+# ── the narration rules (SKILL.md) ──────────────────────────────────────────────────────────────────
+def _skill():
+    return " ".join(open(SKILL, encoding="utf-8").read().split())
+
+
+def test_skill_quotes_the_access_line_verbatim():
+    assert ACCESS in _skill()
+
+
+def test_skill_keeps_connected_wallets_out_of_idle_and_the_total():
+    sk = _skill()
+    for needle in ("## Connected wallets (read-only)", "never in `grand_total_usd`",
+                   "never idle", "`connected_wallets.status: \"unavailable\"`",
+                   "I couldn't load your connected wallets", "`protection`", "not `protected`",
+                   "no Hyperliquid activity yet", "Not applicable, not a fault",
+                   "never call `accountValueUsd` \"account value\"", "total excludes",
+                   "`state: null`", "couldn't load this wallet", "never print the code",
+                   "Wallets on senpi.ai (web)", "no open positions on the Hyperliquid main and xyz dexes",
+                   "never a bare \"no positions\"", "balances, positions and protection are all unknown",
+                   "A non-zero `totalValueUsd` wins — quote the value"):
+        assert needle in sk, needle
+
+
+def test_skill_forbids_write_suggestions_on_connected_wallets():
+    sec = _skill().split("## Connected wallets (read-only)", 1)[1].split("## ", 1)[0]
+    for needle in ("`close.py`", "`edit_position`", "`close_position`", "`strategy_*`", "`ratchet_stop_*`"):
+        assert needle in sec, needle
+    assert "senpi-improve-trades" in sec and "quant-desk" in sec      # trade history is handed off
+
+
+def test_cta_one_never_routes_a_connected_wallet_to_a_write_tool():
+    sk = _skill()
+    assert ("a genuinely ad-hoc position the user placed by hand on a Senpi wallet — never a connected "
+            "wallet, which is read-only (quote its `access` line)") in sk
+    assert "the connected-wallets closing replaces them" in sk
+
+
+def test_skill_has_no_strategy_pitch_on_the_no_strategy_path():
+    sec = _skill().split("## Connected wallets (read-only)", 1)[1].split("## ", 1)[0]
+    assert "`meta.no_strategy_path`" in sec
+    assert "Never pitch a strategy" in sec
+    assert "**Want me to review the trades on it, or score it on the quant desk?**" in sec
+
+
+def test_readme_row_matches_the_skill_version():
+    import re
+    version = re.search(r'version: "([0-9.]+)"', open(SKILL, encoding="utf-8").read()).group(1)
+    readme = open(os.path.join(HERE, "..", "..", "README.md"), encoding="utf-8").read()
+    assert f"| [`senpi-portfolio`](senpi-portfolio/) | {version} |" in readme

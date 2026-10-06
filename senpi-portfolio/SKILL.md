@@ -8,7 +8,8 @@ description: >-
   / PnL / trade-history question, BEFORE any raw strategy_get_clearinghouse_state / account_get_portfolio
   / strategy_list MCP call. Use for "analyze my strategies", "how are my strategies doing", "analyze my
   portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle", and
-  "are my open positions protected? / do they have a stop-loss?", and "tell me about my strategies and
+  "are my open positions protected? / do they have a stop-loss?", "my connected wallet", "my MetaMask
+  wallet" (read-only balances and positions of a wallet the user connected), and "tell me about my strategies and
   their DSL / what tier are my positions in?", and "what happened to my closed [asset] position / did my
   trade actually go through / do I still hold X" — the authority for position facts, OPEN and CLOSED, which
   come from a fresh engine read, never from memory or a raw order response. A hidden engine (scripts/portfolio.py)
@@ -20,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.30.0"
+  version: "1.31.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -675,6 +676,55 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
   resting SL is expected and says nothing about protection. Use the `dsl` objects, not the order book. A
   raw position is the reverse case — the bullet above.
 
+## Connected wallets (read-only)
+
+A **connected wallet** is a Hyperliquid wallet the user proved they own (one signature in Wallets on
+senpi.ai (web)) and trade by hand. The engine returns them in a separate top-level block,
+`connected_wallets: {status, wallets}`, from the `money` step and from `all`.
+
+- **Quote the access line verbatim** — every wallet carries it as `access`, and it is the whole answer to
+  "can you trade it / close it / set a stop on it":
+  > Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.
+- **Never Senpi money.** A connected wallet's value is never in `grand_total_usd`, never idle, never
+  deployed, and never part of `reconciles`. Present it in its own "Connected wallets (read-only)"
+  section after the money map, never summed into it. CTA 2 ("put the idle to work") never counts it.
+- **Quote, never recompute.** Each wallet's `state` is `account_get_connected_wallets`' object verbatim.
+  `totalValueUsd` is the wallet's value (already unified-account aware — never add `spotBalances` to it
+  yourself, and never call `accountValueUsd` "account value": on a unified account it is a margin figure
+  that matches nothing Hyperliquid shows). A non-empty `unpricedCoins` → say the total excludes those
+  coins ("total excludes STHYPE"). `positions[]` carry `protection` (`FULL` / `PARTIAL` / `NONE`) and
+  `stopOrders[]` (`ARMED` or `WAITING_TO_ACTIVATE`). `protection` is the live stops on the exchange, not
+  `protected` (a Senpi strategy's runtime exit) — never merge the two words. A `WAITING_TO_ACTIVATE`
+  trailing stop protects nothing until it activates; say so.
+- **Positions are read on the Hyperliquid main and xyz dexes only.** Scope every positions answer that
+  way — "no open positions on the Hyperliquid main and xyz dexes", never a bare "no positions" — and
+  never present the total as covering another HIP-3 dex.
+- **Unknown is never empty.**
+  - `connected_wallets.status: "unavailable"` → say "I couldn't load your connected wallets", never
+    "you have none".
+  - `state: null` (`state_read: "unavailable"`) → "couldn't load this wallet"; never $0, never "no
+    positions".
+  - `state_read: "error"` → couldn't load this wallet: its balances, positions and protection are all
+    unknown and every number is null, never $0. The `readError` code is matched by prefix — never print
+    the code; with an `ORDERS_UNAVAILABLE` prefix you may add "its orders couldn't be read".
+  - `state.role: "MISSING"` with `totalValueUsd` null or `"0"` → "no Hyperliquid activity yet". A
+    non-zero `totalValueUsd` wins — quote the value (the role may be cached from before the first
+    deposit).
+- **Not applicable, not a fault.** DSL, runtime health, mandate, funded/drained and telemetry
+  (`not_applicable`) do not exist for a wallet the user trades by hand — never "no DSL", "not running",
+  "unprotected strategy" or "drained".
+- **No write suggestions on these wallets** — no `close.py`, redeploy, `edit_position`,
+  `close_position`, `strategy_*` or `ratchet_stop_*`. CTA 1 applies to Senpi wallets only.
+- **Trade history** on a connected wallet ("how did my trades on it go", "where am I leaking on it") →
+  `senpi-improve-trades` (review) or `quant-desk` (score and leaks). This skill reads balances and open
+  positions only.
+- **"Your wallet"** means a connected wallet, or an address the user said is theirs in this
+  conversation. A pasted address is never described as saved; to save one, the user connects it in
+  Wallets on senpi.ai (web).
+- **`meta.no_strategy_path`** (connected wallets, no Senpi strategy): give the connected-wallets read and
+  skip the strategy verdict. Never pitch a strategy, and replace the mandatory closing with:
+  > **Want me to review the trades on it, or score it on the quant desk?**
+
 ## Run it in steps — narrate as you go
 
 **Asked to run this on a schedule? Say the cost first.** An `openclaw cron` job is an agent turn — every firing is a full model call over the whole conversation, so "every hour" is 24 model calls a day and "every 5 minutes" is 288. Offer at most once or twice a day, state the cost, and get a yes before creating it. Never a cron to watch a strategy: the runtime supervises it at zero model cost, and this skill reads it on demand.
@@ -890,6 +940,8 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
 
 ## Mandatory closing (verbatim)
 
+(On `meta.no_strategy_path`, use the connected-wallets closing instead — see "Connected wallets (read-only)".)
+
 > **1. Want me to rebalance or adjust any of these positions?**
 > **2. Want me to put the idle capital to work in a new strategy?**
 
@@ -897,7 +949,8 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
   STRATEGY-level levers (`strategy_pause` / `strategy_update` config / `strategy_close` / `strategy_top_up`)
   and apply them to the **whole strategy (all its wallets)** — never to a single sleeve of a multi-wallet
   strategy, and never hand-close a position the scanner will just re-open. Only use per-position tools
-  (`edit_position` / `close_position`) for a genuinely ad-hoc position the user placed by hand. Confirm
+  (`edit_position` / `close_position`) for a genuinely ad-hoc position the user placed by hand on a Senpi
+  wallet — never a connected wallet, which is read-only (quote its `access` line). Confirm
   before any change; never trade unprompted.
 - **CTA 2 → deploy idle.** If there's meaningful **truly-free** idle capital (lead from
   `signals.idle_drag_pct` and `idle_in_embedded` — NOT a flat sleeve of a live multi-wallet strategy,
@@ -940,7 +993,7 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
 - **`totals.reconciles == false`** → the per-wallet sum and the portfolio aggregate disagree; the engine
   also appends a `TOTALS DO NOT RECONCILE` entry to `meta.warnings` quoting both figures and the gap.
   STOP and re-run first (see above); if it persists, surface it and trust the per-wallet (live) figures.
-- **Never** report `total_withdrawable` as embedded idle, never skip a wallet, never skip the CTAs.
+- **Never** report `total_withdrawable` as embedded idle, never skip a wallet, never skip the CTAs (on `meta.no_strategy_path` the connected-wallets closing replaces them).
 
 ## Skill Attribution
 
