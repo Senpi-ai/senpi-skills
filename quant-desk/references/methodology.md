@@ -74,9 +74,17 @@ ones.
 
 ## Protection audit
 
-A stop for a long is a resting sell trigger below the mark; for a short a buy trigger above it. Stop cover
-= stop-covered size ÷ position size. `AT RISK` = liquidation < 5% away with cover < 90%; `UNPROTECTED` =
-cover 0; `PARTLY COVERED` = 0 < cover < 90%. Funding per day = −hourly rate × notional × 24 (sign by side).
+One rule, shared with senpi's connected-wallet state, pinned by
+`tests/fixtures/protection-fixtures.v1.json`. A **stop** is a top-level resting order in the position's
+own dex list (`children` of an unfilled entry are not live) on the same coin, `reduceOnly`, on the exit
+side (sell for a long, buy for a short), with `orderType` `Stop Market`, `Stop Limit` or
+`Trailing Stop Market` — a take-profit is never a stop. A stop is `WAITING_TO_ACTIVATE` when its trigger
+price is not a positive number or a trailing stop's condition ends `best waiting`; otherwise `ARMED`.
+**Covered size** = the position's size if any ARMED stop is a position TP/SL (`isPositionTpsl`, size
+`0.0`), else the exact decimal sum of the ARMED stops' sizes. `FULL` = covered ≥ size, `PARTIAL` =
+0 < covered < size, `NONE` = nothing covered. `AT RISK` = liquidation < 5% away and not `FULL`;
+`UNPROTECTED` = `NONE`; `PARTLY COVERED` = `PARTIAL`. Stop cover (the table column) = covered ÷ size,
+display only. Funding per day = −hourly rate × notional × 24 (sign by side).
 
 ## Timing (complete episodes with candles)
 

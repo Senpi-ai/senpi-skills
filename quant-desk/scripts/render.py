@@ -235,11 +235,14 @@ def protection(r):
 
 def _protection_note(p, smrow):
     liq = p["liq_distance_pct"]; cov = p["stop_covered_share"]; against = smrow and smrow["read"].startswith("AGAINST")
-    if liq is not None and liq < 5 and cov < 0.9:
+    prot = metrics.protection_of(p)
+    if liq is not None and liq < 5 and prot != metrics.FULL:
         return "AT RISK", f"put a stop above the liquidation price now — at {p['leverage']}x a {liq:.1f}% move takes the whole margin"
-    if cov == 0:
+    if prot == metrics.NONE:
+        if p.get("stops"):              # every stop it has is WAITING_TO_ACTIVATE
+            return "UNPROTECTED", "its trailing stop is waiting to activate — until it does, nothing protects this position"
         return "UNPROTECTED", "attach a stop ladder: a hard floor plus a trailing lock as it runs" + (" — and you're against the whale cohort here" if against else "")
-    if cov < 0.9:
+    if prot == metrics.PARTIAL:
         return "PARTLY COVERED", f"the other {pct(1 - cov)} rides naked — extend the stop to the full size"
     if p["stop_distance_pct"] is not None and p["stop_distance_pct"] < 1.0:
         return "PROTECTED", f"stop is {p['stop_distance_pct']:.1f}% from the mark — tight enough to be noise"
@@ -431,7 +434,8 @@ def next_steps(r):
         return next_steps_other(r)
     b = r["book"]; out = ["## What your quant would do next", ""]
     i = 1
-    at_risk = [p for p in b["positions"] if (p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5 and p["stop_covered_share"] < 0.9) or p["stop_covered_share"] == 0]
+    at_risk = [p for p in b["positions"] if (p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5 and metrics.protection_of(p) != metrics.FULL)
+               or metrics.protection_of(p) == metrics.NONE]
     if at_risk:
         # "a hard floor now, a trailing lock as it runs … a signature on positions you already hold"
         # promised something that does not exist for this reader. The integrated two-phase DSL is a

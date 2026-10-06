@@ -6,6 +6,7 @@ import collections
 import math
 import statistics
 
+import metrics
 import taxonomy
 
 H = 3_600_000.0
@@ -254,8 +255,8 @@ def critique(fp, tr, book, mf, sm, cohorts=None):
     pv, ht = by.get("proven"), by.get("hot")
     if pv and ht and pv.get("agreement") is not None and ht.get("agreement") is not None and pv["agreement"] >= 0.5 and ht["agreement"] <= -0.5:
         ag, n_rows = list(ht["against"]), len(ht["rows"])
-        cover = {p["coin"]: p.get("stop_covered_share", 1.0) for p in book["positions"]}
-        thin = [x for x in ag if (cover.get(x) or 0.0) < 1.0]      # the squeeze line only says "without stops" when that is true
+        cover = {p["coin"]: metrics.protection_of(p) for p in book["positions"]}
+        thin = [x for x in ag if cover.get(x, metrics.NONE) != metrics.FULL]      # the squeeze line only says "without stops" when that is true
         tail = (f"without a full stop on {', '.join(thin)} the day it doesn't is the whole book." if thin else "the stops are what make the day it doesn't survivable.")
         if len(ag) * 2 >= max(1, n_rows):
             out.append(f"You are positioned with the record and against the momentum: the proven cohort sits with you, the last 30 days' winners are on the other side on {len(ag)} of {n_rows} coins. That is the shape of a squeeze — it pays until it doesn't, and {tail}")

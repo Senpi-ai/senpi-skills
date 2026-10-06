@@ -6,6 +6,7 @@ Every number here is a transparent function of the metrics — the formulas are 
 import collections
 import statistics
 
+import metrics
 import timing
 
 WEIGHTS = {"risk": 0.25, "consistency": 0.20, "timing": 0.15, "cost": 0.15, "market_fit": 0.15, "sizing": 0.10}
@@ -429,7 +430,7 @@ def verdict(tr, book, dims, leaks):
     near = [p for p in book["positions"] if p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5]
     if near:
         p = min(near, key=lambda p: p["liq_distance_pct"])
-        weak_line = f"{p['coin']} sits {p['liq_distance_pct']:.1f}% from liquidation with {'no' if p['stop_covered_share'] == 0 else 'a partial'} stop"
+        weak_line = f"{p['coin']} sits {p['liq_distance_pct']:.1f}% from liquidation with {'no' if metrics.protection_of(p) == metrics.NONE else 'a partial'} stop"
         imperative = "Protect that position today."
     av = book.get("account_value") or 0
     if av and (book.get("unrealized") or 0) < -0.2 * av:
