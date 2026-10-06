@@ -230,12 +230,19 @@ def test_write_refuses_to_launder_a_change_past_the_guard():
             f"the refusal does not explain itself: {r.stderr or r.stdout}"
         assert "penguin" in (r.stderr + r.stdout), "the refusal does not name the package"
 
-        # bump the version and it goes through
+        # bump the version and it goes through. Read the version rather than hardcoding it: the
+        # first cut of this test replaced a literal "1.1.0", #828 moved penguin to 1.2.0, the
+        # replacement silently became a no-op, and the test failed claiming a bumped version was
+        # refused — when nothing had actually been bumped.
+        import re
         sy = os.path.join(fake, "strategies", "penguin", "strategy.yaml")
         with open(sy, encoding="utf-8") as fh:
             man = fh.read()
+        m = re.search(r'^version:\s*"?(\d+)\.(\d+)\.(\d+)"?', man, re.M)
+        assert m, "penguin's manifest has no parseable version line"
+        bumped = f'version: "{m.group(1)}.{m.group(2)}.{int(m.group(3)) + 1}"'
         with open(sy, "w", encoding="utf-8") as fh:
-            fh.write(man.replace('version: "1.1.0"', 'version: "1.1.1"', 1))
+            fh.write(man[:m.start()] + bumped + man[m.end():])
         r2 = run("--write")
         assert r2.returncode == 0, f"a bumped version should write cleanly: {r2.stderr or r2.stdout}"
     finally:

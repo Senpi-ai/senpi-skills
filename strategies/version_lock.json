@@ -314,20 +314,24 @@
       "version": "1.3.1"
     },
     "pelican": {
-      "behaviour": "d42ce0a3db1905d0",
-      "version": "1.1.0"
+      "behaviour": "55e6f91e29ca2afa",
+      "version": "1.3.0"
+    },
+    "pelicans-duo": {
+      "behaviour": "ecd177674419b583",
+      "version": "1.0.0"
     },
     "penguin": {
-      "behaviour": "e216d4998b530a54",
-      "version": "1.1.0"
+      "behaviour": "6e2fe86de12e12f4",
+      "version": "1.2.0"
     },
     "penguin-x5": {
-      "behaviour": "e57fd926eff10b65",
-      "version": "1.0.0"
+      "behaviour": "02cd69071cc813b3",
+      "version": "1.1.0"
     },
     "penguins-duo": {
-      "behaviour": "f5ea129e9ef60f8a",
-      "version": "1.0.0"
+      "behaviour": "ced2b119b6f4eafb",
+      "version": "1.1.0"
     },
     "phalanx": {
       "behaviour": "16339676f63f78f3",
@@ -354,8 +358,8 @@
       "version": "1.2.0"
     },
     "purple-penguin": {
-      "behaviour": "3a53136e6ff3d6b0",
-      "version": "1.0.0"
+      "behaviour": "aca2ccd36b5fbc94",
+      "version": "1.1.0"
     },
     "python": {
       "behaviour": "52f39aed485b4ea3",
