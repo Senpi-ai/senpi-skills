@@ -66,6 +66,9 @@ def copy_warnings(book, cohorts):
     unread = metrics.unread_coins(book)
     if unread:
         warn.append(f"protection is unknown on {len(unread)} of {len(book['positions'])} open positions — their orders could not be read")
+    unread_at = metrics.positions_unread_phrase(book)
+    if unread_at:
+        warn.append(f"the positions on {unread_at} could not be read — the book shown may be incomplete")
     against = [x for x in (cohorts or []) if x.get("agreement") is not None and x["agreement"] <= -0.5]
     if against:
         names = [{"proven": "proven cohort", "hot": "hot 30-day cohort"}.get(x["name"], x["name"]) for x in against]
@@ -197,11 +200,11 @@ def overview(r):
 
 def protection(r):
     b = r["book"]; sm = {x["coin"]: x for x in (r.get("smart") or {}).get("rows", [])}
-    n = len(b["positions"])
+    n = len(b["positions"]); unread_at = metrics.positions_unread_phrase(b)
     out = ["## Live positions — protection audit", "",
            f"Account value **{usd(b['account_value'])}**" + (f" (perps equity {usd(b['account_value_perps'])})" if b.get("account_value_perps") and abs(b["account_value_perps"] - b["account_value"]) > 1 else "")
            + f" · margin used **{pct(b['margin_utilization'])}** · withdrawable **{usd(b['withdrawable'])}** · net uPnL **{usd(b['unrealized'], signed=True)}**",
-           f"{n} open position{'s' if n != 1 else ''} · {len(b['naked'])} with no stop · {len(b['partial'])} partly covered · {(str(len(b['unknown'])) + ' unknown (orders not read) · ') if b.get('unknown') else ''}{r['market']['stance'] if r.get('market') else ''}" + (f" · paying {usd(-b['funding_per_day'])}/day in funding" if b['funding_per_day'] < 0 else (f" · collecting {usd(b['funding_per_day'])}/day in funding" if b['funding_per_day'] > 0 else ""))]
+           f"{n} open position{'s' if n != 1 else ''} · {len(b['naked'])} with no stop · {len(b['partial'])} partly covered · {(str(len(b['unknown'])) + ' unknown (orders not read) · ') if b.get('unknown') else ''}{('positions not read on ' + unread_at + ' · ') if unread_at else ''}{r['market']['stance'] if r.get('market') else ''}" + (f" · paying {usd(-b['funding_per_day'])}/day in funding" if b['funding_per_day'] < 0 else (f" · collecting {usd(b['funding_per_day'])}/day in funding" if b['funding_per_day'] > 0 else ""))]
     if n:
         # chat-shaped: nine short columns; the prose lives under the table, one line per position that needs a hand
         out += ["", "| Coin | Side | Held | Notional | uPnL · ROE | Funding/day | To liq. | Stop | Status |", "|---|---|---:|---:|---:|---:|---:|---:|---|"]
@@ -230,7 +233,12 @@ def protection(r):
                     out.append(f"- **{q['coin']}** — {ln}")
             out += ["", "_A tier that has not armed is a rule, not protection: the floor it would "
                         "set is not in force until its trigger is reached._"]
+        if unread_at:
+            # a dex the desk could not read is not a dex with nothing on it: never "nothing here" over it
+            todo.append(f"- **{unread_at}** — couldn't read the positions there; check them on Hyperliquid before acting.")
         out += ["", "**Your quant would…**"] + (todo or ["- nothing here — every position carries a full stop."])   # todo holds every UNKNOWN row
+    elif unread_at:
+        out.append(f"\nThe desk couldn't read the positions on {unread_at} — check them on Hyperliquid before acting.")
     else:
         out.append("\nNo open positions right now.")
     return "\n".join(out)
@@ -476,6 +484,9 @@ def next_steps(r):
     if unread:
         # an unread position must not vanish from the closing: name it, never reassure, never nudge a stop
         out.append(f"{i}. **Check first.** {', '.join(unread)}: the desk couldn't read its orders — check its stop on Hyperliquid before acting."); i += 1
+    unread_at = metrics.positions_unread_phrase(b)
+    if unread_at:
+        out.append(f"{i}. **Check first.** {unread_at}: the desk couldn't read the positions there — check them on Hyperliquid before acting."); i += 1
     priced = [l for l in r["leaks"] if not l.get("unpriced")]
     if priced:
         l = priced[0]

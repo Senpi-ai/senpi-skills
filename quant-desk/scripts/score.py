@@ -141,6 +141,9 @@ def dim_risk(tr, book, dd):
         # "Stops in place, losers cut faster than winners" asserts three findings. On a book with no
         # open positions and one closed trade there is nothing to have found — and it scored 76.
         if not n and (tr.get("trades") or 0) < MIN_PATTERN_TRADES:
+            unread_at = metrics.positions_unread_phrase(book)
+            if unread_at:
+                return None, f"The positions on {unread_at} could not be read and there are too few closed trades to judge risk."
             return None, "No open positions and too few closed trades to judge risk."
         lines.append((0, "Stops in place, losers cut faster than winners, no liquidations."))
     return clamp(s), max(lines, key=lambda x: x[0])[1]
@@ -267,6 +270,9 @@ def dim_market(book, mf):
     if not mf or not book["positions"]:
         # nothing is held, so there is no fit to score. Returning 60 let a flat book carry a
         # measured-looking sixth of the headline on a dimension with no input at all.
+        unread_at = metrics.positions_unread_phrase(book) if not book["positions"] else None
+        if unread_at:
+            return None, f"The positions on {unread_at} could not be read — no fit to score."
         return None, "No open positions to fit against the market."
     s += min(25, 10 * mf["with_market"]) - min(45, 15 * mf["against"])
     ag = [r for r in mf["rows"] if r["fit"].startswith("AGAINST")]
@@ -461,8 +467,10 @@ def verdict(tr, book, dims, leaks):
     if n < MIN_VERDICT_TRADES:
         # "the live book is where the desk earns its keep" only holds if there IS a live book. On
         # 0x31a7…7549 it sat above a risk line reading "No open positions".
+        unread_at = metrics.positions_unread_phrase(book)
         tail = ("the live book is where the desk earns its keep today."
                 if (book or {}).get("positions") else
+                f"and the desk couldn't read the positions on {unread_at} — check them on Hyperliquid." if unread_at else
                 "and with nothing open, there is nothing for the desk to protect right now.")
         return f"{strength} — only {n} closed trade{'s' if n != 1 else ''} in the window, so the record is too thin to grade; {tail}"
     return f"{strength} — nothing in the record is leaking badly; the gains are in the details below."

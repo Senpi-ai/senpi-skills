@@ -250,9 +250,26 @@ def unprotected_label(book):
     return f"{len(book['naked'])}" + (f" (+{k} unread)" if k else "")
 
 
+def dex_name(dex):
+    """How the desk names a dex to a reader: "the main dex" ("") or "the xyz dex"."""
+    return f"the {dex} dex" if dex else "the main dex"
+
+
 def dex_label(coin):
     """How the desk names a coin's dex to a reader: "the main dex" or "the xyz dex"."""
-    return f"the {coin.split(':', 1)[0]} dex" if ":" in coin else "the main dex"
+    return dex_name(coin.split(":", 1)[0] if ":" in coin else "")
+
+
+def positions_unread_phrase(book):
+    """The dexes (and, on a --book run, the wallets) whose positions could not be read — "the xyz dex",
+    "the xyz dex of 0xabcd…1234" — or None when every read came back. A stored run without the key
+    answers None: it predates the signal."""
+    parts = []
+    for dex, wallet in (book or {}).get("positions_unread_by_wallet") or []:
+        part = dex_name(dex) + (f" of {wallet[:6]}…{wallet[-4:]}" if wallet else "")
+        if part not in parts:
+            parts.append(part)
+    return ", ".join(parts) or None
 
 
 def unread_note(coin):
@@ -274,7 +291,7 @@ def protection_of(p):
 
 
 def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=None, ctxs_xyz=None, total_account_value=None, spot_free=0.0,
-              orders_unread_by_wallet=None):
+              orders_unread_by_wallet=None, positions_unread_by_wallet=None):
     """Every open position with liquidation distance, funding per day at the current rate, and its
     protection under the shared rule (`protection_audit`): `protection` FULL / PARTIAL / NONE,
     `covered_size` as an exact decimal string, and `stops`, every qualifying stop with its status.
@@ -283,8 +300,10 @@ def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=Non
     `orders_unread_by_wallet` ([[dex, wallet], …], from a --book run) names one wallet's failed read.
     Those positions are unknown, never NONE: `protection`, `covered_size`, `stops`, `stop_covered_share`,
     `take_profit` and `non_reduce_only_stops` are all None, and the book lists them in `unknown`;
-    `orders_unread` names the dexes ("" = main) whose read failed. The xyz dex is its own collateral pool on the
-    public API: its positions, orders, margin and account value are added in."""
+    `orders_unread` names the dexes ("" = main) whose read failed. `positions_unread_by_wallet`
+    ([[dex, wallet or None], …]) names the clearinghouse reads that failed: that dex's positions are
+    unknown, never none, and the book lists the dexes in `positions_unread`. The xyz dex is its own
+    collateral pool on the public API: its positions, orders, margin and account value are added in."""
     marks = {u["name"]: _f(c["markPx"]) for u, c in zip(ctxs[0]["universe"], ctxs[1])}
     rates = {u["name"]: _f(c["funding"]) for u, c in zip(ctxs[0]["universe"], ctxs[1])}
     if ctxs_xyz:
@@ -351,6 +370,8 @@ def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=Non
                 partial=[p["coin"] for p in out if p["protection"] == PARTIAL],
                 unknown=[p["coin"] for p in out if p["protection"] is None],
                 orders_unread=sorted(unread_dexes),
+                positions_unread=sorted({d for d, _w in positions_unread_by_wallet or []}),
+                positions_unread_by_wallet=[[d, w] for d, w in positions_unread_by_wallet or []],
                 gross_exposure=gross_exp, net_exposure=net_exp,
                 exposure_over_equity=(gross_exp / av) if av else None, funding_per_day=sum(p["funding_per_day"] for p in out),
                 largest_share=(max(p["notional"] for p in out) / gross_exp) if gross_exp else None)

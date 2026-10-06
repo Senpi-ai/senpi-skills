@@ -407,9 +407,14 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     book = metrics.open_book(cs, oo, ctxs, ages, tr_raw.get("clearinghouseState_xyz"), tr_raw.get("frontendOpenOrders_xyz"), ctx_xyz,
                              metrics.whole_account_value(tr_raw.get("portfolio"), tr_raw.get("spotClearinghouseState")),
                              metrics.spot_free_usdc(tr_raw.get("spotClearinghouseState")),
-                             orders_unread_by_wallet=tr_raw.get("orders_unread_by_wallet"))
+                             orders_unread_by_wallet=tr_raw.get("orders_unread_by_wallet"),
+                             positions_unread_by_wallet=(tr_raw["positions_unread_by_wallet"] if "positions_unread_by_wallet" in tr_raw
+                                                         else book_mod.positions_unread(tr_raw)))
     if book["unknown"]:
         meta["warnings"].append("open orders unreadable: protection unknown for " + ", ".join(book["unknown"]))
+    for dex, wal in book["positions_unread_by_wallet"]:
+        where = metrics.positions_unread_phrase(dict(positions_unread_by_wallet=[[dex, wal]]))
+        meta["warnings"].append(f"positions unreadable on {where}: its open positions are unknown, not none")
     # B5 (@0xsarvesh, #718). The startPosition-jump heuristic can only see gaps it can infer from the
     # fills it DID get — a whole TWAP series older than the retained window leaves no jump behind.
     # Hyperliquid's own P&L series is an independent witness: what we rebuilt from fills, plus what

@@ -85,7 +85,9 @@ price is not a positive number or a trailing stop's condition ends `best waiting
 0 < covered < size, `NONE` = nothing covered. `AT RISK` = liquidation < 5% away and not `FULL`;
 `UNPROTECTED` = `NONE`; `PARTLY COVERED` = `PARTIAL`. A dex whose open orders could not be read leaves
 its positions `UNKNOWN` (protection unknown — never `UNPROTECTED`, never covered; risk-scored like a
-missing stop). A position whose only exit-side stop orders are not reduce-only is `NONE`, and is said to
+missing stop). A dex whose positions could not be read (a failed clearinghouse read — live answers
+an empty account with an empty state, never an error) is named, per wallet on a `--book` run, and never
+read as "no open positions". A position whose only exit-side stop orders are not reduce-only is `NONE`, and is said to
 have a stop order that isn't reduce-only — not counted as protection. Stop cover (the table column) =
 covered ÷ size, a PARTIAL row floored into 1–99%, display only. Funding per day = −hourly rate × notional × 24 (sign by side).
 

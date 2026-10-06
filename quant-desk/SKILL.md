@@ -350,7 +350,8 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
    position: side, leverage, notional, uPnL, ROE, funding/day, distance to liquidation, **stop cover**
    (share of the size a resting stop covers), status (`AT RISK` / `UNPROTECTED` / `PARTLY COVERED` /
    `PROTECTED` / `UNKNOWN` — the orders could not be read: say so, never "nothing needs protecting")
-   and what your quant would do.
+   and what your quant would do. A dex whose **positions** could not be read is named instead of
+   counted: never "no open positions" or "nothing here" over it.
 7. **Performance** — per-coin table, long/short split, hold time winners vs losers, execution
    (taker share, fee rates, liquidations), size-vs-outcome bands.
 8. **Leaks** — ranked by $ impact, each counterfactual; then the rules **tested and rejected**.
@@ -391,7 +392,8 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
 ## Mandatory closing (verbatim structure, after any full desk or `--section edge/next`)
 
 1. **Protect first** — name the AT RISK / UNPROTECTED positions, and **check first** on any UNKNOWN one
-   (its orders could not be read: send the reader to Hyperliquid), and offer to help. Per rule 5, senpi
+   (its orders could not be read: send the reader to Hyperliquid) or on any dex whose positions could
+   not be read, and offer to help. Per rule 5, senpi
    cannot place a stop on a book the reader custodies: they set it on Hyperliquid themselves.
 2. **Fix the biggest leak** — the top leak's title and its counterfactual $; the one-line fix.
 3. **Keep the agents on** — "say *hire my quant* and senpi runs this desk on your book — risk guard,

@@ -248,6 +248,8 @@ class HL:
             # None = the read FAILED (the audit then reads that dex's protection as unknown, never NONE);
             # [] = no orders. Never fold a failure into [] — that is how a stop we could not see reads "naked".
             "frontendOpenOrders": self._optional({"type": "frontendOpenOrders", "user": addr}),
+            # None = the xyz read FAILED: its positions are unknown, never none (live answers an
+            # account with no xyz collateral with an empty state, not an error).
             "clearinghouseState_xyz": self._optional({"type": "clearinghouseState", "user": addr, "dex": "xyz"}),
             "frontendOpenOrders_xyz": self._optional({"type": "frontendOpenOrders", "user": addr, "dex": "xyz"}),
             "spotClearinghouseState": self._optional({"type": "spotClearinghouseState", "user": addr}),
@@ -362,7 +364,9 @@ class HLFixture(HL):
         req = body.get("req") or {}
         user = str(body.get("user", "")).lower(); dex = body.get("dex", "")
         if user and dex and f"hl::{t}::{user}::{dex}" not in self._r and t in ("clearinghouseState", "frontendOpenOrders"):
-            raise HLError(f"fixture has no {t} for dex {dex}")          # a fixture without an xyz view = an account with no xyz collateral
+            # a fixture without an xyz view = a FAILED read. Live answers an account with no xyz
+            # collateral with an empty state, so recordings carry that state explicitly.
+            raise HLError(f"fixture has no {t} for dex {dex}")
         for key in (f"hl::{t}::{user}::{dex}" if dex else "", f"hl::{t}::{user}", f"hl::{t}::{req.get('coin', '')}::{req.get('interval', '')}", f"hl::{t}::{req.get('coin', '')}",
                     f"hl::{t}::{dex}", f"hl::{t}"):
             if not key:
