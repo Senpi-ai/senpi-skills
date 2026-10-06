@@ -6,13 +6,13 @@
 # Arm of a 6-package experiment — penguin and penguins-duo, each at 1.5 / 2.0 / 3.0 — asking
 # how late an entry can be and still pay. Judge the arms AGAINST EACH OTHER over the same
 # window, never on one arm's P&L alone.
-#
-# catalog.status: blocked — not offered in the catalog or discover. Deploy by explicit path:
-#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/penguin-chase-200bp --budget <amount>
+# Listed in the catalog and in discover. Compare it against the parent it varies, not on its
+# own P&L — see senpi-strategy-discover/references/variant-families.md.
 schema_version: 1
 id: penguin-chase-200bp
-version: 1.0.0
+version: "1.0.1"
 catalog:
+  varies: penguin          # a VARIANT of this template — never outrank it
   name: Penguin Chase 2% — pre-move cap arm
   emoji: 🐧
   tagline: 'penguin with one number changed: an entry is rejected once the price has already moved 2% in the signal''s own direction over the last hour. One of six arms (penguin and penguins-duo at 1.5 / 2.0 / 3.0) measuring how late is too late.'
@@ -43,14 +43,12 @@ catalog:
   - hyperfeed
   - leader-momentum
   - momentum
-  - not-for-users
   - pre-move-gate
   - rank-jump
   - single-slot
   - start-here
   - striker
   - universe-scanner
-  status: blocked
 requires:
   runtime: '>=3.0.0'
 defaults:

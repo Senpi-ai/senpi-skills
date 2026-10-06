@@ -109,13 +109,20 @@ def test_purple_penguin_differs_from_penguin_in_exactly_one_input():
         "runtime.yaml files and revert anything that is not minScore.")
 
 
-def test_purple_penguin_stays_out_of_the_catalog():
-    """It is an unmeasured 8-floor on a 90%-margin 10x book. Users must not be offered it."""
+def test_purple_penguin_is_listed_and_says_what_it_varies():
+    """Published 2026-10-06 on Jason's call. The guard flips rather than disappears.
+
+    While it was blocked the risk was that users got an unmeasured 8-floor by accident. Listed, the
+    risk is the opposite and worse: a user cannot tell it apart from penguin, picks the wrong one,
+    and reads the result as if it were penguin's. So the card must NAME the parent it varies and
+    the thing that differs — which is what makes it choosable rather than merely available."""
     card = _yaml("strategies/purple-penguin/strategy.yaml")
-    assert card["catalog"].get("status") == "blocked", (
-        "purple-penguin lost catalog.status: blocked — gen_catalog would publish it to the "
-        "catalog AND to senpi-strategy-discover, offering an untested score floor to users. "
-        "Deploy it by explicit path instead; deploy.py honours a path regardless of status.")
+    assert card["catalog"].get("status") != "blocked", "purple-penguin is published now"
+    blob = " ".join(str(card["catalog"].get(k, "")) for k in ("tagline", "belief_plain", "thesis"))
+    assert "penguin" in blob.lower(), "the card never names the parent it varies"
+    assert "8" in blob and "9" in blob, (
+        "the card does not state BOTH score floors, so a reader cannot tell what they are choosing "
+        "between")
 
 
 # ── the leverage/ROE coherence invariant (cheetah, 2026-09-30) ──
@@ -203,13 +210,15 @@ def test_a_wild_variant_raises_the_bar_and_the_size_together():
             f"a higher bar with the same size leaves the rarer signal underpaid.")
 
 
-def test_every_wild_variant_stays_out_of_the_catalog():
-    """Unmeasured floors on whole-book positions. None of these may reach a user via discover."""
-    for wild, _ in WILD_PAIRS:
+def test_every_wild_variant_is_listed_and_names_its_parent():
+    """Same flip as purple-penguin: listed, so each one has to be distinguishable from its parent."""
+    for wild, parent in WILD_PAIRS:
         card = _yaml(f"strategies/{wild}/strategy.yaml")
-        assert card["catalog"].get("status") == "blocked", (
-            f"{wild} lost catalog.status: blocked — gen_catalog would publish it to the catalog "
-            f"AND to senpi-strategy-discover. Deploy experiments by explicit path instead.")
+        assert card["catalog"].get("status") != "blocked", f"{wild} is published now"
+        blob = " ".join(str(card["catalog"].get(k, "")) for k in ("tagline", "belief_plain", "thesis"))
+        assert parent in blob.lower(), (
+            f"{wild}'s card never names {parent}, so a user cannot tell which strategy it is a "
+            f"higher-conviction version OF")
 
 
 # ── per-leverage sibling packages must land on the SAME price distances ──
@@ -638,12 +647,17 @@ def test_a_chase_arm_vendors_its_parents_scanners_byte_for_byte(arm, parent, _ca
 
 
 @pytest.mark.parametrize("arm,_parent,_cap", CHASE_ARMS)
-def test_a_chase_arm_stays_out_of_the_catalog(arm, _parent, _cap):
-    """Six near-identical penguins in discover would bury the real one and confuse every user."""
+def test_a_chase_arm_is_listed_and_states_its_own_cap(arm, _parent, _cap):
+    """Published 2026-10-06. Six near-identical penguins in discover is exactly the hazard I
+    blocked them for, so the guard becomes the thing that makes them survivable: every arm's card
+    must state ITS OWN number, in percent, in text a user reads — not only in the yaml."""
     card = _yaml(f"strategies/{arm}/strategy.yaml")
-    assert card["catalog"].get("status") == "blocked", (
-        f"{arm} lost catalog.status: blocked — gen_catalog would publish an experiment arm to "
-        f"discover alongside five siblings that differ from it by one number.")
+    assert card["catalog"].get("status") != "blocked", f"{arm} is published now"
+    blob = " ".join(str(card["catalog"].get(k, "")) for k in ("name", "tagline", "belief_plain", "thesis"))
+    assert f"{_cap:g}%" in blob, (
+        f"{arm}'s card never states its own cap ({_cap:g}%) in readable text. Six siblings differ "
+        f"by one number; if that number is not on the card, nobody can choose between them.")
+    assert _parent in blob.lower(), f"{arm}'s card never names its parent {_parent}"
 
 
 def test_the_three_caps_are_distinct_and_ordered():
