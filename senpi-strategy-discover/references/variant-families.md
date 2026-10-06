@@ -76,6 +76,20 @@ score **8** instead of **9**, asking whether the floor is set too high.
 These bet on the parent's own ranking being informative. If it is, they beat it; if the ranking is
 noise, they are the parent with more variance. Say exactly that.
 
+### 5. Concentration at leverage — the carry trade as one bet per side
+
+`camel-concentrated` — camel's funding carry as **1 position per side at 10x** instead of 4 at 5x.
+Margin deployed is unchanged (4 × 18% = 1 × 72%), but **leverage doubles gross notional**, so unlike
+every other variant here this one moves *two* things on purpose: concentration and size. Say so.
+
+The pitch is as much about the bill as the bet: camel pays **58% of its gross profit in fees**, and
+one position costs roughly a quarter of the fees four do for the same money at work.
+
+Offer it only to someone who has said they want leverage *and* concentration. It is the most
+aggressive thing in the catalog: one stop-out costs **8.6% of the arm**, against 1.08% on camel,
+and **no clock closes anything** — the ladder and the 1.20%-of-price stop are the only exits, so
+a carry that never reverts holds the arm until the stop. Funding does keep accruing while it waits.
+
 ### 5. Concentration — fewer, larger bets inside a multi-arm strategy
 
 `athena-concentrated` — athena with its phalanx arm holding **2 positions at 22.5%** instead of 3 at

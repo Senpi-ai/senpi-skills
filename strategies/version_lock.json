@@ -69,6 +69,10 @@
       "behaviour": "5a1b31ae936bd758",
       "version": "1.2.1"
     },
+    "camel-concentrated": {
+      "behaviour": "2e866dbc37e12cda",
+      "version": "1.0.1"
+    },
     "caracal": {
       "behaviour": "90b2b1d40aad5671",
       "version": "1.2.1"

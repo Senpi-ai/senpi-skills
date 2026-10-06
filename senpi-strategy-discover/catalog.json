@@ -110,6 +110,57 @@
       "sort_order": 1
     },
     {
+      "id": "camel-concentrated",
+      "name": "Camel Concentrated — one carry trade per side at 10x",
+      "emoji": "🐪",
+      "varies": "camel",
+      "tagline": "Camel's funding-carry edge taken as ONE position per side at 10x instead of four at 5x. Same ranking, same exhaustion gate, same price-distance exits — the bet is that the most-extreme funding dislocation is worth more than four smaller ones, and that a quarter of the fills keeps a quarter of the fees.",
+      "belief_plain": "This is Camel with its capital gathered into one trade per side. Camel gets paid to hold the crowded side of a funding dislocation: it shorts the names longs are paying to hold, and buys the names shorts are paying to hold, only when the crowded trade is already running out of steam. Normally it spreads that across four names per side. This version takes the single most extreme name on each side and puts four times the size behind it at twice the leverage. The edge it is testing is partly the signal and partly the bill: Camel currently pays 58% of its gross profit in trading fees, and one position costs roughly a quarter of the fees that four do for the same money at work. Concentration here is as much a fee argument as a conviction one.",
+      "version": "1.0.1",
+      "thesis": "Two inputs move per arm and a third is forced. slots 4 -> 1 and marginPct 18 -> 72 keep margin deployed identical at 72% of each sleeve; default_leverage / maxLeverage 5 -> 10 is the high-leverage half of the ask, and it DOUBLES gross notional (3.6x -> 7.2x of the sleeve), so this is deliberately a two-variable change and not a controlled single-variable arm. The DSL is re-derived rather than copied: every ROE number is doubled so each price distance is camel's exactly (stop 1.20%, rungs 2.80/5.60/10.0/18.0% of price), because carrying 5x ROE numbers onto 10x would halve them and put the stop inside the measured noise band. EVERY CLOCK IS OFF, which is a standing preference rather than a measurement: the ladder and the stop decide every exit, at any horizon. camel ships a 72h hard_timeout and an 8h dead-weight cut and both are disabled here. The cost is that the phase-1 floor at 1.20% of price becomes the only thing that ends a dead carry, and concentrated that slot IS the arm — softened only by funding continuing to accrue while it waits, which is not true of a momentum trade going nowhere. Guard rails are SCALED because they had to be: one stop costs 1.08% of a 4-slot arm but 8.64% concentrated, so camel's 10% daily limit would halt the book after a single loss and the result would read as a failure of concentration rather than of calibration. Why camel at all: it is the only non-momentum template in the catalog actually trading (259 real fills across 4 live wallets in the 7 days to 2026-10-06, net +$5.42 after $6.72 of fees on $11.52 realized), and the one whose fee ratio leaves concentration somewhere to go. Read it against camel over the same window, never on its own P&L.",
+      "tags": [
+        "basis",
+        "carry",
+        "concentration",
+        "contrarian",
+        "exhaustion",
+        "experiment",
+        "funding",
+        "hedge-fund",
+        "high-leverage",
+        "market-neutral",
+        "two-book",
+        "universe-crypto"
+      ],
+      "group": "carry",
+      "archetype": "contrarian_fade",
+      "archetype_label": "Contrarian / Fade",
+      "sub_style": "funding_extreme",
+      "sub_style_label": "Fades extreme funding rates.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 20,
+      "wallet_count": 2,
+      "min_budget_binding_wallet": "harvest",
+      "instance_count": 2,
+      "funding_split": [
+        0.5,
+        0.5
+      ],
+      "max_slots": 2,
+      "branch": "main",
+      "sort_order": 1
+    },
+    {
       "id": "camel",
       "name": "Camel — Funding Carry Hedge Fund",
       "emoji": "🐫",
@@ -155,7 +206,7 @@
       ],
       "max_slots": 8,
       "branch": "main",
-      "sort_order": 1
+      "sort_order": 2
     },
     {
       "id": "bald-eagle",
