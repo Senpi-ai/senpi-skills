@@ -760,8 +760,8 @@ def test_the_skill_defaults_to_the_readers_own_book_and_remembers_the_rest():
     skill = (_P(__file__).resolve().parents[1] / "SKILL.md").read_text(encoding="utf-8")
     assert "An address is the reader's own book unless we know otherwise" in skill
     assert "already recorded as *analyzed* stays\n   someone else's on a bare re-run" in skill
-    for needle in ("**verified**", "**claimed**", "**analyzed**", "--claim", "--addresses",
-                   "a claim, not proof", "whenever the request is about someone else"):
+    for needle in ("**verified**", "**analyzed**", "**claimed** is retired", "--claim", "--addresses",
+                   "a claim, not proof", "whenever the request is about someone else", "--my-wallets"):
         assert needle in skill, needle
 
 
@@ -1140,8 +1140,9 @@ def test_the_desk_never_promises_a_signature_it_cannot_take():
     # the reader is offered help, not handed homework
     assert "name the naked positions and ask how you can help" in skill
     assert "is the fact, not the offer" in skill
-    # and the restriction carries its own expiry, so it gets revisited instead of going stale
-    assert "Dated, revisit this" in skill and "2026-09-21" in skill
+    # and the restriction is stated as it stands today: no dated note, no release estimate — "about a
+    # week out" is itself a future-tense promise, and a dated one goes stale in place
+    assert "Dated, revisit this" not in skill and "about a week out" not in skill
 
 
 def test_next_steps_offers_a_route_for_someone_who_does_not_want_their_own_history_mechanised():
@@ -3102,23 +3103,19 @@ def test_an_empty_book_does_not_send_the_reader_back_to_strategy_list():
     assert "strategy_list" not in blk, "the book exit repeats advice this reader has already taken"
 
 
-def test_an_address_the_reader_already_claimed_is_not_forgotten():
-    """@betashop on 1.26.0: a reader who previously gave an address and said it was their book
-    should still have it remembered — the senpi strategy wallets are a FALLBACK, not a replacement.
-
-    A trader who arrives from Hyperliquid with their own external wallet does not stop owning it the
-    moment they have senpi strategies, and the address book already records exactly this: `claimed`
-    for an address they typed and called theirs, `verified` for a Senpi-issued one. 1.26.0 went
-    straight to `strategy_list` and never consulted it."""
+def test_a_connected_wallet_is_not_forgotten():
+    """@betashop on 1.26.0: a reader who brought their own Hyperliquid wallet must still have it
+    remembered — the senpi strategy wallets are a FALLBACK, not a replacement. Since 1.41.0 "theirs"
+    is what senpi can PROVE: a connected wallet (one signature), read by `desk.py --my-wallets`,
+    before `strategy_list`. A typed `claimed` row proves nothing and is no longer consulted."""
     skill = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
     own = skill[skill.index("If they mean their OWN book"):skill.index("If they want someone ELSE")]
 
-    assert "--addresses" in own, "the own-book branch never reads the address book"
-    assert "claimed" in own and "verified" in own, "the two tiers of 'theirs' are not distinguished"
-    assert own.index("address book") < own.index("strategy_list"), \
-        "the address book must be consulted BEFORE falling back to senpi wallets"
-    assert "do not forget an address they already claimed" in own.lower() or \
-           "do not forget an address they already claimed" in own, "the rule is not stated"
+    assert "--my-wallets" in own, "the own-book branch never reads the reader's wallets"
+    assert own.index("Connected wallets") < own.index("strategy wallets**"), \
+        "connected wallets must be offered BEFORE falling back to senpi wallets"
+    assert "do not forget a connected wallet" in own, "the rule is not stated"
+    assert "claimed" not in own, "the own-book branch still treats a typed claim as ownership"
     # and when both exist the reader decides — not us
     assert "Both?" in own and "ask" in own.lower(), "ambiguity must go back to the reader"
     assert "Never guess" in own or "never guess" in own, "the no-guessing rule must survive"

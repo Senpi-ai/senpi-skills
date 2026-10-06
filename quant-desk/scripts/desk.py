@@ -48,7 +48,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.40.0"
+VERSION = "1.41.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -853,7 +853,7 @@ def main(argv=None):
     # Whose book this is comes from the address book, not from how the request was phrased. An
     # UNKNOWN address is someone else's: the desk gives advice in the second person, and delivering
     # that about a stranger's trading is the failure worth defaulting against. Owner voice needs a
-    # wallet senpi issued, a claim the reader already made, or an explicit flag on this run.
+    # connected wallet, a Senpi-issued wallet, or a flag on this run.
     # A BOOK is the reader's own by construction — they resolved these wallets from their own
     # `strategy_list`. Running it through the address book let one stale `analyzed` mark on one of N
     # wallets flip the voice of the whole book to the third person: "Their desk — across 2 wallets",

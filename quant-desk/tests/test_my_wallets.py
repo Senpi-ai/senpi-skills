@@ -107,3 +107,28 @@ def test_the_my_wallets_flag_prints_the_json(tmp_path, capsys):
     assert desk.main(["--my-wallets", "--fixture", str(fx), "--state-dir", str(tmp_path)]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["connected_wallets"][0]["access"] == ACCESS and out["senpi_wallets"] == []
+
+
+def _skill():
+    return " ".join((HERE.parent / "SKILL.md").read_text(encoding="utf-8").split())
+
+
+def test_the_skill_resolves_mine_from_connected_then_senpi():
+    sk = _skill()
+    for needle in ("desk.py --my-wallets", "connected wallets first", "it isn't saved",
+                   "Wallets on senpi.ai (web)", ACCESS, "`connected_wallets_status: \"unavailable\"`",
+                   "I couldn't load your connected wallets"):
+        assert needle in sk, needle
+
+
+def test_the_description_owns_leaks_on_connected_wallets():
+    desc = _skill().split("license:", 1)[0]
+    assert "CONNECTED wallet" in desc and "senpi-improve-trades" in desc
+    for words in ('"my MetaMask"', '"my own Hyperliquid wallet"', '"my connected wallet"'):
+        assert words in desc, words
+
+
+def test_readme_row_matches_the_skill_version():
+    import re
+    version = re.search(r'version: "([0-9.]+)"', (HERE.parent / "SKILL.md").read_text()).group(1)
+    assert f"| [`quant-desk`](quant-desk/) | {version} |" in (HERE.parent.parent / "README.md").read_text()

@@ -14,7 +14,9 @@ description: >-
   Hyperfeed attention layer come from Senpi's own data.
   TRIGGERS — any of these, with or without an address: "run AI quant", "run ai-quant", "run quant-desk", "run AI quant on my Hyperliquid wallet", "run AI quant on any Hyperliquid wallet", "run quant", "run the quant on 0x…", "run quant
   desk on 0x…", "score my trading", "rate my trading", "find leaks on my Hyperliquid wallet", "where am
-  I leaking money", "what did I miss" (about a book, a week or a trade), "master my week", "analyze my
+  I leaking money", "what did I miss" (about a book, a week or a trade), "master my week" — on a
+  CONNECTED wallet the user trades by hand ("my MetaMask", "my own Hyperliquid wallet", "my connected
+  wallet") these are always this skill; senpi-improve-trades keeps the leaks of senpi strategies — "analyze my
   wallet / my Hyperliquid address", "how am I doing", "what's my strategy", "am I on the right side of
   smart money", "are my positions protected", "what should I fix first", "compare me to the whales",
   "scout setups for me", "find traders for me to analyze with AI quant", "run AI quant on any
@@ -44,7 +46,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.40.0"
+  version: "1.41.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -194,10 +196,6 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    Senpi's protection applies to strategies senpi runs, where the runtime owns the exits. Funding a
    quant is only for autonomous trading. Never imply senpi holds or moves their funds.
 
-   > **Dated, revisit this.** As of 2026-09-21 the ability to attach a DSL or a stop to any position
-   > already on Hyperliquid is about a week out. When it ships this rule changes and the protect step
-   > becomes a real offer — until then the restriction above holds exactly as written, because a
-   > promise that lands a week early is the one that gets remembered as a lie.
 6. **Say "quant", "desk", "agents", "leak", "protect".** Never "report", "analyst", "bot", "AI assistant".
    Lowercase `senpi`. No outcome guarantees. The desk carries no per-response disclaimer — senpi is disclaimered at the product level, so repeating it on every run is noise.
 7. **Address hygiene and whose book it is.** Show the address shortened (`0x2999…65de`). Never post
@@ -207,17 +205,25 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    user is 0x… — run it plain and speak to them. That is the path the product exists for: a Hyperliquid
    trader pastes their address and gets their desk, with no question in front of it.
 
-   **The desk remembers.** It keeps an address book per box (`scripts/desk.py --addresses`) with three
-   relationships: **verified** (a wallet senpi issued — we know), **claimed** (the user said it is
-   theirs — a claim, not proof; nobody can verify ownership of an address from a chat message) and
-   **analyzed** (someone else's book they read). An address already recorded as *analyzed* stays
+   **"My wallets" are what senpi can prove.** `desk.py --my-wallets` prints them: the reader's
+   **connected** wallets (connected in Wallets on senpi.ai (web), one signature — proof) and their senpi strategy
+   wallets, each half with its own `ok` / `unavailable` status. A connected wallet is theirs even if
+   the book once read it as a stranger's.
+
+   **The desk remembers.** It keeps an address book per box (`scripts/desk.py --addresses`) with
+   **verified** (a wallet senpi issued) and **analyzed** (someone else's book they read). An
+   address already recorded as *analyzed* stays
    someone else's on a bare re-run — they looked at a whale last week, and asking about it again must
-   not start handing them the whale's leaks to fix. Use `--claim` when a reader says an address that
-   the book has as someone else's is in fact theirs.
+   not start handing them the whale's leaks to fix. **claimed** is retired: older books still hold it
+   and it means nothing — a typed "it's mine" is a claim, not proof.
+
+   **A pasted address the reader says is theirs** is theirs for this conversation only: run it with
+   `--mine` (or `--claim`, the same voice). Say plainly that it isn't saved, and that connecting it in
+   Wallets on senpi.ai (web) is what makes senpi remember it.
 
    **Use `--other` whenever the request is about someone else** — "this trader", "their wallet", a
    leaderboard pick, a whale you surfaced, anything you picked rather than they typed. The default
-   covers the address a reader hands you; it is not a licence to read a wallet they never claimed as
+   covers the address a reader hands you; it is not a licence to read a wallet they never said was
    their own.
 
    "Run AI quant analyst on 0x…" (or
@@ -422,26 +428,29 @@ book** or **someone else's**. Settle that first — it is one question and it de
 
 > Your own book, or do you want me to find you someone to read?
 
-### If they mean their OWN book — read the address book FIRST, then the strategy wallets
+### If they mean their OWN book — `desk.py --my-wallets` FIRST: connected wallets, then strategy wallets
 
-**Check `desk.py --addresses` before anything else.** A reader who has already told this box an
-address is theirs is recorded there as `claimed`, and a Senpi-issued wallet as `verified`. A trader
-who came from Hyperliquid with their own external wallet and said "this is my book" does not stop
-owning it the moment they have senpi strategies — **do not forget an address they already claimed**,
-and do not silently swap it for a senpi wallet.
+**Run `desk.py --my-wallets` before anything else.** It returns the reader's connected wallets
+(`user_get_me`) and their senpi strategy wallets (`strategy_list`, closed ones included). A trader who
+came from Hyperliquid and connected their own wallet does not stop owning it the moment they have senpi
+strategies — **do not forget a connected wallet**, and do not silently swap it for a senpi wallet.
 
-So the precedence is:
+So the precedence is — connected wallets first, then strategy wallets, then ask:
 
-1. **Claimed or verified in the address book** — offer it by name, it is the one they told you about.
-2. **Their senpi strategy wallets** (`strategy_list`) — where their senpi perp history actually is.
-3. **Both?** Then ask, because only they know which they mean today: *"Your external wallet
+1. **Connected wallets** — offer each by its label, it is the one they connected. Quote its `access`
+   line when they ask what senpi can do with it:
+   > Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.
+2. **Their senpi strategy wallets** — where their senpi perp history actually is.
+3. **Both?** Then ask, because only they know which they mean today: *"Your connected wallet
    `0x5a10…2c37`, or your senpi strategies — Aegis, Phalanx?"* Offer to run both and compare; that
    is often the more interesting read, and the desk prices them the same way.
+   `connected_wallets_status: "unavailable"` → say "I couldn't load your connected wallets" and offer
+   the strategy wallets; never "you have no connected wallets".
 4. **Neither?** Ask for an address — and **offer to show them the desk on a real book in the same
    breath**. Never guess an address, but never leave a new reader with only a question either.
 
    On 2026-09-23 a brand-new user's FIRST EVER prompt was the quant-desk chip. Their agent did
-   everything right — read this file, checked the address book (empty), checked `strategy_list`
+   everything right — read this file, checked for connected wallets (none), checked `strategy_list`
    (empty, they had no strategies yet) — and asked for an address. One turn, eight seconds, and
    they never came back. A question is the one answer that shows them nothing.
 
@@ -462,7 +471,7 @@ both got a dead end. A third user pointed the desk at three strategy wallets the
 three full desks, a priced leak, and a DSL fix off the back of it. Same product, same hour; the only
 difference was which wallet.
 
-So, where the address book has nothing claimed: resolve their wallets with `strategy_list` and
+So, where they have no connected wallet: resolve their wallets with `strategy_list` and
 **offer the strategy wallets first**, named by their strategy. Offer the embedded wallet second and label it — "your funding wallet, usually no
 trades of its own".
 
