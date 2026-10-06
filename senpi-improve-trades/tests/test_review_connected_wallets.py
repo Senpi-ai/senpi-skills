@@ -265,3 +265,29 @@ def test_the_timing_step_carries_the_connected_read_and_matches_all():
     assert s["meta"]["strategy_count"] == allr["meta"]["strategy_count"]
     assert all(r["exit_reason"]["terminal"] == "MANUAL_TRADE"
                for r in te["trades"] if r.get("wallet_kind") == "connected")
+
+
+# ── fix round 1 ─────────────────────────────────────────────────────────────────────────────────────
+def test_last_n_is_capped_per_kind_so_senpi_aggregates_match_the_senpi_only_run():
+    saved = _env()
+    try:
+        base = review.run(review._FixtureClient(_base()), window_days=WINDOW_DAYS, last_n=1,
+                          want_market=False, now_ms=NOW_MS)
+        fx = _connected(_base(), fills=_fills(), state=_state())
+        mixed = review.run(review._FixtureClient(fx), window_days=WINDOW_DAYS, last_n=1,
+                           want_market=False, now_ms=NOW_MS)
+    finally:
+        _restore(saved)
+    assert base["meta"]["trade_count"] >= 1
+    for key in ("timing_summary", "pnl_summary", "strategies", "closed_strategies"):
+        assert json.dumps(mixed[key], sort_keys=True) == json.dumps(base[key], sort_keys=True), key
+    assert mixed["meta"]["trade_count"] == base["meta"]["trade_count"]
+    assert mixed["meta"]["connected_trade_count"] == 1
+
+
+def test_degraded_does_not_claim_no_strategies_when_connected_wallets_did_not_load():
+    meta = {"connected_wallets_status": "unavailable", "warnings": []}
+    msg = review._degraded([], [], [], meta)
+    assert "not a fault" not in msg and "couldn't be loaded" in msg
+    res, _ = _run({"strategy_list": {"strategies": []}, "user_get_me": {"user": {"wallets": []}}})
+    assert "not a fault" not in (res["meta"]["degraded"] or "")

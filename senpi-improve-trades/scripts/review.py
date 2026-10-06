@@ -1401,7 +1401,12 @@ def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_mark
     # behavior returned up to 10 × strategy_count — a churned book turned "last 10" into 140+ trades).
     trades.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
     if cap:
-        trades = trades[:cap]
+        # per KIND: a connected wallet's manual trades must never crowd a Senpi row out of 'last N' (the
+        # Senpi aggregates stay identical to the Senpi-only run); each kind keeps its own most-recent N.
+        kept_s = [t for t in trades if t.get("wallet_kind") != CONNECTED][:cap]
+        kept_c = [t for t in trades if t.get("wallet_kind") == CONNECTED][:cap]
+        keep = {id(t) for t in kept_s + kept_c}
+        trades = [t for t in trades if id(t) in keep]      # preserves the combined newest-first order
 
     # ── Phase 2: dedupe + parallelize the price fetches, then apply _if_held from the cache ──
     price_cache = {}
@@ -2022,6 +2027,8 @@ def _stamp_connected_meta(meta, entries, trades):
 def _degraded(senpi, entries, trades, meta):
     """meta.degraded — Senpi-strategy wording only when there are no connected wallets to review."""
     if not senpi and not any(_is_connected(e) for e in entries):
+        if meta.get("connected_wallets_status", "ok") != CONNECTED_OK:
+            return "no Senpi strategies, and the connected wallets couldn't be loaded — unknown, not an empty book"
         return ("strategy list unreadable — check the token is USER-scoped"
                 if any("strategy_list failed" in str(w) for w in (meta.get("warnings") or []))
                 else "no strategies deployed yet (not a fault — see meta.book_state)")
