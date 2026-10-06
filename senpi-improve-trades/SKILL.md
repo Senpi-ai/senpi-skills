@@ -14,7 +14,7 @@ description: >-
   CLOSED trade from discovery, enriches each exit reason + blocked signals from the runtime telemetry
   event log, computes the honest "if I'd held to now" counterfactual, and crosses the book against what
   the market did — you narrate it under strict guardrails: process over outcome (lead with the aggregate,
-  not the one reversal), it's the STRATEGY not the user, NO fabricated "+$X/week", no performance-chasing,
+  not the one reversal), it's the STRATEGY not the user (on Senpi strategy trades), NO fabricated "+$X/week", no performance-chasing,
   honest sourcing (onchain facts = discovery, exit reason / blocked / leaks = telemetry), and the user
   chooses how deep the fix goes. Composes senpi-market-pulse (movers), senpi-smart-money (whales), and
   senpi-portfolio (live state). Requires a USER-scoped Senpi token.
@@ -81,8 +81,10 @@ more" questions; use `senpi-portfolio` for live state.
 4. **Quote the engine's numbers verbatim.** Every $ and count you state must be a field the engine emitted
    (`pnl_summary`, `timing_summary`, `strategies[]`, `realized_by_book`). NEVER re-derive or estimate an
    aggregate — that is how fabrications like "closed did −$405" happen.
-5. **It's the strategy, not the user.** Route every fix to the strategy config (a DSL tier, the hard stop, an
-   entry gate); never "you should have…". No fabricated forward numbers (no $/week).
+5. **It's the strategy, not the user — on Senpi strategy trades.** Route every fix on a Senpi strategy trade
+   to the strategy config (a DSL tier, the hard stop, an entry gate); never "you should have…". On a
+   connected wallet there is no strategy: coach the user's own process (timing, give-back, fees), never a
+   strategy pitch. No fabricated forward numbers (no $/week).
 
 The detailed guardrails below explain each; these five are the floor.
 
@@ -370,6 +372,9 @@ Keep **floor vs fill** separate: on AVAX the floor was +8.23% and it filled +7.6
 execution slippage, not calibration.
 
 ### 2. It's the strategy, not you — fixes route to the strategy config
+
+This section covers **Senpi strategy** trades. A connected wallet's trades are the user's own manual trades:
+there is no strategy config to route to, so coach their process (see "Connected wallets") and never pitch one.
 
 These are **autonomous strategy** trades. The strategy exited them, not the user clicking sell. So **never**
 say "you should have held" or "you sold too early." When the counterfactual favored holding (`held_higher`), the

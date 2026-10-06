@@ -338,6 +338,18 @@ def test_the_review_of_a_connected_wallet_stays_here_only_leaks_go_to_the_desk()
             'here') in sec
 
 
+def test_its_the_strategy_rule_is_scoped_to_senpi_strategy_trades():
+    """Guardrail 5 used to say "Route every fix to the strategy config" unscoped, contradicting the
+    connected-wallet rule (coach the user's own process, no strategy pitch)."""
+    sk = _skill()
+    assert ("**It's the strategy, not the user — on Senpi strategy trades.** Route every fix on a Senpi "
+            "strategy trade to the strategy config") in sk
+    assert "On a connected wallet there is no strategy: coach the user's own process" in sk
+    desc = sk.split("license:", 1)[0]
+    assert "it's the STRATEGY not the user (on Senpi strategy trades)" in desc
+    assert "This section covers **Senpi strategy** trades. A connected wallet's trades are the user's own" in sk
+
+
 def test_more_gains_never_pitches_a_connected_only_user():
     row = next(l for l in open(SKILL, encoding="utf-8").read().splitlines() if "How could I make more gains?" in l)
     assert "never for a connected-only user" in row
