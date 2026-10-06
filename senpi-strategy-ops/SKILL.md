@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.23.3"
+  version: "3.24.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -122,7 +122,7 @@ the consequence in one line and an explicit yes — never "done". **The fork is 
 name/group/description, `forked_from`), proves it and deploys it; `--name "<their words>"` for a name of
 their own; `deploy.py fork <template>` makes the copy first when levers move (the edit path on the fork,
 then `create <dir>`). A user ID is never a name; with no username to read, a bare template id is **refused**. The
-lever language, the name rules and the fork: [`references/walkthrough.md`](references/walkthrough.md).
+lever language, the name rules, the fork, and — for a VARIANT template — the one extra bullet naming what it varies from: [`references/walkthrough.md`](references/walkthrough.md).
 
 **Step 1 — start the deploy.** Budget splits across instances by `funding_share`, **min $10 each** (the
 platform wallet floor) — **ask for the amount now — after the walkthrough, never before it — and confirm

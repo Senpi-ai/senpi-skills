@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.40.0"
+  version: "2.41.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -275,6 +275,22 @@ They lack the vocabulary; recommend *without* making them self-classify:
 Every card is a starting point — say so once (*"each of these is a starting point you can fork"*), and
 never present a pick as our strategy the user adopts. Show the STARTER badge iff `tier == "starter"`; show `archetype_label`; lead with `thesis` for the
 worldview/fund picks; offer the stack on single-wallet picks only.
+
+## Variant families — do not offer two siblings at once
+
+Fifteen listed strategies are VARIANTS of another listed strategy, differing in one or two numbers —
+six of them are penguins. Ranked on keyword overlap they look interchangeable, and a user who picks
+the wrong one reads its results as if they were the parent's.
+
+**Offer the PARENT. Name a variant only when the user's own words ask for the thing it varies** —
+"fewer, bigger positions" earns a duo, "I keep getting in late" earns a chase arm, a generic request
+earns neither. If they ask for one by name, give it to them and name what it varies from in the same
+breath, every time. Which family varies what, the one-line pitch for each, and the measured numbers:
+[`references/variant-families.md`](references/variant-families.md).
+
+Two things to say out loud when a chase arm comes up: `chase-300bp` is the cap plain Penguin already
+runs, and the 2% and 3% arms differ by about one trade in forty — weeks before they separate, not
+days.
 
 ## Special paths
 
