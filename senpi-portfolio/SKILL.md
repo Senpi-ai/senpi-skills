@@ -1,26 +1,29 @@
 ---
 name: senpi-portfolio
 description: >-
-  Analyze the user's portfolio, strategies, positions, and trades across all wallets — main embedded
-  wallet, strategy sub-wallets, deployed vs idle — with real-time balances and real analysis, not a flat
-  dump. Leads at the STRATEGY level: each strategy judged against its OWN mandate (is it doing its job?),
-  with positions as evidence. Use this skill FIRST for ANY portfolio / strategies / positions / balances
-  / PnL / trade-history question, BEFORE any raw strategy_get_clearinghouse_state / account_get_portfolio
-  / strategy_list MCP call. Use for "analyze my strategies", "how are my strategies doing", "analyze my
-  portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle", and
-  "are my open positions protected? / do they have a stop-loss?", and "tell me about my strategies and
-  their DSL / what tier are my positions in?", and "what happened to my closed [asset] position / did my
-  trade actually go through / do I still hold X" — the authority for position facts, OPEN and CLOSED, which
-  come from a fresh engine read, never from memory or a raw order response. A hidden engine (scripts/portfolio.py)
-  does the multi-wallet pull and taxonomy; you narrate. Requires a USER-scoped Senpi token.
+  Analyze the user's portfolio, strategies and positions across all wallets — main embedded wallet,
+  strategy sub-wallets, deployed vs idle — with real-time balances and real analysis, not a flat dump.
+  Leads at the STRATEGY level: each strategy judged against its OWN mandate (is it doing its job?), with
+  positions as evidence. Use this skill FIRST for holdings, balances, PnL and current state, BEFORE any
+  raw strategy_get_clearinghouse_state / account_get_portfolio / strategy_list MCP call. Use for "analyze
+  my strategies", "how are my strategies doing", "analyze my portfolio", "how am I doing", "show my
+  positions", "balance across all wallets", "how much is idle", "are my open positions protected? / do
+  they have a stop-loss?", "what DSL tier are my positions in?", and "did my trade actually go through /
+  do I still hold X" — the authority for position facts, OPEN and CLOSED, which come from a fresh engine
+  read, never from memory or a raw order response. Also why a position was opened: "why did my strategy
+  buy X", what signal or scanner decision triggered that entry — read from the runtime's decision
+  record, never inferred. A hidden engine (scripts/portfolio.py) does the multi-wallet pull and
+  taxonomy; you narrate. Requires a USER-scoped Senpi token.
   Asked to SCORE, RATE or GRADE their trading — "score my trading", "rate my trading", "find leaks
   on my wallet" — run **quant-desk** on the wallets this skill just resolved; it returns a quant
   score, the six dimensions behind it and leaks priced in dollars. Everything else about holdings,
-  strategies, positions and closed-position facts stays here.
+  strategies, positions and closed-position facts stays here. Why a position CLOSED is
+  senpi-improve-trades when the user's strategy closed it and senpi-trade for a manual or mirrored
+  one; the stop on a position opened by hand is senpi-trade; a wallet traded outside Senpi is quant-desk.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.30.0"
+  version: "1.31.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -84,8 +87,9 @@ dump when the user asked about their **strategies** — is a failure. The user w
 >   scanner-managed wallet can be reconciled as foreign and DSL-flattened within minutes (order "succeeds,"
 >   position gone; a raw read of the wrong sub-wallet then shows it "phantom").
 > - **"What happened to my [asset] / my closed trades"** → read the authoritative CLOSED record
->   (`closed.recent[]` / `closed.realized_pnl` here, or hand to `senpi-improve-trades` for why-it-closed).
->   Never narrate a closed-position story from memory.
+>   (`closed.recent[]` / `closed.realized_pnl` here, or hand to `senpi-improve-trades` for why-it-closed
+>   (a strategy's close; a manual or mirrored one is `senpi-trade`)). Never narrate a closed-position
+>   story from memory.
 > - **Quote a close with its UTC date and time from `closed_at_utc`, never from a raw epoch** such as
 >   `closed_time` — a bare number read by eye is how an older close gets called today's.
 > - **The closed record can arrive hours after a close.** A close the user saw may not be in `closed` yet
@@ -173,6 +177,32 @@ capital to redeploy elsewhere, and never "dead money."** That capital is *commit
 it's the dry powder the other half of the design needs to do its job. Only truly-free
 `idle_in_embedded` (and, with care, a *whole* strategy's idle) is redeployable — a flat sleeve of a
 live multi-wallet strategy is not.
+
+### "Why did my strategy open that?" — read the runtime's decision record
+
+The engine's read cannot answer this: a position carries no open time and no reason. The runtime on
+the user's box keeps both, per runtime. Three reads, then quote what they say:
+
+```bash
+openclaw senpi runtime list --json                             # the row whose wallet holds the position → its id
+openclaw senpi explain <ASSET> -r <runtime_id> --json          # that asset's events, oldest first
+openclaw senpi action decisions -r <runtime_id> --json         # where the decision engine ran, with its reasoning
+openclaw senpi audit -r <runtime_id> --json                    # the backend trail: create_position + ai_reasoning
+```
+
+- **The trigger is the `signal.outcome` just before the `position.opened`** in `explain`, with
+  `senpi.outcome.result: accepted`, on the same asset and direction. The open's `senpi.position.id`
+  threads it to its fill and its later DSL events. Name the asset, direction and `senpi.signal.score`
+  the scanner emitted.
+- **The reasoning, when there is one,** is the matching `action decisions` row (an `llm`-mode action's
+  own words) or the `create_position` row's `ai_reasoning` in `audit`, timestamped in ISO, not epoch
+  ms. A `rule`-mode strategy opens on every accepted signal and can have no decision row at all; then
+  the accepted signal is the whole answer. Say that, rather than reading a missing row as a fault.
+- **Quote, never reconstruct.** Do not build a thesis from the mandate, the market or the scanner's
+  code. If the entry is older than the event log (a recent-only ring) or a read fails (non-zero exit,
+  `unknown method`), say the record could not be read and stop there.
+- **Why it CLOSED is not this section:** a strategy's close is `senpi-improve-trades`; a manual or
+  mirrored position's close is `senpi-trade`.
 
 ### "Why hasn't it traded?" / "why didn't it open that position?" — answer from the outcome codes
 
