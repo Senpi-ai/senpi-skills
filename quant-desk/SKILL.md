@@ -47,7 +47,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.42.2"
+  version: "1.43.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -210,8 +210,10 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    trader pastes their address and gets their desk, with no question in front of it.
 
    **"My wallets" are the wallets the reader added, plus their senpi wallets.** `desk.py --my-wallets`
-   prints them: the reader's **saved** wallets (the ones they added in Your wallets) and their senpi
-   strategy wallets, each half with its own `ok` / `unavailable` status. A saved wallet is theirs even
+   prints them as ONE list, `wallets`, largest first: the reader's **saved** wallets (the ones they
+   added in Your wallets) and their senpi strategy wallets side by side, each row with its `kind`
+   (read-only — you added it / Senpi strategy) and its `value_usd`, each source with its own `ok` /
+   `unavailable` status. A saved wallet is theirs even
    if the book once read it as a stranger's. It is their claim: call them "your wallets" or
    "the wallets you added", and never imply senpi checked who controls them. If a saved wallet isn't theirs (or they no longer want it read), they can remove it in Your wallets on senpi.ai (web).
 
@@ -453,24 +455,33 @@ book** or **someone else's**. Settle that first — it is one question and it de
 
 > Your own book, or do you want me to find you someone to read?
 
-### If they mean their OWN book — `desk.py --my-wallets` FIRST: saved wallets, then strategy wallets
+### If they mean their OWN book — `desk.py --my-wallets` FIRST: one list, largest first
 
-**Run `desk.py --my-wallets` before anything else.** It returns the reader's saved wallets
-(`user_get_me`) and their senpi strategy wallets (`strategy_list`, closed ones included). A trader who
-came from Hyperliquid and added their own wallet in Your wallets still has it the moment they have senpi
-strategies — **do not forget a saved wallet**, and do not silently swap it for a senpi wallet.
+**Run `desk.py --my-wallets` before anything else.** It returns ONE list, `wallets`, of the reader's
+saved wallets (`user_get_me`) and their senpi strategy wallets (`strategy_list`, closed ones included),
+ordered by value — largest first. A trader who came from Hyperliquid and added their own wallet in Your
+wallets still has it the moment they have senpi strategies — **do not forget a saved wallet**, and do
+not silently swap it for a senpi wallet.
 
-So the precedence is — saved wallets first, then strategy wallets, then ask:
+Every wallet is first-class: **keep that order and never split it by origin** — no "saved wallets"
+section and "strategy wallets" section, no saved-first or senpi-first. Origin is the `kind` column and
+only says what Senpi can do with the wallet. Relay `text` (the list, rendered) and ask `ask`:
 
-1. **Saved wallets** — offer each by its label, it is the one they added. Quote its `access`
-   line when they ask what senpi can do with it:
+1. **Value.** A saved wallet's is the MCP's `state.totalValueUsd`; a strategy wallet's is its
+   Hyperliquid account value. `value_status: "couldnt_load"` → say its value couldn't load — never as
+   $0 — it is listed last. A closed strategy stays labeled closed at its value (usually $0).
+2. **Kind.** A saved wallet is read-only: offer it by its label, it is the one they added. Quote its
+   `access` line when they ask what senpi can do with it:
    > Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.
-2. **Their senpi strategy wallets** — where their senpi perp history actually is.
-3. **Both?** Then ask, because only they know which they mean today: *"Your saved wallet
-   `0x5a10…2c37`, or your senpi strategies — Aegis, Phalanx?"* Offer to run both and compare; that
-   is often the more interesting read, and the desk prices them the same way.
+   A strategy wallet is where their senpi perp history actually is.
+3. **More than one?** Then ask, because only they know which they mean today — `ask` names them
+   largest first: *"Which one do you want me to run the desk on — MetaMask ($12,400), Aegis ($3,000)
+   or Phalanx ($0, closed)? Or I can read them together as one book."* Offer to run them together
+   (`--book`) or side by side (`--compare`); that is often the more interesting read, and the desk
+   prices them the same way.
    `external_wallets_status: "unavailable"` → say "I couldn't load your saved wallets" and offer
-   the strategy wallets; never "you have no saved wallets".
+   the wallets that did load; never "you have no saved wallets". `wallets_complete: false` means a
+   source is missing from the list, not empty.
 4. **Neither?** Ask for an address — and **offer to show them the desk on a real book in the same
    breath**. Never guess an address, but never leave a new reader with only a question either.
 

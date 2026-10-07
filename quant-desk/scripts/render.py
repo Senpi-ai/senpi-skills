@@ -9,7 +9,7 @@ import dsl as dsl_mod
 import score as score_mod
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.42.2"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.43.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -114,6 +114,70 @@ def num(x, unit):
 
 def short(addr):
     return f"{addr[:6]}…{addr[-4:]}"
+
+
+# ── `desk.py --my-wallets`: one list of every wallet, in the order the engine sorted it (value desc,
+# couldn't-load last). Kind is a column, never a section: no "Saved wallets" / "Strategy wallets" heading.
+KIND_LABEL = {"saved": "read-only — you added it", "strategy": "Senpi strategy",
+              "strategy_closed": "Senpi strategy — closed"}
+_ASK_NAMES = 5
+
+
+def _wallet_name(row):
+    return row.get("label") or f"`{short(row['address'])}`"
+
+
+def _wallet_value(row):
+    return usd(row["value_usd"]) if row.get("value_usd") is not None else "couldn't load"
+
+
+def my_wallets_ask(rows):
+    """The one question, naming the wallets largest first — None with fewer than two to choose from."""
+    if not rows or len(rows) < 2:
+        return None
+    named = []
+    for r in rows[:_ASK_NAMES]:
+        v = usd(r["value_usd"]) if r.get("value_usd") is not None else "value couldn't load"
+        named.append(f"{_wallet_name(r)} ({v}{', closed' if r.get('closed') else ''})")
+    more = len(rows) - len(named)
+    names = (", ".join(named[:-1]) + " or " + named[-1]) if not more else \
+        (", ".join(named) + f", or one of {more} more")
+    return (f"Which one do you want me to run the desk on — {names}? "
+            f"Or I can read them together as one book.")
+
+
+def render_my_wallets(mw):
+    if mw.get("error"):
+        return "I can't read your wallets on this box — paste any Hyperliquid address and I'll read it."
+    rows = mw.get("wallets")
+    out = []
+    if rows:
+        out += ["**Your wallets, largest first** — one list by value; kind says what Senpi can do with each.",
+                "", "| # | Wallet | Kind | Value |", "|---:|---|---|---:|"]
+        out += [f"| {i} | {r.get('label') or 'wallet'} `{short(r['address'])}` | {r['kind_label']} | {_wallet_value(r)} |"
+                for i, r in enumerate(rows, 1)]
+        notes = [f"{_wallet_name(r)}'s value excludes {', '.join(r['unpriced_coins'])} (no USD price)."
+                 for r in rows if r.get("unpriced_coins")]
+        unknown = sum(1 for r in rows if r.get("value_usd") is None)
+        if unknown:
+            notes.append(f"{unknown} wallet{'s' if unknown > 1 else ''} couldn't load a value — listed last, "
+                         f"never counted as $0.")
+        access = sorted({r["access"] for r in rows if r.get("kind") == "saved" and r.get("access")})
+        notes += [f"Wallets you added: {a}" for a in access]
+        if notes:
+            out += [""] + notes
+    elif rows == [] and mw.get("wallets_complete"):
+        out.append("You have no wallets here yet: nothing added in Your wallets and no Senpi strategy "
+                   "wallet. To have one you trade by hand read, add it in Your wallets on senpi.ai (web) "
+                   "— or paste any Hyperliquid address.")
+    gaps = []
+    if mw.get("external_wallets_status") != "ok":
+        gaps.append("I couldn't load your saved wallets, so this list may be missing wallets you added.")
+    if mw.get("senpi_wallets_status") != "ok":
+        gaps.append("I couldn't load your Senpi strategy wallets, so this list may be missing them.")
+    if gaps:
+        out += ([""] if out else []) + gaps
+    return "\n".join(out)
 
 
 def header(r):

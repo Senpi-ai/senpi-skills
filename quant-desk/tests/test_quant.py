@@ -3105,19 +3105,21 @@ def test_an_empty_book_does_not_send_the_reader_back_to_strategy_list():
 
 def test_a_saved_wallet_is_not_forgotten():
     """@betashop on 1.26.0: a reader who brought their own Hyperliquid wallet must still have it
-    remembered — the senpi strategy wallets are a FALLBACK, not a replacement. Since 1.42.0 "theirs"
-    is a wallet they added in Your wallets (a saved wallet), read by `desk.py --my-wallets`, before
-    `strategy_list`. A typed `claimed` row in this box's book is no longer consulted."""
+    remembered — the senpi strategy wallets never replace it. Since 1.42.0 "theirs" is a wallet they
+    added in Your wallets (a saved wallet), read by `desk.py --my-wallets` beside their strategy
+    wallets; since 1.43.0 as ONE list ordered by value. A typed `claimed` row is no longer consulted."""
     skill = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
     own = skill[skill.index("If they mean their OWN book"):skill.index("If they want someone ELSE")]
 
     assert "--my-wallets" in own, "the own-book branch never reads the reader's wallets"
-    assert own.index("Saved wallets") < own.index("strategy wallets**"), \
-        "saved wallets must be offered BEFORE falling back to senpi wallets"
+    # R1 review §02: every wallet first-class — ONE list by value, never saved-first or senpi-first.
+    # (This pin used to require "Saved wallets" before "strategy wallets**": an origin rank.)
+    assert "keep that order and never split it by origin" in own, "the list may be re-sectioned by origin"
+    assert "saved wallets first" not in own.lower()
     assert "do not forget a saved wallet" in own, "the rule is not stated"
     assert "claimed" not in own, "the own-book branch still treats a typed claim as ownership"
-    # and when both exist the reader decides — not us
-    assert "Both?" in own and "ask" in own.lower(), "ambiguity must go back to the reader"
+    # and when there is more than one the reader decides — not us
+    assert "More than one?" in own and "ask" in own.lower(), "ambiguity must go back to the reader"
     assert "Never guess" in own or "never guess" in own, "the no-guessing rule must survive"
 
 

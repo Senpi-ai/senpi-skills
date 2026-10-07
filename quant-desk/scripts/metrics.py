@@ -3,6 +3,7 @@
 table, the open book with its protection audit, transfer-adjusted equity and drawdown, activity."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import collections
+import math
 import statistics
 from decimal import Decimal, InvalidOperation
 
@@ -392,6 +393,28 @@ def whole_account_value(portfolio, spot):
         if b.get("coin") == "USDC":
             v = _f(b.get("total"))
             return v if v > 0 else None
+    return None
+
+
+def current_account_value(portfolio):
+    """A wallet's value now, the key `--my-wallets` orders by: the last point of Hyperliquid's own
+    portfolio series, shortest window first (the freshest point) — the account value the desk headlines
+    (`whole_account_value`; unified-account aware, spot counted once). Unlike that function, 0 IS a
+    value here: a closed strategy wallet that holds $0 has been read. None when the reply carries no
+    readable series: unknown, never 0."""
+    try:
+        windows = dict(portfolio or [])
+    except (TypeError, ValueError):
+        return None
+    for name in ("day", "week", "month", "allTime"):
+        w = windows.get(name)
+        pts = w.get("accountValueHistory") if isinstance(w, dict) else None
+        if pts:
+            try:
+                v = float(pts[-1][1])
+            except (TypeError, ValueError, IndexError):
+                return None
+            return v if math.isfinite(v) else None
     return None
 
 
