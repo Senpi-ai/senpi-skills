@@ -175,7 +175,7 @@ result means three completely different things and two of them need opposite ans
 | `no_strategies` | Nothing deployed. Genuinely nothing to review. | **Pivot to the market** — see below. |
 | `strategies_no_trades` | Deployed, hasn't traded yet. | Diagnose **the strategy they already have**. **Never pitch another one.** |
 | `has_trades` | Normal. | Review as usual. |
-| `connected_no_trades` | Connected wallets, no Senpi strategy, nothing closed in the window. | One line, offer a longer window. **Never pitch a strategy.** |
+| `external_no_trades` | Connected wallets, no Senpi strategy, nothing closed in the window. | One line, offer a longer window. **Never pitch a strategy.** |
 | `unknown` | The strategy list was **unreadable** (token/scope), or there are no strategies and the connected wallets couldn't be loaded. | Say the read failed. **Never** say "you have no strategies" or "nothing to review." |
 
 > **The mistake to avoid:** telling someone whose funded strategy is silently blocked to "go find a
@@ -206,19 +206,19 @@ strategy."* Then:
 ## Connected wallets (read-only, traded by hand)
 
 A **connected wallet** is a Hyperliquid wallet the user proved they own (Wallets on senpi.ai (web)) and
-trades by hand. The engine adds every one to the review set and returns it in `connected_wallets[]` (the
+trades by hand. The engine adds every one to the review set and returns it in `external_wallets[]` (the
 `timing` step and `all`) — its own read, never folded into `pnl_summary`, `strategies[]`,
 `dsl_close_reason_mix`, `timing_summary` or `leaks`, which stay Senpi-only. For a user with no Senpi
-strategy those Senpi aggregates are empty: lead with `connected_wallets[]`.
+strategy those Senpi aggregates are empty: lead with `external_wallets[]`.
 
 - **Access line, verbatim** — the answer to "can you close / trade / set a stop on it":
   > Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.
-- **Every exit is a `MANUAL_TRADE`** (say "manual trade", source `connected_wallet`). There is no DSL, no
+- **Every exit is a `MANUAL_TRADE`** (say "manual trade", source `external_wallet`). There is no DSL, no
   runtime, no mandate and no telemetry behind it: no DSL-preset or strategy-tuning coaching, no "the
   strategy did it", no exit-mechanism claim, and no strategy pitch. Coach the user's own process
   (timing, give-back, fees).
 - **Unknown is never empty.**
-  - `connected_wallets: null` (`meta.connected_wallets_status: "unavailable"`) → "I couldn't load your
+  - `external_wallets: null` (`meta.external_wallets_status: "unavailable"`) → "I couldn't load your
     connected wallets", never "you have none".
   - `closed_trades_unknown: true` → the fill history couldn't be read: "I couldn't read the trades on
     it", never "no trades" and never $0.
@@ -234,7 +234,7 @@ strategy those Senpi aggregates are empty: lead with `connected_wallets[]`.
 - **No write suggestions** on these wallets — no `close.py`, redeploy, `edit_position`,
   `close_position`, `strategy_*` or `ratchet_stop_*`. The fix depth (guardrail 7) is advice the user
   acts on themselves on Hyperliquid.
-- **`connected_no_trades`** — connected wallets, no Senpi strategy, nothing closed in the window: say it
+- **`external_no_trades`** — connected wallets, no Senpi strategy, nothing closed in the window: say it
   in one line and offer a longer `--window`. Never pitch a strategy.
 - **"Your wallet"** means a connected wallet, or an address the user said is theirs in this
   conversation. A pasted address is never described as saved; to save one, the user connects it in

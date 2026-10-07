@@ -5,10 +5,10 @@ A connected wallet is one the user proved they own and trade by hand. Senpi can 
 place, change or cancel orders on it. These tests hold the four things that make that safe to narrate:
 it never enters the Senpi money map (idle / grand_total / reconciles stay byte-identical), unknown is
 never empty (an absent key or a failed read is "unavailable", never []), its state is quoted verbatim
-from `account_get_connected_wallets` (the single producer — `protection`, never `protected`), and a user
+from `account_get_external_wallets` (the single producer — `protection`, never `protected`), and a user
 with only connected wallets gets a read, not a fault and not a strategy pitch.
 
-    python3 -m pytest senpi-portfolio/tests/test_portfolio_connected_wallets.py
+    python3 -m pytest senpi-portfolio/tests/test_portfolio_external_wallets.py
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import copy
@@ -79,25 +79,25 @@ def _state_error(code="PERPS_UNAVAILABLE"):
             "positions": None, "openOrders": None}
 
 
-def _with_connected(fixture, wallets, states=None, status="ok"):
+def _with_external(fixture, wallets, states=None, status="ok"):
     """Turn the canonical fixture's flat user_get_me into the MCP's real `{user: {...}}` shape, with
-    connected wallets inside `user` (C3), and record `account_get_connected_wallets`."""
+    connected wallets inside `user` (C3), and record `account_get_external_wallets`."""
     fx = copy.deepcopy(fixture)
-    user = {"wallets": fx["user_get_me"]["wallets"], "connected_wallets_status": status}
+    user = {"wallets": fx["user_get_me"]["wallets"], "external_wallets_status": status}
     if status == "ok":
-        user["connected_wallets"] = [{"address": a, "label": lbl, "verified_at": "2026-10-01T15:31:02.000Z",
+        user["external_wallets"] = [{"address": a, "label": lbl, "added_at": "2026-10-01T15:31:02.000Z",
                                       "access": ACCESS} for a, lbl in wallets]
     fx["user_get_me"] = {"user": user}
     if states is not None:
-        fx["account_get_connected_wallets"] = {"connected_wallets": [
-            {"address": a, "label": lbl, "verified_at": "2026-10-01T15:31:02.000Z", "access": ACCESS,
+        fx["account_get_external_wallets"] = {"external_wallets": [
+            {"address": a, "label": lbl, "added_at": "2026-10-01T15:31:02.000Z", "access": ACCESS,
              "state": states.get(a)} for a, lbl in wallets]}
     return fx
 
 
-def _connected_only():
+def _external_only():
     """No Senpi strategy at all: an embedded wallet with $0 and one connected wallet."""
-    return _with_connected({
+    return _with_external({
         "user_get_me": {"wallets": [{"walletType": "embedded", "walletAddress": EMBED}]},
         "account_get_portfolio": {"total_balance_usd": 0, "total_withdrawable": 0, "total_in_hyperliquid": 0,
                                   "token_balances": []},
@@ -114,9 +114,9 @@ def _dump(x):
 
 
 # ── never in the Senpi money map ────────────────────────────────────────────────────────────────────
-def test_connected_wallets_never_enter_the_totals_or_the_reconciliation():
+def test_external_wallets_never_enter_the_totals_or_the_reconciliation():
     base = _run(_base())
-    mixed = _run(_with_connected(_base(), [(CW_A, "Main"), (CW_B, None)],
+    mixed = _run(_with_external(_base(), [(CW_A, "Main"), (CW_B, None)],
                                  {CW_A: _state_ok(total="99999.99"), CW_B: _state_ok(total="12345.67")}))
     for key in ("totals", "exposure", "signals", "strategy_groups", "strategies", "embedded_wallet"):
         assert _dump(mixed[key]) == _dump(base[key]), key
@@ -128,14 +128,14 @@ def test_the_money_step_keeps_the_same_buckets_and_adds_the_section():
     base = portfolio.step_money(portfolio._FixtureClient(_base()), state_path=sp)
     sp2 = os.path.join(tempfile.mkdtemp(), "state.json")
     mixed = portfolio.step_money(portfolio._FixtureClient(
-        _with_connected(_base(), [(CW_A, "Main")], {CW_A: _state_ok()})), state_path=sp2)
+        _with_external(_base(), [(CW_A, "Main")], {CW_A: _state_ok()})), state_path=sp2)
     assert _dump(mixed["totals"]) == _dump(base["totals"])
-    assert mixed["connected_wallets"]["status"] == "ok"
-    assert [w["address"] for w in mixed["connected_wallets"]["wallets"]] == [CW_A]
+    assert mixed["external_wallets"]["status"] == "ok"
+    assert [w["address"] for w in mixed["external_wallets"]["wallets"]] == [CW_A]
 
 
-def test_all_stays_byte_identical_to_run_with_connected_wallets():
-    fx = _with_connected(_base(), [(CW_A, "Main")], {CW_A: _state_ok()})
+def test_all_stays_byte_identical_to_run_with_external_wallets():
+    fx = _with_external(_base(), [(CW_A, "Main")], {CW_A: _state_ok()})
     direct = portfolio.run(portfolio._FixtureClient(fx), want_market=True)
     allres = portfolio._all_and_persist(portfolio._FixtureClient(fx), want_market=True,
                                         state_path=os.path.join(tempfile.mkdtemp(), "s.json"))
@@ -145,12 +145,12 @@ def test_all_stays_byte_identical_to_run_with_connected_wallets():
 # ── state quoted verbatim (single producer) ─────────────────────────────────────────────────────────
 def test_mixed_user_state_is_quoted_verbatim_and_protection_is_not_protected():
     st = _state_ok()
-    out = _run(_with_connected(_base(), [(CW_A, "Main")], {CW_A: st}))
-    cw = out["connected_wallets"]
+    out = _run(_with_external(_base(), [(CW_A, "Main")], {CW_A: st}))
+    cw = out["external_wallets"]
     assert cw["status"] == "ok"
     w = cw["wallets"][0]
     assert w["state"] == st                                     # verbatim, camelCase, decimal strings
-    assert w["state_read"] == "ok" and w["kind"] == "connected"
+    assert w["state_read"] == "ok" and w["kind"] == "external"
     assert w["access"] == ACCESS
     assert w["state"]["positions"][0]["protection"] == "FULL"
     assert "protected" not in w and "protected" not in w["state"]["positions"][0]
@@ -159,51 +159,51 @@ def test_mixed_user_state_is_quoted_verbatim_and_protection_is_not_protected():
 
 def test_a_unified_account_total_is_quoted_not_recomputed():
     st = _state_ok(total="5234.10", mode="unifiedAccount")
-    w = _run(_with_connected(_base(), [(CW_A, "Main")], {CW_A: st}))["connected_wallets"]["wallets"][0]
+    w = _run(_with_external(_base(), [(CW_A, "Main")], {CW_A: st}))["external_wallets"]["wallets"][0]
     assert w["state"]["accountMode"] == "unifiedAccount"
     assert w["state"]["totalValueUsd"] == "5234.10"             # moxie's computeTotals(), not ours
 
 
 def test_unpriced_coins_are_carried_so_the_total_can_say_what_it_excludes():
     st = _state_ok(total="5234.10", unpriced=["STHYPE"])
-    w = _run(_with_connected(_base(), [(CW_A, "Main")], {CW_A: st}))["connected_wallets"]["wallets"][0]
+    w = _run(_with_external(_base(), [(CW_A, "Main")], {CW_A: st}))["external_wallets"]["wallets"][0]
     assert w["state"]["unpricedCoins"] == ["STHYPE"] and w["state"]["totalValueUsd"] == "5234.10"
 
 
 def test_a_read_error_wallet_is_couldnt_load_and_the_others_survive():
-    out = _run(_with_connected(_base(), [(CW_A, "Main"), (CW_B, "Cold")],
+    out = _run(_with_external(_base(), [(CW_A, "Main"), (CW_B, "Cold")],
                                {CW_A: _state_error("ORDERS_UNAVAILABLE:xyz"), CW_B: _state_ok()}))
-    a, b = out["connected_wallets"]["wallets"]
+    a, b = out["external_wallets"]["wallets"]
     assert a["state_read"] == "error" and a["state"]["readError"] == "ORDERS_UNAVAILABLE:xyz"
     assert a["state"]["totalValueUsd"] is None and a["state"]["positions"] is None    # never 0 / []
     assert b["state_read"] == "ok"
 
 
 def test_a_wallet_whose_state_came_back_null_is_unavailable_not_empty():
-    out = _run(_with_connected(_base(), [(CW_A, "Main"), (CW_B, "Cold")], {CW_A: None, CW_B: _state_ok()}))
-    a, b = out["connected_wallets"]["wallets"]
+    out = _run(_with_external(_base(), [(CW_A, "Main"), (CW_B, "Cold")], {CW_A: None, CW_B: _state_ok()}))
+    a, b = out["external_wallets"]["wallets"]
     assert a["state_read"] == "unavailable" and a["state"] is None
     assert b["state_read"] == "ok"
 
 
 def test_a_failed_state_read_keeps_the_list_and_warns():
-    fx = _with_connected(_base(), [(CW_A, "Main")], states=None)    # no account_get_connected_wallets
+    fx = _with_external(_base(), [(CW_A, "Main")], states=None)    # no account_get_external_wallets
     out = _run(fx)
-    w = out["connected_wallets"]["wallets"][0]
-    assert out["connected_wallets"]["status"] == "ok"
+    w = out["external_wallets"]["wallets"][0]
+    assert out["external_wallets"]["status"] == "ok"
     assert w["state_read"] == "unavailable" and w["state"] is None
-    assert any("account_get_connected_wallets failed" in x for x in out["meta"]["warnings"])
+    assert any("account_get_external_wallets failed" in x for x in out["meta"]["warnings"])
 
 
 # ── unknown is never empty ──────────────────────────────────────────────────────────────────────────
-def test_an_older_mcp_with_no_connected_key_reads_unavailable_not_none():
+def test_an_older_mcp_with_no_external_key_reads_unavailable_not_none():
     out = _run(_base())                                          # the canonical fixture predates the key
-    assert out["connected_wallets"] == {"status": "unavailable", "wallets": None}
+    assert out["external_wallets"] == {"status": "unavailable", "wallets": None}
 
 
 def test_status_unavailable_reads_unavailable_not_none():
-    out = _run(_with_connected(_base(), [(CW_A, "Main")], status="unavailable"))
-    assert out["connected_wallets"] == {"status": "unavailable", "wallets": None}
+    out = _run(_with_external(_base(), [(CW_A, "Main")], status="unavailable"))
+    assert out["external_wallets"] == {"status": "unavailable", "wallets": None}
 
 
 def test_a_failed_user_get_me_is_unavailable():
@@ -216,23 +216,23 @@ def test_a_failed_user_get_me_is_unavailable():
                 raise RuntimeError("HTTP 503")
             return super().mcp_call(tool, timeout=timeout, **kw)
     out = portfolio.run(Boom(fx), want_market=False)
-    assert out["connected_wallets"]["status"] == "unavailable"
+    assert out["external_wallets"]["status"] == "unavailable"
     assert any("user_get_me failed" in x for x in out["meta"]["warnings"])
 
 
 def test_ok_with_no_wallets_is_a_real_empty_list():
-    out = _run(_with_connected(_base(), [], {}))
-    assert out["connected_wallets"] == {"status": "ok", "wallets": []}
+    out = _run(_with_external(_base(), [], {}))
+    assert out["external_wallets"] == {"status": "ok", "wallets": []}
 
 
 # ── the no-strategy path ────────────────────────────────────────────────────────────────────────────
-def test_connected_only_user_gets_a_read_not_a_fault():
-    out = _run(_connected_only())
+def test_external_only_user_gets_a_read_not_a_fault():
+    out = _run(_external_only())
     assert out["meta"].get("no_strategy_path") is True
     assert "degraded" not in out["meta"]
     assert out["strategies"] == [] and out["strategy_groups"] == []
     assert out["totals"]["grand_total_usd"] == 0.0               # connected money is not Senpi money
-    assert out["connected_wallets"]["wallets"][0]["state"]["totalValueUsd"] == "5234.10"
+    assert out["external_wallets"]["wallets"][0]["state"]["totalValueUsd"] == "5234.10"
 
 
 class _Counting(portfolio._FixtureClient):
@@ -245,62 +245,62 @@ class _Counting(portfolio._FixtureClient):
         return super().mcp_call(tool, timeout=timeout, **kw)
 
 
-def _assert_connected_only_read(out):
+def _assert_external_only_read(out):
     assert out["meta"].get("no_strategy_path") is True
     assert "degraded" not in out["meta"]
-    assert out["connected_wallets"]["status"] == "ok"
-    assert [w["address"] for w in out["connected_wallets"]["wallets"]] == [CW_A]
-    assert out["connected_wallets"]["wallets"][0]["state"]["totalValueUsd"] == "5234.10"
+    assert out["external_wallets"]["status"] == "ok"
+    assert [w["address"] for w in out["external_wallets"]["wallets"]] == [CW_A]
+    assert out["external_wallets"]["wallets"][0]["state"]["totalValueUsd"] == "5234.10"
 
 
-def test_connected_only_strategies_and_positions_steps_carry_the_section_from_state():
+def test_external_only_strategies_and_positions_steps_carry_the_section_from_state():
     """"Are my positions protected?" routes to the `strategies` step. For a connected-only user that step
     must carry the connected wallets + `no_strategy_path` the `money` step persisted, or the agent reads an
     empty strategy list as "no positions" and pitches a strategy."""
     sp = os.path.join(tempfile.mkdtemp(), "state.json")
-    portfolio.step_money(portfolio._FixtureClient(_connected_only()), state_path=sp)
+    portfolio.step_money(portfolio._FixtureClient(_external_only()), state_path=sp)
     for step in (portfolio.step_strategies, portfolio.step_positions):
-        client = _Counting(_connected_only())
+        client = _Counting(_external_only())
         out = step(client, want_market=False, state_path=sp)
-        _assert_connected_only_read(out)
-        assert "account_get_connected_wallets" not in client.calls, step.__name__   # reused, not re-read
+        _assert_external_only_read(out)
+        assert "account_get_external_wallets" not in client.calls, step.__name__   # reused, not re-read
 
 
-def test_connected_only_strategies_and_positions_steps_rebuild_the_section_standalone():
+def test_external_only_strategies_and_positions_steps_rebuild_the_section_standalone():
     for step in (portfolio.step_strategies, portfolio.step_positions):
         missing = os.path.join(tempfile.mkdtemp(), "absent.json")
-        client = _Counting(_connected_only())
+        client = _Counting(_external_only())
         out = step(client, want_market=False, state_path=missing)
-        _assert_connected_only_read(out)
+        _assert_external_only_read(out)
         assert client.calls.count("user_get_me") == 1, step.__name__      # one read shared by both readers
 
 
-def test_a_state_without_the_connected_section_is_rebuilt_not_read_as_empty():
-    """A state file written before the section existed (strategies cached, no `connected_wallets`) is
+def test_a_state_without_the_external_section_is_rebuilt_not_read_as_empty():
+    """A state file written before the section existed (strategies cached, no `external_wallets`) is
     rebuilt with the same fetch, never read as "no connected wallets"."""
     for step in (portfolio.step_strategies, portfolio.step_positions):
         sp = os.path.join(tempfile.mkdtemp(), "state.json")
-        portfolio.step_money(portfolio._FixtureClient(_connected_only()), state_path=sp)
+        portfolio.step_money(portfolio._FixtureClient(_external_only()), state_path=sp)
         st = json.load(open(sp))
-        st.pop("connected_wallets")
+        st.pop("external_wallets")
         st["strategies_full"] = []
         json.dump(st, open(sp, "w"))
-        _assert_connected_only_read(step(portfolio._FixtureClient(_connected_only()),
+        _assert_external_only_read(step(portfolio._FixtureClient(_external_only()),
                                          want_market=False, state_path=sp))
 
 
 def test_the_steps_pass_the_section_through_for_a_user_with_strategies():
-    fx = _with_connected(_base(), [(CW_A, "Main")], {CW_A: _state_ok()})
+    fx = _with_external(_base(), [(CW_A, "Main")], {CW_A: _state_ok()})
     sp = os.path.join(tempfile.mkdtemp(), "state.json")
     portfolio.step_money(portfolio._FixtureClient(fx), state_path=sp)
     for step in (portfolio.step_strategies, portfolio.step_positions):
         out = step(portfolio._FixtureClient(fx), want_market=False, state_path=sp)
-        assert out["connected_wallets"]["wallets"][0]["address"] == CW_A
+        assert out["external_wallets"]["wallets"][0]["address"] == CW_A
         assert "no_strategy_path" not in out["meta"]
 
 
 def test_a_user_with_strategies_is_not_on_the_no_strategy_path():
-    out = _run(_with_connected(_base(), [(CW_A, "Main")], {CW_A: _state_ok()}))
+    out = _run(_with_external(_base(), [(CW_A, "Main")], {CW_A: _state_ok()}))
     assert "no_strategy_path" not in out["meta"]
 
 
@@ -313,10 +313,10 @@ def test_skill_quotes_the_access_line_verbatim():
     assert ACCESS in _skill()
 
 
-def test_skill_keeps_connected_wallets_out_of_idle_and_the_total():
+def test_skill_keeps_external_wallets_out_of_idle_and_the_total():
     sk = _skill()
     for needle in ("## Connected wallets (read-only)", "never in `grand_total_usd`",
-                   "never idle", "`connected_wallets.status: \"unavailable\"`",
+                   "never idle", "`external_wallets.status: \"unavailable\"`",
                    "I couldn't load your connected wallets", "`protection`", "not `protected`",
                    "no Hyperliquid activity yet", "Not applicable, not a fault",
                    "never call `accountValueUsd` \"account value\"", "total excludes",
@@ -327,14 +327,14 @@ def test_skill_keeps_connected_wallets_out_of_idle_and_the_total():
         assert needle in sk, needle
 
 
-def test_skill_forbids_write_suggestions_on_connected_wallets():
+def test_skill_forbids_write_suggestions_on_external_wallets():
     sec = _skill().split("## Connected wallets (read-only)", 1)[1].split("## ", 1)[0]
     for needle in ("`close.py`", "`edit_position`", "`close_position`", "`strategy_*`", "`ratchet_stop_*`"):
         assert needle in sec, needle
     assert "senpi-improve-trades" in sec and "quant-desk" in sec      # trade history is handed off
 
 
-def test_cta_one_never_routes_a_connected_wallet_to_a_write_tool():
+def test_cta_one_never_routes_a_saved_wallet_to_a_write_tool():
     sk = _skill()
     assert ("a genuinely ad-hoc position the user placed by hand on a Senpi wallet — never a connected "
             "wallet, which is read-only (quote its `access` line)") in sk
@@ -354,3 +354,17 @@ def test_readme_row_matches_the_skill_version():
     version = re.search(r'version: "([0-9.]+)"', open(SKILL, encoding="utf-8").read()).group(1)
     readme = open(os.path.join(HERE, "..", "..", "README.md"), encoding="utf-8").read()
     assert f"| [`senpi-portfolio`](senpi-portfolio/) | {version} |" in readme
+
+
+# ── invariant I1: the engine never calls a saved wallet connect(ed) or verified (amendment A1) ─────
+def test_a_saved_wallet_read_uses_none_of_the_retired_words():
+    """A saved wallet is the user's claim, not proof of control. Whatever the engine prints about it —
+    keys, values, warnings — never uses the word connect(ed) or verified (a socket "connection" is another word)."""
+    import re
+    for fx in (_external_only(),
+               _with_external(_base(), [(CW_A, "Main")], {CW_A: _state_ok()}),
+               _with_external(_base(), [(CW_A, "Main")]),                    # state read fails → warning text
+               _with_external(_base(), [(CW_A, "Main")], status="unavailable")):
+        s = _dump(_run(fx))
+        assert not re.search(r"(?i)connect(?!ion)", s), re.findall(r".{0,40}onnect.{0,40}", s)[:3]
+        assert not re.search(r"(?i)(?<![a-z])verified", s), re.findall(r".{0,40}erified.{0,20}", s)[:3]

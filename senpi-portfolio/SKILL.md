@@ -680,7 +680,7 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
 
 A **connected wallet** is a Hyperliquid wallet the user proved they own (one signature in Wallets on
 senpi.ai (web)) and trade by hand. The engine returns them in a separate top-level block,
-`connected_wallets: {status, wallets}`, from every step (`money`, `strategies`, `positions`) and from `all`,
+`external_wallets: {status, wallets}`, from every step (`money`, `strategies`, `positions`) and from `all`,
 with `meta.no_strategy_path` on each.
 
 - **Quote the access line verbatim** — every wallet carries it as `access`, and it is the whole answer to
@@ -689,7 +689,7 @@ with `meta.no_strategy_path` on each.
 - **Never Senpi money.** A connected wallet's value is never in `grand_total_usd`, never idle, never
   deployed, and never part of `reconciles`. Present it in its own "Connected wallets (read-only)"
   section after the money map, never summed into it. CTA 2 ("put the idle to work") never counts it.
-- **Quote, never recompute.** Each wallet's `state` is `account_get_connected_wallets`' object verbatim.
+- **Quote, never recompute.** Each wallet's `state` is `account_get_external_wallets`' object verbatim.
   `totalValueUsd` is the wallet's value (already unified-account aware — never add `spotBalances` to it
   yourself, and never call `accountValueUsd` "account value": on a unified account it is a margin figure
   that matches nothing Hyperliquid shows). A non-empty `unpricedCoins` → say the total excludes those
@@ -701,7 +701,7 @@ with `meta.no_strategy_path` on each.
   way — "no open positions on the Hyperliquid main and xyz dexes", never a bare "no positions" — and
   never present the total as covering another HIP-3 dex.
 - **Unknown is never empty.**
-  - `connected_wallets.status: "unavailable"` → say "I couldn't load your connected wallets", never
+  - `external_wallets.status: "unavailable"` → say "I couldn't load your connected wallets", never
     "you have none".
   - `state: null` (`state_read: "unavailable"`) → "couldn't load this wallet"; never $0, never "no
     positions".

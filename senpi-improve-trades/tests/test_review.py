@@ -662,8 +662,8 @@ def test_step_timing_slice_standalone():
     sp = os.path.join(tempfile.mkdtemp(), "s.json")
     out = _with_env(lambda: review.step_timing(_fresh_client(), window_days=WINDOW_DAYS,
                                                want_market=True, state_path=sp, now_ms=NOW_MS))
-    # ONLY the timing slice — connected wallets' closed trades are collected here, so their read rides it
-    assert set(out) == {"window", "trades", "timing_summary", "connected_wallets", "meta"}
+    # ONLY the timing slice — saved wallets' closed trades are collected here, so their read rides it
+    assert set(out) == {"window", "trades", "timing_summary", "external_wallets", "meta"}
     assert out["timing_summary"]["trade_count"] == 3
     assert out["timing_summary"]["exits_ahead"] == 1
     # exit_reason is the placeholder here — telemetry/ratchet has not run on the fast path

@@ -34,48 +34,48 @@ class FakeMCP:
 
 
 def _me(status="ok", wallets=((CONN, "MetaMask"),)):
-    user = {"wallets": [], "connected_wallets_status": status}
+    user = {"wallets": [], "external_wallets_status": status}
     if status == "ok":
-        user["connected_wallets"] = [{"address": a.upper().replace("0X", "0x"), "label": l,
-                                      "verified_at": "2026-10-01T15:31:02.000Z", "access": ACCESS}
+        user["external_wallets"] = [{"address": a.upper().replace("0X", "0x"), "label": l,
+                                      "added_at": "2026-10-01T15:31:02.000Z", "access": ACCESS}
                                      for a, l in wallets]
     return {"user": user}
 
 
-def test_my_wallets_lists_connected_then_senpi():
+def test_my_wallets_lists_external_then_senpi():
     mw = desk.my_wallets(FakeMCP(_me(), [{"strategyWalletAddress": STRAT, "strategyName": "aegis",
                                           "status": "CLOSED"}]))
-    assert mw["connected_wallets_status"] == "ok"
-    assert mw["connected_wallets"] == [{"address": CONN, "label": "MetaMask",
-                                        "verified_at": "2026-10-01T15:31:02.000Z", "access": ACCESS}]
+    assert mw["external_wallets_status"] == "ok"
+    assert mw["external_wallets"] == [{"address": CONN, "label": "MetaMask",
+                                        "added_at": "2026-10-01T15:31:02.000Z", "access": ACCESS}]
     assert mw["senpi_wallets_status"] == "ok"
     assert mw["senpi_wallets"] == [{"address": STRAT, "name": "aegis", "status": "CLOSED"}]
 
 
 def test_an_older_mcp_is_unavailable_never_none():
     mw = desk.my_wallets(FakeMCP({"user": {"wallets": []}}, []))
-    assert mw["connected_wallets_status"] == "unavailable" and mw["connected_wallets"] is None
+    assert mw["external_wallets_status"] == "unavailable" and mw["external_wallets"] is None
 
 
 def test_failed_reads_are_unavailable_each_on_its_own():
     mw = desk.my_wallets(FakeMCP(_me(), [], fail=("strategy_list",)))
-    assert mw["connected_wallets_status"] == "ok"
+    assert mw["external_wallets_status"] == "ok"
     assert mw["senpi_wallets_status"] == "unavailable" and mw["senpi_wallets"] is None
     mw = desk.my_wallets(FakeMCP(_me(), [], fail=("user_get_me",)))
-    assert mw["connected_wallets_status"] == "unavailable" and mw["senpi_wallets_status"] == "ok"
+    assert mw["external_wallets_status"] == "unavailable" and mw["senpi_wallets_status"] == "ok"
 
 
 def test_no_token_means_both_unknown():
     mw = desk.my_wallets(None)
-    assert mw["connected_wallets"] is None and mw["senpi_wallets"] is None and "token" in mw["error"]
+    assert mw["external_wallets"] is None and mw["senpi_wallets"] is None and "token" in mw["error"]
 
 
-def test_a_connected_wallet_is_mine_even_if_once_read_as_a_strangers(tmp_path):
+def test_a_saved_wallet_is_mine_even_if_once_read_as_a_strangers(tmp_path):
     book = ab.load(str(tmp_path))
     ab.record(book, CONN, relationship=ab.ANALYZED)
     assert desk.resolve_whose(book, CONN) == "other"
-    assert desk.resolve_whose(book, CONN, connected=[CONN.upper().replace("0X", "0x")]) == "mine"
-    assert desk.resolve_whose(book, CONN, other=True, connected=[CONN]) == "other"   # an explicit flag wins
+    assert desk.resolve_whose(book, CONN, saved=[CONN.upper().replace("0X", "0x")]) == "mine"
+    assert desk.resolve_whose(book, CONN, other=True, saved=[CONN]) == "other"   # an explicit flag wins
 
 
 def test_claim_is_voice_for_this_run_and_is_never_saved():
@@ -106,29 +106,29 @@ def test_the_my_wallets_flag_prints_the_json(tmp_path, capsys):
                               "strategy_list": {"success": True, "data": {"strategies": []}}}))
     assert desk.main(["--my-wallets", "--fixture", str(fx), "--state-dir", str(tmp_path)]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["connected_wallets"][0]["access"] == ACCESS and out["senpi_wallets"] == []
+    assert out["external_wallets"][0]["access"] == ACCESS and out["senpi_wallets"] == []
 
 
 def _skill():
     return " ".join((HERE.parent / "SKILL.md").read_text(encoding="utf-8").split())
 
 
-def test_the_skill_resolves_mine_from_connected_then_senpi():
+def test_the_skill_resolves_mine_from_external_then_senpi():
     sk = _skill()
     for needle in ("desk.py --my-wallets", "connected wallets first", "it isn't saved",
-                   "Wallets on senpi.ai (web)", ACCESS, "`connected_wallets_status: \"unavailable\"`",
+                   "Wallets on senpi.ai (web)", ACCESS, "`external_wallets_status: \"unavailable\"`",
                    "I couldn't load your connected wallets"):
         assert needle in sk, needle
 
 
-def test_the_description_owns_leaks_on_connected_wallets():
+def test_the_description_owns_leaks_on_external_wallets():
     desc = _skill().split("license:", 1)[0]
     assert "CONNECTED wallet" in desc and "senpi-improve-trades" in desc
     for words in ('"my MetaMask"', '"my own Hyperliquid wallet"', '"my connected wallet"'):
         assert words in desc, words
 
 
-def test_the_connected_wallet_routing_is_an_aside_so_the_triggers_after_it_stay_the_desks():
+def test_the_external_wallet_routing_is_an_aside_so_the_triggers_after_it_stay_the_desks():
     """The routing clause sits in parentheses: written as a dash clause ending in "senpi-improve-trades
     keeps the leaks of senpi strategies —", the trigger list after it read as improve-trades'."""
     desc = _skill().split("license:", 1)[0]
@@ -138,7 +138,7 @@ def test_the_connected_wallet_routing_is_an_aside_so_the_triggers_after_it_stay_
     assert "senpi-improve-trades keeps the leaks of senpi strategies —" not in desc
 
 
-def test_the_desk_and_improve_trades_split_a_connected_wallet_the_same_way():
+def test_the_desk_and_improve_trades_split_a_saved_wallet_the_same_way():
     """Ruling (R1 final review): senpi-improve-trades owns the REVIEW of a connected wallet ("review my
     trades", "master my week"); the desk owns leaks and "what did I miss" on it."""
     sk = _skill()
@@ -153,3 +153,16 @@ def test_readme_row_matches_the_skill_version():
     import re
     version = re.search(r'version: "([0-9.]+)"', (HERE.parent / "SKILL.md").read_text()).group(1)
     assert f"| [`quant-desk`](quant-desk/) | {version} |" in (HERE.parent.parent / "README.md").read_text()
+
+
+def test_my_wallets_uses_none_of_the_retired_words(tmp_path, capsys):
+    """Invariant I1 (amendment A1): `--my-wallets` names the reader's saved wallets `external_wallets`;
+    nothing it prints uses the word connect(ed) or verified."""
+    import re
+    fx = tmp_path / "fx.json"
+    fx.write_text(json.dumps({"user_get_me": {"success": True, "data": _me()},
+                              "strategy_list": {"success": True, "data": {"strategies": []}}}))
+    assert desk.main(["--my-wallets", "--fixture", str(fx), "--state-dir", str(tmp_path)]) == 0
+    s = capsys.readouterr().out
+    assert not re.search(r"(?i)connect(?!ion)", s), s
+    assert not re.search(r"(?i)(?<![a-z])verified", s), s

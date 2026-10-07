@@ -457,7 +457,7 @@ So the precedence is — connected wallets first, then strategy wallets, then as
 3. **Both?** Then ask, because only they know which they mean today: *"Your connected wallet
    `0x5a10…2c37`, or your senpi strategies — Aegis, Phalanx?"* Offer to run both and compare; that
    is often the more interesting read, and the desk prices them the same way.
-   `connected_wallets_status: "unavailable"` → say "I couldn't load your connected wallets" and offer
+   `external_wallets_status: "unavailable"` → say "I couldn't load your connected wallets" and offer
    the strategy wallets; never "you have no connected wallets".
 4. **Neither?** Ask for an address — and **offer to show them the desk on a real book in the same
    breath**. Never guess an address, but never leave a new reader with only a question either.

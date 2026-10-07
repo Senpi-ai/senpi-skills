@@ -3103,7 +3103,7 @@ def test_an_empty_book_does_not_send_the_reader_back_to_strategy_list():
     assert "strategy_list" not in blk, "the book exit repeats advice this reader has already taken"
 
 
-def test_a_connected_wallet_is_not_forgotten():
+def test_a_saved_wallet_is_not_forgotten():
     """@betashop on 1.26.0: a reader who brought their own Hyperliquid wallet must still have it
     remembered — the senpi strategy wallets are a FALLBACK, not a replacement. Since 1.41.0 "theirs"
     is what senpi can PROVE: a connected wallet (one signature), read by `desk.py --my-wallets`,

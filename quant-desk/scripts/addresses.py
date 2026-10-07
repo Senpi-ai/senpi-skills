@@ -7,10 +7,11 @@ speaks in the second person about a book it believes is the reader's — "you ar
 year, here is your stop ladder" — so getting that wrong is not a formatting slip, it is advice about
 a stranger's trading delivered as if it were yours.
 
-Whose a wallet is comes from what the reader PROVED, not from what they typed:
+Whose a wallet is comes from the reader's saved wallets or this run's flag, never from an old typed claim:
 
-  connected a wallet the reader connected in Wallets on senpi.ai (web), one signature — read from `user_get_me`, never
-            stored here. `--my-wallets` lists them with the Senpi strategy wallets.
+  saved     a wallet the reader added in Your wallets — their own claim, kept by Senpi (not proof of
+            control). Read from `user_get_me`, never stored here. `--my-wallets` lists them with the
+            Senpi strategy wallets.
   verified  a Senpi-issued wallet. We know, because we issued it.
   claimed   RETIRED as an ownership source (1.41.0). Older books still hold rows with it; they are
             ignored at read time. A reader saying "that one's mine" makes it theirs for that run only
@@ -47,35 +48,35 @@ RANK = {ANALYZED: 0, CLAIMED: 1, VERIFIED: 2}
 ADDR_RE = re.compile(r"^0x[0-9a-f]{40}$")
 
 
-# ── VENDORED connected-wallets reader, byte-identical in senpi-portfolio/scripts/portfolio.py,
+# ── VENDORED external-wallets reader, byte-identical in senpi-portfolio/scripts/portfolio.py,
 # ── senpi-improve-trades/scripts/review.py and quant-desk/scripts/addresses.py — skills install
 # ── standalone, so none may import another. senpi-portfolio/tests/test_name_reader_parity.py fails
 # ── the moment the copies drift.
-CONNECTED_OK = "ok"
-CONNECTED_UNAVAILABLE = "unavailable"
+EXTERNAL_OK = "ok"
+EXTERNAL_UNAVAILABLE = "unavailable"
 
 
-def _connected_wallets(me):
+def _external_wallets(me):
     """(status, wallets) from a `user_get_me` payload, outer `data` already stripped.
 
-    The keys live inside `user`: `connected_wallets_status` ("ok" | "unavailable") and, only when ok,
-    `connected_wallets` [{address, label, verified_at, access}]. status is "ok" or "unavailable";
+    The keys live inside `user`: `external_wallets_status` ("ok" | "unavailable") and, only when ok,
+    `external_wallets` [{address, label, added_at, access}]. status is "ok" or "unavailable";
     wallets is a list only when status is "ok", else None. An ABSENT status key (an MCP older than
-    connected wallets) is "unavailable", never [] — unknown is never empty, so this never reads a
+    saved wallets) is "unavailable", never [] — unknown is never empty, so this never reads a
     missing key with a default. `access` is the MCP's read-only line, carried verbatim."""
     user = me.get("user") if isinstance(me, dict) and isinstance(me.get("user"), dict) else me
-    if not isinstance(user, dict) or user.get("connected_wallets_status") != CONNECTED_OK:
-        return CONNECTED_UNAVAILABLE, None
-    rows = user.get("connected_wallets")
+    if not isinstance(user, dict) or user.get("external_wallets_status") != EXTERNAL_OK:
+        return EXTERNAL_UNAVAILABLE, None
+    rows = user.get("external_wallets")
     if not isinstance(rows, list):
-        return CONNECTED_UNAVAILABLE, None
+        return EXTERNAL_UNAVAILABLE, None
     wallets = []
     for w in rows:
         if isinstance(w, dict) and isinstance(w.get("address"), str) and w["address"].strip():
             wallets.append({"address": w["address"].strip().lower(), "label": w.get("label"),
-                            "verified_at": w.get("verified_at"), "access": w.get("access")})
-    return CONNECTED_OK, wallets
-# ── end connected-wallets reader
+                            "added_at": w.get("added_at"), "access": w.get("access")})
+    return EXTERNAL_OK, wallets
+# ── end external-wallets reader
 
 
 def _now():
@@ -129,8 +130,8 @@ def relationship(book, addr):
 
 
 def is_mine(book, addr):
-    """True only for a wallet we issued. A `claimed` row (pre-1.41.0 books) is no longer proof of
-    anything: ownership of a non-Senpi wallet comes from the user's connected wallets."""
+    """True only for a wallet we issued. A `claimed` row (pre-1.41.0 books) is no longer read: a
+    non-Senpi wallet is the reader's when it is one of their saved wallets."""
     return relationship(book, addr) == VERIFIED
 
 
