@@ -8,8 +8,8 @@ description: >-
   / PnL / trade-history question, BEFORE any raw strategy_get_clearinghouse_state / account_get_portfolio
   / strategy_list MCP call. Use for "analyze my strategies", "how are my strategies doing", "analyze my
   portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle", and
-  "are my open positions protected? / do they have a stop-loss?", "my connected wallet", "my MetaMask
-  wallet" (read-only balances and positions of a wallet the user connected), and "tell me about my strategies and
+  "are my open positions protected? / do they have a stop-loss?", "my saved wallet", "my MetaMask
+  wallet" (read-only balances and positions of a wallet the user added in Your wallets), and "tell me about my strategies and
   their DSL / what tier are my positions in?", and "what happened to my closed [asset] position / did my
   trade actually go through / do I still hold X" — the authority for position facts, OPEN and CLOSED, which
   come from a fresh engine read, never from memory or a raw order response. A hidden engine (scripts/portfolio.py)
@@ -676,18 +676,19 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
   resting SL is expected and says nothing about protection. Use the `dsl` objects, not the order book. A
   raw position is the reverse case — the bullet above.
 
-## Connected wallets (read-only)
+## Your wallets (read-only)
 
-A **connected wallet** is a Hyperliquid wallet the user proved they own (one signature in Wallets on
-senpi.ai (web)) and trade by hand. The engine returns them in a separate top-level block,
-`external_wallets: {status, wallets}`, from every step (`money`, `strategies`, `positions`) and from `all`,
-with `meta.no_strategy_path` on each.
+The user's **saved wallets** are Hyperliquid wallets they added in Your wallets by pasting the address,
+and trade by hand. A saved wallet is the user's own word: call them "your wallets" or "the wallets you
+added", and never imply Senpi checked who controls them. The engine returns them in a separate top-level
+block, `external_wallets: {status, wallets}`, from every step (`money`, `strategies`, `positions`) and
+from `all`, with `meta.no_strategy_path` on each.
 
 - **Quote the access line verbatim** — every wallet carries it as `access`, and it is the whole answer to
   "can you trade it / close it / set a stop on it":
   > Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.
-- **Never Senpi money.** A connected wallet's value is never in `grand_total_usd`, never idle, never
-  deployed, and never part of `reconciles`. Present it in its own "Connected wallets (read-only)"
+- **Never Senpi money.** A saved wallet's value is never in `grand_total_usd`, never idle, never
+  deployed, and never part of `reconciles`. Present it in its own "Your wallets (read-only)"
   section after the money map, never summed into it. CTA 2 ("put the idle to work") never counts it.
 - **Quote, never recompute.** Each wallet's `state` is `account_get_external_wallets`' object verbatim.
   `totalValueUsd` is the wallet's value (already unified-account aware — never add `spotBalances` to it
@@ -701,7 +702,7 @@ with `meta.no_strategy_path` on each.
   way — "no open positions on the Hyperliquid main and xyz dexes", never a bare "no positions" — and
   never present the total as covering another HIP-3 dex.
 - **Unknown is never empty.**
-  - `external_wallets.status: "unavailable"` → say "I couldn't load your connected wallets", never
+  - `external_wallets.status: "unavailable"` → say "I couldn't load your saved wallets", never
     "you have none".
   - `state: null` (`state_read: "unavailable"`) → "couldn't load this wallet"; never $0, never "no
     positions".
@@ -716,13 +717,13 @@ with `meta.no_strategy_path` on each.
   "unprotected strategy" or "drained".
 - **No write suggestions on these wallets** — no `close.py`, redeploy, `edit_position`,
   `close_position`, `strategy_*` or `ratchet_stop_*`. CTA 1 applies to Senpi wallets only.
-- **Trade history** on a connected wallet ("how did my trades on it go", "where am I leaking on it") →
+- **Trade history** on a saved wallet ("how did my trades on it go", "where am I leaking on it") →
   `senpi-improve-trades` (review) or `quant-desk` (score and leaks). This skill reads balances and open
   positions only.
-- **"Your wallet"** means a connected wallet, or an address the user said is theirs in this
-  conversation. A pasted address is never described as saved; to save one, the user connects it in
-  Wallets on senpi.ai (web).
-- **`meta.no_strategy_path`** (connected wallets, no Senpi strategy): give the connected-wallets read and
+- **"Your wallet"** means one of the user's saved wallets, or an address the user said is theirs in this
+  conversation. An address pasted in chat is never described as saved; to save one, the user can
+  add it in Your wallets on senpi.ai (web).
+- **`meta.no_strategy_path`** (saved wallets, no Senpi strategy): give the saved-wallets read and
   skip the strategy verdict. Never pitch a strategy, and replace the mandatory closing with:
   > **Want me to review the trades on it, or score it on the quant desk?**
 
@@ -941,7 +942,7 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
 
 ## Mandatory closing (verbatim)
 
-(On `meta.no_strategy_path`, use the connected-wallets closing instead — see "Connected wallets (read-only)".)
+(On `meta.no_strategy_path`, use the saved-wallets closing instead — see "Your wallets (read-only)".)
 
 > **1. Want me to rebalance or adjust any of these positions?**
 > **2. Want me to put the idle capital to work in a new strategy?**
@@ -951,7 +952,7 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
   and apply them to the **whole strategy (all its wallets)** — never to a single sleeve of a multi-wallet
   strategy, and never hand-close a position the scanner will just re-open. Only use per-position tools
   (`edit_position` / `close_position`) for a genuinely ad-hoc position the user placed by hand on a Senpi
-  wallet — never a connected wallet, which is read-only (quote its `access` line). Confirm
+  wallet — never a saved wallet, which is read-only (quote its `access` line). Confirm
   before any change; never trade unprompted.
 - **CTA 2 → deploy idle.** If there's meaningful **truly-free** idle capital (lead from
   `signals.idle_drag_pct` and `idle_in_embedded` — NOT a flat sleeve of a live multi-wallet strategy,
@@ -994,7 +995,7 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
 - **`totals.reconciles == false`** → the per-wallet sum and the portfolio aggregate disagree; the engine
   also appends a `TOTALS DO NOT RECONCILE` entry to `meta.warnings` quoting both figures and the gap.
   STOP and re-run first (see above); if it persists, surface it and trust the per-wallet (live) figures.
-- **Never** report `total_withdrawable` as embedded idle, never skip a wallet, never skip the CTAs (on `meta.no_strategy_path` the connected-wallets closing replaces them).
+- **Never** report `total_withdrawable` as embedded idle, never skip a wallet, never skip the CTAs (on `meta.no_strategy_path` the saved-wallets closing replaces them).
 
 ## Skill Attribution
 

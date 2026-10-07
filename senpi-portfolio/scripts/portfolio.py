@@ -840,7 +840,7 @@ def fetch_embedded(client, meta, me=None):
 
 
 # ──────────────────────────────────────────────────────────── saved wallets (read-only, never Senpi money)
-EXTERNAL_STATE_TIMEOUT_S = 25   # moxie answers within ~6.5 s; the MCP's own moxie timeout is 20 s — wait past it
+EXTERNAL_STATE_TIMEOUT_S = 25    # moxie answers within ~6.5 s; the MCP's own moxie timeout is 20 s — wait past it
 # Senpi-strategy facts that do not exist for a wallet the user trades by hand. Rendered "not applicable",
 # never as a fault ("no DSL", "runtime not running", "drained").
 EXTERNAL_NOT_APPLICABLE = ("dsl", "runtime_health", "mandate", "funded_drained", "telemetry")

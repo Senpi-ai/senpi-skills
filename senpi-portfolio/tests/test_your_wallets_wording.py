@@ -23,6 +23,7 @@ WHOLE_FILES = (
     "senpi-improve-trades/scripts/review.py",
     "quant-desk/scripts/addresses.py",
     "quant-desk/scripts/desk.py",
+    "senpi-portfolio/SKILL.md",
 )
 BANNED = (
     (r"(?i)connect(?!ion)", "connect(ed)"),
@@ -56,4 +57,32 @@ def test_every_panel_pointer_is_the_one_phrase():
         for m in re.finditer(r"on senpi\.ai \(web\)", text):
             if text[max(0, m.end() - len(POINTER)):m.end()] != POINTER:
                 bad.append(f"{rel}: …{text[max(0, m.start() - 60):m.end()]}")
+    assert not bad, "\n".join(bad)
+
+
+# The Your-wallets sections of the skills: (file, start text, end text or None = the next heading).
+# "verified" is legal elsewhere in some of these files (a runtime's liveness, Senpi's own issued
+# wallets) but never where a saved wallet is described.
+SECTIONS = (
+    ("senpi-portfolio/SKILL.md", "## Your wallets (read-only)", None),
+)
+SECTION_BANNED = r"(?i)\bverified\b|\bproo?f\b|\bprov(e|ed|en)\b|\bsignature\b|\b(you|they) own\b|\bowned by\b|\bowning\b"
+
+
+def _section(rel, start, end):
+    text = _text(rel)
+    assert start in text, f"{rel}: {start!r} not found"
+    rest = text.split(start, 1)[1]
+    if end is None:
+        return re.split(r" #{2,3} ", rest, 1)[0]
+    assert end in rest, f"{rel}: {end!r} not found after {start!r}"
+    return rest.split(end, 1)[0]
+
+
+def test_the_your_wallets_sections_never_say_verified_owned_or_proven():
+    bad = []
+    for rel, start, end in SECTIONS:
+        sec = _section(rel, start, end)
+        for m in re.finditer(SECTION_BANNED, sec):
+            bad.append(f"{rel} {start}: …{sec[max(0, m.start() - 50):m.end() + 30]}…")
     assert not bad, "\n".join(bad)

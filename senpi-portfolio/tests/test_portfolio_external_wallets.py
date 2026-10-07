@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Connected wallets in the portfolio read (External Wallets R1).
+"""Saved wallets ("Your wallets") in the portfolio read (External Wallets R1, amendment A1).
 
-A connected wallet is one the user proved they own and trade by hand. Senpi can read it and cannot
+A saved wallet is one the user added in Your wallets by pasting its address — their claim, not proof of
+control — and trades by hand. Senpi can read it and cannot
 place, change or cancel orders on it. These tests hold the four things that make that safe to narrate:
 it never enters the Senpi money map (idle / grand_total / reconciles stay byte-identical), unknown is
 never empty (an absent key or a failed read is "unavailable", never []), its state is quoted verbatim
 from `account_get_external_wallets` (the single producer — `protection`, never `protected`), and a user
-with only connected wallets gets a read, not a fault and not a strategy pitch.
+with only saved wallets gets a read, not a fault and not a strategy pitch.
 
     python3 -m pytest senpi-portfolio/tests/test_portfolio_external_wallets.py
 """
@@ -81,7 +82,7 @@ def _state_error(code="PERPS_UNAVAILABLE"):
 
 def _with_external(fixture, wallets, states=None, status="ok"):
     """Turn the canonical fixture's flat user_get_me into the MCP's real `{user: {...}}` shape, with
-    connected wallets inside `user` (C3), and record `account_get_external_wallets`."""
+    saved wallets inside `user` (C3), and record `account_get_external_wallets`."""
     fx = copy.deepcopy(fixture)
     user = {"wallets": fx["user_get_me"]["wallets"], "external_wallets_status": status}
     if status == "ok":
@@ -96,7 +97,7 @@ def _with_external(fixture, wallets, states=None, status="ok"):
 
 
 def _external_only():
-    """No Senpi strategy at all: an embedded wallet with $0 and one connected wallet."""
+    """No Senpi strategy at all: an embedded wallet with $0 and one saved wallet."""
     return _with_external({
         "user_get_me": {"wallets": [{"walletType": "embedded", "walletAddress": EMBED}]},
         "account_get_portfolio": {"total_balance_usd": 0, "total_withdrawable": 0, "total_in_hyperliquid": 0,
@@ -117,7 +118,7 @@ def _dump(x):
 def test_external_wallets_never_enter_the_totals_or_the_reconciliation():
     base = _run(_base())
     mixed = _run(_with_external(_base(), [(CW_A, "Main"), (CW_B, None)],
-                                 {CW_A: _state_ok(total="99999.99"), CW_B: _state_ok(total="12345.67")}))
+                                {CW_A: _state_ok(total="99999.99"), CW_B: _state_ok(total="12345.67")}))
     for key in ("totals", "exposure", "signals", "strategy_groups", "strategies", "embedded_wallet"):
         assert _dump(mixed[key]) == _dump(base[key]), key
     assert mixed["totals"]["reconciles"] == base["totals"]["reconciles"]
@@ -172,7 +173,7 @@ def test_unpriced_coins_are_carried_so_the_total_can_say_what_it_excludes():
 
 def test_a_read_error_wallet_is_couldnt_load_and_the_others_survive():
     out = _run(_with_external(_base(), [(CW_A, "Main"), (CW_B, "Cold")],
-                               {CW_A: _state_error("ORDERS_UNAVAILABLE:xyz"), CW_B: _state_ok()}))
+                              {CW_A: _state_error("ORDERS_UNAVAILABLE:xyz"), CW_B: _state_ok()}))
     a, b = out["external_wallets"]["wallets"]
     assert a["state_read"] == "error" and a["state"]["readError"] == "ORDERS_UNAVAILABLE:xyz"
     assert a["state"]["totalValueUsd"] is None and a["state"]["positions"] is None    # never 0 / []
@@ -231,7 +232,7 @@ def test_external_only_user_gets_a_read_not_a_fault():
     assert out["meta"].get("no_strategy_path") is True
     assert "degraded" not in out["meta"]
     assert out["strategies"] == [] and out["strategy_groups"] == []
-    assert out["totals"]["grand_total_usd"] == 0.0               # connected money is not Senpi money
+    assert out["totals"]["grand_total_usd"] == 0.0               # saved money is not Senpi money
     assert out["external_wallets"]["wallets"][0]["state"]["totalValueUsd"] == "5234.10"
 
 
@@ -254,8 +255,8 @@ def _assert_external_only_read(out):
 
 
 def test_external_only_strategies_and_positions_steps_carry_the_section_from_state():
-    """"Are my positions protected?" routes to the `strategies` step. For a connected-only user that step
-    must carry the connected wallets + `no_strategy_path` the `money` step persisted, or the agent reads an
+    """"Are my positions protected?" routes to the `strategies` step. For a saved-only user that step
+    must carry the saved wallets + `no_strategy_path` the `money` step persisted, or the agent reads an
     empty strategy list as "no positions" and pitches a strategy."""
     sp = os.path.join(tempfile.mkdtemp(), "state.json")
     portfolio.step_money(portfolio._FixtureClient(_external_only()), state_path=sp)
@@ -277,7 +278,7 @@ def test_external_only_strategies_and_positions_steps_rebuild_the_section_standa
 
 def test_a_state_without_the_external_section_is_rebuilt_not_read_as_empty():
     """A state file written before the section existed (strategies cached, no `external_wallets`) is
-    rebuilt with the same fetch, never read as "no connected wallets"."""
+    rebuilt with the same fetch, never read as "no saved wallets"."""
     for step in (portfolio.step_strategies, portfolio.step_positions):
         sp = os.path.join(tempfile.mkdtemp(), "state.json")
         portfolio.step_money(portfolio._FixtureClient(_external_only()), state_path=sp)
@@ -315,20 +316,21 @@ def test_skill_quotes_the_access_line_verbatim():
 
 def test_skill_keeps_external_wallets_out_of_idle_and_the_total():
     sk = _skill()
-    for needle in ("## Connected wallets (read-only)", "never in `grand_total_usd`",
+    for needle in ("## Your wallets (read-only)", "never in `grand_total_usd`",
                    "never idle", "`external_wallets.status: \"unavailable\"`",
-                   "I couldn't load your connected wallets", "`protection`", "not `protected`",
+                   "I couldn't load your saved wallets", "`protection`", "not `protected`",
                    "no Hyperliquid activity yet", "Not applicable, not a fault",
                    "never call `accountValueUsd` \"account value\"", "total excludes",
                    "`state: null`", "couldn't load this wallet", "never print the code",
-                   "Wallets on senpi.ai (web)", "no open positions on the Hyperliquid main and xyz dexes",
+                   "add it in Your wallets on senpi.ai (web)", "no open positions on the Hyperliquid main and xyz dexes",
                    "never a bare \"no positions\"", "balances, positions and protection are all unknown",
-                   "A non-zero `totalValueUsd` wins — quote the value"):
+                   "A non-zero `totalValueUsd` wins — quote the value",
+                   "never imply Senpi checked who controls them"):
         assert needle in sk, needle
 
 
 def test_skill_forbids_write_suggestions_on_external_wallets():
-    sec = _skill().split("## Connected wallets (read-only)", 1)[1].split("## ", 1)[0]
+    sec = _skill().split("## Your wallets (read-only)", 1)[1].split("## ", 1)[0]
     for needle in ("`close.py`", "`edit_position`", "`close_position`", "`strategy_*`", "`ratchet_stop_*`"):
         assert needle in sec, needle
     assert "senpi-improve-trades" in sec and "quant-desk" in sec      # trade history is handed off
@@ -336,13 +338,13 @@ def test_skill_forbids_write_suggestions_on_external_wallets():
 
 def test_cta_one_never_routes_a_saved_wallet_to_a_write_tool():
     sk = _skill()
-    assert ("a genuinely ad-hoc position the user placed by hand on a Senpi wallet — never a connected "
+    assert ("a genuinely ad-hoc position the user placed by hand on a Senpi wallet — never a saved "
             "wallet, which is read-only (quote its `access` line)") in sk
-    assert "the connected-wallets closing replaces them" in sk
+    assert "the saved-wallets closing replaces them" in sk
 
 
 def test_skill_has_no_strategy_pitch_on_the_no_strategy_path():
-    sec = _skill().split("## Connected wallets (read-only)", 1)[1].split("## ", 1)[0]
+    sec = _skill().split("## Your wallets (read-only)", 1)[1].split("## ", 1)[0]
     assert "`meta.no_strategy_path`" in sec
     assert "from every step (`money`, `strategies`, `positions`) and from `all`" in sec
     assert "Never pitch a strategy" in sec
