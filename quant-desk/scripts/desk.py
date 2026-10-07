@@ -15,6 +15,7 @@ the weekly rank, and — when a Senpi token is present — the smart-money cohor
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -49,7 +50,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.42.2"
+VERSION = "1.43.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -117,6 +118,112 @@ def my_wallets(mcp):
         out["senpi_wallets_status"] = "ok"
     except Exception:  # noqa: BLE001
         pass
+    return out
+
+
+# ── Every wallet first-class (R1 review §02): ONE list, ordered by value, never by origin. Origin is
+# the `kind` column (read-only saved wallet / Senpi strategy), not a rank and not a section break. The
+# order is computed HERE and emitted, so the agent narrates an order it was given.
+EXTERNAL_STATE_TIMEOUT_S = 25      # moxie reads each saved wallet live (~6.5 s); the MCP's own timeout is 20 s
+KIND_SAVED, KIND_STRATEGY = "saved", "strategy"
+VALUE_OK, VALUE_UNKNOWN = "ok", "couldnt_load"
+_SAVED_VALUE_SOURCE = "account_get_external_wallets state.totalValueUsd"
+_STRATEGY_VALUE_SOURCE = "Hyperliquid portfolio (account value)"
+
+
+def _usd_or_none(v):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return x if math.isfinite(x) else None
+
+
+def _saved_states(mcp):
+    """{address: state} for every saved wallet, from ONE `account_get_external_wallets` call (no address
+    = all of them), or None when that read failed — the wallets stay listed, their values unknown."""
+    try:
+        resp = mcp.mcp_call("account_get_external_wallets", timeout=EXTERNAL_STATE_TIMEOUT_S)
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(resp, dict) or resp.get("success") is False:
+        return None
+    data = resp.get("data", resp)
+    rows = data.get("external_wallets") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return None
+    return {str(r.get("address") or "").lower(): r.get("state") for r in rows if isinstance(r, dict)}
+
+
+def _saved_row(w, states):
+    st = states.get(w["address"]) if states is not None else None
+    row = {"address": w["address"], "label": w.get("label"), "kind": KIND_SAVED,
+           "kind_label": render.KIND_LABEL[KIND_SAVED], "status": None, "closed": False,
+           "value_usd": None, "value_status": VALUE_UNKNOWN, "value_source": _SAVED_VALUE_SOURCE,
+           "access": w.get("access")}
+    if states is None:
+        row["value_note"] = "account_get_external_wallets failed"
+    elif not isinstance(st, dict):
+        row["value_note"] = "no state for this wallet"
+    elif st.get("readError"):
+        row["value_note"] = f"state.readError: {st['readError']}"
+    elif _usd_or_none(st.get("totalValueUsd")) is None:
+        row["value_note"] = "state.totalValueUsd is null"
+    else:
+        row["value_usd"], row["value_status"] = _usd_or_none(st["totalValueUsd"]), VALUE_OK
+        if isinstance(st.get("unpricedCoins"), list) and st["unpricedCoins"]:
+            row["unpriced_coins"] = [str(c) for c in st["unpricedCoins"]]
+    return row
+
+
+def _strategy_row(w, portfolios):
+    status = str(w.get("status") or "").upper() or None
+    closed = status == "CLOSED"
+    v = metrics.current_account_value(portfolios.get(w["address"])) if portfolios is not None else None
+    row = {"address": w["address"], "label": w.get("name"), "kind": KIND_STRATEGY,
+           "kind_label": render.KIND_LABEL["strategy_closed" if closed else KIND_STRATEGY],
+           "status": status, "closed": closed, "value_usd": v,
+           "value_status": VALUE_OK if v is not None else VALUE_UNKNOWN, "value_source": _STRATEGY_VALUE_SOURCE}
+    if v is None:
+        row["value_note"] = "Hyperliquid portfolio read failed"
+    return row
+
+
+def _by_value(row):
+    """Value descending; a value that couldn't load sorts LAST (never as 0); ties by label, then address."""
+    v = row["value_usd"]
+    return (v is None, -(v or 0.0), str(row.get("label") or "").lower(), row["address"])
+
+
+def my_wallets_listed(mcp, hl):
+    """`--my-wallets`: `my_wallets` plus ONE list of every wallet, ordered by value, each row with its
+    kind and its value. Saved wallets are valued by the MCP's `state.totalValueUsd` (one call for all);
+    strategy wallets by Hyperliquid's own account value (`portfolio`, one read per wallet, in parallel —
+    the request a desk run on that wallet makes anyway). Both reads run concurrently; any one wallet that
+    can't be valued is "couldn't load" and sorts last. Each source keeps its own ok/unavailable status,
+    and a list with an unavailable source is `wallets_complete: false` — never "no wallets"."""
+    out = my_wallets(mcp)
+    saved, strat = out.get("external_wallets"), out.get("senpi_wallets")
+    states, portfolios = {}, {}
+    if saved or (strat and hl is not None):
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            fs = ex.submit(_saved_states, mcp) if saved else None
+            fp = ex.submit(hl.portfolios, [w["address"] for w in strat]) if strat and hl is not None else None
+            states = fs.result() if fs else {}
+            portfolios = fp.result() if fp else None
+    if saved is None and strat is None:
+        rows = None
+    else:
+        rows = [_saved_row(w, states) for w in (saved or [])] + \
+               [_strategy_row(w, portfolios) for w in (strat or [])]
+        rows.sort(key=_by_value)
+    out["order"] = "value_desc"
+    out["wallets"] = rows
+    out["wallets_complete"] = (out["external_wallets_status"] == addr_book.EXTERNAL_OK
+                               and out["senpi_wallets_status"] == "ok")
+    out["ask"] = render.my_wallets_ask(rows)
+    out["text"] = render.render_my_wallets(out)
     return out
 
 
@@ -892,8 +999,10 @@ def main(argv=None):
     ap.add_argument("--find-losers", action="store_true",
                     help="the worst in the band instead of the best — the desk reads a losing book just as well")
     ap.add_argument("--my-wallets", action="store_true",
-                    help="print the reader's own wallets as JSON and exit: saved wallets (user_get_me) "
-                         "and Senpi strategy wallets (strategy_list), each with its own ok/unavailable status")
+                    help="print the reader's own wallets as JSON and exit: ONE list (`wallets`) of their "
+                         "saved wallets (user_get_me) and Senpi strategy wallets (strategy_list), ordered by "
+                         "value with kind as a column, each source with its own ok/unavailable status; "
+                         "`text` is that list rendered, `ask` the question naming them largest first")
     ap.add_argument("--addresses", action="store_true",
                     help="print this box's address book as JSON and exit — which wallets are the reader's, "
                          "which they have read, and which are not in senpi's index yet")
@@ -921,10 +1030,11 @@ def main(argv=None):
     if a.my_wallets:
         if a.fixture:
             with open(a.fixture) as fh:
-                mw_client = _MCPFixture(json.load(fh))
+                _rec = json.load(fh)
+            mw_client, mw_hl = _MCPFixture(_rec), hl_api.HLFixture(_rec)
         else:
-            mw_client = _mcp_client({})
-        print(json.dumps(my_wallets(mw_client), indent=2)); return 0
+            mw_client, mw_hl = _mcp_client({}), hl_api.HL(cache_dir=a.cache or None)
+        print(json.dumps(my_wallets_listed(mw_client, mw_hl), indent=2)); return 0
     if a.compare:
         rs = []
         for x in a.compare:
