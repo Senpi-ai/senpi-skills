@@ -662,3 +662,150 @@ def test_the_engine_emits_one_comparison_line_end_to_end():
     assert c["line"] == ("On closes measurable against today's price, Ledger got out ahead of the later move "
                          "on 0 of 9 (0%), MetaMask on 8 of 8 (100%).")
     assert {"label": "kodiak", "why": "3 measurable closes, under 8"} in c["not_compared"]
+
+
+# ── R1 re-review: a subtotal says how many of its wallets it covers; unknown is never 0 ────────────
+MIXED_FIXTURE = os.path.join(HERE, "fixtures", "review_mixed_status_fixture.json")
+
+
+def test_a_partly_loaded_subtotal_counts_only_the_wallets_that_loaded_and_names_the_rest():
+    """One saved wallet couldn't load, the other did: the read-only subtotal is the loaded one's value,
+    says "1 of 2 wallets", and names the unknown one — an unknown wallet is never added in as $0."""
+    res, _ = _run(_two_saved(_valued_base(), None, _valued_state("5000.00")))
+    ro = res["book"]["total"]["read_only"]
+    assert ro["value_usd"] == 5000.0 and ro["wallet_count"] == 2 and ro["wallets_loaded"] == 1
+    assert ro["couldnt_load"] == ["MetaMask"]
+    line = res["book"]["total"]["line"]
+    assert "read-only $5,000.00 (1 of 2 wallets, traded by hand — Senpi can't deploy it)" in line
+    assert "The total excludes 1 wallet that couldn't load (MetaMask)." in line
+    # every wallet loaded: no "N of M"
+    res, _ = _run(_two_saved(_valued_base(), _valued_state("900.00"), _valued_state("5000.00")))
+    assert "read-only $5,900.00 (2 wallets, traded by hand" in res["book"]["total"]["line"]
+    assert res["book"]["total"]["read_only"]["wallets_loaded"] == 2
+    assert res["book"]["total"]["managed"]["wallets_loaded"] == 1
+    assert "managed by Senpi $1,500.00 (1 wallet)" in res["book"]["total"]["line"]
+
+
+def test_a_partly_loaded_managed_subtotal_says_how_many_wallets_it_covers():
+    rows = [{"display_label": "kodiak", "label": "kodiak", "kind": "managed", "value_usd": 1500.0},
+            {"display_label": "grizzly", "label": "grizzly", "kind": "managed", "value_usd": None}]
+    for r in rows:
+        r.update({"trades_unknown": False, "trades_capped": False, "realized_pnl": 0.0, "fees": None,
+                  "unpriced_coins": []})
+    tot = review._book_total(rows, {"realized": 0.0, "fees": None}, "ok", "ok")
+    assert tot["managed"]["value_usd"] == 1500.0 and tot["managed"]["wallets_loaded"] == 1
+    assert "managed by Senpi $1,500.00 (1 of 2 wallets)" in tot["line"]
+    assert tot["excludes"]["couldnt_load"] == ["grizzly"]
+
+
+def test_every_wallet_of_a_kind_unloaded_is_an_unknown_subtotal_never_zero():
+    res, _ = _run(_two_saved(_valued_base(), None, None))
+    ro = res["book"]["total"]["read_only"]
+    assert ro["value_usd"] is None and ro["wallets_loaded"] == 0 and ro["couldnt_load"] == ["Ledger", "MetaMask"]
+    assert " · read-only unknown." in res["book"]["total"]["line"]
+    assert res["book"]["total"]["value_usd"] == 1500.0
+
+
+def test_no_saved_wallets_omits_the_read_only_clause_like_portfolio():
+    fx = _external(_valued_base(), wallets=())
+    res, _ = _run(fx)
+    ro = res["book"]["total"]["read_only"]
+    assert ro["state"] == "ok" and ro["wallet_count"] == 0
+    line = res["book"]["total"]["line"]
+    assert "read-only" not in line and line.startswith("Book value $1,500.00: managed by Senpi $1,500.00 (1 wallet).")
+    # unavailable is still said
+    res, _ = _run(_valued_base())
+    assert "read-only unknown (your saved wallets couldn't be loaded)" in res["book"]["total"]["line"]
+
+
+# ── R1 re-review: read-only realized never sums a wallet whose trades couldn't be read ──────────────
+def test_read_only_realized_is_unknown_when_no_saved_wallets_trades_could_be_read():
+    res, _ = _run(_external(_valued_base(), fills=None, state=_valued_state("900.00")))
+    ro = res["book"]["total"]["read_only"]
+    assert ro["trades_unknown"] == ["MetaMask"]
+    assert ro["realized_pnl"] is None and ro["fees"] is None              # never $0
+    tot = res["book"]["total"]
+    assert tot["realized_pnl"] == res["pnl_summary"]["realized"]
+    assert "across the wallets that could be read" in tot["line"] and "· read-only unknown." in tot["line"]
+    assert "Realized excludes MetaMask (trades couldn't be read)." in tot["line"]
+
+
+def test_read_only_realized_sums_only_the_wallets_whose_trades_were_read():
+    fx = _two_saved(_valued_base(), _valued_state("900.00"), _valued_state("5000.00"))
+    fx.pop(f"hl::userFills::{LW}")                                        # Ledger's fills unreadable
+    res, _ = _run(fx)
+    ro = res["book"]["total"]["read_only"]
+    assert ro["trades_unknown"] == ["Ledger"] and ro["realized_pnl"] == 140.0 and ro["fees"] == 0.61
+    assert "Realized excludes Ledger (trades couldn't be read)." in res["book"]["total"]["line"]
+
+
+# ── R1 re-review: the managed realized subtotal is pnl_summary, closed strategies included ─────────
+def test_managed_realized_is_pnl_summary_including_closed_strategies_never_the_rows():
+    with open(MIXED_FIXTURE) as f:
+        fx = json.load(f)
+    res, _ = _run(_external(fx, fills=_fills(), state=_valued_state("900.00")))
+    man = res["book"]["total"]["managed"]
+    rows_sum = sum(r["realized_pnl"] or 0.0 for r in res["book"]["rows"] if r["kind"] == "managed")
+    assert res["pnl_summary"]["realized_by_book"]["closed"] == 220.0
+    assert man["realized_pnl"] == res["pnl_summary"]["realized"] == 360.0 != rows_sum
+    assert man["realized_pnl_closed_strategies"] == 220.0
+    assert res["book"]["total"]["realized_pnl"] == 500.0                  # 360 managed + 140 read-only
+    assert ("managed by Senpi $360.00 (incl. $220.00 from closed strategies) · read-only $140.00."
+            in res["book"]["total"]["line"])
+
+
+# ── R1 re-review: the deep-dive offers only wallets with something to go deeper on ─────────────────
+def _empty_state():
+    st = _valued_state("0")
+    st["role"], st["totalValueUsd"], st["positions"] = "MISSING", None, []
+    return st
+
+
+def test_the_deep_dive_skips_an_empty_wallet_with_nothing_to_review():
+    """A saved wallet read fine with no Hyperliquid activity, no position and no trades: a row of the
+    list, never an option of the question. A $0 wallet that closed trades in the window still is."""
+    fx = _two_saved(_valued_base(), _valued_state("900.00"), _empty_state())
+    fx[f"hl::userFills::{LW}"] = []
+    res, _ = _run(fx)
+    assert [r["label"] for r in res["book"]["rows"]] == ["kodiak", "MetaMask", "Ledger"]
+    dd = res["book"]["deep_dive"]
+    assert dd["order"] == ["kodiak", "MetaMask"]
+    assert dd["question"] == "Which wallet do you want me to go deeper on: kodiak or MetaMask?"
+    # Ledger closed trades in the window: offered even at $0
+    fx[f"hl::userFills::{LW}"] = _fills()
+    res, _ = _run(fx)
+    assert res["book"]["deep_dive"]["order"] == ["kodiak", "MetaMask", "Ledger"]
+    # one wallet with something in it + an empty one: nothing to choose between
+    fx = _external({"strategy_list": {"strategies": []}}, fills=_fills(), state=_valued_state("900.00"),
+                   wallets=((CW, "MetaMask"), (LW, "Ledger")))
+    for row in fx["account_get_external_wallets"]["external_wallets"]:
+        if row["address"] == LW:
+            row["state"] = _empty_state()
+    fx[f"hl::userFills::{LW}"] = []
+    res, _ = _run(fx)
+    assert res["book"]["deep_dive"] is None
+
+
+# ── R1 re-review: ONE placement for the deep-dive question, ONE opening rule ────────────────────────
+def test_skill_asks_the_deep_dive_once_at_the_end_and_never_stops_the_steps():
+    sk = _skill()
+    sec = _book_section()
+    assert "asked once, at the end of the whole answer" in sec
+    assert "never stops the remaining steps" in sec
+    assert "and stop. Go deep" not in sec and "end the overview with" not in sk
+    steps = sk.split("## Run it in steps", 1)[1].split("## ", 1)[0]
+    step2 = steps.split("2. `review.py strategies`", 1)[1].split("3. `review.py telemetry`", 1)[0]
+    assert "deep-dive" not in step2 and "deep_dive" not in step2
+    assert "**After the last step the request needs**, end the answer with `book.deep_dive.question`" in steps
+    contract = sk.split("## The output contract", 1)[1]
+    item0 = contract.split("0. **One book**", 1)[1].split("1. **", 1)[0]
+    assert "comes last of all" in item0 and "then `book.deep_dive.question`" not in item0
+
+
+def test_skill_has_one_opening_rule_book_first_then_pnl_summary_within_the_detail():
+    sk = _skill()
+    assert "lead with `external_wallets[]`" not in sk
+    assert "open with `book.rows` as always" in sk
+    gives = sk.split("## What the engine gives you", 1)[1].split("## ", 1)[0]
+    assert gives.lstrip().startswith("The engine prints one JSON dict. **Open with `book`**")
+    assert "within the Senpi detail, **lead with `pnl_summary.total`**" in gives

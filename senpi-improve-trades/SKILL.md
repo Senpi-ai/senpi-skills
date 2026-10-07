@@ -221,7 +221,9 @@ wallet (`kind: "read_only"`). `book` (the `strategies` step and `all`) is that O
    and every exclusion ("total excludes 1 wallet that couldn't load", the unpriced coins). Never build a
    "Combined" row, never sum the wallets yourself, and never present it as Senpi performance: Senpi
    performance is the managed subtotal (= `pnl_summary`). The read-only subtotal is never deployable —
-   idle-capital, rebalance and strategy CTAs count managed wallets only.
+   idle-capital, rebalance and strategy CTAs count managed wallets only. A subtotal over only some of
+   its wallets says so ("1 of 2 wallets"); one whose wallets all failed is "unknown", never $0; with no
+   saved wallets the line has no read-only clause.
 4. **Protection stays origin-aware.** A managed row's `protection.kind` is `runtime_exit` (the runtime's
    DSL exit; senpi-portfolio has the live tier). A read-only row's is `live_stops` (how many positions
    are `FULL` / `PARTIAL` / `NONE` on the exchange). Say "runtime exit" for one and "live stops" for the
@@ -232,9 +234,13 @@ wallet (`kind: "read_only"`). `book` (the `strategies` step and `all`) is that O
    measurable closes, and it names any wallet whose trades it couldn't read or that hit the fill ceiling.
    `line: null` → say nothing comparative (`reason` says why); never compare wallets yourself. It names
    wallets, not "you": a managed row's exits are its strategy's.
-6. **Narrow offer.** When `book.deep_dive` is non-null (more than one wallet), end the overview with
-   `book.deep_dive.question` verbatim — "Which wallet do you want me to go deeper on: …?", largest named
-   first — and stop. Go deep on the one they pick.
+6. **Narrow offer — asked once, at the end of the whole answer.** When `book.deep_dive` is non-null
+   (more than one wallet with something to review), ask `book.deep_dive.question` verbatim — "Which
+   wallet do you want me to go deeper on: …?", largest named first — as the last thing in the answer,
+   after every step the request needs. It never stops the remaining steps: run and narrate them, then
+   ask. Go deep on the one they pick. `order` holds only wallets with a value, an open position, trades
+   to review or a value that couldn't load — an empty $0 wallet stays in the table, never in the
+   question.
 
 ### Fix depth on a saved wallet — advice they apply on Hyperliquid
 
@@ -260,7 +266,8 @@ imply Senpi checked who controls them. The engine adds every one to the review s
 `external_wallets[]` (the
 `timing` step and `all`) — its own read, never folded into `pnl_summary`, `strategies[]`,
 `dsl_close_reason_mix`, `timing_summary` or `leaks`, which stay Senpi-only. For a user with no Senpi
-strategy those Senpi aggregates are empty: lead with `external_wallets[]`.
+strategy those Senpi aggregates are empty: open with `book.rows` as always (see "One book"), and the
+detail is `external_wallets[]`.
 
 - **Access line, verbatim** — the answer to "can you close / trade / set a stop on it":
   > Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.
@@ -318,13 +325,16 @@ could I make more" — run the steps **in order** and narrate between:
    + realized so far) — but this is NOT your headline: TOTAL PnL (realized + unrealized) lands with the
    `strategies` step (`pnl_summary.total`). `exit_reason` is still `UNKNOWN` here (telemetry hasn't run) —
    narrate the *timing*, not the mechanism yet, and never call `held_higher` "premature / left on the table."
-2. `review.py strategies` → open with **`book`** (rows by value, `book.total.line`, the comparison, the
-   deep-dive question — see "One book"), then narrate the **per-strategy read** (each CURRENT strategy vs its OWN mandate,
+2. `review.py strategies` → open with **`book`** (rows by value, `book.total.line`, the comparison —
+   see "One book"), then narrate the **per-strategy read** (each CURRENT strategy vs its OWN mandate,
    realized PnL as evidence; `closed_strategies[]` is history — no verdict).
 3. `review.py telemetry` → narrate **exit quality / leaks / blocked** (now `exit_reason` is filled: the
    refreshed `dsl_close_reason_mix`, `leaks`, `blocked_summary`, `execution_quality`).
 4. `review.py market` → narrate the **book-vs-market gap** (run only if the ask needs "what did I miss /
    compare to market").
+
+**After the last step the request needs**, end the answer with `book.deep_dive.question` when it is
+non-null — once, never mid-review (One book, rule 6).
 
 **Narrate each slice as it returns — never wait for all steps.** The steps share a state file
 (`<tempdir>/senpi-improve-trades/state-<window>d.json`, overridable with `--state`), so a later step reuses
@@ -671,12 +681,14 @@ run on a just-deployed book):
 
 ## What the engine gives you
 
-The engine prints one JSON dict. **Lead with `pnl_summary.total`** (realized+unrealized); the PROCESS counts are in `timing_summary`; per-strategy verdicts in `strategies[]` (CURRENT book only); the telemetry streams (`dsl_close_reason_mix` / `blocked_summary` / `leaks` / `execution_quality`) are real only when `telemetry_availability.streams_computed` is true; `trades[]` is a curated outlier sample (counts from the aggregates, never `len(trades)`). **Full field-by-field catalog + the `exit_reason.terminal` enum: [`references/output-shape.md`](references/output-shape.md).**
+The engine prints one JSON dict. **Open with `book`** (the one list, then `book.total.line`); within the
+Senpi detail, **lead with `pnl_summary.total`** (realized+unrealized); the PROCESS counts are in `timing_summary`; per-strategy verdicts in `strategies[]` (CURRENT book only); the telemetry streams (`dsl_close_reason_mix` / `blocked_summary` / `leaks` / `execution_quality`) are real only when `telemetry_availability.streams_computed` is true; `trades[]` is a curated outlier sample (counts from the aggregates, never `len(trades)`). **Full field-by-field catalog + the `exit_reason.terminal` enum: [`references/output-shape.md`](references/output-shape.md).**
 
 ## The output contract — what you produce
 
 0. **One book** — `book.rows` in the engine's order, `book.total.line`, `book.comparison.line` (when
-   non-null), then `book.deep_dive.question` (when non-null). The parts below are the detail.
+   non-null). The parts below are the detail. `book.deep_dive.question` (when non-null) comes last of
+   all — after the detail and the steps the request needs, never here.
 1. **Total-PnL + timing teardown** — **led by TOTAL PnL** (`pnl_summary.total` = realized + unrealized), then
    the NEUTRAL aggregate (`timing_summary`: `exits_ahead` / `exits_held_higher`), each exit attributed via
    `exit_reason` (which tier / hard stop fired). Process-framed, NEVER "premature / left on the table."
