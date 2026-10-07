@@ -288,5 +288,6 @@ def test_an_unavailable_saved_list_neither_says_it_nor_rearms_it(tmp_path, capsy
 
 def test_the_skill_relays_the_note_on_any_path():
     sk = _skill()
-    for needle in ("say it once, on any path", "`whose_changed.say`", "\"Find my leaks on 0x…\" button"):
+    for needle in ("say it once, on any path", "`whose_changed.say`", "\"Find my leaks on 0x…\" button",
+                   "that sentence is the first thing you say, word for word, before the score"):
         assert needle in sk, needle

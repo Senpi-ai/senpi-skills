@@ -47,7 +47,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.42.1"
+  version: "1.42.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -112,7 +112,10 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 
    **Stage 1 — the hook.** `desk.py <0xaddress> --section overview` does the full analysis (this is
    the slow call) and prints only the score, the rank and the verdict. Relay it the moment it lands.
-   That is the number they came for.
+   That is the number they came for. **If it opens with "I'm reading 0x… as your book now, because
+   you added it to Your wallets", that sentence is the first thing you say, word for word, before the
+   score** — the desk prints it on this one run only, so a summary that skips it means the reader is
+   never told (measured on dev: the stage-1 summary dropped it).
    **Stage 2 — what is urgent.** `--section protection`. Instant, from cache. Relay.
    **Stage 3 — the money.** `--section leaks`. Instant. Relay.
    **Stage 4 — the rest**, in one call: `--section strategy --section context --section performance
@@ -215,7 +218,7 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    **Read as a stranger's, then added: say it once, on any path.** When a run reads an address the book
    had as someone else's and the reader has since added it to Your wallets, the desk says so itself:
    the Markdown opens with that sentence, and `--json` carries it as `whose_changed.say`. Relay it
-   once, first, before the desk speaks about the book as theirs — whether the run came from
+   once, word for word, first, before the score or anything else about the book as theirs — whether the run came from
    `--my-wallets`, a pasted address, `--mine`, or the "Find my leaks on 0x…" button. The desk prints it
    only on the first run after the add; don't repeat it on later sections.
 
