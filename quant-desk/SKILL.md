@@ -15,7 +15,7 @@ description: >-
   TRIGGERS — any of these, with or without an address: "run AI quant", "run ai-quant", "run quant-desk", "run AI quant on my Hyperliquid wallet", "run AI quant on any Hyperliquid wallet", "run quant", "run the quant on 0x…", "run quant
   desk on 0x…", "score my trading", "rate my trading", "find leaks on my Hyperliquid wallet", "where am
   I leaking money", "what did I miss" (about a book, a week or a trade), "master my week" (on a
-  CONNECTED wallet the user trades by hand — "my MetaMask", "my own Hyperliquid wallet", "my connected
+  SAVED wallet the user trades by hand — "my MetaMask", "my own Hyperliquid wallet", "my saved
   wallet" — leaks and "what did I miss" are always this skill; its trade review and "master my week"
   belong to senpi-improve-trades, which also keeps the leaks of senpi strategies), "analyze my
   wallet / my Hyperliquid address", "how am I doing", "what's my strategy", "am I on the right side of
@@ -47,7 +47,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.41.0"
+  version: "1.42.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -206,21 +206,23 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    user is 0x… — run it plain and speak to them. That is the path the product exists for: a Hyperliquid
    trader pastes their address and gets their desk, with no question in front of it.
 
-   **"My wallets" are what senpi can prove.** `desk.py --my-wallets` prints them: the reader's
-   **connected** wallets (connected in Wallets on senpi.ai (web), one signature — proof) and their senpi strategy
-   wallets, each half with its own `ok` / `unavailable` status. A connected wallet is theirs even if
-   the book once read it as a stranger's.
+   **"My wallets" are the wallets the reader added, plus their senpi wallets.** `desk.py --my-wallets`
+   prints them: the reader's **saved** wallets (the ones they added in Your wallets) and their senpi
+   strategy wallets, each half with its own `ok` / `unavailable` status. A saved wallet is theirs even
+   if the book once read it as a stranger's. It is the reader's own word: call them "your wallets" or
+   "the wallets you added", and never imply senpi checked who controls them.
 
    **The desk remembers.** It keeps an address book per box (`scripts/desk.py --addresses`) with
    **verified** (a wallet senpi issued) and **analyzed** (someone else's book they read). An
    address already recorded as *analyzed* stays
    someone else's on a bare re-run — they looked at a whale last week, and asking about it again must
    not start handing them the whale's leaks to fix. **claimed** is retired: older books still hold it
-   and it means nothing — a typed "it's mine" is a claim, not proof.
+   and it means nothing — what the reader says is theirs lives in their saved wallets, or in this run's
+   `--mine`.
 
    **A pasted address the reader says is theirs** is theirs for this conversation only: run it with
-   `--mine` (or `--claim`, the same voice). Say plainly that it isn't saved, and that connecting it in
-   Wallets on senpi.ai (web) is what makes senpi remember it.
+   `--mine` (or `--claim`, the same voice). Say plainly that it isn't saved, and that to keep it they
+   can add it in Your wallets on senpi.ai (web).
 
    **Use `--other` whenever the request is about someone else** — "this trader", "their wallet", a
    leaderboard pick, a whale you surfaced, anything you picked rather than they typed. The default
@@ -308,8 +310,8 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 | "scout setups", "what should I look at" | `desk.py 0x… --section scout` | relay; process only |
 | **a follow-up the desk offered** | `desk.py 0x… --deep <mode>` | relay; then offer the next follow-ups |
 
-On a connected wallet the desk owns leaks and "what did I miss"; the trade review and "master my week"
-go to `senpi-improve-trades`, which reviews connected wallets as manual trades.
+On a saved wallet the desk owns leaks and "what did I miss"; the trade review and "master my week"
+go to `senpi-improve-trades`, which reviews saved wallets as manual trades.
 
 **The ten deep modes** (each answers one bank question; all read the cached run, `protect` and `replay`
 refetch candles): `protect` (a stop ladder per position with levels and dollars at risk before/after) ·
@@ -441,29 +443,29 @@ book** or **someone else's**. Settle that first — it is one question and it de
 
 > Your own book, or do you want me to find you someone to read?
 
-### If they mean their OWN book — `desk.py --my-wallets` FIRST: connected wallets, then strategy wallets
+### If they mean their OWN book — `desk.py --my-wallets` FIRST: saved wallets, then strategy wallets
 
-**Run `desk.py --my-wallets` before anything else.** It returns the reader's connected wallets
+**Run `desk.py --my-wallets` before anything else.** It returns the reader's saved wallets
 (`user_get_me`) and their senpi strategy wallets (`strategy_list`, closed ones included). A trader who
-came from Hyperliquid and connected their own wallet does not stop owning it the moment they have senpi
-strategies — **do not forget a connected wallet**, and do not silently swap it for a senpi wallet.
+came from Hyperliquid and added their own wallet in Your wallets still has it the moment they have senpi
+strategies — **do not forget a saved wallet**, and do not silently swap it for a senpi wallet.
 
-So the precedence is — connected wallets first, then strategy wallets, then ask:
+So the precedence is — saved wallets first, then strategy wallets, then ask:
 
-1. **Connected wallets** — offer each by its label, it is the one they connected. Quote its `access`
+1. **Saved wallets** — offer each by its label, it is the one they added. Quote its `access`
    line when they ask what senpi can do with it:
    > Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.
 2. **Their senpi strategy wallets** — where their senpi perp history actually is.
-3. **Both?** Then ask, because only they know which they mean today: *"Your connected wallet
+3. **Both?** Then ask, because only they know which they mean today: *"Your saved wallet
    `0x5a10…2c37`, or your senpi strategies — Aegis, Phalanx?"* Offer to run both and compare; that
    is often the more interesting read, and the desk prices them the same way.
-   `external_wallets_status: "unavailable"` → say "I couldn't load your connected wallets" and offer
-   the strategy wallets; never "you have no connected wallets".
+   `external_wallets_status: "unavailable"` → say "I couldn't load your saved wallets" and offer
+   the strategy wallets; never "you have no saved wallets".
 4. **Neither?** Ask for an address — and **offer to show them the desk on a real book in the same
    breath**. Never guess an address, but never leave a new reader with only a question either.
 
    On 2026-09-23 a brand-new user's FIRST EVER prompt was the quant-desk chip. Their agent did
-   everything right — read this file, checked for connected wallets (none), checked `strategy_list`
+   everything right — read this file, checked for saved wallets (none), checked `strategy_list`
    (empty, they had no strategies yet) — and asked for an address. One turn, eight seconds, and
    they never came back. A question is the one answer that shows them nothing.
 
@@ -484,7 +486,7 @@ both got a dead end. A third user pointed the desk at three strategy wallets the
 three full desks, a priced leak, and a DSL fix off the back of it. Same product, same hour; the only
 difference was which wallet.
 
-So, where they have no connected wallet: resolve their wallets with `strategy_list` and
+So, where they have no saved wallet: resolve their wallets with `strategy_list` and
 **offer the strategy wallets first**, named by their strategy. Offer the embedded wallet second and label it — "your funding wallet, usually no
 trades of its own".
 

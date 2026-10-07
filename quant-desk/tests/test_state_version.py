@@ -1,4 +1,4 @@
-"""A cached desk run is reused only when the SAME desk version wrote it. A run cached before 1.41
+"""A cached desk run is reused only when the SAME desk version wrote it. A run cached before 1.42
 was judged under the old protection rule; re-rendering it under the new one would print the old
 verdict with the new version in the header."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
@@ -49,7 +49,7 @@ def test_a_section_reuses_a_cached_run_of_the_same_version(tmp_path, capsys):
 
 
 def test_a_section_never_reuses_a_run_cached_by_another_version(tmp_path, capsys):
-    for stale in ("1.40.0", None):
+    for stale in ("1.40.0", "1.41.0", None):
         _run(tmp_path, capsys)
         _poison(tmp_path, stale)
         r = _run(tmp_path, capsys, "--section", "protection")

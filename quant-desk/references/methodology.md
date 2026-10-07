@@ -1,6 +1,6 @@
 # quant-desk — methodology
 
-> **This document describes the engine as of quant-desk 1.41.0.** Nine formulas in it were stale
+> **This document describes the engine as of quant-desk 1.42.0.** Nine formulas in it were stale
 > between 1.9.0 and 1.14.0 while SKILL.md sent the agent here for them, so an agent asked "how is my
 > cost score computed?" answered with the pre-1.9.0 rule, confidently. If you change a formula in
 > `scripts/`, change it here in the same commit — `test_methodology_matches_the_engine` fails if the
@@ -74,7 +74,7 @@ ones.
 
 ## Protection audit
 
-One rule, shared with senpi's connected-wallet state, pinned by
+One rule, shared with senpi's saved-wallet state, pinned by
 `tests/fixtures/protection-fixtures.v1.json`. A **stop** is a top-level resting order in the position's
 own dex list (`children` of an unfilled entry are not live) on the same coin, `reduceOnly`, on the exit
 side (sell for a long, buy for a short), with `orderType` `Stop Market`, `Stop Limit` or

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Whose wallet it is (External Wallets R1): "my wallets" = the reader's CONNECTED wallets (proved with
-a signature, read from user_get_me) plus their Senpi strategy wallets. A typed "that one's mine" is this
+"""Whose wallet it is (External Wallets R1, amendment A1): "my wallets" = the reader's SAVED wallets (the
+ones they added in Your wallets — their claim, read from user_get_me) plus their Senpi strategy wallets. A typed "that one's mine" is this
 run's voice only and is never saved. Unknown is never empty."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import json
@@ -115,16 +115,16 @@ def _skill():
 
 def test_the_skill_resolves_mine_from_external_then_senpi():
     sk = _skill()
-    for needle in ("desk.py --my-wallets", "connected wallets first", "it isn't saved",
-                   "Wallets on senpi.ai (web)", ACCESS, "`external_wallets_status: \"unavailable\"`",
-                   "I couldn't load your connected wallets"):
+    for needle in ("desk.py --my-wallets", "saved wallets first", "it isn't saved",
+                   "add it in Your wallets on senpi.ai (web)", ACCESS, "`external_wallets_status: \"unavailable\"`",
+                   "I couldn't load your saved wallets", "never imply senpi checked who controls them"):
         assert needle in sk, needle
 
 
 def test_the_description_owns_leaks_on_external_wallets():
     desc = _skill().split("license:", 1)[0]
-    assert "CONNECTED wallet" in desc and "senpi-improve-trades" in desc
-    for words in ('"my MetaMask"', '"my own Hyperliquid wallet"', '"my connected wallet"'):
+    assert "SAVED wallet" in desc and "senpi-improve-trades" in desc
+    for words in ('"my MetaMask"', '"my own Hyperliquid wallet"', '"my saved wallet"'):
         assert words in desc, words
 
 
@@ -132,20 +132,20 @@ def test_the_external_wallet_routing_is_an_aside_so_the_triggers_after_it_stay_t
     """The routing clause sits in parentheses: written as a dash clause ending in "senpi-improve-trades
     keeps the leaks of senpi strategies —", the trigger list after it read as improve-trades'."""
     desc = _skill().split("license:", 1)[0]
-    aside = desc.split('"master my week" (on a CONNECTED wallet', 1)[1].split(")", 1)
-    assert len(aside) == 2, "the connected-wallet routing is not a parenthetical after the trigger"
+    aside = desc.split('"master my week" (on a SAVED wallet', 1)[1].split(")", 1)
+    assert len(aside) == 2, "the saved-wallet routing is not a parenthetical after the trigger"
     assert aside[1].lstrip(", ").startswith('"analyze my wallet / my Hyperliquid address"')
     assert "senpi-improve-trades keeps the leaks of senpi strategies —" not in desc
 
 
 def test_the_desk_and_improve_trades_split_a_saved_wallet_the_same_way():
-    """Ruling (R1 final review): senpi-improve-trades owns the REVIEW of a connected wallet ("review my
+    """Ruling (R1 final review): senpi-improve-trades owns the REVIEW of a saved wallet ("review my
     trades", "master my week"); the desk owns leaks and "what did I miss" on it."""
     sk = _skill()
     desc = sk.split("license:", 1)[0]
     assert ('leaks and "what did I miss" are always this skill; its trade review and "master my week" '
             'belong to senpi-improve-trades') in desc
-    assert ('On a connected wallet the desk owns leaks and "what did I miss"; the trade review and '
+    assert ('On a saved wallet the desk owns leaks and "what did I miss"; the trade review and '
             '"master my week" go to `senpi-improve-trades`') in sk
 
 

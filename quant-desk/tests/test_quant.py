@@ -761,7 +761,7 @@ def test_the_skill_defaults_to_the_readers_own_book_and_remembers_the_rest():
     assert "An address is the reader's own book unless we know otherwise" in skill
     assert "already recorded as *analyzed* stays\n   someone else's on a bare re-run" in skill
     for needle in ("**verified**", "**analyzed**", "**claimed** is retired", "--claim", "--addresses",
-                   "a claim, not proof", "whenever the request is about someone else", "--my-wallets"):
+                   "what the reader says is theirs lives in their saved wallets", "whenever the request is about someone else", "--my-wallets"):
         assert needle in skill, needle
 
 
@@ -3105,16 +3105,16 @@ def test_an_empty_book_does_not_send_the_reader_back_to_strategy_list():
 
 def test_a_saved_wallet_is_not_forgotten():
     """@betashop on 1.26.0: a reader who brought their own Hyperliquid wallet must still have it
-    remembered — the senpi strategy wallets are a FALLBACK, not a replacement. Since 1.41.0 "theirs"
-    is what senpi can PROVE: a connected wallet (one signature), read by `desk.py --my-wallets`,
-    before `strategy_list`. A typed `claimed` row proves nothing and is no longer consulted."""
+    remembered — the senpi strategy wallets are a FALLBACK, not a replacement. Since 1.42.0 "theirs"
+    is a wallet they added in Your wallets (a saved wallet), read by `desk.py --my-wallets`, before
+    `strategy_list`. A typed `claimed` row in this box's book is no longer consulted."""
     skill = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
     own = skill[skill.index("If they mean their OWN book"):skill.index("If they want someone ELSE")]
 
     assert "--my-wallets" in own, "the own-book branch never reads the reader's wallets"
-    assert own.index("Connected wallets") < own.index("strategy wallets**"), \
-        "connected wallets must be offered BEFORE falling back to senpi wallets"
-    assert "do not forget a connected wallet" in own, "the rule is not stated"
+    assert own.index("Saved wallets") < own.index("strategy wallets**"), \
+        "saved wallets must be offered BEFORE falling back to senpi wallets"
+    assert "do not forget a saved wallet" in own, "the rule is not stated"
     assert "claimed" not in own, "the own-book branch still treats a typed claim as ownership"
     # and when both exist the reader decides — not us
     assert "Both?" in own and "ask" in own.lower(), "ambiguity must go back to the reader"

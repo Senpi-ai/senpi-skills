@@ -27,6 +27,8 @@ WHOLE_FILES = (
     "senpi-improve-trades/SKILL.md",
     "senpi-improve-trades/references/output-shape.md",
     "README.md",
+    "quant-desk/SKILL.md",
+    "quant-desk/references/methodology.md",
 )
 BANNED = (
     (r"(?i)connect(?!ion)", "connect(ed)"),
@@ -69,6 +71,8 @@ def test_every_panel_pointer_is_the_one_phrase():
 SECTIONS = (
     ("senpi-portfolio/SKILL.md", "## Your wallets (read-only)", None),
     ("senpi-improve-trades/SKILL.md", "## Your wallets (read-only, traded by hand)", None),
+    ("quant-desk/SKILL.md", '**"My wallets" are', "**The desk remembers.**"),
+    ("quant-desk/SKILL.md", "### If they mean their OWN book", None),
 )
 SECTION_BANNED = r"(?i)\bverified\b|\bproo?f\b|\bprov(e|ed|en)\b|\bsignature\b|\b(you|they) own\b|\bowned by\b|\bowning\b"
 

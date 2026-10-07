@@ -88,7 +88,7 @@ def test_open_book_follows_the_shared_rule(case):
 
 
 def test_a_cached_run_without_protection_reads_its_share_with_no_threshold():
-    """Runs cached before 1.41.0 carry only `stop_covered_share`. 0.95 was "protected" under the
+    """Runs cached before 1.42.0 carry only `stop_covered_share`. 0.95 was "protected" under the
     old 0.9 rule; it is PARTIAL now, on a re-render too."""
     assert metrics.protection_of(dict(stop_covered_share=0.0)) == "NONE"
     assert metrics.protection_of(dict(stop_covered_share=0.95)) == "PARTIAL"

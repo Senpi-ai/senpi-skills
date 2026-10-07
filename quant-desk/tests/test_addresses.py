@@ -30,9 +30,9 @@ def test_the_book_holds_no_relationship_for_an_address_it_has_not_seen(tmp_path)
 
 
 def test_a_claimed_row_is_no_longer_proof_of_ownership(tmp_path):
-    """1.41.0 retired `claimed` as an ownership source: a typed "it's mine" proves nothing, and a
-    connected wallet (one signature) is what proves a non-Senpi wallet is theirs. Books written
-    before keep the row; it is ignored at read time."""
+    """1.42.0 retired `claimed` as an ownership source: a non-Senpi wallet is the reader's when it is
+    one of the wallets they added in Your wallets (or for one run, `--mine`). Books written before keep
+    the row; it is ignored at read time."""
     book = ab.load(str(tmp_path))
     ab.mark_verified(book, [SENPI])
     ab.record(book, MINE, relationship=ab.CLAIMED)
