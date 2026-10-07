@@ -29,6 +29,7 @@ engine always passes forceFetch. Per-strategy truth comes from live strategy_get
 import argparse
 import calendar
 import json
+import math
 import os
 import subprocess
 import sys
@@ -897,6 +898,207 @@ def _no_strategy_path(strategies, saved):
     return not strategies and bool((saved or {}).get("wallets"))
 
 
+# ──────────────────────────────────────────── the ONE wallet list (every wallet first-class, by value)
+# Every wallet the user has — the Senpi main wallet, each Senpi strategy (ALL its wallets: a strategy is
+# one row, never one row per sleeve) and each wallet they added — in ONE list ordered by value. Origin is
+# the `kind` column (managed / read-only), never a rank and never a section break. The order and every
+# total are computed HERE so the agent narrates an order it was given. The managed subtotal IS
+# `totals.grand_total_usd` (same float, same rows): the money map's three buckets ride on it unchanged.
+# Unknown is never zero: a wallet that couldn't load sorts last, is never summed, and the total names it.
+KIND_MANAGED = "managed"
+KIND_READ_ONLY = "read-only"
+EMBEDDED_LABEL = "Senpi main wallet"
+DEEP_DIVE_QUESTION = "Which one do you want me to go deeper on?"
+BOOK_ORDER_RULE = "by value, largest first; ties by label, then address; a wallet that couldn't load last"
+POSITIONS_SCOPE = "the Hyperliquid main and xyz dexes"
+READ_ONLY_NOTE = ("read-only: the wallets you added. Senpi can analyze them and cannot trade them, so this "
+                  "money is never idle, never deployable and never in the managed subtotal")
+STRATEGY_DETAIL_COLUMNS = ["open_positions", "protected", "unrealized_pnl_usd"]
+
+
+def _usd(v):
+    """A dollar figure as a finite float rounded to cents, else None (unknown — never 0)."""
+    n = _num(v)
+    return round(n, 2) if n is not None and math.isfinite(n) else None
+
+
+def _money_str(v):
+    return f"${v:,.2f}"
+
+
+def _embedded_row(embedded):
+    emb = embedded or {}
+    value = _usd(emb.get("idle_total"))
+    return {"label": EMBEDDED_LABEL, "kind": KIND_MANAGED, "origin": "embedded",
+            "address": emb.get("address"), "address_short": _short_wallet(emb.get("address")) or None,
+            "value_usd": value, "loaded": value is not None,
+            # no strategy trades from the main wallet: it holds the idle cash legs (perps + spot + EVM USDC)
+            "holds": "cash", "not_applicable": ["open_positions", "protection", "pnl"]}
+
+
+def _strategy_label(key, insts):
+    """The group id (`cub`) for a packaged strategy; an ungrouped one (keyed by its own wallet) by its
+    own name when it has one, else by its short wallet — never a 42-character address as a label."""
+    if all(key != str(s.get("wallet")) for s in insts):
+        return key
+    s = insts[0]
+    if s.get("name_source") in ("strategyName", "shortTraderAddress") and s.get("name"):
+        return s.get("name")
+    return f"strategy {_short_wallet(s.get('wallet'))}"
+
+
+def _strategy_rows(strategies, groups):
+    """One row per Senpi strategy, summed across ALL its wallets (same key as group_strategies). `groups`
+    is None on the `money` step, which reads no positions — those columns are then `not_read_this_step`
+    (asked later), not unknown. A wallet whose clearinghouse read failed has no `account_value`: it is
+    counted in `wallets_couldnt_load`, never summed as $0."""
+    by_label = {g.get("label"): g for g in (groups or []) if isinstance(g, dict)}
+    order, buckets = [], {}
+    for s in (strategies or []):
+        try:
+            key = _group_key(s)
+        except Exception:  # noqa — a malformed row must not sink the list
+            key = str(s.get("wallet") or id(s))
+        if key not in buckets:
+            buckets[key] = []
+            order.append(key)
+        buckets[key].append(s)
+    rows = []
+    for key in order:
+        insts = buckets[key]
+        read = [s for s in insts if _usd(s.get("account_value")) is not None]
+        value = round(sum(_usd(s.get("account_value")) for s in read), 2) if read else None
+        row = {"label": _strategy_label(key, insts), "kind": KIND_MANAGED, "origin": "strategy",
+               "strategy_group": key, "wallet_count": len(insts),
+               "strategy_wallets": [{"name": s.get("name"), "wallet": s.get("wallet"),
+                                     "wallet_short": _short_wallet(s.get("wallet")),
+                                     "value_usd": _usd(s.get("account_value"))} for s in insts],
+               "value_usd": value, "loaded": value is not None,
+               "wallets_couldnt_load": len(insts) - len(read)}
+        if groups is None:
+            row.update({c: None for c in STRATEGY_DETAIL_COLUMNS})
+            row["not_read_this_step"] = list(STRATEGY_DETAIL_COLUMNS)
+            row["detail_step"] = "strategies"
+        else:
+            g = by_label.get(key) or {}
+            row["open_positions"] = sum(len(s.get("positions") or []) for s in read) if read else None
+            # the runtime-exit word for a Senpi strategy — never `protection` (that is live stops on a saved wallet)
+            row["protected"] = g.get("protected")
+            row["runtime_health"] = g.get("runtime_health")
+            row["unrealized_pnl_usd"] = (round(sum(_num(p.get("upnl")) or 0.0 for s in read
+                                                   for p in (s.get("positions") or [])), 2) if read else None)
+            row["realized_pnl_usd"] = (g.get("totals") or {}).get("realized_pnl")
+        rows.append(row)
+    return rows
+
+
+def _saved_rows(saved):
+    """One row per wallet the user added. Every figure is quoted from its verbatim `state`; a wallet whose
+    state couldn't be read is `loaded: false` with every column null."""
+    rows = []
+    for w in ((saved or {}).get("wallets") or []):
+        st = w.get("state") if w.get("state_read") == "ok" and isinstance(w.get("state"), dict) else None
+        value = _usd(st.get("totalValueUsd")) if st else None
+        no_activity = bool(st and str(st.get("role") or "").upper() == "MISSING" and not value)
+        if no_activity:
+            value = 0.0      # the read succeeded and Hyperliquid has no account here: a real $0
+        positions = st.get("positions") if st and isinstance(st.get("positions"), list) else None
+        if value is None:
+            positions = None
+        protection = upnl = None
+        if positions is not None:
+            protection = {}
+            for p in positions:
+                k = str(p.get("protection")) if isinstance(p, dict) else "None"
+                protection[k] = protection.get(k, 0) + 1
+            vals = [_num(p.get("unrealizedPnlUsd")) if isinstance(p, dict) else None for p in positions]
+            upnl = round(sum(vals), 2) if all(v is not None for v in vals) else None
+        unpriced = st.get("unpricedCoins") if st else None
+        rows.append({"label": w.get("label") or _short_wallet(w.get("address")),
+                     "kind": KIND_READ_ONLY, "origin": "saved",
+                     "address": w.get("address"), "address_short": _short_wallet(w.get("address")),
+                     "value_usd": value, "loaded": value is not None,
+                     "open_positions": len(positions) if positions is not None else None,
+                     # live stops on the exchange (FULL / PARTIAL / NONE counts) — never `protected`
+                     "protection": protection, "unrealized_pnl_usd": upnl,
+                     "excludes_coins": list(unpriced) if isinstance(unpriced, list) and unpriced else [],
+                     "no_hyperliquid_activity": no_activity, "positions_scope": POSITIONS_SCOPE,
+                     "state_read": w.get("state_read"), "access": w.get("access"),
+                     "not_applicable": list(EXTERNAL_NOT_APPLICABLE)})
+    return rows
+
+
+def _book_sort_key(row):
+    v = row.get("value_usd")
+    addr = row.get("address") or min((str(w.get("wallet") or "") for w in row.get("strategy_wallets") or []),
+                                     default="")
+    return (v is None, -(v or 0.0), str(row.get("label") or "").lower(), str(addr or "").lower())
+
+
+def _join(parts):
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def build_book(embedded, strategies, saved, totals, groups=None):
+    """`book` — the ONE wallet list + the one book total. `totals` is this step's Senpi money map;
+    `managed_usd` is its `grand_total_usd`, exactly. Additive: nothing here feeds back into `totals`."""
+    rows = [_embedded_row(embedded)] + _strategy_rows(strategies, groups) + _saved_rows(saved)
+    rows.sort(key=_book_sort_key)
+    saved_ok = (saved or {}).get("status") == EXTERNAL_OK
+    managed = totals.get("grand_total_usd")
+    read_only = (round(sum(r["value_usd"] for r in rows if r["kind"] == KIND_READ_ONLY and r["loaded"]), 2)
+                 if saved_ok else None)
+    total = round((managed or 0.0) + (read_only or 0.0), 2)
+    # what the total leaves out: every wallet that couldn't load (a strategy's unread sleeve by its name),
+    # the saved-wallets read when it failed, and every coin a saved wallet could not price
+    excluded = []
+    for r in rows:
+        if r["origin"] == "strategy" and r["wallets_couldnt_load"]:
+            excluded += [str(w.get("name") or w.get("wallet_short")) for w in r["strategy_wallets"]
+                         if w.get("value_usd") is None]
+        elif not r["loaded"]:
+            excluded.append(str(r["label"]))
+    coins = sorted({c for r in rows for c in (r.get("excludes_coins") or []) if isinstance(c, str)})
+    parts = []
+    if excluded:
+        parts.append(f"{len(excluded)} wallet{'s' if len(excluded) != 1 else ''} that couldn't load "
+                     f"({', '.join(excluded)})")
+    if not saved_ok:
+        parts.append("the wallets you added (couldn't load them)")
+    if coins:
+        parts.append(f"{', '.join(coins)} (no price)")
+    excludes_note = f"total excludes {_join(parts)}" if parts else None
+    reconciles = totals.get("reconciles")
+    line = (f"Book total {_money_str(total)} — managed by Senpi {_money_str(managed or 0.0)} "
+            f"(idle in your {EMBEDDED_LABEL} {_money_str(totals.get('idle_in_embedded') or 0.0)} · "
+            f"idle in strategies {_money_str(totals.get('idle_in_strategies') or 0.0)} · "
+            f"deployed in positions {_money_str(totals.get('deployed_in_positions') or 0.0)})")
+    if read_only is not None:
+        line += f" · read-only {_money_str(read_only)} (wallets you added — Senpi cannot trade or deploy it)"
+    if excludes_note:
+        line += f" · {excludes_note}"
+    if reconciles is False:
+        line += " · the managed figures do not reconcile (see meta.warnings) — re-run before quoting this total"
+    return {
+        "order_rule": BOOK_ORDER_RULE,
+        "wallets": rows,
+        "totals": {
+            "total_usd": total,
+            "managed_usd": managed,               # == totals.grand_total_usd, by construction
+            "managed_breakdown": {k: totals.get(k) for k in
+                                  ("idle_in_embedded", "idle_in_strategies", "deployed_in_positions",
+                                   "reconciles")},
+            "read_only_usd": read_only,           # None = the saved-wallets read failed, never 0
+            "read_only_note": READ_ONLY_NOTE,
+            "excludes": {"wallets": excluded, "coins": coins, "saved_wallets_unavailable": not saved_ok},
+            "excludes_note": excludes_note,
+            "line": line,
+        },
+        "deep_dive": {"offer": len(rows) > 1, "question": DEEP_DIVE_QUESTION,
+                      "order": [r["label"] for r in rows]},
+    }
+
+
 
 
 def fetch_strategies(client, meta):
@@ -1746,9 +1948,13 @@ def run(client, want_market=True):
     meta["warnings"] = sorted(meta["warnings"])
     return {
         "as_of": "live",
-        "totals": totals,           # the three buckets — NEVER conflate them
+        # EVERY wallet in ONE list by value (kind = managed / read-only) + the one book total — present
+        # from here; managed subtotal == totals.grand_total_usd
+        "book": build_book(embedded, strategies, saved, totals, strategy_groups),
+        "totals": totals,           # the three buckets — NEVER conflate them (the MANAGED money only)
         "embedded_wallet": embedded,
-        # READ-ONLY wallets the user trades by hand — a separate section, never in totals/idle/reconciles
+        # READ-ONLY wallets the user trades by hand — their raw state; never in totals/idle/reconciles.
+        # Presented as rows of `book`, never as a section of their own.
         "external_wallets": saved,
         "strategies": strategies,
         # ONE entry per real strategy (a strategy is ALL its wallets); reason + recommend at THIS level.
@@ -1869,9 +2075,13 @@ def fetch_strategy_money(client, meta):
         if not wallet:
             continue
         name, name_source = _strategy_name_and_source(s)
+        meta_obj = _field(s, "strategyMetadata", "metadata")
+        skill_name = _field(meta_obj, "skillName", "skill_name") if isinstance(meta_obj, dict) else None
         strategies.append({
             "name": name,
             "name_source": name_source,     # see fetch_strategies — same reader, same contract
+            # the package (same reader as fetch_strategies) — the `book` groups a strategy's wallets by it
+            "skill_name": skill_name or _field(s, "skillName", "skill_name", "skill"),
             "wallet": wallet,
             "strategy_id": _field(s, "id", "strategyId", "strategy_id"),
             "status": _field(s, "status", default="ACTIVE"),
@@ -2017,8 +2227,8 @@ def step_money(client, want_market=True, state_path=None):
     state["totals"] = totals
     state["meta_warnings"] = meta.get("warnings", [])
     _save_state(state_path, state)
-    return {"totals": totals, "embedded_wallet": embedded, "external_wallets": saved,
-            "strategies": strategies, "meta": meta}
+    return {"book": build_book(embedded, strategies, saved, totals), "totals": totals,
+            "embedded_wallet": embedded, "external_wallets": saved, "strategies": strategies, "meta": meta}
 
 
 def step_strategies(client, want_market=True, state_path=None):
@@ -2047,8 +2257,12 @@ def step_strategies(client, want_market=True, state_path=None):
     state["meta_warnings"] = meta.get("warnings", [])
     state["has_multi_wallet_strategy"] = meta.get("has_multi_wallet_strategy", False)
     _save_state(state_path, state)
-    return {"strategies": strategies, "strategy_groups": strategy_groups, "external_wallets": saved,
-            "meta": meta}
+    # this step prints no `totals`; the book's managed subtotal is the same money map over these rows
+    # (meta=None: the reconciliation warning is the `money`/`positions` steps' to raise)
+    book = build_book(embedded, strategies, saved, _money_totals(embedded, strategies, portfolio_totals),
+                      strategy_groups)
+    return {"book": book, "strategies": strategies, "strategy_groups": strategy_groups,
+            "external_wallets": saved, "meta": meta}
 
 
 def step_positions(client, want_market=True, state_path=None):
@@ -2087,7 +2301,8 @@ def step_positions(client, want_market=True, state_path=None):
     state["meta_warnings"] = meta.get("warnings", [])
     state["has_multi_wallet_strategy"] = meta.get("has_multi_wallet_strategy", False)
     _save_state(state_path, state)
-    return {"strategies": strategies, "strategy_groups": strategy_groups, "external_wallets": saved,
+    return {"book": build_book(embedded, strategies, saved, totals, strategy_groups),
+            "strategies": strategies, "strategy_groups": strategy_groups, "external_wallets": saved,
             "exposure": exposure, "signals": signals, "totals": totals, "meta": meta}
 
 

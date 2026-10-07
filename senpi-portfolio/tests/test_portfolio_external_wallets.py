@@ -316,7 +316,7 @@ def test_skill_quotes_the_access_line_verbatim():
 
 def test_skill_keeps_external_wallets_out_of_idle_and_the_total():
     sk = _skill()
-    for needle in ("## Your wallets (read-only)", "never in `grand_total_usd`",
+    for needle in ("## One wallet list — every wallet first-class", "never in `grand_total_usd`",
                    "never idle", "`external_wallets.status: \"unavailable\"`",
                    "I couldn't load your saved wallets", "`protection`", "not `protected`",
                    "no Hyperliquid activity yet", "Not applicable, not a fault",
@@ -330,7 +330,7 @@ def test_skill_keeps_external_wallets_out_of_idle_and_the_total():
 
 
 def test_skill_forbids_write_suggestions_on_external_wallets():
-    sec = _skill().split("## Your wallets (read-only)", 1)[1].split("## ", 1)[0]
+    sec = _skill().split("## One wallet list — every wallet first-class", 1)[1].split("## ", 1)[0]
     for needle in ("`close.py`", "`edit_position`", "`close_position`", "`strategy_*`", "`ratchet_stop_*`"):
         assert needle in sec, needle
     assert "senpi-improve-trades" in sec and "quant-desk" in sec      # trade history is handed off
@@ -344,7 +344,7 @@ def test_cta_one_never_routes_a_saved_wallet_to_a_write_tool():
 
 
 def test_skill_has_no_strategy_pitch_on_the_no_strategy_path():
-    sec = _skill().split("## Your wallets (read-only)", 1)[1].split("## ", 1)[0]
+    sec = _skill().split("## One wallet list — every wallet first-class", 1)[1].split("## ", 1)[0]
     assert "`meta.no_strategy_path`" in sec
     assert "from every step (`money`, `strategies`, `positions`) and from `all`" in sec
     assert "Never pitch a strategy" in sec
