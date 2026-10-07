@@ -264,7 +264,7 @@ cohort → `smart`; a funding bill → `funding`; a losers leak → `replay`; re
   catalog families, and the discover/author handoff.
 * `regime`, `smart`, `scout`, `strategy`, `watch` — the corresponding sections in full.
 
-## Scoring rules as of 1.40.0 — read these, not any older formula above
+## Scoring rules as of 1.41.0 — read these, not any older formula above
 
 These nine changed between 1.9.0 and 1.15.0 while this file still described the pre-1.9.0 engine.
 

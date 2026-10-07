@@ -33,6 +33,12 @@ SCORER_COPIES = [
     # listed here, so nothing would have caught it drifting — added 2026-10-03.
     "strategies/penguin-x5/main/scanners/scoring.py",
     "strategies/penguins-duo/main/scanners/scoring.py",
+    "strategies/penguin-chase-150bp/main/scanners/scoring.py",
+    "strategies/penguin-chase-200bp/main/scanners/scoring.py",
+    "strategies/penguin-chase-300bp/main/scanners/scoring.py",
+    "strategies/penguins-duo-chase-150bp/main/scanners/scoring.py",
+    "strategies/penguins-duo-chase-200bp/main/scanners/scoring.py",
+    "strategies/penguins-duo-chase-300bp/main/scanners/scoring.py",
     "strategies/pelicans-duo/main/scanners/scoring.py",
     "senpi-signals/scripts/striker_scoring.py",
 ]
@@ -103,13 +109,20 @@ def test_purple_penguin_differs_from_penguin_in_exactly_one_input():
         "runtime.yaml files and revert anything that is not minScore.")
 
 
-def test_purple_penguin_stays_out_of_the_catalog():
-    """It is an unmeasured 8-floor on a 90%-margin 10x book. Users must not be offered it."""
+def test_purple_penguin_is_listed_and_says_what_it_varies():
+    """Published 2026-10-06 on Jason's call. The guard flips rather than disappears.
+
+    While it was blocked the risk was that users got an unmeasured 8-floor by accident. Listed, the
+    risk is the opposite and worse: a user cannot tell it apart from penguin, picks the wrong one,
+    and reads the result as if it were penguin's. So the card must NAME the parent it varies and
+    the thing that differs — which is what makes it choosable rather than merely available."""
     card = _yaml("strategies/purple-penguin/strategy.yaml")
-    assert card["catalog"].get("status") == "blocked", (
-        "purple-penguin lost catalog.status: blocked — gen_catalog would publish it to the "
-        "catalog AND to senpi-strategy-discover, offering an untested score floor to users. "
-        "Deploy it by explicit path instead; deploy.py honours a path regardless of status.")
+    assert card["catalog"].get("status") != "blocked", "purple-penguin is published now"
+    blob = " ".join(str(card["catalog"].get(k, "")) for k in ("tagline", "belief_plain", "thesis"))
+    assert "penguin" in blob.lower(), "the card never names the parent it varies"
+    assert "8" in blob and "9" in blob, (
+        "the card does not state BOTH score floors, so a reader cannot tell what they are choosing "
+        "between")
 
 
 # ── the leverage/ROE coherence invariant (cheetah, 2026-09-30) ──
@@ -197,13 +210,15 @@ def test_a_wild_variant_raises_the_bar_and_the_size_together():
             f"a higher bar with the same size leaves the rarer signal underpaid.")
 
 
-def test_every_wild_variant_stays_out_of_the_catalog():
-    """Unmeasured floors on whole-book positions. None of these may reach a user via discover."""
-    for wild, _ in WILD_PAIRS:
+def test_every_wild_variant_is_listed_and_names_its_parent():
+    """Same flip as purple-penguin: listed, so each one has to be distinguishable from its parent."""
+    for wild, parent in WILD_PAIRS:
         card = _yaml(f"strategies/{wild}/strategy.yaml")
-        assert card["catalog"].get("status") == "blocked", (
-            f"{wild} lost catalog.status: blocked — gen_catalog would publish it to the catalog "
-            f"AND to senpi-strategy-discover. Deploy experiments by explicit path instead.")
+        assert card["catalog"].get("status") != "blocked", f"{wild} is published now"
+        blob = " ".join(str(card["catalog"].get(k, "")) for k in ("tagline", "belief_plain", "thesis"))
+        assert parent in blob.lower(), (
+            f"{wild}'s card never names {parent}, so a user cannot tell which strategy it is a "
+            f"higher-conviction version OF")
 
 
 # ── per-leverage sibling packages must land on the SAME price distances ──
@@ -348,7 +363,8 @@ def test_rung_zero_arms_often_enough(pkg):
 # ── the penguin/puffin/pelican family closes on NOTHING but the DSL ──
 
 NO_CLOCK = ["penguin", "purple-penguin", "penguin-x5", "penguins-duo", "pelican",
-            "pelicans-duo", "puffin"]
+            "pelicans-duo", "puffin"] + [f"penguin-chase-{n}bp" for n in (150, 200, 300)] \
+    + [f"penguins-duo-chase-{n}bp" for n in (150, 200, 300)]
 _TIME_CUTS = ("hard_timeout", "weak_peak_cut", "dead_weight_cut")
 
 
@@ -577,3 +593,95 @@ def test_the_two_duos_do_not_split_margin_the_same_way_and_that_is_recorded():
         f"(2 x 40). Changing it to 90% would make it comparable to penguins-duo but would also change "
         f"what this experiment measures — do that deliberately, with the reason.")
     assert pl_duo["default_leverage"] == pg_duo["default_leverage"] == 10
+
+
+# ── the chase-cap experiment: six arms, one free variable ──
+#
+# Jason, 2026-10-06: penguin and penguins-duo, each at 1.5 / 2.0 / 3.0, "6 variants in total that
+# we'd be testing". The arms exist because two measurements of the same question disagree:
+#
+#   * quant desk, on FILLED entries: 55% of penguin's entries came after a >= 3% 1h pre-move, and
+#     those ran a profit factor of 0.3 against 3.3.
+#   * CAND telemetry, 7 days to 2026-10-06, replaying the real selection rule (the top-scoring
+#     passing candidate per scan, which is what penguin actually enters), n=44 entries:
+#         cap 1.5 -> 8/44 = 18.2%    cap 2.0 -> 4/44 = 9.1%    cap 3.0 -> 3/44 = 6.8%
+#         p50 +0.73%, p90 +1.89%, max +4.33%
+#
+# Both cannot be right and the cost of guessing is paid in live entries, so the cap is run as the
+# only free variable at three levels. That only answers anything if it really is the only one.
+
+CHASE_CAPS = {150: 1.5, 200: 2.0, 300: 3.0}
+CHASE_ARMS = [(f"{p}-chase-{n}bp", p, c)
+              for p in ("penguin", "penguins-duo")
+              for n, c in sorted(CHASE_CAPS.items())]
+
+
+@pytest.mark.parametrize("arm,parent,cap", CHASE_ARMS)
+def test_a_chase_arm_differs_from_its_parent_in_the_cap_and_nothing_else(arm, parent, cap):
+    """Any second difference and a difference in results stops being attributable to the cap.
+
+    Same contract purple-penguin and penguins-duo are held to, for the same reason — this is an
+    experiment, and an experiment with two free variables measures neither.
+    """
+    a, p = _yaml(f"strategies/{arm}/main/runtime.yaml"), _yaml(f"strategies/{parent}/main/runtime.yaml")
+    ai = next(s for s in a["scanners"] if s.get("type") == "external_scanner")["inputs"]
+    pi = next(s for s in p["scanners"] if s.get("type") == "external_scanner")["inputs"]
+    differ = {k for k in set(ai) | set(pi) if ai.get(k) != pi.get(k)}
+    assert differ <= {"maxPreMovePct"}, (
+        f"{arm} differs from {parent} in {sorted(differ)}. Only maxPreMovePct may differ — revert "
+        f"anything else or the six arms stop being comparable.")
+    assert float(ai["maxPreMovePct"]) == cap, (
+        f"{arm} ships maxPreMovePct {ai.get('maxPreMovePct')}, and its whole identity is {cap}.")
+    assert a["exit"] == p["exit"], f"{arm}'s exit block diverged from {parent}'s"
+    assert a["strategy"] == p["strategy"], f"{arm}'s strategy block diverged from {parent}'s"
+
+
+@pytest.mark.parametrize("arm,parent,_cap", CHASE_ARMS)
+def test_a_chase_arm_vendors_its_parents_scanners_byte_for_byte(arm, parent, _cap):
+    """A forked scanner is a silent divergence in the entry model — the thing being held constant."""
+    for f in ("scan.py", "scoring.py"):
+        assert _read(f"strategies/{arm}/main/scanners/{f}") == \
+               _read(f"strategies/{parent}/main/scanners/{f}"), (
+            f"{arm}/{f} has drifted from {parent}/{f}. The cap is the only variable; port any "
+            f"detector change to the parent and regenerate the arms.")
+
+
+@pytest.mark.parametrize("arm,_parent,_cap", CHASE_ARMS)
+def test_a_chase_arm_is_listed_and_states_its_own_cap(arm, _parent, _cap):
+    """Published 2026-10-06. Six near-identical penguins in discover is exactly the hazard I
+    blocked them for, so the guard becomes the thing that makes them survivable: every arm's card
+    must state ITS OWN number, in percent, in text a user reads — not only in the yaml."""
+    card = _yaml(f"strategies/{arm}/strategy.yaml")
+    assert card["catalog"].get("status") != "blocked", f"{arm} is published now"
+    blob = " ".join(str(card["catalog"].get(k, "")) for k in ("name", "tagline", "belief_plain", "thesis"))
+    assert f"{_cap:g}%" in blob, (
+        f"{arm}'s card never states its own cap ({_cap:g}%) in readable text. Six siblings differ "
+        f"by one number; if that number is not on the card, nobody can choose between them.")
+    assert _parent in blob.lower(), f"{arm}'s card never names its parent {_parent}"
+
+
+def test_the_three_caps_are_distinct_and_ordered():
+    """The experiment is only readable if the arms actually bracket the question."""
+    for parent in ("penguin", "penguins-duo"):
+        caps = []
+        for n in sorted(CHASE_CAPS):
+            rt = _yaml(f"strategies/{parent}-chase-{n}bp/main/runtime.yaml")
+            inp = next(s for s in rt["scanners"] if s.get("type") == "external_scanner")["inputs"]
+            caps.append(float(inp["maxPreMovePct"]))
+        assert caps == sorted(caps) and len(set(caps)) == 3, (
+            f"{parent}'s arms are {caps} — three distinct, ascending caps or there is no ladder to read.")
+
+
+def test_both_families_run_the_same_three_caps():
+    """penguin and penguins-duo must bracket the question identically, or the one/two-slot
+    comparison is confounded with the cap comparison and neither reads."""
+    def caps_of(parent):
+        out = []
+        for n in sorted(CHASE_CAPS):
+            rt = _yaml(f"strategies/{parent}-chase-{n}bp/main/runtime.yaml")
+            inp = next(s for s in rt["scanners"] if s.get("type") == "external_scanner")["inputs"]
+            out.append(float(inp["maxPreMovePct"]))
+        return out
+    assert caps_of("penguin") == caps_of("penguins-duo"), (
+        "the two families run different cap ladders, so slots and cap move together and neither "
+        "difference is attributable")

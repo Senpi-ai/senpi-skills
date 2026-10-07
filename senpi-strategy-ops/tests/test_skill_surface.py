@@ -378,3 +378,68 @@ class ScriptInvocationsAreCwdIndependent(unittest.TestCase):
                if "~/.openclaw" in line or "$HOME/.openclaw" in line]
         self.assertEqual(bad, [], "$HOME is /root on an agent box; skills live under /data:\n  "
                                   + "\n  ".join(bad))
+
+
+class NoCommittedConflictMarkers(unittest.TestCase):
+    """A merge resolved badly must not reach main — least of all inside YAML frontmatter.
+
+    2026-10-06: a merge of `ops 3.23.4` and `#838` (ops 3.24.0) was committed with its conflict
+    markers intact, in two files:
+
+      * `senpi-strategy-ops/SKILL.md:37` — a `=======` line and TWO `version:` keys INSIDE the
+        frontmatter, which stopped the frontmatter parsing at all (`ScannerError: while scanning a
+        simple key`). That is the file every agent loads to deploy, monitor and close a strategy.
+      * `README.md:75` — the same marker plus a duplicated senpi-strategy-ops row.
+
+    The only test that noticed was the README-version check, and it reported a version mismatch —
+    which reads as a forgotten bump, not as a repo with conflict markers in it. Nothing was looking
+    for the markers themselves, and nothing was checking that a SKILL.md's frontmatter still parses.
+    Given that one malformed skill can strip every description fleet-wide, both are cheap.
+    """
+
+    MARKER = re.compile(r"^(?:<{7}|={7}|>{7})(?: |$)")
+
+    def _tracked_text_files(self):
+        import subprocess
+        out = subprocess.run(["git", "ls-files", "-z"], cwd=REPO,
+                             capture_output=True, text=True, check=True).stdout
+        for rel in filter(None, out.split("\0")):
+            if rel.endswith((".png", ".jpg", ".jpeg", ".gif", ".pdf", ".ico", ".woff",
+                             ".woff2", ".ttf", ".zip", ".gz")):
+                continue
+            if "tests/fixtures" in rel:          # a fixture may legitimately contain a marker
+                continue
+            p = REPO / rel
+            if not p.is_file():
+                continue
+            try:
+                yield rel, p.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+
+    def test_no_file_carries_a_conflict_marker(self):
+        hits = [f"{rel}:{i}" for rel, text in self._tracked_text_files()
+                for i, line in enumerate(text.splitlines(), 1) if self.MARKER.match(line)]
+        self.assertEqual(hits, [], f"committed git conflict markers: {hits}")
+
+    def test_every_skill_frontmatter_parses_and_has_one_version(self):
+        """The failure that actually bit: a duplicate `version:` key and a marker, so the whole
+        frontmatter became unparseable while the file still looked plausible in a diff."""
+        import yaml
+        skills = sorted(REPO.glob("*/SKILL.md"))
+        self.assertGreater(len(skills), 5, "found almost no SKILL.md files — glob is wrong")
+        for path in skills:
+            rel = path.relative_to(REPO)
+            with self.subTest(skill=str(rel)):
+                text = path.read_text(encoding="utf-8")
+                m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+                self.assertIsNotNone(m, f"{rel} has no YAML frontmatter block")
+                try:
+                    doc = yaml.safe_load(m.group(1))
+                except yaml.YAMLError as exc:
+                    self.fail(f"{rel} frontmatter does not parse: "
+                              f"{type(exc).__name__}: {str(exc).splitlines()[0]}")
+                self.assertIsInstance(doc, dict, f"{rel} frontmatter is not a mapping")
+                # a duplicate key parses to ONE value, so count the raw lines too
+                n = len(re.findall(r"^\s*version:", m.group(1), re.M))
+                self.assertEqual(n, 1, f"{rel} declares `version:` {n} times in its frontmatter")

@@ -308,6 +308,10 @@ def _candidate(r, intent):
         # identity + handoff
         "id": r.get("id"), "version": r.get("version"), "name": r.get("name"),
         "emoji": r.get("emoji"), "tagline": r.get("tagline"),
+        # The template this one VARIES, when it is a variant. Carried so apply_theme can keep a
+        # variant from outranking its own parent, and so the agent can say "X with one change"
+        # rather than offering two near-identical cards side by side.
+        "varies": r.get("varies"),
         # soft-rank surface (the script never reads these — the LLM ranks on them)
         "risk_level": r.get("risk_level"), "archetype_label": r.get("archetype_label"),
         "belief_plain": r.get("belief_plain"), "thesis": r.get("thesis"), "tags": r.get("tags") or [],
@@ -422,7 +426,25 @@ def apply_theme(result, query):
         cand["theme_score"] = score
         if hits:
             cand["theme_hits"] = hits
-    result["candidates"].sort(key=lambda c: -c.get("theme_score", 0))   # stable: ties keep prior order
+    # A VARIANT must never outrank the template it varies. Fifteen listed strategies differ from
+    # another listed one by a number or two, and their cards are near-copies — so on keyword overlap
+    # they score almost identically to the parent and, on ties, whichever happens to sort first wins.
+    # Measured when they were published: puffin fell to rank 4 for its OWN query, behind puffin-duo.
+    # A user who gets the sibling does not get a worse strategy, they get one whose results they will
+    # read as the parent's.
+    #
+    # This is a tie-break, not a penalty: the variant keeps its own score and still ranks on merit
+    # against everything else. It only loses to its own parent, and only when the parent survived the
+    # same filters — ask for "two slots" and the duo still wins on its own terms.
+    _ids = {c.get("id") for c in result.get("candidates", [])}
+    for cand in result.get("candidates", []):
+        parent = (cand.get("varies") or "").strip()
+        if parent:
+            cand["variant_of"] = parent                      # surfaced so the agent can SAY so
+            if parent in _ids:
+                cand["ranked_below_parent"] = True
+    result["candidates"].sort(key=lambda c: (-c.get("theme_score", 0),
+                                             1 if c.get("ranked_below_parent") else 0))
     result.setdefault("meta", {})["theme"] = query
     result["meta"]["theme_expanded"] = terms
     result["meta"]["theme_matches"] = [

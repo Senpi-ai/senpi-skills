@@ -1,0 +1,60 @@
+# Penguin Chase 2% — penguin with maxPreMovePct at 2.
+#
+# ONE setting differs from penguin: `maxPreMovePct: 2`. Same detector, same hard gates,
+# same sizing, same ladder, same stop, same guard rails, same scanners byte-for-byte.
+#
+# Arm of a 6-package experiment — penguin and penguins-duo, each at 1.5 / 2.0 / 3.0 — asking
+# how late an entry can be and still pay. Judge the arms AGAINST EACH OTHER over the same
+# window, never on one arm's P&L alone.
+# Listed in the catalog and in discover. Compare it against the parent it varies, not on its
+# own P&L — see senpi-strategy-discover/references/variant-families.md.
+schema_version: 1
+id: penguin-chase-200bp
+version: "1.0.1"
+catalog:
+  varies: penguin          # a VARIANT of this template — never outrank it
+  name: Penguin Chase 2% — pre-move cap arm
+  emoji: 🐧
+  tagline: 'penguin with one number changed: an entry is rejected once the price has already moved 2% in the signal''s own direction over the last hour. One of six arms (penguin and penguins-duo at 1.5 / 2.0 / 3.0) measuring how late is too late.'
+  belief_plain: 'This is penguin with a single number changed. The strategy still looks for the same thing — a coin suddenly climbing the leaderboard of what winning traders are piling into, confirmed by trend and a volume spike — and it still commits the same way once it fires. What differs is how much of the move it will tolerate having already happened. If the price has already run 2% in the hour before the signal, in the direction the trade would take, this arm skips it and waits for the next one. Buying after a fall, or selling after a rally, still passes: there the move is ahead of the trade rather than behind it. Six arms run this test at three different tolerances across one and two slots, and they are only meaningful compared with each other.'
+  thesis: 'One input differs from penguin: maxPreMovePct 2. Everything else — scoring.py byte-for-byte, the four hard gates, the 1.5x volume confirmation, the score floor, 1 slot(s) at the parent''s margin and leverage, the eight-rung DSL ladder, the stop, and no clock on the hold — is the parent''s, unchanged. The experiment exists because two measurements of the same question disagree: the quant desk, on filled entries, put 55% of penguin''s entries after a >= 3% pre-move with a profit factor of 0.3 against 3.3; CAND telemetry, replaying the real selection rule over 7 days to 2026-10-06, puts 6.8% of entries at or above 3%, 9.1% at or above 2.0 and 18.2% at or above 1.5 (p50 +0.73%, p90 +1.89%, max +4.33%, n=44). Both cannot be right, and the cost of guessing is paid in live entries. Running the cap as the only free variable at three levels answers it directly. Note before reading results: 2.0 and 3.0 differ by one trade in 44, so those two arms will take far longer to separate than 1.5 will from either.'
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: rank_jump
+  asset_classes:
+  - universe_crypto
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: intraday
+  leverage_max: 10
+  max_slots: 1
+  assets: []
+  tags:
+  - aggressive
+  - breakout
+  - chase-200bp
+  - concentrated
+  - experiment
+  - first-jump
+  - high-leverage
+  - high-risk-high-reward
+  - hyperfeed
+  - leader-momentum
+  - momentum
+  - pre-move-gate
+  - rank-jump
+  - single-slot
+  - start-here
+  - striker
+  - universe-scanner
+requires:
+  runtime: '>=3.0.0'
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+instances:
+- name: main
+  runtime: main/runtime.yaml
+  wallet_env: PENGUIN_WALLET
+  funding_share: 1.0
