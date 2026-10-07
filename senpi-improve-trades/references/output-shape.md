@@ -13,10 +13,10 @@ trades[]      per CLOSED trade (from strategies of ALL statuses — a churned bo
   exit_vs_hold: exit_ahead | held_higher | flat | unknown,   # NEUTRAL context (exit_ahead=got out ahead), NOT a grade
   exit_reason: { terminal, tier_index/tier_reached, high_water_roe, source },   # which DSL lever fired
   source: "telemetry" | "reconstructed" | "external_wallet"   # telemetry = exit_reason from the event log; else discovery+ratchet
-  wallet_kind: "external"                # only on a connected wallet's row (absent on Senpi strategy rows)
+  wallet_kind: "external"                # only on a saved wallet's row (absent on Senpi strategy rows)
 
-external_wallets[]   per CONNECTED wallet (read-only, traded by hand) — its own read, never in the Senpi aggregates
-                      (null = the connected wallets couldn't be loaded — never "none"):
+external_wallets[]   per SAVED wallet (read-only, traded by hand) — its own read, never in the Senpi aggregates
+                      (null = the saved wallets couldn't be loaded — never "none"):
   label, address, access (quote verbatim), closed_trades_unknown (true → couldn't read: counts/PnL None, never 0),
   fills_capped (true → HL's 2000-fill ceiling: "at least"), closed_trade_count, realized_pnl, fees,
   timing_summary (same shape as below, this wallet only), state_read: ok | error | unavailable, read_error,
@@ -95,7 +95,7 @@ meta          { warnings[], sources[], window, degraded,
 `exit_reason.terminal` — **when telemetry enriched it** (`source: "telemetry"`) it's the native
 `close_reason`: `tier_breach`, `max_retrace`, `trailing_floor`, `weak_peak`, `dead_weight`, `hard_timeout`,
 `manual`, `sl_hit`. **When it fell back to the ratchet record** (`source: "ratchet"`) it's `SL_TRIGGERED`,
-`MANUAL_CLOSE`, `LIQUIDATED`, `ADL`. A connected wallet's trade is always `MANUAL_TRADE` (`source: "external_wallet"`)
+`MANUAL_CLOSE`, `LIQUIDATED`, `ADL`. A saved wallet's trade is always `MANUAL_TRADE` (`source: "external_wallet"`)
 — the user's own exit, never a DSL tier and never the same thing as `manual`/`MANUAL_CLOSE` (a Senpi strategy closed by
 hand). Neither available → `UNKNOWN` (`source: "unknown"`) — say "exit mechanism
 not recorded on this build," never guess. `tier_index`/`tier_reached` = the tier that locked; `high_water_roe`

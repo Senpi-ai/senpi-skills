@@ -467,12 +467,12 @@ def fetch_strategies(client, meta):
 
 
 # ──────────────────────────────────────────────────── saved wallets (read-only, traded by hand)
-EXTERNAL = "external"            # review-set entry `kind` for a saved wallet
-EXTERNAL_STATUS = "EXTERNAL"     # its `status` — never ACTIVE/PAUSED, so no Senpi-only read touches it
-MANUAL_TRADE = "MANUAL_TRADE"      # exit_reason.terminal for a saved wallet's closed trade
+EXTERNAL = "external"          # review-set entry `kind` for a saved wallet
+EXTERNAL_STATUS = "EXTERNAL"   # its `status` — never ACTIVE/PAUSED, so no Senpi-only read touches it
+MANUAL_TRADE = "MANUAL_TRADE"  # exit_reason.terminal for a saved wallet's closed trade
 EXTERNAL_SOURCE = "external_wallet"
-EXTERNAL_STATE_TIMEOUT_S = 25     # moxie answers within ~6.5 s; the MCP's own moxie timeout is 20 s — wait past it
-USER_GET_ME_TIMEOUT_S = 22         # user_get_me now waits on moxie's saved-wallets read (MCP 20 s timeout)
+EXTERNAL_STATE_TIMEOUT_S = 25  # moxie answers within ~6.5 s; the MCP's own moxie timeout is 20 s — wait past it
+USER_GET_ME_TIMEOUT_S = 22     # user_get_me now waits on moxie's saved-wallets read (MCP 20 s timeout)
 
 
 def _is_external(entry):
@@ -2165,7 +2165,7 @@ def step_timing(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_marke
         if k in meta:
             state[k] = meta[k]
     saved = (_external_reads(trades, strategies, meta)
-                 if meta.get("external_wallets_status") == EXTERNAL_OK else None)   # None, never [], when unloaded
+             if meta.get("external_wallets_status") == EXTERNAL_OK else None)   # None, never [], when unloaded
     state["external_wallets"] = saved
     _save_state(state_path, state)
     return {"window": window, "trades": trades, "timing_summary": timing,
@@ -2329,7 +2329,7 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     pnl_summary = _pnl_summary(timing["realized_pnl_total"], strat_reads)   # realized + unrealized = TOTAL ledger
     # read-only wallets the user trades by hand; None (never []) when they couldn't be loaded
     saved = (_external_reads(trades, strategies, meta)
-                 if meta.get("external_wallets_status") == EXTERNAL_OK else None)
+             if meta.get("external_wallets_status") == EXTERNAL_OK else None)
 
     current_count = sum(1 for s in senpi if _is_current(s.get("status")))
     closed_count = len(senpi) - current_count
@@ -2485,8 +2485,8 @@ def _book_state(strategy_count, trade_count, list_failed, external_count=0, exte
                                "'no trades'; pitch nothing")
         if external_count:
             return "external_no_trades", ("the saved wallet(s) closed no trades in this window — say "
-                                           "that in one line and offer a longer --window. They trade it by "
-                                           "hand: do NOT pitch a strategy.")
+                                          "that in one line and offer a longer --window. They trade it by "
+                                          "hand: do NOT pitch a strategy.")
         if external_status != "ok":
             return "unknown", ("no Senpi strategies, and the saved wallets couldn't be loaded — say you "
                                "couldn't load them, never 'nothing to review', and pitch nothing until "

@@ -6,11 +6,11 @@ description: >-
   to the best whales", "how could I make more gains", "suggest improvements", "review my trades", "am I
   getting shaken out too early / how are my exits firing", "what did my own limits block / what couldn't
   I take", "where am I leaking" (on Senpi strategies — "where am I leaking" or "what did I miss" about a
-  CONNECTED wallet the user trades by hand — "my MetaMask", "my own Hyperliquid wallet", "my connected
+  SAVED wallet the user trades by hand — "my MetaMask", "my own Hyperliquid wallet", "my saved
   wallet" — go to quant-desk), "walk me through / explain
-  my [asset] trade", "what am I paying in fees / maker vs taker", "why is [strategy] losing". Connected
+  my [asset] trade", "what am I paying in fees / maker vs taker", "why is [strategy] losing". Saved
   wallets are reviewed here too, read-only, as manual trades — "review my trades" and "master my week"
-  on a connected wallet stay in this skill. When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then shortlist a fit (senpi-strategy-discover); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reconstructs every
+  on a saved wallet stay in this skill. When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then shortlist a fit (senpi-strategy-discover); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reconstructs every
   CLOSED trade from discovery, enriches each exit reason + blocked signals from the runtime telemetry
   event log, computes the honest "if I'd held to now" counterfactual, and crosses the book against what
   the market did — you narrate it under strict guardrails: process over outcome (lead with the aggregate,
@@ -83,7 +83,7 @@ more" questions; use `senpi-portfolio` for live state.
    aggregate — that is how fabrications like "closed did −$405" happen.
 5. **It's the strategy, not the user — on Senpi strategy trades.** Route every fix on a Senpi strategy trade
    to the strategy config (a DSL tier, the hard stop, an entry gate); never "you should have…". On a
-   connected wallet there is no strategy: coach the user's own process (timing, give-back, fees), never a
+   saved wallet there is no strategy: coach the user's own process (timing, give-back, fees), never a
    strategy pitch. No fabricated forward numbers (no $/week).
 
 The detailed guardrails below explain each; these five are the floor.
@@ -142,7 +142,7 @@ step(s) the ask needs; route every fix through the depth choice at the end — n
 | *"Did I sell too early / late? / improve my last 10"* | `timing`, then `telemetry` for the exit *mechanism* — **pass `--last N`** when the ask names a count ("last 10" → `--last 10`) | `timing_summary` (exit_ahead/held_higher/flat) + per-trade `if_held_delta_usd`, `exit_vs_hold`; `dsl_close_reason_mix` for how each exit fired | NEUTRAL context — a reversal is one data point, never "premature"; the counterfactual is not a grade (guardrail 1) → the DSL tier that fired (`exit_reason`) |
 | *"Master my week" / "analyze my strategies and trades" / "suggest improvements"* | **all steps in order** (`timing`→`strategies`→`telemetry`→`market`) | `timing_summary` + `strategies[]` (per-mandate) + `book_vs_market` + the telemetry streams | Process recap, each strategy vs its own mandate |
 | *"What did I miss this week? / compare to market"* | `market` (+ `telemetry` for the blocked cohort) | `book_vs_market.gaps` (unheld movers) + `missed_signals` (telemetry-blocked) | Is the missed mover in the mandate? loosen a gate only if so |
-| *"How could I make more gains?"* | `strategies` + `telemetry` | `strategies[]` mandate reads + `dsl_close_reason_mix` + `blocked_summary` | Strategy tune (DSL / entry gate), never a $/week promise. If the book has no Hyperfeed exposure at all — and only when `meta.strategy_count` > 0 (never for a connected-only user: coach their own process, no strategy pitch) — name it as the gap: **Penguin** (crypto) or **Pelican** (all assets) react only to the strongest live rotations on the feed, one position at up to 10x, 90% margin, with a DSL floor that ratchets up to lock gains — high risk, high reward, with -15% SL. That SL is **15% ROE**, a 1.5% price move at 10x, ~13.5% of that wallet **per stop-out**, and stops compound with the guard rails off. Say **rotations**, never "pumps" |
+| *"How could I make more gains?"* | `strategies` + `telemetry` | `strategies[]` mandate reads + `dsl_close_reason_mix` + `blocked_summary` | Strategy tune (DSL / entry gate), never a $/week promise. If the book has no Hyperfeed exposure at all — and only when `meta.strategy_count` > 0 (never for a saved-only user: coach their own process, no strategy pitch) — name it as the gap: **Penguin** (crypto) or **Pelican** (all assets) react only to the strongest live rotations on the feed, one position at up to 10x, 90% margin, with a DSL floor that ratchets up to lock gains — high risk, high reward, with -15% SL. That SL is **15% ROE**, a 1.5% price move at 10x, ~13.5% of that wallet **per stop-out**, and stops compound with the guard rails off. Say **rotations**, never "pumps" |
 | *"Compare me to the whales / the market"* | `market` | `book_vs_market` (`smart_money_pct` per mover) | Compose `senpi-smart-money` / `senpi-market-pulse` |
 | **1.** *"Am I getting shaken out too early? / how are my exits firing?"* | `strategies` + `telemetry` | `dsl_close_reason_mix` — terminal mix overall + by asset_class + by strategy, plus the **premature** bucket (`trailing_floor`/`weak_peak`/`max_retrace`, or a low tier locked on a small ROE) | The **DSL preset lever** — widen phase1 retrace / retune a tier → `senpi-strategy-author` / `-ops` |
 | **2.** *"What did my own limits block? / what couldn't I take?"* | `telemetry` | `blocked_summary` / `missed_signals` — tallied by `reason_code` (`no_slots`/`no_margin`/`risk_gate_*`/`asset_banned`/…) | Add a slot · fund margin · loosen a risk gate — the exact gate the `reason_code` names |
@@ -175,8 +175,8 @@ result means three completely different things and two of them need opposite ans
 | `no_strategies` | Nothing deployed. Genuinely nothing to review. | **Pivot to the market** — see below. |
 | `strategies_no_trades` | Deployed, hasn't traded yet. | Diagnose **the strategy they already have**. **Never pitch another one.** |
 | `has_trades` | Normal. | Review as usual. |
-| `external_no_trades` | Connected wallets, no Senpi strategy, nothing closed in the window. | One line, offer a longer window. **Never pitch a strategy.** |
-| `unknown` | The strategy list was **unreadable** (token/scope), or there are no strategies and the connected wallets couldn't be loaded. | Say the read failed. **Never** say "you have no strategies" or "nothing to review." |
+| `external_no_trades` | Saved wallets, no Senpi strategy, nothing closed in the window. | One line, offer a longer window. **Never pitch a strategy.** |
+| `unknown` | The strategy list was **unreadable** (token/scope), or there are no strategies and the saved wallets couldn't be loaded. | Say the read failed. **Never** say "you have no strategies" or "nothing to review." |
 
 > **The mistake to avoid:** telling someone whose funded strategy is silently blocked to "go find a
 > strategy that fits the market." They don't need another strategy — they need to know why the one they
@@ -203,10 +203,12 @@ strategy."* Then:
 **Still forbidden here** (guardrail 9 binds): no manufactured critique of an account with nothing in it, no
 "your idle cash is a $0/day leak" framing, no DSL alarms. Idle cash is an **option**, never a loss.
 
-## Connected wallets (read-only, traded by hand)
+## Your wallets (read-only, traded by hand)
 
-A **connected wallet** is a Hyperliquid wallet the user proved they own (Wallets on senpi.ai (web)) and
-trades by hand. The engine adds every one to the review set and returns it in `external_wallets[]` (the
+A **saved wallet** is a Hyperliquid wallet the user added in Your wallets by pasting the address, and
+trades by hand. It is the user's own word: call them "your wallets" or "the wallets you added", and never
+imply Senpi checked who controls them. The engine adds every one to the review set and returns it in
+`external_wallets[]` (the
 `timing` step and `all`) — its own read, never folded into `pnl_summary`, `strategies[]`,
 `dsl_close_reason_mix`, `timing_summary` or `leaks`, which stay Senpi-only. For a user with no Senpi
 strategy those Senpi aggregates are empty: lead with `external_wallets[]`.
@@ -219,7 +221,7 @@ strategy those Senpi aggregates are empty: lead with `external_wallets[]`.
   (timing, give-back, fees).
 - **Unknown is never empty.**
   - `external_wallets: null` (`meta.external_wallets_status: "unavailable"`) → "I couldn't load your
-    connected wallets", never "you have none".
+    saved wallets", never "you have none".
   - `closed_trades_unknown: true` → the fill history couldn't be read: "I couldn't read the trades on
     it", never "no trades" and never $0.
   - `fills_capped: true` → Hyperliquid returned its 2000-fill ceiling, so the count and P&L are "at
@@ -234,15 +236,15 @@ strategy those Senpi aggregates are empty: lead with `external_wallets[]`.
 - **No write suggestions** on these wallets — no `close.py`, redeploy, `edit_position`,
   `close_position`, `strategy_*` or `ratchet_stop_*`. The fix depth (guardrail 7) is advice the user
   acts on themselves on Hyperliquid.
-- **`external_no_trades`** — connected wallets, no Senpi strategy, nothing closed in the window: say it
+- **`external_no_trades`** — saved wallets, no Senpi strategy, nothing closed in the window: say it
   in one line and offer a longer `--window`. Never pitch a strategy.
-- **"Your wallet"** means a connected wallet, or an address the user said is theirs in this
-  conversation. A pasted address is never described as saved; to save one, the user connects it in
-  Wallets on senpi.ai (web).
-- **Leaks on a connected wallet** ("where am I leaking on my MetaMask", "what did I miss on my own
+- **"Your wallet"** means one of the user's saved wallets, or an address the user said is theirs in this
+  conversation. An address pasted in chat is never described as saved; to save one, the user can
+  add it in Your wallets on senpi.ai (web).
+- **Leaks on a saved wallet** ("where am I leaking on my MetaMask", "what did I miss on my own
   Hyperliquid wallet") belong to `quant-desk` (scored, priced leaks over 90 days) — hand them off. This
   skill keeps the leaks of Senpi strategies. The review itself — "review my trades", "master my week" on
-  a connected wallet — stays here.
+  a saved wallet — stays here.
 
 ## Run it in steps — narrate as you go
 
@@ -373,8 +375,8 @@ execution slippage, not calibration.
 
 ### 2. It's the strategy, not you — fixes route to the strategy config
 
-This section covers **Senpi strategy** trades. A connected wallet's trades are the user's own manual trades:
-there is no strategy config to route to, so coach their process (see "Connected wallets") and never pitch one.
+This section covers **Senpi strategy** trades. A saved wallet's trades are the user's own manual trades:
+there is no strategy config to route to, so coach their process (see "Your wallets") and never pitch one.
 
 These are **autonomous strategy** trades. The strategy exited them, not the user clicking sell. So **never**
 say "you should have held" or "you sold too early." When the counterfactual favored holding (`held_higher`), the

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Connected wallets in the trade review (External Wallets R1).
+"""Saved wallets ("Your wallets") in the trade review (External Wallets R1, amendment A1).
 
-A connected wallet is one the user proved they own and trades by hand. It joins the review set, its
+A saved wallet is one the user added in Your wallets by pasting its address — their claim, not proof of
+control — and trades by hand. It joins the review set, its
 closed trades come from the same address-generic fetch_closed_trades (discovery first, HL userFills
 as the fallback — the NORMAL path, since Senpi's index rarely has an arbitrary address), every exit is
 a MANUAL_TRADE, and nothing Senpi-strategy-shaped (ratchet, telemetry, DSL coaching, a strategy pitch)
@@ -301,58 +302,59 @@ def _skill():
 def test_skill_quotes_the_access_line_and_forbids_writes():
     sk = _skill()
     assert ACCESS in sk
-    sec = sk.split("## Connected wallets (read-only, traded by hand)", 1)[1].split("## ", 1)[0]
+    sec = sk.split("## Your wallets (read-only, traded by hand)", 1)[1].split("## ", 1)[0]
     for needle in ("`MANUAL_TRADE`", "manual trade", "no DSL-preset or strategy-tuning coaching",
                    "`closed_trades_unknown: true`", "`fills_capped: true`", "at least", "`external_no_trades`",
                    "`close.py`", "`edit_position`", "`strategy_*`", "`ratchet_stop_*`", "`protection`",
-                   "Wallets on senpi.ai (web)", "no open positions on the Hyperliquid main and xyz dexes",
-                   "never a bare \"no positions\"", "`external_wallets: null`", "A pasted address is never described as saved"):
+                   "add it in Your wallets on senpi.ai (web)", "no open positions on the Hyperliquid main and xyz dexes",
+                   "never a bare \"no positions\"", "`external_wallets: null`", "An address pasted in chat is never described as saved",
+                   "never imply Senpi checked who controls them"):
         assert needle in sec, needle
 
 
 def test_skill_never_prints_a_read_error_code():
     sec = " ".join(open(SKILL, encoding="utf-8").read().split()).split(
-        "## Connected wallets (read-only, traded by hand)", 1)[1].split("## ", 1)[0]
+        "## Your wallets (read-only, traded by hand)", 1)[1].split("## ", 1)[0]
     assert "never print the code" in sec and "`state: null`" in sec
 
 
 def test_description_splits_leak_routing_with_quant_desk():
     desc = _skill().split("license:", 1)[0]
-    assert "a CONNECTED wallet" in desc and "quant-desk" in desc
+    assert "a SAVED wallet" in desc and "quant-desk" in desc
     assert "Senpi strategies" in desc
-    for words in ('"my MetaMask"', '"my own Hyperliquid wallet"', '"my connected wallet"'):
+    for words in ('"my MetaMask"', '"my own Hyperliquid wallet"', '"my saved wallet"'):
         assert words in desc, words
 
 
 def test_the_review_of_a_saved_wallet_stays_here_only_leaks_go_to_the_desk():
-    """Ruling (R1 final review): this skill owns the REVIEW of a connected wallet ("review my trades",
-    "master my week"); only leaks and "what did I miss" on a connected wallet go to quant-desk."""
+    """Ruling (R1 final review): this skill owns the REVIEW of a saved wallet ("review my trades",
+    "master my week"); only leaks and "what did I miss" on a saved wallet go to quant-desk."""
     sk = _skill()
     desc = sk.split("license:", 1)[0]
-    assert ('"where am I leaking" or "what did I miss" about a CONNECTED wallet the user trades by hand') in desc
-    assert '"master my week" about a CONNECTED wallet' not in desc
-    assert ('Connected wallets are reviewed here too, read-only, as manual trades — "review my trades" '
-            'and "master my week" on a connected wallet stay in this skill') in desc
-    sec = sk.split("## Connected wallets (read-only, traded by hand)", 1)[1].split("## ", 1)[0]
-    assert ('The review itself — "review my trades", "master my week" on a connected wallet — stays '
+    assert ('"where am I leaking" or "what did I miss" about a SAVED wallet the user trades by hand') in desc
+    assert '"master my week" about a SAVED wallet' not in desc
+    assert ('Saved wallets are reviewed here too, read-only, as manual trades — "review my trades" '
+            'and "master my week" on a saved wallet stay in this skill') in desc
+    sec = sk.split("## Your wallets (read-only, traded by hand)", 1)[1].split("## ", 1)[0]
+    assert ('The review itself — "review my trades", "master my week" on a saved wallet — stays '
             'here') in sec
 
 
 def test_its_the_strategy_rule_is_scoped_to_senpi_strategy_trades():
     """Guardrail 5 used to say "Route every fix to the strategy config" unscoped, contradicting the
-    connected-wallet rule (coach the user's own process, no strategy pitch)."""
+    saved-wallet rule (coach the user's own process, no strategy pitch)."""
     sk = _skill()
     assert ("**It's the strategy, not the user — on Senpi strategy trades.** Route every fix on a Senpi "
             "strategy trade to the strategy config") in sk
-    assert "On a connected wallet there is no strategy: coach the user's own process" in sk
+    assert "On a saved wallet there is no strategy: coach the user's own process" in sk
     desc = sk.split("license:", 1)[0]
     assert "it's the STRATEGY not the user (on Senpi strategy trades)" in desc
-    assert "This section covers **Senpi strategy** trades. A connected wallet's trades are the user's own" in sk
+    assert "This section covers **Senpi strategy** trades. A saved wallet's trades are the user's own" in sk
 
 
 def test_more_gains_never_pitches_a_saved_only_user():
     row = next(l for l in open(SKILL, encoding="utf-8").read().splitlines() if "How could I make more gains?" in l)
-    assert "never for a connected-only user" in row
+    assert "never for a saved-only user" in row
 
 
 def test_readme_row_matches_the_skill_version():

@@ -24,6 +24,9 @@ WHOLE_FILES = (
     "quant-desk/scripts/addresses.py",
     "quant-desk/scripts/desk.py",
     "senpi-portfolio/SKILL.md",
+    "senpi-improve-trades/SKILL.md",
+    "senpi-improve-trades/references/output-shape.md",
+    "README.md",
 )
 BANNED = (
     (r"(?i)connect(?!ion)", "connect(ed)"),
@@ -65,6 +68,7 @@ def test_every_panel_pointer_is_the_one_phrase():
 # wallets) but never where a saved wallet is described.
 SECTIONS = (
     ("senpi-portfolio/SKILL.md", "## Your wallets (read-only)", None),
+    ("senpi-improve-trades/SKILL.md", "## Your wallets (read-only, traded by hand)", None),
 )
 SECTION_BANNED = r"(?i)\bverified\b|\bproo?f\b|\bprov(e|ed|en)\b|\bsignature\b|\b(you|they) own\b|\bowned by\b|\bowning\b"
 
