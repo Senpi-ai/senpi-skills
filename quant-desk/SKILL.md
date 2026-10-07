@@ -47,7 +47,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.42.0"
+  version: "1.42.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -209,8 +209,15 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    **"My wallets" are the wallets the reader added, plus their senpi wallets.** `desk.py --my-wallets`
    prints them: the reader's **saved** wallets (the ones they added in Your wallets) and their senpi
    strategy wallets, each half with its own `ok` / `unavailable` status. A saved wallet is theirs even
-   if the book once read it as a stranger's: if the book had recorded this address as analyzed (someone else's), say once that you're now reading it as theirs because they added it to Your wallets. It is their claim: call them "your wallets" or
+   if the book once read it as a stranger's. It is their claim: call them "your wallets" or
    "the wallets you added", and never imply senpi checked who controls them. If a saved wallet isn't theirs (or they no longer want it read), they can remove it in Your wallets on senpi.ai (web).
+
+   **Read as a stranger's, then added: say it once, on any path.** When a run reads an address the book
+   had as someone else's and the reader has since added it to Your wallets, the desk says so itself:
+   the Markdown opens with that sentence, and `--json` carries it as `whose_changed.say`. Relay it
+   once, first, before the desk speaks about the book as theirs — whether the run came from
+   `--my-wallets`, a pasted address, `--mine`, or the "Find my leaks on 0x…" button. The desk prints it
+   only on the first run after the add; don't repeat it on later sections.
 
    **The desk remembers.** It keeps an address book per box (`scripts/desk.py --addresses`) with
    **verified** (a wallet senpi issued) and **analyzed** (someone else's book they read). An
