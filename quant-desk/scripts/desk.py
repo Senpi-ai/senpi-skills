@@ -104,6 +104,11 @@ def my_wallets(mcp):
     out["external_wallets_status"], out["external_wallets"] = status, wallets
     try:
         resp = mcp.mcp_call("strategy_list", status=["ACTIVE", "PAUSED", "CLOSED"], timeout=20)
+        # The MCP answers a failed read as {success: false, …} WITHOUT raising, and `_rows` turns that
+        # into []: "no strategies" on a failed read. A reply with no list is unknown, never empty.
+        if not isinstance(resp, dict) or resp.get("success") is False or \
+                not isinstance(((resp.get("data") or {}).get("strategies")), list):
+            return out
         rows = dsl_mod._rows(resp, "strategies")
         out["senpi_wallets"] = [{"address": str(r["strategyWalletAddress"]).lower(),
                                  "name": r.get("strategyName") or r.get("tradingStrategyName"),
@@ -957,9 +962,9 @@ def main(argv=None):
             print(json.dumps({"error": "not a Hyperliquid address — expected 0x followed by 40 hex characters"})); return 2
         addr = addr.lower()
     # Whose book this is comes from the address book, not from how the request was phrased. An
-    # UNKNOWN address is someone else's: the desk gives advice in the second person, and delivering
-    # that about a stranger's trading is the failure worth defaulting against. Owner voice needs a
-    # saved wallet, a Senpi-issued wallet, or a flag on this run.
+    # UNKNOWN address is the reader's own (see `resolve_whose`): the flagship path is a trader pasting
+    # their own address. Someone else's needs `--other` or an `analyzed` mark in the book; a saved
+    # wallet or a flag on this run overrides that mark.
     # A BOOK is the reader's own by construction — they resolved these wallets from their own
     # `strategy_list`. Running it through the address book let one stale `analyzed` mark on one of N
     # wallets flip the voice of the whole book to the third person: "Their desk — across 2 wallets",
@@ -1125,7 +1130,7 @@ def main(argv=None):
                 md = voice.third_person(md, f"{addr[:6]}…{addr[-4:]}")
             print(md)
         return 0
-    if (a.other or a.mine or a.claim) and r.get("whose") != whose:
+    if r.get("whose") != whose:
         r["whose"] = whose; r["followups"] = followups.offer(r, whose=whose)     # a cached run re-voiced
     # `--claim` no longer records ownership (1.42.0): a typed claim is this run's voice, never saved.
     rel = addr_book.ANALYZED if whose == "other" else None

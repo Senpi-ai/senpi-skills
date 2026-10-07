@@ -65,6 +65,26 @@ def test_failed_reads_are_unavailable_each_on_its_own():
     assert mw["external_wallets_status"] == "unavailable" and mw["senpi_wallets_status"] == "ok"
 
 
+def test_a_failed_strategy_list_response_is_unavailable_not_an_empty_list():
+    """The MCP returns errors as {success: false, ...} WITHOUT raising: that is not "no strategies"."""
+    class ErrMCP(FakeMCP):
+        def mcp_call(self, tool, timeout=12, **kw):
+            if tool == "strategy_list":
+                return {"success": False, "error": "UNAVAILABLE", "message": "upstream timeout"}
+            return super().mcp_call(tool, timeout=timeout, **kw)
+    mw = desk.my_wallets(ErrMCP(_me(), []))
+    assert mw["senpi_wallets_status"] == "unavailable" and mw["senpi_wallets"] is None
+    assert mw["external_wallets_status"] == "ok"
+
+    class NoListMCP(FakeMCP):
+        def mcp_call(self, tool, timeout=12, **kw):
+            if tool == "strategy_list":
+                return {"success": True, "data": {}}
+            return super().mcp_call(tool, timeout=timeout, **kw)
+    mw = desk.my_wallets(NoListMCP(_me(), []))
+    assert mw["senpi_wallets_status"] == "unavailable" and mw["senpi_wallets"] is None
+
+
 def test_no_token_means_both_unknown():
     mw = desk.my_wallets(None)
     assert mw["external_wallets"] is None and mw["senpi_wallets"] is None and "token" in mw["error"]
@@ -98,6 +118,25 @@ def test_an_own_voice_run_is_never_recorded_as_someone_elses(tmp_path, capsys):
         book = ab.load(str(sd))
         assert ab.relationship(book, addr) is None, flag
         assert desk.resolve_whose(book, addr) == "mine", flag
+
+
+def test_a_cached_run_is_revoiced_whenever_whose_differs(tmp_path, capsys):
+    """Read as a stranger's (cached whose=other), then added to Your wallets: a bare re-run served from
+    the cache must speak as "mine" — no flag is set, only the resolved voice differs from the cache's."""
+    fx = HERE / "fixtures" / "sample_trader.json"
+    rec = json.loads(fx.read_text())
+    addr = rec["address"].lower()
+    rec2 = dict(rec, user_get_me={"success": True, "data": _me(wallets=((addr, "MetaMask"),))})
+    fx2 = tmp_path / "fx2.json"
+    fx2.write_text(json.dumps(rec2))
+    sd, cache = tmp_path / "sd", tmp_path / "cache"
+    argv = [addr, "--fixture", str(fx2), "--no-rank", "--no-cohort", "--state-dir", str(sd),
+            "--cache", str(cache), "--json"]
+    assert desk.main(argv + ["--other"]) == 0
+    assert json.loads(capsys.readouterr().out)["whose"] == "other"
+    sec = desk.render.SECTIONS[0]
+    assert desk.main(argv + ["--section", sec]) == 0      # served from the run cache, no flag set
+    assert json.loads(capsys.readouterr().out)["whose"] == "mine"
 
 
 def test_the_my_wallets_flag_prints_the_json(tmp_path, capsys):
