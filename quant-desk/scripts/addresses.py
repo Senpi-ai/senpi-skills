@@ -7,11 +7,15 @@ speaks in the second person about a book it believes is the reader's — "you ar
 year, here is your stop ladder" — so getting that wrong is not a formatting slip, it is advice about
 a stranger's trading delivered as if it were yours.
 
-Two tiers of "theirs", because they are not the same claim:
+Whose a wallet is comes from the reader's saved wallets or this run's flag, never from an old typed claim:
 
+  saved     a wallet the reader added in Your wallets — their own claim, kept by Senpi (not proof of
+            control). Read from `user_get_me`, never stored here. `--my-wallets` lists them with the
+            Senpi strategy wallets.
   verified  a Senpi-issued wallet. We know, because we issued it.
-  claimed   the address the reader typed and said was theirs. UNVERIFIABLE from a chat message —
-            anyone can paste a whale's address and call it their own.
+  claimed   RETIRED as an ownership source (1.42.0). Older books still hold rows with it; they are
+            ignored at read time. A reader saying "that one's mine" makes it theirs for that run only
+            (`--mine` / `--claim`), and the desk tells them it is not saved.
   analyzed  someone else's book we read.
 
 The book also records whether Senpi's index has a wallet, which is what lets the desk tell a reader
@@ -42,6 +46,37 @@ ANALYZED = "analyzed"
 RANK = {ANALYZED: 0, CLAIMED: 1, VERIFIED: 2}
 
 ADDR_RE = re.compile(r"^0x[0-9a-f]{40}$")
+
+
+# ── VENDORED external-wallets reader, byte-identical in senpi-portfolio/scripts/portfolio.py,
+# ── senpi-improve-trades/scripts/review.py and quant-desk/scripts/addresses.py — skills install
+# ── standalone, so none may import another. senpi-portfolio/tests/test_name_reader_parity.py fails
+# ── the moment the copies drift.
+EXTERNAL_OK = "ok"
+EXTERNAL_UNAVAILABLE = "unavailable"
+
+
+def _external_wallets(me):
+    """(status, wallets) from a `user_get_me` payload, outer `data` already stripped.
+
+    The keys live inside `user`: `external_wallets_status` ("ok" | "unavailable") and, only when ok,
+    `external_wallets` [{address, label, added_at, access}]. status is "ok" or "unavailable";
+    wallets is a list only when status is "ok", else None. An ABSENT status key (an MCP older than
+    saved wallets) is "unavailable", never [] — unknown is never empty, so this never reads a
+    missing key with a default. `access` is the MCP's read-only line, carried verbatim."""
+    user = me.get("user") if isinstance(me, dict) and isinstance(me.get("user"), dict) else me
+    if not isinstance(user, dict) or user.get("external_wallets_status") != EXTERNAL_OK:
+        return EXTERNAL_UNAVAILABLE, None
+    rows = user.get("external_wallets")
+    if not isinstance(rows, list):
+        return EXTERNAL_UNAVAILABLE, None
+    wallets = []
+    for w in rows:
+        if isinstance(w, dict) and isinstance(w.get("address"), str) and w["address"].strip():
+            wallets.append({"address": w["address"].strip().lower(), "label": w.get("label"),
+                            "added_at": w.get("added_at"), "access": w.get("access")})
+    return EXTERNAL_OK, wallets
+# ── end external-wallets reader
 
 
 def _now():
@@ -95,8 +130,9 @@ def relationship(book, addr):
 
 
 def is_mine(book, addr):
-    """True only for a wallet we issued or the reader explicitly claimed."""
-    return relationship(book, addr) in (VERIFIED, CLAIMED)
+    """True only for a wallet we issued. A `claimed` row (pre-1.42.0 books) is no longer read: a
+    non-Senpi wallet is the reader's when it is one of their saved wallets."""
+    return relationship(book, addr) == VERIFIED
 
 
 def record(book, addr, relationship=None, indexed=None, digest=None, now=None):
@@ -109,7 +145,9 @@ def record(book, addr, relationship=None, indexed=None, digest=None, now=None):
     addrs = book.setdefault("addresses", {})
     e = addrs.get(a)
     if e is None:
-        e = {"relationship": ANALYZED, "first_seen": ts, "runs": 0, "indexed": None, "last_desk": None}
+        # no relationship until one is stated: an own-voice run (`--mine` / `--claim` / the default) must
+        # not leave the reader's own address behind as "someone else's book" (1.42.0)
+        e = {"relationship": relationship, "first_seen": ts, "runs": 0, "indexed": None, "last_desk": None}
         addrs[a] = e
     if relationship and RANK.get(relationship, -1) > RANK.get(e.get("relationship"), -1):
         e["relationship"] = relationship
@@ -140,7 +178,7 @@ def mark_verified(book, wallets, now=None):
 
 def mine(book):
     return sorted(a for a, e in (book.get("addresses") or {}).items()
-                  if e.get("relationship") in (VERIFIED, CLAIMED))
+                  if e.get("relationship") == VERIFIED)
 
 
 def analyzed(book):

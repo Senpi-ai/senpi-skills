@@ -9,6 +9,8 @@ more of their own book they see."""
 # than "plain English" does. It leads because the reader most likely to bounce is the one who did
 # not follow the vocabulary,
 # and it is the cheapest possible next step — no wallet, no signup, no wait.
+import metrics  # noqa: E402
+
 MODELESS = {"eli5", "leak"}
 
 BANK = {
@@ -51,7 +53,7 @@ def offer(r, n=4, whose="mine"):
         return _offer_other(r, n)
     book, tr, tm = r["book"], r["track"], r.get("timing") or {}
     score = {k: 0.0 for k in BANK}
-    naked = len(book["naked"]) + len(book["partial"])
+    naked = len(book["naked"]) + len(book["partial"]) + len(metrics.unread_coins(book))   # an unread stop ranks like a missing one
     near = any(p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5 for p in book["positions"])
     score["protect"] += 3 * bool(naked) + 3 * near
     cohorts = r.get("cohorts") or []

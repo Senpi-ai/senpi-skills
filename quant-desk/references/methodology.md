@@ -1,6 +1,6 @@
 # quant-desk — methodology
 
-> **This document describes the engine as of quant-desk 1.41.0.** Nine formulas in it were stale
+> **This document describes the engine as of quant-desk 1.42.0.** Nine formulas in it were stale
 > between 1.9.0 and 1.14.0 while SKILL.md sent the agent here for them, so an agent asked "how is my
 > cost score computed?" answered with the pre-1.9.0 rule, confidently. If you change a formula in
 > `scripts/`, change it here in the same commit — `test_methodology_matches_the_engine` fails if the
@@ -74,9 +74,22 @@ ones.
 
 ## Protection audit
 
-A stop for a long is a resting sell trigger below the mark; for a short a buy trigger above it. Stop cover
-= stop-covered size ÷ position size. `AT RISK` = liquidation < 5% away with cover < 90%; `UNPROTECTED` =
-cover 0; `PARTLY COVERED` = 0 < cover < 90%. Funding per day = −hourly rate × notional × 24 (sign by side).
+One rule, shared with senpi's saved-wallet state, pinned by
+`tests/fixtures/protection-fixtures.v1.json`. A **stop** is a top-level resting order in the position's
+own dex list (`children` of an unfilled entry are not live) on the same coin, `reduceOnly`, on the exit
+side (sell for a long, buy for a short), with `orderType` `Stop Market`, `Stop Limit` or
+`Trailing Stop Market` — a take-profit is never a stop. A stop is `WAITING_TO_ACTIVATE` when its trigger
+price is not a positive number or a trailing stop's condition ends `best waiting`; otherwise `ARMED`.
+**Covered size** = the position's size if any ARMED stop is a position TP/SL (`isPositionTpsl`, size
+`0.0`), else the exact decimal sum of the ARMED stops' sizes. `FULL` = covered ≥ size, `PARTIAL` =
+0 < covered < size, `NONE` = nothing covered. `AT RISK` = liquidation < 5% away and not `FULL`;
+`UNPROTECTED` = `NONE`; `PARTLY COVERED` = `PARTIAL`. A dex whose open orders could not be read leaves
+its positions `UNKNOWN` (protection unknown — never `UNPROTECTED`, never covered; risk-scored like a
+missing stop). A dex whose positions could not be read (a failed clearinghouse read — live answers
+an empty account with an empty state, never an error) is named, per wallet on a `--book` run, and never
+read as "no open positions". A position whose only exit-side stop orders are not reduce-only is `NONE`, and is said to
+have a stop order that isn't reduce-only — not counted as protection. Stop cover (the table column) =
+covered ÷ size, a PARTIAL row floored into 1–99%, display only. Funding per day = −hourly rate × notional × 24 (sign by side).
 
 ## Timing (complete episodes with candles)
 

@@ -186,10 +186,105 @@ def test_ops_chain_diverges_only_where_pinned_as_intended():
             f"row {row} no longer diverges — move it into _OPS_AGREE_ROWS")
 
 
+# ── the saved-wallets reader (External Wallets R1) ─────────────────────────────────────────────
+# Three homes, one answer: portfolio, improve-trades and the quant desk must agree on "does this user
+# have saved wallets, and which" — a skill that reads an absent key as [] tells the user they have
+# none while another says it couldn't load them.
+CW_COPIES = (os.path.join(HERE, "..", "scripts", "portfolio.py"),
+             os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts", "review.py"),
+             os.path.join(HERE, "..", "..", "quant-desk", "scripts", "addresses.py"))
+_CW_BLOCK = re.compile(r"^# ── VENDORED external-wallets reader,.*?^# ── end external-wallets reader$", re.S | re.M)
+ACCESS = "Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it."
+
+
+def _cw_block(path):
+    with open(path, encoding="utf-8") as f:
+        found = _CW_BLOCK.search(f.read())
+    assert found, f"vendored saved-wallets reader not found in {path}"
+    return found.group(0)
+
+
+def test_external_wallets_reader_vendor_parity():
+    assert all(os.path.exists(p) for p in CW_COPIES), "a vendor home is missing"
+    shas = {hashlib.sha256(_cw_block(p).encode("utf-8")).hexdigest() for p in CW_COPIES}
+    assert len(shas) == 1, ("`_external_wallets` DRIFTED between its vendored homes — re-vendor the block "
+                            "byte-identically (every skill must answer 'which saved wallets?' the same way)")
+
+
+_CW_ROWS = (
+    # the shape the MCP sends: inside `user`, status ok, one wallet
+    ({"user": {"external_wallets_status": "ok", "external_wallets": [
+        {"address": "0xABCDEF0000000000000000000000000000000001", "label": "Main",
+         "added_at": "2026-10-01T15:31:02.000Z", "access": ACCESS}]}},
+     ("ok", [{"address": "0xabcdef0000000000000000000000000000000001", "label": "Main",
+              "added_at": "2026-10-01T15:31:02.000Z", "access": ACCESS}])),
+    # ok and genuinely none
+    ({"user": {"external_wallets_status": "ok", "external_wallets": []}}, ("ok", [])),
+    # the MCP said it couldn't load them — no list key
+    ({"user": {"external_wallets_status": "unavailable"}}, ("unavailable", None)),
+    # an OLDER MCP: neither key — unavailable, never []
+    ({"user": {"wallets": [{"walletType": "embedded"}]}}, ("unavailable", None)),
+    # a list without a status is not a read we can trust
+    ({"user": {"external_wallets": []}}, ("unavailable", None)),
+    # status ok but the list is missing or not a list
+    ({"user": {"external_wallets_status": "ok"}}, ("unavailable", None)),
+    ({"user": {"external_wallets_status": "ok", "external_wallets": None}}, ("unavailable", None)),
+    # flat payload (the skills' recorded fixtures) reads the same way
+    ({"external_wallets_status": "ok", "external_wallets": []}, ("ok", [])),
+    # a failed user_get_me
+    ({}, ("unavailable", None)),
+    (None, ("unavailable", None)),
+)
+
+
+def _quant_addresses():
+    """quant-desk's copy, loaded by FILE PATH. Never put quant-desk/scripts on sys.path here: it ships a
+    `score.py` that shadows senpi-signals' in the shared CI run (see .github/workflows/tests.yml)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("quant_desk_addresses_parity", CW_COPIES[2])
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_skills_answer_external_wallets_the_same_way():
+    """The sha pins the helper; this pins the ANSWER (a shadowing redefinition after the end marker
+    hashes identically and still diverges)."""
+    quant = _quant_addresses()
+    for me, want in _CW_ROWS:
+        assert portfolio._external_wallets(me) == want, me
+        assert review._external_wallets(me) == want, me
+        assert quant._external_wallets(me) == want, me
+
+
+def test_the_readers_take_the_a1_surface_and_ignore_the_retired_r1_keys():
+    """Amendment A1 (paste-only): the MCP sends `external_wallets_status` / `external_wallets`, each item
+    with `added_at`. The R1 names never shipped; a payload carrying only them reads unavailable — never
+    [] and never a list. They are split literals so no rename pass can rewrite them."""
+    quant = _quant_addresses()
+    retired = {"user": {"conn" "ected_wallets_status": "ok", "conn" "ected_wallets": [
+        {"address": "0x" + "ab" * 20, "label": None, "verified" "_at": "2026-10-01T15:31:02.000Z",
+         "access": ACCESS}]}}
+    a1 = {"user": {"external_wallets_status": "ok", "external_wallets": [
+        {"address": "0x" + "AB" * 20, "label": None, "added_at": "2026-10-01T15:31:02.000Z", "access": ACCESS}]}}
+    want = ("ok", [{"address": "0x" + "ab" * 20, "label": None, "added_at": "2026-10-01T15:31:02.000Z",
+                    "access": ACCESS}])
+    bare = {"user": {"external_wallets_status": "ok", "external_wallets": [{"address": "0x" + "cd" * 20}]}}
+    for mod in (portfolio, review, quant):
+        assert mod._external_wallets(retired) == ("unavailable", None), mod.__name__
+        assert mod._external_wallets(a1) == want, mod.__name__
+        # an item with no label / added_at / access is still listed — those are display fields, never a gate
+        assert mod._external_wallets(bare) == ("ok", [{"address": "0x" + "cd" * 20, "label": None,
+                                                       "added_at": None, "access": None}]), mod.__name__
+
+
 if __name__ == "__main__":
     test_vendored_cli_helpers_match_their_origin()
     test_first_written_vendor_parity()
     test_the_two_skills_answer_the_same_chain_the_same_way()
     test_ops_chain_answers_match_portfolio_where_the_readers_cannot_disagree()
     test_ops_chain_diverges_only_where_pinned_as_intended()
+    test_external_wallets_reader_vendor_parity()
+    test_the_skills_answer_external_wallets_the_same_way()
+    test_the_readers_take_the_a1_surface_and_ignore_the_retired_r1_keys()
     print("NAME READER PARITY OK")

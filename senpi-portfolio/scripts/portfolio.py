@@ -191,6 +191,37 @@ def _first_written(d, *names, default=None):
 # ── end vendored block
 
 
+# ── VENDORED external-wallets reader, byte-identical in senpi-portfolio/scripts/portfolio.py,
+# ── senpi-improve-trades/scripts/review.py and quant-desk/scripts/addresses.py — skills install
+# ── standalone, so none may import another. senpi-portfolio/tests/test_name_reader_parity.py fails
+# ── the moment the copies drift.
+EXTERNAL_OK = "ok"
+EXTERNAL_UNAVAILABLE = "unavailable"
+
+
+def _external_wallets(me):
+    """(status, wallets) from a `user_get_me` payload, outer `data` already stripped.
+
+    The keys live inside `user`: `external_wallets_status` ("ok" | "unavailable") and, only when ok,
+    `external_wallets` [{address, label, added_at, access}]. status is "ok" or "unavailable";
+    wallets is a list only when status is "ok", else None. An ABSENT status key (an MCP older than
+    saved wallets) is "unavailable", never [] — unknown is never empty, so this never reads a
+    missing key with a default. `access` is the MCP's read-only line, carried verbatim."""
+    user = me.get("user") if isinstance(me, dict) and isinstance(me.get("user"), dict) else me
+    if not isinstance(user, dict) or user.get("external_wallets_status") != EXTERNAL_OK:
+        return EXTERNAL_UNAVAILABLE, None
+    rows = user.get("external_wallets")
+    if not isinstance(rows, list):
+        return EXTERNAL_UNAVAILABLE, None
+    wallets = []
+    for w in rows:
+        if isinstance(w, dict) and isinstance(w.get("address"), str) and w["address"].strip():
+            wallets.append({"address": w["address"].strip().lower(), "label": w.get("label"),
+                            "added_at": w.get("added_at"), "access": w.get("access")})
+    return EXTERNAL_OK, wallets
+# ── end external-wallets reader
+
+
 def _strategy_name_and_source(s):
     """What to CALL a strategy, and WHICH FIELD said so — `(name, name_source)`.
 
@@ -728,12 +759,28 @@ class _FixtureClient:
 
 
 # ──────────────────────────────────────────────────────────────── wallet discovery
-def fetch_embedded(client, meta):
-    """Main/embedded wallet idle cash — the ONLY truly-free pool. Real-time (forceFetch)."""
+USER_GET_ME_TIMEOUT_S = 22       # user_get_me now waits on moxie's saved-wallets read (MCP 20 s timeout)
+
+
+def _read_me(client, meta):
+    """ONE `user_get_me` per run, shared by the embedded-wallet read and the saved-wallets read.
+    A failed read is {} + a warning — both readers then report unknown, never empty."""
+    try:
+        me = _ok(client.mcp_call("user_get_me", timeout=USER_GET_ME_TIMEOUT_S)) or {}
+        return me if isinstance(me, dict) else {}
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"user_get_me failed: {e}")
+        return {}
+
+
+def fetch_embedded(client, meta, me=None):
+    """Main/embedded wallet idle cash — the ONLY truly-free pool. Real-time (forceFetch). `me` is the
+    run's `user_get_me` payload (read here when not passed)."""
     out = {"address": None, "idle_hl_usdc": None, "evm_usdc": [], "spot_usd": None,
            "idle_total": None}
+    if me is None:
+        me = _read_me(client, meta)
     try:
-        me = _ok(client.mcp_call("user_get_me", timeout=12)) or {}
         wallets = _field(me, "wallets", default=[]) or (me.get("user", {}) or {}).get("wallets", [])
         for w in wallets if isinstance(wallets, list) else []:
             if str(_field(w, "walletType", "type", default="")).lower() == "embedded":
@@ -790,6 +837,66 @@ def fetch_embedded(client, meta):
         "total_withdrawable": _f(p, "total_withdrawable", default=None),
     }
     return out, portfolio_totals
+
+
+# ──────────────────────────────────────────────────────────── saved wallets (read-only, never Senpi money)
+EXTERNAL_STATE_TIMEOUT_S = 25    # moxie answers within ~6.5 s; the MCP's own moxie timeout is 20 s — wait past it
+# Senpi-strategy facts that do not exist for a wallet the user trades by hand. Rendered "not applicable",
+# never as a fault ("no DSL", "runtime not running", "drained").
+EXTERNAL_NOT_APPLICABLE = ("dsl", "runtime_health", "mandate", "funded_drained", "telemetry")
+
+
+def fetch_external(client, me, meta):
+    """The user's SAVED wallets — the ones they added in Your wallets and trade themselves. Read-only:
+    Senpi can analyze them and cannot place, change or cancel orders on them.
+
+    Never part of the Senpi money map: nothing here enters `totals`, `exposure`, `signals` or
+    `strategy_groups`, and `reconciles` stays Senpi-only (GetPortfolioV3 never counts them). Each
+    wallet's `state` is `account_get_external_wallets`' object VERBATIM (camelCase, decimal strings,
+    `positions[].protection` + `stopOrders`) — quoted, never re-derived.
+
+    status "unavailable" (MCP couldn't load them, or an MCP too old to know) → wallets None: say you
+    couldn't load them, never that there are none."""
+    status, wallets = _external_wallets(me)
+    out = {"status": status, "wallets": None}
+    if status != EXTERNAL_OK:
+        return out
+    out["wallets"] = []
+    if not wallets:
+        return out
+    states = None
+    try:
+        resp = _ok(client.mcp_call("account_get_external_wallets", timeout=EXTERNAL_STATE_TIMEOUT_S)) or {}
+        rows = _field(resp, "external_wallets", default=None) if isinstance(resp, dict) else None
+        if not isinstance(rows, list):
+            raise ValueError("no external_wallets list in the response")
+        states = {str(_field(r, "address", default="")).lower(): r.get("state")
+                  for r in rows if isinstance(r, dict)}
+    except Exception as e:  # noqa — the list stays; only the balances/positions become unknown
+        meta.setdefault("warnings", []).append(
+            f"account_get_external_wallets failed: {e}; saved wallets listed without state "
+            f"(balances and positions unknown, not zero)")
+    for w in wallets:
+        st = states.get(w["address"]) if states is not None else None
+        if not isinstance(st, dict):
+            read = "unavailable"
+        elif st.get("readError"):
+            read = "error"
+        else:
+            read = "ok"
+        out["wallets"].append(dict(w, kind="external", state_read=read,
+                                   state=st if isinstance(st, dict) else None,
+                                   not_applicable=list(EXTERNAL_NOT_APPLICABLE)))
+    return out
+
+
+def _no_strategy_path(strategies, saved):
+    """True when the user has saved wallets and no Senpi strategy — the read is about wallets they
+    trade by hand, so DSL / runtime / mandate / funded-drained / telemetry are not applicable and no
+    strategy is pitched."""
+    return not strategies and bool((saved or {}).get("wallets"))
+
+
 
 
 def fetch_strategies(client, meta):
@@ -1621,7 +1728,9 @@ def group_strategies(strategies, meta):
 # ──────────────────────────────────────────────────────────────── orchestration
 def run(client, want_market=True):
     meta = {"warnings": [], "real_time": True, "force_fetch": True}
-    embedded, portfolio_totals = fetch_embedded(client, meta)
+    me = _read_me(client, meta)
+    embedded, portfolio_totals = fetch_embedded(client, meta, me=me)
+    saved = fetch_external(client, me, meta)
     strategies = fetch_strategies(client, meta)
     if want_market and strategies:
         enrich_market(client, strategies, meta)
@@ -1631,8 +1740,7 @@ def run(client, want_market=True):
     # A STRATEGY IS ALL ITS WALLETS — re-unite the per-wallet rows into one entry per real strategy.
     # SUPPLEMENTS `strategies[]` (kept — bucket math + detail rely on it); groups add the strategy-level view.
     strategy_groups = group_strategies(strategies, meta)
-    if not strategies and not embedded.get("address"):
-        meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    _mark_no_wallet_data(meta, strategies, embedded, saved)
     # per-wallet reads run in a thread pool, so warnings land in completion order; sort them so two runs
     # over the same data are byte-identical (the `all` step is compared to run() that way)
     meta["warnings"] = sorted(meta["warnings"])
@@ -1640,6 +1748,8 @@ def run(client, want_market=True):
         "as_of": "live",
         "totals": totals,           # the three buckets — NEVER conflate them
         "embedded_wallet": embedded,
+        # READ-ONLY wallets the user trades by hand — a separate section, never in totals/idle/reconciles
+        "external_wallets": saved,
         "strategies": strategies,
         # ONE entry per real strategy (a strategy is ALL its wallets); reason + recommend at THIS level.
         "strategy_groups": strategy_groups,
@@ -1821,7 +1931,10 @@ def _ensure_full_strategies_in_state(client, state, want_market, meta):
         return embedded, strategies, portfolio_totals
     # state absent/partial → recompute the full pull (embedded + fully-hydrated strategies). The market
     # enrichment is the `positions` step's job — skip it here (want_market only gates step 3's fold).
-    embedded, portfolio_totals = fetch_embedded(client, meta)
+    me = _read_me(client, meta)
+    embedded, portfolio_totals = fetch_embedded(client, meta, me=me)
+    if not _has_external(state):
+        state["external_wallets"] = fetch_external(client, me, meta)
     strategies = fetch_strategies(client, meta)
     state["embedded_wallet"] = embedded
     state["portfolio_totals"] = portfolio_totals
@@ -1834,6 +1947,31 @@ def _ensure_full_strategies_in_state(client, state, want_market, meta):
     if "runtime_read_ok" in meta:
         state["runtime_read_ok"] = meta["runtime_read_ok"]
     return embedded, strategies, portfolio_totals
+
+
+def _has_external(state):
+    saved = state.get("external_wallets")
+    return isinstance(saved, dict) and "status" in saved
+
+
+def _ensure_external_in_state(client, state, meta):
+    """The saved-wallets section for the `strategies`/`positions` steps — from state when an earlier
+    step (or the full-fetch self-heal) stored it, else the same fetch `money` makes. Without it a
+    saved-only user's empty strategy list reads as "no positions" and invites a strategy pitch."""
+    if _has_external(state):
+        return state["external_wallets"]
+    saved = fetch_external(client, _read_me(client, meta), meta)
+    state["external_wallets"] = saved
+    return saved
+
+
+def _mark_no_wallet_data(meta, strategies, embedded, saved):
+    """`meta.no_strategy_path` for a saved-only user, else the token fault when nothing came back —
+    one rule for `run()` and every step."""
+    if _no_strategy_path(strategies, saved):
+        meta["no_strategy_path"] = True
+    elif not strategies and not embedded.get("address"):
+        meta["degraded"] = "no wallet data — check the token is USER-scoped"
 
 
 def _carry_provenance(meta, state):
@@ -1863,21 +2001,24 @@ def step_money(client, want_market=True, state_path=None):
     # money re-fetches everything it needs. (_load_state's TTL covers a standalone `strategies`/`positions`.)
     state = {}
     meta = _fresh_meta()
-    embedded, portfolio_totals = fetch_embedded(client, meta)
+    me = _read_me(client, meta)
+    embedded, portfolio_totals = fetch_embedded(client, meta, me=me)
+    saved = fetch_external(client, me, meta)
     strategies = fetch_strategy_money(client, meta)
     totals = _money_totals(embedded, strategies, portfolio_totals, meta)
     meta["strategy_count"] = len(strategies)
-    if not strategies and not embedded.get("address"):
-        meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    _mark_no_wallet_data(meta, strategies, embedded, saved)
     # persist the money-lite strategy rows (name/wallet/id/status/money) so the later steps reuse the
     # wallet set; the full hydrate (positions/DSL/closed/profile) is the `strategies` step's self-heal.
     state["embedded_wallet"] = embedded
     state["portfolio_totals"] = portfolio_totals
     state["strategies_money"] = strategies
+    state["external_wallets"] = saved
     state["totals"] = totals
     state["meta_warnings"] = meta.get("warnings", [])
     _save_state(state_path, state)
-    return {"totals": totals, "embedded_wallet": embedded, "strategies": strategies, "meta": meta}
+    return {"totals": totals, "embedded_wallet": embedded, "external_wallets": saved,
+            "strategies": strategies, "meta": meta}
 
 
 def step_strategies(client, want_market=True, state_path=None):
@@ -1895,18 +2036,19 @@ def step_strategies(client, want_market=True, state_path=None):
     for w in state.get("meta_warnings", []):
         if w not in meta["warnings"]:
             meta["warnings"].append(w)
+    saved = _ensure_external_in_state(client, state, meta)
     _carry_provenance(meta, state)
     meta["strategy_count"] = len(strategies)
     meta.setdefault("has_multi_wallet_strategy", False)
     strategy_groups = group_strategies(strategies, meta)
-    if not strategies and not embedded.get("address"):
-        meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    _mark_no_wallet_data(meta, strategies, embedded, saved)
     state["strategies_full"] = strategies
     state["strategy_groups"] = strategy_groups
     state["meta_warnings"] = meta.get("warnings", [])
     state["has_multi_wallet_strategy"] = meta.get("has_multi_wallet_strategy", False)
     _save_state(state_path, state)
-    return {"strategies": strategies, "strategy_groups": strategy_groups, "meta": meta}
+    return {"strategies": strategies, "strategy_groups": strategy_groups, "external_wallets": saved,
+            "meta": meta}
 
 
 def step_positions(client, want_market=True, state_path=None):
@@ -1923,6 +2065,7 @@ def step_positions(client, want_market=True, state_path=None):
     for w in state.get("meta_warnings", []):
         if w not in meta["warnings"]:
             meta["warnings"].append(w)
+    saved = _ensure_external_in_state(client, state, meta)
     if want_market and strategies:
         enrich_market(client, strategies, meta)
     totals, exposure, signals = compute(embedded, strategies, portfolio_totals, meta)
@@ -1933,8 +2076,7 @@ def step_positions(client, want_market=True, state_path=None):
     # positions — this is exactly run()'s order (enrich_market → group_strategies), keeping the shared
     # state after the full pipeline byte-consistent with `all`.
     strategy_groups = group_strategies(strategies, meta)
-    if not strategies and not embedded.get("address"):
-        meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    _mark_no_wallet_data(meta, strategies, embedded, saved)
     # persist the enriched strategies (market fields now folded onto positions) + exposure/signals + the
     # refreshed groups (over the enriched positions).
     state["strategies_full"] = strategies
@@ -1945,8 +2087,8 @@ def step_positions(client, want_market=True, state_path=None):
     state["meta_warnings"] = meta.get("warnings", [])
     state["has_multi_wallet_strategy"] = meta.get("has_multi_wallet_strategy", False)
     _save_state(state_path, state)
-    return {"strategies": strategies, "strategy_groups": strategy_groups, "exposure": exposure,
-            "signals": signals, "totals": totals, "meta": meta}
+    return {"strategies": strategies, "strategy_groups": strategy_groups, "external_wallets": saved,
+            "exposure": exposure, "signals": signals, "totals": totals, "meta": meta}
 
 
 # ──────────────────────────────────────────────────────────────── CLI
@@ -1975,6 +2117,7 @@ def _all_and_persist(client, want_market, state_path):
         state_path = _default_state_path()
     state = {
         "embedded_wallet": result.get("embedded_wallet"),
+        "external_wallets": result.get("external_wallets"),
         "strategies_full": result.get("strategies"),
         "strategy_groups": result.get("strategy_groups"),
         "totals": result.get("totals"),
