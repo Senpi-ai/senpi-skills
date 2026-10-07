@@ -2220,10 +2220,11 @@ def _book_comparison(rows):
 def _subtotal(rows, kind, state, realized=None, fees=None):
     mine = [r for r in rows if r["kind"] == kind]
     if state != "ok":
-        return {"wallet_count": None, "value_usd": None, "couldnt_load": [], "realized_pnl": None,
-                "fees": None, "state": state}
+        return {"wallet_count": None, "wallets_loaded": None, "value_usd": None, "couldnt_load": [],
+                "realized_pnl": None, "fees": None, "state": state}
     known = [r["value_usd"] for r in mine if r["value_usd"] is not None]
     return {"wallet_count": len(mine),
+            "wallets_loaded": len(known),           # the line says "N of M wallets" when fewer loaded
             "value_usd": round(sum(known), 2) if (known or not mine) else None,
             "couldnt_load": [r["display_label"] for r in mine if r["value_usd"] is None],
             "realized_pnl": realized, "fees": fees, "state": state}
@@ -2268,12 +2269,17 @@ def _book_total(rows, pnl_summary, managed_state, read_only_state):
             return f"{word} none"
         if sub["value_usd"] is None:
             return f"{word} unknown"
-        return f"{word} {_usd(sub['value_usd'])} ({_plural(sub['wallet_count'], 'wallet')}{tail})"
+        n, m = sub["wallets_loaded"], sub["wallet_count"]
+        count = f"{n} of {_plural(m, 'wallet')}" if n < m else _plural(m, 'wallet')
+        return f"{word} {_usd(sub['value_usd'])} ({count}{tail})"
 
     m_txt = _side(man, "managed by Senpi", "your Senpi strategies couldn't be read")
-    r_txt = _side(ro, "read-only", "your saved wallets couldn't be loaded",
-                  ", traded by hand — Senpi can't deploy it")
-    line = f"Book value {_usd(value) if value is not None else 'unknown'}: {m_txt} · {r_txt}."
+    # no saved wallets (read fine, none added): no read-only clause — same as senpi-portfolio's book line
+    r_txt = (None if read_only_state == "ok" and not ro["wallet_count"] else
+             _side(ro, "read-only", "your saved wallets couldn't be loaded",
+                   ", traded by hand — Senpi can't deploy it"))
+    line = (f"Book value {_usd(value) if value is not None else 'unknown'}: {m_txt}"
+            + (f" · {r_txt}." if r_txt else "."))
     if excludes["couldnt_load"]:
         n = len(excludes["couldnt_load"])
         line += (f" The total excludes {_plural(n, 'wallet')} that couldn't load "
@@ -2291,8 +2297,10 @@ def _book_total(rows, pnl_summary, managed_state, read_only_state):
         closed = man.get("realized_pnl_closed_strategies")
         if closed:
             line += f" (incl. {_usd(closed)} from closed strategies)"
-        line += (f" · read-only {_usd(ro['realized_pnl'])}" if ro["realized_pnl"] is not None
-                 else " · read-only unknown") + "."
+        if r_txt:
+            line += (f" · read-only {_usd(ro['realized_pnl'])}" if ro["realized_pnl"] is not None
+                     else " · read-only unknown")
+        line += "."
         if ro.get("trades_capped"):
             line += (f" Read-only realized is at least that: {', '.join(ro['trades_capped'])} hit "
                      f"{HL_FILLS_CEILING_NOTE}.")
@@ -2304,6 +2312,16 @@ def _book_total(rows, pnl_summary, managed_state, read_only_state):
                      "build a 'Combined' row. The managed subtotal IS the Senpi numbers (pnl_summary); the "
                      "book total is not Senpi performance, and the read-only subtotal is never deployable "
                      "(idle / rebalance / strategy CTAs count managed money only).")}
+
+
+def _deep_dive_worthy(r):
+    """A row the deep-dive question offers: something to go deeper on — a non-zero value, an open
+    position, a value that couldn't load (unknown is never "nothing there"), or trades to review (closed
+    in the window, or unreadable). A read $0 with no position and no trades is a row of the list, never
+    an option of the question (same rule as senpi-portfolio, plus trades: this is a trade review)."""
+    v = r.get("value_usd")
+    return (v is None or v != 0 or bool(r.get("open_position_count")) or bool(r.get("closed_trade_count"))
+            or bool(r.get("trades_unknown")))
 
 
 def _book(strat_reads, senpi_trades, open_book, saved_reads, entries, pnl_summary, meta):
@@ -2324,13 +2342,14 @@ def _book(strat_reads, senpi_trades, open_book, saved_reads, entries, pnl_summar
     for r in rows:
         dup = seen.get(str(r.get("label") or ""), 0) > 1
         r["display_label"] = f"{r.get('label')} ({_short_addr(r.get('wallet'))})" if dup else r.get("label")
-    names = [r["display_label"] for r in rows]
+    # the question names only wallets with something to review (`_deep_dive_worthy`), in the rows' order
+    names = [r["display_label"] for r in rows if _deep_dive_worthy(r)]
     return {
         "rows": rows,
         "total": _book_total(rows, pnl_summary, managed_state, read_only_state),
         "comparison": _book_comparison(rows),
         "deep_dive": ({"question": f"Which wallet do you want me to go deeper on: {_join_or(names)}?",
-                       "order": names} if len(rows) > 1 else None),
+                       "order": names} if len(names) > 1 else None),
         "note": ("ONE list, in this order (value desc; couldn't-load last) — never re-section by origin; "
                  "`kind` is a column. Then the detail: the Senpi aggregates (pnl_summary leads them) and "
                  "external_wallets[]."),

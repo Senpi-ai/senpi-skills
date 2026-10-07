@@ -20,16 +20,19 @@ book          ONE list of every wallet — PRESENT FIRST, then the detail (the `
     timing { measurable_closes, exits_ahead, exits_ahead_share }   # this wallet's own timing — comparison input
   total       ONE book total, subtotals beside it — quote `line` verbatim; never sum yourself, no "Combined" row:
     value_usd, realized_pnl, fees,            # sums of the KNOWN subtotals (fees None unless both known)
-    managed   { wallet_count, value_usd, couldnt_load[], realized_pnl (= pnl_summary.realized),
+    managed   { wallet_count, wallets_loaded, value_usd, couldnt_load[], realized_pnl (= pnl_summary.realized),
                 fees (= pnl_summary.fees), realized_pnl_closed_strategies, state: ok | unreadable }
-    read_only { wallet_count, value_usd, couldnt_load[], realized_pnl, fees, unpriced_coins[],
+    read_only { wallet_count, wallets_loaded, value_usd, couldnt_load[], realized_pnl, fees, unpriced_coins[],
                 trades_unknown[], trades_capped[], state: ok | unavailable }   # NEVER deployable
     excludes  { couldnt_load[], unpriced_coins[], unreadable[] },
-    line, note    # line: "Book value $X: managed by Senpi $A (n wallets) · read-only $B (…) …" — not Senpi performance
+    line, note    # line: "Book value $X: managed by Senpi $A (n wallets) · read-only $B (…) …" — not Senpi performance;
+                  # "(1 of 2 wallets)" when only some loaded; no read-only clause when no saved wallets
   comparison  { line (None → say nothing comparative), reason, metric, min_closes (= MIN_COMPARE_CLOSES, 8),
                 wallets[] { label, kind, measurable_closes, exits_ahead, exits_ahead_share, trades_capped },
                 not_compared[] { label, why } }   # 2+ wallets with 8+ measurable closes, else no line
-  deep_dive   { question, order[] } | None   # >1 wallet: "Which wallet do you want me to go deeper on: …?"
+  deep_dive   { question, order[] } | None   # >1 wallet with something to review (a value, a position, trades,
+                                             # or unknown): "Which wallet do you want me to go deeper on: …?" —
+                                             # asked once, at the END of the whole answer
   note
   # managed rows are the CURRENT strategies (closed ones are history — closed_strategies[]); the Senpi
   # aggregates below stay Senpi-only and unchanged — the managed subtotal quotes them.
