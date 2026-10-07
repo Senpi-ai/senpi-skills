@@ -22,8 +22,8 @@
       "version": "1.7.0"
     },
     "athena-concentrated": {
-      "behaviour": "3f67c13a59a3b74b",
-      "version": "1.0.1"
+      "behaviour": "2c55083ad345df2c",
+      "version": "1.1.0"
     },
     "athena-x": {
       "behaviour": "907e87f6c41390d3",
@@ -70,8 +70,8 @@
       "version": "1.2.1"
     },
     "camel-concentrated": {
-      "behaviour": "2e866dbc37e12cda",
-      "version": "1.0.1"
+      "behaviour": "f49f96a96c71283c",
+      "version": "1.1.0"
     },
     "caracal": {
       "behaviour": "90b2b1d40aad5671",
