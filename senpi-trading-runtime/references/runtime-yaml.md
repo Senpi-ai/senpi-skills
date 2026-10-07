@@ -245,13 +245,16 @@ Schema only; for the exit *behavior* (phases, floors, breach counting, time cuts
   `weak_peak_cut` (`interval_in_minutes` > 0, `min_value` > 0); `dead_weight_cut`
   (`interval_in_minutes` > 0). Each requires those fields when `enabled: true`. Durations are in
   **minutes** (the DSL preset's own unit — unchanged).
-- `phase1`: `enabled` (default true); when enabled, `max_loss_pct` (>0, ≤100),
-  `retrace_threshold` (>0), `consecutive_breaches_required` (int ≥1).
+- `phase1`: `enabled` (default true); `max_loss_pct` (>0, ≤100) applies **whether or not phase1 is
+  enabled**: it is the hard stop from entry, placed as an exchange stop-loss. `enabled: false` turns off
+  only the phase-1 **trailing retrace/breach** logic; it does NOT remove the max-loss stop. When enabled,
+  `retrace_threshold` (>0) and `consecutive_breaches_required` (int ≥1) are also required.
 - `phase2`: `enabled` (default true); when enabled, non-empty `tiers` **sorted ascending by
   `trigger_pct`**. Each tier: `trigger_pct` (>0, ≤100), `lock_hw_pct` (0–100). Phase-2
   `retrace_threshold`/`consecutive_breaches_required` and tier `retrace`/`breaches` are **rejected**.
 - `max_loss_pct` resolution: `dsl_preset.max_loss_pct` → `phase1.max_loss_pct` → 1% if
-  `phase1.enabled: false` → else error.
+  `phase1.enabled: false` → else error. So a disabled phase1 still has a max-loss exchange stop from entry
+  (1% when no value is set); it is never "no stop".
 
 ---
 

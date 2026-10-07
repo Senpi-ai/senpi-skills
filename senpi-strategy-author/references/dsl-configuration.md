@@ -77,7 +77,7 @@ Active from entry until the first tier is reached.
 
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
-| `enabled` | boolean | No | `true` | `false` = skip Phase 1 rules; start with Phase 2 behavior. |
+| `enabled` | boolean | No | `true` | `false` = turn off only the Phase 1 trailing retrace/breach logic; `max_loss_pct` still applies from entry as an exchange stop-loss, and the position starts in Phase 2 behavior. |
 | `max_loss_pct` | number | Yes | — | Max loss as **ROE %** (margin), not price %. Range: (0, 100]. Converted to a price floor by dividing by leverage. `15` = cut at −15% of margin. Sets the absolute floor. |
 | `retrace_threshold` | number | Yes* | — | ROE % retrace from high-water mark. Must be > 0. *Required when phase1 enabled. |
 | `consecutive_breaches_required` | integer | Yes* | — | Consecutive ticks below floor before exit (>= 1). *Required when phase1 enabled. |
