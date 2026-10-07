@@ -1081,7 +1081,27 @@ def _is_transient(exc):
     return True
 
 
-def fetch_open_positions(client, wallet, meta):
+def _account_value(ch):
+    """A strategy wallet's USD value from the SAME strategy_get_clearinghouse_state read the open book
+    already makes — senpi-portfolio's formula: main and xyz are two VIEWS of one wallet, `withdrawable`
+    is the shared idle mirrored in both (counted once), value = shared idle + each view's equity above it.
+    None (never 0) when the main view carries no `marginSummary.accountValue`: unknown is never zero."""
+    if not isinstance(ch, dict):
+        return None
+    av, wd = {}, {}
+    for dex in ("main", "xyz"):
+        d = ch.get(dex) if isinstance(ch.get(dex), dict) else {}
+        ms = _field(d, "marginSummary", "margin_summary", default=None)
+        av[dex] = _num(_field(ms, "accountValue", "account_value")) if isinstance(ms, dict) else None
+        wd[dex] = _num(d.get("withdrawable")) or 0.0
+    if av["main"] is None:
+        return None
+    idle = max(wd["main"], wd["xyz"])
+    deployed = sum(max(0.0, (av[dex] or 0.0) - idle) for dex in ("main", "xyz"))
+    return round(idle + deployed, 2)
+
+
+def fetch_open_positions(client, wallet, meta, extra=None):
     """Open positions + unrealized PnL for ONE current strategy wallet (strategy_get_clearinghouse_state,
     main+xyz). This is what makes the review a TOTAL ledger (realized closed trades + unrealized open) rather
     than realized-only — closing the biggest distortion: a book RIDING open winners looks like a loser on
@@ -1109,6 +1129,8 @@ def fetch_open_positions(client, wallet, meta):
         return None, []
     if not isinstance(ch, dict):
         return None, []
+    if extra is not None:
+        extra["account_value"] = _account_value(ch)   # the book row's value — same read, no new call
     positions, unrealized = [], 0.0
     for section in ("main", "xyz"):
         s = ch.get(section) if isinstance(ch.get(section), dict) else {}
@@ -1155,14 +1177,14 @@ def fetch_open_book(client, strategies, meta):
         return {}
 
     def _worker(w):
-        priv = {}
-        unreal, positions = fetch_open_positions(client, w, priv)
-        return str(w).lower(), unreal, positions, priv
+        priv, extra = {}, {}
+        unreal, positions = fetch_open_positions(client, w, priv, extra)
+        return str(w).lower(), unreal, positions, priv, extra.get("account_value")
 
     out = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(wallets))) as ex:
-        for wl, unreal, positions, priv in ex.map(_worker, wallets):
-            out[wl] = {"unrealized_pnl": unreal, "positions": positions}
+        for wl, unreal, positions, priv, value in ex.map(_worker, wallets):
+            out[wl] = {"unrealized_pnl": unreal, "positions": positions, "account_value": value}
             if priv.get("warnings"):
                 meta.setdefault("warnings", []).extend(priv["warnings"])
     return out
@@ -2037,6 +2059,284 @@ def _degraded(senpi, entries, trades, meta):
     return None
 
 
+# ──────────────────────────────── one book: every wallet first-class (rows by value, one total)
+# Origin is an attribute on the row (`kind`), never a rank or a section break. The Senpi aggregates above
+# stay Senpi-only and untouched; this layer sits on top of them, and its managed subtotal QUOTES them.
+KIND_MANAGED = "managed"        # a CURRENT Senpi strategy wallet — Senpi trades it
+KIND_READ_ONLY = "read_only"    # a saved wallet — the user trades it by hand; Senpi only reads it
+MIN_COMPARE_CLOSES = 8          # guardrail 7's sample gate (~8 closes), reused: below it a wallet isn't compared
+MAX_COMPARE_IN_LINE = 4         # the comparison line names at most this many wallets (largest first)
+HL_FILLS_CEILING_NOTE = "Hyperliquid's 2,000-fill ceiling"
+
+
+def _usd(x):
+    return f"-${abs(x):,.2f}" if x < 0 else f"${x:,.2f}"
+
+
+def _plural(n, word):
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
+def _join_or(names):
+    names = list(names)
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " or " + names[-1]
+
+
+def _wallet_timing(ts):
+    """The comparison metric, from one wallet's own `_timing_summary`: closes measurable against today's
+    price (exit_ahead + held_higher + flat — `unknown` has no price) and how many got out ahead."""
+    if not isinstance(ts, dict):
+        return None
+    ahead = int(ts.get("exits_ahead") or 0)
+    m = ahead + int(ts.get("exits_held_higher") or 0) + int(ts.get("exits_flat") or 0)
+    return {"measurable_closes": m, "exits_ahead": ahead,
+            "exits_ahead_share": round(ahead / m, 2) if m else None}
+
+
+def _row_sort_key(r):
+    """Value desc; ties by label (casefold) then address; a wallet whose value couldn't load LAST."""
+    v = r.get("value_usd")
+    return (v is None, -(v or 0.0), str(r.get("label") or "").casefold(), str(r.get("wallet") or "").lower())
+
+
+def _fee_sum(trades):
+    fees = [x for x in (_num(t.get("fee")) for t in trades) if x is not None]
+    return round(sum(fees), 2) if fees else None
+
+
+def _managed_rows(strat_reads, senpi_trades, open_book, capped):
+    """One row per CURRENT Senpi strategy (closed ones are history — `closed_strategies[]`, no wallet to
+    hold). Count/PnL are `strategies[]`' own numbers; value is the clearinghouse read's account value."""
+    rows = []
+    for s in strat_reads:
+        w = str(s.get("wallet") or "").lower()
+        ob = open_book.get(w) or {}
+        read = ob.get("unrealized_pnl") is not None          # the open-book read succeeded
+        value = ob.get("account_value") if read else None
+        mine = [t for t in senpi_trades if str(t.get("strategy_wallet") or "").lower() == w]
+        rows.append({
+            "label": s.get("label"), "kind": KIND_MANAGED, "wallet": s.get("wallet"), "status": s.get("status"),
+            "value_usd": value, "value_read": "ok" if value is not None else "unavailable",
+            "closed_trade_count": s.get("closed_trade_count"), "realized_pnl": s.get("realized_pnl"),
+            "fees": _fee_sum(mine), "trades_unknown": False, "trades_capped": w in capped,
+            "open_position_count": s.get("open_position_count") if read else None,
+            "protection": {"kind": "runtime_exit"},           # the runtime's DSL exit — never "live stops"
+            "timing": _wallet_timing(_timing_summary(mine)),
+        })
+    return rows
+
+
+def _read_only_rows(saved_reads, entries):
+    """One row per saved wallet, from `external_wallets[]` plus its verbatim `state`. Value is
+    `state.totalValueUsd` (already unified-account aware); an unread state is None, never 0."""
+    states = {str(e.get("wallet") or "").lower(): e.get("state") for e in entries if _is_external(e)}
+    rows = []
+    for r in saved_reads or []:
+        st = states.get(str(r.get("address") or "").lower())
+        st = st if isinstance(st, dict) else None
+        ok = st is not None and r.get("state_read") == "ok"
+        value = _num(st.get("totalValueUsd")) if ok else None
+        no_activity = bool(ok and value in (None, 0.0) and st.get("role") == "MISSING")
+        if no_activity:
+            value = 0.0                                       # role MISSING: a real zero, not an unread state
+        unpriced = st.get("unpricedCoins") if ok and isinstance(st.get("unpricedCoins"), list) else []
+        pos = r.get("open_positions")
+        prot = None
+        if isinstance(pos, list):
+            prot = {"kind": "live_stops", "FULL": 0, "PARTIAL": 0, "NONE": 0}
+            for p in pos:
+                lvl = p.get("protection") if isinstance(p, dict) else None
+                if lvl in prot:
+                    prot[lvl] += 1
+        rows.append({
+            "label": r.get("label"), "kind": KIND_READ_ONLY, "wallet": r.get("address"),
+            "value_usd": value,
+            "value_read": "ok" if value is not None else ("error" if r.get("state_read") == "error" else "unavailable"),
+            "no_hl_activity": no_activity,
+            "closed_trade_count": r.get("closed_trade_count"), "realized_pnl": r.get("realized_pnl"),
+            "fees": r.get("fees"), "trades_unknown": bool(r.get("closed_trades_unknown")),
+            "trades_capped": bool(r.get("fills_capped")),
+            "open_position_count": len(pos) if isinstance(pos, list) else None,
+            "protection": prot,                               # the exchange's live stops — never "runtime exit"
+            "unpriced_coins": list(unpriced),
+            "access": r.get("access"),                        # quote verbatim
+            "timing": _wallet_timing(r.get("timing_summary")),
+        })
+    return rows
+
+
+def _book_comparison(rows):
+    """ONE cross-wallet comparison over the rows, deterministic: the share of closes measurable against
+    today's price where the later move went against the closed position (the exit got out ahead). It is
+    the one timing metric the engine has for BOTH kinds — peak give-back needs a high-water mark, which
+    only telemetry carries, and only for Senpi trades. Emitted only when 2+ wallets have
+    MIN_COMPARE_CLOSES measurable closes; a wallet whose trades couldn't be read, or that hit the fill
+    ceiling, is named in the line, never silently dropped or compared as if complete."""
+    eligible, not_compared = [], []
+    for r in rows:
+        name = r.get("display_label") or r.get("label")
+        if r.get("trades_unknown"):
+            not_compared.append({"label": name, "why": "its trades couldn't be read"})
+            continue
+        t = r.get("timing") or {}
+        m = int(t.get("measurable_closes") or 0)
+        if m < MIN_COMPARE_CLOSES:
+            not_compared.append({"label": name, "why": f"{m} measurable closes, under {MIN_COMPARE_CLOSES}"})
+            continue
+        eligible.append({"label": name, "kind": r.get("kind"), "measurable_closes": m,
+                         "exits_ahead": int(t.get("exits_ahead") or 0),
+                         "exits_ahead_share": t.get("exits_ahead_share"),
+                         "trades_capped": bool(r.get("trades_capped"))})
+    out = {"metric": ("exits_ahead_share — of the closes measurable against today's price, the share where "
+                      "the price then moved against the closed position. Hindsight CONTEXT, never a grade "
+                      "(guardrail 2); a Senpi row's exits are its strategy's, a read-only row's the user's."),
+           "min_closes": MIN_COMPARE_CLOSES, "wallets": eligible, "not_compared": not_compared}
+    if len(eligible) < 2:
+        out["line"] = None
+        out["reason"] = (f"fewer than 2 wallets have {MIN_COMPARE_CLOSES}+ closes measurable against today's "
+                         "price — no comparison this run; never compare the wallets by eye")
+        return out
+    named = eligible[:MAX_COMPARE_IN_LINE]
+    parts = []
+    for i, w in enumerate(named):
+        pct = int(round(100.0 * w["exits_ahead"] / w["measurable_closes"]))
+        head = f"{w['label']} got out ahead of the later move on " if i == 0 else f"{w['label']} on "
+        parts.append(f"{head}{w['exits_ahead']} of {w['measurable_closes']} ({pct}%)")
+    line = "On closes measurable against today's price, " + ", ".join(parts)
+    if len(eligible) > len(named):
+        line += f", and {_plural(len(eligible) - len(named), 'more wallet')}"
+    line += "."
+    for w in named:
+        if w["trades_capped"]:
+            line += f" {w['label']}'s closes are only its most recent ({HL_FILLS_CEILING_NOTE})."
+    for n in not_compared:
+        if n["why"] == "its trades couldn't be read":
+            line += f" {n['label']} isn't compared: its trades couldn't be read."
+    out["line"] = line
+    out["reason"] = None
+    return out
+
+
+def _subtotal(rows, kind, state, realized=None, fees=None):
+    mine = [r for r in rows if r["kind"] == kind]
+    if state != "ok":
+        return {"wallet_count": None, "value_usd": None, "couldnt_load": [], "realized_pnl": None,
+                "fees": None, "state": state}
+    known = [r["value_usd"] for r in mine if r["value_usd"] is not None]
+    return {"wallet_count": len(mine),
+            "value_usd": round(sum(known), 2) if (known or not mine) else None,
+            "couldnt_load": [r["display_label"] for r in mine if r["value_usd"] is None],
+            "realized_pnl": realized, "fees": fees, "state": state}
+
+
+def _sum_known(*xs):
+    known = [x for x in xs if x is not None]
+    return round(sum(known), 2) if known else None
+
+
+def _book_total(rows, pnl_summary, managed_state, read_only_state):
+    """ONE book total with managed and read-only subtotals beside it. The managed subtotal QUOTES the
+    Senpi aggregates (pnl_summary.realized / .fees) — those numbers never move. Unknown is never 0: a
+    wallet that couldn't load is left out and named, and so is an unreadable half of the book."""
+    man = _subtotal(rows, KIND_MANAGED, managed_state,
+                    realized=(pnl_summary or {}).get("realized"), fees=(pnl_summary or {}).get("fees"))
+    if managed_state == "ok":
+        man["realized_pnl_closed_strategies"] = ((pnl_summary or {}).get("realized_by_book") or {}).get("closed")
+    ro_rows = [r for r in rows if r["kind"] == KIND_READ_ONLY]
+    ro_known = [r for r in ro_rows if not r["trades_unknown"]]
+    ro = _subtotal(rows, KIND_READ_ONLY, read_only_state,
+                   realized=(round(sum(r["realized_pnl"] or 0.0 for r in ro_known), 2)
+                             if (ro_known or not ro_rows) else None),
+                   fees=_sum_known(*[r["fees"] for r in ro_known]))
+    if read_only_state == "ok":
+        ro["unpriced_coins"] = [c for r in ro_rows for c in r["unpriced_coins"]]
+        ro["trades_unknown"] = [r["display_label"] for r in ro_rows if r["trades_unknown"]]
+        ro["trades_capped"] = [r["display_label"] for r in ro_rows if r["trades_capped"]]
+    value = _sum_known(man["value_usd"], ro["value_usd"])
+    realized = _sum_known(man["realized_pnl"], ro["realized_pnl"])
+    fees = (round(man["fees"] + ro["fees"], 2)
+            if man["fees"] is not None and ro["fees"] is not None else None)
+    excludes = {"couldnt_load": [r["display_label"] for r in rows if r["value_usd"] is None],
+                "unpriced_coins": ro.get("unpriced_coins") or [],
+                "unreadable": ([] if managed_state == "ok" else ["your Senpi strategies"])
+                + ([] if read_only_state == "ok" else ["your saved wallets"])}
+
+    def _side(sub, word, unread, tail=""):
+        if sub["state"] != "ok":
+            return f"{word} unknown ({unread})"
+        if not sub["wallet_count"]:
+            return f"{word} none"
+        if sub["value_usd"] is None:
+            return f"{word} unknown"
+        return f"{word} {_usd(sub['value_usd'])} ({_plural(sub['wallet_count'], 'wallet')}{tail})"
+
+    m_txt = _side(man, "managed by Senpi", "your Senpi strategies couldn't be read")
+    r_txt = _side(ro, "read-only", "your saved wallets couldn't be loaded",
+                  ", traded by hand — Senpi can't deploy it")
+    line = f"Book value {_usd(value) if value is not None else 'unknown'}: {m_txt} · {r_txt}."
+    if excludes["couldnt_load"]:
+        n = len(excludes["couldnt_load"])
+        line += (f" The total excludes {_plural(n, 'wallet')} that couldn't load "
+                 f"({', '.join(excludes['couldnt_load'])}).")
+    if excludes["unpriced_coins"]:
+        line += f" The total excludes {', '.join(excludes['unpriced_coins'])} (no USD price)."
+    for half in excludes["unreadable"]:
+        line += f" The total excludes {half} (couldn't be read)."
+    if realized is not None:
+        whole = man["realized_pnl"] is not None and ro["realized_pnl"] is not None
+        line += (f" Realized in the window, gross of fees: {_usd(realized)} across "
+                 f"{'the book' if whole else 'the wallets that could be read'} — ")
+        line += (f"managed by Senpi {_usd(man['realized_pnl'])}" if man["realized_pnl"] is not None
+                 else "managed by Senpi unknown")
+        closed = man.get("realized_pnl_closed_strategies")
+        if closed:
+            line += f" (incl. {_usd(closed)} from closed strategies)"
+        line += (f" · read-only {_usd(ro['realized_pnl'])}" if ro["realized_pnl"] is not None
+                 else " · read-only unknown") + "."
+        if ro.get("trades_capped"):
+            line += (f" Read-only realized is at least that: {', '.join(ro['trades_capped'])} hit "
+                     f"{HL_FILLS_CEILING_NOTE}.")
+        if ro.get("trades_unknown"):
+            line += (f" Realized excludes {', '.join(ro['trades_unknown'])} (trades couldn't be read).")
+    return {"value_usd": value, "realized_pnl": realized, "fees": fees,
+            "managed": man, "read_only": ro, "excludes": excludes, "line": line,
+            "note": ("Quote `line` verbatim as the ONE book total — never sum the wallets yourself and never "
+                     "build a 'Combined' row. The managed subtotal IS the Senpi numbers (pnl_summary); the "
+                     "book total is not Senpi performance, and the read-only subtotal is never deployable "
+                     "(idle / rebalance / strategy CTAs count managed money only).")}
+
+
+def _book(strat_reads, senpi_trades, open_book, saved_reads, entries, pnl_summary, meta):
+    """The unified rows layer: every wallet the user has — each CURRENT Senpi strategy and each saved
+    wallet — in ONE list ordered by value (kind is a column), one book total with managed and read-only
+    subtotals, one comparison line, and the deep-dive question. Present it first, then the detail."""
+    capped = {str(w).lower() for w in (meta.get("fills_capped") or [])}
+    managed_state = ("unreadable" if any("strategy_list failed" in str(w) for w in (meta.get("warnings") or []))
+                     else "ok")
+    read_only_state = "ok" if saved_reads is not None else "unavailable"
+    rows = (_managed_rows(strat_reads, senpi_trades, open_book or {}, capped)
+            + _read_only_rows(saved_reads, entries))
+    rows.sort(key=_row_sort_key)
+    seen = {}
+    for r in rows:
+        k = str(r.get("label") or "")
+        seen[k] = seen.get(k, 0) + 1
+    for r in rows:
+        dup = seen.get(str(r.get("label") or ""), 0) > 1
+        r["display_label"] = f"{r.get('label')} ({_short_addr(r.get('wallet'))})" if dup else r.get("label")
+    names = [r["display_label"] for r in rows]
+    return {
+        "rows": rows,
+        "total": _book_total(rows, pnl_summary, managed_state, read_only_state),
+        "comparison": _book_comparison(rows),
+        "deep_dive": ({"question": f"Which wallet do you want me to go deeper on: {_join_or(names)}?",
+                       "order": names} if len(rows) > 1 else None),
+        "note": ("ONE list, in this order (value desc; couldn't-load last) — never re-section by origin; "
+                 "`kind` is a column. Then the detail: the Senpi aggregates (pnl_summary leads them) and "
+                 "external_wallets[]."),
+    }
+
+
 # ──────────────────────────────────────────────────────────────── shared state file (resumable steps)
 # The step subcommands (timing → strategies → telemetry → market) are FAST, resumable slices that persist
 # their work to a shared JSON state file so a later step never re-fetches what an earlier one already pulled.
@@ -2200,6 +2500,9 @@ def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_m
     fees_total = round(sum(_fees), 2) if _fees else None
     pnl_summary = _pnl_summary(realized_total, strat_reads, fees_total)
     dsl_mix = _dsl_close_reason_mix(senpi_trades)   # from whatever exit_reason is in state (UNKNOWN until telemetry)
+    saved = (_external_reads(trades, strategies, meta)
+             if meta.get("external_wallets_status") == EXTERNAL_OK else None)   # None, never [], when unloaded
+    book = _book(strat_reads, senpi_trades, open_book, saved, strategies, pnl_summary, meta)
     current_count = sum(1 for s in senpi if _is_current(s.get("status")))
     closed_count = len(senpi) - current_count
     meta["strategy_count"] = len(senpi)
@@ -2214,8 +2517,9 @@ def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_m
     state["closed_strategies"] = closed_reads
     state["pnl_summary"] = pnl_summary
     state["dsl_close_reason_mix"] = dsl_mix
+    state["book"] = book
     _save_state(state_path, state)
-    return {"strategies": strat_reads, "closed_strategies": closed_reads,
+    return {"book": book, "strategies": strat_reads, "closed_strategies": closed_reads,
             "pnl_summary": pnl_summary, "dsl_close_reason_mix": dsl_mix, "meta": meta}
 
 
@@ -2330,6 +2634,8 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     # read-only wallets the user trades by hand; None (never []) when they couldn't be loaded
     saved = (_external_reads(trades, strategies, meta)
              if meta.get("external_wallets_status") == EXTERNAL_OK else None)
+    # ONE book on top of the Senpi-only aggregates: every wallet by value, one total with subtotals.
+    book = _book(strat_reads, senpi_trades, open_book, saved, strategies, pnl_summary, meta)
 
     current_count = sum(1 for s in senpi if _is_current(s.get("status")))
     closed_count = len(senpi) - current_count
@@ -2354,6 +2660,7 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
 
     return {
         "window": window,
+        "book": book,                     # ONE list by value + one total w/ subtotals — PRESENT FIRST, then the detail
         "trades": trades,                 # DISCOVERY-owned onchain facts + telemetry-enriched exit_reason
         "timing_summary": timing,         # PROCESS-framed counts — LEAD with these
         "dsl_close_reason_mix": dsl_mix,  # 'shaken out too early / how exits fire' → DSL preset lever
@@ -2397,6 +2704,7 @@ def _all_and_persist(client, window_days, last_n, want_market, state_path, now_m
         state_path = _default_state_path(window_days, last_n)
     state = {
         "window": result.get("window"),
+        "book": result.get("book"),
         "strategies": None,   # `all` doesn't retain the raw strategy list; steps self-heal by re-fetching
         "trades": result.get("trades"),
         "timing_summary": result.get("timing_summary"),

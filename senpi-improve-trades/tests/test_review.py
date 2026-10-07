@@ -685,7 +685,7 @@ def test_step_strategies_slice_reads_state():
         return review.step_strategies(_fresh_client(), window_days=WINDOW_DAYS, want_market=True,
                                       state_path=sp, now_ms=NOW_MS)
     out = _with_env(_seq)
-    assert set(out) == {"strategies", "closed_strategies", "pnl_summary", "dsl_close_reason_mix", "meta"}
+    assert set(out) == {"book", "strategies", "closed_strategies", "pnl_summary", "dsl_close_reason_mix", "meta"}
     strat = {s["label"]: s for s in out["strategies"]}["kodiak"]
     assert strat["dsl"]["hard_stop_roe_pct"] == -15.0    # mandate/DSL from the registry
     assert strat["realized_pnl"] == 340.0

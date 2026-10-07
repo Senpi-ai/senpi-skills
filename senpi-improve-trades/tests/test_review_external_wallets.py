@@ -374,3 +374,291 @@ def test_a_saved_wallet_review_uses_none_of_the_retired_words():
         s = json.dumps(review._slim_for_context(res), sort_keys=True, ensure_ascii=False)
         assert not re.search(r"(?i)connect(?!ion)", s), re.findall(r".{0,40}onnect.{0,40}", s)[:3]
         assert not re.search(r"(?i)(?<![a-z])verified", s), re.findall(r".{0,40}erified.{0,20}", s)[:3]
+
+
+# ── every wallet first-class: one book, rows by value (reviewer §02/§04, release R1) ────────────────
+LW = "0x" + "d4" * 20
+
+
+def _valued_base():
+    """The Senpi fixture with Kodiak's clearinghouse carrying marginSummary — value 200 idle (shared by
+    both views, counted once) + 1300 main equity + 0 xyz equity = 1500."""
+    fx = _base()
+    key = "strategy_get_clearinghouse_state::0xkodiak00000000000000000000000000000kdk"
+    fx[key]["main"].update({"marginSummary": {"accountValue": "1500.00"}, "withdrawable": "200.00"})
+    fx[key]["xyz"].update({"marginSummary": {"accountValue": "200.00"}, "withdrawable": "200.00"})
+    return fx
+
+
+def _two_saved(base, cw_state, lw_state):
+    fx = _external(base, fills=_fills(), state=cw_state, wallets=((CW, "MetaMask"), (LW, "Ledger")))
+    for row in fx["account_get_external_wallets"]["external_wallets"]:
+        row["state"] = cw_state if row["address"] == CW else lw_state
+    return fx
+
+
+def _valued_state(total, protection="PARTIAL", unpriced=None):
+    st = _state(protection)
+    st["totalValueUsd"] = total
+    st["unpricedCoins"] = unpriced if unpriced is not None else []
+    return st
+
+
+def test_book_rows_are_one_list_by_value_and_kind_is_a_column():
+    res, _ = _run(_two_saved(_valued_base(), _valued_state("900.00"), _valued_state("5000.00", "FULL")))
+    rows = res["book"]["rows"]
+    assert [(r["label"], r["kind"], r["value_usd"]) for r in rows] == [
+        ("Ledger", "read_only", 5000.0), ("kodiak", "managed", 1500.0), ("MetaMask", "read_only", 900.0)]
+    k = rows[1]
+    assert k["closed_trade_count"] == res["strategies"][0]["closed_trade_count"]
+    assert k["realized_pnl"] == res["strategies"][0]["realized_pnl"]
+    assert k["protection"] == {"kind": "runtime_exit"} and "access" not in k
+    m = rows[2]
+    assert m["access"] == ACCESS and m["closed_trade_count"] == 2 and m["realized_pnl"] == 140.0
+    assert m["fees"] == 0.61 and m["open_position_count"] == 1
+    assert m["protection"] == {"kind": "live_stops", "FULL": 0, "PARTIAL": 1, "NONE": 0}
+    assert rows[0]["protection"] == {"kind": "live_stops", "FULL": 1, "PARTIAL": 0, "NONE": 0}
+
+
+def test_ties_break_by_label_then_address_and_unknown_sorts_last():
+    res, _ = _run(_two_saved(_valued_base(), None, _valued_state("1500.00")))
+    rows = res["book"]["rows"]
+    assert [(r["label"], r["value_usd"]) for r in rows] == [
+        ("kodiak", 1500.0), ("Ledger", 1500.0), ("MetaMask", None)]     # casefold tie-break; unknown LAST
+    assert rows[2]["value_read"] == "unavailable" and rows[2]["open_position_count"] is None
+
+
+def test_a_wallet_that_could_not_load_is_never_summed_as_zero():
+    res, _ = _run(_two_saved(_valued_base(), None, _valued_state("5000.00")))
+    tot = res["book"]["total"]
+    assert tot["value_usd"] == 6500.0                                  # 1500 managed + 5000 read-only
+    assert tot["managed"]["value_usd"] == 1500.0 and tot["read_only"]["value_usd"] == 5000.0
+    assert tot["excludes"]["couldnt_load"] == ["MetaMask"]
+    assert "total excludes 1 wallet that couldn't load (MetaMask)" in tot["line"]
+
+
+def test_a_read_error_state_is_couldnt_load_too():
+    err = {"readAt": "2026-10-03T12:00:00Z", "readError": "ORDERS_UNAVAILABLE:xyz", "role": "USER",
+           "accountMode": "default", "accountValueUsd": None, "spotBalances": None, "totalValueUsd": None,
+           "unpricedCoins": None, "positions": None, "openOrders": None}
+    res, _ = _run(_two_saved(_valued_base(), err, _valued_state("5000.00")))
+    m = [r for r in res["book"]["rows"] if r["label"] == "MetaMask"][0]
+    assert m["value_usd"] is None and m["value_read"] == "error" and res["book"]["rows"][-1] is m
+    assert "ORDERS_UNAVAILABLE" not in json.dumps(res["book"])          # never print the code
+
+
+def test_unpriced_coins_carry_their_note_to_the_book_total():
+    res, _ = _run(_two_saved(_valued_base(), _valued_state("900.00", unpriced=["PURR", "#4210"]),
+                             _valued_state("5000.00")))
+    m = [r for r in res["book"]["rows"] if r["label"] == "MetaMask"][0]
+    assert m["unpriced_coins"] == ["PURR", "#4210"] and m["value_usd"] == 900.0
+    tot = res["book"]["total"]
+    assert tot["excludes"]["unpriced_coins"] == ["PURR", "#4210"]
+    assert "total excludes PURR, #4210" in tot["line"]
+
+
+def test_the_managed_subtotal_is_the_senpi_numbers_and_they_do_not_move():
+    base, _ = _run(_valued_base())
+    mixed, _ = _run(_two_saved(_valued_base(), _valued_state("900.00"), _valued_state("5000.00")))
+    for key in ("timing_summary", "pnl_summary", "strategies", "closed_strategies", "dsl_close_reason_mix",
+                "telemetry_availability"):
+        assert json.dumps(mixed[key], sort_keys=True) == json.dumps(base[key], sort_keys=True), key
+    man = mixed["book"]["total"]["managed"]
+    assert man == base["book"]["total"]["managed"]                       # the pin, re-pointed at the subtotal
+    assert man["realized_pnl"] == mixed["pnl_summary"]["realized"]
+    assert man["fees"] == mixed["pnl_summary"]["fees"]
+    assert man["value_usd"] == 1500.0 and man["wallet_count"] == 1
+    ro = mixed["book"]["total"]["read_only"]
+    assert ro["value_usd"] == 5900.0 and ro["wallet_count"] == 2 and ro["realized_pnl"] == 280.0
+    assert mixed["book"]["total"]["realized_pnl"] == round(man["realized_pnl"] + 280.0, 2)
+
+
+def test_the_book_line_never_reads_a_saved_balance_as_deployable_or_as_senpi_performance():
+    res, _ = _run(_two_saved(_valued_base(), _valued_state("900.00"), _valued_state("5000.00")))
+    line = res["book"]["total"]["line"]
+    assert "managed by Senpi $1,500.00" in line and "read-only $5,900.00" in line
+    assert "Senpi can't deploy it" in line
+    assert "gross of fees" in line and "across the book" in line
+    assert not re.search(r"(?i)combined|deployable|idle", line)
+    assert "not Senpi performance" in res["book"]["total"]["note"]
+
+
+def test_saved_wallets_unavailable_never_read_as_none_in_the_book():
+    res, _ = _run(_valued_base())                                      # no user_get_me → unavailable
+    tot = res["book"]["total"]
+    assert tot["read_only"]["value_usd"] is None and tot["read_only"]["wallet_count"] is None
+    assert "your saved wallets couldn't be loaded" in tot["line"]
+    assert "The total excludes your saved wallets (couldn't be read)." in tot["line"]
+    assert "across the wallets that could be read" in tot["line"] and "across the book" not in tot["line"]
+    assert [r["kind"] for r in res["book"]["rows"]] == ["managed"]
+
+
+def test_an_unreadable_strategy_list_is_an_unknown_managed_subtotal_never_zero():
+    fx = _external({"strategy_list": None}, fills=_fills(), state=_valued_state("900.00"))
+
+    class Failing(review._FixtureClient):
+        def mcp_call(self, tool, timeout=12, **kw):
+            if tool == "strategy_list":
+                raise RuntimeError("401 unauthorized")
+            return super().mcp_call(tool, timeout=timeout, **kw)
+    res, _ = _run(fx, Failing)
+    man = res["book"]["total"]["managed"]
+    assert man["value_usd"] is None and man["realized_pnl"] is None and man["wallet_count"] is None
+    assert "your Senpi strategies couldn't be read" in res["book"]["total"]["line"]
+    assert res["book"]["total"]["value_usd"] == 900.0
+
+
+def test_a_saved_only_user_has_a_real_zero_managed_subtotal():
+    res, _ = _run(_external_only(fills=_fills(), state=_valued_state("900.00")))
+    man = res["book"]["total"]["managed"]
+    assert man["wallet_count"] == 0 and man["value_usd"] == 0.0
+    assert [r["kind"] for r in res["book"]["rows"]] == ["read_only"]
+    assert res["book"]["deep_dive"] is None                              # one wallet: no narrow offer
+
+
+def test_the_deep_dive_question_names_the_largest_first_for_more_than_one_wallet():
+    res, _ = _run(_two_saved(_valued_base(), _valued_state("900.00"), _valued_state("5000.00")))
+    dd = res["book"]["deep_dive"]
+    assert dd["question"] == "Which wallet do you want me to go deeper on: Ledger, kodiak or MetaMask?"
+    assert dd["order"] == ["Ledger", "kodiak", "MetaMask"]
+
+
+def test_duplicate_labels_are_told_apart_by_address():
+    fx = _external({"strategy_list": {"strategies": []}}, fills=_fills(), state=_valued_state("900.00"),
+                   wallets=((CW, "Main"), (LW, "Main")))
+    res, _ = _run(fx)
+    q = res["book"]["deep_dive"]["question"]
+    assert "Main (0xc3c3…c3c3)" in q and "Main (0xd4d4…d4d4)" in q
+
+
+def _row(label, kind, measurable, ahead, unknown=False, capped=False, value=100.0):
+    return {"label": label, "display_label": label, "kind": kind, "value_usd": value,
+            "trades_unknown": unknown, "trades_capped": capped,
+            "closed_trade_count": None if unknown else measurable,
+            "timing": None if unknown else {"measurable_closes": measurable, "exits_ahead": ahead,
+                                             "exits_ahead_share": round(ahead / measurable, 2) if measurable else None}}
+
+
+def test_the_comparison_needs_two_wallets_with_eight_measurable_closes():
+    assert review.MIN_COMPARE_CLOSES == 8
+    c = review._book_comparison([_row("Aegis", "managed", 10, 7), _row("MetaMask", "read_only", 9, 3)])
+    assert c["line"] == ("On closes measurable against today's price, Aegis got out ahead of the later move "
+                         "on 7 of 10 (70%), MetaMask on 3 of 9 (33%).")
+    assert [w["label"] for w in c["wallets"]] == ["Aegis", "MetaMask"] and c["min_closes"] == 8
+    thin = review._book_comparison([_row("Aegis", "managed", 10, 7), _row("MetaMask", "read_only", 7, 3)])
+    assert thin["line"] is None and "fewer than 2 wallets" in thin["reason"]
+    assert thin["not_compared"] == [{"label": "MetaMask", "why": "7 measurable closes, under 8"}]
+    assert review._book_comparison([_row("Solo", "read_only", 20, 5)])["line"] is None
+
+
+def test_the_comparison_names_a_wallet_it_could_not_read_or_that_was_capped():
+    c = review._book_comparison([_row("Aegis", "managed", 10, 7), _row("MetaMask", "read_only", 9, 3, capped=True),
+                                 _row("Ledger", "read_only", 0, 0, unknown=True)])
+    assert "MetaMask on at least 3 of 9" not in c["line"]
+    assert "MetaMask's closes are only its most recent (Hyperliquid's 2,000-fill ceiling)" in c["line"]
+    assert "Ledger isn't compared: its trades couldn't be read" in c["line"]
+    assert {"label": "Ledger", "why": "its trades couldn't be read"} in c["not_compared"]
+
+
+def test_the_comparison_is_deterministic_and_ordered_like_the_rows():
+    rows = [_row("B", "read_only", 8, 2, value=50.0), _row("A", "managed", 12, 6, value=900.0)]
+    rows.sort(key=review._row_sort_key)
+    a = review._book_comparison(rows)
+    assert a == review._book_comparison(rows) and a["line"].startswith(
+        "On closes measurable against today's price, A got out ahead")
+
+
+def test_the_engine_emits_no_comparison_on_a_thin_sample_and_says_why():
+    res, _ = _run(_two_saved(_valued_base(), _valued_state("900.00"), _valued_state("5000.00")))
+    c = res["book"]["comparison"]
+    assert c["line"] is None and "8" in c["reason"]                      # 2 closes each, no prices: thin
+
+
+def test_the_strategies_step_emits_the_same_book_as_all():
+    fx = _two_saved(_valued_base(), _valued_state("900.00"), _valued_state("5000.00"))
+    saved = _env()
+    try:
+        sp = os.path.join(tempfile.mkdtemp(), "s.json")
+        review.step_timing(review._FixtureClient(fx), window_days=WINDOW_DAYS, want_market=False,
+                           state_path=sp, now_ms=NOW_MS)
+        s = review.step_strategies(review._FixtureClient(fx), window_days=WINDOW_DAYS, want_market=False,
+                                   state_path=sp, now_ms=NOW_MS)
+        sp2 = os.path.join(tempfile.mkdtemp(), "s.json")                   # standalone: self-heals
+        s2 = review.step_strategies(review._FixtureClient(fx), window_days=WINDOW_DAYS, want_market=False,
+                                    state_path=sp2, now_ms=NOW_MS)
+    finally:
+        _restore(saved)
+    allr, _ = _run(fx)
+    assert s["book"] == allr["book"] == s2["book"]
+    assert list(allr.keys())[:2] == ["window", "book"]                   # the book comes first, then the detail
+
+
+def test_the_book_uses_none_of_the_retired_words():
+    res, _ = _run(_two_saved(_valued_base(), _valued_state("900.00"), None))
+    s = json.dumps(res["book"], ensure_ascii=False)
+    assert not re.search(r"(?i)connect(?!ion)|(?<![a-z])verified|you own|proven", s)
+    said = " ".join(x or "" for x in (res["book"]["total"]["line"], res["book"]["comparison"]["line"],
+                                      res["book"]["deep_dive"]["question"]))
+    assert not re.search(r"(?i)combined|deployable|\bidle\b", said)   # the user-facing lines
+
+
+# ── SKILL.md: one book, comparison, narrow offer, fix depth on a saved wallet ───────────────────────
+def _book_section():
+    return _skill().split("## One book — every wallet first-class", 1)[1].split(" ## ", 1)[0]
+
+
+def test_skill_narrates_one_book_in_the_engines_order():
+    sec = _book_section()
+    for needle in ("`book.rows`", "in the order the engine gives", "never re-section by origin",
+                   "`kind`", "managed", "read-only", "`book.total.line` verbatim",
+                   "Never build a \"Combined\" row", "never present it as Senpi performance",
+                   "`book.comparison.line`", "never compare wallets yourself",
+                   "`book.deep_dive.question`", "Which wallet do you want me to go deeper on",
+                   "couldn't load", "never $0",
+                   "runtime exit", "live stops", "never merge"):
+        assert needle in sec, needle
+
+
+def test_skill_offers_the_three_depths_on_a_saved_wallet_as_advice():
+    sec = _book_section()
+    for needle in ("**Explain only**", "**Turn it into a routine**", "**Draft the exact orders**",
+                   "places them on Hyperliquid themselves", "fewer than ~8 closes",
+                   "no write tool", "no template or strategy pitch"):
+        assert needle in sec, needle
+    assert not re.search(r"(?i)\bverified\b|\bproo?f\b|\bprov(e|ed|en)\b|\b(you|they) own\b|\bowned by\b", sec)
+
+
+def test_output_shape_documents_the_book():
+    shape = " ".join(open(os.path.join(HERE, "..", "references", "output-shape.md"), encoding="utf-8").read().split())
+    for needle in ("book", "rows[]", "kind: managed | read_only", "value_usd", "total", "comparison",
+                   "deep_dive", "MIN_COMPARE_CLOSES"):
+        assert needle in shape, needle
+
+
+def _round_trips(coin, n, close_px, t0):
+    out = []
+    for i in range(n):
+        t = t0 + i * 10000
+        out += [{"coin": coin, "dir": "Open Long", "sz": "2", "px": "100", "closedPnl": "0", "fee": "0.1",
+                 "time": t, "oid": 1000 + 2 * i},
+                {"coin": coin, "dir": "Close Long", "sz": "2", "px": str(close_px), "closedPnl": "10", "fee": "0.1",
+                 "time": t + 1000, "oid": 1001 + 2 * i}]
+    return out
+
+
+def test_the_engine_emits_one_comparison_line_end_to_end():
+    """MetaMask: 8 HYPE longs closed at 120, HYPE now 110 → every exit got out ahead. Ledger: 9 SOL longs
+    closed at 120, SOL now 130 → none did. Kodiak has 3 closes: under the gate, never compared."""
+    fx = _two_saved(_valued_base(), _valued_state("900.00"), _valued_state("5000.00"))
+    fx[f"hl::userFills::{CW}"] = _round_trips("HYPE", 8, 120, T0)
+    fx[f"hl::userFills::{LW}"] = _round_trips("SOL", 9, 120, T0)
+    fx["market_get_asset_data::hype"] = {"asset_context": {"markPx": "110.00"}}
+    saved = _env()
+    try:
+        res = review.run(review._FixtureClient(fx), window_days=WINDOW_DAYS, want_market=True, now_ms=NOW_MS)
+    finally:
+        _restore(saved)
+    c = res["book"]["comparison"]
+    assert c["line"] == ("On closes measurable against today's price, Ledger got out ahead of the later move "
+                         "on 0 of 9 (0%), MetaMask on 8 of 8 (100%).")
+    assert {"label": "kodiak", "why": "3 measurable closes, under 8"} in c["not_compared"]
