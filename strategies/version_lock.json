@@ -322,16 +322,16 @@
       "version": "1.3.1"
     },
     "pelican": {
-      "behaviour": "55e6f91e29ca2afa",
-      "version": "1.3.0"
+      "behaviour": "32687a1e8cc43ba2",
+      "version": "1.4.0"
     },
     "pelicans-duo": {
-      "behaviour": "ae30780a9f870107",
-      "version": "1.0.1"
+      "behaviour": "58a9d3d826f08bee",
+      "version": "1.1.0"
     },
     "penguin": {
-      "behaviour": "6e2fe86de12e12f4",
-      "version": "1.2.0"
+      "behaviour": "21f33edc626229c3",
+      "version": "1.3.0"
     },
     "penguin-chase-150bp": {
       "behaviour": "cce6841c13b9f068",
@@ -346,12 +346,12 @@
       "version": "1.0.1"
     },
     "penguin-x5": {
-      "behaviour": "ff2fa0d28c62fcf8",
-      "version": "1.1.1"
+      "behaviour": "de5a531bc45c71cb",
+      "version": "1.2.0"
     },
     "penguins-duo": {
-      "behaviour": "7d65df5ec865624f",
-      "version": "1.1.1"
+      "behaviour": "e7de5439f16c6f13",
+      "version": "1.2.0"
     },
     "penguins-duo-chase-150bp": {
       "behaviour": "a58e5140364f1813",
@@ -394,8 +394,8 @@
       "version": "1.0.1"
     },
     "purple-penguin": {
-      "behaviour": "c603370f2aaa980a",
-      "version": "1.1.1"
+      "behaviour": "0aa0f2a9e9da4fb5",
+      "version": "1.2.0"
     },
     "python": {
       "behaviour": "52f39aed485b4ea3",
