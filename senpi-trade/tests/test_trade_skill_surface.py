@@ -59,13 +59,13 @@ class ProtectionProtocolIsResident(unittest.TestCase):
         self.assertIn("$2,095", text) and self.assertIn("$1,557", text)
 
     def test_a_saved_wallet_is_answered_with_its_access_line_not_a_write(self):
-        """External Wallets R1: Senpi cannot trade a connected wallet. The answer is the MCP's access
-        line, verbatim, and no write tool is attempted on it."""
+        """External Wallets R1, amendment A1: Senpi cannot trade a wallet the user added in Your wallets.
+        The answer is the MCP's access line, verbatim, and no write tool is attempted on it."""
         body = " ".join(_body(SKILL).split())
-        for needle in ("CONNECTED wallets", "`external_wallets`", "no write-tool attempt",
+        for needle in ("SAVED wallets", "`external_wallets`", "no write-tool attempt",
                        "Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.",
-                       "`NOT_A_STRATEGY_WALLET` (match the error code)", "Wallets on senpi.ai (web)",
-                       "a pasted address is never described as saved"):
+                       "`NOT_A_STRATEGY_WALLET` (match the error code)", "add it in Your wallets on senpi.ai (web)",
+                       "an address pasted in chat is never described as saved"):
             self.assertIn(needle, body, needle)
 
     def test_readme_row_matches_the_skill_version(self):
