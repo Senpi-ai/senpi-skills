@@ -9,7 +9,11 @@ This file is how to tell them apart, and how to say so in one line each.
 
 ## The rule
 
-**Never offer two members of the same family in the same shortlist.** Offer the PARENT, and name the
+**Never offer two members of the same family in the same shortlist** — with one exception, the
+chase caps below, where 1.5% is now a shipped DEFAULT and the user should be told what it does
+and offered the looser settings.
+
+**The rule, restated:** Offer the PARENT, and name the
 variant only when the user's own words ask for the thing it varies. "I want fewer, bigger positions"
 earns the duo. "I keep getting in late" earns a chase arm. Nothing in a generic request earns any of
 them.
@@ -19,9 +23,25 @@ breath, every time. A variant without its parent named is unreadable.
 
 ## The families
 
-### 1. Chase caps — how late an entry may be (6 arms)
+### 1. Chase caps — how late an entry may be
 
-`penguin-chase-{150,200,300}bp` · `penguins-duo-chase-{150,200,300}bp`
+**The default is now 1.5%, and this family is the exception to the rule above: ASK.**
+
+As of 2026-10-07, `penguin`, `penguins-duo`, `pelican`, `pelicans-duo`, `purple-penguin` and
+`penguin-x5` all ship `maxPreMovePct: 1.5` — the strictest setting. A user who just says "run
+penguin" gets the 1.5% gate.
+
+Because that is now a default rather than a user choice, **say what it does and offer the looser
+settings, in one line, before the budget question** — do not ship it silently:
+
+> It skips any entry where the price has already moved **1.5%** in the signal's own direction over
+> the last hour — about one entry in five. There are 2% and 3% versions if you want it looser.
+
+Then let them answer. If they say nothing, 1.5% is what they get.
+
+The alternatives are separate packages: `penguin-chase-{200,300}bp` ·
+`penguins-duo-chase-{200,300}bp`. (`*-chase-150bp` is now identical to its parent — offer the
+parent, not the arm.)
 
 Every arm rejects an entry once price has already moved **in the signal's own direction** over the
 last hour by more than the cap: **1.5%**, **2.0%** or **3.0%**. Direction-aware — buying after a
@@ -29,19 +49,18 @@ fall, or selling after a rally, still passes. It gates *lateness*, not volatilit
 
 Nothing else differs from `penguin` / `penguins-duo`. Same detector, same sizing, same exits.
 
-| arm | rejects | what to say |
+| cap | rejects | what to say |
 |---|---:|---|
-| `…-chase-150bp` | 18.2% of entries | "strictest — skips about one entry in five for arriving late" |
-| `…-chase-200bp` | 9.1% | "middle" |
-| `…-chase-300bp` | 6.8% | "loosest — the same cap the production strategy already runs" |
+| **1.5% (default)** | 18.2% of entries | "strictest — skips about one entry in five for arriving late" |
+| 2.0% | 9.1% | "middle" |
+| 3.0% | 6.8% | "loosest — closest to taking every signal" |
 
 Measured over 7 days to 2026-10-06 by replaying the real selection rule (the top-scoring passing
 candidate per scan, which is what the strategy enters), n=44 entries. p50 +0.73%, p90 +1.89%.
 
-**Tell the user this before they pick:** `300bp` is what plain `penguin` already does, so choosing
-it is choosing the parent with a different name. And **2.0 and 3.0 differ by one trade in 44** — a
-user running those two against each other should expect weeks, not days, before anything separates.
-1.5 is the only arm that differs enough to read quickly.
+**Tell the user this before they pick:** **2.0 and 3.0 differ by about one trade in 44**, so a user
+running those two against each other should expect weeks, not days, before anything separates. The
+jump from 1.5 to 3.0 is the only one that shows up quickly.
 
 ### 2. Duos — one big position or two half-sized ones
 
