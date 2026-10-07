@@ -49,7 +49,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.42.0"
+VERSION = "1.42.1"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -821,6 +821,11 @@ class _Flight:
             pass
 
 
+def _with_whose_note(md, whose_changed):
+    """The analyzed→saved sentence goes first, so it is said before the desk speaks in the second person."""
+    return f"{whose_changed['say']}\n\n{md}" if whose_changed else md
+
+
 def resolve_whose(book, addr, other=False, mine=False, claim=False, saved=()):
     """Whose book this is. **An address is the reader's own book unless we know otherwise.**
 
@@ -971,9 +976,10 @@ def main(argv=None):
     # to the person who owns them. Only an explicit --other overrides that.
     # A saved wallet beats a stale `analyzed` mark. Read only when that mark is what decides the
     # voice: the one extra MCP call is not worth paying on every run.
-    saved = ()
-    if not wallets and not (a.other or a.mine or a.claim) and \
-            addr_book.relationship(book, addr) == addr_book.ANALYZED:
+    # `--mine` / `--claim` read it too: the voice is already theirs, but the reader is still owed the
+    # one-time note below.
+    saved, saved_ok = (), False
+    if not wallets and not a.other and addr_book.relationship(book, addr) == addr_book.ANALYZED:
         if a.fixture:
             with open(a.fixture) as fh:
                 _rec = json.load(fh)
@@ -981,8 +987,23 @@ def main(argv=None):
         else:
             _mw = my_wallets(_mcp_client({}))
         saved = [w["address"] for w in (_mw.get("external_wallets") or [])]
+        saved_ok = _mw.get("external_wallets_status") == addr_book.EXTERNAL_OK
     whose = ("other" if a.other else "mine") if wallets else \
         resolve_whose(book, addr, other=a.other, mine=a.mine, claim=a.claim, saved=saved)
+    # Read as a stranger's, then added to Your wallets: the desk now speaks to the reader about it. The
+    # agent said so only on the `--my-wallets` path, never on "Find my leaks on 0x…" (dev E2E
+    # 2026-10-07, F2) — so the desk prints the sentence itself, once per add, with the way back.
+    is_saved = addr in {str(w).lower() for w in saved}
+    whose_changed = None
+    if is_saved and whose == "mine" and addr_book.saved_note_due(book, addr):
+        whose_changed = {
+            "from": "analyzed", "to": "saved",
+            "say": f"I'm reading {addr[:6]}…{addr[-4:]} as your book now, because you added it to Your "
+                   f"wallets — before that, this desk had read it as someone else's. That's your claim; "
+                   f"senpi hasn't checked who controls it. If it isn't yours, you can "
+                   f"remove it in Your wallets on senpi.ai (web)."}
+    elif saved_ok and not is_saved:
+        addr_book.clear_saved_note(book, addr)
     # A BOOK is keyed on its whole SET, not on its first wallet. Keying on wallets[0] made
     # `desk.py A` and `desk.py --book A B` share desk-A.json for the 10-minute freshness window, so
     # whichever ran first was served as the other: a single wallet returned as "across 2 wallets"
@@ -1104,6 +1125,9 @@ def main(argv=None):
         # the whole staged run — and JSONDecodeError is not an HLError, so the handler above misses it
         r["desk_version"] = VERSION          # a cache another version wrote is stale (_cached_run)
         hl_api._atomic_json(state_path, json.loads(json.dumps(r, default=float)))
+    if r.get("whose") != whose:
+        r["whose"] = whose; r["followups"] = followups.offer(r, whose=whose)     # a cached run re-voiced,
+    # before --deep too: a deep dive on a just-added wallet must not speak of it in the third person
     if a.deep:
         candles = {}
         if a.deep in ("protect", "replay"):
@@ -1122,16 +1146,19 @@ def main(argv=None):
                 "smart": lambda: dict(cohorts=r.get("cohorts") or []), "scout": lambda: dict(opportunities=r.get("opportunities") or [], setups=r.get("setups")),
                 "strategy": lambda: r.get("strategy") or {}}[a.deep]()
         if a.json:
-            print(json.dumps(data, default=float))
+            print(json.dumps(dict(data, whose_changed=whose_changed) if whose_changed and isinstance(data, dict)
+                             else data, default=float))
         else:
             md = render.render_deep(a.deep, data, r)
             if r.get("whose") == "other":
                 import voice
                 md = voice.third_person(md, f"{addr[:6]}…{addr[-4:]}")
-            print(md)
+            print(_with_whose_note(md, whose_changed))
+        if whose_changed or saved_ok:
+            if whose_changed:
+                addr_book.mark_saved_noted(book, addr)
+            addr_book.save(a.state_dir, book)
         return 0
-    if r.get("whose") != whose:
-        r["whose"] = whose; r["followups"] = followups.offer(r, whose=whose)     # a cached run re-voiced
     # `--claim` no longer records ownership (1.42.0): a typed claim is this run's voice, never saved.
     rel = addr_book.ANALYZED if whose == "other" else None
     tr = r.get("track") or {}
@@ -1148,11 +1175,16 @@ def main(argv=None):
                      # `score` and `generated` are not keys on the record — both were silently None
                      digest={"at": r.get("now_ms"), "score": r.get("quant_score"),
                              "verdict": r.get("verdict"), "net": tr.get("ledger_net")})
+    if whose_changed:
+        addr_book.mark_saved_noted(book, addr)
     addr_book.save(a.state_dir, book)
     if a.json:
-        print(json.dumps({k: v for k, v in r.items() if k != "episodes"}, default=float))
+        out = {k: v for k, v in r.items() if k != "episodes"}
+        if whose_changed:
+            out["whose_changed"] = whose_changed       # this run only: never written to the run cache
+        print(json.dumps(out, default=float))
     else:
-        print(render.render(r, a.section))
+        print(_with_whose_note(render.render(r, a.section), whose_changed))
     return 0
 
 
