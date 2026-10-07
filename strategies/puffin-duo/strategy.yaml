@@ -6,7 +6,7 @@
 # own P&L — see senpi-strategy-discover/references/variant-families.md.
 schema_version: 1
 id: puffin-duo
-version: "1.0.1"
+version: "1.0.2"
 catalog:
   varies: puffin          # a VARIANT of this template — never outrank it
   name: Puffin Duo — two slots at 45%
@@ -18,9 +18,9 @@ catalog:
   archetype: copy_trading
   sub_style: signal_feed
   asset_classes:
-  - universe_crypto
-  - btc_eth
-  - major_alts
+    - universe_crypto
+    - btc_eth
+    - major_alts
   asset_scope: universe
   direction: long_short
   risk_level: aggressive
@@ -31,34 +31,34 @@ catalog:
   assets: []
   min_budget_floor: 50
   tags:
-  - always-on
-  - cohort
-  - concentrated
-  - concentration
-  - copy-trading
-  - detector-library
-  - experiment
-  - follows-traders
-  - funding
-  - high-conviction
-  - high-leverage
-  - long-short
-  - open-interest
-  - proven-cohort
-  - selective
-  - senpi-signals
-  - signals
-  - single-slot
-  - smart-money
-  - two-slot
-  - whale
-  - whale-moves
+    - always-on
+    - cohort
+    - concentrated
+    - concentration
+    - copy-trading
+    - detector-library
+    - experiment
+    - follows-traders
+    - funding
+    - high-conviction
+    - high-leverage
+    - long-short
+    - open-interest
+    - proven-cohort
+    - selective
+    - senpi-signals
+    - signals
+    - single-slot
+    - smart-money
+    - two-slot
+    - whale
+    - whale-moves
 requires:
   runtime: '>=3.0.0'
 defaults:
   auth_token_env: SENPI_AUTH_TOKEN
 instances:
-- name: main
-  runtime: main/runtime.yaml
-  wallet_env: PUFFIN_WALLET
-  funding_share: 1.0
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: PUFFIN_WALLET
+    funding_share: 1.0

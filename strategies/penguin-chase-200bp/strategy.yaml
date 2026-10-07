@@ -10,7 +10,7 @@
 # own P&L — see senpi-strategy-discover/references/variant-families.md.
 schema_version: 1
 id: penguin-chase-200bp
-version: "1.0.1"
+version: "1.0.2"
 catalog:
   varies: penguin          # a VARIANT of this template — never outrank it
   name: Penguin Chase 2% — pre-move cap arm
@@ -22,7 +22,7 @@ catalog:
   archetype: breakout_momentum
   sub_style: rank_jump
   asset_classes:
-  - universe_crypto
+    - universe_crypto
   asset_scope: universe
   direction: long_short
   risk_level: aggressive
@@ -32,29 +32,29 @@ catalog:
   max_slots: 1
   assets: []
   tags:
-  - aggressive
-  - breakout
-  - chase-200bp
-  - concentrated
-  - experiment
-  - first-jump
-  - high-leverage
-  - high-risk-high-reward
-  - hyperfeed
-  - leader-momentum
-  - momentum
-  - pre-move-gate
-  - rank-jump
-  - single-slot
-  - start-here
-  - striker
-  - universe-scanner
+    - aggressive
+    - breakout
+    - chase-200bp
+    - concentrated
+    - experiment
+    - first-jump
+    - high-leverage
+    - high-risk-high-reward
+    - hyperfeed
+    - leader-momentum
+    - momentum
+    - pre-move-gate
+    - rank-jump
+    - single-slot
+    - start-here
+    - striker
+    - universe-scanner
 requires:
   runtime: '>=3.0.0'
 defaults:
   auth_token_env: SENPI_AUTH_TOKEN
 instances:
-- name: main
-  runtime: main/runtime.yaml
-  wallet_env: PENGUIN_WALLET
-  funding_share: 1.0
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: PENGUIN_WALLET
+    funding_share: 1.0
