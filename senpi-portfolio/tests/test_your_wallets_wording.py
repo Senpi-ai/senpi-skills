@@ -82,7 +82,7 @@ def test_the_panel_is_never_named_without_a_permitted_pointer():
 
 
 def test_removal_is_pointed_to_in_the_portfolio_and_quant_desk_sections():
-    for rel, start, end in (("senpi-portfolio/SKILL.md", "## Your wallets (read-only)", None),
+    for rel, start, end in (("senpi-portfolio/SKILL.md", "## One wallet list — every wallet first-class", None),
                             ("quant-desk/SKILL.md", '**"My wallets" are', "**The desk remembers.**")):
         assert REMOVE_POINTER in _section(rel, start, end), rel
 
@@ -91,7 +91,7 @@ def test_removal_is_pointed_to_in_the_portfolio_and_quant_desk_sections():
 # "verified" is legal elsewhere in some of these files (a runtime's liveness, Senpi's own issued
 # wallets) but never where a saved wallet is described.
 SECTIONS = (
-    ("senpi-portfolio/SKILL.md", "## Your wallets (read-only)", None),
+    ("senpi-portfolio/SKILL.md", "## One wallet list — every wallet first-class", None),
     ("senpi-improve-trades/SKILL.md", "## Your wallets (read-only, traded by hand)", None),
     ("quant-desk/SKILL.md", '**"My wallets" are', "**The desk remembers.**"),
     ("quant-desk/SKILL.md", "### If they mean their OWN book", None),
