@@ -685,7 +685,10 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
 
 Every wallet the user has is ONE list, `book.wallets`, ordered by value: the Senpi main wallet, each
 Senpi strategy (one row across ALL its wallets — `strategy_wallets[]` are its sleeves, never rows of
-their own) and each wallet the user added in Your wallets. The engine sorts it (`book.order_rule`:
+their own) and each wallet the user added in Your wallets. A strategy row's wallets are grouped by
+the same key in every step — the package they were deployed under (`skill_name`; a wallet with none
+is its own row, `strategy_group` names the key) — so the `money` step and the `strategies` step list
+the same rows. The engine sorts it (`book.order_rule`:
 largest first; ties by label, then address; a wallet that couldn't load last). **Keep the engine's
 order and never re-section by origin** — no Senpi block followed by a saved-wallets block, no saved
 wallet appended after the money map. Origin is the kind column (`kind`: `managed` = Senpi runs it,
@@ -706,7 +709,12 @@ wallet appended after the money map. Origin is the kind column (`kind`: `managed
   `book.totals.read_only_usd` is the wallets the user added — never idle, never deployable, never in the
   managed subtotal. `book.totals.excludes_note` names every wallet that couldn't load and every coin
   without a price; it is part of the total — never quote the total without it. `read_only_usd: null`
-  means the saved-wallets read failed, never $0.
+  means the saved-wallets read failed or none of the saved wallets loaded ("read-only unknown"),
+  never $0; when only some loaded, `read_only_wallets` (`loaded` of `total`) and the line say how
+  many ("1 of 2 wallets you added"). No saved wallets → the line has no read-only clause.
+  `book.totals.managed_complete: false` → strategy_list couldn't be read: the managed figure is the
+  Senpi main wallet only, the line says "your Senpi strategies couldn't be read", and it is never
+  "no strategies" (no `meta.no_strategy_path`, no strategy pitch) — say you couldn't read them.
 
 The rest of this section is about the **read-only rows** — the user's **saved wallets**, Hyperliquid
 wallets they added in Your wallets by pasting the address, and trade by hand. A saved wallet is their
@@ -835,8 +843,10 @@ Returns `{book, totals, embedded_wallet, external_wallets, strategies, strategy_
   `runtime_health`, `realized_pnl_usd` (or `not_read_this_step` on the `money` step); a saved row adds
   `address`, `protection` counts, `excludes_coins`, `no_hyperliquid_activity`, `positions_scope`, `access`,
   `not_applicable`. `totals`: `total_usd`, `managed_usd` (= `grand_total_usd`), `managed_breakdown` (the
-  three buckets + `reconciles`), `read_only_usd`, `read_only_note`, `excludes`, `excludes_note`, `line`
-  (the rendered total — quote it). `deep_dive`: `offer`, `question`, `order` (labels, largest first).
+  three buckets + `reconciles`), `managed_complete`, `read_only_usd`, `read_only_wallets`
+  (`total` / `loaded`), `read_only_note`, `excludes` (+ `strategies_unreadable`), `excludes_note`, `line`
+  (the rendered total — quote it). `deep_dive`: `offer`, `question`, `order` (labels, largest first —
+  only wallets with something to go deeper on).
 - `external_wallets` — the saved wallets' raw reads: `status` (`ok` / `unavailable`) and `wallets[]`,
   each `state` verbatim from `account_get_external_wallets` (see "One wallet list — every wallet first-class").
 - `totals` — the MANAGED money map: the three buckets + `grand_total_usd`, `unrealized_pnl`, and a `reconciles` flag (cross-
@@ -994,9 +1004,11 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
 
 ## Mandatory closing (verbatim)
 
-**First, when `book.deep_dive.offer` is true** (more than one wallet in the list — any user, with or
-without a Senpi strategy), ask the deep-dive question and name the wallets in `book.deep_dive.order`,
-largest first:
+**First, when `book.deep_dive.offer` is true** (more than one wallet with something to go deeper on —
+any user, with or without a Senpi strategy), ask the deep-dive question and name the wallets in
+`book.deep_dive.order`, largest first. The order holds only wallets with a non-zero value, an open
+position, or a value that couldn't load: an empty $0 Senpi main wallet is a row of the list, never an
+option of the question.
 
 > **Which one do you want me to go deeper on?**
 

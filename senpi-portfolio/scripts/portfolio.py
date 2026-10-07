@@ -947,16 +947,25 @@ def _strategy_label(key, insts):
     return f"strategy {_short_wallet(s.get('wallet'))}"
 
 
+def _book_group_key(strat):
+    """The book's key for a strategy's wallets — the SAME in every step. The `money` step reads no runtime
+    registry (by design: it is the fast slice), so it has no `profile.group`; grouping the `strategies`
+    step by it made one strategy two rows, then one. Both steps have the package the wallet was deployed
+    under (`skill_name`, from strategy_list) — that is the key; a wallet with none is its own row."""
+    if strat.get("skill_name"):
+        return str(strat["skill_name"])
+    return str(strat.get("wallet") or id(strat))
+
+
 def _strategy_rows(strategies, groups):
-    """One row per Senpi strategy, summed across ALL its wallets (same key as group_strategies). `groups`
-    is None on the `money` step, which reads no positions — those columns are then `not_read_this_step`
-    (asked later), not unknown. A wallet whose clearinghouse read failed has no `account_value`: it is
-    counted in `wallets_couldnt_load`, never summed as $0."""
-    by_label = {g.get("label"): g for g in (groups or []) if isinstance(g, dict)}
+    """One row per Senpi strategy, summed across ALL its wallets (`_book_group_key` — one key in every
+    step). `groups` is None on the `money` step, which reads no positions — those columns are then
+    `not_read_this_step` (asked later), not unknown. A wallet whose clearinghouse read failed has no
+    `account_value`: it is counted in `wallets_couldnt_load`, never summed as $0."""
     order, buckets = [], {}
     for s in (strategies or []):
         try:
-            key = _group_key(s)
+            key = _book_group_key(s)
         except Exception:  # noqa — a malformed row must not sink the list
             key = str(s.get("wallet") or id(s))
         if key not in buckets:
@@ -980,14 +989,18 @@ def _strategy_rows(strategies, groups):
             row["not_read_this_step"] = list(STRATEGY_DETAIL_COLUMNS)
             row["detail_step"] = "strategies"
         else:
-            g = by_label.get(key) or {}
+            # rolled up over THIS row's wallets with group_strategies' own rules (all-protected, worst health,
+            # realized summed over the wallets that read) — never looked up by a key the money step lacks
             row["open_positions"] = sum(len(s.get("positions") or []) for s in read) if read else None
             # the runtime-exit word for a Senpi strategy — never `protection` (that is live stops on a saved wallet)
-            row["protected"] = g.get("protected")
-            row["runtime_health"] = g.get("runtime_health")
+            row["protected"] = _rollup_flag(insts, "protected")
+            row["runtime_health"] = next((v for v in _GROUP_HEALTH_WORST_FIRST
+                                          if any(s.get("runtime_health") == v for s in insts)), "unknown")
             row["unrealized_pnl_usd"] = (round(sum(_num(p.get("upnl")) or 0.0 for s in read
                                                    for p in (s.get("positions") or [])), 2) if read else None)
-            row["realized_pnl_usd"] = (g.get("totals") or {}).get("realized_pnl")
+            realized = [_num((s.get("closed") or {}).get("realized_pnl")) for s in insts]
+            realized = [v for v in realized if v is not None]
+            row["realized_pnl_usd"] = round(sum(realized), 2) if realized else None
         rows.append(row)
     return rows
 
@@ -1039,15 +1052,29 @@ def _join(parts):
     return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
 
 
-def build_book(embedded, strategies, saved, totals, groups=None):
+def _deep_dive_worthy(row):
+    """A row the deep-dive question offers: something to go deeper on — a non-zero value, an open
+    position, or a value that couldn't load (unknown is never "nothing there"). A read $0 with no open
+    position (an empty Senpi main wallet, a saved wallet with no Hyperliquid activity) is still a row of
+    the list, never an option of the question."""
+    v = row.get("value_usd")
+    return v is None or v != 0 or bool(row.get("open_positions"))
+
+
+def build_book(embedded, strategies, saved, totals, groups=None, strategies_unreadable=False):
     """`book` — the ONE wallet list + the one book total. `totals` is this step's Senpi money map;
-    `managed_usd` is its `grand_total_usd`, exactly. Additive: nothing here feeds back into `totals`."""
+    `managed_usd` is its `grand_total_usd`, exactly. Additive: nothing here feeds back into `totals`.
+    `strategies_unreadable`: strategy_list itself failed, so the managed subtotal is the Senpi main wallet
+    only — said on the line and in `excludes`, never presented as the whole managed side."""
     rows = [_embedded_row(embedded)] + _strategy_rows(strategies, groups) + _saved_rows(saved)
     rows.sort(key=_book_sort_key)
     saved_ok = (saved or {}).get("status") == EXTERNAL_OK
     managed = totals.get("grand_total_usd")
-    read_only = (round(sum(r["value_usd"] for r in rows if r["kind"] == KIND_READ_ONLY and r["loaded"]), 2)
-                 if saved_ok else None)
+    ro_rows = [r for r in rows if r["kind"] == KIND_READ_ONLY]
+    ro_loaded = [r for r in ro_rows if r["loaded"]]
+    # None = unknown, never 0: the saved-wallets read failed, or not one of the saved wallets loaded
+    read_only = (round(sum(r["value_usd"] for r in ro_loaded), 2)
+                 if saved_ok and (ro_loaded or not ro_rows) else None)
     total = round((managed or 0.0) + (read_only or 0.0), 2)
     # what the total leaves out: every wallet that couldn't load (a strategy's unread sleeve by its name),
     # the saved-wallets read when it failed, and every coin a saved wallet could not price
@@ -1060,6 +1087,8 @@ def build_book(embedded, strategies, saved, totals, groups=None):
             excluded.append(str(r["label"]))
     coins = sorted({c for r in rows for c in (r.get("excludes_coins") or []) if isinstance(c, str)})
     parts = []
+    if strategies_unreadable:
+        parts.append("your Senpi strategies (couldn't be read)")
     if excluded:
         parts.append(f"{len(excluded)} wallet{'s' if len(excluded) != 1 else ''} that couldn't load "
                      f"({', '.join(excluded)})")
@@ -1069,12 +1098,24 @@ def build_book(embedded, strategies, saved, totals, groups=None):
         parts.append(f"{', '.join(coins)} (no price)")
     excludes_note = f"total excludes {_join(parts)}" if parts else None
     reconciles = totals.get("reconciles")
-    line = (f"Book total {_money_str(total)} — managed by Senpi {_money_str(managed or 0.0)} "
-            f"(idle in your {EMBEDDED_LABEL} {_money_str(totals.get('idle_in_embedded') or 0.0)} · "
-            f"idle in strategies {_money_str(totals.get('idle_in_strategies') or 0.0)} · "
-            f"deployed in positions {_money_str(totals.get('deployed_in_positions') or 0.0)})")
-    if read_only is not None:
-        line += f" · read-only {_money_str(read_only)} (wallets you added — Senpi cannot trade or deploy it)"
+    if strategies_unreadable:
+        # the strategy buckets are unknown, not $0 — the managed figure is the main wallet alone
+        line = (f"Book total {_money_str(total)} — managed by Senpi {_money_str(managed or 0.0)} "
+                f"(your {EMBEDDED_LABEL} only — your Senpi strategies couldn't be read)")
+    else:
+        line = (f"Book total {_money_str(total)} — managed by Senpi {_money_str(managed or 0.0)} "
+                f"(idle in your {EMBEDDED_LABEL} {_money_str(totals.get('idle_in_embedded') or 0.0)} · "
+                f"idle in strategies {_money_str(totals.get('idle_in_strategies') or 0.0)} · "
+                f"deployed in positions {_money_str(totals.get('deployed_in_positions') or 0.0)})")
+    # the read-only clause: omitted when there are no saved wallets (nothing to say); "unknown" when none
+    # loaded; "N of M" when only some did. An unavailable read is said in the excludes note instead.
+    if saved_ok and ro_rows:
+        if read_only is None:
+            line += " · read-only unknown"
+        else:
+            count = (f"{len(ro_loaded)} of {len(ro_rows)} wallets you added" if len(ro_loaded) < len(ro_rows)
+                     else "wallets you added")
+            line += f" · read-only {_money_str(read_only)} ({count} — Senpi cannot trade or deploy it)"
     if excludes_note:
         line += f" · {excludes_note}"
     if reconciles is False:
@@ -1088,14 +1129,21 @@ def build_book(embedded, strategies, saved, totals, groups=None):
             "managed_breakdown": {k: totals.get(k) for k in
                                   ("idle_in_embedded", "idle_in_strategies", "deployed_in_positions",
                                    "reconciles")},
-            "read_only_usd": read_only,           # None = the saved-wallets read failed, never 0
+            # False = strategy_list failed: managed_usd is the Senpi main wallet only (said on the line)
+            "managed_complete": not strategies_unreadable,
+            # None = unknown, never 0: the saved-wallets read failed, or none of the saved wallets loaded
+            "read_only_usd": read_only,
+            "read_only_wallets": ({"total": len(ro_rows), "loaded": len(ro_loaded)} if saved_ok
+                                  else {"total": None, "loaded": None}),
             "read_only_note": READ_ONLY_NOTE,
-            "excludes": {"wallets": excluded, "coins": coins, "saved_wallets_unavailable": not saved_ok},
+            "excludes": {"wallets": excluded, "coins": coins, "saved_wallets_unavailable": not saved_ok,
+                         "strategies_unreadable": bool(strategies_unreadable)},
             "excludes_note": excludes_note,
             "line": line,
         },
-        "deep_dive": {"offer": len(rows) > 1, "question": DEEP_DIVE_QUESTION,
-                      "order": [r["label"] for r in rows]},
+        # only rows with something to go deeper on (`_deep_dive_worthy`), in the list's order
+        "deep_dive": {"offer": sum(1 for r in rows if _deep_dive_worthy(r)) > 1, "question": DEEP_DIVE_QUESTION,
+                      "order": [r["label"] for r in rows if _deep_dive_worthy(r)]},
     }
 
 
@@ -1108,6 +1156,7 @@ def fetch_strategies(client, meta):
         sl = _ok(client.mcp_call("strategy_list", status=["ACTIVE"], timeout=20))
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"strategy_list failed: {e}")
+        meta["strategy_list_failed"] = True     # unknown, never "no strategies" (no_strategy_path, book)
         return []
     rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
     # UNIVERSAL source of "what it does / how it works": the descriptor the RUNTIME renders for each
@@ -1694,11 +1743,13 @@ def _warn_if_not_reconciled(totals, meta):
     grand = totals.get("grand_total_usd") or 0.0
     gap = round(abs((pbal or 0.0) - grand), 2)
     tol = round(_reconcile_tolerance(grand), 2)
-    meta.setdefault("warnings", []).append(
-        f"TOTALS DO NOT RECONCILE — the portfolio aggregate (${pbal:,.2f}) and the per-wallet grand "
-        f"total (${grand:,.2f}) disagree by ${gap:,.2f} (tolerance ${tol:,.2f}): a bucket is missing or "
-        f"double-counted. STOP and re-run before narrating any dollar figure (SKILL.md); if it "
-        f"persists, trust the per-wallet (live) figures and say the aggregate disagrees.")
+    msg = (f"TOTALS DO NOT RECONCILE — the portfolio aggregate (${pbal:,.2f}) and the per-wallet grand "
+           f"total (${grand:,.2f}) disagree by ${gap:,.2f} (tolerance ${tol:,.2f}): a bucket is missing or "
+           f"double-counted. STOP and re-run before narrating any dollar figure (SKILL.md); if it "
+           f"persists, trust the per-wallet (live) figures and say the aggregate disagrees.")
+    warnings = meta.setdefault("warnings", [])
+    if msg not in warnings:          # idempotent: a later step re-checks what an earlier one already said
+        warnings.append(msg)
 
 
 def compute(embedded, strategies, portfolio_totals, meta=None):
@@ -1950,7 +2001,8 @@ def run(client, want_market=True):
         "as_of": "live",
         # EVERY wallet in ONE list by value (kind = managed / read-only) + the one book total — present
         # from here; managed subtotal == totals.grand_total_usd
-        "book": build_book(embedded, strategies, saved, totals, strategy_groups),
+        "book": build_book(embedded, strategies, saved, totals, strategy_groups,
+                           strategies_unreadable=bool(meta.get("strategy_list_failed"))),
         "totals": totals,           # the three buckets — NEVER conflate them (the MANAGED money only)
         "embedded_wallet": embedded,
         # READ-ONLY wallets the user trades by hand — their raw state; never in totals/idle/reconciles.
@@ -2067,6 +2119,7 @@ def fetch_strategy_money(client, meta):
         sl = _ok(client.mcp_call("strategy_list", status=["ACTIVE"], timeout=20))
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"strategy_list failed: {e}")
+        meta["strategy_list_failed"] = True     # unknown, never "no strategies" (no_strategy_path, book)
         return []
     rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
     strategies = []
@@ -2138,6 +2191,8 @@ def _ensure_full_strategies_in_state(client, state, want_market, meta):
     portfolio_totals = state.get("portfolio_totals")
     strategies = state.get("strategies_full")
     if isinstance(embedded, dict) and isinstance(strategies, list) and isinstance(portfolio_totals, dict):
+        if state.get("strategy_list_failed"):
+            meta["strategy_list_failed"] = True
         return embedded, strategies, portfolio_totals
     # state absent/partial → recompute the full pull (embedded + fully-hydrated strategies). The market
     # enrichment is the `positions` step's job — skip it here (want_market only gates step 3's fold).
@@ -2149,8 +2204,11 @@ def _ensure_full_strategies_in_state(client, state, want_market, meta):
     state["embedded_wallet"] = embedded
     state["portfolio_totals"] = portfolio_totals
     state["strategies_full"] = strategies
-    state.setdefault("meta_warnings", [])
-    state["meta_warnings"] = meta.get("warnings", [])
+    state["strategy_list_failed"] = bool(meta.get("strategy_list_failed"))
+    # MERGE, never overwrite: the `money` step's stored warnings (a failed read, TOTALS DO NOT RECONCILE)
+    # are still true of this turn, and the book line points at them
+    stored = list(state.get("meta_warnings") or [])
+    state["meta_warnings"] = stored + [w for w in meta.get("warnings", []) if w not in stored]
     state["registry_source"] = meta.get("registry_source")
     state["catalog_source"] = meta.get("catalog_source")
     state["profile_source"] = meta.get("profile_source")
@@ -2177,8 +2235,9 @@ def _ensure_external_in_state(client, state, meta):
 
 def _mark_no_wallet_data(meta, strategies, embedded, saved):
     """`meta.no_strategy_path` for a saved-only user, else the token fault when nothing came back —
-    one rule for `run()` and every step."""
-    if _no_strategy_path(strategies, saved):
+    one rule for `run()` and every step. A FAILED strategy_list is not "no strategy": never the
+    no-strategy path on an unread list."""
+    if _no_strategy_path(strategies, saved) and not meta.get("strategy_list_failed"):
         meta["no_strategy_path"] = True
     elif not strategies and not embedded.get("address"):
         meta["degraded"] = "no wallet data — check the token is USER-scoped"
@@ -2225,9 +2284,12 @@ def step_money(client, want_market=True, state_path=None):
     state["strategies_money"] = strategies
     state["external_wallets"] = saved
     state["totals"] = totals
+    state["strategy_list_failed"] = bool(meta.get("strategy_list_failed"))
     state["meta_warnings"] = meta.get("warnings", [])
     _save_state(state_path, state)
-    return {"book": build_book(embedded, strategies, saved, totals), "totals": totals,
+    return {"book": build_book(embedded, strategies, saved, totals,
+                               strategies_unreadable=bool(meta.get("strategy_list_failed"))),
+            "totals": totals,
             "embedded_wallet": embedded, "external_wallets": saved, "strategies": strategies, "meta": meta}
 
 
@@ -2252,15 +2314,16 @@ def step_strategies(client, want_market=True, state_path=None):
     meta.setdefault("has_multi_wallet_strategy", False)
     strategy_groups = group_strategies(strategies, meta)
     _mark_no_wallet_data(meta, strategies, embedded, saved)
+    # this step prints no `totals`; the book's managed subtotal is the same money map over these rows. Its
+    # line says "(see meta.warnings)" on a mismatch, so the warning is raised here too (once — the warn is
+    # idempotent against the one carried from the `money` step).
+    book = build_book(embedded, strategies, saved, _money_totals(embedded, strategies, portfolio_totals, meta),
+                      strategy_groups, strategies_unreadable=bool(meta.get("strategy_list_failed")))
     state["strategies_full"] = strategies
     state["strategy_groups"] = strategy_groups
     state["meta_warnings"] = meta.get("warnings", [])
     state["has_multi_wallet_strategy"] = meta.get("has_multi_wallet_strategy", False)
     _save_state(state_path, state)
-    # this step prints no `totals`; the book's managed subtotal is the same money map over these rows
-    # (meta=None: the reconciliation warning is the `money`/`positions` steps' to raise)
-    book = build_book(embedded, strategies, saved, _money_totals(embedded, strategies, portfolio_totals),
-                      strategy_groups)
     return {"book": book, "strategies": strategies, "strategy_groups": strategy_groups,
             "external_wallets": saved, "meta": meta}
 
@@ -2301,7 +2364,8 @@ def step_positions(client, want_market=True, state_path=None):
     state["meta_warnings"] = meta.get("warnings", [])
     state["has_multi_wallet_strategy"] = meta.get("has_multi_wallet_strategy", False)
     _save_state(state_path, state)
-    return {"book": build_book(embedded, strategies, saved, totals, strategy_groups),
+    return {"book": build_book(embedded, strategies, saved, totals, strategy_groups,
+                               strategies_unreadable=bool(meta.get("strategy_list_failed"))),
             "strategies": strategies, "strategy_groups": strategy_groups, "external_wallets": saved,
             "exposure": exposure, "signals": signals, "totals": totals, "meta": meta}
 
@@ -2343,6 +2407,7 @@ def _all_and_persist(client, want_market, state_path):
         "catalog_source": (result.get("meta") or {}).get("catalog_source"),
         "profile_source": (result.get("meta") or {}).get("profile_source"),
         "has_multi_wallet_strategy": (result.get("meta") or {}).get("has_multi_wallet_strategy", False),
+        "strategy_list_failed": bool((result.get("meta") or {}).get("strategy_list_failed")),
     }
     _save_state(state_path, state)
     return result

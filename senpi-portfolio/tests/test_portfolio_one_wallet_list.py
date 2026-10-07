@@ -266,8 +266,8 @@ def test_the_deep_dive_question_is_offered_to_everyone_with_more_than_one_wallet
     assert dd["offer"] is True and dd["question"] == "Which one do you want me to go deeper on?"
     assert dd["order"] == _labels(out["book"]) and dd["order"][0] == "Main"
     assert "no_strategy_path" not in out["meta"]
-    only = ew._run(ew._external_only())["book"]["deep_dive"]                 # no strategy, saved + Senpi
-    assert only["offer"] is True
+    only = ew._run(ew._external_only())["book"]["deep_dive"]                 # no strategy, saved + $0 Senpi
+    assert only["offer"] is False and only["order"] == ["Main"]              # an empty main wallet isn't an option
     alone = {"user_get_me": {"wallets": [{"walletType": "embedded", "walletAddress": ew.EMBED}]},
              "account_get_portfolio": {"total_balance_usd": 5, "total_withdrawable": 0,
                                        "total_in_hyperliquid": 5, "token_balances": []},
@@ -318,3 +318,179 @@ def test_skill_closing_offers_the_deep_dive_and_keeps_the_ctas_managed():
     assert "`book.deep_dive.offer`" in closing and "largest first" in closing
     assert "never `book.totals.read_only_usd`" in closing
     assert "CTA 1 and CTA 2 are about managed wallets only" in closing
+
+
+# ── R1 re-review: the read-only subtotal never reads unloaded wallets as $0 ─────────────────────────
+def test_every_saved_wallet_unloaded_is_an_unknown_read_only_subtotal_never_zero():
+    """account_get_external_wallets 503 with two saved wallets: none loaded → `read_only_usd: null` and
+    "read-only unknown", never "read-only $0.00"."""
+    fx = _mixed(**{CW_A: ew._state_ok(), CW_B: ew._state_ok()})
+    out = portfolio.run(_Failing(fx, lambda tool, kw: tool == "account_get_external_wallets"),
+                        want_market=False)
+    t = out["book"]["totals"]
+    assert t["read_only_usd"] is None
+    assert t["read_only_wallets"] == {"total": 2, "loaded": 0}
+    assert " · read-only unknown · " in t["line"] and "read-only $0.00" not in t["line"]
+    assert t["excludes"]["wallets"] == ["Cold", "Main"] and t["excludes_note"] in t["line"]
+    assert t["total_usd"] == t["managed_usd"]
+    # a single saved wallet whose state is a readError reads the same way
+    t = ew._run(ew._with_external(ew._base(), [(CW_A, "Main")], {CW_A: ew._state_error()}))["book"]["totals"]
+    assert t["read_only_usd"] is None and "read-only unknown" in t["line"]
+    assert t["read_only_wallets"] == {"total": 1, "loaded": 0}
+
+
+def test_a_partly_loaded_read_only_subtotal_says_how_many_wallets_it_covers():
+    t = ew._run(_mixed(**{CW_A: ew._state_ok(total="5234.10"), CW_B: None}))["book"]["totals"]
+    assert t["read_only_usd"] == 5234.10
+    assert t["read_only_wallets"] == {"total": 2, "loaded": 1}
+    assert "read-only $5,234.10 (1 of 2 wallets you added — Senpi cannot trade or deploy it)" in t["line"]
+    assert "total excludes 1 wallet that couldn't load (Cold)" in t["line"]
+    # all loaded: no "N of M"
+    t = ew._run(_mixed(**{CW_A: ew._state_ok(total="5234.10"), CW_B: ew._state_ok(total="12.00")}))["book"]["totals"]
+    assert "read-only $5,246.10 (wallets you added — Senpi cannot trade or deploy it)" in t["line"]
+    assert t["read_only_wallets"] == {"total": 2, "loaded": 2}
+
+
+def test_no_saved_wallets_omits_the_read_only_clause_from_the_line():
+    t = ew._run(ew._with_external(ew._base(), [], {}))["book"]["totals"]
+    assert t["read_only_usd"] == 0.0 and t["read_only_wallets"] == {"total": 0, "loaded": 0}
+    assert "read-only" not in t["line"] and "wallets you added" not in t["line"]
+    # unavailable is still said — "couldn't load", never silence and never "none"
+    t = ew._run(ew._base())["book"]["totals"]
+    assert "the wallets you added (couldn't load them)" in t["line"]
+    assert t["read_only_wallets"] == {"total": None, "loaded": None}
+
+
+# ── R1 re-review: an unreadable strategy list is named, never a complete managed subtotal ──────────
+def _strategy_list_fails(tool, kw):
+    return tool == "strategy_list"
+
+
+def test_an_unreadable_strategy_list_is_named_and_never_the_no_strategy_path():
+    fx = ew._with_external(ew._base(), [(CW_A, "Main")], {CW_A: ew._state_ok()})
+    outs = {"all": portfolio.run(_Failing(fx, _strategy_list_fails), want_market=False),
+            "money": portfolio.step_money(_Failing(fx, _strategy_list_fails), state_path=_sp()),
+            "strategies": portfolio.step_strategies(_Failing(fx, _strategy_list_fails), want_market=False,
+                                                    state_path=_sp()),
+            "positions": portfolio.step_positions(_Failing(fx, _strategy_list_fails), want_market=False,
+                                                  state_path=_sp())}
+    for step, out in outs.items():
+        t = out["book"]["totals"]
+        assert t["managed_complete"] is False, step
+        assert t["excludes"]["strategies_unreadable"] is True, step
+        assert "your Senpi strategies couldn't be read" in t["line"], step
+        assert "your Senpi strategies (couldn't be read)" in t["excludes_note"], step
+        assert "idle in strategies $0.00" not in t["line"], step          # never a false-zero bucket
+        if "totals" in out:
+            assert t["managed_usd"] == out["totals"]["grand_total_usd"], step
+        assert "no_strategy_path" not in out["meta"], step                 # a failed read is not "none"
+    # the list read cleanly → complete, and nothing extra
+    t = ew._run(fx)["book"]["totals"]
+    assert t["managed_complete"] is True and t["excludes"]["strategies_unreadable"] is False
+    # a strategies step that follows a money step whose list failed keeps the state
+    sp = _sp()
+    portfolio.step_money(_Failing(fx, _strategy_list_fails), state_path=sp)
+    st = portfolio.step_positions(_Failing(fx, _strategy_list_fails), want_market=False, state_path=sp)
+    assert st["book"]["totals"]["managed_complete"] is False and "no_strategy_path" not in st["meta"]
+
+
+def test_a_saved_only_user_whose_list_read_cleanly_is_still_the_no_strategy_path():
+    out = ew._run(ew._external_only())
+    assert out["meta"].get("no_strategy_path") is True
+    assert out["book"]["totals"]["managed_complete"] is True
+
+
+# ── R1 re-review: the line's "(see meta.warnings)" points at a warning that is there ────────────────
+def _unreconciled():
+    fx = ew._base()
+    fx["account_get_portfolio"]["portfolio"]["total_balance_usd"] = 9999.0
+    return fx
+
+
+def _reconcile_warnings(out):
+    return [w for w in out["meta"]["warnings"] if "RECONCILE" in w]
+
+
+def test_every_step_whose_line_points_at_meta_warnings_carries_the_warning():
+    fx = _unreconciled()
+    alone = portfolio.step_strategies(portfolio._FixtureClient(fx), want_market=False, state_path=_sp())
+    assert "(see meta.warnings)" in alone["book"]["totals"]["line"]
+    assert len(_reconcile_warnings(alone)) == 1
+    sp = _sp()
+    money = portfolio.step_money(portfolio._FixtureClient(fx), state_path=sp)
+    strat = portfolio.step_strategies(portfolio._FixtureClient(fx), want_market=False, state_path=sp)
+    pos = portfolio.step_positions(portfolio._FixtureClient(fx), want_market=False, state_path=sp)
+    for out in (money, strat, pos):
+        assert "(see meta.warnings)" in out["book"]["totals"]["line"]
+        assert len(_reconcile_warnings(out)) == 1                        # there, and said once
+    # the full fetch the strategies step makes never clobbers what the money step stored
+    for w in money["meta"]["warnings"]:
+        assert w in strat["meta"]["warnings"], w
+    # a reconciled book points nowhere
+    ok = portfolio.step_strategies(portfolio._FixtureClient(ew._base()), want_market=False, state_path=_sp())
+    assert "meta.warnings" not in ok["book"]["totals"]["line"] and not _reconcile_warnings(ok)
+
+
+# ── R1 re-review: every step groups a strategy's wallets by the same key ───────────────────────────
+def test_every_step_groups_a_strategys_wallets_by_the_same_key():
+    """The `money` step reads no runtime registry (no `profile.group`), so the book groups by the key both
+    steps have — the package a wallet was deployed under (`skill_name`), else the wallet — and the list
+    never depends on which step answered."""
+    emb = {"address": "0xe", "idle_total": 10.0}
+    w1, w2, w3 = "0x" + "1" * 40, "0x" + "2" * 40, "0x" + "3" * 40
+    money = [{"name": "alpha-long", "name_source": "strategyName", "skill_name": None, "wallet": w1,
+              "account_value": 100.0, "idle_withdrawable": 100.0, "deployed": 0.0},
+             {"name": "alpha-short", "name_source": "strategyName", "skill_name": None, "wallet": w2,
+              "account_value": 90.0, "idle_withdrawable": 90.0, "deployed": 0.0},
+             {"name": "cub-long", "name_source": "strategyName", "skill_name": "cub", "wallet": w3,
+              "account_value": 50.0, "idle_withdrawable": 50.0, "deployed": 0.0}]
+    full = [dict(s, profile={"group": "alpha" if s["skill_name"] is None else "cub"},
+                 positions=[], protected=True, runtime_health="live",
+                 closed={"realized_pnl": 1.0}) for s in money]
+    saved = {"status": "ok", "wallets": []}
+    bm = portfolio.build_book(emb, money, saved, portfolio._money_totals(emb, money, {}))
+    bf = portfolio.build_book(emb, full, saved, portfolio._money_totals(emb, full, {}),
+                              portfolio.group_strategies(full, {}))
+    assert _labels(bm) == _labels(bf) == ["alpha-long", "alpha-short", "cub", "Senpi main wallet"]
+    assert [r["value_usd"] for r in bm["wallets"]] == [r["value_usd"] for r in bf["wallets"]]
+    cub = next(r for r in bf["wallets"] if r["label"] == "cub")
+    assert cub["protected"] is True and cub["runtime_health"] == "live" and cub["realized_pnl_usd"] == 1.0
+    assert cub["open_positions"] == 0
+
+
+def test_skill_says_the_book_groups_by_the_same_key_in_every_step():
+    sec = _skill().split("## One wallet list — every wallet first-class", 1)[1].split("## Run it in steps", 1)[0]
+    assert "the same key in every step" in sec and "`skill_name`" in sec
+
+
+# ── R1 re-review: the deep-dive offer counts only wallets with something to go deeper on ───────────
+def _offered(book):
+    return book["deep_dive"]["order"]
+
+
+def test_an_empty_senpi_main_wallet_is_never_offered_for_a_deep_dive():
+    out = ew._run(ew._external_only())                          # $0 Senpi main wallet + one saved wallet
+    assert out["book"]["deep_dive"]["offer"] is False
+    assert _offered(out["book"]) == ["Main"]
+    assert "Senpi main wallet" in _labels(out["book"])         # still a row of the list
+    # $0 main + one strategy: nothing to choose between
+    fx = ew._base()
+    fx["account_get_portfolio"]["portfolio"]["token_balances"] = []
+    fx["account_get_portfolio"]["portfolio"]["total_balance_usd"] = 3101.43
+    book = ew._run(fx)["book"]
+    emb = next(r for r in book["wallets"] if r["origin"] == "embedded")
+    assert emb["value_usd"] == 0.0
+    assert book["deep_dive"]["offer"] is False and _offered(book) == ["cub"]
+
+
+def test_the_deep_dive_offers_unknown_and_non_zero_wallets_and_skips_empty_ones():
+    empty = ew._state_ok(total=None, positions=[])
+    empty["role"] = "MISSING"                                  # read fine, no Hyperliquid activity: a real $0
+    out = ew._run(_mixed(**{CW_A: ew._state_ok(total="5234.10"), CW_B: None, CW_C: empty}))
+    dd = out["book"]["deep_dive"]
+    assert dd["offer"] is True
+    assert dd["order"] == ["Main", "cub", "Senpi main wallet", "Cold"]    # book order; Spare ($0, empty) left out
+    # a $0 saved wallet that still has an open position is offered
+    held = ew._state_ok(total="0")
+    out = ew._run(_mixed(**{CW_A: held}))
+    assert "Main" in out["book"]["deep_dive"]["order"]
