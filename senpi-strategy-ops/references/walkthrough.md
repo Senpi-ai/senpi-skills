@@ -45,9 +45,10 @@ was execution noise.
 
 ## 1b. If it is a VARIANT, say what it varies — before the budget question
 
-Fifteen listed templates are variants of another listed template, differing in one or two numbers:
+Sixteen listed templates are variants of another listed template, differing in one or two numbers:
 the six `*-chase-*bp` arms, `penguins-duo` / `pelicans-duo` / `puffin-duo`, `penguin-x5`,
-`purple-penguin`, the three `wild-*` / `*-wild` forks, and `athena-concentrated`.
+`purple-penguin`, the two `wild-*` forks, `grizzly-wild`, `athena-concentrated` and
+`camel-concentrated`.
 
 A user funding one of these has usually been shown it by name. They cannot read its results without
 knowing what it is a variant OF, so block 1 has one extra bullet, phrased as a difference:
@@ -68,6 +69,31 @@ Three cases worth saying plainly rather than letting the user discover them:
 A variant's P&L alone means nothing — it is only readable against its parent over the same window.
 Say so at funding time, not when they ask why it is flat. Which family varies what, with the
 measured numbers: `senpi-strategy-discover/references/variant-families.md`.
+
+## 1c. "Run camel" is ambiguous — offer both, one line each
+
+`camel-concentrated` was posted about publicly on 2026-10-07, so a user who says "run camel" may
+mean either one. This is the second place (with the chase caps in 1a) where the agent names two
+siblings instead of defaulting to the parent. Give both and let them answer:
+
+> • **Camel** — gets paid to hold the crowded side of a funding dislocation, spread across **four
+>   names per side at 5x**. One stop-out costs about **1% of that side**.
+> • **Camel Concentrated** — same signal, same ranking, same exits, the whole side behind the
+>   **single most extreme name, asking for 10x**. One stop-out costs about **8.6%**.
+
+If they pick the concentrated one, two facts belong in the same breath — they are the difference
+between an informed choice and a surprise:
+
+- **It asks for 10x and usually does not get it.** The venue clamps to `min(requested, cap)`, and
+  **53.6% of the 366 listed perps cap at 5x or below, 35.8% of them at 3x**. Every DSL rung is an
+  ROE number, so a clamp widens every rung and the stop *in price* by `10 ÷ cap` — on a 3x name the
+  whole ladder runs **3.3× wider** than authored.
+- **n=1.** As of 2026-10-07 exactly one account had run it for a full day. Do not quote its return.
+
+Both camels fund two wallets (harvest shorts the positive-funding names, payout longs the negative
+ones) and the two offset. **Confirm BOTH arms came up** before calling the deploy done — a
+payout-only camel is a long-only book with no short side, and two users were running exactly that
+on 2026-10-07.
 
 ## 2. Two levers (one for a `tier: starter` template)
 

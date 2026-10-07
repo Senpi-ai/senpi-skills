@@ -426,7 +426,7 @@ def apply_theme(result, query):
         cand["theme_score"] = score
         if hits:
             cand["theme_hits"] = hits
-    # A VARIANT must never outrank the template it varies. Fifteen listed strategies differ from
+    # A VARIANT must never outrank the template it varies. Sixteen listed strategies differ from
     # another listed one by a number or two, and their cards are near-copies — so on keyword overlap
     # they score almost identically to the parent and, on ties, whichever happens to sort first wins.
     # Measured when they were published: puffin fell to rank 4 for its OWN query, behind puffin-duo.
@@ -689,12 +689,20 @@ def main(argv=None):
         return 0
 
     intent = normalize_intent(args)
-    result = match(intent, records, limit=args.limit)
+    # The cap has to be applied AFTER the theme ranks the survivors. `match` orders them neutrally
+    # (asset match, then NAME) and truncating there discarded candidates before anything had scored
+    # them: `--limit 6 --theme "camel funding carry"` returned asia-ai at theme_score 0 and dropped
+    # camel and camel-concentrated at 21, because `a` sorts before `c`. The cap is a safety valve on
+    # output size, never a pre-filter on relevance.
+    result = match(intent, records, limit=None if args.theme else args.limit)
 
     # SOFT theme surface — score/rank the survivors on a worldview keyword (no filtering). Applied before
     # market enrichment so the theme-matched candidates' assets get first claim on the capped live fetch.
     if args.theme:
         result = apply_theme(result, args.theme)
+        if args.limit:
+            result["candidates"] = result["candidates"][:args.limit]
+            result["meta"]["returned_n"] = len(result["candidates"])
 
     # User's available funds — ALWAYS attach (independent of market enrichment / candidate count) so the
     # LLM can size each pick from real balance, not the per-strategy floor. See SKILL.md Layer 3.

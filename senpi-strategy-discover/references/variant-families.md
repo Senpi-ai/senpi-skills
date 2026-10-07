@@ -1,6 +1,6 @@
 # Variant families — helping a user choose between near-identical strategies
 
-Fifteen listed strategies are **variants of another listed strategy**, differing in one or two
+Sixteen listed strategies are **variants of another listed strategy**, differing in one or two
 numbers. Ranked on keyword overlap they look interchangeable, and six of them are penguins. A user
 who picks the wrong one does not get a worse strategy — they get a strategy whose results they will
 read as if it were the parent's.
@@ -9,9 +9,12 @@ This file is how to tell them apart, and how to say so in one line each.
 
 ## The rule
 
-**Never offer two members of the same family in the same shortlist** — with one exception, the
-chase caps below, where 1.5% is now a shipped DEFAULT and the user should be told what it does
-and offered the looser settings.
+**Never offer two members of the same family in the same shortlist** — with two exceptions:
+
+1. **the chase caps**, where 1.5% is now a shipped DEFAULT and the user should be told what it does
+   and offered the looser settings;
+2. **the two camels**, where the concentrated version has been posted about publicly, so a user who
+   says "run camel" may well mean either one. Offer both, one line each.
 
 **The rule, restated:** Offer the PARENT, and name the
 variant only when the user's own words ask for the thing it varies. "I want fewer, bigger positions"
@@ -95,21 +98,39 @@ score **8** instead of **9**, asking whether the floor is set too high.
 These bet on the parent's own ranking being informative. If it is, they beat it; if the ranking is
 noise, they are the parent with more variance. Say exactly that.
 
-### 5. Concentration at leverage — the carry trade as one bet per side
+### 5. The two camels — ASK, do not pick for them
 
-`camel-concentrated` — camel's funding carry as **1 position per side at 10x** instead of 4 at 5x.
-Margin deployed is unchanged (4 × 18% = 1 × 72%), but **leverage doubles gross notional**, so unlike
-every other variant here this one moves *two* things on purpose: concentration and size. Say so.
+**This family is the second exception to the rule above.** `camel-concentrated` was posted about
+publicly on 2026-10-07, so "run camel" is now genuinely ambiguous. Give both, one line each, and
+let them answer:
 
-The pitch is as much about the bill as the bet: camel pays **58% of its gross profit in fees**, and
-one position costs roughly a quarter of the fees four do for the same money at work.
+> **Camel** — the funding carry spread across **four names per side at 5x**. One stop-out costs
+> about **1% of that side**.
+> **Camel Concentrated** — the same signal, the same ranking, the same exits, with the whole side
+> behind the **single most extreme name, asking for 10x**. One stop-out costs about **8.6%**.
 
-Offer it only to someone who has said they want leverage *and* concentration. It is the most
-aggressive thing in the catalog: one stop-out costs **8.6% of the arm**, against 1.08% on camel,
-and **no clock closes anything** — the ladder and the 1.20%-of-price stop are the only exits, so
-a carry that never reverts holds the arm until the stop. Funding does keep accruing while it waits.
+Same detector, same exhaustion gate, same price-distance exits. What moves is concentration *and*
+size — unlike every other variant here, this one moves two things on purpose. Say so.
 
-### 5. Concentration — fewer, larger bets inside a multi-arm strategy
+Two things to have ready, because they decide the answer:
+
+- **It asks for 10x and usually does not get it.** The venue silently clamps to
+  `min(requested, the name's cap)`, and **53.6% of the 366 listed perps cap at 5x or below — 35.8%
+  of them at 3x** (measured 2026-10-07). Every DSL rung is an ROE number, so a clamp multiplies
+  every rung's distance *in price* by `10 ÷ cap`: on a 3x name the ladder and the stop sit **3.3×
+  wider** than authored. That is not a rounding error — it is a different strategy on half the
+  universe, and it cuts both ways (wider stops survive noise, and give back more).
+- **The fee argument is half the pitch.** Camel pays **58% of its gross profit in fees**; one
+  position costs roughly a quarter of what four cost for the same money at work.
+
+And the cost, stated plainly: **no clock closes anything** on either one — the ladder and the
+phase-1 floor are the only exits, so a carry that never reverts holds the side until the stop.
+Funding keeps accruing while it waits, which is not true of a momentum trade going nowhere.
+
+As of 2026-10-07 only one account had run the concentrated version for a full day. **n=1** — do not
+quote its return as evidence either way.
+
+### 6. Concentration — fewer, larger bets inside a multi-arm strategy
 
 `athena-concentrated` — athena with its phalanx arm holding **2 positions at 22.5%** instead of 3 at
 15%. The same 45% of that sleeve is at risk either way; it is carried by fewer names. The aegis
