@@ -205,3 +205,88 @@ def test_my_wallets_uses_none_of_the_retired_words(tmp_path, capsys):
     s = capsys.readouterr().out
     assert not re.search(r"(?i)connect(?!ion)", s), s
     assert not re.search(r"(?i)(?<![a-z])verified", s), s
+
+
+def _analyzed_then_saved(tmp_path, capsys, saved=True, status="ok"):
+    """Read as a stranger's (`--other` records `analyzed`), then the fixture's user_get_me is what the
+    reader's Your wallets says now. Returns (argv for a bare re-run, addr)."""
+    fx = HERE / "fixtures" / "sample_trader.json"
+    rec = json.loads(fx.read_text())
+    addr = rec["address"].lower()
+    me = _me(status=status, wallets=((addr, "Followed"),) if saved else ())
+    fx2 = tmp_path / "fx2.json"
+    fx2.write_text(json.dumps(dict(rec, user_get_me={"success": True, "data": me})))
+    argv = [addr, "--fixture", str(fx2), "--no-rank", "--no-cohort", "--state-dir", str(tmp_path / "sd"),
+            "--cache", str(tmp_path / "cache")]
+    assert desk.main(argv + ["--other", "--json"]) == 0
+    capsys.readouterr()
+    return argv, addr
+
+
+def test_a_stranger_then_saved_is_told_once_with_the_way_back(tmp_path, capsys):
+    """Dev E2E 2026-10-07, F2: the "Find my leaks on 0x…" run on a wallet the desk had read as a
+    stranger's spoke to the reader as its owner without ever saying why, or how to undo it."""
+    argv, addr = _analyzed_then_saved(tmp_path, capsys)
+    sec = desk.render.SECTIONS[0]
+    assert desk.main(argv + ["--section", sec]) == 0
+    md = capsys.readouterr().out
+    first = md.split("\n\n", 1)[0]
+    assert f"{addr[:6]}…{addr[-4:]}" in first and "because you added it to Your wallets" in first
+    assert "remove it in Your wallets on senpi.ai (web)" in first
+    # Once per add: the next section does not repeat it, and the stranger mark is kept for a removal.
+    assert desk.main(argv + ["--section", sec, "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "whose_changed" not in out and out["whose"] == "mine"
+    assert ab.relationship(ab.load(str(tmp_path / "sd")), addr) == ab.ANALYZED
+
+
+def test_the_json_carries_whose_changed_for_this_run_only(tmp_path, capsys):
+    argv, addr = _analyzed_then_saved(tmp_path, capsys)
+    assert desk.main(argv + ["--json"]) == 0
+    wc = json.loads(capsys.readouterr().out)["whose_changed"]
+    assert wc["from"] == "analyzed" and wc["to"] == "saved" and "Your wallets" in wc["say"]
+    cached = json.loads((tmp_path / "sd" / f"desk-{addr}.json").read_text())
+    assert "whose_changed" not in cached
+
+
+def test_a_deep_dive_on_a_just_added_wallet_says_it_and_speaks_to_the_reader(tmp_path, capsys):
+    """The re-voice used to run after --deep, so a deep dive inside the cache window read a just-added
+    wallet in the third person (skills final-review residual)."""
+    argv, addr = _analyzed_then_saved(tmp_path, capsys)
+    assert desk.main(argv + ["--deep", "rules"]) == 0
+    md = capsys.readouterr().out
+    assert md.startswith(f"I'm reading {addr[:6]}…{addr[-4:]} as your book now")
+    assert not ab.saved_note_due(ab.load(str(tmp_path / "sd")), addr)
+
+
+def test_a_removed_wallet_is_a_strangers_again_and_a_readd_is_told_again(tmp_path, capsys):
+    argv, addr = _analyzed_then_saved(tmp_path, capsys)
+    assert desk.main(argv + ["--json"]) == 0
+    assert "whose_changed" in json.loads(capsys.readouterr().out)
+    # removed: a successful read without it → stranger's book again, and the note re-arms
+    fx2 = pathlib.Path(argv[argv.index("--fixture") + 1])
+    rec = json.loads(fx2.read_text())
+    fx2.write_text(json.dumps(dict(rec, user_get_me={"success": True, "data": _me(wallets=())})))
+    assert desk.main(argv + ["--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["whose"] == "other" and "whose_changed" not in out
+    assert ab.saved_note_due(ab.load(str(tmp_path / "sd")), addr)
+
+
+def test_an_unavailable_saved_list_neither_says_it_nor_rearms_it(tmp_path, capsys):
+    argv, addr = _analyzed_then_saved(tmp_path, capsys)
+    book = ab.load(str(tmp_path / "sd"))
+    ab.mark_saved_noted(book, addr)
+    ab.save(str(tmp_path / "sd"), book)
+    fx2 = pathlib.Path(argv[argv.index("--fixture") + 1])
+    rec = json.loads(fx2.read_text())
+    fx2.write_text(json.dumps(dict(rec, user_get_me={"success": True, "data": _me(status="unavailable")})))
+    assert desk.main(argv + ["--json"]) == 0
+    assert "whose_changed" not in json.loads(capsys.readouterr().out)
+    assert not ab.saved_note_due(ab.load(str(tmp_path / "sd")), addr)     # unknown is never "removed"
+
+
+def test_the_skill_relays_the_note_on_any_path():
+    sk = _skill()
+    for needle in ("say it once, on any path", "`whose_changed.say`", "\"Find my leaks on 0x…\" button"):
+        assert needle in sk, needle

@@ -160,6 +160,30 @@ def record(book, addr, relationship=None, indexed=None, digest=None, now=None):
     return book
 
 
+def saved_note_due(book, addr):
+    """True when the book read `addr` as someone else's and has not yet told the reader it now reads it
+    as theirs because they added it to Your wallets. Said once per add: `mark_saved_noted` closes it."""
+    e = get(book, addr)
+    return bool(e) and e.get("relationship") == ANALYZED and not e.get("saved_noted_at")
+
+
+def mark_saved_noted(book, addr, now=None):
+    """The reader was told once. The `analyzed` mark stays: if they remove the wallet, a bare run is
+    back to reading it as the stranger's book it was."""
+    e = get(book, addr)
+    if e:
+        e["saved_noted_at"] = now or _now()
+    return book
+
+
+def clear_saved_note(book, addr):
+    """The wallet is no longer saved (a successful read says so): a later re-add is told again."""
+    e = get(book, addr)
+    if e:
+        e.pop("saved_noted_at", None)
+    return book
+
+
 def mark_verified(book, wallets, now=None):
     """Senpi-issued wallets, from the account itself. These are the only addresses we can prove."""
     for w in wallets or []:
