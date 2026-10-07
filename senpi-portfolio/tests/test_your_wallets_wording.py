@@ -45,6 +45,8 @@ BANNED = (
     (r"(?i)\bproved (they|you) own\b|\bone signature\b|\bwhat senpi can prove\b|\bownership is proven\b",
      "a proof-of-control claim"),
     (r"(?<!Your )Wallets on senpi\.ai", "the panel's old name (it is Your wallets)"),
+    # a saved wallet is one the user added — never "your/their own saved wallet" (I1: Senpi can't confirm it)
+    (r"(?i)\b(your|their) own saved wallets?\b", "an ownership claim on a saved wallet"),
 )
 
 
@@ -115,7 +117,12 @@ SECTIONS = (
     # senpi-smart-money/SKILL.md is read whole but has no section entry: its subject is the "proven
     # cohort", which SECTION_BANNED would read as a proof-of-control claim.
 )
-SECTION_BANNED = r"(?i)\bverified\b|\bproo?f\b|\bprov(e|ed|en)\b|\bsignature\b|\b(you|they) own\b|\bowned by\b|\bowning\b"
+SECTION_BANNED = (r"(?i)\bverified\b|\bproo?f\b|\bprov(e|ed|en)\b|\bsignature\b|\b(you|they) own\b|\bowned by\b"
+                  r"|\bowning\b|\b(your|their) own (saved )?wallets?\b")
+# "their own book" is how quant-desk names the reader's-own-book path (a pasted address they said is theirs);
+# in the sections that describe a SAVED wallet it is an ownership claim, so it is banned there only.
+OWN_BOOK_BANNED_IN = ("senpi-trader-research/SKILL.md", "senpi-improve-trades/SKILL.md", "senpi-portfolio/SKILL.md",
+                      "senpi-trade/SKILL.md", "senpi-market-pulse/SKILL.md", "senpi-strategy-discover/SKILL.md")
 
 
 def _section(rel, start, end):
@@ -134,4 +141,16 @@ def test_the_your_wallets_sections_never_say_verified_owned_or_proven():
         sec = _section(rel, start, end)
         for m in re.finditer(SECTION_BANNED, sec):
             bad.append(f"{rel} {start}: …{sec[max(0, m.start() - 50):m.end() + 30]}…")
+        if rel in OWN_BOOK_BANNED_IN:
+            for m in re.finditer(r"(?i)\b(your|their) own book\b", sec):
+                bad.append(f"{rel} {start}: own book: …{sec[max(0, m.start() - 50):m.end() + 30]}…")
     assert not bad, "\n".join(bad)
+
+
+def test_the_saved_wallet_route_line_presumes_no_ownership():
+    """trader-research's `say` for a saved wallet is relayed verbatim — it says "a wallet you added", never
+    "your own wallet / your book" (the `control` line: Senpi can't confirm it is theirs)."""
+    text = _text("senpi-trader-research/scripts/research.py")
+    say = text.split("SAVED_WALLET_SAY = (", 1)[1].split(")", 1)[0]
+    assert "one of the wallets you added" in say
+    assert not re.search(r"(?i)\bown\b|your book", say), say

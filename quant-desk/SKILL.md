@@ -460,7 +460,7 @@ book** or **someone else's**. Settle that first — it is one question and it de
 
 **Run `desk.py --my-wallets` before anything else.** It returns ONE list, `wallets`, of the reader's
 saved wallets (`user_get_me`) and their senpi strategy wallets (`strategy_list`, closed ones included),
-ordered by value — largest first. A trader who came from Hyperliquid and added their own wallet in Your
+ordered by value — largest first. A trader who came from Hyperliquid and added a wallet in Your
 wallets still has it the moment they have senpi strategies — **do not forget a saved wallet**, and do
 not silently swap it for a senpi wallet.
 

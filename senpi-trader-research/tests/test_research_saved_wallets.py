@@ -143,7 +143,7 @@ def test_skill_routes_a_saved_wallet_to_the_desk_and_leaves_mirroring_it_open():
     for needle in ("`saved_wallet`", "`quant-desk`", "`senpi-improve-trades`", "relay its `say` line",
                    "never on the copy shortlist", "never guess",
                    "don't call it illegitimate and don't run the vet",
-                   "copying your own wallet isn't set up here yet",
+                   "copying a wallet you added isn't set up here yet",
                    '`meta.saved_wallets_status: "unavailable"`',
                    "I couldn't load your saved wallets"):
         assert needle in sec, needle

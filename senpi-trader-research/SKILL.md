@@ -32,7 +32,7 @@ metadata:
 > off here.
 
 **One of the user's saved wallets? Not a copy candidate.** A saved wallet is one the user added in Your
-wallets and trades by hand — their own book, read-only to Senpi. The engine decides it, never guess: it
+wallets and trades by hand — a wallet they added, read-only to Senpi. The engine decides it, never guess: it
 reads `user_get_me.external_wallets` and matches the address case-insensitively.
 - **`--trader` on a saved wallet** returns `saved_wallet` (with `trader: null`) instead of a dossier: relay
   its `say` line, then offer `quant-desk` (`saved_wallet.route` — score, leaks, protection) or
@@ -41,8 +41,8 @@ reads `user_get_me.external_wallets` and matches the address case-insensitively.
   checked who controls it.
 - **The find path** drops saved wallets from the pool, so one is never on the copy shortlist;
   `meta.saved_wallets_excluded` names any it dropped — say so in one line if it matters.
-- **They ask to mirror their own saved wallet:** don't call it illegitimate and don't run the vet. Say
-  this release can analyze it on the quant desk, and copying your own wallet isn't set up here yet.
+- **They ask to mirror a wallet they added:** don't call it illegitimate and don't run the vet. Say
+  this release can analyze it on the quant desk, and copying a wallet you added isn't set up here yet.
 - **`meta.saved_wallets_status: "unavailable"`** → the list couldn't be read, so the engine vetted or ranked
   as usual. If the address might be theirs, say "I couldn't load your saved wallets" and offer the quant
   desk too — never "it isn't one of your wallets".

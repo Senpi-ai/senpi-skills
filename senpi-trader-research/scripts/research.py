@@ -158,8 +158,8 @@ def _external_wallets(me):
 
 USER_GET_ME_TIMEOUT_S = 22   # user_get_me waits on moxie's saved-wallets read (MCP 20 s timeout)
 SAVED_WALLET_SAY = ("{short} is one of the wallets you added in Your wallets, so I won't vet it as a trader "
-                    "to copy. The quant desk reads it as your book (score, leaks, protection), and I can "
-                    "review your trades on it instead.")
+                    "to copy. The quant desk can read it (score, leaks, protection), and I can review the "
+                    "trades on it instead.")
 
 
 def _saved_wallets(client, meta):
@@ -709,7 +709,7 @@ def run(client, mode, addr=None, time_frame="MONTHLY", sort_by="RETURN_ON_INVEST
         saved = _saved_wallets(client, meta)
         hit = (saved or {}).get(str(addr or "").strip().lower())
         if hit:
-            # One of the user's saved wallets: their own book, read-only to Senpi — routed to the desk, never
+            # One of the user's saved wallets: a wallet they added, read-only to Senpi — routed to the desk, never
             # vetted as someone to mirror.
             out["trader"] = None
             out["saved_wallet"] = {"address": addr, "short": _short(addr), "label": hit.get("label"),
