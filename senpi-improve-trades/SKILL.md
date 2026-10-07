@@ -206,7 +206,7 @@ strategy."* Then:
 ## Your wallets (read-only, traded by hand)
 
 A **saved wallet** is a Hyperliquid wallet the user added in Your wallets by pasting the address, and
-trades by hand. It is the user's own word: call them "your wallets" or "the wallets you added", and never
+trades by hand. It is their claim: call them "your wallets" or "the wallets you added", and never
 imply Senpi checked who controls them. The engine adds every one to the review set and returns it in
 `external_wallets[]` (the
 `timing` step and `all`) — its own read, never folded into `pnl_summary`, `strategies[]`,
@@ -444,7 +444,7 @@ otherwise it's just an asset the strategy was never designed to trade.
   them (`cougar-long` / `cougar-short`), as do their mandates. When **both are null** (registry unreadable
   and no attribution stamp) you cannot tell sleeves from redeployments: **do not recommend consolidating** —
   say "these two wallets are likely the long/short sleeves of one strategy — check the package before
-  treating them as duplicates." The "consolidate your wallets" reflex is usually wrong; genuine *closed*
+  treating them as duplicates." The "consolidate these wallets" reflex is usually wrong; genuine *closed*
   redeployments live in `closed_strategies[]`, not `strategies[]`, and the live book size is
   `meta.current_strategy_count`, never `meta.strategy_count` (see rule 8).
 - **A flat / idle / no-trades-this-window strategy is often by design** — the other sleeve waiting for its

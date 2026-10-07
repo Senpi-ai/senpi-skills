@@ -3,8 +3,8 @@
 
 A wallet the user added in Your wallets is their claim, not proof of control. No text an agent reads —
 an engine's printed strings, SKILL.md, a reference, a README row — may call it connected, verified,
-owned or proven, and every pointer to the panel is the one phrase: "add it in Your wallets on senpi.ai
-(web)". The skills install standalone; this test only reads their files by path.
+owned or proven, and every pointer to the panel is one of two phrases: "add it in Your wallets on senpi.ai
+(web)" or "remove it in Your wallets on senpi.ai (web)". The skills install standalone; this test only reads their files by path.
 
     python3 -m pytest senpi-portfolio/tests/test_your_wallets_wording.py
 """
@@ -15,6 +15,7 @@ import re
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
 POINTER = "add it in Your wallets on senpi.ai (web)"
+REMOVE_POINTER = "remove it in Your wallets on senpi.ai (web)"      # the only other permitted pointer
 
 # Every file here is read whole. None of them said "connect" before R1, so the word is banned outright;
 # "connection" (a socket) is a different word and stays legal.
@@ -61,9 +62,29 @@ def test_every_panel_pointer_is_the_one_phrase():
     for rel in WHOLE_FILES:
         text = _text(rel)
         for m in re.finditer(r"on senpi\.ai \(web\)", text):
-            if text[max(0, m.end() - len(POINTER)):m.end()] != POINTER:
+            tail = text[max(0, m.end() - len(REMOVE_POINTER)):m.end()]
+            if text[max(0, m.end() - len(POINTER)):m.end()] != POINTER and tail != REMOVE_POINTER:
                 bad.append(f"{rel}: …{text[max(0, m.start() - 60):m.end()]}")
     assert not bad, "\n".join(bad)
+
+
+def test_the_panel_is_never_named_without_a_permitted_pointer():
+    """Any "Your wallets on senpi" must be one of the two pointers, whole — no "manage/edit/see them in …"."""
+    bad = []
+    for rel in WHOLE_FILES:
+        text = _text(rel)
+        for m in re.finditer(r"Your wallets on senpi", text):
+            head = text[max(0, m.start() - 16):m.start()]
+            tail = text[m.start():m.start() + len("Your wallets on senpi.ai (web)")]
+            if not (re.search(r"(add|remove) it in $", head) and tail == "Your wallets on senpi.ai (web)"):
+                bad.append(f"{rel}: …{text[max(0, m.start() - 40):m.end() + 20]}…")
+    assert not bad, "\n".join(bad)
+
+
+def test_removal_is_pointed_to_in_the_portfolio_and_quant_desk_sections():
+    for rel, start, end in (("senpi-portfolio/SKILL.md", "## Your wallets (read-only)", None),
+                            ("quant-desk/SKILL.md", '**"My wallets" are', "**The desk remembers.**")):
+        assert REMOVE_POINTER in _section(rel, start, end), rel
 
 
 # The Your-wallets sections of the skills: (file, start text, end text or None = the next heading).
@@ -85,7 +106,7 @@ def _section(rel, start, end):
     assert start in text, f"{rel}: {start!r} not found"
     rest = text.split(start, 1)[1]
     if end is None:
-        return re.split(r" #{2,3} ", rest, 1)[0]
+        return re.split(r" #{2,3} ", rest, maxsplit=1)[0]
     assert end in rest, f"{rel}: {end!r} not found after {start!r}"
     return rest.split(end, 1)[0]
 

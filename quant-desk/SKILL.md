@@ -209,8 +209,8 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    **"My wallets" are the wallets the reader added, plus their senpi wallets.** `desk.py --my-wallets`
    prints them: the reader's **saved** wallets (the ones they added in Your wallets) and their senpi
    strategy wallets, each half with its own `ok` / `unavailable` status. A saved wallet is theirs even
-   if the book once read it as a stranger's. It is the reader's own word: call them "your wallets" or
-   "the wallets you added", and never imply senpi checked who controls them.
+   if the book once read it as a stranger's: if the book had recorded this address as analyzed (someone else's), say once that you're now reading it as theirs because they added it to Your wallets. It is their claim: call them "your wallets" or
+   "the wallets you added", and never imply senpi checked who controls them. If a saved wallet isn't theirs (or they no longer want it read), they can remove it in Your wallets on senpi.ai (web).
 
    **The desk remembers.** It keeps an address book per box (`scripts/desk.py --addresses`) with
    **verified** (a wallet senpi issued) and **analyzed** (someone else's book they read). An

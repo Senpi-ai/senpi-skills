@@ -8,7 +8,7 @@ description: >-
   / PnL / trade-history question, BEFORE any raw strategy_get_clearinghouse_state / account_get_portfolio
   / strategy_list MCP call. Use for "analyze my strategies", "how are my strategies doing", "analyze my
   portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle", and
-  "are my open positions protected? / do they have a stop-loss?", "my saved wallet", "my MetaMask
+  "are my open positions protected? / do they have a stop-loss?", "my saved wallet", "the wallets I added", "my MetaMask
   wallet" (read-only balances and positions of a wallet the user added in Your wallets), and "tell me about my strategies and
   their DSL / what tier are my positions in?", and "what happened to my closed [asset] position / did my
   trade actually go through / do I still hold X" — the authority for position facts, OPEN and CLOSED, which
@@ -679,7 +679,7 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
 ## Your wallets (read-only)
 
 The user's **saved wallets** are Hyperliquid wallets they added in Your wallets by pasting the address,
-and trade by hand. A saved wallet is the user's own word: call them "your wallets" or "the wallets you
+and trade by hand. A saved wallet is their claim: call them "your wallets" or "the wallets you
 added", and never imply Senpi checked who controls them. The engine returns them in a separate top-level
 block, `external_wallets: {status, wallets}`, from every step (`money`, `strategies`, `positions`) and
 from `all`, with `meta.no_strategy_path` on each.
@@ -722,7 +722,8 @@ from `all`, with `meta.no_strategy_path` on each.
   positions only.
 - **"Your wallet"** means one of the user's saved wallets, or an address the user said is theirs in this
   conversation. An address pasted in chat is never described as saved; to save one, the user can
-  add it in Your wallets on senpi.ai (web).
+  add it in Your wallets on senpi.ai (web). If a saved wallet isn't theirs (or they no longer want it
+  read), they can remove it in Your wallets on senpi.ai (web).
 - **`meta.no_strategy_path`** (saved wallets, no Senpi strategy): give the saved-wallets read and
   skip the strategy verdict. Never pitch a strategy, and replace the mandatory closing with:
   > **Want me to review the trades on it, or score it on the quant desk?**
