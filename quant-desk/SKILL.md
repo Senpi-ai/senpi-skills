@@ -212,7 +212,8 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    **"My wallets" are the wallets the reader added, plus their senpi wallets.** `desk.py --my-wallets`
    prints them as ONE list, `wallets`, largest first: the reader's **saved** wallets (the ones they
    added in Your wallets) and their senpi strategy wallets side by side, each row with its `kind`
-   (read-only — you added it / Senpi strategy) and its `value_usd`, each source with its own `ok` /
+   (`saved` / `strategy`), the words to show for it in `kind_label` (read-only — you added it /
+   Senpi strategy / Senpi strategy — closed) and its `value_usd`, each source with its own `ok` /
    `unavailable` status. A saved wallet is theirs even
    if the book once read it as a stranger's. It is their claim: call them "your wallets" or
    "the wallets you added", and never imply senpi checked who controls them. If a saved wallet isn't theirs (or they no longer want it read), they can remove it in Your wallets on senpi.ai (web).

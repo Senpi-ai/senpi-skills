@@ -517,3 +517,16 @@ def test_the_skill_orders_by_value_and_never_by_origin():
     for needle in ("largest first", "`wallets`", "keep that order", "never split it by origin",
                    "`ask`", "`value_status: \"couldnt_load\"`", "never as $0"):
         assert needle in sk, needle
+
+
+def test_skill_names_the_kind_fields_the_script_emits():
+    """`kind` is the machine value (`saved` / `strategy`); the words a reader sees are `kind_label` —
+    SKILL.md must not tell the agent that `kind` carries the label text (R1 re-review)."""
+    render = desk.render
+    sk = _skill()
+    assert "its `kind` (read-only — you added it / Senpi strategy)" not in sk
+    assert "`kind` (`saved` / `strategy`)" in sk
+    assert "`kind_label` (" in sk
+    for v in render.KIND_LABEL.values():
+        assert v in sk, v
+    assert {desk.KIND_SAVED, desk.KIND_STRATEGY} == {"saved", "strategy"}
