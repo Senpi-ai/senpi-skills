@@ -24,6 +24,9 @@ WHOLE_FILES = (
     "senpi-improve-trades/scripts/review.py",
     "quant-desk/scripts/addresses.py",
     "quant-desk/scripts/desk.py",
+    "quant-desk/scripts/render.py",
+    "senpi-trader-research/scripts/research.py",
+    "senpi-strategy-discover/scripts/discover.py",
     "senpi-portfolio/SKILL.md",
     "senpi-improve-trades/SKILL.md",
     "senpi-improve-trades/references/output-shape.md",
@@ -31,6 +34,9 @@ WHOLE_FILES = (
     "quant-desk/SKILL.md",
     "quant-desk/references/methodology.md",
     "senpi-trade/SKILL.md",
+    "senpi-trader-research/SKILL.md",
+    "senpi-market-pulse/SKILL.md",
+    "senpi-smart-money/SKILL.md",
 )
 BANNED = (
     (r"(?i)connect(?!ion)", "connect(ed)"),
@@ -92,11 +98,22 @@ def test_removal_is_pointed_to_in_the_portfolio_and_quant_desk_sections():
 # wallets) but never where a saved wallet is described.
 SECTIONS = (
     ("senpi-portfolio/SKILL.md", "## One wallet list — every wallet first-class", None),
+    ("senpi-improve-trades/SKILL.md", "## One book — every wallet first-class",
+     "## Your wallets (read-only, traded by hand)"),
     ("senpi-improve-trades/SKILL.md", "## Your wallets (read-only, traded by hand)", None),
     ("quant-desk/SKILL.md", '**"My wallets" are', "**The desk remembers.**"),
     ("quant-desk/SKILL.md", "### If they mean their OWN book", None),
     ("senpi-trade/SKILL.md", "- **A request to act on one of the user's SAVED wallets**",
      "- **Finding / vetting the trader"),
+    ("senpi-trader-research/SKILL.md", "**One of the user's saved wallets? Not a copy candidate.**",
+     "You are a sharp due-diligence analyst"),
+    ("senpi-market-pulse/SKILL.md", "- **Saved wallets in the same read.**",
+     "never imply Senpi checked who controls them."),
+    # senpi-strategy-discover/SKILL.md is not read whole ("interconnect" is legal there), only its paragraph.
+    ("senpi-strategy-discover/SKILL.md", "It returns `holdings` (coins in their Senpi strategies) and "
+     "`saved_wallet_holdings`", "never imply Senpi checked who controls them."),
+    # senpi-smart-money/SKILL.md is read whole but has no section entry: its subject is the "proven
+    # cohort", which SECTION_BANNED would read as a proof-of-control claim.
 )
 SECTION_BANNED = r"(?i)\bverified\b|\bproo?f\b|\bprov(e|ed|en)\b|\bsignature\b|\b(you|they) own\b|\bowned by\b|\bowning\b"
 
