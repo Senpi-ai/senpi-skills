@@ -5,7 +5,7 @@
 schema_version: 1
 
 id: pelicans-duo
-version: "1.0.1"
+version: "1.1.0"
 
 catalog:
   varies: pelican          # a VARIANT of this template — never outrank it

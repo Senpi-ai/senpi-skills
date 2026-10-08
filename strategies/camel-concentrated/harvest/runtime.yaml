@@ -135,7 +135,33 @@ exit:
       # no CLOSE_POSITION scanner here, so a funding dislocation that never reverts keeps its slot —
       # and concentrated, that slot IS the arm. The funding itself still accrues while it waits,
       # which is the one way this differs from a momentum trade going nowhere.
+      #
+      # RUNG 0 ADDED 2026-10-07 from Jason's live fork, which is now this template. His words:
+      # "I'd like to just see us start locking 40% at 15% instead of waiting until 28%... add
+      # another tier at 15% and keep the ratchet to 45% at 28%. So there would be 5 tiers now
+      # instead of 4." The original four are unchanged and simply shift down one position, so every
+      # price distance below rung 0 is still camel's exactly.
+      #
+      # MEASURED on camel's own book, 164 round trips across 5 live wallets to 2026-10-07:
+      #   favourable peak    p50 1.78%  p75 3.45%  p90 6.04%  max 24.90%  (of price)
+      #   adverse excursion  p50 1.28%  p75 1.60%  p90 2.26%
+      #
+      # So rung 0 at 1.50% of price ARMS OFTEN — 86 of 164 positions (52%) reach it. It is doing
+      # what it was asked to do.
+      #
+      # The cost, quantified rather than guessed. Its leash — how far price may retrace off the
+      # high-water before the floor fires — is (1 - 0.40) x 1.50 = 0.90% of price, which is INSIDE
+      # camel's median bounce of 1.28%. So once armed it will usually fire, banking 40% x 1.50% =
+      # +0.60% of price (+6% ROE at 10x, ~4.3% of the arm on 72% margin) on a book whose median peak
+      # is 1.78% and p75 is 3.45%. That is a deliberate trade of upside for hit-rate, which is
+      # exactly what was asked for.
+      #
+      # Worth knowing before anyone retunes the LOCK: at a 1.50% trigger no lock value escapes the
+      # median bounce. lock 30 -> 1.05%, lock 25 -> 1.12%, and even lock 0 -> 1.50% only clears p50,
+      # not p75. The arm distance is simply close to camel's noise band. Moving the TRIGGER out is
+      # the only lever that changes that, and rung 1 at 2.80% already is that lever.
       tiers:
+        - { trigger_pct: 15,   lock_hw_pct: 40 }   #  1.50% of price at 10x — ADDED 2026-10-07
         - { trigger_pct: 28,   lock_hw_pct: 45 }   #  2.80% of price
         - { trigger_pct: 56,   lock_hw_pct: 65 }   #  5.60% of price
         - { trigger_pct: 100,  lock_hw_pct: 80 }   # 10.00% of price

@@ -81,7 +81,7 @@ scanners:
       # one — but selection alone should not move 2.8% to 55%. Treat the gate as cheap insurance
       # on this package, not as a filter expected to bite: on pelican's own measured distribution
       # it would have rejected nothing in 7 days.
-      maxPreMovePct: 3.0
+      maxPreMovePct: 1.5                   # DEFAULT as of 2026-10-07 — see the note above
       maxPositions: 2                       # mirrors slots:2
       topN: 50                              # v2 TOP_N — score only the top-50 SM markets
       leaderboardLimit: 100                 # v2 fetch_markets limit=100

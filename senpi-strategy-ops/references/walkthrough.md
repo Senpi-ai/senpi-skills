@@ -19,6 +19,30 @@ scoring and the entry bar · protection as outcomes · daily cap), read from `st
 each instance's `runtime.yaml` — plain language, no YAML. Say it here, before the money moves, then again
 after it is live.
 
+## 1a. The pre-move gate is a DEFAULT — say what it does and offer the alternatives
+
+`penguin`, `penguins-duo`, `pelican`, `pelicans-duo`, `purple-penguin` and `penguin-x5` ship
+`maxPreMovePct: 1.5` as of 2026-10-07. A user who says "run penguin" gets the strictest setting
+without having chosen it, so block 1 carries one extra bullet and block 2 carries it as a lever:
+
+> • **It will skip a late entry.** If the price has already moved 1.5% in the signal's own
+>   direction in the hour before the signal, it waits for the next one — about one entry in five.
+>   Buying after a fall, or selling after a rally, still goes through: it only refuses chasing.
+>   **2% and 3% versions exist if you want it looser.**
+
+Two things to have ready if they ask:
+
+- **Why 1.5 rather than looser** — the quant desk measured 55% of penguin's entries arriving after
+  a >= 3% move, running a profit factor of 0.3 against 3.3 for entries taken before the move. The
+  tightest setting is the one that acts on that.
+- **What it costs** — on 7 days of candidate telemetry, 1.5% rejects about 18% of would-be entries,
+  2% about 9%, 3% about 7%. Stricter means fewer trades, not better ones, and nobody has live
+  evidence yet on which pays more; the arms exist to find out.
+
+Do NOT recommend one over another on P&L. As of 2026-10-07 the arms had taken the SAME trades —
+nothing had yet arrived above +1.10%, so no cap had rejected anything and any P&L gap between them
+was execution noise.
+
 ## 1b. If it is a VARIANT, say what it varies — before the budget question
 
 Fifteen listed templates are variants of another listed template, differing in one or two numbers:

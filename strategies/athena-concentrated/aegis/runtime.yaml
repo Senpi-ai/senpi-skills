@@ -22,7 +22,12 @@ description: >
 strategy:
   wallet: "${ATHENA_AEGIS_WALLET}"
   slots: 4
-  margin_pct: 12
+  # SIZED UP 2026-10-07 from Jason's live fork, which is now this template. His words:
+  # "The current strategy is using only about 20% of margin. It should use 20% per
+  # position." 4 slots x 20% = 80% of the aegis sleeve deployed, up from 48%, and
+  # marginPctMax 30 lets a single high-conviction hedge take 30%. Only the aegis leg of
+  # THIS package changes — standalone aegis and athena are untouched.
+  margin_pct: 20
   default_leverage: 3
   trading_risk: moderate
   enabled: true
@@ -40,8 +45,8 @@ scanners:
     default_signal_validity_seconds: 600
     state_history_max_count: 200
     inputs:
-      marginPctBase: 12
-      marginPctMax: 15
+      marginPctBase: 20
+      marginPctMax: 30
       leverageDefault: 3
       maxSlots: 4
       minScore: 25

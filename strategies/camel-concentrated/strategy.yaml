@@ -10,7 +10,7 @@
 # see senpi-strategy-discover/references/variant-families.md.
 schema_version: 1
 id: camel-concentrated
-version: "1.0.1"
+version: "1.1.1"
 catalog:
   varies: camel
   name: Camel Concentrated — one carry trade per side at 10x
@@ -22,7 +22,7 @@ catalog:
   archetype: contrarian_fade
   sub_style: funding_extreme
   asset_classes:
-  - universe_crypto
+    - universe_crypto
   asset_scope: universe
   direction: long_short
   risk_level: aggressive
@@ -32,28 +32,28 @@ catalog:
   max_slots: 2
   assets: []
   tags:
-  - basis
-  - carry
-  - concentration
-  - contrarian
-  - exhaustion
-  - experiment
-  - funding
-  - hedge-fund
-  - high-leverage
-  - market-neutral
-  - two-book
-  - universe-crypto
+    - basis
+    - carry
+    - concentration
+    - contrarian
+    - exhaustion
+    - experiment
+    - funding
+    - hedge-fund
+    - high-leverage
+    - market-neutral
+    - two-book
+    - universe-crypto
 requires:
   runtime: '>=3.0.0'
 defaults:
   auth_token_env: SENPI_AUTH_TOKEN
 instances:
-- name: harvest
-  runtime: harvest/runtime.yaml
-  wallet_env: CAMEL_HARVEST_WALLET
-  funding_share: 0.5
-- name: payout
-  runtime: payout/runtime.yaml
-  wallet_env: CAMEL_PAYOUT_WALLET
-  funding_share: 0.5
+  - name: harvest
+    runtime: harvest/runtime.yaml
+    wallet_env: CAMEL_HARVEST_WALLET
+    funding_share: 0.5
+  - name: payout
+    runtime: payout/runtime.yaml
+    wallet_env: CAMEL_PAYOUT_WALLET
+    funding_share: 0.5

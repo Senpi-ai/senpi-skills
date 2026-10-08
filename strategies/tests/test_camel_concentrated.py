@@ -87,9 +87,46 @@ def test_every_dsl_price_distance_equals_camels(arm):
         f'and puts it inside the measured noise band')
     got = [t["trigger_pct"] / la for t in da["phase2"]["tiers"]]
     want = [t["trigger_pct"] / lp for t in dp["phase2"]["tiers"]]
-    assert got == want, f"rung price distances {got} != camel's {want}"
-    assert [t["lock_hw_pct"] for t in da["phase2"]["tiers"]] == \
-           [t["lock_hw_pct"] for t in dp["phase2"]["tiers"]], "the locks were changed too"
+    # One rung was ADDED below camel's first, 2026-10-07, from Jason's live fork: "start locking
+    # 40% at 15% instead of waiting until 28%". Camel's own four must still be present at camel's
+    # exact price distances — the addition may not reprice the inherited ladder, which is the
+    # failure mode the one-price-ladder rule exists to stop (#821).
+    assert got[-len(want):] == want, (
+        f"camel's own rungs were repriced: {got[-len(want):]} != camel's {want}")
+    assert got[:-len(want)] == [EXTRA_RUNG_PX], (
+        f"the only rung above camel's ladder should be the declared {EXTRA_RUNG_PX}% addition; "
+        f"found {got[:-len(want)]}")
+    assert got == sorted(got), f"the ladder is not ascending in price: {got}"
+    assert [t["lock_hw_pct"] for t in da["phase2"]["tiers"]][-len(want):] == \
+           [t["lock_hw_pct"] for t in dp["phase2"]["tiers"]], "camel's inherited locks changed"
+
+
+EXTRA_RUNG_PX = 1.5          # % of price — the rung added on 2026-10-07
+EXTRA_RUNG_LOCK = 40
+
+
+@pytest.mark.parametrize("arm", ARMS)
+def test_the_added_rung_is_the_one_that_was_asked_for(arm):
+    """Pinned with its measured cost, so nobody "simplifies" it back out or retunes the lock
+    without the numbers.
+
+    Measured on camel's own book, 164 round trips across 5 live wallets to 2026-10-07:
+    favourable peak p50 1.78% / p75 3.45%, adverse excursion p50 1.28% / p75 1.60%.
+
+    So rung 0 at 1.50% of price arms on 86/164 = 52% of positions — it engages. Its leash is
+    (1 - 0.40) x 1.50 = 0.90% of price, INSIDE the 1.28% median bounce, so once armed it usually
+    fires and banks +0.60% of price. That is a deliberate trade of upside for hit-rate.
+
+    And the thing to know before retuning the LOCK rather than the trigger: at a 1.50% trigger NO
+    lock escapes the median bounce (30 -> 1.05%, 25 -> 1.12%, even 0 -> 1.50% clears only p50).
+    The trigger is the only lever, and rung 1 at 2.80% already is it."""
+    t = _rt(ARM_PKG, arm)["exit"]["dsl_preset"]["phase2"]["tiers"][0]
+    lev = _rt(ARM_PKG, arm)["strategy"]["default_leverage"]
+    assert t["trigger_pct"] / lev == EXTRA_RUNG_PX, (
+        f'rung 0 arms at {t["trigger_pct"]/lev}% of price, not the asked-for {EXTRA_RUNG_PX}%')
+    assert t["lock_hw_pct"] == EXTRA_RUNG_LOCK, (
+        f'rung 0 locks {t["lock_hw_pct"]}% of high-water, not {EXTRA_RUNG_LOCK}%. Changing this is '
+        f'a product decision — see this test\'s docstring for what the lock can and cannot buy.')
 
 
 @pytest.mark.parametrize("arm", ARMS)
