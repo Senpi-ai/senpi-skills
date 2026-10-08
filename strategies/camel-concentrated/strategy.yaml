@@ -10,7 +10,7 @@
 # see senpi-strategy-discover/references/variant-families.md.
 schema_version: 1
 id: camel-concentrated
-version: "1.1.1"
+version: "1.2.0"
 catalog:
   varies: camel
   name: Camel Concentrated — one carry trade per side at 10x
