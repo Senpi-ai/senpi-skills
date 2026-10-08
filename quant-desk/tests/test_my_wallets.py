@@ -152,9 +152,9 @@ def _skill():
     return " ".join((HERE.parent / "SKILL.md").read_text(encoding="utf-8").split())
 
 
-def test_the_skill_resolves_mine_from_external_then_senpi():
+def test_the_skill_resolves_mine_from_one_list_of_saved_and_senpi_wallets():
     sk = _skill()
-    for needle in ("desk.py --my-wallets", "saved wallets first", "it isn't saved",
+    for needle in ("desk.py --my-wallets", "largest first", "it isn't saved",
                    "add it in Your wallets on senpi.ai (web)", ACCESS, "`external_wallets_status: \"unavailable\"`",
                    "I couldn't load your saved wallets", "never imply senpi checked who controls them"):
         assert needle in sk, needle
@@ -291,3 +291,242 @@ def test_the_skill_relays_the_note_on_any_path():
     for needle in ("say it once, on any path", "`whose_changed.say`", "\"Find my leaks on 0x…\" button",
                    "that sentence is the first thing you say, word for word, before the score"):
         assert needle in sk, needle
+
+
+# ── Every wallet first-class (R1 review §02/§04): one list, by value, kind as a column ──────────────
+SAVED_B = "0x" + "c3" * 20
+SAVED_C = "0x" + "a1" * 20
+STRAT_B = "0x" + "f6" * 20
+
+
+def _portfolio(value):
+    """Hyperliquid's `portfolio` reply: [window, {accountValueHistory: [[t, "v"], …]}], day first."""
+    return [["day", {"accountValueHistory": [[1, "1.0"], [2, str(value)]], "pnlHistory": [], "vlm": "0"}],
+            ["week", {"accountValueHistory": [[0, "9.0"], [2, str(value)]], "pnlHistory": [], "vlm": "0"}]]
+
+
+def _state(total, unpriced=(), error=None):
+    if error:
+        return {"readAt": "2026-10-07T18:00:00Z", "readError": error, "totalValueUsd": None,
+                "unpricedCoins": None, "positions": None}
+    return {"readAt": "2026-10-07T18:00:00Z", "readError": None, "totalValueUsd": total,
+            "unpricedCoins": list(unpriced), "positions": []}
+
+
+class ValuedMCP(FakeMCP):
+    def __init__(self, me=None, strategies=None, fail=(), states=None):
+        super().__init__(me, strategies, fail)
+        self.states, self.calls = states, []
+
+    def mcp_call(self, tool, timeout=12, **kw):
+        self.calls.append(tool)
+        if tool == "account_get_external_wallets":
+            if tool in self.fail:
+                raise RuntimeError(f"{tool} HTTP 503")
+            assert "address" not in kw, "one call for every saved wallet, not one per wallet"
+            return {"success": True, "data": {"external_wallets": [
+                {"address": a, "label": None, "added_at": None, "access": ACCESS, "state": s}
+                for a, s in (self.states or {}).items()]}}
+        return super().mcp_call(tool, timeout=timeout, **kw)
+
+
+def _hl(values):
+    """An HLFixture whose `portfolio` reads answer `values` {addr: value}; an address left out FAILS."""
+    from hl_api import HLFixture
+    return HLFixture({f"hl::portfolio::{a}": _portfolio(v) for a, v in values.items()}, now_ms=1)
+
+
+def _mixed(states=None, hl_values=None, fail=()):
+    me = _me(wallets=((CONN, "MetaMask"), (SAVED_B, "Ledger")))
+    strategies = [{"strategyWalletAddress": STRAT, "strategyName": "Aegis", "status": "ACTIVE"},
+                  {"strategyWalletAddress": STRAT_B, "strategyName": "Phalanx", "status": "CLOSED"}]
+    mcp = ValuedMCP(me, strategies, fail=fail,
+                    states={CONN: _state("500.50"), SAVED_B: _state("12000")} if states is None else states)
+    hl = _hl({STRAT: 3000.25, STRAT_B: 0.0} if hl_values is None else hl_values)
+    return desk.my_wallets_listed(mcp, hl), mcp, hl
+
+
+def test_one_list_ordered_by_value_never_by_origin():
+    mw, _, _ = _mixed()
+    rows = mw["wallets"]
+    assert [r["address"] for r in rows] == [SAVED_B, STRAT, CONN, STRAT_B]   # 12,000 · 3,000 · 500 · 0
+    assert [r["kind"] for r in rows] == ["saved", "strategy", "saved", "strategy"]
+    assert [r["value_usd"] for r in rows] == [12000.0, 3000.25, 500.5, 0.0]
+    assert all(r["value_status"] == "ok" for r in rows)
+    assert mw["order"] == "value_desc" and mw["wallets_complete"] is True
+
+
+def test_each_row_carries_its_kind_and_a_closed_strategy_stays_labeled_closed():
+    rows = {r["address"]: r for r in _mixed()[0]["wallets"]}
+    assert rows[SAVED_B]["kind_label"] == "read-only — you added it" and rows[SAVED_B]["label"] == "Ledger"
+    assert rows[SAVED_B]["access"] == ACCESS and "access" not in rows[STRAT]
+    assert rows[STRAT]["kind_label"] == "Senpi strategy" and rows[STRAT]["label"] == "Aegis"
+    assert rows[STRAT_B]["closed"] is True and rows[STRAT_B]["status"] == "CLOSED"
+    assert rows[STRAT_B]["kind_label"] == "Senpi strategy — closed"
+    assert rows[STRAT]["closed"] is False and rows[SAVED_B]["closed"] is False
+    assert rows[SAVED_B]["value_source"] == "account_get_external_wallets state.totalValueUsd"
+    assert rows[STRAT]["value_source"] == "Hyperliquid portfolio (account value)"
+
+
+def test_a_wallet_that_could_not_load_sorts_last_and_is_never_zero():
+    mw, _, _ = _mixed(states={CONN: None, SAVED_B: _state(None, error="hyperliquid timeout")},
+                      hl_values={STRAT_B: 0.0})                                 # STRAT's HL read fails
+    rows = mw["wallets"]
+    assert rows[0]["address"] == STRAT_B and rows[0]["value_usd"] == 0.0     # a real $0 is a value
+    unknown = rows[1:]
+    assert {r["address"] for r in unknown} == {CONN, SAVED_B, STRAT}
+    assert all(r["value_usd"] is None and r["value_status"] == "couldnt_load" for r in unknown)
+    # ties among the unknown: by label, then address — deterministic, never arbitrary
+    assert [r["label"] for r in unknown] == ["Aegis", "Ledger", "MetaMask"]
+    assert "couldn't load" in mw["text"] and "$0" in mw["text"].split("couldn't load")[0]
+
+
+def test_ties_break_by_label_then_address():
+    mw, _, _ = _mixed(states={CONN: _state("100"), SAVED_B: _state("100")}, hl_values={STRAT: 100, STRAT_B: 100})
+    assert [r["label"] for r in mw["wallets"]] == ["Aegis", "Ledger", "MetaMask", "Phalanx"]
+
+
+def test_a_failed_state_read_keeps_the_saved_wallets_listed_with_unknown_values():
+    mw, _, _ = _mixed(fail=("account_get_external_wallets",))
+    assert mw["external_wallets_status"] == "ok"
+    saved = [r for r in mw["wallets"] if r["kind"] == "saved"]
+    assert len(saved) == 2 and all(r["value_usd"] is None for r in saved)
+    assert [r["kind"] for r in mw["wallets"]] == ["strategy", "strategy", "saved", "saved"]
+
+
+def test_unpriced_coins_are_carried_and_the_text_says_the_value_excludes_them():
+    mw, _, _ = _mixed(states={CONN: _state("500.50", unpriced=("PURR", "HFUN")), SAVED_B: _state("12000")})
+    row = next(r for r in mw["wallets"] if r["address"] == CONN)
+    assert row["unpriced_coins"] == ["PURR", "HFUN"] and row["value_usd"] == 500.5
+    assert "MetaMask's value excludes PURR, HFUN" in mw["text"]
+
+
+def test_an_unavailable_source_is_visible_and_never_reads_as_no_wallets():
+    mw, _, _ = _mixed(fail=("user_get_me",))
+    assert mw["external_wallets_status"] == "unavailable" and mw["wallets_complete"] is False
+    assert [r["kind"] for r in mw["wallets"]] == ["strategy", "strategy"]
+    assert "I couldn't load your saved wallets" in mw["text"]
+    mw, _, _ = _mixed(fail=("strategy_list",))
+    assert mw["senpi_wallets_status"] == "unavailable" and mw["wallets_complete"] is False
+    assert "I couldn't load your Senpi strategy wallets" in mw["text"]
+    both = desk.my_wallets_listed(None, None)
+    assert both["wallets"] is None and both["wallets_complete"] is False   # unknown, never []
+    for mw in (_mixed(fail=("user_get_me",))[0], both):
+        assert not re_search(r"(?i)no (saved )?wallets", mw["text"]), mw["text"]
+
+
+def re_search(p, s):
+    import re
+    return re.search(p, s)
+
+
+def test_the_value_reads_are_one_mcp_call_and_one_hl_read_per_strategy_wallet():
+    mw, mcp, _ = _mixed()
+    assert mcp.calls.count("account_get_external_wallets") == 1
+    # no saved wallet → no state read at all
+    mcp2 = ValuedMCP(_me(wallets=()), [{"strategyWalletAddress": STRAT, "strategyName": "Aegis", "status": "ACTIVE"}])
+    desk.my_wallets_listed(mcp2, _hl({STRAT: 1}))
+    assert "account_get_external_wallets" not in mcp2.calls
+
+
+def test_the_portfolio_read_is_the_same_request_the_desk_makes_so_the_run_after_reuses_it():
+    """The list primes the desk's own cache: `HL.trader` asks for {"type": "portfolio", "user": addr},
+    and so does the list — same body, same cache key (TTL 600 s)."""
+    import hl_api
+
+    class Spy(hl_api.HL):
+        def __init__(self):
+            super().__init__(cache_dir=None, now_ms=1)
+            self.bodies = []
+
+        def info(self, body):
+            self.bodies.append(body)
+            return _portfolio(7)
+    s = Spy()
+    assert s.portfolios([STRAT, STRAT_B]) == {STRAT: _portfolio(7), STRAT_B: _portfolio(7)}
+    assert sorted(b["user"] for b in s.bodies) == sorted([STRAT, STRAT_B])
+    assert all(b == {"type": "portfolio", "user": b["user"]} for b in s.bodies)
+
+
+def test_current_account_value_reads_zero_as_a_value_and_no_series_as_unknown():
+    from metrics import current_account_value
+    assert current_account_value(_portfolio(0)) == 0.0
+    assert current_account_value(_portfolio("1234.5")) == 1234.5
+    assert current_account_value([["day", {"accountValueHistory": []}], ["allTime", {"accountValueHistory": [[1, "5"]]}]]) == 5.0
+    for bad in (None, [], [["day", {"accountValueHistory": []}]], {"oops": 1}, [["day", None]], [["day", {"accountValueHistory": [[1, "x"]]}]]):
+        assert current_account_value(bad) is None, bad
+
+
+def test_the_question_names_the_wallets_largest_first():
+    mw, _, _ = _mixed()
+    ask = mw["ask"]
+    assert ask.startswith("Which one do you want me to run the desk on")
+    order = [ask.index(n) for n in ("Ledger", "Aegis", "MetaMask", "Phalanx")]
+    assert order == sorted(order), ask
+    assert "($12,000)" in ask and "($0, closed)" in ask
+    one = desk.my_wallets_listed(ValuedMCP(_me(), []), _hl({}))
+    assert one["ask"] is None                                       # one wallet: nothing to choose
+
+
+def test_the_text_is_one_table_in_the_engine_order_with_a_kind_column():
+    mw, _, _ = _mixed()
+    t = mw["text"]
+    assert "| # | Wallet | Kind | Value |" in t
+    assert t.index("Ledger") < t.index("Aegis") < t.index("MetaMask") < t.index("Phalanx")
+    assert "read-only — you added it" in t and "Senpi strategy — closed" in t
+    assert ACCESS in t
+    assert "Saved wallets" not in t and "Strategy wallets" not in t       # no section by origin
+
+
+def test_the_my_wallets_flag_prints_the_ordered_list_with_values(tmp_path, capsys):
+    fx = tmp_path / "fx.json"
+    fx.write_text(json.dumps({
+        "user_get_me": {"success": True, "data": _me(wallets=((CONN, "MetaMask"),))},
+        "strategy_list": {"success": True, "data": {"strategies": [
+            {"strategyWalletAddress": STRAT, "strategyName": "Aegis", "status": "ACTIVE"}]}},
+        "account_get_external_wallets": {"success": True, "data": {"external_wallets": [
+            {"address": CONN, "label": "MetaMask", "access": ACCESS, "state": _state("50")}]}},
+        f"hl::portfolio::{STRAT}": _portfolio(900)}))
+    assert desk.main(["--my-wallets", "--fixture", str(fx), "--state-dir", str(tmp_path)]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert [(r["label"], r["value_usd"]) for r in out["wallets"]] == [("Aegis", 900.0), ("MetaMask", 50.0)]
+    assert out["text"].index("Aegis") < out["text"].index("MetaMask")
+    assert desk.main(["--my-wallets", "--json", "--fixture", str(fx), "--state-dir", str(tmp_path)]) == 0
+    assert json.loads(capsys.readouterr().out)["wallets"] == out["wallets"]
+
+
+def test_the_listed_text_uses_none_of_the_retired_words():
+    import re
+    for mw in (_mixed()[0], _mixed(fail=("user_get_me",))[0], desk.my_wallets_listed(None, None),
+               desk.my_wallets_listed(ValuedMCP(_me(wallets=()), []), _hl({}))):
+        s = json.dumps(mw)
+        assert not re.search(r"(?i)connect(?!ion)", s), s
+        assert not re.search(r"(?i)(?<![a-z])verified|you own|proven", s), s
+
+
+def test_no_wallets_at_all_points_at_your_wallets():
+    mw = desk.my_wallets_listed(ValuedMCP(_me(wallets=()), []), _hl({}))
+    assert mw["wallets"] == [] and mw["wallets_complete"] is True
+    assert "add it in Your wallets on senpi.ai (web)" in mw["text"]
+
+
+def test_the_skill_orders_by_value_and_never_by_origin():
+    sk = _skill()
+    assert "saved wallets first" not in sk.lower()
+    assert "then strategy wallets" not in sk.lower()
+    for needle in ("largest first", "`wallets`", "keep that order", "never split it by origin",
+                   "`ask`", "`value_status: \"couldnt_load\"`", "never as $0"):
+        assert needle in sk, needle
+
+
+def test_skill_names_the_kind_fields_the_script_emits():
+    """`kind` is the machine value (`saved` / `strategy`); the words a reader sees are `kind_label` —
+    SKILL.md must not tell the agent that `kind` carries the label text (R1 re-review)."""
+    render = desk.render
+    sk = _skill()
+    assert "its `kind` (read-only — you added it / Senpi strategy)" not in sk
+    assert "`kind` (`saved` / `strategy`)" in sk
+    assert "`kind_label` (" in sk
+    for v in render.KIND_LABEL.values():
+        assert v in sk, v
+    assert {desk.KIND_SAVED, desk.KIND_STRATEGY} == {"saved", "strategy"}

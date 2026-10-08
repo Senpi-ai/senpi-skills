@@ -5,6 +5,38 @@ The shape of the JSON `scripts/review.py` prints. The runtime JSON you get back 
 ```
 window        { from, to, label, window_days, last_n }   # the review window
 
+book          ONE list of every wallet — PRESENT FIRST, then the detail (the `strategies` step and `all`):
+  rows[]      one per wallet, sorted value desc; ties by label then address; value unknown LAST.
+              Never re-section by origin — kind is a column:
+    label, display_label (label + short address when two rows share a label), kind: managed | read_only,
+    wallet, status (managed only), value_usd (None = couldn't load, never 0),
+    value_read: ok | unavailable | error,     # managed: clearinghouse accountValue (main+xyz, shared idle once)
+                                              # read_only: state.totalValueUsd verbatim (unified-account aware)
+    no_hl_activity (read_only: role MISSING → a real 0), closed_trade_count, realized_pnl, fees (GROSS PnL),
+    trades_unknown (true → None counts, never 0), trades_capped (HL's 2000-fill ceiling → "at least"),
+    open_position_count (None = couldn't read), unpriced_coins (read_only), access (read_only, verbatim),
+    protection { kind: runtime_exit }                         # managed — the runtime's DSL exit
+             | { kind: live_stops, FULL, PARTIAL, NONE }      # read_only — counts of positions; None = unread
+    timing { measurable_closes, exits_ahead, exits_ahead_share }   # this wallet's own timing — comparison input
+  total       ONE book total, subtotals beside it — quote `line` verbatim; never sum yourself, no "Combined" row:
+    value_usd, realized_pnl, fees,            # sums of the KNOWN subtotals (fees None unless both known)
+    managed   { wallet_count, wallets_loaded, value_usd, couldnt_load[], realized_pnl (= pnl_summary.realized),
+                fees (= pnl_summary.fees), realized_pnl_closed_strategies, state: ok | unreadable }
+    read_only { wallet_count, wallets_loaded, value_usd, couldnt_load[], realized_pnl, fees, unpriced_coins[],
+                trades_unknown[], trades_capped[], state: ok | unavailable }   # NEVER deployable
+    excludes  { couldnt_load[], unpriced_coins[], unreadable[] },
+    line, note    # line: "Book value $X: managed by Senpi $A (n wallets) · read-only $B (…) …" — not Senpi performance;
+                  # "(1 of 2 wallets)" when only some loaded; no read-only clause when no saved wallets
+  comparison  { line (None → say nothing comparative), reason, metric, min_closes (= MIN_COMPARE_CLOSES, 8),
+                wallets[] { label, kind, measurable_closes, exits_ahead, exits_ahead_share, trades_capped },
+                not_compared[] { label, why } }   # 2+ wallets with 8+ measurable closes, else no line
+  deep_dive   { question, order[] } | None   # >1 wallet with something to review (a value, a position, trades,
+                                             # or unknown): "Which wallet do you want me to go deeper on: …?" —
+                                             # asked once, at the END of the whole answer
+  note
+  # managed rows are the CURRENT strategies (closed ones are history — closed_strategies[]); the Senpi
+  # aggregates below stay Senpi-only and unchanged — the managed subtotal quotes them.
+
 trades[]      per CLOSED trade (from strategies of ALL statuses — a churned book's history is complete):
   asset, strategy_label, strategy_status, direction, leverage, entry_px, exit_px, open_time, close_time,
   realized_pnl,                           # strategy_status: ACTIVE|PAUSED = current book; else = HISTORY

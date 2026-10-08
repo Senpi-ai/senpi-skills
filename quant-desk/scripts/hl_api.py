@@ -333,6 +333,18 @@ class HL:
         with ThreadPoolExecutor(max_workers=workers) as ex:
             return dict(ex.map(one, addrs))
 
+    def portfolios(self, addrs, workers=6):
+        """{addr: Hyperliquid's `portfolio` reply, or None when that read failed} — one read per wallet,
+        in parallel. The SAME request `trader()` makes, so a desk run on one of these wallets inside the
+        cache TTL reuses it instead of paying for it again."""
+        def one(a):
+            try:
+                return a, self.info({"type": "portfolio", "user": a})
+            except Exception:  # noqa: BLE001 — one wallet's failure is that wallet's unknown value
+                return a, None
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            return dict(ex.map(one, addrs))
+
     def leaderboard(self):
         """Hyperliquid's public leaderboard (every account with a window performance; ~40 MB), cached."""
         path = os.path.join(self.cache_dir, "leaderboard.json") if self.cache_dir else None

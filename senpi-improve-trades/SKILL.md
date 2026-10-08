@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.15.0"
+  version: "1.16.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -63,8 +63,9 @@ more" questions; use `senpi-portfolio` for live state.
    A review that used the config's 10x on that PONS trade stated "~15% ROE" and "~49% of margin" in one
    answer; at its real 3x it was -5.094% x 3 = **-15.3%**, exactly the `max_loss_pct: 15.0` floor.
    **Say so when they differ** — the venue cap is a fact about the user's exposure, not a footnote.
-1. **Lead with TOTAL PnL** (`pnl_summary.total` = realized + unrealized), never realized alone. Realized-only
-   is half the ledger — it calls a book riding open winners a "loser" and penalizes hold-strategies. **If
+1. **Lead with TOTAL PnL** (`pnl_summary.total` = realized + unrealized), never realized alone. (The
+   review opens with `book`, the one list of every wallet — see "One book"; TOTAL leads the Senpi
+   detail.) Realized-only is half the ledger — it calls a book riding open winners a "loser" and penalizes hold-strategies. **If
    `pnl_summary.unrealized_partial` is true (or `unrealized_coverage.read < .current_strategies`), TOTAL is a
    FLOOR, not a complete number** — some current wallets couldn't be read. Say **"at least $X (N of M wallets
    readable)"**, never present it as the finished total. (`total: null` = the open book was *entirely*
@@ -203,6 +204,60 @@ strategy."* Then:
 **Still forbidden here** (guardrail 9 binds): no manufactured critique of an account with nothing in it, no
 "your idle cash is a $0/day leak" framing, no DSL alarms. Idle cash is an **option**, never a loss.
 
+## One book — every wallet first-class
+
+Every wallet the user has is one row: each CURRENT Senpi strategy (`kind: "managed"`) and each saved
+wallet (`kind: "read_only"`). `book` (the `strategies` step and `all`) is that ONE list. Origin is the
+`kind` column, never a rank and never a section break.
+
+1. **Open with `book.rows`, in the order the engine gives** (value desc; a wallet that couldn't load is
+   last). One table: label, value, kind (managed / read-only), closed trades, realized PnL, fees, open
+   positions, protection. Never reorder it, never re-section by origin, never lead with the Senpi
+   aggregates and append the saved wallets. Then the detail: the Senpi aggregates (`pnl_summary.total`
+   leads them, hard rule 1) and `external_wallets[]`.
+2. **`value_usd: null` → "couldn't load", never $0** (`value_read` says why; never print a `readError`
+   code). `no_hl_activity: true` → "no Hyperliquid activity yet".
+3. **One book total: quote `book.total.line` verbatim.** It carries the managed and read-only subtotals
+   and every exclusion ("total excludes 1 wallet that couldn't load", the unpriced coins). Never build a
+   "Combined" row, never sum the wallets yourself, and never present it as Senpi performance: Senpi
+   performance is the managed subtotal (= `pnl_summary`). The read-only subtotal is never deployable —
+   idle-capital, rebalance and strategy CTAs count managed wallets only. A subtotal over only some of
+   its wallets says so ("1 of 2 wallets"); one whose wallets all failed is "unknown", never $0; with no
+   saved wallets the line has no read-only clause.
+4. **Protection stays origin-aware.** A managed row's `protection.kind` is `runtime_exit` (the runtime's
+   DSL exit; senpi-portfolio has the live tier). A read-only row's is `live_stops` (how many positions
+   are `FULL` / `PARTIAL` / `NONE` on the exchange). Say "runtime exit" for one and "live stops" for the
+   other; never merge the two.
+5. **Comparison: quote `book.comparison.line` after the table when it is non-null.** The engine computes
+   it — of the closes measurable against today's price, the share that got out ahead of the later move
+   (hindsight context, never a grade: guardrail 2) — only when 2+ wallets have `min_closes` (8)
+   measurable closes, and it names any wallet whose trades it couldn't read or that hit the fill ceiling.
+   `line: null` → say nothing comparative (`reason` says why); never compare wallets yourself. It names
+   wallets, not "you": a managed row's exits are its strategy's.
+6. **Narrow offer — asked once, at the end of the whole answer.** When `book.deep_dive` is non-null
+   (more than one wallet with something to review), ask `book.deep_dive.question` verbatim — "Which
+   wallet do you want me to go deeper on: …?", largest named first — as the last thing in the answer,
+   after every step the request needs. It never stops the remaining steps: run and narrate them, then
+   ask. Go deep on the one they pick. `order` holds only wallets with a value, an open position, trades
+   to review or a value that couldn't load — an empty $0 wallet stays in the table, never in the
+   question.
+
+### Fix depth on a saved wallet — advice they apply on Hyperliquid
+
+Guardrail 7's three depths apply to Senpi strategy trades. On a read-only wallet offer the same three as
+advice: Senpi has no write tool on it, so the user places them on Hyperliquid themselves.
+
+> - **Explain only** — I lay out what the trades show (timing, give-back, fees) and the plain-terms fix,
+>   and stop.
+> - **Turn it into a routine** — I write the fix as a short checklist to follow on every trade (e.g. "set
+>   the stop in the same minute you open").
+> - **Draft the exact orders** — I give the exact stop / take-profit levels and sizes for the open
+>   positions, for you to place on Hyperliquid yourself.
+
+Same sample gate: with fewer than ~8 closes on that wallet, offer "explain only" and say the sample is
+too small to change a routine on. Same floor: no write tool, no template or strategy pitch, no "Senpi
+will".
+
 ## Your wallets (read-only, traded by hand)
 
 A **saved wallet** is a Hyperliquid wallet the user added in Your wallets by pasting the address, and
@@ -211,7 +266,8 @@ imply Senpi checked who controls them. The engine adds every one to the review s
 `external_wallets[]` (the
 `timing` step and `all`) — its own read, never folded into `pnl_summary`, `strategies[]`,
 `dsl_close_reason_mix`, `timing_summary` or `leaks`, which stay Senpi-only. For a user with no Senpi
-strategy those Senpi aggregates are empty: lead with `external_wallets[]`.
+strategy those Senpi aggregates are empty: open with `book.rows` as always (see "One book"), and the
+detail is `external_wallets[]`.
 
 - **Access line, verbatim** — the answer to "can you close / trade / set a stop on it":
   > Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.
@@ -235,7 +291,7 @@ strategy those Senpi aggregates are empty: lead with `external_wallets[]`.
   "no open positions on the Hyperliquid main and xyz dexes", never a bare "no positions".
 - **No write suggestions** on these wallets — no `close.py`, redeploy, `edit_position`,
   `close_position`, `strategy_*` or `ratchet_stop_*`. The fix depth (guardrail 7) is advice the user
-  acts on themselves on Hyperliquid.
+  acts on themselves on Hyperliquid — the three depths are under "Fix depth on a saved wallet".
 - **`external_no_trades`** — saved wallets, no Senpi strategy, nothing closed in the window: say it
   in one line and offer a longer `--window`. Never pitch a strategy.
 - **"Your wallet"** means one of the user's saved wallets, or an address the user said is theirs in this
@@ -269,12 +325,16 @@ could I make more" — run the steps **in order** and narrate between:
    + realized so far) — but this is NOT your headline: TOTAL PnL (realized + unrealized) lands with the
    `strategies` step (`pnl_summary.total`). `exit_reason` is still `UNKNOWN` here (telemetry hasn't run) —
    narrate the *timing*, not the mechanism yet, and never call `held_higher` "premature / left on the table."
-2. `review.py strategies` → narrate the **per-strategy read** (each CURRENT strategy vs its OWN mandate,
+2. `review.py strategies` → open with **`book`** (rows by value, `book.total.line`, the comparison —
+   see "One book"), then narrate the **per-strategy read** (each CURRENT strategy vs its OWN mandate,
    realized PnL as evidence; `closed_strategies[]` is history — no verdict).
 3. `review.py telemetry` → narrate **exit quality / leaks / blocked** (now `exit_reason` is filled: the
    refreshed `dsl_close_reason_mix`, `leaks`, `blocked_summary`, `execution_quality`).
 4. `review.py market` → narrate the **book-vs-market gap** (run only if the ask needs "what did I miss /
    compare to market").
+
+**After the last step the request needs**, end the answer with `book.deep_dive.question` when it is
+non-null — once, never mid-review (One book, rule 6).
 
 **Narrate each slice as it returns — never wait for all steps.** The steps share a state file
 (`<tempdir>/senpi-improve-trades/state-<window>d.json`, overridable with `--state`), so a later step reuses
@@ -541,7 +601,8 @@ Label the source in the answer: *"the runtime's close record says …"* reads di
 ### 7. The user chooses the fix depth — never auto-act, and never offer a tune off one trade
 
 After you diagnose, **offer a choice and stop.** Never apply a config change or place a trade. Present three
-depths (below) and let the user pick.
+depths (below) and let the user pick. On a saved wallet the same three are advice the user applies on
+Hyperliquid — see "Fix depth on a saved wallet".
 
 **Gate the two config branches on sample size.** With **fewer than ~8 attributed closes on that strategy**,
 offer "explain only" and say the sample is too small to tune on, naming what more closes would measure. A lever
@@ -620,10 +681,14 @@ run on a just-deployed book):
 
 ## What the engine gives you
 
-The engine prints one JSON dict. **Lead with `pnl_summary.total`** (realized+unrealized); the PROCESS counts are in `timing_summary`; per-strategy verdicts in `strategies[]` (CURRENT book only); the telemetry streams (`dsl_close_reason_mix` / `blocked_summary` / `leaks` / `execution_quality`) are real only when `telemetry_availability.streams_computed` is true; `trades[]` is a curated outlier sample (counts from the aggregates, never `len(trades)`). **Full field-by-field catalog + the `exit_reason.terminal` enum: [`references/output-shape.md`](references/output-shape.md).**
+The engine prints one JSON dict. **Open with `book`** (the one list, then `book.total.line`); within the
+Senpi detail, **lead with `pnl_summary.total`** (realized+unrealized); the PROCESS counts are in `timing_summary`; per-strategy verdicts in `strategies[]` (CURRENT book only); the telemetry streams (`dsl_close_reason_mix` / `blocked_summary` / `leaks` / `execution_quality`) are real only when `telemetry_availability.streams_computed` is true; `trades[]` is a curated outlier sample (counts from the aggregates, never `len(trades)`). **Full field-by-field catalog + the `exit_reason.terminal` enum: [`references/output-shape.md`](references/output-shape.md).**
 
 ## The output contract — what you produce
 
+0. **One book** — `book.rows` in the engine's order, `book.total.line`, `book.comparison.line` (when
+   non-null). The parts below are the detail. `book.deep_dive.question` (when non-null) comes last of
+   all — after the detail and the steps the request needs, never here.
 1. **Total-PnL + timing teardown** — **led by TOTAL PnL** (`pnl_summary.total` = realized + unrealized), then
    the NEUTRAL aggregate (`timing_summary`: `exits_ahead` / `exits_held_higher`), each exit attributed via
    `exit_reason` (which tier / hard stop fired). Process-framed, NEVER "premature / left on the table."
