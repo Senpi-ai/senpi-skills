@@ -50,7 +50,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.44.0"
+VERSION = "1.45.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -680,6 +680,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
                              orders_unread_by_wallet=tr_raw.get("orders_unread_by_wallet"),
                              positions_unread_by_wallet=(tr_raw["positions_unread_by_wallet"] if "positions_unread_by_wallet" in tr_raw
                                                          else book_mod.positions_unread(tr_raw)))
+    book.update(metrics.account_split(book, tr_raw.get("userAbstraction")))
     if book["unknown"]:
         meta["warnings"].append("open orders unreadable: protection unknown for " + ", ".join(book["unknown"]))
     for dex, wal in book["positions_unread_by_wallet"]:
