@@ -207,3 +207,146 @@ def test_it_declares_camel_as_its_parent():
         "parent on near-identical text instead of behind it")
     blob = " ".join(str(card.get(k, "")) for k in ("name", "tagline", "belief_plain", "thesis"))
     assert "10x" in blob, "the card never states the leverage, which is half of what it varies"
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# The 24h overextension gate (2026-10-08)
+#
+# Measured on this package's own live book, 2026-10-06/08, 8 round trips on 2 coins. The two
+# FIRST entries — taken at -4.4% and +8.0% on the day — netted +$649.94. The four MET
+# re-entries — taken at +37.4%, +50.2%, +61.5% and +46.8% — grossed +$19.30 against $20.55 of
+# fees: net -$1.25 on ~$13.9k of churned notional. The funding signal outlives the price edge,
+# so the scanner kept re-ranking a name that had already paid out.
+#
+# The cooldown is NOT the lever: every one of the six re-entries opened 10,849-10,996s after
+# that coin's prior close — the 10,800s per-asset cooldown plus one 300s tick. It is a binary
+# switch, and raising it blocks SAND's +$457 of profitable re-entries along with MET's nothing.
+# The gate discriminates where the cooldown cannot.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+
+OVEREXTENSION_CAP = 20          # % 24h move, absolute, both legs
+
+# (coin, own24h at the real entry, net $ after fees, expect_blocked)
+LIVE_ENTRIES = [
+    ("SAND", -4.4, 86.72, False), ("SAND", 5.1, 73.99, False), ("SAND", 6.6, 383.25, False),
+    ("MET", 8.0, 563.22, False), ("MET", 37.4, -148.28, True), ("MET", 50.2, 82.15, True),
+    ("MET", 61.5, 232.69, True), ("MET", 46.8, -167.81, True),
+]
+
+
+def _scorer(arm):
+    """Load the arm's scoring.py BY PATH. Never sys.path.insert — four packages vendor a module
+    called `scoring`, and inserting one onto the path silently rebinds it for every later test in
+    a shared pytest run."""
+    import importlib.util
+    path = os.path.join(ROOT, "strategies", ARM_PKG, arm, "scanners", "scoring.py")
+    spec = importlib.util.spec_from_file_location(f"_scoring_{arm}", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _candles(n, px=1.0):
+    return [{"c": str(px), "h": str(px * 1.01), "l": str(px * 0.99), "o": str(px), "v": "1000"}
+            for _ in range(n)]
+
+
+@pytest.mark.parametrize("arm", ARMS)
+def test_the_overextension_gate_is_enabled_on_both_legs(arm):
+    cap = _inputs(_rt(ARM_PKG, arm)).get("maxOwn24hPct")
+    assert cap is not None, (
+        f"{arm}: maxOwn24hPct is absent, so the gate is DISABLED — the scorer treats a missing "
+        f"cap as opt-out and a name up 60% on the day scores identically to one up 0.1%")
+    assert float(cap) == OVEREXTENSION_CAP, f"{arm}: cap is {cap}, expected {OVEREXTENSION_CAP}"
+
+
+@pytest.mark.parametrize("arm", ARMS)
+def test_standalone_camel_is_NOT_gated(arm):
+    """The gate is opt-in precisely so the parent keeps the behaviour it was measured on. camel
+    runs four slots at 18% each, where one chased re-entry costs ~1% of the arm instead of ~8.6%,
+    and it has live users. Enabling it there is a separate decision with its own evidence."""
+    assert "maxOwn24hPct" not in _inputs(_rt(PARENT, arm)), (
+        f"camel/{arm} is now gated — that changes a template other people are running")
+
+
+@pytest.mark.parametrize("arm", ARMS)
+def test_the_gate_blocks_exactly_the_live_entries_that_paid_nothing(arm):
+    """The measurement, pinned. Replays each real entry's 24h move through the shipped scorer."""
+    sc = _scorer(arm)
+    leg_sign = 1 if arm == "payout" else -1
+    fund = -0.0002 if arm == "payout" else 0.0002
+    inputs = dict(_inputs(_rt(ARM_PKG, arm)))
+    blocked_net = kept_net = 0.0
+    for coin, own, net, expect_blocked in LIVE_ENTRIES:
+        res = sc.score_carry(coin, _candles(10), _candles(8), fund, own * leg_sign, arm, inputs)
+        got_blocked = res is None
+        assert got_blocked == expect_blocked, (
+            f"{arm}/{coin} at own24h={own * leg_sign:+.1f}%: "
+            f"{'blocked' if got_blocked else 'allowed'}, expected "
+            f"{'blocked' if expect_blocked else 'allowed'}")
+        if got_blocked:
+            blocked_net += net
+        else:
+            kept_net += net
+    assert round(blocked_net, 2) == -1.25, f"blocked set nets {blocked_net:+.2f}, expected -1.25"
+    assert round(kept_net, 2) == 1107.18, f"kept set nets {kept_net:+.2f}, expected +1107.18"
+
+
+@pytest.mark.parametrize("arm", ARMS)
+def test_the_gate_is_opt_out_by_absence_not_by_zero(arm):
+    """A cap of 0 would block EVERYTHING on one side — absence is the only off switch, and the
+    parent relies on it. Asserted on the scorer so the contract cannot drift."""
+    sc = _scorer(arm)
+    fund = -0.0002 if arm == "payout" else 0.0002
+    extreme = 61.5 * (1 if arm == "payout" else -1)
+    assert sc.score_carry("X", _candles(10), _candles(8), fund, extreme, arm, {}) is not None, (
+        f"{arm}: an absent maxOwn24hPct must NOT gate — standalone camel depends on it")
+    assert sc.score_carry("X", _candles(10), _candles(8), fund, extreme, arm,
+                          {"maxOwn24hPct": OVEREXTENSION_CAP}) is None
+
+
+@pytest.mark.parametrize("arm", ARMS)
+def test_the_gate_fires_on_the_correct_SIDE_for_each_leg(arm):
+    """Direction-aware: payout (long) skips a name that already RALLIED, harvest (short) one that
+    already CRASHED. Getting the sign backwards would skip exactly the entries worth taking."""
+    sc = _scorer(arm)
+    fund = -0.0002 if arm == "payout" else 0.0002
+    inputs = {"maxOwn24hPct": OVEREXTENSION_CAP}
+    against = -50.0 if arm == "payout" else 50.0      # moved AGAINST the carry — must still pass
+    assert sc.score_carry("X", _candles(10), _candles(8), fund, against, arm, inputs) is not None, (
+        f"{arm}: a {against:+.0f}% move against the carry direction must NOT be gated — that is "
+        f"the dislocation the strategy exists to buy")
+
+
+@pytest.mark.parametrize("arm", ARMS)
+def test_the_dedup_ttl_mirrors_the_per_asset_cooldown(arm):
+    """`recentSignalTtlSeconds` was 180 against a 300s scan interval, so every entry in the
+    in-scanner dedup map expired before the next tick could read it and the dedup could never
+    fire. kodiak mirrors its cooldown for exactly this reason; phalanx was fixed for it too."""
+    rt = _rt(ARM_PKG, arm)
+    scanner = next(s for s in rt["scanners"] if s.get("type") == "external_scanner")
+    ttl = float(_inputs(rt)["recentSignalTtlSeconds"])
+    interval = float(scanner["interval_seconds"])
+    cooldown = float(rt["risk"]["guard_rails"]["per_asset_cooldown_seconds"])
+    assert ttl > interval, (
+        f"{arm}: TTL {ttl}s <= scan interval {interval}s — the dedup map is unconditionally empty "
+        f"at read time, which is a silently dead gate rather than a loose one")
+    assert ttl >= cooldown, f"{arm}: TTL {ttl}s should mirror the {cooldown}s per-asset cooldown"
+
+
+@pytest.mark.parametrize("arm", ARMS)
+def test_the_three_hour_per_asset_cooldown_is_KEPT(arm):
+    """Deliberately unchanged. Every live re-entry opened 10,849-10,996s after that coin's prior
+    close — the cooldown plus one tick — so it demonstrably works, and raising it is all-or-
+    nothing: it would have blocked SAND's +$457 of profitable re-entries too."""
+    assert _rt(ARM_PKG, arm)["risk"]["guard_rails"]["per_asset_cooldown_seconds"] == 10800
+
+
+@pytest.mark.parametrize("arm", ARMS)
+def test_phase1_trailing_stays_off_and_the_ladder_is_untouched(arm):
+    """The other half of the 2026-10-08 decision: keep the DSL exactly as it is."""
+    dsl = _rt(ARM_PKG, arm)["exit"]["dsl_preset"]
+    assert dsl["phase1"]["enabled"] is False, f"{arm}: phase-1 trailing was re-enabled"
+    assert dsl["phase1"]["max_loss_pct"] == 12, f"{arm}: the stop moved"
+    assert [(t["trigger_pct"], t["lock_hw_pct"]) for t in dsl["phase2"]["tiers"]] == [
+        (15, 40), (28, 45), (56, 65), (100, 80), (180, 90)], f"{arm}: the ladder moved"

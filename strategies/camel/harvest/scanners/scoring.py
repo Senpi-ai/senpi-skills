@@ -94,6 +94,29 @@ def score_carry(asset, candles_1h, candles_4h, fund, own24h, leg, inputs):
     price = closes1[-1]
     own = own24h if own24h is not None else 0.0
 
+    # ── 24h OVEREXTENSION GATE — opt-in via `maxOwn24hPct`; absent = disabled ──────────────
+    # The carry pays for HOLDING the crowded side of a dislocation. It does not pay for
+    # arriving after the reversion has already happened, and the funding signal outlives the
+    # price edge by hours — a name can still be paying -200%/yr while it is up 40% on the day.
+    # Measured on camel-concentrated's live book (2026-10-06/08, 8 round trips): the two FIRST
+    # entries, taken at -4.4% and +8.0% on the day, netted +$650. The four MET re-entries, taken
+    # at +37.4%, +50.2%, +61.5% and +46.8%, grossed +$19.30 against $20.55 of fees — net -$1.25
+    # on ~$13.9k of churned notional. A +20% cap separates those two sets exactly: it blocks the
+    # four that paid nothing and keeps all four that paid.
+    #
+    # Why a hard disqualify and not a score penalty: the existing `still_ripping` / `still_crashing`
+    # rungs are -1 against a funding tier worth +3, so an extreme dislocation outvotes them no
+    # matter how far the price has run. Only a skip actually binds.
+    #
+    # Left DISABLED by default so standalone camel — four smaller slots, where one chased re-entry
+    # costs ~1% of the arm instead of ~8.6% — keeps the behaviour it has been measured on. Enable
+    # per package in runtime.yaml.
+    cap_own = inputs.get("maxOwn24hPct")
+    if cap_own is not None:
+        cap_own = abs(float(cap_own))
+        if (leg == "payout" and own >= cap_own) or (leg == "harvest" and own <= -cap_own):
+            return None
+
     floor = float(inputs.get("fundingFloorHourly", 0.00003))
     t2 = float(inputs.get("fundingTier2Hourly", 0.00006))
     t3 = float(inputs.get("fundingTier3Hourly", 0.0001))

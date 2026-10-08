@@ -47,7 +47,11 @@ scanners:
       fundingTier2Hourly: 0.00006        # ~53%/yr
       fundingTier3Hourly: 0.0001         # ~88%/yr
       rsiOversold: 30                    # capitulation confirmation for longs
-      recentSignalTtlSeconds: 180
+      maxOwn24hPct: 20       # SKIP a name already +20% (payout) / -20% (harvest) on the
+                             # day: the funding signal outlives the price edge. See scoring.py.
+      recentSignalTtlSeconds: 10800   # mirror per_asset_cooldown_seconds. Was 180 against a
+                             # 300s scan — every entry expired before the next tick read it,
+                             # so the in-scanner dedup could never fire (kodiak mirrors too).
     signal_data_schema:
       score: { type: number }
       direction: { type: string }
