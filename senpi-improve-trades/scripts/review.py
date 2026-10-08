@@ -39,6 +39,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -861,27 +862,68 @@ def _direction(rec):
 
 
 # ───────────────────── on-chain fill recovery (durable across strategy_close) ─────────────────────
+HL_RETRY_BACKOFF_S = (1.0, 2.0)   # sleeps between the 3 tries of a rate-limited (429) / 5xx read
+HL_RETRY_BUDGET_S = 10.0          # total retry sleep per review, across every thread — never stalls longer
+_hl_retry = {"slept": 0.0, "lock": threading.Lock()}
+
+
+def _reset_hl_retry_budget():
+    with _hl_retry["lock"]:
+        _hl_retry["slept"] = 0.0
+
+
+def _take_hl_retry_sleep(s):
+    """Reserve `s` seconds of the review's retry budget; False when it's spent (then fail open)."""
+    with _hl_retry["lock"]:
+        if _hl_retry["slept"] + s > HL_RETRY_BUDGET_S:
+            return False
+        _hl_retry["slept"] += s
+        return True
+
+
 def _hl_info(payload, meta, client=None, timeout=12):
     """POST the Hyperliquid Info API (public, no auth) — the same transport the DSL scripts use. Recovers a
     CLOSED strategy's trades that Senpi's discovery index has dropped: HL keys fills by wallet ADDRESS, so
     they survive a `strategy_close` (which only clears Senpi's own record). Offline/fixture-aware for tests
-    (`_FixtureClient` serves a recorded `hl::<type>::<wallet>` entry). Fails OPEN → None."""
+    (`_FixtureClient` serves a recorded `hl::<type>::<wallet>` entry). Fails OPEN → None.
+
+    Hyperliquid rate-limits with HTTP 429 and a `null` body — that is a busy IP, not an answer, so a 429 or
+    5xx is retried (3 tries, HL_RETRY_BACKOFF_S apart, within the review's HL_RETRY_BUDGET_S) before the
+    read fails open. Any other non-200 is a failed read at once."""
     if client is not None and hasattr(client, "_r"):          # _FixtureClient — serve recorded HL response
         u = str(payload.get("user", "")).lower()
         key = f"hl::{payload.get('type')}::{u}"
         # a recorded [] is an ANSWER (no fills), not a miss — `or` would turn it into a failed read
         return client._r[key] if key in client._r else client._r.get(f"hl::{payload.get('type')}")
-    try:
-        p = subprocess.run(
-            ["curl", "-s", "-m", str(timeout), "-X", "POST", HL_INFO_URL,
-             "-H", "Content-Type: application/json", "-d", json.dumps(payload)],
-            capture_output=True, text=True, timeout=timeout + 3)
-        if p.returncode != 0 or not (p.stdout or "").strip():
+    status = None
+    for attempt in range(len(HL_RETRY_BACKOFF_S) + 1):
+        try:
+            p = subprocess.run(
+                ["curl", "-s", "-m", str(timeout), "-w", "\n%{http_code}", "-X", "POST", HL_INFO_URL,
+                 "-H", "Content-Type: application/json", "-d", json.dumps(payload)],
+                capture_output=True, text=True, timeout=timeout + 3)
+        except Exception as e:  # noqa
+            meta.setdefault("warnings", []).append(f"hl_info {payload.get('type')} failed: {e}")
             return None
-        return json.loads(p.stdout)
-    except Exception as e:  # noqa
-        meta.setdefault("warnings", []).append(f"hl_info {payload.get('type')} failed: {e}")
-        return None
+        body, _, code = (p.stdout or "").rpartition("\n")
+        status = int(code) if code.strip().isdigit() else None
+        if p.returncode == 0 and status == 200:
+            try:
+                return json.loads(body) if body.strip() else None
+            except ValueError as e:
+                meta.setdefault("warnings", []).append(f"hl_info {payload.get('type')} failed: {e}")
+                return None
+        retryable = p.returncode == 0 and status is not None and (status == 429 or 500 <= status < 600)
+        if not retryable or attempt >= len(HL_RETRY_BACKOFF_S):
+            break
+        wait = HL_RETRY_BACKOFF_S[attempt]
+        if not _take_hl_retry_sleep(wait):
+            break
+        time.sleep(wait)
+    meta.setdefault("warnings", []).append(
+        f"hl_info {payload.get('type')} {str(payload.get('user', ''))[:8]} failed "
+        f"(HTTP {status if status is not None else 'no response'}); read as unknown")
+    return None
 
 
 def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
@@ -1400,8 +1442,13 @@ def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_mark
     # ── Phase 1: per-strategy fan-out (parallel), then merge in original order (deterministic) ──
     if strategies:
         workers = min(8, len(strategies))
+        _reset_hl_retry_budget()
+        # saved wallets are READ first (their fills come only from Hyperliquid, so a rate-limited IP late in
+        # a big book hit them hardest); the merge below still runs in the original strategy order
+        first = sorted(range(len(strategies)), key=lambda i: 0 if _is_external(strategies[i]) else 1)
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-            results = list(ex.map(_worker, strategies))   # ex.map preserves input order
+            done = dict(zip(first, ex.map(_worker, [strategies[i] for i in first])))
+        results = [done[i] for i in range(len(strategies))]   # original order — deterministic merge
         for res in results:                                # iterate in original strategy order
             trades.extend(res["trades"])
             missed_signals.extend(res["missed_signals"])
