@@ -49,7 +49,7 @@ def test_my_wallets_lists_external_then_senpi():
     assert mw["external_wallets"] == [{"address": CONN, "label": "MetaMask",
                                         "added_at": "2026-10-01T15:31:02.000Z", "access": ACCESS}]
     assert mw["senpi_wallets_status"] == "ok"
-    assert mw["senpi_wallets"] == [{"address": STRAT, "name": "aegis", "status": "CLOSED"}]
+    assert mw["senpi_wallets"] == [{"address": STRAT, "name": "aegis", "status": "CLOSED", "skill_name": None}]
 
 
 def test_an_older_mcp_is_unavailable_never_none():
@@ -530,3 +530,120 @@ def test_skill_names_the_kind_fields_the_script_emits():
     for v in render.KIND_LABEL.values():
         assert v in sk, v
     assert {desk.KIND_SAVED, desk.KIND_STRATEGY} == {"saved", "strategy"}
+
+
+# ── one strategy unit: a Senpi strategy is one row with all its wallets (senpi-portfolio's key) ─────
+CAMEL_P, CAMEL_H = "0x" + "b1" * 20, "0x" + "b2" * 20
+
+
+def _camel(p_status="ACTIVE", h_status="ACTIVE", hl_values=None, stamped=True):
+    meta = {"strategyMetadata": {"skillName": "camel"}} if stamped else {}
+    strategies = [{"strategyWalletAddress": STRAT, "strategyName": "Aegis", "status": "ACTIVE"},
+                  dict({"strategyWalletAddress": CAMEL_P, "strategyName": "camel-concentrated-payout",
+                        "tradingStrategyName": "camel", "status": p_status}, **meta),
+                  dict({"strategyWalletAddress": CAMEL_H, "strategyName": "camel-harvest",
+                        "tradingStrategyName": "camel", "status": h_status}, **meta)]
+    mcp = ValuedMCP(_me(wallets=((CONN, "MetaMask"),)), strategies, states={CONN: _state("500.50")})
+    hl = _hl({STRAT: 3000.25, CAMEL_P: 600.0, CAMEL_H: 400.5} if hl_values is None else hl_values)
+    return desk.my_wallets_listed(mcp, hl)
+
+
+def _row(mw, label):
+    return next(r for r in mw["wallets"] if r["label"] == label)
+
+
+def test_my_wallets_carries_the_package_each_strategy_wallet_was_deployed_under():
+    mw = desk.my_wallets(FakeMCP(_me(), [
+        {"strategyWalletAddress": CAMEL_P, "strategyName": "camel-harvest", "status": "ACTIVE",
+         "strategyMetadata": {"skillName": "camel"}},
+        {"strategyWalletAddress": STRAT, "strategyName": "Aegis", "status": "ACTIVE", "skillName": "aegis"}]))
+    assert [w["skill_name"] for w in mw["senpi_wallets"]] == ["camel", "aegis"]
+
+
+def test_a_package_deployed_as_two_instances_is_one_row_with_both_wallets():
+    mw = _camel()
+    assert [r["label"] for r in mw["wallets"]] == ["Aegis", "camel", "MetaMask"]   # 3000 · 1000.50 · 500.50
+    row = _row(mw, "camel")
+    assert row["kind"] == "strategy" and row["strategy_group"] == "camel"
+    assert row["address"] is None                            # a strategy of several wallets has no one address
+    assert row["value_usd"] == 1000.5 and row["value_status"] == "ok"
+    assert row["wallet_count"] == 2 and row["wallets_loaded"] == 2
+    assert [(w["address"], w["label"], w["value_usd"]) for w in row["wallets"]] == [
+        (CAMEL_P, "camel-concentrated-payout", 600.0), (CAMEL_H, "camel-harvest", 400.5)]
+    assert row["run"] == f"--book {CAMEL_P} {CAMEL_H}"
+    assert row["closed"] is False and row["kind_label"] == "Senpi strategy"
+
+
+def test_a_single_wallet_strategy_runs_the_plain_desk_and_a_saved_wallet_stays_one_row():
+    mw = _camel()
+    aegis, saved = _row(mw, "Aegis"), _row(mw, "MetaMask")
+    assert aegis["address"] == STRAT and aegis["wallet_count"] == 1 and aegis["run"] == STRAT
+    assert [w["address"] for w in aegis["wallets"]] == [STRAT]
+    assert saved["address"] == CONN and saved["run"] == CONN and "wallet_count" not in saved
+
+
+def test_the_book_run_on_a_strategy_row_is_a_form_the_desk_accepts():
+    import shlex
+    row = _row(_camel(), "camel")
+    args = desk.argparse.ArgumentParser(add_help=False)
+    args.add_argument("--book", nargs="+")
+    assert args.parse_args(shlex.split(row["run"])).book == [CAMEL_P, CAMEL_H]
+
+
+def test_a_strategy_with_one_wallet_unread_says_one_of_two_and_never_counts_it_as_zero():
+    mw = _camel(hl_values={STRAT: 3000.25, CAMEL_P: 600.0})            # camel-harvest's HL read fails
+    row = _row(mw, "camel")
+    assert row["value_usd"] == 600.0 and row["value_status"] == "partial" and row["wallets_loaded"] == 1
+    assert [w["value_usd"] for w in row["wallets"]] == [600.0, None]
+    assert "$600 (1 of 2 wallets)" in mw["text"]
+    assert "camel ($600, 1 of 2 wallets)" in mw["ask"]
+
+
+def test_a_strategy_with_no_wallet_read_is_couldnt_load_and_sorts_last():
+    mw = _camel(hl_values={STRAT: 3000.25})
+    row = mw["wallets"][-1]
+    assert row["label"] == "camel" and row["value_usd"] is None and row["value_status"] == "couldnt_load"
+
+
+def test_closed_is_all_its_wallets_closed_and_mixed_says_so():
+    mw = _camel(p_status="CLOSED", h_status="CLOSED", hl_values={STRAT: 1, CAMEL_P: 0, CAMEL_H: 0})
+    row = _row(mw, "camel")
+    assert row["closed"] is True and row["kind_label"] == "Senpi strategy — closed"
+    mw = _camel(h_status="CLOSED")
+    row = _row(mw, "camel")
+    assert row["closed"] is False and row["closed_wallets"] == 1
+    assert row["kind_label"] == "Senpi strategy — some wallets closed"
+    assert "camel ($1,000, 1 of 2 wallets closed)" in mw["ask"]
+
+
+def test_unstamped_lookalike_wallets_stay_their_own_rows():
+    mw = _camel(stamped=False)
+    assert [r["label"] for r in mw["wallets"]] == ["Aegis", "camel-concentrated-payout", "MetaMask",
+                                                   "camel-harvest"]
+    assert all(r.get("wallet_count") == 1 for r in mw["wallets"] if r["kind"] == "strategy")
+
+
+def test_the_text_shows_a_strategy_row_by_its_wallet_count():
+    t = _camel()["text"]
+    assert "| camel (2 wallets) | Senpi strategy | $1,000 |" in t
+    assert t.index("Aegis") < t.index("camel (2 wallets)") < t.index("MetaMask")
+
+
+def test_the_ask_lists_strategies_largest_first_never_their_instances():
+    ask = _camel()["ask"]
+    assert ask.index("Aegis") < ask.index("camel") < ask.index("MetaMask")
+    assert "camel-harvest" not in ask and "camel-concentrated-payout" not in ask
+
+
+def test_skill_says_a_strategy_is_one_row_and_how_to_run_it():
+    sk = _skill()
+    for needle in ("**A Senpi strategy is one row with all its wallets.**", "`run`", "`wallets[]`",
+                   "`value_status: \"partial\"`", "(1 of 2 wallets)", "some wallets closed"):
+        assert needle in sk, needle
+
+
+def test_a_packaged_one_wallet_strategy_is_called_by_its_package_like_portfolio():
+    mcp = ValuedMCP(_me(wallets=()), [{"strategyWalletAddress": STRAT, "strategyName": "cub-main",
+                                       "status": "ACTIVE", "strategyMetadata": {"skillName": "cub"}}])
+    row = desk.my_wallets_listed(mcp, _hl({STRAT: 10}))["wallets"][0]
+    assert row["label"] == "cub" and row["wallets"][0]["label"] == "cub-main" and row["run"] == STRAT

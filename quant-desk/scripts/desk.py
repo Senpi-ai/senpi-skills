@@ -50,7 +50,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.43.0"
+VERSION = "1.44.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -87,6 +87,14 @@ def _mcp_client(meta):
         return None
 
 
+def _skill_name(row):
+    """The package a strategy wallet was deployed under — senpi-portfolio's reader: the deploy stamp
+    `strategyMetadata.skillName`, else a top-level `skillName` / `skill_name` / `skill`; None unstamped."""
+    meta = row.get("strategyMetadata") or row.get("metadata")
+    name = (meta.get("skillName") or meta.get("skill_name")) if isinstance(meta, dict) else None
+    return name or row.get("skillName") or row.get("skill_name") or row.get("skill") or None
+
+
 def my_wallets(mcp):
     """The reader's own wallets: the wallets they added in Your wallets (`user_get_me`) and their
     Senpi strategy wallets (`strategy_list`, every status — a closed strategy
@@ -113,7 +121,7 @@ def my_wallets(mcp):
         rows = dsl_mod._rows(resp, "strategies")
         out["senpi_wallets"] = [{"address": str(r["strategyWalletAddress"]).lower(),
                                  "name": r.get("strategyName") or r.get("tradingStrategyName"),
-                                 "status": r.get("status")}
+                                 "status": r.get("status"), "skill_name": _skill_name(r)}
                                 for r in rows if r.get("strategyWalletAddress")]
         out["senpi_wallets_status"] = "ok"
     except Exception:  # noqa: BLE001
@@ -126,7 +134,7 @@ def my_wallets(mcp):
 # order is computed HERE and emitted, so the agent narrates an order it was given.
 EXTERNAL_STATE_TIMEOUT_S = 25      # moxie reads each saved wallet live (~6.5 s); the MCP's own timeout is 20 s
 KIND_SAVED, KIND_STRATEGY = "saved", "strategy"
-VALUE_OK, VALUE_UNKNOWN = "ok", "couldnt_load"
+VALUE_OK, VALUE_UNKNOWN, VALUE_PARTIAL = "ok", "couldnt_load", "partial"
 _SAVED_VALUE_SOURCE = "account_get_external_wallets state.totalValueUsd"
 _STRATEGY_VALUE_SOURCE = "Hyperliquid portfolio (account value)"
 
@@ -160,7 +168,7 @@ def _saved_row(w, states):
     row = {"address": w["address"], "label": w.get("label"), "kind": KIND_SAVED,
            "kind_label": render.KIND_LABEL[KIND_SAVED], "status": None, "closed": False,
            "value_usd": None, "value_status": VALUE_UNKNOWN, "value_source": _SAVED_VALUE_SOURCE,
-           "access": w.get("access")}
+           "access": w.get("access"), "run": w["address"]}
     if states is None:
         row["value_note"] = "account_get_external_wallets failed"
     elif not isinstance(st, dict):
@@ -189,10 +197,59 @@ def _strategy_row(w, portfolios):
     return row
 
 
+def _strategy_rows(wallet_rows, senpi_wallets):
+    """ONE row per Senpi STRATEGY, with all its wallets — grouped by senpi-portfolio's key
+    (`_book_group_key`: the package the wallet was deployed under; an unstamped wallet is its own row).
+    A strategy of one wallet is that wallet's row and runs the plain desk on it; a strategy of several
+    sums the wallets whose value loaded (`partial` when only some did — never a $0 for the rest), is
+    closed only when every wallet is, and runs `--book` over its wallets."""
+    order, buckets = [], {}
+    for row, w in zip(wallet_rows, senpi_wallets):
+        try:
+            key = addr_book._book_group_key({"skill_name": w.get("skill_name"), "wallet": w["address"]})
+        except Exception:  # noqa: BLE001 — a malformed row must not sink the list
+            key = w["address"]
+        if key not in buckets:
+            buckets[key] = []
+            order.append(key)
+        buckets[key].append(row)
+    out = []
+    for key in order:
+        ws = buckets[key]
+        listed = [{"address": x["address"], "label": x["label"], "status": x["status"], "closed": x["closed"],
+                   "value_usd": x["value_usd"], "value_status": x["value_status"]} for x in ws]
+        if len(ws) == 1:
+            # a packaged strategy is called by its package id, as senpi-portfolio's book does
+            out.append(dict(ws[0], label=key if key != ws[0]["address"] else ws[0]["label"],
+                            strategy_group=key, wallet_count=1, wallets_loaded=int(ws[0]["value_usd"] is not None),
+                            wallets=listed, run=ws[0]["address"]))
+            continue
+        known = [x["value_usd"] for x in ws if x["value_usd"] is not None]
+        closed = sum(1 for x in ws if x["closed"])
+        statuses = sorted({x["status"] for x in ws if x["status"]})
+        row = {"address": None, "label": key, "kind": KIND_STRATEGY,
+               "kind_label": render.KIND_LABEL["strategy_closed" if closed == len(ws) else
+                                               "strategy_partly_closed" if closed else KIND_STRATEGY],
+               "status": statuses[0] if len(statuses) == 1 else ("MIXED" if statuses else None),
+               "closed": closed == len(ws), "closed_wallets": closed,
+               "value_usd": round(sum(known), 2) if known else None,
+               "value_status": VALUE_UNKNOWN if not known else (VALUE_OK if len(known) == len(ws) else VALUE_PARTIAL),
+               "value_source": _STRATEGY_VALUE_SOURCE,
+               "strategy_group": key, "wallet_count": len(ws), "wallets_loaded": len(known),
+               "wallets": listed,
+               "run": "--book " + " ".join(x["address"] for x in ws)}
+        if len(known) < len(ws):
+            row["value_note"] = f"{len(known)} of {len(ws)} wallets loaded a value"
+        out.append(row)
+    return out
+
+
 def _by_value(row):
-    """Value descending; a value that couldn't load sorts LAST (never as 0); ties by label, then address."""
+    """Value descending; a value that couldn't load sorts LAST (never as 0); ties by label, then address
+    (a strategy of several wallets by its first)."""
     v = row["value_usd"]
-    return (v is None, -(v or 0.0), str(row.get("label") or "").lower(), row["address"])
+    addr = row["address"] or min((w["address"] for w in row.get("wallets") or []), default="")
+    return (v is None, -(v or 0.0), str(row.get("label") or "").lower(), addr)
 
 
 def my_wallets_listed(mcp, hl):
@@ -216,7 +273,7 @@ def my_wallets_listed(mcp, hl):
         rows = None
     else:
         rows = [_saved_row(w, states) for w in (saved or [])] + \
-               [_strategy_row(w, portfolios) for w in (strat or [])]
+               _strategy_rows([_strategy_row(w, portfolios) for w in (strat or [])], strat or [])
         rows.sort(key=_by_value)
     out["order"] = "value_desc"
     out["wallets"] = rows
@@ -1001,7 +1058,9 @@ def main(argv=None):
     ap.add_argument("--my-wallets", action="store_true",
                     help="print the reader's own wallets as JSON and exit: ONE list (`wallets`) of their "
                          "saved wallets (user_get_me) and Senpi strategy wallets (strategy_list), ordered by "
-                         "value with kind as a column, each source with its own ok/unavailable status; "
+                         "value with kind as a column (a Senpi strategy is one row with all its wallets; "
+                         "every row's `run` is the desk arguments for it), each source with its own "
+                         "ok/unavailable status; "
                          "`text` is that list rendered, `ask` the question naming them largest first")
     ap.add_argument("--addresses", action="store_true",
                     help="print this box's address book as JSON and exit — which wallets are the reader's, "
