@@ -1,0 +1,189 @@
+# ── CAMEL · PAYOUT book — LONG the most-negative-funding names (long gets paid to hold) ──
+name: camel-concentrated-payout
+group: camel-concentrated
+version: 3.0.0
+description: >
+  CAMEL PAYOUT — funding-carry hedge fund, LONG book (Runtime 3.0 port of v2 Camel v1.0).
+  This book ranks the liquid main-DEX crypto cross-section by FUNDING ascending and LONGS the
+  most-negative-funding names (shorts pay longs -> the long gets PAID to hold), gated so it
+  never longs a fresh 4h downtrend (don't catch a knife) — it prefers crowded shorts that are
+  capitulating (4h bullish/neutral, RSI oversold, 24h bouncing). Pairs with the HARVEST book
+  on a separate, equally-funded wallet; the two skew the fund slightly net-neutral. The edge
+  is CARRY (a recurring funding inefficiency), with trend/RSI as exhaustion confirmation +
+  risk control — NOT market direction. LONG only.
+
+strategy:
+  wallet: "${CAMEL_PAYOUT_WALLET}"
+  slots: 1                               # CONCENTRATED: 4 -> 1
+  default_leverage: 10                    # HIGH LEVERAGE: 5x -> 10x
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: camel_payout_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                 # v2 tickSeconds — carry cadence (keep turnover modest)
+    timeout_seconds: 180
+    default_signal_validity_seconds: 900
+    state_history_max_count: 50           # signal-dedup map (recent-signals.json -> ctx.state)
+    inputs:
+      leg: "payout"
+      minScore: 4
+      marginPct: 72          # PERCENT of withdrawable. 4 x 18 -> 1 x 72: same margin, one name
+      maxLeverage: 10        # strict clamp, then each name's HL venue max. Without this 10x is INERT
+      maxSlots: 1            # the scanner's own slot cap
+      rankPoolSize: 12       # only the bottom-12 by funding get candles for confirmation
+      universeMaxNames: 60   # cap the liquid main-DEX crypto cohort to the top 60 by 24h vol
+      volFloorPctOfMedian: 0.2
+      minNotionalPctOfEquity: 0.01
+      venueMinNotionalUsd: 10
+      # Funding entry floor + tiers (HOURLY decimal). 0.00003/hr ~= 26%/yr (magnitude).
+      fundingFloorHourly: 0.00003
+      fundingTier2Hourly: 0.00006        # ~53%/yr
+      fundingTier3Hourly: 0.0001         # ~88%/yr
+      rsiOversold: 30                    # capitulation confirmation for longs
+      maxOwn24hPct: 20       # SKIP a name already +20% (payout) / -20% (harvest) on the
+                             # day: the funding signal outlives the price edge. See scoring.py.
+      recentSignalTtlSeconds: 10800   # mirror per_asset_cooldown_seconds. Was 180 against a
+                             # 300s scan — every entry expired before the next tick read it,
+                             # so the in-scanner dedup could never fire (kodiak mirrors too).
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      fundingAnnPct: { type: number, required: false }
+      own24h: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: camel_payout_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                   # scan already applied funding rank + 4h/RSI gate + clamp + dedup (v2 LLM gate was pass-through)
+    scanners: [camel_payout_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: camel_payout_signals
+
+# ── EXIT (DSL — carry management, tighter than a momentum leg; ported VERBATIM from v2) ──
+# Carry P&L per period is small, so a price loss must be cut before it dwarfs the funding
+# collected. Tight phase1; lock funding gains as the bounce works; stall-cuts ON (a flat
+# carry position is recycled into a fresher extreme); 3d timeout (funding regimes decay).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+      interval_in_minutes: 4320           # 3d — funding regimes decay
+    weak_peak_cut:
+      # DISABLED - this cut closes at MARKET at whatever price is there, with no floor, so on a
+      # longer-hold book it realises a small LOSS on a position that simply hadn't moved yet
+      # (observed live on xyz:PLTR in cougar). Same defect we removed from phase1. weak_peak is
+      # a CHOP tool only: it belongs where the strategy already intends to be out within hours.
+      enabled: false
+      interval_in_minutes: 240            # 4h
+      min_value: 1.5
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 480            # 8h — recycle a flat carry position
+    phase1:
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
+      # retrace (6% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
+      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      enabled: false
+      max_loss_pct: 12        # 1.20% of price at 10x — camel's exact stop distance
+      retrace_threshold: 6
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      # RE-DERIVED AT 10x, NOT COPIED. camel's ladder is written in ROE and the engine divides by
+      # leverage to get a price floor, so carrying 5x numbers onto 10x would HALVE every distance:
+      # the 6% ROE stop becomes 0.60% of price, inside the measured p75 adverse bounce, and the book
+      # would stop out on noise. Every number below is doubled so the PRICE distance is identical to
+      # camel's — the one-price-ladder rule (#821).
+      #
+      #   stop      12% ROE = 1.20% of price   (camel:  6% @5x = 1.20%)
+      #   rung 0    28% ROE = 2.80% of price   (camel: 14% @5x = 2.80%)  lock 45%
+      #   rung 1    56% ROE = 5.60% of price   (camel: 28% @5x = 5.60%)  lock 65%
+      #   rung 2   100% ROE = 10.0% of price   (camel: 50% @5x = 10.0%)  lock 80%
+      #   rung 3   180% ROE = 18.0% of price   (camel: 90% @5x = 18.0%)  lock 90%
+      #
+      # EVERY CLOCK OFF. Jason, 2026-10-06, as a standing preference and not a one-off: "i prefer to
+      # just let DSL do its job vs hard cuts of any sort". camel ships a 72h hard_timeout and an 8h
+      # dead-weight cut and I argued to keep them — a 3-day cut on a CARRY trade reads differently
+      # from the 4h cuts that were measured clipping winners mid-move (110 of 142 clock closes in
+      # profit). That argument is not wrong, it is just not the call: the preference is that the
+      # ladder and the stop decide every exit, at any horizon.
+      #
+      # WHAT HOLDS A DEAD CARRY NOW: the phase-1 floor at 1.20% of price, and nothing else. There is
+      # no CLOSE_POSITION scanner here, so a funding dislocation that never reverts keeps its slot —
+      # and concentrated, that slot IS the arm. The funding itself still accrues while it waits,
+      # which is the one way this differs from a momentum trade going nowhere.
+      #
+      # RUNG 0 ADDED 2026-10-07 from Jason's live fork, which is now this template. His words:
+      # "I'd like to just see us start locking 40% at 15% instead of waiting until 28%... add
+      # another tier at 15% and keep the ratchet to 45% at 28%. So there would be 5 tiers now
+      # instead of 4." The original four are unchanged and simply shift down one position, so every
+      # price distance below rung 0 is still camel's exactly.
+      #
+      # MEASURED on camel's own book, 164 round trips across 5 live wallets to 2026-10-07:
+      #   favourable peak    p50 1.78%  p75 3.45%  p90 6.04%  max 24.90%  (of price)
+      #   adverse excursion  p50 1.28%  p75 1.60%  p90 2.26%
+      #
+      # So rung 0 at 1.50% of price ARMS OFTEN — 86 of 164 positions (52%) reach it. It is doing
+      # what it was asked to do.
+      #
+      # The cost, quantified rather than guessed. Its leash — how far price may retrace off the
+      # high-water before the floor fires — is (1 - 0.40) x 1.50 = 0.90% of price, which is INSIDE
+      # camel's median bounce of 1.28%. So once armed it will usually fire, banking 40% x 1.50% =
+      # +0.60% of price (+6% ROE at 10x, ~4.3% of the arm on 72% margin) on a book whose median peak
+      # is 1.78% and p75 is 3.45%. That is a deliberate trade of upside for hit-rate, which is
+      # exactly what was asked for.
+      #
+      # Worth knowing before anyone retunes the LOCK: at a 1.50% trigger no lock value escapes the
+      # median bounce. lock 30 -> 1.05%, lock 25 -> 1.12%, and even lock 0 -> 1.50% only clears p50,
+      # not p75. The arm distance is simply close to camel's noise band. Moving the TRIGGER out is
+      # the only lever that changes that, and rung 1 at 2.80% already is that lever.
+      tiers:
+        - { trigger_pct: 15,   lock_hw_pct: 40 }   #  1.50% of price at 10x — ADDED 2026-10-07
+        - { trigger_pct: 28,   lock_hw_pct: 45 }   #  2.80% of price
+        - { trigger_pct: 56,   lock_hw_pct: 65 }   #  5.60% of price
+        - { trigger_pct: 100,  lock_hw_pct: 80 }   # 10.00% of price
+        - { trigger_pct: 180,  lock_hw_pct: 90 }   # 18.00% of price
+
+risk:
+  data_retention_seconds: 345600       # 96h (was data_retention_hours: 96)
+  guard_rails:
+    # SCALED, and forced rather than chosen. camel's rails were calibrated for a 4-slot book
+    # where one stop costs 6% ROE x 18% margin = 1.08% of the arm. Concentrated it costs
+    # 12% x 72% = 8.64%, so an unchanged 10% daily limit halts the book after ONE loss and
+    # the experiment would read as a failure of concentration rather than a mis-set rail.
+    # These let the arm absorb two full stop-outs, which is what 10%/18% allowed camel.
+    daily_loss_limit_pct: 18
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 3600                # v2 cooldown_minutes 60
+    drawdown_halt_pct: 30
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 10800     # v2 per_asset_cooldown_minutes 180

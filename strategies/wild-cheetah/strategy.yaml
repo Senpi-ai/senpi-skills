@@ -6,15 +6,15 @@
 #
 # The floor is derived from the score scale: cheetah's maximum is 15, its shipped floor of 10 is
 # 67% of that, penguin's 9 of 12 is 75%, and 75% of 15 rounds to 12.
-#
-# catalog.status: blocked — not offered in the catalog or discover. Deploy by explicit path:
-#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/wild-cheetah --budget <amount>
+# Listed in the catalog and in discover. Compare it against the parent it varies, not on its
+# own P&L — see senpi-strategy-discover/references/variant-families.md.
 schema_version: 1
 
 id: wild-cheetah
-version: "1.0.1"
+version: "1.0.2"
 
 catalog:
+  varies: cheetah          # a VARIANT of this template — never outrank it
   name: "Wild Cheetah — Confluence Sniper at score 12 (experiment)"
   emoji: "🌶️"
   tagline: "Cheetah's confluence detector at a higher score floor and a higher margin: it fires only on a score of 12 out of 15 instead of 10, and sizes one position at 80-90% of the book instead of 18-48%. Leverage stays at 5x; the size changes, not the leverage."
@@ -27,14 +27,12 @@ catalog:
   asset_scope: universe
   direction: long_short
   risk_level: aggressive
-  status: blocked           # experiment — deliberately kept out of the catalog and discover
   tier: advanced
   time_horizon: swing
   leverage_max: 5
   max_slots: 1
   assets: []                # derived universe — coins come from the top-100 4h leader board each tick, not a fixed list
-  tags: [leader-momentum, momentum, confluence, universe-scanner, sniper, conviction-leverage, single-slot, experiment, not-for-users, high-conviction]
-
+  tags: [leader-momentum, momentum, confluence, universe-scanner, sniper, conviction-leverage, single-slot, experiment, high-conviction]
 requires:
   runtime: ">=3.0.0"
 

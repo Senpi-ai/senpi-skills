@@ -41,12 +41,21 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 
 # packages whose runtime.yaml must SET the gate, and the value measured for them
-GATED = {"penguin": 3.0, "purple-penguin": 3.0, "penguin-x5": 3.0, "penguins-duo": 3.0,
+# 1.5 is the DEFAULT as of 2026-10-07 (Jason: "make the 1.5% versions the default versions for
+# penguin, penguin duo, pelican"). The 2.0 and 3.0 chase arms remain as explicit alternatives.
+GATED = {"penguin": 1.5, "purple-penguin": 1.5, "penguin-x5": 1.5, "penguins-duo": 1.5,
          # pelican added 2026-10-03 on Jason's call. Measured first rather than assumed: over 7 days
          # of CAND telemetry, 0 of 84 pelican candidates that cleared the floor sat at or above 3%
          # (p50 +0.26%, p90 +0.88%, max +2.79%), so on its own distribution the gate would have
          # rejected nothing. Cheap insurance, not an active filter.
-         "pelican": 3.0}
+         "pelican": 1.5}
+# The six chase arms: the cap is the ONLY free variable, so each one's value is the experiment.
+GATED["penguin-chase-150bp"] = 1.5
+GATED["penguin-chase-200bp"] = 2.0
+GATED["penguin-chase-300bp"] = 3.0
+GATED["penguins-duo-chase-150bp"] = 1.5
+GATED["penguins-duo-chase-200bp"] = 2.0
+GATED["penguins-duo-chase-300bp"] = 3.0
 # vendors the same scorer but deliberately left off — a separate listed template with its own users,
 # and no measurement of its own pre-move distribution yet
 UNGATED = ["orca"]

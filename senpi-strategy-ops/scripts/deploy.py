@@ -1528,6 +1528,10 @@ def cmd_update(a):
               f"so it never fetches one; pass the directory you edited. Nothing was changed.",
               file=sys.stderr)
         return EXIT_CODES["refused"]
+    refusal = outside_durable_root(pkg, "update")
+    if refusal:
+        print(refusal, file=sys.stderr)
+        return EXIT_CODES["refused"]
     gate = full_validate(pkg)
     if gate:
         print(f"✗ {pkg.id}: {len(gate)} issue(s) to fix before it can be applied — the verb was not "
@@ -1611,6 +1615,30 @@ def _username():
         return None
     user = _cli.dig(_cli.dig(doc, "data") or {}, "user") or {}
     return str(_cli.dig(user, "userName") or "").strip() or None
+
+
+def outside_durable_root(pkg, cmd):
+    """The refusal for a package that lives outside the durable strategies root, or None.
+
+    A runtime keeps reading its scanners from the directory it was installed (or updated) from, and
+    the box keeps only its volume across a restart. A package deployed from a `git clone` in /tmp
+    trades until the next restart, then loses every scanner while the wallet stays funded. A host
+    with no durable root (a dev checkout) has nothing to hold the package to."""
+    root = _pkg.strategies_root()
+    if not root.is_absolute():
+        return None
+    root, here = root.resolve(), Path(pkg.dir).resolve()
+    if here == root or root in here.parents:
+        return None
+    dest = root / (pkg.id or here.name)
+    return (f"✗ {pkg.id}: {here} is outside the durable strategies root {root}. A runtime keeps "
+            f"reading its scanners from the directory it was deployed from, and the box wipes "
+            f"everything outside its volume on restart — the strategy would keep its wallet and lose "
+            f"every scanner. Copy the package in and use the copy:\n"
+            f"    cp -r {here} {dest}\n"
+            f"    python3 {Path(__file__).name} {cmd} {dest} ...\n"
+            f"  (A catalog strategy can also go by its bare id, which fetches into {root}.) "
+            f"Nothing was created, funded, installed or changed.")
 
 
 def _fork_for_deploy(pkg, a, log):
@@ -1879,6 +1907,10 @@ def main(argv):
         sys.exit(cmd_fork(pkg, a, log))
     if a.cmd in ("create", "runtime"):
         pkg = _fork_for_deploy(pkg, a, log)
+        refusal = outside_durable_root(pkg, a.cmd)
+        if refusal:
+            print(refusal, file=sys.stderr)
+            sys.exit(EXIT_CODES["refused"])
 
     # `validate` is the standalone preflight — no money moves and nothing is installed, but it is not
     # side-effect-free: `ensure_pkg` above fetches a bare catalog id and writes it under the durable

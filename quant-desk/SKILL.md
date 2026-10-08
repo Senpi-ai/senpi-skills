@@ -44,7 +44,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.40.0"
+  version: "1.41.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -372,6 +372,13 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
   Senpi's funding regime; and the Hyperfeed attention layer (where the top traders' gains sit, momentum
   events). Without one, the cohort is the largest profitable accounts on the public leaderboard, the read
   carries no entry timing, and the attention layer is absent.
+- **Market makers are screened out of both cohorts** (and the public fallback) against Senpi's
+  market-maker blacklist. Both cohorts rank by realized P&L — the leaderboard a quoting engine tops
+  without taking a single directional view — so an unscreened cohort moves the line every book is
+  measured against. Unlike the subject gate this one **fails open**: an unreadable blacklist leaves
+  the cohort intact and adds a warning, because a cohort of 100 that could not be screened still
+  tells the reader more than no cohort. `meta.market_maker_check.cohorts_screened` says which
+  happened, and `cohorts_filtered` names what was dropped.
 - **Whale median:** `references/benchmark.json`, computed by `scripts/benchmark.py` — from Senpi discovery
   with a token (whales are TWAP-heavy, so the public endpoints cannot rebuild their round trips). The table
   renders only when the benchmark holds ≥ 5 members with ≥ 10 trades; until that file ships, the smart-money
@@ -520,7 +527,7 @@ them, never about inventing one or answering from memory.
 
 ### Not every address is a trader — `exit 4`, `not_a_trader`
 
-Two shapes reach this exit, and an agent should treat them the same: relay `say_to_the_reader`,
+Three shapes reach this exit, and an agent should treat them the same: relay `say_to_the_reader`,
 then offer the reader their own wallet.
 
 **`"not_a_trader": "book_wider_than_the_desk_reads"`** — the book touches more coins than the desk
@@ -530,6 +537,33 @@ whole book, so the desk says so instead. The refusal makes **no claim about who 
 it is a statement about this tool's reach, and it is equally true of a systematic trader on 200
 names and of a quoting engine. Relay it as the limit it is, and take up the offer in
 `say_to_the_reader`: ask which names they care about and read those properly.
+
+**`"not_a_trader": "market_maker_blacklisted"`** — the wallet is on **Senpi's market-maker
+blacklist**, the list the market-maker detector writes (`GetDiscoveryBlacklist` on
+`hyperliquid-traders.prod.senpi.ai`). The payload carries `reason` and `flagged_at`. Unlike the
+breadth line this one IS a claim about who the wallet is — but it is a lookup against Senpi's own
+detector, not an inference from fills, which is why it is allowed to make the claim. The desk checks
+it with the breadth gate, before the expensive half.
+
+This exists because fee rate does not work as the line: re-sampled over the leaderboard top 30, a
+0.5 bp cut would have refused 13 of 25 wallets, VIP traders at 0.42 and 0.50 bp among them. Users
+were running the desk on market makers and getting a confident read of a book that has no thesis,
+no stop ladder and no meaningful score.
+
+**Being in the table is not the same as being a market maker.** The table also holds `probe`, `test`
+and `unauth-write-poc-benign` rows, written while the internal write endpoint was open, and only a
+`MARKET MAKER` reason (either spelling — two real rows use `MARKET_MAKER`) causes the refusal.
+A wallet present for any other reason is **not refused and not dropped from any cohort**: calling a
+real trader a quoting engine is the failure that killed the fee-rate gate, and it is worse than
+missing one. `meta.market_maker_check.other_row` records such a row when there is one. If its reason
+is one nobody recognises, a warning says so — that is how a new market-maker spelling surfaces
+instead of being silently skipped — and it still is not a refusal.
+
+**When the blacklist cannot be read, the desk still runs** — one endpoint being down should not take
+the whole desk with it — **but it does not claim the wallet is clean.** `meta.market_maker_check`
+reports `{"checked": false, ...}` and a warning says the desk does not confirm the subject is a
+directional trader. Relay that warning: *unknown* and *verified clean* are different answers, so
+silence is not reassurance. A missing `SENPI_AUTH_TOKEN` produces exactly this state.
 
 The desk stops as soon as it has read the fills, before the tape and the cohorts — which is most of
 the run — so this costs ~30s rather than a two-minute timeout.
@@ -603,12 +637,15 @@ you did not need.
 
 ## Install — the whole `scripts/` directory is required
 
-`desk.py` imports `addresses.py`, `deep.py`, `dsl.py`, `followups.py`, `hl_api.py`, `market.py`, `metrics.py`,
-`desk.py` imports `addresses.py`, `book.py`, `deep.py`, `followups.py`, `hl_api.py`, `market.py`, `metrics.py`,
-`opportunities.py`, `render.py`, `roundtrips.py`, `score.py`, `senpi_history.py`, `smart_money.py`,
-`strategy_read.py`, `taxonomy.py`, `timing.py` and `voice.py`, plus the vendored `mcp_client.py` (used
-only when `SENPI_AUTH_TOKEN` is set). Copy the whole directory — a partial copy fails at import, not
-at runtime. Stdlib only, Python ≥ 3.9. Fixture-driven tests in `tests/`.
+`desk.py` imports `addresses.py`, `blacklist.py`, `book.py`, `deep.py`, `dsl.py`, `followups.py`,
+`hl_api.py`, `market.py`, `metrics.py`, `opportunities.py`, `render.py`, `roundtrips.py`, `score.py`,
+`senpi_history.py`, `smart_money.py`, `strategy_read.py`, `taxonomy.py`, `timing.py` and `voice.py`,
+plus the vendored `mcp_client.py` (used only when `SENPI_AUTH_TOKEN` is set). Copy the whole
+directory — a partial copy fails at import, not at runtime. Stdlib only, Python ≥ 3.9.
+
+`blacklist.py` and `mcp_client.py` both need `SENPI_AUTH_TOKEN`. Without it the desk still runs, but
+it cannot check Senpi's market-maker blacklist and says so in its warnings rather than implying the
+subject was verified. Fixture-driven tests in `tests/`.
 
 ## Skill attribution
 
