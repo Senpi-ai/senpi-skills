@@ -809,3 +809,157 @@ def test_skill_has_one_opening_rule_book_first_then_pnl_summary_within_the_detai
     gives = sk.split("## What the engine gives you", 1)[1].split("## ", 1)[0]
     assert gives.lstrip().startswith("The engine prints one JSON dict. **Open with `book`**")
     assert "within the Senpi detail, **lead with `pnl_summary.total`**" in gives
+
+
+# ── one strategy unit: a Senpi strategy is one row with all its wallets (same key as senpi-portfolio) ──
+CAMEL_P = "0x" + "a1" * 20
+CAMEL_H = "0x" + "a2" * 20
+
+
+def _ch(value):
+    return {"main": {"assetPositions": [], "marginSummary": {"accountValue": value}, "withdrawable": value},
+            "xyz": {"assetPositions": [], "marginSummary": {"accountValue": value}, "withdrawable": value}}
+
+
+def _closed(oid, coin, pnl, close_time):
+    return {"closedOrderId": oid, "coin": coin, "coinDisplayName": coin, "szi": "1.0", "type": "Close Long",
+            "entryPx": "100.00", "exitPx": "110.00", "leverage": {"type": "cross", "value": 2},
+            "realizedPnl": pnl, "marginUsed": "50.00", "openTime": close_time - 100000, "closeTime": close_time}
+
+
+def _camel_base(harvest_value="400.50"):
+    """kodiak (no package stamp — its own row) + the camel package deployed as two instances, each on its
+    own wallet: camel-concentrated-payout and camel-harvest, both stamped skillName "camel"."""
+    fx = _valued_base()
+    fx["strategy_list"]["strategies"] += [
+        {"strategyName": "camel-concentrated-payout", "tradingStrategyName": "camel", "id": "strat-camel-p",
+         "strategyWalletAddress": CAMEL_P, "status": "ACTIVE", "strategyMetadata": {"skillName": "camel"}},
+        {"strategyName": "camel-harvest", "tradingStrategyName": "camel", "id": "strat-camel-h",
+         "strategyWalletAddress": CAMEL_H, "status": "ACTIVE", "strategyMetadata": {"skillName": "camel"}}]
+    fx[f"strategy_get_clearinghouse_state::{CAMEL_P}"] = _ch("600.00")
+    fx[f"strategy_get_clearinghouse_state::{CAMEL_H}"] = _ch(harvest_value)
+    fx[f"discovery_get_trader_history::{CAMEL_P}"] = {"closedPositions": [
+        _closed("0xP1", "SOL", "30.00", 1782710000000), _closed("0xP2", "ETH", "-10.00", 1782720000000)]}
+    fx[f"discovery_get_trader_history::{CAMEL_H}"] = {"closedPositions": [
+        _closed("0xH1", "BTC", "25.00", 1782730000000)]}
+    fx[f"ratchet_stop_list::{CAMEL_P}"] = {"configs": []}
+    fx[f"ratchet_stop_list::{CAMEL_H}"] = {"configs": []}
+    return fx
+
+
+def _camel(res):
+    return next(r for r in res["book"]["rows"] if r["label"] == "camel")
+
+
+def test_a_package_deployed_as_two_instances_is_one_book_row_with_both_wallets():
+    res, _ = _run(_camel_base())
+    managed = [r for r in res["book"]["rows"] if r["kind"] == "managed"]
+    assert [r["label"] for r in managed] == ["kodiak", "camel"]          # 1500 > 1000.50; kodiak unstamped
+    row = _camel(res)
+    assert row["strategy_group"] == "camel" and row["wallet_count"] == 2 and row["wallets_loaded"] == 2
+    assert row["value_usd"] == 1000.5 and row["value_read"] == "ok" and row["wallets_couldnt_load"] == 0
+    by = {s["label"]: s for s in res["strategies"]}
+    assert row["closed_trade_count"] == by["camel-concentrated-payout"]["closed_trade_count"] + \
+        by["camel-harvest"]["closed_trade_count"] == 3
+    assert row["realized_pnl"] == round(by["camel-concentrated-payout"]["realized_pnl"]
+                                        + by["camel-harvest"]["realized_pnl"], 2) == 45.0
+    assert row["open_position_count"] == 0
+    assert row["protection"] == {"kind": "runtime_exit"}
+    assert [(w["label"], w["wallet"], w["value_usd"]) for w in row["strategy_wallets"]] == [
+        ("camel-concentrated-payout", CAMEL_P, 600.0), ("camel-harvest", CAMEL_H, 400.5)]
+    # the detail stays per instance: two strategies[] entries, each its own verdict surface
+    assert {"camel-concentrated-payout", "camel-harvest", "kodiak"} == set(by)
+    # the managed subtotal still counts wallets, and still quotes pnl_summary
+    man = res["book"]["total"]["managed"]
+    assert man["wallet_count"] == 3 and man["wallets_loaded"] == 3 and man["value_usd"] == 2500.5
+    assert man["realized_pnl"] == res["pnl_summary"]["realized"]
+    assert "managed by Senpi $2,500.50 (3 wallets)" in res["book"]["total"]["line"]
+
+
+def _unstamped(fx):
+    for s in fx["strategy_list"]["strategies"]:
+        s.pop("strategyMetadata", None)
+    return fx
+
+
+def test_the_senpi_aggregates_do_not_move_when_rows_group_by_strategy():
+    """Grouping is a book-layer view over the per-wallet reads: the same wallets with and without the
+    package stamp give the same Senpi aggregates and the same managed subtotal — only the rows differ."""
+    grouped, _ = _run(_camel_base())
+    flat, _ = _run(_unstamped(_camel_base()))
+    for key in ("timing_summary", "pnl_summary", "closed_strategies", "dsl_close_reason_mix",
+                "telemetry_availability"):
+        assert json.dumps(grouped[key], sort_keys=True) == json.dumps(flat[key], sort_keys=True), key
+    assert grouped["book"]["total"]["managed"] == flat["book"]["total"]["managed"]
+    assert grouped["book"]["total"]["line"] == flat["book"]["total"]["line"]
+    assert len(grouped["strategies"]) == len(flat["strategies"]) == 3     # the detail stays per instance
+    # the strategy row's timing is over ALL its wallets' closes
+    parts = [r for r in flat["book"]["rows"] if r["label"].startswith("camel-")]
+    assert _camel(grouped)["timing"]["measurable_closes"] == sum(r["timing"]["measurable_closes"] for r in parts)
+    assert _camel(grouped)["closed_trade_count"] == sum(r["closed_trade_count"] for r in parts)
+
+
+def test_a_strategy_row_with_one_wallet_unread_says_one_of_two_and_names_it():
+    fx = _camel_base()
+    fx.pop(f"strategy_get_clearinghouse_state::{CAMEL_H}")
+    res, _ = _run(fx)
+    row = _camel(res)
+    assert row["value_usd"] == 600.0 and row["wallets_loaded"] == 1 and row["wallets_couldnt_load"] == 1
+    assert row["value_read"] == "partial"
+    assert [w["value_usd"] for w in row["strategy_wallets"]] == [600.0, None]
+    tot = res["book"]["total"]
+    assert tot["managed"]["wallet_count"] == 3 and tot["managed"]["wallets_loaded"] == 2
+    assert tot["managed"]["value_usd"] == 2100.0
+    assert "managed by Senpi $2,100.00 (2 of 3 wallets)" in tot["line"]
+    assert tot["excludes"]["couldnt_load"] == ["camel-harvest"]
+    assert "The total excludes 1 wallet that couldn't load (camel-harvest)." in tot["line"]
+
+
+def test_a_strategy_row_with_no_wallet_read_is_unknown_and_sorts_last():
+    fx = _camel_base()
+    fx.pop(f"strategy_get_clearinghouse_state::{CAMEL_H}")
+    fx.pop(f"strategy_get_clearinghouse_state::{CAMEL_P}")
+    res, _ = _run(fx)
+    row = _camel(res)
+    assert row["value_usd"] is None and row["value_read"] == "unavailable" and row["open_position_count"] is None
+    assert res["book"]["rows"][-1] is row
+    assert res["book"]["total"]["excludes"]["couldnt_load"] == ["camel-concentrated-payout", "camel-harvest"]
+
+
+def test_the_deep_dive_names_the_strategy_once_never_its_instances():
+    res, _ = _run(_camel_base())
+    dd = res["book"]["deep_dive"]
+    assert dd["order"] == ["kodiak", "camel"]
+    assert dd["question"] == "Which wallet do you want me to go deeper on: kodiak or camel?"
+
+
+def test_unstamped_lookalike_wallets_stay_their_own_rows():
+    """Created outside deploy.py: no skillName, nothing says they are one strategy — one row each."""
+    res, _ = _run(_unstamped(_camel_base()))
+    managed = [r["label"] for r in res["book"]["rows"] if r["kind"] == "managed"]
+    assert managed == ["kodiak", "camel-concentrated-payout", "camel-harvest"]
+    assert all(r["wallet_count"] == 1 for r in res["book"]["rows"] if r["kind"] == "managed")
+
+
+def test_the_comparison_compares_strategies_not_instances():
+    res, _ = _run(_camel_base())
+    labels = {w["label"] for w in res["book"]["comparison"]["wallets"]} | \
+        {n["label"] for n in res["book"]["comparison"]["not_compared"]}
+    assert "camel" in labels and not labels & {"camel-concentrated-payout", "camel-harvest"}
+
+
+def test_a_strategy_row_sharing_a_label_is_told_apart_by_its_wallet_count():
+    """A user-named, unstamped "camel" next to the camel package: two rows, two display labels."""
+    fx = _camel_base()
+    fx["strategy_list"]["strategies"][0]["strategyName"] = "camel"         # kodiak renamed, no stamp
+    res, _ = _run(fx)
+    q = res["book"]["deep_dive"]["question"]
+    assert "camel (0xKODI…0kdk)" in q and "camel (2 wallets)" in q
+
+
+def test_skill_says_the_row_is_the_strategy_and_the_detail_goes_per_instance():
+    sec = _book_section()
+    for needle in ("**A Senpi strategy is one row with all its wallets.**", "The row is the strategy",
+                   "the review detail goes per instance", "its own runtime.yaml", "`strategy_wallets[]`",
+                   "`value_read: \"partial\"`", "(1 of 2 wallets)"):
+        assert needle in sec, needle
