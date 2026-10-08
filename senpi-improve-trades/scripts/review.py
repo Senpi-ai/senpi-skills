@@ -39,6 +39,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -216,6 +217,75 @@ def _external_wallets(me):
                             "added_at": w.get("added_at"), "access": w.get("access")})
     return EXTERNAL_OK, wallets
 # ── end external-wallets reader
+
+
+# ── VENDORED Senpi main-wallet reader, byte-identical in senpi-portfolio/scripts/portfolio.py,
+# ── senpi-improve-trades/scripts/review.py and quant-desk/scripts/addresses.py — skills install
+# ── standalone, so none may import another. senpi-portfolio/tests/test_name_reader_parity.py fails
+# ── the moment the copies drift: every skill values the main wallet with ONE rule, so their managed
+# ── subtotals reconcile.
+MAIN_WALLET_LABEL = "Senpi main wallet"
+MAIN_WALLET_STABLES = ("USDC", "USDC.E", "USDT")
+
+
+def _main_wallet_address(me):
+    """The Senpi main (embedded) wallet's address from a `user_get_me` payload (outer `data` already
+    stripped) — the first wallet whose `walletType` is "embedded". None when the payload names none."""
+    if not isinstance(me, dict):
+        return None
+    user = me.get("user") if isinstance(me.get("user"), dict) else {}
+    wallets = me.get("wallets") or user.get("wallets") or []
+    for w in wallets if isinstance(wallets, list) else []:
+        if not isinstance(w, dict):
+            continue
+        kind = w.get("walletType") if w.get("walletType") is not None else w.get("type")
+        if str(kind if kind is not None else "").lower() == "embedded":
+            return w.get("walletAddress") if w.get("walletAddress") is not None else w.get("address")
+    return None
+
+
+def _main_wallet_value(p):
+    """The main wallet's idle cash from ONE `account_get_portfolio` payload (forceFetch, outer `data`
+    stripped): perps USDC (`total_in_hyperliquid`) + Hyperliquid spot USDC + EVM stablecoins. None when
+    the payload isn't a dict (a failed read — unknown, never $0); a dict reads its fields, 0 when absent.
+
+    GetPortfolioV3 nests the fields under `portfolio`; the idle field is `total_in_hyperliquid` (the old
+    `total_usdc_in_hyperliquid` is a harmless fallback); spot is NOT inside it (omitting it under-reports
+    the idle by exactly the spot balance); a token row's USD value of exactly 0 is the API's
+    zero-as-missing sentinel, so it falls back to `formattedBalance` × `tokenPriceInUSD` (a 0 price → 1)."""
+    if not isinstance(p, dict):
+        return None
+    if isinstance(p.get("portfolio"), dict):
+        p = p["portfolio"]
+
+    def num(d, *keys, default=0.0):
+        for k in keys:
+            if isinstance(d, dict) and d.get(k) is not None:
+                try:
+                    return float(d[k])
+                except (TypeError, ValueError):
+                    continue
+        return default
+
+    out = {"idle_hl_usdc": num(p, "total_in_hyperliquid", "total_usdc_in_hyperliquid"),
+           "spot_usd": num(p, "total_spot_usd_in_hyperliquid"), "evm_usdc": []}
+    evm = 0.0
+    for tb in p.get("token_balances") if isinstance(p.get("token_balances"), list) else []:
+        if not isinstance(tb, dict):
+            continue
+        sym = tb.get("symbol") if tb.get("symbol") is not None else tb.get("tokenSymbol")
+        if str(sym if sym is not None else "").upper() not in MAIN_WALLET_STABLES:
+            continue
+        amt = num(tb, "usdValue", "usd_value", "amountUsd", "balanceUsd", "balanceInUSD", "amount")
+        if amt == 0.0:
+            amt = num(tb, "formattedBalance", "amount") * (num(tb, "tokenPriceInUSD", default=1.0) or 1.0)
+        chain = next((tb[k] for k in ("chain", "network", "chainName") if tb.get(k) is not None), "EVM")
+        if amt:
+            out["evm_usdc"].append({"chain": chain, "usd": round(amt, 2)})
+            evm += amt
+    out["idle_total"] = round(out["idle_hl_usdc"] + out["spot_usd"] + evm, 2)
+    return out
+# ── end main-wallet reader
 
 
 def _strategy_label(s):
@@ -499,12 +569,17 @@ def fetch_external_review(client, meta):
     meta.external_wallets_status: "unavailable" (absent key on an older MCP, or a failed read) is
     unknown, never "no saved wallets"."""
     try:
-        me = _ok(client.mcp_call("user_get_me", timeout=USER_GET_ME_TIMEOUT_S)) or {}
+        raw = client.mcp_call("user_get_me", timeout=USER_GET_ME_TIMEOUT_S)
+        if isinstance(raw, dict) and raw.get("success") is False:   # answered as a failure, not raised
+            meta["user_get_me_failed"] = True
+        me = _ok(raw) or {}
     except Exception as e:  # noqa — unknown, never empty
         meta.setdefault("warnings", []).append(f"user_get_me failed: {e}; saved wallets unavailable")
+        meta["user_get_me_failed"] = True                     # the main wallet is then unknown, never absent
         me = {}
     status, wallets = _external_wallets(me)
     meta["external_wallets_status"] = status
+    meta["main_wallet_address"] = _main_wallet_address(me)   # the book's Senpi main wallet row
     if status != EXTERNAL_OK or not wallets:
         return []
     states = None
@@ -533,6 +608,28 @@ def fetch_external_review(client, meta):
             "state_read": "unavailable" if st is None else ("error" if st.get("readError") else "ok"),
         })
     return out
+
+
+MAIN_WALLET_TIMEOUT_S = 25     # account_get_portfolio with forceFetch — the read senpi-portfolio makes
+
+
+def fetch_main_wallet(client, address, meta):
+    """The Senpi main wallet as the book reads it: its idle cash from ONE `account_get_portfolio`
+    (forceFetch) valued by the vendored main-wallet reader — the same number senpi-portfolio calls
+    "idle in your Senpi main wallet", so the managed subtotals reconcile. A failed read is
+    `value_usd: None` (unknown, never $0) and the row is named in the total's excludes. None (no row)
+    only when nothing says there is one: user_get_me read fine, named no embedded wallet, and the
+    portfolio read failed."""
+    try:
+        p = _ok(client.mcp_call("account_get_portfolio", forceFetch=True, strategyStatus="ALL",
+                                timeout=MAIN_WALLET_TIMEOUT_S))
+    except Exception as e:  # noqa — unknown, never $0
+        meta.setdefault("warnings", []).append(f"account_get_portfolio failed: {e}; Senpi main wallet value unknown")
+        p = None
+    v = _main_wallet_value(p)
+    if v is None and address is None and not meta.get("user_get_me_failed"):
+        return None
+    return {"address": address, "value_usd": v["idle_total"] if v else None, "detail": v}
 
 
 def fetch_review_set(client, meta):
@@ -861,27 +958,68 @@ def _direction(rec):
 
 
 # ───────────────────── on-chain fill recovery (durable across strategy_close) ─────────────────────
+HL_RETRY_BACKOFF_S = (1.0, 2.0)   # sleeps between the 3 tries of a rate-limited (429) / 5xx read
+HL_RETRY_BUDGET_S = 10.0          # total retry sleep per review, across every thread — never stalls longer
+_hl_retry = {"slept": 0.0, "lock": threading.Lock()}
+
+
+def _reset_hl_retry_budget():
+    with _hl_retry["lock"]:
+        _hl_retry["slept"] = 0.0
+
+
+def _take_hl_retry_sleep(s):
+    """Reserve `s` seconds of the review's retry budget; False when it's spent (then fail open)."""
+    with _hl_retry["lock"]:
+        if _hl_retry["slept"] + s > HL_RETRY_BUDGET_S:
+            return False
+        _hl_retry["slept"] += s
+        return True
+
+
 def _hl_info(payload, meta, client=None, timeout=12):
     """POST the Hyperliquid Info API (public, no auth) — the same transport the DSL scripts use. Recovers a
     CLOSED strategy's trades that Senpi's discovery index has dropped: HL keys fills by wallet ADDRESS, so
     they survive a `strategy_close` (which only clears Senpi's own record). Offline/fixture-aware for tests
-    (`_FixtureClient` serves a recorded `hl::<type>::<wallet>` entry). Fails OPEN → None."""
+    (`_FixtureClient` serves a recorded `hl::<type>::<wallet>` entry). Fails OPEN → None.
+
+    Hyperliquid rate-limits with HTTP 429 and a `null` body — that is a busy IP, not an answer, so a 429 or
+    5xx is retried (3 tries, HL_RETRY_BACKOFF_S apart, within the review's HL_RETRY_BUDGET_S) before the
+    read fails open. Any other non-200 is a failed read at once."""
     if client is not None and hasattr(client, "_r"):          # _FixtureClient — serve recorded HL response
         u = str(payload.get("user", "")).lower()
         key = f"hl::{payload.get('type')}::{u}"
         # a recorded [] is an ANSWER (no fills), not a miss — `or` would turn it into a failed read
         return client._r[key] if key in client._r else client._r.get(f"hl::{payload.get('type')}")
-    try:
-        p = subprocess.run(
-            ["curl", "-s", "-m", str(timeout), "-X", "POST", HL_INFO_URL,
-             "-H", "Content-Type: application/json", "-d", json.dumps(payload)],
-            capture_output=True, text=True, timeout=timeout + 3)
-        if p.returncode != 0 or not (p.stdout or "").strip():
+    status = None
+    for attempt in range(len(HL_RETRY_BACKOFF_S) + 1):
+        try:
+            p = subprocess.run(
+                ["curl", "-s", "-m", str(timeout), "-w", "\n%{http_code}", "-X", "POST", HL_INFO_URL,
+                 "-H", "Content-Type: application/json", "-d", json.dumps(payload)],
+                capture_output=True, text=True, timeout=timeout + 3)
+        except Exception as e:  # noqa
+            meta.setdefault("warnings", []).append(f"hl_info {payload.get('type')} failed: {e}")
             return None
-        return json.loads(p.stdout)
-    except Exception as e:  # noqa
-        meta.setdefault("warnings", []).append(f"hl_info {payload.get('type')} failed: {e}")
-        return None
+        body, _, code = (p.stdout or "").rpartition("\n")
+        status = int(code) if code.strip().isdigit() else None
+        if p.returncode == 0 and status == 200:
+            try:
+                return json.loads(body) if body.strip() else None
+            except ValueError as e:
+                meta.setdefault("warnings", []).append(f"hl_info {payload.get('type')} failed: {e}")
+                return None
+        retryable = p.returncode == 0 and status is not None and (status == 429 or 500 <= status < 600)
+        if not retryable or attempt >= len(HL_RETRY_BACKOFF_S):
+            break
+        wait = HL_RETRY_BACKOFF_S[attempt]
+        if not _take_hl_retry_sleep(wait):
+            break
+        time.sleep(wait)
+    meta.setdefault("warnings", []).append(
+        f"hl_info {payload.get('type')} {str(payload.get('user', ''))[:8]} failed "
+        f"(HTTP {status if status is not None else 'no response'}); read as unknown")
+    return None
 
 
 def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
@@ -1400,8 +1538,13 @@ def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_mark
     # ── Phase 1: per-strategy fan-out (parallel), then merge in original order (deterministic) ──
     if strategies:
         workers = min(8, len(strategies))
+        _reset_hl_retry_budget()
+        # saved wallets are READ first (their fills come only from Hyperliquid, so a rate-limited IP late in
+        # a big book hit them hardest); the merge below still runs in the original strategy order
+        first = sorted(range(len(strategies)), key=lambda i: 0 if _is_external(strategies[i]) else 1)
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-            results = list(ex.map(_worker, strategies))   # ex.map preserves input order
+            done = dict(zip(first, ex.map(_worker, [strategies[i] for i in first])))
+        results = [done[i] for i in range(len(strategies))]   # original order — deterministic merge
         for res in results:                                # iterate in original strategy order
             trades.extend(res["trades"])
             missed_signals.extend(res["missed_signals"])
@@ -2188,6 +2331,18 @@ def _managed_rows(strat_reads, senpi_trades, open_book, capped):
     return rows
 
 
+def _main_wallet_row(main):
+    """The Senpi main wallet — managed money (Senpi moves it), valued by its own idle cash. It holds
+    cash, never a strategy's trades: no closed trades, no positions, no exit. Unknown value is None."""
+    v = (main or {}).get("value_usd")
+    return {"label": MAIN_WALLET_LABEL, "kind": KIND_MANAGED, "origin": "main_wallet",
+            "wallet": (main or {}).get("address"), "status": None, "holds": "cash",
+            "value_usd": v, "value_read": "ok" if v is not None else "unavailable",
+            "closed_trade_count": None, "realized_pnl": None, "fees": None, "trades_unknown": False,
+            "trades_capped": False, "open_position_count": None, "protection": None, "timing": None,
+            "not_applicable": ["trades", "open_positions", "protection"]}
+
+
 def _read_only_rows(saved_reads, entries):
     """One row per saved wallet, from `external_wallets[]` plus its verbatim `state`. Value is
     `state.totalValueUsd` (already unified-account aware); an unread state is None, never 0."""
@@ -2236,6 +2391,8 @@ def _book_comparison(rows):
     ceiling, is named in the line, never silently dropped or compared as if complete."""
     eligible, not_compared = [], []
     for r in rows:
+        if r.get("origin") == "main_wallet":
+            continue                                          # holds cash, never trades: nothing to compare
         name = r.get("display_label") or r.get("label")
         if r.get("trades_unknown"):
             not_compared.append({"label": name, "why": "its trades couldn't be read"})
@@ -2396,20 +2553,25 @@ def _deep_dive_worthy(r):
     position, a value that couldn't load (unknown is never "nothing there"), or trades to review (closed
     in the window, or unreadable). A read $0 with no position and no trades is a row of the list, never
     an option of the question (same rule as senpi-portfolio, plus trades: this is a trade review)."""
+    if r.get("origin") == "main_wallet":
+        return False                                          # a trade review: the main wallet has no trades
     v = r.get("value_usd")
     return (v is None or v != 0 or bool(r.get("open_position_count")) or bool(r.get("closed_trade_count"))
             or bool(r.get("trades_unknown")))
 
 
-def _book(strat_reads, senpi_trades, open_book, saved_reads, entries, pnl_summary, meta):
-    """The unified rows layer: every wallet the user has — each CURRENT Senpi strategy and each saved
-    wallet — in ONE list ordered by value (kind is a column), one book total with managed and read-only
-    subtotals, one comparison line, and the deep-dive question. Present it first, then the detail."""
+def _book(strat_reads, senpi_trades, open_book, saved_reads, entries, pnl_summary, meta, main=None):
+    """The unified rows layer: every wallet the user has — the Senpi main wallet (`main`, from
+    `fetch_main_wallet`), each CURRENT Senpi strategy and each saved wallet — in ONE list ordered by
+    value (kind is a column), one book total with managed and read-only subtotals, one comparison line,
+    and the deep-dive question. Present it first, then the detail. The managed subtotal is the main
+    wallet + the strategies, the same money senpi-portfolio's `managed_usd` counts."""
     capped = {str(w).lower() for w in (meta.get("fills_capped") or [])}
     managed_state = ("unreadable" if any("strategy_list failed" in str(w) for w in (meta.get("warnings") or []))
                      else "ok")
     read_only_state = "ok" if saved_reads is not None else "unavailable"
-    rows = (_managed_rows(strat_reads, senpi_trades, open_book or {}, capped)
+    rows = (([_main_wallet_row(main)] if main else [])
+            + _managed_rows(strat_reads, senpi_trades, open_book or {}, capped)
             + _read_only_rows(saved_reads, entries))
     rows.sort(key=_row_sort_key)
     seen = {}
@@ -2516,7 +2678,8 @@ def _ensure_trades_in_state(client, state, window_days, last_n, want_market, now
     state["strategies"] = strategies
     state["trades"] = trades
     state["window"] = window
-    for k in ("external_wallets_status", "closed_trades_unknown", "fills_capped"):
+    for k in ("external_wallets_status", "closed_trades_unknown", "fills_capped", "main_wallet_address",
+              "user_get_me_failed"):
         if k in meta:
             state[k] = meta[k]
     state.setdefault("meta_warnings", [])
@@ -2558,7 +2721,8 @@ def step_timing(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_marke
     state["timing_summary"] = timing
     state["meta_warnings"] = meta.get("warnings", [])
     state["registry_source"] = meta.get("registry_source")
-    for k in ("external_wallets_status", "closed_trades_unknown", "fills_capped"):
+    for k in ("external_wallets_status", "closed_trades_unknown", "fills_capped", "main_wallet_address",
+              "user_get_me_failed"):
         if k in meta:
             state[k] = meta[k]
     saved = (_external_reads(trades, strategies, meta)
@@ -2583,12 +2747,14 @@ def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_m
         client, state, window_days, last_n, want_market, now_ms=now_ms)
     meta["warnings"] = list(state.get("meta_warnings", []))
     meta["window"] = window
-    for k in ("external_wallets_status", "closed_trades_unknown", "fills_capped"):
+    for k in ("external_wallets_status", "closed_trades_unknown", "fills_capped", "main_wallet_address",
+              "user_get_me_failed"):
         if k in state:
             meta[k] = state[k]
     senpi = _senpi_only(strategies)
     senpi_trades = [t for t in trades if t.get("wallet_kind") != EXTERNAL]
     open_book = fetch_open_book(client, senpi, meta)   # unrealized PnL for current wallets (total ledger)
+    main = fetch_main_wallet(client, meta.get("main_wallet_address"), meta)
     strat_reads = _strategy_reads(senpi_trades, senpi, open_book)
     closed_reads = _closed_strategy_rollup(senpi_trades, senpi)
     realized_total = round(sum(_num(t.get("realized_pnl")) or 0.0 for t in senpi_trades), 2)
@@ -2599,7 +2765,7 @@ def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_m
     dsl_mix = _dsl_close_reason_mix(senpi_trades)   # from whatever exit_reason is in state (UNKNOWN until telemetry)
     saved = (_external_reads(trades, strategies, meta)
              if meta.get("external_wallets_status") == EXTERNAL_OK else None)   # None, never [], when unloaded
-    book = _book(strat_reads, senpi_trades, open_book, saved, strategies, pnl_summary, meta)
+    book = _book(strat_reads, senpi_trades, open_book, saved, strategies, pnl_summary, meta, main=main)
     current_count = sum(1 for s in senpi if _is_current(s.get("status")))
     closed_count = len(senpi) - current_count
     meta["strategy_count"] = len(senpi)
@@ -2713,6 +2879,7 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     # TOTAL ledger (realized closed + unrealized open), not realized-only. Fail-open per wallet → None (UNKNOWN).
     # Saved wallets' open book is their `state` (account_get_external_wallets), read in fetch_review_set.
     open_book = fetch_open_book(client, senpi, meta)
+    main = fetch_main_wallet(client, meta.get("main_wallet_address"), meta)   # the book's Senpi main wallet row
     # DISCOVERY owns trades[] (onchain facts); TELEMETRY enriches exit_reason + yields the standalone streams
     # (missed_signals + the leak/fill rollups), all from ONE per-runtime event fetch (no re-fetch downstream).
     trades, missed_signals, leaks, fills = _collect_trades(
@@ -2732,7 +2899,7 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     saved = (_external_reads(trades, strategies, meta)
              if meta.get("external_wallets_status") == EXTERNAL_OK else None)
     # ONE book on top of the Senpi-only aggregates: every wallet by value, one total with subtotals.
-    book = _book(strat_reads, senpi_trades, open_book, saved, strategies, pnl_summary, meta)
+    book = _book(strat_reads, senpi_trades, open_book, saved, strategies, pnl_summary, meta, main=main)
 
     current_count = sum(1 for s in senpi if _is_current(s.get("status")))
     closed_count = len(senpi) - current_count

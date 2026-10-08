@@ -9,7 +9,7 @@ import dsl as dsl_mod
 import score as score_mod
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.44.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.45.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -119,6 +119,7 @@ def short(addr):
 # ── `desk.py --my-wallets`: one list of every wallet, in the order the engine sorted it (value desc,
 # couldn't-load last). Kind is a column, never a section: no "Saved wallets" / "Strategy wallets" heading.
 KIND_LABEL = {"saved": "read-only — you added it", "strategy": "Senpi strategy",
+              "main": "Senpi main wallet — idle cash",
               "strategy_closed": "Senpi strategy — closed",
               "strategy_partly_closed": "Senpi strategy — some wallets closed"}
 _ASK_NAMES = 5
@@ -201,6 +202,8 @@ def render_my_wallets(mw):
         gaps.append("I couldn't load your saved wallets, so this list may be missing wallets you added.")
     if mw.get("senpi_wallets_status") != "ok":
         gaps.append("I couldn't load your Senpi strategy wallets, so this list may be missing them.")
+    if mw.get("main_wallet_status", "ok") != "ok":
+        gaps.append("I couldn't load your Senpi main wallet, so this list may be missing it.")
     if gaps:
         out += ([""] if out else []) + gaps
     return "\n".join(out)
@@ -288,11 +291,25 @@ def overview(r):
     return "\n".join(out)
 
 
+def account_value_phrase(b):
+    """The headline account value with its split: a standard account names its perps and spot balances
+    (the value is their sum — never show the spot side alone under it); a unified / portfolio-margin
+    account says spot holds the perps margin (counted once). Unknown mode keeps the plain value."""
+    av, perps = b["account_value"], b.get("account_value_perps")
+    head = f"Account value **{usd(av)}**"
+    mode = b.get("account_mode")
+    if b.get("account_value_spot") is not None and mode in metrics.STANDARD_MODES:
+        return head + f" = perps **{usd(perps)}** + spot **{usd(b['account_value_spot'])}**"
+    if mode in metrics.UNIFIED_MODES:
+        return head + f" ({metrics.UNIFIED_MODES[mode]}: spot holds the perps margin, counted once)"
+    return head + (f" (perps equity {usd(perps)})" if perps and abs(perps - av) > 1 else "")
+
+
 def protection(r):
     b = r["book"]; sm = {x["coin"]: x for x in (r.get("smart") or {}).get("rows", [])}
     n = len(b["positions"]); unread_at = metrics.positions_unread_phrase(b)
     out = ["## Live positions — protection audit", "",
-           f"Account value **{usd(b['account_value'])}**" + (f" (perps equity {usd(b['account_value_perps'])})" if b.get("account_value_perps") and abs(b["account_value_perps"] - b["account_value"]) > 1 else "")
+           account_value_phrase(b)
            + f" · margin used **{pct(b['margin_utilization'])}** · withdrawable **{usd(b['withdrawable'])}** · net uPnL **{usd(b['unrealized'], signed=True)}**",
            f"{n} open position{'s' if n != 1 else ''} · {len(b['naked'])} with no stop · {len(b['partial'])} partly covered · {(str(len(b['unknown'])) + ' unknown (orders not read) · ') if b.get('unknown') else ''}{('positions not read on ' + unread_at + ' · ') if unread_at else ''}{r['market']['stance'] if r.get('market') else ''}" + (f" · paying {usd(-b['funding_per_day'])}/day in funding" if b['funding_per_day'] < 0 else (f" · collecting {usd(b['funding_per_day'])}/day in funding" if b['funding_per_day'] > 0 else ""))]
     if n:

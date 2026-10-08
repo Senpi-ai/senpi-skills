@@ -176,3 +176,57 @@ def test_skill_section_never_calls_a_saved_wallet_connected_verified_or_owned():
     assert not bad, bad
     for m in re.finditer(r"on senpi\.ai \(web\)", sec):
         assert sec[:m.end()].endswith("add it in Your wallets on senpi.ai (web)"), sec[max(0, m.start() - 60):m.end()]
+
+
+# ── the Senpi side, stated truthfully (R1 dev E2E round 2, A2) ───────────────────────────────────────
+# Live: holdings: [] with 8 ACTIVE strategies read as "Idle USDC (no positions, no strategies)". The
+# context now carries the active strategy count; unknown is never 0.
+class _StratClient(_Client):
+    def __init__(self, external=None, strategies=None):
+        super().__init__(external)
+        self.strategies = strategies
+
+    def mcp_call(self, name, **kw):
+        if name == "strategy_list":
+            self.calls.append(name)
+            assert kw.get("status") == ["ACTIVE"]
+            if isinstance(self.strategies, Exception):
+                raise self.strategies
+            return self.strategies
+        return super().mcp_call(name, **kw)
+
+
+_NONE_SAVED = {"success": True, "data": {"external_wallets": []}}
+
+
+def test_context_only_counts_the_active_strategies_so_no_positions_is_never_no_strategies():
+    reply = {"success": True, "data": {"strategies": [{"status": "ACTIVE"}] * 8}}
+    ctx = discover.fetch_user_context(_StratClient(_NONE_SAVED, reply), saved_wallets=True)
+    assert ctx["active_strategy_count"] == 8
+    reply = {"success": True, "data": {"strategies": []}}
+    assert discover.fetch_user_context(_StratClient(_NONE_SAVED, reply), saved_wallets=True)[
+        "active_strategy_count"] == 0, "a read that says none is a real 0"
+
+
+def test_an_unread_strategy_list_is_unknown_never_zero_and_never_breaks_the_context():
+    for bad in (RuntimeError("HTTP 503"), {"success": False, "error": "UNAVAILABLE"}, {"success": True, "data": {}},
+                None):
+        ctx = discover.fetch_user_context(_StratClient(_NONE_SAVED, bad), saved_wallets=True)
+        assert ctx["active_strategy_count"] is None, bad
+        assert ctx["budget"] == 40.0 and ctx["saved_wallets_status"] == "ok"
+
+
+def test_the_match_run_does_not_read_the_strategy_list():
+    c = _StratClient(_NONE_SAVED, RuntimeError("must not be called"))
+    ctx = discover.fetch_user_context(c)
+    assert "strategy_list" not in c.calls and "active_strategy_count" not in ctx
+
+
+def test_skill_says_no_positions_is_not_no_strategies_and_never_calls_a_saved_wallet_theirs():
+    sec = _section()
+    for needle in ("`holdings: []` means no open Senpi positions, never \"no strategies\"",
+                   "`active_strategy_count`", "never \"none\"",
+                   "\"on the wallets you added\"", "Never call a saved wallet theirs",
+                   "never read its positions as their personal trading style"):
+        assert needle in sec, needle
+    assert not re.search(r"(?i)\byour own wallet\b|\bsignature\b", sec)

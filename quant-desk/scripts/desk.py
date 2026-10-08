@@ -50,7 +50,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.44.0"
+VERSION = "1.45.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -101,16 +101,24 @@ def my_wallets(mcp):
     still traded inside the window). Each half is "ok" or "unavailable" on its own; unavailable is
     unknown, never "none". No Senpi token → both unavailable."""
     out = {"external_wallets_status": addr_book.EXTERNAL_UNAVAILABLE, "external_wallets": None,
-           "senpi_wallets_status": "unavailable", "senpi_wallets": None}
+           "senpi_wallets_status": "unavailable", "senpi_wallets": None,
+           "main_wallet_status": "unavailable", "main_wallet": None}
     if mcp is None:
         out["error"] = "no Senpi token on this box — ask the reader for an address"
         return out
+    me_ok = False
     try:
-        me = (mcp.mcp_call("user_get_me", timeout=22) or {}).get("data") or {}   # waits on moxie (MCP 20 s)
+        resp = mcp.mcp_call("user_get_me", timeout=22) or {}    # waits on moxie (MCP 20 s)
+        me_ok = isinstance(resp, dict) and resp.get("success") is not False
+        me = resp.get("data") or {}
     except Exception:  # noqa: BLE001 — unknown, never empty
         me = {}
     status, wallets = addr_book._external_wallets(me)
     out["external_wallets_status"], out["external_wallets"] = status, wallets
+    # the Senpi main wallet (managed money): "ok" with None = the reply names no main wallet
+    main = addr_book._main_wallet_address(me) if me_ok else None
+    out["main_wallet_status"] = "ok" if me_ok else "unavailable"
+    out["main_wallet"] = str(main).lower() if main else None
     try:
         resp = mcp.mcp_call("strategy_list", status=["ACTIVE", "PAUSED", "CLOSED"], timeout=20)
         # The MCP answers a failed read as {success: false, …} WITHOUT raising, and `_rows` turns that
@@ -133,10 +141,38 @@ def my_wallets(mcp):
 # the `kind` column (read-only saved wallet / Senpi strategy), not a rank and not a section break. The
 # order is computed HERE and emitted, so the agent narrates an order it was given.
 EXTERNAL_STATE_TIMEOUT_S = 25      # moxie reads each saved wallet live (~6.5 s); the MCP's own timeout is 20 s
-KIND_SAVED, KIND_STRATEGY = "saved", "strategy"
+KIND_SAVED, KIND_STRATEGY, KIND_MAIN = "saved", "strategy", "main"
 VALUE_OK, VALUE_UNKNOWN, VALUE_PARTIAL = "ok", "couldnt_load", "partial"
 _SAVED_VALUE_SOURCE = "account_get_external_wallets state.totalValueUsd"
 _STRATEGY_VALUE_SOURCE = "Hyperliquid portfolio (account value)"
+_MAIN_VALUE_SOURCE = "account_get_portfolio idle cash (perps + spot USDC + EVM stablecoins) — senpi-portfolio's read"
+MAIN_PORTFOLIO_TIMEOUT_S = 25
+
+
+def _main_value(mcp):
+    """The Senpi main wallet's idle cash — ONE `account_get_portfolio` (forceFetch) valued by the vendored
+    main-wallet reader, the number senpi-portfolio calls "idle in your Senpi main wallet". None when the
+    read failed: unknown, never $0."""
+    try:
+        resp = mcp.mcp_call("account_get_portfolio", forceFetch=True, strategyStatus="ALL",
+                            timeout=MAIN_PORTFOLIO_TIMEOUT_S)
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(resp, dict) or resp.get("success") is False:
+        return None
+    v = addr_book._main_wallet_value(resp.get("data", resp))
+    return v["idle_total"] if v else None
+
+
+def _main_row(address, value):
+    """The Senpi main wallet — managed money, valued by its own idle cash, runnable like any address."""
+    row = {"address": address, "label": addr_book.MAIN_WALLET_LABEL, "kind": KIND_MAIN,
+           "kind_label": render.KIND_LABEL[KIND_MAIN], "status": None, "closed": False,
+           "value_usd": value, "value_status": VALUE_OK if value is not None else VALUE_UNKNOWN,
+           "value_source": _MAIN_VALUE_SOURCE, "run": address}
+    if value is None:
+        row["value_note"] = "account_get_portfolio failed"
+    return row
 
 
 def _usd_or_none(v):
@@ -260,19 +296,22 @@ def my_wallets_listed(mcp, hl):
     can't be valued is "couldn't load" and sorts last. Each source keeps its own ok/unavailable status,
     and a list with an unavailable source is `wallets_complete: false` — never "no wallets"."""
     out = my_wallets(mcp)
-    saved, strat = out.get("external_wallets"), out.get("senpi_wallets")
-    states, portfolios = {}, {}
-    if saved or (strat and hl is not None):
+    saved, strat, main = out.get("external_wallets"), out.get("senpi_wallets"), out.get("main_wallet")
+    states, portfolios, main_value = {}, {}, None
+    if saved or main or (strat and hl is not None):
         from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=2) as ex:
+        with ThreadPoolExecutor(max_workers=3) as ex:
             fs = ex.submit(_saved_states, mcp) if saved else None
             fp = ex.submit(hl.portfolios, [w["address"] for w in strat]) if strat and hl is not None else None
+            fm = ex.submit(_main_value, mcp) if main else None
             states = fs.result() if fs else {}
             portfolios = fp.result() if fp else None
-    if saved is None and strat is None:
+            main_value = fm.result() if fm else None
+    if saved is None and strat is None and not main:
         rows = None
     else:
-        rows = [_saved_row(w, states) for w in (saved or [])] + \
+        rows = ([_main_row(main, main_value)] if main else []) + \
+               [_saved_row(w, states) for w in (saved or [])] + \
                _strategy_rows([_strategy_row(w, portfolios) for w in (strat or [])], strat or [])
         rows.sort(key=_by_value)
     out["order"] = "value_desc"
@@ -680,6 +719,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
                              orders_unread_by_wallet=tr_raw.get("orders_unread_by_wallet"),
                              positions_unread_by_wallet=(tr_raw["positions_unread_by_wallet"] if "positions_unread_by_wallet" in tr_raw
                                                          else book_mod.positions_unread(tr_raw)))
+    book.update(metrics.account_split(book, tr_raw.get("userAbstraction")))
     if book["unknown"]:
         meta["warnings"].append("open orders unreadable: protection unknown for " + ", ".join(book["unknown"]))
     for dex, wal in book["positions_unread_by_wallet"]:

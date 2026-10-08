@@ -57,7 +57,7 @@ TTL = {"metaAndAssetCtxs::xyz": 120, "clearinghouseState": 120, "frontendOpenOrd
        "userFees": 3600, "portfolio": 600, "userNonFundingLedgerUpdates": 600, "userFillsByTime": 600,
        "userFunding": 600, "leaderboard": 6 * 3600,
        # what an address IS does not change on a desk's timescale
-       "userRole": 7 * 24 * 3600, "vaultDetails": 7 * 24 * 3600}
+       "userRole": 7 * 24 * 3600, "vaultDetails": 7 * 24 * 3600, "userAbstraction": 600}
 
 
 def _retry_after(headers):
@@ -253,6 +253,9 @@ class HL:
             "clearinghouseState_xyz": self._optional({"type": "clearinghouseState", "user": addr, "dex": "xyz"}),
             "frontendOpenOrders_xyz": self._optional({"type": "frontendOpenOrders", "user": addr, "dex": "xyz"}),
             "spotClearinghouseState": self._optional({"type": "spotClearinghouseState", "user": addr}),
+            # the account mode ("default" / "disabled" = perps and spot are separate balances;
+            # "unifiedAccount" / "portfolioMargin" = spot holds the perps margin). None = unread.
+            "userAbstraction": self._optional({"type": "userAbstraction", "user": addr}),
             "fills": merge_fills(self.fills(addr, start), self.twap_slices(addr, start)),
             "userFunding": self.funding(addr, win_start),
             "userFees": self.info({"type": "userFees", "user": addr}),
