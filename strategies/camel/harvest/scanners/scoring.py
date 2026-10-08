@@ -98,7 +98,7 @@ def score_carry(asset, candles_1h, candles_4h, fund, own24h, leg, inputs):
     # The carry pays for HOLDING the crowded side of a dislocation. It does not pay for
     # arriving after the reversion has already happened, and the funding signal outlives the
     # price edge by hours — a name can still be paying -200%/yr while it is up 40% on the day.
-    # Measured on camel-concentrated's live book (2026-10-06/08, 8 round trips): the two FIRST
+    # Measured on the concentrated book's live wallets (2026-10-06/08, 8 round trips): the two FIRST
     # entries, taken at -4.4% and +8.0% on the day, netted +$650. The four MET re-entries, taken
     # at +37.4%, +50.2%, +61.5% and +46.8%, grossed +$19.30 against $20.55 of fees — net -$1.25
     # on ~$13.9k of churned notional. A +20% cap separates those two sets exactly: it blocks the
@@ -108,9 +108,10 @@ def score_carry(asset, candles_1h, candles_4h, fund, own24h, leg, inputs):
     # rungs are -1 against a funding tier worth +3, so an extreme dislocation outvotes them no
     # matter how far the price has run. Only a skip actually binds.
     #
-    # Left DISABLED by default so standalone camel — four smaller slots, where one chased re-entry
-    # costs ~1% of the arm instead of ~8.6% — keeps the behaviour it has been measured on. Enable
-    # per package in runtime.yaml.
+    # Opt-out by ABSENCE, which is what keeps this file byte-identical across every package that
+    # vendors it. `camel` (one position per side, ~8.6% of the side per stop) enables it;
+    # `camel-spread`, the delisted 4-slot original where the same mistake costs ~1%, does not and
+    # keeps the behaviour it was measured on. Enable per package in runtime.yaml.
     cap_own = inputs.get("maxOwn24hPct")
     if cap_own is not None:
         cap_own = abs(float(cap_own))

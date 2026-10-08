@@ -34,7 +34,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 
 ARMS = ("harvest", "payout")
-PARENT, ARM_PKG = "camel", "camel-concentrated"
+PARENT, ARM_PKG = "camel-spread", "camel"
 
 
 def _rt(pkg, arm):
@@ -199,14 +199,33 @@ def test_the_sleeve_split_is_camels():
     assert shares(ARM_PKG) == shares(PARENT), "the 50/50 harvest/payout split moved"
 
 
-def test_it_declares_camel_as_its_parent():
+def test_camel_is_the_template_not_a_variant():
+    """2026-10-08: this config took the `camel` id. It no longer varies anything, so it must NOT
+    carry `varies` — that field makes discover rank a package BEHIND its parent, and a template
+    ranked behind a delisted package would never surface."""
     with open(os.path.join(ROOT, "strategies", ARM_PKG, "strategy.yaml"), encoding="utf-8") as fh:
         card = yaml.safe_load(fh)["catalog"]
-    assert card.get("varies") == PARENT, (
-        "the card does not declare `varies: camel`, so discover would rank it against its own "
-        "parent on near-identical text instead of behind it")
+    assert "varies" not in card, (
+        "camel still declares `varies` — it is the template now, and discover would rank it "
+        "below whatever that names")
     blob = " ".join(str(card.get(k, "")) for k in ("name", "tagline", "belief_plain", "thesis"))
-    assert "10x" in blob, "the card never states the leverage, which is half of what it varies"
+    assert "10x" in blob, "the card never states the leverage, which is the defining input"
+
+
+def test_the_four_slot_original_is_on_disk_but_DELISTED():
+    """The 4-slot 5x config is kept so the forks deployed from it stay readable, and delisted so
+    nobody is offered it. `gen_catalog` skips on `catalog.deployable is False`."""
+    with open(os.path.join(ROOT, "strategies", PARENT, "strategy.yaml"), encoding="utf-8") as fh:
+        spread = yaml.safe_load(fh)
+    assert spread["id"] == PARENT
+    assert spread["catalog"].get("deployable") is False, (
+        f"{PARENT} is still deployable — it would appear in the catalog alongside camel")
+    import json
+    with open(os.path.join(ROOT, "strategies", "catalog.json"), encoding="utf-8") as fh:
+        listed = {s["id"] for s in json.load(fh)["skills"]}
+    assert PARENT not in listed, f"{PARENT} is listed in the catalog"
+    assert "camel" in listed, "camel is not listed"
+    assert "camel-concentrated" not in listed, "the old variant id is still listed"
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -261,7 +280,7 @@ def test_the_overextension_gate_is_enabled_on_both_legs(arm):
 
 
 @pytest.mark.parametrize("arm", ARMS)
-def test_standalone_camel_is_NOT_gated(arm):
+def test_the_delisted_four_slot_original_is_NOT_gated(arm):
     """The gate is opt-in precisely so the parent keeps the behaviour it was measured on. camel
     runs four slots at 18% each, where one chased re-entry costs ~1% of the arm instead of ~8.6%,
     and it has live users. Enabling it there is a separate decision with its own evidence."""
