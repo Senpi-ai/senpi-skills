@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.16.0"
+  version: "1.17.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -206,9 +206,16 @@ strategy."* Then:
 
 ## One book — every wallet first-class
 
-Every wallet the user has is one row: each CURRENT Senpi strategy (`kind: "managed"`) and each saved
-wallet (`kind: "read_only"`). `book` (the `strategies` step and `all`) is that ONE list. Origin is the
-`kind` column, never a rank and never a section break.
+Every wallet the user has is in one list: each CURRENT Senpi strategy (`kind: "managed"`) and each
+saved wallet (`kind: "read_only"`). `book` (the `strategies` step and `all`) is that ONE list. Origin is
+the `kind` column, never a rank and never a section break.
+
+**A Senpi strategy is one row with all its wallets.** One package is one strategy: its instances are
+its wallets, grouped by the package they were deployed under (`skill_name`); a wallet with no package
+stamp is its own row. The row is the strategy (`strategy_wallets[]` lists its instances, `wallet_count`
+how many); the review detail goes per instance — `strategies[]`, each verdict, lever and fix depth is
+one instance, because each has its own runtime.yaml and its fix can differ. Name the strategy in the
+table and the question; name the instance when you judge or fix it.
 
 1. **Open with `book.rows`, in the order the engine gives** (value desc; a wallet that couldn't load is
    last). One table: label, value, kind (managed / read-only), closed trades, realized PnL, fees, open
@@ -216,7 +223,9 @@ wallet (`kind: "read_only"`). `book` (the `strategies` step and `all`) is that O
    aggregates and append the saved wallets. Then the detail: the Senpi aggregates (`pnl_summary.total`
    leads them, hard rule 1) and `external_wallets[]`.
 2. **`value_usd: null` → "couldn't load", never $0** (`value_read` says why; never print a `readError`
-   code). `no_hl_activity: true` → "no Hyperliquid activity yet".
+   code). `no_hl_activity: true` → "no Hyperliquid activity yet". `value_read: "partial"` → a strategy
+   whose value covers only some of its wallets: say "(1 of 2 wallets)" from `wallets_loaded` /
+   `wallet_count`.
 3. **One book total: quote `book.total.line` verbatim.** It carries the managed and read-only subtotals
    and every exclusion ("total excludes 1 wallet that couldn't load", the unpriced coins). Never build a
    "Combined" row, never sum the wallets yourself, and never present it as Senpi performance: Senpi
