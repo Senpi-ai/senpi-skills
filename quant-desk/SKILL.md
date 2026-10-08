@@ -211,9 +211,10 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 
    **"My wallets" are the wallets the reader added, plus their senpi wallets.** `desk.py --my-wallets`
    prints them as ONE list, `wallets`, largest first: the reader's **saved** wallets (the ones they
-   added in Your wallets) and their senpi strategy wallets side by side, each row with its `kind`
-   (`saved` / `strategy`), the words to show for it in `kind_label` (read-only — you added it /
-   Senpi strategy / Senpi strategy — closed / Senpi strategy — some wallets closed) and its
+   added in Your wallets), their Senpi main wallet and their senpi strategy wallets side by side, each
+   row with its `kind` (`saved` / `strategy` / `main`), the words to show for it in `kind_label`
+   (read-only — you added it / Senpi strategy / Senpi strategy — closed / Senpi strategy — some wallets
+   closed / Senpi main wallet — idle cash) and its
    `value_usd`, each source with its own `ok` / `unavailable` status. A saved wallet is theirs even
    if the book once read it as a stranger's. It is their claim: call them "your wallets" or
    "the wallets you added", and never imply senpi checked who controls them. If a saved wallet isn't theirs (or they no longer want it read), they can remove it in Your wallets on senpi.ai (web).
@@ -481,7 +482,8 @@ wallets, the plain address for a one-wallet strategy or a saved wallet. When the
 `desk.py <run>`; never pick one instance of a strategy for them.
 
 1. **Value.** A saved wallet's is the MCP's `state.totalValueUsd`; a strategy's is its wallets'
-   Hyperliquid account values, summed. `value_status: "couldnt_load"` → say its value couldn't load —
+   Hyperliquid account values, summed; the Senpi main wallet's is its idle cash (senpi-portfolio's
+   read), and its `run` is its address like any other row. `value_status: "couldnt_load"` → say its value couldn't load —
    never as $0 — it is listed last. `value_status: "partial"` → the value covers only the wallets that
    loaded: say "(1 of 2 wallets)" from `wallets_loaded` / `wallet_count`. A closed strategy stays
    labeled closed at its value (usually $0).

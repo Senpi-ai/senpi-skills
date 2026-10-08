@@ -102,6 +102,75 @@ def _book_group_key(strat):
 # ── end vendored book group key
 
 
+# ── VENDORED Senpi main-wallet reader, byte-identical in senpi-portfolio/scripts/portfolio.py,
+# ── senpi-improve-trades/scripts/review.py and quant-desk/scripts/addresses.py — skills install
+# ── standalone, so none may import another. senpi-portfolio/tests/test_name_reader_parity.py fails
+# ── the moment the copies drift: every skill values the main wallet with ONE rule, so their managed
+# ── subtotals reconcile.
+MAIN_WALLET_LABEL = "Senpi main wallet"
+MAIN_WALLET_STABLES = ("USDC", "USDC.E", "USDT")
+
+
+def _main_wallet_address(me):
+    """The Senpi main (embedded) wallet's address from a `user_get_me` payload (outer `data` already
+    stripped) — the first wallet whose `walletType` is "embedded". None when the payload names none."""
+    if not isinstance(me, dict):
+        return None
+    user = me.get("user") if isinstance(me.get("user"), dict) else {}
+    wallets = me.get("wallets") or user.get("wallets") or []
+    for w in wallets if isinstance(wallets, list) else []:
+        if not isinstance(w, dict):
+            continue
+        kind = w.get("walletType") if w.get("walletType") is not None else w.get("type")
+        if str(kind if kind is not None else "").lower() == "embedded":
+            return w.get("walletAddress") if w.get("walletAddress") is not None else w.get("address")
+    return None
+
+
+def _main_wallet_value(p):
+    """The main wallet's idle cash from ONE `account_get_portfolio` payload (forceFetch, outer `data`
+    stripped): perps USDC (`total_in_hyperliquid`) + Hyperliquid spot USDC + EVM stablecoins. None when
+    the payload isn't a dict (a failed read — unknown, never $0); a dict reads its fields, 0 when absent.
+
+    GetPortfolioV3 nests the fields under `portfolio`; the idle field is `total_in_hyperliquid` (the old
+    `total_usdc_in_hyperliquid` is a harmless fallback); spot is NOT inside it (omitting it under-reports
+    the idle by exactly the spot balance); a token row's USD value of exactly 0 is the API's
+    zero-as-missing sentinel, so it falls back to `formattedBalance` × `tokenPriceInUSD` (a 0 price → 1)."""
+    if not isinstance(p, dict):
+        return None
+    if isinstance(p.get("portfolio"), dict):
+        p = p["portfolio"]
+
+    def num(d, *keys, default=0.0):
+        for k in keys:
+            if isinstance(d, dict) and d.get(k) is not None:
+                try:
+                    return float(d[k])
+                except (TypeError, ValueError):
+                    continue
+        return default
+
+    out = {"idle_hl_usdc": num(p, "total_in_hyperliquid", "total_usdc_in_hyperliquid"),
+           "spot_usd": num(p, "total_spot_usd_in_hyperliquid"), "evm_usdc": []}
+    evm = 0.0
+    for tb in p.get("token_balances") if isinstance(p.get("token_balances"), list) else []:
+        if not isinstance(tb, dict):
+            continue
+        sym = tb.get("symbol") if tb.get("symbol") is not None else tb.get("tokenSymbol")
+        if str(sym if sym is not None else "").upper() not in MAIN_WALLET_STABLES:
+            continue
+        amt = num(tb, "usdValue", "usd_value", "amountUsd", "balanceUsd", "balanceInUSD", "amount")
+        if amt == 0.0:
+            amt = num(tb, "formattedBalance", "amount") * (num(tb, "tokenPriceInUSD", default=1.0) or 1.0)
+        chain = next((tb[k] for k in ("chain", "network", "chainName") if tb.get(k) is not None), "EVM")
+        if amt:
+            out["evm_usdc"].append({"chain": chain, "usd": round(amt, 2)})
+            evm += amt
+    out["idle_total"] = round(out["idle_hl_usdc"] + out["spot_usd"] + evm, 2)
+    return out
+# ── end main-wallet reader
+
+
 def _now():
     return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
 

@@ -6,8 +6,12 @@ The shape of the JSON `scripts/review.py` prints. The runtime JSON you get back 
 window        { from, to, label, window_days, last_n }   # the review window
 
 book          ONE list of every wallet — PRESENT FIRST, then the detail (the `strategies` step and `all`):
-  rows[]      one per saved wallet and one per Senpi STRATEGY (all its wallets), sorted value desc; ties by
-              label then address; value unknown LAST. Never re-section by origin — kind is a column:
+  rows[]      the Senpi main wallet, one per Senpi STRATEGY (all its wallets) and one per saved wallet, sorted
+              value desc; ties by label then address; value unknown LAST. Never re-section by origin — kind
+              is a column. The main wallet row: origin: main_wallet, label "Senpi main wallet", kind managed,
+              holds: cash, value_usd = its idle cash (account_get_portfolio forceFetch — senpi-portfolio's
+              idle_in_embedded; None = couldn't load, named in excludes), trade columns None,
+              not_applicable [trades, open_positions, protection]; never compared, never in deep_dive:
     label (a packaged strategy: its package id), display_label (label + short address — or "N wallets" for a
     strategy of several — when two rows share a label), kind: managed | read_only,
     wallet (None on a strategy of several wallets), status (managed only; MIXED when its wallets differ),

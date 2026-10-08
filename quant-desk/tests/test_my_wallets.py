@@ -525,11 +525,11 @@ def test_skill_names_the_kind_fields_the_script_emits():
     render = desk.render
     sk = _skill()
     assert "its `kind` (read-only — you added it / Senpi strategy)" not in sk
-    assert "`kind` (`saved` / `strategy`)" in sk
-    assert "`kind_label` (" in sk
+    assert "`kind` (`saved` / `strategy` / `main`)" in sk
+    assert "`kind_label`" in sk
     for v in render.KIND_LABEL.values():
         assert v in sk, v
-    assert {desk.KIND_SAVED, desk.KIND_STRATEGY} == {"saved", "strategy"}
+    assert {desk.KIND_SAVED, desk.KIND_STRATEGY, desk.KIND_MAIN} == {"saved", "strategy", "main"}
 
 
 # ── one strategy unit: a Senpi strategy is one row with all its wallets (senpi-portfolio's key) ─────
@@ -647,3 +647,85 @@ def test_a_packaged_one_wallet_strategy_is_called_by_its_package_like_portfolio(
                                        "status": "ACTIVE", "strategyMetadata": {"skillName": "cub"}}])
     row = desk.my_wallets_listed(mcp, _hl({STRAT: 10}))["wallets"][0]
     assert row["label"] == "cub" and row["wallets"][0]["label"] == "cub-main" and row["run"] == STRAT
+
+
+# ── the Senpi main wallet is a row too (R1 dev E2E round 2, A3) ─────────────────────────────────────
+MAIN = "0x" + "e1" * 20
+PORTFOLIO_REPLY = {"success": True, "data": {"portfolio": {
+    "total_in_hyperliquid": "120.50", "total_spot_usd_in_hyperliquid": "39.90",
+    "token_balances": [{"symbol": "USDC", "balanceInUSD": "0.05"}, {"symbol": "HYPE", "balanceInUSD": "999"}]}}}
+
+
+class MainMCP(ValuedMCP):
+    def __init__(self, *a, portfolio=PORTFOLIO_REPLY, **kw):
+        super().__init__(*a, **kw)
+        self.portfolio, self.portfolio_kw = portfolio, []
+
+    def mcp_call(self, tool, timeout=12, **kw):
+        if tool == "account_get_portfolio":
+            self.calls.append(tool)
+            self.portfolio_kw.append(kw)
+            if isinstance(self.portfolio, Exception):
+                raise self.portfolio
+            return self.portfolio
+        return super().mcp_call(tool, timeout=timeout, **kw)
+
+
+def _with_main(portfolio=PORTFOLIO_REPLY, fail=()):
+    me = _me(wallets=((CONN, "MetaMask"),))
+    me["user"]["wallets"] = [{"walletType": "embedded", "walletAddress": MAIN.upper().replace("0X", "0x")}]
+    mcp = MainMCP(me, [{"strategyWalletAddress": STRAT, "strategyName": "Aegis", "status": "ACTIVE"}],
+                  fail=fail, states={CONN: _state("500.50")}, portfolio=portfolio)
+    return desk.my_wallets_listed(mcp, _hl({STRAT: 100.0})), mcp
+
+
+def test_the_main_wallet_is_a_row_valued_by_its_idle_cash_and_sorted_by_value():
+    mw, mcp = _with_main()
+    rows = mw["wallets"]
+    assert [(r["kind"], r["value_usd"]) for r in rows] == [("saved", 500.5), ("main", 160.45), ("strategy", 100.0)]
+    m = rows[1]
+    assert m["label"] == "Senpi main wallet" and m["address"] == MAIN and m["run"] == MAIN
+    assert m["kind_label"] == "Senpi main wallet — idle cash" and m["value_status"] == "ok"
+    # the read senpi-portfolio makes: one account_get_portfolio, forceFetch
+    assert mcp.portfolio_kw == [{"forceFetch": True, "strategyStatus": "ALL"}]
+    assert "Senpi main wallet `0xe1e1…e1e1` | Senpi main wallet — idle cash | $160" in mw["text"]
+    assert "Senpi main wallet ($160" in mw["ask"]
+
+
+def test_the_main_wallet_value_is_the_one_senpi_portfolio_reads():
+    import importlib.util
+    path = HERE.parent.parent / "senpi-portfolio" / "scripts" / "portfolio.py"
+    spec = importlib.util.spec_from_file_location("portfolio_for_quant_desk", path)
+    pf = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pf)
+
+    class C:
+        def mcp_call(self, tool, timeout=12, **kw):
+            return PORTFOLIO_REPLY
+    emb, _ = pf.fetch_embedded(C(), {}, me={"user": {"wallets": [{"walletType": "embedded",
+                                                                   "walletAddress": MAIN}]}})
+    mw, _ = _with_main()
+    assert emb["idle_total"] == next(r for r in mw["wallets"] if r["kind"] == "main")["value_usd"]
+
+
+def test_a_failed_main_wallet_read_is_couldnt_load_never_zero_and_still_runnable():
+    for bad in ({"success": False, "error": "UNAVAILABLE"}, RuntimeError("HTTP 503")):
+        mw, _ = _with_main(portfolio=bad)
+        m = mw["wallets"][-1]
+        assert m["kind"] == "main" and m["value_usd"] is None and m["value_status"] == "couldnt_load", bad
+        assert m["run"] == MAIN
+
+
+def test_no_main_wallet_named_adds_no_row_and_an_unread_user_get_me_says_so():
+    mw, _, _ = _mixed()
+    assert all(r["kind"] != "main" for r in mw["wallets"])
+    assert mw["main_wallet_status"] == "ok" and mw["main_wallet"] is None
+    mw, _, _ = _mixed(fail=("user_get_me",))
+    assert mw["main_wallet_status"] == "unavailable"
+    assert "I couldn't load your Senpi main wallet" in mw["text"]
+
+
+def test_the_skill_offers_the_choices_in_plain_words_never_flags():
+    sk = _skill()
+    assert "Never show the user a flag or a command" in sk
+    assert "Offer to run them together (`--book`) or side by side (`--compare`)" not in sk

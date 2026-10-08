@@ -119,6 +119,7 @@ def short(addr):
 # ── `desk.py --my-wallets`: one list of every wallet, in the order the engine sorted it (value desc,
 # couldn't-load last). Kind is a column, never a section: no "Saved wallets" / "Strategy wallets" heading.
 KIND_LABEL = {"saved": "read-only — you added it", "strategy": "Senpi strategy",
+              "main": "Senpi main wallet — idle cash",
               "strategy_closed": "Senpi strategy — closed",
               "strategy_partly_closed": "Senpi strategy — some wallets closed"}
 _ASK_NAMES = 5
@@ -201,6 +202,8 @@ def render_my_wallets(mw):
         gaps.append("I couldn't load your saved wallets, so this list may be missing wallets you added.")
     if mw.get("senpi_wallets_status") != "ok":
         gaps.append("I couldn't load your Senpi strategy wallets, so this list may be missing them.")
+    if mw.get("main_wallet_status", "ok") != "ok":
+        gaps.append("I couldn't load your Senpi main wallet, so this list may be missing it.")
     if gaps:
         out += ([""] if out else []) + gaps
     return "\n".join(out)

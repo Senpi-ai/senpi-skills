@@ -348,6 +348,73 @@ def test_every_wallet_listing_skill_states_the_same_strategy_unit():
             assert UNIT_SENTENCE in f.read(), path
 
 
+# ── the Senpi main-wallet reader (R1 dev E2E round 2, A3) ──────────────────────────────────────────
+# Three homes, one number: portfolio, improve-trades and the quant desk list the Senpi main wallet as a
+# managed row valued by its idle cash. A skill that values it differently (or leaves it out) breaks the
+# "managed by Senpi" subtotals' reconciliation across skills.
+MW_COPIES = GK_COPIES
+_MW_BLOCK = re.compile(r"^# ── VENDORED Senpi main-wallet reader,.*?^# ── end main-wallet reader$", re.S | re.M)
+
+
+def _mw_block(path):
+    with open(path, encoding="utf-8") as f:
+        found = _MW_BLOCK.search(f.read())
+    assert found, f"vendored main-wallet reader not found in {path}"
+    return found.group(0)
+
+
+def test_main_wallet_reader_vendor_parity():
+    assert all(os.path.exists(p) for p in MW_COPIES), "a vendor home is missing"
+    shas = {hashlib.sha256(_mw_block(p).encode("utf-8")).hexdigest() for p in MW_COPIES}
+    assert len(shas) == 1, ("the main-wallet reader DRIFTED between its vendored homes — re-vendor the block "
+                            "byte-identically (every skill must value the Senpi main wallet the same way)")
+
+
+_MW_ME_ROWS = (
+    ({"user": {"wallets": [{"walletType": "EMBEDDED", "walletAddress": "0xE1"}]}}, "0xE1"),
+    ({"wallets": [{"type": "embedded", "address": "0xe2"}]}, "0xe2"),
+    ({"user": {"wallets": [{"walletType": "external", "walletAddress": "0xe3"},
+                           {"walletType": "embedded", "walletAddress": "0xe4"}]}}, "0xe4"),
+    ({"user": {"wallets": []}}, None),
+    ({}, None),
+    (None, None),
+)
+_MW_PORTFOLIO_ROWS = (
+    ({"portfolio": {"total_in_hyperliquid": "120.5", "total_spot_usd_in_hyperliquid": "39.9",
+                    "token_balances": [{"symbol": "USDC", "balanceInUSD": "0.05", "chain": "base"},
+                                       {"tokenSymbol": "usdt", "balanceInUSD": 0, "formattedBalance": "2",
+                                        "tokenPriceInUSD": 0},
+                                       {"symbol": "HYPE", "balanceInUSD": "999"}]}}, 162.45),
+    ({"total_usdc_in_hyperliquid": "10"}, 10.0),
+    ({}, 0.0),
+    (None, None),
+    ("oops", None),
+)
+
+
+def test_the_skills_value_the_main_wallet_the_same_way():
+    """The sha pins the helper; this pins the ANSWER — and that portfolio's own read goes through it."""
+    homes = _gk_homes()
+    for me, want in _MW_ME_ROWS:
+        for mod in homes:
+            assert mod._main_wallet_address(me) == want, (mod.__name__, me)
+    for p, want in _MW_PORTFOLIO_ROWS:
+        for mod in homes:
+            got = mod._main_wallet_value(p)
+            assert (got["idle_total"] if got else None) == want, (mod.__name__, p)
+
+    class _C:
+        def __init__(self, p):
+            self.p = p
+
+        def mcp_call(self, tool, timeout=12, **kw):
+            return {"success": True, "data": self.p}
+    for p, want in _MW_PORTFOLIO_ROWS[:3]:
+        emb, _ = portfolio.fetch_embedded(_C(p), {}, me={})
+        assert emb["idle_total"] == want, p
+    assert portfolio.EMBEDDED_LABEL == review.MAIN_WALLET_LABEL == "Senpi main wallet"
+
+
 if __name__ == "__main__":
     test_vendored_cli_helpers_match_their_origin()
     test_first_written_vendor_parity()
@@ -360,4 +427,6 @@ if __name__ == "__main__":
     test_book_group_key_vendor_parity()
     test_the_skills_answer_the_book_group_key_the_same_way()
     test_every_wallet_listing_skill_states_the_same_strategy_unit()
+    test_main_wallet_reader_vendor_parity()
+    test_the_skills_value_the_main_wallet_the_same_way()
     print("NAME READER PARITY OK")

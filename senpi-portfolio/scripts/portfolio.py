@@ -774,19 +774,85 @@ def _read_me(client, meta):
         return {}
 
 
+# ── VENDORED Senpi main-wallet reader, byte-identical in senpi-portfolio/scripts/portfolio.py,
+# ── senpi-improve-trades/scripts/review.py and quant-desk/scripts/addresses.py — skills install
+# ── standalone, so none may import another. senpi-portfolio/tests/test_name_reader_parity.py fails
+# ── the moment the copies drift: every skill values the main wallet with ONE rule, so their managed
+# ── subtotals reconcile.
+MAIN_WALLET_LABEL = "Senpi main wallet"
+MAIN_WALLET_STABLES = ("USDC", "USDC.E", "USDT")
+
+
+def _main_wallet_address(me):
+    """The Senpi main (embedded) wallet's address from a `user_get_me` payload (outer `data` already
+    stripped) — the first wallet whose `walletType` is "embedded". None when the payload names none."""
+    if not isinstance(me, dict):
+        return None
+    user = me.get("user") if isinstance(me.get("user"), dict) else {}
+    wallets = me.get("wallets") or user.get("wallets") or []
+    for w in wallets if isinstance(wallets, list) else []:
+        if not isinstance(w, dict):
+            continue
+        kind = w.get("walletType") if w.get("walletType") is not None else w.get("type")
+        if str(kind if kind is not None else "").lower() == "embedded":
+            return w.get("walletAddress") if w.get("walletAddress") is not None else w.get("address")
+    return None
+
+
+def _main_wallet_value(p):
+    """The main wallet's idle cash from ONE `account_get_portfolio` payload (forceFetch, outer `data`
+    stripped): perps USDC (`total_in_hyperliquid`) + Hyperliquid spot USDC + EVM stablecoins. None when
+    the payload isn't a dict (a failed read — unknown, never $0); a dict reads its fields, 0 when absent.
+
+    GetPortfolioV3 nests the fields under `portfolio`; the idle field is `total_in_hyperliquid` (the old
+    `total_usdc_in_hyperliquid` is a harmless fallback); spot is NOT inside it (omitting it under-reports
+    the idle by exactly the spot balance); a token row's USD value of exactly 0 is the API's
+    zero-as-missing sentinel, so it falls back to `formattedBalance` × `tokenPriceInUSD` (a 0 price → 1)."""
+    if not isinstance(p, dict):
+        return None
+    if isinstance(p.get("portfolio"), dict):
+        p = p["portfolio"]
+
+    def num(d, *keys, default=0.0):
+        for k in keys:
+            if isinstance(d, dict) and d.get(k) is not None:
+                try:
+                    return float(d[k])
+                except (TypeError, ValueError):
+                    continue
+        return default
+
+    out = {"idle_hl_usdc": num(p, "total_in_hyperliquid", "total_usdc_in_hyperliquid"),
+           "spot_usd": num(p, "total_spot_usd_in_hyperliquid"), "evm_usdc": []}
+    evm = 0.0
+    for tb in p.get("token_balances") if isinstance(p.get("token_balances"), list) else []:
+        if not isinstance(tb, dict):
+            continue
+        sym = tb.get("symbol") if tb.get("symbol") is not None else tb.get("tokenSymbol")
+        if str(sym if sym is not None else "").upper() not in MAIN_WALLET_STABLES:
+            continue
+        amt = num(tb, "usdValue", "usd_value", "amountUsd", "balanceUsd", "balanceInUSD", "amount")
+        if amt == 0.0:
+            amt = num(tb, "formattedBalance", "amount") * (num(tb, "tokenPriceInUSD", default=1.0) or 1.0)
+        chain = next((tb[k] for k in ("chain", "network", "chainName") if tb.get(k) is not None), "EVM")
+        if amt:
+            out["evm_usdc"].append({"chain": chain, "usd": round(amt, 2)})
+            evm += amt
+    out["idle_total"] = round(out["idle_hl_usdc"] + out["spot_usd"] + evm, 2)
+    return out
+# ── end main-wallet reader
+
+
 def fetch_embedded(client, meta, me=None):
     """Main/embedded wallet idle cash — the ONLY truly-free pool. Real-time (forceFetch). `me` is the
-    run's `user_get_me` payload (read here when not passed)."""
+    run's `user_get_me` payload (read here when not passed). Address and value come from the vendored
+    main-wallet reader, the same one improve-trades and the quant desk value this wallet with."""
     out = {"address": None, "idle_hl_usdc": None, "evm_usdc": [], "spot_usd": None,
            "idle_total": None}
     if me is None:
         me = _read_me(client, meta)
     try:
-        wallets = _field(me, "wallets", default=[]) or (me.get("user", {}) or {}).get("wallets", [])
-        for w in wallets if isinstance(wallets, list) else []:
-            if str(_field(w, "walletType", "type", default="")).lower() == "embedded":
-                out["address"] = _field(w, "walletAddress", "address")
-                break
+        out["address"] = _main_wallet_address(me)
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"user_get_me failed: {e}")
 
@@ -797,41 +863,10 @@ def fetch_embedded(client, meta, me=None):
         meta.setdefault("warnings", []).append(f"account_get_portfolio failed: {e}")
         return out, {}
 
-    # account_get_portfolio (GetPortfolioV3) nests the balance fields under a `portfolio` key
-    # ({data: {portfolio: {...}}}); _ok() strips only the outer `data`. Unwrap `portfolio` here so the
-    # field reads below hit real values (else the whole embedded read is $0). Robust to both shapes.
-    # This nesting + the wrong field name below is why a $10k+ embedded infusion read as $0.
-    if isinstance(p, dict) and isinstance(p.get("portfolio"), dict):
+    # `or {}` above keeps this skill's long-standing read: an empty reply reads its fields as 0
+    out.update(_main_wallet_value(p))
+    if isinstance(p.get("portfolio"), dict):
         p = p["portfolio"]
-
-    # Idle HL balance is `total_in_hyperliquid` (per the account_get_portfolio schema + ops deploy.py) —
-    # NOT `total_usdc_in_hyperliquid` (does not exist; the wrong name made this $0). Old name kept as a
-    # harmless fallback so it can never regress.
-    out["idle_hl_usdc"] = _f(p, "total_in_hyperliquid", "total_usdc_in_hyperliquid", default=0.0)
-    out["spot_usd"] = _f(p, "total_spot_usd_in_hyperliquid", default=0.0)
-    evm = 0.0
-    for tb in (_field(p, "token_balances", default=[]) or []):
-        sym = str(_field(tb, "symbol", "tokenSymbol", default="")).upper()
-        if sym in ("USDC", "USDC.E", "USDT"):
-            # Live GetPortfolioV3 uses `balanceInUSD` (+ `formattedBalance`/`tokenPriceInUSD`) —
-            # without it every token read $0 and evm_usdc was always [].
-            amt = _f(tb, "usdValue", "usd_value", "amountUsd", "balanceUsd", "balanceInUSD", "amount", default=0.0)
-            # `== 0.0` (not a missing-key test) is DELIBERATE: a present-and-zero amount is this API's
-            # zero-as-missing sentinel (#537), same convention as the `or 1.0` price guard below.
-            if amt == 0.0:
-                raw = _f(tb, "formattedBalance", "amount", default=0.0)
-                # `or 1.0`: a PRESENT-and-zero price is this API's zero-as-missing sentinel (see #537),
-                # and raw × 0 would make the balance invisible — the exact bug this path exists to fix.
-                price = _f(tb, "tokenPriceInUSD", default=1.0) or 1.0
-                amt = raw * price
-            chain = _field(tb, "chain", "network", "chainName", default="EVM")
-            if amt:
-                out["evm_usdc"].append({"chain": chain, "usd": round(amt, 2)})
-                evm += amt
-    # spot_usd is the HL SPOT USDC bucket — deployable like the perps balance (the funding waterfall is
-    # perps + spot + EVM), and NOT inside total_in_hyperliquid. Omitting it under-reported idle_total by
-    # exactly the spot balance, quietly enough to hide under the reconciliation tolerance.
-    out["idle_total"] = round((out["idle_hl_usdc"] or 0.0) + (out["spot_usd"] or 0.0) + evm, 2)
     portfolio_totals = {
         "total_balance_usd": _f(p, "total_balance_usd", default=None),
         "total_allocated_in_strategy": _f(p, "total_allocated_in_strategy", default=None),
@@ -907,7 +942,7 @@ def _no_strategy_path(strategies, saved):
 # Unknown is never zero: a wallet that couldn't load sorts last, is never summed, and the total names it.
 KIND_MANAGED = "managed"
 KIND_READ_ONLY = "read-only"
-EMBEDDED_LABEL = "Senpi main wallet"
+EMBEDDED_LABEL = MAIN_WALLET_LABEL
 DEEP_DIVE_QUESTION = "Which one do you want me to go deeper on?"
 BOOK_ORDER_RULE = "by value, largest first; ties by label, then address; a wallet that couldn't load last"
 POSITIONS_SCOPE = "the Hyperliquid main and xyz dexes"
