@@ -87,6 +87,28 @@ def test_theme_ranking_precedes_default_shortlist_cap():
     assert res["meta"]["eligible_count"] == len(ALL_IDS)
 
 
+def test_theme_scores_full_text_not_the_compacted_output():
+    """A term past char 120 of the thesis, or only in tag #9+, must still rank — scoring runs on the full
+    record and only the returned shortlist is compacted. Twins are identical except for the term, and sort
+    last by name so neutral order alone would leave both outside the default cap."""
+    base = next(s for s in CAT if s["id"] == "badger")
+    pad = "x" * (discover.TEXT_FIELD_LIMIT + 20)
+    tags = [f"filler-{i}" for i in range(discover.TAG_LIMIT)]
+
+    def rec(i, thesis, tags):
+        return dict(base, id=f"zz-{i}", name=f"Zz {i}", thesis=thesis, tags=tags)
+
+    for hit, twin in ((rec("hit", f"{pad} zebrafish", tags), rec("twin", f"{pad} plain", tags)),
+                      (rec("hit", pad, tags + ["zebrafish"]), rec("twin", pad, tags + ["plain"]))):
+        res = discover.apply_theme(discover.match(_broad(), CAT + [twin, hit]), "zebrafish")
+        discover.limit_result(res, discover.DEFAULT_LIMIT)
+        ids = [c["id"] for c in res["candidates"]]
+        assert ids[0] == "zz-hit" and "zz-twin" not in ids, ids
+        top = res["candidates"][0]
+        assert len(top["thesis"]) <= discover.TEXT_FIELD_LIMIT and len(top["tags"]) <= discover.TAG_LIMIT
+        assert res["meta"]["eligible_count"] == len(ALL_IDS) + 2
+
+
 def test_a_different_theme_surfaces_a_different_set():
     """Generality: an expanded 'risk-off' worldview floats the defensive/tail-risk books."""
     res = _themed(RISK_OFF)

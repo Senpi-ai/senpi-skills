@@ -313,15 +313,15 @@ def _short_text(value):
 
 
 def _candidate(r, intent):
-    """A compact, labels-pre-inlined record — enough to rank + narrate without an oversized result."""
+    """A flat, labels-pre-inlined record — everything the LLM needs to rank + narrate. Full text here so
+    theme scoring sees it; `limit_result` compacts only the returned candidates (`_compact`)."""
     cand = {
         # identity + handoff
         "id": r.get("id"), "version": r.get("version"), "name": r.get("name"),
-        "emoji": r.get("emoji"), "tagline": _short_text(r.get("tagline")),
+        "emoji": r.get("emoji"), "tagline": r.get("tagline"),
         # soft-rank surface (the script never reads these — the LLM ranks on them)
         "risk_level": r.get("risk_level"), "archetype_label": r.get("archetype_label"),
-        "belief_plain": _short_text(r.get("belief_plain")), "thesis": _short_text(r.get("thesis")),
-        "tags": (r.get("tags") or [])[:TAG_LIMIT],
+        "belief_plain": r.get("belief_plain"), "thesis": r.get("thesis"), "tags": r.get("tags") or [],
         "time_horizon": r.get("time_horizon"), "asset_scope": r.get("asset_scope"),
         "direction": r.get("direction"), "asset_classes": r.get("asset_classes") or [],
         "assets": r.get("assets") or [], "tier": r.get("tier"),
@@ -334,9 +334,19 @@ def _candidate(r, intent):
         "market_facts": [],
     }
     if r.get("tag_labels"):
-        cand["tag_labels"] = r.get("tag_labels")[:TAG_LIMIT]
+        cand["tag_labels"] = r.get("tag_labels")
     if (r.get("instance_count") or 1) > 1:
         cand["funding_split"] = r.get("funding_split")
+    return cand
+
+
+def _compact(cand):
+    """Output projection: trim the long soft-rank text so the shortlist fits the result budget."""
+    for field in ("tagline", "belief_plain", "thesis"):
+        cand[field] = _short_text(cand.get(field))
+    for field in ("tags", "tag_labels"):
+        if field in cand:
+            cand[field] = cand[field][:TAG_LIMIT]
     return cand
 
 
@@ -444,12 +454,15 @@ def apply_theme(result, query):
 
 
 def limit_result(result, limit):
-    """Apply the output cap after every ranking pass while preserving full-set counts."""
+    """Apply the output cap after every ranking pass while preserving full-set counts, then compact only
+    the returned candidates — ranking already ran on full text."""
     if limit is not None:
         limit = max(0, limit)
         result["candidates"] = result.get("candidates", [])[:limit]
         if "theme_matches" in result.get("meta", {}):
             result["meta"]["theme_matches"] = result["meta"]["theme_matches"][:limit]
+    for cand in result.get("candidates", []):
+        _compact(cand)
     result.setdefault("meta", {})["returned_n"] = len(result.get("candidates", []))
     return result
 
