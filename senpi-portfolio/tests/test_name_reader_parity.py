@@ -294,9 +294,11 @@ def test_the_readers_take_the_a1_surface_and_ignore_the_retired_r1_keys():
 # One Senpi strategy is one row with all its wallets, in every skill that lists wallets. A skill that
 # groups by the wallet lists a two-instance package as two strategies while another lists it as one.
 GK_COPIES = (os.path.join(HERE, "..", "scripts", "portfolio.py"),
-             os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts", "review.py"))
+             os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts", "review.py"),
+             os.path.join(HERE, "..", "..", "quant-desk", "scripts", "addresses.py"))
 GK_SKILLS = (os.path.join(HERE, "..", "SKILL.md"),
-             os.path.join(HERE, "..", "..", "senpi-improve-trades", "SKILL.md"))
+             os.path.join(HERE, "..", "..", "senpi-improve-trades", "SKILL.md"),
+             os.path.join(HERE, "..", "..", "quant-desk", "SKILL.md"))
 _GK_BLOCK = re.compile(r"^# ── VENDORED book group key.*?^# ── end vendored book group key$", re.S | re.M)
 UNIT_SENTENCE = "**A Senpi strategy is one row with all its wallets.**"
 
@@ -309,7 +311,7 @@ def _gk_block(path):
 
 
 def _gk_homes():
-    return (portfolio, review)
+    return (portfolio, review, _quant_addresses())
 
 
 def test_book_group_key_vendor_parity():

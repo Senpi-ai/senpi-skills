@@ -79,6 +79,29 @@ def _external_wallets(me):
 # ── end external-wallets reader
 
 
+# ── VENDORED book group key — byte-identical in senpi-portfolio, senpi-improve-trades and quant-desk;
+# pinned by senpi-portfolio/tests/test_name_reader_parity.py. Edit all three or none.
+def _book_group_key(strat):
+    """The book's key for a strategy's wallets — one Senpi strategy is ONE row, with all its wallets.
+
+    The invariant it rests on: one package = one strategy. The deploy verb stamps `skillName = <package
+    id>` on every wallet it creates and names each `<id>-<instance>` (bare `<id>` for one instance); a
+    re-run ADOPTS the live wallet of that name instead of funding a second, and refuses a wallet stamped
+    by another package. So a package's instances are its wallets, and they share this key. A fork is a
+    new id, so a new row. A wallet created outside the deploy path has no stamp: nothing says which
+    wallets are one strategy, so it is its own row. A duplicate wallet (a deploy race) carries the same
+    stamp and lands on the SAME row as an extra wallet — visible in its wallet count, never a second
+    strategy.
+
+    The SAME key in every step and every skill: portfolio's `money` step reads no runtime registry (the
+    fast slice), so there is no `profile.group` there — grouping by it made one strategy two rows, then
+    one. `skill_name` (from strategy_list) is on every read."""
+    if strat.get("skill_name"):
+        return str(strat["skill_name"])
+    return str(strat.get("wallet") or id(strat))
+# ── end vendored book group key
+
+
 def _now():
     return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
 
