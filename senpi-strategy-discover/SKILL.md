@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.44.0"
+  version: "2.45.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -205,7 +205,10 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
    It returns `holdings` (coins in their Senpi strategies) and `saved_wallet_holdings` (positions on the
    wallets they added in Your wallets, each row naming its `wallet`, `origin: "saved_wallet"`,
    `access: "read-only"`), so a pick must not double an exposure they already hold — say which wallet
-   holds it. The budget stays Senpi money only: a saved wallet is never a budget and never a deploy
+   holds it: a position "on the wallets you added" (or that wallet's label). Never call a saved wallet
+   theirs, and never read its positions as their personal trading style. `holdings: []` means no open
+   Senpi positions, never "no strategies": `active_strategy_count` says how many Senpi strategies run
+   (`null` → you couldn't check it, never "none"). The budget stays Senpi money only: a saved wallet is never a budget and never a deploy
    target — every pick is a Senpi strategy deployed with Senpi money, never on a saved wallet.
    `saved_wallets_status: "unavailable"` → say "I couldn't load your saved wallets" and carry on with the
    Senpi holdings; a name in `saved_wallets_unread` → couldn't load that wallet, never "flat" or "no
