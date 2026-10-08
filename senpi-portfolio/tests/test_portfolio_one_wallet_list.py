@@ -125,6 +125,52 @@ def test_a_strategy_is_one_row_across_all_its_wallets():
     assert cub["unrealized_pnl_usd"] == group["totals"]["upnl"]
 
 
+# ── the grouping invariant: one package = one strategy = one row (`_book_group_key`) ────────────────
+_CP, _CH = "0x" + "a1" * 20, "0x" + "a2" * 20
+
+
+def _wallet(name, wallet, value, skill=None):
+    return {"name": name, "name_source": "strategyName", "wallet": wallet, "skill_name": skill,
+            "account_value": value}
+
+
+def test_two_instances_of_one_package_are_one_row_with_both_wallets_summed():
+    """deploy.py stamps skillName = the package id on every instance's wallet (`<id>-<instance>`) and a
+    re-run adopts the wallet by that name — so a package is one strategy, its instances its wallets."""
+    rows = portfolio._strategy_rows([_wallet("camel-concentrated-payout", _CP, 600.0, "camel"),
+                                     _wallet("camel-harvest", _CH, 400.5, "camel")], groups=None)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["label"] == "camel" and row["strategy_group"] == "camel"
+    assert row["wallet_count"] == 2 and row["value_usd"] == 1000.5 and row["wallets_couldnt_load"] == 0
+    assert [w["name"] for w in row["strategy_wallets"]] == ["camel-concentrated-payout", "camel-harvest"]
+
+
+def test_an_unstamped_wallet_is_its_own_row():
+    """A strategy created outside deploy.py carries no skillName: nothing says which wallets are one
+    strategy, so each is its own row — never merged by a lookalike name."""
+    rows = portfolio._strategy_rows([_wallet("camel-concentrated-payout", _CP, 600.0, "camel"),
+                                     _wallet("camel-harvest", _CH, 400.0)], groups=None)
+    assert [(r["label"], r["wallet_count"]) for r in rows] == [("camel", 1), ("camel-harvest", 1)]
+    assert rows[1]["strategy_group"] == _CH
+
+
+def test_two_packages_are_two_rows():
+    """A fork is a new package id, so a new row — two packages never share one."""
+    rows = portfolio._strategy_rows([_wallet("camel-harvest", _CP, 600.0, "camel"),
+                                     _wallet("camel-fork-harvest", _CH, 400.0, "camel-fork")], groups=None)
+    assert [(r["label"], r["wallet_count"], r["value_usd"]) for r in rows] == [
+        ("camel", 1, 600.0), ("camel-fork", 1, 400.0)]
+
+
+def test_a_duplicate_wallet_from_a_deploy_race_lands_on_the_same_row():
+    """A second wallet under the same stamp (a deploy race) is an extra wallet on the strategy's row —
+    visible in wallet_count / strategy_wallets[], never a second strategy."""
+    rows = portfolio._strategy_rows([_wallet("camel-harvest", _CP, 600.0, "camel"),
+                                     _wallet("camel-harvest", _CH, 10.0, "camel")], groups=None)
+    assert len(rows) == 1 and rows[0]["wallet_count"] == 2 and rows[0]["value_usd"] == 610.0
+
+
 def test_the_money_step_gives_the_same_one_list_with_detail_left_to_the_strategies_step():
     fx = _mixed(**{CW_A: ew._state_ok(total="5234.10"), CW_B: ew._state_ok(total="12.00")})
     money = portfolio.step_money(portfolio._FixtureClient(fx), state_path=_sp())

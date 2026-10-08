@@ -2104,24 +2104,86 @@ def _fee_sum(trades):
     return round(sum(fees), 2) if fees else None
 
 
+# ── VENDORED book group key — byte-identical in senpi-portfolio, senpi-improve-trades and quant-desk;
+# pinned by senpi-portfolio/tests/test_name_reader_parity.py. Edit all three or none.
+def _book_group_key(strat):
+    """The book's key for a strategy's wallets — one Senpi strategy is ONE row, with all its wallets.
+
+    The invariant it rests on: one package = one strategy. The deploy verb stamps `skillName = <package
+    id>` on every wallet it creates and names each `<id>-<instance>` (bare `<id>` for one instance); a
+    re-run ADOPTS the live wallet of that name instead of funding a second, and refuses a wallet stamped
+    by another package. So a package's instances are its wallets, and they share this key. A fork is a
+    new id, so a new row. A wallet created outside the deploy path has no stamp: nothing says which
+    wallets are one strategy, so it is its own row. A duplicate wallet (a deploy race) carries the same
+    stamp and lands on the SAME row as an extra wallet — visible in its wallet count, never a second
+    strategy.
+
+    The SAME key in every step and every skill: portfolio's `money` step reads no runtime registry (the
+    fast slice), so there is no `profile.group` there — grouping by it made one strategy two rows, then
+    one. `skill_name` (from strategy_list) is on every read."""
+    if strat.get("skill_name"):
+        return str(strat["skill_name"])
+    return str(strat.get("wallet") or id(strat))
+# ── end vendored book group key
+
+
 def _managed_rows(strat_reads, senpi_trades, open_book, capped):
-    """One row per CURRENT Senpi strategy (closed ones are history — `closed_strategies[]`, no wallet to
-    hold). Count/PnL are `strategies[]`' own numbers; value is the clearinghouse read's account value."""
-    rows = []
+    """One row per CURRENT Senpi STRATEGY, with all its wallets (`_book_group_key` — the key
+    senpi-portfolio's book and the quant desk's list use, so all three list the same rows). Closed
+    strategies are history (`closed_strategies[]`, no wallet to hold). Count / realized / fees are the
+    per-wallet `strategies[]` numbers summed; value sums the wallets whose clearinghouse read loaded — one
+    that didn't is counted in `wallets_couldnt_load`, never as $0. `strategies[]` stays per instance:
+    each instance has its own runtime.yaml, so its verdict and its fix stay its own."""
+    order, buckets = [], {}
     for s in strat_reads:
-        w = str(s.get("wallet") or "").lower()
-        ob = open_book.get(w) or {}
-        read = ob.get("unrealized_pnl") is not None          # the open-book read succeeded
-        value = ob.get("account_value") if read else None
-        mine = [t for t in senpi_trades if str(t.get("strategy_wallet") or "").lower() == w]
+        try:
+            key = _book_group_key(s)
+        except Exception:  # noqa — a malformed row must not sink the list
+            key = str(s.get("wallet") or id(s))
+        if key not in buckets:
+            buckets[key] = []
+            order.append(key)
+        buckets[key].append(s)
+    rows = []
+    for key in order:
+        insts, wallets, every_trade = buckets[key], [], []
+        for s in insts:
+            w = str(s.get("wallet") or "").lower()
+            ob = open_book.get(w) or {}
+            read = ob.get("unrealized_pnl") is not None          # the open-book read succeeded
+            mine = [t for t in senpi_trades if str(t.get("strategy_wallet") or "").lower() == w]
+            every_trade += mine
+            wallets.append({"label": s.get("label"), "wallet": s.get("wallet"), "status": s.get("status"),
+                            "value_usd": ob.get("account_value") if read else None,
+                            "open_position_count": s.get("open_position_count") if read else None,
+                            "closed_trade_count": s.get("closed_trade_count"),
+                            "realized_pnl": s.get("realized_pnl"), "fees": _fee_sum(mine),
+                            "trades_capped": w in capped})
+        known = [x["value_usd"] for x in wallets if x["value_usd"] is not None]
+        value = round(sum(known), 2) if known else None
+        opened = [x["open_position_count"] for x in wallets if x["open_position_count"] is not None]
+        counts = [x["closed_trade_count"] for x in wallets if x["closed_trade_count"] is not None]
+        realized = [x["realized_pnl"] for x in wallets if x["realized_pnl"] is not None]
+        statuses = sorted({str(x["status"]) for x in wallets if x["status"]})
+        one = len(wallets) == 1
         rows.append({
-            "label": s.get("label"), "kind": KIND_MANAGED, "wallet": s.get("wallet"), "status": s.get("status"),
-            "value_usd": value, "value_read": "ok" if value is not None else "unavailable",
-            "closed_trade_count": s.get("closed_trade_count"), "realized_pnl": s.get("realized_pnl"),
-            "fees": _fee_sum(mine), "trades_unknown": False, "trades_capped": w in capped,
-            "open_position_count": s.get("open_position_count") if read else None,
-            "protection": {"kind": "runtime_exit"},           # the runtime's DSL exit — never "live stops"
-            "timing": _wallet_timing(_timing_summary(mine)),
+            # a packaged strategy is called by its package id (as senpi-portfolio's book does); a wallet with
+            # no stamp keeps its own name
+            "label": key if all(key != str(s.get("wallet")) for s in insts) else insts[0].get("label"),
+            "kind": KIND_MANAGED,
+            "wallet": wallets[0]["wallet"] if one else None,   # a strategy of several wallets has no one address
+            "status": statuses[0] if len(statuses) == 1 else ("MIXED" if statuses else None),
+            "strategy_group": key, "wallet_count": len(wallets), "wallets_loaded": len(known),
+            "wallets_couldnt_load": len(wallets) - len(known), "strategy_wallets": wallets,
+            "value_usd": value,
+            "value_read": "unavailable" if value is None else ("ok" if len(known) == len(wallets) else "partial"),
+            "closed_trade_count": sum(counts) if counts else None,
+            "realized_pnl": round(sum(realized), 2) if realized else None,
+            "fees": _sum_known(*[x["fees"] for x in wallets]), "trades_unknown": False,
+            "trades_capped": any(x["trades_capped"] for x in wallets),
+            "open_position_count": sum(opened) if opened else None,
+            "protection": {"kind": "runtime_exit"},           # each wallet's exit is the runtime's — never "live stops"
+            "timing": _wallet_timing(_timing_summary(every_trade)),
         })
     return rows
 
@@ -2217,16 +2279,31 @@ def _book_comparison(rows):
     return out
 
 
+def _couldnt_load(rows):
+    """The wallets whose value is left out of a total, by name: a one-wallet row by its own label, a
+    strategy of several wallets by the instance that didn't load (its other wallets are in the total)."""
+    out = []
+    for r in rows:
+        if int(r.get("wallet_count") or 1) > 1:
+            out += [w.get("label") for w in r.get("strategy_wallets") or [] if w.get("value_usd") is None]
+        elif r["value_usd"] is None:
+            out.append(r["display_label"])
+    return out
+
+
 def _subtotal(rows, kind, state, realized=None, fees=None):
     mine = [r for r in rows if r["kind"] == kind]
     if state != "ok":
         return {"wallet_count": None, "wallets_loaded": None, "value_usd": None, "couldnt_load": [],
                 "realized_pnl": None, "fees": None, "state": state}
     known = [r["value_usd"] for r in mine if r["value_usd"] is not None]
-    return {"wallet_count": len(mine),
-            "wallets_loaded": len(known),           # the line says "N of M wallets" when fewer loaded
+    # WALLETS, not rows: a strategy row carries all its wallets (`wallet_count` / `wallets_loaded`)
+    return {"wallet_count": sum(int(r.get("wallet_count") or 1) for r in mine),
+            # the line says "N of M wallets" when fewer loaded
+            "wallets_loaded": sum(int(r.get("wallets_loaded", 1 if r["value_usd"] is not None else 0))
+                                  for r in mine),
             "value_usd": round(sum(known), 2) if (known or not mine) else None,
-            "couldnt_load": [r["display_label"] for r in mine if r["value_usd"] is None],
+            "couldnt_load": _couldnt_load(mine),
             "realized_pnl": realized, "fees": fees, "state": state}
 
 
@@ -2257,7 +2334,7 @@ def _book_total(rows, pnl_summary, managed_state, read_only_state):
     realized = _sum_known(man["realized_pnl"], ro["realized_pnl"])
     fees = (round(man["fees"] + ro["fees"], 2)
             if man["fees"] is not None and ro["fees"] is not None else None)
-    excludes = {"couldnt_load": [r["display_label"] for r in rows if r["value_usd"] is None],
+    excludes = {"couldnt_load": _couldnt_load(rows),
                 "unpriced_coins": ro.get("unpriced_coins") or [],
                 "unreadable": ([] if managed_state == "ok" else ["your Senpi strategies"])
                 + ([] if read_only_state == "ok" else ["your saved wallets"])}
@@ -2341,7 +2418,8 @@ def _book(strat_reads, senpi_trades, open_book, saved_reads, entries, pnl_summar
         seen[k] = seen.get(k, 0) + 1
     for r in rows:
         dup = seen.get(str(r.get("label") or ""), 0) > 1
-        r["display_label"] = f"{r.get('label')} ({_short_addr(r.get('wallet'))})" if dup else r.get("label")
+        tell = _short_addr(r.get("wallet")) if r.get("wallet") else _plural(r.get("wallet_count") or 0, "wallet")
+        r["display_label"] = f"{r.get('label')} ({tell})" if dup else r.get("label")
     # the question names only wallets with something to review (`_deep_dive_worthy`), in the rows' order
     names = [r["display_label"] for r in rows if _deep_dive_worthy(r)]
     return {

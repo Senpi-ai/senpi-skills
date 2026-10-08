@@ -47,7 +47,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.43.0"
+  version: "1.44.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -213,8 +213,8 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    prints them as ONE list, `wallets`, largest first: the reader's **saved** wallets (the ones they
    added in Your wallets) and their senpi strategy wallets side by side, each row with its `kind`
    (`saved` / `strategy`), the words to show for it in `kind_label` (read-only — you added it /
-   Senpi strategy / Senpi strategy — closed) and its `value_usd`, each source with its own `ok` /
-   `unavailable` status. A saved wallet is theirs even
+   Senpi strategy / Senpi strategy — closed / Senpi strategy — some wallets closed) and its
+   `value_usd`, each source with its own `ok` / `unavailable` status. A saved wallet is theirs even
    if the book once read it as a stranger's. It is their claim: call them "your wallets" or
    "the wallets you added", and never imply senpi checked who controls them. If a saved wallet isn't theirs (or they no longer want it read), they can remove it in Your wallets on senpi.ai (web).
 
@@ -468,9 +468,20 @@ Every wallet is first-class: **keep that order and never split it by origin** �
 section and "strategy wallets" section, no saved-first or senpi-first. Origin is the `kind` column and
 only says what Senpi can do with the wallet. Relay `text` (the list, rendered) and ask `ask`:
 
-1. **Value.** A saved wallet's is the MCP's `state.totalValueUsd`; a strategy wallet's is its
-   Hyperliquid account value. `value_status: "couldnt_load"` → say its value couldn't load — never as
-   $0 — it is listed last. A closed strategy stays labeled closed at its value (usually $0).
+**A Senpi strategy is one row with all its wallets.** One package is one strategy: its instances are
+its wallets, grouped by the package they were deployed under (`skill_name`); a wallet with no package
+stamp is its own row. A strategy row lists its instances in `wallets[]` (`wallet_count` of them; a
+row of several wallets has `address: null`) and is called by its package; it is closed only when every
+wallet is (`closed_wallets` counts the closed ones — "some wallets closed" when it is mixed). A saved wallet is always one row of its own.
+**Every row carries `run`: the exact desk arguments for it** — `--book 0x… 0x…` over a strategy's
+wallets, the plain address for a one-wallet strategy or a saved wallet. When they pick a row, run
+`desk.py <run>`; never pick one instance of a strategy for them.
+
+1. **Value.** A saved wallet's is the MCP's `state.totalValueUsd`; a strategy's is its wallets'
+   Hyperliquid account values, summed. `value_status: "couldnt_load"` → say its value couldn't load —
+   never as $0 — it is listed last. `value_status: "partial"` → the value covers only the wallets that
+   loaded: say "(1 of 2 wallets)" from `wallets_loaded` / `wallet_count`. A closed strategy stays
+   labeled closed at its value (usually $0).
 2. **Kind.** A saved wallet is read-only: offer it by its label, it is the one they added. Quote its
    `access` line when they ask what senpi can do with it:
    > Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.

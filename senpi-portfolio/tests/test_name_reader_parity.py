@@ -290,6 +290,64 @@ def test_the_readers_take_the_a1_surface_and_ignore_the_retired_r1_keys():
                                                        "added_at": None, "access": None}]), mod.__name__
 
 
+# ── the book group key (one strategy unit) ─────────────────────────────────────────────────────────
+# One Senpi strategy is one row with all its wallets, in every skill that lists wallets. A skill that
+# groups by the wallet lists a two-instance package as two strategies while another lists it as one.
+GK_COPIES = (os.path.join(HERE, "..", "scripts", "portfolio.py"),
+             os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts", "review.py"),
+             os.path.join(HERE, "..", "..", "quant-desk", "scripts", "addresses.py"))
+GK_SKILLS = (os.path.join(HERE, "..", "SKILL.md"),
+             os.path.join(HERE, "..", "..", "senpi-improve-trades", "SKILL.md"),
+             os.path.join(HERE, "..", "..", "quant-desk", "SKILL.md"))
+_GK_BLOCK = re.compile(r"^# ── VENDORED book group key.*?^# ── end vendored book group key$", re.S | re.M)
+UNIT_SENTENCE = "**A Senpi strategy is one row with all its wallets.**"
+
+
+def _gk_block(path):
+    with open(path, encoding="utf-8") as f:
+        found = _GK_BLOCK.search(f.read())
+    assert found, f"vendored `_book_group_key` block not found in {path}"
+    return found.group(0)
+
+
+def _gk_homes():
+    return (portfolio, review, _quant_addresses())
+
+
+def test_book_group_key_vendor_parity():
+    assert all(os.path.exists(p) for p in GK_COPIES), "a vendor home is missing"
+    shas = {hashlib.sha256(_gk_block(p).encode("utf-8")).hexdigest() for p in GK_COPIES}
+    assert len(shas) == 1, ("`_book_group_key` DRIFTED between its vendored homes — re-vendor the block "
+                            "byte-identically (every skill must list a strategy as the same one row)")
+
+
+_GK_ROWS = (
+    # two instances of one package share the package id
+    ({"skill_name": "camel", "wallet": "0xa1"}, "camel"),
+    ({"skill_name": "camel", "wallet": "0xa2"}, "camel"),
+    # a fork is a new id
+    ({"skill_name": "camel-fork", "wallet": "0xa3"}, "camel-fork"),
+    # unstamped: the wallet is its own key
+    ({"skill_name": None, "wallet": "0xa4"}, "0xa4"),
+    ({"skill_name": "", "wallet": "0xa5"}, "0xa5"),
+    ({"wallet": "0xa6"}, "0xa6"),
+)
+
+
+def test_the_skills_answer_the_book_group_key_the_same_way():
+    """The sha pins the helper; this pins the ANSWER (a shadowing redefinition after the end marker
+    hashes identically and still diverges)."""
+    for mod in _gk_homes():
+        for row, want in _GK_ROWS:
+            assert mod._book_group_key(row) == want, (mod.__name__, row)
+
+
+def test_every_wallet_listing_skill_states_the_same_strategy_unit():
+    for path in GK_SKILLS:
+        with open(path, encoding="utf-8") as f:
+            assert UNIT_SENTENCE in f.read(), path
+
+
 if __name__ == "__main__":
     test_vendored_cli_helpers_match_their_origin()
     test_first_written_vendor_parity()
@@ -299,4 +357,7 @@ if __name__ == "__main__":
     test_external_wallets_reader_vendor_parity()
     test_the_skills_answer_external_wallets_the_same_way()
     test_the_readers_take_the_a1_surface_and_ignore_the_retired_r1_keys()
+    test_book_group_key_vendor_parity()
+    test_the_skills_answer_the_book_group_key_the_same_way()
+    test_every_wallet_listing_skill_states_the_same_strategy_unit()
     print("NAME READER PARITY OK")

@@ -6,11 +6,17 @@ The shape of the JSON `scripts/review.py` prints. The runtime JSON you get back 
 window        { from, to, label, window_days, last_n }   # the review window
 
 book          ONE list of every wallet — PRESENT FIRST, then the detail (the `strategies` step and `all`):
-  rows[]      one per wallet, sorted value desc; ties by label then address; value unknown LAST.
-              Never re-section by origin — kind is a column:
-    label, display_label (label + short address when two rows share a label), kind: managed | read_only,
-    wallet, status (managed only), value_usd (None = couldn't load, never 0),
-    value_read: ok | unavailable | error,     # managed: clearinghouse accountValue (main+xyz, shared idle once)
+  rows[]      one per saved wallet and one per Senpi STRATEGY (all its wallets), sorted value desc; ties by
+              label then address; value unknown LAST. Never re-section by origin — kind is a column:
+    label (a packaged strategy: its package id), display_label (label + short address — or "N wallets" for a
+    strategy of several — when two rows share a label), kind: managed | read_only,
+    wallet (None on a strategy of several wallets), status (managed only; MIXED when its wallets differ),
+    value_usd (None = couldn't load, never 0),
+    strategy_group, wallet_count, wallets_loaded, wallets_couldnt_load,   # managed: the strategy's wallets
+    strategy_wallets[] { label, wallet, status, value_usd, open_position_count, closed_trade_count,
+                         realized_pnl, fees, trades_capped }   # managed: one per instance — strategies[] has its review
+    value_read: ok | partial | unavailable | error,   # partial = only some of a strategy's wallets loaded
+                                              # managed: clearinghouse accountValue (main+xyz, shared idle once)
                                               # read_only: state.totalValueUsd verbatim (unified-account aware)
     no_hl_activity (read_only: role MISSING → a real 0), closed_trade_count, realized_pnl, fees (GROSS PnL),
     trades_unknown (true → None counts, never 0), trades_capped (HL's 2000-fill ceiling → "at least"),

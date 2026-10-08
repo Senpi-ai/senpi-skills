@@ -9,7 +9,7 @@ import dsl as dsl_mod
 import score as score_mod
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.43.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.44.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -119,7 +119,8 @@ def short(addr):
 # ── `desk.py --my-wallets`: one list of every wallet, in the order the engine sorted it (value desc,
 # couldn't-load last). Kind is a column, never a section: no "Saved wallets" / "Strategy wallets" heading.
 KIND_LABEL = {"saved": "read-only — you added it", "strategy": "Senpi strategy",
-              "strategy_closed": "Senpi strategy — closed"}
+              "strategy_closed": "Senpi strategy — closed",
+              "strategy_partly_closed": "Senpi strategy — some wallets closed"}
 _ASK_NAMES = 5
 
 
@@ -127,8 +128,24 @@ def _wallet_name(row):
     return row.get("label") or f"`{short(row['address'])}`"
 
 
+def _partial(row):
+    """'1 of 2 wallets' when a strategy's value covers only some of its wallets, else None."""
+    n, m = row.get("wallets_loaded"), row.get("wallet_count")
+    return f"{n} of {m} wallets" if m and m > 1 and n is not None and 0 < n < m else None
+
+
 def _wallet_value(row):
-    return usd(row["value_usd"]) if row.get("value_usd") is not None else "couldn't load"
+    if row.get("value_usd") is None:
+        return "couldn't load"
+    part = _partial(row)
+    return usd(row["value_usd"]) + (f" ({part})" if part else "")
+
+
+def _wallet_cell(row):
+    """A wallet by its label and short address; a strategy of several wallets by its wallet count."""
+    if row.get("address") is None and row.get("wallet_count"):
+        return f"{row.get('label') or 'strategy'} ({row['wallet_count']} wallets)"
+    return f"{row.get('label') or 'wallet'} `{short(row['address'])}`"
 
 
 def my_wallets_ask(rows):
@@ -138,7 +155,14 @@ def my_wallets_ask(rows):
     named = []
     for r in rows[:_ASK_NAMES]:
         v = usd(r["value_usd"]) if r.get("value_usd") is not None else "value couldn't load"
-        named.append(f"{_wallet_name(r)} ({v}{', closed' if r.get('closed') else ''})")
+        part = _partial(r) if r.get("value_usd") is not None else None
+        if r.get("closed"):
+            tail = ", closed"
+        elif r.get("closed_wallets"):
+            tail = f", {r['closed_wallets']} of {r['wallet_count']} wallets closed"
+        else:
+            tail = ""
+        named.append(f"{_wallet_name(r)} ({v}{', ' + part if part else ''}{tail})")
     more = len(rows) - len(named)
     names = (", ".join(named[:-1]) + " or " + named[-1]) if not more else \
         (", ".join(named) + f", or one of {more} more")
@@ -154,7 +178,7 @@ def render_my_wallets(mw):
     if rows:
         out += ["**Your wallets, largest first** — one list by value; kind says what Senpi can do with each.",
                 "", "| # | Wallet | Kind | Value |", "|---:|---|---|---:|"]
-        out += [f"| {i} | {r.get('label') or 'wallet'} `{short(r['address'])}` | {r['kind_label']} | {_wallet_value(r)} |"
+        out += [f"| {i} | {_wallet_cell(r)} | {r['kind_label']} | {_wallet_value(r)} |"
                 for i, r in enumerate(rows, 1)]
         notes = [f"{_wallet_name(r)}'s value excludes {', '.join(r['unpriced_coins'])} (no USD price)."
                  for r in rows if r.get("unpriced_coins")]
@@ -162,6 +186,8 @@ def render_my_wallets(mw):
         if unknown:
             notes.append(f"{unknown} wallet{'s' if unknown > 1 else ''} couldn't load a value — listed last, "
                          f"never counted as $0.")
+        notes += [f"{_wallet_name(r)}'s value covers {_partial(r)} — the rest couldn't load and are never "
+                  f"counted as $0." for r in rows if r.get("value_usd") is not None and _partial(r)]
         access = sorted({r["access"] for r in rows if r.get("kind") == "saved" and r.get("access")})
         notes += [f"Wallets you added: {a}" for a in access]
         if notes:
