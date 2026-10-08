@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
@@ -55,3 +56,94 @@ def test_themed_default_cli_output_is_bounded():
     result = json.loads(proc.stdout)
     assert result["meta"]["returned_n"] == 8
     assert len(proc.stdout) <= 12_000
+
+
+class _LiveShapedClient:
+    """Stub MCP client with live-shaped responses so market_facts + user_context are populated."""
+
+    def mcp_call(self, tool, **kw):
+        if tool == "market_get_funding_regime":
+            return {"data": {"regime": "neutral"}}
+        if tool == "account_get_portfolio":
+            return {"data": {"portfolio": {"total_in_hyperliquid": 120.5,
+                                           "positions": [{"coin": c} for c in ("BTC", "ETH", "SOL", "HYPE")]}}}
+        if tool == "market_get_asset_data":
+            return {"data": {"asset_context": {"markPx": "101.2", "prevDayPx": "99.0", "funding": "0.0000125"},
+                             "oi_velocity": {"oi_trend": "rising"},
+                             "candles": {"4h": [{"c": str(100 + i)} for i in range(8)]}}}
+        return {"data": {}}
+
+
+def test_live_enriched_themed_output_degrades_instead_of_failing_closed(monkeypatch, capsys):
+    """Production adds market_facts + user_context on top of the --no-market size; an over-budget default
+    result must trim (facts, then bottom candidates), never print zero candidates with exit 1."""
+    monkeypatch.setattr(discover, "_get_client", lambda: _LiveShapedClient())
+    seen = {}
+    real_fit = discover.fit_budget
+
+    def spy(result, budget):
+        seen["untrimmed"] = len(json.dumps(result, ensure_ascii=False))
+        return real_fit(result, budget)
+
+    monkeypatch.setattr(discover, "fit_budget", spy)
+    eligible = discover.match(discover.normalize_intent(SimpleNamespace()),
+                              discover.load_catalog(discover.default_catalog()))["meta"]["eligible_count"]
+    rc = discover.main(["--catalog", discover.default_catalog(), "--theme", "risk-off defensive hedge tail-risk"])
+    out = capsys.readouterr().out.strip()
+    result = json.loads(out)
+    assert rc == 0
+    assert len(out) <= discover.OUTPUT_BUDGET
+    assert len(result["candidates"]) >= 1
+    assert result["meta"]["returned_n"] == len(result["candidates"])
+    assert result["meta"]["eligible_count"] == eligible
+    trimmed = any(w.startswith("output trimmed to fit") for w in result["meta"]["warnings"])
+    assert trimmed == (seen["untrimmed"] > discover.OUTPUT_BUDGET)
+    assert {m["id"] for m in result["meta"]["theme_matches"]} <= {c["id"] for c in result["candidates"]}
+
+
+def _fat_result(n, facts_chars, other_chars):
+    fact = {"asset": "BTC", "note": "x" * facts_chars}
+    return {"candidates": [{"id": f"s{i}", "blurb": "y" * other_chars, "market_facts": [fact]} for i in range(n)],
+            "build_custom": {}, "meta": {"eligible_count": 50, "returned_n": n, "warnings": [],
+                                         "theme_matches": [{"id": f"s{i}"} for i in range(n)]}}
+
+
+def _size(result):
+    return len(json.dumps(result, ensure_ascii=False))
+
+
+def test_fit_budget_leaves_an_in_budget_result_untouched():
+    res = _fat_result(4, 100, 100)
+    before = json.dumps(res)
+    assert json.dumps(discover.fit_budget(res, 100_000)) == before
+
+
+def test_fit_budget_drops_lowest_ranked_market_facts_first():
+    res = _fat_result(4, 1_000, 50)
+    budget = _size(res) - 1_500           # two facts' worth of trimming is enough
+    discover.fit_budget(res, budget)
+    assert _size(res) <= budget
+    assert [bool(c["market_facts"]) for c in res["candidates"]] == [True, True, False, False]
+    assert res["meta"]["returned_n"] == 4 and res["meta"]["eligible_count"] == 50
+    assert "market_facts dropped from 2 candidates, returned 4 of 4" in res["meta"]["warnings"][-1]
+
+
+def test_fit_budget_then_drops_bottom_candidates_keeping_theme_matches_consistent():
+    res = _fat_result(6, 200, 1_000)
+    budget = _size(res) - 2_000           # facts alone can't cover it; candidates must go
+    discover.fit_budget(res, budget)
+    assert _size(res) <= budget
+    ids = [c["id"] for c in res["candidates"]]
+    assert ids == [f"s{i}" for i in range(len(ids))] and 1 <= len(ids) < 6   # dropped from the bottom
+    assert all(c["market_facts"] == [] for c in res["candidates"])
+    assert [m["id"] for m in res["meta"]["theme_matches"]] == ids
+    assert res["meta"]["returned_n"] == len(ids) and res["meta"]["eligible_count"] == 50
+    assert f"returned {len(ids)} of 6" in res["meta"]["warnings"][-1]
+
+
+def test_fit_budget_never_returns_fewer_than_one_candidate():
+    res = _fat_result(3, 100, 5_000)
+    discover.fit_budget(res, 10)          # unreachable budget
+    assert [c["id"] for c in res["candidates"]] == ["s0"]
+    assert res["meta"]["returned_n"] == 1
+    assert "returned 1 of 3" in res["meta"]["warnings"][-1]

@@ -467,6 +467,41 @@ def limit_result(result, limit):
     return result
 
 
+def fit_budget(result, budget):
+    """Degrade an over-budget result instead of failing closed: drop market_facts from the lowest-ranked
+    candidates first, then drop candidates from the bottom — never below one. Measured with the same
+    serialization main() prints; eligible_count is untouched and a warning names what was trimmed."""
+    if len(json.dumps(result, ensure_ascii=False)) <= budget:
+        return result
+    meta = result.setdefault("meta", {})
+    cands = result.setdefault("candidates", [])
+    total, stripped = len(cands), 0
+    warnings = meta.setdefault("warnings", [])
+    warnings.append("")   # placeholder, rewritten each pass so the warning itself is inside the measurement
+
+    def fits():
+        warnings[-1] = (f"output trimmed to fit {budget} chars: market_facts dropped from {stripped} "
+                        f"candidates, returned {len(cands)} of {total}")
+        meta["returned_n"] = len(cands)
+        return len(json.dumps(result, ensure_ascii=False)) <= budget
+
+    for cand in reversed(cands):
+        if cand.get("market_facts"):
+            cand["market_facts"] = []
+            stripped += 1
+            if fits():
+                return result
+    while len(cands) > 1:
+        cands.pop()
+        if "theme_matches" in meta:
+            kept = {c.get("id") for c in cands}
+            meta["theme_matches"] = [m for m in meta["theme_matches"] if m.get("id") in kept]
+        if fits():
+            return result
+    fits()   # still over at one candidate: return it anyway — a short answer beats an empty one
+    return result
+
+
 # ---------------------------------------------------------------- data layer (guarded I/O)
 def _fetch_catalog(dest):
     """Fetch the single generated catalog.json from the remote (one request, not per-strategy) and cache
@@ -740,13 +775,11 @@ def main(argv=None):
         except Exception as e:  # noqa
             result["meta"].setdefault("warnings", []).append(f"market enrichment unavailable: {e}")
 
-    output = json.dumps(result, ensure_ascii=False)
-    if args.limit == DEFAULT_LIMIT and len(output) > OUTPUT_BUDGET:
-        print(json.dumps({"candidates": [], "build_custom": result["build_custom"], "meta": {
-            "eligible_count": result["meta"].get("eligible_count"), "returned_n": 0,
-            "error": "discovery summary exceeded output budget"}}, ensure_ascii=False))
-        return 1
-    print(output)
+    # Default output must fit OpenClaw's tool-result budget (it truncates past it, breaking the JSON);
+    # degrade rather than fail closed. An explicit --limit is an intentional override — no enforcement.
+    if args.limit == DEFAULT_LIMIT:
+        result = fit_budget(result, OUTPUT_BUDGET)
+    print(json.dumps(result, ensure_ascii=False))
     return 0
 
 
