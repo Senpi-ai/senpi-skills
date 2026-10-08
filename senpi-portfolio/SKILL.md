@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.32.0"
+  version: "1.32.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -682,6 +682,10 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
   raw position is the reverse case — the bullet above.
 
 ## One wallet list — every wallet first-class
+
+**A Senpi strategy is one row with all its wallets.** One package is one strategy: its instances are
+its wallets, grouped by the package they were deployed under (`skill_name`); a wallet with no package
+stamp is its own row.
 
 Every wallet the user has is ONE list, `book.wallets`, ordered by value: the Senpi main wallet, each
 Senpi strategy (one row across ALL its wallets — `strategy_wallets[]` are its sleeves, never rows of
