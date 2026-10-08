@@ -47,7 +47,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.44.0"
+  version: "1.45.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -361,7 +361,10 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
    and a coverage line when trade-level reads cover less than 90% of the wallet's executed volume.
 4. **Where your P&L went** — gross → fees → funding → net, cost share vs the whale median.
 5. **Top 3 things your agents found** — each: agent · ~$ / window · title · evidence · counterfactual · fix.
-6. **Live positions — protection audit** — account value, margin used, withdrawable, net uPnL; per
+6. **Live positions — protection audit** — account value, margin used, withdrawable, net uPnL. On a
+   standard account the value is perps + spot and the line names both (`account_value_perps`,
+   `account_value_spot`): any balance table you show carries the perps line — never a spot-only table
+   under that total; on a unified / portfolio-margin account spot already holds the perps margin. Per
    position: side, leverage, notional, uPnL, ROE, funding/day, distance to liquidation, **stop cover**
    (share of the size a resting stop covers), status (`AT RISK` / `UNPROTECTED` / `PARTLY COVERED` /
    `PROTECTED` / `UNKNOWN` — the orders could not be read: say so, never "nothing needs protecting")
@@ -488,9 +491,9 @@ wallets, the plain address for a one-wallet strategy or a saved wallet. When the
    A strategy wallet is where their senpi perp history actually is.
 3. **More than one?** Then ask, because only they know which they mean today — `ask` names them
    largest first: *"Which one do you want me to run the desk on — MetaMask ($12,400), Aegis ($3,000)
-   or Phalanx ($0, closed)? Or I can read them together as one book."* Offer to run them together
-   (`--book`) or side by side (`--compare`); that is often the more interesting read, and the desk
-   prices them the same way.
+   or Phalanx ($0, closed)? Or I can read them together as one book."* Offer, in plain words, to
+   read them together as one book or side by side; that is often the more interesting read. **Never
+   show the user a flag or a command** (`--book`, `--compare`, `desk.py …`) — those are what you run.
    `external_wallets_status: "unavailable"` → say "I couldn't load your saved wallets" and offer
    the wallets that did load; never "you have no saved wallets". `wallets_complete: false` means a
    source is missing from the list, not empty.

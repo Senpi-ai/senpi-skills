@@ -396,6 +396,24 @@ def whole_account_value(portfolio, spot):
     return None
 
 
+STANDARD_MODES = ("default", "disabled")                  # perps and spot are separate balances
+UNIFIED_MODES = {"unifiedAccount": "unified account", "portfolioMargin": "portfolio margin"}
+
+
+def account_split(book, mode):
+    """How the headline account value splits, by Hyperliquid's account mode (`userAbstraction`).
+    Standard ("default" / "disabled"): perps equity and spot are separate balances, so the value is
+    perps + spot and the perps balance is its own line — a spot-only table under that total omits it.
+    Unified / portfolio margin: spot already holds the perps margin — the value is the spot side,
+    counted once, and adding the perps equity to it double counts. Unknown mode → no split."""
+    mode = mode if isinstance(mode, str) else None
+    av, perps = book.get("account_value"), book.get("account_value_perps")
+    out = {"account_mode": mode, "account_value_spot": None}
+    if mode in STANDARD_MODES and av is not None and perps is not None and av - perps > 0.005:
+        out["account_value_spot"] = round(av - perps, 2)
+    return out
+
+
 def current_account_value(portfolio):
     """A wallet's value now, the key `--my-wallets` orders by: the last point of Hyperliquid's own
     portfolio series, shortest window first (the freshest point) — the account value the desk headlines
