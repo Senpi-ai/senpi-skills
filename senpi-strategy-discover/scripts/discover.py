@@ -598,11 +598,27 @@ def fetch_saved_wallet_holdings(client):
     return out
 
 
+def fetch_active_strategy_count(client):
+    """How many ACTIVE Senpi strategies the user runs (`strategy_list`), so an empty `holdings` (no open
+    Senpi positions) is never read as "no strategies". None when the read failed — unknown, never 0."""
+    try:
+        resp = client.mcp_call("strategy_list", status=["ACTIVE"], timeout=20)
+        data = _ok(resp)
+        rows = data if isinstance(data, list) else (data.get("strategies") if isinstance(data, dict) else None)
+        if not isinstance(rows, list):
+            return None
+        return sum(1 for r in rows if isinstance(r, dict) and str(r.get("status") or "ACTIVE").upper() == "ACTIVE")
+    except Exception:  # noqa — unknown, never 0
+        return None
+
+
 def fetch_user_context(client, saved_wallets=False):
     """Budget (Senpi money only) + Senpi holdings; with `saved_wallets` (the `--context-only` read) also
-    the positions on the wallets the user added — holdings context, never budget."""
+    the positions on the wallets the user added — holdings context, never budget — and the active Senpi
+    strategy count (`holdings: []` is "no open Senpi positions", never "no strategies")."""
     ctx = {"budget": None, "holdings": [], "favored_assets": [], "favored_direction": None}
     if saved_wallets:
+        ctx["active_strategy_count"] = fetch_active_strategy_count(client)
         ctx.update(fetch_saved_wallet_holdings(client))
     try:
         data = _ok(client.mcp_call("account_get_portfolio", timeout=15))
