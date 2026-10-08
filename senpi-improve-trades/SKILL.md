@@ -206,9 +206,14 @@ strategy."* Then:
 
 ## One book — every wallet first-class
 
-Every wallet the user has is in one list: each CURRENT Senpi strategy (`kind: "managed"`) and each
-saved wallet (`kind: "read_only"`). `book` (the `strategies` step and `all`) is that ONE list. Origin is
-the `kind` column, never a rank and never a section break.
+Every wallet the user has is in one list: the Senpi main wallet and each CURRENT Senpi strategy
+(`kind: "managed"`) and each saved wallet (`kind: "read_only"`). `book` (the `strategies` step and `all`)
+is that ONE list. Origin is the `kind` column, never a rank and never a section break.
+
+**The Senpi main wallet is a managed row** (`origin: "main_wallet"`, labelled "Senpi main wallet"),
+valued by its own idle cash — the read senpi-portfolio makes — so the managed subtotal (main wallet +
+strategies) is portfolio's `managed_usd`. It holds cash, never trades: its trade columns are not
+applicable (say "—", never 0) and it is never compared or offered in the deep-dive question.
 
 **A Senpi strategy is one row with all its wallets.** One package is one strategy: its instances are
 its wallets, grouped by the package they were deployed under (`skill_name`); a wallet with no package
