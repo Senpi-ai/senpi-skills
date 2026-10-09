@@ -386,12 +386,12 @@
       "version": "1.0.1"
     },
     "puffin": {
-      "behaviour": "00a0574c5c5b7c69",
-      "version": "1.2.0"
+      "behaviour": "5b5d8f66c330c8cf",
+      "version": "1.2.1"
     },
     "puffin-duo": {
-      "behaviour": "d54dc3c4d67b7107",
-      "version": "1.0.2"
+      "behaviour": "ee56fe368d8f5159",
+      "version": "1.0.3"
     },
     "purple-penguin": {
       "behaviour": "0aa0f2a9e9da4fb5",
@@ -462,8 +462,8 @@
       "version": "1.2.2"
     },
     "signals-hunter": {
-      "behaviour": "7e15a563a3a7b7ad",
-      "version": "1.2.1"
+      "behaviour": "7889c3d295e41d52",
+      "version": "1.2.2"
     },
     "spider": {
       "behaviour": "7d6f8495e008124c",

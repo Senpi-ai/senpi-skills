@@ -10,7 +10,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.6.0"
+  version: "1.7.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -76,7 +76,8 @@ every slice into one dict — the same output the engine always produced.
   smart_bias, smart_members, crowd_direction, crowd_bias, crowd_members}`, sorted opposite-sides
   first. **The core signal.**
 - `near_term` — the Leaderboard/Hyperfeed 4h layer (`concentration`, `hot_traders`,
-  `momentum_events`) **or `null`** if Hyperfeed is down. Use it to confirm/contradict the cohort read.
+  `momentum_events`: short `rows` lists + source counts) **or `null`** if Hyperfeed is down; a `null`
+  layer was unreadable, not empty. Use it to confirm/contradict the cohort read.
 - `cohorts` — the sample sizes (how many proven / crowd wallets were measured). Cite these so the
   user knows the sample behind the bias.
 - `meta` — `warnings`, `near_term_available`, and **`cohorts_unavailable`** — set only when the
@@ -143,9 +144,10 @@ that you can't read the proven-cohort positioning and why — don't report an em
 2. **Smart money vs the crowd** — the divergences. This is the payoff. For each: who's on which side,
    how lopsided, how many wallets. Lead with `opposite_sides` cases. "The winners are short HYPE
    (−0.8/30) while the $10–100k crowd is long it (+0.6/120) — they're on opposite sides."
-3. **Near-term flow** — the Leaderboard/Hyperfeed 4h read. Is the hot money *adding* (scale-ins in
-   `momentum_events`) or *unwinding*? Does it confirm the all-time cohort or fight it? If
-   `near_term` is null, note it and move on.
+3. **Near-term flow** — the Leaderboard/Hyperfeed 4h read. Is the hot money *adding* or *unwinding*
+   (`contribution_pct_change_*`)? Does it confirm the all-time cohort or fight it? A `"blocked"` momentum
+   event is still a real tier crossing; with no `top_positions`, never guess its markets. If `near_term`
+   is null, note it and move on.
 4. **Bottom line** — one paragraph: where the proven money is positioned, where it diverges from the
    crowd, whether the near-term flow backs it — plus a **"what to watch"** (e.g. "if the crowd
    capitulates and flips short, the divergence is resolving").
