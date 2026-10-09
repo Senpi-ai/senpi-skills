@@ -36,12 +36,15 @@ def test_scanners_are_byte_identical_to_the_source_templates():
 # aegis, fails here instead of quietly becoming part of "the concentration experiment".
 CONCENTRATION_DELTA = {
     "phalanx": {"  slots: 2", "  margin_pct: 22.5", "      marginPctBase: 22.5"},
-    # aegis sized up 2026-10-07 from Jason's live fork, which became this template: "The current
-    # strategy is using only about 20% of margin. It should use 20% per position." 4 x 20% = 80% of
-    # the sleeve, up from 48%, with marginPctMax 30 for a single high-conviction hedge. Listed
+    # aegis sizes a FLAT 20% per position (2026-10-09). The 2026-10-07 attempt set
+    # marginPctBase: 20 and did not deliver it — `margin_pct_for` scales the base by a
+    # regime-intensity factor that floors at 0.25, so a mild regime sized 5% and four slots
+    # deployed 20% of the sleeve, which is the under-deployment that was reported. base 80 x 0.25
+    # lands exactly on 20 and marginPctMax 20 clamps everything above it; the flat outcome is
+    # asserted over the whole conviction x regime grid in test_aegis_sizes_flat.py. Listed
     # line-by-line so a FOURTH change to aegis still fails here rather than joining "the experiment".
     # Standalone aegis and athena are deliberately untouched — only this package's leg moved.
-    "aegis": {"  margin_pct: 20", "      marginPctBase: 20", "      marginPctMax: 30"},
+    "aegis": {"  margin_pct: 20", "      marginPctBase: 80", "      marginPctMax: 20"},
 }
 
 

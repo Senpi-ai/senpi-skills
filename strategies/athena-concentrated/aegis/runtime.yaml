@@ -22,11 +22,23 @@ description: >
 strategy:
   wallet: "${ATHENA_AEGIS_WALLET}"
   slots: 4
-  # SIZED UP 2026-10-07 from Jason's live fork, which is now this template. His words:
-  # "The current strategy is using only about 20% of margin. It should use 20% per
-  # position." 4 slots x 20% = 80% of the aegis sleeve deployed, up from 48%, and
-  # marginPctMax 30 lets a single high-conviction hedge take 30%. Only the aegis leg of
-  # THIS package changes — standalone aegis and athena are untouched.
+  # 20% PER POSITION — flat. Jason, 2026-10-07 and again 2026-10-09: "The current strategy
+  # is using only about 20% of margin. It should use 20% per position."
+  #
+  # The first attempt set marginPctBase: 20 and did NOT deliver that, which is why the same
+  # instruction came back. `scoring.margin_pct_for` scales the base by a REGIME-INTENSITY
+  # factor, ri = clamp(|regime_score| / 2.0, 0.25, 1.0), then by conviction (x1.0/1.25/1.5).
+  # Base 20 sized a position at 20% only with the regime pinned at its extreme (|2.0|); in a
+  # mild regime ri floors at 0.25 and a position took 20 x 0.25 = 5%. Four slots x 5% = 20%
+  # of the sleeve — exactly the under-deployment that was reported.
+  #
+  # The scanners are byte-identical to standalone aegis and pinned that way, so this is solved
+  # in CONFIG: base 80 x 1.00 x 0.25 (mildest regime, lowest conviction) = 20.0% is the floor,
+  # and every stronger regime or conviction clamps to marginPctMax 20. Every position is 20.0%
+  # across the grid; 4 slots deploy 80% of the sleeve in EVERY regime, not only in a crisis.
+  # tests/test_aegis_sizes_flat.py asserts that over the full conviction x regime range, because
+  # the floor depends on the 0.25 clamp in the shared scorer. Only the aegis leg of THIS package
+  # changes — standalone aegis and athena are untouched.
   margin_pct: 20
   default_leverage: 3
   trading_risk: moderate
@@ -45,8 +57,8 @@ scanners:
     default_signal_validity_seconds: 600
     state_history_max_count: 200
     inputs:
-      marginPctBase: 20
-      marginPctMax: 30
+      marginPctBase: 80
+      marginPctMax: 20
       leverageDefault: 3
       maxSlots: 4
       minScore: 25
