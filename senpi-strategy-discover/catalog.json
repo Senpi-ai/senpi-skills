@@ -6300,7 +6300,7 @@
       "varies": "athena",
       "tagline": "Athena with the phalanx arm concentrated into two larger positions instead of three smaller ones — the same capital at risk, carried by fewer, bigger bets. The aegis hedge and the 65/35 split are unchanged.",
       "belief_plain": "This is Athena with one change on its attacking side. Athena runs two arms: phalanx, which follows what proven smart-money traders are buying, and aegis, which hedges. Normally phalanx spreads its share across three positions. This version holds two instead, each half again as large, with exactly the same total amount of money at work. The hedge is untouched. The question is whether the phalanx signal is strong enough that backing fewer names harder beats spreading across more — concentration pays when the top signal is genuinely better than the third, and costs when it is not.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "thesis": "Two inputs differ from athena, both on the phalanx arm: slots 3 -> 2 and margin_pct / marginPctBase 15 -> 22.5. Total phalanx exposure is unchanged at 45% of the sleeve — that is the point, because moving size and count together would make any difference unattributable. The aegis arm, the 65/35 funding split, both detectors, the exits and the hedge logic are athena's, verbatim. Concentration pays only if phalanx's ranking is informative — if its 1st and 2nd picks genuinely beat its 3rd. If the ranking is noise, this arm just raises variance for nothing, and that is exactly what running it against athena over the same window measures.",
       "tags": [
         "aegis",

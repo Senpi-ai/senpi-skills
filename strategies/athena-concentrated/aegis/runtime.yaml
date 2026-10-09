@@ -35,7 +35,15 @@ strategy:
   # The scanners are byte-identical to standalone aegis and pinned that way, so this is solved
   # in CONFIG: base 80 x 1.00 x 0.25 (mildest regime, lowest conviction) = 20.0% is the floor,
   # and every stronger regime or conviction clamps to marginPctMax 20. Every position is 20.0%
-  # across the grid; 4 slots deploy 80% of the sleeve in EVERY regime, not only in a crisis.
+  # in every regime, not only in a crisis.
+  #
+  # What that deploys, measured live 2026-10-09 on a relaunch at regime -0.60: marginPct is a
+  # percent of WITHDRAWABLE AT OPEN, and the runtime opens sequentially, so each position takes
+  # a fifth of what is left rather than a fifth of the original sleeve. Observed 104.13 / 83.87
+  # / 66.97 against a 523.80 start — 19.9%, 20.0%, 19.9% of the balance available each time.
+  # So N positions deploy 1 - 0.8^N: 20% / 36% / 48.8% / 59.0%. NOT 4 x 20% = 80%, which is
+  # what an earlier version of this comment claimed. 20% PER POSITION is the instruction and is
+  # delivered exactly; 80% of the sleeve would need ~33% per position.
   # tests/test_aegis_sizes_flat.py asserts that over the full conviction x regime range, because
   # the floor depends on the 0.25 clamp in the shared scorer. Only the aegis leg of THIS package
   # changes — standalone aegis and athena are untouched.
