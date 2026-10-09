@@ -552,8 +552,74 @@ def _accessible_usdc(portfolio):
     return round(total, 2)
 
 
-def fetch_user_context(client):
+# ── the user's saved wallets (Your wallets): holdings context only, never Senpi money ──
+#
+# A saved wallet is an address the user added in Your wallets and trades by hand — their claim, never
+# checked. Senpi can read it and cannot place, change or cancel orders on it, so it is never a budget and
+# never a deploy target. Its positions are read for one reason: a pick must not double an exposure the
+# user already holds. Unknown is never empty — a failed read is "unavailable" with holdings None (never
+# []), and a wallet whose state couldn't load is named in `saved_wallets_unread`, never read as flat.
+SAVED_WALLETS_TIMEOUT_S = 25    # moxie answers within ~6.5 s; the MCP's own moxie timeout is 20 s — wait past it
+
+
+def _short_addr(addr):
+    return f"{addr[:6]}…{addr[-4:]}" if isinstance(addr, str) and len(addr) > 12 else addr
+
+
+def fetch_saved_wallet_holdings(client):
+    """`account_get_external_wallets` (no address: every saved wallet, each with its live `state`) →
+    {saved_wallets_status, saved_wallet_holdings, saved_wallets_unread}. Never raises: a failed read
+    degrades to status "unavailable" + `_saved_wallets_error`, and the rest of the context stands."""
+    out = {"saved_wallets_status": "unavailable", "saved_wallet_holdings": None, "saved_wallets_unread": []}
+    try:
+        resp = _ok(client.mcp_call("account_get_external_wallets", timeout=SAVED_WALLETS_TIMEOUT_S))
+        rows = resp.get("external_wallets") if isinstance(resp, dict) else None
+        if not isinstance(rows, list):
+            raise ValueError("no external_wallets list in the response")
+    except Exception as e:  # noqa — unknown, never empty
+        out["_saved_wallets_error"] = str(e)
+        return out
+    holdings = []
+    for w in rows:
+        if not isinstance(w, dict) or not isinstance(w.get("address"), str):
+            continue
+        name = w.get("label") or _short_addr(w["address"].strip().lower())
+        st = w.get("state")
+        if not isinstance(st, dict) or st.get("readError") or not isinstance(st.get("positions"), list):
+            out["saved_wallets_unread"].append(name)
+            continue
+        for p in st["positions"]:
+            if isinstance(p, dict) and p.get("coin"):
+                holdings.append({"coin": p["coin"], "side": p.get("side"),
+                                 "position_value_usd": p.get("positionValueUsd"),
+                                 "wallet": name, "origin": "saved_wallet", "access": "read-only"})
+    out["saved_wallets_status"] = "ok"
+    out["saved_wallet_holdings"] = holdings
+    return out
+
+
+def fetch_active_strategy_count(client):
+    """How many ACTIVE Senpi strategies the user runs (`strategy_list`), so an empty `holdings` (no open
+    Senpi positions) is never read as "no strategies". None when the read failed — unknown, never 0."""
+    try:
+        resp = client.mcp_call("strategy_list", status=["ACTIVE"], timeout=20)
+        data = _ok(resp)
+        rows = data if isinstance(data, list) else (data.get("strategies") if isinstance(data, dict) else None)
+        if not isinstance(rows, list):
+            return None
+        return sum(1 for r in rows if isinstance(r, dict) and str(r.get("status") or "ACTIVE").upper() == "ACTIVE")
+    except Exception:  # noqa — unknown, never 0
+        return None
+
+
+def fetch_user_context(client, saved_wallets=False):
+    """Budget (Senpi money only) + Senpi holdings; with `saved_wallets` (the `--context-only` read) also
+    the positions on the wallets the user added — holdings context, never budget — and the active Senpi
+    strategy count (`holdings: []` is "no open Senpi positions", never "no strategies")."""
     ctx = {"budget": None, "holdings": [], "favored_assets": [], "favored_direction": None}
+    if saved_wallets:
+        ctx["active_strategy_count"] = fetch_active_strategy_count(client)
+        ctx.update(fetch_saved_wallet_holdings(client))
     try:
         data = _ok(client.mcp_call("account_get_portfolio", timeout=15))
         # GetPortfolioV3 nests the fields under a `portfolio` key; _ok strips only the outer `data`.
@@ -668,7 +734,8 @@ def main(argv=None):
     ap.add_argument("--limit", type=int, default=None, help="safety cap on returned candidates (default: all)")
     ap.add_argument("--catalog", default=None, help="catalog.json path (default: skill-local → repo → remote fetch)")
     ap.add_argument("--no-market", action="store_true", help="skip the live market enrichment pass")
-    ap.add_argument("--context-only", action="store_true", help="return user context only, no match")
+    ap.add_argument("--context-only", action="store_true",
+                    help="return user context only, no match (budget + Senpi holdings + saved-wallet holdings)")
     args = ap.parse_args(argv)
 
     try:
@@ -682,7 +749,7 @@ def main(argv=None):
 
     if args.context_only:
         try:
-            uc = fetch_user_context(_get_client())
+            uc = fetch_user_context(_get_client(), saved_wallets=True)
         except Exception as e:  # noqa
             uc = {"_error": str(e)}
         print(json.dumps({"user_context": uc}, ensure_ascii=False))

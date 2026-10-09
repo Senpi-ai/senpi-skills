@@ -29,14 +29,16 @@ def test_the_book_holds_no_relationship_for_an_address_it_has_not_seen(tmp_path)
     assert ab.is_mine(book, WHALE) is False
 
 
-def test_verified_and_claimed_are_both_theirs_but_are_not_the_same_claim(tmp_path):
+def test_a_claimed_row_is_no_longer_proof_of_ownership(tmp_path):
+    """1.42.0 retired `claimed` as an ownership source: a non-Senpi wallet is the reader's when it is
+    one of the wallets they added in Your wallets (or for one run, `--mine`). Books written before keep
+    the row; it is ignored at read time."""
     book = ab.load(str(tmp_path))
     ab.mark_verified(book, [SENPI])
     ab.record(book, MINE, relationship=ab.CLAIMED)
-    assert ab.is_mine(book, SENPI) and ab.is_mine(book, MINE)
-    # the distinction survives, because only one of them is provable
+    assert ab.is_mine(book, SENPI) and not ab.is_mine(book, MINE)
     assert ab.relationship(book, SENPI) == ab.VERIFIED
-    assert ab.relationship(book, MINE) == ab.CLAIMED
+    assert ab.relationship(book, MINE) == ab.CLAIMED          # kept, not migrated — just not ownership
 
 
 def test_a_relationship_never_downgrades(tmp_path):
@@ -54,7 +56,7 @@ def test_a_relationship_never_downgrades(tmp_path):
 def test_addresses_are_case_insensitive_and_junk_is_refused(tmp_path):
     book = ab.load(str(tmp_path))
     ab.record(book, MINE.upper().replace("0X", "0x"), relationship=ab.CLAIMED)
-    assert ab.is_mine(book, MINE)                            # keyed lowercase, matched either way
+    assert ab.relationship(book, MINE) == ab.CLAIMED         # keyed lowercase, matched either way
     before = json.dumps(book, sort_keys=True)
     for junk in ("", None, "0xnothex", "not-an-address", "0x123"):
         ab.record(book, junk, relationship=ab.CLAIMED)
@@ -97,7 +99,7 @@ def test_mine_and_analyzed_partition_the_book(tmp_path):
     ab.mark_verified(book, [SENPI])
     ab.record(book, MINE, relationship=ab.CLAIMED)
     ab.record(book, WHALE, relationship=ab.ANALYZED)
-    assert ab.mine(book) == sorted([SENPI, MINE])
+    assert ab.mine(book) == [SENPI]                          # a claimed row is not "mine" any more
     assert ab.analyzed(book) == [WHALE]
 
 
