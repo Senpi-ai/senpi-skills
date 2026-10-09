@@ -689,12 +689,21 @@ def main(argv=None):
         return 0
 
     intent = normalize_intent(args)
-    result = match(intent, records, limit=args.limit)
+    # The cap has to be applied AFTER the theme ranks the survivors. `match` orders them neutrally
+    # (asset match, then NAME) and truncating there discarded candidates before anything had scored
+    # them — so a capped themed query could return a zero-scoring candidate and drop its best
+    # matches purely on alphabetical order. Measured: `--limit 6 --theme "funding carry"` returned
+    # asia-ai at theme_score 0 while dropping the two highest-scoring packages. The cap is a safety
+    # valve on output size, never a pre-filter on relevance.
+    result = match(intent, records, limit=None if args.theme else args.limit)
 
     # SOFT theme surface — score/rank the survivors on a worldview keyword (no filtering). Applied before
     # market enrichment so the theme-matched candidates' assets get first claim on the capped live fetch.
     if args.theme:
         result = apply_theme(result, args.theme)
+        if args.limit:
+            result["candidates"] = result["candidates"][:args.limit]
+            result["meta"]["returned_n"] = len(result["candidates"])
 
     # User's available funds — ALWAYS attach (independent of market enrichment / candidate count) so the
     # LLM can size each pick from real balance, not the per-strategy floor. See SKILL.md Layer 3.
