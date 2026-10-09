@@ -73,13 +73,16 @@ scanners:
       minConfirm: 1                         # 1 = mirror any watched trader's fresh open; 2 = require confirmation
       maxEntrySlippagePct: 1.5             # skip when price is more than 1.5% from their entry, EITHER way
       maxEntryAgeSeconds: 240               # 2 ticks: mirror an open the trader just made, not one hours old
-      marginPct: 15                         # PERCENT of withdrawable (0,100]
+      marginPct: 25                         # PERCENT of withdrawable (0,100]
       minMarginPct: 8                       # min-notional floor — never 'too small to enter'
-      maxMarginPct: 18                      # 5 slots x 18% = 90% of the sleeve at full
-                                            # commitment. Was 30, i.e. 150% committable across
-                                            # five slots. This is puffin's maxTotalMarginPct
-                                            # discipline expressed in the input this scanner
-                                            # actually READS — an unread cap is a dead cap.
+      maxMarginPct: 25                      # 25% PER POSITION, flat (Jason, 2026-10-09).
+                                            # marginPct is a percent of WITHDRAWABLE AT OPEN and
+                                            # the runtime opens sequentially, so five slots at
+                                            # 25% of what is LEFT deploy 1 - 0.75^5 = 76.3% of
+                                            # the sleeve, not 125%.
+                                            # NOTE: base == cap makes convictionStepPct inert —
+                                            # a 2-trader confirmation no longer sizes up. Raise
+                                            # this to ~35 to restore that.
       convictionStepPct: 0.5                # +50% of base per extra confirming trader
       stdLeverage: 5
       maxLeverage: 10                       # caps a trader's 40x book to something survivable
@@ -146,26 +149,30 @@ exit:
       # max_loss_pct := the old retrace (8.0% ROE), which is what the trail was already
       # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
       enabled: false
-      max_loss_pct: 8.0   # was 20.0 — set to the old retrace so the risk cap is unchanged
-      retrace_threshold: 8
+      max_loss_pct: 15.0   # was 20.0 — set to the old retrace so the risk cap is unchanged
+      retrace_threshold: 15
       consecutive_breaches_required: 2
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 8,  lock_hw_pct: 30 }    #  1.6% of price at 5x — arms early
-        - { trigger_pct: 18, lock_hw_pct: 50 }    #  3.6%
-        - { trigger_pct: 30, lock_hw_pct: 60 }    #  6.0% — ADDED: the 18 -> 40 gap left a
-        - { trigger_pct: 40, lock_hw_pct: 68 }    #  8.0%   fifth of the peak unlocked
-        - { trigger_pct: 60, lock_hw_pct: 75 }    # 12.0% — ADDED
-        - { trigger_pct: 90, lock_hw_pct: 82 }    # 18.0%
+        # t1/t2 set 2026-10-09. The old first rung (8/30) sat BELOW the new 15% stop, so it
+        # locked a profit smaller than the risk taken to reach it. t1 now arms exactly AT the
+        # stop distance — risk 3.00% of price to make 3.00%, then keep half. The old 30/60 rung
+        # is dropped: 25/60 supersedes it at the same lock.
+        - { trigger_pct: 15, lock_hw_pct: 50 }    #  3.00% of price at 5x, leash 1.50%
+        - { trigger_pct: 25, lock_hw_pct: 60 }    #  5.00% of price, leash 2.00%
+        - { trigger_pct: 40, lock_hw_pct: 68 }    #  8.00% of price, leash 2.56%
+        - { trigger_pct: 60, lock_hw_pct: 75 }    # 12.00% of price, leash 3.00%
+        - { trigger_pct: 90, lock_hw_pct: 82 }    # 18.00% of price, leash 3.24%
 
 risk:
   guard_rails:
-    daily_loss_limit_pct: 12
-    drawdown_halt_pct: 20
-    drawdown_reset_on_day_rollover: true
+    drawdown_halt_pct: 25
+    # FALSE as of 2026-10-09. With the daily-loss gate removed, this is the ONLY equity
+    # backstop, and resetting it at UTC midnight would make "max loss on the strategy of -25%"
+    # mean "-25% per day, indefinitely". A circuit breaker that re-arms itself nightly is not
+    # a circuit breaker. Clearing it is now a deliberate act (redeploy), which is the point.
+    drawdown_reset_on_day_rollover: false
     max_consecutive_losses: 4
     cooldown_seconds: 1800
     per_asset_cooldown_seconds: 10800
-    max_entries_per_day: 8
-    bypass_max_entries_per_day_on_profit: false
