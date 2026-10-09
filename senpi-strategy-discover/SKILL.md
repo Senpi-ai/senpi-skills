@@ -34,8 +34,9 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
 ## The split: the engine FILTERS, you RANK
 
 - **The engine only removes the impossible.** `scripts/discover.py` takes a few **concrete** filter
-  flags, computes the complete eligible set, and returns a bounded shortlist (8 by default):
-  `meta.eligible_count` is how many fit, `meta.returned_n` how many came back.
+  flags, computes the complete eligible set, folds each variant family into one card, and returns a
+  bounded shortlist (8 by default): `meta.eligible_count` is how many fit, `meta.families_count` how
+  many cards they fold into, `meta.returned_n` how many came back.
 - **Only `--theme` makes that shortlist a ranking.** With `--theme`, the engine scores the whole eligible
   set on the user's words, then cuts — the 8 are the best matches. Without it, the 8 are the first 8 in
   **neutral order** (asset match, then name — effectively alphabetical), not the best 8.
@@ -60,7 +61,7 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
   set — never fetch the catalog or filter strategies yourself.
 - **Only ever name strategies the engine returned** (in `MatchResult.candidates`). Copy the `id`/`name`
   verbatim from its JSON. If it's not in the JSON, don't say it. This is the anti-hallucination rule.
-- **Never recommend from a neutral-order shortlist.** When `meta.eligible_count > meta.returned_n` and
+- **Never recommend from a neutral-order shortlist.** When `meta.families_count > meta.returned_n` and
   the run had no `--theme`, the candidates are an alphabetical slice, not a ranking. Re-run with
   `--theme` built from what the user has told you (risk appetite, belief, horizon, worldview). If they've
   told you none of that, say how many fit (`eligible_count`) and ask one short question about what
@@ -116,6 +117,10 @@ python3 scripts/discover.py
   on **every run that produces picks** — a named worldview, and risk appetite, belief or horizon too
   ("aggressive", "ride trends", "fade the crowd", "a hedge") — so the shortlist is the best fits and you
   don't miss an obvious one (e.g. Cougar/Cub for a K-shape).
+- **Risk and horizon match only the catalog's own label, as a whole word.** Risk: `conservative`,
+  `moderate`, `aggressive` — "safe" and "low-risk" match neither, so translate. Horizon:
+  `scalp-horizon`, `intraday-horizon`, `swing-horizon`, `position-horizon` (days to weeks) — a bare
+  "position" is not a horizon. Put the label in `--theme` beside the user's own words.
 - **`--limit N` is the browse path only** ("show me more", "list everything"). It is not a ranking
   either, and an explicit `--limit` skips the output-size guard — keep N modest.
 - Values can be loose ("btc and eth", "no shorting") — the engine canonicalizes; unknown → ignored.
@@ -133,7 +138,7 @@ Each candidate is a flat record. You rank on the soft fields; you narrate from t
 
 | Field | Use |
 |---|---|
-| `meta.eligible_count`, `meta.returned_n` | how many fit vs how many came back — bigger `eligible_count` on an unthemed run = neutral order, not a ranking (Golden rules) |
+| `meta.eligible_count`, `meta.families_count`, `meta.returned_n` | how many fit · how many cards they fold into (one per variant family) · how many came back — `families_count > returned_n` on an unthemed run = neutral order, not a ranking (Golden rules) |
 | `meta.theme_matches`, `theme_score`, `theme_hits` | when `--theme` is set: the **ranked worldview shortlist** — read it FIRST, then rank the rest |
 | `thesis`, `tags` | **worldview / theme match** — your main lever for "war / hedge fund / all-weather / one coin wins" |
 | `belief_plain`, `archetype_label` | belief match (ride trends vs fade vs copy …) |
@@ -142,6 +147,8 @@ Each candidate is a flat record. You rank on the soft fields; you narrate from t
 | `market_facts` | the live "why now" for your lead |
 | `caveats` | honesty — surface **verbatim** |
 | `min_budget` | the **computed** minimum to run the design (`min_budget.py`; also carries `wallet_count`) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; NOT a recommendation. Size the actual budget from the user's funds (`meta.user_context.budget`); see Layer 3 |
+| `variants` | ids of the card's eligible variant siblings, folded into it — offer one only per *Variant families* below; the card's `theme_score`/`theme_hits` are the family's best |
+| `varies` | set only when the family's parent was filtered out and this member stands in — name the parent when you offer it |
 | `id`, `version` | the handoff to ops |
 
 ## Conversation flow
@@ -265,6 +272,8 @@ They lack the vocabulary; recommend *without* making them self-classify:
 - "something safe for BTC, ~$300" → `--assets btc_eth --budget 300 --theme "conservative defensive
   low-risk hedged"`  · rank: conservative
 - "aggressive NVDA play" → `--assets NVDA --theme "aggressive high-leverage momentum breakout"`  · rank: aggressive
+- "quick in-and-out trades" → `--theme "intraday-horizon scalp-horizon quick short-term"`; "I want to hold
+  for weeks" → `--theme "position-horizon long-term patient"`
 - "trade SpaceX / pre-IPO names" → `--assets pre_ipo`
 - "a K-shaped market — long winners, short losers" → YOU expand the worldview →
   `--theme "k-shape two-speed long-short divergence dispersion winners laggards"` *(no asset cut)* → read
@@ -305,6 +314,9 @@ worldview/fund picks; offer the stack on single-wallet picks only.
 Fifteen listed strategies are VARIANTS of another listed strategy, differing in one or two numbers —
 six of them are penguins. Ranked on keyword overlap they look interchangeable, and a user who picks
 the wrong one reads its results as if they were the parent's.
+
+The engine already folds each family into ONE card — the parent's, with its eligible siblings' ids in
+`variants` — so a shortlist never holds two members of a family.
 
 **Offer the PARENT. Name a variant only when the user's own words ask for the thing it varies** —
 "fewer, bigger positions" earns a duo, "I keep getting in late" earns a chase arm, a generic request

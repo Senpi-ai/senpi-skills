@@ -32,7 +32,7 @@ def test_skill_forbids_recommending_from_the_unthemed_neutral_order_shortlist():
     so the skill must route soft preferences into --theme (or ask) instead of picking from them."""
     text = " ".join(open(SKILL, encoding="utf-8").read().split())
     for needle in ("Never recommend from a neutral-order shortlist",
-                   "`meta.eligible_count > meta.returned_n`",
+                   "`meta.families_count > meta.returned_n`",
                    "Re-run with `--theme` built from what the user has told you",
                    "say how many fit (`eligible_count`) and ask one short question",
                    "Soft preferences go in `--theme`, never in a filter",

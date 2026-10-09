@@ -56,6 +56,35 @@ def test_themed_default_cli_output_is_bounded():
     result = json.loads(proc.stdout)
     assert result["meta"]["returned_n"] == 8
     assert len(proc.stdout) <= 12_000
+    # theme ranking must run before the cap — capped first, this is the alphabetical 8 and cougar is gone
+    assert "cougar" in [c["id"] for c in result["candidates"]]
+
+
+def _risk(cid):
+    return next(r for r in discover.load_catalog(discover.default_catalog()) if r["id"] == cid)["risk_level"]
+
+
+def test_a_risk_ask_returns_that_risk_level_not_incidental_text_matches():
+    """SKILL.md's own few-shot ("something safe for BTC, ~$300"): 9 conservative records are eligible, and
+    without risk_level scoring the 8 returned held two aggressive/moderate text matches (wolf, hyena)."""
+    proc = _run_default("--assets", "btc_eth", "--budget", "300", "--theme", "conservative defensive low-risk hedged")
+    assert proc.returncode == 0, proc.stderr
+    risks = [_risk(c["id"]) for c in json.loads(proc.stdout)["candidates"]]
+    assert len(risks) == 8 and risks.count("conservative") >= 7 and "aggressive" not in risks, risks
+
+
+def test_variants_fold_into_their_family_instead_of_filling_the_shortlist():
+    """Before folding, 4 of 8 were penguin/pelican siblings (references/variant-families.md: offer a
+    variant only through its parent). Now one card per family, the siblings named on the parent's card."""
+    proc = _run_default("--theme", "aggressive high-leverage momentum breakout")
+    assert proc.returncode == 0, proc.stderr
+    result = json.loads(proc.stdout)
+    cands = result["candidates"]
+    assert len(cands) == 8 and not [c["id"] for c in cands if c.get("varies")]
+    penguin = next(c for c in cands if c["id"] == "penguin")
+    assert {"penguin-chase-200bp", "penguin-chase-300bp", "penguins-duo"} <= set(penguin["variants"])
+    assert result["meta"]["eligible_count"] > result["meta"]["families_count"] >= result["meta"]["returned_n"]
+    assert len(proc.stdout) <= 12_000
 
 
 class _LiveShapedClient:
@@ -125,7 +154,7 @@ def test_fit_budget_drops_lowest_ranked_market_facts_first():
     assert _size(res) <= budget
     assert [bool(c["market_facts"]) for c in res["candidates"]] == [True, True, False, False]
     assert res["meta"]["returned_n"] == 4 and res["meta"]["eligible_count"] == 50
-    assert "market_facts dropped from 2 candidates, returned 4 of 4" in res["meta"]["warnings"][-1]
+    assert res["meta"]["warnings"] == [discover.TRIM_WARNING]
 
 
 def test_fit_budget_then_drops_bottom_candidates_keeping_theme_matches_consistent():
@@ -138,7 +167,7 @@ def test_fit_budget_then_drops_bottom_candidates_keeping_theme_matches_consisten
     assert all(c["market_facts"] == [] for c in res["candidates"])
     assert [m["id"] for m in res["meta"]["theme_matches"]] == ids
     assert res["meta"]["returned_n"] == len(ids) and res["meta"]["eligible_count"] == 50
-    assert f"returned {len(ids)} of 6" in res["meta"]["warnings"][-1]
+    assert res["meta"]["warnings"] == [discover.TRIM_WARNING]
 
 
 def test_fit_budget_never_returns_fewer_than_one_candidate():
@@ -146,4 +175,4 @@ def test_fit_budget_never_returns_fewer_than_one_candidate():
     discover.fit_budget(res, 10)          # unreachable budget
     assert [c["id"] for c in res["candidates"]] == ["s0"]
     assert res["meta"]["returned_n"] == 1
-    assert "returned 1 of 3" in res["meta"]["warnings"][-1]
+    assert res["meta"]["warnings"] == [discover.TRIM_WARNING]

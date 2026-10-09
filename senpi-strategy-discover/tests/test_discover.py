@@ -75,7 +75,7 @@ def test_return_all():
     check("no relevance field on candidates", all("relevance" not in c for c in r["candidates"]))
     check("no match_reasons field on candidates", all("match_reasons" not in c for c in r["candidates"]))
     # limit is a SAFETY cap only, never the default
-    rl = discover.match(intent(), CATALOG, limit=3)
+    rl = discover.limit_result(discover.match(intent(), CATALOG), 3)
     check("limit caps returned but reports full eligible",
           rl["meta"]["returned_n"] == 3 and rl["meta"]["eligible_count"] == N_CATALOG)
 

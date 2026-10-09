@@ -7,6 +7,13 @@ read as if it were the parent's.
 
 This file is how to tell them apart, and how to say so in one line each.
 
+## What the engine hands you
+
+`discover.py` folds every family into one card before the shortlist cap: the parent's card lists its
+eligible siblings' ids in `variants` (and carries the family's best theme score), so a variant reaches
+the user only through that list and the rule below. If the parent was filtered out, the closest eligible
+member stands in and its `varies` names the parent.
+
 ## The rule
 
 **Never offer two members of the same family in the same shortlist** — with one exception, the
