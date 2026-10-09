@@ -186,10 +186,247 @@ def test_ops_chain_diverges_only_where_pinned_as_intended():
             f"row {row} no longer diverges — move it into _OPS_AGREE_ROWS")
 
 
+# ── the saved-wallets reader (External Wallets R1) ─────────────────────────────────────────────
+# Four homes, one answer: portfolio, improve-trades, the quant desk and trader-research must agree on
+# "does this user have saved wallets, and which" — a skill that reads an absent key as [] tells the user
+# they have none while another says it couldn't load them.
+CW_COPIES = (os.path.join(HERE, "..", "scripts", "portfolio.py"),
+             os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts", "review.py"),
+             os.path.join(HERE, "..", "..", "quant-desk", "scripts", "addresses.py"),
+             os.path.join(HERE, "..", "..", "senpi-trader-research", "scripts", "research.py"))
+_CW_BLOCK = re.compile(r"^# ── VENDORED external-wallets reader,.*?^# ── end external-wallets reader$", re.S | re.M)
+ACCESS = "Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it."
+
+
+def _cw_block(path):
+    with open(path, encoding="utf-8") as f:
+        found = _CW_BLOCK.search(f.read())
+    assert found, f"vendored saved-wallets reader not found in {path}"
+    return found.group(0)
+
+
+def test_external_wallets_reader_vendor_parity():
+    assert all(os.path.exists(p) for p in CW_COPIES), "a vendor home is missing"
+    shas = {hashlib.sha256(_cw_block(p).encode("utf-8")).hexdigest() for p in CW_COPIES}
+    assert len(shas) == 1, ("`_external_wallets` DRIFTED between its vendored homes — re-vendor the block "
+                            "byte-identically (every skill must answer 'which saved wallets?' the same way)")
+
+
+_CW_ROWS = (
+    # the shape the MCP sends: inside `user`, status ok, one wallet
+    ({"user": {"external_wallets_status": "ok", "external_wallets": [
+        {"address": "0xABCDEF0000000000000000000000000000000001", "label": "Main",
+         "added_at": "2026-10-01T15:31:02.000Z", "access": ACCESS}]}},
+     ("ok", [{"address": "0xabcdef0000000000000000000000000000000001", "label": "Main",
+              "added_at": "2026-10-01T15:31:02.000Z", "access": ACCESS}])),
+    # ok and genuinely none
+    ({"user": {"external_wallets_status": "ok", "external_wallets": []}}, ("ok", [])),
+    # the MCP said it couldn't load them — no list key
+    ({"user": {"external_wallets_status": "unavailable"}}, ("unavailable", None)),
+    # an OLDER MCP: neither key — unavailable, never []
+    ({"user": {"wallets": [{"walletType": "embedded"}]}}, ("unavailable", None)),
+    # a list without a status is not a read we can trust
+    ({"user": {"external_wallets": []}}, ("unavailable", None)),
+    # status ok but the list is missing or not a list
+    ({"user": {"external_wallets_status": "ok"}}, ("unavailable", None)),
+    ({"user": {"external_wallets_status": "ok", "external_wallets": None}}, ("unavailable", None)),
+    # flat payload (the skills' recorded fixtures) reads the same way
+    ({"external_wallets_status": "ok", "external_wallets": []}, ("ok", [])),
+    # a failed user_get_me
+    ({}, ("unavailable", None)),
+    (None, ("unavailable", None)),
+)
+
+
+def _by_path(name, path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _quant_addresses():
+    """quant-desk's copy, loaded by FILE PATH. Never put quant-desk/scripts on sys.path here: it ships a
+    `score.py` that shadows senpi-signals' in the shared CI run (see .github/workflows/tests.yml)."""
+    return _by_path("quant_desk_addresses_parity", CW_COPIES[2])
+
+
+def _research():
+    """trader-research's copy, loaded by FILE PATH under its own name, so this never depends on (or
+    disturbs) what the shared run already imported as `research`."""
+    return _by_path("trader_research_parity", CW_COPIES[3])
+
+
+def test_the_skills_answer_external_wallets_the_same_way():
+    """The sha pins the helper; this pins the ANSWER (a shadowing redefinition after the end marker
+    hashes identically and still diverges)."""
+    quant, research = _quant_addresses(), _research()
+    for me, want in _CW_ROWS:
+        assert portfolio._external_wallets(me) == want, me
+        assert review._external_wallets(me) == want, me
+        assert quant._external_wallets(me) == want, me
+        assert research._external_wallets(me) == want, me
+
+
+def test_the_readers_take_the_a1_surface_and_ignore_the_retired_r1_keys():
+    """Amendment A1 (paste-only): the MCP sends `external_wallets_status` / `external_wallets`, each item
+    with `added_at`. The R1 names never shipped; a payload carrying only them reads unavailable — never
+    [] and never a list. They are split literals so no rename pass can rewrite them."""
+    quant, research = _quant_addresses(), _research()
+    retired = {"user": {"conn" "ected_wallets_status": "ok", "conn" "ected_wallets": [
+        {"address": "0x" + "ab" * 20, "label": None, "verified" "_at": "2026-10-01T15:31:02.000Z",
+         "access": ACCESS}]}}
+    a1 = {"user": {"external_wallets_status": "ok", "external_wallets": [
+        {"address": "0x" + "AB" * 20, "label": None, "added_at": "2026-10-01T15:31:02.000Z", "access": ACCESS}]}}
+    want = ("ok", [{"address": "0x" + "ab" * 20, "label": None, "added_at": "2026-10-01T15:31:02.000Z",
+                    "access": ACCESS}])
+    bare = {"user": {"external_wallets_status": "ok", "external_wallets": [{"address": "0x" + "cd" * 20}]}}
+    for mod in (portfolio, review, quant, research):
+        assert mod._external_wallets(retired) == ("unavailable", None), mod.__name__
+        assert mod._external_wallets(a1) == want, mod.__name__
+        # an item with no label / added_at / access is still listed — those are display fields, never a gate
+        assert mod._external_wallets(bare) == ("ok", [{"address": "0x" + "cd" * 20, "label": None,
+                                                       "added_at": None, "access": None}]), mod.__name__
+
+
+# ── the book group key (one strategy unit) ─────────────────────────────────────────────────────────
+# One Senpi strategy is one row with all its wallets, in every skill that lists wallets. A skill that
+# groups by the wallet lists a two-instance package as two strategies while another lists it as one.
+GK_COPIES = (os.path.join(HERE, "..", "scripts", "portfolio.py"),
+             os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts", "review.py"),
+             os.path.join(HERE, "..", "..", "quant-desk", "scripts", "addresses.py"))
+GK_SKILLS = (os.path.join(HERE, "..", "SKILL.md"),
+             os.path.join(HERE, "..", "..", "senpi-improve-trades", "SKILL.md"),
+             os.path.join(HERE, "..", "..", "quant-desk", "SKILL.md"))
+_GK_BLOCK = re.compile(r"^# ── VENDORED book group key.*?^# ── end vendored book group key$", re.S | re.M)
+UNIT_SENTENCE = "**A Senpi strategy is one row with all its wallets.**"
+
+
+def _gk_block(path):
+    with open(path, encoding="utf-8") as f:
+        found = _GK_BLOCK.search(f.read())
+    assert found, f"vendored `_book_group_key` block not found in {path}"
+    return found.group(0)
+
+
+def _gk_homes():
+    return (portfolio, review, _quant_addresses())
+
+
+def test_book_group_key_vendor_parity():
+    assert all(os.path.exists(p) for p in GK_COPIES), "a vendor home is missing"
+    shas = {hashlib.sha256(_gk_block(p).encode("utf-8")).hexdigest() for p in GK_COPIES}
+    assert len(shas) == 1, ("`_book_group_key` DRIFTED between its vendored homes — re-vendor the block "
+                            "byte-identically (every skill must list a strategy as the same one row)")
+
+
+_GK_ROWS = (
+    # two instances of one package share the package id
+    ({"skill_name": "camel", "wallet": "0xa1"}, "camel"),
+    ({"skill_name": "camel", "wallet": "0xa2"}, "camel"),
+    # a fork is a new id
+    ({"skill_name": "camel-fork", "wallet": "0xa3"}, "camel-fork"),
+    # unstamped: the wallet is its own key
+    ({"skill_name": None, "wallet": "0xa4"}, "0xa4"),
+    ({"skill_name": "", "wallet": "0xa5"}, "0xa5"),
+    ({"wallet": "0xa6"}, "0xa6"),
+)
+
+
+def test_the_skills_answer_the_book_group_key_the_same_way():
+    """The sha pins the helper; this pins the ANSWER (a shadowing redefinition after the end marker
+    hashes identically and still diverges)."""
+    for mod in _gk_homes():
+        for row, want in _GK_ROWS:
+            assert mod._book_group_key(row) == want, (mod.__name__, row)
+
+
+def test_every_wallet_listing_skill_states_the_same_strategy_unit():
+    for path in GK_SKILLS:
+        with open(path, encoding="utf-8") as f:
+            assert UNIT_SENTENCE in f.read(), path
+
+
+# ── the Senpi main-wallet reader (R1 dev E2E round 2, A3) ──────────────────────────────────────────
+# Three homes, one number: portfolio, improve-trades and the quant desk list the Senpi main wallet as a
+# managed row valued by its idle cash. A skill that values it differently (or leaves it out) breaks the
+# "managed by Senpi" subtotals' reconciliation across skills.
+MW_COPIES = GK_COPIES
+_MW_BLOCK = re.compile(r"^# ── VENDORED Senpi main-wallet reader,.*?^# ── end main-wallet reader$", re.S | re.M)
+
+
+def _mw_block(path):
+    with open(path, encoding="utf-8") as f:
+        found = _MW_BLOCK.search(f.read())
+    assert found, f"vendored main-wallet reader not found in {path}"
+    return found.group(0)
+
+
+def test_main_wallet_reader_vendor_parity():
+    assert all(os.path.exists(p) for p in MW_COPIES), "a vendor home is missing"
+    shas = {hashlib.sha256(_mw_block(p).encode("utf-8")).hexdigest() for p in MW_COPIES}
+    assert len(shas) == 1, ("the main-wallet reader DRIFTED between its vendored homes — re-vendor the block "
+                            "byte-identically (every skill must value the Senpi main wallet the same way)")
+
+
+_MW_ME_ROWS = (
+    ({"user": {"wallets": [{"walletType": "EMBEDDED", "walletAddress": "0xE1"}]}}, "0xE1"),
+    ({"wallets": [{"type": "embedded", "address": "0xe2"}]}, "0xe2"),
+    ({"user": {"wallets": [{"walletType": "external", "walletAddress": "0xe3"},
+                           {"walletType": "embedded", "walletAddress": "0xe4"}]}}, "0xe4"),
+    ({"user": {"wallets": []}}, None),
+    ({}, None),
+    (None, None),
+)
+_MW_PORTFOLIO_ROWS = (
+    ({"portfolio": {"total_in_hyperliquid": "120.5", "total_spot_usd_in_hyperliquid": "39.9",
+                    "token_balances": [{"symbol": "USDC", "balanceInUSD": "0.05", "chain": "base"},
+                                       {"tokenSymbol": "usdt", "balanceInUSD": 0, "formattedBalance": "2",
+                                        "tokenPriceInUSD": 0},
+                                       {"symbol": "HYPE", "balanceInUSD": "999"}]}}, 162.45),
+    ({"total_usdc_in_hyperliquid": "10"}, 10.0),
+    ({}, 0.0),
+    (None, None),
+    ("oops", None),
+)
+
+
+def test_the_skills_value_the_main_wallet_the_same_way():
+    """The sha pins the helper; this pins the ANSWER — and that portfolio's own read goes through it."""
+    homes = _gk_homes()
+    for me, want in _MW_ME_ROWS:
+        for mod in homes:
+            assert mod._main_wallet_address(me) == want, (mod.__name__, me)
+    for p, want in _MW_PORTFOLIO_ROWS:
+        for mod in homes:
+            got = mod._main_wallet_value(p)
+            assert (got["idle_total"] if got else None) == want, (mod.__name__, p)
+
+    class _C:
+        def __init__(self, p):
+            self.p = p
+
+        def mcp_call(self, tool, timeout=12, **kw):
+            return {"success": True, "data": self.p}
+    for p, want in _MW_PORTFOLIO_ROWS[:3]:
+        emb, _ = portfolio.fetch_embedded(_C(p), {}, me={})
+        assert emb["idle_total"] == want, p
+    assert portfolio.EMBEDDED_LABEL == review.MAIN_WALLET_LABEL == "Senpi main wallet"
+
+
 if __name__ == "__main__":
     test_vendored_cli_helpers_match_their_origin()
     test_first_written_vendor_parity()
     test_the_two_skills_answer_the_same_chain_the_same_way()
     test_ops_chain_answers_match_portfolio_where_the_readers_cannot_disagree()
     test_ops_chain_diverges_only_where_pinned_as_intended()
+    test_external_wallets_reader_vendor_parity()
+    test_the_skills_answer_external_wallets_the_same_way()
+    test_the_readers_take_the_a1_surface_and_ignore_the_retired_r1_keys()
+    test_book_group_key_vendor_parity()
+    test_the_skills_answer_the_book_group_key_the_same_way()
+    test_every_wallet_listing_skill_states_the_same_strategy_unit()
+    test_main_wallet_reader_vendor_parity()
+    test_the_skills_value_the_main_wallet_the_same_way()
     print("NAME READER PARITY OK")

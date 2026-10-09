@@ -15,6 +15,7 @@ the weekly rank, and — when a Senpi token is present — the smart-money cohor
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -49,7 +50,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.41.0"
+VERSION = "1.45.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -84,6 +85,242 @@ def _mcp_client(meta):
     except Exception as e:  # noqa: BLE001
         meta.setdefault("warnings", []).append(f"senpi client unavailable: {e}")
         return None
+
+
+def _skill_name(row):
+    """The package a strategy wallet was deployed under — senpi-portfolio's reader: the deploy stamp
+    `strategyMetadata.skillName`, else a top-level `skillName` / `skill_name` / `skill`; None unstamped."""
+    meta = row.get("strategyMetadata") or row.get("metadata")
+    name = (meta.get("skillName") or meta.get("skill_name")) if isinstance(meta, dict) else None
+    return name or row.get("skillName") or row.get("skill_name") or row.get("skill") or None
+
+
+def my_wallets(mcp):
+    """The reader's own wallets: the wallets they added in Your wallets (`user_get_me`) and their
+    Senpi strategy wallets (`strategy_list`, every status — a closed strategy
+    still traded inside the window). Each half is "ok" or "unavailable" on its own; unavailable is
+    unknown, never "none". No Senpi token → both unavailable."""
+    out = {"external_wallets_status": addr_book.EXTERNAL_UNAVAILABLE, "external_wallets": None,
+           "senpi_wallets_status": "unavailable", "senpi_wallets": None,
+           "main_wallet_status": "unavailable", "main_wallet": None}
+    if mcp is None:
+        out["error"] = "no Senpi token on this box — ask the reader for an address"
+        return out
+    me_ok = False
+    try:
+        resp = mcp.mcp_call("user_get_me", timeout=22) or {}    # waits on moxie (MCP 20 s)
+        me_ok = isinstance(resp, dict) and resp.get("success") is not False
+        me = resp.get("data") or {}
+    except Exception:  # noqa: BLE001 — unknown, never empty
+        me = {}
+    status, wallets = addr_book._external_wallets(me)
+    out["external_wallets_status"], out["external_wallets"] = status, wallets
+    # the Senpi main wallet (managed money): "ok" with None = the reply names no main wallet
+    main = addr_book._main_wallet_address(me) if me_ok else None
+    out["main_wallet_status"] = "ok" if me_ok else "unavailable"
+    out["main_wallet"] = str(main).lower() if main else None
+    try:
+        resp = mcp.mcp_call("strategy_list", status=["ACTIVE", "PAUSED", "CLOSED"], timeout=20)
+        # The MCP answers a failed read as {success: false, …} WITHOUT raising, and `_rows` turns that
+        # into []: "no strategies" on a failed read. A reply with no list is unknown, never empty.
+        if not isinstance(resp, dict) or resp.get("success") is False or \
+                not isinstance(((resp.get("data") or {}).get("strategies")), list):
+            return out
+        rows = dsl_mod._rows(resp, "strategies")
+        out["senpi_wallets"] = [{"address": str(r["strategyWalletAddress"]).lower(),
+                                 "name": r.get("strategyName") or r.get("tradingStrategyName"),
+                                 "status": r.get("status"), "skill_name": _skill_name(r)}
+                                for r in rows if r.get("strategyWalletAddress")]
+        out["senpi_wallets_status"] = "ok"
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+# ── Every wallet first-class (R1 review §02): ONE list, ordered by value, never by origin. Origin is
+# the `kind` column (read-only saved wallet / Senpi strategy), not a rank and not a section break. The
+# order is computed HERE and emitted, so the agent narrates an order it was given.
+EXTERNAL_STATE_TIMEOUT_S = 25      # moxie reads each saved wallet live (~6.5 s); the MCP's own timeout is 20 s
+KIND_SAVED, KIND_STRATEGY, KIND_MAIN = "saved", "strategy", "main"
+VALUE_OK, VALUE_UNKNOWN, VALUE_PARTIAL = "ok", "couldnt_load", "partial"
+_SAVED_VALUE_SOURCE = "account_get_external_wallets state.totalValueUsd"
+_STRATEGY_VALUE_SOURCE = "Hyperliquid portfolio (account value)"
+_MAIN_VALUE_SOURCE = "account_get_portfolio idle cash (perps + spot USDC + EVM stablecoins) — senpi-portfolio's read"
+MAIN_PORTFOLIO_TIMEOUT_S = 25
+
+
+def _main_value(mcp):
+    """The Senpi main wallet's idle cash — ONE `account_get_portfolio` (forceFetch) valued by the vendored
+    main-wallet reader, the number senpi-portfolio calls "idle in your Senpi main wallet". None when the
+    read failed: unknown, never $0."""
+    try:
+        resp = mcp.mcp_call("account_get_portfolio", forceFetch=True, strategyStatus="ALL",
+                            timeout=MAIN_PORTFOLIO_TIMEOUT_S)
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(resp, dict) or resp.get("success") is False:
+        return None
+    v = addr_book._main_wallet_value(resp.get("data", resp))
+    return v["idle_total"] if v else None
+
+
+def _main_row(address, value):
+    """The Senpi main wallet — managed money, valued by its own idle cash, runnable like any address."""
+    row = {"address": address, "label": addr_book.MAIN_WALLET_LABEL, "kind": KIND_MAIN,
+           "kind_label": render.KIND_LABEL[KIND_MAIN], "status": None, "closed": False,
+           "value_usd": value, "value_status": VALUE_OK if value is not None else VALUE_UNKNOWN,
+           "value_source": _MAIN_VALUE_SOURCE, "run": address}
+    if value is None:
+        row["value_note"] = "account_get_portfolio failed"
+    return row
+
+
+def _usd_or_none(v):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return x if math.isfinite(x) else None
+
+
+def _saved_states(mcp):
+    """{address: state} for every saved wallet, from ONE `account_get_external_wallets` call (no address
+    = all of them), or None when that read failed — the wallets stay listed, their values unknown."""
+    try:
+        resp = mcp.mcp_call("account_get_external_wallets", timeout=EXTERNAL_STATE_TIMEOUT_S)
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(resp, dict) or resp.get("success") is False:
+        return None
+    data = resp.get("data", resp)
+    rows = data.get("external_wallets") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return None
+    return {str(r.get("address") or "").lower(): r.get("state") for r in rows if isinstance(r, dict)}
+
+
+def _saved_row(w, states):
+    st = states.get(w["address"]) if states is not None else None
+    row = {"address": w["address"], "label": w.get("label"), "kind": KIND_SAVED,
+           "kind_label": render.KIND_LABEL[KIND_SAVED], "status": None, "closed": False,
+           "value_usd": None, "value_status": VALUE_UNKNOWN, "value_source": _SAVED_VALUE_SOURCE,
+           "access": w.get("access"), "run": w["address"]}
+    if states is None:
+        row["value_note"] = "account_get_external_wallets failed"
+    elif not isinstance(st, dict):
+        row["value_note"] = "no state for this wallet"
+    elif st.get("readError"):
+        row["value_note"] = f"state.readError: {st['readError']}"
+    elif _usd_or_none(st.get("totalValueUsd")) is None:
+        row["value_note"] = "state.totalValueUsd is null"
+    else:
+        row["value_usd"], row["value_status"] = _usd_or_none(st["totalValueUsd"]), VALUE_OK
+        if isinstance(st.get("unpricedCoins"), list) and st["unpricedCoins"]:
+            row["unpriced_coins"] = [str(c) for c in st["unpricedCoins"]]
+    return row
+
+
+def _strategy_row(w, portfolios):
+    status = str(w.get("status") or "").upper() or None
+    closed = status == "CLOSED"
+    v = metrics.current_account_value(portfolios.get(w["address"])) if portfolios is not None else None
+    row = {"address": w["address"], "label": w.get("name"), "kind": KIND_STRATEGY,
+           "kind_label": render.KIND_LABEL["strategy_closed" if closed else KIND_STRATEGY],
+           "status": status, "closed": closed, "value_usd": v,
+           "value_status": VALUE_OK if v is not None else VALUE_UNKNOWN, "value_source": _STRATEGY_VALUE_SOURCE}
+    if v is None:
+        row["value_note"] = "Hyperliquid portfolio read failed"
+    return row
+
+
+def _strategy_rows(wallet_rows, senpi_wallets):
+    """ONE row per Senpi STRATEGY, with all its wallets — grouped by senpi-portfolio's key
+    (`_book_group_key`: the package the wallet was deployed under; an unstamped wallet is its own row).
+    A strategy of one wallet is that wallet's row and runs the plain desk on it; a strategy of several
+    sums the wallets whose value loaded (`partial` when only some did — never a $0 for the rest), is
+    closed only when every wallet is, and runs `--book` over its wallets."""
+    order, buckets = [], {}
+    for row, w in zip(wallet_rows, senpi_wallets):
+        try:
+            key = addr_book._book_group_key({"skill_name": w.get("skill_name"), "wallet": w["address"]})
+        except Exception:  # noqa: BLE001 — a malformed row must not sink the list
+            key = w["address"]
+        if key not in buckets:
+            buckets[key] = []
+            order.append(key)
+        buckets[key].append(row)
+    out = []
+    for key in order:
+        ws = buckets[key]
+        listed = [{"address": x["address"], "label": x["label"], "status": x["status"], "closed": x["closed"],
+                   "value_usd": x["value_usd"], "value_status": x["value_status"]} for x in ws]
+        if len(ws) == 1:
+            # a packaged strategy is called by its package id, as senpi-portfolio's book does
+            out.append(dict(ws[0], label=key if key != ws[0]["address"] else ws[0]["label"],
+                            strategy_group=key, wallet_count=1, wallets_loaded=int(ws[0]["value_usd"] is not None),
+                            wallets=listed, run=ws[0]["address"]))
+            continue
+        known = [x["value_usd"] for x in ws if x["value_usd"] is not None]
+        closed = sum(1 for x in ws if x["closed"])
+        statuses = sorted({x["status"] for x in ws if x["status"]})
+        row = {"address": None, "label": key, "kind": KIND_STRATEGY,
+               "kind_label": render.KIND_LABEL["strategy_closed" if closed == len(ws) else
+                                               "strategy_partly_closed" if closed else KIND_STRATEGY],
+               "status": statuses[0] if len(statuses) == 1 else ("MIXED" if statuses else None),
+               "closed": closed == len(ws), "closed_wallets": closed,
+               "value_usd": round(sum(known), 2) if known else None,
+               "value_status": VALUE_UNKNOWN if not known else (VALUE_OK if len(known) == len(ws) else VALUE_PARTIAL),
+               "value_source": _STRATEGY_VALUE_SOURCE,
+               "strategy_group": key, "wallet_count": len(ws), "wallets_loaded": len(known),
+               "wallets": listed,
+               "run": "--book " + " ".join(x["address"] for x in ws)}
+        if len(known) < len(ws):
+            row["value_note"] = f"{len(known)} of {len(ws)} wallets loaded a value"
+        out.append(row)
+    return out
+
+
+def _by_value(row):
+    """Value descending; a value that couldn't load sorts LAST (never as 0); ties by label, then address
+    (a strategy of several wallets by its first)."""
+    v = row["value_usd"]
+    addr = row["address"] or min((w["address"] for w in row.get("wallets") or []), default="")
+    return (v is None, -(v or 0.0), str(row.get("label") or "").lower(), addr)
+
+
+def my_wallets_listed(mcp, hl):
+    """`--my-wallets`: `my_wallets` plus ONE list of every wallet, ordered by value, each row with its
+    kind and its value. Saved wallets are valued by the MCP's `state.totalValueUsd` (one call for all);
+    strategy wallets by Hyperliquid's own account value (`portfolio`, one read per wallet, in parallel —
+    the request a desk run on that wallet makes anyway). Both reads run concurrently; any one wallet that
+    can't be valued is "couldn't load" and sorts last. Each source keeps its own ok/unavailable status,
+    and a list with an unavailable source is `wallets_complete: false` — never "no wallets"."""
+    out = my_wallets(mcp)
+    saved, strat, main = out.get("external_wallets"), out.get("senpi_wallets"), out.get("main_wallet")
+    states, portfolios, main_value = {}, {}, None
+    if saved or main or (strat and hl is not None):
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            fs = ex.submit(_saved_states, mcp) if saved else None
+            fp = ex.submit(hl.portfolios, [w["address"] for w in strat]) if strat and hl is not None else None
+            fm = ex.submit(_main_value, mcp) if main else None
+            states = fs.result() if fs else {}
+            portfolios = fp.result() if fp else None
+            main_value = fm.result() if fm else None
+    if saved is None and strat is None and not main:
+        rows = None
+    else:
+        rows = ([_main_row(main, main_value)] if main else []) + \
+               [_saved_row(w, states) for w in (saved or [])] + \
+               _strategy_rows([_strategy_row(w, portfolios) for w in (strat or [])], strat or [])
+        rows.sort(key=_by_value)
+    out["order"] = "value_desc"
+    out["wallets"] = rows
+    out["wallets_complete"] = (out["external_wallets_status"] == addr_book.EXTERNAL_OK
+                               and out["senpi_wallets_status"] == "ok")
+    out["ask"] = render.my_wallets_ask(rows)
+    out["text"] = render.render_my_wallets(out)
+    return out
 
 
 class _MCPFixture:
@@ -236,6 +473,20 @@ def _ratio_or_none(num, base, cap=10.0):
         return None
     r = num / base
     return None if abs(r) > cap else r
+
+
+def _cached_run(path, max_age_s):
+    """A cached desk run, or None when it is absent, older than `max_age_s`, unreadable, or written by
+    another desk VERSION (or none) — a run cached under an older protection rule must never re-render
+    under this one."""
+    try:
+        if time.time() - os.path.getmtime(path) >= max_age_s:
+            return None
+        with open(path) as fh:
+            r = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return r if isinstance(r, dict) and r.get("desk_version") == VERSION else None
 
 
 def _drop_market_makers(addrs, meta, label):
@@ -464,7 +715,16 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
          f"{len(fills):,} fills across {len({e.get('coin') for e in fills})} coins")
     book = metrics.open_book(cs, oo, ctxs, ages, tr_raw.get("clearinghouseState_xyz"), tr_raw.get("frontendOpenOrders_xyz"), ctx_xyz,
                              metrics.whole_account_value(tr_raw.get("portfolio"), tr_raw.get("spotClearinghouseState")),
-                             metrics.spot_free_usdc(tr_raw.get("spotClearinghouseState")))
+                             metrics.spot_free_usdc(tr_raw.get("spotClearinghouseState")),
+                             orders_unread_by_wallet=tr_raw.get("orders_unread_by_wallet"),
+                             positions_unread_by_wallet=(tr_raw["positions_unread_by_wallet"] if "positions_unread_by_wallet" in tr_raw
+                                                         else book_mod.positions_unread(tr_raw)))
+    book.update(metrics.account_split(book, tr_raw.get("userAbstraction")))
+    if book["unknown"]:
+        meta["warnings"].append("open orders unreadable: protection unknown for " + ", ".join(book["unknown"]))
+    for dex, wal in book["positions_unread_by_wallet"]:
+        where = metrics.positions_unread_phrase(dict(positions_unread_by_wallet=[[dex, wal]]))
+        meta["warnings"].append(f"positions unreadable on {where}: its open positions are unknown, not none")
     # B5 (@0xsarvesh, #718). The startPosition-jump heuristic can only see gaps it can infer from the
     # fills it DID get — a whole TWAP series older than the retained window leaves no jump behind.
     # Hyperliquid's own P&L series is an independent witness: what we rebuilt from fills, plus what
@@ -538,7 +798,7 @@ def analyze(addr, hl, days=90, mcp=None, want_rank=True, want_cohort=True, bench
     if want_cohort:
         t3 = time.time()
         step(3, "running senpi-smart-money — the proven cohort and the hot 30-day cohort against this book …", t0,
-             f"{len(book['positions'])} open position(s), {len(book['naked'])} unprotected")
+             f"{len(book['positions'])} open position(s), {metrics.unprotected_label(book)} unprotected")
         if mcp is not None:
             for name, fetch in (("proven", smart_money.proven_cohort), ("hot", smart_money.hot_cohort)):
                 try:
@@ -765,7 +1025,12 @@ class _Flight:
             pass
 
 
-def resolve_whose(book, addr, other=False, mine=False, claim=False):
+def _with_whose_note(md, whose_changed):
+    """The analyzed→saved sentence goes first, so it is said before the desk speaks in the second person."""
+    return f"{whose_changed['say']}\n\n{md}" if whose_changed else md
+
+
+def resolve_whose(book, addr, other=False, mine=False, claim=False, saved=()):
     """Whose book this is. **An address is the reader's own book unless we know otherwise.**
 
     The flagship path is a Hyperliquid trader pasting their own address to see their own desk, so
@@ -776,11 +1041,17 @@ def resolve_whose(book, addr, other=False, mine=False, claim=False):
     stays someone else's — the reader looked at a whale last week, and a bare re-run should not
     start giving them the whale's leaks to fix. Anything the book has not seen is theirs.
 
-    Order: an explicit flag on this run, then what the book already knows, then the default.
+    A SAVED wallet (one the reader added in Your wallets) is the reader's whatever the book remembers:
+    an address they once read as a stranger's and then added is theirs now.
+
+    Order: an explicit flag on this run, then a saved wallet, then what the book already knows,
+    then the default. `--claim` is a voice flag for this run only — it no longer records ownership.
     """
     if other:
         return "other"
     if mine or claim:
+        return "mine"
+    if str(addr or "").lower() in {str(c).lower() for c in saved or ()}:
         return "mine"
     if addr_book.relationship(book, addr) == addr_book.ANALYZED:
         return "other"                 # we have already established this one is not theirs
@@ -793,8 +1064,8 @@ def main(argv=None):
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--mine", action="store_true", help="the reader's own book (second person)")
     g.add_argument("--claim", action="store_true",
-                   help="the reader says this address is theirs: read it as their book AND remember it "
-                        "(a claim, not proof — we cannot verify ownership of an address from a message)")
+                   help="the reader says this address is theirs: read it as their book for THIS run only. "
+                        "Nothing is saved — to save it, the reader can add it in Your wallets on senpi.ai (web)")
     g.add_argument("--other", "--analyst", dest="other", action="store_true", help="someone else's book (analyst mode): third person, learn-from-them follow-ups")
     ap.add_argument("--compare", nargs="+", metavar="0x", help="two or more addresses side by side (cached runs are reused)")
     ap.add_argument("--book", nargs="+", metavar="0x",
@@ -824,6 +1095,13 @@ def main(argv=None):
                     help="who is hot right now (week) or who has held up (month/allTime)")
     ap.add_argument("--find-losers", action="store_true",
                     help="the worst in the band instead of the best — the desk reads a losing book just as well")
+    ap.add_argument("--my-wallets", action="store_true",
+                    help="print the reader's own wallets as JSON and exit: ONE list (`wallets`) of their "
+                         "saved wallets (user_get_me) and Senpi strategy wallets (strategy_list), ordered by "
+                         "value with kind as a column (a Senpi strategy is one row with all its wallets; "
+                         "every row's `run` is the desk arguments for it), each source with its own "
+                         "ok/unavailable status; "
+                         "`text` is that list rendered, `ask` the question naming them largest first")
     ap.add_argument("--addresses", action="store_true",
                     help="print this box's address book as JSON and exit — which wallets are the reader's, "
                          "which they have read, and which are not in senpi's index yet")
@@ -848,6 +1126,14 @@ def main(argv=None):
         return 0
     if a.addresses:
         print(json.dumps(book, indent=2, sort_keys=True)); return 0
+    if a.my_wallets:
+        if a.fixture:
+            with open(a.fixture) as fh:
+                _rec = json.load(fh)
+            mw_client, mw_hl = _MCPFixture(_rec), hl_api.HLFixture(_rec)
+        else:
+            mw_client, mw_hl = _mcp_client({}), hl_api.HL(cache_dir=a.cache or None)
+        print(json.dumps(my_wallets_listed(mw_client, mw_hl), indent=2)); return 0
     if a.compare:
         rs = []
         for x in a.compare:
@@ -855,9 +1141,9 @@ def main(argv=None):
             if not ADDR_RE.match(x):
                 print(json.dumps({"error": f"not a Hyperliquid address: {x}"})); return 2
             sp = os.path.join(a.state_dir, f"desk-{x}.json")
-            if os.path.exists(sp) and time.time() - os.path.getmtime(sp) < 6 * FRESH_S and not a.fresh:
-                with open(sp) as fh:
-                    rs.append(json.load(fh)); continue
+            cached = None if a.fresh else _cached_run(sp, 6 * FRESH_S)
+            if cached is not None:
+                rs.append(cached); continue
             sub = [x, "--json", "--state-dir", a.state_dir, "--cache", a.cache, "--other"] + (["--fixture", a.fixture] if a.fixture else []) + (["--dry"] if a.dry else []) + (["--days", str(a.days)] if a.days != 90 else [])
             rc = main(sub if not a.no_cohort else sub + ["--no-cohort"])
             if rc != 0:
@@ -890,15 +1176,43 @@ def main(argv=None):
             print(json.dumps({"error": "not a Hyperliquid address — expected 0x followed by 40 hex characters"})); return 2
         addr = addr.lower()
     # Whose book this is comes from the address book, not from how the request was phrased. An
-    # UNKNOWN address is someone else's: the desk gives advice in the second person, and delivering
-    # that about a stranger's trading is the failure worth defaulting against. Owner voice needs a
-    # wallet senpi issued, a claim the reader already made, or an explicit flag on this run.
+    # UNKNOWN address is the reader's own (see `resolve_whose`): the flagship path is a trader pasting
+    # their own address. Someone else's needs `--other` or an `analyzed` mark in the book; a saved
+    # wallet or a flag on this run overrides that mark.
     # A BOOK is the reader's own by construction — they resolved these wallets from their own
     # `strategy_list`. Running it through the address book let one stale `analyzed` mark on one of N
     # wallets flip the voice of the whole book to the third person: "Their desk — across 2 wallets",
     # to the person who owns them. Only an explicit --other overrides that.
+    # A saved wallet beats a stale `analyzed` mark. Read only when that mark is what decides the
+    # voice: the one extra MCP call is not worth paying on every run.
+    # `--mine` / `--claim` read it too: the voice is already theirs, but the reader is still owed the
+    # one-time note below.
+    saved, saved_ok = (), False
+    if not wallets and not a.other and addr_book.relationship(book, addr) == addr_book.ANALYZED:
+        if a.fixture:
+            with open(a.fixture) as fh:
+                _rec = json.load(fh)
+            _mw = my_wallets(_MCPFixture(_rec)) if "user_get_me" in _rec else {}
+        else:
+            _mw = my_wallets(_mcp_client({}))
+        saved = [w["address"] for w in (_mw.get("external_wallets") or [])]
+        saved_ok = _mw.get("external_wallets_status") == addr_book.EXTERNAL_OK
     whose = ("other" if a.other else "mine") if wallets else \
-        resolve_whose(book, addr, other=a.other, mine=a.mine, claim=a.claim)
+        resolve_whose(book, addr, other=a.other, mine=a.mine, claim=a.claim, saved=saved)
+    # Read as a stranger's, then added to Your wallets: the desk now speaks to the reader about it. The
+    # agent said so only on the `--my-wallets` path, never on "Find my leaks on 0x…" (dev E2E
+    # 2026-10-07, F2) — so the desk prints the sentence itself, once per add, with the way back.
+    is_saved = addr in {str(w).lower() for w in saved}
+    whose_changed = None
+    if is_saved and whose == "mine" and addr_book.saved_note_due(book, addr):
+        whose_changed = {
+            "from": "analyzed", "to": "saved",
+            "say": f"I'm reading {addr[:6]}…{addr[-4:]} as your book now, because you added it to Your "
+                   f"wallets — before that, this desk had read it as someone else's. That's your claim; "
+                   f"senpi hasn't checked who controls it. If it isn't yours, you can "
+                   f"remove it in Your wallets on senpi.ai (web)."}
+    elif saved_ok and not is_saved:
+        addr_book.clear_saved_note(book, addr)
     # A BOOK is keyed on its whole SET, not on its first wallet. Keying on wallets[0] made
     # `desk.py A` and `desk.py --book A B` share desk-A.json for the 10-minute freshness window, so
     # whichever ran first was served as the other: a single wallet returned as "across 2 wallets"
@@ -913,9 +1227,8 @@ def main(argv=None):
         with open(BENCH_PATH) as fh:
             bench = json.load(fh).get("benchmark")
     r = None
-    if (a.section or a.deep) and not a.fresh and os.path.exists(state_path) and time.time() - os.path.getmtime(state_path) < FRESH_S:
-        with open(state_path) as fh:
-            r = json.load(fh)
+    if (a.section or a.deep) and not a.fresh:
+        r = _cached_run(state_path, FRESH_S)
     if r is None:
         if a.fixture:
             with open(a.fixture) as fh:
@@ -1019,7 +1332,11 @@ def main(argv=None):
         log(f"[quant-desk] done in {meta['timings']['total']}s ({meta.get('hl_calls')} reads)")
         # atomic: stage 1 writes this and stages 2-4 read it, so a half-written relay file breaks
         # the whole staged run — and JSONDecodeError is not an HLError, so the handler above misses it
+        r["desk_version"] = VERSION          # a cache another version wrote is stale (_cached_run)
         hl_api._atomic_json(state_path, json.loads(json.dumps(r, default=float)))
+    if r.get("whose") != whose:
+        r["whose"] = whose; r["followups"] = followups.offer(r, whose=whose)     # a cached run re-voiced,
+    # before --deep too: a deep dive on a just-added wallet must not speak of it in the third person
     if a.deep:
         candles = {}
         if a.deep in ("protect", "replay"):
@@ -1038,17 +1355,21 @@ def main(argv=None):
                 "smart": lambda: dict(cohorts=r.get("cohorts") or []), "scout": lambda: dict(opportunities=r.get("opportunities") or [], setups=r.get("setups")),
                 "strategy": lambda: r.get("strategy") or {}}[a.deep]()
         if a.json:
-            print(json.dumps(data, default=float))
+            print(json.dumps(dict(data, whose_changed=whose_changed) if whose_changed and isinstance(data, dict)
+                             else data, default=float))
         else:
             md = render.render_deep(a.deep, data, r)
             if r.get("whose") == "other":
                 import voice
                 md = voice.third_person(md, f"{addr[:6]}…{addr[-4:]}")
-            print(md)
+            print(_with_whose_note(md, whose_changed))
+        if whose_changed or saved_ok:
+            if whose_changed:
+                addr_book.mark_saved_noted(book, addr)
+            addr_book.save(a.state_dir, book)
         return 0
-    if (a.other or a.mine or a.claim) and r.get("whose") != whose:
-        r["whose"] = whose; r["followups"] = followups.offer(r, whose=whose)     # a cached run re-voiced
-    rel = addr_book.CLAIMED if a.claim else (addr_book.ANALYZED if whose == "other" else None)
+    # `--claim` no longer records ownership (1.42.0): a typed claim is this run's voice, never saved.
+    rel = addr_book.ANALYZED if whose == "other" else None
     tr = r.get("track") or {}
     if wallets:
         # Recording a book under its first wallet would file the whole book's verdict against one
@@ -1063,11 +1384,16 @@ def main(argv=None):
                      # `score` and `generated` are not keys on the record — both were silently None
                      digest={"at": r.get("now_ms"), "score": r.get("quant_score"),
                              "verdict": r.get("verdict"), "net": tr.get("ledger_net")})
+    if whose_changed:
+        addr_book.mark_saved_noted(book, addr)
     addr_book.save(a.state_dir, book)
     if a.json:
-        print(json.dumps({k: v for k, v in r.items() if k != "episodes"}, default=float))
+        out = {k: v for k, v in r.items() if k != "episodes"}
+        if whose_changed:
+            out["whose_changed"] = whose_changed       # this run only: never written to the run cache
+        print(json.dumps(out, default=float))
     else:
-        print(render.render(r, a.section))
+        print(_with_whose_note(render.render(r, a.section), whose_changed))
     return 0
 
 

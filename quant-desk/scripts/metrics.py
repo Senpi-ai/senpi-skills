@@ -3,7 +3,9 @@
 table, the open book with its protection audit, transfer-adjusted equity and drawdown, activity."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import collections
+import math
 import statistics
+from decimal import Decimal, InvalidOperation
 
 from hl_api import is_perp
 
@@ -159,10 +161,149 @@ def spot_free_usdc(spot):
     return 0.0
 
 
-def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=None, ctxs_xyz=None, total_account_value=None, spot_free=0.0):
-    """Every open position with liquidation distance, funding per day at the current rate, and its stop
-    coverage from resting trigger orders: a stop for a long is a sell trigger below the mark, for a short
-    a buy trigger above it. Coverage is the stop-covered fraction of the size. The xyz dex is its own
+TRAILING_ORDER_TYPE = "Trailing Stop Market"
+
+# The protection rule, shared with moxie's ExternalWallet.state, pinned by
+# tests/fixtures/protection-fixtures.v1.json. A stop is a TOP-LEVEL resting order (an order nested
+# in another's `children` only goes live when its parent fills) on the position's coin, in the
+# position's dex list, reduce-only, on the exit side, of one of these three types. A take-profit is
+# never a stop, and an order with no or an unknown `orderType` is not one either: the audit fails
+# toward NONE, never toward cover. Sizes are exact decimals: a float sum calls 0.7 + 0.1 < 0.8.
+STOP_KINDS = {"Stop Market": "STOP_MARKET", "Stop Limit": "STOP_LIMIT", TRAILING_ORDER_TYPE: "TRAILING"}
+TAKE_PROFIT_ORDER_TYPES = ("Take Profit Market", "Take Profit Limit")
+ARMED, WAITING_TO_ACTIVATE = "ARMED", "WAITING_TO_ACTIVATE"
+FULL, PARTIAL, NONE = "FULL", "PARTIAL", "NONE"
+_ZERO = Decimal(0)
+
+
+def _dec(x):
+    """Hyperliquid's decimal string as an exact Decimal; None when it is not a finite number."""
+    try:
+        d = Decimal(str(x))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+    return d if d.is_finite() else None
+
+
+def stop_status(o):
+    """WAITING_TO_ACTIVATE when the trigger price is not a positive finite number (a native trailing
+    stop that has not armed reads `triggerPx "0.0"`), or when a trailing stop says it is still waiting
+    for its activation price; ARMED otherwise. Either signal alone keeps an order from counting as cover."""
+    px = _dec(o.get("triggerPx"))
+    waiting = (px is None or px <= 0) or (o.get("orderType") == TRAILING_ORDER_TYPE
+                                          and str(o.get("triggerCondition") or "").endswith("best waiting"))
+    return WAITING_TO_ACTIVATE if waiting else ARMED
+
+
+def _plain(d):
+    return format(d, "f")
+
+
+def protection_audit(coin, side, size, orders, wallet=None):
+    """One position's protection under the shared rule.
+
+    `size` is the position's size as an exact Decimal (|szi|); `orders` the top-level
+    frontendOpenOrders of the position's dex only. On a merged book (--book) an order tagged with
+    another wallet is not this position's. Returns the stops (every one, waiting included, as raw
+    orders with their status), the ARMED ones, the take-profits, `covered_size` (exact, uncapped) and
+    `protection`."""
+    exit_side = "A" if side == "LONG" else "B"
+    stops, tps, loose = [], [], []
+    for o in orders or []:
+        if o.get("coin") != coin or o.get("side") != exit_side:
+            continue
+        if wallet and o.get("wallet") and o["wallet"] != wallet:
+            continue                                            # a sibling wallet's stop is not this position's
+        if o.get("reduceOnly") is not True:
+            if o.get("orderType") in STOP_KINDS:
+                loose.append(o)                                 # a real stop order, but not cover under the rule
+            continue
+        if o.get("orderType") in STOP_KINDS:
+            stops.append((o, stop_status(o)))
+        elif o.get("orderType") in TAKE_PROFIT_ORDER_TYPES:
+            tps.append(o)
+    armed = [o for o, st in stops if st == ARMED]
+    # A whole-position stop (`isPositionTpsl`) rests with size 0.0 and closes the whole position when
+    # it fires: it covers the whole size, and the other stops add nothing on top of it.
+    if any(o.get("isPositionTpsl") is True for o in armed):
+        covered = size
+    else:
+        covered = sum((max(_dec(o.get("sz")) or _ZERO, _ZERO) for o in armed), _ZERO)
+    protection = NONE if covered == 0 else (FULL if covered >= size else PARTIAL)
+    return dict(stops=stops, armed=armed, tps=tps, covered_size=covered, protection=protection,
+                non_reduce_only_stops=len(loose))
+
+
+# What the desk says of an exit-side stop order that is not reduce-only: it exists (so "no stop" would
+# be untrue) but it is not cover (once the position is closed it opens one the other way).
+NOT_REDUCE_ONLY_NOTE = "has a stop order that isn't reduce-only — not counted as protection"
+
+
+def unread_coins(book):
+    """The coins of the positions whose protection is unknown (their orders could not be read). Read
+    from the positions, so a stored run without `unknown` and a hand-built book both answer."""
+    return [p["coin"] for p in book.get("positions") or [] if isinstance(p, dict) and protection_of(p) is None]
+
+
+def unprotected_label(book):
+    """`N` unprotected, plus the unread ones: an unread book never reads as `0` unprotected."""
+    k = len(unread_coins(book))
+    return f"{len(book['naked'])}" + (f" (+{k} unread)" if k else "")
+
+
+def dex_name(dex):
+    """How the desk names a dex to a reader: "the main dex" ("") or "the xyz dex"."""
+    return f"the {dex} dex" if dex else "the main dex"
+
+
+def dex_label(coin):
+    """How the desk names a coin's dex to a reader: "the main dex" or "the xyz dex"."""
+    return dex_name(coin.split(":", 1)[0] if ":" in coin else "")
+
+
+def positions_unread_phrase(book):
+    """The dexes (and, on a --book run, the wallets) whose positions could not be read — "the xyz dex",
+    "the xyz dex of 0xabcd…1234" — or None when every read came back. A stored run without the key
+    answers None: it predates the signal."""
+    parts = []
+    for dex, wallet in (book or {}).get("positions_unread_by_wallet") or []:
+        part = dex_name(dex) + (f" of {wallet[:6]}…{wallet[-4:]}" if wallet else "")
+        if part not in parts:
+            parts.append(part)
+    return ", ".join(parts) or None
+
+
+def unread_note(coin):
+    """The one sentence for a position whose orders could not be read: say so, and send the reader to check."""
+    return f"couldn't read the orders on {dex_label(coin)} — check this position's stop on Hyperliquid before acting on it"
+
+
+def protection_of(p):
+    """A position's FULL / PARTIAL / NONE, or None when its dex's orders could not be read (unknown —
+    never NONE). A run cached before `protection` existed (or a hand-built row) carries only
+    `stop_covered_share`; read it with no threshold short of full, so a re-render never calls a
+    90%-covered position protected."""
+    if "protection" in p and p["protection"] is None:
+        return None
+    if p.get("protection") in (FULL, PARTIAL, NONE):
+        return p["protection"]
+    share = p.get("stop_covered_share") or 0.0
+    return NONE if share <= 0 else (FULL if share >= 1.0 else PARTIAL)
+
+
+def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=None, ctxs_xyz=None, total_account_value=None, spot_free=0.0,
+              orders_unread_by_wallet=None, positions_unread_by_wallet=None):
+    """Every open position with liquidation distance, funding per day at the current rate, and its
+    protection under the shared rule (`protection_audit`): `protection` FULL / PARTIAL / NONE,
+    `covered_size` as an exact decimal string, and `stops`, every qualifying stop with its status.
+    `stop_covered_share` is the covered fraction capped at 1, for display only. A position's stops
+    are looked up only in its own dex's order list. An order list of None means that dex's read failed;
+    `orders_unread_by_wallet` ([[dex, wallet], …], from a --book run) names one wallet's failed read.
+    Those positions are unknown, never NONE: `protection`, `covered_size`, `stops`, `stop_covered_share`,
+    `take_profit` and `non_reduce_only_stops` are all None, and the book lists them in `unknown`;
+    `orders_unread` names the dexes ("" = main) whose read failed. `positions_unread_by_wallet`
+    ([[dex, wallet or None], …]) names the clearinghouse reads that failed: that dex's positions are
+    unknown, never none, and the book lists the dexes in `positions_unread`. The xyz dex is its own
     collateral pool on the public API: its positions, orders, margin and account value are added in."""
     marks = {u["name"]: _f(c["markPx"]) for u, c in zip(ctxs[0]["universe"], ctxs[1])}
     rates = {u["name"]: _f(c["funding"]) for u, c in zip(ctxs[0]["universe"], ctxs[1])}
@@ -170,9 +311,12 @@ def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=Non
         marks.update({u["name"]: _f(c["markPx"]) for u, c in zip(ctxs_xyz[0]["universe"], ctxs_xyz[1])})
         rates.update({u["name"]: _f(c["funding"]) for u, c in zip(ctxs_xyz[0]["universe"], ctxs_xyz[1])})
     out = []
-    open_orders = list(open_orders or []) + list(open_orders_xyz or [])
+    books = {"": open_orders, "xyz": open_orders_xyz}          # None = that dex's read failed
+    unread = {(d, w) for d, w in (orders_unread_by_wallet or [])}
+    unread_dexes = {d for d, lst in books.items() if lst is None} | {d for d, _w in unread}
     for ap in (cs.get("assetPositions") or []) + ((cs_xyz or {}).get("assetPositions") or []):
         p = ap["position"]; szi = _f(p["szi"]); coin = p["coin"]; side = "LONG" if szi > 0 else "SHORT"
+        dex = coin.split(":", 1)[0] if ":" in coin else ""
         # On a merged book (--book) two strategy wallets can hold the SAME coin. Matching a resting
         # trigger to a position by coin alone then credits one wallet's stop to the other's naked
         # position — the protection audit's one job, answered wrong in the dangerous direction.
@@ -182,30 +326,36 @@ def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=Non
         if size * mark < DUST_USD:
             continue                                            # dust left behind by a partial close: not a position
         liq_px = _f(p["liquidationPx"]) if p.get("liquidationPx") else None
-        exit_side = "A" if side == "LONG" else "B"
-        stops, tps = [], []
-        for o in open_orders or []:
-            if o.get("coin") != coin or not o.get("isTrigger") or o.get("side") != exit_side:
-                continue
-            if wal and o.get("wallet") and o["wallet"] != wal:
-                continue                                        # a sibling wallet's stop is not this position's
-            tp_ = _f(o.get("triggerPx"))
-            (stops if ((side == "LONG" and tp_ < mark) or (side == "SHORT" and tp_ > mark)) else tps).append(o)
-        covered = min(size, sum(_f(o["sz"]) for o in stops))
+        size_d = abs(_dec(p["szi"]) or _ZERO)
+        orders = books.get(dex)
+        if orders is None or (wal and (dex, wal) in unread):
+            audit = None                                        # unknown, never NONE
+        else:
+            audit = protection_audit(coin, side, size_d, orders, wal)
+        armed = audit["armed"] if audit else []
+        covered = audit["covered_size"] if audit else None
         nearest = None
-        if stops:
-            nearest = max(_f(o["triggerPx"]) for o in stops) if side == "LONG" else min(_f(o["triggerPx"]) for o in stops)
+        if armed:
+            nearest = max(_f(o["triggerPx"]) for o in armed) if side == "LONG" else min(_f(o["triggerPx"]) for o in armed)
         notional = size * mark; rate = rates.get(coin, 0.0)
         lev = p.get("leverage") or {}
-        out.append(dict(coin=coin, side=side, size=size, entry=_f(p["entryPx"]), mark=mark, leverage=lev.get("value"), margin_mode=lev.get("type"),
+        out.append(dict(coin=coin, dex=dex, side=side, size=size, entry=_f(p["entryPx"]), mark=mark, leverage=lev.get("value"), margin_mode=lev.get("type"),
                         notional=notional, margin_used=_f(p.get("marginUsed")), unrealized=_f(p.get("unrealizedPnl")), roe=_f(p.get("returnOnEquity")),
                         liq_px=liq_px, liq_distance_pct=(abs(mark - liq_px) / mark * 100) if (liq_px and mark) else None,
-                        stop_covered_share=(covered / size) if size else 0.0, stop_px=nearest,
-                        # the ids of the orders actually resting. A backend ratchet row names the
-                        # order it believes it owns; being able to check that against the book is
-                        # what separates a live row from a stale one. (@0xsarvesh, #753.)
-                        stop_oids=[o.get("oid") for o in stops if o.get("oid") is not None],
-                        stop_distance_pct=(abs(mark - nearest) / mark * 100) if (nearest and mark) else None, take_profit=bool(tps),
+                        protection=audit["protection"] if audit else None,
+                        covered_size=_plain(covered) if audit else None,
+                        # exit-side stop orders WITHOUT reduceOnly: real orders, not cover under the rule —
+                        # the desk says so instead of "no stop" (it would fire, and could flip the position)
+                        non_reduce_only_stops=audit["non_reduce_only_stops"] if audit else None,
+                        stops=[dict(oid=(str(o["oid"]) if o.get("oid") is not None else None), kind=STOP_KINDS[o["orderType"]], status=st,
+                                    isPositionTpsl=o.get("isPositionTpsl") is True, size=o.get("sz")) for o, st in audit["stops"]] if audit else None,
+                        stop_covered_share=(float(min(covered / size_d, Decimal(1))) if size_d else 0.0) if audit else None,
+                        stop_px=nearest,
+                        # the ids of the ARMED stops. A backend ratchet row names the order it believes
+                        # it owns; being able to check that against the book is what separates a live
+                        # row from a stale one. (@0xsarvesh, #753.)
+                        stop_oids=[o.get("oid") for o in armed if o.get("oid") is not None] if audit else None,
+                        stop_distance_pct=(abs(mark - nearest) / mark * 100) if (nearest and mark) else None, take_profit=bool(audit["tps"]) if audit else None,
                         funding_rate_hourly=rate, funding_per_day=-(rate * notional * 24) * (1 if side == "LONG" else -1),
                         funding_since_open=_f((p.get("cumFunding") or {}).get("sinceOpen")),
                         opened_ms=(ages or {}).get(coin), wallet=wal))
@@ -217,8 +367,13 @@ def open_book(cs, open_orders, ctxs, ages=None, cs_xyz=None, open_orders_xyz=Non
     return dict(positions=out, account_value=av, margin_used=mu, margin_utilization=(mu / av) if av else None,
                 withdrawable=_f(cs.get("withdrawable")) + _f((cs_xyz or {}).get("withdrawable")) + (spot_free or 0.0),
                 account_value_main=_f(ms.get("accountValue")), account_value_xyz=_f(mx.get("accountValue")), account_value_perps=perps_av,
-                unrealized=sum(p["unrealized"] for p in out), naked=[p["coin"] for p in out if p["stop_covered_share"] == 0],
-                partial=[p["coin"] for p in out if 0 < p["stop_covered_share"] < 0.9], gross_exposure=gross_exp, net_exposure=net_exp,
+                unrealized=sum(p["unrealized"] for p in out), naked=[p["coin"] for p in out if p["protection"] == NONE],
+                partial=[p["coin"] for p in out if p["protection"] == PARTIAL],
+                unknown=[p["coin"] for p in out if p["protection"] is None],
+                orders_unread=sorted(unread_dexes),
+                positions_unread=sorted({d for d, _w in positions_unread_by_wallet or []}),
+                positions_unread_by_wallet=[[d, w] for d, w in positions_unread_by_wallet or []],
+                gross_exposure=gross_exp, net_exposure=net_exp,
                 exposure_over_equity=(gross_exp / av) if av else None, funding_per_day=sum(p["funding_per_day"] for p in out),
                 largest_share=(max(p["notional"] for p in out) / gross_exp) if gross_exp else None)
 
@@ -238,6 +393,46 @@ def whole_account_value(portfolio, spot):
         if b.get("coin") == "USDC":
             v = _f(b.get("total"))
             return v if v > 0 else None
+    return None
+
+
+STANDARD_MODES = ("default", "disabled")                  # perps and spot are separate balances
+UNIFIED_MODES = {"unifiedAccount": "unified account", "portfolioMargin": "portfolio margin"}
+
+
+def account_split(book, mode):
+    """How the headline account value splits, by Hyperliquid's account mode (`userAbstraction`).
+    Standard ("default" / "disabled"): perps equity and spot are separate balances, so the value is
+    perps + spot and the perps balance is its own line — a spot-only table under that total omits it.
+    Unified / portfolio margin: spot already holds the perps margin — the value is the spot side,
+    counted once, and adding the perps equity to it double counts. Unknown mode → no split."""
+    mode = mode if isinstance(mode, str) else None
+    av, perps = book.get("account_value"), book.get("account_value_perps")
+    out = {"account_mode": mode, "account_value_spot": None}
+    if mode in STANDARD_MODES and av is not None and perps is not None and av - perps > 0.005:
+        out["account_value_spot"] = round(av - perps, 2)
+    return out
+
+
+def current_account_value(portfolio):
+    """A wallet's value now, the key `--my-wallets` orders by: the last point of Hyperliquid's own
+    portfolio series, shortest window first (the freshest point) — the account value the desk headlines
+    (`whole_account_value`; unified-account aware, spot counted once). Unlike that function, 0 IS a
+    value here: a closed strategy wallet that holds $0 has been read. None when the reply carries no
+    readable series: unknown, never 0."""
+    try:
+        windows = dict(portfolio or [])
+    except (TypeError, ValueError):
+        return None
+    for name in ("day", "week", "month", "allTime"):
+        w = windows.get(name)
+        pts = w.get("accountValueHistory") if isinstance(w, dict) else None
+        if pts:
+            try:
+                v = float(pts[-1][1])
+            except (TypeError, ValueError, IndexError):
+                return None
+            return v if math.isfinite(v) else None
     return None
 
 

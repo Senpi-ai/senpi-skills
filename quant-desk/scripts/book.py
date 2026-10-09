@@ -103,6 +103,15 @@ def _merge_fees(scheds):
     return out
 
 
+POSITION_READS = (("", "clearinghouseState"), ("xyz", "clearinghouseState_xyz"))
+
+
+def positions_unread(raw, wallet=None):
+    """[[dex, wallet], …] for each dex whose clearinghouse read FAILED (None): its positions are unknown,
+    never none. `wallet` is None on a single-wallet read."""
+    return [[dex, wallet] for dex, key in POSITION_READS if raw.get(key) is None]
+
+
 def _merge_clearinghouse(states, addrs=None):
     """Positions concatenated, margin summed. A merged book's margin is the sum of its wallets'.
 
@@ -184,6 +193,12 @@ def read(hl, addrs, days=90, progress=None):
         "clearinghouseState_xyz": _merge_clearinghouse([r.get("clearinghouseState_xyz") for r in raws], uniq),
         "frontendOpenOrders": [dict(o, wallet=a) for a, r in zip(uniq, raws) for o in (r["frontendOpenOrders"] or [])],
         "frontendOpenOrders_xyz": [dict(o, wallet=a) for a, r in zip(uniq, raws) for o in (r.get("frontendOpenOrders_xyz") or [])],
+        # [dex, wallet] whose order read FAILED: those positions read protection unknown, never naked
+        "orders_unread_by_wallet": [[dex, a] for a, r in zip(uniq, raws)
+                                    for dex, key in (("", "frontendOpenOrders"), ("xyz", "frontendOpenOrders_xyz"))
+                                    if r.get(key) is None],
+        # [dex, wallet] whose clearinghouse read FAILED: a merge cannot show what it never got
+        "positions_unread_by_wallet": [x for a, r in zip(uniq, raws) for x in positions_unread(r, a)],
         "spotClearinghouseState": _merge_spot([r.get("spotClearinghouseState") for r in raws]),
         "fills": sorted((f for r in raws for f in r["fills"]), key=lambda f: f["time"]),
         "userFunding": sorted((dict(x, wallet=a) for a, r in zip(uniq, raws) for x in (r["userFunding"] or [])),

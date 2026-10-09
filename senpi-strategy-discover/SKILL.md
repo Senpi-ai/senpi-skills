@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.44.0"
+  version: "2.46.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -101,7 +101,7 @@ python3 scripts/discover.py
   [--theme "<worldview>"]  # SOFT surface: k-shape, risk-off, market-neutral, AI fund, divergence…
   [--limit <int>]      # default 8; raise only when they ask to see more — never to recommend
   [--no-market]        # skip the live read — use while narrowing/browsing
-  [--context-only]     # user holdings/budget only, no match
+  [--context-only]     # budget + holdings (Senpi + your saved wallets, read-only) only, no match
 ```
 
 - There is **no** `--risk`, `--belief`, `--horizon`, `--experience`, or `--hedge-for` flag — you rank
@@ -226,6 +226,18 @@ otherwise put it in `--theme` and rank on `archetype_label`/`belief_plain`/`thes
      per firing, not a simulation.
 
    Optionally `discover.py --context-only` to reference holdings (confirm first; never silently infer).
+   It returns `holdings` (coins in their Senpi strategies) and `saved_wallet_holdings` (positions on the
+   wallets they added in Your wallets, each row naming its `wallet`, `origin: "saved_wallet"`,
+   `access: "read-only"`), so a pick must not double an exposure they already hold — say which wallet
+   holds it: a position "on the wallets you added" (or that wallet's label). Never call a saved wallet
+   theirs, and never read its positions as their personal trading style. `holdings: []` means no open
+   Senpi positions, never "no strategies": `active_strategy_count` says how many Senpi strategies run
+   (`null` → you couldn't check it, never "none"). The budget stays Senpi money only: a saved wallet is never a budget and never a deploy
+   target — every pick is a Senpi strategy deployed with Senpi money, never on a saved wallet.
+   `saved_wallets_status: "unavailable"` → say "I couldn't load your saved wallets" and carry on with the
+   Senpi holdings; a name in `saved_wallets_unread` → couldn't load that wallet, never "flat" or "no
+   positions". Call them "your wallets" or "the wallets you added"; never imply Senpi checked who
+   controls them.
    Then run the engine with the FULL concrete flag set plus `--theme` from everything soft they've told
    you (this run does the live market read), **rank the returned set**, and narrate 2–3 cards leading with the top pick's `market_facts` "why now"; surface
    `caveats` verbatim.

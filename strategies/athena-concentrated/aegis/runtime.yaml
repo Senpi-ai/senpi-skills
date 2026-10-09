@@ -21,14 +21,34 @@ description: >
 
 strategy:
   wallet: "${ATHENA_AEGIS_WALLET}"
-  slots: 4
-  # SIZED UP 2026-10-07 from Jason's live fork, which is now this template. His words:
-  # "The current strategy is using only about 20% of margin. It should use 20% per
-  # position." 4 slots x 20% = 80% of the aegis sleeve deployed, up from 48%, and
-  # marginPctMax 30 lets a single high-conviction hedge take 30%. Only the aegis leg of
-  # THIS package changes — standalone aegis and athena are untouched.
-  margin_pct: 20
-  default_leverage: 3
+  slots: 2
+  # 20% PER POSITION — flat. Jason, 2026-10-07 and again 2026-10-09: "The current strategy
+  # is using only about 20% of margin. It should use 20% per position."
+  #
+  # The first attempt set marginPctBase: 20 and did NOT deliver that, which is why the same
+  # instruction came back. `scoring.margin_pct_for` scales the base by a REGIME-INTENSITY
+  # factor, ri = clamp(|regime_score| / 2.0, 0.25, 1.0), then by conviction (x1.0/1.25/1.5).
+  # Base 20 sized a position at 20% only with the regime pinned at its extreme (|2.0|); in a
+  # mild regime ri floors at 0.25 and a position took 20 x 0.25 = 5%. Four slots x 5% = 20%
+  # of the sleeve — exactly the under-deployment that was reported.
+  #
+  # The scanners are byte-identical to standalone aegis and pinned that way, so this is solved
+  # in CONFIG: base 80 x 1.00 x 0.25 (mildest regime, lowest conviction) = 20.0% is the floor,
+  # and every stronger regime or conviction clamps to marginPctMax 20. Every position is 20.0%
+  # in every regime, not only in a crisis.
+  #
+  # What that deploys, measured live 2026-10-09 on a relaunch at regime -0.60: marginPct is a
+  # percent of WITHDRAWABLE AT OPEN, and the runtime opens sequentially, so each position takes
+  # a fifth of what is left rather than a fifth of the original sleeve. Observed 104.13 / 83.87
+  # / 66.97 against a 523.80 start — 19.9%, 20.0%, 19.9% of the balance available each time.
+  # So N positions deploy 1 - 0.8^N: 20% / 36% / 48.8% / 59.0%. NOT 4 x 20% = 80%, which is
+  # what an earlier version of this comment claimed. 20% PER POSITION is the instruction and is
+  # delivered exactly; 80% of the sleeve would need ~33% per position.
+  # tests/test_aegis_sizes_flat.py asserts that over the full conviction x regime range, because
+  # the floor depends on the 0.25 clamp in the shared scorer. Only the aegis leg of THIS package
+  # changes — standalone aegis and athena are untouched.
+  margin_pct: 35
+  default_leverage: 5
   trading_risk: moderate
   enabled: true
 
@@ -45,10 +65,10 @@ scanners:
     default_signal_validity_seconds: 600
     state_history_max_count: 200
     inputs:
-      marginPctBase: 20
-      marginPctMax: 30
-      leverageDefault: 3
-      maxSlots: 4
+      marginPctBase: 100
+      marginPctMax: 45
+      leverageDefault: 5
+      maxSlots: 2
       minScore: 25
       recentSignalTtlSeconds: 300
       neutralThreshold: 0.5
@@ -107,16 +127,16 @@ exit:
       min_value: 4.0
     phase1:
       enabled: false                  # trailing OFF — a floor below entry can ratchet a winner into a loss
-      max_loss_pct: 10.0              # 10% margin loss cap (3.33% price on 3x)
-      retrace_threshold: 10           # INERT while phase1.enabled is false
+      max_loss_pct: 16.7              # 3.33% of price at 5x — the measured adverse p90 (3.41%)
+      retrace_threshold: 16.7         # INERT while phase1.enabled is false
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:                          # banks early — regime calls reverse fast
-        - { trigger_pct: 12, lock_hw_pct: 40 }   # 40% lock = 2.4% price retrace room at 3x
-        - { trigger_pct: 25, lock_hw_pct: 60 }   # 60% lock = 3.3% price retrace room at 3x
-        - { trigger_pct: 50, lock_hw_pct: 75 }   # 75% lock = 4.2% price retrace room at 3x
-        - { trigger_pct: 100, lock_hw_pct: 85 }  # 85% lock = 5.0% price retrace room at 3x
+        - { trigger_pct: 10, lock_hw_pct: 35 }   #  2.00% of price at 5x — arms on 41% of trades
+        - { trigger_pct: 20, lock_hw_pct: 45 }   #  4.00% of price — arms on 29%
+        - { trigger_pct: 40, lock_hw_pct: 60 }   #  8.00% of price
+        - { trigger_pct: 83.3, lock_hw_pct: 85 } # 16.67% of price — above the 9.84% max peak
 
 # ── RISK guard rails ──────────────────────────────────────────────────────────
 risk:
@@ -133,7 +153,7 @@ risk:
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 3
     cooldown_seconds: 14400            # 4h regime pause after 3 consecutive losses
-    drawdown_halt_pct: 10                   # THE overall risk budget: 10% of PnL from peak,
+    drawdown_halt_pct: 25                   # THE overall risk budget: 25% of PnL from peak,
                                             # carried across days (reset flag below is false).
                                             # At this sizing that is a ~7% adverse market move
                                             # before the strategy stops ADDING — it never

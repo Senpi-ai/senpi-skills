@@ -174,7 +174,8 @@ def test_one_wallets_stop_does_not_protect_another_wallets_position():
     position reported as covered because a sibling strategy happens to hold a stop on the same coin."""
     cs = {"assetPositions": [_pos("ETH", 1, 100, wallet=A), _pos("ETH", 1, 100, wallet=B)],
           "marginSummary": {"accountValue": "1000"}, "withdrawable": "0"}
-    orders = [dict(coin="ETH", isTrigger=True, side="A", triggerPx="90", sz="1", wallet=A)]
+    orders = [dict(coin="ETH", isTrigger=True, side="A", triggerPx="90", sz="1", wallet=A,
+                  reduceOnly=True, orderType="Stop Market", isPositionTpsl=False)]
     bk = metrics.open_book(cs, orders, _ctxs("ETH", 110))
     by_w = {p["wallet"]: p for p in bk["positions"]}
     assert by_w[A]["stop_covered_share"] == 1.0
@@ -184,7 +185,8 @@ def test_one_wallets_stop_does_not_protect_another_wallets_position():
 
 def test_an_untagged_single_wallet_read_matches_stops_as_before():
     cs = {"assetPositions": [_pos("ETH", 1, 100)], "marginSummary": {"accountValue": "1000"}, "withdrawable": "0"}
-    orders = [dict(coin="ETH", isTrigger=True, side="A", triggerPx="90", sz="1")]
+    orders = [dict(coin="ETH", isTrigger=True, side="A", triggerPx="90", sz="1",
+                  reduceOnly=True, orderType="Stop Market", isPositionTpsl=False)]
     bk = metrics.open_book(cs, orders, _ctxs("ETH", 110))
     assert bk["positions"][0]["stop_covered_share"] == 1.0 and bk["naked"] == []
 
