@@ -15,7 +15,7 @@
 schema_version: 1
 
 id: puffin
-version: "1.2.0"
+version: "1.2.1"
 
 catalog:
   name: "Puffin — One Signal, All In"

@@ -92,9 +92,10 @@ def test_smart_money_present_when_healthy():
                                             "pnl_percentage": 38.5, "top_markets": ["HYPE", "BTC"]}
     assert sm["top_traders"]["total_traders"] == 4821
     # 0xabc's newest event is a positionless blocked repeat: its older sent event is the one narrated;
-    # 0x123's blocked event names its position, so it stays — blocking only stops the push
+    # 0x123's blocked event stays — blocking only stops the push
     events = sm["momentum_events"]["rows"]
     assert [(e["trader_id"], e["decision"]) for e in events] == [("0xabc", "sent"), ("0x123", "blocked")]
+    assert events[1]["blocked_reason"] == "system_cooldown_active" and "blocked_reason" not in events[0]
 
 
 # Shapes per senpi-hyperliquid-mcp src/types/leaderboard.types.ts + src/tools/leaderboard.tools.ts: each
@@ -163,10 +164,99 @@ def test_smart_money_projects_and_bounds_live_shape():
 
     events = smart["momentum_events"]
     assert events["total_count"] == 50
-    # newest event per trader that names positions; blocked kept, positionless dropped, order kept
+    # one event per trader, its newest (or its newest sent); blocked and positionless both kept
     assert [(e["trader_id"], e["decision"], e["delta_pnl"]) for e in events["rows"]] == [
-        ("0xaaa", "sent", 2_000_000), ("0xbbb", "blocked", 2_000_001)]
-    assert all(e["top_positions"] for e in events["rows"])
+        ("0xaaa", "sent", 2_000_000), ("0xbbb", "blocked", 2_000_001), ("0xccc", "blocked", 2_000_049)]
+    assert [bool(e.get("top_positions")) for e in events["rows"]] == [True, True, False]
+
+
+def _momentum_client(events, total_count=None, calls=None):
+    """`_live_sized_client` with the momentum read replaced; `calls` records each tool's arguments."""
+    base = _live_sized_client()
+
+    class Client:
+        def mcp_call(self, tool, timeout=12, **kw):
+            if calls is not None:
+                calls[tool] = kw
+            if tool == "leaderboard_get_momentum_events":
+                return {"success": True, "data": {"events": {"events": events, "query": {}, "total_count":
+                        len(events) if total_count is None else total_count}}}
+            return base.mcp_call(tool)
+    return Client()
+
+
+def _blocked(trader, i, reason="concentration_too_low"):
+    """A momentum event as prod returned every one of 1,807 on 2026-10-09: blocked, no positions,
+    no concentration or tags, and free-text blocked_details."""
+    return {"trader_id": trader, "tier": 1, "tier_label": "Tier 1 (Exceptional, $2+)", "delta_pnl": 5_016_915.6 - i,
+            "decision": "blocked", "blocked_reason": reason, "blocked_details": "Concentration 62.3% < 70%",
+            "concentration": None, "top_positions": None, "trader_tags": None,
+            "detected_at": f"2026-10-09T20:{42 - i // 12:02d}:{59 - i % 60:02d}.470Z"}
+
+
+def test_positionless_blocked_events_are_narrated_one_per_trader():
+    """Prod today: every event is a blocked, positionless re-fire of the same few traders. The layer
+    must still name each trader's newest crossing instead of coming back empty."""
+    traders = ("0xb83de012dba672c76a7dbbbf3e459cb59d7d6e36", "0x5b5d51203a0f9079f8aeb098a6523a13f298c060",
+               "0x45d26f28c3a7d1e0b9f4e2a6c8d0b1f3e5a7c9d1")
+    events = [_blocked(traders[i % 2] if i < 190 else traders[2], i,
+                       "trader_cooldown_active" if i % 2 else "concentration_too_low") for i in range(200)]
+    calls, meta = {}, {"warnings": []}
+    smart = pulse.fetch_smart_money(_momentum_client(events, total_count=1835, calls=calls), meta)
+    assert meta["warnings"] == []
+    assert calls["leaderboard_get_momentum_events"] == {"limit": 200}     # the widest window the tool gives
+    layer = smart["momentum_events"]
+    assert layer["total_count"] == 1835
+    assert layer["rows"] == [
+        {"trader_id": traders[0], "tier_label": "Tier 1 (Exceptional, $2+)", "delta_pnl": 5_016_915.6,
+         "decision": "blocked", "blocked_reason": "concentration_too_low", "detected_at": events[0]["detected_at"]},
+        {"trader_id": traders[1], "tier_label": "Tier 1 (Exceptional, $2+)", "delta_pnl": 5_016_914.6,
+         "decision": "blocked", "blocked_reason": "trader_cooldown_active", "detected_at": events[1]["detected_at"]},
+        {"trader_id": traders[2], "tier_label": "Tier 1 (Exceptional, $2+)", "delta_pnl": 5_016_725.6,
+         "decision": "blocked", "blocked_reason": "concentration_too_low", "detected_at": events[190]["detected_at"]},
+    ]
+
+
+def test_sent_events_lead_and_win_within_a_trader():
+    """A trader's sent event beats its newer blocked repeats, and sent traders list before blocked ones
+    (then newest first); the cap still holds."""
+    pos = [{"market": m, "delta_pnl": 1e6, "direction": "short", "leverage": 5} for m in ("ETH", "BTC", "SOL", "HYPE")]
+    events = [_blocked(f"0xb{i:02d}", i) for i in range(10)]
+    events.insert(3, _blocked("0xb05", 3, "trader_cooldown_active"))          # 0xb05 again, newer than its sent one
+    events.append(dict(_blocked("0xb05", 11), decision="sent", blocked_reason=None, top_positions=pos))
+    smart = pulse.fetch_smart_money(_momentum_client(events), {"warnings": []})
+    rows = smart["momentum_events"]["rows"]
+    assert len(rows) == pulse.SMART_EVENT_LIMIT
+    assert rows[0]["trader_id"] == "0xb05" and rows[0]["decision"] == "sent"
+    assert [p["market"] for p in rows[0]["top_positions"]] == ["ETH", "BTC", "SOL"]
+    assert [r["trader_id"] for r in rows[1:]] == ["0xb00", "0xb01", "0xb02", "0xb03", "0xb04", "0xb06", "0xb07"]
+    assert all("blocked_details" not in r for r in rows)
+
+
+def test_a_renamed_envelope_is_unavailable_not_empty():
+    """Schema drift (the list moved or was renamed) must read as a null layer plus a warning — an empty
+    `rows` would narrate as "nobody crossed a tier"."""
+    class Client:
+        def mcp_call(self, tool, timeout=12, **kw):
+            if tool == "leaderboard_get_momentum_events":
+                return {"success": True, "data": {"momentum": {"events": [_blocked("0xb83", 0)]}}}
+            if tool == "leaderboard_get_status":
+                return {"success": True, "data": {"window": "4h"}}             # lost its `status` wrapper
+            return _live_sized_client().mcp_call(tool)
+
+    meta = {"warnings": []}
+    smart = pulse.fetch_smart_money(Client(), meta)
+    assert smart["momentum_events"] is None and smart["status"] is None
+    assert smart["concentration"]["rows"]                                     # the rest still lands
+    assert any(w.startswith("leaderboard_get_momentum_events failed") and "events.events" in w
+               for w in meta["warnings"])
+    assert any("leaderboard_get_status" in w for w in meta["warnings"])
+
+
+def test_an_empty_event_list_is_a_real_empty():
+    meta = {"warnings": []}
+    smart = pulse.fetch_smart_money(_momentum_client([]), meta)
+    assert smart["momentum_events"] == {"total_count": 0, "rows": []} and meta["warnings"] == []
 
 
 def test_a_failed_leaderboard_read_is_unavailable_not_empty():
