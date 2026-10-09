@@ -2,13 +2,13 @@
 #
 # TWO settings differ from puffin: slots 1 -> 2, marginPct 75 -> 45. A third, highMarginPct
 # 90 -> 45, is forced arithmetic and not a free choice: see the note in main/runtime.yaml.
-#
-# catalog.status: blocked — not offered in the catalog or discover. Deploy by explicit path:
-#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/puffin-duo --budget <amount>
+# Listed in the catalog and in discover. Compare it against the parent it varies, not on its
+# own P&L — see senpi-strategy-discover/references/variant-families.md.
 schema_version: 1
 id: puffin-duo
-version: 1.0.0
+version: "1.0.1"
 catalog:
+  varies: puffin          # a VARIANT of this template — never outrank it
   name: Puffin Duo — two slots at 45%
   emoji: 🐦🐦
   tagline: Puffin across two concurrent positions at 45% margin each instead of one at 75%. Same signal, same bar, same exits — the question is whether one deep strike or two shallower ones pays better on the same feed.
@@ -43,7 +43,6 @@ catalog:
   - high-conviction
   - high-leverage
   - long-short
-  - not-for-users
   - open-interest
   - proven-cohort
   - selective
@@ -54,7 +53,6 @@ catalog:
   - two-slot
   - whale
   - whale-moves
-  status: blocked
 requires:
   runtime: '>=3.0.0'
 defaults:

@@ -6,15 +6,15 @@
 schema_version: 1
 
 id: grizzly-wild
-version: "1.0.0"
+version: "1.0.1"
 catalog:
+  varies: grizzly          # a VARIANT of this template — never outrank it
   name: "Grizzly-Wild — Grizzly at conviction size (experiment)"
   emoji: "🪓"
   tagline: "Grizzly's BTC thesis at a higher score floor and a higher margin: it fires only on a score of 14 out of 22 — grizzly's own apex tier — instead of 12, and commits 90% of the book instead of 50%. Leverage is 10x either way; the size changes, not the leverage."
   belief_plain: "Grizzly with a higher bar and a larger size. Grizzly trades only BTC, and waits for the 4-hour and 1-hour trend to agree, momentum to confirm, and the traders winning the last four hours to be leaning the same way — refusing to short right off a 24h low or long right off a 24h high, because those fades whipsaw. This version asks for more of that agreement before it acts, and puts most of the account behind the trade instead of half. Nothing else changes: the same gates, the same one position at a time, the same trailing exit. Know the sizing before funding it — 90% margin at 10x is nine times the account in one BTC position, one stop-out is about 7.2% of equity, and there is no second position to offset it."
   thesis: "Two settings differ from Grizzly and they are meant to move together: the score floor goes 12 to 14, and margin goes 50% to 90%. Raising size without raising the floor puts more money behind the same signal distribution; raising the floor without the size pays a rarer signal what a common one earned. The floor is grizzly's own apex tier rather than a ratio: its score scale maxes at 22, and 14 is the tier at which it already committed its largest size. The frequency of a 14+ on BTC has not been measured, and a single slot sits behind it; if it is too rare to stay occupied, the next step down is 13. The exits are grizzly's and deliberately NOT the penguin family's: every DSL threshold is ROE and an exit's distance in price is ROE divided by leverage, so a ladder only ports between assets whose noise bands match. Measured over 3 days of 1m bars, BTC's adverse bounce off a running favourable extreme is p75 0.35% and p90 0.51% of price, against p75 1.38% on the 4h leaderboard universe the penguin ladder was calibrated for. Grizzly's stop of 8.0% ROE is 0.80% of price at 10x — already above BTC's p90 — so it is left where it is. Leverage is flat 10x on anything clearing the floor, time cuts are off, and the ladder's first rung is a loss reducer rather than a profit taker."
   group: single-asset
-  status: blocked           # experiment — deliberately kept out of the catalog and discover
   archetype: single_market
   sub_style: alpha_hunter
   asset_classes: [btc_eth]

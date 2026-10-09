@@ -10,15 +10,15 @@
 #
 # A separate PACKAGE, not a second instance — instances are separate wallets with their own slots,
 # so splitting penguin into instances would run concurrent positions at a fraction of the book each.
-#
-# catalog.status: blocked — not offered in the catalog or discover. Deploy by explicit path:
-#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/penguin-x5 --budget <amount>
+# Listed in the catalog and in discover. Compare it against the parent it varies, not on its
+# own P&L — see senpi-strategy-discover/references/variant-families.md.
 schema_version: 1
 
 id: penguin-x5
-version: "1.1.0"
+version: "1.1.1"
 
 catalog:
+  varies: penguin          # a VARIANT of this template — never outrank it
   name: "Penguin X5 — Concentrated Striker at 5x"
   emoji: "🧊"
   tagline: "Penguin's detector with every exit re-expressed for 5x: the same rank-jump signal, the same one slot at 90% margin, but a ladder whose ROE numbers are exactly half Penguin's so each rung sits at the identical distance in price. It trades only names the venue will lever at 5x and skips the rest rather than running a ladder calibrated for something else."
@@ -31,14 +31,12 @@ catalog:
   asset_scope: universe
   direction: long_short
   risk_level: aggressive
-  status: blocked           # not offered in the catalog or discover
   tier: advanced
   time_horizon: intraday
   leverage_max: 5
   max_slots: 1
   assets: []                # derived universe — coins come from the top-50 rows of the 4h leaderboard each tick, not a fixed list
-  tags: [leader-momentum, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, concentrated, single-slot, high-leverage, hyperfeed, high-risk-high-reward, aggressive, leverage-band, not-for-users]
-
+  tags: [leader-momentum, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, concentrated, single-slot, high-leverage, hyperfeed, high-risk-high-reward, aggressive, leverage-band]
 requires:
   runtime: ">=3.0.0"
 

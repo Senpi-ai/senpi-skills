@@ -5,15 +5,15 @@
 # constraint, and the score is a sum of +1/+2/+3 buckets rather than a continuum — one bucket below
 # it may still be tradeable, and there was no data either way because the floor was hardcoded
 # inside score_market and discarded a near-miss without a record.
-#
-# catalog.status: blocked — not offered in the catalog or discover. Deploy by explicit path:
-#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/purple-penguin --budget <amount>
+# Listed in the catalog and in discover. Compare it against the parent it varies, not on its
+# own P&L — see senpi-strategy-discover/references/variant-families.md.
 schema_version: 1
 
 id: purple-penguin
-version: "1.1.0"
+version: "1.1.1"
 
 catalog:
+  varies: penguin          # a VARIANT of this template — never outrank it
   name: "Purple Penguin — Striker at score 8"
   emoji: "🟣"
   tagline: "Penguin with the conviction bar one notch lower: the same rank-jump detector, the same hard gates, the same whole-book commitment at 10x — but it will take a score of 8 where Penguin insists on 9. An experiment in whether that floor is set too high, and the only thing in this package that differs."
@@ -26,14 +26,12 @@ catalog:
   asset_scope: universe
   direction: long_short
   risk_level: aggressive
-  status: blocked           # experiment — deliberately kept out of the catalog and discover
   tier: advanced
   time_horizon: intraday
   leverage_max: 10
   max_slots: 1
   assets: []                # derived universe — coins come from the top-50 rows of the 4h leaderboard each tick, not a fixed list
-  tags: [leader-momentum, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, concentrated, single-slot, high-leverage, hyperfeed, high-risk-high-reward, aggressive, experiment, score-floor-8, not-for-users]
-
+  tags: [leader-momentum, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, concentrated, single-slot, high-leverage, hyperfeed, high-risk-high-reward, aggressive, experiment, score-floor-8]
 requires:
   runtime: ">=3.0.0"
 

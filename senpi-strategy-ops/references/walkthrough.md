@@ -19,6 +19,32 @@ scoring and the entry bar · protection as outcomes · daily cap), read from `st
 each instance's `runtime.yaml` — plain language, no YAML. Say it here, before the money moves, then again
 after it is live.
 
+## 1b. If it is a VARIANT, say what it varies — before the budget question
+
+Fifteen listed templates are variants of another listed template, differing in one or two numbers:
+the six `*-chase-*bp` arms, `penguins-duo` / `pelicans-duo` / `puffin-duo`, `penguin-x5`,
+`purple-penguin`, the three `wild-*` / `*-wild` forks, and `athena-concentrated`.
+
+A user funding one of these has usually been shown it by name. They cannot read its results without
+knowing what it is a variant OF, so block 1 has one extra bullet, phrased as a difference:
+
+> • **This is Penguin with one change:** it skips an entry once the price has already moved 1.5% in
+>   the hour before the signal. About one entry in five. Everything else — the signal, the 90%
+>   margin at 10x, the stop, the profit ladder — is Penguin's.
+
+Three cases worth saying plainly rather than letting the user discover them:
+
+- **`*-chase-300bp`** is the cap plain Penguin / Penguins Duo already runs. Funding it is funding the
+  parent under a different name. If they wanted a comparison, they want 1.5% or 2%.
+- **the 2% and 3% arms** differ by about one trade in forty. Say "weeks before these two separate"
+  rather than letting them check daily and conclude it is broken.
+- **`puffin-duo`** cannot size up on its best signals the way puffin does (two slots and that
+  conviction tier do not fit under the same margin cap). Both its positions are always 45%.
+
+A variant's P&L alone means nothing — it is only readable against its parent over the same window.
+Say so at funding time, not when they ask why it is flat. Which family varies what, with the
+measured numbers: `senpi-strategy-discover/references/variant-families.md`.
+
 ## 2. Two levers (one for a `tier: starter` template)
 
 Each lever is one bullet in the user's words — **what it controls**, what it is set to now in their

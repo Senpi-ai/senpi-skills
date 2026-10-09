@@ -3,13 +3,13 @@
 # Same 45% of the phalanx sleeve at risk, carried by two larger bets. Total exposure is held
 # CONSTANT on purpose: if size moved with count, a result could not be attributed to
 # concentration. The aegis arm and the 65/35 split are untouched.
-#
-# catalog.status: blocked — not offered in the catalog or discover. Deploy by explicit path:
-#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/athena-concentrated --budget <amount>
+# Listed in the catalog and in discover. Compare it against the parent it varies, not on its
+# own P&L — see senpi-strategy-discover/references/variant-families.md.
 schema_version: 1
 id: athena-concentrated
-version: 1.0.0
+version: "1.0.1"
 catalog:
+  varies: athena          # a VARIANT of this template — never outrank it
   name: Athena Concentrated — two large phalanx bets
   emoji: 🏛️
   tagline: Athena with the phalanx arm concentrated into two larger positions instead of three smaller ones — the same capital at risk, carried by fewer, bigger bets. The aegis hedge and the 65/35 split are unchanged.
@@ -43,14 +43,12 @@ catalog:
   - experiment
   - hedge-fund
   - long-short
-  - not-for-users
   - phalanx
   - proven-cohort
   - regime-hedge
   - rotation
   - smart-money
   - smart-money-hedge-fund
-  status: blocked
 requires:
   runtime: '>=3.0.0'
 defaults:
