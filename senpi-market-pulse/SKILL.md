@@ -11,7 +11,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.8.0"
+  version: "1.9.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -70,7 +70,11 @@ python3 scripts/pulse.py all  [--no-smart]    # one-shot fallback: the full comp
   `day_classification`, `funding_regime`. Each carries a plain `read` string you can cite.
 - `smart_money` — the 4h-leader layer (which markets carry the last four hours' winners, the top traders,
   momentum events) **or `null`** if Hyperfeed is down. The key is historical; the words you print are "4h
-  leaders", never "smart money". If null, note it once and move on — never stall.
+  leaders", never "smart money". If null, note it once and move on — never stall. Each layer is a short
+  `rows` list plus its source counts: the top 8 markets (`token`, `direction`, `pct_of_top_traders_gain`,
+  `trader_count`), the top 5 traders (`unrealized_pnl` over the 4h window, `top_markets`), and each trader's
+  newest momentum event with its `top_positions`. `decision: "blocked"` only means the alert was not pushed
+  (a cooldown); the move itself is as real as a `"sent"` one.
 - `meta.warnings` / `meta.degraded` — what was unavailable. Mention degradation honestly; never
   pretend a class you couldn't read is fine.
 - The engine **fails open** — partial data still returns valid JSON. Work with what you got; flag

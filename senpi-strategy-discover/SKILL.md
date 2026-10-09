@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.45.0"
+  version: "2.46.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -33,13 +33,18 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
 
 ## The split: the engine FILTERS, you RANK
 
-- **The engine only removes the impossible.** `scripts/discover.py` takes a few **concrete** flags and
-  returns **every** strategy that survives them — no scoring, no top-N. A big list back is normal and
-  correct (a bad cut hides the right answer; a full list never does).
-- **You rank the returned set yourself.** The engine does NOT know the user's risk appetite, belief, or
-  worldview — those never go in as flags. You hold them and rank the returned candidates on them, using
-  the fields on each record (`risk_level`, `belief_plain`, `archetype_label`, `thesis`, `tags`,
-  `time_horizon`, `tier`) plus the live `market_facts`.
+- **The engine only removes the impossible.** `scripts/discover.py` takes a few **concrete** filter
+  flags, computes the complete eligible set, folds each variant family into one card, and returns a
+  bounded shortlist (8 by default): `meta.eligible_count` is how many fit, `meta.families_count` how
+  many cards they fold into, `meta.returned_n` how many came back.
+- **Only `--theme` makes that shortlist a ranking.** With `--theme`, the engine scores the whole eligible
+  set on the user's words, then cuts — the 8 are the best matches. Without it, the 8 are the first 8 in
+  **neutral order** (asset match, then name — effectively alphabetical), not the best 8.
+- **Soft preferences go in `--theme`, never in a filter.** Risk appetite, belief, horizon and worldview
+  never become `--assets`/`--direction`/`--exclude`/`--budget` cuts — `--theme` ranks and never drops.
+  Then you rank the returned candidates yourself, using the fields on each record (`risk_level`,
+  `belief_plain`, `archetype_label`, `thesis`, `tags`, `time_horizon`, `tier`) plus the live
+  `market_facts`.
 
 ## Golden rules
 
@@ -56,13 +61,19 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
   set — never fetch the catalog or filter strategies yourself.
 - **Only ever name strategies the engine returned** (in `MatchResult.candidates`). Copy the `id`/`name`
   verbatim from its JSON. If it's not in the JSON, don't say it. This is the anti-hallucination rule.
-- **Pass only CONCRETE constraints as flags** — an explicit asset class / named ticker, a hard
-  direction, an explicit exclusion, a budget. **Keep risk, belief, horizon, and worldview in your
-  head** and rank with them. There is no `--belief`/`--risk`/`--horizon` flag.
-- **Worldview is yours to match, via `thesis` + `tags`.** "There'll be a war", "the economy's turning",
-  "one coin will win", "an AI fund", "something market-neutral" → read each candidate's `thesis`/`tags`
-  and rank the fits up. **Do NOT turn a fuzzy worldview into a hard `--assets` cut** — only filter on
-  assets when the user concretely names a market.
+- **Never recommend from a neutral-order shortlist.** When `meta.families_count > meta.returned_n` and
+  the run had no `--theme`, the candidates are an alphabetical slice, not a ranking. Re-run with
+  `--theme` built from what the user has told you (risk appetite, belief, horizon, worldview). If they've
+  told you none of that, say how many fit (`eligible_count`) and ask one short question about what
+  they're after — a user who says they don't know gets *Start here* (Special paths). Candidates below
+  the last `meta.theme_matches` entry are neutral order too; if the matches are thin, widen the words.
+- **Pass only CONCRETE constraints as filter flags** — an explicit asset class / named ticker, a hard
+  direction, an explicit exclusion, a budget. **Risk, belief, horizon, and worldview go in `--theme`**
+  and in your own ranking. There is no `--belief`/`--risk`/`--horizon` flag.
+- **Worldview is yours to match, via `--theme` + `thesis`/`tags`.** "There'll be a war", "the economy's
+  turning", "one coin will win", "an AI fund", "something market-neutral" → pass it as `--theme` words,
+  then read each candidate's `thesis`/`tags` and rank the fits up. **Do NOT turn a fuzzy worldview into a
+  hard `--assets` cut** — only filter on assets when the user concretely names a market.
 - **Not just crypto.** Senpi trades **stocks, commodities, indices, and pre-IPO names 24/7** — about
   half the volume here isn't crypto. Keep every question, example, and default **asset-agnostic**; never
   assume "a coin."
@@ -78,7 +89,7 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
 
 ## How to run the engine
 
-Invoke via the `exec` tool. **Concrete flags only** — everything else is your job:
+Invoke via the `exec` tool. **Concrete filter flags, plus `--theme` for everything soft:**
 
 ```
 python3 scripts/discover.py
@@ -88,7 +99,7 @@ python3 scripts/discover.py
   [--exclude <csv: copy_trading,stocks,crypto,commodities,pre_ipo,dca,shorting>]
   [--budget <number>]
   [--theme "<worldview>"]  # SOFT surface: k-shape, risk-off, market-neutral, AI fund, divergence…
-  [--limit <int>]      # safety cap only; default returns ALL eligible
+  [--limit <int>]      # default 8; raise only when they ask to see more — never to recommend
   [--no-market]        # skip the live read — use while narrowing/browsing
   [--context-only]     # budget + holdings (Senpi + your saved wallets, read-only) only, no match
 ```
@@ -100,16 +111,24 @@ python3 scripts/discover.py
   structural synonyms YOU know for it — you natively know "k-shape" ≈ "two-speed" ≈ "long/short" ≈
   "dispersion", so pass them: `--theme "k-shape two-speed long-short divergence dispersion winners
   laggards"`. The engine scores every survivor on thesis/tag overlap with those terms, floats the
-  matches to the top, and echoes a ranked `meta.theme_matches`. It **never drops a candidate** and holds
-  **no** maintained synonym list of its own — the vocabulary is yours. You still rank + narrate. Use it
-  for any named worldview so you don't eyeball 78 theses and miss an obvious fit (e.g. Cougar/Cub for a
-  K-shape).
+  matches to the top, and echoes the bounded ranked `meta.theme_matches`. It scores the complete eligible
+  set before applying the output cap and holds **no** maintained synonym list of its own — the vocabulary
+  is yours. You still rank + narrate. Use it
+  on **every run that produces picks** — a named worldview, and risk appetite, belief or horizon too
+  ("aggressive", "ride trends", "fade the crowd", "a hedge") — so the shortlist is the best fits and you
+  don't miss an obvious one (e.g. Cougar/Cub for a K-shape).
+- **Risk and horizon match only the catalog's own label, as a whole word.** Risk: `conservative`,
+  `moderate`, `aggressive` — "safe" and "low-risk" match neither, so translate. Horizon:
+  `scalp-horizon`, `intraday-horizon`, `swing-horizon`, `position-horizon` (days to weeks) — a bare
+  "position" is not a horizon. Put the label in `--theme` beside the user's own words.
+- **`--limit N` is the browse path only** ("show me more", "list everything"). It is not a ranking
+  either, and an explicit `--limit` skips the output-size guard — keep N modest.
 - Values can be loose ("btc and eth", "no shorting") — the engine canonicalizes; unknown → ignored.
 - **You hold the flags across turns** and re-run with the full concrete set each time (stateless).
-- A **fuzzy belief/worldview run carries no `--assets`** — run broad (often no flags at all) and, when the
-  worldview has a name ("k-shape", "risk-off", "one coin wins"), add **`--theme "<words>"`** to surface +
-  rank the thesis matches. Read `meta.theme_matches` first, then rank the rest. Add `--no-market` to keep
-  early runs cheap.
+- A **fuzzy belief/worldview run carries no `--assets`** — run broad on the filters (often none at all)
+  and always with **`--theme "<words>"`** ("k-shape", "risk-off", "one coin wins", "trend momentum") to
+  surface + rank the thesis matches. Read `meta.theme_matches` first, then rank the rest. Add
+  `--no-market` to keep early runs cheap.
 - The engine returns valid JSON even on bad input; if it ever errors/empties, fall back to a generic
   "here's what you can start from" message.
 
@@ -119,6 +138,7 @@ Each candidate is a flat record. You rank on the soft fields; you narrate from t
 
 | Field | Use |
 |---|---|
+| `meta.eligible_count`, `meta.families_count`, `meta.returned_n` | how many fit · how many cards they fold into (one per variant family) · how many came back — `families_count > returned_n` on an unthemed run = neutral order, not a ranking (Golden rules) |
 | `meta.theme_matches`, `theme_score`, `theme_hits` | when `--theme` is set: the **ranked worldview shortlist** — read it FIRST, then rank the rest |
 | `thesis`, `tags` | **worldview / theme match** — your main lever for "war / hedge fund / all-weather / one coin wins" |
 | `belief_plain`, `archetype_label` | belief match (ride trends vs fade vs copy …) |
@@ -127,6 +147,8 @@ Each candidate is a flat record. You rank on the soft fields; you narrate from t
 | `market_facts` | the live "why now" for your lead |
 | `caveats` | honesty — surface **verbatim** |
 | `min_budget` | the **computed** minimum to run the design (`min_budget.py`; also carries `wallet_count`) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; NOT a recommendation. Size the actual budget from the user's funds (`meta.user_context.budget`); see Layer 3 |
+| `variants` | ids of the card's eligible variant siblings, folded into it — offer one only per *Variant families* below; the card's `theme_score`/`theme_hits` are the family's best |
+| `varies` | set only when the family's parent was filtered out and this member stands in — name the parent when you offer it |
 | `id`, `version` | the handoff to ops |
 
 ## Conversation flow
@@ -154,7 +176,7 @@ These interconnect — after any path they can jump to another. Follow their lea
 
 **Belief is NOT a flag** (you removed `--belief`). It does two things: it picks the *next* question, and
 it tells you how to *rank* the returned set. Where a branch maps to a concrete constraint, pass the flag;
-otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`thesis`/`tags`.
+otherwise put it in `--theme` and rank on `archetype_label`/`belief_plain`/`thesis`/`tags`.
 
 1. **Belief first (Layer 1)** — ask which sounds most like them (asset-agnostic; ordered by demand —
    managed → gut-feel → specific → copy → hot → advanced):
@@ -163,8 +185,9 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
       whose `tags` include `hedge-fund`/`thesis-fund`/`all-weather`/`tail-risk`/… and whose `thesis`
       fits. **Athena** is the smart-money hedge fund (a Phalanx alpha sleeve + an Aegis hedge sleeve, 65/35
       by default — the weighting is theirs): lead with it for a "hedge fund" or "smart money" ask.
-      **No `--assets` for a fuzzy view** — run broad and rank.
-   2. "Ride what's moving, or fade the crowd?" → rank `archetype_label` Trend-Follower vs Contrarian/Fade.
+      **No `--assets` for a fuzzy view** — run broad with `--theme` and rank.
+   2. "Ride what's moving, or fade the crowd?" → `--theme "trend momentum breakout"` or `--theme
+      "contrarian fade mean-reversion"`; rank `archetype_label` Trend-Follower vs Contrarian/Fade.
    3. "A **specific market** — a stock (NVDA), a pre-IPO name (SpaceX), a commodity (gold/oil), an index,
       or a coin?" → this IS concrete → `--assets xyz_equities|pre_ipo|commodities|indices|<class/ticker>`.
    4. "Copy traders already winning?" → **hand off to `senpi-trader-research`** to find the best wallets to
@@ -176,7 +199,8 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
       1:1; Athena is Phalanx with its Aegis hedge as one fund). All auto-apply DSL + budget-relative sizing. (`senpi-trade` carries the full flavor breakdown.)
    5. 🏆 "Just run what's set up best right now?" → *read the market*, lead with the best current setup
       (be honest — see "What's winning" in Special paths; there's no per-package performance board).
-   6. "Catch breakouts early, or earn from market structure?" → rank Breakout / Structural up.
+   6. "Catch breakouts early, or earn from market structure?" → `--theme "breakout momentum"` or
+      `--theme "structural funding carry basis neutral"`; rank Breakout / Structural up.
 2. **Belief-dependent follow-up (Layer 2)** — the *next* question depends on step 1:
    | They chose… | Ask next |
    |---|---|
@@ -214,8 +238,8 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
    Senpi holdings; a name in `saved_wallets_unread` → couldn't load that wallet, never "flat" or "no
    positions". Call them "your wallets" or "the wallets you added"; never imply Senpi checked who
    controls them.
-   Then run the engine with the FULL concrete flag set (this run does the live market read), **rank the
-   eligible set**, and narrate 2–3 cards leading with the top pick's `market_facts` "why now"; surface
+   Then run the engine with the FULL concrete flag set plus `--theme` from everything soft they've told
+   you (this run does the live market read), **rank the returned set**, and narrate 2–3 cards leading with the top pick's `market_facts` "why now"; surface
    `caveats` verbatim.
 
 ### Always-available moves (any point, on demand)
@@ -244,17 +268,24 @@ They lack the vocabulary; recommend *without* making them self-classify:
 
 - **Single-wallet pick** (no `funding_split` on its card): *"One strategy is one bet — want a hedge
   alongside it to cut drawdown?"* To find the complement, **re-run the engine broadly** (drop the
-  narrowing, or flip `--direction`) and offer a candidate that *complements* the pick — a fader/defensive
-  or tail-risk one for a momentum pick (read `archetype_label`/`tags`/`direction` to choose), à la
+  narrowing, or flip `--direction`) with a `--theme` naming the complement — `"hedge defensive tail-risk
+  contrarian fade"` for a momentum pick — and offer the candidate that *complements* it (read
+  `archetype_label`/`tags`/`direction` to choose), à la
   Spider + Dog. Phalanx has one built as its pair: **Aegis** (reads the tape where Phalanx reads the
   crowd) — and **Athena** is the two as one fund (65/35 by default, the weighting is theirs). Stacking by
   hand, size ~70/30 toward the primary — it's a cushion, not a co-bet.
 - **Fund pick** (`funding_split` present → already a multi-wallet long/short book): **don't push
   stacking — it's internally hedged.** Just show the funding split when you present it.
 
-### Few-shot: utterance → concrete flags (+ what you keep in your head to rank on)
-- "something safe for BTC, ~$300" → `--assets btc_eth --budget 300`  · rank: conservative
-- "aggressive NVDA play" → `--assets NVDA`  · rank: aggressive
+### Few-shot: utterance → concrete flags + `--theme` (+ what you rank on)
+- "what strategies do you have?" / "recommend something" (nothing soft yet) → an unthemed run returns 8
+  of `eligible_count` in alphabetical order — don't pick from them → *"There are {eligible_count} I can
+  set up — what are you after: riding trends, fading moves, a hedged fund, or one market?"*
+- "something safe for BTC, ~$300" → `--assets btc_eth --budget 300 --theme "conservative defensive
+  low-risk hedged"`  · rank: conservative
+- "aggressive NVDA play" → `--assets NVDA --theme "aggressive high-leverage momentum breakout"`  · rank: aggressive
+- "quick in-and-out trades" → `--theme "intraday-horizon scalp-horizon quick short-term"`; "I want to hold
+  for weeks" → `--theme "position-horizon long-term patient"`
 - "trade SpaceX / pre-IPO names" → `--assets pre_ipo`
 - "a K-shaped market — long winners, short losers" → YOU expand the worldview →
   `--theme "k-shape two-speed long-short divergence dispersion winners laggards"` *(no asset cut)* → read
@@ -264,10 +295,12 @@ They lack the vocabulary; recommend *without* making them self-classify:
 - "bet against the economy" → `--theme "risk-off defensive recession bearish hedge downturn crisis"` *(no asset cut)* → surfaces the
   risk-off/tail-risk theses; read each `thesis` for the side (never guess)
 - "market-neutral / something hedged" → `--theme "market-neutral long-short pairs spread hedged relative-value"` → surfaces the long/short + pairs books
-- "gold vs bitcoin" → run broad (or `--assets commodities,btc_eth`) → pick the matching `thesis-*` fund by which side wins
-- "I think there's going to be a war" → *(no asset cut)* run broad → rank up war / tail-risk / oil-gold
-  theses (`thesis-war-escalation`, `rhino`)
-- "run a hedge fund / all-weather book" → run broad → rank up `hedge-fund`/`all-weather`/`risk-parity` tags (`athena` first — the smart-money hedge fund — then `ox`, `spider`, `rhino`)
+- "gold vs bitcoin" → run broad (or `--assets commodities,btc_eth`) with `--theme "gold bitcoin debasement
+  hard-money macro thesis long-short"` → pick the matching `thesis-*` fund by which side wins
+- "I think there's going to be a war" → *(no asset cut)* `--theme "war escalation geopolitical conflict
+  tail-risk crisis-alpha oil gold"` → rank up war / tail-risk / oil-gold theses (`thesis-war-escalation`, `rhino`)
+- "run a hedge fund / all-weather book" → run broad with `--theme "hedge-fund all-weather risk-parity
+  multi-strategy smart-money"` → rank up `hedge-fund`/`all-weather`/`risk-parity` tags (`athena` first — the smart-money hedge fund — then `ox`, `spider`, `rhino`)
 - "a smart money hedge fund" / "follow the smart money, hedged" → `--theme "smart money hedge fund proven cohort regime hedge"` → `athena` (65/35 Phalanx/Aegis by default; the weighting is theirs)
 - "which of your templates are proven?" / "did you backtest this?" → no engine call; the honest line under *Special paths*, then the pick they asked about
 - "copy good traders, nothing crazy" → **hand to `senpi-trader-research`** for the blended shortlist (steady names surface by copyability — no window for the user to pick); or a managed **Copy-Trader template** if they want it hands-off. Keep risk=moderate in head.
@@ -293,6 +326,9 @@ worldview/fund picks; offer the stack on single-wallet picks only.
 Fifteen listed strategies are VARIANTS of another listed strategy, differing in one or two numbers —
 six of them are penguins. Ranked on keyword overlap they look interchangeable, and a user who picks
 the wrong one reads its results as if they were the parent's.
+
+The engine already folds each family into ONE card — the parent's, with its eligible siblings' ids in
+`variants` — so a shortlist never holds two members of a family.
 
 **Offer the PARENT. Name a variant only when the user's own words ask for the thing it varies** —
 "fewer, bigger positions" earns a duo, "I keep getting in late" earns a chase arm, a generic request
@@ -336,7 +372,8 @@ days.
   the pitch is what the machinery does, never what it will return.
 - **"What's winning"** → reframe honestly: *"I rank by what's set up well right now, not last week's
   winner."* Read the market; lead with the best current setup from `market_facts`. Never imply a real
-  per-package performance leaderboard.
+  per-package performance leaderboard. The live read covers only the candidates returned, so an unthemed
+  run reads an alphabetical slice — ask which style first, then run themed.
 - **Micro-specs** ("$1 a trade", "never lose more than 20 cents", "a hundred small wins") → do the fee math out loud before matching anything: read the round-trip cost — Hyperliquid's taker rate on both legs (the wallet's `userFees`, never assumed) plus Senpi's builder fee (`get_loyalty_tiers`, `feePercent` — the only fee that tool carries) — and put it next to their stop — a position big enough to make $1 pays a fee that is a large share of a 20-cent stop, and a stop that tight is hit by normal noise. Say the numbers, then offer what exists: a template's stop and lock ladder sized to its budget. Never save an impossible spec as their "risk profile" and never answer "Senpi has exactly that".
 - **"Show me the source" / "I want an outside audit"** → the catalog is public: link `https://github.com/Senpi-ai/senpi-skills/tree/main/strategies/<id>`, and for a fork point at their package (`<username>-<template>`, as ops names it) and its diff against that link. Never hand-roll a tarball or a hash-stamped dump in place of the link.
 - **"Proven / backtested / track record" templates** → say it plainly: a template has no backtest and no
@@ -347,7 +384,9 @@ days.
 - **User names a strategy** ("just install kodiak") → deploy intent → hand to **senpi-strategy-ops**.
 - **Below-floor budget** → surface the floor honestly ("the smallest here needs ~$X"); offer to see it
   anyway / adjust / build custom. Never hard-block (the caveat is already on the record).
-- **Big eligible set** → expected; don't dump it. Rank it down to the best 2–3 and present those.
+- **Big eligible set** → expected; the engine returns 8 of it. Themed: rank those down to the best 2–3
+  and present them. Unthemed: neutral order — re-run with `--theme` or ask (Golden rules); `--limit` only
+  when they ask to see more.
 
 ## Handoffs
 

@@ -55,6 +55,12 @@ XYZ_ALL = [a for g in XYZ_GROUPS.values() for a in g]
 # how many of the biggest movers get a deep (candle/volume/funding) pull
 MOVER_DEEP_PULL = 12
 
+# OpenClaw truncates exec results over ~16k chars, and the raw leaderboard reads run to ~200k. The
+# smart step therefore keeps only these many rows of the narrated fields, so it prints complete JSON.
+SMART_MARKET_LIMIT = 8
+SMART_TRADER_LIMIT = 5
+SMART_EVENT_LIMIT = 8
+
 
 # ──────────────────────────────────────────────────────────────── guarded I/O helpers
 def _ok(resp):
@@ -214,8 +220,43 @@ def deep_pull_movers(client, movers, meta):
     return {a: v for a, v in pairs if v}, regime
 
 
+def _latest_per_trader(events):
+    """Momentum events arrive newest first, and most are cooldown-blocked repeats of the same trader.
+    Blocked events are still valid signals (blocking only stops the push), so keep each trader's newest
+    event that names its positions; one with null top_positions has nothing to narrate."""
+    seen, out = set(), []
+    for e in events:
+        if e.get("top_positions") and e.get("trader_id") not in seen:
+            seen.add(e.get("trader_id"))
+            out.append(dict(e, top_positions=e["top_positions"][:3]))
+    return out
+
+
+# Each tool's `data`, per senpi-hyperliquid-mcp src/types/leaderboard.types.ts + src/tools/leaderboard.tools.ts
+# (every handler wraps its client payload under one more key): label → (tool, path to the rows, envelope
+# fields kept, row limit, row fields kept, row filter).
+SMART_LAYERS = {
+    "concentration": ("leaderboard_get_markets", ("markets", "markets"), ("window", "source_trader_count"),
+                      SMART_MARKET_LIMIT, ("token", "dex", "direction", "is_dominant_direction",
+                      "pct_of_top_traders_gain", "trader_count", "token_price_change_pct_15m",
+                      "token_price_change_pct_1h", "token_price_change_pct_4h"), None),
+    "top_traders": ("leaderboard_get_top", ("leaderboard", "data"), ("window", "total_traders"),
+                    SMART_TRADER_LIMIT, ("rank", "trader_id", "unrealized_pnl", "pnl_percentage",
+                    "top_markets"), None),
+    "momentum_events": ("leaderboard_get_momentum_events", ("events", "events"), ("total_count",),
+                        SMART_EVENT_LIMIT, ("trader_id", "tier_label", "delta_pnl", "decision",
+                        "top_positions", "detected_at"), _latest_per_trader),
+}
+
+
+def _dig(data, path):
+    for key in path:
+        data = data.get(key) if isinstance(data, dict) else None
+    return data if isinstance(data, dict) else {}
+
+
 def fetch_smart_money(client, meta):
-    """The leaderboard / Hyperfeed layer — health-gated. Returns None (cleanly) if the feed is down."""
+    """The leaderboard / Hyperfeed layer — health-gated and projected to narration-relevant fields."""
     _progress("Checking where the smart money is positioned vs the crowd…")
     try:
         status = _ok(client.mcp_call("leaderboard_get_status", timeout=8))
@@ -227,12 +268,22 @@ def fetch_smart_money(client, meta):
         meta.setdefault("warnings", []).append("smart-money layer unavailable (Hyperfeed unreachable)")
         return None
 
-    sm = {"status": status}
-    for label, tool in (("concentration", "leaderboard_get_markets"),
-                        ("top_traders", "leaderboard_get_top"),
-                        ("momentum_events", "leaderboard_get_momentum_events")):
+    # never the status's `prices` map: one price per listed market
+    status = _dig(status, ("status",))
+    sm = {"status": {k: status[k] for k in ("window", "last_update_timestamp", "total_leaderboard_traders")
+                     if status.get(k) is not None}}
+    for label, (tool, path, env_fields, limit, fields, keep) in SMART_LAYERS.items():
         try:
-            sm[label] = _ok(client.mcp_call(tool, timeout=10))
+            data = _ok(client.mcp_call(tool, timeout=10))
+            if data is None:
+                raise ValueError("no data")
+            env = _dig(data, path[:-1])
+            rows = [r for r in env.get(path[-1]) or [] if isinstance(r, dict)]
+            layer = {k: env[k] for k in env_fields if env.get(k) is not None}
+            layer.setdefault("total_count", len(rows))
+            layer["rows"] = [{k: r[k] for k in fields if r.get(k) is not None}
+                             for r in (keep(rows) if keep else rows)[:limit]]
+            sm[label] = layer
         except Exception as e:  # noqa
             meta.setdefault("warnings", []).append(f"{tool} failed: {e}")
             sm[label] = None

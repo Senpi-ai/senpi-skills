@@ -9,10 +9,11 @@ stdout, RANKS the returned set itself (on risk / belief / worldview / thesis), a
 Contract:
 - The SCRIPT only does CONCRETE set logic: it hard-rejects on the few unambiguous, explicitly-stated
   constraints (cross-domain asset, named-asset unavailable, strict-opposite direction, explicit
-  exclusions) and returns ALL survivors — no relevance score, no top-N cut. A bad rank still contains
-  the right answer; a bad cut doesn't, so we never cut.
-- Survivors are neutral-ordered (asset-match desc, then name) — lossless ordering, never a filter.
-- Each record carries its full soft-rank surface (risk_level, belief_plain, THESIS, tags, horizon,
+  exclusions). It computes the complete eligible set, reports its count, and bounds default output.
+- Survivors are neutral-ordered (asset-match desc, then name); optional theme scoring runs over the
+  complete eligible set, then each variant family folds into one card, then the output cap — so a
+  later candidate can still surface and near-identical siblings can't fill the shortlist.
+- Each record carries a compact soft-rank surface (risk_level, belief_plain, THESIS, tags, horizon,
   scope, direction, asset_classes, tier) + caveats + market_facts. The LLM does ALL soft/semantic
   ranking — nothing it matches on requires a maintained glossary.
 - Fails open: unknown concrete values drop to "unstated" (widen, never dead-end); always valid JSON;
@@ -35,6 +36,11 @@ SKILL_CATALOG = os.path.join(HERE, os.pardir, "catalog.json")             # bund
 REPO_CATALOG = os.path.join(REPO_ROOT, "strategies", "catalog.json")      # dev checkout / source of truth
 _CATALOG_REPO = os.environ.get("SENPI_SKILLS_REPO", "Senpi-ai/senpi-skills")
 _CATALOG_REF = os.environ.get("SENPI_SKILLS_REF", "main")
+DEFAULT_LIMIT = 8
+OUTPUT_BUDGET = 12_000
+TEXT_FIELD_LIMIT = 120
+TAG_LIMIT = 8
+MARKET_FACT_LIMIT = 2
 
 
 def default_catalog():
@@ -302,15 +308,20 @@ def _active_constraints(intent):
     return c
 
 
+def _short_text(value):
+    value = str(value or "")
+    return value if len(value) <= TEXT_FIELD_LIMIT else value[:TEXT_FIELD_LIMIT - 1].rstrip() + "…"
+
+
 def _candidate(r, intent):
-    """A flat, labels-pre-inlined record — everything the LLM needs to rank + narrate, no extra context."""
+    """A flat, labels-pre-inlined record — everything the LLM needs to rank + narrate. Full text here so
+    theme scoring sees it; `limit_result` compacts only the returned candidates (`_compact`)."""
     cand = {
         # identity + handoff
         "id": r.get("id"), "version": r.get("version"), "name": r.get("name"),
         "emoji": r.get("emoji"), "tagline": r.get("tagline"),
-        # The template this one VARIES, when it is a variant. Carried so apply_theme can keep a
-        # variant from outranking its own parent, and so the agent can say "X with one change"
-        # rather than offering two near-identical cards side by side.
+        # The template this one VARIES, when it is a variant (fold_variants groups families on it).
+        # On a returned card it means the family root was filtered out and this member stands in.
         "varies": r.get("varies"),
         # soft-rank surface (the script never reads these — the LLM ranks on them)
         "risk_level": r.get("risk_level"), "archetype_label": r.get("archetype_label"),
@@ -333,7 +344,17 @@ def _candidate(r, intent):
     return cand
 
 
-def match(intent, records, limit=None):
+def _compact(cand):
+    """Output projection: trim the long soft-rank text so the shortlist fits the result budget."""
+    for field in ("tagline", "belief_plain", "thesis"):
+        cand[field] = _short_text(cand.get(field))
+    for field in ("tags", "tag_labels"):
+        if field in cand:
+            cand[field] = cand[field][:TAG_LIMIT]
+    return cand
+
+
+def match(intent, records):
     """Filter on the concrete constraints, return ALL survivors neutral-ordered. No score, no top-N."""
     intent.setdefault("_broadened_classes", [])
     survivors = [r for r in records if not _hard_reject(r, intent)]
@@ -354,12 +375,8 @@ def match(intent, records, limit=None):
 
     build_custom = {"label": "Build a custom strategy", "route": "senpi-strategy-author"}
     survivors.sort(key=lambda r: (-_asset_match(r, intent), r.get("name") or r.get("id") or ""))
-    eligible_total = len(survivors)
-    if limit:
-        survivors = survivors[:limit]
-
     candidates = [_candidate(r, intent) for r in survivors]
-    meta = {"eligible_count": eligible_total, "returned_n": len(candidates),
+    meta = {"eligible_count": len(candidates), "returned_n": len(candidates),
             "intent_echo": _intent_echo(intent), "warnings": intent.get("_warnings", [])}
     if widened:
         meta["widened"] = widened
@@ -383,6 +400,14 @@ def match(intent, records, limit=None):
 # fields scored, with weight — a hit in a tag/tagline is a stronger signal than one buried in the thesis.
 _THEME_FIELDS = (("tags", 3), ("tag_labels", 3), ("tagline", 2), ("name", 2),
                  ("archetype_label", 2), ("thesis", 1), ("belief_plain", 1))
+# Categorical labels for the two asks SKILL.md routes into --theme. They hit on a WHOLE term equal to
+# the rendered label, never a substring: the horizon label "position" (days-to-weeks holds) is also the
+# everyday word in "one concentrated position", so it is rendered "position-horizon" — a bare
+# "position" is not a horizon ask. Weights: risk_level 6 (two tag hits) so a stated risk appetite
+# outranks incidental text — on "conservative defensive low-risk hedged" over btc_eth the best
+# wrong-risk record scores 5 from text alone; time_horizon 3 (one tag hit) because horizon words are
+# nearly absent from catalog text — an "intraday-horizon" ask returned 3/8 intraday at 1, 8/8 at 3.
+_THEME_LABELS = (("risk_level", "{}", 6), ("time_horizon", "{}-horizon", 3))
 
 
 def _norm_text(s):
@@ -413,44 +438,119 @@ def _theme_score(cand, terms):
             if t and t in text:
                 score += weight
                 hits.add(t)
+    for field, label, weight in _THEME_LABELS:
+        t = _norm_text(label.format(cand[field])) if cand.get(field) else ""
+        if t and t in terms:
+            score += weight
+            hits.add(t)
     return score, sorted(hits)
 
 
+def _theme_matches(cands):
+    return [{"id": c["id"], "name": c.get("name"), "theme_score": c["theme_score"],
+             "theme_hits": c.get("theme_hits", [])}
+            for c in cands if c.get("theme_score", 0) > 0]
+
+
 def apply_theme(result, query):
-    """SOFT theme surface over an already-filtered candidate set: score each on thesis/tag keyword match,
-    STABLE-sort matches to the top (ties keep the prior asset/name order), and echo the ranked shortlist +
-    the expanded terms in meta. NEVER drops a candidate — the engine still returns every survivor."""
+    """SOFT theme surface over the complete filtered set: score each candidate on keyword overlap,
+    STABLE-sort matches to the top (ties keep the prior asset/name order), and echo the ranked matches +
+    the expanded terms in meta. Drops nothing itself — the output cap (limit_result) runs after it."""
     terms = _expand_theme(query)
     for cand in result.get("candidates", []):
         score, hits = _theme_score(cand, terms)
         cand["theme_score"] = score
         if hits:
             cand["theme_hits"] = hits
-    # A VARIANT must never outrank the template it varies. Fifteen listed strategies differ from
-    # another listed one by a number or two, and their cards are near-copies — so on keyword overlap
-    # they score almost identically to the parent and, on ties, whichever happens to sort first wins.
-    # Measured when they were published: puffin fell to rank 4 for its OWN query, behind puffin-duo.
-    # A user who gets the sibling does not get a worse strategy, they get one whose results they will
-    # read as the parent's.
-    #
-    # This is a tie-break, not a penalty: the variant keeps its own score and still ranks on merit
-    # against everything else. It only loses to its own parent, and only when the parent survived the
-    # same filters — ask for "two slots" and the duo still wins on its own terms.
-    _ids = {c.get("id") for c in result.get("candidates", [])}
-    for cand in result.get("candidates", []):
-        parent = (cand.get("varies") or "").strip()
-        if parent:
-            cand["variant_of"] = parent                      # surfaced so the agent can SAY so
-            if parent in _ids:
-                cand["ranked_below_parent"] = True
-    result["candidates"].sort(key=lambda c: (-c.get("theme_score", 0),
-                                             1 if c.get("ranked_below_parent") else 0))
+    result["candidates"].sort(key=lambda c: -c.get("theme_score", 0))
     result.setdefault("meta", {})["theme"] = query
     result["meta"]["theme_expanded"] = terms
-    result["meta"]["theme_matches"] = [
-        {"id": c["id"], "name": c.get("name"), "theme_score": c["theme_score"],
-         "theme_hits": c.get("theme_hits", [])}
-        for c in result["candidates"] if c.get("theme_score", 0) > 0]
+    result["meta"]["theme_matches"] = _theme_matches(result["candidates"])
+    return result
+
+
+def _family_chain(cid, varies):
+    """[cid, parent, grandparent, …] following the catalog `varies` field up to the family root."""
+    chain = [cid]
+    while varies.get(chain[-1]) and varies[chain[-1]] not in chain:
+        chain.append(varies[chain[-1]])
+    return chain
+
+
+def fold_variants(result, records):
+    """One card per variant family, before the output cap — so near-identical siblings can't eat the
+    shortlist (references/variant-families.md: offer variants only through their parent).
+
+    The family root is found by following `varies` up the FULL catalog (a chain can pass through a
+    filtered-out record). The card is the eligible member closest to the root (best-ranked on a tie), so
+    an eligible variant still surfaces when its root was filtered out. It lists the other eligible
+    members in `variants`, carries the family's best theme_score (a variant's match lifts its root) and
+    the union of their theme_hits, and sits where the family's best-ranked member sat. eligible_count
+    still counts every eligible record; meta.families_count counts the cards the set folds into."""
+    varies = {r.get("id"): (r.get("varies") or "").strip() for r in records}
+    families = {}
+    for rank, cand in enumerate(result.get("candidates", [])):
+        chain = _family_chain(cand["id"], varies)
+        families.setdefault(chain[-1], []).append((len(chain), rank, cand))
+    cards = []
+    for members in families.values():
+        rep = min(members, key=lambda m: m[:2])[2]
+        others = [c for _, _, c in members if c is not rep]
+        if others:
+            rep["variants"] = [c["id"] for c in others]
+            if "theme_score" in rep:
+                rep["theme_score"] = max(c["theme_score"] for _, _, c in members)
+                hits = sorted({h for _, _, c in members for h in c.get("theme_hits", [])})
+                if hits:
+                    rep["theme_hits"] = hits
+        cards.append((-rep.get("theme_score", 0), members[0][1], rep))
+    result["candidates"] = [c for *_, c in sorted(cards, key=lambda k: k[:2])]
+    meta = result.setdefault("meta", {})
+    meta["families_count"] = len(result["candidates"])
+    if "theme_matches" in meta:
+        meta["theme_matches"] = _theme_matches(result["candidates"])
+    return result
+
+
+def limit_result(result, limit):
+    """Apply the output cap after every ranking pass while preserving full-set counts, then compact only
+    the returned candidates — ranking already ran on full text."""
+    if limit is not None:
+        limit = max(0, limit)
+        result["candidates"] = result.get("candidates", [])[:limit]
+        if "theme_matches" in result.get("meta", {}):
+            result["meta"]["theme_matches"] = result["meta"]["theme_matches"][:limit]
+    for cand in result.get("candidates", []):
+        _compact(cand)
+    result.setdefault("meta", {})["returned_n"] = len(result.get("candidates", []))
+    return result
+
+
+TRIM_WARNING = "output trimmed to fit the result budget: lowest-ranked market_facts, then candidates, dropped"
+
+
+def fit_budget(result, budget):
+    """Degrade an over-budget result instead of failing closed: drop market_facts from the lowest-ranked
+    candidates first, then candidates from the bottom — never below one (a short answer beats an empty
+    one). eligible_count is untouched; returned_n carries the count that survived."""
+    def size():
+        return len(json.dumps(result, ensure_ascii=False))
+
+    if size() <= budget:
+        return result
+    meta = result.setdefault("meta", {})
+    cands = result.setdefault("candidates", [])
+    meta.setdefault("warnings", []).append(TRIM_WARNING)
+    for cand in reversed(cands):
+        if size() <= budget:
+            return result
+        cand["market_facts"] = []
+    while len(cands) > 1 and size() > budget:
+        cands.pop()
+        meta["returned_n"] = len(cands)
+        if "theme_matches" in meta:
+            kept = {c.get("id") for c in cands}
+            meta["theme_matches"] = [m for m in meta["theme_matches"] if m.get("id") in kept]
     return result
 
 
@@ -731,7 +831,8 @@ def main(argv=None):
                     help="SOFT worldview/market-structure search (e.g. 'k-shape', 'risk-off', "
                          "'market-neutral', 'AI fund'): scores candidates on thesis/tag match + regime "
                          "synonyms and floats matches to the top. Never filters — surfaces + ranks.")
-    ap.add_argument("--limit", type=int, default=None, help="safety cap on returned candidates (default: all)")
+    ap.add_argument("--limit", type=int, default=DEFAULT_LIMIT,
+                    help=f"maximum returned candidates (default: {DEFAULT_LIMIT}; explicit values override it)")
     ap.add_argument("--catalog", default=None, help="catalog.json path (default: skill-local → repo → remote fetch)")
     ap.add_argument("--no-market", action="store_true", help="skip the live market enrichment pass")
     ap.add_argument("--context-only", action="store_true",
@@ -756,12 +857,16 @@ def main(argv=None):
         return 0
 
     intent = normalize_intent(args)
-    result = match(intent, records, limit=args.limit)
+    # Build the complete eligible set first. Theme scoring must see every survivor; otherwise the default
+    # output cap would hide a relevant strategy merely because its neutral alphabetical order was later.
+    result = match(intent, records)
 
-    # SOFT theme surface — score/rank the survivors on a worldview keyword (no filtering). Applied before
-    # market enrichment so the theme-matched candidates' assets get first claim on the capped live fetch.
+    # SOFT theme surface — score/rank the complete survivor set on a worldview keyword (no filtering), then
+    # cap the output. Theme-matched candidates' assets therefore get first claim on the live market fetch.
     if args.theme:
         result = apply_theme(result, args.theme)
+    result = fold_variants(result, records)   # one card per variant family, ranked by its best member
+    result = limit_result(result, args.limit)
 
     # User's available funds — ALWAYS attach (independent of market enrichment / candidate count) so the
     # LLM can size each pick from real balance, not the per-strategy floor. See SKILL.md Layer 3.
@@ -778,8 +883,8 @@ def main(argv=None):
         for cand in result["candidates"]:
             assets = by_id.get(cand["id"], {}).get("assets") or []
             pref = [a for a in assets if any(asset_matches(n, [a]) for n in user_named)] or assets
-            per_cand[cand["id"]] = pref[:3]
-            for a in pref[:3]:
+            per_cand[cand["id"]] = pref[:MARKET_FACT_LIMIT]
+            for a in pref[:MARKET_FACT_LIMIT]:
                 if a not in union:
                     union.append(a)
         try:
@@ -790,6 +895,10 @@ def main(argv=None):
         except Exception as e:  # noqa
             result["meta"].setdefault("warnings", []).append(f"market enrichment unavailable: {e}")
 
+    # Default output must fit OpenClaw's tool-result budget (it truncates past it, breaking the JSON);
+    # degrade rather than fail closed. An explicit --limit is an intentional override — no enforcement.
+    if args.limit == DEFAULT_LIMIT:
+        result = fit_budget(result, OUTPUT_BUDGET)
     print(json.dumps(result, ensure_ascii=False))
     return 0
 

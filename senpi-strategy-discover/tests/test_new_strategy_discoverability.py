@@ -24,6 +24,7 @@ def _rank(target, itn, theme):
     res = discover.match(itn, _RECORDS)
     if theme:
         discover.apply_theme(res, theme)
+    discover.fold_variants(res, _RECORDS)   # what the CLI ranks: one card per variant family
     ids = [c["id"] for c in res.get("candidates", [])]
     return (ids.index(target) + 1) if target in ids else None
 
