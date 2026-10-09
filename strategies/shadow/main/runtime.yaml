@@ -128,6 +128,12 @@ exit:
     # A clock reads nothing about the trade, and on a mirror it closes a position the trader
     # being mirrored is still holding, which is the one thing this strategy exists not to do.
     hard_timeout: { enabled: false, interval_in_minutes: 2880 }
+    # Declared explicitly rather than omitted. 111 of the 128 packages that declare hard_timeout
+    # also declare this one; shadow was among the 17 that left it out, so whether a clock was
+    # running here depended on a runtime-side default this repo cannot see. "Off by omission" is
+    # not a property you can read, and on a mirror a dead-weight cut closes a position the trader
+    # being mirrored is still holding.
+    dead_weight_cut: { enabled: false }
     # DISABLED - this cut closes at MARKET at whatever price is there, with no floor, so on a
     # longer-hold book it realises a small LOSS on a position that simply hadn't moved yet
     # (observed live on xyz:PLTR in cougar). Same defect we removed from phase1. weak_peak is
