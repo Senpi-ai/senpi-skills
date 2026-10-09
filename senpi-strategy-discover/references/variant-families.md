@@ -95,25 +95,30 @@ score **8** instead of **9**, asking whether the floor is set too high.
 These bet on the parent's own ranking being informative. If it is, they beat it; if the ranking is
 noise, they are the parent with more variance. Say exactly that.
 
-### 5. Concentration at leverage — the carry trade as one bet per side
-
-`camel-concentrated` — camel's funding carry as **1 position per side at 10x** instead of 4 at 5x.
-Margin deployed is unchanged (4 × 18% = 1 × 72%), but **leverage doubles gross notional**, so unlike
-every other variant here this one moves *two* things on purpose: concentration and size. Say so.
-
-The pitch is as much about the bill as the bet: camel pays **58% of its gross profit in fees**, and
-one position costs roughly a quarter of the fees four do for the same money at work.
-
-Offer it only to someone who has said they want leverage *and* concentration. It is the most
-aggressive thing in the catalog: one stop-out costs **8.6% of the arm**, against 1.08% on camel,
-and **no clock closes anything** — the ladder and the 1.20%-of-price stop are the only exits, so
-a carry that never reverts holds the arm until the stop. Funding does keep accruing while it waits.
-
 ### 5. Concentration — fewer, larger bets inside a multi-arm strategy
 
 `athena-concentrated` — athena with its phalanx arm holding **2 positions at 22.5%** instead of 3 at
 15%. The same 45% of that sleeve is at risk either way; it is carried by fewer names. The aegis
 hedge and the 65/35 split are untouched.
+
+## Not a family any more: camel
+
+`camel-concentrated` **took the `camel` id on 2026-10-08** — one position per side at 10x is now
+what "camel" means, and the 4-slot/5x original is delisted as `camel-spread` (on disk so the forks
+deployed from it stay readable, not offered). There is one camel and nothing to choose between.
+
+Two things to say when someone funds it, because the name is doing less work than it looks:
+
+- **It is the most aggressive thing in the catalog.** One stop-out costs about **8.6% of that side**
+  against ~1% on the old 4-slot config, and **no clock closes anything** — the ladder and the
+  1.20%-of-price stop are the only exits.
+- **The 10x is what it asks for, not always what it gets.** The venue clamps to
+  `min(requested, the name's cap)` and **53.6% of listed perps cap at 5x or below, 35.8% at 3x**.
+  Because every DSL rung is an ROE number, a clamp widens every rung *and* the stop in price by
+  `10 ÷ cap` — on a 3x name the whole ladder runs 3.3× wider than authored.
+
+Anyone still running the old config is on a fork of `camel-spread`'s recipe; read their results
+against that, not against today's camel.
 
 ## How to present a family when it IS relevant
 
