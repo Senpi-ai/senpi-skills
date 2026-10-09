@@ -26,8 +26,8 @@ strategy:
   # attributed to concentration rather than to simply betting more. The aegis arm and the
   # 65/35 split are untouched.
   slots: 2
-  margin_pct: 22.5
-  default_leverage: 3
+  margin_pct: 40
+  default_leverage: 4
   trading_risk: moderate
   enabled: true
 
@@ -52,9 +52,9 @@ scanners:
                                           # a cohort that is already short and stays short
                                           # sits at delta~0 and locked the strategy out.
       overcrowdThreshold: 85
-      marginPctBase: 22.5
-      marginPctMax: 0
-      leverageDefault: 3
+      marginPctBase: 40
+      marginPctMax: 48
+      leverageDefault: 4
       maxLong: 2
       maxShort: 2
       recentSignalTtlSeconds: 21600       # 6h. Was 240s against a 300s scan — the dedup
@@ -132,8 +132,8 @@ exit:
       enabled: false
     phase1:
       enabled: false                  # trailing OFF — a floor below entry can ratchet a winner into a loss
-      max_loss_pct: 15.0              # 15% margin loss cap (3.75% price on 3x) — wide for noise
-      retrace_threshold: 15           # INERT while phase1.enabled is false
+      max_loss_pct: 24.0              # 6.00% of price at 4x — the measured adverse p90 (5.96%)
+      retrace_threshold: 24           # INERT while phase1.enabled is false
       consecutive_breaches_required: 1
     phase2:
       enabled: true
@@ -141,10 +141,10 @@ exit:
                                       # +20% ROE winner locking 1.7% of price — a rounding error); 50% at 3x left 3.3% of price of
                                       # retrace room, inside small-cap noise. 40/55 keeps ~4% of room at 3x and doubles what a
                                       # reversing winner retains. Leverage, stop width and this ladder are one system: change together.
-        - { trigger_pct: 20, lock_hw_pct: 40 }    # +20% ROE (6.7% price at 3x): keep 40% of the peak — 4.0% price of retrace room
-        - { trigger_pct: 30, lock_hw_pct: 55 }    # +30% ROE (10% price): keep 55% — 4.5% price of room; the thesis is real by here
-        - { trigger_pct: 60, lock_hw_pct: 65 }    # +60% ROE: keep 65%
-        - { trigger_pct: 100, lock_hw_pct: 85 }   # +100% ROE: keep 85%
+        - { trigger_pct: 8, lock_hw_pct: 40 }     #  2.00% of price at 4x — arms on 60% of trades (was 36%)
+        - { trigger_pct: 24, lock_hw_pct: 55 }    #  6.00% of price
+        - { trigger_pct: 49.4, lock_hw_pct: 70 }  # 12.35% of price — the measured peak p90
+        - { trigger_pct: 66.4, lock_hw_pct: 88 }  # 16.60% of price — the measured peak max
 
 # ── RISK guard rails ──────────────────────────────────────────────────────────
 risk:
@@ -161,7 +161,7 @@ risk:
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 3
     cooldown_seconds: 43200            # 12h regime pause after 3 consecutive losses
-    drawdown_halt_pct: 10                   # THE overall risk budget: 10% of PnL from peak,
+    drawdown_halt_pct: 28                   # THE overall risk budget: 28% of PnL from peak,
                                             # carried across days (reset flag below is false).
                                             # At this sizing that is a ~7% adverse market move
                                             # before the strategy stops ADDING — it never
