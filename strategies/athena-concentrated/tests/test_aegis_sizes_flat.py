@@ -78,10 +78,41 @@ def test_the_config_is_the_pair_that_makes_it_flat():
         "it sizes 5% per position in a mild regime")
 
 
-def test_the_sleeve_is_fully_deployed_in_every_regime():
+def test_the_sleeve_deployment_is_geometric_not_linear():
+    """`SLOTS * TARGET_PCT == 80` was the original assertion here and it was worthless: 4 x 20 is
+    80 by arithmetic, so it could never fail, and the belief it encoded was wrong.
+
+    `marginPct` is a percent of WITHDRAWABLE AT OPEN and the runtime opens sequentially, so each
+    position takes a fifth of what is LEFT. Measured live on the 2026-10-09 relaunch at regime
+    -0.60: 104.13 / 83.87 / 66.97 against a 523.80 start = 19.9% / 20.0% / 19.9% of the balance
+    available at each open, ending on the reported withdrawable to within two cents.
+
+    So N positions deploy 1 - 0.8^N, and a full book is 59% of the sleeve, not 80%."""
     rt, _ = _inputs()
     assert rt["strategy"]["slots"] == SLOTS
-    assert SLOTS * TARGET_PCT == 80.0, "4 x 20% should deploy 80% of the aegis sleeve"
+    remaining, deployed = 1.0, 0.0
+    for _ in range(SLOTS):
+        take = remaining * (TARGET_PCT / 100.0)
+        deployed += take
+        remaining -= take
+    assert round(deployed, 4) == round(1 - 0.8 ** SLOTS, 4)
+    assert 0.58 < deployed < 0.60, (
+        f"{SLOTS} sequential positions at {TARGET_PCT}% of the remaining balance deploy "
+        f"{deployed:.1%} of the sleeve, not the 80% a linear reading suggests")
+
+
+def test_the_live_relaunch_matches_the_model():
+    """The 2026-10-09 relaunch, as a fixture: three positions opened in one tick at regime -0.60,
+    where ri = clamp(0.60/2, 0.25, 1.0) = 0.30 and the OLD config would have sized 6% each."""
+    observed = [104.133162, 83.8736, 66.974208]
+    start = sum(observed) + 268.81608            # + the reported final withdrawable
+    balance = start
+    for got in observed:
+        pct = 100.0 * got / balance
+        assert abs(pct - TARGET_PCT) < 0.2, (
+            f"a position took {pct:.2f}% of the {balance:.2f} available, expected ~{TARGET_PCT}%")
+        balance -= got
+    assert abs(balance - 268.81608) < 0.01, "the chain does not close on the reported withdrawable"
 
 
 def test_the_strategy_block_states_the_per_position_size():
