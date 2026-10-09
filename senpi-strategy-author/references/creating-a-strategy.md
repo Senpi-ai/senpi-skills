@@ -434,7 +434,7 @@ exit:
   engine: dsl
   dsl_preset:                                   # let_winners_run, with the only thesis-specific tweak:
     hard_timeout: { enabled: true, interval_in_minutes: 144000 }   # ~100d -> the Q3-2026 deadline
-    phase1: { enabled: false, max_loss_pct: 8.0, retrace_threshold: 8, consecutive_breaches_required: 1 }
+    phase1: { enabled: false, max_loss_pct: 8.0, retrace_threshold: 8, consecutive_breaches_required: 1 }   # enabled:false = no trailing; max_loss_pct still stops from entry
     phase2:
       enabled: true
       tiers:                                  # let_winners_run, verbatim from dsl-presets.yaml

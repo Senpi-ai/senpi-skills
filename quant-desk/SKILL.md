@@ -44,7 +44,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.41.0"
+  version: "1.41.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -160,6 +160,7 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 2. **Never invent a number.** Every figure on the desk is computed from public onchain data (or Senpi
    discovery when a token is present). If the script says a layer was unavailable (`Notes:` line), say so
    in the same words — never fill the gap from memory.
+2a. **A protection verdict comes only from a fresh desk run, never from memory.** Answer "is it protected / does it have a stop" from `desk.py … --section protection` (or `senpi-portfolio`), and re-run it when the book has changed since the cached run (a new position, a different wallet, a coin the last run did not cover). Never contradict the desk from memory, from reading a `runtime.yaml`, or from `ratchet_stop_list` output: `activeSLOrderId: null` on a backend ratchet row does not mean "no stop" (the runtime holds the exchange stop until the backend arms one). **Liquidation distance is never protection** (it is the separate To-liq column). **`phase1.enabled: false` does not mean no stop**: it turns off only the phase-1 trailing retrace/breach logic, and `max_loss_pct` still applies from entry as an exchange stop-loss. If your reading and the desk disagree, re-run the desk and relay what it prints.
 3. **Counterfactual, not history, on every leak.** "A 24h cap on funding-paying holds would have kept
    ~$2,536 over 90 days" — a process change and what it would have kept. Never "you lost $X" as a leak,
    never a leak the script rejected (it prints which rules it tested and rejected: say those too — the

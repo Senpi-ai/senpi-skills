@@ -18,6 +18,8 @@
 # "ratchet" closes a position that was in profit at a LOSS, and the user pays a round
 # trip of fees for nothing. Live case: a ZEC short reached +8.5% ROE, bounced 2.8% off
 # its low, and closed at -5.9%; max_loss never fired.
+#   `enabled: false` turns off ONLY that trailing retrace/breach logic. `max_loss_pct` still
+#   applies from entry as an exchange stop-loss — a disabled phase1 is never "no stop".
 #   `max_loss_pct` is now set to what each preset's `retrace_threshold` already was,
 #   because the trail always bound first — so the per-trade RISK CAP is UNCHANGED and
 #   only the ratchet-into-a-loss behaviour is gone. `retrace_threshold` is retained but
