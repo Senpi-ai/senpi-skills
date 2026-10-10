@@ -149,6 +149,172 @@ def pnl_sign_directions(src):
     return sorted({m.group(1) for m in _PNL_SIGN.finditer(src)})
 
 
+# ── a name read before it exists ───────────────────────────────────────────────
+# Python binds a function's locals at compile time, so a read on a path that runs before the
+# assignment raises UnboundLocalError — it does NOT fall back to the module-level name of the same
+# spelling. The closure variant raises NameError: a nested `_persist()` defined above its free
+# variable and called from an early return reads a name the enclosing scope has not bound yet.
+# Both are latent — the tick that takes the branch can be days after the deploy, and the scanner
+# then crashes EVERY tick until someone looks — hours of dead ticks on a funded wallet.
+# `ast.parse` above proves the file compiles, which is precisely what these two survive.
+# Deliberately narrow: a read before EVERY binding in the same scope, or a closure proven to be
+# called before the binding line. Nothing probabilistic — each finding is a crash on that path.
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+_COMPS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+
+def _own_nodes(fn):
+    """Nodes in `fn`'s OWN scope. A nested def/lambda/class is a separate scope and is not walked;
+    a comprehension is too, but its loads still happen on `fn`'s line, so those are kept."""
+    out, stack = [], [n for n in fn.body if not isinstance(n, _SCOPES)]
+    while stack:
+        n = stack.pop()
+        out.append(n)
+        for ch in ast.iter_child_nodes(n):
+            if isinstance(ch, _SCOPES):
+                continue
+            if isinstance(ch, _COMPS):
+                out.append(ch)
+                stack.extend(ast.iter_child_nodes(ch))
+                continue
+            stack.append(ch)
+    return out
+
+
+def _params(fn):
+    names = {a.arg for a in list(getattr(fn.args, "posonlyargs", [])) + list(fn.args.args)
+             + list(fn.args.kwonlyargs)}
+    return names | {a.arg for a in (fn.args.vararg, fn.args.kwarg) if a}
+
+
+def _bindings(fn, nodes):
+    """({name: first line bound in fn's own scope}, {names declared global/nonlocal}).
+    Parameters bind at the `def` line."""
+    binds = {a: fn.lineno for a in _params(fn)}
+    declared = set()
+
+    def put(name, line):
+        if name and (name not in binds or line < binds[name]):
+            binds[name] = line
+
+    for n in nodes:
+        if isinstance(n, (ast.Global, ast.Nonlocal)):
+            declared.update(n.names)
+        elif isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Store, ast.Del)):
+            put(n.id, n.lineno)
+        elif isinstance(n, (ast.AugAssign, ast.NamedExpr)) and isinstance(n.target, ast.Name):
+            put(n.target.id, n.lineno)
+        elif isinstance(n, ast.ExceptHandler) and n.name:
+            put(n.name, n.lineno)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            for al in n.names:
+                put(al.asname or al.name.split(".")[0], n.lineno)
+    for d in declared:
+        binds.pop(d, None)
+    return binds, declared
+
+
+def _comp_targets(fn):
+    """Names a comprehension binds — its own scope in py3, invisible to the function."""
+    return {t.id for n in ast.walk(fn) if isinstance(n, _COMPS)
+            for gen in n.generators for t in ast.walk(gen.target) if isinstance(t, ast.Name)}
+
+
+def _loads(nodes):
+    return [(n.id, n.lineno) for n in nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)]
+
+
+def unbound_name_offenders(src):
+    """Names a function reads on a path that runs before the name exists.
+    Returns [(func, name, read_line, bind_line, kind), ...]; kind is 'local' or 'free'."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return []                                  # the syntax error is reported on its own
+    out = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        own = _own_nodes(fn)
+        binds, declared = _bindings(fn, own)
+        skip = _comp_targets(fn) | declared | _params(fn)
+
+        for name, line in _loads(own):             # read before every binding, same scope
+            if name not in skip and name in binds and line < binds[name]:
+                out.append((fn.name, name, line, binds[name], "local"))
+
+        calls = {}
+        for n in own:
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
+                calls.setdefault(n.func.id, []).append(n.lineno)
+        for g in [x for b in fn.body for x in ast.walk(b)
+                  if isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef)) and x is not fn]:
+            g_own = _own_nodes(g)
+            g_binds, _ = _bindings(g, g_own)
+            for name, line in _loads(g_own):       # free variable, closure called too early
+                if name in g_binds or name in skip or name not in binds:
+                    continue
+                if binds[name] > g.lineno and any(c < binds[name] for c in calls.get(g.name, [])):
+                    out.append((g.name, name, line, binds[name], "free"))
+    return sorted(set(out))
+
+
+# ── marginPct must stay a percent ──────────────────────────────────────────────
+# `marginPct` is a PERCENT in (0, 100]. The runtime drops the whole candidate at delivery
+# (`delivery_candidate_invalid: marginPct must be a number in (0, 100] when set`) when it is not,
+# so the strategy funds, ticks clean and never opens a position. Every catalog scanner reads it
+# from `inputs` as a configured constant and is safe by construction. The shape that breaks is a
+# percent recomputed from a live balance — `max(size, MIN_ORDER) / free_margin * 100` — which is
+# fine while the wallet is liquid and blows past 100 the moment the floor binds and free margin is
+# smaller than the minimum order — the emitted percent then climbs as the margin drains, and every
+# candidate is dropped. A computed percent needs an upper clamp; `margin_fraction_offenders` already
+# owns the opposite error (a fraction where a percent belongs), so a value <= 1 is left to it.
+
+
+def _unwrap(node):
+    """round(x, n) / float(x) / int(x) → x."""
+    while isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+            and node.func.id in ("round", "float", "int") and node.args:
+        node = node.args[0]
+    return node
+
+
+def margin_pct_offenders(src):
+    """Emitted `marginPct` values that can leave (0, 100].
+    Returns [(line, kind, detail), ...]; kind is 'literal' or 'ratio'."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return []
+    out = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        assigned = {}
+        for n in ast.walk(fn):
+            if isinstance(n, ast.Assign):
+                for t in n.targets:
+                    if isinstance(t, ast.Name):
+                        assigned.setdefault(t.id, []).append(n.value)
+        for d in [n for n in ast.walk(fn) if isinstance(n, ast.Dict)]:
+            for k, v in zip(d.keys, d.values):
+                if not (isinstance(k, ast.Constant) and k.value == "marginPct"):
+                    continue
+                v = _unwrap(v)
+                if isinstance(v, ast.Constant) and isinstance(v.value, (int, float)) \
+                        and not isinstance(v.value, bool):
+                    if v.value > 100 or v.value <= 0:
+                        out.append((v.lineno, "literal", str(v.value)))
+                elif isinstance(v, ast.Name):
+                    for expr in assigned.get(v.id, []):
+                        clamped = any(isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                                      and c.func.id == "min" for c in ast.walk(expr))
+                        if any(isinstance(n, ast.Div) for n in ast.walk(expr)) and not clamped:
+                            out.append((v.lineno, "ratio", f"{v.id} (line {expr.lineno})"))
+                            break
+    return sorted(set(out))
+
+
 def _strings(obj, path=""):
     """(dotted_path, text) for every string in a parsed YAML value."""
     if isinstance(obj, str):
@@ -420,7 +586,20 @@ def validate(pkg: Path) -> list:
         for lng, sht in candle_key_bug(src):
             errs.append(f"{py.name}: candles are keyed `o/h/l/c/v` — use `candle['{sht}']`, not `{lng}` "
                         f"(no such key → always None → the scan emits nothing).")
+        for fname, name, read, bound, kind in unbound_name_offenders(src):
+            how = ("UnboundLocalError" if kind == "local" else
+                   "NameError — the closure is called before the enclosing scope binds it")
+            errs.append(f"{py.name}: {fname}() reads `{name}` at line {read} but binds it at line {bound} "
+                        f"→ {how}. The path crashes the first tick that takes it, then every tick after. "
+                        f"Bind `{name}` before the first read (`{name} = <empty>` above the branch).")
         if "scanners" in py.parts:
+            for line, kind, detail in margin_pct_offenders(src):
+                why = (f"the literal {detail} is outside (0, 100]" if kind == "literal" else
+                       f"`{detail}` is computed from a division with no upper clamp")
+                errs.append(f"{py.name}: emits `marginPct` at line {line} and {why} — marginPct is a PERCENT "
+                            f"in (0, 100]; the runtime drops the whole candidate at delivery "
+                            f"(`delivery_candidate_invalid`), so the strategy ticks clean and never opens. "
+                            f"Clamp it: `min(pct, 100.0)`, or skip the signal when the size cannot be funded.")
             for lit in direction_literal_offenders(src):
                 errs.append(
                     f"{py.name}: emits `direction: {lit!r}` — a direction is LONG or SHORT, nothing else; the "
