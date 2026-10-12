@@ -285,6 +285,10 @@
       "behaviour": "3c66702a4b2faf74",
       "version": "1.2.1"
     },
+    "moose": {
+      "behaviour": "c094d36f003960d8",
+      "version": "1.0.0"
+    },
     "octopus": {
       "behaviour": "44ea159a42e07100",
       "version": "1.2.1"

@@ -1,0 +1,47 @@
+# Moose — EMA crossover trend follower. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. The textbook moving-average crossover (20/50 EMA on
+# closed 4h candles, Donchian breakout as the alternate trigger), filtered by the daily trend,
+# on a liquid-majors basket (BTC/ETH/SOL), with leverage set per coin from its own volatility and
+# DSL-only exits. STARTER tier: the strategy a new user should meet first. Install/teardown via
+# senpi-strategy-ops.
+schema_version: 1
+
+id: moose
+version: "1.0.0"
+
+catalog:
+  name: "Moose — EMA Crossover Trend Follower"
+  emoji: "🫎"
+  tagline: "The oldest trend rule there is, run for you on the 4-hour chart: a 20 EMA crossing a 50 EMA on BTC, ETH or SOL opens a trade in the direction of the daily trend (price against its 50-day average) — long on the golden cross, short on the death cross — with leverage set per coin from its own volatility (2-5x) so the stop sits outside normal noise, one position per coin, and a trailing stop that only ever moves in your favour. A Donchian-channel breakout is one setting away as the alternate trigger."
+  belief_plain: "Buys a big coin when its fast moving average crosses above its slow one on the 4-hour chart and the coin is above its 50-day average; shorts it on the mirror-image cross below. It holds at most one position per coin, uses less leverage on the coin that swings the most so ordinary noise does not hit the stop, and then trails a stop behind the trade so a real trend can run for days while a reversal closes it. No scores you cannot see, no black box: every entry can be checked on any chart."
+  thesis: "The moving-average crossover is the first trend rule every trader learns and the setup users most often rebuild by hand. Moose is that build done properly and supervised: the signal counts only on closed candles, so a cross cannot appear and vanish inside a bar; a trigger older than two bars is not chased; the daily trend filter keeps it from shorting a bull market or buying a bear one; and volatility sets the leverage, so the fixed stop lands at least two ATRs from entry in price wherever the 2-5x range allows. It will miss the first leg of a move by design and it will whipsaw in a sideways market — that is the known cost of a crossover system, and the trend that runs is what pays for it."
+  group: momentum
+  archetype: trend_following
+  sub_style: ma_crossover
+  asset_classes: [btc_eth, major_alts]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: starter
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 3
+  assets: ["BTC", "ETH", "SOL"]
+  # The scanner sizes a wild coin at 2x; at 30% margin the $12 bumped notional then needs $21.50
+  # in the wallet. min_budget.py reads default_leverage (5) and would compute $10, so raise it.
+  min_budget_floor: 25
+  tags: [ema, moving-average, crossover, golden-cross, death-cross, donchian, breakout, trend, trend-following,
+         4h, daily-trend-filter, atr, volatility-sized, btc, eth, sol, multi-asset, long-short, beginner,
+         onboarding, classic-ta, let-winners-run, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: MOOSE_WALLET
+    funding_share: 1.0
