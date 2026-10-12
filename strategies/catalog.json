@@ -6838,6 +6838,56 @@
       "sort_order": 10
     },
     {
+      "id": "squid",
+      "name": "Squid — Live-Book Multi-Trader Fresh-Entry Mirror",
+      "emoji": "🦑",
+      "varies": null,
+      "tagline": "Watches a handful of vetted Hyperliquid traders and mirrors only the positions they NEWLY open, reading their books live off-chain so a mirror lands within two minutes of their fill — with a hard entry-slippage guard so you never chase a move that already ran, plus budget-relative sizing with a min-notional floor.",
+      "belief_plain": "Instead of copying one trader's whole account — and inheriting trades already deep in profit or loss at a worse price than they got — Squid watches up to ten proven traders and only acts when one of them OPENS a brand-new position. It reads their positions directly from the exchange every two minutes, so it sees a new trade almost as soon as they make it. It checks how far price has already moved from their entry and skips the trade if it is too late to get a comparable fill. It sizes each mirror to your budget with a floor so a position is never too small to matter, and it manages its own exit.",
+      "version": "1.0.0",
+      "thesis": "The failure mode of naive mirroring is entry drift: you inherit a book at a 1-5% worse price than the trader got, so the same trade is a loss for you. The second failure mode is latency — a mirror is only worth having if it sees the open while the price is still near the fill. Squid fires ONLY on fresh opens (a tick-to-tick diff against a seeded book, so nothing pre-existing is ever inherited), reads those books live from the exchange rather than from an index that trails the chain, rejects any entry whose price has already run past a slippage cap, and can require multi-trader confirmation before committing size. You follow proven money at their price, not yesterday's book at yours. Leverage is capped, so a trader's 40x book becomes something survivable.",
+      "tags": [
+        "copy-trading",
+        "multi-trader",
+        "fresh-entry",
+        "mirror",
+        "live-book",
+        "low-latency",
+        "entry-slippage-guard",
+        "smart-money",
+        "budget-relative"
+      ],
+      "group": "smart-money",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "fresh_entry_mirror",
+      "sub_style_label": "Mirrors only the FRESHLY-opened positions of a small vetted cohort — never inherits an existing book — with an entry-slippage guard so you don't chase a fill that already ran.",
+      "asset_classes": [
+        "universe_crypto",
+        "xyz_equities",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "follows_traders",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 120,
+      "min_budget": 40,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 5,
+      "branch": "main",
+      "sort_order": 11
+    },
+    {
       "id": "whalehunter",
       "name": "WhaleHunter — Smart-Money Cohort Divergence",
       "emoji": "🐋",
@@ -6881,7 +6931,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "osprey",

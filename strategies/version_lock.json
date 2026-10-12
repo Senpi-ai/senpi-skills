@@ -469,6 +469,10 @@
       "behaviour": "7d6f8495e008124c",
       "version": "6.2.1"
     },
+    "squid": {
+      "behaviour": "cae873169ddc8485",
+      "version": "1.0.0"
+    },
     "stag": {
       "behaviour": "0adbfee0abc8a6bf",
       "version": "1.1.1"
