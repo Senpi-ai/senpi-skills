@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.25.0"
+  version: "3.25.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -67,6 +67,11 @@ the bare verb for the read-only `openclaw senpi deploy status`, and whenever res
 **Always tear down through `close.py`** (one `<id>` or `--all`) — it deletes the runtime *and* closes
 the strategy. A raw `strategy_close` MCP call closes the strategy but **leaves the runtime
 registered**, which collides on the next deploy.
+**`close.py` is never a repair.** It flattens every position and returns the funds; a deploy after it is a
+NEW wallet whose scanner state starts empty. "Relaunch", "restart", "redeploy", "fix it" are not a close:
+run the read-only `deploy.py verify <id>` (live = nothing to relaunch; otherwise it names the one
+non-destructive step, e.g. `deploy.py runtime <id>`, which adopts the existing wallet and closes nothing).
+Close only on the user's yes to a sentence that says it closes the strategy, flattens positions, new wallet.
 Pass the **strategy `id`** for a CATALOG strategy (what `senpi-strategy-discover` hands over, e.g.
 `spider`), fetched from the remote if not on disk; for a **locally-authored package, pass its DIRECTORY
 path**. Either way the package belongs in the **durable strategies root** (`SENPI_STRATEGIES_DIR` if

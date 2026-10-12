@@ -65,7 +65,10 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # resident context with the count hiding it (2026-09-23).
 # ops: 344 → 345 for the one-line flat-book rule beside the two-targets rule it completes; the depth is in
 # references/editing-a-live-strategy.md §4.
-BODY_BUDGET = {"senpi-strategy-ops": 345, "senpi-strategy-author": 430}
+# ops: 345 → 350 for "close.py is never a repair". It has to be resident AND in the head: OpenClaw's `read`
+# keeps a long file's head and tail and drops the middle, and the only consent rule for a close sat in the
+# tail scoped to edits — so an agent told to "relaunch" a live strategy closed it and funded a new wallet.
+BODY_BUDGET = {"senpi-strategy-ops": 350, "senpi-strategy-author": 430}
 
 
 def _skill_body(path):
@@ -258,6 +261,20 @@ class ReferencePointersResolve(unittest.TestCase):
                     self.assertTrue((path.parent / target).resolve().is_file(),
                                     f"{skill}/SKILL.md links to missing {target}")
 
+
+
+class CloseIsNeverARepair(unittest.TestCase):
+    """A close flattens positions and the redeploy funds a new wallet. "Relaunch"/"restart" must map to the
+    non-destructive path, and the rule must sit in the head: OpenClaw's `read` drops the middle of a long
+    file, so a rule placed after the first section can be silently missing from the agent's context."""
+
+    def test_rule_is_resident_and_before_the_first_section(self):
+        body = _skill_body(OPS)
+        rule = body.find("**`close.py` is never a repair.**")
+        self.assertNotEqual(rule, -1, "the close-is-never-a-repair rule is gone from the ops body")
+        self.assertLess(rule, body.index("\n## "), "the rule must stay above the first ## section")
+        for phrase in ('"Relaunch", "restart"', "deploy.py verify <id>", "deploy.py runtime <id>"):
+            self.assertIn(phrase, body[rule:rule + 800])
 
 if __name__ == "__main__":
     unittest.main()
