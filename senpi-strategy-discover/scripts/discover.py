@@ -376,8 +376,27 @@ def match(intent, records):
     build_custom = {"label": "Build a custom strategy", "route": "senpi-strategy-author"}
     survivors.sort(key=lambda r: (-_asset_match(r, intent), r.get("name") or r.get("id") or ""))
     candidates = [_candidate(r, intent) for r in survivors]
+    warnings = list(intent.get("_warnings", []))
+
+    # A named asset NO record declares is the one narrowing that can collapse the catalog in
+    # silence. `_norm_assets` cannot warn about it on its own: a token it does not recognise as a
+    # class is indistinguishable from a legitimate ticker (`--assets NVDA`, `--assets SOL`), so it
+    # becomes a named constraint, and `_hard_reject` then drops every package that is not
+    # `_configurable`. The degrade above only fires when survivors hit ZERO — with a handful of
+    # configurable templates in the catalog it never does, so the caller gets a two-row answer that
+    # is indistinguishable from a real "almost nothing matches". Measured 2026-10-12: `--assets
+    # class:commodities` (a syntax that does not exist — the flag takes bare class tags) returned
+    # `gecko, thesis-fund` out of 133 with an empty `warnings` list. Say it instead.
+    for n in [v for k, v in intent["assets"] if k == "named"]:
+        if not any(asset_matches(n, r.get("assets")) for r in records):
+            warnings.append(
+                f"no template declares asset '{n}' — it was treated as a TICKER and narrowed the "
+                f"result to configurable templates only. If '{n}' was meant as an asset class, "
+                f"--assets takes a bare tag ({', '.join(sorted(CLASS_TAGS))}); if it is a real "
+                f"coin, a configurable template can be pointed at it at deploy.")
+
     meta = {"eligible_count": len(candidates), "returned_n": len(candidates),
-            "intent_echo": _intent_echo(intent), "warnings": intent.get("_warnings", [])}
+            "intent_echo": _intent_echo(intent), "warnings": warnings}
     if widened:
         meta["widened"] = widened
     if not candidates:
@@ -398,7 +417,16 @@ def match(intent, records):
 # "the agent eyeballed 78 theses and missed the K-shape strategies" — the agent stops eyeballing because
 # the engine returns a ranked shortlist from the theses' own words.
 # fields scored, with weight — a hit in a tag/tagline is a stronger signal than one buried in the thesis.
-_THEME_FIELDS = (("tags", 3), ("tag_labels", 3), ("tagline", 2), ("name", 2),
+# `asset_classes` is scored at tag weight because it IS a tag — the one drawn from a validated
+# 7-token vocabulary that every record declares. Leaving it out made a class word a user actually
+# types miss most of the catalog that matches it, since prose rarely repeats the class name:
+# measured 2026-10-12, a theme query missed 61/61 `major_alts` packages (100%), 52/53
+# `universe_crypto`, 37/47 `btc_eth`, 29/39 `xyz_equities`, 22/37 `commodities` and 16/31
+# `indices`. Ibex — a pure gold package declaring `commodities` — scored ZERO on `--theme
+# commodities` while six broader packages that happen to say the word in prose ranked above it.
+# The tokens normalise to readable words (`universe_crypto` -> "universe crypto",
+# `btc_eth` -> "btc eth"), so they match the way a user phrases the ask.
+_THEME_FIELDS = (("tags", 3), ("tag_labels", 3), ("asset_classes", 3), ("tagline", 2), ("name", 2),
                  ("archetype_label", 2), ("thesis", 1), ("belief_plain", 1))
 # Categorical labels for the two asks SKILL.md routes into --theme. They hit on a WHOLE term equal to
 # the rendered label, never a substring: the horizon label "position" (days-to-weeks holds) is also the
