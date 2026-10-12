@@ -68,6 +68,10 @@ _CASES = [
     ("moose",   _intent(), "ema crossover moving average trend following"),
     ("moose",   _intent(), "golden cross death cross"),
     ("moose",   _intent(), "simple trend following for a beginner"),
+    # ── the gold breakout (2026-10-12): the market users most often build on by hand ──
+    ("ibex",    _intent(), "gold breakout"),
+    ("ibex",    _intent(), "donchian breakout gold"),
+    ("ibex",    _intent(assets=[("class", "commodities")]), "gold xauusd metals"),
 ]
 
 

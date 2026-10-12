@@ -207,7 +207,7 @@ class _MCP:
         if tool == "market_get_asset_data":
             last_open = self.now - H4 - 100                     # last CLOSED bar opened 4h+100s ago
             closes = {"BTC": _flat_then_up(up=1), "SOL": _flat_then_up(up=1),
-                      "ETH": self.eth_closes or [100.0] * 101}[args["asset"]]
+                      "ETH": self.eth_closes or [100.0] * 101}.get(args["asset"], _flat_then_up(up=1))
             bars = _bars(closes, H4, last_open, spread=0.3)
             # the bar IN PROGRESS: a crash that would flip the EMAs if it were counted
             live = _bars([60.0], H4, last_open + H4, spread=0.3)
@@ -265,6 +265,19 @@ def test_a_string_payload_does_not_kill_the_tick():
             return super().call_tool(tool, args)
 
     assert scan.scan(dict(INPUTS), _Ctx(_Stringy(now), _State())) == []    # ETH flat, SOL held, BTC unreadable
+
+
+def test_a_held_xyz_position_is_recognised_under_either_spelling():
+    """The clearinghouse can report a HIP-3 position as `xyz:GOLD` or as bare `GOLD`. Either must
+    block a second open on xyz:GOLD, and the candle read must carry dex=xyz."""
+    now = time.time()
+    inputs = dict(INPUTS, allowedAssets=["xyz:GOLD"], maxSlots=1)
+    mcp = _MCP(now, held=())
+    out = scan.scan(inputs, _Ctx(mcp, _State()))
+    assert [s["asset"] for s in out] == ["xyz:GOLD"]
+    assert [a["dex"] for t, a in mcp.calls if t == "market_get_asset_data"] == ["xyz"]
+    for spelling in ("GOLD", "xyz:GOLD"):
+        assert scan.scan(inputs, _Ctx(_MCP(now, held=(spelling,)), _State())) == [], spelling
 
 
 def test_scan_works_without_state_history():

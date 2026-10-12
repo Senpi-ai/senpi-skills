@@ -209,6 +209,10 @@
       "behaviour": "5f401990f11c3d5c",
       "version": "1.2.2"
     },
+    "ibex": {
+      "behaviour": "73653ffba6dfa298",
+      "version": "1.0.0"
+    },
     "ibis": {
       "behaviour": "71263318578d1ef6",
       "version": "1.2.0"
@@ -290,8 +294,8 @@
       "version": "1.2.1"
     },
     "moose": {
-      "behaviour": "1b1fa2a701fddec1",
-      "version": "1.0.0"
+      "behaviour": "d1dede2daa8645ff",
+      "version": "1.0.1"
     },
     "octopus": {
       "behaviour": "44ea159a42e07100",
