@@ -94,12 +94,12 @@
       "version": "1.2.1"
     },
     "condor": {
-      "behaviour": "7ba984320b1ed3c3",
-      "version": "1.5.0"
+      "behaviour": "85595f26ee61b3a5",
+      "version": "1.5.1"
     },
     "condor-concentrated": {
-      "behaviour": "82bce088087aeb21",
-      "version": "1.0.0"
+      "behaviour": "301aefd02b91e34b",
+      "version": "1.0.1"
     },
     "cougar": {
       "behaviour": "6983e40dc9cd2679",
@@ -530,8 +530,8 @@
       "version": "1.0.2"
     },
     "wild-condor": {
-      "behaviour": "85b9ae9b043e8b2c",
-      "version": "1.2.0"
+      "behaviour": "10d050c5210d92ec",
+      "version": "1.2.1"
     },
     "wolf": {
       "behaviour": "1c7ec3c68a8eaccb",

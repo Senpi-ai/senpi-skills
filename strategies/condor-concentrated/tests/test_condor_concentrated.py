@@ -322,3 +322,63 @@ def test_the_board_no_longer_supplies_direction():
     assert "is_dominant" not in src
     assert "gain_share" not in src
     assert "pct_of_top_traders_gain" not in src
+
+
+# ── 7. the emit path — the gap that shipped a live KeyError ────────────────────────────
+
+def _emit_mcp():
+    """Shaped like the live responses: a strong mover the proven cohort is long."""
+    def inst(coin, px=100.0):
+        return {"name": coin, "context": {"openInterest": "100000", "markPx": str(px),
+                                          "prevDayPx": str(px * 0.95), "dayNtlVlm": "500000000",
+                                          "funding": "0.0003"}}
+    def row(tok, p4h):
+        return {"token": tok, "dex": "", "token_price_change_pct_4h": p4h,
+                "token_price_change_pct_1h": p4h / 4, "contribution_pct_change_15m": 2.5,
+                "contribution_pct_change_1h": 1.0}
+    return _MCP({
+        "market_list_instruments": {"data": {"instruments": [inst("BTC"), inst("ETH", 50.0)]}},
+        "leaderboard_get_markets": {"data": {"markets": [row("BTC", 5.0), row("ETH", 4.0)]}},
+        "discovery_get_top_traders": {"data": {"traders": [
+            {"address": f"0x{i:040x}", "realizedProfitAndLoss": 5_000_000} for i in range(60)]}},
+        "discovery_get_trader_state": {"data": {"traders": [
+            {"address": f"0x{i:040x}", "openPositions": [{"coin": "BTC", "szi": "1.0"}]}
+            for i in range(60)]}},
+        "strategy_get_clearinghouse_state": {"data": {
+            "main": {"assetPositions": [], "withdrawable": "5000",
+                     "marginSummary": {"accountValue": "5000"}},
+            "xyz": {"assetPositions": [], "withdrawable": "5000",
+                    "marginSummary": {"accountValue": "5000"}}}},
+        "strategy_get_asset_trading_limits": {"data": {"max_leverage": 20}},
+    })
+
+
+class _St:
+    def __init__(self): self._l = []
+    def last(self): return self._l[-1] if self._l else None
+    def append(self, d): self._l.append(d)
+
+
+def _emit_run():
+    ctx = type("C", (), {"senpi_mcp": _emit_mcp(), "wallet": "0xw", "state": _St()})()
+    return scan.scan(dict(_inputs(_rt())), ctx)
+
+
+def test_a_qualifying_candidate_emits_without_raising():
+    """Before the fix this raised KeyError('sm_gain_share') — on a live $600 wallet, six
+    ticks running, the moment the cohort finally produced a candidate."""
+    out = _emit_run()
+    assert out, "no signal emitted from a board + cohort that should qualify"
+    assert out[0]["direction"] == "LONG"
+
+
+def test_every_emitted_key_is_declared_and_the_24h_factor_reaches_the_signal():
+    sig = _emit_run()[0]
+    declared = set(next(s for s in _rt()["scanners"]
+                        if s.get("type") == "external_scanner")["signal_data_schema"])
+    undeclared = set(sig["data"]) - declared
+    assert not undeclared, f"emitted but not declared: {sorted(undeclared)}"
+    assert "priceChange24hPct" in sig["data"], (
+        "the 24h factor is declared in the schema and scored, so it must reach the signal")
+    assert sig["data"]["cohortConvictionPct"] > 0
+    assert "smGainSharePct" not in sig["data"], "a board-era key survived the migration"
