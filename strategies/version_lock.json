@@ -97,6 +97,10 @@
       "behaviour": "83702dbfef4c0fc3",
       "version": "1.4.1"
     },
+    "condor-concentrated": {
+      "behaviour": "82bce088087aeb21",
+      "version": "1.0.0"
+    },
     "cougar": {
       "behaviour": "6983e40dc9cd2679",
       "version": "1.2.0"
