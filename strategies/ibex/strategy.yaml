@@ -36,9 +36,9 @@ catalog:
   # The scanner sizes a volatility spike at 3x; at 40% margin the $12 bumped notional then needs
   # $11.50 in the wallet. min_budget.py reads default_leverage (5) and would compute $10, so raise it.
   min_budget_floor: 15
-  tags: [gold, xau, xauusd, metals, commodity, breakout, donchian, channel-break, turtle, trend, trend-following,
-         daily-trend-filter, atr, volatility-sized, single-asset, long-short, xyz, slow, beginner, onboarding,
-         let-winners-run, dsl-only]
+  tags: [gold, xau, xauusd, metals, precious-metals, commodity, commodities, breakout, donchian,
+         channel-break, turtle, trend, trend-following, daily-trend-filter, atr, volatility-sized,
+         single-asset, long-short, xyz, slow, beginner, onboarding, let-winners-run, dsl-only]
 
 requires:
   runtime: ">=3.0.0"
