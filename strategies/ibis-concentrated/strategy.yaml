@@ -1,0 +1,67 @@
+# Ibis Concentrated — one regime-matched trade at a time. A single-instance PACKAGE: this
+# manifest + one self-contained runtime.yaml + scanners/. Forked from ibis v1.2.0.
+#
+# Listed in the catalog and in discover. Compare it against the parent it varies, not on its
+# own: see senpi-strategy-discover/references/variant-families.md.
+#
+# The regime engine is byte-identical to the parent's (scoring.py, pinned by
+# tests/test_engine_parity.py) — concentration is a sizing and risk question, not a thesis
+# question. Three things change: ONE slot and a score floor of 7 instead of three slots at 6 ·
+# the stop widened from 8% to 16% ROE so it sits OUTSIDE a normal 4h bar instead of inside one
+# (measured: 1.65% median bar range over 45 days on the parent's own universe, versus the
+# parent's 2.00% price stop) · leverage and margin set PER REGIME, because risk is margin x
+# stop and price-distance is stop / leverage, so the two are independent dials.
+#
+# THE RISK, STATED: one trend stop costs ~8.4% of the wallet (52.5% margin x 16% ROE), so the
+# 25% drawdown halt absorbs two and starts the third. With one slot, a position that drifts
+# without resolving holds the entire strategy — which is why this fork adds a regime-flip close
+# scanner the parent does not have. It exits a position for being WRONG, never for being down.
+#
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: ibis-concentrated
+version: "1.0.0"
+
+catalog:
+  name: "Ibis Concentrated — One Regime-Matched Trade"
+  emoji: "🪶"
+  varies: ibis            # a VARIANT of this template — never outrank it
+  tagline: "Ibis's regime gate, backed harder: ONE position at 44-53% margin instead of three at 10-15%. It still decides whether a market is TRENDING or RANGING on the 4-hour chart before choosing a rule — an open-interest-confirmed continuation, or a funding-gated fade of the range edge — but it only takes the single best setup, and it closes a position when the regime that justified it flips. The stop is deliberately wider than the parent's: 16% ROE, which is a 4% price move, because the parent's 2% stop sits inside one ordinary 4-hour bar."
+  belief_plain: "Ibis checks what kind of market it is in before deciding what to do, and this version puts a large share of the account behind the single best answer rather than spreading it across three. If price is genuinely travelling it joins the move, but only when open interest is rising — new money actually backing it. If price is bouncing in a range it buys the low and sells the high instead, unless funding has gone extreme, which usually means the range is about to break. If it cannot tell, it does nothing. Because one trade carries real weight, two things are different: the stop sits further away so a normal four-hour swing cannot reach it, and if the market stops behaving the way the trade assumed, the position is closed on that reason rather than waiting for a price level."
+  thesis: "Ibis's edge is the regime question, not its sizing, so concentration asks whether the gate is good enough to back harder — and the honest answer required fixing the exit geometry first. The parent's 8% ROE stop at 4x is a 2.00% price stop; measured over 45 days of 4h candles on its own universe, the median bar range is 1.65% and on SUI, ADA and AVAX the median bar is WIDER than the stop. The parent survives that because 10-15% margin makes a noise stop-out cost about 1% of the wallet; concentrating that geometry unchanged would buy the same noise at five times the size. So the stop moves to 16% ROE, a 4.00% price stop at 4x, outside the 90th-percentile bar on 10 of 12 names. Leverage then becomes a separate dial from margin: risk per stop is margin x stop, while the distance to the stop is stop / leverage — so the trend leg runs 4x (a 4.00% stop, room for a continuation to breathe) at 35% base margin, and the fade runs 5x (a 3.20% stop, which is roughly 'price left the band' on a range that must be 3% wide to fade at all) at 18% base margin. The fade gets more leverage and less money on purpose: the leverage buys a tighter stop, the lower margin buys a smaller loss. Offer this only to someone who has asked for concentration AND understands that one stop costs ~8% of the account."
+  group: momentum
+  archetype: trend_following
+  sub_style: adaptive
+  asset_classes: [btc_eth, major_alts]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 1
+  assets: []
+  # 53% of the wallet behind one 4x position needs enough notional to clear the exchange minimum
+  # at the smallest tier; min_budget.py reads marginPctBase (35) and default_leverage (4).
+  min_budget_floor: 25
+  # Deliberately NOT tagged: `single-position` / `conviction` (already carried as structured
+  # data by max_slots: 1, and they are puffin's identity words — at 5x this is not the "high
+  # leverage" book that query means, so the match was keyword overlap, not fit), and the class
+  # words btc_eth / major_alts / crypto (asset_classes is itself theme-scored since #878, so
+  # repeating them here double-counts the same fact).
+  tags: [regime, regime-switching, adaptive, concentrated, trend, range, mean-reversion,
+         efficiency-ratio, open-interest, oi-velocity, funding, 4h, multi-asset, long-short,
+         signal-invalidation, regime-flip-exit, no-time-cuts]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: IBIS_CONCENTRATED_WALLET
+    funding_share: 1.0
