@@ -10,7 +10,15 @@ AFTER the port is validated.
 Multi-asset: scores ONE `leaderboard_get_markets` row against the whitelist and
 returns a candidate dict or None. The caller (scan.py) iterates the universe,
 read-guards each enrichment fetch, and emits all gated candidates. Pure +
-unit-testable on plain dicts."""
+unit-testable on plain dicts.
+
+2.0.0 — the chart confirms the board. `confirm_candidate` applies three gates to a board-gated
+candidate: the 50-day trend (closed daily candles), the 15-minute price moving WITH the trade, and
+the trailing 24-hour range. Measured on 553 live Vulture signals (2026-08-21 to 2026-10-12, public
+candles, the package's own exits, 0.18% fees): the board alone was fee-neutral (+0.09% per trade);
+the 185 signals on the wrong side of the 50-day average lost 0.83% each; with all three gates the
+203 remaining signals made +0.85% per trade, profit factor 1.6, 56% winners. The persistence read
+is gone: 0 of 571 live emits ever carried a persistence value."""
 
 
 # ── helpers (ported verbatim from v2) ──
@@ -260,3 +268,115 @@ def in_quiet_hours(hour, inputs):
     if start < end:
         return (start <= hour < end), apex
     return (hour >= start or hour < end), apex
+
+
+# ── 2.0.0: the chart confirms the board (pure; candles in, verdict out) ──
+
+DAY_SECONDS = 86400
+HOUR_SECONDS = 3600
+
+
+def _t(c):
+    """Candle open, epoch ms, or -1 when unreadable."""
+    return safe_float(c.get("t"), -1.0) if isinstance(c, dict) else -1.0
+
+
+def closed_candles(candles, candle_seconds, now):
+    """Only the candles that have CLOSED, oldest first (ported from the Moose engine).
+
+    `t` is the candle OPEN in epoch milliseconds, so a candle has closed once
+    t/1000 + candle_seconds <= now. The feed's last row is the bar in progress: an average read off
+    it changes every tick, so a regime could appear and vanish inside one bar. Rows with no readable
+    `t` are dropped; nothing here assumes fixed spacing."""
+    out = []
+    for c in candles or []:
+        t = _t(c)
+        if t < 0:
+            continue
+        if t / 1000.0 + candle_seconds <= now:
+            out.append(c)
+    out.sort(key=_t)
+    return out
+
+
+def last_price(candles):
+    """The close of the LAST row of a candle series (the bar in progress = the last trade), or 0.0."""
+    rows = [c for c in candles or [] if isinstance(c, dict)]
+    if not rows:
+        return 0.0
+    rows.sort(key=_t)
+    return safe_float(rows[-1].get("c"), 0.0)
+
+
+def trend_regime(daily_candles, period, price, now):
+    """(regime, sma, n_closed): BULL when `price` is above the simple average of the last `period`
+    CLOSED daily closes, BEAR below, FLAT on it; (None, 0.0, n) with fewer than `period` closed days
+    or no price. A name too young for the average is NOT traded — fail closed."""
+    period = int(period)
+    closes = [safe_float(c.get("c"), 0.0) for c in closed_candles(daily_candles, DAY_SECONDS, now)]
+    closes = [x for x in closes if x > 0]
+    if period <= 0 or len(closes) < period or price <= 0:
+        return None, 0.0, len(closes)
+    sma = sum(closes[-period:]) / period
+    if price > sma:
+        return "BULL", sma, len(closes)
+    if price < sma:
+        return "BEAR", sma, len(closes)
+    return "FLAT", sma, len(closes)
+
+
+def range_position(hourly_candles, price, side, lookback_bars, now):
+    """Where `price` sits in the trailing range of the last `lookback_bars` CLOSED hourly candles
+    (the current price counts as part of the range), measured in the trade's direction: 1.0 = at the
+    favourable extreme (a LONG at the high of the day), 0.0 = at the hostile one. None without at
+    least half the lookback of closed bars. Measured: entries in the hostile half of the day lost
+    (profit factor 0.86 in replay, 0.32 live) while the favourable half carried the edge."""
+    window = closed_candles(hourly_candles, HOUR_SECONDS, now)[-int(lookback_bars):]
+    if price <= 0 or len(window) < max(6, int(lookback_bars) // 2):
+        return None
+    hi = max(max(safe_float(c.get("h"), 0.0) for c in window), price)
+    lo = min(min(safe_float(c.get("l"), price) or price for c in window), price)
+    if hi <= lo:
+        return 0.5
+    pos = (price - lo) / (hi - lo)
+    return pos if str(side).upper() == "LONG" else 1.0 - pos
+
+
+def confirm_candidate(cand, candles, inputs, now):
+    """The three chart gates on a board-gated candidate `cand` (from score_market), given the
+    `market_get_asset_data` candles dict ({"1d": [...], "1h": [...]}). Returns (ok, reason, meta).
+    Unreadable candles fail CLOSED: a name whose trend cannot be read is not traded this tick.
+
+      1. the 15-minute price must already be moving WITH the trade by `minPriceChange15mPct`
+         (the board's velocity is a contribution figure; a fading price under a rising
+         contribution is the leaders being paid on a move that is reversing — those entries lost);
+      2. the price must be on the trade's side of the `trendSmaDays` simple average of closed daily
+         closes (LONG above, SHORT below) — the gate that separated +0.55% from -0.83% per trade;
+      3. the price must sit in the favourable `minRangePosition` share of the trailing
+         `rangeLookbackHours` range."""
+    side = str(cand.get("direction", "")).upper()
+    s = 1.0 if side == "LONG" else -1.0
+    period = int(inputs.get("trendSmaDays", 50))
+    min_p15 = float(inputs.get("minPriceChange15mPct", 0.5))
+    min_rp = float(inputs.get("minRangePosition", 0.5))
+    lookback = int(inputs.get("rangeLookbackHours", 24))
+
+    p15 = s * safe_float(cand.get("p15m"), 0.0)
+    if p15 < min_p15:
+        return False, f"PRICE_15M {safe_float(cand.get('p15m')):+.2f}% not with the {side} (min {min_p15})", {}
+    daily = candles.get("1d") if isinstance(candles, dict) else None
+    hourly = candles.get("1h") if isinstance(candles, dict) else None
+    price = last_price(hourly) or last_price(daily)
+    if price <= 0:
+        return False, "NO_PRICE no readable candles", {}
+    regime, sma, n_closed = trend_regime(daily, period, price, now)
+    if regime is None:
+        return False, f"TREND_UNREADABLE {n_closed} closed daily candles < {period}", {}
+    if (side == "LONG" and regime != "BULL") or (side == "SHORT" and regime != "BEAR"):
+        return False, f"TREND_{regime} {side} on the wrong side of SMA{period} {sma:.6g}", {"trend_regime": regime, "sma": sma}
+    rp = range_position(hourly, price, side, lookback, now)
+    if rp is None:
+        return False, "RANGE_UNREADABLE too few closed hourly candles", {"trend_regime": regime, "sma": sma}
+    if rp < min_rp:
+        return False, f"RANGE_POS {rp:.2f} in the hostile part of the {lookback}h range (min {min_rp})", {"trend_regime": regime, "sma": sma, "range_pos": rp}
+    return True, f"CHART_OK {regime} SMA{period} {sma:.6g} rangePos {rp:.2f} p15m {safe_float(cand.get('p15m')):+.2f}%", {"trend_regime": regime, "sma": sma, "range_pos": rp, "price": price}

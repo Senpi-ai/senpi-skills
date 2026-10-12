@@ -1,30 +1,40 @@
 # ── VULTURE · single instance — Long-Tail Momentum Rider (Runtime 3.0 port of v2 vulture v4.2.0) ──
 #
+# 2.0.0 (2026-10-12) — the chart confirms the board. Measured on 553 live Vulture signals (21 Aug to
+# 12 Oct 2026, public candles, this package's own exits, 0.18% fees): the board's pick alone was
+# fee-neutral (+0.09% per trade); the 185 signals on the wrong side of the 50-day average lost 0.83%
+# each (every short the fleet took was one of them); with the three chart gates below, the 203
+# remaining signals made +0.85% per trade, profit factor 1.6, 56% winners — a September-heavy
+# window, and the first twelve days of October were negative. The gates: the price on the trade's
+# side of the 50-day simple average of closed daily candles; the 15-minute price already moving with
+# the trade; the price in the favourable half of the trailing 24-hour range. The per-name
+# funding-history read is gone (0 of 571 live emits ever carried a persistence value), so a tick is
+# five reads plus one candle read per board-gated name, and the cadence returns to 60 seconds —
+# every minute between the signal and the fill cost about 0.05% of the entry.
+#
 # 1.3.0 (2026-10-12), from the audit of live wallets (16 users, 60 days): 74% of closes were the
-# exchange stop, and the book was net negative after fees. Four things changed, nothing in the
-# thesis: the stop moved from 10% ROE (1.43% of price at the old 7x) to 15% ROE at a 5x cap (3.0%
-# of price, outside the measured 1.38% p75 adverse bounce of this universe); leverage is clamped to
-# the venue's own cap per name (12 of 27 names are capped at 3x or 5x and used to be asked for
-# more); the clock cuts are off (a 90-minute dead-weight cut and a 7-day timeout closed positions
-# on elapsed time, and of 142 clock closes measured in one fleet week 110 were in profit); and the
-# cadence is 5 minutes, not 60 seconds — the board's 15m velocity is a rolling figure, so a
-# 60-second scan fired on the first sample that crossed the floor and made up to 43,000 reads a
-# day. A volume floor keeps names that trade under a million dollars a day out of the book.
+# exchange stop, and the book was net negative after fees. The stop moved from 10% ROE (1.43% of
+# price at the old 7x) to 15% ROE at a 5x cap (3.0% of price, outside the measured 1.38% p75 adverse
+# bounce of this universe); leverage is clamped to the venue's own cap per name (12 of 27 names are
+# capped at 3x or 5x and used to be asked for more); the clock cuts are off (of 142 clock closes
+# measured in one fleet week 110 were in profit); a volume floor keeps names that trade under a
+# million dollars a day out of the book.
 name: vulture-main
 group: vulture
 version: 3.0.0
 description: >
   VULTURE — multi-asset small-cap momentum rider. Scans a 27-coin whitelist of
-  small/mid-cap Hyperliquid perps (BTC/ETH/SOL + XYZ banned) via leaderboard_get_markets,
-  and enters when 4h-leader concentration (a momentum read of the board, not a proven
-  cohort) ALIGNS with a fresh 4h trend, the 1h confirms (the v2.4 false-breakout gate),
-  and 15m velocity is accelerating. LONG_TAIL_MOMENTUM scoring; 5x on every entry,
-  clamped to the venue's cap for that name; names under the daily-volume floor are
-  skipped. DSL is the ONLY exit: no dead_weight_cut, no hard_timeout, no weak_peak_cut —
-  a 15% ROE stop (3% of price at 5x) and a ratchet that locks 40% of the gain from +15%
-  ROE. Two slots at 40% margin. Measured on live wallets: about five entries a week per
-  wallet at the old one-minute cadence; expect fewer at five minutes, and none in the
-  00-04 UTC quiet window below the apex score.
+  small/mid-cap Hyperliquid perps (BTC/ETH/SOL + XYZ banned) via leaderboard_get_markets:
+  the board picks the name and the side (4h-leader concentration aligned with the 4h and
+  1h price and an accelerating 15m contribution, LONG_TAIL_MOMENTUM score >= 10), and the
+  chart confirms the timing (2.0.0): the price on the trade's side of its 50-day average,
+  the 15-minute price already moving with the trade, and the price in the favourable half
+  of the trailing 24-hour range. 5x on every entry, clamped to the venue's cap for that
+  name; names under the daily-volume floor are skipped. DSL is the ONLY exit: no
+  dead_weight_cut, no hard_timeout, no weak_peak_cut — a 15% ROE stop (3% of price at 5x)
+  and a ratchet that locks 40% of the gain from +15% ROE. Two slots at 40% margin.
+  Measured on the live signal stream: about one to two confirmed entries a day per
+  wallet, none in the 00-04 UTC quiet window below the apex score.
 
 strategy:
   wallet: "${VULTURE_WALLET}"
@@ -42,9 +52,9 @@ scanners:
     type: external_scanner
     path: ./scanners
     entrypoint: scan.py
-    interval_seconds: 300                   # 5 min (was 60s): the board's 15m velocity is a rolling read; a
-                                            # 60s scan fired on the first noisy sample across the floor
-    timeout_seconds: 120                    # board + regime + instruments + clearinghouse + per-name funding
+    interval_seconds: 60                    # 2.0.0: back to a minute — each minute between signal and fill cost
+                                            # ~0.05% of the entry; the per-name funding read that made a minute expensive is gone
+    timeout_seconds: 45                     # five reads + one candle read per board-gated name (none to three)
     default_signal_validity_seconds: 1800
     state_history_max_count: 100            # dedup map + per-tick scan-results history
     inputs:
@@ -80,6 +90,11 @@ scanners:
       quietEndUtc: 4
       apexBypassScore: 11
       recentSignalTtlSeconds: 14400         # 240m — mirror the v2 per-asset cooldown
+      # 2.0.0 — the chart confirms the board (scoring.confirm_candidate); unreadable candles fail closed
+      trendSmaDays: 50                      # closed daily candles; LONG above the average, SHORT below (the 91-row 1d feed)
+      minPriceChange15mPct: 0.5             # the 15m price must already move WITH the trade; measured 0.2-1.0 all clear fees
+      minRangePosition: 0.5                 # favourable half of the trailing range (1 = at the day's extreme in trade direction)
+      rangeLookbackHours: 24                # closed hourly candles in the range
     signal_data_schema:
       score: { type: number }
       tier: { type: string, required: false }
@@ -95,9 +110,11 @@ scanners:
       contribChange1h: { type: number, required: false }
       contribChange4h: { type: number, required: false }
       fundingRegime: { type: string, required: false }
-      persistenceHours: { type: number, required: false }
       venueMaxLeverage: { type: number, required: false }
       dayVolumeUsd: { type: number, required: false }
+      trendRegime: { type: string, required: false }
+      trendSma: { type: number, required: false }
+      rangePos24h: { type: number, required: false }
 
 actions:
   - name: position_tracker_action
