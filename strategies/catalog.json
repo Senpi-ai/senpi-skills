@@ -1905,7 +1905,7 @@
       "varies": null,
       "tagline": "The oldest trend rule there is, run for you on the 4-hour chart: a 20 EMA crossing a 50 EMA on BTC, ETH or SOL opens a trade in the direction of the daily trend (price against its 50-day average) — long on the golden cross, short on the death cross — with leverage set per coin from its own volatility (2-5x) so the stop sits outside normal noise, one position per coin, and a trailing stop that only ever moves in your favour. A Donchian-channel breakout is one setting away as the alternate trigger.",
       "belief_plain": "Buys a big coin when its fast moving average crosses above its slow one on the 4-hour chart and the coin is above its 50-day average; shorts it on the mirror-image cross below. It holds at most one position per coin, uses less leverage on the coin that swings the most so ordinary noise does not hit the stop, and then trails a stop behind the trade so a real trend can run for days while a reversal closes it. No scores you cannot see, no black box: every entry can be checked on any chart. Expect it to trade RARELY — replayed over the 120 days to 2026-10-12 it produced 13 entries across all three coins, about one a week, and went 24 days without a single one. A crossover that has not happened yet is not a broken strategy; waiting is most of what this does.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "The moving-average crossover is the first trend rule every trader learns and the setup users most often rebuild by hand. Moose is that build done properly and supervised: the signal counts only on closed candles, so a cross cannot appear and vanish inside a bar; a trigger older than two bars is not chased; the daily trend filter keeps it from shorting a bull market or buying a bear one; and volatility sets the leverage, so the fixed stop lands at least two ATRs from entry in price wherever the 2-5x range allows. It will miss the first leg of a move by design and it will whipsaw in a sideways market — that is the known cost of a crossover system, and the trend that runs is what pays for it.",
       "tags": [
         "ema",
@@ -5928,6 +5928,70 @@
       "sort_order": 8
     },
     {
+      "id": "ibex",
+      "name": "Ibex — Gold Breakout Trend Follower",
+      "emoji": "🐐",
+      "varies": null,
+      "tagline": "A gold (xyz:GOLD) specialist on the slow clock: when a closed 4-hour candle breaks above the previous nine days' high with gold above its 50-day average it goes long; on the mirror-image break below, short. One position at a time, leverage 3-5x set from gold's own volatility so the stop sits outside normal noise, and a trailing stop that only ever moves in your favour. No fast trades, no fading — the one trigger on gold that pays its fees.",
+      "belief_plain": "Trades only gold, and only on a real break: a 4-hour close above the last nine days' high when gold is above its 50-day average (or below the low, below the average). It buys that break, holds one position at a time, and trails a stop behind it so a multi-day move can run while a failed break closes it. It will sit idle for a week at a time; that is the design.",
+      "version": "1.0.0",
+      "thesis": "Gold is the market Senpi users most often build their own strategies on, and most of what they build is fast: fifteen-minute fades, intraday scalps, prior-day breakouts. Replayed on the exchange's own gold history with real exits and fees, every one of those loses — gold's fifteen-minute range is smaller than a round trip costs. The slow breakout is the only trigger that cleared the fees: a nine-day channel break with the daily trend behind it, taken once and held for days. Ibex is that trade, with the sizing and the exit the fast builds were missing.",
+      "tags": [
+        "gold",
+        "xau",
+        "xauusd",
+        "metals",
+        "precious-metals",
+        "commodity",
+        "commodities",
+        "breakout",
+        "donchian",
+        "channel-break",
+        "turtle",
+        "trend",
+        "trend-following",
+        "daily-trend-filter",
+        "atr",
+        "volatility-sized",
+        "single-asset",
+        "long-short",
+        "xyz",
+        "slow",
+        "beginner",
+        "onboarding",
+        "let-winners-run",
+        "dsl-only"
+      ],
+      "group": "single-asset",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "range_break",
+      "sub_style_label": "Buys/sells the break of a multi-day range.",
+      "asset_classes": [
+        "commodities"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "xyz:GOLD"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "starter",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 9
+    },
+    {
       "id": "iguana",
       "name": "Iguana — XYZ Macro Index Trend",
       "emoji": "🦎",
@@ -5976,7 +6040,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 10
     },
     {
       "id": "koala",
@@ -6024,7 +6088,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 11
     },
     {
       "id": "kodiak",
@@ -6070,7 +6134,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "manta",
@@ -6126,7 +6190,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "polar",
@@ -6173,7 +6237,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 14
     },
     {
       "id": "ram",
@@ -6220,7 +6284,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 15
     },
     {
       "id": "stag",
@@ -6271,7 +6335,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 16
     },
     {
       "id": "terrapin",
@@ -6325,7 +6389,7 @@
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 17
     },
     {
       "id": "wolverine",
@@ -6373,7 +6437,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 17
+      "sort_order": 18
     },
     {
       "id": "hydra",

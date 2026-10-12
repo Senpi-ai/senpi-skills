@@ -7,7 +7,7 @@
 schema_version: 1
 
 id: moose
-version: "1.0.0"
+version: "1.0.1"
 
 catalog:
   name: "Moose — EMA Crossover Trend Follower"
