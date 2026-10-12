@@ -13,6 +13,43 @@ and this test updated in the same commit — not silently drift apart.
 scan.py is NOT byte-identical (per-regime margin), so its difference is enumerated instead,
 which keeps an unrelated edit from hiding inside the diff that is allowed.
 
+── A RESCORING WAS BUILT, TESTED, AND REJECTED (2026-10-12). Read this before writing another.
+
+The audit behind the 0.45 gate also found five real defects IN THE SCORE, all verified from the
+code: `minRangeWidthPct` pays +2 to every surviving fade (its else-branch rejects, so the
+points are a constant); `trend_structure`'s +3 is likewise flat; funding is scored backwards
+(calm pays +2 and measured WORSE, +1.25% vs +4.04% ROE); "deep at the edge" is noise
+(z=+0.58); and the weights are inverted — ER survives de-overlapping (z=+2.57/+2.51) on ONE
+point while pullback does not (sign flips at 24-bar spacing) on TWO. A higher score measurably
+performed worse: trend 6 -> +2.65% ROE against trend 7 -> +0.32%.
+
+So a rescored engine was written — ER-banded base, confirmations demoted to +1, a flat fade
+score — and measured head to head on the same 200 days, same exits, same one-slot wallet:
+
+    OLD scorer, gate 0.45   120 entries   +1.84% ROE/entry
+    NEW scorer, gate 0.45   112 entries   +0.62% ROE/entry
+
+It was NOT shipped, and the reason is the reason to be careful here rather than the number:
+
+  1. NO POWER. The score's job is ALLOCATION, which only shows up at the ~112 entries a single
+     slot takes in 200 days. Per-entry sd is 14.9pp, so SE of a configuration's mean is
+     1.41pp — the ENTIRE observed spread across every variant tried (0.15 to 1.84) fits inside
+     one standard error, and a 95% CI on the difference between two of them is about +/-4pp.
+  2. NO STABLE ANSWER. Split in half, "prefer the trend" vs "prefer the fade" on contested
+     ticks gave +3.78pp in H1 and -10.03pp in H2 — the sign FLIPS, and H2's flip is
+     significant. There is no allocation rule this data supports.
+
+The gate fix was kept because it passes exactly the test the rescoring fails: it is a FILTER,
+measurable at signal level with n in the hundreds, and the ER effect holds with the same sign
+and significance in BOTH halves (+2.67pp H1, +5.02pp H2; the admitted band +1.85pp H1 /
++4.00pp H2).
+
+The five defects remain TRUE. What is missing is evidence that fixing them helps, and this
+window cannot supply it — by the arithmetic above it would take roughly 900-1800 days of
+one-slot history to resolve a 1pp difference. So: do not rescore this engine off a backtest of
+this size. Either wait for live entries to accumulate, or change it as a deliberate bet and
+label it as one.
+
 Run: python3 -m pytest strategies/ibis-concentrated/tests/test_engine_parity.py -q
 """
 import hashlib
