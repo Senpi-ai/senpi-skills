@@ -48,7 +48,9 @@ _CASES = [
     ("ram",       _intent(assets=[("class", "commodities")]), "gold xauusd metals"),
     ("gecko",     _intent(assets=[("named", "VVV")]), "any coin"),
     # ── demand-driven builds from the 2026-08-04 verbatim-prompts doc ──
-    ("shadow",   _intent(), "mirror multiple traders fresh entry copy the top traders"),
+    # shadow: DELISTED 2026-10-12 (catalog.status=blocked) — the fresh-entry premise cannot hold
+    # against a ~2h position-state indexing lag. Restore this case when it is relisted.
+    #   see strategies/shadow/DESIGN.md
     ("rotator",  _intent(), "rebalance conviction every few hours concentrated smart money"),
     ("mandate",  _intent(), "capital preservation no leverage diversified portfolio rwa"),
     ("hare",     _intent(), "scalp btc eth session quick in and out leverage"),
