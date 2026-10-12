@@ -1131,6 +1131,55 @@
       "sort_order": 6
     },
     {
+      "id": "condor-concentrated",
+      "name": "Condor Concentrated — One Concentrated Trade per Day",
+      "emoji": "🦅",
+      "varies": "condor",
+      "tagline": "Condor's apex sniper, concentrated: ONE position at 80% margin and 10x instead of 20-32%, across crypto AND XYZ equities — and its directional confirmation comes from the traders with >= $1M lifetime realized PnL rather than the 4h gain board. Fires only when 24h, 4h, 1h and 15m momentum all align behind them. No time cuts.",
+      "belief_plain": "Watches every liquid coin and equity on Hyperliquid and does nothing until ONE setup is near-perfect: the trend agreeing across four timeframes, and the traders with the best lifetime records actually holding that side. Then it puts 80% of the account behind that single trade and trails a wide stop, never cutting a winner on a clock. The trade-off is blunt: one stop-out costs about 12% of the wallet, and two of them halt the strategy.",
+      "version": "1.0.0",
+      "thesis": "Condor's edge is its gate, not its sizing — so the question concentration asks is whether the gate is good enough to back harder. Two things change together. First the money: one position at 80% margin and 10x, flat for every score above the floor, because the score was never a real sizing gradient (condor's own tiers spanned 28% to 32%). Second, and more important, the confirmation: condor read direction from the 4h gain leaderboard, which is circular — when a coin falls, every wallet short it is mechanically at the top of that board, so it agrees with the move it is meant to confirm. Here the board supplies price data only, and direction is confirmed by HEADCOUNT among the wallets with >= $1M lifetime realized PnL. Price cannot change a headcount. Offer this only to someone who has asked for leverage AND concentration.",
+      "tags": [
+        "momentum",
+        "trend-continuation",
+        "universe",
+        "proven-cohort",
+        "apex-sniper",
+        "one-trade-per-day",
+        "xyz",
+        "no-time-cuts"
+      ],
+      "group": "momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "trend_continuation",
+      "sub_style_label": "Enters in the direction of an established, still-intact trend.",
+      "asset_classes": [
+        "universe_crypto",
+        "xyz_equities",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 180,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 7
+    },
+    {
       "id": "condor",
       "name": "Condor — One Amazing Trade per Day",
       "emoji": "🦅",
@@ -1173,7 +1222,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 7
+      "sort_order": 8
     },
     {
       "id": "falcon",
@@ -1219,7 +1268,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 9
     },
     {
       "id": "hare",
@@ -1272,7 +1321,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 10
     },
     {
       "id": "hedgehog",
@@ -1324,7 +1373,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 11
     },
     {
       "id": "hen",
@@ -1390,7 +1439,7 @@
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "hornet",
@@ -1460,7 +1509,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "ibis",
@@ -1512,7 +1561,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 14
     },
     {
       "id": "kingfisher",
@@ -1573,7 +1622,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 15
     },
     {
       "id": "lemur",
@@ -1622,7 +1671,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 16
     },
     {
       "id": "lynx",
@@ -1676,7 +1725,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 17
     },
     {
       "id": "marlin",
@@ -1730,7 +1779,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 17
+      "sort_order": 18
     },
     {
       "id": "meerkat",
@@ -1777,7 +1826,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 18
+      "sort_order": 19
     },
     {
       "id": "orca",
@@ -1823,7 +1872,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 19
+      "sort_order": 20
     },
     {
       "id": "otter",
@@ -1870,7 +1919,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 20
+      "sort_order": 21
     },
     {
       "id": "pelican",
@@ -1936,7 +1985,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 21
+      "sort_order": 22
     },
     {
       "id": "pelicans-duo",
@@ -2002,7 +2051,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 22
+      "sort_order": 23
     },
     {
       "id": "penguin-chase-150bp",
@@ -2057,7 +2106,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 23
+      "sort_order": 24
     },
     {
       "id": "penguin-chase-200bp",
@@ -2112,7 +2161,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 24
+      "sort_order": 25
     },
     {
       "id": "penguin-chase-300bp",
@@ -2167,7 +2216,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 25
+      "sort_order": 26
     },
     {
       "id": "penguin-x5",
@@ -2219,7 +2268,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 26
+      "sort_order": 27
     },
     {
       "id": "penguin",
@@ -2271,7 +2320,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 27
+      "sort_order": 28
     },
     {
       "id": "penguins-duo-chase-150bp",
@@ -2326,7 +2375,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 28
+      "sort_order": 29
     },
     {
       "id": "penguins-duo-chase-200bp",
@@ -2381,7 +2430,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 29
+      "sort_order": 30
     },
     {
       "id": "penguins-duo-chase-300bp",
@@ -2436,7 +2485,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 30
+      "sort_order": 31
     },
     {
       "id": "penguins-duo",
@@ -2488,7 +2537,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 31
+      "sort_order": 32
     },
     {
       "id": "piranha",
@@ -2543,7 +2592,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 32
+      "sort_order": 33
     },
     {
       "id": "purple-penguin",
@@ -2596,7 +2645,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 33
+      "sort_order": 34
     },
     {
       "id": "python",
@@ -2643,7 +2692,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 34
+      "sort_order": 35
     },
     {
       "id": "roach",
@@ -2690,7 +2739,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 35
+      "sort_order": 36
     },
     {
       "id": "rooster",
@@ -2741,7 +2790,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 36
+      "sort_order": 37
     },
     {
       "id": "sailfish",
@@ -2794,7 +2843,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 37
+      "sort_order": 38
     },
     {
       "id": "salamander",
@@ -2847,7 +2896,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 38
+      "sort_order": 39
     },
     {
       "id": "sheep",
@@ -2903,7 +2952,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 39
+      "sort_order": 40
     },
     {
       "id": "wild-cheetah",
@@ -2950,7 +2999,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 40
+      "sort_order": 41
     },
     {
       "id": "wild-condor",
@@ -2997,7 +3046,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 41
+      "sort_order": 42
     },
     {
       "id": "jaguar",
