@@ -1,0 +1,68 @@
+# Hornet Concentrated — hornet's supply-chain momentum taken as TWO positions at 10x
+# instead of three at 4x. A single-instance PACKAGE: this manifest + one self-contained
+# runtime.yaml + scanners/ (byte-identical to hornet's — only the config differs).
+#
+# Listed in the catalog and in discover. Compare it against the parent it varies, not on its
+# own: see senpi-strategy-discover/references/variant-families.md.
+#
+# Two things move on purpose, and they move together: CONCENTRATION (45% margin per position
+# instead of 18%) and SIZE (10x instead of 4x). Every exit is RE-DERIVED so each one sits at
+# the same distance IN PRICE as hornet's — the ladder is ROE and the engine divides by
+# leverage, so carrying hornet's numbers onto 10x would make every exit 2.5x tighter in price
+# and the book would stop out on noise. The guard rails had to widen for the same reason: one
+# stop costs 1.44% of a 3-slot hornet but 9.00% concentrated, so hornet's 15% daily limit
+# would halt the book after a single loss and the result would read as a failure of
+# concentration rather than of calibration.
+#
+# Two slots, not three. Measured on a live 45%/10x instance over 3 days and 7 opens, peak
+# concurrent positions was 2 and never 3 — at 45% of withdrawable per open there is no room
+# for a third, so a third slot only produces emits that cannot fill.
+#
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: hornet-concentrated
+version: "1.0.0"
+
+catalog:
+  name: "Hornet Concentrated — Supply-Chain Momentum, Two Bets at 10x"
+  emoji: "🐝"
+  varies: hornet          # a VARIANT of this template — never outrank it
+  tagline: "Hornet's semiconductor supply-chain momentum, concentrated: TWO positions at 45% margin and 10x instead of three at 18% and 4x. Same breadth gate, same universe, same signal — every exit re-derived so the stop and each profit rung sit at the identical distance in price, and the guard rails widened to absorb a stop that now costs 9% of the account instead of 1.4%."
+  belief_plain: "The same strategy as Hornet — it trades the semiconductor supply chain on Hyperliquid XYZ and only acts when the whole chain is trending together — but it puts the money behind far fewer, bigger bets. Hornet spreads across up to three positions at 18% of your balance each. This version takes at most two, at 45% each, with 10x leverage instead of 4x. The exits are set so a position has exactly as much room to move as it would on Hornet; what changes is how much each outcome is worth to you. One stop-out costs about 9% of the account here against 1.4% on Hornet, and one good run pays correspondingly more."
+  thesis: "Hornet's edge is the breadth gate, not its sizing — so the question concentration asks is whether the gate is good enough to back harder. This variant answers it with two levers moved together: margin per position 18% -> 45% and leverage 4x -> 10x, which raises gross notional rather than merely redistributing it. Everything that defines the edge is untouched: the same 16-name basket, the same sub-group gradient, the same 0.55/0.35 breadth thresholds, the same scanner bytes. Every DSL distance is preserved in PRICE terms (the 2.00% stop and the 5.00/7.50/12.50/18.80/25.00% rungs), with one extra rung added at 2.50% that 4x could not afford to lock. No clock closes anything — the ratchet and the 2.00%-of-price stop are the only exits, which is the house default and a deliberate change from hornet's 48h timeout. Offer this only to someone who has asked for leverage AND concentration; it is among the most aggressive packages in the catalog."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: sector_momentum
+  asset_classes: [xyz_equities]
+  asset_scope: basket
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 10
+  max_slots: 2
+  min_budget_floor: 20      # computes to $10 unaided, because 45% x 10x clears the venue's
+                            # notional floor on less capital than hornet's 18% x 4x. Pinned to
+                            # the parent's $20: the MORE aggressive variant must never advertise
+                            # a LOWER entry price than the strategy it varies — a user reads that
+                            # as the safer thing to try first.
+  assets: ["xyz:ASML", "xyz:AMAT", "xyz:MRVL", "xyz:NVDA", "xyz:AMD", "xyz:AVGO", "xyz:TSM", "xyz:QCOM", "xyz:ARM", "xyz:INTC", "xyz:SMH", "xyz:MU", "xyz:SNDK", "xyz:SMSN", "xyz:SKHX", "xyz:WDC"]
+  # NO `concentrated` / `high-leverage` tags, deliberately. Those tags are already wrong on
+  # several packages (penguin-x5 carries both at HALF penguin's leverage) and the doctrine is to
+  # read the axis off `max_slots` / `leverage_max` instead — see variant-families.md. Adding them
+  # here also made this package outrank puffin on puffin's own 'concentrated single position high
+  # leverage' query, which is exactly the shortlist-crowding a variant must never do.
+  tags: [semiconductors, ai-capex, supply-chain, sector-breadth, equities, xyz, nvda, asml, tsm, momentum, leader-momentum, basket, long-short, advanced, 23-5]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: HORNET_CONCENTRATED_WALLET
+    funding_share: 1.0

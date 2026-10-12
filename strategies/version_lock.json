@@ -190,8 +190,12 @@
       "version": "1.1.1"
     },
     "hornet": {
-      "behaviour": "e29ef815a9418a58",
-      "version": "1.1.2"
+      "behaviour": "008187d4f1fef704",
+      "version": "1.2.0"
+    },
+    "hornet-concentrated": {
+      "behaviour": "9ef482ff17b24605",
+      "version": "1.0.0"
     },
     "hummingbird": {
       "behaviour": "39ab8593d19a3670",
