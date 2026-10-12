@@ -63,15 +63,26 @@ scanners:
       # now comes from `is_dominant_direction`; the gain share is a separate
       # concentration filter on its own scale. Thresholds derived from one live
       # snapshot — NOT backtested, tune before relying on them.
-      requireDominantDirection: true       # is_dominant_direction must be true
-      minSmGainSharePct: 5.0               # concentration hard gate (~median of deep markets)
-      minTraderCount: 50                   # trader-depth hard gate
+      # ── proven cohort: replaced the 4h gain board's directional read (2026-10-12) ──
+      # The board is circular — when a coin falls, every wallet short it is mechanically
+      # at the top of the 4h gain board. Direction now comes from the 3TF price action and
+      # is confirmed by HEADCOUNT among the wallets with >= $1M LIFETIME realized PnL,
+      # which senpi-signals treats as the definition of smart money. Price cannot change a
+      # headcount. The old gain-share thresholds were never backtested — they came from a
+      # single live snapshot (2026-08-13) and the scorer said so.
+      cohortPool: 200                      # rows pulled from discovery_get_top_traders
+      cohortCap: 150                       # cap the cohort at N wallets
+      cohortMinRealizedUsd: 1000000        # the >= $1M floor
+      cohortCacheTtlSeconds: 900           # refresh every ~15 min
+      minPositionedCount: 10               # minimum proven wallets positioned in a coin
+      minCohortConvictionPct: 60.0         # dominant side must hold >= 60% of them
+      stronglyTiltedConvictionPct: 80.0    # conviction tier for +4
+      convergentConvictionPct: 70.0        # conviction tier for +3
+      deepConsensusCount: 50               # cohort depth for +1
       min4hMagnitude: 1.0                  # 3TF alignment floors
       min1hMagnitude: 0.3
       min15mVelocity: 0.1
       macroGateThresholdPct: 10.0          # MACRO_TREND_GATE (no counter-trend >10%)
-      stronglyTiltedPct: 15                # SM concentration scoring tier (+4)
-      convergentPct: 8                     # SM concentration scoring tier (+3)
       recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC race-window dedup
       # leverageTiers: per-score [min_score, leverage, marginPct(PERCENT)]; omit -> scoring defaults
       leverageTiers: [[15, 10, 32], [13, 10, 28], [11, 10, 20]]   # margin per score tier, was 80/70/50 (divided by 2.5)
