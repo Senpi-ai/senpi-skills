@@ -28,9 +28,11 @@ _DEFAULT_TTL = 14400          # 240m — mirror the v2 per-asset cooldown (anti 
 # Conviction-scaled leverage — small caps capped at 7x (low-liq slippage).
 # Ported verbatim from v2 SIZING_TIERS (v4.2.0). # v2-quirk: floor tier is score 10.
 _DEFAULT_TIERS = [
-    {"min_score": 11, "leverage": 7, "label": "apex"},        # score 11-12: the right tail
+    {"min_score": 11, "leverage": 5, "label": "apex"},        # score 11-12: the right tail (1.3.0: was 7x)
     {"min_score": 10, "leverage": 5, "label": "conviction"},  # score 10: the floor tier (best bucket)
 ]
+_DEFAULT_MAX_LEVERAGE = 5     # package cap; the venue's own max per name clamps below it
+_DEFAULT_VOL_FLOOR = 1_000_000  # USD/day — a name thinner than this is skipped
 
 
 def _read(ctx, name, args):
@@ -83,6 +85,30 @@ def _funding_persistence(ctx, asset):
     return None
 
 
+def _instruments(ctx):
+    """market_list_instruments (main DEX) -> {NAME_UPPER: {max_leverage, day_ntl_vlm, delisted}}, or {} on
+    failure. One read per tick feeds the venue leverage clamp and the daily-volume floor (1.3.0).
+    `max_leverage` is a top-level instrument field; `dayNtlVlm` sits under `context` (verified live
+    2026-10-12). Degrades to {} — the scan then runs without the clamp/floor and says so."""
+    raw = _read(ctx, "market_list_instruments", {})
+    if not isinstance(raw, dict):
+        return {}
+    data = raw.get("data", raw)
+    rows = data.get("instruments", []) if isinstance(data, dict) else data
+    out = {}
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict) or not r.get("name"):
+            continue
+        ctxb = r.get("context") if isinstance(r.get("context"), dict) else {}
+        max_lev = scoring.safe_float(r.get("max_leverage"), 0.0)
+        out[str(r["name"]).upper()] = {
+            "max_leverage": max_lev if max_lev > 0 else None,
+            "day_ntl_vlm": scoring.safe_float(ctxb.get("dayNtlVlm"), 0.0),
+            "delisted": bool(r.get("is_delisted", False)),
+        }
+    return out
+
+
 def _held_assets(ctx):
     """Current open positions on the strategy wallet -> list of coin strings.
     Defence-in-depth: skip any asset already held (the runtime's slot/dedup would
@@ -117,7 +143,11 @@ def _held_assets(ctx):
 def scan(inputs, ctx):
     whitelist = inputs.get("whitelist", scoring.DEFAULT_WHITELIST)
     tiers = inputs.get("leverageTiers", _DEFAULT_TIERS)
-    margin_pct = float(inputs.get("marginPct", 45))    # PERCENT of withdrawable (0,100], not a fraction
+    margin_pct = float(inputs.get("marginPct", 40))    # PERCENT of withdrawable (0,100], not a fraction
+    if 0 < margin_pct < 1.0:                           # a pasted fraction (0.40 meant 40)
+        margin_pct *= 100.0
+    lev_cap = float(inputs.get("maxLeverage", _DEFAULT_MAX_LEVERAGE))
+    vol_floor = float(inputs.get("minDayNtlVlmUsd", _DEFAULT_VOL_FLOOR))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
     now = time.time()
     hour = time.gmtime(now).tm_hour
@@ -143,6 +173,10 @@ def scan(inputs, ctx):
 
     # Whole-tick shared context — enriched once, each read degrades to neutral.
     regime = _funding_regime(ctx)
+    instruments = _instruments(ctx)
+    if not instruments:
+        print("[vulture.scan] WARNING: market_list_instruments unreadable — no venue leverage clamp "
+              "and no volume floor this tick (package cap still applies)", file=sys.stderr)
     held_assets = _held_assets(ctx)
     held_upper = {h.upper() for h in held_assets}
     wl_upper = {t.upper() for t in whitelist}
@@ -166,11 +200,25 @@ def scan(inputs, ctx):
                 break
         if matched is None:
             continue
+        info = instruments.get(token_raw)
+        if instruments and info is None:                  # the venue does not list it (today) — skip
+            continue
+        if info and info.get("delisted"):
+            continue
+        if info and vol_floor > 0 and info["day_ntl_vlm"] < vol_floor:
+            continue                                      # thinner than the daily-volume floor
         if matched not in persistence_map:
             persistence_map[matched] = _funding_persistence(ctx, matched)
 
-        c = scoring.score_market(m, regime, persistence_map, whitelist, tiers, inputs)
+        try:
+            c = scoring.score_market(m, regime, persistence_map, whitelist, tiers, inputs)
+        except Exception as exc:  # noqa: BLE001 — one malformed board row must not end the tick
+            print(f"[vulture.scan] WARNING: score_market({token_raw}) failed: {exc!r}", file=sys.stderr)
+            continue
         if c is not None:
+            c["leverage"] = scoring.clamp_leverage(c["leverage"], lev_cap, info.get("max_leverage") if info else None)
+            c["venue_max_leverage"] = info.get("max_leverage") if info else None
+            c["day_ntl_vlm"] = info.get("day_ntl_vlm") if info else None
             candidates.append(c)
 
     if not candidates:
@@ -203,7 +251,7 @@ def scan(inputs, ctx):
             "asset": c["asset"],
             "direction": c["direction"],
             "marginPct": margin_pct,          # SIZING INTENT (PERCENT) — runtime sizes the dollars
-            "leverage": c["leverage"],        # conviction-tiered (5/7); runtime applies it
+            "leverage": c["leverage"],        # 5x, clamped to the venue cap for this name; runtime applies it
             # `required: false` in signal_data_schema permits an ABSENT key, never a present-and-null:
             # the intake discards the WHOLE candidate on a null optional. Drop them here rather than
             # coercing to 0/"" — a coerced value would assert a measurement that was never taken.
@@ -223,6 +271,8 @@ def scan(inputs, ctx):
                 "contribChange4h": c["c4h"],
                 "fundingRegime": c["regime"],
                 "persistenceHours": c["persistence_hours"],
+                "venueMaxLeverage": c.get("venue_max_leverage"),
+                "dayVolumeUsd": c.get("day_ntl_vlm"),
             }.items() if v is not None},
         })
         recent[cu] = now

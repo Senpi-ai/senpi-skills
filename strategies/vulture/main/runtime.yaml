@@ -1,22 +1,36 @@
 # ── VULTURE · single instance — Long-Tail Momentum Rider (Runtime 3.0 port of v2 vulture v4.2.0) ──
+#
+# 1.3.0 (2026-10-12), from the audit of live wallets (16 users, 60 days): 74% of closes were the
+# exchange stop, and the book was net negative after fees. Four things changed, nothing in the
+# thesis: the stop moved from 10% ROE (1.43% of price at the old 7x) to 15% ROE at a 5x cap (3.0%
+# of price, outside the measured 1.38% p75 adverse bounce of this universe); leverage is clamped to
+# the venue's own cap per name (12 of 27 names are capped at 3x or 5x and used to be asked for
+# more); the clock cuts are off (a 90-minute dead-weight cut and a 7-day timeout closed positions
+# on elapsed time, and of 142 clock closes measured in one fleet week 110 were in profit); and the
+# cadence is 5 minutes, not 60 seconds — the board's 15m velocity is a rolling figure, so a
+# 60-second scan fired on the first sample that crossed the floor and made up to 43,000 reads a
+# day. A volume floor keeps names that trade under a million dollars a day out of the book.
 name: vulture-main
 group: vulture
 version: 3.0.0
 description: >
   VULTURE — multi-asset small-cap momentum rider. Scans a 27-coin whitelist of
-  small/mid-cap Hyperliquid perps that no other predator covers (BTC/ETH/SOL + XYZ
-  banned) via leaderboard_get_markets, and enters when 4h-leader concentration (a
-  momentum read of the board, not a proven cohort) ALIGNS with a fresh 4h trend, the 1h confirms (the v2.4 false-breakout gate), and
-  15m velocity is accelerating. LONG_TAIL_MOMENTUM scoring with conviction-scaled
-  leverage (5x at score 10, 7x apex at >=11). Cut losers fast (90m dead_weight),
-  ride winners for days (7-day hard_timeout). DSL is the ONLY exit. Faithful port of
-  the v2 producer thesis (v4.2.0): ~38% WR with a long right tail pays for everything.
+  small/mid-cap Hyperliquid perps (BTC/ETH/SOL + XYZ banned) via leaderboard_get_markets,
+  and enters when 4h-leader concentration (a momentum read of the board, not a proven
+  cohort) ALIGNS with a fresh 4h trend, the 1h confirms (the v2.4 false-breakout gate),
+  and 15m velocity is accelerating. LONG_TAIL_MOMENTUM scoring; 5x on every entry,
+  clamped to the venue's cap for that name; names under the daily-volume floor are
+  skipped. DSL is the ONLY exit: no dead_weight_cut, no hard_timeout, no weak_peak_cut —
+  a 15% ROE stop (3% of price at 5x) and a ratchet that locks 40% of the gain from +15%
+  ROE. Two slots at 40% margin. Measured on live wallets: about five entries a week per
+  wallet at the old one-minute cadence; expect fewer at five minutes, and none in the
+  00-04 UTC quiet window below the apex score.
 
 strategy:
   wallet: "${VULTURE_WALLET}"
   slots: 2                                 # v2 ran 2 concurrent positions
-  margin_pct: 45                           # v2 per-slot margin % (scales with budget)
-  default_leverage: 5                      # fallback; scan emits per-signal 5/7 by score
+  margin_pct: 40                           # per-slot margin %; 2 x 40% = 80% of the book, 64% effective
+  default_leverage: 5                      # fallback; scan emits 5x clamped to the venue cap per name
   trading_risk: moderate
   enabled: true
 
@@ -28,8 +42,9 @@ scanners:
     type: external_scanner
     path: ./scanners
     entrypoint: scan.py
-    interval_seconds: 60                    # v2 producer cadence (60s)
-    timeout_seconds: 120                    # v2 tick_timeout; whitelist enrichment fans out reads
+    interval_seconds: 300                   # 5 min (was 60s): the board's 15m velocity is a rolling read; a
+                                            # 60s scan fired on the first noisy sample across the floor
+    timeout_seconds: 120                    # board + regime + instruments + clearinghouse + per-name funding
     default_signal_validity_seconds: 1800
     state_history_max_count: 100            # dedup map + per-tick scan-results history
     inputs:
@@ -42,20 +57,23 @@ scanners:
          "TAO", "GRASS", "ZEC", "LIT", "FARTCOIN", "MORPHO", "NEAR", "INJ",
          "AVAX", "LINK", "DOGE"]
       xyzBanned: true
+      minDayNtlVlmUsd: 1000000              # skip a name trading under $1M/day (read live from
+                                            # market_list_instruments each tick; three whitelist names
+                                            # sat at $75k-$170k/day on 2026-10-12)
+      maxLeverage: 5                        # package cap; the venue's own max per name clamps below it
       # MIN_SCORE 10 — the v4.2.0 PRODUCER floor (culled 9->10 after a 100-trade
       # analysis: every bucket >=10 net-positive, every bucket <=9 net-negative).
-      # Ported verbatim from the producer source; producer thresholds win over the
-      # config / brief (the brief said "9").
       minScore: 10
       minSmPct: 3.0                         # v2 MIN_SM_PCT
       minSmTraders: 15                      # v2 MIN_SM_TRADERS
       min4hAlignedPct: 1.0                  # v2 MIN_4H_ALIGNED_PCT
       min1hAlignedPct: 0.1                  # v2 MIN_1H_ALIGNED_PCT (the v2.4 false-breakout gate)
       min15mVelocity: 0.3                   # v2 MIN_15M_VELOCITY
-      marginPct: 45                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
-      # conviction-scaled leverage — v2 SIZING_TIERS (v4.2.0). [min_score, leverage, label]
+      marginPct: 40                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      # conviction tiers kept for the score bands; leverage is 5 on both since 1.3.0 (the 7x apex
+      # put the 10% stop 1.43% from entry, inside the universe's p75 bounce). [min_score, leverage, label]
       leverageTiers:
-        - { min_score: 11, leverage: 7, label: apex }
+        - { min_score: 11, leverage: 5, label: apex }
         - { min_score: 10, leverage: 5, label: conviction }
       # FP-001 quiet hours — 00:00-04:00 UTC; apex score >=11 bypasses. start==end disables.
       quietStartUtc: 0
@@ -78,6 +96,8 @@ scanners:
       contribChange4h: { type: number, required: false }
       fundingRegime: { type: string, required: false }
       persistenceHours: { type: number, required: false }
+      venueMaxLeverage: { type: number, required: false }
+      dayVolumeUsd: { type: number, required: false }
 
 actions:
   - name: position_tracker_action
@@ -97,11 +117,11 @@ actions:
       - type: signal
         scanner: vulture_main_signals
 
-# EXIT — DSL, ported verbatim from v2 (v2.3 ladder, v3.1 ratchet patch). Maker-preferred
-# exits via FEE_OPTIMIZED_LIMIT. Tight T0 catches tiny winners early; T1-T4 ramp protection
-# on actual runners. First lock is REACHABLE (+15% trigger -> 35% lock) — never +60-80%.
-# Time cuts kept (multi-asset momentum, unlike single-asset ports): 90m dead_weight cuts
-# losers fast, 180m weak_peak, 7-day hard_timeout lets small-cap winners hold for days.
+# EXIT — DSL only. Every threshold is ROE; price distance is ROE / leverage, and leverage is 5x
+# (or the venue cap below it), so: stop 3.0% of price; rungs arm at +3% / 5% / 8% / 15% / 20%
+# of price and lock 40 / 60 / 75 / 75 / 85% of the best ROE. The first rung arms AT the stop
+# distance — risk 3% to make 3%, then keep 40% of it. Clock cuts are OFF (1.3.0): the 90-minute
+# dead-weight cut and the 7-day timeout closed on elapsed time and read nothing about the trade.
 exit:
   engine: dsl
   interval_seconds: 30
@@ -111,8 +131,8 @@ exit:
     execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: true
-      interval_in_minutes: 10080            # 7 days — small-cap winners hold for days
+      enabled: false                        # 1.3.0: was 7 days — a winner is not cut for being old
+      interval_in_minutes: 10080
     weak_peak_cut:
       # DISABLED - this cut closes at MARKET at whatever price is there, with no floor, so on a
       # longer-hold book it realises a small LOSS on a position that simply hadn't moved yet
@@ -122,33 +142,32 @@ exit:
       interval_in_minutes: 180              # 3h
       min_value: 2.0
     dead_weight_cut:
-      enabled: true
-      interval_in_minutes: 90               # 90min — fast cut on no-movement
+      enabled: false                        # 1.3.0: was 90 minutes — a flat 90 minutes is not a failed thesis
+      interval_in_minutes: 90
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
-      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
-      # retrace (10% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
-      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct is the hard stop;
+      # retrace_threshold below is inert while enabled: false.
       enabled: false
-      max_loss_pct: 10.0   # was 25.0 — set to the old retrace so the risk cap is unchanged
-      retrace_threshold: 10                 # v2 value; <= the ~10 cap (first lock stays reachable)
+      max_loss_pct: 15.0   # 1.3.0: was 10.0 (1.43% of price at 7x, inside the 1.38% p75 bounce); 3.0% at 5x
+      retrace_threshold: 15
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 15,  lock_hw_pct: 35 }   # Tier 0 — reachable first lock (v3.1: lock 20->35)
-        - { trigger_pct: 25,  lock_hw_pct: 60 }   # Tier 1 — v3.1: trigger 30->25
-        - { trigger_pct: 40,  lock_hw_pct: 75 }   # Tier 2 — pre-armed (v2.3)
-        - { trigger_pct: 75,  lock_hw_pct: 75 }   # Tier 3 — runner protection
-        - { trigger_pct: 100, lock_hw_pct: 85 }   # Tier 4 — apex
+        - { trigger_pct: 15,  lock_hw_pct: 40 }   # +3.0% of price -> floor +1.2% (1.3.0: lock 35 -> 40)
+        - { trigger_pct: 25,  lock_hw_pct: 60 }   # +5.0%          -> floor +3.0%
+        - { trigger_pct: 40,  lock_hw_pct: 75 }   # +8.0%          -> floor +6.0%
+        - { trigger_pct: 75,  lock_hw_pct: 75 }   # +15%           -> floor +11.3%
+        - { trigger_pct: 100, lock_hw_pct: 85 }   # +20%           -> floor +17%
 
 risk:
   guard_rails:
     daily_loss_limit_pct: 10
-    max_entries_per_day: 6
+    max_entries_per_day: 6                   # above the 2 slots: a re-entry after a stop-out is not blocked until midnight
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 3
     cooldown_seconds: 1800                  # 30m (v2 cooldown_minutes: 30)
-    drawdown_halt_pct: 25
+    drawdown_halt_pct: 25                   # the wallet-wide hard stop; never re-arms at midnight
     drawdown_reset_on_day_rollover: false
     per_asset_cooldown_seconds: 14400       # 4h — preserves v2 sniper cadence (v2 per_asset_cooldown_minutes: 240)

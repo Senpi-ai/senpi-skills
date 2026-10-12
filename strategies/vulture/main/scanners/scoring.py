@@ -37,6 +37,21 @@ DEFAULT_WHITELIST = [
 BANNED_ASSETS = {"BTC", "ETH", "SOL"}
 
 
+def clamp_leverage(tier_leverage, cap, venue_max=None):
+    """The leverage actually requested for a name: the tier's, never above the package cap, never
+    above the venue's own maximum for that name (1.3.0 — 12 of the 27 whitelist names are capped at
+    3x or 5x, and a request above the cap is the venue's to refuse or clamp, not ours to assume).
+    A whole number, at least 1. An unreadable venue max (None/0) leaves the package cap in charge."""
+    lev = safe_float(tier_leverage, 1.0)
+    cap_v = safe_float(cap, 0.0)
+    if cap_v > 0:
+        lev = min(lev, cap_v)
+    vm = safe_float(venue_max, 0.0)
+    if vm > 0:
+        lev = min(lev, vm)
+    return max(1, int(lev))
+
+
 def resolve_sizing_tier(score, tiers):
     """Highest-applicable sizing tier for a given score.
     tiers = [{min_score, leverage, label}, ...]. Returns the matching tier or None.
@@ -87,7 +102,7 @@ def score_market(m, regime, persistence_map, whitelist, tiers, inputs):
         return None
 
     pct = safe_float(m.get("pct_of_top_traders_gain", 0))
-    traders = int(m.get("trader_count", 0))
+    traders = int(safe_float(m.get("trader_count", 0)))   # 1.3.0: a None or "15.0" here used to kill the tick
     p4h = safe_float(m.get("token_price_change_pct_4h", 0))
     p1h = safe_float(m.get("token_price_change_pct_1h",
                             m.get("price_change_1h", 0)))
