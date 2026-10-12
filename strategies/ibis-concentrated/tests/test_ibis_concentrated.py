@@ -200,12 +200,52 @@ def test_the_flip_requires_confirmation_rather_than_firing_on_one_tick():
 
 def test_the_close_scanner_shares_the_entry_scanners_regime_vocabulary():
     """Two scanners disagreeing about what regime a position is in is the worst outcome
-    available: one opens on TREND while the other reads RANGE and closes it."""
-    for k in ("erLookback", "trendErThreshold", "rangeErThreshold", "rangeBars",
+    available: one opens on TREND while the other reads RANGE and closes it. Every shared
+    classification value must therefore match — except the one asymmetry below."""
+    for k in ("erLookback", "rangeErThreshold", "rangeBars",
               "rangeBuyBelowPct", "rangeSellAbovePct", "extremeFundingApr"):
         assert FLIP["inputs"][k] == IN[k], (
             f"{k} differs between the entry scanner and the regime-flip scanner — they would "
             "classify the same market differently")
+
+
+def test_the_flip_detector_is_never_less_willing_to_see_a_trend_than_the_entry_gate():
+    """The one deliberate asymmetry, and the direction matters more than the values.
+
+    Entry asks "is this a trend worth backing" — measured at ER 0.45. Invalidation asks "is
+    this still a trend at all", and a LOWER threshold makes the detector MORE alert: a position
+    opened at ER 0.60 whose ER decays to 0.40 while structure flips against it reads as
+    TREND-with-flipped-structure and is closed. If this threshold were raised to match entry,
+    that same position would read UNCLEAR — which `_contradiction` treats as "no verdict" — and
+    the detector would go blind to a flip on a position its own strategy opened.
+
+    So: <=, never >. Equality is allowed (it is the parent's arrangement); above is a bug."""
+    assert FLIP["inputs"]["trendErThreshold"] <= IN["trendErThreshold"], (
+        f"the flip detector's trendErThreshold ({FLIP['inputs']['trendErThreshold']}) is ABOVE "
+        f"the entry gate's ({IN['trendErThreshold']}) — positions opened on a strong trend "
+        "become UNCLEAR as their ER decays, and UNCLEAR is not a contradiction, so the flip "
+        "that should close them is never seen")
+
+
+def test_the_entry_gate_sits_where_the_measured_edge_is_not_where_the_parent_put_it():
+    """The fix from the 2026-10-12 replay. Over 200 days / 3,424 signals net of fees, the
+    trend leg's expectancy by ER band was -0.75% (0.36-0.40), -0.76% (0.40-0.45), +0.25%
+    (0.45-0.50), +1.35% (0.50-0.55), rising to +7.34% above 0.70 — so the parent's 0.36 admits
+    two net-NEGATIVE bands that were ~58% of its trend entries. Simulated on a single wallet
+    the whole package went from -0.09% to +1.64% ROE per entry for six fewer entries in 200
+    days, because one slot (not signal supply) is the binding constraint.
+
+    Pinned against the PARENT rather than as a literal, so the relationship survives a retune
+    of either; and floored at 0.45, because below that the negative bands come back."""
+    p_in = next(s for s in PARENT["scanners"] if s["name"].endswith("_signals"))["inputs"]
+    assert IN["trendErThreshold"] > p_in["trendErThreshold"], (
+        "the entry gate is back at or below the parent's, which re-admits the ER bands measured "
+        "net-negative after fees — at 44-53% margin, not 10-15%")
+    assert IN["trendErThreshold"] >= 0.45, (
+        f"the entry gate is {IN['trendErThreshold']}, under the 0.45 the replay supports")
+    assert IN["trendErThreshold"] <= IN["strongErThreshold"], (
+        "the gate has passed strongErThreshold, so the +2 ER rung is now unreachable and the "
+        "ER term has stopped discriminating at all — re-derive both together")
 
 
 def test_the_flip_scanner_does_not_poll_faster_than_the_bars_it_measures():

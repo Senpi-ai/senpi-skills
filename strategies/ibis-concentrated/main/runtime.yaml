@@ -94,11 +94,33 @@ scanners:
       leverageRange: 5                     # 16% ROE / 5x = 3.20% price stop
       leverageMin: 2
       leverageMax: 5
-      # ── regime classification (parent's, unchanged) ──
+      # ── regime classification ──
       erLookback: 20                       # 20 x 4h = ~3.3 days of path
-      trendErThreshold: 0.36               # >= this AND confirming structure -> TREND
+      # 0.45, NOT the parent's 0.36, and this is the one classification value that differs.
+      # Replayed over 200 days of 4h candles on this universe (3,424 signals, net of HL taker
+      # fees), the trend leg's expectancy by ER band was:
+      #     0.36-0.40  n=444  win 48.2%  -0.75% ROE      0.55-0.62  n=212  win 61.3%  +2.64%
+      #     0.40-0.45  n=434  win 49.3%  -0.76% ROE      0.62-0.70  n=158  win 60.1%  +1.98%
+      #     0.45-0.50  n=340  win 52.1%  +0.25% ROE      0.70+      n=132  win 75.8%  +7.34%
+      #     0.50-0.55  n=259  win 56.4%  +1.35% ROE
+      # The parent's gate admits the two negative bands, which were ~58% of its trend entries
+      # and stayed net-negative at every de-overlap spacing (-0.26 / -0.33 / -0.38% ROE at 6,
+      # 12 and 24 bars apart). ER is also the only trend factor that SURVIVES de-overlapping
+      # (z=+2.57 / +2.51; the pullback term's sign flips at 24-bar spacing), which is why the
+      # fix is the gate rather than a re-weighting.
+      #
+      # It is nearly free HERE because one slot — not signal supply — is the binding
+      # constraint: simulating a single wallet over the same 200 days, max 2 entries/day,
+      #     gate 0.36 -> 115 entries, net -0.09% ROE/entry   (a coin flip that loses to fees)
+      #     gate 0.45 -> 109 entries, net +1.64% ROE/entry
+      # Six fewer entries, and the leg stops being a tax. 0.45 rather than the slightly better
+      # 0.50 (+1.71%) on purpose: the gain is inside the noise and 0.45 fits the threshold less.
+      #
+      # NOT changed in the parent, where 3 slots and 10-15% margin make the same band cost
+      # about 1% of a wallet a time. That is a live-user retune and a separate decision.
+      trendErThreshold: 0.45               # >= this AND confirming structure -> TREND
       rangeErThreshold: 0.20               # <= this -> RANGE. Between the two -> NO TRADE.
-      strongErThreshold: 0.55
+      strongErThreshold: 0.55              # the +2 ER rung; the gate above now sits under it
       # ── trend rule (OI-confirmed continuation) ──
       minOiVelocityPct: 0.35               # OI must be RISING tick-over-tick: new money, not covering
       strongOiVelocityPct: 1.5
@@ -139,9 +161,18 @@ scanners:
                                            # One tick is not a flip: an ER oscillating across
                                            # trendErThreshold would otherwise churn the position
                                            # and pay a round trip of fees each time.
-      # The regime vocabulary must match the entry scanner's or the two disagree about what
-      # regime a position is in. Kept explicit rather than inherited so a retune of one is
+      # The regime vocabulary is kept explicit rather than inherited, so a retune of one is
       # visibly a retune of both.
+      #
+      # trendErThreshold stays at the PARENT's 0.36 while the entry gate is 0.45, and the
+      # asymmetry is deliberate — the two thresholds answer different questions. Entry asks
+      # "is this a trend worth backing", which the data puts at 0.45. Invalidation asks "is
+      # this still a trend at all", and a LOWER threshold makes the detector MORE alert: a
+      # position opened at ER 0.60 whose ER decays to 0.40 while structure flips against it is
+      # read as TREND-with-flipped-structure and closed. Raise this to 0.45 and the same
+      # position reads UNCLEAR, which is "no verdict" — the detector goes blind to a flip on a
+      # position its own strategy opened. So this value must be <= the entry gate, never above
+      # it; the test asserts that direction rather than equality.
       erLookback: 20
       trendErThreshold: 0.36
       rangeErThreshold: 0.20
