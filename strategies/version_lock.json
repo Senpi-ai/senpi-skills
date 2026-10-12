@@ -217,6 +217,10 @@
       "behaviour": "71263318578d1ef6",
       "version": "1.2.0"
     },
+    "ibis-concentrated": {
+      "behaviour": "c2e8a8257afc2ea5",
+      "version": "1.0.0"
+    },
     "iguana": {
       "behaviour": "7e4c1d22af27f75b",
       "version": "1.2.1"
