@@ -7,10 +7,11 @@ is a tiny state machine over a persisted entry-history record (the pure
   - reads account state + held positions (dual-DEX equity via max(), never sum()),
   - detects a closed position (had a first_entry but the asset is no longer held
     and no exit was recorded -> record the exit),
-  - if the asset is held -> HOLD (the DSL owns exits),
+  - if the asset is held -> HOLD (the DSL owns exits); a pending emit seen held is the
+    entry becoming real (2.0.0: the entry is recorded on the FILL, never at emit time),
   - else asks the state machine `should_enter` (fire-once vs re-entry-cooldown),
-  - emits ONE LONG signal at fixed margin/leverage when eligible, then records
-    the entry into ctx.state so the next tick stays silent.
+  - emits ONE LONG signal at fixed margin/leverage when eligible and marks it pending;
+    a marker that never turns into a held position expires without spending the one-shot.
 
 Read-only + single-pass. Emits a `marginPct` intent (PERCENT, fixed) plus a
 fixed `leverage` (clamped to MAX_LEVERAGE); the runtime sizes the dollars, owns
@@ -51,12 +52,13 @@ import scoring
 
 # v2 defaults (koala-producer.py / koala-config.json / koala_config.py)
 _DEFAULT_ASSET = "BTC"
-_DEFAULT_FIRE_ONCE = True
+_DEFAULT_FIRE_ONCE = False                 # 2.0.0: re-entry a week after each exit is the default
 _DEFAULT_RE_ENTRY_COOLDOWN_HOURS = 168.0   # v2 DEFAULT_RE_ENTRY_COOLDOWN_HOURS (7d)
-_DEFAULT_MARGIN_PCT = 50.0                 # PERCENT (v2 fraction 0.50 -> 50)
+_DEFAULT_MARGIN_PCT = 40.0                 # PERCENT (2.0.0: 40% at 2x = 80% exposure; v2 was 50)
 _DEFAULT_LEVERAGE = 2                      # v2 DEFAULT_LEVERAGE
 _DEFAULT_MAX_LEVERAGE = 3                  # v2 MAX_LEVERAGE (hardcoded)
 _DEFAULT_TTL = 240                         # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+_DEFAULT_PENDING_EXPIRY = 5400             # 2.0.0: three 30-minute ticks for an emitted entry to show up as held
 _FIXED_SCORE = 5                           # v2 data.score — fixed (Koala has no scoring)
 
 
@@ -149,6 +151,7 @@ def scan(inputs, ctx):
     leverage = int(inputs.get("leverage", _DEFAULT_LEVERAGE))
     max_leverage = int(inputs.get("maxLeverage", _DEFAULT_MAX_LEVERAGE))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
+    pending_expiry = float(inputs.get("pendingEntryExpirySeconds", _DEFAULT_PENDING_EXPIRY))
 
     # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value < 1
     # (an operator who pasted the v2 FRACTION 0.50) into a PERCENT so it never
@@ -177,68 +180,91 @@ def scan(inputs, ctx):
         print(f"[koala.scan] {asset} WAITING — no account value (read degraded or zero equity)",
               file=sys.stderr)
     else:
-        # Detect a closed position: had a first_entry but the asset is no longer
-        # held and no exit was recorded -> log the exit (verbatim v2 main()).
-        if koala.get("first_entry_at") and asset_key not in held_set and koala.get("last_exit_at") is None:
-            koala = scoring.record_exit(koala, now)
+        pending = scoring.pending_fill_state(koala, pending_expiry, now)
 
         if asset_key in held_set:
-            # Currently held -> do nothing (DSL is in charge).
+            # Currently held -> do nothing (DSL is in charge). 2.0.0: a pending emit that is
+            # now held is the entry becoming real — THIS is when the one-shot is consumed.
+            if pending != "none":
+                koala = scoring.confirm_fill(koala, now)
+                print(f"[koala.scan] {asset} FILLED — entry #{koala.get('total_entries')} recorded "
+                      f"(first_entry_at={koala.get('first_entry_at')})", file=sys.stderr)
             result = {"ts": now, "asset": asset, "emitted": False, "gate": "holding",
                       "first_entry_at": koala.get("first_entry_at"),
                       "total_entries": koala.get("total_entries", 0)}
             print(f"[koala.scan] {asset} HOLDING — DSL owns exits "
                   f"(entries={koala.get('total_entries', 0)})", file=sys.stderr)
-        elif not scoring.should_enter(koala, fire_once, cooldown_hours, now):
-            # Not eligible — surface the reason for ops visibility (verbatim v2 reasons).
-            if fire_once:
-                reason = f"fire-once AND already entered (first_entry_at={koala.get('first_entry_at')})"
-            else:
-                last_exit = koala.get("last_exit_at")
-                if last_exit is None:
-                    reason = "re-entry mode but no exit recorded yet (position state ambiguous)"
-                else:
-                    wait_left_h = max(0.0, (cooldown_hours * 3600 - (now - float(last_exit))) / 3600.0)
-                    reason = f"re-entry cooldown active ({wait_left_h:.1f}h remaining)"
-            result = {"ts": now, "asset": asset, "emitted": False, "gate": "not_eligible",
-                      "note": reason, "fire_once": fire_once}
-            print(f"[koala.scan] {asset} WAITING — {reason}", file=sys.stderr)
-        elif scoring.was_recently_signaled(signaled, asset, ttl, now):
-            # Race-window dedup (defence-in-depth alongside the runtime cooldown gate).
-            result = {"ts": now, "asset": asset, "emitted": False, "gate": "recently_signaled"}
-            print(f"[koala.scan] {asset} WAITING — recently signaled (race-window dedup)",
-                  file=sys.stderr)
-        elif leverage <= 0 or margin_pct <= 0:
-            result = {"ts": now, "asset": asset, "emitted": False, "gate": "sizing_unresolved",
-                      "leverage": leverage, "marginPct": margin_pct}
-            print(f"[koala.scan] {asset} WAITING — sizing unresolved lev={leverage} marginPct={margin_pct}",
-                  file=sys.stderr)
+        elif pending == "waiting":
+            # The signal is out and the order has not shown up as held yet: neither an exit nor
+            # a new entry. Wait for the fill (or for the marker to expire).
+            result = {"ts": now, "asset": asset, "emitted": False, "gate": "pending_fill",
+                      "pending_since": koala.get("pending_since")}
+            print(f"[koala.scan] {asset} WAITING — entry emitted {now - float(koala['pending_since']):.0f}s ago, "
+                  f"not held yet (expires at {pending_expiry:.0f}s)", file=sys.stderr)
         else:
-            # ── EMIT: one LONG, fixed sizing. Record the entry into state. ──
-            signaled[asset_key] = now
-            koala = scoring.record_entry(koala, now)
-            koala["last_exit_at"] = None     # new lifecycle started (verbatim v2)
-            result = {"ts": now, "asset": asset, "emitted": True, "gate": "pass",
-                      "direction": "LONG", "leverage": leverage, "marginPct": round(margin_pct, 4),
-                      "first_entry_at": koala.get("first_entry_at"),
-                      "total_entries": koala.get("total_entries")}
-            print(f"[koala.scan] {asset} EMIT: LONG {leverage}x marginPct={margin_pct:.2f}% "
-                  f"(entry #{koala.get('total_entries')}, hodl_first_entry)", file=sys.stderr)
-            out = [{
-                "asset": asset,
-                "direction": "LONG",
-                "marginPct": margin_pct,        # PERCENT in (0,100] — runtime sizes (marginPct/100)*withdrawable
-                "leverage": leverage,           # 2x (clamped to maxLeverage 3); runtime applies it
-                "data": {
-                    "score": _FIXED_SCORE,      # fixed — Koala has no scoring (verbatim v2)
-                    "leverage": float(leverage),
+            if pending == "expired":
+                # The order never filled (refused, rejected, or closed before a tick saw it).
+                # 1.x counted this as the lifetime entry and went silent for good.
+                koala = scoring.drop_pending(koala)
+                print(f"[koala.scan] {asset} entry did NOT fill within {pending_expiry:.0f}s — marker dropped, "
+                      f"the one-shot is not consumed (unfilled so far: {koala.get('unfilled_entries')})",
+                      file=sys.stderr)
+
+            # Detect a closed position: had a first_entry but the asset is no longer
+            # held and no exit was recorded -> log the exit (verbatim v2 main()).
+            if koala.get("first_entry_at") and koala.get("last_exit_at") is None:
+                koala = scoring.record_exit(koala, now)
+
+            if not scoring.should_enter(koala, fire_once, cooldown_hours, now):
+                # Not eligible — surface the reason for ops visibility (verbatim v2 reasons).
+                if fire_once:
+                    reason = f"fire-once AND already entered (first_entry_at={koala.get('first_entry_at')})"
+                else:
+                    last_exit = koala.get("last_exit_at")
+                    if last_exit is None:
+                        reason = "re-entry mode but no exit recorded yet (position state ambiguous)"
+                    else:
+                        wait_left_h = max(0.0, (cooldown_hours * 3600 - (now - float(last_exit))) / 3600.0)
+                        reason = f"re-entry cooldown active ({wait_left_h:.1f}h remaining)"
+                result = {"ts": now, "asset": asset, "emitted": False, "gate": "not_eligible",
+                          "note": reason, "fire_once": fire_once}
+                print(f"[koala.scan] {asset} WAITING — {reason}", file=sys.stderr)
+            elif scoring.was_recently_signaled(signaled, asset, ttl, now):
+                # Race-window dedup (defence-in-depth alongside the runtime cooldown gate).
+                result = {"ts": now, "asset": asset, "emitted": False, "gate": "recently_signaled"}
+                print(f"[koala.scan] {asset} WAITING — recently signaled (race-window dedup)",
+                      file=sys.stderr)
+            elif leverage <= 0 or margin_pct <= 0:
+                result = {"ts": now, "asset": asset, "emitted": False, "gate": "sizing_unresolved",
+                          "leverage": leverage, "marginPct": margin_pct}
+                print(f"[koala.scan] {asset} WAITING — sizing unresolved lev={leverage} marginPct={margin_pct}",
+                      file=sys.stderr)
+            else:
+                # ── EMIT: one LONG, fixed sizing. 2.0.0: mark the entry PENDING; it is recorded
+                #    when a later tick sees the asset held, never at emit time. ──
+                signaled[asset_key] = now
+                koala = scoring.record_pending(koala, now)
+                result = {"ts": now, "asset": asset, "emitted": True, "gate": "pass",
+                          "direction": "LONG", "leverage": leverage, "marginPct": round(margin_pct, 4),
+                          "first_entry_at": koala.get("first_entry_at"),
+                          "total_entries": koala.get("total_entries")}
+                print(f"[koala.scan] {asset} EMIT: LONG {leverage}x marginPct={margin_pct:.2f}% "
+                      f"(entries so far {koala.get('total_entries', 0)}; pending until held)", file=sys.stderr)
+                out = [{
+                    "asset": asset,
                     "direction": "LONG",
-                    "reasons": ["hodl_first_entry"],
-                    "heldAssets": held,
-                    "firstEntryAt": scoring._f(koala.get("first_entry_at")),
-                    "totalEntries": float(koala.get("total_entries", 0)),
-                },
-            }]
+                    "marginPct": margin_pct,        # PERCENT in (0,100] — runtime sizes (marginPct/100)*withdrawable
+                    "leverage": leverage,           # 2x (clamped to maxLeverage 3); runtime applies it
+                    "data": {
+                        "score": _FIXED_SCORE,      # fixed — Koala has no scoring (verbatim v2)
+                        "leverage": float(leverage),
+                        "direction": "LONG",
+                        "reasons": ["hodl_first_entry" if not koala.get("first_entry_at") else "hodl_re_entry"],
+                        "heldAssets": held,
+                        "firstEntryAt": scoring._f(koala.get("first_entry_at")),
+                        "totalEntries": float(koala.get("total_entries", 0)),
+                    },
+                }]
 
     # ── persist koala state + dedup map + this tick's result EVERY tick; bounded
     #    by state_history_max_count. Read back via ctx.state.last(). ──
