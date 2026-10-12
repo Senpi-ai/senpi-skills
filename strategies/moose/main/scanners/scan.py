@@ -34,6 +34,12 @@ def _dex_for(asset):
     return "xyz" if str(asset).lower().startswith("xyz:") else ""
 
 
+def _bare(name):
+    """The venue-agnostic ticker: `xyz:GOLD` and `GOLD` both read GOLD. The clearinghouse can report
+    a HIP-3 position under either spelling, and a held name that fails to match is a double open."""
+    return str(name or "").split(":", 1)[-1].upper()
+
+
 def _get_account(ctx):
     """(account_value, withdrawable, [position dicts]) from strategy_get_clearinghouse_state.
 
@@ -122,7 +128,7 @@ def scan(inputs, ctx):
         print("[moose.scan] WAITING — no account value / unreadable clearinghouse", file=sys.stderr)
         return []
     held_assets = [p["coin"] for p in positions if p.get("coin")]
-    held = {h.upper() for h in held_assets}
+    held = {_bare(h) for h in held_assets}
     open_slots = max_slots - len(held)
 
     # one cross is one signal: keys are COIN|SIDE|signal-bar-open-ms, kept long enough to outlive
@@ -131,7 +137,7 @@ def scan(inputs, ctx):
     signaled = {k: v for k, v in _load_signaled(ctx).items() if (now - scoring._f(v)) < keep_for}
     last_by_coin = {}
     for k, v in signaled.items():
-        c = k.split("|", 1)[0]
+        c = _bare(k.split("|", 1)[0])
         last_by_coin[c] = max(last_by_coin.get(c, 0.0), scoring._f(v))
 
     result = {"ts": now, "held": held_assets, "open_slots": open_slots, "scanned": 0, "emitted": []}
@@ -143,9 +149,10 @@ def scan(inputs, ctx):
     candidates = []
     for coin in allowed:
         cu = coin.upper()
-        if cu in held:
+        bare = _bare(coin)
+        if bare in held:
             continue
-        if (now - last_by_coin.get(cu, 0.0)) < ttl:
+        if (now - last_by_coin.get(bare, 0.0)) < ttl:
             continue
         result["scanned"] += 1
         md = _candles(ctx, coin)
