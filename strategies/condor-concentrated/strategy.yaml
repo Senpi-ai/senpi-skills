@@ -20,7 +20,7 @@
 schema_version: 1
 
 id: condor-concentrated
-version: "1.0.0"
+version: "1.0.1"
 
 catalog:
   name: "Condor Concentrated — One Concentrated Trade per Day"

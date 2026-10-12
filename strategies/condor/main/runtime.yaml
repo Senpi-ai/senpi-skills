@@ -94,8 +94,8 @@ scanners:
       priceChange4hPct: { type: number, required: false }
       priceChange1hPct: { type: number, required: false }
       contribChange15m: { type: number, required: false }
-      smGainSharePct: { type: number, required: false }
-      smTraders: { type: number, required: false }
+      cohortConvictionPct: { type: number, required: false }
+      cohortPositioned: { type: number, required: false }
       oiUsd: { type: number, required: false }
       funding: { type: number, required: false }
 
