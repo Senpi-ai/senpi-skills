@@ -65,7 +65,15 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # resident context with the count hiding it (2026-09-23).
 # ops: 344 → 345 for the one-line flat-book rule beside the two-targets rule it completes; the depth is in
 # references/editing-a-live-strategy.md §4.
-BODY_BUDGET = {"senpi-strategy-ops": 345, "senpi-strategy-author": 430}
+# ops 345 -> 351 (2026-10-12): say how often it will trade, before funding. Jason's standing
+# instruction the day moose was catalogued. Resident because it fires on EVERY create and it gates
+# a money move: a user who is not told how often a strategy acts supplies their own number and
+# reads normal silence as breakage — shadow took 10 installs to 0 fills with all 10 wallets
+# withdrawn, which is a frequency mismatch, not a returns one. A rule delivered after the wallet is
+# funded is worthless. Taken in LINES rather than absorbed into one long line; the method, the
+# three evidence tiers and the worked numbers live in
+# senpi-strategy-discover/references/trade-frequency.md.
+BODY_BUDGET = {"senpi-strategy-ops": 351, "senpi-strategy-author": 430}
 
 
 def _skill_body(path):

@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.25.0"
+  version: "3.26.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -74,6 +74,12 @@ set, else the agent workspace `strategies/` dir — normally `/data/workspace/st
 inside a skill directory**: a package written there is destroyed on the next skill update. An on-disk
 package is authoritative; an invalid one surfaces its real errors and is never silently replaced by a
 remote fetch. Mechanics + state machine: [`references/lifecycle.md`](references/lifecycle.md) · manifest schema: [`references/strategy-yaml-schema.md`](references/strategy-yaml-schema.md).
+
+**Say how often it will trade before you fund it.** One line: the number and what makes it go quiet —
+a measured rate if you have one, otherwise the CEILING from `max_entries_per_day`, `slots` and the
+cooldowns, said as a ceiling. A user who is not told reads normal silence as breakage: `shadow` took 10
+installs to 0 fills and every wallet was withdrawn. Never quote a rate off the package NAME. Detail:
+[`trade-frequency.md`](../senpi-strategy-discover/references/trade-frequency.md).
 
 ## Deploy — one lifecycle: start the verb, poll `status` until terminal
 

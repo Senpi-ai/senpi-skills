@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.46.0"
+  version: "2.47.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -79,6 +79,16 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
   assume "a coin."
 - **Stack, don't isolate.** One strategy is one bet. On any pick that isn't already a multi-wallet fund,
   offer a complementary hedge (see *Stack, don't isolate*).
+- **Say how often it will trade, before the budget question.** One line, every pick. A user who is
+  not told supplies their own number and reads normal silence as a fault — measured 2026-10-12,
+  `shadow` had **0 fills across 10 installs with all 10 wallets withdrawn**, and `moose` runs about
+  **one trade a week with a 24-day gap**. Give the number AND what makes it go quiet: *"about one a
+  week; it needs a 20/50 cross with the daily trend agreeing, so a quiet month means no cross yet."*
+  Say which tier the number is on — **measured** (replayed or counted), **ceiling** (from
+  `max_entries_per_day`, `slots`, the cooldowns — an upper bound, never an expectation), or **shape**
+  (how many conditions must align at once, and the freshness window in human units). Never read a rate
+  off the NAME: condor is called "One Amazing Trade per Day" and nothing in it enforces that. Method
+  and worked numbers: `references/trade-frequency.md`.
 - **Read the market only when you present picks — never pre-fetch on entry.** The opener is a question,
   not a scan. Use `--no-market` while narrowing; do the live read on the run that produces the cards.
 - **Echo your understanding in one line** before showing picks ("got it — cautious, BTC/ETH, ~$300").
