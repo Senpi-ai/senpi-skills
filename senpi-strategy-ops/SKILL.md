@@ -71,7 +71,7 @@ registered**, which collides on the next deploy.
 NEW wallet whose scanner state starts empty. "Relaunch", "restart", "redeploy", "fix it" are not a close:
 run the read-only `deploy.py verify <id>` (live = nothing to relaunch; otherwise it names the one
 non-destructive step, e.g. `deploy.py runtime <id>`, which adopts the existing wallet and closes nothing).
-Close only on the user's yes to a sentence that says it closes the strategy, flattens positions, new wallet.
+Close only when they asked to close / stop / tear down in their own words, or said yes to your sentence naming it.
 Pass the **strategy `id`** for a CATALOG strategy (what `senpi-strategy-discover` hands over, e.g.
 `spider`), fetched from the remote if not on disk; for a **locally-authored package, pass its DIRECTORY
 path**. Either way the package belongs in the **durable strategies root** (`SENPI_STRATEGIES_DIR` if
