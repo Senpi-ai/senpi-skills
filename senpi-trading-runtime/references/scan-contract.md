@@ -126,6 +126,13 @@ if ctx.state is not None:
   `--code-only` when only scanner code changed) — and which a crash or a gateway restart also
   triggers, unannounced. Re-running a deploy on a strategy that is already running applies nothing:
   it keeps the runtime that is running.
+- **A scanner restart reloads code, never the recipe.** `runtime.yaml`, `signal_data_schema`
+  included, is read when the runtime starts (install, `senpi update --apply`, a gateway restart),
+  not when its scanner restarts. So a new `data{}` key needs the `scan.py` edit, the schema entry AND
+  a full `openclaw senpi update <recipe-dir> --id <runtime_id> --apply` (`--code-only` refuses it).
+  Until then a crash restart ships the new code against the old schema and every signal carrying
+  the key is rejected as `undeclared data field`. On a runtime that predates journalled rejections,
+  the delivery journal shows those signals as `dropped_expired`, which reads like a dead consumer.
 - **`openclaw senpi validate` never inspects the running scanner.** It runs the code on disk in a
   fresh process against empty, throwaway state, so a `PASS` proves the edit runs, not that it is live.
 
@@ -283,7 +290,8 @@ Both are valid — it's your thesis:
 - ✅ **Read-only MCP only** — never call a mutation tool (it raises `PermissionError`).
 - ✅ Pure scoring in `scoring.py`; MCP + state in `scan.py`.
 - ✅ Keep dedup / rotation / first-seen ledgers in `ctx.state` (`last()` → mutate → `append()`).
-- ✅ Declare every `data{}` key in `signal_data_schema`; set `default_signal_validity_seconds`.
+- ✅ Declare every `data{}` key in `signal_data_schema`; set `default_signal_validity_seconds`. A new key
+  on a LIVE strategy needs a full `senpi update --apply`: a scanner restart does not reload the schema.
 - ✅ Read every numeric field through `_f()` — no-op on numbers, required on strings.
 - ✅ Put `marginPct` and `leverage` — the only two sizing keys — at the **top level**, not inside `data{}`.
 - ✅ On any failure, **return `[]`** (or a partial list) — don't crash.
