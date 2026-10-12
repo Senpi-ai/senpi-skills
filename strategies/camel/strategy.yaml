@@ -1,41 +1,52 @@
-# Camel — funding-carry hedge fund. A two-instance PACKAGE: this manifest + two
-# self-contained runtime.yaml books (harvest SHORT / payout LONG on SEPARATE wallets,
-# so the positive-funding shorts and negative-funding longs coexist) + per-instance
-# scanners/. A faithful Runtime 3.0 port of the v2 Camel v1.0 funding-carry engine: one
-# producer ranked the live liquid main-DEX crypto cross-section by funding and took the
-# side that COLLECTS the funding, gated to exhausting crowds. Install/teardown via
-# senpi-strategy-ops.
+# Camel Concentrated — camel's funding carry as ONE position per side at 10x.
+#
+# Per arm: slots 4 -> 1, marginPct 18 -> 72 (margin deployed unchanged at 72%), leverage 5 -> 10.
+# Leverage DOUBLES gross notional, so this moves two things on purpose: concentration AND size.
+# The DSL is re-derived so every PRICE distance equals camel's; the clocks are camel's unchanged;
+# the guard rails are scaled because one stop now costs 8x what it cost across four slots;
+# and EVERY CLOCK IS OFF — the ladder and the stop decide every exit.
+#
+# Listed in the catalog and in discover. Compare it against camel, not against zero —
+# see senpi-strategy-discover/references/variant-families.md.
 schema_version: 1
-
 id: camel
-version: "1.2.2"
-
+version: "2.0.0"
 catalog:
-  name: "Camel — Funding Carry Hedge Fund"
-  emoji: "🐫"
-  tagline: "Harvests funding carry across the liquid main-DEX crypto cross-section: the HARVEST book SHORTS the most-positive-funding names (longs pay shorts → short collects) and the PAYOUT book LONGS the most-negative-funding names (shorts pay longs → paid to hold) — both gated to EXHAUSTING crowds (4h trend + RSI confirmation) so price doesn't fight the carry — on two equally-funded wallets that net the fund slightly market-neutral."
-  belief_plain: "On Hyperliquid you get paid (or pay) funding every hour for holding a perp. Camel always takes the side that COLLECTS that payment — it shorts coins where longs are paying through the nose, and longs coins where shorts are paying — but only on crowds that are running out of steam, so the price doesn't move against it while it banks the funding."
-  thesis: "Funding is a recurring, structural inefficiency: when a trade gets too crowded, the funding rate blows out and the collecting side gets paid to hold. The edge is that carry, not market direction — so Camel ranks the whole liquid crypto board by funding and takes the most-extreme collecting side, but only when the crowded trade is exhausting (4h rolling over for shorts / capitulating for longs, RSI confirming) so price doesn't fight the carry. Taking some shorts and some longs also skews the fund net-neutral as a by-product."
+  name: Camel — Funding Carry, One Bet Per Side
+  emoji: 🐪
+  tagline: Camel's funding-carry edge taken as ONE position per side at 10x instead of four at 5x. Same ranking, same exhaustion gate, same price-distance exits — the bet is that the most-extreme funding dislocation is worth more than four smaller ones, and that a quarter of the fills keeps a quarter of the fees.
+  belief_plain: 'This is Camel with its capital gathered into one trade per side. Camel gets paid to hold the crowded side of a funding dislocation: it shorts the names longs are paying to hold, and buys the names shorts are paying to hold, only when the crowded trade is already running out of steam. Normally it spreads that across four names per side. This version takes the single most extreme name on each side and puts four times the size behind it at twice the leverage. The edge it is testing is partly the signal and partly the bill: Camel currently pays 58% of its gross profit in trading fees, and one position costs roughly a quarter of the fees that four do for the same money at work. Concentration here is as much a fee argument as a conviction one.'
+  thesis: 'Two inputs move per arm and a third is forced. slots 4 -> 1 and marginPct 18 -> 72 keep margin deployed identical at 72% of each sleeve; default_leverage / maxLeverage 5 -> 10 is the high-leverage half of the ask, and it DOUBLES gross notional (3.6x -> 7.2x of the sleeve), so this is deliberately a two-variable change and not a controlled single-variable arm. The DSL is re-derived rather than copied: every ROE number is doubled so each price distance is camel''s exactly (stop 1.20%, rungs 2.80/5.60/10.0/18.0% of price), because carrying 5x ROE numbers onto 10x would halve them and put the stop inside the measured noise band. EVERY CLOCK IS OFF, which is a standing preference rather than a measurement: the ladder and the stop decide every exit, at any horizon. camel ships a 72h hard_timeout and an 8h dead-weight cut and both are disabled here. The cost is that the phase-1 floor at 1.20% of price becomes the only thing that ends a dead carry, and concentrated that slot IS the arm — softened only by funding continuing to accrue while it waits, which is not true of a momentum trade going nowhere. Guard rails are SCALED because they had to be: one stop costs 1.08% of a 4-slot arm but 8.64% concentrated, so camel''s 10% daily limit would halt the book after a single loss and the result would read as a failure of concentration rather than of calibration. Why camel at all: it is the only non-momentum template in the catalog actually trading (259 real fills across 4 live wallets in the 7 days to 2026-10-06, net +$5.42 after $6.72 of fees on $11.52 realized), and the one whose fee ratio leaves concentration somewhere to go. Read it against camel over the same window, never on its own P&L.'
   group: carry
-  archetype: contrarian_fade      # collects extreme funding on exhausting (one-sided, stalling) crowds
-  sub_style: funding_extreme      # the carry edge IS extreme funding
-  asset_classes: [universe_crypto]
+  archetype: contrarian_fade
+  sub_style: funding_extreme
+  asset_classes:
+    - universe_crypto
   asset_scope: universe
-  direction: long_short           # harvest book short_only, payout book long_only; the PACKAGE is both
-  risk_level: moderate
+  direction: long_short
+  risk_level: aggressive
   tier: advanced
   time_horizon: position
-  leverage_max: 5
-  max_slots: 8                    # 4 per book × 2 books
-  assets: []                      # dynamic universe — the live liquid main-DEX crypto board, ranked by funding
-  tags: [funding, carry, basis, market-neutral, hedge-fund, contrarian, exhaustion, universe-crypto, two-book]
-
+  leverage_max: 10
+  max_slots: 2
+  assets: []
+  tags:
+    - basis
+    - carry
+    - concentration
+    - contrarian
+    - exhaustion
+    - experiment
+    - funding
+    - hedge-fund
+    - high-leverage
+    - market-neutral
+    - two-book
+    - universe-crypto
 requires:
-  runtime: ">=3.0.0"
-
+  runtime: '>=3.0.0'
 defaults:
   auth_token_env: SENPI_AUTH_TOKEN
-
 instances:
   - name: harvest
     runtime: harvest/runtime.yaml
