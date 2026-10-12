@@ -16,9 +16,13 @@ member stands in and its `varies` names the parent.
 
 ## The rule
 
-**Never offer two members of the same family in the same shortlist** — with one exception, the
-chase caps below, where 1.5% is now a shipped DEFAULT and the user should be told what it does
-and offered the looser settings.
+**Never offer two members of the same family in the same shortlist** — with TWO exceptions:
+
+- **the chase caps** below, where 1.5% is now a shipped DEFAULT and the user should be told what
+  it does and offered the looser settings;
+- **the concentration axis** (next section), where a family holding both a spread and a
+  concentrated member means the user is choosing how many bets their money is split across, and
+  that choice is theirs rather than ours to make silently.
 
 **The rule, restated:** Offer the PARENT, and name the
 variant only when the user's own words ask for the thing it varies. "I want fewer, bigger positions"
@@ -27,6 +31,55 @@ them.
 
 If a user asks for a variant by name, give it to them — but say what it varies from, in the same
 breath, every time. A variant without its parent named is unreadable.
+
+## The concentration axis — offer it whenever the family has one
+
+**Standing instruction (Jason, 2026-10-12): where a strategy has a concentrated sibling — or is
+itself the concentrated one — offer BOTH, in one line, before the budget question.** Not a
+recommendation, a choice. Concentration is the one variant axis a user has a real opinion about
+before they have any results, because it is about how much a single wrong call costs them.
+
+### How to tell, without a list that goes stale
+
+Read it off the family's own catalog records. Every record carries **`max_slots`** and
+**`leverage_max`**, both DERIVED from the packages themselves, so they cannot drift from what
+ships:
+
+> Within a family (follow `varies` to the root), the member with **fewer slots and/or higher
+> `leverage_max`** is the concentrated one. The member with **more slots and/or lower
+> `leverage_max`** is the spread one.
+
+Both axes matter and they are different claims. Fewer slots at the same leverage moves
+*concentration only* — the same money behind fewer names. Higher leverage moves *size* — more
+gross notional for the same margin. A variant that moves both (`hornet-concentrated`) is doing two things at once, and you must
+say so.
+
+**Do NOT key off tags.** They are unreliable and in places simply wrong: `penguin-x5` is tagged
+`concentrated` and `high-leverage` while being penguin at HALF the leverage, and `puffin-duo`,
+`penguins-duo` and `pelicans-duo` are tagged `concentrated` while doing the opposite — splitting
+one position into two smaller ones. The config fields are the truth; the tags are not.
+
+### What to say
+
+Two lines, each naming the one number and its consequence. Quote **what one stop costs as a
+fraction of the account** — that is the number a user can actually feel, and it is
+`max_loss_pct x marginPct / 100`:
+
+> **Hornet** — up to 3 positions at 18% margin, 4x. One stop-out costs about **1.4%** of the account.
+> **Hornet Concentrated** — 2 positions at 45%, 10x, with every exit at the same distance in price.
+> One stop-out costs about **9%**, and one good run pays correspondingly more.
+
+Then stop and let them answer. If they say nothing, **ship the spread member** — the parent is the
+default for a reason, and nobody should land in the most aggressive package in a family by silence.
+
+### What not to do
+
+- Do not offer the concentration choice for a family that has no concentrated member. Most
+  families vary something else entirely (a chase cap, a score floor), and inventing the axis
+  implies an option that does not exist.
+- Do not present it as "safe vs risky". Gross exposure is often similar or identical; what moves
+  is how much rides on one call. Say that.
+- Do not let it turn into a menu. One line each, two members, then the budget question.
 
 ## The families
 
@@ -107,6 +160,24 @@ noise, they are the parent with more variance. Say exactly that.
 `athena-concentrated` — athena with its phalanx arm holding **2 positions at 22.5%** instead of 3 at
 15%. The same 45% of that sleeve is at risk either way; it is carried by fewer names. The aegis
 hedge and the 65/35 split are untouched.
+
+### 6. Concentration at leverage — fewer bets, and bigger ones
+
+Unlike section 5, this moves *two* things on purpose: concentration AND size. Say so.
+
+`hornet-concentrated` — hornet's semiconductor supply-chain momentum as **2 positions at 45% and
+10x** instead of 3 at 18% and 4x. Same breadth gate, same 16-name basket, same scanner bytes; every
+DSL distance re-derived so the 2.00% stop and the 5.00/7.50/12.50/18.75/25.00% rungs are unchanged
+IN PRICE, with one extra rung at 2.50% that 4x could not afford to lock. Two slots rather than
+three because at 45% per open a third has no room — measured on a live instance over 3 days and 7
+opens, peak concurrent was 2 and never 3.
+
+One stop-out costs **9.0% of the account** against hornet's 1.44%, which is why its daily loss
+limit is 18% and its halt 30%: hornet's 15% daily limit would stop the book after a single loss.
+It also drops hornet's 48h `hard_timeout`, so nothing but the ratchet and the 2.00%-of-price stop
+closes a position — including through the Friday-to-Sunday equity gap that timeout existed for.
+Say that last part out loud to anyone running it over a weekend.
+
 
 ## Not a family any more: camel
 

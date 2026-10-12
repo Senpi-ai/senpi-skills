@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.26.0"
+  version: "3.27.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -80,6 +80,11 @@ a measured rate if you have one, otherwise the CEILING from `max_entries_per_day
 cooldowns, said as a ceiling. A user who is not told reads normal silence as breakage: `shadow` took 10
 installs to 0 fills and every wallet was withdrawn. Never quote a rate off the package NAME. Detail:
 [`trade-frequency.md`](../senpi-strategy-discover/references/trade-frequency.md).
+**A strategy with a concentration sibling: name it once before you fund.** If the requested id's family
+(`catalog.varies`) holds a member with fewer `max_slots` / higher `leverage_max`, say so in ONE line with
+what a stop costs on each (`max_loss_pct x marginPct / 100`), then deploy the one they NAMED unless they
+switch. Read the axis off those two fields, never off tags (`penguin-x5` is tagged `concentrated` at HALF
+the leverage). Wording: [`variant-families.md`](../senpi-strategy-discover/references/variant-families.md).
 
 ## Deploy — one lifecycle: start the verb, poll `status` until terminal
 
