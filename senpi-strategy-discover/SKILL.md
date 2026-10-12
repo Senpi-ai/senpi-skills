@@ -123,6 +123,11 @@ python3 scripts/discover.py
   [--context-only]     # budget + holdings (Senpi + your saved wallets, read-only) only, no match
 ```
 
+`--assets` takes those tags **bare** — `commodities`, not `class:commodities`. A token that is
+neither a known tag nor an asset any template declares is read as a TICKER and narrows the
+result to configurable templates only, which looks like a short honest shortlist; when that
+happens `meta.warnings` says so by name. **Read `meta.warnings` before presenting a short list.**
+
 - There is **no** `--risk`, `--belief`, `--horizon`, `--experience`, or `--hedge-for` flag — you rank
   on those, and you surface a hedge by re-running the engine (see *Stack*).
 - **`--theme` is a SOFT worldview surface, not a filter.** **You supply the semantic expansion; the
