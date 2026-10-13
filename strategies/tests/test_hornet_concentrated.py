@@ -186,6 +186,36 @@ def test_the_daily_limit_absorbs_more_than_one_stop():
         "first loss of the day halts the book")
 
 
+def test_the_daily_cap_lifts_on_a_profitable_day_but_still_holds_on_a_losing_one():
+    """1.1.0. Gate 5 stays OPEN at the cap when today_snapshot.pnl.delta_since_open > 0
+    (strict — exactly zero does not bypass), so max_entries_per_day only ever brakes a day that
+    is already down.
+
+    Measured before flipping it: on the one live day the cap was reached (2026-10-09, four
+    entries netting -35.34), the next 99 emits were refused by SLOTS at 2/2, not by this gate —
+    and every one of the 99 was an attempt to re-buy the two names that had just lost money. So
+    the cap was never the binding constraint on a good day, and the brake it applies to a bad
+    day is the half worth keeping.
+
+    The cap itself must REMAIN set: bypass with no cap is not a cap at all."""
+    g = _rt(VARIANT)["risk"]["guard_rails"]
+    assert g["bypass_max_entries_per_day_on_profit"] is True, (
+        "the daily cap no longer lifts on a profitable day")
+    assert g.get("max_entries_per_day", 0) > 0, (
+        "the bypass is meaningless without a cap to bypass — a losing day needs the brake")
+
+
+def test_the_per_asset_cooldown_is_close_based_and_long_enough_to_stop_a_revenge_entry():
+    """Gate 4 keys off the CLOSE, not the entry: 'the candidate asset was closed within
+    per_asset_cooldown_minutes of now'. This is what stopped the 10-09 incident repeating —
+    99 emits tried to re-buy ASML and AMAT after both had just lost, and none became a
+    position. Asserted at >= 4h because that is the window those 99 emits spanned."""
+    g = _rt(VARIANT)["risk"]["guard_rails"]
+    assert g["per_asset_cooldown_seconds"] >= 14400, (
+        f"per_asset_cooldown_seconds is {g['per_asset_cooldown_seconds']}s; under 4h a name that "
+        "just stopped out becomes re-buyable while the same signal is still firing")
+
+
 def test_the_drawdown_halt_absorbs_at_least_three_stops_and_never_resets():
     rt = _rt(VARIANT)
     g = rt["risk"]["guard_rails"]

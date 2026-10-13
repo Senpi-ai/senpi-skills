@@ -194,10 +194,18 @@ exit:
 risk:
   data_retention_seconds: 259200           # 72h (in [3600,604800])
   guard_rails:
-    daily_loss_limit_pct: 18               # one stop = 20% ROE x 45% = 9.00% of account, so this
-                                           # is 2 stops. hornet's 15% would halt after ONE.
+    daily_loss_limit_pct: 18               # one stop = 12% ROE x 45% = 5.40% of account, so this
+                                           # is >3 stops. hornet's 15% would halt after ONE.
     max_entries_per_day: 4
-    bypass_max_entries_per_day_on_profit: false
+    # 1.1.0 — THE CAP LIFTS ON A PROFITABLE DAY. Gate 5 stays OPEN at the cap whenever
+    # today_snapshot.pnl.delta_since_open > 0 (strict: exactly zero does NOT bypass). The cap
+    # therefore only ever constrains a day that is already down, which is the only kind of day
+    # it has ever constrained in practice: on the one live day the cap was reached (2026-10-09,
+    # a 4-entry day that netted -35.34), the strategy's next 99 emits were all refused by SLOTS
+    # at 2/2 rather than by this gate, and all 99 were attempts to re-buy the two names that had
+    # just lost money. Lifting the cap on a winning day costs nothing measured and removes a
+    # brake that was never the binding constraint when things were going well.
+    bypass_max_entries_per_day_on_profit: true
     max_consecutive_losses: 3
     cooldown_seconds: 3600                  # 60m post-loss cooldown
     drawdown_halt_pct: 30                  # 3.3 stops (hornet: 20% = 13.9 of its 1.44% stops)
