@@ -23,7 +23,8 @@ name: vulture-main
 group: vulture
 version: 3.0.0
 description: >
-  VULTURE — multi-asset small-cap momentum rider. Scans a 27-coin whitelist of
+  VULTURE — multi-asset small-cap momentum rider. Scans the venue's own liquid long tail — every
+  listed perp over $1M/day minus BTC/ETH/SOL and the xyz book, derived each tick — of
   small/mid-cap Hyperliquid perps (BTC/ETH/SOL + XYZ banned) via leaderboard_get_markets:
   the board picks the name and the side (4h-leader concentration aligned with the 4h and
   1h price and an accelerating 15m contribution, LONG_TAIL_MOMENTUM score >= 10), and the
@@ -58,18 +59,28 @@ scanners:
     default_signal_validity_seconds: 1800
     state_history_max_count: 100            # dedup map + per-tick scan-results history
     inputs:
-      # whitelist — 27 small/mid-cap perps (all validated live in the HL main DEX
-      # universe 2026-06-26 via {"type":"meta"}; zero dropped). Case preserved for
-      # kBONK/kPEPE. BTC/ETH/SOL hard-banned in scoring; XYZ banned via xyzBanned.
-      whitelist:
-        ["HYPE", "HEMI", "WLD", "MON", "XPL", "AIXBT", "ARB", "ASTER",
-         "POLYX", "LDO", "APT", "DYDX", "ONDO", "SUI", "kBONK", "kPEPE",
-         "TAO", "GRASS", "ZEC", "LIT", "FARTCOIN", "MORPHO", "NEAR", "INJ",
-         "AVAX", "LINK", "DOGE"]
+      # 2.1.0 — THE UNIVERSE IS DERIVED, not listed. Every listed perp over the volume floor,
+      # minus BTC/ETH/SOL and the xyz book, ranked by daily notional and capped at
+      # maxUniverseNames. A screener reads the market; a fixed list is only right for an
+      # identity basket, and this one had started to rot in both directions — measured
+      # 2026-10-12, 4 of its 27 names (AIXBT, DYDX, HEMI, POLYX) had fallen under the $1M/day
+      # floor while 87 listed perps cleared it, so the list carried 4 names the floor rejects
+      # and missed 64 it accepts, among them XRP at $147M/day, PUMP at $152M and STRK at $108M.
+      #
+      # `whitelist` is now an OPTIONAL OVERRIDE and ships UNSET. Setting it pins the universe to
+      # exactly those names (and is the documented fallback if the instrument read fails). The
+      # historical 27 are kept in scoring.DEFAULT_WHITELIST for an operator who wants them.
+      # whitelist: ["HYPE", "NEAR", ...]   # uncomment to pin an explicit basket
+      maxUniverseNames: 60                  # 87 cleared the floor on 2026-10-12; the liquid part
+      excludeAssets: ["USDC", "USDT", "DAI", "USDE", "FDUSD", "TUSD", "BUSD"]
+      maxChartReads: 6                      # slots is 2, candidates are score-sorted, and
+                                            # timeout_seconds is 45 against a 60s tick — the read
+                                            # count must not grow with the universe. See
+                                            # strategies/tests/test_scanner_timeout_headroom.py.
       xyzBanned: true
       minDayNtlVlmUsd: 1000000              # skip a name trading under $1M/day (read live from
-                                            # market_list_instruments each tick; three whitelist names
-                                            # sat at $75k-$170k/day on 2026-10-12)
+                                            # market_list_instruments each tick). This is now the
+                                            # universe's own floor, not just a per-name veto.
       maxLeverage: 5                        # package cap; the venue's own max per name clamps below it
       # MIN_SCORE 10 — the v4.2.0 PRODUCER floor (culled 9->10 after a 100-trade
       # analysis: every bucket >=10 net-positive, every bucket <=9 net-negative).
