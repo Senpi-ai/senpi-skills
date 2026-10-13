@@ -14,9 +14,11 @@ Five things this file pins, each of which would silently void the variant:
      AND the scanner's `maxLeverage` ceiling. Set the first alone and the book sizes at 5x while
      every card claims 10x — the dead-setting shape this tree was bitten by in #677.
   2. **The DSL is re-derived, not copied.** The ladder is ROE and the engine divides by leverage,
-     so carrying hornet's 4x numbers onto 10x would make every exit 2.5x TIGHTER in price: the
-     8% ROE stop would become 0.80% of price instead of 2.00%, and the book would stop out on
-     noise. Every shared price distance here must equal hornet's exactly.
+     so carrying hornet's 4x numbers onto 10x would make every exit 2.5x tighter in price.
+     1.0.0 corrected for that by preserving hornet's price distances exactly — and that was the
+     bug: the package was derived from a live FORK with its own measured ladder, not from
+     hornet, so the correction restored the wrong geometry. 1.1.0 ships the fork's ladder; see
+     section 2.
   3. **The guard rails had to move, and it is forced arithmetic.** One stop costs 8% ROE x 18%
      margin = 1.44% of a 3-slot hornet, but 20% x 45% = 9.00% concentrated. hornet's 15% daily
      limit would halt the book after ONE loss and the variant would read as a failure of
@@ -90,35 +92,68 @@ def test_the_parent_is_untouched_by_the_clamp_becoming_an_input():
     assert _lev(_rt(PARENT)) == 4, "hornet's own leverage moved; this PR must not change it"
 
 
-# ── 2. the DSL is re-derived so every distance is the same IN PRICE ─────────────────────────
+# ── 2. the DSL is the LIVE FORK's ladder, not the parent's ──────────────────────────────────
+#
+# THIS SECTION ASSERTED THE OPPOSITE UNTIL 1.1.0, AND THE INVERSION IS THE POINT.
+#
+# 1.0.0 re-derived every rung to preserve the PARENT's price distances, and these tests pinned
+# that. The rule is right for a concentrated variant in general; it was anchored on the wrong
+# parent. This package was derived from a LIVE FORK (Hornet v1.1.2 base, DSL from Camel
+# Concentrated) that already carried its own measured ladder, and the derivation discarded it —
+# shipping the fork's SIZING with the template's EXITS, which is concentrated risk wearing
+# loose protection.
+#
+# The owner of the live book caught it from memory ("I would never have agreed to a first tier
+# at 25%"), and the live book agrees: four positions each reproduce the rungs below and
+# contradict 1.0.0's (SKHX 1204.2 -> 1157.4 at tier 3 lock 65; AMAT 489.61 -> 470.22; MRVL
+# 269.55 -> 271.18 at tier 1 lock 40; WDC 391.61 -> 394.02), and an ASML short at entry 1700.6
+# showed its max-loss floor at 1721.1 = 12 ROE / 10x, not 20.
+#
+# Measured on that book 2026-10-13: arming at 1.5% of price and keeping 60% was worth +$755
+# over 245 trades. So the arm point below is measured; 2.50% was not.
 
-def test_the_stop_sits_at_the_same_price_distance_as_the_parent():
+_FORK_PRICE_RUNGS = [1.50, 2.80, 5.60, 10.00, 18.00]   # at 10x
+_FORK_STOP_PRICE = 1.20                                 # 12 ROE / 10x
+
+
+def test_the_ladder_is_the_live_forks_not_the_parents():
+    var = _price_rungs(_rt(VARIANT))
+    assert var == _FORK_PRICE_RUNGS, (
+        f"the ladder is {var}% of price, not the live fork's {_FORK_PRICE_RUNGS}%. This package "
+        "exists to BE that fork — a rung that drifts back onto the parent's grid reintroduces "
+        "the 1.0.0 defect.")
+
+
+def test_the_stop_is_the_forks_and_is_tighter_in_price_than_the_parents():
     par, var = _rt(PARENT), _rt(VARIANT)
-    p_stop = par["exit"]["dsl_preset"]["phase1"]["max_loss_pct"] / _lev(par)
     v_stop = var["exit"]["dsl_preset"]["phase1"]["max_loss_pct"] / _lev(var)
-    assert abs(p_stop - v_stop) < 1e-9, (
-        f"the stop moved in PRICE terms: hornet {p_stop:.2f}% vs concentrated {v_stop:.2f}%. "
-        "The ladder is ROE and the engine divides by leverage, so 10x needs 2.5x the ROE number "
-        "to keep the same room.")
-    assert abs(v_stop - 2.00) < 1e-9, "the stop is no longer 2.00% of price"
+    p_stop = par["exit"]["dsl_preset"]["phase1"]["max_loss_pct"] / _lev(par)
+    assert abs(v_stop - _FORK_STOP_PRICE) < 1e-9, (
+        f"the stop is {v_stop:.2f}% of price, not the fork's {_FORK_STOP_PRICE}%")
+    assert v_stop < p_stop, (
+        f"the stop ({v_stop:.2f}%) is no longer tighter than the parent's ({p_stop:.2f}%). "
+        "Concentrated money takes LESS room, not the same room — that was 1.0.0's error.")
 
 
-def test_every_shared_rung_sits_at_the_parents_price_distance():
+def test_the_first_lock_arms_at_the_measured_point_and_keeps_more_than_the_parent():
+    """Both halves matter: 1.0.0 armed later AND kept less, and either alone gives back gains."""
+    par = _rt(PARENT)["exit"]["dsl_preset"]["phase2"]["tiers"][0]
+    var = _rt(VARIANT)["exit"]["dsl_preset"]["phase2"]["tiers"][0]
+    arm_price = var["trigger_pct"] / _lev(_rt(VARIANT))
+    assert abs(arm_price - 1.50) < 1e-9, (
+        f"the first lock arms at {arm_price:.2f}% of price, not the measured 1.50%")
+    assert var["lock_hw_pct"] > par["lock_hw_pct"], (
+        f"the first lock keeps {var['lock_hw_pct']}% against the parent's "
+        f"{par['lock_hw_pct']}% — concentrated gains are protected harder, not softer")
+
+
+def test_every_rung_is_tighter_in_price_than_the_parents_nearest():
+    """The whole ladder, not just the first rung: 1.0.0 was looser at every level."""
     par, var = _price_rungs(_rt(PARENT)), _price_rungs(_rt(VARIANT))
-    # the variant may add rungs 10x can afford and 4x could not; every rung the PARENT has must
-    # be reproduced exactly, so a given price move locks the same fraction on both.
-    missing = [r for r in par if not any(abs(r - v) < 0.05 for v in var)]
-    assert not missing, (
-        f"hornet rungs at these PRICE distances have no counterpart in the variant: {missing} "
-        f"(variant rungs: {var})")
-
-
-def test_the_extra_rung_is_lower_than_anything_the_parent_had():
-    """The one added rung is an early lock 4x could not afford — it must not sit mid-ladder."""
-    par, var = _price_rungs(_rt(PARENT)), _price_rungs(_rt(VARIANT))
-    extra = [v for v in var if not any(abs(v - r) < 0.05 for r in par)]
-    assert len(extra) == 1, f"expected exactly one added rung, got {extra}"
-    assert extra[0] < min(par), f"the added rung {extra[0]}% is not below hornet's first ({min(par)}%)"
+    assert max(var) <= max(par), (
+        f"the variant's last rung ({max(var)}%) sits further out than the parent's ({max(par)}%)")
+    assert min(var) < min(par), (
+        f"the variant's first rung ({min(var)}%) is not inside the parent's first ({min(par)}%)")
 
 
 def test_the_ladder_is_monotonic():
@@ -137,8 +172,10 @@ def _stop_cost_pct(rt):
 
 
 def test_one_stop_costs_what_the_arithmetic_says():
+    # 1.1.0: the variant's stop narrowed from 20 to 12 ROE, so one stop costs 5.40% of the
+    # sleeve, not 9.00%. The card quotes this figure, so the two move together or neither does.
     assert abs(_stop_cost_pct(_rt(PARENT)) - 1.44) < 0.01
-    assert abs(_stop_cost_pct(_rt(VARIANT)) - 9.00) < 0.01
+    assert abs(_stop_cost_pct(_rt(VARIANT)) - 5.40) < 0.01
 
 
 def test_the_daily_limit_absorbs_more_than_one_stop():
