@@ -6,7 +6,8 @@
 # bar; SHORT on the symmetric overbought case. It is a mean-reversion play (bets
 # price reverts to its mean), deliberately NOT a falling-knife catcher — a still-
 # falling RSI below the line does NOT trigger. NEVER closes — the DSL owns every
-# exit, kept TIGHT because reversions fail fast, with the drawdown_halt as backstop.
+# exit: a fixed 12% ROE stop (4.0% of price at 3x) and a gains-only ratchet, no clock
+# cuts, with the drawdown_halt as backstop.
 name: salmon-main
 group: salmon
 version: 1.0.0
@@ -14,16 +15,17 @@ description: >
   SALMON — RSI Mean-Reversion / Dip-Buyer. A universe reversion book (main-DEX only,
   vol floor + top-N liquid crypto majors) that goes LONG on an oversold RSI(14)
   cross-back-UP and SHORT on an overbought cross-back-DOWN, each requiring the cross
-  + a rising/falling RSI + a price-reversal bar (anti-falling-knife). Conviction-
-  banded sizing to a moderate cap (leverage <= 4, margin <= 20%). Up to 5 positions.
-  DSL is the ONLY exit — tight because reversions fail fast (8% Phase 1, early
-  profit-lock ladder to +50%, 12h weak-peak).
+  + a rising/falling RSI + a price-reversal bar (anti-falling-knife). Four slots at
+  18% margin each; conviction sets the leverage (2x base, 3x good/apex, cap 3x).
+  DSL is the ONLY exit: a fixed 12% ROE stop (4.0% of price at 3x), then a gains-only
+  ratchet from +12% ROE (locks 40% of high-water, stepping to 85% by +50%). No clock
+  cuts.
 
 strategy:
   wallet: "${SALMON_WALLET}"
-  slots: 5
-  margin_pct: 6
-  default_leverage: 2
+  slots: 4
+  margin_pct: 18
+  default_leverage: 3
   trading_risk: moderate
   enabled: true
 
@@ -45,19 +47,20 @@ scanners:
       includeXyz: false
       universeVolFloorUsd: 30000000
       maxUniverse: 25
-      maxSlots: 5
+      maxSlots: 4
       recentSignalTtlSeconds: 14400     # 4h — don't re-fire the same name into the same swing
       # ── RSI mean-reversion cross knobs ──
       oversoldLevel: 30
       overboughtLevel: 70
       crossLookback: 5                  # bars to look back for the dip/pop before the cross
-      # ── conviction band cutoffs + tiered sizing ──
+      # ── conviction band cutoffs + sizing: a flat 18% margin per slot (4 x 18% = 72% of
+      # the book), conviction sets only the leverage, capped at 3x ──
       apexScore: 7
       goodScore: 5
-      leverageTiers: { apex: 4, good: 3, base: 2 }
-      marginPctTiers: { apex: 12, good: 9, base: 6 }
-      maxLeverage: 4
-      maxMarginPct: 20
+      leverageTiers: { apex: 3, good: 3, base: 2 }
+      marginPctTiers: { apex: 18, good: 18, base: 18 }
+      maxLeverage: 3
+      maxMarginPct: 18
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }
@@ -86,8 +89,9 @@ actions:
         scanner: salmon_scanner
   # NO CLOSE_POSITION action — DSL is the only exit.
 
-# EXIT — DSL only, TIGHT (reversions fail fast). Locks profit early and ramps so a
-# reversion that works isn't given back, and caps the loss well short of a rout.
+# EXIT — DSL only. A fixed 12% ROE stop (4.0% of price at 3x) caps the loss; the ratchet
+# locks profit from +12% ROE and ramps so a reversion that works isn't given back. No
+# clock cuts: the DSL decides every exit.
 exit:
   engine: dsl
   interval_seconds: 30
@@ -96,21 +100,26 @@ exit:
     ensure_execution_as_taker: true
     execution_timeout_seconds: 60
   dsl_preset:
+    hard_timeout:
+      enabled: false                    # never shipped on; the DSL decides every exit
+      interval_in_minutes: 2880
     weak_peak_cut:
       # DISABLED - this cut closes at MARKET at whatever price is there, with no floor, so on a
       # longer-hold book it realises a small LOSS on a position that simply hadn't moved yet
       # (observed live on xyz:PLTR in cougar). Same defect we removed from phase1. weak_peak is
       # a CHOP tool only: it belongs where the strategy already intends to be out within hours.
       enabled: false
-      interval_in_minutes: 720          # 12h — a stalled reversion frees its slot
+      interval_in_minutes: 720          # inert while disabled
       min_value: 2.0
+    dead_weight_cut:
+      enabled: false                    # never shipped on; the DSL decides every exit
+      interval_in_minutes: 720
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
-      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
-      # retrace (6% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
-      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct is the hard stop;
+      # retrace_threshold below is inert while enabled: false.
       enabled: false
-      max_loss_pct: 6
+      max_loss_pct: 12.0   # 12% ROE = 4.0% of price at 3x (1.3.0: was 6 = 1.5% at 4x)
       retrace_threshold: 6
       consecutive_breaches_required: 1
     phase2:
@@ -124,10 +133,10 @@ exit:
 risk:
   guard_rails:
     daily_loss_limit_pct: 10
-    max_entries_per_day: 5
+    max_entries_per_day: 8                 # above the 4 slots: one full re-fill after stop-outs before midnight
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 4
     cooldown_seconds: 900
     per_asset_cooldown_seconds: 14400
     drawdown_halt_pct: 20
-    drawdown_reset_on_day_rollover: true
+    drawdown_reset_on_day_rollover: false
