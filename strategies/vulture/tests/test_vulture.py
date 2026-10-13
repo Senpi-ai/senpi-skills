@@ -94,7 +94,7 @@ def test_cadence_margin_gates_and_version():
     assert INPUTS["minDayNtlVlmUsd"] == 1_000_000
     assert INPUTS["trendSmaDays"] == 50 and INPUTS["minPriceChange15mPct"] == 0.5 and INPUTS["minRangePosition"] == 0.5
     assert INPUTS["rangeLookbackHours"] == 24
-    assert MANIFEST["version"] == "2.0.0"
+    assert MANIFEST["version"] == "2.1.0"
     schema = SIGNALS["signal_data_schema"]
     assert {"trendRegime", "trendSma", "rangePos24h"} <= set(schema) and "persistenceHours" not in schema
 
@@ -144,8 +144,11 @@ def test_the_venue_cap_wins_over_the_tier_and_the_package_cap():
 
 
 def test_a_board_row_with_a_bad_trader_count_scores_instead_of_raising():
-    assert scoring.score_market(_row("HEMI", traders="40.0"), None, {}, INPUTS["whitelist"], INPUTS["leverageTiers"], INPUTS) is not None
-    assert scoring.score_market(_row("HEMI", traders=None), None, {}, INPUTS["whitelist"], INPUTS["leverageTiers"], INPUTS) is None   # 0 traders: the gate, not a crash
+    # 2.1.0: the runtime no longer ships a `whitelist` input (the universe is derived), so the
+    # scorer is handed the historical basket directly — score_market still takes the universe
+    # it should match against, whatever produced it.
+    assert scoring.score_market(_row("HEMI", traders="40.0"), None, {}, scoring.DEFAULT_WHITELIST, INPUTS["leverageTiers"], INPUTS) is not None
+    assert scoring.score_market(_row("HEMI", traders=None), None, {}, scoring.DEFAULT_WHITELIST, INPUTS["leverageTiers"], INPUTS) is None   # 0 traders: the gate, not a crash
 
 
 # ── scan(): one tick against a fake desk ─────────────────────────────────────────────────
@@ -237,9 +240,114 @@ def test_unreadable_candles_fail_closed_for_that_name_and_the_tick_survives(caps
     assert "SKIP HEMI LONG: candles unreadable" in capsys.readouterr().err
 
 
-def test_an_instruments_outage_degrades_to_the_package_cap_not_silence():
-    out = scan.scan(dict(INPUTS), _Ctx(_MCP([_row("HEMI")], [], fail=("market_list_instruments",)), _State()))
-    assert [s["asset"] for s in out] == ["HEMI"] and out[0]["leverage"] == 5
+def test_an_instruments_outage_now_HOLDS_rather_than_trading_an_unvetted_board():
+    """CONTRACT CHANGED IN 2.1.0, deliberately — this test asserted the opposite until the
+    universe was derived.
+
+    While the universe was a hard-coded whitelist, a failed `market_list_instruments` read cost
+    only the venue leverage clamp and the volume floor, so degrading to the package cap and
+    trading on was the right call: the names were already vetted by hand.
+
+    Now that same read IS the universe. A failure means we do not know what is listed, how
+    liquid it is, or what leverage the venue will accept — so trading the raw board on that
+    basis would be entering unvetted names at an unclamped size. On a 60-second cadence a
+    skipped tick costs nothing, and the next tick retries."""
+    st = _State()
+    out = scan.scan(dict(INPUTS), _Ctx(_MCP([_row("HEMI")], [], fail=("market_list_instruments",)), st))
+    assert out == [], "an unreadable instrument list must not be traded through"
+    # The REASON is pinned, not just the empty return. Deriving from an empty instrument map
+    # would also return [] — via `empty_universe` — and the two demand opposite responses from
+    # whoever is reading the logs: a broken venue read is an incident, while "nothing clears the
+    # floor" is the market. A test that only asserts [] cannot tell them apart.
+    assert st.last()["result"]["gate"] == "instruments_unreadable", (
+        f"gate was {st.last()['result'].get('gate')!r} — held for the wrong stated reason")
+
+
+def test_an_instruments_outage_falls_back_to_an_explicit_override_if_one_is_set():
+    """The escape hatch that makes the fail-closed path acceptable: an operator who pins a
+    basket keeps trading through an outage, because their names were vetted by hand."""
+    inputs = dict(INPUTS, whitelist=["HEMI"])
+    out = scan.scan(inputs, _Ctx(_MCP([_row("HEMI")], [], fail=("market_list_instruments",)), _State()))
+    assert [x["asset"] for x in out] == ["HEMI"]
+    assert out[0]["leverage"] == 5, "no instrument list means no venue clamp, so the package cap applies"
+
+
+# ── 2.1.0: the universe is read off the venue ────────────────────────────────────────────
+
+def test_the_universe_is_derived_by_volume_and_drops_the_unqualified():
+    """Pure, so the band is pinned without MCP: over the floor, not delisted, not a banned
+    major, not an xyz name, ranked by notional, capped at N."""
+    insts = {
+        "BTC":  {"day_ntl_vlm": 2_500_000_000.0, "delisted": False, "max_leverage": 40},
+        "HYPE": {"day_ntl_vlm": 500_000_000.0,   "delisted": False, "max_leverage": 10},
+        "XRP":  {"day_ntl_vlm": 147_000_000.0,   "delisted": False, "max_leverage": 20},
+        "PUMP": {"day_ntl_vlm": 152_000_000.0,   "delisted": False, "max_leverage": 10},
+        "AIXBT": {"day_ntl_vlm": 170_000.0,      "delisted": False, "max_leverage": 5},
+        "GONE": {"day_ntl_vlm": 90_000_000.0,    "delisted": True,  "max_leverage": 5},
+        "XYZ:GOLD": {"day_ntl_vlm": 80_000_000.0, "delisted": False, "max_leverage": 5},
+        "USDC": {"day_ntl_vlm": 70_000_000.0,    "delisted": False, "max_leverage": 3},
+    }
+    got = scan.derive_universe(insts, 1_000_000, 60, {"BTC", "ETH", "SOL"}, {"USDC", "USDT"})
+    assert got == ["HYPE", "PUMP", "XRP"], f"got {got}"   # 500M > 152M > 147M
+    assert "BTC" not in got, "a banned major must go by NAME, not by volume rank"
+    assert "AIXBT" not in got, "under the floor — the rot the whitelist was carrying"
+    assert "GONE" not in got and "XYZ:GOLD" not in got and "USDC" not in got
+
+
+def test_the_derived_universe_returns_the_venues_own_casing_not_the_upper_key():
+    """The bug this nearly shipped with. `_instruments` keys on name.upper() for the membership
+    joins, but the universe becomes the emitted `asset` — and kBONK/kPEPE and any `xyz:` name do
+    not survive upper(). Returning the key would have sent KBONK to the venue and had the order
+    refused as an unknown coin, which is the casing failure this repo has already been bitten by."""
+    insts = {
+        "KBONK": {"venue_name": "kBONK", "day_ntl_vlm": 5_000_000.0, "delisted": False},
+        "KPEPE": {"venue_name": "kPEPE", "day_ntl_vlm": 4_000_000.0, "delisted": False},
+        "HYPE":  {"venue_name": "HYPE",  "day_ntl_vlm": 9_000_000.0, "delisted": False},
+    }
+    got = scan.derive_universe(insts, 1_000_000, 60, set(), set())
+    assert got == ["HYPE", "kBONK", "kPEPE"], f"got {got}"
+    assert "KBONK" not in got and "KPEPE" not in got
+
+
+def test_the_instrument_reader_keeps_the_venue_name_for_every_row():
+    """The derivation can only return the venue's spelling if the reader kept it."""
+    mcp = _MCP([], [_inst("kBONK", 5, 5_000_000)])
+    insts = scan._instruments(_Ctx(mcp, _State()))
+    assert insts["KBONK"]["venue_name"] == "kBONK"
+
+
+def test_the_derived_universe_is_capped_and_ordered_by_volume():
+    insts = {f"C{i}": {"day_ntl_vlm": float(i) * 1_000_000, "delisted": False} for i in range(1, 11)}
+    got = scan.derive_universe(insts, 1_000_000, 3, set(), set())
+    assert got == ["C10", "C9", "C8"], f"got {got}"
+
+
+def test_a_name_the_whitelist_carried_but_the_floor_rejects_is_gone():
+    """The specific rot measured on 2026-10-12: 4 of the 27 names had fallen under $1M/day."""
+    for rotted in ("AIXBT", "DYDX", "HEMI", "POLYX"):
+        insts = {rotted: {"day_ntl_vlm": 170_000.0, "delisted": False}}
+        assert scan.derive_universe(insts, 1_000_000, 60, set(), set()) == []
+
+
+def test_an_explicit_whitelist_still_pins_the_universe():
+    """`whitelist` survives as an override, so an identity basket is still expressible — which
+    is the one case a hand-listed universe is right for."""
+    insts = [_inst("HEMI", 5, 5_000_000), _inst("WLD", 5, 9_000_000)]
+    mcp = _MCP([_row("HEMI"), _row("WLD")], insts)
+    out = scan.scan(dict(INPUTS, whitelist=["HEMI"]), _Ctx(mcp, _State()))
+    assert [x["asset"] for x in out] == ["HEMI"], "WLD cleared every gate but is not in the override"
+
+
+def test_the_chart_read_count_is_capped_so_it_cannot_grow_with_the_universe():
+    """The reason the cap exists: `timeout_seconds` is 45 against a 60s tick, and a timeout
+    latches the MCP client closed for the life of the process while ticks still report ok
+    (strategies/tests/test_scanner_timeout_headroom.py). Reads must not scale with the universe."""
+    names = [f"N{i}" for i in range(12)]
+    insts = [_inst(n, 5, 5_000_000) for n in names]
+    mcp = _MCP([_row(n) for n in names], insts)
+    scan.scan(dict(INPUTS, maxChartReads=4), _Ctx(mcp, _State()))
+    reads = [c for c in mcp.calls if c[0] == "market_get_asset_data"]
+    assert len(reads) == 4, f"{len(reads)} candle reads against a cap of 4"
 
 
 def test_a_held_name_is_not_re_emitted_and_a_board_outage_holds():
