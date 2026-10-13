@@ -2,10 +2,13 @@
 Magpie PRE-LISTING leg).
 
 DYNAMIC UNIVERSE. Each tick it discovers IPOPs (pre-IPO perpetuals) off the LIVE
-market_list_instruments read by their funding signature (scoring.ipop_passes_universe:
-name startswith 'xyz:', not delisted, |funding| <= cap, max_leverage <= cap,
-dayNtlVlm >= floor), then for each LIVE IPOP scores the pre-listing trend (4h
-structure + 1h + Smart-Money) via the pure scoring module and emits a marginPct
+market_list_instruments read by the VENUE'S LEVERAGE CAP (scoring.ipop_passes_universe:
+name startswith 'xyz:', not delisted, max_leverage <= ipopMaxLeverageCap, dayNtlVlm
+over the signature floor and over the book's own floor; the v2 funding band is
+opt-in and off — see scoring), then for each LIVE IPOP scores the pre-listing trend
+on CLOSED 1h and 4h candles (the bar in progress is excluded: its low and high are
+partial, so a structure counted over it could flip inside the bar) via the pure
+scoring module and emits a marginPct
 intent + a per-signal leverage clamped to that instrument's venue max. Read-only,
 single-pass. NO name is ever emitted that is not present in the live universe read.
 
@@ -13,6 +16,13 @@ EVERY ctx.senpi_mcp.call_tool is read-guarded (degrade, never crash): a transien
 permission error on the instrument-discovery read, a candle read, or the
 smart-money read returns the empty/None degrade path — the tick emits fewer (or
 zero) signals rather than rolling back the whole tick.
+
+The wallet is read too (strategy_get_clearinghouse_state), on every tick that has a
+candidate, and a name it already holds is skipped. The 12-minute signal dedup is
+shorter than the 15-minute tick, so before 1.2.0 a held IPOP was emitted again on
+every tick and the runtime was asked to open it again. That read is the one
+exception to degrade-and-continue: unreadable positions mean NO opens this tick
+(logged) — a held name that cannot be seen would be re-emitted.
 
 Today the live universe typically has ZERO IPOPs (the marquee names have already
 converted to STANDARD equity perps); the book correctly emits nothing until
@@ -57,8 +67,8 @@ def _read(ctx, name, args):
 def _fetch_ipop_universe(ctx, config):
     """Discover the LIVE IPOP universe off market_list_instruments(dex='xyz').
     Validates every candidate against the live read via scoring.ipop_passes_universe
-    — only instruments that actually exist (and clear the funding/leverage/volume
-    signature) are returned. Degrades to [] on a failed read."""
+    — only instruments that actually exist (and carry the leverage-cap signature over
+    the volume floors) are returned. Degrades to [] on a failed read."""
     raw = _read(ctx, "market_list_instruments", {"dex": "xyz"})
     if not raw or (isinstance(raw, dict) and not raw.get("success", True)):
         return []
@@ -138,10 +148,49 @@ def _fetch_sm_direction(ctx, asset, min_traders=10):
     return ("LONG", long_ratio) if long_ratio >= 50 else ("SHORT", 100 - long_ratio)
 
 
+def _held_names(ctx):
+    """Names the wallet already holds, read off strategy_get_clearinghouse_state.
+
+    Returns (names, ok). `names` is a set of UPPER-cased, xyz-qualified coin names from BOTH
+    sections of the one wallet (`main` and `xyz` are two views of the same account; positions
+    live INSIDE each section, never at the top level). A coin in the `xyz` section may arrive
+    bare (`SPCX`) or qualified (`xyz:SPCX`); both become `XYZ:SPCX`, so a held xyz name always
+    matches the universe's spelling and a main-DEX twin (`GOLD` vs `xyz:GOLD`) never does.
+    `ok` is False when the read failed or came back in no readable shape: the caller then opens
+    nothing this tick, because a held name it cannot see would be re-emitted and pyramided."""
+    if not ctx.wallet:
+        print("[magpie.pre_listing.scan] no wallet on ctx — positions unreadable", file=sys.stderr)
+        return set(), False
+    ch = _read(ctx, "strategy_get_clearinghouse_state", {"strategy_wallet": ctx.wallet})
+    if not isinstance(ch, dict) or not ch.get("success", True):
+        return set(), False
+    data = ch.get("data", ch)
+    held, readable = set(), False
+    for section_name in ("main", "xyz"):
+        section = data.get(section_name) if isinstance(data, dict) else None
+        if not isinstance(section, dict):
+            continue
+        readable = True
+        for ap in section.get("assetPositions", []) or []:
+            pos = ap.get("position", ap) if isinstance(ap, dict) else None
+            if not isinstance(pos, dict) or scoring._f(pos, "szi") == 0:
+                continue
+            coin = str(pos.get("coin", "") or "").upper()
+            if not coin:
+                continue
+            if section_name == "xyz" and not coin.startswith("XYZ:"):
+                coin = "XYZ:" + coin
+            held.add(coin)
+    if not readable:
+        print("[magpie.pre_listing.scan] clearinghouse read has no main/xyz section — positions unreadable",
+              file=sys.stderr)
+    return held, readable
+
+
 def scan(inputs, ctx):
     min_score = int(inputs.get("minScore", 5))
     min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
-    margin_pct = float(inputs.get("marginPct", 12))   # PERCENT of withdrawable (0,100], not a fraction
+    margin_pct = float(inputs.get("marginPct", 25))   # PERCENT of withdrawable (0,100], not a fraction
     max_lev = int(inputs.get("maxLeverage", 3))       # IPOP discovery-bounds regime
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
     now = time.time()
@@ -162,24 +211,33 @@ def scan(inputs, ctx):
 
     out = []
     if not universe:
-        # No IPOPs in the live universe — nothing matches the funding signature.
+        # No IPOPs in the live universe — no name at or under the IPOP cap over the volume floors.
         # This is the steady state; the book waits for the next pre-IPO listing.
         print("[magpie.pre_listing.scan] WAITING — no IPOPs in live xyz universe "
-              "(no instrument matches the pre-listing funding signature)", file=sys.stderr)
+              "(no instrument at or under the IPOP leverage cap over the volume floors)", file=sys.stderr)
+        _persist()
+        return out
+
+    held, held_ok = _held_names(ctx)
+    if not held_ok:
+        print("[magpie.pre_listing.scan] HOLD — wallet positions unreadable; no opens this tick "
+              "(a held name cannot be told from a new one; the next tick retries)", file=sys.stderr)
         _persist()
         return out
 
     for inst in universe:
         coin = inst["name"]
         cu = coin.upper()
+        if cu in held:                                       # already holding — never re-emit a held name
+            continue
         last = recent.get(cu)
         if last is not None and (now - last) < ttl:        # signal-dedup
             continue
         candles = _fetch_candles(ctx, coin)
         if not candles:
             continue
-        c1 = candles.get("1h", []) or []
-        c4 = candles.get("4h", []) or []
+        c1 = scoring.closed_candles(candles.get("1h", []) or [], scoring.HOUR_SECONDS, now)        # closed bars only
+        c4 = scoring.closed_candles(candles.get("4h", []) or [], scoring.FOUR_HOUR_SECONDS, now)
         sm_dir, sm_tilt = _fetch_sm_direction(ctx, coin, min_traders)
         th = scoring.build_thesis_pre_listing(coin, c1, c4, sm_dir, sm_tilt, inputs)
         if not th or th["score"] < min_score:
