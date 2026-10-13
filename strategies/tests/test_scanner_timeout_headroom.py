@@ -43,7 +43,7 @@ KNOWN_UNTUNED = {
     ("jackal", "main", "jackal_main_signals"),
     # 5–31% of budget in 24 h of telemetry: real duration headroom, so the timeout is not the live
     # hazard for these. They violate the ordering rule only, and are queued for a cadence review.
-    ("vulture", "main", "vulture_main_signals"),
+    # (vulture left this list in 1.3.0: its cadence moved from 60 s to 300 s against a 120 s timeout.)
     ("swift", "main", "swift_scanner"),
     ("orca", "main", "orca_main_signals"),
     ("roach", "main", "roach_main_signals"),

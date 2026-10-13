@@ -37,6 +37,13 @@ _DEFAULT_TTL = 240            # 4min — mirror v2 RECENT_SIGNAL_TTL_SEC (held-a
 
 _DEFAULT_MIN_LEVERAGE = 0    # 0 = accept any venue cap (warn only); raise to the ladder's leverage
 
+# ── proven cohort (senpi-signals' definition of smart money) ──
+_COHORT_LIMIT = 200          # rows pulled from discovery_get_top_traders
+_COHORT_CAP = 150            # cap the cohort at N proven wallets
+_COHORT_MIN_REALIZED = 1_000_000
+_COHORT_BATCH = 50           # discovery_get_trader_state batch size
+_COHORT_CACHE_TTL = 900      # refresh every ~15 min
+
 
 def _read(ctx, name, args):
     """Guarded MCP read: a transient/permission error on a read must NOT roll
@@ -175,18 +182,18 @@ def fetch_universe(ctx, inputs):
     return assets[:universe_size]
 
 
-def fetch_sm_map(ctx, inputs):
-    """Hyperfeed SM leaderboard: per-coin direction, gain share, dominance, 4h/1h
-    price, 15m velocity. Ported from v2 fetch_sm_map (XYZ banned by name).
+def fetch_price_changes(ctx, inputs):
+    """Per-token 4h / 1h / 15m price changes from the 4h leaderboard.
 
-    NOTE on `gain_share_pct`: this is `pct_of_top_traders_gain`, a share of the
-    TOTAL top-trader gain attributed to this market — it is NOT a "% of traders
-    leaning this way". It is distributed across every market in the response
-    (observed: sums to ~125 across 271 markets, max ~26, median ~0.01), so a
-    threshold on the 0-100 "consensus" scale can never be met. The v2 port named
-    this `consensus_pct` and gated it at >=70, which silently blocked every
-    signal. Directional agreement is carried separately by `is_dominant`
-    (`is_dominant_direction`), which is the field that actually expresses it."""
+    PRICE CHANGES ONLY as of 2026-10-12. condor also took its DIRECTION from this
+    board, which is circular — if a coin falls, every wallet short it is
+    mechanically at the top of the 4h gain board, so the board "confirms" the move
+    it is meant to confirm. Direction now comes from the 3TF price action and is
+    confirmed by the proven cohort (fetch_proven_cohort).
+
+    XYZ stays BANNED here, as it is in fetch_universe: the board sends a bare token
+    plus dex="xyz" and never a prefixed name. (condor-concentrated is the variant
+    that lifts the ban; it re-prefixes instead of dropping.)"""
     limit = int(inputs.get("smLimit", 100))
     raw = _read(ctx, "leaderboard_get_markets", {"limit": limit})
     if not raw:
@@ -203,37 +210,170 @@ def fetch_sm_map(ctx, inputs):
     if not isinstance(markets, list):
         return {}
 
-    sm_map = {}
+    price_map = {}
     for m in markets:
         if not isinstance(m, dict):
             continue
         token = str(m.get("token", "")).upper()
-        # XYZ ban: the board sends a BARE token plus dex="xyz" (never a prefixed name).
         if not token or _is_xyz(token) or str(m.get("dex", "")).lower() == "xyz":
             continue
-        # LONG and SHORT are separate rows per token: keep the dominant side, never the last row.
-        if not m.get("is_dominant_direction", False):
-            continue
-        sm_map[token] = {
-            "direction": str(m.get("direction", "")).upper(),
-            "gain_share_pct": scoring._f(m.get("pct_of_top_traders_gain", 0)),
-            "is_dominant": bool(m.get("is_dominant_direction", False)),
-            "traders": int(m.get("trader_count", 0) or 0),
+        if token in price_map:
+            continue                      # LONG and SHORT are separate rows; one is enough
+        price_map[token] = {
             "p4h": scoring._f(m.get("token_price_change_pct_4h", 0)),
             "p1h": scoring._f(m.get("token_price_change_pct_1h",
                               m.get("price_change_1h", 0))),
             "c15m": scoring._f(m.get("contribution_pct_change_15m", 0)),
             "c1h": scoring._f(m.get("contribution_pct_change_1h", 0)),
         }
-    return sm_map
+    return price_map
 
 
-def get_btc_macro(sm_map):
-    """BTC's dominant direction + 4h magnitude as macro context (verbatim v2)."""
-    btc = sm_map.get("BTC")
+def _traders_of(data):
+    """Normalise a discovery response into a list of trader dicts."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for k in ("traders", "data", "results"):
+            v = data.get(k)
+            if isinstance(v, list):
+                return v
+    return []
+
+
+def _realized_pnl(t):
+    """Lifetime realized PnL from a trader row.
+
+    THE FIELD NAME IS `realizedProfitAndLoss` AND IT MUST COME FIRST. Every other
+    scanner in this repo that reads this endpoint uses exactly this tuple (athena,
+    athena-x, athena-concentrated, chimp, gibbon, gorilla, orangutan, raptor,
+    shadow, squid). A list that omits it reads 0.0 for every trader, so nothing
+    clears the >= $1M floor, the cohort is empty on every tick and the strategy can
+    never fire — while logging "no traders with >= $1M realized", which reads like a
+    market fact rather than a bug. That is exactly how this package was first built,
+    and it is why the sorted order below is pinned by a test."""
+    for k in ("realizedProfitAndLoss", "realized_profit_and_loss",
+              "profit_and_loss_realized", "realizedPnl", "realized_pnl"):
+        v = t.get(k)
+        if v is not None:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                continue
+    return 0.0
+
+
+def fetch_proven_cohort(ctx, inputs, cohort_cache, now):
+    """Per-coin long/short HEADCOUNT among the proven cohort — the ~N wallets with
+    >= $1M LIFETIME realized PnL, as senpi-signals defines smart money.
+
+    Direction comes from headcount, not notional: price cannot change how many
+    wallets hold a side, so the confirmation is independent of the move being
+    scored. Cached (`cohortCacheTtlSeconds`) because the cohort turns over slowly
+    and this costs 1 + ceil(N/50) MCP reads to rebuild.
+
+    Returns {COIN: {direction, long_count, short_count, total_positioned,
+    conviction_pct}}. On any read failure the previous cohort is returned rather
+    than an empty one — an empty cohort is a hard gate, so degrading to {} would
+    silently stop all trading."""
+    cache_ttl = float(inputs.get("cohortCacheTtlSeconds", _COHORT_CACHE_TTL))
+    if cohort_cache and (now - cohort_cache.get("ts", 0)) < cache_ttl:
+        return cohort_cache.get("data", {})
+
+    cap = int(inputs.get("cohortCap", _COHORT_CAP))
+    min_realized = float(inputs.get("cohortMinRealizedUsd", _COHORT_MIN_REALIZED))
+
+    raw = _read(ctx, "discovery_get_top_traders", {
+        "time_frame": "ALL_TIME",
+        "sort_by": "PROFIT_AND_LOSS_REALIZED",
+        "open_position_filter": False,
+        "limit": int(inputs.get("cohortPool", _COHORT_LIMIT)),
+        "offset": 0,
+    })
+    if not raw:
+        print("[condor.scan] proven cohort: top_traders read FAILED — keeping the "
+              "cached cohort", file=sys.stderr)
+        return cohort_cache.get("data", {}) if cohort_cache else {}
+
+    data = raw.get("data", raw) if isinstance(raw, dict) else raw
+    traders = _traders_of(data)
+    if not traders:
+        print("[condor.scan] proven cohort: top_traders returned NO ROWS — keeping "
+              "the cached cohort", file=sys.stderr)
+        return cohort_cache.get("data", {}) if cohort_cache else {}
+
+    addresses, seen_realized = [], 0
+    for t in traders:
+        if not isinstance(t, dict):
+            continue
+        addr = str(t.get("address") or t.get("trader_address") or t.get("wallet") or "").lower()
+        if not addr:
+            continue
+        rp = _realized_pnl(t)
+        if rp > 0:
+            seen_realized += 1
+        if rp >= min_realized and len(addresses) < cap:
+            addresses.append(addr)
+
+    if not addresses:
+        # Distinguish "nobody qualifies" from "we could not read the number at all".
+        # Of 200 rows, some non-zero realized PnL is expected; all-zero means the field
+        # read is broken, not that the market has no profitable traders.
+        why = ("every row read 0 realized PnL — the FIELD READ is broken, not the market"
+               if seen_realized == 0 else
+               f"{seen_realized}/{len(traders)} rows had realized PnL but none >= "
+               f"${min_realized:,.0f}")
+        print(f"[condor.scan] proven cohort EMPTY: {why}", file=sys.stderr)
+        return cohort_cache.get("data", {}) if cohort_cache else {}
+
+    cohort = {}
+    for i in range(0, len(addresses), _COHORT_BATCH):
+        resp = _read(ctx, "discovery_get_trader_state",
+                     {"trader_addresses": addresses[i:i + _COHORT_BATCH]})
+        if not resp:
+            continue
+        resp_data = resp.get("data", resp) if isinstance(resp, dict) else resp
+        for t in _traders_of(resp_data):
+            if not isinstance(t, dict):
+                continue
+            for pos in (t.get("openPositions") or t.get("open_positions") or []):
+                if not isinstance(pos, dict):
+                    continue
+                coin = str(pos.get("coin") or pos.get("asset") or "").upper()
+                szi = scoring._f(pos.get("szi", pos.get("size", 0)))
+                if not coin or szi == 0:
+                    continue
+                d = cohort.setdefault(coin, {"long_count": 0, "short_count": 0})
+                d["long_count" if szi > 0 else "short_count"] += 1
+
+    for coin, d in cohort.items():
+        total = d["long_count"] + d["short_count"]
+        d["total_positioned"] = total
+        if d["long_count"] >= d["short_count"]:
+            d["direction"] = "LONG"
+            d["conviction_pct"] = (d["long_count"] / total * 100.0) if total else 0.0
+        else:
+            d["direction"] = "SHORT"
+            d["conviction_pct"] = (d["short_count"] / total * 100.0) if total else 0.0
+
+    print(f"[condor.scan] proven cohort refreshed: {len(addresses)} wallets "
+          f">= ${min_realized:,.0f}, positioned across {len(cohort)} coins",
+          file=sys.stderr)
+    cohort_cache["ts"] = now
+    cohort_cache["data"] = cohort
+    return cohort
+
+
+def get_btc_macro(price_map):
+    """BTC's 4h direction + magnitude as macro context. Direction is the SIGN of the
+    4h move — the board's own `direction` field no longer reaches the scorer."""
+    btc = price_map.get("BTC")
     if not btc:
         return None
-    return {"direction": btc["direction"], "p4h": btc["p4h"]}
+    p4h = scoring._f(btc.get("p4h", 0))
+    if p4h == 0:
+        return None
+    return {"direction": "LONG" if p4h > 0 else "SHORT", "p4h": p4h}
 
 
 def _held_assets(ctx, inputs):
@@ -274,11 +414,14 @@ def scan(inputs, ctx):
 
     last = (ctx.state.last() or {}) if ctx.state else {}
     recent = {k: v for k, v in (last.get("recent") or {}).items() if (now - v) < ttl}
+    # The proven cohort costs 1 + ceil(N/50) MCP reads to rebuild, so it rides in
+    # state between refreshes. fetch_proven_cohort mutates this dict in place.
+    cohort_cache = dict(last.get("cohort") or {})
 
     def _persist(result=None):
         if ctx.state is None:
             return
-        rec = {"recent": recent}
+        rec = {"recent": recent, "cohort": cohort_cache}
         if result is not None:
             rec["result"] = result
         try:
@@ -300,22 +443,30 @@ def scan(inputs, ctx):
         _persist({"ts": now, "emitted": False, "gate": "no_universe"})
         return []
 
-    sm_map = fetch_sm_map(ctx, inputs)
-    if not sm_map:
+    price_map = fetch_price_changes(ctx, inputs)
+    if not price_map:
         print("[condor.scan] leaderboard_get_markets empty/failed — no signal", file=sys.stderr)
-        _persist({"ts": now, "emitted": False, "gate": "no_sm"})
+        _persist({"ts": now, "emitted": False, "gate": "no_price_data"})
         return []
 
-    btc_macro = get_btc_macro(sm_map)
+    cohort_map = fetch_proven_cohort(ctx, inputs, cohort_cache, now)
+    if not cohort_map:
+        # A hard gate, so say so plainly rather than looking like a quiet market.
+        print("[condor.scan] proven cohort unavailable — no signal this tick",
+              file=sys.stderr)
+        _persist({"ts": now, "emitted": False, "gate": "no_cohort"})
+        return []
 
-    # Evaluate every universe asset through the verbatim v2 scorer.
+    btc_macro = get_btc_macro(price_map)
+
     candidates = []
     for asset_info in universe:
         coin = asset_info["coin"]
-        sm = sm_map.get(coin)
-        if not sm:
+        price_data = price_map.get(coin)
+        if not price_data:
             continue
-        sig = scoring.evaluate_trend_continuation(asset_info, sm, btc_macro, hour, inputs)
+        sig = scoring.evaluate_trend_continuation(
+            asset_info, price_data, cohort_map.get(coin), btc_macro, hour, inputs)
         if sig:
             candidates.append(sig)
 
@@ -380,8 +531,8 @@ def scan(inputs, ctx):
             "priceChange4hPct": best["p4h"],
             "priceChange1hPct": best["p1h"],
             "contribChange15m": best["c15m"],
-            "smGainSharePct": best["sm_gain_share"],
-            "smTraders": best["sm_traders"],
+            "cohortConvictionPct": best["cohort_conviction"],
+            "cohortPositioned": best["cohort_positioned"],
             "oiUsd": best["oi_usd"],
             "funding": best["funding"],
         },

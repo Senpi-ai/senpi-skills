@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.46.0"
+  version: "2.48.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -79,6 +79,25 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
   assume "a coin."
 - **Stack, don't isolate.** One strategy is one bet. On any pick that isn't already a multi-wallet fund,
   offer a complementary hedge (see *Stack, don't isolate*).
+- **Say how often it will trade, before the budget question.** One line, every pick. A user who is
+  not told supplies their own number and reads normal silence as a fault — measured 2026-10-12,
+  `shadow` had **0 fills across 10 installs with all 10 wallets withdrawn**, and `moose` runs about
+  **one trade a week with a 24-day gap**. Give the number AND what makes it go quiet: *"about one a
+  week; it needs a 20/50 cross with the daily trend agreeing, so a quiet month means no cross yet."*
+  Say which tier the number is on — **measured** (replayed or counted), **ceiling** (from
+  `max_entries_per_day`, `slots`, the cooldowns — an upper bound, never an expectation), or **shape**
+  (how many conditions must align at once, and the freshness window in human units). Never read a rate
+  off the NAME: condor is called "One Amazing Trade per Day" and nothing in it enforces that. Method
+  and worked numbers: `references/trade-frequency.md`.
+- **Offer the concentration choice whenever the family has one.** If a pick's family (follow `varies`
+  to the root) holds both a spread and a concentrated member — **fewer `max_slots` and/or higher
+  `leverage_max`** — name BOTH, one line each, before the budget question, and quote what one stop-out
+  costs as a share of the account (`max_loss_pct x marginPct / 100`). Then let them choose; **silence
+  ships the SPREAD member.** This is the second exception to *do not offer two siblings at once*
+  (the first is chase caps). Full wording in `references/variant-families.md`. **Never key off tags** —
+  `penguin-x5` is tagged `concentrated` and `high-leverage` while running HALF penguin's leverage, and
+  the three duos are tagged `concentrated` while splitting one position into two. The config fields are
+  the truth.
 - **Read the market only when you present picks — never pre-fetch on entry.** The opener is a question,
   not a scan. Use `--no-market` while narrowing; do the live read on the run that produces the cards.
 - **Echo your understanding in one line** before showing picks ("got it — cautious, BTC/ETH, ~$300").
@@ -103,6 +122,11 @@ python3 scripts/discover.py
   [--no-market]        # skip the live read — use while narrowing/browsing
   [--context-only]     # budget + holdings (Senpi + your saved wallets, read-only) only, no match
 ```
+
+`--assets` takes those tags **bare** — `commodities`, not `class:commodities`. A token that is
+neither a known tag nor an asset any template declares is read as a TICKER and narrows the
+result to configurable templates only, which looks like a short honest shortlist; when that
+happens `meta.warnings` says so by name. **Read `meta.warnings` before presenting a short list.**
 
 - There is **no** `--risk`, `--belief`, `--horizon`, `--experience`, or `--hedge-for` flag — you rank
   on those, and you surface a hedge by re-running the engine (see *Stack*).

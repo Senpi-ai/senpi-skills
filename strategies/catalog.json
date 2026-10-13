@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-10-09",
+  "_updated": "2026-10-12",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -110,13 +110,13 @@
       "sort_order": 1
     },
     {
-      "id": "camel-concentrated",
-      "name": "Camel Concentrated — one carry trade per side at 10x",
+      "id": "camel",
+      "name": "Camel — Funding Carry, One Bet Per Side",
       "emoji": "🐪",
-      "varies": "camel",
+      "varies": null,
       "tagline": "Camel's funding-carry edge taken as ONE position per side at 10x instead of four at 5x. Same ranking, same exhaustion gate, same price-distance exits — the bet is that the most-extreme funding dislocation is worth more than four smaller ones, and that a quarter of the fills keeps a quarter of the fees.",
       "belief_plain": "This is Camel with its capital gathered into one trade per side. Camel gets paid to hold the crowded side of a funding dislocation: it shorts the names longs are paying to hold, and buys the names shorts are paying to hold, only when the crowded trade is already running out of steam. Normally it spreads that across four names per side. This version takes the single most extreme name on each side and puts four times the size behind it at twice the leverage. The edge it is testing is partly the signal and partly the bill: Camel currently pays 58% of its gross profit in trading fees, and one position costs roughly a quarter of the fees that four do for the same money at work. Concentration here is as much a fee argument as a conviction one.",
-      "version": "1.2.0",
+      "version": "2.0.0",
       "thesis": "Two inputs move per arm and a third is forced. slots 4 -> 1 and marginPct 18 -> 72 keep margin deployed identical at 72% of each sleeve; default_leverage / maxLeverage 5 -> 10 is the high-leverage half of the ask, and it DOUBLES gross notional (3.6x -> 7.2x of the sleeve), so this is deliberately a two-variable change and not a controlled single-variable arm. The DSL is re-derived rather than copied: every ROE number is doubled so each price distance is camel's exactly (stop 1.20%, rungs 2.80/5.60/10.0/18.0% of price), because carrying 5x ROE numbers onto 10x would halve them and put the stop inside the measured noise band. EVERY CLOCK IS OFF, which is a standing preference rather than a measurement: the ladder and the stop decide every exit, at any horizon. camel ships a 72h hard_timeout and an 8h dead-weight cut and both are disabled here. The cost is that the phase-1 floor at 1.20% of price becomes the only thing that ends a dead carry, and concentrated that slot IS the arm — softened only by funding continuing to accrue while it waits, which is not true of a momentum trade going nowhere. Guard rails are SCALED because they had to be: one stop costs 1.08% of a 4-slot arm but 8.64% concentrated, so camel's 10% daily limit would halt the book after a single loss and the result would read as a failure of concentration rather than of calibration. Why camel at all: it is the only non-momentum template in the catalog actually trading (259 real fills across 4 live wallets in the 7 days to 2026-10-06, net +$5.42 after $6.72 of fees on $11.52 realized), and the one whose fee ratio leaves concentration somewhere to go. Read it against camel over the same window, never on its own P&L.",
       "tags": [
         "basis",
@@ -159,54 +159,6 @@
       "max_slots": 2,
       "branch": "main",
       "sort_order": 1
-    },
-    {
-      "id": "camel",
-      "name": "Camel — Funding Carry Hedge Fund",
-      "emoji": "🐫",
-      "varies": null,
-      "tagline": "Harvests funding carry across the liquid main-DEX crypto cross-section: the HARVEST book SHORTS the most-positive-funding names (longs pay shorts → short collects) and the PAYOUT book LONGS the most-negative-funding names (shorts pay longs → paid to hold) — both gated to EXHAUSTING crowds (4h trend + RSI confirmation) so price doesn't fight the carry — on two equally-funded wallets that net the fund slightly market-neutral.",
-      "belief_plain": "On Hyperliquid you get paid (or pay) funding every hour for holding a perp. Camel always takes the side that COLLECTS that payment — it shorts coins where longs are paying through the nose, and longs coins where shorts are paying — but only on crowds that are running out of steam, so the price doesn't move against it while it banks the funding.",
-      "version": "1.2.2",
-      "thesis": "Funding is a recurring, structural inefficiency: when a trade gets too crowded, the funding rate blows out and the collecting side gets paid to hold. The edge is that carry, not market direction — so Camel ranks the whole liquid crypto board by funding and takes the most-extreme collecting side, but only when the crowded trade is exhausting (4h rolling over for shorts / capitulating for longs, RSI confirming) so price doesn't fight the carry. Taking some shorts and some longs also skews the fund net-neutral as a by-product.",
-      "tags": [
-        "funding",
-        "carry",
-        "basis",
-        "market-neutral",
-        "hedge-fund",
-        "contrarian",
-        "exhaustion",
-        "universe-crypto",
-        "two-book"
-      ],
-      "group": "carry",
-      "archetype": "contrarian_fade",
-      "archetype_label": "Contrarian / Fade",
-      "sub_style": "funding_extreme",
-      "sub_style_label": "Fades extreme funding rates.",
-      "asset_classes": [
-        "universe_crypto"
-      ],
-      "asset_scope": "universe",
-      "assets": [],
-      "direction": "long_short",
-      "risk_level": "moderate",
-      "tier": "advanced",
-      "leverage_max": 5,
-      "time_horizon": "position",
-      "cadence_seconds": 300,
-      "min_budget": 30,
-      "wallet_count": 2,
-      "min_budget_binding_wallet": "harvest",
-      "instance_count": 2,
-      "funding_split": [
-        0.5,
-        0.5
-      ],
-      "max_slots": 8,
-      "branch": "main",
-      "sort_order": 2
     },
     {
       "id": "bald-eagle",
@@ -1179,14 +1131,63 @@
       "sort_order": 6
     },
     {
+      "id": "condor-concentrated",
+      "name": "Condor Concentrated — One Concentrated Trade per Day",
+      "emoji": "🦅",
+      "varies": "condor",
+      "tagline": "Condor's apex sniper, concentrated: ONE position at 80% margin and 10x instead of 20-32%, across crypto AND XYZ equities — and its directional confirmation comes from the traders with >= $1M lifetime realized PnL rather than the 4h gain board. Fires only when 24h, 4h, 1h and 15m momentum all align behind them. No time cuts.",
+      "belief_plain": "Watches every liquid coin and equity on Hyperliquid and does nothing until ONE setup is near-perfect: the trend agreeing across four timeframes, and the traders with the best lifetime records actually holding that side. Then it puts 80% of the account behind that single trade and trails a wide stop, never cutting a winner on a clock. The trade-off is blunt: one stop-out costs about 12% of the wallet, and two of them halt the strategy.",
+      "version": "1.0.1",
+      "thesis": "Condor's edge is its gate, not its sizing — so the question concentration asks is whether the gate is good enough to back harder. Two things change together. First the money: one position at 80% margin and 10x, flat for every score above the floor, because the score was never a real sizing gradient (condor's own tiers spanned 28% to 32%). Second, and more important, the confirmation: condor read direction from the 4h gain leaderboard, which is circular — when a coin falls, every wallet short it is mechanically at the top of that board, so it agrees with the move it is meant to confirm. Here the board supplies price data only, and direction is confirmed by HEADCOUNT among the wallets with >= $1M lifetime realized PnL. Price cannot change a headcount. Offer this only to someone who has asked for leverage AND concentration.",
+      "tags": [
+        "momentum",
+        "trend-continuation",
+        "universe",
+        "proven-cohort",
+        "apex-sniper",
+        "one-trade-per-day",
+        "xyz",
+        "no-time-cuts"
+      ],
+      "group": "momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "trend_continuation",
+      "sub_style_label": "Enters in the direction of an established, still-intact trend.",
+      "asset_classes": [
+        "universe_crypto",
+        "xyz_equities",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 180,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 7
+    },
+    {
       "id": "condor",
       "name": "Condor — One Amazing Trade per Day",
       "emoji": "🦅",
       "varies": null,
-      "tagline": "Scans the top 50 Hyperliquid crypto assets by volume and fires at most one position at a time — only when 4h, 1h and 15m momentum all align, the 4h leaders (the traders winning the last four hours on the board) are leaning the same way on a market they are actually concentrated in, and the move isn't a runaway counter-trend. Sizes margin to conviction (20/28/32%) at 10x, then rides a wide DSL.",
-      "belief_plain": "Watches every liquid coin on Hyperliquid and waits, doing nothing until ONE setup is near-perfect: the trend, the momentum and the traders winning the last four hours all pointing the same direction at once. Then it rides the 4h leaders' side with a single, well-sized swing and trails a stop instead of guessing the top.",
-      "version": "1.4.1",
-      "thesis": "The biggest swings happen when 4h + 1h + 15m momentum are perfectly unified AND the 4h leaderboard (a momentum read of who is winning right now, not a proven cohort) is leaning that same way on a market its leaders have meaningful skin in — a runaway trend's continuation, not a reversal. One amazing trade a day beats a scattergun: scan broadly, fire rarely, size to conviction, and never fight a trend already up >10% on the 4h.",
+      "tagline": "Scans the top 50 Hyperliquid crypto assets by volume and fires at most one position at a time — only when 4h, 1h and 15m momentum all align, the proven cohort (the wallets with >= $1M lifetime realized PnL) is holding that same side, by headcount, and the move isn't a runaway counter-trend. Sizes margin to conviction (20/28/32%) at 10x, then rides a wide DSL.",
+      "belief_plain": "Watches every liquid coin on Hyperliquid and waits, doing nothing until ONE setup is near-perfect: the trend, the momentum and the traders with the best lifetime track records all pointing the same direction at once. Then it rides that side with a single, well-sized swing and trails a stop instead of guessing the top.",
+      "version": "1.5.1",
+      "thesis": "The biggest swings happen when 4h + 1h + 15m momentum are perfectly unified AND the proven cohort is positioned that same way. Direction used to come from the 4h gain leaderboard, which is circular — when a coin falls, every wallet short it is mechanically at the top of that board, so it agreed with the move it was meant to confirm. Confirmation is now HEADCOUNT among the wallets with >= $1M lifetime realized PnL, and price cannot change a headcount — a runaway trend's continuation, not a reversal. One amazing trade a day beats a scattergun: scan broadly, fire rarely, size to conviction, and never fight a trend already up >10% on the 4h.",
       "tags": [
         "momentum",
         "trend-continuation",
@@ -1221,7 +1222,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 7
+      "sort_order": 8
     },
     {
       "id": "falcon",
@@ -1267,7 +1268,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 9
     },
     {
       "id": "hare",
@@ -1320,7 +1321,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 10
     },
     {
       "id": "hedgehog",
@@ -1372,7 +1373,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 11
     },
     {
       "id": "hen",
@@ -1438,7 +1439,77 @@
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
+    },
+    {
+      "id": "hornet-concentrated",
+      "name": "Hornet Concentrated — Supply-Chain Momentum, Two Bets at 10x",
+      "emoji": "🐝",
+      "varies": "hornet",
+      "tagline": "Hornet's semiconductor supply-chain momentum, concentrated: TWO positions at 45% margin and 10x instead of three at 18% and 4x. Same breadth gate, same universe, same signal — every exit re-derived so the stop and each profit rung sit at the identical distance in price, and the guard rails widened to absorb a stop that now costs 9% of the account instead of 1.4%.",
+      "belief_plain": "The same strategy as Hornet — it trades the semiconductor supply chain on Hyperliquid XYZ and only acts when the whole chain is trending together — but it puts the money behind far fewer, bigger bets. Hornet spreads across up to three positions at 18% of your balance each. This version takes at most two, at 45% each, with 10x leverage instead of 4x. The exits are set so a position has exactly as much room to move as it would on Hornet; what changes is how much each outcome is worth to you. One stop-out costs about 9% of the account here against 1.4% on Hornet, and one good run pays correspondingly more.",
+      "version": "1.0.0",
+      "thesis": "Hornet's edge is the breadth gate, not its sizing — so the question concentration asks is whether the gate is good enough to back harder. This variant answers it with two levers moved together: margin per position 18% -> 45% and leverage 4x -> 10x, which raises gross notional rather than merely redistributing it. Everything that defines the edge is untouched: the same 16-name basket, the same sub-group gradient, the same 0.55/0.35 breadth thresholds, the same scanner bytes. Every DSL distance is preserved in PRICE terms (the 2.00% stop and the 5.00/7.50/12.50/18.80/25.00% rungs), with one extra rung added at 2.50% that 4x could not afford to lock. No clock closes anything — the ratchet and the 2.00%-of-price stop are the only exits, which is the house default and a deliberate change from hornet's 48h timeout. Offer this only to someone who has asked for leverage AND concentration; it is among the most aggressive packages in the catalog.",
+      "tags": [
+        "semiconductors",
+        "ai-capex",
+        "supply-chain",
+        "sector-breadth",
+        "equities",
+        "xyz",
+        "nvda",
+        "asml",
+        "tsm",
+        "momentum",
+        "leader-momentum",
+        "basket",
+        "long-short",
+        "advanced",
+        "23-5"
+      ],
+      "group": "momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "sector_momentum",
+      "sub_style_label": "Rides a whole sector / supply chain only when its breadth confirms; won't chase a lone name.",
+      "asset_classes": [
+        "xyz_equities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:ASML",
+        "xyz:AMAT",
+        "xyz:MRVL",
+        "xyz:NVDA",
+        "xyz:AMD",
+        "xyz:AVGO",
+        "xyz:TSM",
+        "xyz:QCOM",
+        "xyz:ARM",
+        "xyz:INTC",
+        "xyz:SMH",
+        "xyz:MU",
+        "xyz:SNDK",
+        "xyz:SMSN",
+        "xyz:SKHX",
+        "xyz:WDC"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 20,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "main",
+      "sort_order": 13
     },
     {
       "id": "hornet",
@@ -1447,7 +1518,7 @@
       "varies": null,
       "tagline": "A semiconductor / AI-capex supply-chain momentum basket on Hyperliquid XYZ (equipment ASML/AMAT/MRVL, logic NVDA/AMD/AVGO/TSM/QCOM/ARM/INTC/SMH, memory MU/SNDK/SMSN/SKHX/WDC): it only trades when the whole chain confirms as a complex — a sector-breadth gate flips it long-only when most names trend up and short-only when the chain rolls over — then rides the strongest 1-2 names, with an extra edge when the equipment makers lead the move. Flat 18% margin / 4x, wide DSL ratchet capped at 48h so it never camps through the weekend pricing gap.",
       "belief_plain": "Trades the semiconductor supply chain — the chip designers, the memory makers, and the equipment companies that build the factories — as perps on Hyperliquid XYZ, 23/5. AI spending bids the whole chain together, so Hornet refuses to trade single names in isolation: it first checks whether the sector as a whole is trending up or down, and only then takes the strongest 1-2 names in that direction. It pays special attention when the equipment makers move first, since that tends to lead the cycle. It trails a wide stop so a real move can run, but caps each hold at 48 hours so it never sits through the Friday-to-Sunday gap when these names have no external price.",
-      "version": "1.1.2",
+      "version": "1.2.0",
       "thesis": "AI capex doesn't bid one chip name — it bids the entire semiconductor supply chain: equipment makers (ASML, AMAT, MRVL), logic/compute (NVDA, AMD, AVGO, TSM, QCOM, ARM, INTC, SMH), and memory (MU, SNDK, SMSN, SKHX, WDC). A per-name momentum agent can get chopped up taking a single semi that's moving on idiosyncratic news against a flat sector. Hornet's edge is that it requires the chain to confirm as a complex first — a sector-breadth gate (the fraction of the universe whose 4h trend is bullish) flips the agent long-only above 0.55 and short-only below 0.35, and emits nothing in the chop band between. Within an open gate it rides the strongest 1-2 names (the 4h leaders' side is a score bonus, never a gate) and adds conviction when the equipment sub-group leads (capex tools bid first, then logic and memory — the classic early-cycle gradient). The 48h hard_timeout is intentional: equity perps reconcile against an internal oracle over the weekend gap where drift accumulates without external price discovery.",
       "tags": [
         "semiconductors",
@@ -1508,7 +1579,63 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 14
+    },
+    {
+      "id": "ibis-concentrated",
+      "name": "Ibis Concentrated — One Regime-Matched Trade",
+      "emoji": "🪶",
+      "varies": "ibis",
+      "tagline": "Ibis's regime gate, backed harder and tightened: ONE position at 44-53% margin instead of three at 10-15%. It still decides whether a market is TRENDING or RANGING on the 4-hour chart before choosing a rule — an open-interest-confirmed continuation, or a funding-gated fade of the range edge — but it only takes the single best setup, demands a cleaner trend to take one at all, and closes a position when the regime that justified it flips. The stop is deliberately wider than the parent's: 16% ROE, a 4% price move, because the parent's 2% stop sits inside one ordinary 4-hour bar.",
+      "belief_plain": "Ibis checks what kind of market it is in before deciding what to do, and this version puts a large share of the account behind the single best answer rather than spreading it across three. If price is genuinely travelling it joins the move, but only when open interest is rising — new money actually backing it. If price is bouncing in a range it buys the low and sells the high instead, unless funding has gone extreme, which usually means the range is about to break. If it cannot tell, it does nothing — and it demands a cleaner trend than the standard version before it will join one at all, because the marginal cases were measured to lose money once fees are counted. Because one trade carries real weight, two things are different: the stop sits further away so a normal four-hour swing cannot reach it, and if the market stops behaving the way the trade assumed, the position is closed on that reason rather than waiting for a price level.",
+      "version": "1.0.0",
+      "thesis": "Ibis's edge is the regime question, not its sizing, so concentration asks whether the gate is good enough to back harder — and the honest answer required fixing the exit geometry first. The parent's 8% ROE stop at 4x is a 2.00% price stop; measured over 45 days of 4h candles on its own universe, the median bar range is 1.65% and on SUI, ADA and AVAX the median bar is WIDER than the stop. The parent survives that because 10-15% margin makes a noise stop-out cost about 1% of the wallet; concentrating that geometry unchanged would buy the same noise at five times the size. So the stop moves to 16% ROE, a 4.00% price stop at 4x, outside the 90th-percentile bar on 10 of 12 names. Leverage then becomes a separate dial from margin: risk per stop is margin x stop, while the distance to the stop is stop / leverage — so the trend leg runs 4x (a 4.00% stop, room for a continuation to breathe) at 35% base margin, and the fade runs 5x (a 3.20% stop, which is roughly 'price left the band' on a range that must be 3% wide to fade at all) at 18% base margin. The fade gets more leverage and less money on purpose: the leverage buys a tighter stop, the lower margin buys a smaller loss. The entry gate moved for the same reason the stop did — it was measured, not preferred: replaying 200 days of the parent's own gate showed the two lowest efficiency-ratio bands it admits were net-negative after fees and made up roughly 58% of its trend entries, so the trend threshold here is 0.45 rather than 0.36. On a one-slot wallet that is the difference between losing to fees and not, and it costs six entries in two hundred days, because the slot is the constraint rather than the supply of setups. Offer this only to someone who has asked for concentration AND understands that one stop costs ~8% of the account.",
+      "tags": [
+        "regime",
+        "regime-switching",
+        "adaptive",
+        "concentrated",
+        "trend",
+        "range",
+        "mean-reversion",
+        "efficiency-ratio",
+        "open-interest",
+        "oi-velocity",
+        "funding",
+        "4h",
+        "multi-asset",
+        "long-short",
+        "signal-invalidation",
+        "regime-flip-exit",
+        "no-time-cuts"
+      ],
+      "group": "momentum",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "adaptive",
+      "sub_style_label": "Self-tunes its thresholds from its own track record.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 1800,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 15
     },
     {
       "id": "ibis",
@@ -1560,7 +1687,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 16
     },
     {
       "id": "kingfisher",
@@ -1621,7 +1748,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 17
     },
     {
       "id": "lemur",
@@ -1670,7 +1797,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 18
     },
     {
       "id": "lynx",
@@ -1724,7 +1851,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 19
     },
     {
       "id": "marlin",
@@ -1778,7 +1905,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 17
+      "sort_order": 20
     },
     {
       "id": "meerkat",
@@ -1825,7 +1952,78 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 18
+      "sort_order": 21
+    },
+    {
+      "id": "moose",
+      "name": "Moose — EMA Crossover Trend Follower",
+      "emoji": "🫎",
+      "varies": null,
+      "tagline": "The oldest trend rule there is, run for you on the 4-hour chart: a 20 EMA crossing a 50 EMA on BTC, ETH or SOL opens a trade in the direction of the daily trend (price against its 50-day average) — long on the golden cross, short on the death cross — with leverage set per coin from its own volatility (2-5x) so the stop sits outside normal noise, one position per coin, and a trailing stop that only ever moves in your favour. A Donchian-channel breakout is one setting away as the alternate trigger.",
+      "belief_plain": "Buys a big coin when its fast moving average crosses above its slow one on the 4-hour chart and the coin is above its 50-day average; shorts it on the mirror-image cross below. It holds at most one position per coin, uses less leverage on the coin that swings the most so ordinary noise does not hit the stop, and then trails a stop behind the trade so a real trend can run for days while a reversal closes it. No scores you cannot see, no black box: every entry can be checked on any chart. Expect it to trade RARELY — replayed over the 120 days to 2026-10-12 it produced 13 entries across all three coins, about one a week, and went 24 days without a single one. A crossover that has not happened yet is not a broken strategy; waiting is most of what this does.",
+      "version": "1.0.1",
+      "thesis": "The moving-average crossover is the first trend rule every trader learns and the setup users most often rebuild by hand. Moose is that build done properly and supervised: the signal counts only on closed candles, so a cross cannot appear and vanish inside a bar; a trigger older than two bars is not chased; the daily trend filter keeps it from shorting a bull market or buying a bear one; and volatility sets the leverage, so the fixed stop lands at least two ATRs from entry in price wherever the 2-5x range allows. It will miss the first leg of a move by design and it will whipsaw in a sideways market — that is the known cost of a crossover system, and the trend that runs is what pays for it.",
+      "tags": [
+        "ema",
+        "moving-average",
+        "crossover",
+        "golden-cross",
+        "death-cross",
+        "donchian",
+        "breakout",
+        "trend",
+        "trend-following",
+        "4h",
+        "daily-trend-filter",
+        "atr",
+        "volatility-sized",
+        "btc",
+        "eth",
+        "sol",
+        "multi-asset",
+        "long-short",
+        "beginner",
+        "onboarding",
+        "classic-ta",
+        "transparent",
+        "verifiable",
+        "rules-based",
+        "no-black-box",
+        "chart-checkable",
+        "let-winners-run",
+        "dsl-only"
+      ],
+      "group": "momentum",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "ma_crossover",
+      "sub_style_label": "The classic moving-average crossover: a fast EMA crossing a slow EMA on closed candles (or a Donchian breakout), taken only with the higher-timeframe trend; the oldest trend-following rule there is.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "starter",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 25,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "branch": "main",
+      "sort_order": 22
     },
     {
       "id": "orca",
@@ -1871,7 +2069,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 19
+      "sort_order": 23
     },
     {
       "id": "otter",
@@ -1918,7 +2116,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 20
+      "sort_order": 24
     },
     {
       "id": "pelican",
@@ -1984,7 +2182,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 21
+      "sort_order": 25
     },
     {
       "id": "pelicans-duo",
@@ -2050,7 +2248,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 22
+      "sort_order": 26
     },
     {
       "id": "penguin-chase-150bp",
@@ -2105,7 +2303,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 23
+      "sort_order": 27
     },
     {
       "id": "penguin-chase-200bp",
@@ -2160,7 +2358,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 24
+      "sort_order": 28
     },
     {
       "id": "penguin-chase-300bp",
@@ -2215,7 +2413,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 25
+      "sort_order": 29
     },
     {
       "id": "penguin-x5",
@@ -2267,7 +2465,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 26
+      "sort_order": 30
     },
     {
       "id": "penguin",
@@ -2319,7 +2517,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 27
+      "sort_order": 31
     },
     {
       "id": "penguins-duo-chase-150bp",
@@ -2374,7 +2572,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 28
+      "sort_order": 32
     },
     {
       "id": "penguins-duo-chase-200bp",
@@ -2429,7 +2627,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 29
+      "sort_order": 33
     },
     {
       "id": "penguins-duo-chase-300bp",
@@ -2484,7 +2682,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 30
+      "sort_order": 34
     },
     {
       "id": "penguins-duo",
@@ -2536,7 +2734,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 31
+      "sort_order": 35
     },
     {
       "id": "piranha",
@@ -2591,7 +2789,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 32
+      "sort_order": 36
     },
     {
       "id": "purple-penguin",
@@ -2644,7 +2842,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 33
+      "sort_order": 37
     },
     {
       "id": "python",
@@ -2691,7 +2889,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 34
+      "sort_order": 38
     },
     {
       "id": "roach",
@@ -2738,7 +2936,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 35
+      "sort_order": 39
     },
     {
       "id": "rooster",
@@ -2789,7 +2987,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 36
+      "sort_order": 40
     },
     {
       "id": "sailfish",
@@ -2842,7 +3040,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 37
+      "sort_order": 41
     },
     {
       "id": "salamander",
@@ -2895,7 +3093,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 38
+      "sort_order": 42
     },
     {
       "id": "sheep",
@@ -2951,7 +3149,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 39
+      "sort_order": 43
     },
     {
       "id": "wild-cheetah",
@@ -2998,7 +3196,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 40
+      "sort_order": 44
     },
     {
       "id": "wild-condor",
@@ -3006,8 +3204,8 @@
       "emoji": "🪶",
       "varies": "condor",
       "tagline": "Condor's detector at a higher score floor and a higher margin: it fires only on a score of 15 out of 19 — condor's own top scoring tier — instead of 12, sizes one position at a flat 90% of the book instead of 20-32% by tier, and drops condor's one-trade-per-day cap so the experiment can build a sample. The two settings move together; everything else is Condor's.",
-      "belief_plain": "Condor with a higher bar and a larger size. Condor waits, doing nothing until one setup has trend, momentum and the traders winning the last four hours all pointing the same way, then takes a single position. This version raises the score it demands before acting, and puts most of the account behind the trade rather than a fifth of it. Nothing else changes: the same universe, the same gates, the same one-position-at-a-time, the same exits. Know the sizing before funding it — 90% margin at 10x is nine times the account in one position, one stop-out is about 10.8% of equity, and there is no second position to offset it. The safety rails stop it opening new trades; they do not close the one that is open.",
-      "version": "1.1.2",
+      "belief_plain": "Condor with a higher bar and a larger size. Condor waits, doing nothing until one setup has trend, momentum and the proven cohort (>= $1M lifetime realized PnL) all pointing the same way, then takes a single position. This version raises the score it demands before acting, and puts most of the account behind the trade rather than a fifth of it. Nothing else changes: the same universe, the same gates, the same one-position-at-a-time, the same exits. Know the sizing before funding it — 90% margin at 10x is nine times the account in one position, one stop-out is about 10.8% of equity, and there is no second position to offset it. The safety rails stop it opening new trades; they do not close the one that is open.",
+      "version": "1.2.1",
       "thesis": "Three settings differ from Condor. The first two are meant to move together: the score floor goes 12 to 15, and margin goes 20/28/32% by tier to a flat 90%. The third is the one-entry-per-day cap, removed so the experiment can accumulate a sample — at one trade a day a few dozen results take a couple of months, long enough that the config would change underneath the data. Entries are still bounded, just by the loss budget rather than a count: the 15% daily loss limit halts them for the day, and at 90% margin on 10x one stop-out costs 10.8% of equity, so two losing trades trip it. The consecutive-loss freeze, the 25% drawdown halt and the two-hour per-asset cooldown are unchanged. Raising size without raising the floor puts more money behind the same signal distribution; raising the floor without the size pays a rarer signal what a common one earned. The floor is derived from the score scale rather than chosen: condor's maximum is 19, its shipped floor of 12 is 63% of that, penguin's 9 of 12 is 75%, and 75% of 19 rounds to 15 — which is also condor's own top tier, the score at which it already sized largest. The DSL ladder is penguin's; both packages run 10x, so each ROE trigger is the same price move in both and the ladder transfers without rescaling. Condor's detector, universe, clock, score components, guard rails and time cuts are unchanged. The frequency of a score of 15 or better has not been measured; if it is too low to keep one slot occupied, the next step down is 13.",
       "tags": [
         "momentum",
@@ -3045,7 +3243,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 41
+      "sort_order": 45
     },
     {
       "id": "jaguar",
@@ -3080,6 +3278,57 @@
       "leverage_max": 10,
       "time_horizon": "intraday",
       "cadence_seconds": 180,
+      "min_budget": 10,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "main",
+      "sort_order": 1
+    },
+    {
+      "id": "vulture",
+      "name": "Vulture — Small-Cap Momentum Rider",
+      "emoji": "🦅",
+      "varies": null,
+      "tagline": "Scans the venue's own liquid long tail — every listed Hyperliquid perp trading over a million dollars a day, minus BTC/ETH/SOL and the XYZ book, re-derived every tick rather than hand-listed. The board picks the name and the side — the traders winning the last four hours crowding into one name while its 4h and 1h prices agree and its 15m contribution accelerates — and the chart confirms the timing: the price on the trade's side of its 50-day average, the 15-minute price already moving with the trade, and the price in the favourable half of the day's range. 5x, never above the venue's own cap for the name, nothing under a million dollars a day, a 3%-of-price stop and a trailing stop that only ever moves in your favour. Measured on 553 live signals: the board alone was fee-neutral, the confirmed entries made 0.85% a trade with 56% winners.",
+      "belief_plain": "Hunts the small coins most templates leave alone, and works out which ones those are by reading the exchange every minute rather than from a list someone typed. It only buys (or shorts) one when the traders winning the last four hours are crowding in and the chart agrees three ways: the coin is on the right side of its 50-day average, the last fifteen minutes already moved the way it wants to trade, and the price sits in the better half of the day's range. Then it trails a stop. Most losers end at the stop, about 3% of price away; the winners run further than the losers, which is what pays. In a down month the longs get stopped — the wallet-wide 25% halt is the backstop. It is quiet from midnight to 4am UTC unless a setup is exceptional.",
+      "version": "2.1.0",
+      "thesis": "The small/mid-cap long tail is where the 4h leaders' flow is loudest and least watched. The board's pick alone is not an edge after fees: measured on 553 live signals it was fee-neutral, and every entry taken against the 50-day trend lost. The edge is the board's pick WITH the chart's confirmation — trend side, 15-minute direction, position in the day's range — which turned the same signal stream into +0.85% a trade at a 1.6 profit factor. A long-right-tail momentum book: the exit is a ratchet, never a clock, so the occasional runner is allowed to pay for the stops. The universe is read, not chosen: a screener's universe is a market reading, and the 27-name list this replaced had begun to rot in both directions — on 2026-10-12 four of its names had fallen under the liquidity floor while 87 listed perps cleared it, including names trading over a hundred million dollars a day that the list had never heard of.",
+      "tags": [
+        "small-cap",
+        "momentum",
+        "leader-momentum",
+        "long-tail",
+        "screener",
+        "derived-universe",
+        "multi-asset",
+        "chart-confirmed",
+        "trend-filter",
+        "venue-cap",
+        "volume-floor",
+        "dsl-only"
+      ],
+      "group": "multi-asset-screener",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "basket",
+      "sub_style_label": "Holds a whitelist basket of majors.",
+      "asset_classes": [
+        "major_alts",
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 60,
       "min_budget": 10,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
@@ -5085,80 +5334,6 @@
       "sort_order": 16
     },
     {
-      "id": "vulture",
-      "name": "Vulture — Small-Cap Momentum Rider",
-      "emoji": "🦅",
-      "varies": null,
-      "tagline": "Scans a whitelist of ~25 small/mid-cap Hyperliquid perps that no other agent covers (majors and XYZ are banned), and rides the 4h leaders' side: enters when the 4h leaders' concentration (the traders winning the last four hours on the board) aligns with a fresh 4h trend, the 1h confirms it isn't a false breakout, and 15m velocity is accelerating — then sizes leverage to conviction (5x, 7x apex), cuts losers fast and rides the right-tail winners for days on a trailing stop.",
-      "belief_plain": "Hunts the small coins the rest of the fleet ignores. It only buys (or shorts) one when the traders winning the last four hours are crowding in, the 4-hour trend agrees, the 1-hour isn't already rolling over, and short-term momentum is building — then goes in harder on the strongest setups and trails a stop. Most trades are tiny losses cut fast; the occasional big winner pays for everything.",
-      "version": "1.2.2",
-      "thesis": "The biggest blind spot on Hyperliquid is the small/mid-cap long tail — every other agent is locked to the majors or a single asset, so nobody is reading the 4h leaders' flow on HEMI, WLD, XPL, AIXBT and the rest. Small caps have a thicker trader-count signal-to-noise ratio than the majors: when the 4h leaders' concentration on one (a momentum read of who is winning right now, not a proven cohort) aligns with a fresh 4h trend and accelerating 15m velocity, that's a momentum entry with a long right tail. A low win rate is fine when the winners are several times the size of the losers.",
-      "tags": [
-        "small-cap",
-        "momentum",
-        "leader-momentum",
-        "long-tail",
-        "whitelist",
-        "conviction-leverage",
-        "multi-asset"
-      ],
-      "group": "multi-asset-whitelist",
-      "archetype": "trend_following",
-      "archetype_label": "Trend-Follower",
-      "sub_style": "basket",
-      "sub_style_label": "Holds a whitelist basket of majors.",
-      "asset_classes": [
-        "major_alts",
-        "universe_crypto"
-      ],
-      "asset_scope": "basket",
-      "assets": [
-        "HYPE",
-        "HEMI",
-        "WLD",
-        "MON",
-        "XPL",
-        "AIXBT",
-        "ARB",
-        "ASTER",
-        "POLYX",
-        "LDO",
-        "APT",
-        "DYDX",
-        "ONDO",
-        "SUI",
-        "kBONK",
-        "kPEPE",
-        "TAO",
-        "GRASS",
-        "ZEC",
-        "LIT",
-        "FARTCOIN",
-        "MORPHO",
-        "NEAR",
-        "INJ",
-        "AVAX",
-        "LINK",
-        "DOGE"
-      ],
-      "direction": "long_short",
-      "risk_level": "aggressive",
-      "tier": "advanced",
-      "leverage_max": 7,
-      "time_horizon": "swing",
-      "cadence_seconds": 60,
-      "min_budget": 10,
-      "wallet_count": 1,
-      "min_budget_binding_wallet": "main",
-      "instance_count": 1,
-      "funding_split": [
-        1.0
-      ],
-      "max_slots": 2,
-      "branch": "main",
-      "sort_order": 17
-    },
-    {
       "id": "wolf",
       "name": "Wolf — Regime-Rotation Hedge Fund",
       "emoji": "🐺",
@@ -5219,7 +5394,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 18
+      "sort_order": 17
     },
     {
       "id": "aegis",
@@ -5786,6 +5961,70 @@
       "sort_order": 8
     },
     {
+      "id": "ibex",
+      "name": "Ibex — Gold Breakout Trend Follower",
+      "emoji": "🐐",
+      "varies": null,
+      "tagline": "A gold (xyz:GOLD) specialist on the slow clock: when a closed 4-hour candle breaks above the previous nine days' high with gold above its 50-day average it goes long; on the mirror-image break below, short. One position at a time, leverage 3-5x set from gold's own volatility so the stop sits outside normal noise, and a trailing stop that only ever moves in your favour. No fast trades, no fading — the one trigger on gold that pays its fees.",
+      "belief_plain": "Trades only gold, and only on a real break: a 4-hour close above the last nine days' high when gold is above its 50-day average (or below the low, below the average). It buys that break, holds one position at a time, and trails a stop behind it so a multi-day move can run while a failed break closes it. It will sit idle for a week at a time; that is the design.",
+      "version": "1.0.0",
+      "thesis": "Gold is the market Senpi users most often build their own strategies on, and most of what they build is fast: fifteen-minute fades, intraday scalps, prior-day breakouts. Replayed on the exchange's own gold history with real exits and fees, every one of those loses — gold's fifteen-minute range is smaller than a round trip costs. The slow breakout is the only trigger that cleared the fees: a nine-day channel break with the daily trend behind it, taken once and held for days. Ibex is that trade, with the sizing and the exit the fast builds were missing.",
+      "tags": [
+        "gold",
+        "xau",
+        "xauusd",
+        "metals",
+        "precious-metals",
+        "commodity",
+        "commodities",
+        "breakout",
+        "donchian",
+        "channel-break",
+        "turtle",
+        "trend",
+        "trend-following",
+        "daily-trend-filter",
+        "atr",
+        "volatility-sized",
+        "single-asset",
+        "long-short",
+        "xyz",
+        "slow",
+        "beginner",
+        "onboarding",
+        "let-winners-run",
+        "dsl-only"
+      ],
+      "group": "single-asset",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "range_break",
+      "sub_style_label": "Buys/sells the break of a multi-day range.",
+      "asset_classes": [
+        "commodities"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "xyz:GOLD"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "starter",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 15,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 9
+    },
+    {
       "id": "iguana",
       "name": "Iguana — XYZ Macro Index Trend",
       "emoji": "🦎",
@@ -5834,17 +6073,17 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 10
     },
     {
       "id": "koala",
-      "name": "Koala — Set-and-Forget Trail HODL",
+      "name": "Koala — Trail HODL",
       "emoji": "🐨",
       "varies": null,
-      "tagline": "The simplest agent in the catalog: pick one asset (default BTC), fire LONG once on deploy, then hold with an ultra-wide DSL trail (max_loss 30%, retrace, 90-day timeout). No scoring, no scheduling — the choice to deploy Koala IS the bet.",
-      "belief_plain": "Trades only the one coin you pick (BTC by default). It buys once when you turn it on, then just holds — never adding, never trading around it — with a very wide safety stop that only releases on a catastrophic reversal or after three months. The whole idea is to own the coin and have a net under it.",
-      "version": "1.2.1",
-      "thesis": "Some users do not want a market-reading agent at all — they just want to own one asset and have a safety net. Koala is that answer in code: one asset, one entry, one stop. Fire-once by default (a true buy-and-forget), with an optional re-entry cycle for operators who want 'buy / DSL-exits / buy again' on a long cooldown.",
+      "tagline": "The simplest agent in the catalog: pick one asset (default BTC), go long at 2x on 40% of the wallet, and hold behind the widest stop in the catalog — 30% of margin, 15% of price — with a ratchet that only ever locks gains. No scoring, no scheduling; the choice to deploy Koala IS the bet. A week after a hold ends it buys again (set fireOnceMode for a true one-shot). Measured on two years of BTC, ETH and SOL: the median hold ran about three weeks and ended positive two times in three.",
+      "belief_plain": "Trades only the one coin you pick (BTC by default). It buys when you turn it on and holds — never adding, never trading around it — behind a wide safety stop that only releases on a 15% fall from your entry, and a trailing lock that banks part of a big run. When a hold ends, it waits a week and buys again, so the wallet stays invested; turn that off if you want one shot and nothing more. An entry only counts once it has actually filled, so a refused first order never leaves the wallet silent.",
+      "version": "2.0.0",
+      "thesis": "Some users do not want a market-reading agent at all — they want to own one asset with a net under it. Koala is that in code: one asset, one entry at a time, one wide stop, one ratchet. Measured on 112 weekly starts over two years of BTC, ETH and SOL, the stop the file used to carry (5% of price) ended half of all holds at a loss inside about eight days; the card's 30%-of-margin stop turns the median hold positive. Re-entry a week after each exit is what keeps the wallet in the market, since the ratchet's first rung ends most holds within a few weeks. Sized at 80% exposure, not more: a full-wallet 2x cycle drew down more than half the book.",
       "tags": [
         "btc",
         "single-asset",
@@ -5852,8 +6091,11 @@
         "buy-and-hold",
         "set-and-forget",
         "wide-dsl",
+        "re-entry",
+        "entry-on-fill",
         "onboarding",
-        "long-only"
+        "long-only",
+        "dsl-only"
       ],
       "group": "single-asset",
       "archetype": "single_market",
@@ -5873,7 +6115,7 @@
       "leverage_max": 3,
       "time_horizon": "position",
       "cadence_seconds": 1800,
-      "min_budget": 15,
+      "min_budget": 20,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
       "instance_count": 1,
@@ -5882,7 +6124,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 11
     },
     {
       "id": "kodiak",
@@ -5928,7 +6170,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "manta",
@@ -5984,7 +6226,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "polar",
@@ -6031,7 +6273,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 14
     },
     {
       "id": "ram",
@@ -6078,7 +6320,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 15
     },
     {
       "id": "stag",
@@ -6129,7 +6371,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 16
     },
     {
       "id": "terrapin",
@@ -6183,7 +6425,7 @@
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 17
     },
     {
       "id": "wolverine",
@@ -6231,7 +6473,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 17
+      "sort_order": 18
     },
     {
       "id": "hydra",
@@ -6782,51 +7024,6 @@
       "sort_order": 9
     },
     {
-      "id": "shadow",
-      "name": "Shadow — Multi-Trader Fresh-Entry Mirror",
-      "emoji": "🕶️",
-      "varies": null,
-      "tagline": "Watches a handful of vetted Hyperliquid traders and mirrors only the positions they NEWLY open — never inheriting a stale book mid-move — with a hard entry-slippage guard so you never chase a fill that already ran, plus budget-relative sizing with a min-notional floor.",
-      "belief_plain": "Instead of copying one trader's whole account — and inheriting trades already deep in profit or loss at a worse price than they got — Shadow watches two or three proven traders and only acts when one of them OPENS a brand-new position. It checks how far price has already moved from their entry and skips the trade if it is too late to get a comparable fill. It sizes each mirror to your budget with a floor so a position is never too small to matter, and it manages its own exit.",
-      "version": "2.1.0",
-      "thesis": "The failure mode of naive mirroring is entry drift: you inherit a book at a 1-5% worse price than the trader got, so the same trade is a loss for you. Shadow fires ONLY on fresh opens (a snapshot-diff against a seeded book, so nothing pre-existing is ever inherited), rejects any entry whose price has already run past a slippage cap, and can require multi-trader confirmation before committing size. You follow proven money at their price, not yesterday's book at yours. Leverage is capped, so a trader's 40x book becomes something survivable.",
-      "tags": [
-        "copy-trading",
-        "multi-trader",
-        "fresh-entry",
-        "mirror",
-        "entry-slippage-guard",
-        "smart-money",
-        "budget-relative"
-      ],
-      "group": "smart-money",
-      "archetype": "copy_trading",
-      "archetype_label": "Copy-Trader",
-      "sub_style": "fresh_entry_mirror",
-      "sub_style_label": "Mirrors only the FRESHLY-opened positions of a small vetted cohort — never inherits an existing book — with an entry-slippage guard so you don't chase a fill that already ran.",
-      "asset_classes": [
-        "universe_crypto"
-      ],
-      "asset_scope": "follows_traders",
-      "assets": [],
-      "direction": "long_short",
-      "risk_level": "moderate",
-      "tier": "advanced",
-      "leverage_max": 10,
-      "time_horizon": "swing",
-      "cadence_seconds": 120,
-      "min_budget": 40,
-      "wallet_count": 1,
-      "min_budget_binding_wallet": "main",
-      "instance_count": 1,
-      "funding_split": [
-        1.0
-      ],
-      "max_slots": 5,
-      "branch": "main",
-      "sort_order": 10
-    },
-    {
       "id": "signals-hunter",
       "name": "Signals Hunter — the Senpi Signals Feed, Traded",
       "emoji": "📡",
@@ -6872,6 +7069,56 @@
       "time_horizon": "swing",
       "cadence_seconds": 3600,
       "min_budget": 100,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 5,
+      "branch": "main",
+      "sort_order": 10
+    },
+    {
+      "id": "squid",
+      "name": "Squid — Live-Book Multi-Trader Fresh-Entry Mirror",
+      "emoji": "🦑",
+      "varies": null,
+      "tagline": "Watches a handful of vetted Hyperliquid traders and mirrors only the positions they NEWLY open, reading their books live off-chain so a mirror lands within two minutes of their fill — with a hard entry-slippage guard so you never chase a move that already ran, plus budget-relative sizing with a min-notional floor.",
+      "belief_plain": "Instead of copying one trader's whole account — and inheriting trades already deep in profit or loss at a worse price than they got — Squid watches up to ten proven traders and only acts when one of them OPENS a brand-new position. It reads their positions directly from the exchange every two minutes, so it sees a new trade almost as soon as they make it. It checks how far price has already moved from their entry and skips the trade if it is too late to get a comparable fill. It sizes each mirror to your budget with a floor so a position is never too small to matter, and it manages its own exit.",
+      "version": "1.0.0",
+      "thesis": "The failure mode of naive mirroring is entry drift: you inherit a book at a 1-5% worse price than the trader got, so the same trade is a loss for you. The second failure mode is latency — a mirror is only worth having if it sees the open while the price is still near the fill. Squid fires ONLY on fresh opens (a tick-to-tick diff against a seeded book, so nothing pre-existing is ever inherited), reads those books live from the exchange rather than from an index that trails the chain, rejects any entry whose price has already run past a slippage cap, and can require multi-trader confirmation before committing size. You follow proven money at their price, not yesterday's book at yours. Leverage is capped, so a trader's 40x book becomes something survivable.",
+      "tags": [
+        "copy-trading",
+        "multi-trader",
+        "fresh-entry",
+        "mirror",
+        "live-book",
+        "low-latency",
+        "entry-slippage-guard",
+        "smart-money",
+        "budget-relative"
+      ],
+      "group": "smart-money",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "fresh_entry_mirror",
+      "sub_style_label": "Mirrors only the FRESHLY-opened positions of a small vetted cohort — never inherits an existing book — with an entry-slippage guard so you don't chase a fill that already ran.",
+      "asset_classes": [
+        "universe_crypto",
+        "xyz_equities",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "follows_traders",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 120,
+      "min_budget": 40,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
       "instance_count": 1,

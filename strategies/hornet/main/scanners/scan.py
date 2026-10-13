@@ -84,7 +84,7 @@ _DEFAULT_SHORT_BREADTH = 0.35      # breadth <= this -> SHORT-only eligible
 _DEFAULT_MARGIN_PCT = 18           # flat marginPct base (PERCENT)
 _DEFAULT_LEVERAGE = 4
 _MIN_LEVERAGE = 1
-_MAX_LEVERAGE = 5
+_MAX_LEVERAGE = 5                  # DEFAULT ceiling; `maxLeverage` input raises it (see below)
 _DEFAULT_MAX_EMIT = 2              # emit the top 1-2 by score
 _DEFAULT_RECENT_TTL = 240         # race-window dedup (seconds)
 
@@ -275,8 +275,13 @@ def scan(inputs, ctx):
     if margin_pct < 1.0:
         margin_pct = margin_pct * 100
 
-    # leverage: clamp to [1,5].
-    leverage = min(lev_cfg, _MAX_LEVERAGE)
+    # leverage: clamp to [1, maxLeverage]. The ceiling is an INPUT with the old hardcoded 5 as its
+    # default, so an absent key is exactly the previous behaviour. It has to be configurable because
+    # the clamp is the real cap: `leverage: 10` against a hardcoded 5 sizes at 5 while every card
+    # claims 10, which is the dead-floor shape this tree was bitten by in #677. hornet-concentrated
+    # raises it to 10; hornet itself does not set it and stays at 5.
+    max_leverage = int(inputs.get("maxLeverage", _MAX_LEVERAGE))
+    leverage = min(lev_cfg, max_leverage)
     leverage = max(leverage, _MIN_LEVERAGE)
 
     account_value, positions = _get_account(ctx)

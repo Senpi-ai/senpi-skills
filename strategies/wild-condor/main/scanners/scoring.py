@@ -39,26 +39,27 @@ MIN_15M_VELOCITY = 0.1            # v2: v3.4 calibration (was 0.2 in v3.2)
 # MACRO TREND GATE — Wolverine's lesson (no fighting runaway trends)
 MACRO_GATE_THRESHOLD_PCT = 10.0
 
-# SM gates
+# PROVEN-COHORT GATES (replaced the 4h gain board, 2026-10-12)
 #
-# The v2 port gated `pct_of_top_traders_gain >= 70` under the name
-# MIN_SM_CONSENSUS_PCT, believing it was a "% of top traders leaning this way".
-# It is not: it is a share of TOTAL top-trader gain spread across every market
-# in the leaderboard response, so it sums to ~100 board-wide and no single
-# market can reach 70. That gate was unreachable and blocked 100% of signals.
+# condor used to take its DIRECTION from `leaderboard_get_markets` — the 4h
+# rolling gain board. That read is CIRCULAR: when a coin falls, every wallet
+# short it is mechanically at the top of the 4h board, so the board "confirms"
+# the very move it is being asked to confirm. The module's own docstring
+# conceded it was "a momentum read of who is winning right now, not a proven
+# cohort".
 #
-# Directional agreement now comes from `is_dominant_direction` (the field that
-# actually carries it). The gain share is kept as a separate CONCENTRATION
-# filter, on its own real scale.
+# Direction now comes from the 3TF price action, and confirmation comes from
+# HEADCOUNT among the proven cohort: the wallets with >= $1M LIFETIME realized
+# PnL, which is how senpi-signals defines smart money. Price cannot change how
+# many wallets hold a side, so the confirmation is independent of the move.
 #
-# CALIBRATION NOTE: the thresholds below are derived from a single live
-# leaderboard snapshot (2026-08-13, 271 markets; among the 12 with >=50 traders
-# the gain share ran max 25.6 / median 5.2 / min 1.2). They restore signal flow
-# but are NOT backtested — the strategy owner should tune them.
-REQUIRE_DOMINANT_DIRECTION = True  # `is_dominant_direction` must be true
-MIN_SM_GAIN_SHARE_PCT = 5.0        # concentration floor (~median of deep markets)
-STRONGLY_TILTED_PCT = 15.0         # top-tier concentration  (+4)
-CONVERGENT_PCT = 8.0               # mid-tier concentration   (+3)
+# The old gain-share thresholds are gone with it. They were never backtested —
+# derived from ONE live snapshot (2026-08-13, 271 markets) and the file said so.
+MIN_POSITIONED_COUNT = 10          # minimum proven wallets positioned in a coin
+MIN_COHORT_CONVICTION_PCT = 60.0   # the dominant side must hold >= this share
+STRONGLY_TILTED_CONVICTION_PCT = 80.0   # top-tier conviction  (+4)
+CONVERGENT_CONVICTION_PCT = 70.0        # mid-tier conviction  (+3)
+DEEP_CONSENSUS_COUNT = 50               # cohort depth bonus   (+1)
 
 # Score floor
 MIN_SCORE = 12                    # v2: v3.4 calibration
@@ -89,71 +90,63 @@ def get_sizing_for_score(score, tiers=None):
 # SIGNAL EVALUATION — preserved verbatim from v2 v3.4
 # ═══════════════════════════════════════════════════════════════
 
-def evaluate_trend_continuation(asset_info, sm, btc_macro, hour, inputs=None):
-    """Score an asset for trend-continuation apex setup.
+def evaluate_trend_continuation(asset_info, price_data, cohort, btc_macro, hour, inputs=None):
+    """Score an asset for a trend-continuation apex setup.
 
     `asset_info` = {coin, oi_usd, volume_24h, price, funding}
-    `sm`         = {direction, gain_share_pct, is_dominant, traders, p4h, p1h,
-                    c15m, c1h}
+    `price_data` = {p4h, p1h, c15m, c1h} — market data from leaderboard_get_markets
+    `cohort`     = {direction, long_count, short_count, total_positioned,
+                    conviction_pct}, or None if no proven wallet holds this coin
     `btc_macro`  = {direction, p4h} or None
     `hour`       = current UTC hour (caller owns the clock — keeps this pure)
 
-    Returns scored signal dict or None if any hard gate fails. Scoring tables and
-    bonus magnitudes are VERBATIM from v2; the smart-money gate is not — see the
-    MIN_SM_GAIN_SHARE_PCT block above for why the v2 threshold was unreachable.
-
-    The legacy `minSmConsensusPct` input is deliberately IGNORED: it was set to 70
-    on the wrong scale, and honouring a stale runtime.yaml carrying it would
-    re-brick the strategy. Use `minSmGainSharePct` instead."""
+    Direction is set by the 3TF price action and CONFIRMED by the proven cohort;
+    the cohort can only veto, never originate. Returns a scored signal dict, or
+    None if any hard gate fails. Scoring tables and bonus magnitudes are verbatim
+    from v2 apart from the concentration tier, which now reads cohort conviction
+    instead of the board's gain share."""
     inputs = inputs or {}
     min_score = float(inputs.get("minScore", MIN_SCORE))
-    min_gain_share = float(inputs.get("minSmGainSharePct", MIN_SM_GAIN_SHARE_PCT))
-    require_dominant = bool(inputs.get("requireDominantDirection",
-                                       REQUIRE_DOMINANT_DIRECTION))
-    min_traders = int(inputs.get("minTraderCount", MIN_TRADER_COUNT))
     min_4h = float(inputs.get("min4hMagnitude", MIN_4H_MAGNITUDE))
     min_1h = float(inputs.get("min1hMagnitude", MIN_1H_MAGNITUDE))
     min_15m = float(inputs.get("min15mVelocity", MIN_15M_VELOCITY))
     macro_gate = float(inputs.get("macroGateThresholdPct", MACRO_GATE_THRESHOLD_PCT))
-    strongly_tilted = float(inputs.get("stronglyTiltedPct", STRONGLY_TILTED_PCT))
-    convergent = float(inputs.get("convergentPct", CONVERGENT_PCT))
+    min_positioned = int(inputs.get("minPositionedCount", MIN_POSITIONED_COUNT))
+    min_cohort_conviction = float(inputs.get("minCohortConvictionPct",
+                                             MIN_COHORT_CONVICTION_PCT))
+    strongly_tilted = float(inputs.get("stronglyTiltedConvictionPct",
+                                       STRONGLY_TILTED_CONVICTION_PCT))
+    convergent = float(inputs.get("convergentConvictionPct", CONVERGENT_CONVICTION_PCT))
+    deep_consensus = int(inputs.get("deepConsensusCount", DEEP_CONSENSUS_COUNT))
 
     coin = asset_info["coin"]
-    sm_dir = sm["direction"]
-    if sm_dir not in ("LONG", "SHORT"):
-        return None
+    p4h = _f(price_data.get("p4h", 0))
+    p1h = _f(price_data.get("p1h", 0))
+    c15m = _f(price_data.get("c15m", 0))
 
-    # HARD GATE: smart money agrees on the direction
-    if require_dominant and not sm.get("is_dominant", False):
-        return None
-    # HARD GATE: this market carries a meaningful share of top-trader gain
-    if sm.get("gain_share_pct", 0.0) < min_gain_share:
-        return None
-    # HARD GATE: trader depth
-    if sm["traders"] < min_traders:
-        return None
-
-    p4h = sm["p4h"]
-    p1h = sm["p1h"]
-    c15m = sm["c15m"]
-
-    # HARD GATE: 3TF alignment (4h + 1h + 15m velocity)
-    if sm_dir == "LONG":
-        tf_ok = (p4h >= min_4h and
-                 p1h >= min_1h and
-                 c15m >= min_15m)
+    # HARD GATE: 3TF alignment — this is what DETERMINES the direction
+    if p4h >= min_4h and p1h >= min_1h and c15m >= min_15m:
+        sm_dir = "LONG"
+    elif p4h <= -min_4h and p1h <= -min_1h and c15m >= min_15m:
+        sm_dir = "SHORT"        # v2-quirk: velocity floor is the SAME sign for SHORT
     else:
-        tf_ok = (p4h <= -min_4h and
-                 p1h <= -min_1h and
-                 c15m >= min_15m)        # v2-quirk: velocity floor is the SAME sign for
-                                         # SHORT (c15m >= +floor), not mirrored. Preserved.
-    if not tf_ok:
         return None
 
     # HARD GATE: MACRO TREND (Wolverine's lesson)
     if sm_dir == "LONG" and p4h < -macro_gate:
         return None
     if sm_dir == "SHORT" and p4h > macro_gate:
+        return None
+
+    # HARD GATE: the proven cohort must hold this side, with depth and conviction
+    if not cohort:
+        return None
+    if cohort.get("total_positioned", 0) < min_positioned:
+        return None
+    if cohort.get("direction", "") != sm_dir:
+        return None
+    conviction = _f(cohort.get("conviction_pct", 0))
+    if conviction < min_cohort_conviction:
         return None
 
     # ─── SCORING (verbatim v2 tables) ───
@@ -196,25 +189,24 @@ def evaluate_trend_continuation(asset_info, sm, btc_macro, hour, inputs=None):
     score += 3
     reasons.append(f"3TF_ALIGNED_{sm_dir}")
 
-    # SM concentration tier. Tier boundaries rescaled onto the gain-share scale
-    # (v2 used 80/75 on the unreachable 0-100 "consensus" scale, so every scored
-    # candidate would have landed in the base +2 bucket). Tier magnitudes (+4/+3/+2)
-    # are unchanged, so the maximum score is still 19.
-    gain_share = sm.get("gain_share_pct", 0.0)
-    if gain_share >= strongly_tilted:
+    # Concentration tier — now the cohort's conviction (share of positioned proven
+    # wallets on the dominant side), not the board's gain share. Tier magnitudes
+    # (+4/+3/+2) are unchanged, so the maximum score is still 19.
+    if conviction >= strongly_tilted:
         score += 4
-        reasons.append(f"SM_STRONGLY_TILTED {gain_share:.1f}%")
-    elif gain_share >= convergent:
+        reasons.append(f"COHORT_STRONGLY_TILTED {conviction:.0f}%")
+    elif conviction >= convergent:
         score += 3
-        reasons.append(f"SM_CONVERGENT {gain_share:.1f}%")
+        reasons.append(f"COHORT_CONVERGENT {conviction:.0f}%")
     else:
         score += 2
-        reasons.append(f"SM_ALIGNED {gain_share:.1f}%")
+        reasons.append(f"COHORT_ALIGNED {conviction:.0f}%")
 
-    # Trader depth
-    if sm["traders"] >= 100:
+    # Cohort depth
+    total_pos = int(cohort.get("total_positioned", 0))
+    if total_pos >= deep_consensus:
         score += 1
-        reasons.append(f"DEEP_CONSENSUS ({sm['traders']}t)")
+        reasons.append(f"DEEP_CONSENSUS ({total_pos}t)")
 
     # Funding alignment
     funding = asset_info.get("funding", 0)
@@ -244,8 +236,8 @@ def evaluate_trend_continuation(asset_info, sm, btc_macro, hour, inputs=None):
         "p4h": p4h,
         "p1h": p1h,
         "c15m": c15m,
-        "sm_gain_share": gain_share,
-        "sm_traders": sm["traders"],
+        "cohort_conviction": conviction,
+        "cohort_positioned": total_pos,
         "oi_usd": asset_info["oi_usd"],
         "funding": asset_info.get("funding", 0),
     }
