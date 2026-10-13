@@ -2,19 +2,19 @@
 # A strategy is a PACKAGE: this manifest + one self-contained runtime.yaml + main/scanners/.
 # The runtime SUPERVISES the scanner's scan(inputs, ctx) in-process — there is no separate
 # scanner daemon. A faithful Runtime 3.0 port of the v2 Vulture producer (v4.2.0):
-# LONG_TAIL_MOMENTUM scoring over a 27-coin small-cap whitelist, conviction-scaled leverage,
-# DSL-only exits. Install/teardown via senpi-strategy-ops.
+# LONG_TAIL_MOMENTUM scoring over a 27-coin small-cap whitelist, 2.0.0 chart confirmation (50-day
+# trend, 15m direction, day range), 5x clamped to the venue, DSL-only exits. Install/teardown via senpi-strategy-ops.
 schema_version: 1
 
 id: vulture                  # == package dir name; == the instance runtime.yaml `group`
-version: "1.2.2"             # single source for catalog + MCP attribution (skillName/skillVersion)
+version: "2.0.0"             # single source for catalog + MCP attribution (skillName/skillVersion)
 
 catalog:                     # discovery surface. `group` here is the discovery TAXONOMY bucket.
   name: "Vulture — Small-Cap Momentum Rider"
   emoji: "🦅"
-  tagline: "Scans a whitelist of ~25 small/mid-cap Hyperliquid perps that no other agent covers (majors and XYZ are banned), and rides the 4h leaders' side: enters when the 4h leaders' concentration (the traders winning the last four hours on the board) aligns with a fresh 4h trend, the 1h confirms it isn't a false breakout, and 15m velocity is accelerating — then sizes leverage to conviction (5x, 7x apex), cuts losers fast and rides the right-tail winners for days on a trailing stop."
-  belief_plain: "Hunts the small coins the rest of the fleet ignores. It only buys (or shorts) one when the traders winning the last four hours are crowding in, the 4-hour trend agrees, the 1-hour isn't already rolling over, and short-term momentum is building — then goes in harder on the strongest setups and trails a stop. Most trades are tiny losses cut fast; the occasional big winner pays for everything."
-  thesis: "The biggest blind spot on Hyperliquid is the small/mid-cap long tail — every other agent is locked to the majors or a single asset, so nobody is reading the 4h leaders' flow on HEMI, WLD, XPL, AIXBT and the rest. Small caps have a thicker trader-count signal-to-noise ratio than the majors: when the 4h leaders' concentration on one (a momentum read of who is winning right now, not a proven cohort) aligns with a fresh 4h trend and accelerating 15m velocity, that's a momentum entry with a long right tail. A low win rate is fine when the winners are several times the size of the losers."
+  tagline: "Scans a whitelist of 27 small/mid-cap Hyperliquid perps (majors and XYZ are banned). The board picks the name and the side — the traders winning the last four hours crowding into one name while its 4h and 1h prices agree and its 15m contribution accelerates — and the chart confirms the timing: the price on the trade's side of its 50-day average, the 15-minute price already moving with the trade, and the price in the favourable half of the day's range. 5x, never above the venue's own cap for the name, nothing under a million dollars a day, a 3%-of-price stop and a trailing stop that only ever moves in your favour. Measured on 553 live signals: the board alone was fee-neutral, the confirmed entries made 0.85% a trade with 56% winners."
+  belief_plain: "Hunts the small coins most templates leave alone. It only buys (or shorts) one when the traders winning the last four hours are crowding in and the chart agrees three ways: the coin is on the right side of its 50-day average, the last fifteen minutes already moved the way it wants to trade, and the price sits in the better half of the day's range. Then it trails a stop. Most losers end at the stop, about 3% of price away; the winners run further than the losers, which is what pays. In a down month the longs get stopped — the wallet-wide 25% halt is the backstop. It is quiet from midnight to 4am UTC unless a setup is exceptional."
+  thesis: "The small/mid-cap long tail is where the 4h leaders' flow is loudest and least watched. The board's pick alone is not an edge after fees: measured on 553 live signals it was fee-neutral, and every entry taken against the 50-day trend lost. The edge is the board's pick WITH the chart's confirmation — trend side, 15-minute direction, position in the day's range — which turned the same signal stream into +0.85% a trade at a 1.6 profit factor. A long-right-tail momentum book: the exit is a ratchet, never a clock, so the occasional runner is allowed to pay for the stops."
   group: multi-asset-whitelist
   archetype: trend_following
   sub_style: basket
@@ -24,14 +24,14 @@ catalog:                     # discovery surface. `group` here is the discovery 
   risk_level: aggressive
   tier: advanced
   time_horizon: swing
-  leverage_max: 7
+  leverage_max: 5
   max_slots: 2
   assets:
     ["HYPE", "HEMI", "WLD", "MON", "XPL", "AIXBT", "ARB", "ASTER",
      "POLYX", "LDO", "APT", "DYDX", "ONDO", "SUI", "kBONK", "kPEPE",
      "TAO", "GRASS", "ZEC", "LIT", "FARTCOIN", "MORPHO", "NEAR", "INJ",
      "AVAX", "LINK", "DOGE"]
-  tags: [small-cap, momentum, leader-momentum, long-tail, whitelist, conviction-leverage, multi-asset]
+  tags: [small-cap, momentum, leader-momentum, long-tail, whitelist, multi-asset, chart-confirmed, trend-filter, venue-cap, volume-floor, dsl-only]
 
 requires:
   runtime: ">=3.0.0"

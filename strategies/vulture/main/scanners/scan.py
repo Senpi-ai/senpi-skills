@@ -1,23 +1,23 @@
-"""VULTURE — supervised scanner (Runtime 3.0 port of the v2 Long-Tail Momentum Rider).
+"""VULTURE — supervised scanner (Runtime 3.0 port of the v2 Long-Tail Momentum Rider; 2.0.0 adds the chart).
 
-Multi-asset. Reads smart-money positioning across the whole market via
-`leaderboard_get_markets`, scores each whitelist row through the pure
-`scoring.score_market` (LONG_TAIL_MOMENTUM: SM-concentration tier + 4h momentum +
-15m velocity + 1h acceleration + 4h continuation + trader depth + regime + funding
-persistence), and emits EVERY gated candidate — the runtime applies `slots`, owns
-the cooldowns/risk gates, and trails the DSL exit. No daemon, no push_signal.
+Multi-asset. Reads smart-money positioning across the whole market via `leaderboard_get_markets`,
+scores each whitelist row through the pure `scoring.score_market` (LONG_TAIL_MOMENTUM: SM-concentration
+tier + 4h momentum + 15m velocity + 1h acceleration + 4h continuation + trader depth + regime), then —
+2.0.0 — asks the chart to confirm every board-gated name through `scoring.confirm_candidate`: the
+50-day trend from closed daily candles, the 15-minute price moving with the trade, and the trailing
+24-hour range. Emits every confirmed candidate — the runtime applies `slots`, owns the cooldowns/risk
+gates, and trails the DSL exit. No daemon, no push_signal.
 
-Faithful port of vulture-producer.py v4.2.0:
-  - MIN_SCORE 10 (the v4.2.0 producer floor — culled 9->10 after a 100-trade analysis;
-    the task brief said "9" but PRODUCER thresholds win, copied verbatim — see runtime.yaml note)
-  - conviction-scaled leverage 5x (score 10) / 7x (score >=11)
-  - FP-001 quiet hours (00-04 UTC; apex score >=11 bypasses)
-  - whitelist of 27 small/mid-cap perps; BTC/ETH/SOL + XYZ banned
+Reads per tick: the board, the funding regime, the instrument list, the clearinghouse, and ONE
+`market_get_asset_data` (1d + 1h) per board-gated candidate — typically none to three. The per-name
+funding-history read of 1.x is gone (0 of 571 live emits ever carried a persistence value), which is
+what lets the cadence sit at 60 seconds: measured on the live signals, every minute between the signal
+and the fill cost about 0.05% of the entry (0.20% at five minutes).
 
-Every per-asset / optional MCP read is read-guarded: a transient or permission error
-on ONE enrichment fetch degrades that one asset (or the whole-tick shared context) to
-neutral; it never propagates and rolls back the whole tick (scan-contract.md: any
-unhandled exception in a tick rolls the WHOLE return back to [])."""
+Every MCP read is read-guarded: a transient or permission error on ONE read degrades that one asset (or
+the whole-tick shared context) to neutral; unreadable candles fail CLOSED for that name (its trend cannot
+be read, so it is not traded this tick); nothing propagates and rolls back the whole tick
+(scan-contract.md: any unhandled exception in a tick rolls the WHOLE return back to [])."""
 
 import sys
 import time
@@ -25,18 +25,21 @@ import time
 import scoring
 
 _DEFAULT_TTL = 14400          # 240m — mirror the v2 per-asset cooldown (anti re-fire)
-# Conviction-scaled leverage — small caps capped at 7x (low-liq slippage).
-# Ported verbatim from v2 SIZING_TIERS (v4.2.0). # v2-quirk: floor tier is score 10.
+# Leverage tiers — kept for configuration compatibility; both 5x since 1.3.0 (the 7x apex tier was the
+# worst live bucket: score 11 ran a profit factor of 0.31 against 0.90 for score 10).
 _DEFAULT_TIERS = [
-    {"min_score": 11, "leverage": 7, "label": "apex"},        # score 11-12: the right tail
-    {"min_score": 10, "leverage": 5, "label": "conviction"},  # score 10: the floor tier (best bucket)
+    {"min_score": 11, "leverage": 5, "label": "apex"},
+    {"min_score": 10, "leverage": 5, "label": "conviction"},
 ]
+_DEFAULT_MAX_LEVERAGE = 5     # package cap; the venue's own max per name clamps below it
+_DEFAULT_VOL_FLOOR = 1_000_000  # USD/day — a name thinner than this is skipped
+_CANDLE_INTERVALS = ["1d", "1h"]   # the trend (50 closed days of 91) and the 24h range (of 7 days)
 
 
 def _read(ctx, name, args):
     """Guarded MCP read: a transient/permission error on a read must NOT roll back the
     whole tick. Returns None on failure so the existing degrade paths apply (regime ->
-    None, persistence -> None, held -> [])."""
+    None, held -> [], candles -> None = that name is skipped this tick)."""
     try:
         return ctx.senpi_mcp.call_tool(name, args)
     except Exception as exc:  # noqa: BLE001
@@ -68,19 +71,44 @@ def _funding_regime(ctx):
     return None
 
 
-def _funding_persistence(ctx, asset):
-    """market_get_funding_history -> persistence_hours float or None."""
-    fh = _read(ctx, "market_get_funding_history", {"asset": asset})
-    if not fh:
+def _instruments(ctx):
+    """market_list_instruments (main DEX) -> {NAME_UPPER: {max_leverage, day_ntl_vlm, delisted}}, or {} on
+    failure. One read per tick feeds the venue leverage clamp and the daily-volume floor (1.3.0).
+    `max_leverage` is a top-level instrument field; `dayNtlVlm` sits under `context` (verified live
+    2026-10-12). Degrades to {} — the scan then runs without the clamp/floor and says so."""
+    raw = _read(ctx, "market_list_instruments", {})
+    if not isinstance(raw, dict):
+        return {}
+    data = raw.get("data", raw)
+    rows = data.get("instruments", []) if isinstance(data, dict) else data
+    out = {}
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict) or not r.get("name"):
+            continue
+        ctxb = r.get("context") if isinstance(r.get("context"), dict) else {}
+        max_lev = scoring.safe_float(r.get("max_leverage"), 0.0)
+        out[str(r["name"]).upper()] = {
+            "max_leverage": max_lev if max_lev > 0 else None,
+            "day_ntl_vlm": scoring.safe_float(ctxb.get("dayNtlVlm"), 0.0),
+            "delisted": bool(r.get("is_delisted", False)),
+        }
+    return out
+
+
+def _candles(ctx, asset):
+    """market_get_asset_data (1d + 1h) for one board-gated candidate -> {"1d": [...], "1h": [...]} or None.
+    Read-guarded and type-guarded; None means the chart could not be read and the name is skipped."""
+    md = _read(ctx, "market_get_asset_data", {
+        "asset": asset, "candle_intervals": list(_CANDLE_INTERVALS),
+        "include_funding": False, "include_order_book": False,
+    })
+    if not isinstance(md, dict) or md.get("success") is False:
         return None
-    data = fh.get("data", fh) if isinstance(fh, dict) else fh
-    if isinstance(data, dict):
-        ph = data.get("persistence_hours")
-        try:
-            return float(ph) if ph is not None else None
-        except (TypeError, ValueError):
-            return None
-    return None
+    d = md.get("data", md)
+    if not isinstance(d, dict):
+        return None
+    candles = d.get("candles", {})
+    return candles if isinstance(candles, dict) and candles else None
 
 
 def _held_assets(ctx):
@@ -117,7 +145,11 @@ def _held_assets(ctx):
 def scan(inputs, ctx):
     whitelist = inputs.get("whitelist", scoring.DEFAULT_WHITELIST)
     tiers = inputs.get("leverageTiers", _DEFAULT_TIERS)
-    margin_pct = float(inputs.get("marginPct", 45))    # PERCENT of withdrawable (0,100], not a fraction
+    margin_pct = float(inputs.get("marginPct", 40))    # PERCENT of withdrawable (0,100], not a fraction
+    if 0 < margin_pct < 1.0:                           # a pasted fraction (0.40 meant 40)
+        margin_pct *= 100.0
+    lev_cap = float(inputs.get("maxLeverage", _DEFAULT_MAX_LEVERAGE))
+    vol_floor = float(inputs.get("minDayNtlVlmUsd", _DEFAULT_VOL_FLOOR))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
     now = time.time()
     hour = time.gmtime(now).tm_hour
@@ -143,12 +175,13 @@ def scan(inputs, ctx):
 
     # Whole-tick shared context — enriched once, each read degrades to neutral.
     regime = _funding_regime(ctx)
+    instruments = _instruments(ctx)
+    if not instruments:
+        print("[vulture.scan] WARNING: market_list_instruments unreadable — no venue leverage clamp "
+              "and no volume floor this tick (package cap still applies)", file=sys.stderr)
     held_assets = _held_assets(ctx)
     held_upper = {h.upper() for h in held_assets}
     wl_upper = {t.upper() for t in whitelist}
-
-    # Lazy per-asset persistence: only fetch for whitelist rows actually present.
-    persistence_map = {}
 
     candidates = []
     for m in markets:
@@ -166,11 +199,24 @@ def scan(inputs, ctx):
                 break
         if matched is None:
             continue
-        if matched not in persistence_map:
-            persistence_map[matched] = _funding_persistence(ctx, matched)
+        info = instruments.get(token_raw)
+        if instruments and info is None:                  # the venue does not list it (today) — skip
+            continue
+        if info and info.get("delisted"):
+            continue
+        if info and vol_floor > 0 and info["day_ntl_vlm"] < vol_floor:
+            continue                                      # thinner than the daily-volume floor
 
-        c = scoring.score_market(m, regime, persistence_map, whitelist, tiers, inputs)
+        try:
+            # persistence_map is empty by design (2.0.0): the funding-history read never carried a value.
+            c = scoring.score_market(m, regime, {}, whitelist, tiers, inputs)
+        except Exception as exc:  # noqa: BLE001 — one malformed board row must not end the tick
+            print(f"[vulture.scan] WARNING: score_market({token_raw}) failed: {exc!r}", file=sys.stderr)
+            continue
         if c is not None:
+            c["leverage"] = scoring.clamp_leverage(c["leverage"], lev_cap, info.get("max_leverage") if info else None)
+            c["venue_max_leverage"] = info.get("max_leverage") if info else None
+            c["day_ntl_vlm"] = info.get("day_ntl_vlm") if info else None
             candidates.append(c)
 
     if not candidates:
@@ -193,17 +239,31 @@ def scan(inputs, ctx):
         return []
 
     out = []
+    rejected = {}
     for c in candidates:
         cu = c["asset"].upper()
         if cu in held_upper:                              # already holding — skip
             continue
         if recent.get(cu) is not None and (now - recent[cu]) < ttl:   # signal-dedup
             continue
+        # 2.0.0 — the chart confirms the board: one candle read per board-gated name, never per whitelist name.
+        candles = _candles(ctx, c["asset"])
+        if candles is None:
+            rejected[c["asset"]] = "CANDLES_UNREADABLE"
+            print(f"[vulture.scan] SKIP {c['asset']} {c['direction']}: candles unreadable — the trend "
+                  f"cannot be read, so the name is not traded this tick", file=sys.stderr)
+            continue
+        ok, why, chart = scoring.confirm_candidate(c, candles, inputs, now)
+        if not ok:
+            rejected[c["asset"]] = why.split(" ", 1)[0]
+            print(f"[vulture.scan] SKIP {c['asset']} {c['direction']} score={c['score']}: {why}", file=sys.stderr)
+            continue
+        reasons = list(c["reasons"]) + [why]
         out.append({
             "asset": c["asset"],
             "direction": c["direction"],
             "marginPct": margin_pct,          # SIZING INTENT (PERCENT) — runtime sizes the dollars
-            "leverage": c["leverage"],        # conviction-tiered (5/7); runtime applies it
+            "leverage": c["leverage"],        # 5x, clamped to the venue cap for this name; runtime applies it
             # `required: false` in signal_data_schema permits an ABSENT key, never a present-and-null:
             # the intake discards the WHOLE candidate on a null optional. Drop them here rather than
             # coercing to 0/"" — a coerced value would assert a measurement that was never taken.
@@ -212,7 +272,7 @@ def scan(inputs, ctx):
                 "tier": c["tier_label"],
                 "leverage": c["leverage"],
                 "direction": c["direction"],
-                "reasons": c["reasons"],
+                "reasons": reasons,
                 "smPct": c["sm_pct"],
                 "smTraders": c["sm_traders"],
                 "priceChange4hPct": c["p4h"],
@@ -222,16 +282,20 @@ def scan(inputs, ctx):
                 "contribChange1h": c["c1h"],
                 "contribChange4h": c["c4h"],
                 "fundingRegime": c["regime"],
-                "persistenceHours": c["persistence_hours"],
+                "venueMaxLeverage": c.get("venue_max_leverage"),
+                "dayVolumeUsd": c.get("day_ntl_vlm"),
+                "trendRegime": chart.get("trend_regime"),
+                "trendSma": chart.get("sma"),
+                "rangePos24h": chart.get("range_pos"),
             }.items() if v is not None},
         })
         recent[cu] = now
 
     print(f"[vulture.scan] EMIT {len(out)}/{len(candidates)} | scanned={len(markets)} "
-          f"best={best_score} regime={regime} | "
+          f"best={best_score} regime={regime} rejected={rejected} | "
           f"{[(o['asset'], o['direction'], o['data']['score'], o['leverage']) for o in out]}",
           file=sys.stderr)
     _persist({"ts": now, "scanned": len(markets), "candidates": len(candidates),
-              "emitted": len(out), "gate": "emit", "best_score": best_score, "regime": regime,
-              "assets": [o["asset"] for o in out]})
+              "emitted": len(out), "gate": "emit" if out else "chart_rejected", "best_score": best_score,
+              "regime": regime, "rejected": rejected, "assets": [o["asset"] for o in out]})
     return out
