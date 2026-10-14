@@ -84,7 +84,13 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # Both raises above landed the same day and are additive: 345 -> 351 (frequency) -> 357
 # (concentration). Each rule is one paragraph in the body, each gates a money move, and each
 # keeps its depth in a reference rather than here.
-BODY_BUDGET = {"senpi-strategy-ops": 357, "senpi-strategy-author": 430}
+# ops 357 -> 364 (2026-10-13): "close.py is never a repair" — what "relaunch" / "restart" map to, which
+# verify steps need a yes, and what counts as consent to a close. Resident AND in the head: OpenClaw's `read`
+# keeps ~11,800 chars of head and <=4,000 of tail and drops the middle, and an agent told to "relaunch" got a
+# tail that defined "Redeploy" as close → create, so it closed both wallets and funded new ones. Each head
+# line pushes a line of Step 0.75 out of what `read` delivers; fitting the body to that cut means moving
+# the middle sections into references/, which CloseIsNeverARepair does not do — it pins this rule only.
+BODY_BUDGET = {"senpi-strategy-ops": 364, "senpi-strategy-author": 430}
 
 
 def _skill_body(path):
@@ -278,10 +284,6 @@ class ReferencePointersResolve(unittest.TestCase):
                                     f"{skill}/SKILL.md links to missing {target}")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class CronCostArithmeticAgreesEverywhere(unittest.TestCase):
     """The cron-cost rule is repeated per skill ON PURPOSE — skills load independently, so text absent
     from one skill does not exist for an agent working there. The price is that a correction has to
@@ -462,3 +464,44 @@ class NoCommittedConflictMarkers(unittest.TestCase):
                 # a duplicate key parses to ONE value, so count the raw lines too
                 n = len(re.findall(r"^\s*version:", m.group(1), re.M))
                 self.assertEqual(n, 1, f"{rel} declares `version:` {n} times in its frontmatter")
+
+
+class CloseIsNeverARepair(unittest.TestCase):
+    """A close market-exits the book and the deploy after it funds a NEW wallet, so "relaunch" / "restart" /
+    "redeploy" map to the read-only verify, and nothing else in the body may make those words a close. The
+    whole rule must also reach the agent: OpenClaw's `read` caps a tool result at 16,000 chars, keeping
+    ~11,800 of head and <=4,000 of tail (openclaw 2026.6.9 `truncateToolResultText`). On 2026-10-12 an
+    agent got lines 1-139 + 351-386 of this file; the tail defined "Redeploy" as validate → close → create,
+    and told to relaunch, it closed both wallets and funded new ones."""
+
+    HEAD_CHARS = 11_000   # under the ~11,800 OpenClaw keeps, so a filling head fails here first
+
+    def _rule(self):
+        body = _skill_body(OPS)
+        start = body.find("**`close.py` is never a repair.**")
+        self.assertNotEqual(start, -1, "the close-is-never-a-repair rule is gone from the ops body")
+        return body[start:body.index("\n\n", start)]
+
+    def test_the_whole_rule_is_in_the_head_openclaw_delivers(self):
+        rule = self._rule()
+        end = OPS.read_text().index(rule) + len(rule)
+        self.assertLess(end, self.HEAD_CHARS, f"the rule's paragraph ends at char {end}, past what "
+                        f"OpenClaw's `read` delivers — move it up, or move head content into references/")
+
+    def test_it_maps_the_words_and_gates_every_money_step(self):
+        rule = self._rule()
+        for phrase in ('"Relaunch", "restart", "redeploy"', "deploy.py verify", "Close only on", '"stop"'):
+            self.assertIn(phrase, rule)
+        # The label the rule says needs a yes is the one verify prints on its money-moving steps.
+        self.assertIn("RUNS THE DEPLOY VERB", rule)
+        self.assertIn("RUNS THE DEPLOY VERB", (OPS.parent / "scripts" / "deploy.py").read_text())
+
+    def test_no_other_line_makes_redeploy_a_close(self):
+        body = _skill_body(OPS).lower()
+        self.assertEqual(body.count("redeploy"), self._rule().lower().count("redeploy"),
+                         '"redeploy" is the user\'s word for relaunch (→ verify); name the close-and-new-'
+                         'wallet path in other words')
+
+
+if __name__ == "__main__":
+    unittest.main()
