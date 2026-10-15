@@ -200,8 +200,7 @@ For each: ask the question, offer the options as plain choices, then map the ans
    involved a cohort, leaderboard, or "rotate/refresh."
 7. **Exit & Risk — "How should it exit, and what's the risk appetite?"** Offer the DSL presets:
    `let_winners_run` (wide; rides to +100%, protect both sides) · `balanced` (default) ·
-   Pick by horizon, not the default — `references/time-cuts-by-horizon.md`.
-   `mean_reversion` (tight, locks early — for faders) · `scalp` (HFT) · `parabolic_runner` (scalpel).
+   `mean_reversion` (tight, locks early — for faders) · `scalp` (HFT) · `parabolic_runner` (scalpel). Pick by horizon, not the default: `references/time-cuts-by-horizon.md`.
    Then set guard rails (`drawdown_halt_pct`, `daily_loss_limit_pct`) sized to the style, and cadence
    (`interval_seconds`). **Never hand-roll stops — copy a preset from
    `senpi-strategy-author/references/dsl-presets.yaml`** (full path — it lives in THIS skill, not the
