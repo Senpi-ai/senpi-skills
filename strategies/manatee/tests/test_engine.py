@@ -21,12 +21,13 @@ def _bar(t, px):
     return {"t": t, "o": str(px), "h": str(px), "l": str(px), "c": str(px), "v": "1000.0"}
 
 
-def _flat(n=20, px=100.0):
+def _flat(n=70, px=100.0):
     return [_bar(i, px) for i in range(n)]
 
 
-def _closed(px, n=20):
-    """n flat closed bars at 100 then one closed bar at px."""
+def _closed(px, n=70):
+    """n flat closed bars at 100 then one closed bar at px. n clears minHistoryBars (60): a name
+    with less history than that is not judged at all."""
     return _flat(n) + [_bar(n, px)]
 
 
@@ -97,9 +98,11 @@ class _State:
 
 
 class _Mcp:
-    def __init__(self, held, px, listed=("BTC", "DOT", "UNI", "SOL"), account=10_000.0, bar_t=20,
-                 margin_used=None):
+    def __init__(self, held, px, listed=("BTC", "DOT", "UNI", "SOL"), account=10_000.0, bar_t=70,
+                 margin_used=None, oi=None):
         self.held, self.px, self.listed, self.account, self.bar_t = held, px, listed, account, bar_t
+        # OI per name, descending in the order given, so derive_universe's ranking is deterministic
+        self.oi = oi or {n: 9e8 - i for i, n in enumerate(listed)}
         self.margin_used = margin_used or {}   # name -> marginUsed, so a position can be shown at a
                                                # size this scanner never emitted (a double fill)
 
@@ -113,23 +116,28 @@ class _Mcp:
                                                  "marginUsed": str(self.margin_used.get(c, 100.0))}}
                                    for c, (sz, e) in self.held.items()]}}}
         if name == "market_list_instruments":
-            return {"data": {"instruments": [{"name": n, "is_delisted": False} for n in self.listed] + [{"name": "XRP", "is_delisted": True}]}}
+            rows = [{"name": n, "is_delisted": False,
+                     "context": {"openInterest": str(self.oi.get(n, 9e8)), "markPx": "1.0"}}
+                    for n in self.listed]
+            rows.append({"name": "XRP", "is_delisted": True,
+                         "context": {"openInterest": "9e8", "markPx": "1.0"}})
+            return {"data": {"instruments": rows}}
         if name == "market_get_asset_data":
             px = self.px.get(args["asset"], 100.0)
-            closed = _flat(20) + [_bar(self.bar_t, px)]
+            closed = _flat(70) + [_bar(self.bar_t, px)]   # 71 closed bars clears minHistoryBars
             return {"data": {"candles": {args["candle_intervals"][0]: closed + [_bar(self.bar_t + 1, 100.0)]}}}   # last = in progress
         return None
 
 
-def _ctx(held, px, state=None, listed=("BTC", "DOT", "UNI", "SOL"), account=10_000.0, bar_t=20,
-         margin_used=None):
-    return types.SimpleNamespace(senpi_mcp=_Mcp(held, px, listed, account, bar_t, margin_used),
+def _ctx(held, px, state=None, listed=("BTC", "DOT", "UNI", "SOL"), account=10_000.0, bar_t=70,
+         margin_used=None, oi=None):
+    return types.SimpleNamespace(senpi_mcp=_Mcp(held, px, listed, account, bar_t, margin_used, oi),
                                  state=state or _State(), wallet="0xwallet")
 
 
 def test_scan_opens_both_sides_on_the_closed_bar_and_skips_the_band_and_delisted_names():
-    inputs = {**INPUTS, "universe": ["BTC", "DOT", "UNI", "SOL", "XRP"]}
-    out = scan.scan(inputs, _ctx({}, {"DOT": 94.0, "UNI": 106.5, "BTC": 98.0, "SOL": 93.0, "XRP": 90.0}))
+    out = scan.scan(INPUTS, _ctx({}, {"DOT": 94.0, "UNI": 106.5, "BTC": 98.0, "SOL": 93.0, "XRP": 90.0},
+                                listed=("BTC", "DOT", "UNI", "SOL")))
     got = {o["asset"]: (o["direction"], o["marginPct"], o["leverage"], o["data"]["kind"]) for o in out}
     assert got == {"DOT": ("LONG", CLIP, 1, "entry"), "UNI": ("SHORT", CLIP, 1, "entry"), "SOL": ("LONG", CLIP, 1, "entry")}
     for o in out:
@@ -217,25 +225,24 @@ def test_scan_stops_when_free_margin_is_exhausted_and_serves_the_deepest_stretch
     """Serving `universe` in order meant the names typed first were funded on every tight day and
     the tail never was — a fixed bias, not a tie-break. SOL is 7% from its mean, DOT 6%, UNI 6.5%:
     one clip of budget buys SOL."""
-    inputs = {**INPUTS, "freeMarginHeadroom": 1.2 * CLIP / 100.0, "universe": ["DOT", "UNI", "SOL"]}
-    out = scan.scan(inputs, _ctx({}, {"DOT": 94.0, "UNI": 106.5, "SOL": 93.0}))
+    inputs = {**INPUTS, "freeMarginHeadroom": 1.2 * CLIP / 100.0}
+    out = scan.scan(inputs, _ctx({}, {"DOT": 94.0, "UNI": 106.5, "SOL": 93.0}, listed=("DOT", "UNI", "SOL")))
     assert [o["asset"] for o in out] == ["SOL"]
 
 
 def test_the_last_slot_goes_to_the_deepest_stretch_not_the_first_in_the_list():
     """Same ordering guarantee on slots rather than margin."""
-    inputs = {**INPUTS, "maxSlots": 1, "universe": ["DOT", "UNI", "SOL"]}
-    out = scan.scan(inputs, _ctx({}, {"DOT": 94.0, "UNI": 106.5, "SOL": 93.0}))
+    inputs = {**INPUTS, "maxSlots": 1}
+    out = scan.scan(inputs, _ctx({}, {"DOT": 94.0, "UNI": 106.5, "SOL": 93.0}, listed=("DOT", "UNI", "SOL")))
     assert [o["asset"] for o in out] == ["SOL"]
 
 
 def test_a_name_skipped_for_margin_is_retried_rather_than_marked_judged():
-    inputs = {**INPUTS, "freeMarginHeadroom": 1.2 * CLIP / 100.0, "universe": ["DOT", "SOL"]}
+    inputs = {**INPUTS, "freeMarginHeadroom": 1.2 * CLIP / 100.0}
     st = _State()
-    assert [o["asset"] for o in scan.scan(inputs, _ctx({}, {"DOT": 94.0, "SOL": 93.0}, st))] == ["SOL"]
+    assert [o["asset"] for o in scan.scan(inputs, _ctx({}, {"DOT": 94.0, "SOL": 93.0}, st, listed=("DOT", "SOL")))] == ["SOL"]
     assert "DOT" not in st.last()["acted"]          # not judged — it never got a decision
-    rich = {**INPUTS, "universe": ["DOT", "SOL"]}
-    assert "DOT" in [o["asset"] for o in scan.scan(rich, _ctx({"SOL": (10, 93.0)}, {"DOT": 94.0}, st))]
+    assert "DOT" in [o["asset"] for o in scan.scan(INPUTS, _ctx({"SOL": (10, 93.0)}, {"DOT": 94.0}, st, listed=("DOT", "SOL")))]
 
 
 def test_a_round_trip_counts_the_builder_fee_on_both_legs():
@@ -250,3 +257,63 @@ def test_the_drawdown_halt_sits_beyond_the_worst_replayed_drawdown():
     """-26.1% (Jul 2024 - Jun 2025, 4h-close arming) is the worst the replay produced. The halt is
     LATCHED, so one set inside that range does not shade the result — it ends the run."""
     assert float(_RT["risk"]["guard_rails"]["drawdown_halt_pct"]) > 26.1
+
+
+# ── the universe is read off the venue, not typed ──
+
+def test_derive_universe_ranks_by_open_interest_and_applies_the_floor():
+    insts = {"BTC": {"venue_name": "BTC", "oi_usd": 3.2e9, "delisted": False},
+             "DOT": {"venue_name": "DOT", "oi_usd": 5e6, "delisted": False},     # under the floor
+             "SOL": {"venue_name": "SOL", "oi_usd": 5.9e8, "delisted": False},
+             "DEAD": {"venue_name": "DEAD", "oi_usd": 9e9, "delisted": True}}
+    assert scan.derive_universe(insts, 5e7, 24) == ["BTC", "SOL"]
+    assert scan.derive_universe(insts, 5e7, 1) == ["BTC"]
+    assert scan.derive_universe(insts, 0, 24) == ["BTC", "SOL", "DOT"]           # no floor: all live
+
+
+def test_derive_universe_returns_the_venues_own_spelling():
+    """kSHIB does not survive upper(), and `asset` is what the order carries — returning the KEY
+    would emit KSHIB and be refused as an unknown asset."""
+    insts = {"KSHIB": {"venue_name": "kSHIB", "oi_usd": 9e8, "delisted": False}}
+    assert scan.derive_universe(insts, 5e7, 24) == ["kSHIB"]
+
+
+def test_derive_universe_excludes_the_equities_book():
+    insts = {"BTC": {"venue_name": "BTC", "oi_usd": 3e9, "delisted": False},
+             "XYZ:NVDA": {"venue_name": "xyz:NVDA", "oi_usd": 9e9, "delisted": False}}
+    assert scan.derive_universe(insts, 5e7, 24) == ["BTC"]
+
+
+def test_an_unreadable_instrument_list_trades_nothing_rather_than_an_unvetted_board():
+    """None and {} are opposite facts once the universe is derived from the read."""
+    ctx = _ctx({}, {"DOT": 94.0})
+    real = ctx.senpi_mcp.call_tool
+    ctx.senpi_mcp.call_tool = lambda n, a: (None if n == "market_list_instruments" else real(n, a))
+    assert scan.scan(INPUTS, ctx) == []
+
+
+def test_a_name_under_the_floor_is_not_opened_but_a_held_one_is_still_managed():
+    """The floor selects what to START. A position already on keeps its adds — the DSL owns its
+    exit, and dropping it from scope would only stop it being scaled."""
+    thin = {"DOT": 5e6, "SOL": 9e8}
+    assert [o["asset"] for o in scan.scan(INPUTS, _ctx({}, {"DOT": 94.0, "SOL": 93.0},
+                                                       listed=("DOT", "SOL"), oi=thin))] == ["SOL"]
+    st = _State()
+    st.append({"acted": {}, "entries": {"DOT": {"px": 94.0, "adds": 0, "side": "LONG", "t": 0}}})
+    out = scan.scan(INPUTS, _ctx({"DOT": (10, 94.0)}, {"DOT": 91.0}, st, listed=("DOT", "SOL"), oi=thin))
+    assert [o["asset"] for o in out] == ["DOT"] and out[0]["data"]["kind"] == "add"
+
+
+def test_a_freshly_listed_name_is_not_judged_until_it_has_history():
+    """minHistoryBars: the venue-wide measurement behind the OI floor excluded late listings, and
+    they underperformed by about 17% — so a name the measurement never saw is not traded."""
+    short = _ctx({}, {"DOT": 94.0}, listed=("DOT",))
+    short.senpi_mcp.bar_t = 20
+    real = short.senpi_mcp.call_tool
+
+    def few(n, a):
+        if n == "market_get_asset_data":
+            return {"data": {"candles": {a["candle_intervals"][0]: _flat(20) + [_bar(20, 94.0), _bar(21, 100.0)]}}}
+        return real(n, a)
+    short.senpi_mcp.call_tool = few
+    assert scan.scan(INPUTS, short) == []

@@ -80,17 +80,62 @@ def _account(ctx):
     return held, free, account_value
 
 
-def _listed(ctx):
-    """Bare-upper names currently listed and not delisted, or None if unreadable."""
-    data = _read(ctx, "market_list_instruments", {}, "market_list_instruments(main)")
-    insts = data.get("instruments") if isinstance(data, dict) else data
-    if not isinstance(insts, list):
+def _instruments(ctx):
+    """market_list_instruments -> {NAME_UPPER: {venue_name, oi_usd, delisted}}, or None on FAILURE.
+
+    None and {} are opposite facts once the universe is DERIVED from this read: "unreadable" must
+    trade nothing, "the venue lists nothing" would too, but collapsing both to {} would silently
+    trade an unvetted board. One read per tick feeds both the universe and the delisted check.
+
+    `openInterest` and `markPx` sit under `context`; oi_usd is their product.
+    """
+    data = _read(ctx, "market_list_instruments", {}, "market_list_instruments")
+    rows = data.get("instruments") if isinstance(data, dict) else data
+    if not isinstance(rows, list):
         return None
-    out = set()
-    for inst in insts:
-        if isinstance(inst, dict) and inst.get("name") and not inst.get("is_delisted"):
-            out.add(_bare(inst["name"]))
+    out = {}
+    for r in rows:
+        if not isinstance(r, dict) or not r.get("name"):
+            continue
+        c = r.get("context") if isinstance(r.get("context"), dict) else {}
+        out[str(r["name"]).upper()] = {
+            # the venue's OWN spelling: kSHIB/kBONK do not survive upper(), and `asset` is what the
+            # order carries, so a derived universe returning the KEY would emit KSHIB and be refused
+            "venue_name": str(r["name"]),
+            "oi_usd": scoring._f(c.get("openInterest")) * scoring._f(c.get("markPx")),
+            "delisted": bool(r.get("is_delisted", False)),
+        }
     return out
+
+
+def derive_universe(instruments, oi_floor, max_names):
+    """The liquid board, read off the venue instead of hand-listed: every listed perp above an
+    open-interest floor, ranked by OI and capped. Pure — the caller owns the read.
+
+    WHY THIS REPLACED THE 19-NAME LIST. The list was the Growi HF vault's, and the vault trades it
+    because it runs $13.8M and needs the depth — a constraint that is theirs, not a user's at $825.
+    Measured venue-wide over 178 days (15,000 signals, 250 assets), the reversion this strategy
+    harvests is NOT a large-cap property: the >=$200M-OI bucket had the LOWEST harvest rate (58.4%
+    reaching +3% within 7 days), the highest stop rate and the only negative fav/adverse skew
+    (-0.92), while $10-50M returned +0.64 and the 47 liquid names the list excludes returned +0.94.
+    The hand list was the single worst universe available for this rule. A same-size derived set
+    (OI >= $50M, 20-21 names) flips the skew from -0.75 to +0.09.
+
+    It had also rotted in the usual way: at the time of writing only 9 of the 19 cleared the floor
+    — DOT sat at $5M of OI, kSHIB at $3M, BCH at $8M.
+
+    xyz: names are excluded — equities are a different book with a different session and clock.
+    """
+    out = []
+    for name, info in (instruments or {}).items():
+        if info.get("delisted") or ":" in name:
+            continue
+        oi = scoring._f(info.get("oi_usd"))
+        if oi_floor > 0 and oi < oi_floor:
+            continue
+        out.append((info.get("venue_name") or name, oi))
+    out.sort(key=lambda kv: -kv[1])
+    return [n for n, _ in (out[:max_names] if max_names > 0 else out)]
 
 
 def _closed_candles(ctx, name, interval):
@@ -118,8 +163,8 @@ def scan(inputs, ctx):
     now = time.time()
     today = time.strftime("%Y-%m-%d", time.gmtime(now))
     max_slots = int(scoring._f(inputs.get("maxSlots"), 19))
-    universe = [str(x) for x in (inputs.get("universe") or [])]
     interval = str(inputs.get("candleInterval") or "1d")
+    min_history = int(scoring._f(inputs.get("minHistoryBars"), 60))
     max_adds = int(scoring._f(inputs.get("maxAddsPerAsset"), 1))
     add_step = scoring._f(inputs.get("addStepPct"), 3.0) / 100.0
     cap_mgn = scoring._f(inputs.get("maxMarginPctPerAsset"), 3.0)
@@ -135,7 +180,19 @@ def scan(inputs, ctx):
         print("[manatee.scan] clearinghouse unreadable — no opens this tick", file=sys.stderr)
         return []
     held, free, account_value = acct
-    listed = _listed(ctx)
+    instruments = _instruments(ctx)
+    if instruments is None:
+        print("[manatee.scan] instrument list unreadable — the universe is derived from it, so "
+              "no opens this tick", file=sys.stderr)
+        return []
+    universe = derive_universe(instruments,
+                               scoring._f(inputs.get("oiFloorUsd"), 50_000_000.0),
+                               int(scoring._f(inputs.get("maxNames"), 24)))
+    # a name already held stays in scope even if its OI slipped under the floor: the DSL owns that
+    # exit, and dropping it here would only stop it being added to
+    universe += [h for h in held if h not in {_bare(n) for n in universe}]
+    if not universe:
+        print("[manatee.scan] no instrument clears the OI floor — nothing to trade", file=sys.stderr)
     for bare in list(entries):            # a name that is no longer held starts fresh next time
         if bare not in held:
             del entries[bare]
@@ -150,8 +207,6 @@ def scan(inputs, ctx):
     cands = []
     for name in universe:
         bare = _bare(name)
-        if listed is not None and bare not in listed:
-            continue
         is_add = bare in held
         rec = entries.get(bare) or {}
         if is_add:
@@ -162,6 +217,9 @@ def scan(inputs, ctx):
         candles = _closed_candles(ctx, name, interval)
         if not candles:
             continue
+        if len(candles) < min_history:
+            continue      # too freshly listed to judge: the venue-wide measurement that set this
+                          # floor excluded late listings, and they underperformed by ~17%
         key = _bar_key(candles[-1], today)
         if acted.get(bare) == key:
             continue                      # this closed bar has been acted on (or judged) already

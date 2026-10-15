@@ -39,9 +39,15 @@ scanners:
     default_signal_validity_seconds: 1800
     state_history_max_count: 200
     inputs:
-      # ── universe: an identity basket (the 19 names the modelled vault trades); checked live
-      #    against market_list_instruments so a delisted name drops out ──
-      universe: [BTC, ETH, SOL, XRP, BNB, DOGE, ADA, TRX, LTC, BCH, LINK, AVAX, DOT, NEAR, UNI, AAVE, INJ, CRV, kSHIB]
+      # ── universe: DERIVED from the venue each tick, not hand-listed. The modelled vault's 19
+      #    names are its liquidity constraint at $13.8M, not a thesis, and measured venue-wide over
+      #    178 days the reversion this harvests is not a large-cap property at all: the >=$200M-OI
+      #    bucket had the lowest harvest rate and the only negative skew of the four. See
+      #    derive_universe() in scan.py for the numbers. A held name stays in scope below the floor.
+      oiFloorUsd: 50000000              # open interest, read from market_list_instruments context
+      maxNames: 24                      # ~20 clear the floor today; the cap bounds a liquidity surge
+      minHistoryBars: 60                # closed daily bars before a name is judged — a fresh listing
+                                        #   is unmeasured, and late listings underperformed by ~17%
       maxSlots: 19
       # ── the stretch (both sides), measured on CLOSED daily bars ──
       candleInterval: "1d"
