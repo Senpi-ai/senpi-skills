@@ -120,7 +120,8 @@ exit:
       enabled: false                       # #819b: clock cuts winners (110/142 in profit)
       interval_in_minutes: 45
     weak_peak_cut:
-      enabled: true                         # v2: enabled, 25m / min_value 3.0
+      # 15 Oct: OFF. horizon=swing; min_value 3.0 below rung 0 bounded it to non-starters, but a swing thesis is not dead at 5h
+      enabled: false                         # v2: enabled, 25m / min_value 3.0
       interval_in_minutes: 300                 # penguin parity: a dead position gets 5h, not 25m
       min_value: 3.0
     dead_weight_cut:
