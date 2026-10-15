@@ -97,8 +97,11 @@ class _State:
 
 
 class _Mcp:
-    def __init__(self, held, px, listed=("BTC", "DOT", "UNI", "SOL"), account=10_000.0, bar_t=20):
+    def __init__(self, held, px, listed=("BTC", "DOT", "UNI", "SOL"), account=10_000.0, bar_t=20,
+                 margin_used=None):
         self.held, self.px, self.listed, self.account, self.bar_t = held, px, listed, account, bar_t
+        self.margin_used = margin_used or {}   # name -> marginUsed, so a position can be shown at a
+                                               # size this scanner never emitted (a double fill)
 
     def call_tool(self, name, args):
         if name == "strategy_get_clearinghouse_state":
@@ -106,7 +109,8 @@ class _Mcp:
             return {"data": {"main": {
                 "marginSummary": {"accountValue": str(self.account), "totalMarginUsed": str(used)},
                 "withdrawable": str(self.account - used),
-                "assetPositions": [{"position": {"coin": c, "szi": str(sz), "entryPx": str(e), "marginUsed": "100.0"}}
+                "assetPositions": [{"position": {"coin": c, "szi": str(sz), "entryPx": str(e),
+                                                 "marginUsed": str(self.margin_used.get(c, 100.0))}}
                                    for c, (sz, e) in self.held.items()]}}}
         if name == "market_list_instruments":
             return {"data": {"instruments": [{"name": n, "is_delisted": False} for n in self.listed] + [{"name": "XRP", "is_delisted": True}]}}
@@ -117,8 +121,10 @@ class _Mcp:
         return None
 
 
-def _ctx(held, px, state=None, listed=("BTC", "DOT", "UNI", "SOL"), account=10_000.0, bar_t=20):
-    return types.SimpleNamespace(senpi_mcp=_Mcp(held, px, listed, account, bar_t), state=state or _State(), wallet="0xwallet")
+def _ctx(held, px, state=None, listed=("BTC", "DOT", "UNI", "SOL"), account=10_000.0, bar_t=20,
+         margin_used=None):
+    return types.SimpleNamespace(senpi_mcp=_Mcp(held, px, listed, account, bar_t, margin_used),
+                                 state=state or _State(), wallet="0xwallet")
 
 
 def test_scan_opens_both_sides_on_the_closed_bar_and_skips_the_band_and_delisted_names():
@@ -139,25 +145,45 @@ def test_scan_acts_once_per_closed_bar():
 
 def test_scan_adds_once_per_bar_only_while_the_move_deepens_against_an_under_water_position():
     st = _State()
-    st.append({"acted": {}, "entries": {"DOT": {"px": 94.0, "adds": 0, "margin": CLIP, "side": "LONG", "t": 0},
-                                        "UNI": {"px": 106.5, "adds": 0, "margin": CLIP, "side": "SHORT", "t": 0}}})
+    st.append({"acted": {}, "entries": {"DOT": {"px": 94.0, "adds": 0, "side": "LONG", "t": 0},
+                                        "UNI": {"px": 106.5, "adds": 0, "side": "SHORT", "t": 0}}})
     held = {"DOT": (10, 94.0), "UNI": (-10, 106.5), "SOL": (10, 93.0)}
     out = scan.scan(INPUTS, _ctx(held, {"DOT": 91.0, "UNI": 110.0, "SOL": 92.0}, st))
     got = {o["asset"]: (o["direction"], o["data"]["kind"], o["data"]["addIndex"], o["marginPct"]) for o in out}
     assert got == {"DOT": ("LONG", "add", 1, float(INPUTS["addMarginPct"])), "UNI": ("SHORT", "add", 1, float(INPUTS["addMarginPct"]))}   # SOL moved only 1%: no add
-    assert st.last()["entries"]["DOT"]["margin"] == CLIP + float(INPUTS["addMarginPct"])
+    assert st.last()["entries"]["DOT"]["adds"] == 1 and "margin" not in st.last()["entries"]["DOT"]
     assert scan.scan(INPUTS, _ctx(held, {"DOT": 88.0, "UNI": 114.0}, st)) == []                       # same bar: no second add
     out = scan.scan(INPUTS, _ctx({"DOT": (20, 92.5), "UNI": (-20, 108.2)}, {"DOT": 94.5, "UNI": 100.0}, st, bar_t=21))
     assert out == []                                                                                   # DOT above its cost, UNI back at the mean
 
 
-def test_scan_never_adds_past_the_per_name_count_or_cap():
+def test_scan_never_adds_past_the_per_name_count():
     st = _State()
-    st.append({"acted": {}, "entries": {"DOT": {"px": 94.0, "adds": int(INPUTS["maxAddsPerAsset"]), "margin": CLIP, "side": "LONG", "t": 0}}})
+    st.append({"acted": {}, "entries": {"DOT": {"px": 94.0, "adds": int(INPUTS["maxAddsPerAsset"]), "side": "LONG", "t": 0}}})
     assert scan.scan(INPUTS, _ctx({"DOT": (20, 92.5)}, {"DOT": 88.0}, st)) == []
+
+
+def test_the_per_name_cap_is_read_from_the_book_not_from_what_the_scanner_emitted():
+    """The cap is the only thing bounding a book that adds into losers, so it must see the position
+    that EXISTS. A tally of emitted signals cannot: FEE_OPTIMIZED_LIMIT occasionally double-fills,
+    and a name carrying two clips while the tally says one would keep collecting adds on top.
+
+    Same state both times — one add recorded. Only the book differs."""
+    def _try(margin_used):
+        st = _State()
+        st.append({"acted": {}, "entries": {"DOT": {"px": 94.0, "adds": 1, "side": "LONG", "t": 0}}})
+        return scan.scan(INPUTS, _ctx({"DOT": (20, 92.5)}, {"DOT": 88.0}, st, margin_used=margin_used))
+
+    assert [o["asset"] for o in _try({"DOT": 100.0})] == ["DOT"]   # 1.0% of account + a 1.5% clip < 4.5
+    assert _try({"DOT": 320.0}) == []                              # 3.2% + 1.5% > the 4.5% cap: no add
+
+
+def test_a_double_filled_name_stops_collecting_adds():
+    """The concrete case: the scanner emitted one clip, two filled. The ledger would still read one."""
     st = _State()
-    st.append({"acted": {}, "entries": {"DOT": {"px": 94.0, "adds": 0, "margin": float(INPUTS["maxMarginPctPerAsset"]), "side": "LONG", "t": 0}}})
-    assert scan.scan(INPUTS, _ctx({"DOT": (20, 92.5)}, {"DOT": 88.0}, st)) == []
+    st.append({"acted": {}, "entries": {"DOT": {"px": 94.0, "adds": 0, "side": "LONG", "t": 0}}})
+    doubled = float(INPUTS["maxMarginPctPerAsset"]) / 100.0 * 10_000.0   # already at the cap in USD
+    assert scan.scan(INPUTS, _ctx({"DOT": (20, 92.5)}, {"DOT": 88.0}, st, margin_used={"DOT": doubled})) == []
 
 
 def test_scan_never_adds_against_a_flipped_signal():
@@ -187,7 +213,40 @@ def test_scan_stands_down_when_a_clip_is_under_the_venue_minimum():
     assert len(scan.scan(INPUTS, _ctx({}, {"DOT": 94.0, "UNI": 106.5}, account=tiny * 4)) ) == 2
 
 
-def test_scan_stops_when_free_margin_is_exhausted():
-    inputs = {**INPUTS, "freeMarginHeadroom": 1.2 * CLIP / 100.0, "universe": ["DOT", "UNI", "SOL"]}   # budget = 1.2 clips
+def test_scan_stops_when_free_margin_is_exhausted_and_serves_the_deepest_stretch_first():
+    """Serving `universe` in order meant the names typed first were funded on every tight day and
+    the tail never was — a fixed bias, not a tie-break. SOL is 7% from its mean, DOT 6%, UNI 6.5%:
+    one clip of budget buys SOL."""
+    inputs = {**INPUTS, "freeMarginHeadroom": 1.2 * CLIP / 100.0, "universe": ["DOT", "UNI", "SOL"]}
     out = scan.scan(inputs, _ctx({}, {"DOT": 94.0, "UNI": 106.5, "SOL": 93.0}))
-    assert [o["asset"] for o in out] == ["DOT"]
+    assert [o["asset"] for o in out] == ["SOL"]
+
+
+def test_the_last_slot_goes_to_the_deepest_stretch_not_the_first_in_the_list():
+    """Same ordering guarantee on slots rather than margin."""
+    inputs = {**INPUTS, "maxSlots": 1, "universe": ["DOT", "UNI", "SOL"]}
+    out = scan.scan(inputs, _ctx({}, {"DOT": 94.0, "UNI": 106.5, "SOL": 93.0}))
+    assert [o["asset"] for o in out] == ["SOL"]
+
+
+def test_a_name_skipped_for_margin_is_retried_rather_than_marked_judged():
+    inputs = {**INPUTS, "freeMarginHeadroom": 1.2 * CLIP / 100.0, "universe": ["DOT", "SOL"]}
+    st = _State()
+    assert [o["asset"] for o in scan.scan(inputs, _ctx({}, {"DOT": 94.0, "SOL": 93.0}, st))] == ["SOL"]
+    assert "DOT" not in st.last()["acted"]          # not judged — it never got a decision
+    rich = {**INPUTS, "universe": ["DOT", "SOL"]}
+    assert "DOT" in [o["asset"] for o in scan.scan(rich, _ctx({"SOL": (10, 93.0)}, {"DOT": 94.0}, st))]
+
+
+def test_a_round_trip_counts_the_builder_fee_on_both_legs():
+    """6 bps was the venue's half. The hurdle built on it was half the real one."""
+    assert scoring.roundtrip_fee_pct(INPUTS) == (1.5 + 4.06 + 4.5 + 4.06) / 100.0
+    assert scoring.roundtrip_fee_pct(INPUTS) > 0.14
+    # inert at the shipped 3% harvest, by design — but now against the real number
+    assert float(INPUTS["expectedCapturePct"]) > scoring.roundtrip_fee_pct(INPUTS) * float(INPUTS["feeCoverMultiple"])
+
+
+def test_the_drawdown_halt_sits_beyond_the_worst_replayed_drawdown():
+    """-26.1% (Jul 2024 - Jun 2025, 4h-close arming) is the worst the replay produced. The halt is
+    LATCHED, so one set inside that range does not shade the result — it ends the run."""
+    assert float(_RT["risk"]["guard_rails"]["drawdown_halt_pct"]) > 26.1

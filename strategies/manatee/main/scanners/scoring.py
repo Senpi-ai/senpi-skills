@@ -21,11 +21,19 @@ def _close(c):
 
 
 def roundtrip_fee_pct(inputs, maker_entry=True):
-    """Fees as a PERCENT of notional for one round trip (entry + exit)."""
+    """Fees as a PERCENT of notional for one round trip (entry + exit).
+
+    The builder fee is charged on BOTH legs and is the larger half of a maker entry; leaving it out
+    modelled 6 bps against a real ~14.1, so any hurdle built on this was half the true one. At the
+    shipped expectedCapturePct of 3% the gate in build_thesis is inert either way (3% against a
+    0.42% hurdle) — it exists for the case where someone tunes the harvest down, and it is only
+    worth having if the number it compares against is the real one.
+    """
     taker = _f(inputs.get("takerFeeBps"), 4.5)
     maker = _f(inputs.get("makerFeeBps"), 1.5)
+    builder = _f(inputs.get("builderFeeBps"), 4.06)
     entry = maker if maker_entry else taker
-    return (entry + taker) / 100.0
+    return (entry + builder + taker + builder) / 100.0
 
 
 def deviation_from_mean(closes, bars):

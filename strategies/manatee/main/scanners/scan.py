@@ -42,10 +42,18 @@ def _bare(name):
 
 
 def _account(ctx):
-    """(held, free_margin): held = bare-upper name -> (side, average entry) for every open position;
-    free_margin = withdrawable USD. The 'main' and 'xyz' sections are two views of one cross-margined
-    wallet: account value and withdrawable are taken ONCE via max(), never summed. None if the state
-    is unreadable or contradicts itself (margin in use but no positions): the tick stands down."""
+    """(held, free_margin, account_value), or None when the state is unreadable or contradicts
+    itself (margin in use but no positions) — then the tick stands down.
+
+    held = bare-upper name -> (side, average entry, margin % of ACCOUNT VALUE). That last number is
+    read from the position's own marginUsed every tick rather than tallied from what this scanner
+    emitted. A tally cannot see a signal that never filled, nor one that filled twice, and
+    FEE_OPTIMIZED_LIMIT does occasionally double-fill — on a book that adds into losers, the
+    per-name cap is the only thing bounding that, so it has to look at the book.
+
+    The 'main' and 'xyz' sections are two views of ONE cross-margined wallet: account value and
+    withdrawable are taken once via max(), never summed.
+    """
     data = _read(ctx, "strategy_get_clearinghouse_state", {"strategy_wallet": ctx.wallet}, "clearinghouse")
     if not isinstance(data, dict):
         return None
@@ -60,12 +68,16 @@ def _account(ctx):
             coin = pos.get("coin") or pos.get("asset")
             szi = scoring._f(pos.get("szi"), 0.0)
             if coin and szi != 0.0:
-                held[_bare(coin)] = ("LONG" if szi > 0 else "SHORT", scoring._f(pos.get("entryPx"), 0.0))
+                held[_bare(coin)] = ("LONG" if szi > 0 else "SHORT",
+                                     scoring._f(pos.get("entryPx"), 0.0),
+                                     scoring._f(pos.get("marginUsed"), 0.0))
     if used > 1.0 and not held:
         print("[manatee.scan] margin in use but no positions — corrupt read, standing down", file=sys.stderr)
         return None
     free = withdrawable if withdrawable > 0 else max(0.0, account_value - used)
-    return held, free
+    if account_value > 0:                      # marginUsed -> % of account value
+        held = {k: (sd, px, m / account_value * 100.0) for k, (sd, px, m) in held.items()}
+    return held, free, account_value
 
 
 def _listed(ctx):
@@ -116,31 +128,37 @@ def scan(inputs, ctx):
 
     st = (ctx.state.last() or {}) if ctx.state else {}
     acted = dict(st.get("acted", {}) or {})       # bare -> key of the closed bar already acted on
-    entries = dict(st.get("entries", {}) or {})   # bare -> {px, adds, margin, side, t}
+    entries = dict(st.get("entries", {}) or {})   # bare -> {px, adds, side, t}
 
     acct = _account(ctx)
     if acct is None:
         print("[manatee.scan] clearinghouse unreadable — no opens this tick", file=sys.stderr)
         return []
-    held, free = acct
-    budget = free * headroom                       # USD of margin this tick may commit
+    held, free, account_value = acct
     listed = _listed(ctx)
-    slots = max_slots - len(held)
     for bare in list(entries):            # a name that is no longer held starts fresh next time
         if bare not in held:
             del entries[bare]
 
-    out = []
+    # one clip, expressed against the SAME base as the cap: marginPct is a share of withdrawable,
+    # the cap is a share of account value, and withdrawable shrinks as the book fills.
+    def clip_pct_of_account(mgn):
+        return mgn * (free / account_value) if account_value > 0 else mgn
+
+    # ── PASS 1 · judge every name. No sizing decision here, so the order of `universe` cannot
+    #    decide who gets funded. ──
+    cands = []
     for name in universe:
         bare = _bare(name)
         if listed is not None and bare not in listed:
             continue
         is_add = bare in held
-        if not is_add and slots <= 0:
-            continue
         rec = entries.get(bare) or {}
-        if is_add and (int(rec.get("adds", 0)) >= max_adds or scoring._f(rec.get("margin"), 0.0) + scoring.sizing_for(inputs, add=True)[1] > cap_mgn):
-            continue
+        if is_add:
+            _side, _avg, live_mgn = held[bare]
+            next_clip = clip_pct_of_account(scoring.sizing_for(inputs, add=True)[1])
+            if int(rec.get("adds", 0)) >= max_adds or live_mgn + next_clip > cap_mgn:
+                continue
         candles = _closed_candles(ctx, name, interval)
         if not candles:
             continue
@@ -153,7 +171,7 @@ def scan(inputs, ctx):
             continue
         close = scoring._close(candles[-1])
         if is_add:
-            side, avg_px = held[bare]
+            side, avg_px, _live = held[bare]
             if th["direction"] != side:
                 acted[bare] = key
                 continue              # the signal flipped against an open position: the DSL owns that exit
@@ -165,6 +183,18 @@ def scan(inputs, ctx):
             if not (last_px > 0 and deeper and (avg_px <= 0 or under_water)):
                 acted[bare] = key
                 continue
+        cands.append((abs(scoring._f(th.get("dev_pct"))), name, bare, key, th, close, is_add, rec))
+
+    # ── PASS 2 · the DEEPEST stretch gets the margin. Serving `universe` in order meant the names
+    #    typed first were funded every tight day and the tail never was — a fixed bias, not a
+    #    tie-break. A name skipped here is NOT marked acted, so it is retried on the next tick. ──
+    cands.sort(key=lambda c: -c[0])
+    budget = free * headroom                       # USD of margin this tick may commit
+    slots = max_slots - len(held)
+    out = []
+    for _depth, name, bare, key, th, close, is_add, rec in cands:
+        if not is_add and slots <= 0:
+            continue
         lev, mgn = scoring.sizing_for(inputs, add=is_add)
         # ── free-margin gate: price the clip as the runtime will, off the one balance read ──
         margin_usd = free * mgn / 100.0
@@ -179,7 +209,7 @@ def scan(inputs, ctx):
         if not is_add:
             slots -= 1
         acted[bare] = key
-        entries[bare] = {"px": close, "adds": adds, "margin": scoring._f(rec.get("margin"), 0.0) + mgn, "side": th["direction"], "t": now}
+        entries[bare] = {"px": close, "adds": adds, "side": th["direction"], "t": now}
         out.append({
             "asset": name, "direction": th["direction"], "marginPct": mgn, "leverage": lev,
             "data": scoring.signal_data(th, lev, "add" if is_add else "entry", adds),

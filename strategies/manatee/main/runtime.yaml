@@ -53,6 +53,8 @@ scanners:
       # ── fee gate (NOT verified venue rates — set from HL userFees) ──
       takerFeeBps: 4.5
       makerFeeBps: 1.5
+      builderFeeBps: 4.06                # the wallet's builder fee, charged on BOTH legs — omitting
+                                         #   it understated a round trip by half (6 bps vs 14.1)
       feeCoverMultiple: 3.0             # the +3% target must cover a round trip of fees 3x over
       expectedCapturePct: 3.0           # = the DSL's first trigger
       # ── sizing (marginPct is a PERCENT of withdrawable): every entry and every add is one clip ──
@@ -63,7 +65,10 @@ scanners:
       #    (the runtime merges the add; the DSL re-anchors on the new average entry) ──
       maxAddsPerAsset: 2
       addStepPct: 3.0
-      maxMarginPctPerAsset: 4.5     # entry + two adds, % of the account, per name
+      # % of ACCOUNT VALUE per name, checked against the LIVE position's marginUsed, not against a
+      # tally of what this scanner emitted: an emit tally cannot see a fill that did not happen, nor
+      # one that happened twice (FEE_OPTIMIZED_LIMIT can double-fill), and this book adds into losers.
+      maxMarginPctPerAsset: 4.5
       # ── free-margin gate ──
       venueMinNotionalUsd: 12.0         # the engine's bumped minimum order
       freeMarginHeadroom: 0.9           # commit at most 90% of free margin in one tick
@@ -117,7 +122,11 @@ risk:
     bypass_max_entries_per_day_on_profit: true
     max_consecutive_losses: 6
     cooldown_seconds: 300
-    drawdown_halt_pct: 25         # beyond the replay's worst drawdown (15-26%): a catastrophe guard, not a feature
+    # BEYOND the replay's worst drawdown, which was -26.1% (Jul 2024 - Jun 2025, 4h-close arming).
+    # It must be: this halt is LATCHED (drawdown_reset_on_day_rollover defaults false), so a halt
+    # inside the replayed range does not shade the result, it ends the run and waits for a human.
+    # At 25 that window's reported +2.4% was unreachable — the strategy would have stopped at -25%.
+    drawdown_halt_pct: 30
     per_asset_cooldown_seconds: 1800
 notifications:
   dsl_lifecycle: true

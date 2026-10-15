@@ -225,7 +225,7 @@
       "varies": null,
       "tagline": "A patient contrarian on BTC/ETH/SOL/HYPE: waits for a major to move 3%+ in 4h while the 4h leaders (the traders winning the last four hours on the board) pile in heavily, then fades the 4h leaders' crowded, exhausted side — but only when the funding regime confirms the unwind and the move is still fresh. Conservative 7-10x leverage, wide DSL to let the reversal develop.",
       "belief_plain": "When a big coin runs hard and the traders winning the last four hours are all crowded onto the same side, the crowd is maximum exposed and the unwind is the trade. Dog bets against that exhausted consensus on BTC, ETH, SOL and HYPE — but only when the move has genuinely overextended, the crowding is still building, and market-wide funding shows the crowd really is one-sided. Most of the time it waits.",
-      "version": "1.1.3",
+      "version": "1.2.0",
       "thesis": "Hyperliquid is dominated by leverage traders chasing momentum. When a major moves 3%+ in four hours and the 4h leaders' concentration (their share of the board's 4h gains — a momentum read, not a proven cohort) piles in 15%+, the late entrants are maximally exposed and funding pressure plus mean reversion force the unwind. Dog's edge is being on the unwind side before capitulation accelerates — so it scores the 4h leaders' side, hard-gates on exhaustion (>=3% 4h move), freshness (15m contribution still rising), trader depth (>=30), and a funding regime that confirms the crowd is one-sided, then emits the OPPOSITE direction at conservative leverage and lets a wide ratcheting stop ride the reversal rather than banking too early.",
       "tags": [
         "leader-momentum",
@@ -2032,7 +2032,7 @@
       "varies": null,
       "tagline": "A universe rank-jump sniper that trades jumps in the 4h leaderboard: watches its top-50 rows every tick and fires only on a fresh FIRST_JUMP — a coin exploding 15+ ranks out of the deep field with 4h trend, 15m freshness, and a volume spike all confirming — then strikes ONE position at a fixed 7x and lets the DSL ride the breakout.",
       "belief_plain": "Watches which coins the traders winning the last four hours are suddenly piling into and only acts when a name rockets up the leaderboard from deep in the pack — a fresh jump, not an already-crowded top name. It wants the move to be young (climbing fast in the last 15 minutes), going the same way the price is, and backed by a real volume spike before it takes a single shot.",
-      "version": "1.1.3",
+      "version": "1.2.0",
       "thesis": "The edge is in the FIRST jump, not the established leader. By the time a coin sits at the top of the 4h leaderboard (a momentum read of who is winning right now, not a proven cohort) the move is priced in; the asymmetric entry is the moment a name explodes 15+ ranks out of the deep field (prev-rank >= 25) while its 4h trend, 15m contribution velocity, and 24h volume all confirm the same direction at once. That confluence is rare and decays fast, so the right move is to scan often (90s), strike once at a fixed 7x the instant it fires, skip the already-top names, and let a ratcheting DSL — not a fixed target — decide the exit so the occasional big breakout pays for the quiet weeks.",
       "tags": [
         "leader-momentum",
@@ -4506,7 +4506,7 @@
       "varies": null,
       "tagline": "Ranks the tokenized U.S. equity cross-section on Hyperliquid XYZ by 24h relative strength, then LONGS the strongest names (long book) and SHORTS the weakest (short book) — both trend-confirmed — on two equally-funded wallets so the pair is ~market-neutral and harvests equity dispersion.",
       "belief_plain": "Buys the strongest tokenized U.S. stocks and shorts the weakest at the same time, on two separate wallets, so it makes money on the GAP between winners and losers rather than on the market going up or down.",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "thesis": "You want the classic equity hedge-fund play — long the leaders, short the laggards, market-neutral — but on-chain. The spread between the best and worst U.S. stocks is at a multi-decade extreme, and that dispersion is the edge: stock selection, not market direction. Tokenized equities trade 24/7 on Hyperliquid, so the book never has to wait for a market open.",
       "tags": [
         "equities",
@@ -4801,7 +4801,7 @@
       "varies": null,
       "tagline": "Bets on a K-shaped divergence: LONGS the structural winners (the AI complex on Hyperliquid XYZ + the crypto winners HYPE/SOL) on the 'haves' wallet, and SHORTS the laggards (the broad U.S. market via SP500 + a gated basket of laggard alts) on the 'have-nots' wallet. Both trend-confirmed on absolute structure, with relative strength as a tiebreaker and per-name conviction sizing (HYPE big, SOL small, SP500 core). The edge is the DISPERSION between the two speeds, not market direction.",
       "belief_plain": "Buys the booming AI stocks and crypto winners while shorting the broad stock market and the alts losing ground, each on its own wallet — so it makes money on the GAP between the world's fast lane and slow lane rather than on the market going up or down. It only buys names actually trending up and only shorts names actually rolling over, and bets bigger on its highest-conviction picks.",
-      "version": "1.2.1",
+      "version": "1.3.0",
       "thesis": "The world is splitting into two speeds: the AI complex and HYPE/SOL keep booming while the broad U.S. economy and the rest of crypto struggle. Express it as one thematic long/short book — long the haves, short the have-nots — and the P&L is the dispersion between the two, not the market's direction. The hard gate is ABSOLUTE trend (never long a downtrend, never short an uptrend, even for a thesis name); cross-sectional relative strength only tilts size and ranking. Net exposure is the operator's dial (default modest net-long), set by how much capital each wallet holds.",
       "tags": [
         "k-shaped",
@@ -4892,7 +4892,7 @@
       "varies": null,
       "tagline": "Fades the stretches in the biggest names in both directions, judged once a day at the close: buys a name that closed well below its one-week average, shorts one that closed well above it, adds while the next closes keep going against it, and lets the DSL bank a 3% reversion around the clock. Up to 19 positions, one per asset, 1x, closed only by a profit lock or a wide stop. No long or short bias; the signal picks the side.",
       "belief_plain": "Large caps overshoot in both directions and come back toward their recent average. Manatee takes the other side of the stretch, long or short, scales in as the stretch deepens so its average entry follows the move, and takes a 3% reversion when it comes. The risk is a one-way market that keeps stretching: every name carries a wide stop, drawdowns of 15 to 26 percent showed up in the replay, and the book runs about a quarter of the account in exposure, so a bad month costs a few percent, not the account.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "thesis": "Modelled on the engine of a large public Hyperliquid vault running a quantitative mean-reversion book on the same 19 names: inventory that scales as the move deepens, harvests of about 1.4% over average cost, losses carried rather than taken. The vault leaned long in its last 55 days; Manatee removes the bias and lets the sign of the stretch choose the side. Replayed with entries at the daily close and the exit ladder modelled on 4h bars over two windows, July 2025 to October 2026 and July 2024 to June 2025: between the conservative and the generous exit model the first window returned -3% to +14% and the second +2% to +36%, with 93 to 95 percent of exits taken at the profit lock, 50 to 65 stop-outs per window, average gross exposure near 25% and the worst drawdown 15% to 26%. The daily-close discipline is load-bearing: the same rule sampled every four hours lost money after fees.",
       "tags": [
         "mean-reversion",
