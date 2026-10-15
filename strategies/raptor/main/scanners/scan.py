@@ -164,18 +164,24 @@ def fetch_current_px(ctx, asset):
 
 
 def held_assets_from_clearinghouse(ctx):
-    """Read-only held-asset list from the clearinghouse — used to skip re-entering a coin
-    we already hold (defence-in-depth alongside the runtime's slot/dedup ownership). One
-    wallet, two sub-DEX views; collect coins from both. Returns set of upper-cased coins."""
+    """Read held assets, or return None when the book cannot be proven readable.
+
+    The origin of a copied position is scanner-local state. Emitting while this read is
+    unavailable could overwrite that origin for an existing position before OPEN_POSITION
+    rejects the duplicate, so an unreadable book must fail the entry scan closed.
+    """
     ch = _read(ctx, "strategy_get_clearinghouse_state", {"strategy_wallet": ctx.wallet})
-    held = set()
     if not ch:
-        return held
+        return None
     data = ch.get("data", ch) if isinstance(ch, dict) else ch
     if not isinstance(data, dict):
-        return held
-    for section in ("main", "xyz"):
-        s = data.get(section, {})
+        return None
+    sections = [data.get(section) for section in ("main", "xyz")]
+    if not any(isinstance(section, dict) for section in sections):
+        return None
+
+    held = set()
+    for s in sections:
         if not isinstance(s, dict):
             continue
         for ap in s.get("assetPositions", []):
@@ -248,6 +254,10 @@ def scan(inputs, ctx):
         return []
 
     held_upper = held_assets_from_clearinghouse(ctx)
+    if held_upper is None:
+        print("[raptor.scan] clearinghouse unreadable; skipping entry scan", file=sys.stderr)
+        _persist({"ts": now, "emitted": False, "gate": "clearinghouse_unreadable", "candidates": 0})
+        return []
     scan_limit = min(len(quality_traders), positions_fetch_limit)
 
     candidates = []

@@ -1,7 +1,7 @@
 # ── RAPTOR · single instance — hot-streak follower (Runtime 3.0 port of v2 Raptor v4.0.0) ──
 name: raptor-main
 group: raptor
-version: 3.3.0
+version: 3.3.2
 description: >
   RAPTOR — quality-first hot-streak follower. Pulls ELITE/RELIABLE traders winning the
   WEEKLY window (discovery_get_top_traders, unrealized >= $500k), isolates each one's
