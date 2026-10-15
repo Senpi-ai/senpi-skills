@@ -101,14 +101,22 @@ exit:
     execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: true                        # v2.5: ON — reversals take time but 6h is the ceiling
-      interval_in_minutes: 360
+      # 15 Oct: WIDENED 360 -> 2880, not removed. At 360m this was a THESIS exit: p90 hold is
+      # 393m, so it cut the slowest ~15% of a swing book. But dog runs ONE slot and has no
+      # CLOSE_POSITION scanner, so the ladder and the stop are the only other exits — delete
+      # every clock and a position that neither locks nor stops holds the whole strategy
+      # indefinitely. 2880m is ~7x p90: it cannot reach a live thesis, and it still recovers a
+      # genuinely stuck slot. A clock is defensible as slot recovery, never as a thesis exit.
+      enabled: true
+      interval_in_minutes: 2880
     weak_peak_cut:
-      enabled: true                        # v2.5: ON — cut if peak ROE < 2.0 in 90m
+      # 15 Oct: OFF. horizon=swing, measured median hold 96m — a 90m cut fires at 0.94x the hold
+      enabled: false                        # v2.5: ON — cut if peak ROE < 2.0 in 90m
       interval_in_minutes: 90
       min_value: 2.0
     dead_weight_cut:
-      enabled: true                        # v2.5: ON — v2.4 loosened 30 -> 60 (let fades develop)
+      # 15 Oct: OFF. horizon=swing, measured median hold 96m — a 60m cut fires at 0.63x the hold
+      enabled: false                        # v2.5: ON — v2.4 loosened 30 -> 60 (let fades develop)
       interval_in_minutes: 60
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
