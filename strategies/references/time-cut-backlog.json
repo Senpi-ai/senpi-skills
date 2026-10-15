@@ -1,0 +1,562 @@
+{
+ "_README": [
+  "Time cuts that fire inside the horizon their template claims to trade. Generated 2026-10-15",
+  "by strategies/tests/test_time_cuts_match_horizon.py, which enforces: a weak-peak cut only on",
+  "scalp/intraday, and no timed cut inside the per-horizon backstop floor. This file is a",
+  "SHRINK-ONLY backlog -- the test fails if a NEW violation appears AND if an entry here stops",
+  "violating, so it cannot rot into a blanket exemption. Each row is a to-do, not a decision.",
+  "Fix a row by declaring the horizon the strategy actually trades, widening the cut past the",
+  "floor, or turning it off -- then delete the row.",
+  "The floors are per-horizon constants because CI cannot query telemetry. The principled",
+  "version is each package's own measured p90 hold; run that as a periodic check, not in CI."
+ ],
+ "generated": "2026-10-15",
+ "entries": [
+  {
+   "package": "ant",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 1440.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "bald-eagle",
+   "instance": "main",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 120.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "bald-eagle",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 480.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "barracuda",
+   "instance": "main",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 360.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "barracuda",
+   "instance": "main",
+   "cut": "weak_peak_cut",
+   "interval_minutes": 120.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "boar",
+   "instance": "long",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 960.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "boar",
+   "instance": "short",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 720.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "bobcat",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 2880.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "camel-spread",
+   "instance": "harvest",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 480.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "camel-spread",
+   "instance": "harvest",
+   "cut": "hard_timeout",
+   "interval_minutes": 4320.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "camel-spread",
+   "instance": "payout",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 480.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "camel-spread",
+   "instance": "payout",
+   "cut": "hard_timeout",
+   "interval_minutes": 4320.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "caracal",
+   "instance": "breakout",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 360.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "caracal",
+   "instance": "catalyst",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 360.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "chameleon",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 2880.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "condor",
+   "instance": "main",
+   "cut": "weak_peak_cut",
+   "interval_minutes": 300.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "coyote",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 7200.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "cub",
+   "instance": "long",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 960.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "cub",
+   "instance": "preipo",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 960.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "cub",
+   "instance": "short",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 720.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "eel",
+   "instance": "long",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 960.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "eel",
+   "instance": "short",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 720.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "elephant",
+   "instance": "fade",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 480.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "elephant",
+   "instance": "fade",
+   "cut": "hard_timeout",
+   "interval_minutes": 2880.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "falcon",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 10080.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "hare",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 180.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "hare",
+   "instance": "main",
+   "cut": "weak_peak_cut",
+   "interval_minutes": 45.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "hawk",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 1440.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "hedgehog",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 2880.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "hen",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 480.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "hyena",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 1800.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "iguana",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 2880.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "jackal",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 4320.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "jackal",
+   "instance": "main",
+   "cut": "weak_peak_cut",
+   "interval_minutes": 240.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "kestrel",
+   "instance": "main",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 45.0,
+   "declared_horizon": "intraday"
+  },
+  {
+   "package": "kite",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 7200.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "lemon",
+   "instance": "main",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 45.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "lemon",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 480.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "mandate",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 20160.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "mantis",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 240.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "marlin",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 1440.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "meerkat",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 2160.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "mongoose",
+   "instance": "long",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 960.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "mongoose",
+   "instance": "short",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 720.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "octopus",
+   "instance": "long",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 720.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "octopus",
+   "instance": "long",
+   "cut": "hard_timeout",
+   "interval_minutes": 5760.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "octopus",
+   "instance": "short",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 720.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "octopus",
+   "instance": "short",
+   "cut": "hard_timeout",
+   "interval_minutes": 5760.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "osprey",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 5760.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "otter",
+   "instance": "main",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 90.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "otter",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 240.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "otter",
+   "instance": "main",
+   "cut": "weak_peak_cut",
+   "interval_minutes": 60.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "oxpecker",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 4320.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "piranha",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 1440.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "python",
+   "instance": "main",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 1440.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "python",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 5760.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "remora",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 7200.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "rhino",
+   "instance": "escalation",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 360.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "rhino",
+   "instance": "escalation",
+   "cut": "hard_timeout",
+   "interval_minutes": 2880.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "roach",
+   "instance": "main",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 25.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "roach",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 120.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "roach",
+   "instance": "main",
+   "cut": "weak_peak_cut",
+   "interval_minutes": 45.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "rooster",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 480.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "rotator",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 2880.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "sailfish",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 5760.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "scorpion",
+   "instance": "main",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 60.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "scorpion",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 720.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "scorpion",
+   "instance": "main",
+   "cut": "weak_peak_cut",
+   "interval_minutes": 90.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "sheep",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 4320.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "spider",
+   "instance": "scalp",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 25.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "spider",
+   "instance": "scalp",
+   "cut": "hard_timeout",
+   "interval_minutes": 120.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "spider",
+   "instance": "scalp",
+   "cut": "weak_peak_cut",
+   "interval_minutes": 30.0,
+   "declared_horizon": "swing"
+  },
+  {
+   "package": "stag",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 20160.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "thesis-fund",
+   "instance": "main",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 960.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "tortoise",
+   "instance": "main",
+   "cut": "hard_timeout",
+   "interval_minutes": 43200.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "wild-condor",
+   "instance": "main",
+   "cut": "weak_peak_cut",
+   "interval_minutes": 300.0,
+   "declared_horizon": null
+  },
+  {
+   "package": "wolf",
+   "instance": "risk_off",
+   "cut": "dead_weight_cut",
+   "interval_minutes": 480.0,
+   "declared_horizon": "position"
+  },
+  {
+   "package": "wolf",
+   "instance": "risk_off",
+   "cut": "hard_timeout",
+   "interval_minutes": 4320.0,
+   "declared_horizon": "position"
+  }
+ ]
+}
