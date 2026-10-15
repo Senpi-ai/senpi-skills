@@ -1,0 +1,40 @@
+# Manatee — Large-cap Mean-Reversion Inventory. Single-wallet PACKAGE: this manifest + one
+# runtime.yaml + scanners/ (scan.py does the read-only MCP orchestration; scoring.py is the pure
+# engine). Two-sided inventory of 19 large caps judged once per daily close: long a name 5% below its
+# 7-day mean, short one 5% above it, up to two adds while the close keeps moving against the position,
+# a small fixed-size reversion banked by the DSL. NEVER closes from the scanner — the DSL owns every exit.
+schema_version: 1
+
+id: manatee
+version: "1.0.0"
+catalog:
+  name: "Manatee — Large-cap Mean-Reversion Inventory"
+  emoji: "🦭"
+  tagline: "Fades the stretches in the biggest names in both directions, judged once a day at the close: buys a name that closed well below its one-week average, shorts one that closed well above it, adds while the next closes keep going against it, and lets the DSL bank a 3% reversion around the clock. Up to 19 positions, one per asset, 1x, closed only by a profit lock or a wide stop. No long or short bias; the signal picks the side."
+  belief_plain: "Large caps overshoot in both directions and come back toward their recent average. Manatee takes the other side of the stretch, long or short, scales in as the stretch deepens so its average entry follows the move, and takes a 3% reversion when it comes. The risk is a one-way market that keeps stretching: every name carries a wide stop, drawdowns of 15 to 26 percent showed up in the replay, and the book runs about a quarter of the account in exposure, so a bad month costs a few percent, not the account."
+  thesis: "Modelled on the engine of a large public Hyperliquid vault running a quantitative mean-reversion book on the same 19 names: inventory that scales as the move deepens, harvests of about 1.4% over average cost, losses carried rather than taken. The vault leaned long in its last 55 days; Manatee removes the bias and lets the sign of the stretch choose the side. Replayed with entries at the daily close and the exit ladder modelled on 4h bars over two windows, July 2025 to October 2026 and July 2024 to June 2025: between the conservative and the generous exit model the first window returned -3% to +14% and the second +2% to +36%, with 93 to 95 percent of exits taken at the profit lock, 50 to 65 stop-outs per window, average gross exposure near 25% and the worst drawdown 15% to 26%. The daily-close discipline is load-bearing: the same rule sampled every four hours lost money after fees."
+  group: multi-asset-whitelist
+  archetype: contrarian_fade
+  sub_style: mean_reversion
+  asset_classes: [btc_eth, major_alts]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 1
+  max_slots: 19
+  assets: [BTC, ETH, SOL, XRP, BNB, DOGE, ADA, TRX, LTC, BCH, LINK, AVAX, DOT, NEAR, UNI, AAVE, INJ, CRV, kSHIB]   # = the runtime's static universe
+  tags: [mean-reversion, large-caps, basket, long-short, harvester, always-on, dsl-only, no-close, inventory, two-sided, daily-close, buy-the-dip, short-the-rip, large-cap, majors]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name manatee-main, group manatee
+    wallet_env: MANATEE_WALLET
+    funding_share: 1.0
