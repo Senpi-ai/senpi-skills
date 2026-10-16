@@ -332,6 +332,29 @@ def test_taxonomy_tiers_and_memes():
     assert taxonomy.classify("OBSCURE", majors, large) == "alts" and taxonomy.classify("xyz:NVDA", majors, large) == "xyz_equities" and taxonomy.classify("xyz:GOLD", majors, large) == "xyz_commodities"
 
 
+def test_other_dex_markets_are_not_alts():
+    """Another builder's perp dex must not be reported as an alt."""
+    ctxs = _ctxs([("BTC", 100), ("ETH", 90), ("HYPE", 80)])
+    majors, large = taxonomy.crypto_tiers(ctxs)
+    # km:US500 is the S&P, hyna:BTC is bitcoin. Neither is an alt.
+    for coin in ("km:US500", "hyna:BTC", "flx:TSLA", "vntl:SPACEX"):
+        assert taxonomy.classify(coin, majors, large) == "other_dex"
+    assert taxonomy.label("other_dex") == "other dexes"
+
+
+def test_outcome_contracts_are_not_perps():
+    """`#NNNNN` coins are HIP-4 outcome (prediction) contracts — Hyperliquid's `outcomeMeta` names them.
+    is_perp let `#` through, so a desk scored 5,298 prediction trades as perp alts: an archetype, a
+    quant score, a profit factor and a priced fee leak. Both copies must drop them."""
+    import roundtrips
+    for is_perp in (roundtrips.is_perp, hl_api.is_perp):
+        assert not is_perp("#14731") and not is_perp("@107") and not is_perp("PURR/USDC")
+        assert is_perp("BTC") and is_perp("xyz:NVDA") and is_perp("km:US500")
+    fill = dict(coin="#14731", side="B", sz="10", px="0.5", time=1, tid=1, dir="Open Long", closedPnl="0",
+                fee="0.01", crossed=True, startPosition="0", oid=1)
+    assert episodes_from_fills([fill]) == ([], [])
+
+
 def _ep(coin, side, open_h, close_h, realized, win=None, notional=1000.0):
     return dict(coin=coin, direction=side, open_time=open_h * H, close_time=close_h * H, last_time=close_h * H, realized=realized, win=(realized > 0) if win is None else win,
                 fees=1.0, volume=notional, taker_volume=notional, peak_notional=notional, complete=True, truncated=False, hold_h=close_h - open_h, adds=0, entry_vwap=1.0)
