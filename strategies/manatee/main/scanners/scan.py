@@ -41,6 +41,11 @@ def _bare(name):
     return str(name).split(":", 1)[-1].upper()
 
 
+def _dex_for(name):
+    """XYZ (HIP-3) assets need dex='xyz' on every market read; main-board names send no dex."""
+    return "xyz" if str(name).lower().startswith("xyz:") else ""
+
+
 def _account(ctx):
     """(held, free_margin, account_value), or None when the state is unreadable or contradicts
     itself (margin in use but no positions) — then the tick stands down.
@@ -81,18 +86,29 @@ def _account(ctx):
 
 
 def _instruments(ctx):
-    """market_list_instruments -> {NAME_UPPER: {venue_name, oi_usd, delisted}}, or None on FAILURE.
+    """BOTH venue boards -> {NAME_UPPER: {venue_name, oi_usd, delisted}}, or None on FAILURE.
 
     None and {} are opposite facts once the universe is DERIVED from this read: "unreadable" must
     trade nothing, "the venue lists nothing" would too, but collapsing both to {} would silently
-    trade an unvetted board. One read per tick feeds both the universe and the delisted check.
+    trade an unvetted board. EITHER board failing returns None for the same reason one notch up:
+    the two halves of this universe do NOT behave alike (see derive_universe), so a half-read
+    board would quietly re-aim the strategy at whichever half happened to answer.
 
     `openInterest` and `markPx` sit under `context`; oi_usd is their product.
     """
-    data = _read(ctx, "market_list_instruments", {}, "market_list_instruments")
-    rows = data.get("instruments") if isinstance(data, dict) else data
-    if not isinstance(rows, list):
-        return None
+    out = {}
+    for dex in ("", "xyz"):
+        data = _read(ctx, "market_list_instruments", ({"dex": dex} if dex else {}),
+                     f"market_list_instruments({dex or 'main'})")
+        rows = data.get("instruments") if isinstance(data, dict) else data
+        if not isinstance(rows, list):
+            return None
+        out.update(_board(rows))
+    return out
+
+
+def _board(rows):
+    """One instrument list -> {NAME_UPPER: {...}}. Pure; the caller owns the read."""
     out = {}
     for r in rows:
         if not isinstance(r, dict) or not r.get("name"):
@@ -109,32 +125,46 @@ def _instruments(ctx):
 
 
 def derive_universe(instruments, oi_floor, max_names):
-    """The liquid board, read off the venue instead of hand-listed: every listed perp above an
-    open-interest floor, ranked by OI and capped. Pure — the caller owns the read.
+    """The liquid board — BOTH of them — read off the venue instead of hand-listed: every listed
+    name above an open-interest floor, ranked by OI and capped. Pure — the caller owns the read.
 
     WHY THIS REPLACED THE 19-NAME LIST. The list was the Growi HF vault's, and the vault trades it
     because it runs $13.8M and needs the depth — a constraint that is theirs, not a user's at $825.
-    Measured venue-wide over 178 days (15,000 signals, 250 assets), the reversion this strategy
-    harvests is NOT a large-cap property: the >=$200M-OI bucket had the LOWEST harvest rate (58.4%
-    reaching +3% within 7 days), the highest stop rate and the only negative fav/adverse skew
-    (-0.92), while $10-50M returned +0.64 and the 47 liquid names the list excludes returned +0.94.
-    The hand list was the single worst universe available for this rule. A same-size derived set
-    (OI >= $50M, 20-21 names) flips the skew from -0.75 to +0.09.
+    Measured venue-wide, the reversion this strategy harvests is NOT a large-cap property: the
+    >=$200M-OI bucket had the LOWEST harvest rate, the highest stop rate and the only negative
+    fav/adverse skew. The hand list was the single worst universe available for this rule, and it
+    had rotted in the usual way: at the time of writing only 9 of the 19 still cleared the floor.
 
-    It had also rotted in the usual way: at the time of writing only 9 of the 19 cleared the floor
-    — DOT sat at $5M of OI, kSHIB at $3M, BCH at $8M.
+    WHY xyz IS IN. Replaying this exact rule over 2026-06-19..2026-10-16 (every signal day in the
+    derived top-24, one clip, 45-day horizon, exits filled at the DSL floor) splits cleanly by
+    board, and the split is the whole strategy:
 
-    xyz: names are excluded — equities are a different book with a different session and clock.
+        perp   443 signals   +0.159% gross   +0.02% net    15 of 443 stopped at -30%
+        xyz    371 signals   +1.116% gross   +1.005% net    0 of 371 stopped at -30%
+
+    Perp-only — what this template shipped at 1.0.0 — is a LOSS once fees are paid, and at the
+    3.0 harvest it was -0.153% net per clip. The equity board is not a diversifier here, it is
+    the edge; the perp half is carried, and it is carried by a margin of 15 stops. Two caveats
+    belong next to those numbers: the xyz half booked ZERO stops in a four-month window (14 of
+    371 were still open and under water at 45 days), and signal days on one name overlap, so the
+    effective sample is well under 814. Neither is a reason to exclude the board that pays.
+
+    A bare name may in principle be listed on both boards. The scanner keys held positions and
+    per-bar state by the bare name, so only the deeper book of a colliding pair is ever served —
+    holding both halves of one ticker under one key would merge two positions into one.
     """
-    out = []
+    best = {}
     for name, info in (instruments or {}).items():
-        if info.get("delisted") or ":" in name:
+        if info.get("delisted"):
             continue
         oi = scoring._f(info.get("oi_usd"))
         if oi_floor > 0 and oi < oi_floor:
             continue
-        out.append((info.get("venue_name") or name, oi))
-    out.sort(key=lambda kv: -kv[1])
+        venue = info.get("venue_name") or name
+        bare = _bare(venue)
+        if bare not in best or oi > best[bare][1]:
+            best[bare] = (venue, oi)
+    out = sorted(best.values(), key=lambda kv: -kv[1])
     return [n for n, _ in (out[:max_names] if max_names > 0 else out)]
 
 
@@ -142,7 +172,7 @@ def _closed_candles(ctx, name, interval):
     """The CLOSED bars for `name`, oldest first: the MCP's last row is the bar in progress and is dropped."""
     md = _read(ctx, "market_get_asset_data", {
         "asset": name, "candle_intervals": [interval],
-        "include_funding": False, "include_order_book": False,
+        "include_funding": False, "include_order_book": False, "dex": _dex_for(name),
     }, f"market_get_asset_data({name})")
     if not isinstance(md, dict):
         return None
@@ -189,8 +219,17 @@ def scan(inputs, ctx):
                                scoring._f(inputs.get("oiFloorUsd"), 50_000_000.0),
                                int(scoring._f(inputs.get("maxNames"), 24)))
     # a name already held stays in scope even if its OI slipped under the floor: the DSL owns that
-    # exit, and dropping it here would only stop it being added to
-    universe += [h for h in held if h not in {_bare(n) for n in universe}]
+    # exit, and dropping it here would only stop it being added to. It re-enters under the VENUE's
+    # spelling, not the bare name the clearinghouse reports: a held xyz name re-added as "NVDA"
+    # would be read off the main board, find no candles, and be silently dropped every tick.
+    spelling = {}
+    for info in instruments.values():
+        venue = info.get("venue_name") or ""
+        bare = _bare(venue)
+        if venue and (bare not in spelling
+                      or scoring._f(info.get("oi_usd")) > spelling[bare][1]):
+            spelling[bare] = (venue, scoring._f(info.get("oi_usd")))
+    universe += [spelling.get(h, (h, 0.0))[0] for h in held if h not in {_bare(n) for n in universe}]
     if not universe:
         print("[manatee.scan] no instrument clears the OI floor — nothing to trade", file=sys.stderr)
     for bare in list(entries):            # a name that is no longer held starts fresh next time

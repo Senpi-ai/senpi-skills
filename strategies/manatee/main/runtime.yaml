@@ -1,21 +1,21 @@
 # ── MANATEE · Large-cap Mean-Reversion Inventory ──────────────────────────────────
-# Two-sided inventory of 19 large caps, direction from the signal: at the DAILY close, LONG a name
-# 5% or more below its 7-day mean, SHORT one 5% or more above it. Up to two adds, one per further 3%
-# the next daily close moves against an under-water position. Exit by the DSL only, around the clock:
-# a lock that arms at +3% over the (merged) average entry and keeps 95% of it — the vault's fixed-size
-# harvest as a ratchet — and a 30% max-loss floor. No clocks. An add re-anchors the DSL on the new
-# average entry. The engine reads CLOSED daily bars: market_get_asset_data serves 90 days of them
+# Two-sided inventory across BOTH venue boards, direction from the signal: at the DAILY close, LONG
+# a name 5% or more below its 7-day mean, SHORT one 5% or more above it. Up to two adds, one per
+# further 3% the next daily close moves against an under-water position. Exit by the DSL only, around
+# the clock: a lock that arms at +1.4% over the (merged) average entry and keeps 95% of it — the
+# vault's fixed-size harvest as a ratchet, tightened — and a 30% max-loss floor. No clocks. An add
+# re-anchors the DSL on the new average entry. The engine reads CLOSED daily bars: market_get_asset_data serves 90 days of them
 # with the in-progress bar last, and the scanner drops that bar and acts once per closed bar.
 name: manatee-main
 group: manatee
 version: 1.0.0
 description: >
-  MANATEE — Large-cap Mean-Reversion Inventory. Keeps up to 19 small positions, one per large-cap
-  asset, long when the asset's daily close is at least 5% below its one-week average and short when
-  it is at least 5% above it; the sign of the stretch is the direction, there is no bias. When a
+  MANATEE — Mean-Reversion Inventory. Keeps up to 19 small positions, one per liquid asset on
+  either venue board, long when the asset's daily close is at least 5% below its one-week average
+  and short when it is at least 5% above it; the sign of the stretch is the direction, there is no bias. When a
   later daily close is a further 3% against a position that is under water it adds one more clip,
   up to two, so the average entry follows the move. The DSL alone closes a position, at any hour: a lock that arms
-  at +3% over the average entry and keeps 95% of it, and a 30% max-loss floor that only a sustained
+  at +1.4% over the average entry and keeps 95% of it, and a 30% max-loss floor that only a sustained
   one-way move reaches. Modelled on a public mean-reversion vault's observed engine (inventory that
   scales as the move deepens, fixed-size harvests over average cost), replayed over 27 months in
   two windows with the exit modelled on 4h bars.
@@ -39,11 +39,12 @@ scanners:
     default_signal_validity_seconds: 1800
     state_history_max_count: 200
     inputs:
-      # ── universe: DERIVED from the venue each tick, not hand-listed. The modelled vault's 19
-      #    names are its liquidity constraint at $13.8M, not a thesis, and measured venue-wide over
-      #    178 days the reversion this harvests is not a large-cap property at all: the >=$200M-OI
-      #    bucket had the lowest harvest rate and the only negative skew of the four. See
-      #    derive_universe() in scan.py for the numbers. A held name stays in scope below the floor.
+      # ── universe: DERIVED from BOTH venue boards each tick, not hand-listed. The modelled vault's
+      #    19 names are its liquidity constraint at $13.8M, not a thesis, and measured venue-wide the
+      #    reversion this harvests is not a large-cap property at all. Replayed 2026-06-19..10-16 the
+      #    two boards split hard — perp +0.02% net per clip, xyz +1.005% — so perp-only, which is what
+      #    1.0.0 shipped, does not pay for its own fees. See derive_universe() in scan.py for the
+      #    numbers and the caveats. A held name stays in scope below the floor.
       oiFloorUsd: 50000000              # open interest, read from market_list_instruments context
       maxNames: 24                      # ~20 clear the floor today; the cap bounds a liquidity surge
       minHistoryBars: 60                # closed daily bars before a name is judged — a fresh listing
@@ -62,7 +63,7 @@ scanners:
       builderFeeBps: 4.06                # the wallet's builder fee, charged on BOTH legs — omitting
                                          #   it understated a round trip by half (6 bps vs 14.1)
       feeCoverMultiple: 3.0             # the +3% target must cover a round trip of fees 3x over
-      expectedCapturePct: 3.0           # = the DSL's first trigger
+      expectedCapturePct: 1.4           # = the DSL's first trigger (gate stays inert: 3 x 0.137% = 0.41%)
       # ── sizing (marginPct is a PERCENT of withdrawable): every entry and every add is one clip ──
       marginPct: 1.5
       addMarginPct: 1.5
@@ -116,8 +117,12 @@ exit:
       consecutive_breaches_required: 1
     phase2:
       enabled: true
-      tiers:                            # at 1x, trigger_pct == price %. Tier 0 is the harvest: +3% over average entry, 95% of it kept.
-        - { trigger_pct: 3,  lock_hw_pct: 95 }
+      tiers:                            # at 1x, trigger_pct == price %. Tier 0 is the harvest: +1.4% over average
+                                        #   entry, 95% of it kept. 3.0 was the modelled vault's fixed harvest; replayed
+                                        #   over 814 signal days it resolved a median 8h after entry instead of 30h and
+                                        #   halved the stop count (15 vs 33 on the perp board) at the same net per clip,
+                                        #   so the case for it is turnover and a shorter tail, not a bigger clip.
+        - { trigger_pct: 1.4, lock_hw_pct: 95 }
         - { trigger_pct: 6,  lock_hw_pct: 90 }
         - { trigger_pct: 12, lock_hw_pct: 90 }
 risk:

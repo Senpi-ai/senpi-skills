@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-10-15",
+  "_updated": "2026-10-16",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -4887,16 +4887,17 @@
     },
     {
       "id": "manatee",
-      "name": "Manatee — Large-cap Mean-Reversion Inventory",
+      "name": "Manatee — Cross-Asset Mean-Reversion Inventory",
       "emoji": "🦭",
       "varies": null,
-      "tagline": "Fades the stretches in the biggest names in both directions, judged once a day at the close: buys a name that closed well below its one-week average, shorts one that closed well above it, adds while the next closes keep going against it, and lets the DSL bank a 3% reversion around the clock. Up to 19 positions, one per asset, 1x, closed only by a profit lock or a wide stop. No long or short bias; the signal picks the side.",
-      "belief_plain": "Liquid perpetuals overshoot in both directions and come back toward their recent average. Manatee takes the other side of the stretch, long or short, scales in as the stretch deepens so its average entry follows the move, and takes a 3% reversion when it comes. It picks its own names — every perp above a $50 million open-interest floor, read from the venue each day, rather than a fixed list: measured across 178 days and 250 assets, the very biggest names were the WEAKEST place to run this, reaching the 3% target least often of any liquidity band. The risk is a one-way market that keeps stretching: every name carries a wide stop, and the book runs roughly a quarter of the account in exposure, so a bad month costs a few percent, not the account.",
-      "version": "1.2.0",
-      "thesis": "Modelled on the engine of a large public Hyperliquid vault running a quantitative mean-reversion book on the same 19 names: inventory that scales as the move deepens, harvests of about 1.4% over average cost, losses carried rather than taken. The vault leaned long in its last 55 days; Manatee removes the bias and lets the sign of the stretch choose the side. Replayed with entries at the daily close and the exit ladder modelled on 4h bars over two windows, July 2025 to October 2026 and July 2024 to June 2025: between the conservative and the generous exit model the first window returned -3% to +14% and the second +2% to +36%, with 93 to 95 percent of exits taken at the profit lock, 50 to 65 stop-outs per window, average gross exposure near 25% and the worst drawdown 15% to 26%. The daily-close discipline is load-bearing: the same rule sampled every four hours lost money after fees.",
+      "tagline": "Fades the stretches in the most liquid names the venue lists — perpetuals alongside equities, indices and commodities — in both directions, judged once a day at the close: buys a name that closed well below its one-week average, shorts one that closed well above it, adds while the next closes keep going against it, and lets the DSL bank a 1.4% reversion around the clock. Up to 19 positions, one per asset, 1x, closed only by a profit lock or a wide stop. No long or short bias; the signal picks the side.",
+      "belief_plain": "Liquid markets overshoot in both directions and come back toward their recent average. Manatee takes the other side of the stretch, long or short, scales in as the stretch deepens so its average entry follows the move, and banks a 1.4% reversion when it comes. It picks its own names — everything above a $50 million open-interest floor on either board, read from the venue each day, rather than a fixed list. Two things that list would have got wrong: the very biggest perpetuals were the WEAKEST place to run this, and the equities, indices and commodities on the xyz board were the strongest, carrying the whole result over the window measured. The risk is a one-way market that keeps stretching: every name carries a wide stop, and the book runs roughly a quarter of the account in exposure, so a bad month costs a few percent, not the account.",
+      "version": "1.3.0",
+      "thesis": "Modelled on the engine of a large public Hyperliquid vault running a quantitative mean-reversion book: inventory that scales as the move deepens, harvests of about 1.4% over average cost, losses carried rather than taken. The vault leaned long in its last 55 days; Manatee removes the bias and lets the sign of the stretch choose the side, and it derives its own universe rather than inheriting the vault's 19 names, which are a liquidity constraint at its size and not a thesis. Replayed minute by minute over 19 June to 16 October 2026 — every qualifying daily close in the derived top 24, one clip each, a 45-day horizon, exits filled at the DSL floor — 95% of positions closed at the profit lock for about +1.7% and the rest carried to the wide stop. The two boards did not behave alike: the xyz board returned about +1.0% net per clip and the perpetual board about +0.02%, so this is a cross-asset book by evidence rather than by preference. The daily-close discipline is load-bearing: the same rule sampled every four hours lost money after fees.",
       "tags": [
         "mean-reversion",
-        "liquid-perps",
+        "cross-asset",
+        "xyz-equities",
         "derived-universe",
         "long-short",
         "harvester",
@@ -4908,7 +4909,7 @@
         "daily-close",
         "buy-the-dip",
         "short-the-rip",
-        "large-cap",
+        "liquid-perps",
         "majors"
       ],
       "group": "multi-asset-whitelist",
@@ -4918,7 +4919,11 @@
       "sub_style_label": "Buys oversold / sells overbought, betting price reverts to its mean (works in chop, not just trends).",
       "asset_classes": [
         "btc_eth",
-        "major_alts"
+        "major_alts",
+        "xyz_equities",
+        "indices",
+        "commodities",
+        "pre_ipo"
       ],
       "asset_scope": "universe",
       "assets": [],

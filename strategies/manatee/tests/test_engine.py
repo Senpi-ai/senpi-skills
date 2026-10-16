@@ -99,12 +99,14 @@ class _State:
 
 class _Mcp:
     def __init__(self, held, px, listed=("BTC", "DOT", "UNI", "SOL"), account=10_000.0, bar_t=70,
-                 margin_used=None, oi=None):
+                 margin_used=None, oi=None, xyz=()):
         self.held, self.px, self.listed, self.account, self.bar_t = held, px, listed, account, bar_t
+        self.xyz = tuple(xyz)                  # the equities board, served only for dex="xyz"
         # OI per name, descending in the order given, so derive_universe's ranking is deterministic
-        self.oi = oi or {n: 9e8 - i for i, n in enumerate(listed)}
+        self.oi = oi or {n: 9e8 - i for i, n in enumerate(tuple(listed) + self.xyz)}
         self.margin_used = margin_used or {}   # name -> marginUsed, so a position can be shown at a
                                                # size this scanner never emitted (a double fill)
+        self.dex_seen = {}                     # asset -> the dex the candle read carried
 
     def call_tool(self, name, args):
         if name == "strategy_get_clearinghouse_state":
@@ -116,13 +118,16 @@ class _Mcp:
                                                  "marginUsed": str(self.margin_used.get(c, 100.0))}}
                                    for c, (sz, e) in self.held.items()]}}}
         if name == "market_list_instruments":
+            board = self.xyz if args.get("dex") == "xyz" else self.listed
             rows = [{"name": n, "is_delisted": False,
                      "context": {"openInterest": str(self.oi.get(n, 9e8)), "markPx": "1.0"}}
-                    for n in self.listed]
-            rows.append({"name": "XRP", "is_delisted": True,
-                         "context": {"openInterest": "9e8", "markPx": "1.0"}})
+                    for n in board]
+            if args.get("dex") != "xyz":
+                rows.append({"name": "XRP", "is_delisted": True,
+                             "context": {"openInterest": "9e8", "markPx": "1.0"}})
             return {"data": {"instruments": rows}}
         if name == "market_get_asset_data":
+            self.dex_seen[args["asset"]] = args.get("dex")
             px = self.px.get(args["asset"], 100.0)
             closed = _flat(70) + [_bar(self.bar_t, px)]   # 71 closed bars clears minHistoryBars
             return {"data": {"candles": {args["candle_intervals"][0]: closed + [_bar(self.bar_t + 1, 100.0)]}}}   # last = in progress
@@ -130,8 +135,8 @@ class _Mcp:
 
 
 def _ctx(held, px, state=None, listed=("BTC", "DOT", "UNI", "SOL"), account=10_000.0, bar_t=70,
-         margin_used=None, oi=None):
-    return types.SimpleNamespace(senpi_mcp=_Mcp(held, px, listed, account, bar_t, margin_used, oi),
+         margin_used=None, oi=None, xyz=()):
+    return types.SimpleNamespace(senpi_mcp=_Mcp(held, px, listed, account, bar_t, margin_used, oi, xyz),
                                  state=state or _State(), wallet="0xwallet")
 
 
@@ -278,10 +283,54 @@ def test_derive_universe_returns_the_venues_own_spelling():
     assert scan.derive_universe(insts, 5e7, 24) == ["kSHIB"]
 
 
-def test_derive_universe_excludes_the_equities_book():
+def test_derive_universe_spans_both_boards_and_ranks_them_together():
+    """Replayed 2026-06-19..10-16 the equities board carried this rule (+1.005% net per clip)
+    while the perp board did not pay its own fees (+0.02%). One ranking over both."""
     insts = {"BTC": {"venue_name": "BTC", "oi_usd": 3e9, "delisted": False},
              "XYZ:NVDA": {"venue_name": "xyz:NVDA", "oi_usd": 9e9, "delisted": False}}
-    assert scan.derive_universe(insts, 5e7, 24) == ["BTC"]
+    assert scan.derive_universe(insts, 5e7, 24) == ["xyz:NVDA", "BTC"]
+    assert scan.derive_universe(insts, 5e9, 24) == ["xyz:NVDA"]     # the floor still bites
+    assert scan.derive_universe(insts, 5e7, 1) == ["xyz:NVDA"]      # so does the cap
+
+
+def test_one_ticker_on_two_boards_is_served_from_the_deeper_one_only():
+    """held/acted/entries are keyed by the BARE name, so serving both halves of a ticker would
+    merge two positions under one key and let the per-name cap count one of them twice."""
+    insts = {"HOOD": {"venue_name": "HOOD", "oi_usd": 2e8, "delisted": False},
+             "XYZ:HOOD": {"venue_name": "xyz:HOOD", "oi_usd": 7e8, "delisted": False}}
+    assert scan.derive_universe(insts, 5e7, 24) == ["xyz:HOOD"]
+    insts["HOOD"]["oi_usd"] = 9e8
+    assert scan.derive_universe(insts, 5e7, 24) == ["HOOD"]
+
+
+def test_dex_is_sent_on_every_equities_market_read():
+    """xyz (HIP-3) names resolve only with dex='xyz'; sending none reads an empty board and the
+    name is silently never judged."""
+    ctx = _ctx({}, {"xyz:NVDA": 94.0, "DOT": 94.0}, listed=("DOT",), xyz=("xyz:NVDA",))
+    assert sorted(o["asset"] for o in scan.scan(INPUTS, ctx)) == ["DOT", "xyz:NVDA"]
+    assert ctx.senpi_mcp.dex_seen == {"DOT": "", "xyz:NVDA": "xyz"}
+
+
+def test_a_held_equity_below_the_floor_stays_in_scope_under_its_venue_spelling():
+    """The clearinghouse reports the BARE name. Re-adding that bare name would send the candle
+    read to the main board, find nothing, and quietly stop the position being added to."""
+    st = _State()
+    st.append({"acted": {}, "entries": {"NVDA": {"px": 94.0, "adds": 0, "side": "LONG", "t": 0}}})
+    ctx = _ctx({"NVDA": (10, 94.0)}, {"xyz:NVDA": 91.0}, st, listed=("DOT",), xyz=("xyz:NVDA",),
+               oi={"DOT": 9e8, "xyz:NVDA": 5e6})          # the held name is under the floor now
+    out = scan.scan(INPUTS, ctx)
+    assert [(o["asset"], o["data"]["kind"]) for o in out] == [("xyz:NVDA", "add")]
+    assert ctx.senpi_mcp.dex_seen["xyz:NVDA"] == "xyz"
+
+
+def test_an_unreadable_equities_board_trades_nothing_rather_than_half_a_universe():
+    """A half-read universe is not a smaller universe — it is a different strategy, aimed at
+    whichever board happened to answer."""
+    ctx = _ctx({}, {"DOT": 94.0}, listed=("DOT",), xyz=("xyz:NVDA",))
+    real = ctx.senpi_mcp.call_tool
+    ctx.senpi_mcp.call_tool = lambda n, a: (None if n == "market_list_instruments"
+                                            and a.get("dex") == "xyz" else real(n, a))
+    assert scan.scan(INPUTS, ctx) == []
 
 
 def test_an_unreadable_instrument_list_trades_nothing_rather_than_an_unvetted_board():
