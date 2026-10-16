@@ -14,7 +14,7 @@ description: >
   crossover (12/26/9) on 1h candles; RSI(14) CONFIRMS momentum (a long needs RSI
   above 50, a short below 50) — a true extreme (>=78 / <=22) costs a point, not a
   veto, since a strong MACD trend runs RSI hot; 4h trend structure adds context. Emits
-  every name clearing the score floor (7, provisional), best-first, sized a flat 25%
+  every name clearing the score floor (7), best-first, sized a flat 25%
   of the book per slot (3 slots) at a constant 3x. Exits are DSL-only: a 12% ROE stop
   (4.0% of price) and a ratchet that first locks profit at +15% ROE. Long & short.
 
@@ -40,8 +40,8 @@ scanners:
     state_history_max_count: 100           # crossover dedup map + per-tick scan-results history
     inputs:
       allowedAssets: ["BTC", "ETH", "SOL", "BNB", "XRP", "AVAX", "LINK", "DOGE"]  # liquid HL majors
-      minScore: 7                          # PROVISIONAL (1.3.0): one notch above the 6 that shipped, while a
-                                           # candidate-fix replay confirms it. As written at 6 the replay lost:
+      minScore: 7                          # one notch above the 6 that shipped. The candidate-fix replay has since
+                                           # finished and no floor clears fees (see ../DESIGN.md). At 6 the replay lost:
                                            # profit factor 0.81 over 416 trades, 71% ended at the 2%-of-price
                                            # stop. At 7 a fresh cross (4) + RSI confirming (2) no longer enters
                                            # on its own — the zero line, histogram strength or the 4h trend

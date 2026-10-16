@@ -24,7 +24,8 @@ catalog:
   leverage_max: 3
   max_slots: 3
   assets: ["BTC", "ETH", "SOL", "BNB", "XRP", "AVAX", "LINK", "DOGE"]
-  tags: [rsi, macd, indicators, technical-analysis, crossover, oscillator, classic-ta, momentum, beginner, btc, eth, sol, multi-asset, long-short]
+  status: blocked            # ⚠️ delisted 2026-10-16 — no configuration clears fees, see kingfisher/DESIGN.md
+  tags: [rsi, macd, indicators, technical-analysis, crossover, oscillator, classic-ta, momentum, beginner, btc, eth, sol, multi-asset, long-short, blocked, not-deployable]
 
 requires:
   runtime: ">=3.0.0"

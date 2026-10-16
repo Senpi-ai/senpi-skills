@@ -1,5 +1,5 @@
 """Kingfisher 1.3.0: the stop outside the 2% stop-out zone, 3 slots of 25% at a constant 3x, no clock,
-a provisional score floor of 7, and a card that says what the code does.
+a score floor of 7, and a card that says what the code does.
 
 Replayed as written (1.2.0: 8% ROE stop = 2.0% of price at 4x, floor 6): profit factor 0.81 over 416
 trades, 71% of them ended at the stop. These tests pin the shipped numbers, the fake-desk tick (flat
