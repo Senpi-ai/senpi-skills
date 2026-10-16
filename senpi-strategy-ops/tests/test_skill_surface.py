@@ -354,6 +354,11 @@ class TemplatesDeployUnderTheUsersName(unittest.TestCase):
         ref = (REPO / "senpi-strategy-ops" / "references" / "walkthrough.md").read_text()
         for needle in ("Every block is bullets", "marginPctBase", "ignas-phalanx", "deploy.py fork", "is not a yes"):
             self.assertIn(needle, ref)
+        # A quick action shows one template, not a choice: the two routes the walkthrough cannot show.
+        flat = " ".join(ref.split())
+        for needle in ("Arrived with one name, not from the picker", "**a different signal** → `senpi-strategy-discover`",
+                       "**their own** → `senpi-strategy-author`"):
+            self.assertIn(needle, flat)
 
 
 class ScriptInvocationsAreCwdIndependent(unittest.TestCase):

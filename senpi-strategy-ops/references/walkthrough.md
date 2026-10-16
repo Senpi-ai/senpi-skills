@@ -113,11 +113,16 @@ list shows the id the deploy verb derives from the package (`<owner>-<template>`
 `ignas-phalanx`). Their own words win: `--name "Shield Wall"` → `shield-wall`. A second fork of the same
 template needs a name that tells them apart — ask.
 
-## 4. The question
+## 4. The question — and the two other routes
 
 *"Run it as-is, or shift one of these first? Say **go** and it deploys as-is."* A bare "go", "deploy",
 "yes" or "as-is" = the defaults, under their name. A status check — "did you finish?", "how's it going?" —
 is not a yes: answer it and wait. Never a gate, never re-asked; the budget question comes after the answer.
+
+**Arrived with one name, not from the picker** (a quick action, a typed template name)? They were shown one
+template, not a choice. Beside the question, one line each, once: **a different signal** →
+`senpi-strategy-discover` ranks the whole catalog (never a shortlist from memory); **their own** →
+`senpi-strategy-author`, a peer, not a consolation. Variants are §1b and the concentration-sibling line, not repeated here.
 
 ## 5. Fee load and the design budget
 
