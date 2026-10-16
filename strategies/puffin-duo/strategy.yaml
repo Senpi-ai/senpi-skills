@@ -6,7 +6,7 @@
 # own P&L — see senpi-strategy-discover/references/variant-families.md.
 schema_version: 1
 id: puffin-duo
-version: "1.0.2"
+version: "1.0.3"
 catalog:
   varies: puffin          # a VARIANT of this template — never outrank it
   name: Puffin Duo — two slots at 45%

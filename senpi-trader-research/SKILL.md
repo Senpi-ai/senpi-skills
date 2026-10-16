@@ -11,11 +11,12 @@ description: >-
   NOT for reading a book to LEARN from rather than mirror — "run AI quant on 0x…", "score my
   trading", "find leaks", "find traders for me to analyze", "how does this trader actually trade" —
   that is `quant-desk`, which needs no token and works on any address. The split is the verb:
-  COPY comes here, ANALYSE goes there.
+  COPY comes here, ANALYSE goes there. One of the user's saved wallets (the ones they added in
+  Your wallets) is never a copy candidate: the engine routes it to `quant-desk`.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.6.0"
+  version: "1.7.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -29,6 +30,24 @@ metadata:
 > answers a narrower question: **is this trader worth MIRRORING, and can I mirror them right now.**
 > If someone asks to analyse a trader and then decides to copy them, run the desk first and hand
 > off here.
+
+**One of the user's saved wallets? Not a copy candidate.** A saved wallet is one the user added in Your
+wallets and trades by hand — a wallet they added, read-only to Senpi. The engine decides it, never guess: it
+reads `user_get_me.external_wallets` and matches the address case-insensitively.
+- **`--trader` on a saved wallet** returns `saved_wallet` (with `trader: null`) instead of a dossier: relay
+  its `say` line, then offer `quant-desk` (`saved_wallet.route` — score, leaks, protection) or
+  `senpi-improve-trades` (`saved_wallet.review_route` — "review my trades"). Quote its `access` line if
+  they ask what Senpi can do with it. Call it "your wallet" or "the wallet you added"; never imply Senpi
+  checked who controls it.
+- **The find path** drops saved wallets from the pool, so one is never on the copy shortlist;
+  `meta.saved_wallets_excluded` names any it dropped — say so in one line if it matters.
+- **They ask to mirror a wallet they added:** don't call it illegitimate and don't run the vet. Say
+  this release can analyze it on the quant desk, and copying a wallet you added isn't set up here yet.
+- **`meta.saved_wallets_status: "unavailable"`** → the list couldn't be read, so the engine vetted or ranked
+  as usual. If the address might be theirs, say "I couldn't load your saved wallets" and offer the quant
+  desk too — never "it isn't one of your wallets".
+- An address that isn't saved keeps the vet as below; to save one, the user can add it in Your wallets
+  on senpi.ai (web).
 
 
 You are a sharp due-diligence analyst. A hidden engine pulls the data; **your job is the judgment** —

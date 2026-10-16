@@ -1,6 +1,6 @@
 # quant-desk — methodology
 
-> **This document describes the engine as of quant-desk 1.41.0.** Nine formulas in it were stale
+> **This document describes the engine as of quant-desk 1.45.0.** Nine formulas in it were stale
 > between 1.9.0 and 1.14.0 while SKILL.md sent the agent here for them, so an agent asked "how is my
 > cost score computed?" answered with the pre-1.9.0 rule, confidently. If you change a formula in
 > `scripts/`, change it here in the same commit — `test_methodology_matches_the_engine` fails if the
@@ -24,6 +24,7 @@ counterfactual of a process rule applied to the trades that happened.
 | Market | `metaAndAssetCtxs`, `candleSnapshot` 1h | funding, open interest, mark; 91 days of hourly candles per coin touched |
 | Rank | `stats-data.hyperliquid.xyz/Mainnet/leaderboard` | PnL rank among every account listed — week, month and all-time, so one window cannot pass for the trader |
 | Senpi (optional) | `discovery_get_trader_history`, `discovery_get_top_traders`, `discovery_get_trader_state` | complete closed positions with leverage; the ≥ $1M-realized cohort with position ages |
+| The reader's wallets (`--my-wallets`) | `user_get_me`, `strategy_list`, `account_get_external_wallets` (one call), `portfolio` (one per strategy wallet), `account_get_portfolio` (one, forceFetch — the Senpi main wallet) | ONE list ordered by value, descending; ties by label, then address; a value that couldn't load sorts last and is never 0. Saved wallet = `state.totalValueUsd` (null or `readError` → couldn't load; `unpricedCoins` → "excludes" note). Strategy wallet = the last `accountValueHistory` point, shortest window first (0 is a value; no series → couldn't load). Senpi main wallet = its idle cash, perps USDC + spot USDC + EVM stablecoins (senpi-portfolio's read, the vendored main-wallet reader; failed read → couldn't load), `run` = its address. Kind (read-only saved / Senpi strategy / Senpi main wallet) is a column, never a rank. A Senpi strategy is ONE row with all its wallets, grouped by senpi-portfolio's key (the package it was deployed under, `skill_name`; unstamped = its own row): value = the sum of the wallets that loaded (`partial` when only some did, couldn't load when none did), closed only when every wallet is, `run` = `--book` over its wallets |
 
 ## Round trips
 
@@ -74,9 +75,22 @@ ones.
 
 ## Protection audit
 
-A stop for a long is a resting sell trigger below the mark; for a short a buy trigger above it. Stop cover
-= stop-covered size ÷ position size. `AT RISK` = liquidation < 5% away with cover < 90%; `UNPROTECTED` =
-cover 0; `PARTLY COVERED` = 0 < cover < 90%. Funding per day = −hourly rate × notional × 24 (sign by side).
+One rule, shared with senpi's saved-wallet state, pinned by
+`tests/fixtures/protection-fixtures.v1.json`. A **stop** is a top-level resting order in the position's
+own dex list (`children` of an unfilled entry are not live) on the same coin, `reduceOnly`, on the exit
+side (sell for a long, buy for a short), with `orderType` `Stop Market`, `Stop Limit` or
+`Trailing Stop Market` — a take-profit is never a stop. A stop is `WAITING_TO_ACTIVATE` when its trigger
+price is not a positive number or a trailing stop's condition ends `best waiting`; otherwise `ARMED`.
+**Covered size** = the position's size if any ARMED stop is a position TP/SL (`isPositionTpsl`, size
+`0.0`), else the exact decimal sum of the ARMED stops' sizes. `FULL` = covered ≥ size, `PARTIAL` =
+0 < covered < size, `NONE` = nothing covered. `AT RISK` = liquidation < 5% away and not `FULL`;
+`UNPROTECTED` = `NONE`; `PARTLY COVERED` = `PARTIAL`. A dex whose open orders could not be read leaves
+its positions `UNKNOWN` (protection unknown — never `UNPROTECTED`, never covered; risk-scored like a
+missing stop). A dex whose positions could not be read (a failed clearinghouse read — live answers
+an empty account with an empty state, never an error) is named, per wallet on a `--book` run, and never
+read as "no open positions". A position whose only exit-side stop orders are not reduce-only is `NONE`, and is said to
+have a stop order that isn't reduce-only — not counted as protection. Stop cover (the table column) =
+covered ÷ size, a PARTIAL row floored into 1–99%, display only. Funding per day = −hourly rate × notional × 24 (sign by side).
 
 ## Timing (complete episodes with candles)
 

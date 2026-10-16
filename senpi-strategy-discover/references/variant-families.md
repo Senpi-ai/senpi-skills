@@ -7,11 +7,22 @@ read as if it were the parent's.
 
 This file is how to tell them apart, and how to say so in one line each.
 
+## What the engine hands you
+
+`discover.py` folds every family into one card before the shortlist cap: the parent's card lists its
+eligible siblings' ids in `variants` (and carries the family's best theme score), so a variant reaches
+the user only through that list and the rule below. If the parent was filtered out, the closest eligible
+member stands in and its `varies` names the parent.
+
 ## The rule
 
-**Never offer two members of the same family in the same shortlist** — with one exception, the
-chase caps below, where 1.5% is now a shipped DEFAULT and the user should be told what it does
-and offered the looser settings.
+**Never offer two members of the same family in the same shortlist** — with TWO exceptions:
+
+- **the chase caps** below, where 1.5% is now a shipped DEFAULT and the user should be told what
+  it does and offered the looser settings;
+- **the concentration axis** (next section), where a family holding both a spread and a
+  concentrated member means the user is choosing how many bets their money is split across, and
+  that choice is theirs rather than ours to make silently.
 
 **The rule, restated:** Offer the PARENT, and name the
 variant only when the user's own words ask for the thing it varies. "I want fewer, bigger positions"
@@ -20,6 +31,55 @@ them.
 
 If a user asks for a variant by name, give it to them — but say what it varies from, in the same
 breath, every time. A variant without its parent named is unreadable.
+
+## The concentration axis — offer it whenever the family has one
+
+**Standing instruction (Jason, 2026-10-12): where a strategy has a concentrated sibling — or is
+itself the concentrated one — offer BOTH, in one line, before the budget question.** Not a
+recommendation, a choice. Concentration is the one variant axis a user has a real opinion about
+before they have any results, because it is about how much a single wrong call costs them.
+
+### How to tell, without a list that goes stale
+
+Read it off the family's own catalog records. Every record carries **`max_slots`** and
+**`leverage_max`**, both DERIVED from the packages themselves, so they cannot drift from what
+ships:
+
+> Within a family (follow `varies` to the root), the member with **fewer slots and/or higher
+> `leverage_max`** is the concentrated one. The member with **more slots and/or lower
+> `leverage_max`** is the spread one.
+
+Both axes matter and they are different claims. Fewer slots at the same leverage moves
+*concentration only* — the same money behind fewer names. Higher leverage moves *size* — more
+gross notional for the same margin. A variant that moves both (`hornet-concentrated`) is doing two things at once, and you must
+say so.
+
+**Do NOT key off tags.** They are unreliable and in places simply wrong: `penguin-x5` is tagged
+`concentrated` and `high-leverage` while being penguin at HALF the leverage, and `puffin-duo`,
+`penguins-duo` and `pelicans-duo` are tagged `concentrated` while doing the opposite — splitting
+one position into two smaller ones. The config fields are the truth; the tags are not.
+
+### What to say
+
+Two lines, each naming the one number and its consequence. Quote **what one stop costs as a
+fraction of the account** — that is the number a user can actually feel, and it is
+`max_loss_pct x marginPct / 100`:
+
+> **Hornet** — up to 3 positions at 18% margin, 4x. One stop-out costs about **1.4%** of the account.
+> **Hornet Concentrated** — 2 positions at 45%, 10x, with every exit at the same distance in price.
+> One stop-out costs about **9%**, and one good run pays correspondingly more.
+
+Then stop and let them answer. If they say nothing, **ship the spread member** — the parent is the
+default for a reason, and nobody should land in the most aggressive package in a family by silence.
+
+### What not to do
+
+- Do not offer the concentration choice for a family that has no concentrated member. Most
+  families vary something else entirely (a chase cap, a score floor), and inventing the axis
+  implies an option that does not exist.
+- Do not present it as "safe vs risky". Gross exposure is often similar or identical; what moves
+  is how much rides on one call. Say that.
+- Do not let it turn into a menu. One line each, two members, then the budget question.
 
 ## The families
 
@@ -95,25 +155,48 @@ score **8** instead of **9**, asking whether the floor is set too high.
 These bet on the parent's own ranking being informative. If it is, they beat it; if the ranking is
 noise, they are the parent with more variance. Say exactly that.
 
-### 5. Concentration at leverage — the carry trade as one bet per side
-
-`camel-concentrated` — camel's funding carry as **1 position per side at 10x** instead of 4 at 5x.
-Margin deployed is unchanged (4 × 18% = 1 × 72%), but **leverage doubles gross notional**, so unlike
-every other variant here this one moves *two* things on purpose: concentration and size. Say so.
-
-The pitch is as much about the bill as the bet: camel pays **58% of its gross profit in fees**, and
-one position costs roughly a quarter of the fees four do for the same money at work.
-
-Offer it only to someone who has said they want leverage *and* concentration. It is the most
-aggressive thing in the catalog: one stop-out costs **8.6% of the arm**, against 1.08% on camel,
-and **no clock closes anything** — the ladder and the 1.20%-of-price stop are the only exits, so
-a carry that never reverts holds the arm until the stop. Funding does keep accruing while it waits.
-
 ### 5. Concentration — fewer, larger bets inside a multi-arm strategy
 
 `athena-concentrated` — athena with its phalanx arm holding **2 positions at 22.5%** instead of 3 at
 15%. The same 45% of that sleeve is at risk either way; it is carried by fewer names. The aegis
 hedge and the 65/35 split are untouched.
+
+### 6. Concentration at leverage — fewer bets, and bigger ones
+
+Unlike section 5, this moves *two* things on purpose: concentration AND size. Say so.
+
+`hornet-concentrated` — hornet's semiconductor supply-chain momentum as **2 positions at 45% and
+10x** instead of 3 at 18% and 4x. Same breadth gate, same 16-name basket, same scanner bytes; every
+DSL distance re-derived so the 2.00% stop and the 5.00/7.50/12.50/18.75/25.00% rungs are unchanged
+IN PRICE, with one extra rung at 2.50% that 4x could not afford to lock. Two slots rather than
+three because at 45% per open a third has no room — measured on a live instance over 3 days and 7
+opens, peak concurrent was 2 and never 3.
+
+One stop-out costs **9.0% of the account** against hornet's 1.44%, which is why its daily loss
+limit is 18% and its halt 30%: hornet's 15% daily limit would stop the book after a single loss.
+It also drops hornet's 48h `hard_timeout`, so nothing but the ratchet and the 2.00%-of-price stop
+closes a position — including through the Friday-to-Sunday equity gap that timeout existed for.
+Say that last part out loud to anyone running it over a weekend.
+
+
+## Not a family any more: camel
+
+`camel-concentrated` **took the `camel` id on 2026-10-08** — one position per side at 10x is now
+what "camel" means, and the 4-slot/5x original is delisted as `camel-spread` (on disk so the forks
+deployed from it stay readable, not offered). There is one camel and nothing to choose between.
+
+Two things to say when someone funds it, because the name is doing less work than it looks:
+
+- **It is the most aggressive thing in the catalog.** One stop-out costs about **8.6% of that side**
+  against ~1% on the old 4-slot config, and **no clock closes anything** — the ladder and the
+  1.20%-of-price stop are the only exits.
+- **The 10x is what it asks for, not always what it gets.** The venue clamps to
+  `min(requested, the name's cap)` and **53.6% of listed perps cap at 5x or below, 35.8% at 3x**.
+  Because every DSL rung is an ROE number, a clamp widens every rung *and* the stop in price by
+  `10 ÷ cap` — on a 3x name the whole ladder runs 3.3× wider than authored.
+
+Anyone still running the old config is on a fork of `camel-spread`'s recipe; read their results
+against that, not against today's camel.
 
 ## How to present a family when it IS relevant
 
