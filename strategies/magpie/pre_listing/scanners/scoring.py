@@ -7,11 +7,13 @@ reads, this does the numbers. The math/gates are reproduced VERBATIM so a
 fidelity harness can diff this against the v2 producer on the same snapshot;
 behaviour-preserving v2 quirks are kept and flagged `# v2-quirk`.
 
-The thesis: trade.xyz pre-IPO perpetuals (IPOPs) carry a structural FUNDING
-SIGNATURE — very low |funding| (<= ~1e-7, the ~1% throttled multiplier) and a
-low leverage cap (<= 5). Discover them off market_list_instruments, score the
-pre-listing trend (4h structure sets direction, 1h + Smart-Money confirm, SM
-sparse pre-listing -> trend-only fallback), and ride the ramp into the IPO."""
+The thesis: trade.xyz pre-IPO perpetuals (IPOPs) carry a structural signature —
+the VENUE'S LEVERAGE CAP (listed at <= 5x, lifted on graduation) plus a volume
+floor; the v2 funding band (|funding| <= ~1e-7) is opt-in and off, see the
+signature block below. Discover them off market_list_instruments, score the
+pre-listing trend on CLOSED candles (4h structure sets direction, 1h + Smart-Money
+confirm, SM sparse pre-listing -> trend-only fallback), and ride the ramp into
+the IPO. The predicate is no longer the v2 producer's verbatim port (1.2.0)."""
 
 
 def _f(c, primary, alt=None, default=0.0):
@@ -26,43 +28,87 @@ def _f(c, primary, alt=None, default=0.0):
         return default
 
 
-# ── new-listing / IPOP DETECTION (universe discovery, ported verbatim) ──
+# ── THE IPOP SIGNATURE (shared VERBATIM by both books; tests pin the two copies equal) ──
 #
-# An instrument is an IPOP iff its name starts with "xyz:", it is not delisted,
-# |funding| <= ipopFundingMaxAbs, AND max_leverage <= ipopMaxLeverageCap. The
-# pre-listing universe additionally requires dayNtlVlm >= ipopMinDailyVolUsd.
-# This is the SAME funding signature the graduation book classifies on; when a
-# company IPOs the product converts (funding jumps ~100x, the cap lifts) and it
-# stops matching. Validating the dynamic universe == applying this predicate to
-# the live market_list_instruments read (no name is ever invented).
+# A pre-IPO perpetual is identified by the VENUE'S LEVERAGE CAP: trade.xyz lists one at or under
+# ipopMaxLeverageCap (5x) and lifts the cap when it graduates to a standard equity perp. A volume
+# floor goes with it — a cap-5 market with no volume is a market that has not traded, not a
+# listing. The FUNDING BAND the v2 producer used (|funding| <= ~1e-7, read as the throttled
+# pre-listing multiplier) is OPT-IN and off by default: live pre-IPO perps fund at the same ~1e-5
+# magnitude as ordinary xyz equities, so a near-zero funding read marks a market that has not
+# traded. Measured on the live xyz board, 2026-10-12 (114 names): one name at cap <= 5, one at
+# |funding| <= 1e-7, none at both; median |funding| 8.3e-6 — the band-AND-cap predicate matched
+# nothing, so neither book could ever see an IPOP. Kept behind ipopFundingBandEnabled for an
+# operator who wants it as an extra check.
 
-def is_ipop(funding_abs, max_leverage, ipop_funding_max, ipop_lev_cap):
-    """The IPOP funding-signature predicate (shared with the graduation classifier).
-    True iff |funding| <= ipop_funding_max AND max_leverage <= ipop_lev_cap."""
+
+def ipop_capped(max_leverage, funding_abs, config):
+    """The cap half of the signature: listed at or under ipopMaxLeverageCap and, only when
+    ipopFundingBandEnabled, |funding| <= ipopFundingBandAbs. Unreadable inputs -> False."""
     try:
-        f = abs(float(funding_abs))
         lev = int(max_leverage)
     except (TypeError, ValueError):
         return False
-    return f <= ipop_funding_max and lev <= ipop_lev_cap
+    if lev > int(config.get("ipopMaxLeverageCap", 5)):
+        return False
+    if config.get("ipopFundingBandEnabled", False):
+        try:
+            if abs(float(funding_abs)) > float(config.get("ipopFundingBandAbs", 1e-7)):
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
+def is_ipop(max_leverage, vol_usd, funding_abs, config):
+    """The IPOP signature: ipop_capped AND dayNtlVlm >= ipopMinDayVolumeUsd (a dead zero-volume
+    market is not a listing). Unreadable inputs -> False."""
+    if not ipop_capped(max_leverage, funding_abs, config):
+        return False
+    try:
+        return float(vol_usd) >= float(config.get("ipopMinDayVolumeUsd", 25000))
+    except (TypeError, ValueError):
+        return False
 
 
 def ipop_passes_universe(name, is_delisted, funding_abs, max_leverage, vol_usd, config):
-    """Pre-listing-universe membership: a live, non-delisted xyz IPOP clearing the
-    min-daily-volume floor. The xyz: prefix + not-delisted checks ensure we only
-    ever consider instruments that ACTUALLY EXIST in the live universe."""
+    """Pre-listing-universe membership: a live, non-delisted xyz name carrying the IPOP
+    signature AND clearing the BOOK's own trading floor (ipopMinDailyVolUsd, above the
+    signature's floor: recognising a listing takes less volume than putting money in it). The
+    xyz: prefix + not-delisted checks ensure we only ever consider instruments that ACTUALLY
+    EXIST in the live universe."""
     if not isinstance(name, str) or not name.startswith("xyz:") or is_delisted:
         return False
-    max_funding = float(config.get("ipopFundingMaxAbs", 1e-7))
-    max_lev = int(config.get("ipopMaxLeverageCap", 5))
-    min_vol = float(config.get("ipopMinDailyVolUsd", 100000))
-    if int(max_leverage if max_leverage is not None else 999) > max_lev:
+    if not is_ipop(max_leverage, vol_usd, funding_abs, config):
         return False
-    if abs(float(funding_abs)) > max_funding:
-        return False
-    if float(vol_usd) < min_vol:
-        return False
-    return True
+    return float(vol_usd) >= float(config.get("ipopMinDailyVolUsd", 100000))
+
+
+HOUR_SECONDS = 3600
+FOUR_HOUR_SECONDS = 14400
+
+
+def _t(c):
+    """Candle open, epoch ms, or -1 when unreadable."""
+    return _f(c, "t", default=-1.0) if isinstance(c, dict) else -1.0
+
+
+def closed_candles(candles, candle_seconds, now):
+    """Only the candles that have CLOSED, oldest first (the Moose/Vulture idiom).
+
+    `t` is the candle OPEN in epoch milliseconds, so a candle has closed once
+    t/1000 + candle_seconds <= now. The feed's last row is the bar in progress: its low and high
+    are partial, so a structure counted over it (higher lows, lower highs) can flip inside the
+    bar. Rows with no readable `t` are dropped; nothing here assumes fixed spacing."""
+    out = []
+    for c in candles or []:
+        t = _t(c)
+        if t < 0:
+            continue
+        if t / 1000.0 + candle_seconds <= now:
+            out.append(c)
+    out.sort(key=_t)
+    return out
 
 
 # ── shared technical helpers (ported verbatim) ──

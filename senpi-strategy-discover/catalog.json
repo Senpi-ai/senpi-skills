@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-10-13",
+  "_updated": "2026-10-16",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -225,7 +225,7 @@
       "varies": null,
       "tagline": "A patient contrarian on BTC/ETH/SOL/HYPE: waits for a major to move 3%+ in 4h while the 4h leaders (the traders winning the last four hours on the board) pile in heavily, then fades the 4h leaders' crowded, exhausted side — but only when the funding regime confirms the unwind and the move is still fresh. Conservative 7-10x leverage, wide DSL to let the reversal develop.",
       "belief_plain": "When a big coin runs hard and the traders winning the last four hours are all crowded onto the same side, the crowd is maximum exposed and the unwind is the trade. Dog bets against that exhausted consensus on BTC, ETH, SOL and HYPE — but only when the move has genuinely overextended, the crowding is still building, and market-wide funding shows the crowd really is one-sided. Most of the time it waits.",
-      "version": "1.1.3",
+      "version": "1.2.0",
       "thesis": "Hyperliquid is dominated by leverage traders chasing momentum. When a major moves 3%+ in four hours and the 4h leaders' concentration (their share of the board's 4h gains — a momentum read, not a proven cohort) piles in 15%+, the late entrants are maximally exposed and funding pressure plus mean reversion force the unwind. Dog's edge is being on the unwind side before capitulation accelerates — so it scores the 4h leaders' side, hard-gates on exhaustion (>=3% 4h move), freshness (15m contribution still rising), trader depth (>=30), and a funding regime that confirms the crowd is one-sided, then emits the OPPOSITE direction at conservative leverage and lets a wide ratcheting stop ride the reversal rather than banking too early.",
       "tags": [
         "leader-momentum",
@@ -646,24 +646,26 @@
     },
     {
       "id": "tortoise",
-      "name": "Tortoise — DCA Scheduler",
+      "name": "Tortoise — Scheduled Buyer",
       "emoji": "🐢",
       "varies": null,
-      "tagline": "A time-triggered dollar-cost-averaging scheduler on a small basket (BTC/ETH/SOL): no price prediction, no scoring, no timing — each tick it buys a fixed % of budget on whichever asset is most overdue past its DCA interval, always LONG, and lets a wide DSL ratchet ride the accumulation for days.",
-      "belief_plain": "Buys a fixed slice of your budget on a strict schedule — by default every 24 hours, one of BTC, ETH or SOL at a time. It predicts nothing; it just keeps accumulating on cadence and trails a wide stop so the position can run instead of getting churned. The most-overdue coin goes first.",
-      "version": "1.2.0",
-      "thesis": "Dollar-cost averaging is the single most accessible trade in crypto and needs zero prediction skill. Every other agent makes a directional call; Tortoise makes none — it buys on a clock. Cadence IS the signal: when an asset has gone longer than the interval since its last buy it is due, never-bought assets are always due, and the most-overdue wins. A very wide let-winners-run DSL (30d hard_timeout) lets the accumulated longs compound while Phase-2 locks bank gains gradually.",
+      "tagline": "A clock, not a chart: holds one long position each in BTC, ETH and SOL, buying a name on its schedule whenever it is flat — on deploy, and again a full interval (24 hours by default) after its position has exited. Not DCA: it never adds to an open position. Predicts nothing; each holding sits behind a wide stop — 30% of margin, 15% of price at 2x — with a ratchet that only locks gains, and nothing is closed for being old.",
+      "belief_plain": "Buys one position each in BTC, ETH and SOL (25% of the wallet apiece at 2x) and holds them. It does not time the market and it does not add to a position: if a holding is stopped out, it waits a full day and then buys that coin again on its schedule. The stop is wide — a 15% fall in price — so an ordinary dip is held through rather than sold, and a ratchet banks part of a big run. Nothing is closed just for being old.",
+      "version": "2.0.0",
+      "thesis": "The most accessible trade in crypto is to own the majors and not fiddle. Tortoise does that on a clock: it predicts nothing, buys whichever eligible name has been flat the longest, and leaves the exit to the DSL. It is not dollar-cost averaging — the runtime has no way to add to an open position, so each coin is one position, re-bought only after it has exited and a full interval has passed. That re-buy clock is keyed to the exit, not the buy, so a stop-out is not bought straight back into the same move. The stop is 30% of margin, 15% of price at 2x: wide enough to hold the ordinary dips a buyer like this exists to hold through, which a tighter stop sold.",
       "tags": [
         "btc",
         "eth",
         "sol",
         "multi-asset",
-        "dca",
-        "dollar-cost-averaging",
+        "scheduled-buyer",
         "time-trigger",
         "always-long",
-        "onboarding",
-        "let-winners-run"
+        "one-position-per-asset",
+        "re-entry",
+        "wide-stop",
+        "dsl-only",
+        "onboarding"
       ],
       "group": "dca",
       "archetype": "structural_neutral",
@@ -683,10 +685,10 @@
       "direction": "long_only",
       "risk_level": "conservative",
       "tier": "starter",
-      "leverage_max": 3,
+      "leverage_max": 2,
       "time_horizon": "position",
       "cadence_seconds": 1800,
-      "min_budget": 100,
+      "min_budget": 30,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
       "instance_count": 1,
@@ -703,9 +705,9 @@
       "emoji": "🐦",
       "varies": null,
       "tagline": "Trades the full pre-IPO → listing → graduation arc of tokenized equities on Hyperliquid XYZ: a pre-listing book accumulates pre-IPO perpetuals (IPOPs) into the IPO, and a graduation book rides the explosive post-conversion price discovery — the SpaceX $1.4B-day-1 pattern.",
-      "belief_plain": "Auto-finds brand-new pre-IPO contracts (like a SpaceX-before-it-lists perp) by their tell-tale tiny funding and low leverage cap, rides the trend into the IPO, then detects the moment they convert to a full equity perp and rides the fireworks of the first few days of free price discovery.",
-      "version": "1.1.2",
-      "thesis": "You think the biggest, most repeatable edge on Hyperliquid right now is the new-listing EVENT itself, not the ongoing equity market. Pre-IPO perpetuals trade throttled and quiet; the instant they graduate to a standard equity perp the funding jumps ~100x, the leverage cap lifts and price discovery goes vertical. Capture both halves of that arc with two books on two wallets so the slow accumulation and the explosive pop never fight over the same margin. Both books take direction from 4h structure and add conviction when 4h leader momentum — which side of the name the last four hours' winners sit on — agrees.",
+      "belief_plain": "Auto-finds brand-new pre-IPO contracts (like a SpaceX-before-it-lists perp) by their tell-tale low leverage cap — the venue lists a pre-IPO perpetual at 5x or under and lifts the cap when it graduates — with a floor on daily volume so a market that has not traded is never mistaken for a listing (an optional funding band can be switched on as an extra check), rides the trend into the IPO, then detects the moment they convert to a full equity perp and rides the fireworks of the first few days of free price discovery. Each book runs three slots at 25% margin and 3x: the stop is 10% of margin on the pre-listing book and 12% on the graduation book (about 3.3% and 4% of price), the trailing lock only ever moves in your favour, and no clock closes a trade.",
+      "version": "1.2.0",
+      "thesis": "You think the biggest, most repeatable edge on Hyperliquid right now is the new-listing EVENT itself, not the ongoing equity market. Pre-IPO perpetuals trade throttled and quiet at a 5x cap; the instant they graduate to a standard equity perp the leverage cap lifts, the throttle comes off and price discovery goes vertical. Capture both halves of that arc with two books on two wallets so the slow accumulation and the explosive pop never fight over the same margin. The pre-listing book takes direction from 4h structure, with the 1h trend and 4h leader momentum — which side of the name the last four hours' winners sit on — adding conviction; the graduation book takes direction from the sign of the move over the last six closed hourly candles after the conversion, with 4h leader momentum and rising volume adding conviction.",
       "tags": [
         "ipo",
         "new-listing",
@@ -732,10 +734,10 @@
       "direction": "long_short",
       "risk_level": "moderate",
       "tier": "advanced",
-      "leverage_max": 5,
+      "leverage_max": 3,
       "time_horizon": "position",
       "cadence_seconds": 600,
-      "min_budget": 75,
+      "min_budget": 40,
       "wallet_count": 2,
       "min_budget_binding_wallet": "pre_listing",
       "instance_count": 2,
@@ -1690,75 +1692,14 @@
       "sort_order": 16
     },
     {
-      "id": "kingfisher",
-      "name": "Kingfisher — Classic Indicators (RSI + MACD)",
-      "emoji": "🐦",
-      "varies": null,
-      "tagline": "The textbook RSI + MACD setup, supervised: a MACD signal-line crossover (12/26/9) on 1h candles triggers the entry, RSI(14) confirms (room above 50 for longs, below 50 for shorts) and vetoes it at the overbought/oversold extreme, 4h trend structure adds context. Trades a liquid-majors basket (BTC/ETH/SOL/BNB/XRP/AVAX/LINK/DOGE) long & short at 3-5x with a balanced DSL that locks profit from +8% ROE.",
-      "belief_plain": "The two indicators everyone knows, run for you the way the textbook says. It waits for MACD to cross its signal line, checks that RSI agrees and isn't already stretched, prefers trades that line up with the 4-hour trend, then trails a stop that starts protecting profit once you're up ~8%. Classic technical analysis on the big, liquid coins — no black box.",
-      "version": "1.2.0",
-      "thesis": "RSI and MACD are the single most-requested retail build ('a strategy based on RSI and MACD'), yet no template was positioned as one. Kingfisher is that on-ramp: a faithful, well-labelled crossover-plus-confirmation strategy on names deep enough to size into, with the runtime owning execution, sizing, slots, and a disciplined trailing exit — so a familiar chart setup becomes a supervised, always-on strategy instead of a manual watch.",
-      "tags": [
-        "rsi",
-        "macd",
-        "indicators",
-        "technical-analysis",
-        "crossover",
-        "oscillator",
-        "classic-ta",
-        "momentum",
-        "beginner",
-        "btc",
-        "eth",
-        "sol",
-        "multi-asset",
-        "long-short"
-      ],
-      "group": "momentum",
-      "archetype": "trend_following",
-      "archetype_label": "Trend-Follower",
-      "sub_style": "indicator_crossover",
-      "sub_style_label": "Textbook technical setup: a MACD signal-line crossover triggers the entry, RSI confirms momentum, higher-timeframe trend adds context.",
-      "asset_classes": [
-        "major_alts"
-      ],
-      "asset_scope": "basket",
-      "assets": [
-        "BTC",
-        "ETH",
-        "SOL",
-        "BNB",
-        "XRP",
-        "AVAX",
-        "LINK",
-        "DOGE"
-      ],
-      "direction": "long_short",
-      "risk_level": "moderate",
-      "tier": "starter",
-      "leverage_max": 5,
-      "time_horizon": "position",
-      "cadence_seconds": 900,
-      "min_budget": 40,
-      "wallet_count": 1,
-      "min_budget_binding_wallet": "main",
-      "instance_count": 1,
-      "funding_split": [
-        1.0
-      ],
-      "max_slots": 3,
-      "branch": "main",
-      "sort_order": 17
-    },
-    {
       "id": "lemur",
       "name": "Lemur — Pre-IPO Perpetual Trend Follower",
       "emoji": "🦤",
       "varies": null,
-      "tagline": "Trades pre-IPO companies as perpetuals on Hyperliquid XYZ — today just SpaceX (xyz:SPCX). Auto-discovers IPOPs via the trade.xyz funding signature (~100x smaller funding) plus a <=5x pre-listing leverage cap and a $100k liquidity floor, then goes long or short when the 4h trend structure and the 4h leaders' lean agree. Leverage auto-caps to each name's own ceiling; a moderate DSL lets multi-day theses ride.",
-      "belief_plain": "Hyperliquid XYZ is one of the only places retail can trade private companies (like SpaceX) as perpetuals before they IPO. Lemur watches those pre-IPO names, waits for the 4-hour trend and the traders winning the last four hours to point the same way, then takes a single directional position and trails a stop. When a company actually goes public it stops qualifying and Lemur drops it automatically.",
-      "version": "1.1.3",
-      "thesis": "Pre-IPO perpetuals (IPOPs) are a structurally distinct product — a 0.005 funding multiplier (vs 0.5 for standard XYZ perps) and Discovery Bounds that throttle price velocity. That structural funding signature reliably identifies them with no hardcoded ticker list, so the universe future-proofs itself as trade.xyz lists new names and de-qualifies any that IPO. On those slow-moving names, a clean 4h trend confirmed by the 4h leaders' side is enough edge to hold a directional swing and let a wide DSL ratchet capture the multi-day move.",
+      "tagline": "Trades pre-IPO companies as perpetuals on Hyperliquid XYZ — today just SpaceX (xyz:SPCX). Auto-discovers IPOPs via the trade.xyz funding signature (~100x smaller funding) plus a <=5x pre-listing leverage cap and a $100k liquidity floor, then goes long or short with the 4h trend structure. The 4h leaders' lean is consulted only when their board carries the name — it usually has no row for a pre-IPO perp: a present lean must agree and adds to the score; with no row, the 1h trend has to confirm the 4h. One position at a time, 40% of the wallet at 3x, a 12% ROE stop (4% of price) and a ratchet that locks gains from +20% ROE; no clock cuts, so multi-day theses ride.",
+      "belief_plain": "Hyperliquid XYZ is one of the only places retail can trade private companies (like SpaceX) as perpetuals before they IPO. Lemur watches those pre-IPO names and follows the 4-hour trend. When the traders winning the last four hours hold the name, their side has to agree; most days they do not, and then the 4-hour and 1-hour trends have to point the same way. It takes a single directional position — 40% of the wallet at 3x — behind a stop 4% from entry (12% of margin); once the trade is up 20% on margin, a ratchet starts locking gains. When a company actually goes public it stops qualifying and Lemur drops it automatically.",
+      "version": "1.2.0",
+      "thesis": "Pre-IPO perpetuals (IPOPs) are a structurally distinct product — a 0.005 funding multiplier (vs 0.5 for standard XYZ perps) and Discovery Bounds that throttle price velocity. That structural funding signature reliably identifies them with no hardcoded ticker list, so the universe future-proofs itself as trade.xyz lists new names and de-qualifies any that IPO. On those slow-moving names, a clean 4h trend — with the 4h leaders' side as a veto and a bonus on the days their board carries the name — is enough edge to hold a directional swing at 3x and let a wide DSL ratchet (a 12% ROE stop, gains locked from +20% ROE) capture the multi-day move.",
       "tags": [
         "pre-ipo",
         "ipop",
@@ -1785,19 +1726,19 @@
       "direction": "long_short",
       "risk_level": "moderate",
       "tier": "starter",
-      "leverage_max": 5,
+      "leverage_max": 3,
       "time_horizon": "position",
       "cadence_seconds": 900,
-      "min_budget": 30,
+      "min_budget": 15,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
-      "max_slots": 2,
+      "max_slots": 1,
       "branch": "main",
-      "sort_order": 18
+      "sort_order": 17
     },
     {
       "id": "lynx",
@@ -1851,7 +1792,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 19
+      "sort_order": 18
     },
     {
       "id": "marlin",
@@ -1905,7 +1846,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 20
+      "sort_order": 19
     },
     {
       "id": "meerkat",
@@ -1952,7 +1893,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 21
+      "sort_order": 20
     },
     {
       "id": "moose",
@@ -2023,7 +1964,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 22
+      "sort_order": 21
     },
     {
       "id": "orca",
@@ -2032,7 +1973,7 @@
       "varies": null,
       "tagline": "A universe rank-jump sniper that trades jumps in the 4h leaderboard: watches its top-50 rows every tick and fires only on a fresh FIRST_JUMP — a coin exploding 15+ ranks out of the deep field with 4h trend, 15m freshness, and a volume spike all confirming — then strikes ONE position at a fixed 7x and lets the DSL ride the breakout.",
       "belief_plain": "Watches which coins the traders winning the last four hours are suddenly piling into and only acts when a name rockets up the leaderboard from deep in the pack — a fresh jump, not an already-crowded top name. It wants the move to be young (climbing fast in the last 15 minutes), going the same way the price is, and backed by a real volume spike before it takes a single shot.",
-      "version": "1.1.3",
+      "version": "1.2.0",
       "thesis": "The edge is in the FIRST jump, not the established leader. By the time a coin sits at the top of the 4h leaderboard (a momentum read of who is winning right now, not a proven cohort) the move is priced in; the asymmetric entry is the moment a name explodes 15+ ranks out of the deep field (prev-rank >= 25) while its 4h trend, 15m contribution velocity, and 24h volume all confirm the same direction at once. That confluence is rare and decays fast, so the right move is to scan often (90s), strike once at a fixed 7x the instant it fires, skip the already-top names, and let a ratcheting DSL — not a fixed target — decide the exit so the occasional big breakout pays for the quiet weeks.",
       "tags": [
         "leader-momentum",
@@ -2069,7 +2010,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 23
+      "sort_order": 22
     },
     {
       "id": "otter",
@@ -2116,7 +2057,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 24
+      "sort_order": 23
     },
     {
       "id": "pelican",
@@ -2182,7 +2123,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 25
+      "sort_order": 24
     },
     {
       "id": "pelicans-duo",
@@ -2248,7 +2189,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 26
+      "sort_order": 25
     },
     {
       "id": "penguin-chase-150bp",
@@ -2303,7 +2244,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 27
+      "sort_order": 26
     },
     {
       "id": "penguin-chase-200bp",
@@ -2358,7 +2299,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 28
+      "sort_order": 27
     },
     {
       "id": "penguin-chase-300bp",
@@ -2413,7 +2354,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 29
+      "sort_order": 28
     },
     {
       "id": "penguin-x5",
@@ -2465,7 +2406,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 30
+      "sort_order": 29
     },
     {
       "id": "penguin",
@@ -2517,7 +2458,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 31
+      "sort_order": 30
     },
     {
       "id": "penguins-duo-chase-150bp",
@@ -2572,7 +2513,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 32
+      "sort_order": 31
     },
     {
       "id": "penguins-duo-chase-200bp",
@@ -2627,7 +2568,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 33
+      "sort_order": 32
     },
     {
       "id": "penguins-duo-chase-300bp",
@@ -2682,7 +2623,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 34
+      "sort_order": 33
     },
     {
       "id": "penguins-duo",
@@ -2734,7 +2675,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 35
+      "sort_order": 34
     },
     {
       "id": "piranha",
@@ -2789,7 +2730,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 36
+      "sort_order": 35
     },
     {
       "id": "purple-penguin",
@@ -2842,7 +2783,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 37
+      "sort_order": 36
     },
     {
       "id": "python",
@@ -2889,7 +2830,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 38
+      "sort_order": 37
     },
     {
       "id": "roach",
@@ -2936,7 +2877,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 39
+      "sort_order": 38
     },
     {
       "id": "rooster",
@@ -2987,7 +2928,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 40
+      "sort_order": 39
     },
     {
       "id": "sailfish",
@@ -3040,17 +2981,17 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 41
+      "sort_order": 40
     },
     {
       "id": "salamander",
       "name": "Salamander — Pullback Catcher",
       "emoji": "🦎",
       "varies": null,
-      "tagline": "An onboarding-grade pullback trader on the liquid majors (BTC/ETH/SOL): buys a 3-7% dip inside an established bullish 4h trend (and shorts a 3-7% rally inside a bearish one) only when 4h leader momentum (which side the last four hours' winners sit on) agrees with the trend direction, then gives the entry room on a wide Phase 1 while a wide Phase 2 ratchet lets the resumed trend run.",
-      "belief_plain": "Watches BTC, ETH and SOL. When one is in a clear up-trend on the 4-hour chart and dips 3-7% on the 1-hour chart while the last four hours' winners are still leaning long, it buys the dip; in a down-trend it shorts a 3-7% bounce. It needs all three to line up — trend, dip-in-the-band, and the 4h leaders agreeing — then it gives the trade room to work and trails a wide stop so the trend can keep running.",
-      "version": "1.2.2",
-      "thesis": "Pullbacks inside an established trend are one of the highest-edge setups: the trend has already proved itself, the counter-move offers a better entry, and a 4h-leader agreement filter screens out trend-break risk. The 3-7% band is the sweet spot — shallower is noise, deeper means the trend may be breaking, so you don't catch a falling knife. Because a resolved pullback resumes a trend that can run far, the exit is asymmetric: a wide Phase 1 floor lets the dip develop without a premature cut, and a wide Phase 2 ratchet (first lock only at +10% ROE) keeps the continuation that pays for the quiet weeks.",
+      "tagline": "An onboarding-grade pullback trader on the liquid majors (BTC/ETH/SOL): buys a 3-7% dip inside an established bullish 4h trend (and shorts a 3-7% rally inside a bearish one) only when 4h leader momentum (which side the last four hours' winners sit on) agrees with the trend direction, then gives the entry room with a 12% ROE stop (2.4% of price at 5x) while a Phase 2 ratchet, first lock at +20% ROE, lets the resumed trend run. One position at a time, 40% of the wallet at 5x.",
+      "belief_plain": "Watches BTC, ETH and SOL. When one is in a clear up-trend on the 4-hour chart and dips 3-7% on the 1-hour chart while the last four hours' winners are still leaning long, it buys the dip; in a down-trend it shorts a 3-7% bounce. It needs all three to line up — trend, dip-in-the-band, and the 4h leaders agreeing — then it gives the trade room to work: the stop sits 12% ROE away (2.4% of price at 5x), there is no clock, and once the trade is +20% ROE a ratchet locks in gains so the trend can keep running.",
+      "version": "1.3.0",
+      "thesis": "Pullbacks inside an established trend are one of the highest-edge setups: the trend has already proved itself, the counter-move offers a better entry, and a 4h-leader agreement filter screens out trend-break risk. The 3-7% band is the sweet spot — shallower is noise, deeper means the trend may be breaking, so you don't catch a falling knife. Because a resolved pullback resumes a trend that can run far, the exit is asymmetric: the stop is 12% ROE (2.4% of price at 5x) so the dip can finish forming — live, six closes in 60 days were all the exchange stop, because the earlier 1.2%-of-price stop never gave a 3-7% pullback room — and a Phase 2 ratchet (first lock at +20% ROE, keeping 40% of the high-water) keeps the continuation that pays for the quiet weeks. No clock cuts: the DSL decides every exit.",
       "tags": [
         "btc",
         "eth",
@@ -3084,7 +3025,7 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 15,
+      "min_budget": 10,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
       "instance_count": 1,
@@ -3093,7 +3034,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 42
+      "sort_order": 41
     },
     {
       "id": "sheep",
@@ -3149,7 +3090,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 43
+      "sort_order": 42
     },
     {
       "id": "wild-cheetah",
@@ -3196,7 +3137,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 44
+      "sort_order": 43
     },
     {
       "id": "wild-condor",
@@ -3243,7 +3184,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 45
+      "sort_order": 44
     },
     {
       "id": "jaguar",
@@ -3931,10 +3872,10 @@
       "name": "Puffer — Volatility Squeeze",
       "emoji": "🐡",
       "varies": null,
-      "tagline": "Waits for a market to go quiet — unusually quiet for that particular coin — and then trades the move when it finally breaks out. Quiet stretches tend to end in a big move; the trick is being positioned for the break rather than getting chopped up inside the calm. It sits on its hands until the release, and then gives the winner a long leash.",
-      "belief_plain": "When a coin's price action tightens up far more than is normal for it, pressure is building and the next move is usually a big one. Puffer measures how compressed each market is against its own history, ignores the quiet itself, and enters only when price finally breaks out with volume behind it. Then it holds on: a profit ratchet locks gains as they build, and a fixed stop caps the downside if the break fails.",
-      "version": "1.0.1",
-      "thesis": "Volatility is mean-reverting: compression precedes expansion. The edge is in the reference frame — compression is measured against each asset's OWN trailing median, so a coil is detected on a sleepy index and a violent alt alike, which an absolute threshold can never do. Trades the release, never the coil, and runs the widest exit in the catalog because cutting an expansion short forfeits the entire reason for taking it.",
+      "tagline": "Waits for a market to go quiet — unusually quiet for that particular coin — and then trades the move when it finally breaks out. Quiet stretches tend to end in a big move; the trick is being positioned for the break rather than getting chopped up inside the calm. It sits on its hands until the release, then gives the winner a long leash: four positions at 20% of the wallet each at 4x, a stop about 3% of price away, and a profit ratchet that only ever locks gains.",
+      "belief_plain": "When a coin's price action tightens up far more than is normal for it, pressure is building and the next move is usually a big one. Puffer measures how compressed each market is against its own history, ignores the quiet itself, and enters only when price finally breaks out with volume behind it. Then it holds on: a profit ratchet locks gains as they build, and a fixed stop about 3% of price away (12% of margin at 4x) caps the downside if the break fails. Expect more stops than winners — in a 208-day replay on four majors with the earlier, tighter stop (1.6–2% of price) it traded about seven times per coin per month with 28% winners, and 88% of its live closes were the exchange stop. The winners have to run for the ratchet to pay for the stops.",
+      "version": "1.1.0",
+      "thesis": "Volatility is mean-reverting: compression precedes expansion. The edge is in the reference frame — compression is measured against each asset's OWN trailing median, so a coil is detected on a sleepy index and a violent alt alike, which an absolute threshold can never do. Trades the release, never the coil, and runs a wide, gains-only exit — a 3%-of-price stop and a ratchet that locks 40% of the gain from +20% ROE — because cutting an expansion short forfeits the entire reason for taking it. The earlier stop, 1.6–2% of price, sat inside the release candle's own range and ended 88% of live trades; the fee gate counted HL's base fee alone and left out the Senpi builder fee. Both are corrected here.",
       "tags": [
         "volatility",
         "squeeze",
@@ -3963,17 +3904,17 @@
       "direction": "long_short",
       "risk_level": "moderate",
       "tier": "advanced",
-      "leverage_max": 5,
+      "leverage_max": 4,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 40,
+      "min_budget": 20,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
-      "max_slots": 5,
+      "max_slots": 4,
       "branch": "main",
       "sort_order": 11
     },
@@ -4080,10 +4021,10 @@
       "name": "Salmon — RSI Mean-Reversion",
       "emoji": "🐟",
       "varies": null,
-      "tagline": "Buys the bounce, not the falling knife. It watches the RSI on liquid majors and only steps in when an oversold coin has actually turned back up — a real cross off the lows with the candle confirming — going long the recovery (or short an overbought coin rolling over). It bets price snaps back to its average, sizes moderately because these turns fail fast, and lets a tight trailing stop do all the exiting.",
-      "belief_plain": "Trades the big liquid coins by their RSI. When one gets oversold it waits for it to actually turn back up before buying — not while it's still dropping — and when one gets overbought and starts rolling over it shorts the fade. It's betting the price springs back toward its average, keeps size moderate because these bounces can fail quickly, and never closes by hand: a tight stop protects and exits every trade.",
-      "version": "1.2.1",
-      "thesis": "Stretched moves revert. When a liquid major gets pushed to an oversold extreme and then genuinely turns — RSI crossing back up through the line while the last candle confirms — the snap back toward the mean is the trade; the symmetric overbought roll-over is the short. The discipline is refusing to catch a falling knife: a low RSI alone is not a signal, only the confirmed cross-back is. Because reversions fail fast, leverage stays moderate and the DSL exit is tight — lock early, cut small.",
+      "tagline": "Buys the bounce, not the falling knife. It watches the RSI on liquid majors and only steps in when an oversold coin has actually turned back up — a real cross off the lows with the candle confirming — going long the recovery (or short an overbought coin rolling over). It bets price snaps back to its average, sizes moderately because these turns fail fast, and lets the exit rules do all the selling: a fixed stop caps the loss, and once a trade is in profit a ratchet locks in the gain.",
+      "belief_plain": "Trades the big liquid coins by their RSI. When one gets oversold it waits for it to actually turn back up before buying — not while it's still dropping — and when one gets overbought and starts rolling over it shorts the fade. It's betting the price springs back toward its average, keeps size moderate because these bounces can fail quickly, and never closes by hand: a fixed stop caps each loss and, once a trade is up, a ratchet locks in the gain.",
+      "version": "1.3.0",
+      "thesis": "Stretched moves revert. When a liquid major gets pushed to an oversold extreme and then genuinely turns — RSI crossing back up through the line while the last candle confirms — the snap back toward the mean is the trade; the symmetric overbought roll-over is the short. The discipline is refusing to catch a falling knife: a low RSI alone is not a signal, only the confirmed cross-back is. Because reversions fail fast, leverage stays moderate and the exit is mechanical — a fixed stop caps the loss, and a ratchet locks in gains early.",
       "tags": [
         "mean-reversion",
         "rsi",
@@ -4107,17 +4048,17 @@
       "direction": "long_short",
       "risk_level": "moderate",
       "tier": "advanced",
-      "leverage_max": 4,
+      "leverage_max": 3,
       "time_horizon": "swing",
       "cadence_seconds": 600,
-      "min_budget": 125,
+      "min_budget": 40,
       "wallet_count": 1,
       "min_budget_binding_wallet": "main",
       "instance_count": 1,
       "funding_split": [
         1.0
       ],
-      "max_slots": 5,
+      "max_slots": 4,
       "branch": "main",
       "sort_order": 14
     },
@@ -4506,7 +4447,7 @@
       "varies": null,
       "tagline": "Ranks the tokenized U.S. equity cross-section on Hyperliquid XYZ by 24h relative strength, then LONGS the strongest names (long book) and SHORTS the weakest (short book) — both trend-confirmed — on two equally-funded wallets so the pair is ~market-neutral and harvests equity dispersion.",
       "belief_plain": "Buys the strongest tokenized U.S. stocks and shorts the weakest at the same time, on two separate wallets, so it makes money on the GAP between winners and losers rather than on the market going up or down.",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "thesis": "You want the classic equity hedge-fund play — long the leaders, short the laggards, market-neutral — but on-chain. The spread between the best and worst U.S. stocks is at a multi-decade extreme, and that dispersion is the edge: stock selection, not market direction. Tokenized equities trade 24/7 on Hyperliquid, so the book never has to wait for a market open.",
       "tags": [
         "equities",
@@ -4801,7 +4742,7 @@
       "varies": null,
       "tagline": "Bets on a K-shaped divergence: LONGS the structural winners (the AI complex on Hyperliquid XYZ + the crypto winners HYPE/SOL) on the 'haves' wallet, and SHORTS the laggards (the broad U.S. market via SP500 + a gated basket of laggard alts) on the 'have-nots' wallet. Both trend-confirmed on absolute structure, with relative strength as a tiebreaker and per-name conviction sizing (HYPE big, SOL small, SP500 core). The edge is the DISPERSION between the two speeds, not market direction.",
       "belief_plain": "Buys the booming AI stocks and crypto winners while shorting the broad stock market and the alts losing ground, each on its own wallet — so it makes money on the GAP between the world's fast lane and slow lane rather than on the market going up or down. It only buys names actually trending up and only shorts names actually rolling over, and bets bigger on its highest-conviction picks.",
-      "version": "1.2.1",
+      "version": "1.3.0",
       "thesis": "The world is splitting into two speeds: the AI complex and HYPE/SOL keep booming while the broad U.S. economy and the rest of crypto struggle. Express it as one thematic long/short book — long the haves, short the have-nots — and the P&L is the dispersion between the two, not the market's direction. The hard gate is ABSOLUTE trend (never long a downtrend, never short an uptrend, even for a thesis name); cross-sectional relative strength only tilts size and ranking. Net exposure is the operator's dial (default modest net-long), set by how much capital each wallet holds.",
       "tags": [
         "k-shaped",
@@ -6480,10 +6421,10 @@
       "name": "Hydra — Single-Coin Conviction Fund (cross-asset hedge)",
       "emoji": "🐉",
       "varies": null,
-      "tagline": "A long-term conviction book on ONE major (the thesis coin: ETH/SOL/HYPE), ridden through volatility on a catastrophic-only stop, plus a tactical dip-buyer that presses the pullbacks — cushioned by a diversified short of OTHER assets that are actually breaking down, so the hedge protects market risk without ever betting against your thesis.",
+      "tagline": "A long-term conviction book on ONE major (the thesis coin: ETH/SOL/HYPE), ridden through volatility on a wide stop (5% of price), plus a tactical dip-buyer that presses the pullbacks — cushioned by a diversified short of OTHER assets that are actually breaking down, so the hedge protects market risk without ever betting against your thesis.",
       "belief_plain": "Holds one major you believe in for the long haul and adds on its dips, while shorting a basket of other coins/indices whenever they roll over — so a market selloff that would hurt your coin is offset by profits on the short side, and you never short the coin you're bullish on.",
-      "version": "1.2.0",
-      "thesis": "You have a high-conviction long-term view on one major and want to ride it through normal volatility instead of being stopped out — but you still want a real cushion in a broad selloff. So you hold the thesis on a wide disaster-only stop, press its dips, and hedge by shorting OTHER assets that are confirmed breaking down (vol-parity sized, sized up when your own coin is breaking too). Long the conviction, short the carnage elsewhere.",
+      "version": "1.3.0",
+      "thesis": "You have a high-conviction long-term view on one major and want to ride it through normal volatility instead of being stopped out — but you still want a real cushion in a broad selloff. So you hold the thesis on a wide stop (5% of price at 3x), press its dips, and hedge by shorting OTHER assets that are confirmed breaking down (vol-parity sized, sized up when your own coin is breaking too). Long the conviction, short the carnage elsewhere.",
       "tags": [
         "conviction",
         "single-coin",
@@ -6519,19 +6460,19 @@
       "direction": "long_short",
       "risk_level": "moderate",
       "tier": "advanced",
-      "leverage_max": 5,
+      "leverage_max": 3,
       "time_horizon": "position",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 125,
       "wallet_count": 3,
-      "min_budget_binding_wallet": "dip",
+      "min_budget_binding_wallet": "hedge",
       "instance_count": 3,
       "funding_split": [
         0.5,
         0.25,
         0.25
       ],
-      "max_slots": 7,
+      "max_slots": 5,
       "branch": "main",
       "sort_order": 1
     },
