@@ -179,6 +179,14 @@ def test_caveats():
     rs = run(assets="btc_eth")
     sp = next((c for c in rs["candidates"] if c["id"] == "spider"), None)
     check("spider funding_split present", sp and sp.get("funding_split") == [0.6, 0.4], sp.get("funding_split") if sp else None)
+    # every card carries funding_split, single-wallet included — a caller reading it across the
+    # list must not have to branch on whether the key is there
+    missing = [c["id"] for c in rs["candidates"] if "funding_split" not in c]
+    check("funding_split on every candidate", not missing, missing)
+    singles = [c for c in rs["candidates"] if c["wallet_count"] == 1]
+    check("single-wallet funding_split is [1.0]",
+          singles and all(c["funding_split"] == [1.0] for c in singles),
+          [(c["id"], c["funding_split"]) for c in singles if c["funding_split"] != [1.0]])
     check("spider multi-leg caveat", sp and any("wallet" in c.lower() for c in sp["caveats"]))
     check("spider min_budget==200 (floor, not a recommendation)", sp and sp["min_budget"] == 200)
     # below-floor budget caveat

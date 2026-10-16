@@ -3364,3 +3364,16 @@ def test_the_header_carries_the_full_address_not_just_a_truncation():
     book_head = render.header(dict(base, wallets=ws))
     for w in ws:
         assert w in book_head, f"a book header dropped {w}"
+
+
+def test_skill_forbids_internal_identifiers_in_a_reply():
+    """2026-09-24. Two brand-new users, 25 minutes apart, whose first ever prompt was the quant-desk
+    chip, were answered with `--days` / `--days 365` as their way to widen the window and a bare
+    `senpi-strategy-discover` as their next step. Both agents quoted the Resilience line, which used
+    to hand them the backticked skill id to 'offer'. Fleet: 24 users / 47 turns in 7 days carried
+    `senpi-strategy-discover`, `desk.py` or `--days` into user-facing text."""
+    skill = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
+    assert "no script name, flag or skill id ever reaches the reader" in skill
+    resilience = skill.split("## Resilience", 1)[1].split("##", 1)[0]
+    assert "never name the skill to the reader" in resilience
+    assert "(`senpi-strategy-discover`)" not in resilience
