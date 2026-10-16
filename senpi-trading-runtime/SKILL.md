@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "4.1.7"
+  version: "4.1.8"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -42,6 +42,11 @@ division of labor is fixed:
   signals you return, **sizing & order execution** (`FEE_OPTIMIZED_LIMIT`), slot accounting,
   `risk.guard_rails`, the two-phase **DSL** trailing-stop exits, and **crash-safe position reconcile**
   on restart.
+- **What it does NOT own: partial exits.** Every exit the runtime can make (DSL, `CLOSE_POSITION`)
+  closes the WHOLE position, and `edit_position` — the only reduce — is blocked to scanners. A rule
+  like "take 25% off at +10% ROE and let the rest run" cannot be authored in a runtime package at
+  all; a scanner that tries raises `PermissionError` every tick while the log reads as if the rule
+  is working. Details: `references/runtime-concepts.md` → DSL Exit Engine.
 
 ## How your code talks to the runtime
 
