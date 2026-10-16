@@ -1,19 +1,22 @@
 # MAGPIE — IPO / New-Listing Event hedge fund. A two-instance PACKAGE: this manifest
 # + two self-contained runtime.yaml books (pre_listing / graduation) on SEPARATE wallets
-# + per-book scanners/. A faithful Runtime 3.0 port of the v2 Magpie v1.0 two-book fund
+# + per-book scanners/. A Runtime 3.0 port of the v2 Magpie v1.0 two-book fund
 # (magpie-producer.py, MAGPIE_LEG-driven). The universe is DYNAMIC — newly-listed
-# Hyperliquid XYZ instruments discovered each tick by their funding signature, NOT a fixed
-# whitelist. Install/teardown via senpi-strategy-ops.
+# Hyperliquid XYZ instruments discovered each tick by the venue's leverage cap (the v2
+# funding band is opt-in and off since 1.2.0), NOT a fixed whitelist. Install/teardown via senpi-strategy-ops.
+# 1.2.0 (2026-10-12): both books three slots at 25% margin and 3x; stops 10% / 12% ROE (3.3% / 4.0%
+# of price); no clock cut; the wallet is read before an emit; both books read closed candles; the IPOP
+# signature is the leverage cap plus a volume floor (the funding band matched nothing live; now opt-in).
 schema_version: 1
 
 id: magpie
-version: "1.1.2"
+version: "1.2.0"
 catalog:
   name: "Magpie — IPO / New-Listing Event Fund"
   emoji: "🐦"
   tagline: "Trades the full pre-IPO → listing → graduation arc of tokenized equities on Hyperliquid XYZ: a pre-listing book accumulates pre-IPO perpetuals (IPOPs) into the IPO, and a graduation book rides the explosive post-conversion price discovery — the SpaceX $1.4B-day-1 pattern."
-  belief_plain: "Auto-finds brand-new pre-IPO contracts (like a SpaceX-before-it-lists perp) by their tell-tale tiny funding and low leverage cap, rides the trend into the IPO, then detects the moment they convert to a full equity perp and rides the fireworks of the first few days of free price discovery."
-  thesis: "You think the biggest, most repeatable edge on Hyperliquid right now is the new-listing EVENT itself, not the ongoing equity market. Pre-IPO perpetuals trade throttled and quiet; the instant they graduate to a standard equity perp the funding jumps ~100x, the leverage cap lifts and price discovery goes vertical. Capture both halves of that arc with two books on two wallets so the slow accumulation and the explosive pop never fight over the same margin. Both books take direction from 4h structure and add conviction when 4h leader momentum — which side of the name the last four hours' winners sit on — agrees."
+  belief_plain: "Auto-finds brand-new pre-IPO contracts (like a SpaceX-before-it-lists perp) by their tell-tale low leverage cap — the venue lists a pre-IPO perpetual at 5x or under and lifts the cap when it graduates — with a floor on daily volume so a market that has not traded is never mistaken for a listing (an optional funding band can be switched on as an extra check), rides the trend into the IPO, then detects the moment they convert to a full equity perp and rides the fireworks of the first few days of free price discovery. Each book runs three slots at 25% margin and 3x: the stop is 10% of margin on the pre-listing book and 12% on the graduation book (about 3.3% and 4% of price), the trailing lock only ever moves in your favour, and no clock closes a trade."
+  thesis: "You think the biggest, most repeatable edge on Hyperliquid right now is the new-listing EVENT itself, not the ongoing equity market. Pre-IPO perpetuals trade throttled and quiet at a 5x cap; the instant they graduate to a standard equity perp the leverage cap lifts, the throttle comes off and price discovery goes vertical. Capture both halves of that arc with two books on two wallets so the slow accumulation and the explosive pop never fight over the same margin. The pre-listing book takes direction from 4h structure, with the 1h trend and 4h leader momentum — which side of the name the last four hours' winners sit on — adding conviction; the graduation book takes direction from the sign of the move over the last six closed hourly candles after the conversion, with 4h leader momentum and rising volume adding conviction."
   group: event-driven
   archetype: event_driven
   sub_style: new_listing_event
@@ -23,7 +26,7 @@ catalog:
   risk_level: moderate
   tier: advanced
   time_horizon: position
-  leverage_max: 5
+  leverage_max: 3
   max_slots: 6
   assets: []
   tags: [ipo, new-listing, event-driven, xyz, equities, ipop, graduation, conversion, spacex, long-short, hedge-fund]

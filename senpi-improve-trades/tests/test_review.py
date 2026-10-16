@@ -1250,12 +1250,12 @@ def test_skill_names_the_runtime_commands_that_ANSWER_why_it_closed():
     assert "TIMERS" in skill or "timers" in skill, "the time cuts are not identified as timers"
     assert "interval" in skill and "actual hold" in skill, \
         "the skill must require stating the configured interval AND the elapsed hold"
-    # inference is corroboration only, and MANUAL_CLOSE is not an answer
+    # inference is corroboration only, and CLOSED_OFF_LADDER is not an answer
     assert "corroborate" in skill and "never substitute" in skill, \
         "inference is no longer scoped as corroboration-only"
     assert "not who placed it" in skill, "the maker tell is overstated"
-    k = skill.find("MANUAL_CLOSE")
-    assert k > 0 and "UNKNOWN" in skill[k:k + 300], "MANUAL_CLOSE must be treated as UNKNOWN"
+    k = skill.find("`CLOSED_OFF_LADDER` is not an answer")
+    assert k > 0 and "UNKNOWN" in skill[k:k + 300], "CLOSED_OFF_LADDER must be treated as UNKNOWN"
     # and a dead gateway must be reported, not papered over with a guess
     assert "gateway" in skill.lower(), "the skill must say what to do when the record cannot be read"
 
@@ -1293,3 +1293,23 @@ def test_the_raw_mcp_rule_does_not_contradict_the_6b_reads():
     assert i > 0, "the raw-MCP rule moved"
     window = skill[i:i + 600]
     assert "6b" in window, "the raw-MCP rule does not carve out the 6b reads — contradiction"
+
+
+def test_a_ratchet_sourced_exit_never_attributes_the_close_to_the_user():
+    """2026-09-25: a user was told he had hand-closed nine positions his runtime closed. The DSL status
+    `MANUALLY_CLOSED` is a LADDER status — it says the ladder ended for a reason that was not its own
+    stop, and cannot distinguish the runtime, the agent, or the user. Mapping it to `MANUAL_CLOSE` made
+    that ambiguity read as a statement about the trader. 173 runs / 20 users in the 7 days before."""
+    import review
+    assert review._TERMINAL_MAP["MANUALLY_CLOSED"] == "CLOSED_OFF_LADDER"
+    # nothing on the ratchet path may imply the trader acted
+    for value in review._TERMINAL_MAP.values():
+        assert "MANUAL" not in value.upper(), f"{value} reads as an act by the user"
+    # the contract and the skill must both carry the caveat, or the narrator re-invents the claim
+    from pathlib import Path as _P
+    root = _P(__file__).resolve().parents[2]
+    shape = (root / "senpi-improve-trades/references/output-shape.md").read_text(encoding="utf-8")
+    skill = (root / "senpi-improve-trades/SKILL.md").read_text(encoding="utf-8")
+    assert "does NOT mean the user closed it" in shape
+    assert "never closed by its stop" in skill or "not closed by its stop" in skill
+    assert "CLOSED_OFF_LADDER" in shape and "CLOSED_OFF_LADDER" in skill

@@ -332,6 +332,29 @@ def test_taxonomy_tiers_and_memes():
     assert taxonomy.classify("OBSCURE", majors, large) == "alts" and taxonomy.classify("xyz:NVDA", majors, large) == "xyz_equities" and taxonomy.classify("xyz:GOLD", majors, large) == "xyz_commodities"
 
 
+def test_other_dex_markets_are_not_alts():
+    """Another builder's perp dex must not be reported as an alt."""
+    ctxs = _ctxs([("BTC", 100), ("ETH", 90), ("HYPE", 80)])
+    majors, large = taxonomy.crypto_tiers(ctxs)
+    # km:US500 is the S&P, hyna:BTC is bitcoin. Neither is an alt.
+    for coin in ("km:US500", "hyna:BTC", "flx:TSLA", "vntl:SPACEX"):
+        assert taxonomy.classify(coin, majors, large) == "other_dex"
+    assert taxonomy.label("other_dex") == "other dexes"
+
+
+def test_outcome_contracts_are_not_perps():
+    """`#NNNNN` coins are HIP-4 outcome (prediction) contracts — Hyperliquid's `outcomeMeta` names them.
+    is_perp let `#` through, so a desk scored 5,298 prediction trades as perp alts: an archetype, a
+    quant score, a profit factor and a priced fee leak. Both copies must drop them."""
+    import roundtrips
+    for is_perp in (roundtrips.is_perp, hl_api.is_perp):
+        assert not is_perp("#14731") and not is_perp("@107") and not is_perp("PURR/USDC")
+        assert is_perp("BTC") and is_perp("xyz:NVDA") and is_perp("km:US500")
+    fill = dict(coin="#14731", side="B", sz="10", px="0.5", time=1, tid=1, dir="Open Long", closedPnl="0",
+                fee="0.01", crossed=True, startPosition="0", oid=1)
+    assert episodes_from_fills([fill]) == ([], [])
+
+
 def _ep(coin, side, open_h, close_h, realized, win=None, notional=1000.0):
     return dict(coin=coin, direction=side, open_time=open_h * H, close_time=close_h * H, last_time=close_h * H, realized=realized, win=(realized > 0) if win is None else win,
                 fees=1.0, volume=notional, taker_volume=notional, peak_notional=notional, complete=True, truncated=False, hold_h=close_h - open_h, adds=0, entry_vwap=1.0)
@@ -3341,3 +3364,16 @@ def test_the_header_carries_the_full_address_not_just_a_truncation():
     book_head = render.header(dict(base, wallets=ws))
     for w in ws:
         assert w in book_head, f"a book header dropped {w}"
+
+
+def test_skill_forbids_internal_identifiers_in_a_reply():
+    """2026-09-24. Two brand-new users, 25 minutes apart, whose first ever prompt was the quant-desk
+    chip, were answered with `--days` / `--days 365` as their way to widen the window and a bare
+    `senpi-strategy-discover` as their next step. Both agents quoted the Resilience line, which used
+    to hand them the backticked skill id to 'offer'. Fleet: 24 users / 47 turns in 7 days carried
+    `senpi-strategy-discover`, `desk.py` or `--days` into user-facing text."""
+    skill = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
+    assert "no script name, flag or skill id ever reaches the reader" in skill
+    resilience = skill.split("## Resilience", 1)[1].split("##", 1)[0]
+    assert "never name the skill to the reader" in resilience
+    assert "(`senpi-strategy-discover`)" not in resilience
