@@ -1175,9 +1175,14 @@ def main(argv=None):
         if not ADDR_RE.match(addr):
             # The likelier cause is US, not them: an address typed out again from the request instead of
             # copied loses or doubles a character, and the count then reads as the reader's mistake.
-            n = len(addr[2:]) if addr[:2].lower() == "0x" else len(addr)
+            # Say what was actually wrong: a bare 40-hex string or one non-hex character is not a length fault.
+            has_0x = addr[:2].lower() == "0x"
+            body = addr[2:] if has_0x else addr
+            got = f"{len(body)} characters" + ("" if has_0x else " and no 0x")
+            if re.search(r"[^0-9a-fA-F]", body):
+                got += ", not all hex"
             print(json.dumps({"error": "not a Hyperliquid address — expected 0x followed by 40 hex "
-                                       f"characters, got {n}. Before telling the reader their address is "
+                                       f"characters, got {got}. Before telling the reader their address is "
                                        "wrong, copy it again from their own message, character for "
                                        "character, and re-run: retyping it is the likelier cause."})); return 2
         addr = addr.lower()

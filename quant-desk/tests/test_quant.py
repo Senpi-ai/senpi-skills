@@ -3369,3 +3369,7 @@ def test_a_bad_length_blames_the_transcription_before_the_reader(tmp_path):
     err = json.loads(out.stdout)["error"]
     assert "got 41" in err, err
     assert "copy it again from their own message" in err, err
+    # the count is characters, so say what else was wrong when the length was right
+    for bad, says in (("a" * 40, "no 0x"), ("0x" + "O" + "a" * 39, "not all hex")):
+        out = subprocess.run([sys.executable, str(d), bad], capture_output=True, text=True, env=env)
+        assert out.returncode == 2 and says in json.loads(out.stdout)["error"], out.stdout
