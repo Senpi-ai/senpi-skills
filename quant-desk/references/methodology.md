@@ -186,7 +186,8 @@ breakout_momentum; buys weakness → contrarian_fade; one coin ≥ 50% of volume
 Crypto tiers come from live open interest on the main dex: **majors** = top 3 by OI, **large caps** =
 the next 12, **alts** = the rest. **Memecoins** = every 1000×-denominated `k…` name plus a short documented
 list (a taxonomy, never a trading whitelist). xyz assets use senpi-market-pulse's own groups verbatim
-(equities, indices, commodities, FX/macro).
+(equities, indices, commodities, FX/macro). Any other builder's dex (`km:`, `flx:`, `hyna:` …) is
+**other dexes**, never alts. Outcome (prediction) contracts, `#NNNNN`, are not perps and are not read.
 
 ## The strategy read (`strategy_read.py`)
 
