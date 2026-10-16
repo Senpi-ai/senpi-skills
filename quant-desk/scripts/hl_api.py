@@ -57,7 +57,7 @@ TTL = {"metaAndAssetCtxs::xyz": 120, "clearinghouseState": 120, "frontendOpenOrd
        "userFees": 3600, "portfolio": 600, "userNonFundingLedgerUpdates": 600, "userFillsByTime": 600,
        "userFunding": 600, "leaderboard": 6 * 3600,
        # what an address IS does not change on a desk's timescale
-       "userRole": 7 * 24 * 3600, "vaultDetails": 7 * 24 * 3600}
+       "userRole": 7 * 24 * 3600, "vaultDetails": 7 * 24 * 3600, "userAbstraction": 600}
 
 
 def _retry_after(headers):
@@ -245,10 +245,17 @@ class HL:
         return {
             "address": addr, "now_ms": self.now_ms, "window_start_ms": win_start, "fetch_start_ms": start, "days": days,
             "clearinghouseState": self.info({"type": "clearinghouseState", "user": addr}),
-            "frontendOpenOrders": self.info({"type": "frontendOpenOrders", "user": addr}),
+            # None = the read FAILED (the audit then reads that dex's protection as unknown, never NONE);
+            # [] = no orders. Never fold a failure into [] — that is how a stop we could not see reads "naked".
+            "frontendOpenOrders": self._optional({"type": "frontendOpenOrders", "user": addr}),
+            # None = the xyz read FAILED: its positions are unknown, never none (live answers an
+            # account with no xyz collateral with an empty state, not an error).
             "clearinghouseState_xyz": self._optional({"type": "clearinghouseState", "user": addr, "dex": "xyz"}),
-            "frontendOpenOrders_xyz": self._optional({"type": "frontendOpenOrders", "user": addr, "dex": "xyz"}) or [],
+            "frontendOpenOrders_xyz": self._optional({"type": "frontendOpenOrders", "user": addr, "dex": "xyz"}),
             "spotClearinghouseState": self._optional({"type": "spotClearinghouseState", "user": addr}),
+            # the account mode ("default" / "disabled" = perps and spot are separate balances;
+            # "unifiedAccount" / "portfolioMargin" = spot holds the perps margin). None = unread.
+            "userAbstraction": self._optional({"type": "userAbstraction", "user": addr}),
             "fills": merge_fills(self.fills(addr, start), self.twap_slices(addr, start)),
             "userFunding": self.funding(addr, win_start),
             "userFees": self.info({"type": "userFees", "user": addr}),
@@ -329,6 +336,18 @@ class HL:
         with ThreadPoolExecutor(max_workers=workers) as ex:
             return dict(ex.map(one, addrs))
 
+    def portfolios(self, addrs, workers=6):
+        """{addr: Hyperliquid's `portfolio` reply, or None when that read failed} — one read per wallet,
+        in parallel. The SAME request `trader()` makes, so a desk run on one of these wallets inside the
+        cache TTL reuses it instead of paying for it again."""
+        def one(a):
+            try:
+                return a, self.info({"type": "portfolio", "user": a})
+            except Exception:  # noqa: BLE001 — one wallet's failure is that wallet's unknown value
+                return a, None
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            return dict(ex.map(one, addrs))
+
     def leaderboard(self):
         """Hyperliquid's public leaderboard (every account with a window performance; ~40 MB), cached."""
         path = os.path.join(self.cache_dir, "leaderboard.json") if self.cache_dir else None
@@ -360,7 +379,9 @@ class HLFixture(HL):
         req = body.get("req") or {}
         user = str(body.get("user", "")).lower(); dex = body.get("dex", "")
         if user and dex and f"hl::{t}::{user}::{dex}" not in self._r and t in ("clearinghouseState", "frontendOpenOrders"):
-            raise HLError(f"fixture has no {t} for dex {dex}")          # a fixture without an xyz view = an account with no xyz collateral
+            # a fixture without an xyz view = a FAILED read. Live answers an account with no xyz
+            # collateral with an empty state, so recordings carry that state explicitly.
+            raise HLError(f"fixture has no {t} for dex {dex}")
         for key in (f"hl::{t}::{user}::{dex}" if dex else "", f"hl::{t}::{user}", f"hl::{t}::{req.get('coin', '')}::{req.get('interval', '')}", f"hl::{t}::{req.get('coin', '')}",
                     f"hl::{t}::{dex}", f"hl::{t}"):
             if not key:

@@ -27,7 +27,7 @@ FIDELITY NOTES vs roach-producer.py v3.0.0:
     (PERCENT in (0,100]) + `leverage: 7` at the TOP level; the runtime sizes
     (marginPct/100)*withdrawable, which scales with any budget instead of pinning a
     literal $250. The dollar amount at the design budget is identical. The defensive
-    "<=1.0 means a pasted fraction -> x100" guard is applied to the input.
+    "<1.0 means a pasted fraction -> x100" guard is applied to the input.
   - VOLUME GATE is an MCP read (market_get_asset_data) and therefore lives in scan.py,
     not the pure scoring.py. It is applied in the IDENTICAL pipeline position as v2's
     `check_asset_volume` call inside detect_striker_signals (after the 1h-confirm gate,
@@ -161,9 +161,9 @@ def scan(inputs, ctx):
     min_vol_ratio = float(inputs.get("minVolRatio", _DEFAULT_MIN_VOL_RATIO))
 
     # sizing intent: PERCENT in (0,100]. Defensive fraction->percent guard (dire/koala
-    # pattern): a value <= 1.0 is almost certainly a pasted fraction (0.25) -> x100.
+    # pattern): a value < 1.0 is almost certainly a pasted fraction (0.25) -> x100.
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         margin_pct *= 100.0
 
     history, cooldowns = _load_state(ctx)

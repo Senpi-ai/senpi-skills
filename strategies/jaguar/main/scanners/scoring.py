@@ -55,14 +55,31 @@ def safe_float(val, default=0.0):
 def get_leverage_for_score(score, tiers=None):
     """Conviction-tiered leverage. tiers = [[min_score, leverage], ...] desc by score.
     Returns (leverage, label). Clamped to MAX_LEVERAGE. Verbatim from v2
-    get_leverage_for_score (the runtime owns the per-asset venue clamp downstream)."""
+    get_leverage_for_score (the runtime owns the per-asset venue clamp downstream).
+
+    Kept for callers that only want the leverage; get_sizing_for_score is the one scan.py uses."""
+    lev, label, _margin = get_sizing_for_score(score, tiers)
+    return lev, label
+
+
+def get_sizing_for_score(score, tiers=None):
+    """Resolve (leverage, label, marginPct) for a score. Accepts BOTH tier shapes.
+
+    `[min_score, leverage]`            -> (lev, label, None); caller falls back to the flat marginPct.
+    `[min_score, leverage, marginPct]` -> (lev, label, marginPct).
+
+    WHY THE THIRD ELEMENT EXISTS. Every DSL threshold is ROE, and the engine converts ROE to a price
+    floor by DIVIDING BY LEVERAGE. Scaling conviction through LEVERAGE therefore rescales the whole
+    exit ladder per trade, and in the wrong direction — the lowest-conviction tier gets the lowest
+    leverage and so the WIDEST stop. Scaling conviction through MARGIN instead leaves leverage, and
+    therefore the ladder's meaning in price, constant across every trade."""
     tiers = tiers or DEFAULT_LEVERAGE_TIERS
     for t in tiers:
         if score >= t[0]:
             lev = min(int(t[1]), MAX_LEVERAGE)
             label = "apex" if t[0] >= 10 else ("conviction" if t[0] >= 9 else "tier")
-            return lev, label
-    return DEFAULT_LEVERAGE, "default"
+            return lev, label, (float(t[2]) if len(t) > 2 else None)
+    return DEFAULT_LEVERAGE, "default", None
 
 
 def check_4h_alignment(direction, price_chg_4h):

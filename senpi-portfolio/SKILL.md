@@ -8,7 +8,8 @@ description: >-
   / PnL / trade-history question, BEFORE any raw strategy_get_clearinghouse_state / account_get_portfolio
   / strategy_list MCP call. Use for "analyze my strategies", "how are my strategies doing", "analyze my
   portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle", and
-  "are my open positions protected? / do they have a stop-loss?", and "tell me about my strategies and
+  "are my open positions protected? / do they have a stop-loss?", "my saved wallet", "the wallets I added", "my MetaMask
+  wallet" (read-only balances and positions of a wallet the user added in Your wallets), and "tell me about my strategies and
   their DSL / what tier are my positions in?", and "what happened to my closed [asset] position / did my
   trade actually go through / do I still hold X" — the authority for position facts, OPEN and CLOSED, which
   come from a fresh engine read, never from memory or a raw order response. A hidden engine (scripts/portfolio.py)
@@ -20,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.30.0"
+  version: "1.32.2"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -108,6 +109,10 @@ Every dollar is in exactly one of **three buckets** — and the #1 mistake is co
 | **Deployed in positions** | Margin actively backing open trades. | `totals.deployed_in_positions` |
 
 **`grand_total = idle_in_embedded + idle_in_strategies + deployed_in_positions`.**
+
+These three buckets are the **managed** money — Senpi's. The wallets the user added sit outside them:
+they are `read-only` rows in the one wallet list and the read-only subtotal beside `grand_total_usd`
+(see "One wallet list — every wallet first-class").
 
 ### Cross-DEX: main and xyz are ONE wallet, not two
 
@@ -595,7 +600,8 @@ directly.)
   `positions[].dsl` (the live tier) — see "DSL — how it works per strategy, and which position is in
   which tier"; never infer "no stop" from the absence of a resting stop order (DSL exits are
   runtime-managed, not resting orders) or from a missing ratchet record (sub-Tier-1 positions have none).
-- **Always end with the two CTAs** (below), verbatim.
+- **Always end with the closing** (below), verbatim — the deep-dive question when offered, then the two
+  CTAs.
 
 ## DSL — how it works per strategy, and which position is in which tier
 
@@ -675,6 +681,97 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
   resting SL is expected and says nothing about protection. Use the `dsl` objects, not the order book. A
   raw position is the reverse case — the bullet above.
 
+## One wallet list — every wallet first-class
+
+**A Senpi strategy is one row with all its wallets.** One package is one strategy: its instances are
+its wallets, grouped by the package they were deployed under (`skill_name`); a wallet with no package
+stamp is its own row.
+
+Every wallet the user has is ONE list, `book.wallets`, ordered by value: the Senpi main wallet, each
+Senpi strategy (one row across ALL its wallets — `strategy_wallets[]` are its sleeves, never rows of
+their own) and each wallet the user added in Your wallets. A strategy row's wallets are grouped by
+the same key in every step — the package they were deployed under (`skill_name`; a wallet with none
+is its own row, `strategy_group` names the key) — so the `money` step and the `strategies` step list
+the same rows. The engine sorts it (`book.order_rule`:
+largest first; ties by label, then address; a wallet that couldn't load last). **Keep the engine's
+order and never re-section by origin** — no Senpi block followed by a saved-wallets block, no saved
+wallet appended after the money map. Origin is the kind column (`kind`: `managed` = Senpi runs it,
+`read-only` = a wallet the user added), never a rank and never a heading.
+
+- **One table:** label, value (`value_usd`), open positions, protection, PnL (`unrealized_pnl_usd`,
+  open PnL), kind. Protection keeps its two words: a strategy row's `protected` + `runtime_health` (the
+  runtime exit — read them by the DSL rules above); a read-only row's `protection` counts (live stops
+  on the exchange, `FULL` / `PARTIAL` / `NONE`). The Senpi main wallet holds cash only
+  (`not_applicable`): "—" in the positions, protection and PnL columns.
+- **`not_read_this_step`** on a strategy row (the `money` step reads no positions) → those columns come
+  with the `strategies` step; never "none" or $0.
+- **`loaded: false`** → "couldn't load" in the value column, never $0, and it stays last.
+  `wallets_couldnt_load` > 0 on a strategy row → "N of its wallets couldn't load".
+- **One book total — quote `book.totals.line`.** It reads: the book total, then the managed subtotal
+  with the money map's three buckets inside it, then the read-only subtotal. `book.totals.managed_usd` is
+  `grand_total_usd` (the same number; `reconciles` and the three buckets are about it alone).
+  `book.totals.read_only_usd` is the wallets the user added — never idle, never deployable, never in the
+  managed subtotal. `book.totals.excludes_note` names every wallet that couldn't load and every coin
+  without a price; it is part of the total — never quote the total without it. `read_only_usd: null`
+  means the saved-wallets read failed or none of the saved wallets loaded ("read-only unknown"),
+  never $0; when only some loaded, `read_only_wallets` (`loaded` of `total`) and the line say how
+  many ("1 of 2 wallets you added"). No saved wallets → the line has no read-only clause.
+  `book.totals.managed_complete: false` → strategy_list couldn't be read: the managed figure is the
+  Senpi main wallet only, the line says "your Senpi strategies couldn't be read", and it is never
+  "no strategies" (no `meta.no_strategy_path`, no strategy pitch) — say you couldn't read them.
+
+The rest of this section is about the **read-only rows** — the user's **saved wallets**, Hyperliquid
+wallets they added in Your wallets by pasting the address, and trade by hand. A saved wallet is their
+claim: call them "your wallets" or "the wallets you added", and never imply Senpi checked who controls
+them. Their raw reads are `external_wallets: {status, wallets}` (each `state` verbatim), returned from
+every step (`money`, `strategies`, `positions`) and from `all`, with `meta.no_strategy_path` on each;
+their rows in `book.wallets` carry the columns.
+
+- **Quote the access line verbatim** — every wallet carries it as `access`, and it is the whole answer to
+  "can you trade it / close it / set a stop on it":
+  > Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.
+- **Never Senpi money.** A saved wallet's value is never in `grand_total_usd`, never idle, never
+  deployed, and never part of `reconciles` — it is a `read-only` row in the one list and part of
+  `book.totals.read_only_usd` only. CTA 2 ("put the idle to work") never counts it.
+- **Quote, never recompute.** Each wallet's `state` is `account_get_external_wallets`' object verbatim.
+  `totalValueUsd` is the wallet's value (already unified-account aware — never add `spotBalances` to it
+  yourself, and never call `accountValueUsd` "account value": on a unified account it is a margin figure
+  that matches nothing Hyperliquid shows). A non-empty `unpricedCoins` → say the total excludes those
+  coins ("total excludes STHYPE"). `positions[]` carry `protection` (`FULL` / `PARTIAL` / `NONE`) and
+  `stopOrders[]` (`ARMED` or `WAITING_TO_ACTIVATE`). `protection` is the live stops on the exchange, not
+  `protected` (a Senpi strategy's runtime exit) — never merge the two words. A `WAITING_TO_ACTIVATE`
+  trailing stop protects nothing until it activates; say so.
+- **Positions are read on the Hyperliquid main and xyz dexes only.** Scope every positions answer that
+  way — "no open positions on the Hyperliquid main and xyz dexes", never a bare "no positions" — and
+  never present the total as covering another HIP-3 dex.
+- **Unknown is never empty.**
+  - `external_wallets.status: "unavailable"` → say "I couldn't load your saved wallets", never
+    "you have none".
+  - `state: null` (`state_read: "unavailable"`) → "couldn't load this wallet"; never $0, never "no
+    positions".
+  - `state_read: "error"` → couldn't load this wallet: its balances, positions and protection are all
+    unknown and every number is null, never $0. The `readError` code is matched by prefix — never print
+    the code; with an `ORDERS_UNAVAILABLE` prefix you may add "its orders couldn't be read".
+  - `state.role: "MISSING"` with `totalValueUsd` null or `"0"` → "no Hyperliquid activity yet". A
+    non-zero `totalValueUsd` wins — quote the value (the role may be cached from before the first
+    deposit).
+- **Not applicable, not a fault.** DSL, runtime health, mandate, funded/drained and telemetry
+  (`not_applicable`) do not exist for a wallet the user trades by hand — never "no DSL", "not running",
+  "unprotected strategy" or "drained".
+- **No write suggestions on these wallets** — no `close.py`, redeploy, `edit_position`,
+  `close_position`, `strategy_*` or `ratchet_stop_*`. CTA 1 applies to Senpi wallets only.
+- **Trade history** on a saved wallet ("how did my trades on it go", "where am I leaking on it") →
+  `senpi-improve-trades` (review) or `quant-desk` (score and leaks). This skill reads balances and open
+  positions only.
+- **"Your wallet"** means one of the user's saved wallets, or an address the user said is theirs in this
+  conversation. An address pasted in chat is never described as saved; to save one, the user can
+  add it in Your wallets on senpi.ai (web). If a saved wallet isn't theirs (or they no longer want it
+  read), they can remove it in Your wallets on senpi.ai (web).
+- **`meta.no_strategy_path`** (saved wallets, no Senpi strategy): give the one-list read and skip the
+  strategy verdict. Never pitch a strategy; the deep-dive question still comes first when offered, and
+  this replaces CTA 1 and CTA 2:
+  > **Want me to review the trades on it, or score it on the quant desk?**
+
 ## Run it in steps — narrate as you go
 
 **Asked to run this on a schedule? Say the cost first.** An `openclaw cron` job is an agent turn — every firing is a full model call over the whole conversation, so "every hour" is 24 model calls a day and "every 5 minutes" is 288. Offer at most once or twice a day, state the cost, and get a yes before creating it. Never a cron to watch a strategy: the runtime supervises it at zero model cost, and this skill reads it on demand.
@@ -698,12 +795,15 @@ python3 scripts/portfolio.py all          # one-shot fallback: the full composed
 **For a FULL portfolio read** — "analyze my portfolio / my strategies", "how am I doing" — run the steps
 **in order** and narrate between:
 
-1. `portfolio.py money` → **narrate the money map IMMEDIATELY** — `grand_total_usd` broken into the three
-   buckets (idle-in-embedded / idle-in-strategies / deployed-in-positions), each labeled by *where*, plus
-   `reconciles`. Don't wait for the other steps.
+1. `portfolio.py money` → **narrate the one wallet list IMMEDIATELY** — `book.wallets` as one table in the
+   engine's order, then `book.totals.line`: the book total, the managed subtotal (`grand_total_usd`)
+   broken into the three buckets (idle-in-embedded / idle-in-strategies / deployed-in-positions), each
+   labeled by *where*, plus `reconciles`, and the read-only subtotal beside it. A strategy row's
+   positions / protection / PnL are `not_read_this_step` here. Don't wait for the other steps.
 2. `portfolio.py strategies` → narrate the **per-strategy verdict** — lead from `strategy_groups[]` (a
    strategy is ALL its wallets), each judged vs its OWN `mandate`, its `protected` posture + `dsl` ladder,
-   realized/unrealized PnL as evidence.
+   realized/unrealized PnL as evidence. Its `book` fills the strategy rows' positions, protection and
+   PnL; the order can move with the fresh read — keep the new one.
 3. `portfolio.py positions` → narrate the **position-level read** — each position vs the market
    (`market_24h_pct`, `vs_market`, leveraged return), then `exposure` (net bias, concentration) + `signals`
    (idle drag).
@@ -714,7 +814,7 @@ one fetched instead of re-pulling. **For a NARROW ask, run only the minimal step
 
 | The ask | Step to run |
 |---|---|
-| *"how much idle / where's my money / balance across wallets / grand total"* | `money` |
+| *"how much idle / where's my money / balance across wallets / grand total / my wallets"* | `money` |
 | *"are my strategies protected? / do they have a stop-loss? / how are my strategies doing / analyze my strategies / what's their DSL / mandate"* | `strategies` |
 | *"analyze my positions / my positions vs the market / net exposure / concentration / idle drag"* | `positions` |
 | *"analyze my portfolio / how am I doing"* (the full read) | `money` → `strategies` → `positions`, narrating between |
@@ -725,7 +825,8 @@ missing/corrupt state file, nor on a runtime CLI that is absent or cannot even b
 self-heals by recomputing its prerequisites — every step also works STANDALONE, just slower; an
 unreadable runtime costs you the runtime fields, which come back `null` + a warning, not the read). Keep `all` as the one-shot fallback when a single blocking call is fine; every
 existing guardrail (the three-bucket taxonomy, `protected`, the mandate reads, multi-wallet grouping, the
-DSL ladder + live tiers) holds identically across the steps and `all`.
+DSL ladder + live tiers) holds identically across the steps and `all`. Every step and `all` print the
+same `book` (the one wallet list and the book total), so the list never depends on which step answered.
 
 ## How to run the engine
 
@@ -737,8 +838,22 @@ python3 scripts/portfolio.py [money|strategies|positions|all] [--no-market] [--s
 engine always produced). Prefer the **steps** above for a full read (they stream and don't trip the
 timeout); use `all` only when a single blocking call is fine.
 
-Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signals, meta}`:
-- `totals` — the three buckets + `grand_total_usd`, `unrealized_pnl`, and a `reconciles` flag (cross-
+Returns `{book, totals, embedded_wallet, external_wallets, strategies, strategy_groups, exposure, signals, meta}`:
+- `book` — **every wallet in ONE list by value, and the one book total. PRESENT THE LIST FROM HERE.**
+  `wallets[]` (sorted by the engine — keep its order): `label`, `kind` (`managed` / `read-only`),
+  `origin` (`embedded` / `strategy` / `saved`), `value_usd` (null = couldn't load), `loaded`,
+  `open_positions`, `unrealized_pnl_usd`; a strategy row adds `strategy_group` (its
+  `strategy_groups[].label`), `wallet_count`, `strategy_wallets[]`, `wallets_couldnt_load`, `protected`,
+  `runtime_health`, `realized_pnl_usd` (or `not_read_this_step` on the `money` step); a saved row adds
+  `address`, `protection` counts, `excludes_coins`, `no_hyperliquid_activity`, `positions_scope`, `access`,
+  `not_applicable`. `totals`: `total_usd`, `managed_usd` (= `grand_total_usd`), `managed_breakdown` (the
+  three buckets + `reconciles`), `managed_complete`, `read_only_usd`, `read_only_wallets`
+  (`total` / `loaded`), `read_only_note`, `excludes` (+ `strategies_unreadable`), `excludes_note`, `line`
+  (the rendered total — quote it). `deep_dive`: `offer`, `question`, `order` (labels, largest first —
+  only wallets with something to go deeper on).
+- `external_wallets` — the saved wallets' raw reads: `status` (`ok` / `unavailable`) and `wallets[]`,
+  each `state` verbatim from `account_get_external_wallets` (see "One wallet list — every wallet first-class").
+- `totals` — the MANAGED money map: the three buckets + `grand_total_usd`, `unrealized_pnl`, and a `reconciles` flag (cross-
   checks the per-wallet sum against the portfolio aggregate; if `false`, say the numbers don't tie out
   and lead with the per-wallet figures).
 - `embedded_wallet` — `address`, `idle_hl_usdc`, `evm_usdc[]` (per chain), `spot_usd`, `idle_total`.
@@ -837,15 +952,18 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
 ## Output contract
 
 Order matters: **strategy verdicts lead; positions are evidence underneath them.** (When the question
-is purely "how much / where is my money," you can open with the money map instead — but for anything
+is purely "how much / where is my money," you can open with the wallet list instead — but for anything
 about "my strategies / how am I doing," lead with the per-strategy read.)
 
 **Lead from `strategy_groups[]` — one verdict per real strategy, NOT per wallet.** A multi-wallet
 strategy (long+short, core+ballast, multi-sleeve) is ONE strategy across N wallets; present it as one.
 See "A strategy is ALL its wallets."
 
-1. **Total + the three buckets.** `grand_total_usd`, broken into idle-in-embedded / idle-in-strategies
-   / deployed — each labeled by *where*. Keep it tight; this is the money map, not the analysis.
+1. **One wallet list + the book total.** `book.wallets` as one table in the engine's order — label,
+   value, open positions, protection, PnL, kind — then `book.totals.line`: the book total, the managed
+   subtotal (`grand_total_usd`, broken into idle-in-embedded / idle-in-strategies / deployed — each
+   labeled by *where*) and the read-only subtotal, with `book.totals.excludes_note` when present. Keep it
+   tight; this is the money map, not the analysis.
 2. **Per-strategy verdict (the real value).** For **each `strategy_groups[]` entry** (one per real
    strategy — never one per wallet), in this order:
    1. **Label + mandate.** The group's `label` and what it was deployed to *do* — from the group's
@@ -890,6 +1008,22 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
 
 ## Mandatory closing (verbatim)
 
+**First, when `book.deep_dive.offer` is true** (more than one wallet with something to go deeper on —
+any user, with or without a Senpi strategy), ask the deep-dive question and name the wallets in
+`book.deep_dive.order`, largest first. The order holds only wallets with a non-zero value, an open
+position, or a value that couldn't load: an empty $0 Senpi main wallet is a row of the list, never an
+option of the question.
+
+> **Which one do you want me to go deeper on?**
+
+Going deeper on a Senpi strategy is its per-strategy verdict (the `strategies` step); on a wallet the
+user added, its row here, then its trades via `senpi-improve-trades` or `quant-desk`; on the Senpi main
+wallet, its cash legs (`embedded_wallet`).
+
+Then the two CTAs. CTA 1 and CTA 2 are about managed wallets only (`kind: managed`). On
+`meta.no_strategy_path` the saved-wallets closing replaces them — see "One wallet list — every wallet
+first-class".
+
 > **1. Want me to rebalance or adjust any of these positions?**
 > **2. Want me to put the idle capital to work in a new strategy?**
 
@@ -897,11 +1031,13 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
   STRATEGY-level levers (`strategy_pause` / `strategy_update` config / `strategy_close` / `strategy_top_up`)
   and apply them to the **whole strategy (all its wallets)** — never to a single sleeve of a multi-wallet
   strategy, and never hand-close a position the scanner will just re-open. Only use per-position tools
-  (`edit_position` / `close_position`) for a genuinely ad-hoc position the user placed by hand. Confirm
+  (`edit_position` / `close_position`) for a genuinely ad-hoc position the user placed by hand on a Senpi
+  wallet — never a saved wallet, which is read-only (quote its `access` line). Confirm
   before any change; never trade unprompted.
 - **CTA 2 → deploy idle.** If there's meaningful **truly-free** idle capital (lead from
   `signals.idle_drag_pct` and `idle_in_embedded` — NOT a flat sleeve of a live multi-wallet strategy,
-  which is committed), name the ready options rather than opening a blank picker. One per line, so it
+  which is committed, and never `book.totals.read_only_usd` or any read-only row, which Senpi cannot
+  deploy), name the ready options rather than opening a blank picker. One per line, so it
   can be answered with a digit:
 
   > **What should the idle go into?**
@@ -940,7 +1076,7 @@ Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for 
 - **`totals.reconciles == false`** → the per-wallet sum and the portfolio aggregate disagree; the engine
   also appends a `TOTALS DO NOT RECONCILE` entry to `meta.warnings` quoting both figures and the gap.
   STOP and re-run first (see above); if it persists, surface it and trust the per-wallet (live) figures.
-- **Never** report `total_withdrawable` as embedded idle, never skip a wallet, never skip the CTAs.
+- **Never** report `total_withdrawable` as embedded idle, never skip a wallet, never skip the CTAs (on `meta.no_strategy_path` the saved-wallets closing replaces them).
 
 ## Skill Attribution
 
