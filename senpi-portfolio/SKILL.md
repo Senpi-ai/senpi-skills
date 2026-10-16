@@ -341,11 +341,11 @@ trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narr
 For `degraded` corroborated by no activity, or `not_running`, work the ladder yourself and report what you
 found. Only the last step touches their money, and only that one needs their consent:
 
-**Before the ladder: if the row carries `runtime_reason`, say it.** It is the runtime's own last error,
-read off `senpi status --json`'s scanner rows (runtime ≥ 3.0.105) — e.g. `jackal_main_signals:
-candidates_rejected: all 2 candidates this tick were rejected at the delivery boundary (last: data key
-'persistenceHours' has wrong type …); nothing delivered`. Quote it in those words; it usually answers
-"why hasn't it traded" before step 1 is needed.
+**Before the ladder: if the row carries `runtime_reason`, say it.** It is the runtime's own words, read off
+`senpi status --json`'s scanner rows (`degradedReason`) — on today's runtime only a crash loop, e.g.
+`jackal_main_signals: 5 crashes in a row, each within 10s of starting` (`senpi status` prints it as
+`crash loop: …`). Quote it in those words: a scanner that cannot stay up is why it has not traded. No
+`runtime_reason` means the runtime gave none — never invent one; the ladder finds it.
 
 1. **`python3 senpi-strategy-ops/scripts/status.py <id>`** — re-ask the runtime. Verdict + position count.
    **Mind the vocabulary:** `status.py` reports the engine's raw words, and they do not line up with this

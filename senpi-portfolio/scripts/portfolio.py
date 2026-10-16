@@ -589,9 +589,9 @@ def _liveness_from_status(status):
 
 def _scanner_reasons(status):
     """The runtime's own words for WHY a scanner is not healthy: each `components.scanners.scanners[]`
-    row's `degradedReason` (runtime >= 3.0.105 — the supervisor's crash-loop cause, else the last tick
-    error while the scanner is erroring). ['<scanner>: <reason>', …] in document order; [] when the
-    runtime carried none. Quoted to the user, never interpreted here."""
+    row's `degradedReason` — the supervisor's crash-loop cause, set only while it holds the scanner
+    degraded (runtime #272); a tick-error reason is runtime#395, unmerged. ['<scanner>: <reason>', …] in
+    document order; [] when the runtime carried none. Quoted to the user, never interpreted here."""
     out = []
     for entry in (_status_entries(status) if isinstance(status, dict) else []):
         comps = entry.get("components") if isinstance(entry, dict) else None
@@ -1495,8 +1495,8 @@ def fetch_strategies(client, meta):
             f"{len(degraded)} strategy(ies) have a runtime the engine reports UNHEALTHY (degraded) — two or more "
             f"consecutive scan errors, not a blip. Confirm the cause with senpi-strategy-ops "
             f"`status.py <id>` (runtime verdict + position count; `openclaw senpi scanner -r <rt>` for runs/errors/signals): "
-            f"{degraded_text}. A reason in parentheses is the runtime's own last error — tell the user "
-            f"that, in those words, before anything else.")
+            f"{degraded_text}. A reason in parentheses is the runtime's own words (today: a crash loop) — "
+            f"tell the user that, in those words, before anything else.")
     # NOT a warning: one errored tick that the next successful one clears. Carried so the narration can
     # mention it if the user asks, never so it can be read back as a fault on a strategy that is trading.
     recovering = [s["name"] for s in strategies if s.get("runtime_health") == "recovering"]

@@ -530,10 +530,10 @@ def test_two_consecutive_errors_is_a_real_fault_and_warns():
 
 
 def test_a_degraded_runtime_quotes_the_runtimes_own_reason():
-    """The health row's `degradedReason` (runtime >= 3.0.105) is the runtime's own words for why — the
-    thing the user actually asked. Carried on the row and quoted in the warning, verbatim."""
-    reason = ("candidates_rejected: all 2 candidates this tick were rejected at the delivery boundary "
-              "(last: data key 'persistenceHours' has wrong type (expected number, got NoneType)); nothing delivered")
+    """The health row's `degradedReason` is the runtime's own words for why — today the supervisor's
+    crash-loop cause (long-running-supervisor.ts recordFailure). Carried on the row and quoted in the
+    warning, verbatim."""
+    reason = "5 crashes in a row, each within 10s of starting"
     res = _run_with_status({"kodiak-main": status_doc({
         "runtimeName": "kodiak-main", "health": "unhealthy",
         "components": {"scanners": {"scanners": [
@@ -541,7 +541,7 @@ def test_a_degraded_runtime_quotes_the_runtimes_own_reason():
     strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
     assert strat["runtime_health"] == "degraded"
     assert strat["runtime_reason"] == f"kodiak_main_signals: {reason}"
-    assert any("persistenceHours" in w for w in res["meta"]["warnings"]), "the warning must carry the reason"
+    assert any(f"(kodiak_main_signals: {reason})" in w for w in res["meta"]["warnings"]), "the warning must carry the reason"
 
 
 def test_the_runtime_the_engine_calls_unhealthy_never_reads_live():
