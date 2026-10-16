@@ -30,7 +30,7 @@ FIDELITY NOTES vs lion-producer.py v1.0.0:
     this port emits marginPct = marginPctBase(PERCENT 18) * sizingWeight, capped at
     marginPctCap (25, the fleet <=25% per-position rule). Same fraction of equity, same
     conviction multiplier — the cap binds only the highest-weight name (HYPE 18*1.5=27 ->
-    25). A defensive guard converts a marginPctBase <= 1 (an operator who pasted the v2
+    25). A defensive guard converts a marginPctBase < 1 (an operator who pasted the v2
     fraction 0.18) into a PERCENT (*100) and logs it. FLAGGED.
   - v2 LEG was an env var (LION_LEG) read once at import; the Runtime 3.0 port passes
     `leg` via runtime.yaml inputs (one shared scan.py, two instances). Same two books.
@@ -221,11 +221,11 @@ def scan(inputs, ctx):
         scoring.HAVES_WEIGHTS if leg == "long" else scoring.HAVE_NOTS_WEIGHTS)
     min_score = int(inputs.get("minScore", 5))
 
-    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value <= 1 (an
+    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value < 1 (an
     # operator who pasted the v2 FRACTION 0.18) into a PERCENT so it never silently sizes
     # ~100x small (the runtime sizes (marginPct/100)*withdrawable).
     margin_pct_base = float(inputs.get("marginPctBase", 18 if leg == "long" else 15))
-    if margin_pct_base <= 1.0:
+    if margin_pct_base < 1.0:
         print(f"[lion.scan] WARN marginPctBase={margin_pct_base} looks like a v2 FRACTION; "
               f"converting to PERCENT ({margin_pct_base * 100})", file=sys.stderr)
         margin_pct_base *= 100.0

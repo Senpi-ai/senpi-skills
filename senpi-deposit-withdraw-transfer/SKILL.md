@@ -9,15 +9,16 @@ description: >-
   NEVER writes a deposit address in chat and NEVER points at a strategy wallet; and money LEAVES Senpi to
   any EXTERNAL address only through the Senpi web/mobile app (Balances/Wallet) — no agent tool can send
   funds outside Senpi, by design, for the user's security. On-platform moves between the user's OWN
-  wallets (strategy → funding wallet, spot → perps, close a strategy to reclaim funds) DO use tools —
-  and this skill owns their mechanics: the perps precheck before a top-up, polling it, a FAILED top-up
-  that parked the money in Spot (recover it, never loop), "withdraw everything" as the exact figure,
+  wallets (strategy → funding wallet, close a strategy to reclaim funds) DO use tools — Spot → Perps
+  is the user's, in Balances — and this skill owns their mechanics: the perps precheck before a top-up,
+  polling it, a FAILED top-up that parked the money in Spot (find it, hand the user the move, never
+  loop), "withdraw everything" as the exact figure,
   and fees stated before money moves. Use this skill for every deposit / withdraw / transfer / send /
   top-up question. Pure guidance, no engine.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.5.0"
+  version: "1.6.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -200,7 +201,8 @@ the money parked in **Spot**. Four rules, in this order:
    **The amount must not exceed free perps (`withdrawable`)** — a top-up accepted against too little also
    ends FAILED, and the deposit may still be on an EVM chain or in Spot. State both numbers in one line
    before the call: "Your funding wallet has $X free in perps; topping up $Y." Spot covers the gap → ask them to move it to
-   perps in Balances, then top up once it lands. Nothing covers it → the funding card.
+   perps in Balances, then top up once it lands. Nothing covers it → check `strategy_list` for an ACTIVE strategy already
+   holding the money (see *Deposit / add funds*) before the funding card, and top up once it lands.
 2. **Poll, don't re-submit.** Keep `data.top_up_request.id` and poll `strategy_get_top_up_status` until
    `COMPLETED` or `FAILED`. `PENDING` / `FUNDS_IN_TRANSIT` = keep polling; `totalFunded` stays stale until
    completion. Re-submitting while PENDING is how strategies get double-funded.
@@ -229,7 +231,7 @@ the money parked in **Spot**. Four rules, in this order:
 | Say | Never say |
 | --- | --- |
 | "Your funding wallet has $X free in perps; topping up $Y." — before the call | A top-up amount with no free-perps figure next to it; the account value (`total_in_hyperliquid`) quoted as free |
-| "The top-up failed after its first leg — your $X was in your funding wallet's **Spot** balance; I've moved it back to perps and it's available again." | "The money is still in your funding wallet" with no balance named; "safe to re-submit" read off the status message |
+| "The top-up failed after its first leg — your $X is sitting in your funding wallet's **Spot** balance, not lost. Move it to Perps in Balances and I'll top up again." | "The money is still in your funding wallet" with no balance named; "safe to re-submit" read off the status message |
 | "The top-up failed again, so I've stopped retrying. Your $X is in your funding wallet's **perps** (or **Spot**) balance, and Senpi support can trace it with request id …" — after the second FAILED | "Let me try again" a third time; a fresh deploy offered as the fix for a failed top-up; "contact support" before the money is located |
 | "Creating a strategy reserves a creation fee — about $1, budgeted as $1.50 per wallet — on top of the $10 minimum." | A fee figure no tool returned |
 
@@ -253,6 +255,12 @@ the money parked in **Spot**. Four rules, in this order:
   say the deposit lands in their own wallet ready to trade. Never write an address, never hand out a
   strategy wallet address. If they may not hold crypto yet, mention the card's Buy USDC tab in one
   line — don't make them ask twice.
+  **First check they don't already have it.** `account_get_portfolio` can report
+  `total_allocated_in_strategy: 0` while an ACTIVE strategy holds the money, and count that same money
+  again as `total_withdrawable` — so the portfolio alone reads "funded and free" when it is neither. Call
+  `strategy_list` before the card: an ACTIVE strategy with `netFunded` above zero holds funds that
+  `strategy_withdraw_funds` reclaims in one call. The tell is `total_withdrawable` well above
+  `total_in_hyperliquid`. Asking a funded user to deposit is the worst answer available.
 - **Buy USDC / "can I use a card":** yes — show the funding card and point at its **Buy USDC** tab; card
   / Apple Pay / Google Pay, lands in their own wallet ready to trade. Positive framing, never the
   security line.

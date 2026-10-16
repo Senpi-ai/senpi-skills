@@ -38,6 +38,14 @@ class ProtectionProtocolIsResident(unittest.TestCase):
                        "The add binds to the position open now"):
             self.assertIn(needle, body, needle)
 
+    def test_a_close_reason_is_read_from_the_record(self):
+        # The agent closed a position by hand, then told the user its take-profit had hit. Both halves
+        # of the rule have to stay: read the record, and your own close is not a TP fill.
+        body = _body(SKILL)
+        for needle in ('**"Why did it close?" is a record question.**', "execution_get_closed_position_details",
+                       "did not hit its take-profit"):
+            self.assertIn(needle, body, needle)
+
     def test_the_pair_is_never_promised(self):
         body = _body(SKILL)
         self.assertNotIn("Offer both; don't call the pair", body)
@@ -49,6 +57,16 @@ class ProtectionProtocolIsResident(unittest.TestCase):
             self.assertIn(f"## Case {n}", text)
         self.assertGreaterEqual(text.count("**Must"), 10)
         self.assertIn("$2,095", text) and self.assertIn("$1,557", text)
+
+    def test_a_saved_wallet_is_answered_with_its_access_line_not_a_write(self):
+        """External Wallets R1, amendment A1: Senpi cannot trade a wallet the user added in Your wallets.
+        The answer is the MCP's access line, verbatim, and no write tool is attempted on it."""
+        body = " ".join(_body(SKILL).split())
+        for needle in ("SAVED wallets", "`external_wallets`", "no write-tool attempt",
+                       "Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.",
+                       "`NOT_A_STRATEGY_WALLET` (match the error code)", "add it in Your wallets on senpi.ai (web)",
+                       "an address pasted in chat is never described as saved"):
+            self.assertIn(needle, body, needle)
 
     def test_readme_row_matches_the_skill_version(self):
         version = re.search(r'version: "([0-9.]+)"', SKILL.read_text(encoding="utf-8")).group(1)

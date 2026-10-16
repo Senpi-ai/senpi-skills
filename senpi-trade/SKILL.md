@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.7.0"
+  version: "1.8.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -185,6 +185,12 @@ Then **replay the full spec, get an explicit "yes"**, and place.
 - **Edit:** `edit_position` — `targetMargin` is **absolute, not a delta**; a direction flip does NOT carry
   SL/TP over. Partial close = `edit_position` with a lower `targetMargin`.
 - **Close:** `close_position` (full only; best-effort cancels resting SL/TP + DSL).
+- **"Why did it close?" is a record question.** Read the close before naming a reason —
+  `execution_get_closed_position_details`, or the wallet's `discovery_get_trader_history`. **A position
+  you closed with `close_position` did not hit its take-profit:** an agent close, a stop fill and a TP
+  fill are three different outcomes and only the record says which. Never report a TP or stop as "hit"
+  from the protection you configured, or from what you remember doing — a realized return far below the
+  TP you set is the tell that something else closed it.
 
 ---
 
@@ -322,6 +328,14 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
 ---
 
 ## Handoff & boundaries
+- **A request to act on one of the user's SAVED wallets** (close, open, set a stop, cancel — on a
+  wallet in `user_get_me`'s `external_wallets`, the ones they added in Your wallets) → answer by quoting
+  its `access` line, and make **no write-tool attempt**: "Read-only. Senpi can analyze this wallet. It
+  cannot place, change or cancel orders on it." Reading `user_get_me` to recognise the address is fine.
+  A write tool that comes back `NOT_A_STRATEGY_WALLET` (match the error code) is the same answer — never
+  retry it on another tool. "Your wallet" means one of their saved wallets or one the user said is
+  theirs in this conversation; an address pasted in chat is never described as saved — to save it, the
+  user can add it in Your wallets on senpi.ai (web).
 - **Finding / vetting the trader → `senpi-trader-research`.** It ranks records + reads current books and
   hands the *action* (set up the mirror) back to this skill; you own the mechanics — slippage, sizing,
   the pre-fund sim, execution.
