@@ -88,6 +88,15 @@ class TheNeverTradedAnswerIsTaught(unittest.TestCase):
         self.assertNotIn("for the tick history", flat)
         self.assertIn("an external one stays at `runs=0` until a tick emits", flat)
 
+    def test_portfolio_says_the_same_thing(self):
+        """senpi-portfolio interprets the same quiet scanner; it called "nothing qualified" the right answer
+        for a selective strategy, which is the sentence this guard exists to stop."""
+        portfolio = " ".join((OPS.parent / "senpi-portfolio" / "SKILL.md").read_text().split())
+        bullet = portfolio[portfolio.index("- **Nothing qualified.**"):portfolio.index("- **The scanner is blind.**")]
+        self.assertIn('never "being selective"', bullet)
+        self.assertIn("liveness-verification.md", bullet)
+        self.assertNotIn("the right answer for a selective strategy", bullet)
+
     def test_no_user_identifying_detail_leaked_into_the_public_repo(self):
         """senpi-skills is public: no MIDs, no wallet addresses in the teaching or this guard."""
         import re
