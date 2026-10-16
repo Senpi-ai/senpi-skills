@@ -40,8 +40,8 @@ Senpi 2.0 isn't a chatbot with a trading API bolted on. It's a **harness** — a
                     └───────────────────────┬─────────────────────┘
                                             │
                                      ┌──────▼──────┐
-                                     │ Hyperliquid │   perps: 300+ markets — crypto, equities,
-                                     └─────────────┘   metals, indices, pre-IPO, 24/7
+                                     │ Hyperliquid │   perps: ~230 crypto + ~135 equities/
+                                     └─────────────┘   metals/indices/pre-IPO, 24/7
 ```
 
 **What's open source (this repo):** the **skills** and the **strategy templates** — the parts you'd want to read, audit, fork, or contribute to.
