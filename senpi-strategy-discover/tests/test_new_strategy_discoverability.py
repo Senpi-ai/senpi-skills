@@ -58,6 +58,9 @@ _CASES = [
     ("kite",     _intent(), "smc ict break of structure fibonacci divergence"),
     # ── dynamic pump/breakout screener (from the 2026-08-12 pump-hunter build) ──
     ("barracuda", _intent(), "pump hunter breakout momentum screener"),
+    # ── manatee (2026-10-15): the two-sided large-cap mean-reversion inventory, judged at the daily close ──
+    ("manatee",   _intent(), "mean reversion large caps long and short inventory"),
+    ("manatee",   _intent(), "buy the dip and short the rip in the majors"),
     # ── concentrated signals variant (2026-09-25): one slot, score floor 85, 10x ──
     ("puffin",   _intent(), "one signal at a time all in high conviction"),
     ("puffin",   _intent(), "concentrated single position high leverage"),
