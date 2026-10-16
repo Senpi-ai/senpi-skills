@@ -101,14 +101,9 @@ def _scalar(tok):
 
 def _split_top(s):
     """Split a flow body on top-level commas (respecting nesting + quotes)."""
-    out, depth, q, start = [], 0, None, 0
-    for i, c in enumerate(s):
-        if q:
-            if c == q:
-                q = None
-        elif c in "\"'":
-            q = c
-        elif c in "[{":
+    out, depth, start = [], 0, 0
+    for i, c in _unquoted(s):
+        if c in "[{":
             depth += 1
         elif c in "]}":
             depth -= 1
@@ -139,21 +134,45 @@ def _split_kv(item):
     return item, None
 
 
+def _unquoted(s):
+    """Yield (index, char) for every char of `s` outside a quoted scalar.
+
+    A quote opens only at the start of a token, so the apostrophe in `don't` is a plain char —
+    counting it as a quote left `[don't, x]` "unclosed" and `_gather_flow` swallowed the lines
+    after it. `''` inside single quotes and a backslash escape inside double quotes stay quoted.
+    """
+    q, prev, i = None, " ", 0
+    while i < len(s):
+        c = s[i]
+        if q:
+            if q == '"' and c == "\\":
+                i += 1
+            elif c == q:
+                if q == "'" and s[i + 1:i + 2] == "'":
+                    i += 1
+                else:
+                    q = None
+        elif c in "\"'" and prev in " \t[{,:":
+            q = c
+        else:
+            yield i, c
+        prev = c
+        i += 1
+
+
 def _flow_depth(s):
     """Net `[`/`{` nesting depth of `s`, ignoring brackets inside quotes. `> 0` means the flow
     collection is not closed on this line and continues on the next one."""
-    depth, q = 0, None
-    for c in s:
-        if q:
-            if c == q:
-                q = None
-        elif c in "\"'":
-            q = c
-        elif c in "[{":
-            depth += 1
-        elif c in "]}":
-            depth -= 1
-    return depth
+    return sum((c in "[{") - (c in "]}") for _, c in _unquoted(s))
+
+
+def _flow_line(s):
+    """One line of a wrapped flow collection without its ` # comment` — at any depth, as in
+    YAML, so a comment inside a wrapped list never becomes an item."""
+    for i, c in _unquoted(s):
+        if c == "#" and (i == 0 or s[i - 1] in " \t"):
+            return s[:i].rstrip()
+    return s
 
 
 def _parse_flow(s):
@@ -245,13 +264,15 @@ class _P:
         sequence`, which made grizzly-wild, vulture and hen unparseable outright on any host
         without PyYAML. Call this AFTER `self.i` has moved past `first`.
         """
-        parts = [first]
+        head = _flow_line(first)
+        if _flow_depth(head) <= 0:
+            return first  # closes on its own line: `_value` strips any trailing comment
+        parts = [head]
         while _flow_depth(" ".join(parts)) > 0 and self.i < len(self.lines):
-            nxt = self.lines[self.i].strip()
+            nxt = _flow_line(self.lines[self.i].strip())
             self.i += 1
-            if nxt == "" or nxt.startswith("#"):
-                continue
-            parts.append(nxt)
+            if nxt:
+                parts.append(nxt)
         return " ".join(parts)
 
     def parse_node(self, indent):

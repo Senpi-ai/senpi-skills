@@ -131,6 +131,22 @@ def test_a_flow_collection_may_wrap_across_lines():
     assert _yaml.safe_load("[1, 2,\n 3]\n") == [1, 2, 3]
 
 
+def test_a_comment_inside_a_wrapped_flow_collection_is_not_an_item():
+    """Joining the raw lines made `# majors SOL` one item: a bogus ticker, and SOL dropped."""
+    doc = _yaml.safe_load("assets: [BTC, ETH,  # majors\n  # alts next\n  SOL]  # end\nafter: 1\n")
+    assert doc == {"assets": ["BTC", "ETH", "SOL"], "after": 1}
+    assert _yaml.safe_load('a: ["x #1",\n  y]\n')["a"] == ["x #1", "y"], "a quoted # is data"
+
+
+def test_an_apostrophe_in_a_flow_collection_does_not_swallow_the_lines_after_it():
+    """`'` in `don't` is not a quote. Reading it as one left the list "unclosed", and every later
+    key was folded into it — silently, whenever a later line held another `'`."""
+    doc = _yaml.safe_load("tags: [don't, x]\nnext: 'a'\nlast: [1]\n")
+    assert doc == {"tags": ["don't", "x"], "next": "a", "last": [1]}, doc
+    doc = _yaml.safe_load("tags: ['it''s', b,\n  c]\nnext: 1\n")
+    assert doc == {"tags": ["it's", "b", "c"], "next": 1}
+
+
 def test_a_single_quoted_scalar_resolves_its_doubled_quote_escape():
     """`camel''s` is `camel's`; the literal `''` was reaching user-facing cards."""
     assert _yaml.safe_load("a: 'camel''s ladder'\n")["a"] == "camel's ladder"
