@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.27.0"
+  version: "3.27.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -67,6 +67,14 @@ the bare verb for the read-only `openclaw senpi deploy status`, and whenever res
 **Always tear down through `close.py`** (one `<id>` or `--all`) — it deletes the runtime *and* closes
 the strategy. A raw `strategy_close` MCP call closes the strategy but **leaves the runtime
 registered**, which collides on the next deploy.
+**`close.py` is never a repair.** It market-exits every position and returns the funds; a deploy after it is a
+NEW wallet whose scanner state starts empty — needed only when `update` refuses `E_UPDATE_WALLET_CHANGED` (below).
+"Relaunch", "restart", "redeploy", "fix it" → the read-only `deploy.py verify` on the id they run (`status.py`
+lists their fork). VERIFIED = nothing to relaunch; "my edit isn't live" / "it isn't trading" → `status.py <id>`,
+its ✎ / ⏸ rows. A step verify marks `RUNS THE DEPLOY VERB` needs their yes first: `runtime <id>` starts trading
+the wallet it adopts, `create --budget` funds a NEW one (say the amount). PAUSED has no resume: tell the user,
+run nothing. Close only on "close" / "tear down" in their own words, or a yes to your sentence that every
+position closes at market — "stop" or "pause" gets that sentence too: the only stop is a close.
 Pass the **strategy `id`** for a CATALOG strategy (what `senpi-strategy-discover` hands over, e.g.
 `spider`), fetched from the remote if not on disk; for a **locally-authored package, pass its DIRECTORY
 path**. Either way the package belongs in the **durable strategies root** (`SENPI_STRATEGIES_DIR` if
@@ -206,7 +214,7 @@ refused, not waited for — see the PAUSED section of
 > and to close a runtime-less one to force a fresh wallet; the verb **adopts** instead. Two
 > consequences worth saying out loud to the user: deploy **never adds funds to a wallet that already
 > exists** (ask for $500 against a wallet holding $100 and the report says the $500 was NOT added — top
-> up separately, or `close.py` and redeploy), and "re-run to get a fresh wallet" is no longer a thing.
+> up separately, or close it and fund a new one — a market exit), and "re-run to get a fresh wallet" is no longer a thing.
 
 **Packages with no exit block are refused before anything is funded** — worth knowing *before* you
 build or pick one; the refusal names the offending instances and computes its own re-check block
@@ -319,7 +327,7 @@ ephemeral deploy state — so **don't hand-compose `strategy_list`**. A strategy
 "broken"**: it is just not autonomous, and `status.py` labels how it is managed (copy, manual, …) — never
 call it idle. The one real anomaly is an autonomous package strategy missing its runtime
 (**no-runtime**). Full label set: [`references/lifecycle.md`](references/lifecycle.md).
-Two more facts ride every deep row, because health alone misleads on both: **⏸ paused** — the runtime's OWN risk gate (`components.risk`) holds entries (daily cap, loss halt, cooldown), printed with the gate's reason and reset verbatim; health stays ✅, nothing is broken, and closing/redeploying resets nothing but the book. **✎ running recipe ≠ disk** — the descriptor the runtime renders differs from the package on disk: an edit that was never applied → `deploy.py update` (below).
+Two more facts ride every deep row, because health alone misleads on both: **⏸ paused** — the runtime's OWN risk gate (`components.risk`) holds entries (daily cap, loss halt, cooldown), printed with the gate's reason and reset verbatim; health stays ✅ and nothing is broken. A close clears the gate only by market-exiting the book onto a new wallet — say that before you offer one. **✎ running recipe ≠ disk** — the descriptor the runtime renders differs from the package on disk: an edit that was never applied → `deploy.py update` (below).
 When YOU call a trade tool (`ratchet_stop_add`, `strategy_close`, `create_position`…) it runs behind the user's trade-approval gate: an unapproved call times out, is **denied**, and returns an **EMPTY** result. Empty = not executed — say the approval timed out and nothing was placed; never report it as done, never re-issue it in a loop (the same rule senpi-trade's guardrail row carries — keep the two in sync).
 
 **"Are my open positions protected? / do they have a stop-loss?"** → the DSL coverage verdict (PROTECTED
@@ -355,7 +363,7 @@ Per strategy: **stop the runtime** (if live) → **trigger `strategy_close`** (f
 + closes the strategy, funds returned). `strategy_close` is **async**, so the script **does not wait** —
 it returns `closing` and hands polling to you: **re-run `close.py spider`** until it reports `closed`.
 Re-runs are idempotent. **A subset = one run each, sequential, never backgrounded with `&`** ([lifecycle.md](references/lifecycle.md#closing-several)). `--instance <name>` scopes an instance (needs its live runtime to map; else omit
-to close all). **Redeploy** = `openclaw senpi validate` → `close` → `create`, in that order. Discovery
+to close all). **Starting over on a new wallet** = `openclaw senpi validate` → `close` → `create`, in that order. Discovery
 is strategy-driven: close also cleans up an attributed package's **orphaned** (no-runtime) wallet, and
 `--strategy-id`/`--address` close one with **no package at all** ([`references/lifecycle.md`](references/lifecycle.md)).
 
@@ -367,7 +375,7 @@ the deployed scanner as it is.
 
 **Apply it in place — `openclaw senpi update`.** No close, no fresh wallet, no market exit; DSL state,
 scanner stores and action history survive. `senpi validate <instance-dir>` writes the proof `--apply`
-needs; `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py update <pkg> --id <runtime_id>` PLANS (the structural preflight, then the verb; add `--apply` to commit — it stops if the box has no `update` verb yet: then STOP too, never close-and-redeploy). **Read the
+needs; `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py update <pkg> --id <runtime_id>` PLANS (the structural preflight, then the verb; add `--apply` to commit — it stops if the box has no `update` verb yet: then STOP too, never a close). **Read the
 plan out first**: `dsl_preset` is **forward-only** — new entries only, never one already open (other `exit:`
 fields, e.g. `order_type`, DO reach open positions) — never let "tighter" be heard as "my open trades are tighter".
 **A DSL change has two targets, and the user picks which: (a) future positions — the file, via `update`;
@@ -375,16 +383,16 @@ fields, e.g. `order_type`, DO reach open positions) — never let "tighter" be h
 both first (the file and `ratchet_stop_list`), show the drift and each position's new floor in numbers, then
 ask (a), (b) or (c) — never assume (a), never touch an open position without its own approval:
 [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md). Call it an **update** to the user, never a
-"redeploy" — that word is the market-exit path below; an edit that closes nothing must never sound like one.
+close or a new wallet — those are the market-exit path below; an edit that closes nothing must never sound like one.
 **No open positions → only (a), now:** `strategy_get_clearinghouse_state` shows none (never infer it from `ratchet_stop_list` — an open position can have no live row yet) → edit, validate, `deploy.py update … --apply`, read back in the same turn; never park it for "the next position", never offer a row that is not ACTIVE or PAUSED (SL_TRIGGERED, MANUALLY_CLOSED, LIQUIDATED, ADL, DELETED) as a template — reference §4.
 **Saved is not applied.** `update` without `--apply` only plans — its first line reads `Dry run for <runtime_id> — nothing has been applied.` —
 so never pipe `openclaw senpi` output through `tail`/`head`. An edit is live only once `--apply` exits `0` and the running strategy
 shows the change (the two reads: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md)); until then tell
 the user it is **saved, not applied** — never "done" or "live".
 
-**Only a changed `strategy.wallet`, a renamed or moved external scanner, or a changed `action_type` still need
-close-and-redeploy**, which market-exits every open position and drops any custom ratchet ladder — take
-**explicit consent in those words first**. Everything else: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md).
+**Only a changed `strategy.wallet` needs a new wallet** (`update` refuses it with `E_UPDATE_WALLET_CHANGED`): a close,
+which market-exits every open position and drops any custom ratchet ladder — take **explicit consent in those
+words first**. Its other refusals name an in-place fix. Everything else: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md).
 
 ## Invariants
 
