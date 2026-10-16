@@ -40,8 +40,8 @@ Senpi 2.0 isn't a chatbot with a trading API bolted on. It's a **harness** — a
                     └───────────────────────┬─────────────────────┘
                                             │
                                      ┌──────▼──────┐
-                                     │ Hyperliquid │   perps: ~230 crypto + ~95 equities/
-                                     └─────────────┘   metals/indices/pre-IPO, 24/7
+                                     │ Hyperliquid │   perps: 300+ markets — crypto, equities,
+                                     └─────────────┘   metals, indices, pre-IPO, 24/7
 ```
 
 **What's open source (this repo):** the **skills** and the **strategy templates** — the parts you'd want to read, audit, fork, or contribute to.
@@ -76,7 +76,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.7 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
 | **Move money / positioning** | | |
 | [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.6.1 | The money-movement rails (funds in via the funding card — deposit address or in-card USDC purchase; out via the app); top-ups prechecked against perps and traced to Spot when they fail, withdrawals at the exact available figure, fees stated before money moves |
-| [`senpi-why`](senpi-why/) | 1.4.0 | "Why Senpi / vs. other tools" — the positioning answer |
+| [`senpi-why`](senpi-why/) | 1.4.1 | "Why Senpi / vs. other tools" — the positioning answer |
 
 Skills **compose**: `improve-trades` pulls in `market-pulse` + `smart-money` + `portfolio`; `discover` hands a chosen package to `ops`; `author` hands a built package to `ops`. The agent routes by **intent**, not keywords, and never re-implements one skill inside another.
 
