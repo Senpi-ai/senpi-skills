@@ -5,7 +5,7 @@
 # The RSI/indicator math is ported verbatim from Bison; the edge is the cross-back +
 # reversal confirmation that makes it a mean-reversion play, NOT a falling-knife
 # catcher. NEVER closes — DSL owns every exit: a fixed 12% ROE stop (4.0% of price at
-# 3x) and a gains-only ratchet; no clock cuts.
+# 3x, 6.0% at the 2x base band) and a gains-only ratchet; no clock cuts.
 schema_version: 1
 
 id: salmon

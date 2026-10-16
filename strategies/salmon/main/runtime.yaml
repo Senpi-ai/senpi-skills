@@ -6,8 +6,8 @@
 # bar; SHORT on the symmetric overbought case. It is a mean-reversion play (bets
 # price reverts to its mean), deliberately NOT a falling-knife catcher — a still-
 # falling RSI below the line does NOT trigger. NEVER closes — the DSL owns every
-# exit: a fixed 12% ROE stop (4.0% of price at 3x) and a gains-only ratchet, no clock
-# cuts, with the drawdown_halt as backstop.
+# exit: a fixed 12% ROE stop (4.0% of price at 3x, 6.0% at the 2x base band) and a
+# gains-only ratchet, no clock cuts, with the drawdown_halt as backstop.
 name: salmon-main
 group: salmon
 version: 1.0.0
@@ -17,8 +17,8 @@ description: >
   cross-back-UP and SHORT on an overbought cross-back-DOWN, each requiring the cross
   + a rising/falling RSI + a price-reversal bar (anti-falling-knife). Four slots at
   18% margin each; conviction sets the leverage (2x base, 3x good/apex, cap 3x).
-  DSL is the ONLY exit: a fixed 12% ROE stop (4.0% of price at 3x), then a gains-only
-  ratchet from +12% ROE (locks 40% of high-water, stepping to 85% by +50%). No clock
+  DSL is the ONLY exit: a fixed 12% ROE stop (4.0% of price at 3x, 6.0% at 2x), then a
+  gains-only ratchet from +12% ROE (locks 40% of high-water, stepping to 85% by +50%). No clock
   cuts.
 
 strategy:
@@ -89,7 +89,7 @@ actions:
         scanner: salmon_scanner
   # NO CLOSE_POSITION action — DSL is the only exit.
 
-# EXIT — DSL only. A fixed 12% ROE stop (4.0% of price at 3x) caps the loss; the ratchet
+# EXIT — DSL only. A fixed 12% ROE stop (4.0% of price at 3x, 6.0% at 2x) caps the loss; the ratchet
 # locks profit from +12% ROE and ramps so a reversion that works isn't given back. No
 # clock cuts: the DSL decides every exit.
 exit:
@@ -119,7 +119,7 @@ exit:
       # could sit BELOW entry and close a winner at a loss. max_loss_pct is the hard stop;
       # retrace_threshold below is inert while enabled: false.
       enabled: false
-      max_loss_pct: 12.0   # 12% ROE = 4.0% of price at 3x (1.3.0: was 6 = 1.5% at 4x)
+      max_loss_pct: 12.0   # 12% ROE = 4.0% of price at 3x, 6.0% at the 2x base band (1.3.0: was 6 = 1.5% at 4x)
       retrace_threshold: 6
       consecutive_breaches_required: 1
     phase2:

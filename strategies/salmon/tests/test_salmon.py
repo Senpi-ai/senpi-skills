@@ -67,6 +67,10 @@ def test_the_card_and_the_header_describe_the_file():
     for stale in ("leverage <= 4", "margin <= 20", "5 positions", "8% Phase 1", "12h weak-peak", "tight"):
         assert stale not in desc, stale
     assert "12% ROE" in desc and "4.0% of price at 3x" in desc
+    # every leverage band the scanner can emit is described: 12% ROE is 6.0% of price at the 2x base
+    stop = RUNTIME["exit"]["dsl_preset"]["phase1"]["max_loss_pct"]
+    for lev in set(INPUTS["leverageTiers"].values()):
+        assert f"{stop / lev:.1f}% of price at {lev}x" in desc or f"{stop / lev:.1f}% at {lev}x" in desc, lev
 
 
 # ── a fake desk ───────────────────────────────────────────────────────────────────────────
