@@ -95,7 +95,12 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # "selective" each time. It rides the "it isn't trading" route in the head, because the band `read` drops
 # (the monitor section, where the first draft put it) never reaches the agent; the depth is in
 # references/liveness-verification.md.
-BODY_BUDGET = {"senpi-strategy-ops": 365, "senpi-strategy-author": 430}
+# author 430 -> 432 (2026-09-23, moved 2026-10-16): +2 lines separating "what opens a wallet" from "what
+# lets it trade". ~$11.50 was stated four times in this body including the scripted heads-up, and telemetry
+# had 37 agent outputs quoting it in two days, several near-verbatim from that script — a funded strategy
+# that installs, scans and never opens. The pre-Decision-1 heads-up keeps the floor at main's line count (no
+# design exists yet); the two lines are Handoff step 1 quoting the design's minimum, in the tail `read` keeps.
+BODY_BUDGET = {"senpi-strategy-ops": 365, "senpi-strategy-author": 432}
 
 
 def _skill_body(path):
@@ -354,6 +359,11 @@ class TemplatesDeployUnderTheUsersName(unittest.TestCase):
         ref = (REPO / "senpi-strategy-ops" / "references" / "walkthrough.md").read_text()
         for needle in ("Every block is bullets", "marginPctBase", "ignas-phalanx", "deploy.py fork", "is not a yes"):
             self.assertIn(needle, ref)
+        # A quick action shows one template, not a choice: the two routes the walkthrough cannot show.
+        flat = " ".join(ref.split())
+        for needle in ("Arrived with one name, not from the picker", "**a different signal** → `senpi-strategy-discover`",
+                       "**their own** → `senpi-strategy-author`"):
+            self.assertIn(needle, flat)
 
 
 class ScriptInvocationsAreCwdIndependent(unittest.TestCase):

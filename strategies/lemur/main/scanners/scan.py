@@ -11,8 +11,9 @@ Hyperliquid XYZ (lemur-producer.py v1.0.1 / SKILL.md v1.0.0). Per tick it:
      delisted. Today that returns [xyz:SPCX]; it auto-expands/auto-drops as
      trade.xyz lists/IPOs names.
   3. Scores every non-held, non-recently-signaled IPOP through the pure
-     `scoring.build_thesis` (hard gate: 4h trend non-neutral + SM agreement;
-     4-component score, max ~9). Per-asset market data via market_get_asset_data
+     `scoring.build_thesis` (hard gate: 4h trend non-neutral, plus the 4h
+     leaders' agreement when their board carries the name; 4-component score,
+     max ~9). Per-asset market data via market_get_asset_data
      (1h/4h candles) and SM lean via leaderboard_get_markets.
   4. Emits the SINGLE highest-scoring candidate at/above `minScore` (v2 main()
      emitted only `best`), sized by a flat marginPct intent at IPOP-capped
@@ -26,10 +27,10 @@ exit. Held-asset suppression + per-tick signal dedup live in ctx.state
 FIDELITY NOTES vs lemur-producer.py v1.0.1:
   - v2 stored `marginPct` as a FRACTION (0.15) and computed marginUsd =
     account_value * 0.15, emitting a USD figure. This port emits `marginPct` as
-    a PERCENT (15) at the top level and lets the runtime size
+    a PERCENT at the top level and lets the runtime size
     (marginPct/100)*withdrawable. The defensive `<1.0 means a pasted fraction
-    -> x100` guard converts a fraction supplied via inputs. Sizing is otherwise
-    identical (15% of equity at default config).
+    -> x100` guard converts a fraction supplied via inputs. 1.2.0 sizes one
+    position at 40% of withdrawable at 3x (v2 / 1.x: 2 slots x 15%).
   - v2 emitted exactly one signal (best). Preserved: scan() emits <= 1 signal/tick.
   - v2 recent-signals JSON cache -> ctx.state dedup map (same TTL semantics:
     240s race-window, pruned at 4x TTL).
@@ -69,7 +70,7 @@ def _sm_row_matches(row, token, target):
 _DEFAULT_TTL = 240               # v2 RECENT_SIGNAL_TTL_SEC — race-window dedup
 _DEFAULT_MIN_SCORE = 5           # v2 DEFAULT_MIN_SCORE
 _DEFAULT_LEVERAGE = 3            # v2 DEFAULT_LEVERAGE (config default; capped per-instrument)
-_DEFAULT_MARGIN_PCT = 15         # v2 marginPct 0.15 (FRACTION) -> 15 (PERCENT)
+_DEFAULT_MARGIN_PCT = 40         # 1.2.0: one position, 40% of withdrawable (runtime.yaml ships the same; v2 was a 0.15 fraction)
 
 
 def _read(ctx, name, args):
@@ -175,23 +176,37 @@ def _asset_data(ctx, coin):
 _DEFAULT_MIN_TRADER_COUNT = 10
 
 
+# The board READ failed: an outage, not "no row for the name". Both score trend-only, but an
+# operator reading the logs must be able to tell them apart — a dead board is an incident, a
+# pre-IPO name the 4h leaders do not hold is the normal day. Same shape as (None, 0.0) for
+# build_thesis, which treats any None direction as "no lean".
+_BOARD_UNREADABLE = (None, None)
+
+
+def _board_unreadable(asset):
+    print(f"[lemur.scan] 4h board UNREADABLE for {asset} — scoring trend-only this tick "
+          f"(an outage, not 'no board row')", file=sys.stderr)
+    return _BOARD_UNREADABLE
+
+
 def _get_sm_direction(ctx, asset, min_traders=_DEFAULT_MIN_TRADER_COUNT):
-    """Port of v2 fetch_sm_direction: net smart-money lean for `asset` from
-    leaderboard_get_markets. Returns (direction, tilt_pct) or (None, 0.0) when
-    SM data is unavailable for the asset. READ-GUARDED.
+    """Port of v2 fetch_sm_direction: the 4h leaders' net lean for `asset` from
+    leaderboard_get_markets. Returns (direction, tilt_pct); (None, 0.0) when the
+    board has no usable row for the asset; _BOARD_UNREADABLE when the read itself
+    failed. READ-GUARDED.
 
     Verbatim thresholds: long_ratio >= 50 -> LONG (ratio), else SHORT
     (100-ratio); total<=0 -> ("NEUTRAL", 50.0)."""
     raw = _read(ctx, "leaderboard_get_markets", {})
     if not raw:
-        return None, 0.0
+        return _board_unreadable(asset)
     markets = raw.get("data", raw) if isinstance(raw, dict) else raw
     if isinstance(markets, dict):
         markets = markets.get("markets", markets.get("leaderboard", markets))
     if isinstance(markets, dict):
         markets = markets.get("markets", [])
     if not isinstance(markets, list):
-        return None, 0.0
+        return _board_unreadable(asset)
 
     long_pct, short_pct, found = 0.0, 0.0, False
     side_n = {}                                    # per-side headcount of the 4h leaders
@@ -210,13 +225,16 @@ def _get_sm_direction(ctx, asset, min_traders=_DEFAULT_MIN_TRADER_COUNT):
         elif d == "SHORT":
             short_pct = pct
     if not found:
+        print(f"[lemur.scan] no 4h-board row for {asset} — trend-only, no leader points", file=sys.stderr)
         return None, 0.0
     total = long_pct + short_pct
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
     if side_n.get("LONG" if long_ratio >= 50 else "SHORT", 0) < min_traders:
-        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
+        print(f"[lemur.scan] 4h-board lean for {asset} refused: leading side thinner than "
+              f"{min_traders} traders — trend-only, no leader points", file=sys.stderr)
+        return None, 0.0
     if long_ratio >= 50:
         return "LONG", long_ratio
     return "SHORT", 100 - long_ratio
@@ -302,6 +320,9 @@ def scan(inputs, ctx):
             continue
         sm = _get_sm_direction(ctx, coin, min_traders=min_traders)
         th = scoring.build_thesis(coin, md["candles_1h"], md["candles_4h"], sm, inputs)
+        if th and sm == _BOARD_UNREADABLE:   # say so in the signal too, not only in the log
+            th["sm_direction"] = "UNREADABLE"
+            th["reasons"] = ["sm_board_unreadable" if r == "sm_no_board_row" else r for r in th["reasons"]]
         if th and th["score"] >= min_score:
             th["max_leverage_cap"] = inst["max_leverage"]
             candidates.append(th)

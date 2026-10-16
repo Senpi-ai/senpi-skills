@@ -50,7 +50,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.45.0"
+VERSION = "1.48.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -1303,7 +1303,8 @@ def main(argv=None):
             print(json.dumps({
                 "error": f"no PERP activity in the last {a.days} days across any of these "
                          f"{len(wallets)} wallets, and no open perp positions. "
-                         f"Spot trades and transfers are not perp activity and are not read here.",
+                         f"Spot trades and transfers are not perp activity and are not read here, "
+                         f"nor are prediction-market (outcome) trades.",
                 "what_this_usually_means": "a strategy that was funded but never filled has no history "
                                            "to read, and a wallet that only ever held spot or moved "
                                            "funds has none either. If some of these were closed "
@@ -1322,7 +1323,8 @@ def main(argv=None):
                 # that trade daily. The guidance is fixed in SKILL.md; this says it too, so the
                 # dead end corrects itself even when the wrong wallet is picked.
                 "error": f"no PERP activity in the last {a.days} days and no open perp positions. "
-                         f"Spot trades and transfers are not perp activity and are not read here.",
+                         f"Spot trades and transfers are not perp activity and are not read here, "
+                         f"nor are prediction-market (outcome) trades.",
                 "if_this_is_your_own_wallet": "If you trade through senpi, your perp history is in your "
                                               "STRATEGY wallets, not this one — an embedded wallet is the "
                                               "funding wallet. Resolve them with strategy_list and run the "
