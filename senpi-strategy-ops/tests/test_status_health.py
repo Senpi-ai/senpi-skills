@@ -21,6 +21,20 @@ import _cli    # noqa: E402
 import status  # noqa: E402
 
 
+class TestScannerReasons(unittest.TestCase):
+    def test_quotes_each_rows_degraded_reason_by_scanner_name(self):
+        entry = {"health": "unhealthy", "components": {"scanners": {"scanners": [
+            {"scannerId": "jackal_main_signals", "health": "unhealthy",
+             "degradedReason": "5 crashes in a row, each within 10s of starting"},
+            {"scannerId": "position_tracker", "health": "healthy"}]}}}
+        self.assertEqual(_cli.scanner_reasons(entry),
+                         ["jackal_main_signals: 5 crashes in a row, each within 10s of starting"])
+
+    def test_no_rows_or_no_reason_is_an_empty_list_not_none(self):
+        self.assertEqual(_cli.scanner_reasons({"health": "healthy"}), [])
+        self.assertEqual(_cli.scanner_reasons({"components": {"scanners": {"scanners": []}}}), [])
+
+
 class TestHealthVerdict(unittest.TestCase):
     def test_unknown_passes_through(self):
         self.assertEqual(_cli.health_verdict({"health": "unknown"}), "unknown")
@@ -225,6 +239,15 @@ class TriageCommandsAreReadOnly(unittest.TestCase):
         text = self._render("degraded")
         self.assertIn("deploy.py runtime <id>", text)       # named as the escape, not per row
         self.assertIn("can move money", text)
+
+    def test_a_row_with_the_runtimes_reason_prints_it_verbatim(self):
+        row = dict(self._row("unhealthy"), reason="spider_main_signals: 5 crashes in a row, each within 10s of starting")
+        status.MCPClient = lambda *a, **k: None
+        status.build = lambda *a, **k: ([row], [], True)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            status.main(["status.py"])
+        self.assertIn("↳ spider_main_signals: 5 crashes in a row, each within 10s of starting", out.getvalue())
 
     def test_verify_is_offered_as_a_read_only_check_never_as_the_money_path(self):
         # The escape and the check are different commands now. A monitoring surface that still calls
