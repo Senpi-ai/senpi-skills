@@ -44,7 +44,7 @@ FIDELITY NOTES vs the v2 producer (falcon-producer.py v1.0.1):
     so an SM read failure degrades to NEUTRAL/no-bonus, never skips the tick.
   - v2 margin was a FRACTION (0.15) * account_value -> marginUsd. This port emits
     the PERCENT (15) as `marginPct`; the runtime sizes (marginPct/100)*
-    withdrawable. Defensive <=1.0 fraction->percent guard applied (koala/dire
+    withdrawable. Defensive <1.0 fraction->percent guard applied (koala/dire
     pattern). Leverage clamp min(config, post-conversion cap, 10) is verbatim.
   - DROPPED (read-only scan() cannot mutate): nothing — v2 Falcon had NO
     order-lifecycle management (no cancel_order / resting-order purge). The
@@ -279,10 +279,10 @@ def scan(inputs, ctx):
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
 
     # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value
-    # <= 1 (an operator who pasted the v2 FRACTION 0.15) into a PERCENT so it
+    # < 1 (an operator who pasted the v2 FRACTION 0.15) into a PERCENT so it
     # never silently sizes ~100x small (runtime sizes (marginPct/100)*withdrawable).
     margin_pct = float(inputs.get("marginPct", scoring.DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         print(f"[falcon.scan] marginPct={margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0

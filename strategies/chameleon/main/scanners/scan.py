@@ -17,7 +17,7 @@ FIDELITY NOTES vs the v2 producer (chameleon-producer.py v1.0.1):
   - v2 sized via marginPct * account_value -> marginUsd, with marginPct stored as
     a FRACTION (config marginPct=0.15). This port emits `marginPct` as a PERCENT
     in (0,100] (15) and the runtime sizes (marginPct/100)*withdrawable. The
-    defensive "<=1.0 means a pasted v2 fraction, x100" guard is added (dire/koala
+    defensive "<1.0 means a pasted v2 fraction, x100" guard is added (dire/koala
     pattern) so an operator who pastes 0.15 doesn't silently size ~100x small.
   - v2's runtime.yaml template said `margin_pct: 20`, but the PRODUCER + config.json
     are the source of truth and use marginPct 0.15 (=15%). This port uses 15% and
@@ -225,11 +225,11 @@ def scan(inputs, ctx):
     max_leverage = int(inputs.get("maxLeverage", _MAX_LEVERAGE))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
 
-    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value <= 1
+    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value < 1
     # (an operator who pasted the v2 FRACTION 0.15) into a PERCENT so it never
     # silently sizes ~100x small (the runtime sizes (marginPct/100)*withdrawable).
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         print(f"[chameleon.scan] marginPct={margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0

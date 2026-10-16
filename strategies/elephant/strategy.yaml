@@ -9,7 +9,7 @@
 schema_version: 1
 
 id: elephant
-version: "1.2.0"
+version: "1.2.1"
 
 catalog:
   name: "Elephant — Global-Macro Hedge Fund"

@@ -26,7 +26,7 @@ FIDELITY NOTES vs the v2 producer (meerkat-producer.py v1.0.1):
     (config marginPct=0.15) -> marginUsd. This port emits `marginPct` as a
     PERCENT in (0,100] and the runtime sizes (marginPct/100)*withdrawable. The
     v2 config FRACTION 0.15 is converted ×100 -> 15 (PERCENT). A defensive guard
-    treats any value <= 1.0 as a pasted fraction and ×100 it. NOTE: the v2
+    treats any value < 1.0 as a pasted fraction and ×100 it. NOTE: the v2
     runtime.yaml declared margin_pct: 20 which CONTRADICTS the producer/config
     0.15 (=15%); per the source-of-truth order (producer + config win) this port
     uses 15%. FLAGGED in the report.
@@ -246,9 +246,9 @@ def _was_recently_signaled(signaled, coin, ttl, now):
 
 def _resolve_margin_pct(raw):
     """v2 config margin was a FRACTION (0.15). Emit PERCENT in (0,100].
-    Defensive: any value <= 1.0 is a pasted fraction -> ×100 (dire/koala guard)."""
+    Defensive: any value < 1.0 is a pasted fraction -> ×100 (dire/koala guard)."""
     mp = float(raw)
-    if mp <= 1.0:
+    if mp < 1.0:
         mp *= 100.0
     return mp
 

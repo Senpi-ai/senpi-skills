@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The protection protocol is resident in senpi-trade/SKILL.md, its four regression cases exist, and the
+"""The protection protocol is resident in senpi-trade/SKILL.md, its five regression cases exist, and the
 version the README advertises is the version the skill carries."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import re
@@ -34,7 +34,16 @@ class ProtectionProtocolIsResident(unittest.TestCase):
         for needle in ("share of the account", "dollars at the stop", "leverage that will actually apply",
                        "50% of the account in one position", "20% of the account at the stop",
                        "a yes to the setup is not a yes to the concentration",
-                       "Read back the leverage", "is the ladder, never a cron"):
+                       "Read back the leverage", "is the ladder, never a cron",
+                       "The add binds to the position open now"):
+            self.assertIn(needle, body, needle)
+
+    def test_a_close_reason_is_read_from_the_record(self):
+        # The agent closed a position by hand, then told the user its take-profit had hit. Both halves
+        # of the rule have to stay: read the record, and your own close is not a TP fill.
+        body = _body(SKILL)
+        for needle in ('**"Why did it close?" is a record question.**', "execution_get_closed_position_details",
+                       "did not hit its take-profit"):
             self.assertIn(needle, body, needle)
 
     def test_the_pair_is_never_promised(self):
@@ -42,12 +51,22 @@ class ProtectionProtocolIsResident(unittest.TestCase):
         self.assertNotIn("Offer both; don't call the pair", body)
         self.assertNotIn("pair with (b) for a cap", body)
 
-    def test_the_four_cases_exist_with_must_and_must_not(self):
+    def test_the_five_cases_exist_with_must_and_must_not(self):
         text = CASES.read_text(encoding="utf-8")
-        for n in range(1, 5):
+        for n in range(1, 6):
             self.assertIn(f"## Case {n}", text)
-        self.assertGreaterEqual(text.count("**Must"), 8)
+        self.assertGreaterEqual(text.count("**Must"), 10)
         self.assertIn("$2,095", text) and self.assertIn("$1,557", text)
+
+    def test_a_saved_wallet_is_answered_with_its_access_line_not_a_write(self):
+        """External Wallets R1, amendment A1: Senpi cannot trade a wallet the user added in Your wallets.
+        The answer is the MCP's access line, verbatim, and no write tool is attempted on it."""
+        body = " ".join(_body(SKILL).split())
+        for needle in ("SAVED wallets", "`external_wallets`", "no write-tool attempt",
+                       "Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.",
+                       "`NOT_A_STRATEGY_WALLET` (match the error code)", "add it in Your wallets on senpi.ai (web)",
+                       "an address pasted in chat is never described as saved"):
+            self.assertIn(needle, body, needle)
 
     def test_readme_row_matches_the_skill_version(self):
         version = re.search(r'version: "([0-9.]+)"', SKILL.read_text(encoding="utf-8")).group(1)

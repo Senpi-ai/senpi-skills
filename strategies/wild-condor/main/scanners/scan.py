@@ -1,0 +1,554 @@
+"""WILD CONDOR — supervised scanner (Runtime 3.0 port of the v2 CONDOR producer).
+
+Multi-asset universe, emit-one. A faithful port of the v2 "One Amazing Trade
+per Day" trend-continuation apex sniper (SKILL.md v4.0.1):
+
+  1. Build the universe — top 50 HL crypto assets by 24h notional volume
+     (market_list_instruments), with XYZ + stablecoins banned and an OI >= $1M
+     floor.
+  2. Pull smart-money positioning per coin (leaderboard_get_markets):
+     direction, consensus %, trader_count, 4h/1h price change, 15m velocity.
+  3. Score every universe asset through the pure `scoring.evaluate_trend_
+     continuation` (hard gates: SM consensus >=70%, trader_count >=50, 3TF
+     alignment, MACRO_TREND_GATE; then the verbatim v2 scoring table).
+  4. Emit ONE signal for the single highest-scoring candidate clearing
+     MIN_SCORE — a marginPct sizing INTENT plus a per-score leverage tier.
+
+Read-only + single-pass. NO daemon, NO push_signal, NO create_position — the
+runtime sizes the dollars, owns the cooldowns/risk gates/slots, and trails the
+DSL exit. Held-asset suppression and per-tick signal dedup live in ctx.state
+(belt-and-suspenders alongside the runtime's per-asset cooldown gate).
+
+PORT NOTE (XYZ ban): the v2 producer filtered XYZ via inst.get("dex") == "xyz".
+The live combined market_list_instruments response carries NO dex field — XYZ
+equities are identified ONLY by the "XYZ:" name prefix (e.g. "XYZ:SP500"). The
+v2 dex check is therefore a silent no-op against the real shape and would let
+~33 XYZ equities flood the top-50-by-volume. This port bans XYZ by name prefix
+(matching kodiak's canonical _dex_for), faithfully implementing the v2 INTENT
+(XYZ banned) against the real response. See RETURN notes / fidelity concerns."""
+
+import sys
+import time
+
+import scoring
+
+_DEFAULT_TTL = 240            # 4min — mirror v2 RECENT_SIGNAL_TTL_SEC (held-asset race-fix)
+
+
+_DEFAULT_MIN_LEVERAGE = 0    # 0 = accept any venue cap (warn only); raise to the ladder's leverage
+
+# ── proven cohort (senpi-signals' definition of smart money) ──
+_COHORT_LIMIT = 200          # rows pulled from discovery_get_top_traders
+_COHORT_CAP = 150            # cap the cohort at N proven wallets
+_COHORT_MIN_REALIZED = 1_000_000
+_COHORT_BATCH = 50           # discovery_get_trader_state batch size
+_COHORT_CACHE_TTL = 900      # refresh every ~15 min
+
+
+def _read(ctx, name, args):
+    """Guarded MCP read: a transient/permission error on a read must NOT roll
+    back the whole tick. Returns None on failure so the existing degrade paths
+    apply (empty universe / empty SM map -> emit nothing this tick)."""
+    try:
+        return ctx.senpi_mcp.call_tool(name, args)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[wild-condor.scan] {name} read failed: {exc!r}", file=sys.stderr)
+        return None
+
+
+def _safe_leverage(ctx, asset, dex, requested):
+    """v2 get_safe_leverage — clamp the fixed request to the venue max from
+    strategy_get_asset_trading_limits. READ-GUARDED: degrade to `requested` on any failure
+    (v2's `except: pass; return requested_leverage`)."""
+    limits = _read(ctx, "strategy_get_asset_trading_limits",
+                   {"strategy_wallet": ctx.wallet, "coin": asset})
+    if not limits:
+        return requested
+    data = limits.get("data", limits) if isinstance(limits, dict) else limits
+    if not isinstance(data, dict):
+        return requested
+    lev = data.get("leverage", {})
+    try:
+        if isinstance(lev, dict):
+            max_lev = int(float(lev.get("value", requested)))
+            return min(requested, max_lev)
+        if isinstance(lev, (int, float)):
+            return min(requested, int(lev))
+    except (TypeError, ValueError):
+        return requested
+    return requested
+
+
+def _pick_leverable(ctx, candidates, min_leverage, requested_for, strict=False):
+    """Walk the ranking and take the first name the venue will actually lever.
+
+    WHY THIS EXISTS. Every DSL threshold is ROE, and the engine converts ROE to a price floor by
+    DIVIDING BY LEVERAGE (senpi-strategy-author/references/dsl-configuration.md). So a ladder
+    authored at Nx silently stretches every exit distance in PRICE by N/actual when the venue caps
+    an asset below N. A 10x ladder on a 5x-capped name arms its first rung at twice the intended
+    price move and may put its later rungs out of reach entirely — the position rides a ladder that
+    was never calibrated for it, and nothing in the config says so.
+
+    `minLeverage: 0` (the default) keeps the previous behaviour exactly — the first candidate always
+    clears it — and only adds the warning. Raise it to the leverage the ladder was authored for to
+    make the scanner prefer a lower-scoring name the ladder actually fits.
+
+    `strict` decides what happens when NOTHING clears the floor. Default False falls back to the
+    top candidate with a warning, because a scanner that goes silent on every clamped tick stops
+    being the strategy the user deployed. True emits nothing instead — correct for a package whose
+    ladder is calibrated for one leverage band and would be materially wrong outside it.
+
+    Returns (candidate, venue_clamped_leverage), or (None, None) when strict and nothing clears.
+    """
+    fallback = None
+    for rank, cand in enumerate(candidates):
+        want = requested_for(cand)
+        lev = _safe_leverage(ctx, cand['coin'], cand.get("dex"), want)
+        if fallback is None:
+            fallback = (cand, lev, want)
+        if lev >= min_leverage:
+            if rank:
+                print(f"[wild-condor.scan] LEVERAGE_SKIP passed over {rank} higher-scoring name(s) the venue "
+                      f"caps below minLeverage={min_leverage}x", file=sys.stderr)
+            if lev < want:
+                print(f"[wild-condor.scan] LEVERAGE_CLAMP {cand['coin']} {lev}x vs {want}x authored — "
+                      f"every ROE threshold is {want / lev:.1f}x its intended price move "
+                      f"(ladder calibrated for {want}x)", file=sys.stderr)
+            return cand, lev
+    if strict:
+        cand, lev, want = fallback
+        print(f"[wild-condor.scan] LEVERAGE_FLOOR_UNMET_STRICT no candidate reaches minLeverage="
+              f"{min_leverage}x (best was {cand['coin']} at {lev}x) — emitting nothing rather than "
+              f"running a ladder calibrated for {want}x on it", file=sys.stderr)
+        return None, None
+    cand, lev, want = fallback
+    print(f"[wild-condor.scan] LEVERAGE_FLOOR_UNMET no candidate reaches minLeverage={min_leverage}x; taking "
+          f"{cand['coin']} at {lev}x vs {want}x authored — every ROE threshold is "
+          f"{want / lev:.1f}x its intended price move", file=sys.stderr)
+    return cand, lev
+
+
+def _is_xyz(coin):
+    """XYZ equities/commodities are identified by the 'XYZ:' name prefix in the
+    live combined market_list_instruments response (no dex field exists)."""
+    return coin.upper().startswith("XYZ:")
+
+
+def fetch_universe(ctx, inputs):
+    """Top N HL crypto assets by 24h notional volume — ported verbatim from v2
+    fetch_universe, with the XYZ ban switched from the (absent) dex field to the
+    real 'XYZ:' name prefix. Drops stablecoins, XYZ, delisted, OI < floor."""
+    universe_size = int(inputs.get("universeSize", scoring.UNIVERSE_SIZE))
+    min_oi = float(inputs.get("minOiUsd", scoring.MIN_OI_USD))
+    raw = _read(ctx, "market_list_instruments", {})
+    if not raw:
+        return []
+    data = raw.get("data", raw) if isinstance(raw, dict) else raw
+    instruments = data.get("instruments", data) if isinstance(data, dict) else data
+    if not isinstance(instruments, list):
+        return []
+
+    assets = []
+    for inst in instruments:
+        if not isinstance(inst, dict):
+            continue
+        ctx_block = inst.get("context", {}) if isinstance(inst.get("context"), dict) else {}
+        # v2 read inst.get("coin") OR inst.get("name"); live top level is "name",
+        # context also carries "coin". Either resolves to the same casing.
+        coin = str(inst.get("coin") or inst.get("name") or ctx_block.get("coin", "")).upper()
+        if not coin or coin in scoring.STABLECOINS_BANNED:
+            continue
+        if _is_xyz(coin):                          # XYZ ban (name-prefix; see module docstring)
+            continue
+        if inst.get("is_delisted"):                # PORT-ADD: drop delisted instruments (v2 didn't
+            continue                               # check; harmless safety — they carry stale ctx)
+
+        oi = scoring._f(ctx_block.get("openInterest", inst.get("openInterest", 0)))
+        mark_px = scoring._f(ctx_block.get("markPx", ctx_block.get("midPx",
+                             inst.get("markPx", inst.get("midPx", 0)))))
+        volume_24h = scoring._f(ctx_block.get("dayNtlVlm", inst.get("dayNtlVlm", 0)))
+        funding = scoring._f(ctx_block.get("funding", inst.get("funding", 0)))
+        oi_usd = oi * mark_px if mark_px > 0 else 0
+
+        if oi_usd < min_oi or mark_px <= 0:
+            continue
+
+        assets.append({
+            "coin": coin, "oi_usd": oi_usd,
+            "volume_24h": volume_24h, "price": mark_px, "funding": funding,
+        })
+
+    assets.sort(key=lambda x: x["volume_24h"], reverse=True)
+    return assets[:universe_size]
+
+
+def fetch_price_changes(ctx, inputs):
+    """Per-token 4h / 1h / 15m price changes from the 4h leaderboard.
+
+    PRICE CHANGES ONLY as of 2026-10-12. condor also took its DIRECTION from this
+    board, which is circular — if a coin falls, every wallet short it is
+    mechanically at the top of the 4h gain board, so the board "confirms" the move
+    it is meant to confirm. Direction now comes from the 3TF price action and is
+    confirmed by the proven cohort (fetch_proven_cohort).
+
+    XYZ stays BANNED here, as it is in fetch_universe: the board sends a bare token
+    plus dex="xyz" and never a prefixed name. (condor-concentrated is the variant
+    that lifts the ban; it re-prefixes instead of dropping.)"""
+    limit = int(inputs.get("smLimit", 100))
+    raw = _read(ctx, "leaderboard_get_markets", {"limit": limit})
+    if not raw:
+        return {}
+    markets = raw
+    if isinstance(markets, dict):
+        data = markets.get("data", markets)
+        if isinstance(data, dict):
+            markets = data.get("markets", [])
+            if isinstance(markets, dict):
+                markets = markets.get("markets", [])
+        elif isinstance(data, list):
+            markets = data
+    if not isinstance(markets, list):
+        return {}
+
+    price_map = {}
+    for m in markets:
+        if not isinstance(m, dict):
+            continue
+        token = str(m.get("token", "")).upper()
+        if not token or _is_xyz(token) or str(m.get("dex", "")).lower() == "xyz":
+            continue
+        if token in price_map:
+            continue                      # LONG and SHORT are separate rows; one is enough
+        price_map[token] = {
+            "p4h": scoring._f(m.get("token_price_change_pct_4h", 0)),
+            "p1h": scoring._f(m.get("token_price_change_pct_1h",
+                              m.get("price_change_1h", 0))),
+            "c15m": scoring._f(m.get("contribution_pct_change_15m", 0)),
+            "c1h": scoring._f(m.get("contribution_pct_change_1h", 0)),
+        }
+    return price_map
+
+
+def _traders_of(data):
+    """Normalise a discovery response into a list of trader dicts."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for k in ("traders", "data", "results"):
+            v = data.get(k)
+            if isinstance(v, list):
+                return v
+    return []
+
+
+def _realized_pnl(t):
+    """Lifetime realized PnL from a trader row.
+
+    THE FIELD NAME IS `realizedProfitAndLoss` AND IT MUST COME FIRST. Every other
+    scanner in this repo that reads this endpoint uses exactly this tuple (athena,
+    athena-x, athena-concentrated, chimp, gibbon, gorilla, orangutan, raptor,
+    shadow, squid). A list that omits it reads 0.0 for every trader, so nothing
+    clears the >= $1M floor, the cohort is empty on every tick and the strategy can
+    never fire — while logging "no traders with >= $1M realized", which reads like a
+    market fact rather than a bug. That is exactly how this package was first built,
+    and it is why the sorted order below is pinned by a test."""
+    for k in ("realizedProfitAndLoss", "realized_profit_and_loss",
+              "profit_and_loss_realized", "realizedPnl", "realized_pnl"):
+        v = t.get(k)
+        if v is not None:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                continue
+    return 0.0
+
+
+def fetch_proven_cohort(ctx, inputs, cohort_cache, now):
+    """Per-coin long/short HEADCOUNT among the proven cohort — the ~N wallets with
+    >= $1M LIFETIME realized PnL, as senpi-signals defines smart money.
+
+    Direction comes from headcount, not notional: price cannot change how many
+    wallets hold a side, so the confirmation is independent of the move being
+    scored. Cached (`cohortCacheTtlSeconds`) because the cohort turns over slowly
+    and this costs 1 + ceil(N/50) MCP reads to rebuild.
+
+    Returns {COIN: {direction, long_count, short_count, total_positioned,
+    conviction_pct}}. On any read failure the previous cohort is returned rather
+    than an empty one — an empty cohort is a hard gate, so degrading to {} would
+    silently stop all trading."""
+    cache_ttl = float(inputs.get("cohortCacheTtlSeconds", _COHORT_CACHE_TTL))
+    if cohort_cache and (now - cohort_cache.get("ts", 0)) < cache_ttl:
+        return cohort_cache.get("data", {})
+
+    cap = int(inputs.get("cohortCap", _COHORT_CAP))
+    min_realized = float(inputs.get("cohortMinRealizedUsd", _COHORT_MIN_REALIZED))
+
+    raw = _read(ctx, "discovery_get_top_traders", {
+        "time_frame": "ALL_TIME",
+        "sort_by": "PROFIT_AND_LOSS_REALIZED",
+        "open_position_filter": False,
+        "limit": int(inputs.get("cohortPool", _COHORT_LIMIT)),
+        "offset": 0,
+    })
+    if not raw:
+        print("[wild-condor.scan] proven cohort: top_traders read FAILED — keeping the "
+              "cached cohort", file=sys.stderr)
+        return cohort_cache.get("data", {}) if cohort_cache else {}
+
+    data = raw.get("data", raw) if isinstance(raw, dict) else raw
+    traders = _traders_of(data)
+    if not traders:
+        print("[wild-condor.scan] proven cohort: top_traders returned NO ROWS — keeping "
+              "the cached cohort", file=sys.stderr)
+        return cohort_cache.get("data", {}) if cohort_cache else {}
+
+    addresses, seen_realized = [], 0
+    for t in traders:
+        if not isinstance(t, dict):
+            continue
+        addr = str(t.get("address") or t.get("trader_address") or t.get("wallet") or "").lower()
+        if not addr:
+            continue
+        rp = _realized_pnl(t)
+        if rp > 0:
+            seen_realized += 1
+        if rp >= min_realized and len(addresses) < cap:
+            addresses.append(addr)
+
+    if not addresses:
+        # Distinguish "nobody qualifies" from "we could not read the number at all".
+        # Of 200 rows, some non-zero realized PnL is expected; all-zero means the field
+        # read is broken, not that the market has no profitable traders.
+        why = ("every row read 0 realized PnL — the FIELD READ is broken, not the market"
+               if seen_realized == 0 else
+               f"{seen_realized}/{len(traders)} rows had realized PnL but none >= "
+               f"${min_realized:,.0f}")
+        print(f"[wild-condor.scan] proven cohort EMPTY: {why}", file=sys.stderr)
+        return cohort_cache.get("data", {}) if cohort_cache else {}
+
+    cohort = {}
+    for i in range(0, len(addresses), _COHORT_BATCH):
+        resp = _read(ctx, "discovery_get_trader_state",
+                     {"trader_addresses": addresses[i:i + _COHORT_BATCH]})
+        if not resp:
+            continue
+        resp_data = resp.get("data", resp) if isinstance(resp, dict) else resp
+        for t in _traders_of(resp_data):
+            if not isinstance(t, dict):
+                continue
+            for pos in (t.get("openPositions") or t.get("open_positions") or []):
+                if not isinstance(pos, dict):
+                    continue
+                coin = str(pos.get("coin") or pos.get("asset") or "").upper()
+                szi = scoring._f(pos.get("szi", pos.get("size", 0)))
+                if not coin or szi == 0:
+                    continue
+                d = cohort.setdefault(coin, {"long_count": 0, "short_count": 0})
+                d["long_count" if szi > 0 else "short_count"] += 1
+
+    for coin, d in cohort.items():
+        total = d["long_count"] + d["short_count"]
+        d["total_positioned"] = total
+        if d["long_count"] >= d["short_count"]:
+            d["direction"] = "LONG"
+            d["conviction_pct"] = (d["long_count"] / total * 100.0) if total else 0.0
+        else:
+            d["direction"] = "SHORT"
+            d["conviction_pct"] = (d["short_count"] / total * 100.0) if total else 0.0
+
+    print(f"[wild-condor.scan] proven cohort refreshed: {len(addresses)} wallets "
+          f">= ${min_realized:,.0f}, positioned across {len(cohort)} coins",
+          file=sys.stderr)
+    cohort_cache["ts"] = now
+    cohort_cache["data"] = cohort
+    return cohort
+
+
+def get_btc_macro(price_map):
+    """BTC's 4h direction + magnitude as macro context. Direction is the SIGN of the
+    4h move — the board's own `direction` field no longer reaches the scorer."""
+    btc = price_map.get("BTC")
+    if not btc:
+        return None
+    p4h = scoring._f(btc.get("p4h", 0))
+    if p4h == 0:
+        return None
+    return {"direction": "LONG" if p4h > 0 else "SHORT", "p4h": p4h}
+
+
+def _held_assets(ctx, inputs):
+    """Read open positions (both sub-DEX views) so we never emit on a coin the
+    runtime already holds — belt-and-suspenders alongside the runtime cooldown.
+    A failed read returns [] (the runtime per_asset_cooldown is the safety floor)."""
+    if not getattr(ctx, "wallet", None):
+        return []
+    ch = _read(ctx, "strategy_get_clearinghouse_state", {"strategy_wallet": ctx.wallet})
+    if not ch:
+        return []
+    data = ch.get("data", ch) if isinstance(ch, dict) else ch
+    held = []
+    if isinstance(data, dict):
+        for section in ("main", "xyz"):
+            s = data.get(section, {})
+            if not isinstance(s, dict):
+                continue
+            for ap in s.get("assetPositions", []):
+                pos = ap.get("position", ap) if isinstance(ap, dict) else {}
+                if scoring._f(pos.get("szi", 0)) != 0:
+                    c = str(pos.get("coin", "")).upper()
+                    if c:
+                        held.append(c)
+    return held
+
+
+def scan(inputs, ctx):
+    max_positions = int(inputs.get("maxPositions", 1))     # v2 "one amazing trade per day"
+    min_leverage = float(inputs.get("minLeverage", _DEFAULT_MIN_LEVERAGE))
+    min_leverage_strict = bool(inputs.get("minLeverageStrict", False))
+    min_score = float(inputs.get("minScore", scoring.MIN_SCORE))
+    margin_default = float(inputs.get("marginPct", 50))    # PERCENT of withdrawable (0,100]
+    tiers = inputs.get("leverageTiers")                    # optional [[min_score, lev, margin_pct], ...]
+    ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
+    now = time.time()
+    hour = time.gmtime(now).tm_hour
+
+    last = (ctx.state.last() or {}) if ctx.state else {}
+    recent = {k: v for k, v in (last.get("recent") or {}).items() if (now - v) < ttl}
+    # The proven cohort costs 1 + ceil(N/50) MCP reads to rebuild, so it rides in
+    # state between refreshes. fetch_proven_cohort mutates this dict in place.
+    cohort_cache = dict(last.get("cohort") or {})
+
+    def _persist(result=None):
+        if ctx.state is None:
+            return
+        rec = {"recent": recent, "cohort": cohort_cache}
+        if result is not None:
+            rec["result"] = result
+        try:
+            ctx.state.append(rec)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[wild-condor.scan] WARNING: state append failed: {exc!r}", file=sys.stderr)
+
+    # v2: if a position is already open, no new signal — runtime DSL manages exit.
+    held = {h.upper() for h in _held_assets(ctx, inputs)}
+    if len(held) >= max_positions:
+        print(f"[wild-condor.scan] RIDING {sorted(held)} — at maxPositions={max_positions}. DSL manages exit.",
+              file=sys.stderr)
+        _persist({"ts": now, "emitted": False, "gate": "riding", "held": sorted(held)})
+        return []
+
+    universe = fetch_universe(ctx, inputs)
+    if not universe:
+        print("[wild-condor.scan] market_list_instruments empty/failed — no signal", file=sys.stderr)
+        _persist({"ts": now, "emitted": False, "gate": "no_universe"})
+        return []
+
+    price_map = fetch_price_changes(ctx, inputs)
+    if not price_map:
+        print("[wild-condor.scan] leaderboard_get_markets empty/failed — no signal", file=sys.stderr)
+        _persist({"ts": now, "emitted": False, "gate": "no_price_data"})
+        return []
+
+    cohort_map = fetch_proven_cohort(ctx, inputs, cohort_cache, now)
+    if not cohort_map:
+        # A hard gate, so say so plainly rather than looking like a quiet market.
+        print("[wild-condor.scan] proven cohort unavailable — no signal this tick",
+              file=sys.stderr)
+        _persist({"ts": now, "emitted": False, "gate": "no_cohort"})
+        return []
+
+    btc_macro = get_btc_macro(price_map)
+
+    candidates = []
+    for asset_info in universe:
+        coin = asset_info["coin"]
+        price_data = price_map.get(coin)
+        if not price_data:
+            continue
+        sig = scoring.evaluate_trend_continuation(
+            asset_info, price_data, cohort_map.get(coin), btc_macro, hour, inputs)
+        if sig:
+            candidates.append(sig)
+
+    if not candidates:
+        print(f"[wild-condor.scan] WAITING — no apex setup >= MIN_SCORE={min_score:.0f} "
+              f"(scanned {len(universe)})", file=sys.stderr)
+        _persist({"ts": now, "emitted": False, "gate": "no_candidate",
+                  "scanned": len(universe), "min_score": min_score})
+        return []
+
+    # Pick the single highest-scoring candidate (v2 "one amazing trade").
+    candidates.sort(key=lambda c: c["score"], reverse=True)
+    # Every DSL threshold is ROE and the engine divides by leverage to get a price floor, so a
+    # ladder authored at Nx stretches in PRICE on any name the venue caps below N. Walk the ranking
+    # for one the venue will lever; minLeverage 0 keeps the previous pick and only warns.
+    best, _venue_leverage = _pick_leverable(
+        ctx, candidates, min_leverage,
+        lambda c: scoring.get_sizing_for_score(c["score"], _coerce_tiers(tiers))[0],
+        strict=min_leverage_strict)
+    if best is None:
+        return []
+
+    bu = best["coin"].upper()
+
+    # Defense in depth: never emit on a held coin, and dedup the race window.
+    if bu in held:
+        print(f"[wild-condor.scan] SKIP {best['coin']} — already held", file=sys.stderr)
+        _persist({"ts": now, "emitted": False, "gate": "held", "best": best["coin"]})
+        return []
+    if recent.get(bu) is not None and (now - recent[bu]) < ttl:
+        print(f"[wild-condor.scan] DEDUP_SKIP {best['coin']} — pushed within {ttl:.0f}s (race window)",
+              file=sys.stderr)
+        _persist({"ts": now, "emitted": False, "gate": "dedup", "best": best["coin"]})
+        return []
+
+    # Score-scaled sizing — per-tier leverage + marginPct PERCENT intent.
+    leverage, margin_pct = scoring.get_sizing_for_score(
+        best["score"], _coerce_tiers(tiers))
+    margin_pct = margin_pct if margin_pct else margin_default
+    # the venue cap resolved during the walk wins — emit what will ACTUALLY be levered, so
+    # the signal and the tape carry the truth rather than the request
+    leverage = _venue_leverage
+    recent[bu] = now
+
+    result = {"ts": now, "emitted": True, "gate": "pass", "coin": best["coin"],
+              "direction": best["direction"], "score": best["score"],
+              "leverage": leverage, "marginPct": margin_pct, "reasons": best["reasons"]}
+    print(f"[wild-condor.scan] EMIT {best['coin']} {best['direction']} score={best['score']} "
+          f"{leverage}x margin={margin_pct}% | {best['reasons']}", file=sys.stderr)
+    _persist(result)
+
+    return [{
+        "asset": best["coin"],
+        "direction": best["direction"],
+        "marginPct": margin_pct,                 # SIZING INTENT — PERCENT (0,100]; runtime sizes USD
+        "leverage": leverage,                    # score-tiered (10x cap); runtime clamps to venue max
+        "data": {
+            "score": best["score"],
+            "leverage": leverage,
+            "direction": best["direction"],
+            "reasons": best["reasons"],
+            "priceChange4hPct": best["p4h"],
+            "priceChange1hPct": best["p1h"],
+            "contribChange15m": best["c15m"],
+            "cohortConvictionPct": best["cohort_conviction"],
+            "cohortPositioned": best["cohort_positioned"],
+            "oiUsd": best["oi_usd"],
+            "funding": best["funding"],
+        },
+    }]
+
+
+def _coerce_tiers(tiers):
+    """Accept the runtime-yaml tier shape [[min_score, leverage, margin_pct], ...]
+    and convert to the dict form scoring.get_sizing_for_score expects. None -> v2
+    defaults."""
+    if not tiers:
+        return None
+    out = []
+    for t in tiers:
+        if isinstance(t, dict):
+            out.append(t)
+        elif isinstance(t, (list, tuple)) and len(t) >= 3:
+            out.append({"min_score": t[0], "leverage": t[1], "margin_pct": t[2]})
+    return out or None

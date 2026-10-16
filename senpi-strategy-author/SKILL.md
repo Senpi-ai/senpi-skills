@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.12.0"
+  version: "3.14.3"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -122,9 +122,9 @@ of an import-stage run. The gate is stage 9, and it takes no `--stage` flag.
 
 ### Funding heads-up — first tool call, never a gate
 
-Before the template offer / Decision 1, read the user's accessible balance ONCE:
-`account_get_portfolio` → `data.portfolio.total_in_hyperliquid` (fall back to
-`total_withdrawable`). Deploy needs a little **over $10 USDC per wallet (~$11.50, to cover
+Before the template offer / Decision 1, read the **deployable** balance ONCE: `account_get_portfolio` → `total_in_hyperliquid` + `total_spot_usd_in_hyperliquid` + EVM stables in `token_balances[]`.
+Never `total_withdrawable`, never `total_balance_usd` — committed capital. **0 is a fact, not a missing read**: no `or` chain.
+Never say "$total free": say what is free, and that freeing the rest means withdrawing from a strategy — their call. [`references/deployable-balance.md`](references/deployable-balance.md). Deploy needs a little **over $10 USDC per wallet (~$11.50, to cover
 the ~$1.50 creation fee)** — `deploy.py create` reserves the fee first, so a wallet funded
 to exactly $10 still refuses with `[E_FUNDS_BELOW_FLOOR]`. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scan re-run on a timer is a model call per tick, not a simulation — [`references/shadow-testing.md`](references/shadow-testing.md).
 
@@ -190,8 +190,9 @@ For each: ask the question, offer the options as plain choices, then map the ans
    long-only / short-only / mixed-on-one-wallet = **1 instance**; independent long + short books or
    different cadences = **multiple instances** (each its own wallet + `funding_share`).
 5. **Cardinality — "One best trade at a time, or several?"**
-   single best pick (`slots: 1`) · a gated portfolio (`slots: 3–6`, runtime caps it). Add
-   `max_entries_per_day` if they want a pace limit.
+   single best pick (`slots: 1`) · a gated portfolio (`slots: 3–6`, runtime caps it). `max_entries_per_day` is a
+   **daily ceiling, not a pace** — the whole allowance can fire in the minutes after 00:00 UTC; say so when offering
+   it. With `bypass_max_entries_per_day_on_profit` (jaguar, spider) it does not bind at all on a green day.
 6. **Memory — "Does it need to remember anything between scans?"**
    none · signal-dedup (don't re-fire the same name) · first-seen ledger (catch new listings) ·
    rolling history · **pool/cohort cache with a refresh cadence** ← *this is where "rotate every N
@@ -199,7 +200,7 @@ For each: ask the question, offer the options as plain choices, then map the ans
    involved a cohort, leaderboard, or "rotate/refresh."
 7. **Exit & Risk — "How should it exit, and what's the risk appetite?"** Offer the DSL presets:
    `let_winners_run` (wide; rides to +100%, protect both sides) · `balanced` (default) ·
-   `mean_reversion` (tight, locks early — for faders) · `scalp` (HFT) · `parabolic_runner` (scalpel).
+   `mean_reversion` (tight, locks early — for faders) · `scalp` (HFT) · `parabolic_runner` (scalpel). Pick by horizon, not the default: `references/time-cuts-by-horizon.md`.
    Then set guard rails (`drawdown_halt_pct`, `daily_loss_limit_pct`) sized to the style, and cadence
    (`interval_seconds`). **Never hand-roll stops — copy a preset from
    `senpi-strategy-author/references/dsl-presets.yaml`** (full path — it lives in THIS skill, not the
@@ -395,6 +396,10 @@ the worst day would have run to the drawdown halt") and an explicit yes before y
 Same references; usually no rebuild: tune `runtime.yaml` `inputs` (universe/thresholds/sizing), swap
 the `dsl_preset`, adjust `risk.guard_rails`, or change the `scoring.py` math. Re-validate, then
 re-smoke-test if you touched `scan.py`/`runtime.yaml` — on the runtime (`senpi validate`, or a floor-budget wallet), **never by scheduling agent turns to watch it**: an `openclaw cron` job is a model call every time it fires, and a 5-minute one is 288 a day — [`references/shadow-testing.md`](references/shadow-testing.md).
+**Describe the edit in the values you actually wrote:** re-read the file and quote
+`max_entries_per_day`, `slots` and the thresholds from it — never a number you expect it to produce.
+**Count your own edits:** several configs on one strategy in an hour means it has not run long enough
+to judge — say so *before* applying the next one; whether to keep tuning is theirs to decide.
 
 **Forking a template before it goes live** (the bespoke-edit route): edit the copy ops made under the
 user's name at the durable root `deploy.py where` prints (`/data/workspace/strategies/<template>-<user>/`;

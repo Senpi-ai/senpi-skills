@@ -5,9 +5,11 @@
 import datetime
 
 import metrics
+import dsl as dsl_mod
+import score as score_mod
 
 SECTIONS = ("overview", "strategy", "context", "protection", "performance", "leaks", "smart", "market", "edge", "scout", "next", "followups")
-VERSION = "1.8.0"     # shown in the header line, so a stale install is visible at a glance
+VERSION = "1.45.0"     # shown in the header line, so a stale install is visible at a glance
 
 
 def pct_cost(x):
@@ -40,9 +42,13 @@ def coverage_note(tr, meta=None):
     src = ((meta or {}).get("sources") or {}).get("trades") or "public fills"
     if src != "public fills":
         return f"_Trade history: {src}._"
-    if cov.get("overall") is None or cov["overall"] >= 0.9:
+    # `effective` is `overall` after the ledger reconciliation — a book whose rebuilt P&L misses the
+    # exchange's own delta by more than the open positions can explain has volume the jump heuristic
+    # never saw, and quoting the unreconciled figure would read as fuller coverage than we have.
+    seen = cov.get("effective") if cov.get("effective") is not None else cov.get("overall")
+    if seen is None or seen >= 0.9:
         return None
-    return f"_Trade-level reads cover about {pct(cov['overall'])} of executed volume; ledger figures are complete._"
+    return f"_Trade-level reads cover about {pct(seen)} of executed volume; ledger figures are complete._"
 
 
 def hold_fallback(tr):
@@ -57,6 +63,12 @@ def copy_warnings(book, cohorts):
     if book["naked"]:
         n = len(book["naked"])
         warn.append(f"{n} of {len(book['positions'])} open positions {'has' if n == 1 else 'have'} no stop")
+    unread = metrics.unread_coins(book)
+    if unread:
+        warn.append(f"protection is unknown on {len(unread)} of {len(book['positions'])} open positions — their orders could not be read")
+    unread_at = metrics.positions_unread_phrase(book)
+    if unread_at:
+        warn.append(f"the positions on {unread_at} could not be read — the book shown may be incomplete")
     against = [x for x in (cohorts or []) if x.get("agreement") is not None and x["agreement"] <= -0.5]
     if against:
         names = [{"proven": "proven cohort", "hot": "hot 30-day cohort"}.get(x["name"], x["name"]) for x in against]
@@ -79,9 +91,15 @@ def pct(x, d=0, signed=False):
 
 
 def hrs(x):
+    """Scalpers hold for seconds. At 1 decimal place every hold on a 1,117-trade book rendered
+    "0.0h", including the median-hold column and the winners/losers line."""
     if x is None:
         return "—"
-    return f"{x / 24:.1f}d" if x >= 48 else f"{x:.1f}h"
+    if x >= 48:
+        return f"{x / 24:.1f}d"
+    if x >= 1:
+        return f"{x:.1f}h"
+    return f"{x * 60:.0f}m" if x * 60 >= 1 else "<1m"
 
 
 def num(x, unit):
@@ -98,17 +116,125 @@ def short(addr):
     return f"{addr[:6]}…{addr[-4:]}"
 
 
+# ── `desk.py --my-wallets`: one list of every wallet, in the order the engine sorted it (value desc,
+# couldn't-load last). Kind is a column, never a section: no "Saved wallets" / "Strategy wallets" heading.
+KIND_LABEL = {"saved": "read-only — you added it", "strategy": "Senpi strategy",
+              "main": "Senpi main wallet — idle cash",
+              "strategy_closed": "Senpi strategy — closed",
+              "strategy_partly_closed": "Senpi strategy — some wallets closed"}
+_ASK_NAMES = 5
+
+
+def _wallet_name(row):
+    return row.get("label") or f"`{short(row['address'])}`"
+
+
+def _partial(row):
+    """'1 of 2 wallets' when a strategy's value covers only some of its wallets, else None."""
+    n, m = row.get("wallets_loaded"), row.get("wallet_count")
+    return f"{n} of {m} wallets" if m and m > 1 and n is not None and 0 < n < m else None
+
+
+def _wallet_value(row):
+    if row.get("value_usd") is None:
+        return "couldn't load"
+    part = _partial(row)
+    return usd(row["value_usd"]) + (f" ({part})" if part else "")
+
+
+def _wallet_cell(row):
+    """A wallet by its label and short address; a strategy of several wallets by its wallet count."""
+    if row.get("address") is None and row.get("wallet_count"):
+        return f"{row.get('label') or 'strategy'} ({row['wallet_count']} wallets)"
+    return f"{row.get('label') or 'wallet'} `{short(row['address'])}`"
+
+
+def my_wallets_ask(rows):
+    """The one question, naming the wallets largest first — None with fewer than two to choose from."""
+    if not rows or len(rows) < 2:
+        return None
+    named = []
+    for r in rows[:_ASK_NAMES]:
+        v = usd(r["value_usd"]) if r.get("value_usd") is not None else "value couldn't load"
+        part = _partial(r) if r.get("value_usd") is not None else None
+        if r.get("closed"):
+            tail = ", closed"
+        elif r.get("closed_wallets"):
+            tail = f", {r['closed_wallets']} of {r['wallet_count']} wallets closed"
+        else:
+            tail = ""
+        named.append(f"{_wallet_name(r)} ({v}{', ' + part if part else ''}{tail})")
+    more = len(rows) - len(named)
+    names = (", ".join(named[:-1]) + " or " + named[-1]) if not more else \
+        (", ".join(named) + f", or one of {more} more")
+    return (f"Which one do you want me to run the desk on — {names}? "
+            f"Or I can read them together as one book.")
+
+
+def render_my_wallets(mw):
+    if mw.get("error"):
+        return "I can't read your wallets on this box — paste any Hyperliquid address and I'll read it."
+    rows = mw.get("wallets")
+    out = []
+    if rows:
+        out += ["**Your wallets, largest first** — one list by value; kind says what Senpi can do with each.",
+                "", "| # | Wallet | Kind | Value |", "|---:|---|---|---:|"]
+        out += [f"| {i} | {_wallet_cell(r)} | {r['kind_label']} | {_wallet_value(r)} |"
+                for i, r in enumerate(rows, 1)]
+        notes = [f"{_wallet_name(r)}'s value excludes {', '.join(r['unpriced_coins'])} (no USD price)."
+                 for r in rows if r.get("unpriced_coins")]
+        unknown = sum(1 for r in rows if r.get("value_usd") is None)
+        if unknown:
+            notes.append(f"{unknown} wallet{'s' if unknown > 1 else ''} couldn't load a value — listed last, "
+                         f"never counted as $0.")
+        notes += [f"{_wallet_name(r)}'s value covers {_partial(r)} — the rest couldn't load and are never "
+                  f"counted as $0." for r in rows if r.get("value_usd") is not None and _partial(r)]
+        access = sorted({r["access"] for r in rows if r.get("kind") == "saved" and r.get("access")})
+        notes += [f"Wallets you added: {a}" for a in access]
+        if notes:
+            out += [""] + notes
+    elif rows == [] and mw.get("wallets_complete"):
+        out.append("You have no wallets here yet: nothing added in Your wallets and no Senpi strategy "
+                   "wallet. To have one you trade by hand read, add it in Your wallets on senpi.ai (web) "
+                   "— or paste any Hyperliquid address.")
+    gaps = []
+    if mw.get("external_wallets_status") != "ok":
+        gaps.append("I couldn't load your saved wallets, so this list may be missing wallets you added.")
+    if mw.get("senpi_wallets_status") != "ok":
+        gaps.append("I couldn't load your Senpi strategy wallets, so this list may be missing them.")
+    if mw.get("main_wallet_status", "ok") != "ok":
+        gaps.append("I couldn't load your Senpi main wallet, so this list may be missing it.")
+    if gaps:
+        out += ([""] if out else []) + gaps
+    return "\n".join(out)
+
+
 def header(r):
     a, tr, act, rank = r["address"], r["track"], r["activity"], r.get("rank")
-    lines = [f"# Your desk — `{short(a)}`",
+    # A book is not an address. Titling a union of six strategy wallets with the first one's hex is
+    # the same mistake the desk made by running on one wallet in the first place: it tells the reader
+    # they are looking at a wallet when they are looking at everything they trade.
+    ws = r.get("wallets") or []
+    title = f"across {len(ws)} wallets" if len(ws) > 1 else f"`{short(a)}`"
+    lines = [f"# Your desk — {title}",
              f"{r['days']} days · {act['fills']:,} fills · {act['coins']} coins · updated {datetime.datetime.fromtimestamp(r['now_ms'] / 1000, datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} · **YOUR QUANT — LIVE · READ-ONLY** · v{VERSION}"]
+    # THE FULL ADDRESS, ONCE, AT THE TOP. Every other mention in this desk is `short()` — 0x514a…aa76
+    # reads well and is useless: a reader researching a trader cannot paste it into a block explorer,
+    # a copy-trade setup, or back into this desk. Truncated is right for the forty places it recurs,
+    # wrong for all forty. So it is printed in full here and nowhere else, on its own line so it
+    # survives being copied out of a chat bubble. A book prints every wallet — the union is the
+    # subject, and a reader who wants to check one of them needs all of them.
+    lines.append("`" + "`  ·  `".join(ws) + "`" if len(ws) > 1 else f"`{a}`")
     if rank:
         lines.append(rank_line(rank))
     lines.append(f"**{r['archetype']}**")
     lab = r.get("labels") or {}
     if any(lab.get(k) for k in ("consistency", "risk", "activity")):
         lines.append("senpi's read: " + " · ".join(str(lab[k]).upper() for k in ("consistency", "risk", "activity") if lab.get(k))
-                     + (f" · consistency score {lab['tcs']}" if lab.get("tcs") is not None else ""))
+                     # senpi's trader-score consistency, NOT the desk's own Consistency dimension —
+                     # unlabelled they collided on one page as "consistency score 33" beside
+                     # "Consistency 100"
+                     + (f" · senpi trader-score consistency {lab['tcs']}" if lab.get("tcs") is not None else ""))
     lines.append(f"> **{r['verdict']}**")
     if r["flags"]:
         lines.append(" ".join(f"`{f}`" for f in r["flags"]))
@@ -117,7 +243,10 @@ def header(r):
 
 def overview(r):
     tr, d, book = r["track"], r["dimensions"], r["book"]
-    out = [f"## Quant score **{r['quant_score']}**/100", "", "| Dimension | Score | What it means |", "|---|---:|---|"]
+    q = r.get("quant_score")
+    out = [f"## Quant score **{q}**/100" if q is not None else
+           "## Quant score — _not enough of this book is measurable to score it_",
+           "", "| Dimension | Score | What it means |", "|---|---:|---|"]
     names = {"timing": "Timing / edge", "risk": "Risk management", "cost": "Cost efficiency", "sizing": "Sizing / conviction", "consistency": "Consistency", "market_fit": "Market fit"}
     for k in ("timing", "risk", "cost", "sizing", "consistency", "market_fit"):
         # An unmeasured dimension shows a dash, not a number. A number here is a claim.
@@ -157,17 +286,32 @@ def overview(r):
         top = r["leaks"][:3]
         out += ["", f"## Top {len(top)} thing{'s' if len(top) != 1 else ''} your agents found", ""]
         for i, l in enumerate(top, 1):
-            out.append(f"{i}. **{l['agent']} · ~{usd(l['usd'])} / {l['window']}** — **{l['title']}.** {l['evidence']} _{l['counterfactual']}_ → {l['cta']}")
+            head = f"**{l['agent']}**" if l.get("unpriced") else f"**{l['agent']} · ~{usd(l['usd'])} / {l['window']}**"
+            out.append(f"{i}. {head} — **{l['title']}.** {l['evidence']} _{l['counterfactual']}_ → {l['cta']}")
     return "\n".join(out)
+
+
+def account_value_phrase(b):
+    """The headline account value with its split: a standard account names its perps and spot balances
+    (the value is their sum — never show the spot side alone under it); a unified / portfolio-margin
+    account says spot holds the perps margin (counted once). Unknown mode keeps the plain value."""
+    av, perps = b["account_value"], b.get("account_value_perps")
+    head = f"Account value **{usd(av)}**"
+    mode = b.get("account_mode")
+    if b.get("account_value_spot") is not None and mode in metrics.STANDARD_MODES:
+        return head + f" = perps **{usd(perps)}** + spot **{usd(b['account_value_spot'])}**"
+    if mode in metrics.UNIFIED_MODES:
+        return head + f" ({metrics.UNIFIED_MODES[mode]}: spot holds the perps margin, counted once)"
+    return head + (f" (perps equity {usd(perps)})" if perps and abs(perps - av) > 1 else "")
 
 
 def protection(r):
     b = r["book"]; sm = {x["coin"]: x for x in (r.get("smart") or {}).get("rows", [])}
-    n = len(b["positions"])
+    n = len(b["positions"]); unread_at = metrics.positions_unread_phrase(b)
     out = ["## Live positions — protection audit", "",
-           f"Account value **{usd(b['account_value'])}**" + (f" (perps equity {usd(b['account_value_perps'])})" if b.get("account_value_perps") and abs(b["account_value_perps"] - b["account_value"]) > 1 else "")
+           account_value_phrase(b)
            + f" · margin used **{pct(b['margin_utilization'])}** · withdrawable **{usd(b['withdrawable'])}** · net uPnL **{usd(b['unrealized'], signed=True)}**",
-           f"{n} open position{'s' if n != 1 else ''} · {len(b['naked'])} with no stop · {len(b['partial'])} partly covered · {r['market']['stance'] if r.get('market') else ''}" + (f" · paying {usd(-b['funding_per_day'])}/day in funding" if b['funding_per_day'] < 0 else (f" · collecting {usd(b['funding_per_day'])}/day in funding" if b['funding_per_day'] > 0 else ""))]
+           f"{n} open position{'s' if n != 1 else ''} · {len(b['naked'])} with no stop · {len(b['partial'])} partly covered · {(str(len(b['unknown'])) + ' unknown (orders not read) · ') if b.get('unknown') else ''}{('positions not read on ' + unread_at + ' · ') if unread_at else ''}{r['market']['stance'] if r.get('market') else ''}" + (f" · paying {usd(-b['funding_per_day'])}/day in funding" if b['funding_per_day'] < 0 else (f" · collecting {usd(b['funding_per_day'])}/day in funding" if b['funding_per_day'] > 0 else ""))]
     if n:
         # chat-shaped: nine short columns; the prose lives under the table, one line per position that needs a hand
         out += ["", "| Coin | Side | Held | Notional | uPnL · ROE | Funding/day | To liq. | Stop | Status |", "|---|---|---:|---:|---:|---:|---:|---:|---|"]
@@ -176,26 +320,85 @@ def protection(r):
             status, note = _protection_note(p, sm.get(p["coin"]))
             liq = "—" if p["liq_distance_pct"] is None else (">100%" if p["liq_distance_pct"] > 100 else pct(p["liq_distance_pct"] / 100, 1))
             held = hrs((r["now_ms"] - p["opened_ms"]) / 3.6e6) if p.get("opened_ms") else "—"
-            out.append(f"| {p['coin']} | {p['side']} {p['leverage'] or '—'}x | {held} | {usd(p['notional'])} | {usd(p['unrealized'], signed=True)} · {pct(p['roe'], 0, signed=True)} | {usd(p['funding_per_day'], signed=True)} | {liq} | {pct(p['stop_covered_share'])} | {status} |")
+            out.append(f"| {p['coin']} | {p['side']} {p['leverage'] or '—'}x | {held} | {usd(p['notional'])} | {usd(p['unrealized'], signed=True)} · {pct(p['roe'], 0, signed=True)} | {usd(p['funding_per_day'], signed=True)} | {liq} | {cover_pct(p)} | {status} |")
             if status != "PROTECTED":
                 todo.append(f"- **{p['coin']}** — {note}.")
-        out += ["", "**Your quant would…**"] + (todo or ["- nothing here — every position carries a full stop."])
+        # What senpi's runtime is doing to these positions, where it is doing anything. The stop in
+        # the table above is read off the exchange and is already correct; what it lacks is context,
+        # because a price with no context reads as a static stop when it is a floor that ratchets.
+        # State what is LOCKED; never present the ladder ahead as protection already in force. Only
+        # corroborated, armed tiers reach here — a row the venue does not confirm says nothing, so
+        # this block can never contradict the PROTECTED column beside it.
+        _dsl = [q for q in b["positions"] if q.get("dsl")]
+        if _dsl:
+            # not necessarily "your runtime": a row can come from a direct `ratchet_stop_add` on a
+            # raw position, with no runtime involved. (@0xsarvesh, #753.)
+            out += ["", "**Senpi's ratchet stop is managing these.**"]
+            for q in _dsl:
+                ln = dsl_mod.line(q)
+                if ln:
+                    out.append(f"- **{q['coin']}** — {ln}")
+            out += ["", "_A tier that has not armed is a rule, not protection: the floor it would "
+                        "set is not in force until its trigger is reached._"]
+        if unread_at:
+            # a dex the desk could not read is not a dex with nothing on it: never "nothing here" over it
+            todo.append(f"- **{unread_at}** — couldn't read the positions there; check them on Hyperliquid before acting.")
+        out += ["", "**Your quant would…**"] + (todo or ["- nothing here — every position carries a full stop."])   # todo holds every UNKNOWN row
+    elif unread_at:
+        out.append(f"\nThe desk couldn't read the positions on {unread_at} — check them on Hyperliquid before acting.")
     else:
         out.append("\nNo open positions right now.")
     return "\n".join(out)
 
 
+def cover_pct(p):
+    """The Stop column, from `protection`: FULL 100%, NONE 0%, unknown "—", and a PARTIAL row is
+    floored into 1-99% — 1.995 covered of 2.0 must never print "100%"."""
+    prot = metrics.protection_of(p)
+    if prot is None:
+        return "—"
+    if prot == metrics.PARTIAL:
+        return f"{min(99, max(1, int((p.get('stop_covered_share') or 0.0) * 100)))}%"
+    return "100%" if prot == metrics.FULL else "0%"
+
+
 def _protection_note(p, smrow):
-    liq = p["liq_distance_pct"]; cov = p["stop_covered_share"]; against = smrow and smrow["read"].startswith("AGAINST")
-    if liq is not None and liq < 5 and cov < 0.9:
+    liq = p["liq_distance_pct"]; against = smrow and smrow["read"].startswith("AGAINST")
+    prot = metrics.protection_of(p)
+    if prot is None:                    # the order read failed: say so, and never nudge toward a stop
+        return "UNKNOWN", metrics.unread_note(p["coin"])
+    if liq is not None and liq < 5 and prot != metrics.FULL:
+        if prot == metrics.NONE and p.get("non_reduce_only_stops"):
+            return "AT RISK", (f"{liq:.1f}% from liquidation and it {metrics.NOT_REDUCE_ONLY_NOTE}; "
+                               f"make it reduce-only or replace it with a reduce-only stop")
         return "AT RISK", f"put a stop above the liquidation price now — at {p['leverage']}x a {liq:.1f}% move takes the whole margin"
-    if cov == 0:
+    if prot == metrics.NONE:
+        if p.get("non_reduce_only_stops"):
+            return "UNPROTECTED", f"{metrics.NOT_REDUCE_ONLY_NOTE}; make it reduce-only or replace it with a reduce-only stop"
+        if p.get("stops"):              # every stop it has is WAITING_TO_ACTIVATE
+            return "UNPROTECTED", "its trailing stop is waiting to activate — until it does, nothing protects this position"
         return "UNPROTECTED", "attach a stop ladder: a hard floor plus a trailing lock as it runs" + (" — and you're against the whale cohort here" if against else "")
-    if cov < 0.9:
-        return "PARTLY COVERED", f"the other {pct(1 - cov)} rides naked — extend the stop to the full size"
+    if prot == metrics.PARTIAL:
+        return "PARTLY COVERED", f"the other {100 - int(cover_pct(p)[:-1])}% rides naked — extend the stop to the full size"
     if p["stop_distance_pct"] is not None and p["stop_distance_pct"] < 1.0:
         return "PROTECTED", f"stop is {p['stop_distance_pct']:.1f}% from the mark — tight enough to be noise"
     return "PROTECTED", "stop in place — looks good" + (" — but the whale cohort is on the other side" if against else "")
+
+
+def by_wallet_table(r):
+    """Which wallet carried the book. Only on a --book run, and only when more than one traded."""
+    rows = [w for w in (r.get("by_wallet") or []) if w["trades"] or w["open"]]
+    if len(rows) < 2:
+        return ""
+    out = ["", "**By wallet**", "",
+           "| Wallet | Trades | Win rate | Gross | Fees | Funding | Net | Open | Unrealized |",
+           "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    for w in rows:
+        wr = pct(w["wins"] / w["trades"]) if w["trades"] else "—"
+        out.append(f"| `{short(w['wallet'])}` | {w['trades']} | {wr} | {usd(w['realized'], signed=True)} "
+                   f"| {usd(-w['fees'], signed=True)} | {usd(w.get('funding') or 0.0, signed=True)} "
+                   f"| {usd(w['net'], signed=True)} | {w['open']} | {usd(w['unrealized'], signed=True)} |")
+    return "\n".join(out)
 
 
 def performance(r):
@@ -206,66 +409,89 @@ def performance(r):
     L, S = tr["long"], tr["short"]
     out += ["", f"**Long / short:** longs {L['trades']} trades · win {pct(L['wins'] / L['trades']) if L['trades'] else '—'} · {usd(L['realized'], signed=True)}; shorts {S['trades']} trades · win {pct(S['wins'] / S['trades']) if S['trades'] else '—'} · {usd(S['realized'], signed=True)}",
             (f"**Hold time (median):** winners {hrs(tr['hold_winners_h'])} · losers {hrs(tr['hold_losers_h'])}" + (f" — you hold losers {tr['hold_ratio']:.1f}× longer" if tr.get('hold_ratio') and tr['hold_ratio'] > 1.2 else (f" — you cut losers {1 / tr['hold_ratio']:.1f}× faster than you let winners run" if tr.get('hold_ratio') and 0 < tr['hold_ratio'] < 0.8 else ""))) if (tr.get('hold_winners_h') is not None and tr.get('hold_losers_h') is not None) else hold_fallback(tr),
-            f"**Execution:** {pct(tr['taker_share'])} taker · {tr['fee_rate_taker'] * 1e4:.1f} bp taker / {tr['fee_rate_maker'] * 1e4:.1f} bp maker · {tr['liquidations']} liquidation(s)"]
+            f"**Execution:** {pct(tr['taker_share'])} taker · {score_mod._bp(tr['fee_rate_taker'])} taker / {score_mod._bp(tr['fee_rate_maker'])} maker · {tr['liquidations']} liquidation(s)"]
     sb = tr.get("size_buckets") or {}
     if sb.get("bands"):
         out += ["", f"**Size vs outcome** (median position {usd(sb['median_notional'])} notional):", "", "| Size band | Winners | Losers | Realized |", "|---|---:|---:|---:|"]
         out += [f"| {b['band']} | {b['winners']} | {b['losers']} | {usd(b['realized'], signed=True)} |" for b in sb["bands"]]
+    bw = by_wallet_table(r)
+    if bw:
+        out.append(bw)
     return "\n".join(out)
-
-
-def rule_in_english(rule):
-    """The levers are stored as grid keys ("0.03/0.5", "24"). Nobody can act on that."""
-    if not rule:
-        return None
-    if rule.startswith("trailing lock"):
-        try:
-            arm, share = rule.split()[-1].split("/")
-            return f"a trailing stop that arms at +{float(arm):.0%} and keeps {float(share):.0%} of the peak"
-        except ValueError:
-            return "a trailing stop"
-    if rule.startswith("time cut"):
-        try:
-            return f"closing anything still open after {float(rule.split()[-1]):.0f}h"
-        except ValueError:
-            return "a time cut"
-    return rule
 
 
 def recoverable_line(r):
     """The one quotable number, with its shape. The leaks below are alternative fixes for the same
-    trades, so a reader who adds them up gets a figure larger than the money ever at stake."""
+    trades, so a reader who adds them up gets a figure larger than the money ever at stake.
+
+    The headline states the TOTAL and then attributes it. It used to read "<rule> would have kept
+    ~$27,996" on a book where $18,898 of that was taker fees and the rule's own share was $9,098 —
+    crediting a trailing stop with money that came from not crossing the spread."""
     rec = r.get("recoverable") or {}
     total = rec.get("usd") or 0
-    if total <= 0 or not r.get("leaks"):
+    # It used to also return [] when the leak list was empty, so a book whose only recoverable money
+    # was TAKER FEES — measured, not a counterfactual, and always real — got no number at all, while
+    # the sentence underneath said no leak clears the bar. The JSON still carried the figure, so the
+    # agent could quote a number the desk had just denied. (@danielmbirochi, #718, item 10.)
+    if total <= 0:
         return []
-    eng = rule_in_english(rec.get("rule"))
-    head = f"**{eng.capitalize()} would have kept ~{usd(total)}**" if eng \
-        else f"**Your costs alone would have kept ~{usd(total)}**"
-    # only a denominator that means something: on a book with almost no losses the share is a
-    # division by noise (the fixture reads 20924%), and a number like that discredits the rest
+    fees, rule = rec.get("fees") or 0, rec.get("rule")
+    lever = total - fees
+    # "N% of what your losing trades gave up" was also gated on a NEGATIVE ledger, on the reasoning
+    # that the frame only suits a book that lost money. But a headline with no denominator is what
+    # made this number read as absurd in review: on a book that netted $36,481 after $140,698 of
+    # fees, "~$171,808" invites the reader to divide by the net and get 4.71x. The share is exactly
+    # the denominator that defuses it — 4% of what the losing trades gave up — and it is no less
+    # true on a profitable book. The `<= 1.0` guard below is what keeps the sentence meaningful.
+    # (B6, @0xsarvesh #718.)
     share = rec.get("share_of_losses")
-    if share and 0 < share <= 2.0:
+    head = f"**Your quant would have kept ~{usd(total)} of this**"
+    # a denominator that means something: on a book with almost no losses the share is a division by
+    # noise (the fixture reads 20924%). The cap was 2.0, which still left "197% of what your losing
+    # trades gave up" printable — above 100% the frame stops meaning anything to a reader, however
+    # true the arithmetic is once fees come off the winners too. (@danielmbirochi, #718, round 2.)
+    # …and not when it rounds to nothing. On a book that lost $274,940 with $2,709 recoverable the
+    # share is 0.5%, and the clause printed "— 0% of what your losing trades gave up", which tells
+    # the reader nothing and reads as a broken number. The denominator exists to make the headline
+    # legible; below half a percent it does the opposite.
+    # Keyed on what actually renders, not on a threshold guessed against the formatter: 0.005 still
+    # prints "0%" under banker's rounding, so any constant here is one rounding rule away from wrong.
+    if share and 0 < share <= 1.0 and pct(share, 0) != "0%":
         head += f" — {pct(share, 0)} of what your losing trades gave up"
+    # when one trade IS the number, say so in the headline. The disclosure below is the first thing
+    # a reader drops when they quote the figure, and on 0xb699…392e that figure was $1,072,010 of
+    # which 97% came from a single position on an 8-trade book.
+    top1 = ((rec.get("concentration") or {}).get("top1")) or 0
+    if top1 >= 0.8:
+        head += f" — though {pct(top1, 0)} of that is one trade, not a pattern"
     out = [head + ".", ""]
-    if eng:
-        detail = f"One rule, applied to all {rec['n_trades']} complete trades and charged on the ones it would have cost you"
-        if rec.get("fees"):
-            detail += f", plus the {usd(rec['fees'])} you paid as a taker"
-        out += [detail + ".", ""]
+
+    fee_part = f"{usd(fees)} of it is taker fees you can stop paying on the same fills"
+    n = rec["n_trades"]
+    rule_part = (f"one rule — {rule} — applied to {'your one complete trade' if n == 1 else f'all {n} complete trades'} "
+                 f"and charged on the ones it would have cost you")
+    if rule and fees > 0:
+        big, small = (fee_part, f"the other {usd(lever)} comes from {rule_part}") if fees >= lever \
+            else (f"{usd(lever)} of it comes from {rule_part}", f"the other {usd(fees)} is taker fees on the same fills")
+        out += [f"{big[0].upper() + big[1:]}, and {small}.", ""]
+    elif rule:
+        out += [f"All of it comes from {rule_part}.", ""]
+    else:
+        out += [f"{fee_part[0].upper() + fee_part[1:]}.", ""]
 
     c = rec.get("concentration") or {}
     if c.get("top1", 0) >= 0.4:
         out += [f"**That total is not spread across your book — it is {'one trade' if c['top1'] >= 0.6 else 'a few trades'}.** "
                 f"The largest is {pct(c['top1'], 0)} of it on its own, and the top three are {pct(min(c['top3'], 1.0), 0)}. "
-                f"A handful of positions ran with no stop on them; the rest of the book is not the problem.", ""]
+                f"A handful of positions drove it; the rest of the book is not the problem.", ""]
     elif c.get("n_positive"):
-        out += [f"It is spread across {c['n_positive']} trades with no single position dominating — "
-                f"the largest is {pct(c['top1'], 0)} of it. This one is a habit, not an accident.", ""]
+        out += [f"No single trade dominates it — the largest is {pct(c['top1'], 0)}, spread over "
+                f"{c['n_positive']} of your trades. This one is a habit, not an accident.", ""]
 
-    out += ["_The leaks below price each fix on its own. They land on the same trades — one oversized, "
-            "chased, held-too-long position shows up in several — so **they do not add up**. The number "
-            "above is the single best change, and it is the one to quote._", ""]
+    if r.get("leaks"):
+        out += ["_The leaks below price each fix on its own. They land on the same trades — one oversized, "
+                "chased, held-too-long position shows up in several — so **they do not add up**. The number "
+                "above is the single best change, and it is the one to quote._", ""]
     return out
 
 
@@ -273,37 +499,27 @@ def leaks(r):
     out = ["## Leaks — ranked by $ impact · counterfactual, not history", ""]
     out += recoverable_line(r)
     if not r["leaks"]:
-        out.append("Not enough closed trades to price a leak yet — the desk needs a handful of round trips before a counterfactual means anything." if (r["track"].get("trades") or 0) < 5
-                   else "No leak clears the bar on this window: every counterfactual the desk tests came out flat or negative, which means the process is not where the money is going.")
+        _rec = r.get("recoverable") or {}
+        if (r["track"].get("trades") or 0) < 5:
+            out.append("Not enough closed trades to price a leak yet — the desk needs a handful of round trips before a counterfactual means anything.")
+        elif (_rec.get("usd") or 0) > 0:
+            # "No leak clears the bar" sat directly under a positive recoverable figure. Both were
+            # true of different things: no PROCESS counterfactual survived being charged, and the
+            # costs above are measured rather than counterfactual. Say which is which.
+            out.append("No *process* leak clears the bar on this window — every exit, sizing and entry rule the desk tests "
+                       "came out flat or negative once it was charged on the trades it would have cost. The figure above is "
+                       "not one of those: costs are measured, not modelled, which is why it stands on its own.")
+        else:
+            out.append("No leak clears the bar on this window: every counterfactual the desk tests came out flat or negative, which means the process is not where the money is going.")
     for i, l in enumerate(r["leaks"], 1):
-        out += [f"**{i:02d} · {l['title']}** — _{l['agent']}_ · **~{usd(l['usd'])} / {l['window']}**", f"{l['evidence']} {l['counterfactual']}", f"→ {l['cta']}", ""]
+        tag = f"_{l['agent']}_" + ("" if l.get("unpriced") else f" · **~{usd(l['usd'])} / {l['window']}**")
+        out += [f"**{i:02d} · {l['title']}** — {tag}", f"{l['evidence']} {l['counterfactual']}", f"→ {l['cta']}", ""]
     tm = r.get("timing") or {}
     if tm.get("n"):
         neg = [k for k, g in (("time-cut on losers", tm.get("cut")), ("trailing lock on winners", tm.get("lock")))
                if g and g.get("settings") and any(s["n"] for s in g["settings"].values()) and all(s["total"] <= 0 for s in g["settings"].values() if s["n"])]
         if neg:
             out.append(f"Tested and **rejected** for this book: a {' and a '.join(neg)} — each would have cost money on your biggest runs. Your edge is letting those run; don't fix what isn't leaking.")
-    return "\n".join(out)
-
-
-def smart(r):
-    sm = r.get("smart"); out = ["## You vs smart money", ""]
-    if not sm or not sm.get("rows"):
-        out.append("No cohort view was available for this run." if not sm else "No open positions to compare.")
-    else:
-        out += [f"_Cohort: {sm['source']}_", "", "| Coin | You | Smart money | Read |", "|---|---|---|---|"]
-        for x in sm["rows"]:
-            out.append("| {} | {} | {} | **{}** |".format(x["coin"], x["you"], x["cohort"], x["read"]))
-    bt = r.get("benchmark_table")
-    if bt and (r.get("benchmark") or {}).get("n", 0) >= 5:
-        out += ["", f"**You vs whale median** _(top-{(r.get('benchmark') or {}).get('n', '?')} whale cohort, {(r.get('benchmark') or {}).get('computed_at', '')})_", "", "| Metric | You | Whale median |", "|---|---:|---:|"]
-        for row in bt:
-            you = num(row["you"], row["unit"]); wh = num(row["whale"], row["unit"])
-            mark = ""
-            if row["you"] is not None and row["whale"] is not None and row["you"] != float("inf"):
-                worse = (row["you"] > row["whale"]) if row["better"] == "lower" else (row["you"] < row["whale"])
-                mark = " 🔴" if worse else " 🟢"
-            out.append(f"| {row['metric']} | {you}{mark} | {wh} |")
     return "\n".join(out)
 
 
@@ -354,7 +570,8 @@ def next_steps(r):
         return next_steps_other(r)
     b = r["book"]; out = ["## What your quant would do next", ""]
     i = 1
-    at_risk = [p for p in b["positions"] if (p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5 and p["stop_covered_share"] < 0.9) or p["stop_covered_share"] == 0]
+    at_risk = [p for p in b["positions"] if (p["liq_distance_pct"] is not None and p["liq_distance_pct"] < 5 and metrics.protection_of(p) in (metrics.NONE, metrics.PARTIAL))
+               or metrics.protection_of(p) == metrics.NONE]
     if at_risk:
         # "a hard floor now, a trailing lock as it runs … a signature on positions you already hold"
         # promised something that does not exist for this reader. The integrated two-phase DSL is a
@@ -362,13 +579,24 @@ def next_steps(r):
         # and `ratchet_stop_add` is keyed to a senpi strategy wallet — so for a desk reader whose book
         # sits on their own wallet, senpi cannot attach anything today. Say what they can do now, and
         # what is coming, without claiming a signature there is nothing to sign.
-        out.append(f"{i}. **Protect first.** {', '.join(p['coin'] for p in at_risk)}: every one of these "
-                   f"is naked. Set a stop on each of them onchain on Hyperliquid yourself — today, "
-                   f"before anything else here. Senpi will soon do this for you and keep it moving: a "
-                   f"floor that ratchets up as the trade runs, locking gains instead of a stop you have "
-                   f"to remember to raise."); i += 1
-    if r["leaks"]:
-        l = r["leaks"][0]
+        loose = [p for p in at_risk if p.get("non_reduce_only_stops")]
+        naked = [p for p in at_risk if not p.get("non_reduce_only_stops")]
+        line = f"{i}. **Protect first.** "
+        if naked:
+            line += f"{', '.join(p['coin'] for p in naked)}: every one of these is naked. "
+        if loose:
+            line += f"{', '.join(p['coin'] for p in loose)}: each {metrics.NOT_REDUCE_ONLY_NOTE}. "
+        out.append(line + "Let me know if you want my help."); i += 1
+    unread = metrics.unread_coins(b)
+    if unread:
+        # an unread position must not vanish from the closing: name it, never reassure, never nudge a stop
+        out.append(f"{i}. **Check first.** {', '.join(unread)}: the desk couldn't read its orders — check its stop on Hyperliquid before acting."); i += 1
+    unread_at = metrics.positions_unread_phrase(b)
+    if unread_at:
+        out.append(f"{i}. **Check first.** {unread_at}: the desk couldn't read the positions there — check them on Hyperliquid before acting."); i += 1
+    priced = [l for l in r["leaks"] if not l.get("unpriced")]
+    if priced:
+        l = priced[0]
         out.append(f"{i}. **Fix the biggest leak.** {l['title']} — ~{usd(l['usd'])}/{l['window']}. {l['cta']}"); i += 1
     fam = r.get("families") or []
     setup = fam[0].replace("_", " ") if fam else "your pattern"
@@ -506,21 +734,26 @@ def followups_section(r):
 
 def render_deep(mode, d, r):
     if mode == "protect":
+        _unread = metrics.unread_coins(r["book"])
         out = ["## Stop ladder — every open position", "", f"Dollars at risk before: **{usd(d['total_risk_now'])}** → after: **{usd(d['total_risk_after'])}**", "",
-               "| Coin | Side | Mark | Hard stop | Distance | 24h range | Lock arms at | Covered today | Note |", "|---|---|---:|---:|---:|---:|---:|---:|---|"]
+               "| Coin | Side | Mark | Hard stop | Distance | Daily range | Lock arms at | Covered today | Note |", "|---|---|---:|---:|---:|---:|---:|---:|---|"]
         for x in d["rows"]:
             atr = "—" if x["atr_pct"] is None else "{:.1f}%".format(x["atr_pct"])
             out.append("| {} | {} | {:,.4g} | {:,.4g} | {:.1f}% | {} | {:,.4g} | {} | {} |".format(x["coin"], x["side"], x["mark"], x["hard_stop"], x["hard_stop_pct"], atr, x["lock_arms_at"], pct(x["covered_now"]), x["note"]))
         # Same overclaim as the next-steps block: there is no signature to give for a book on the
         # reader's own wallet. These levels are still the most actionable thing on the page — they are
         # a worksheet, so say that plainly.
-        out += ["", "The hard stop sits beyond one and a half days of normal range and above the "
-                    "liquidation price; the lock trails at half the peak gain once the trade is two "
-                    "ranges in the money.",
-                "", "**These are yours to place.** Set the hard stop on each position onchain on "
-                    "Hyperliquid now — it is the number in the *Hard stop* column. The *Lock arms at* "
-                    "column is where a trailing stop should begin once the trade is in the money; "
-                    "senpi will soon keep that moving for you, so you are not raising it by hand."]
+        out += ["", "The hard stop sits one and a half days of normal range from the mark — the average "
+                    "24-hour high-to-low of the last two weeks — or closer when liquidation is nearer "
+                    "than that, because the stop has to trigger first. The lock trails at half the peak "
+                    "gain once the trade is two ranges in the money.",
+                "", "**These are yours to place.** The *Hard stop* column is the number to set on each "
+                    + ("position whose orders the desk read and that has no full stop "
+                       f"(for {', '.join(_unread)} it could not read the orders: check Hyperliquid for an existing stop first), "
+                       if _unread else "position ")
+                    + "onchain on Hyperliquid; the *Lock arms at* column is where a trailing "
+                    "stop should begin once the trade is in the money. Tell me if you want help with "
+                    "any of them."]
         return "\n".join(out)
     if mode == "replay":
         if not d or d.get("empty"):
@@ -586,11 +819,11 @@ def next_steps_other(r):
 
 
 COMPARE_ROWS = (("Weekly rank", lambda r: f"#{r['rank']['rank']:,}" if r.get("rank") else "—"), ("Archetype", lambda r: r["archetype"]),
-                ("Quant score", lambda r: str(r["quant_score"])), ("Net P&L (ledger)", lambda r: usd(r["track"].get("ledger_net"), signed=True)),
-                ("Return on avg equity", lambda r: pct(r["equity"].get("return_on_avg_equity"), 1, signed=True)), ("Max drawdown", lambda r: pct(-(r["drawdown"].get("dd_pct") or 0), 0, signed=True)),
+                ("Quant score", lambda r: str(r["quant_score"]) if r.get("quant_score") is not None else "—"), ("Net P&L (ledger)", lambda r: usd(r["track"].get("ledger_net"), signed=True)),
+                ("Return on avg equity", lambda r: pct(r["equity"].get("return_on_avg_equity"), 1, signed=True)), ("Max drawdown", lambda r: pct(-r["drawdown"]["dd_pct"], 0, signed=True) if r["drawdown"].get("dd_pct") is not None else "—"),
                 ("Trades / win rate", lambda r: f"{r['track']['trades']} / {pct(r['track'].get('win_rate'))}"), ("Profit factor", lambda r: num(r["track"].get("profit_factor"), "x")),
                 ("Taker share", lambda r: pct(r["track"].get("taker_share"))), ("Costs ÷ gross income", lambda r: pct(r["track"].get("cost_ratio"))),
-                ("Open positions · unprotected", lambda r: f"{len(r['book']['positions'])} · {len(r['book']['naked'])}"), ("Margin used", lambda r: pct(r["book"].get("margin_utilization"))),
+                ("Open positions · unprotected", lambda r: f"{len(r['book']['positions'])} · {metrics.unprotected_label(r['book'])}"), ("Margin used", lambda r: pct(r["book"].get("margin_utilization"))),
                 ("vs proven cohort", lambda r: _agree(r, "proven")), ("vs hot 30-day cohort", lambda r: _agree(r, "hot")),
                 ("Biggest leak", lambda r: f"{r['leaks'][0]['title']} (~{usd(r['leaks'][0]['usd'])})" if r["leaks"] else "—"),
                 ("Best setup", lambda r: (lambda b: f"{b['label']} ({b['wins']}/{b['n']}, PF {num(b['profit_factor'], 'x')})")(r["setups"]["best"][0]) if (r.get("setups") or {}).get("best") else "—"))
@@ -627,8 +860,8 @@ def render_compare(rs):
             if hi[0] and lo[0] is not None and (hi[0] - lo[0]) > (0.15 if k in ("taker_share", "cost_ratio", "win_rate") else 0.8):
                 best = lo if better_low else hi
                 seps.append(f"{label}: `{best[1]}` leads ({num(best[0], 'x') if k == 'profit_factor' else pct(best[0])} vs {num((hi if better_low else lo)[0], 'x') if k == 'profit_factor' else pct((hi if better_low else lo)[0])})")
-    naked = [(len(r["book"]["naked"]), short(r["address"])) for r in rs]
-    if max(n for n, _ in naked) != min(n for n, _ in naked):
+    naked = [(metrics.unprotected_label(r["book"]), short(r["address"])) for r in rs]
+    if len({n for n, _ in naked}) > 1:
         seps.append("protection: " + ", ".join(f"`{a}` {n} unprotected" for n, a in naked))
     if seps:
         out += ["", "**What separates them**"] + [f"- {s}" for s in seps]

@@ -5,7 +5,7 @@
 # "the chain bids together or not at all." A cross-asset BREADTH GATE (fraction of
 # the universe whose 4h trend is bullish) decides LONG-only / SHORT-only / WAIT;
 # only then are names scored in the gate direction. Flat 18% margin / 4x. DSL exits
-# — Phase 1 15% max_loss, Phase 2 wide ladder, hard_timeout 48h (equity perps have
+# — Phase 1 8% max_loss, Phase 2 wide ladder, hard_timeout 48h (equity perps have
 # a weekend pricing gap). Every market read passes dex="xyz".
 name: hornet-main
 group: hornet
@@ -21,8 +21,9 @@ description: >
   names are scored in the gate direction (base 3 + 4h trend + 1h confirm + |momentum|
   tier + 4h-leader agreement + a supply-chain-gradient bonus when the equipment
   sub-group leads — early-cycle confirmation); floor minScore 5. Emits the top 1-2.
-  Flat sizing 18% margin / 4x. DSL is the ONLY exit — Phase 1 15% max_loss, Phase 2
-  wide ladder (first lock at +10% ROE), hard_timeout 48h (equity perps reconcile
+  Flat sizing 18% margin / 4x. DSL is the ONLY exit — Phase 1 8% max_loss (= 2.00% of
+  price at 4x), Phase 2 wide ladder (first lock at +20% ROE), hard_timeout 48h (equity
+  perps reconcile
   against an internal oracle over the Fri-Sun gap where drift accumulates).
 
 strategy:
