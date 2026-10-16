@@ -495,7 +495,7 @@ def smart_money_mentions(pkg: Path):
 
 
 def _runtime_docs(pkg: Path):
-    """Every parsed runtime.yaml in the package (flat or nested)."""
+    """(path, doc) for every parsed runtime.yaml in the package (flat or nested)."""
     out = []
     for rt in pkg.rglob("runtime.yaml"):
         try:
@@ -503,7 +503,7 @@ def _runtime_docs(pkg: Path):
         except Exception:  # noqa: BLE001
             continue
         if isinstance(d, dict):
-            out.append(d)
+            out.append((rt, d))
     return out
 
 
@@ -776,7 +776,7 @@ def validate(pkg: Path) -> list:
     for scan_py in pkg.rglob("scanners/scan.py"):
         scoring_py = scan_py.with_name("scoring.py")
         scoring_src = scoring_py.read_text() if scoring_py.is_file() else ""
-        for rt_doc in _runtime_docs(pkg):
+        for _, rt_doc in _runtime_docs(pkg):
             for sc in (rt_doc.get("scanners") or []):
                 if not isinstance(sc, dict) or sc.get("type") != "external_scanner":
                     continue
@@ -787,18 +787,20 @@ def validate(pkg: Path) -> list:
                         f"None — OMIT it when it doesn't apply (a null fails schema validation and the "
                         f"runtime drops the whole candidate silently). Build data as "
                         f"`{{k: v for k, v in {{...}}.items() if v is not None}}`.")
-    # undeclared `data` keys — paired by ENTRYPOINT, not by directory: a package can ship two
-    # external_scanners on the same `path` with different entrypoints (barracuda: scan.py +
-    # close_all.py), and comparing a scanner against its sibling's schema invents offenders.
-    for rt_doc in _runtime_docs(pkg):
+    # undeclared `data` keys — each scanner against ITS OWN file, resolved as the runtime does
+    # (runtime.yaml dir / path / entrypoint): barracuda ships two external_scanners on one `path`
+    # (scan.py + close_all.py), and spider's swing + scalp each ship a scanners/scan.py — pairing
+    # by filename alone checks one against the other's schema and invents offenders.
+    for rt, rt_doc in _runtime_docs(pkg):
         for sc in (rt_doc.get("scanners") or []):
             if not isinstance(sc, dict) or sc.get("type") != "external_scanner":
                 continue
             schema = sc.get("signal_data_schema") or {}
-            for scan_py in pkg.rglob(f"scanners/{sc.get('entrypoint') or 'scan.py'}"):
+            scan_py = rt.parent / str(sc.get("path") or "scanners") / str(sc.get("entrypoint") or "scan.py")
+            if scan_py.is_file():
                 for key in undeclared_signal_data_offenders(scan_py.read_text(), schema):
                     errs.append(
-                        f"{scan_py.name}: signal `data` carries `{key}`, which "
+                        f"{scan_py.relative_to(pkg)}: signal `data` carries `{key}`, which "
                         f"`{sc.get('name', 'this scanner')}`'s `signal_data_schema` does not declare "
                         f"— the scaffold refuses the whole candidate (`delivery_candidate_invalid`: "
                         f"data has unknown key '{key}'), so the scanner logs a healthy EMIT and "

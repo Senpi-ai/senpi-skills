@@ -70,5 +70,56 @@ class ShippedPackagesStayClean(unittest.TestCase):
         assert not bad, "shipped scanners flagged:\n  " + "\n  ".join(sorted(bad)[:20])
 
 
+_UNDECLARED = "does not declare"
+
+
+def _instance(root, name, schema_key, emitted_key):
+    d = root / name / "scanners"
+    d.mkdir(parents=True)
+    (d / "scan.py").write_text(
+        f'def scan(inputs, ctx):\n    return [{{"asset": "BTC", "data": {{"{emitted_key}": 1}}}}]\n')
+    (root / name / "runtime.yaml").write_text(
+        f"scanners:\n  - name: {name}_signals\n    type: external_scanner\n    path: ./scanners\n"
+        f"    entrypoint: scan.py\n    signal_data_schema:\n      {schema_key}: {{type: number}}\n")
+
+
+class ValidatePairsEachInstanceWithItsOwnSchema(unittest.TestCase):
+    """validate() itself, not just the helper: a multi-instance package ships one scanners/scan.py per
+    instance, and checking instance A's scanner against instance B's schema refused athena, cub,
+    elephant, hydra, magpie, spider and more — packages the runtime runs."""
+
+    def _pkg(self, b_emits):
+        import shutil
+        import tempfile
+        from validate_strategy import validate
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        root = Path(tmp) / "twin"
+        root.mkdir()
+        (root / "strategy.yaml").write_text(
+            "id: twin\nversion: 1.0.0\ninstances:\n"
+            "  - {name: a, runtime: a/runtime.yaml, wallet_env: TWIN_A_WALLET}\n"
+            "  - {name: b, runtime: b/runtime.yaml, wallet_env: TWIN_B_WALLET}\n")
+        _instance(root, "a", "alpha", "alpha")
+        _instance(root, "b", "beta", b_emits)
+        return [e for e in validate(root) if _UNDECLARED in e]
+
+    def test_a_key_declared_by_its_own_instance_is_not_flagged(self):
+        assert self._pkg(b_emits="beta") == []
+
+    def test_a_key_its_own_instance_does_not_declare_is_flagged(self):
+        errs = self._pkg(b_emits="alpha")
+        assert len(errs) == 1 and errs[0].startswith("b/scanners/scan.py") and "`alpha`" in errs[0], errs
+
+    def test_every_catalog_package_validates_clean(self):
+        from validate_strategy import validate
+        root = Path(__file__).resolve().parent.parent.parent / "strategies"
+        pkgs = sorted(m.parent for m in root.glob("*/strategy.yaml"))
+        if not pkgs:
+            self.skipTest("strategies/ not present")
+        bad = [f"{p.name}: {e}" for p in pkgs for e in validate(p) if _UNDECLARED in e]
+        assert not bad, "catalog packages flagged:\n  " + "\n  ".join(bad[:20])
+
+
 if __name__ == "__main__":
     unittest.main()
