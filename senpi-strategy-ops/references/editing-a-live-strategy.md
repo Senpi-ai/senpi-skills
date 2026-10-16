@@ -78,13 +78,13 @@ the runtime was restored to its previous recipe or is down with positions unmana
 
 `senpi update` refuses these outright, because each would silently orphan state the runtime keys on:
 
-| Change | Why it needs a new deployment |
-|---|---|
-| a different `strategy.wallet` | That is a different deployment. The old wallet's positions would be left with nothing managing them. |
-| an external scanner **renamed**, **moved**, **inserted** or **removed** | External scanner state is keyed by name and by position among the external scanners, so both matter. A rename starts it from empty; moving one — or inserting or removing one **above** it, which shifts every external scanner below — points it at another scanner's directory. **Appending at the end moves nobody and is allowed**, as is moving an internal scanner, which no state directory is keyed on. |
-| a changed `action_type` under a stable `name` | The new action class would inherit the previous one's execution history. |
+| Change | Why it is refused | The fix the refusal names |
+|---|---|---|
+| a different `strategy.wallet` (`E_UPDATE_WALLET_CHANGED`) | That is a different deployment. The old wallet's positions would be left with nothing managing them. | a new deployment, closing the old book — the procedure below |
+| an external scanner **renamed**, **moved**, **inserted** or **removed** | External scanner state is keyed by name and by position among the external scanners, so both matter. A rename starts it from empty; moving one — or inserting or removing one **above** it, which shifts every external scanner below — points it at another scanner's directory. **Appending at the end moves nobody and is allowed**, as is moving an internal scanner, which no state directory is keyed on. | keep each name and position (append a new scanner at the END) — never a close |
+| a changed `action_type` under a stable `name` | The new action class would inherit the previous one's execution history. | give the new action a new name — never a close |
 
-Only for those does applying mean **closing the strategy and redeploying it on a fresh wallet** —
+Only the wallet change means **closing the strategy and deploying it on a fresh wallet** —
 which market-exits its open positions and returns the funds to main. That is the procedure below, and
 it is a money conversation before it is a command:
 
@@ -119,8 +119,8 @@ it is a money conversation before it is a command:
 **NEVER, when applying an edit:**
 
 - close a live strategy to apply a change `senpi update` would have made in place. Flattening a book
-  costs the user spread, fees and their open P&L; reach for the close/redeploy path only for the
-  three changes in the table above.
+  costs the user spread, fees and their open P&L; reach for the close path only for a changed
+  `strategy.wallet`.
 - hand-render a `runtime.yaml` or run raw `openclaw senpi runtime create` on a hand-built file — the
   `./scanners` "NO ENTRY SCANNERS" trap, and it skips the funds preflight, the attribution and the
   verified tick.
@@ -153,6 +153,20 @@ tiers / the stop / the DSL" request:
 4. **Ask exactly this:** *"Apply it to (a) future positions only — the file; (b) the N positions open now
    — one approval each; or (c) both?"* Never assume (a). "Change the config" without more is ambiguous:
    ask, don't guess.
+   **Exception — no open positions.** When `strategy_get_clearinghouse_state` shows no open position, (b)
+   is empty and the question has one answer: go straight to step 5 (a) in the same turn. The test is the
+   clearinghouse, never the row list: the runtime registers a row only once a position reaches Phase 2,
+   so an open position has no live row when it opened within the last monitor interval, when its handoff
+   aborted (its only row is terminal), or when the recipe omits `phase1.enabled` (it defaults to `true`,
+   and the row waits for the first tier). Rows still feed the drift table. Then say so in one line
+   ("your book is flat, so this is a file change — applying it now, it covers every position from here").
+   Do NOT say "I'll apply it to each new position as it opens" — no such mechanism exists; the runtime
+   registers the ratchet itself, at handoff, from the ladder the file had when the position was born.
+   Do NOT offer a terminal row as a template — any row that is not ACTIVE or PAUSED (SL_TRIGGERED,
+   MANUALLY_CLOSED, LIQUIDATED, ADL, DELETED). The engine ignores them: an edit on one returns
+   `position not found` marked `retryable: true`, and retrying it returns the same. Do NOT
+   `ratchet_stop_add` on a runtime-managed wallet to "pre-arm" the next position: a Phase-1 position
+   then has two owners of one stop, the runtime and the engine.
 5. **(a)/(c):** edit the file, `senpi validate`, `deploy.py update … --apply`. **(b)/(c):** one
    `ratchet_stop_edit` per position with the new ladder, args per `read_senpi_guide
    senpi://guides/ratchet_stop` (never from memory). An edit **re-evaluates the ladder immediately**

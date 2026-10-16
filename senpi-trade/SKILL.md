@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.5.0"
+  version: "1.8.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -89,7 +89,7 @@ arithmetic that caught it.
 
 Worked example, a short: entry $80,890, price $77,300, manual stop $77,500, ratchet floor $78,370. The
 price reaches $77,500 first, so the manual stop is the tighter one and it keeps `(80,890 − 77,500) × size`;
-the floor keeps less. Adding the ratchet would replace that stop — say so before it happens. The four
+the floor keeps less. Adding the ratchet would replace that stop — say so before it happens. The five
 regression cases behind these rules, with the expected answers, are in
 [`references/protection-cases.md`](references/protection-cases.md).
 
@@ -120,8 +120,10 @@ top strategies).
 **Stingray** (ranks the entire smart-money board and rotates long/short by net conviction) · **Starling**
 (buys when a flock of top wallets pile into the same name at once) · **Whalehunter** (with the smart cohort,
 against the crowd) · **Phalanx** (follows the proven cohort's headcount flow — enters only while conviction is
-growing, boosted when the cohort diverges from the 4h crowd, wide stops that let winners run). These are the
-answer for *"follow the smart money"* rather than one specific trader.
+growing, boosted when the cohort diverges from the 4h crowd, wide stops that let winners run) · **Signals
+Hunter** (runs the Senpi Signals detector library on an hourly clock over the whole book — whale opens and
+adds, funding dislocation, OI surges and cohort positioning scored together, taking what clears the score
+floor, long or short). These are the answer for *"follow the smart money"* rather than one specific trader.
 
 Offer the managed option **once**, then respect a "no." For mirror, the templates fix the exact pains
 a raw mirror causes (tiny size, stale entries) — offer one before you reach for a raw `strategy_create`.
@@ -183,6 +185,12 @@ Then **replay the full spec, get an explicit "yes"**, and place.
 - **Edit:** `edit_position` — `targetMargin` is **absolute, not a delta**; a direction flip does NOT carry
   SL/TP over. Partial close = `edit_position` with a lower `targetMargin`.
 - **Close:** `close_position` (full only; best-effort cancels resting SL/TP + DSL).
+- **"Why did it close?" is a record question.** Read the close before naming a reason —
+  `execution_get_closed_position_details`, or the wallet's `discovery_get_trader_history`. **A position
+  you closed with `close_position` did not hit its take-profit:** an agent close, a stop fill and a TP
+  fill are three different outcomes and only the record says which. Never report a TP or stop as "hit"
+  from the protection you configured, or from what you remember doing — a realized return far below the
+  TP you set is the tell that something else closed it.
 
 ---
 
@@ -306,6 +314,7 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
 | Place or grow a hand position without the three numbers | A wallet went almost entirely into one thin coin and a "keep it tight" stop was widened to over 40% of the account, one small request at a time — nothing ever said the total | Share of account, dollars at the stop, applied leverage — before the replay; above 50% / 20%, a fresh yes to that sentence |
 | Quote the leverage the user asked for after the venue clipped it | 10× asked, 3× applied, the position still labelled "10x" | Read `leverage.value` from the position; say the clip; label by what applies |
 | Offer a cron as "watch it for me" on a raw position | Every firing is a full agent turn, and it is not a stop | `ratchet_stop_add` — the ladder watches for free (profit-lock only; say so) |
+| Promise a `ratchet_stop_add` on a runtime-managed position covers future entries | **The add binds to the position open now.** The runtime arms the next one from the strategy's own `exit.dsl_preset` — so "it never closes below +X again" is false, and the next entry closes the old way | Say the ladder covers this position only, then route the file half to `senpi-strategy-ops` (a DSL change has two targets — the file for future positions, the ratchet for open ones; the user picks) |
 | Say anything about a stop or ladder, or change one, outside the protection protocol | Every rule in it was broken on a live short — the user caught each one | The six rules above, in order |
 
 > **State machine is transient, not terminal — *up to a point*.** `CREATE_WALLET` → `FUND_WALLET` /
@@ -319,6 +328,14 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
 ---
 
 ## Handoff & boundaries
+- **A request to act on one of the user's SAVED wallets** (close, open, set a stop, cancel — on a
+  wallet in `user_get_me`'s `external_wallets`, the ones they added in Your wallets) → answer by quoting
+  its `access` line, and make **no write-tool attempt**: "Read-only. Senpi can analyze this wallet. It
+  cannot place, change or cancel orders on it." Reading `user_get_me` to recognise the address is fine.
+  A write tool that comes back `NOT_A_STRATEGY_WALLET` (match the error code) is the same answer — never
+  retry it on another tool. "Your wallet" means one of their saved wallets or one the user said is
+  theirs in this conversation; an address pasted in chat is never described as saved — to save it, the
+  user can add it in Your wallets on senpi.ai (web).
 - **Finding / vetting the trader → `senpi-trader-research`.** It ranks records + reads current books and
   hands the *action* (set up the mirror) back to this skill; you own the mechanics — slippage, sizing,
   the pre-fund sim, execution.

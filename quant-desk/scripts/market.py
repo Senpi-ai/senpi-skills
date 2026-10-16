@@ -29,13 +29,19 @@ def coin_regime(coin, candles, ctx):
     now = close[-1]
     def chg(hours):
         return (now / close[-hours - 1] - 1) if len(close) > hours else None
-    sma20 = statistics.mean(close[-480:]) if len(close) >= 100 else statistics.mean(close)
+    # 480 hourly candles IS the 20-day mean. Below that it took whatever it had — as few as 48
+    # candles, two days — and called it the 20-day mean, then fed it to a +/-2% trend threshold that
+    # a 2-day mean can barely clear. That is a new listing: the case where a trend call is least
+    # reliable and most likely to be read as one. Abstain. (@danielmbirochi, #718, round 2.)
+    sma20 = statistics.mean(close[-480:]) if len(close) >= 480 else None
     rets = [math.log(close[i] / close[i - 1]) for i in range(1, len(close)) if close[i - 1] > 0]
     vol24 = statistics.pstdev(rets[-24:]) * math.sqrt(24) if len(rets) >= 24 else None
-    vol30 = statistics.pstdev(rets[-720:]) * math.sqrt(24) if len(rets) >= 100 else None
+    vol30 = statistics.pstdev(rets[-720:]) * math.sqrt(24) if len(rets) >= 720 else None
     c7, c30 = chg(168), chg(720)
-    vs_sma = now / sma20 - 1
-    if c7 is not None and c7 > 0.05 and vs_sma > 0.02:
+    vs_sma = (now / sma20 - 1) if sma20 else None
+    if vs_sma is None:
+        trend = "UNKNOWN"          # too little tape to confirm a direction; not the same as ranging
+    elif c7 is not None and c7 > 0.05 and vs_sma > 0.02:
         trend = "UP"
     elif c7 is not None and c7 < -0.05 and vs_sma < -0.02:
         trend = "DOWN"
@@ -50,7 +56,7 @@ def coin_regime(coin, candles, ctx):
 def fit(position, regime):
     """WITH / AGAINST / NEUTRAL: a long fits an up-trend, a short a down-trend; ranging is neutral. Funding
     is reported beside it (a long paying positive funding is a cost, not a misfit)."""
-    if not regime:
+    if not regime or regime["trend"] == "UNKNOWN":
         return "UNKNOWN"
     if regime["trend"] == "RANGING":
         return "NEUTRAL — ranging"
@@ -65,22 +71,47 @@ def book_fit(book, candles, ctxs):
         regimes[p["coin"]] = r
         rows.append(dict(coin=p["coin"], side=p["side"], leverage=p["leverage"], trend=r["trend"] if r else None,
                          funding_bp_8h=r["funding_bp_8h"] if r else None, open_interest_usd=r["open_interest_usd"] if r else None,
-                         funding_per_day=p["funding_per_day"], fit=fit(p, r)))
+                         notional=abs(_f(p.get("notional"))), funding_per_day=p["funding_per_day"], fit=fit(p, r)))
     btc = coin_regime("BTC", candles, ctx_by.get("BTC"))
-    fundings = [r["funding_bp_8h"] for r in rows if r["funding_bp_8h"] is not None]
-    med_f = statistics.median(fundings) if fundings else None
+    # Weight the headline by NOTIONAL, not by coin. A plain median counts a $19 dust position and a
+    # $20M one equally, so a book with sixteen xyz names at 0 bp and its real size in HYPE (+10) and
+    # XMR (+9) read "FUNDING NEAR FLAT" while the same desk said it collects $20,629/day two lines
+    # below. Size is what decides whether funding is a real part of the return.
+    pairs = [(r["funding_bp_8h"], r["notional"]) for r in rows
+             if r["funding_bp_8h"] is not None and r["notional"] > 0]
+    if pairs:
+        tot = sum(w for _, w in pairs)
+        med_f = sum(f * w for f, w in pairs) / tot if tot > 0 else None
+    else:
+        fundings = [r["funding_bp_8h"] for r in rows if r["funding_bp_8h"] is not None]
+        med_f = statistics.median(fundings) if fundings else None
+    # Say the annualised rate, and never let the word contradict it. bp/8h is three periods a day, so
+    # 3 bp/8h — the old floor for "POSITIVE" — is already 33%/yr, and everything below it read
+    # "NEAR FLAT". On the real book that printed FUNDING NEAR FLAT over a weighted 2.70 bp/8h =
+    # 29.6%/yr, beside the same desk's own "$20,629/day" (25.8%/yr of account value). The two agree;
+    # only the label was wrong.
+    ann = (med_f * 3 * 365 / 100.0) if med_f is not None else None
     if med_f is None:
         fhead = "FUNDING UNKNOWN"
     elif med_f >= 10:
         fhead = "HIGH POSITIVE FUNDING"
     elif med_f >= 3:
         fhead = "POSITIVE FUNDING"
+    elif med_f >= 1:
+        fhead = "MILDLY POSITIVE FUNDING"
     elif med_f <= -10:
         fhead = "DEEPLY NEGATIVE FUNDING"
     elif med_f <= -3:
         fhead = "NEGATIVE FUNDING"
+    elif med_f <= -1:
+        fhead = "MILDLY NEGATIVE FUNDING"
     else:
         fhead = "FUNDING NEAR FLAT"
+    if ann is not None and abs(ann) >= 5:
+        # the RATE on notional, not a share of equity. The risk dimension quotes the same funding as
+        # a share of EQUITY, which leverage makes a different number: on 0xccd2…c8a3 this read
+        # "+49%/yr on the book you hold" beside "186% of equity a year" — both true, 4x apart.
+        fhead += f" ({ann:+.0f}%/yr on notional at today's rates)"
     headline = f"{fhead} · BTC {btc['trend'] if btc else 'UNKNOWN'}"
     net = book["net_exposure"]
     stance = "net long" if net > 0 else ("net short" if net < 0 else "flat")

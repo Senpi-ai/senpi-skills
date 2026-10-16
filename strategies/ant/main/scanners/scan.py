@@ -108,6 +108,12 @@ def _top_by_oi(ctx, inputs):
     rows = list(main)
     if bool(inputs.get("includeXyz", False)):
         rows += (_instrument_rows(ctx, "xyz") or [])
+    else:
+        # The no-dex instrument listing already carries xyz: names, so the flag has to
+        # REMOVE them — adding a second board when it is on was never the whole job.
+        # Without this, includeXyz: false filtered nothing and xyz: names were graded
+        # against xyzVolFloorUsd instead of the main floor.
+        rows = [r for r in rows if r["dex"] != "xyz"]
     vfloor = scoring._f(inputs.get("universeVolFloorUsd"), 25_000_000)
     rows = [r for r in rows if r["vol"] >= vfloor]
     rows.sort(key=lambda r: r["vol"], reverse=True)

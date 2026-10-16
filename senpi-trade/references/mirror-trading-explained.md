@@ -87,7 +87,9 @@ rest open the cohort's *current* positions, so they don't cure an already-run bo
 Smart-money-by-signal templates position by where the **whole cohort** leans — many proven traders at
 once, not a 1:1 copy of anyone's book: **Stingray** (rotates long/short by net smart-money conviction
 across the board) · **Starling** (buys on a flock of top wallets piling into one name) · **Whalehunter**
-(with the smart cohort, against the crowd). Use these for *"follow the smart money"* rather than one trader.
+(with the smart cohort, against the crowd) · **Signals Hunter** (scores whale opens and adds, funding
+dislocation and OI surges across the whole book hourly, taking what clears the score floor). Use these for
+*"follow the smart money"* rather than one trader.
 
 ## Economics — answer "how much do I need" honestly
 - **$10 minimum notional per position** (auto-bumped to ~$12). A mirror needs enough budget that

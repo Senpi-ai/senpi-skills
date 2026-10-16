@@ -147,7 +147,7 @@ def compute_regime_score(funding_label, gold_trend, jpy_trend):
     score = funding_regime_score(funding_label) + haven_trend_score(gold_trend, jpy_trend)
     return max(-2.0, min(2.0, score))
 
-def regime_to_direction(asset, regime_score):
+def regime_to_direction(asset, regime_score, neutral_threshold=None):
     """Determine direction for an asset given the regime score.
 
     Risk assets: SHORT in risk-off, LONG in risk-on.
@@ -160,7 +160,8 @@ def regime_to_direction(asset, regime_score):
     if role is None:
         return None
 
-    if abs(regime_score) < 0.5:
+    # was a hardcoded 0.5, which silently disagreed with the scanner's configurable neutralThreshold
+    if abs(regime_score) < (0.5 if neutral_threshold is None else neutral_threshold):
         return None  # neutral — go to cash
 
     if regime_score < 0:  # risk-off
@@ -234,6 +235,25 @@ def funding_edge(funding_rate, direction):
     else:  # SHORT
         return 1.1 if rate > 0 else 0.9
 
+# Conviction is `|regime_score| * BASE_SCALE * multipliers`, so the regime alone decides whether any
+# asset CAN clear minScore. Naming the scale lets the cash band be derived from it instead of guessed:
+# below `minScore / BASE_SCALE` a typical asset (multipliers ~1.0) cannot qualify no matter what, and
+# the scanner should say cash rather than announce a regime it cannot act on.
+BASE_SCALE = 40.0
+
+
+def thin_regime(regime_score, min_score):
+    """True when |regime_score| * BASE_SCALE is under minScore — a regime where only a STRONGLY
+    aligned asset can clear the bar, and a typical one (multipliers ~1.0) cannot.
+
+    This is reported, never enforced. The band was nearly closed on 2026-09-21 on the theory that it
+    was dead; seven days of telemetry said otherwise — 699 emits at -0.60 and 35 at -0.50, about a
+    quarter of all Aegis trading. Thin is where alignment earns its keep, so the scanner keeps
+    trading it and simply says when the bar is above the regime's own base.
+    """
+    return abs(_f(regime_score, 0.0)) * BASE_SCALE < _f(min_score, 25.0)
+
+
 def conviction_for(regime_score, trend_label, direction, oi_vel, funding_rate):
     """Compute conviction score for an asset.
 
@@ -244,7 +264,7 @@ def conviction_for(regime_score, trend_label, direction, oi_vel, funding_rate):
 
     Range: ~0 to ~122. Assets below minScore are filtered out.
     """
-    base = abs(regime_score) * 40.0
+    base = abs(regime_score) * BASE_SCALE
     tal = trend_alignment(trend_label, direction)
     oic = oi_confirmation(oi_vel)
     fed = funding_edge(funding_rate, direction)

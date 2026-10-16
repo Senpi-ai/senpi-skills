@@ -119,7 +119,9 @@ def _sm_for_asset(ctx, asset, min_traders=_DEFAULT_MIN_TRADER_COUNT):
 
 
 def scan(inputs, ctx):
-    asset = (inputs.get("asset", "BTC") or "BTC").upper()
+    # Verbatim: this value goes to market_get_asset_data AND the emitted signal.
+    # HL coin names are case-sensitive — upper() breaks `xyz:` and kPEPE/kBONK.
+    asset = str(inputs.get("asset", "BTC") or "BTC")
     min_score = float(inputs.get("minScore", 5))
     min_traders = int(inputs.get("minTraderCount", _DEFAULT_MIN_TRADER_COUNT))   # 4h-board headcount floor
     margin_pct = float(inputs.get("marginPct", 25))   # PERCENT of withdrawable (0,100], not a fraction

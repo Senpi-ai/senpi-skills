@@ -87,3 +87,15 @@ def test_a_wallet_too_small_for_the_cap_emits_nothing_and_says_why(capsys):
     # 12 / (20 * 3) = 20% of equity, over the 15% cap: no order, and the log says the wallet is too small
     assert _run([], "20") == []
     assert "wallet too small" in capsys.readouterr().err
+
+
+def test_the_three_aegis_copies_stay_identical():
+    """aegis/main, athena/aegis and athena-x/aegis run the same engine; athena ranks #1 in discover,
+    so a fix applied to one and not the others is the worst outcome here."""
+    import hashlib, pathlib
+    root = pathlib.Path(__file__).resolve().parents[2]
+    for fname in ("scan.py", "scoring.py"):
+        digests = {p: hashlib.sha256((root / p / "scanners" / fname).read_bytes()).hexdigest()
+                   for p in ("aegis/main", "athena/aegis", "athena-x/aegis")}
+        assert len(set(digests.values())) == 1, (fname, digests)
+    print("✓ all three aegis copies identical")

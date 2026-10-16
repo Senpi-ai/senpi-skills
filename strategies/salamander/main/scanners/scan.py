@@ -20,7 +20,7 @@ header label is "v1.0.0" and SKILL.md is v1.0.0 — the VERSION constant 1.0.1 i
 cited as authoritative):
   - v2 sized margin as marginPct=0.20 (a FRACTION) * account_value -> marginUsd.
     This port emits a `marginPct` PERCENT (default 20) and the runtime sizes
-    (marginPct/100)*withdrawable. The defensive "<=1.0 means a pasted fraction,
+    (marginPct/100)*withdrawable. The defensive "<1.0 means a pasted fraction,
     x100" guard converts a config that still carries 0.20 -> 20. Flat sizing (no
     conviction tiers) is preserved verbatim.
   - v2 leverage = min(config.leverage(5), MAX_LEVERAGE(5)). Preserved: clamp the
@@ -257,7 +257,7 @@ def scan(inputs, ctx):
     min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
     base_margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))   # PERCENT in (0,100]
     # defensive: a config that still stores margin as a FRACTION (e.g. 0.20) -> x100
-    if base_margin_pct <= 1.0:
+    if base_margin_pct < 1.0:
         print(f"[salamander.scan] marginPct={base_margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({base_margin_pct * 100})", file=sys.stderr)
         base_margin_pct *= 100

@@ -10,6 +10,7 @@
    crowd read, so no divergence."""
 import os
 import sys
+import time
 import types
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "main", "scanners"))
@@ -17,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "main", "scanne
 import scan  # noqa: E402
 
 _WALLET = "0x" + "1" * 40
-_COHORT = {"addresses": [_WALLET], "refreshed_at": 1.0}
+_COHORT = {"addresses": [_WALLET], "refreshed_at": time.time()}
 
 
 class _State:
@@ -34,7 +35,7 @@ class _State:
 
 def _run(monkeypatch, headcount, crowd_lean, last=None):
     monkeypatch.setattr(scan, "_get_account", lambda ctx: (1000.0, []))
-    monkeypatch.setattr(scan, "_get_cohort", lambda ctx, inputs, prev: ([_WALLET], 1.0))
+    monkeypatch.setattr(scan, "_get_cohort", lambda ctx, inputs, prev: ([_WALLET], time.time()))
     monkeypatch.setattr(scan, "_cohort_headcount", lambda ctx, cohort, inputs: headcount)
     monkeypatch.setattr(scan, "_crowd_lean", lambda ctx, limit: crowd_lean)
     monkeypatch.setattr(scan, "_asset_data", lambda ctx, coin: ([], []))

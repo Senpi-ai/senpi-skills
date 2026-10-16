@@ -42,6 +42,13 @@ _DEFAULT_MAX_LONG = 2
 _DEFAULT_MAX_SHORT = 2
 _DEFAULT_RECENT_TTL = 240         # signal-dedup TTL (s)
 _DEFAULT_COHORT_CAP = 100         # max proven traders to track
+_DEFAULT_COHORT_MAX_AGE_H = 72    # refuse to OPEN on a cohort older than this. The list refreshes
+                                  # every 24h, so 72h tolerates two consecutive days of failed
+                                  # refreshes before the strategy stops adding risk. Fail-open was
+                                  # right (an empty cohort is worse than a stale one) but it was
+                                  # UNBOUNDED: a broken `discovery_get_top_traders` printed one
+                                  # warning per tick and kept trading on a list of unknown age
+                                  # forever, and nothing on any surface reported that age.
 _DEFAULT_SMART_MIN_REALIZED = 1_000_000  # >=$1M lifetime realized
 _DEFAULT_STATE_BATCH = 50         # discovery_get_trader_state batch size
 _DEFAULT_LEADERBOARD_LIMIT = 100
@@ -438,6 +445,23 @@ def scan(inputs, ctx):
                        accuracy_state, signaled, {"ts": now, "emitted": False, "gate": "no_cohort"})
         return []
 
+    # How old is the membership list? `refreshed_at` has always been stored and never surfaced, so
+    # a list pulled 30 minutes ago and one pulled 30 days ago printed identically as `cohort=100`.
+    # None means it could not be dated, which is reported as `age=?` rather than silently treated
+    # as fresh. Their POSITIONS are still read every tick either way — a stale cohort means the
+    # right behaviour watched from a possibly-outdated set of people, not stale data.
+    cohort_age_h = ((now - cohort_refreshed) / 3600.0) if cohort_refreshed > 0 else None
+    max_age_h = scoring._f(inputs.get("cohortMaxAgeHours"), _DEFAULT_COHORT_MAX_AGE_H)
+    if cohort_age_h is not None and max_age_h > 0 and cohort_age_h > max_age_h:
+        print(f"[phalanx.scan] SKIP — the proven cohort is {cohort_age_h:.0f}h old against a "
+              f"{max_age_h:.0f}h ceiling, so `discovery_get_top_traders` has been failing for days. "
+              f"Their positions are still current; who counts as proven is not. No new opens — "
+              f"open positions keep their DSL and are not touched.", file=sys.stderr)
+        _persist_state(ctx, prev, cohort_refreshed, cohort, prev_tilts, accuracy_state, signaled,
+                       {"ts": now, "emitted": False, "gate": "cohort_stale",
+                        "cohort_age_h": round(cohort_age_h, 1)})
+        return []
+
     # ── cohort positioning (headcount per asset) ──
     headcount = _cohort_headcount(ctx, cohort, inputs)
     if not headcount:
@@ -618,16 +642,20 @@ def scan(inputs, ctx):
             scoring.add_pending_signal(accuracy_state, cls, e["asset"], e["direction"], entry_px, now)
 
     # ── log + persist state ──
+    # The cohort's AGE belongs on every line that names its size: `cohort=100` alone cannot tell
+    # you whether those hundred wallets were chosen this morning or last month.
+    age_s = "?" if cohort_age_h is None else f"{cohort_age_h:.0f}h"
     if out:
         print(f"[phalanx.scan] EMIT {len(long_emits)}L + {len(short_emits)}S "
-              f"| cohort={len(cohort)} assets={len(headcount)} "
+              f"| cohort={len(cohort)} age={age_s} assets={len(headcount)} "
               f"| {[ (e['asset'], e['direction'], e['data'].get('conviction')) for e in out ]}",
               file=sys.stderr)
         result = {"ts": now, "emitted": True, "board": len(headcount),
                   "emittedAssets": [(e["asset"], e["direction"]) for e in out],
                   "held": held_assets}
     else:
-        print(f"[phalanx.scan] WAITING — no emit | cohort={len(cohort)} assets={len(headcount)} "
+        print(f"[phalanx.scan] WAITING — no emit | cohort={len(cohort)} age={age_s} "
+              f"assets={len(headcount)} "
               f"long_cands={len(long_candidates)} short_cands={len(short_candidates)} "
               f"held={held_assets} (threshold {tilt_threshold:.0f}, delta_min {delta_min:.0f}) "
               f"| blocked: tilt={blocked['tilt']} delta={blocked['delta']} "

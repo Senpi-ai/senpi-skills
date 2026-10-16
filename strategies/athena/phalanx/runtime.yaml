@@ -60,6 +60,11 @@ scanners:
       leaderboardLimit: 100
       smartMinRealizedUsd: 1000000
       cohortCap: 100
+      cohortMaxAgeHours: 72              # the membership list refreshes every 24h; at 72h
+                                         # `discovery_get_top_traders` has failed for two
+                                         # days straight and the strategy stops OPENING.
+                                         # Closes are never gated — held positions keep
+                                         # their DSL. 0 disables the ceiling.
       stateBatch: 50
       pageSize: 1000
       maxPages: 6

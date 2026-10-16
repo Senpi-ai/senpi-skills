@@ -1,0 +1,160 @@
+# ── IBEX · single instance — gold (xyz:GOLD) breakout trend follower on the slow clock ───────
+# The Moose engine (scanners/ are byte-identical to strategies/moose — tests/test_engine_parity.py
+# pins them) pointed at one market with the breakout trigger as the default: a CLOSED 4h candle
+# beyond the highest high / lowest low of the previous 55 bars (about nine days), taken only with
+# the daily trend (close vs the 50-day SMA), one position at a time. Leverage 3-5x comes from
+# gold's own 4h ATR so the fixed 15% ROE stop sits at least two ATRs from entry; on gold's usual
+# volatility (4h ATR ~0.6% of price) that is the 5x cap and a 3% stop, about five ATRs. DSL is the
+# ONLY exit: no clock cuts. xyz:GOLD trades 24/7 on Hyperliquid — no market-hours gate.
+#
+# Why this trigger and not the fast ones users keep building: replayed on 295 days of the
+# exchange's own 4h gold candles (Dec 2025 - Oct 2026) with these exits and 0.18% round-trip fees,
+# the 55-bar break with the SMA50 filter took 12 trades, 7 winners, profit factor 2.0, both sides
+# and both halves of the window positive; every channel length from 20 to 100 bars cleared 1.5.
+# A 15m Donchian fade, a 30m/1h/4h fade and the prior-UTC-day breakout all lost (profit factor
+# 0.4-1.0) — gold's 15m range is smaller than a round trip costs. Measurement in the PR.
+name: ibex-main
+group: ibex
+version: 1.0.0
+description: >
+  IBEX — gold (xyz:GOLD) breakout trend follower. On closed 4h candles a break beyond the
+  55-bar Donchian channel (about nine days) is the entry trigger (a 20/50 EMA cross is the
+  alternate), taken only with the daily trend: long above the 50-day SMA, short below it. The
+  break must be at most two bars old. One position at a time, 40% margin, leverage 3-5x set
+  from gold's 4h ATR so the 15% ROE stop sits at least two ATRs from entry in price. DSL is the
+  ONLY exit — no hard_timeout, no weak_peak_cut, no dead_weight_cut — a ratchet that locks a
+  rising share of the gain from +12% ROE and never a loss. Gold trades 24/7 here.
+
+strategy:
+  wallet: "${IBEX_WALLET}"
+  slots: 1                                # one market, one position
+  margin_pct: 40                          # baseline %; scan emits marginPct per signal (same number)
+  default_leverage: 5                     # fallback; scan emits 3-5x per signal from gold's ATR
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: ibex_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # a 4h bar closes every 4h; 5 min bounds how late an entry can be
+    timeout_seconds: 120                   # one account read + one candle read — well inside
+    default_signal_validity_seconds: 600   # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 50            # per-bar dedup map + per-tick scan results (~4h @300s)
+    inputs:
+      allowedAssets: ["xyz:GOLD"]          # the xyz: prefix is mandatory for a HIP-3 market
+      entryDetector: donchian              # donchian | ema_cross
+      donchianLookback: 55                 # channel length in 4h bars: 55 = about nine days (Turtle System 2's number)
+      emaFast: 20                          # alternate detector: fast EMA period on closed 4h candles
+      emaSlow: 50                          # alternate detector: slow EMA period
+      maxBarsSinceSignal: 2                # a break older than this many closed bars is not chased
+      regimeSmaPeriod: 50                  # daily SMA the signal close must be above (long) / below (short);
+                                           # the feed returns 90 daily candles, so 50 is the longest textbook filter
+      atrPeriod: 14                        # ATR period on the 4h candles
+      atrStopMultiple: 2.0                 # the stop must sit >= this many ATRs from entry in price (sets leverage)
+      stopRoePct: 15                       # MUST equal exit.dsl_preset.phase1.max_loss_pct (tests pin it)
+      leverageMin: 3                       # floor — a volatility spike is sized here even if the ATR asks for less
+      leverageMax: 5                       # cap — gold's usual ATR lands here (catalog leverage_max)
+      marginPct: 40                        # PERCENT of withdrawable (0,100]; one slot
+      maxSlots: 1
+      minScore: 2                          # 2 = any break with the daily trend behind it; 3-4 = also demand
+                                           # the break bar itself / a break wider than minSpreadPct
+      minSpreadPct: 0.10                   # break distance beyond the channel as % of price that earns the +1
+      recentSignalTtlSeconds: 14400        # one 4h bar — never signalled twice inside a bar
+      minNotionalUsd: 12                   # the venue's bumped minimum; the free-margin gate stops emitting below it
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      detector: { type: string }
+      signalBarTime: { type: number }
+      barsSinceSignal: { type: number }
+      emaFast: { type: number, required: false }
+      emaSlow: { type: number, required: false }
+      emaSpreadPct: { type: number, required: false }
+      channelHigh: { type: number, required: false }
+      channelLow: { type: number, required: false }
+      breakoutPct: { type: number, required: false }
+      dailySma: { type: number }
+      dailyRegime: { type: string }
+      atrPct: { type: number }
+      stopPricePct: { type: number }
+      leverage: { type: number }
+      reasons: { type: array, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: ibex_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (break + trend + freshness)
+    scanners: [ibex_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # a breakout entry must fill — maker window first, taker fallback
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: ibex_main_signals
+
+# ── EXIT (DSL only) ───────────────────────────────────────────────────────────────────────
+# Every threshold is ROE (% of margin); its distance in PRICE is ROE / leverage, and the scanner
+# picks the leverage from gold's ATR. At 5x (gold's usual case): stop 3.0% of price; rungs arm at
+# +2.4% / 4% / 6% / 9% / 15% and lock 40 / 45 / 60 / 70 / 85% of the best ROE. At 3x (a
+# volatility spike) every distance is 1.67x wider. Replayed at exactly these settings on the
+# 295-day gold history: 12 trades, profit factor 2.0. Clock cuts are OFF: of 142
+# clock-driven closes measured in one fleet week, 110 were in profit when the clock fired.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout: { enabled: false, interval_in_minutes: 4320 }
+    weak_peak_cut: { enabled: false, interval_in_minutes: 360, min_value: 3.0 }
+    dead_weight_cut: { enabled: false, interval_in_minutes: 60 }
+    phase1:
+      # Trailing DISABLED fleet-wide: the phase-1 floor trails HIGH-WATER, so after a small favourable
+      # move it can still sit BELOW entry and close a WINNER at a loss. max_loss_pct is the hard
+      # stop; retrace_threshold is inert while enabled is false.
+      enabled: false
+      max_loss_pct: 15.0   # 3.0% of price at 5x, 5.0% at 3x — mirrored by inputs.stopRoePct
+      retrace_threshold: 15
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # trigger / lock, ROE; price at 5x (3x) in the comment
+        - { trigger_pct: 12, lock_hw_pct: 40 }   # +2.4% of price (4%)   -> floor +1.0% (1.6%)
+        - { trigger_pct: 20, lock_hw_pct: 45 }   # +4.0% (6.7%)          -> floor +1.8% (3.0%)
+        - { trigger_pct: 30, lock_hw_pct: 60 }   # +6.0% (10%)           -> floor +3.6% (6.0%)
+        - { trigger_pct: 45, lock_hw_pct: 70 }   # +9.0% (15%)           -> floor +6.3% (10.5%)
+        - { trigger_pct: 75, lock_hw_pct: 85 }   # +15% (25%)            -> floor +12.8% (21.3%)
+
+# ── RISK guard rails (one slow book: few trades, a wide stop, no self-resetting breaker) ──
+risk:
+  data_retention_seconds: 259200           # 72h
+  guard_rails:
+    daily_loss_limit_pct: 10               # halt new entries after a -10% day
+    max_entries_per_day: 2                  # above the single slot, so a re-entry after a stop-out is not
+                                           # blocked until midnight; a nine-day break fires about weekly
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 14400                # 4h — one bar — after three losses in a row
+    drawdown_halt_pct: 25                  # the wallet-wide hard stop: a -25% PnL drawdown from peak halts
+                                           # new entries; the open position stays under its own 15% ROE stop
+    drawdown_reset_on_day_rollover: false  # clearing it is a deliberate act (redeploy), not midnight
+    per_asset_cooldown_seconds: 14400      # 4h — one bar — between attempts
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

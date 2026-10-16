@@ -6,11 +6,13 @@
 # a cross-asset breadth gate decides LONG-only / SHORT-only / WAIT, then scores names
 # in the gate direction with a supply-chain-gradient bonus when equipment leads.
 # Flat 18% margin / 4x, DSL exits with a 48h hard_timeout (equities have weekend
-# pricing gaps). Install/teardown via senpi-strategy-ops.
+# pricing gaps). The leverage clamp in scan.py is an INPUT (`maxLeverage`) defaulting to
+# the old hardcoded 5, so hornet is unchanged; hornet-concentrated raises it to 10.
+# Install/teardown via senpi-strategy-ops.
 schema_version: 1
 
 id: hornet
-version: "1.1.1"
+version: "1.2.0"
 catalog:
   name: "Hornet — Semiconductor Supply-Chain Momentum"
   emoji: "🐝"

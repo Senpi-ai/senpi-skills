@@ -2,8 +2,10 @@
 
 A FAILED `strategy_top_up` can leave the money in the funding wallet's SPOT balance (the worker's
 first leg ran, its second did not) while the status message says nothing moved. The skill must make
-the agent locate the money, move it back with `transfer_spot_to_perps`, say which balance it is in,
-and never re-submit in a loop. The same file guards the perps precheck before a top-up, the
+the agent locate the money, say which balance it is in, hand the user the move it cannot make, and
+never re-submit in a loop. Under the wallet-hardening rules the agent moves funds only between the
+main wallet and a strategy wallet, and only on perps, so the move itself is the user's — locating the
+money and naming the balance is still the agent's. The same file guards the perps precheck before a top-up, the
 `details.available` retry on a cents-short withdrawal, "everything" as the exact available figure,
 and the creation-fee sentence — each a rule a rewrite could quietly drop.
 
@@ -33,9 +35,20 @@ def test_failed_top_up_recovers_the_spot_leg_and_names_the_balance():
     _needles("perps → Spot on the funding wallet, then Spot → the strategy wallet",
              "when the first leg *did* run: treat it as a hint",
              "the money is in the funding wallet's **Spot**",
-             "Move it back with `transfer_spot_to_perps` for that amount",
+             "hand them the one step you cannot take",
              "Do **not** re-submit on your own.",
              "**Never say \"still in the funding wallet\" without naming the balance — perps or Spot.**")
+
+
+def test_spot_to_perps_is_never_claimed_as_the_agents_move():
+    """No tool moves Spot -> Perps (the MCP dropped transfer_spot_to_perps, senpi-hyperliquid-mcp#232).
+    A Say line claiming the agent moved it back sends the user hunting in the wrong balance."""
+    text = _skill()
+    assert not re.search(r"I(?:'ve| have) moved it back to perps", text, re.I)
+    tool_moves = re.search(r"\(([^)]*)\) DO use tools", text.split("license:", 1)[0]).group(1)
+    assert "spot" not in tool_moves.lower(), f"the description lists Spot → Perps as a tool move: {tool_moves}"
+    assert " ".join(text.split()).count("Move it to Perps in Balances and I'll top up again.") >= 2, \
+        "rule 3 and the Say table must hand the user the same move"
 
 
 def test_failed_top_up_reread_bypasses_the_portfolio_cache():
@@ -120,8 +133,17 @@ def test_existing_rails_survive():
     """The new sections extend the skill; the two iron rules and their tool names stay verbatim."""
     _needles("`widget_type: \"fund_user_wallet\"`",
              "I can't send funds outside of Senpi for you",
-             "`strategy_top_up`", "`strategy_withdraw_funds`", "`transfer_spot_to_perps`",
+             "`strategy_top_up`", "`strategy_withdraw_funds`",
              "`strategy_get_clearinghouse_state`", "`account_get_portfolio`")
+
+
+def test_deposit_checks_for_funds_already_parked_in_a_strategy():
+    """A funded user must never be asked to deposit: the portfolio can read allocated 0 while a
+    strategy holds the money and count it again as withdrawable."""
+    _needles("**First check they don't already have it.**",
+             "`total_allocated_in_strategy: 0` while an ACTIVE strategy holds the money",
+             "Asking a funded user to deposit is the worst answer available.",
+             "check `strategy_list` for an ACTIVE")
 
 
 def test_readme_row_matches_the_skill_version():
