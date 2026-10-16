@@ -124,13 +124,14 @@ starts tracking a position when `ON_POSITION_OPENED` fires, then evaluates exit 
 `interval_seconds` (integer, 5–3600). When a condition is met it closes the position and records the
 close reason. No LLM is involved — every decision is deterministic from the configured parameters.
 
-**Every DSL exit is a FULL close.** Phase-1 floors, phase-2 tiers and all three time cuts close 100%
-of the position — the underlying `closePosition(coin, reason, …)` takes no size argument. This is
-worth stating because the phase-2 vocabulary invites the opposite reading: a tier's `lock_hw_pct` of
-60 does **not** sell 60% of the position. It moves the protective floor to 60% of the high-water ROE
-and still exits the whole position if that floor breaks. There is no scale-out tier, and partial
-take-profits are not available anywhere in a runtime package — see `scan-contract.md` →
-"What the runtime executes does NOT include a partial exit".
+**Every exit is a FULL close — there are no partial exits.** Phase-1 floors, phase-2 tiers and all
+three time cuts close 100% of the position (`closePosition(coin, reason, …)` takes no size). A tier's
+`lock_hw_pct: 60` does **not** sell 60% — it moves the floor to 60% of high-water ROE and still exits
+everything. Nothing else reduces either: the `CLOSE_POSITION` action closes by coin (no size), and
+`edit_position` — the MCP's only reduce — is blocked to scanners (`scan-contract.md` → Read-only MCP
+boundary), so a scanner that tries raises `PermissionError` every tick while its log reads as if the
+rule fired. "Take 25% off at +10% ROE" cannot be authored in a runtime package; design exits around
+a full close.
 
 ### How a tick works
 

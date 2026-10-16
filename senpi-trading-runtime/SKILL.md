@@ -42,11 +42,11 @@ division of labor is fixed:
   signals you return, **sizing & order execution** (`FEE_OPTIMIZED_LIMIT`), slot accounting,
   `risk.guard_rails`, the two-phase **DSL** trailing-stop exits, and **crash-safe position reconcile**
   on restart.
-- **What it does NOT own: partial exits.** Every exit the runtime can make closes the WHOLE position
-  — the DSL, the `CLOSE_POSITION` action and the blocked-to-scanners `edit_position` alike. A rule
+- **What it does NOT own: partial exits.** Every exit the runtime can make (DSL, `CLOSE_POSITION`)
+  closes the WHOLE position, and `edit_position` — the only reduce — is blocked to scanners. A rule
   like "take 25% off at +10% ROE and let the rest run" cannot be authored in a runtime package at
   all; a scanner that tries raises `PermissionError` every tick while the log reads as if the rule
-  is working. Details + the three blocking layers: `references/scan-contract.md`.
+  is working. Details: `references/runtime-concepts.md` → DSL Exit Engine.
 
 ## How your code talks to the runtime
 
