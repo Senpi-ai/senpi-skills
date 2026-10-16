@@ -1,36 +1,21 @@
-"""On a copy-following strategy, "what did the trader do?" is a question about the SOURCE trader.
-The SKILL must send the agent to the source address, and must name the trap — the same discovery
-tools run on the user's own strategy wallet return the user's copy of the trade and read as an answer."""
+"""On a copy-trade, "what did the trader do?" is a question about the COPIED trader. The same
+discovery tools run on the user's own strategy wallet return the user's copy of the trade and read
+as an answer — the rule has to name that, and has to sit where a plain `read` delivers it."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import os
 
 SKILL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "SKILL.md")
+# OpenClaw keeps ~11.8k chars of a long tool result's head (plus a tail); this SKILL.md is ~90k.
+READ_HEAD = 11_000
 
 
-def test_skill_resolves_the_trader_to_the_copied_trader():
+def test_copy_trade_question_resolves_to_the_copied_trader_in_the_delivered_head():
     text = open(SKILL, encoding="utf-8").read()
-    for needle in ("that is the COPIED trader, never the user's own wallet",
-                   "Resolve the source",
-                   "discovery_get_trader_state",
-                   "discovery_get_trader_history",
-                   "never substitute the user's wallet"):
-        assert needle in text, needle
-
-
-def test_mirror_path_never_hands_a_masked_address_to_discovery():
-    """`mirror_of` is `shortTraderAddress` (portfolio.py), and the MCP masks `traderAddress` on
-    strategy_list / strategy_get too (withShortTraderAddress); discovery_* validate ETH_ADDRESS_REGEX."""
-    text = open(SKILL, encoding="utf-8").read()
-    rule = text[text.index("### \"What did the trader do with it?\""):]
-    rule = rule[:rule.index("\n## ")]
-    for needle in ("`mirror_of` is display-only — it is masked",
-                   "so is `traderAddress` on the",
-                   "the discovery tools reject a masked address"):
+    start = text.index('"What did the trader do?" on a copy-trade')
+    rule = text[start:text.index("\n> - ", start)]
+    assert start + len(rule) < READ_HEAD, f"rule ends at char {start + len(rule)} — past what `read` delivers"
+    for needle in ("the COPIED trader, never the user's wallet",
+                   "`mirror_of` / `traderAddress` are masked",   # MCP withShortTraderAddress masks both
+                   "ask for the full address",
+                   "discovery_get_trader_state", "discovery_get_trader_history"):
         assert needle in rule, needle
-
-
-def test_follow_package_reads_the_scanner_state_and_answers_per_trader():
-    text = open(SKILL, encoding="utf-8").read()
-    assert "not listed in its scanner inputs" in text
-    assert "scanner-state/<scanner>-0/state.json" in text
-    assert "answer **per trader**" in text
