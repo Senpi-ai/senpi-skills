@@ -426,9 +426,16 @@ close the mirror **via `senpi-trade`**.
 
 On anything that follows someone else's trades — a `strategy_kind: "mirror"`, or a custom package whose
 entries come from a follow list — "the trader", "he", "they" is the **source** trader. Resolve the source
-address first (`mirror_of` for a mirror; the followed addresses in the package's scanner inputs for a custom
-one), then answer from `discovery_get_trader_state` (do they still hold it?) and
-`discovery_get_trader_history` (did they close it, and when?) **on that address**.
+address first, then answer from `discovery_get_trader_state` (do they still hold it?) and
+`discovery_get_trader_history` (did they close it, and when?) **on that address**:
+
+- **Mirror:** `mirror_of` is display-only — it is masked (`0x35d1...acb1`), and so is `traderAddress` on the
+  `strategy_list` / `strategy_get` row; the discovery tools reject a masked address. Ask the user for the
+  trader's full address.
+- **Custom follow package:** its traders are picked at runtime (`discovery_get_top_traders`,
+  `leaderboard_get_top`), not listed in its scanner inputs. Read them from the scanner's own state, `…/scanner-launch/scanner-state/<scanner>-0/state.json`,
+  and answer **per trader**: which of them hold, or have closed, that coin in that direction (one batched
+  `discovery_get_trader_state` call).
 
 Running those same tools on the user's own strategy wallet is the trap: it returns *their copy* of the trade,
 so the answer comes back fluent, confident and about the wrong person — and the user has to ask again. If the

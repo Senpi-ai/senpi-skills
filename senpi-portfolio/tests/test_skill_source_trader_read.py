@@ -15,3 +15,22 @@ def test_skill_resolves_the_trader_to_the_copied_trader():
                    "discovery_get_trader_history",
                    "never substitute the user's wallet"):
         assert needle in text, needle
+
+
+def test_mirror_path_never_hands_a_masked_address_to_discovery():
+    """`mirror_of` is `shortTraderAddress` (portfolio.py), and the MCP masks `traderAddress` on
+    strategy_list / strategy_get too (withShortTraderAddress); discovery_* validate ETH_ADDRESS_REGEX."""
+    text = open(SKILL, encoding="utf-8").read()
+    rule = text[text.index("### \"What did the trader do with it?\""):]
+    rule = rule[:rule.index("\n## ")]
+    for needle in ("`mirror_of` is display-only — it is masked",
+                   "so is `traderAddress` on the",
+                   "the discovery tools reject a masked address"):
+        assert needle in rule, needle
+
+
+def test_follow_package_reads_the_scanner_state_and_answers_per_trader():
+    text = open(SKILL, encoding="utf-8").read()
+    assert "not listed in its scanner inputs" in text
+    assert "scanner-state/<scanner>-0/state.json" in text
+    assert "answer **per trader**" in text
