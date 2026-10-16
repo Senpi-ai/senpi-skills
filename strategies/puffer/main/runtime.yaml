@@ -3,22 +3,42 @@
 # recent history (an absolute band width is meaningless across a universe), waits for
 # the coil, and trades the release — never the coil itself, which is how a strategy
 # dies by a thousand small cuts. NEVER closes — DSL owns every exit.
+#
+# 1.1.0 (2026-10-12), from the template audit's 208-day replay on four majors, as 1.0 was written:
+#   - it traded about seven times per coin per month with 28% winners, and 88% of its live
+#     closes were the exchange stop. The 8% ROE stop sat 1.6% of price away at 5x — inside the
+#     release candle's own range — so a break was stopped on noise before the expansion could
+#     pay. The stop is now 12% ROE = 3.0% of price at 4x. How often the wider stop trips has
+#     not been measured; the card makes no frequency promise for it.
+#   - the fee gate priced a round trip at 0.06% (4.5 bps taker + 1.5 bps maker: HL's base
+#     fee alone, without the Senpi builder fee every wallet also pays). The defaults are now
+#     8 bps taker / 6 bps maker per side, HL + builder fee as measured on live fills: 0.14%
+#     maker-in/taker-out, 0.16% taker/taker. The builder fee is per user and volume-tiered
+#     (get_loyalty_tiers), so a wallet's own rate differs. The cover multiple (2.5x) is
+#     unchanged, so the capture the tape must offer moves from 0.15% to 0.35% of price.
+#   - sizing: four slots at 20% margin and 4x everywhere (was five slots at 10-12% and 4-5x by
+#     conviction band). The bands still rank candidates; they no longer change the size.
+#   - the first ratchet rung locks 40% of high-water (was 25%); the three clock cuts are
+#     written out OFF; the drawdown breaker no longer resets at the UTC day rollover.
 name: puffer-main
 group: puffer
 version: 1.0.0
 description: >
   PUFFER — Volatility Squeeze. Finds names whose volatility has compressed to a
   fraction of their own trailing median, then enters on the release in the direction of
-  the break, volume-confirmed. Universe derived live over a volume floor. Up to 5
-  positions. DSL is the ONLY exit — a FIXED max-loss floor plus a gains-only profit
-  ratchet that runs to +100% (no trailing stop, no breakeven exits, no time cuts:
-  an expansion is exactly the move you must not cut short).
+  the break, volume-confirmed. Universe derived live over a volume floor. Up to 4
+  positions at 20% of the wallet each, 4x. DSL is the ONLY exit — a FIXED 12% ROE stop
+  (3.0% of price at 4x) plus a gains-only profit ratchet that locks 40% of high-water from
+  +20% ROE and runs to +100% (no trailing stop, no breakeven exits, no time cuts: an
+  expansion is exactly the move you must not cut short). The fee gate defaults to
+  8 bps taker / 6 bps maker per side (HL + Senpi builder fee, measured on live fills);
+  the builder fee is per user and volume-tiered, so set them to the wallet's own rate.
 
 strategy:
   wallet: "${PUFFER_WALLET}"
-  slots: 5
-  margin_pct: 10                          # baseline = the scanner's BASE conviction rung
-  default_leverage: 4                    # = the scanner's BASE rung; scan emits per-signal
+  slots: 4                               # 1.1.0: was 5; = the scanner's maxSlots
+  margin_pct: 20                         # per-slot PERCENT; 4 x 20% = 80% of the book; = every marginPctTiers rung
+  default_leverage: 4                    # = maxLeverage = every leverageTiers rung; scan emits per-signal, clamped to the venue cap
   trading_risk: moderate
   enabled: true
 
@@ -39,12 +59,16 @@ scanners:
       # ── universe (derived live; never hardcoded) ──
       volFloorUsd: 25000000
       maxUniverse: 30
-      maxSlots: 5
+      maxSlots: 4                     # = strategy.slots
       recentSignalTtlSeconds: 21600   # 6h per-name debounce
-      # ── fee gate (NOT verified venue rates — set from HL `userFees`) ──
-      takerFeeBps: 4.5
-      makerFeeBps: 1.5
-      feeCoverMultiple: 2.5
+      # ── fee gate — per side, HL fee + the Senpi builder fee as measured on live fills (1.1.0;
+      # 1.0 shipped HL's base 4.5/1.5 bps alone, 0.06% a round trip). The builder fee is per user
+      # and volume-tiered (get_loyalty_tiers): set these to the wallet's own rate. A round trip is
+      # the entry plus a taker exit (the DSL closes): 0.14% maker-in, 0.16% taker-in;
+      # x feeCoverMultiple is the capture the tape must offer before a release is tradeable. ──
+      takerFeeBps: 8
+      makerFeeBps: 6
+      feeCoverMultiple: 2.5           # required capture = 0.35% of price (was 0.15% at the base-schedule fees)
       atrPeriod: 14
       atrCaptureFraction: 0.6         # an expansion gives back more of ATR than a scalp
       # ── the squeeze ──
@@ -57,10 +81,10 @@ scanners:
       minScore: 5
       goodScore: 9
       apexScore: 13
-      leverageTiers: { apex: 5, good: 4, base: 4 }
-      marginPctTiers: { apex: 12, good: 11, base: 10 }
-      maxLeverage: 5
-      maxMarginPct: 22
+      leverageTiers: { apex: 4, good: 4, base: 4 }      # 1.1.0: 4x everywhere (was 5/4/4) — the band ranks, it no longer sizes
+      marginPctTiers: { apex: 20, good: 20, base: 20 }  # 1.1.0: 20% everywhere (was 12/11/10)
+      maxLeverage: 4                  # = catalog.leverage_max = strategy.default_leverage
+      maxMarginPct: 20                # = strategy.margin_pct
     signal_data_schema:
       score: { type: number }
       band: { type: string, required: false }
@@ -91,11 +115,11 @@ actions:
         scanner: puffer_scanner
   # NO CLOSE_POSITION action — DSL is the only exit.
 
-# EXIT — the `let_winners_run` preset from
-# senpi-strategy-author/references/dsl-presets.yaml, VERBATIM. A volatility expansion is
-# the one move you must not cut short, and that preset is the widest with time-cuts off.
-# Trailing is OFF: the phase-1 floor trails high-water and can close a WINNER at a loss.
-# The ratchet locks gains, or the position rides to the fixed stop.
+# EXIT — the `let_winners_run` ratchet from senpi-strategy-author/references/dsl-presets.yaml with
+# three edits (1.1.0): the stop is 12% ROE (the preset's 8), the first rung locks 40% of high-water
+# (the preset's 25), and the three clock cuts are written out OFF. A volatility expansion is the
+# one move you must not cut short. Trailing is OFF: a floor that trails high-water can close a
+# WINNER at a loss. The ratchet locks gains, or the position rides to the fixed stop.
 exit:
   engine: dsl
   interval_seconds: 30
@@ -104,15 +128,25 @@ exit:
     ensure_execution_as_taker: true
     execution_timeout_seconds: 60
   dsl_preset:
+    hard_timeout:
+      enabled: false                  # the DSL decides every exit — a winner is not cut for being old
+      interval_in_minutes: 10080      # inert while disabled
+    weak_peak_cut:
+      enabled: false                  # closes at market with no floor; never on an expansion book
+      interval_in_minutes: 360        # inert while disabled
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                  # a flat stretch after the release is not a failed thesis
+      interval_in_minutes: 120        # inert while disabled
     phase1:
       enabled: false
-      max_loss_pct: 8.0
+      max_loss_pct: 12.0              # 12% ROE = 3.0% of price at 4x (1.0: 8.0 = 1.6% of price at 5x — 88% of live closes were that stop)
       retrace_threshold: 8            # INERT while phase1.enabled is false
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 20,  lock_hw_pct: 40 }   # 1.1.0: the first lock is 40% of high-water (was 25)
         - { trigger_pct: 30,  lock_hw_pct: 40 }
         - { trigger_pct: 50,  lock_hw_pct: 60 }
         - { trigger_pct: 75,  lock_hw_pct: 75 }
@@ -121,10 +155,10 @@ exit:
 risk:
   guard_rails:
     daily_loss_limit_pct: 10
-    max_entries_per_day: 6
+    max_entries_per_day: 6            # above the 4 slots: a stop-out can be re-filled the same day
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 4
     cooldown_seconds: 900
     per_asset_cooldown_seconds: 21600
     drawdown_halt_pct: 20
-    drawdown_reset_on_day_rollover: true
+    drawdown_reset_on_day_rollover: false   # 1.1.0: the breaker no longer resets at UTC midnight
