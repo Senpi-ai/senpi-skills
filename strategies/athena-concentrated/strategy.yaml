@@ -3,13 +3,13 @@
 # Same 45% of the phalanx sleeve at risk, carried by two larger bets. Total exposure is held
 # CONSTANT on purpose: if size moved with count, a result could not be attributed to
 # concentration. The aegis arm and the 65/35 split are untouched.
-#
-# catalog.status: blocked — not offered in the catalog or discover. Deploy by explicit path:
-#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/athena-concentrated --budget <amount>
+# Listed in the catalog and in discover. Compare it against the parent it varies, not on its
+# own P&L — see senpi-strategy-discover/references/variant-families.md.
 schema_version: 1
 id: athena-concentrated
-version: 1.0.0
+version: "2.0.0"
 catalog:
+  varies: athena          # a VARIANT of this template — never outrank it
   name: Athena Concentrated — two large phalanx bets
   emoji: 🏛️
   tagline: Athena with the phalanx arm concentrated into two larger positions instead of three smaller ones — the same capital at risk, carried by fewer, bigger bets. The aegis hedge and the 65/35 split are unchanged.
@@ -19,13 +19,13 @@ catalog:
   archetype: copy_trading
   sub_style: sm_hedge_fund
   asset_classes:
-  - universe_crypto
-  - btc_eth
-  - major_alts
-  - xyz_equities
-  - commodities
-  - indices
-  - fx
+    - universe_crypto
+    - btc_eth
+    - major_alts
+    - xyz_equities
+    - commodities
+    - indices
+    - fx
   asset_scope: follows_traders
   direction: long_short
   risk_level: moderate
@@ -35,32 +35,30 @@ catalog:
   max_slots: 6
   assets: []
   tags:
-  - aegis
-  - alpha-plus-hedge
-  - concentration
-  - cross-asset
-  - dynamic-hedge
-  - experiment
-  - hedge-fund
-  - long-short
-  - not-for-users
-  - phalanx
-  - proven-cohort
-  - regime-hedge
-  - rotation
-  - smart-money
-  - smart-money-hedge-fund
-  status: blocked
+    - aegis
+    - alpha-plus-hedge
+    - concentration
+    - cross-asset
+    - dynamic-hedge
+    - experiment
+    - hedge-fund
+    - long-short
+    - phalanx
+    - proven-cohort
+    - regime-hedge
+    - rotation
+    - smart-money
+    - smart-money-hedge-fund
 requires:
   runtime: '>=3.0.0'
 defaults:
   auth_token_env: SENPI_AUTH_TOKEN
 instances:
-- name: phalanx
-  runtime: phalanx/runtime.yaml
-  wallet_env: ATHENA_PHALANX_WALLET
-  funding_share: 0.65
-- name: aegis
-  runtime: aegis/runtime.yaml
-  wallet_env: ATHENA_AEGIS_WALLET
-  funding_share: 0.35
+  - name: phalanx
+    runtime: phalanx/runtime.yaml
+    wallet_env: ATHENA_PHALANX_WALLET
+    funding_share: 0.65
+  - name: aegis
+    runtime: aegis/runtime.yaml
+    wallet_env: ATHENA_AEGIS_WALLET
+    funding_share: 0.35

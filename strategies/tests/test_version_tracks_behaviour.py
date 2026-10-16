@@ -40,6 +40,7 @@ Regenerate after an intentional change: python3 senpi-trading-runtime/scripts/be
 """
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -58,6 +59,19 @@ with open(LOCK_PATH, encoding="utf-8") as _fh:
 COMPUTED = BH.all_packages()
 
 _REGEN = "python3 senpi-trading-runtime/scripts/behaviour_hash.py --write"
+
+
+def _bump_cap(text):
+    """Return `text` with maxPreMovePct raised by 6, read from the file rather than hardcoded.
+
+    These mutation helpers used to hardcode the cap's then-current value. When the default moved on
+    2026-10-07 the replace became a silent no-op and both tests failed claiming the hash was inert —
+    the hash was fine, the test had rotted. Same shape as the hardcoded version string that broke
+    the laundering test when #828 bumped penguin. Read the value, change it arithmetically.
+    """
+    m = re.search(r"^(\s*maxPreMovePct:\s*)([0-9.]+)", text, re.M)
+    assert m, "no maxPreMovePct to mutate — the fixture package changed shape"
+    return text[:m.start()] + f"{m.group(1)}{float(m.group(2)) + 6}" + text[m.end():]
 
 
 def test_the_lock_covers_every_package():
@@ -130,10 +144,10 @@ def test_the_hash_ignores_comments_and_prose():
 
         # 3. a VALUE edit must move it — otherwise the hash is inert and proves nothing
         with open(rt, "w", encoding="utf-8") as fh:
-            fh.write(text.replace("maxPreMovePct: 3.0", "maxPreMovePct: 9.0", 1))
+            fh.write(_bump_cap(text))
         _, after_value, _ = BH.package_hash(dst)
         assert after_value != base, (
-            "changing maxPreMovePct 3.0 -> 9.0 did NOT move the behaviour hash. The hash is not "
+            "raising maxPreMovePct did NOT move the behaviour hash. The hash is not "
             "reading the config, so this entire guard is inert.")
 
         # 4. and so must a code edit
@@ -220,7 +234,7 @@ def test_write_refuses_to_launder_a_change_past_the_guard():
         with open(rt, encoding="utf-8") as fh:
             text = fh.read()
         with open(rt, "w", encoding="utf-8") as fh:
-            fh.write(text.replace("maxPreMovePct: 3.0", "maxPreMovePct: 9.0", 1))
+            fh.write(_bump_cap(text))
 
         r = run("--write")
         assert r.returncode != 0, (

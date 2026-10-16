@@ -662,7 +662,8 @@ def test_step_timing_slice_standalone():
     sp = os.path.join(tempfile.mkdtemp(), "s.json")
     out = _with_env(lambda: review.step_timing(_fresh_client(), window_days=WINDOW_DAYS,
                                                want_market=True, state_path=sp, now_ms=NOW_MS))
-    assert set(out) == {"window", "trades", "timing_summary", "meta"}   # ONLY the timing slice
+    # ONLY the timing slice — saved wallets' closed trades are collected here, so their read rides it
+    assert set(out) == {"window", "trades", "timing_summary", "external_wallets", "meta"}
     assert out["timing_summary"]["trade_count"] == 3
     assert out["timing_summary"]["exits_ahead"] == 1
     # exit_reason is the placeholder here — telemetry/ratchet has not run on the fast path
@@ -684,7 +685,7 @@ def test_step_strategies_slice_reads_state():
         return review.step_strategies(_fresh_client(), window_days=WINDOW_DAYS, want_market=True,
                                       state_path=sp, now_ms=NOW_MS)
     out = _with_env(_seq)
-    assert set(out) == {"strategies", "closed_strategies", "pnl_summary", "dsl_close_reason_mix", "meta"}
+    assert set(out) == {"book", "strategies", "closed_strategies", "pnl_summary", "dsl_close_reason_mix", "meta"}
     strat = {s["label"]: s for s in out["strategies"]}["kodiak"]
     assert strat["dsl"]["hard_stop_roe_pct"] == -15.0    # mandate/DSL from the registry
     assert strat["realized_pnl"] == 340.0

@@ -71,7 +71,7 @@ scanners:
       # 20x one. Treat this as cheap insurance, not a filter expected to fire often.
       #
       # orca shares this scorer and keeps the gate OFF until measured on its own book.
-      maxPreMovePct: 3.0
+      maxPreMovePct: 1.5                   # DEFAULT as of 2026-10-07 — see the note above
       maxPositions: 1                       # mirrors slots:1
       topN: 50                              # v2 TOP_N — score only the top-50 SM markets
       leaderboardLimit: 100                 # v2 fetch_markets limit=100

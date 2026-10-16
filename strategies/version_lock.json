@@ -22,8 +22,8 @@
       "version": "1.7.0"
     },
     "athena-concentrated": {
-      "behaviour": "483138606a37be7f",
-      "version": "1.0.0"
+      "behaviour": "99c30bc51bdc9858",
+      "version": "2.0.0"
     },
     "athena-x": {
       "behaviour": "907e87f6c41390d3",
@@ -66,8 +66,12 @@
       "version": "1.1.2"
     },
     "camel": {
-      "behaviour": "5a1b31ae936bd758",
-      "version": "1.2.1"
+      "behaviour": "f24cefbb296a9e65",
+      "version": "2.0.0"
+    },
+    "camel-spread": {
+      "behaviour": "91b846e7909cbdfc",
+      "version": "1.3.0"
     },
     "caracal": {
       "behaviour": "90b2b1d40aad5671",
@@ -90,12 +94,16 @@
       "version": "1.2.1"
     },
     "condor": {
-      "behaviour": "83702dbfef4c0fc3",
-      "version": "1.4.1"
+      "behaviour": "85595f26ee61b3a5",
+      "version": "1.5.1"
+    },
+    "condor-concentrated": {
+      "behaviour": "301aefd02b91e34b",
+      "version": "1.0.1"
     },
     "cougar": {
-      "behaviour": "6983e40dc9cd2679",
-      "version": "1.2.0"
+      "behaviour": "f02e946ad9c4b58e",
+      "version": "1.3.0"
     },
     "coyote": {
       "behaviour": "36b975d34acf8fac",
@@ -118,8 +126,8 @@
       "version": "1.1.0"
     },
     "dog": {
-      "behaviour": "3aecc24959e60c7b",
-      "version": "1.1.3"
+      "behaviour": "28b9d12ddadb2134",
+      "version": "1.2.0"
     },
     "dragonfly": {
       "behaviour": "d27401f4ff29f053",
@@ -158,8 +166,8 @@
       "version": "1.1.3"
     },
     "grizzly-wild": {
-      "behaviour": "fbf3f7b6958f813e",
-      "version": "1.0.0"
+      "behaviour": "7d0bb98dbc9fb278",
+      "version": "1.0.1"
     },
     "hare": {
       "behaviour": "a5fcef1822bccda5",
@@ -182,8 +190,12 @@
       "version": "1.1.1"
     },
     "hornet": {
-      "behaviour": "e29ef815a9418a58",
-      "version": "1.1.2"
+      "behaviour": "008187d4f1fef704",
+      "version": "1.2.0"
+    },
+    "hornet-concentrated": {
+      "behaviour": "e19cebd814645366",
+      "version": "1.1.0"
     },
     "hummingbird": {
       "behaviour": "39ab8593d19a3670",
@@ -197,9 +209,17 @@
       "behaviour": "5f401990f11c3d5c",
       "version": "1.2.2"
     },
+    "ibex": {
+      "behaviour": "efbb926b4c8fa0a6",
+      "version": "1.0.0"
+    },
     "ibis": {
       "behaviour": "71263318578d1ef6",
       "version": "1.2.0"
+    },
+    "ibis-concentrated": {
+      "behaviour": "c2e8a8257afc2ea5",
+      "version": "1.0.0"
     },
     "iguana": {
       "behaviour": "7e4c1d22af27f75b",
@@ -226,8 +246,8 @@
       "version": "1.3.0"
     },
     "koala": {
-      "behaviour": "6759437aeea85115",
-      "version": "1.2.1"
+      "behaviour": "9f2465e00558c4d3",
+      "version": "2.0.0"
     },
     "kodiak": {
       "behaviour": "d86969d2a4feceb9",
@@ -242,8 +262,8 @@
       "version": "1.1.3"
     },
     "lion": {
-      "behaviour": "3731b9d13bdd2dd2",
-      "version": "1.2.1"
+      "behaviour": "786141f2a7cb024e",
+      "version": "1.3.0"
     },
     "lynx": {
       "behaviour": "b9bb33a18e691966",
@@ -277,6 +297,10 @@
       "behaviour": "3c66702a4b2faf74",
       "version": "1.2.1"
     },
+    "moose": {
+      "behaviour": "d1dede2daa8645ff",
+      "version": "1.0.1"
+    },
     "octopus": {
       "behaviour": "44ea159a42e07100",
       "version": "1.2.1"
@@ -286,8 +310,8 @@
       "version": "1.2.1"
     },
     "orca": {
-      "behaviour": "7e46500d98c22683",
-      "version": "1.1.3"
+      "behaviour": "343853ad3c822628",
+      "version": "1.2.0"
     },
     "oryx": {
       "behaviour": "e3749c6dd2b8549b",
@@ -318,48 +342,48 @@
       "version": "1.3.1"
     },
     "pelican": {
-      "behaviour": "55e6f91e29ca2afa",
-      "version": "1.3.0"
+      "behaviour": "32687a1e8cc43ba2",
+      "version": "1.4.0"
     },
     "pelicans-duo": {
-      "behaviour": "ecd177674419b583",
-      "version": "1.0.0"
+      "behaviour": "58a9d3d826f08bee",
+      "version": "1.1.0"
     },
     "penguin": {
-      "behaviour": "6e2fe86de12e12f4",
-      "version": "1.2.0"
+      "behaviour": "21f33edc626229c3",
+      "version": "1.3.0"
     },
     "penguin-chase-150bp": {
-      "behaviour": "fb8ff5be3b6ce493",
-      "version": "1.0.0"
+      "behaviour": "d8efd0bedb0068d7",
+      "version": "1.0.2"
     },
     "penguin-chase-200bp": {
-      "behaviour": "2a057a61a306ffb5",
-      "version": "1.0.0"
+      "behaviour": "4b965206dc3af4ee",
+      "version": "1.0.2"
     },
     "penguin-chase-300bp": {
-      "behaviour": "7f7a1bb6f90b80e5",
-      "version": "1.0.0"
+      "behaviour": "fa49f2ecbe2b5b08",
+      "version": "1.0.2"
     },
     "penguin-x5": {
-      "behaviour": "02cd69071cc813b3",
-      "version": "1.1.0"
+      "behaviour": "de5a531bc45c71cb",
+      "version": "1.2.0"
     },
     "penguins-duo": {
-      "behaviour": "ced2b119b6f4eafb",
-      "version": "1.1.0"
+      "behaviour": "e7de5439f16c6f13",
+      "version": "1.2.0"
     },
     "penguins-duo-chase-150bp": {
-      "behaviour": "950a50351d6fc969",
-      "version": "1.0.0"
+      "behaviour": "affbb46887377272",
+      "version": "1.0.2"
     },
     "penguins-duo-chase-200bp": {
-      "behaviour": "1f98b29d642d4d94",
-      "version": "1.0.0"
+      "behaviour": "4d6fba015dc4e105",
+      "version": "1.0.2"
     },
     "penguins-duo-chase-300bp": {
-      "behaviour": "e1da4e9405bc90c1",
-      "version": "1.0.0"
+      "behaviour": "43b99e4d2cd8198a",
+      "version": "1.0.2"
     },
     "phalanx": {
       "behaviour": "16339676f63f78f3",
@@ -382,16 +406,16 @@
       "version": "1.0.1"
     },
     "puffin": {
-      "behaviour": "00a0574c5c5b7c69",
-      "version": "1.2.0"
+      "behaviour": "5b5d8f66c330c8cf",
+      "version": "1.2.1"
     },
     "puffin-duo": {
-      "behaviour": "586b0a415dd680a0",
-      "version": "1.0.0"
+      "behaviour": "ee56fe368d8f5159",
+      "version": "1.0.3"
     },
     "purple-penguin": {
-      "behaviour": "aca2ccd36b5fbc94",
-      "version": "1.1.0"
+      "behaviour": "0aa0f2a9e9da4fb5",
+      "version": "1.2.0"
     },
     "python": {
       "behaviour": "52f39aed485b4ea3",
@@ -450,20 +474,24 @@
       "version": "1.1.1"
     },
     "shadow": {
-      "behaviour": "ab65780a89ee38bf",
-      "version": "1.3.0"
+      "behaviour": "c038133ad8c475c5",
+      "version": "2.2.0"
     },
     "sheep": {
       "behaviour": "6ef0f05ce9c21cb0",
       "version": "1.2.2"
     },
     "signals-hunter": {
-      "behaviour": "7e15a563a3a7b7ad",
-      "version": "1.2.1"
+      "behaviour": "7889c3d295e41d52",
+      "version": "1.2.2"
     },
     "spider": {
       "behaviour": "7d6f8495e008124c",
       "version": "6.2.1"
+    },
+    "squid": {
+      "behaviour": "cae873169ddc8485",
+      "version": "1.0.0"
     },
     "stag": {
       "behaviour": "0adbfee0abc8a6bf",
@@ -494,8 +522,8 @@
       "version": "1.2.1"
     },
     "vulture": {
-      "behaviour": "fd7f577372bf5adb",
-      "version": "1.2.2"
+      "behaviour": "ec3c16505e565e72",
+      "version": "2.1.0"
     },
     "weaver": {
       "behaviour": "89bdf12886ae85ac",
@@ -506,12 +534,12 @@
       "version": "1.3.2"
     },
     "wild-cheetah": {
-      "behaviour": "d8ea05a979f42621",
-      "version": "1.0.1"
+      "behaviour": "3f9b9f31c2ab7d98",
+      "version": "1.0.2"
     },
     "wild-condor": {
-      "behaviour": "7cc5987b88302eae",
-      "version": "1.1.1"
+      "behaviour": "10d050c5210d92ec",
+      "version": "1.2.1"
     },
     "wolf": {
       "behaviour": "1c7ec3c68a8eaccb",

@@ -75,7 +75,7 @@ scanners:
       # universe, same score — what differed was how much of the move was left. Direction-aware, so a
       # dip-buy or a rally-sell still passes; it only rejects chasing. Measured on PENGUIN's entries:
       # pelican and orca share this scorer but keep the gate OFF until measured on their own books.
-      maxPreMovePct: 3.0
+      maxPreMovePct: 1.5                   # follows penguin's default (2026-10-07)
       maxPositions: 1                       # mirrors slots:1
       topN: 50                              # v2 TOP_N — score only the top-50 SM markets
       leaderboardLimit: 100                 # v2 fetch_markets limit=100

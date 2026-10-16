@@ -11,7 +11,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.7.0"
+  version: "1.10.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -70,7 +70,13 @@ python3 scripts/pulse.py all  [--no-smart]    # one-shot fallback: the full comp
   `day_classification`, `funding_regime`. Each carries a plain `read` string you can cite.
 - `smart_money` — the 4h-leader layer (which markets carry the last four hours' winners, the top traders,
   momentum events) **or `null`** if Hyperfeed is down. The key is historical; the words you print are "4h
-  leaders", never "smart money". If null, note it once and move on — never stall.
+  leaders", never "smart money". If null, note it once and move on — never stall. Each layer is a short
+  `rows` list plus its source counts: the top 8 markets (`token`, `direction`, `pct_of_top_traders_gain`,
+  `trader_count`), the top 5 traders (`unrealized_pnl` over the 4h window, `top_markets`), and up to 8 momentum
+  events, one per trader, `sent` first. An event is a trader's 4h PnL crossing a tier, a real signal;
+  `decision: "blocked"` only means the alert was not pushed (`blocked_reason`), never that the move is doubtful.
+  No `top_positions` (most blocked events): give the trader, `tier_label` and `delta_pnl`, never guess the markets
+  (`leaderboard_get_trader_positions` has them). Count traders, not `total_count` (it counts re-fires).
 - `meta.warnings` / `meta.degraded` — what was unavailable. Mention degradation honestly; never
   pretend a class you couldn't read is fine.
 - The engine **fails open** — partial data still returns valid JSON. Work with what you got; flag
@@ -189,9 +195,26 @@ four hours has a four-hour record, and offering them would read as a recommendat
 
 - **Full sweep → senpi-signals.** Run `python3 scripts/sweep.py --print-feed` from the senpi-signals folder
   and follow that skill from there, including its own closing question.
-- **Positions → positions read.** Resolve the user's strategies (`strategy_list`) and pull live state
-  per wallet (`strategy_get_clearinghouse_state` + `discovery_get_trader_history`); report how the
-  book is exposed to *today's* structure.
+- **Positions → positions read: the Senpi strategies plus the wallets the user added.** Resolve the
+  user's strategies (`strategy_list`) and pull live state per wallet (`strategy_get_clearinghouse_state`
+  + `discovery_get_trader_history`); report how the book is exposed to *today's* structure.
+  - **Saved wallets in the same read.** Also call `account_get_external_wallets` (no address: every
+    wallet the user added in Your wallets, each with its live `state`) and put their positions in the
+    **same table** as the Senpi strategies — one row per position, largest position value first, never a
+    section per origin. Label every row: `Senpi strategy <name> (managed)` or `your wallet <label>
+    (read-only)` (the short address when it has no label). Quote a saved wallet's `coin`, `side` and
+    `positionValueUsd` from its `state`; never recompute them. Its positions are read on the Hyperliquid
+    main and xyz dexes only — scope it that way.
+  - **Read-only.** Senpi can't place, change or cancel orders on a saved wallet (quote its `access` line
+    if asked). You may say a saved wallet is with or against today's structure; any action you offer is a Senpi-side one (a Senpi
+    strategy), never a trade, stop, close or strategy on the saved wallet.
+  - **`protection` is not "protected".** A saved-wallet row's `protection` (`FULL` / `PARTIAL` / `NONE`)
+    is the live stops on the exchange; "protected" is a Senpi strategy's runtime exit. Never merge them.
+  - **Unknown is never zero.** `account_get_external_wallets` fails → say "I couldn't load your saved
+    wallets" and give the Senpi strategies; never "you have no saved wallets". A wallet with `state: null`
+    or `state.readError` set → "couldn't load <label>", never flat, never $0, never "no positions". An
+    empty list means none added — leave them out.
+  - Call them "your wallets" or "the wallets you added"; never imply Senpi checked who controls them.
 - **Strategy → Penguin or Pelican first, or one built for this market.** As the quick start, offer the
   Hyperfeed strikers — **senpi-strategy-ops** runs the walkthrough and deploys under their name:
 
