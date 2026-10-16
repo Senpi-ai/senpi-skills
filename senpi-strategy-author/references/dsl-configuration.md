@@ -19,6 +19,8 @@ and breakeven rungs that the presets had already dropped.
 > (`entry × (1 - max_loss_pct/100/leverage)`), so `max_loss_pct: 15` means "cut at −15% of *margin*"
 > at any leverage — not a price move. Shipped presets run 5–18.
 
+A stop computed in `scan()` and emitted in `data{}` does not bind — see [`signal-data-does-not-bind.md`](signal-data-does-not-bind.md).
+
 ---
 
 ## Exit block

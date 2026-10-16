@@ -8,6 +8,8 @@ HEDGE = the CROSS-ASSET cushion. Per blend asset: 4h downtrend is the hard gate;
 drawdown over stressLookback >= stressDropPct OR a 1h breakdown ARMS the short;
 capitulation-guarded. Vol-parity margin (inverse-ATR, normalized to referenceVolPct,
 clamped) sized UP by a thesis-stress multiplier when the thesis coin itself is breaking.
+1.3.0: every read is on CLOSED candles — the bar in progress never moves structure, RSI,
+drawdown or ATR.
 """
 
 
@@ -28,6 +30,34 @@ def _low(c):
     if isinstance(c, (list, tuple)) and len(c) >= 4:
         return float(c[3] or 0)
     return float(c.get("low", c.get("l", 0)) or 0) if isinstance(c, dict) else 0.0
+
+
+# ── closed candles only (1.3.0 — the Vulture/Moose idiom) ─────────────────
+HOUR_SECONDS = 3600
+FOUR_HOUR_SECONDS = 14400
+DAY_SECONDS = 86400
+
+
+def _t(c):
+    """Candle open, epoch ms (dict `t` or list-row element 0), or -1 when unreadable."""
+    if isinstance(c, dict):
+        v = c.get("t")
+    else:
+        v = c[0] if isinstance(c, (list, tuple)) and c else None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return -1.0
+
+
+def closed_candles(candles, candle_seconds, now):
+    """Only the candles that have CLOSED, oldest first. `t` is the candle OPEN in epoch
+    milliseconds, so a candle has closed once t/1000 + candle_seconds <= now. The feed's last
+    row is the bar in progress: a structure/RSI/ATR read off it changes every tick, so a trend
+    could appear and vanish inside one bar. Rows with no readable `t` are dropped."""
+    out = [c for c in candles or [] if _t(c) >= 0 and _t(c) / 1000.0 + candle_seconds <= now]
+    out.sort(key=_t)
+    return out
 
 
 def trend_structure(candles, lookback=6):
@@ -85,15 +115,12 @@ def atr_pct(candles, period=14):
     return atr / price * 100.0 if price > 0 else None
 
 
-def clamp_lev(desired, max_lev):
-    return max(1, min(int(desired), int(max_lev)))
-
-
-# ── thesis-stress multiplier (v2 thesis_stress_mult, candle math — VERBATIM) ──
-def thesis_stress_from_candles(c4, config):
+# ── thesis-stress multiplier (v2 thesis_stress_mult candle math; 1.3.0: closed candles) ──
+def thesis_stress_from_candles(c4, config, now):
     """Size the hedge UP when the THESIS coin itself is breaking down. Returns
     (multiplier in [1.0, stressMultMax], thesis_drawdown_pct). scan.py fetches the
-    thesis coin's 4h candles and passes them in."""
+    thesis coin's 4h candles and passes them in with `now`; only CLOSED candles count."""
+    c4 = closed_candles(c4, FOUR_HOUR_SECONDS, now)
     if len(c4) < 3:
         return 1.0, 0.0
     closes4 = [_close(c) for c in c4]
@@ -104,16 +131,18 @@ def thesis_stress_from_candles(c4, config):
     return round(1.0 + frac * (mmax - 1.0), 3), round(dd, 2)
 
 
-# ── per-asset hedge scoring (v2 score_hedge_one — VERBATIM) ────────────────
-def score_hedge_one(asset, c1, c4, config):
+# ── per-asset hedge scoring (v2 score_hedge_one; 1.3.0: closed candles) ────
+def score_hedge_one(asset, c1, c4, config, now):
     """Score ONE hedge-universe asset for a SHORT. 4h downtrend is the hard gate; a fast
     drawdown / 1h breakdown arms it; capitulation-guarded. Returns a thesis dict (with
-    vol_pct) or None."""
+    vol_pct) or None. `now` = time.time() from scan.py; only CLOSED candles count."""
+    c1 = closed_candles(c1, HOUR_SECONDS, now)
+    c4 = closed_candles(c4, FOUR_HOUR_SECONDS, now)
     if len(c4) < 6:
         return None
     closes4 = [_close(c) for c in c4]
     closes1 = [_close(c) for c in c1] if c1 else closes4
-    price = closes4[-1]
+    price = closes4[-1]                       # last CLOSED close (informational; never sized or emitted)
     if price <= 0:
         return None
     trend4, s4 = trend_structure(c4)

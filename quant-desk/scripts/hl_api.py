@@ -121,8 +121,9 @@ class HLError(Exception):
 
 
 def is_perp(coin):
-    """Spot fills name the pair (`@107`, `PURR/USDC`); perps are bare names or `xyz:`-prefixed."""
-    return not (coin.startswith("@") or "/" in coin)
+    """Spot fills name the pair (`@107`, `PURR/USDC`) and HIP-4 outcome (prediction) contracts are `#NNNNN`;
+    perps are bare names or dex-prefixed (`xyz:`, `km:` …)."""
+    return not (coin.startswith(("@", "#")) or "/" in coin)
 
 
 class HL:
