@@ -111,6 +111,9 @@ def test_sizing_cap_rails_cadence_and_version():
     rails = RUNTIME["risk"]["guard_rails"]
     assert rails["max_entries_per_day"] > strat["slots"]
     assert rails["drawdown_reset_on_day_rollover"] is False
+    # One crash stops all three correlated names; that must not latch the no-reset halt for good.
+    worst = strat["slots"] * INPUTS["marginPct"] * RUNTIME["exit"]["dsl_preset"]["phase1"]["max_loss_pct"] / 100
+    assert rails["drawdown_halt_pct"] > worst, (rails["drawdown_halt_pct"], worst)
     assert SIGNALS["timeout_seconds"] < SIGNALS["interval_seconds"]
     assert INPUTS["intervalHours"] == 24
     assert MANIFEST["version"] == "2.0.0"

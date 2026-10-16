@@ -125,7 +125,8 @@ risk:
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 5
     cooldown_seconds: 1800                  # v2 cooldown_minutes: 30
-    drawdown_halt_pct: 18                   # v2 drawdown_halt_pct
+    drawdown_halt_pct: 25                   # above one correlated stop-out of all three (3 x 25% x 30% ROE = 22.5%);
+                                            # with no day-rollover reset an 18% halt latched for good on the first crash
     drawdown_reset_on_day_rollover: false
     per_asset_cooldown_seconds: 3600        # v2 per_asset_cooldown_minutes: 60
 
