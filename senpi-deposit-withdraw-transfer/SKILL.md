@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.6.1"
+  version: "1.6.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -238,10 +238,12 @@ the money parked in **Spot**. Four rules, in this order:
 ## Costs — say them before money moves
 
 - **Creating a strategy reserves a creation fee — about $1, budgeted as $1.50 per wallet by the
-  minimum-budget math** — so a wallet opens at the $10 floor with ~$11.50 funded. Say it whenever the plan
-  creates a wallet.
-- **Several wallets → the per-wallet minimum and fee up front:** "N wallets × ($10 minimum + ~$1.50 fee)
-  ≈ $Z" — before the budget question, not after a refusal.
+  minimum-budget math** — so ~$11.50 per wallet opens a wallet. It is not what the strategy needs to
+  trade: that is the design's own minimum. Say it whenever the plan creates a wallet.
+- **Before the budget question, quote the design's minimum, not the floor:** `min_budget` on the card
+  (`minBudget` on the deploy report) — already the whole book across its wallets. "N wallets × ($10 +
+  ~$1.50)" only says the wallets can open; under the design's minimum the strategy installs, scans and
+  never opens a position.
 - **Quote what the tool returned, nothing else.** A fee, a "funds in transit" figure, or an `available`
   figure in a tool result is quoted as-is. Never invent a fee a tool did not return.
   `strategy_withdraw_funds` returns the exact available figure — quote that, don't compute one.

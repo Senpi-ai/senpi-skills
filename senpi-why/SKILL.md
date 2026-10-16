@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.4.0"
+  version: "1.4.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -110,7 +110,7 @@ Answer with what Senpi does, never with profits.
   fills at real spreads, not a simulation that flatters itself. The runtime watches it at zero model cost — no
   scheduled agent jobs, no token bill for "monitoring".
 - **Multi-strategy isolation** — each strategy runs in its own sub-wallet, so one can't liquidate another.
-- **350+ markets from one account** — crypto, US equities, metals and indices, one balance and one set of
+- **300+ markets from one account** — crypto, US equities, metals and indices, one balance and one set of
   risk rules across all of them. Quote the live count from `market_list_instruments`, never from memory.
 - **Deposit from anywhere** — the Fund Your Wallet flow takes USDC from any supported network (or a card) and lands it on Hyperliquid, ready to trade.
 - **Fees + loyalty** — a transparent builder fee that drops through a loyalty-tier system; refer and earn a share.

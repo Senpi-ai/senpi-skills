@@ -137,8 +137,11 @@ meta          { warnings[], sources[], window, degraded,
 `exit_reason.terminal` — **when telemetry enriched it** (`source: "telemetry"`) it's the native
 `close_reason`: `tier_breach`, `max_retrace`, `trailing_floor`, `weak_peak`, `dead_weight`, `hard_timeout`,
 `manual`, `sl_hit`. **When it fell back to the ratchet record** (`source: "ratchet"`) it's `SL_TRIGGERED`,
-`MANUAL_CLOSE`, `LIQUIDATED`, `ADL`. A saved wallet's trade is always `MANUAL_TRADE` (`source: "external_wallet"`)
-— the user's own exit, never a DSL tier and never the same thing as `manual`/`MANUAL_CLOSE` (a Senpi strategy closed by
-hand). Neither available → `UNKNOWN` (`source: "unknown"`) — say "exit mechanism
-not recorded on this build," never guess. `tier_index`/`tier_reached` = the tier that locked; `high_water_roe`
+`CLOSED_OFF_LADDER`, `LIQUIDATED`, `ADL`. **`CLOSED_OFF_LADDER` does NOT mean the user closed it** — the DSL
+ladder ended for a reason that was not its own stop: the runtime closing on signal invalidation or a time cut,
+the agent calling `close_position`, and the user closing on the venue are indistinguishable in this record.
+Say "not closed by its stop"; never attribute it to the trader. A saved wallet's trade is always `MANUAL_TRADE`
+(`source: "external_wallet"`) — the user's own exit, never a DSL tier and never the same thing as a Senpi
+strategy's `manual` or `CLOSED_OFF_LADDER` exit. Neither available → `UNKNOWN` (`source: "unknown"`) — say
+"exit mechanism not recorded on this build," never guess. `tier_index`/`tier_reached` = the tier that locked; `high_water_roe`
 = the peak ROE — together they tell you *which lever* to tune.
