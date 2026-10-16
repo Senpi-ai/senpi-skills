@@ -1,0 +1,162 @@
+# ── CONDOR CONCENTRATED · single instance — forked from condor v1.4.1 ──
+# Changes from condor:
+#   - XYZ assets included (ban removed)
+#   - Proven cohort (discovery_get_top_traders + trader_state, headcount) replaces the
+#     4h leaderboard's DIRECTIONAL read; the board now supplies price data only
+#   - 24h price change (from prevDayPx) scored as 4h<->24h alignment
+#   - 1h<->4h strength alignment scored
+#   - Margin flat 80% at 10x for every score above the floor
+#   - All three clocks off — the ladder and the 15% ROE stop own every exit
+name: condor-concentrated-main
+group: condor-concentrated
+version: 1.0.0
+description: >
+  CONDOR CONCENTRATED — multi-asset trend-continuation apex sniper, forked from condor.
+  Scans the top 50 HL assets by 24h notional volume (crypto + XYZ equities/commodities/
+  indices) and fires ONLY when 24h + 4h + 1h + 15m momentum all align, the proven cohort
+  (>= $1M lifetime realized PnL via discovery_get_top_traders + discovery_get_trader_state)
+  holds that same side with >= 60% conviction across >= 10 positioned wallets, OI >= $1M,
+  and the move is not a runaway counter-trend (MACRO_TREND_GATE). Flat 80% margin at 10x;
+  one position at a time; a wide DSL lets apex setups breathe with NO time cuts.
+
+strategy:
+  wallet: "${CONDOR_CONCENTRATED_WALLET}"
+  slots: 1                                # one amazing trade per day — single position
+  default_leverage: 10                    # fallback; scan emits 10x (clamped to the venue max)
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: condor_cc_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 180                  # condor cadence (3 min)
+    timeout_seconds: 120                   # up to 6 MCP reads/tick on a cohort-refresh tick
+    default_signal_validity_seconds: 300   # under two 180s ticks
+    state_history_max_count: 100           # dedup map + cohort cache + scan history (~5h @180s)
+    inputs:
+      universeSize: 50                     # top N HL assets by 24h notional volume (crypto + XYZ)
+      minOiUsd: 1000000                    # OI >= $1M hard floor
+      smLimit: 100                         # leaderboard_get_markets depth (price data only)
+      minLeverage: 0                       # 0 = accept any venue cap (warn only)
+      minScore: 13                         # score floor (unchanged from condor)
+      marginPct: 80                        # PERCENT of withdrawable (0,100] — flat, see leverageTiers
+      maxPositions: 1                      # "one amazing trade per day"
+      # 3TF alignment floors (unchanged from condor)
+      min4hMagnitude: 1.0
+      min1hMagnitude: 0.3
+      min15mVelocity: 0.1
+      macroGateThresholdPct: 10.0          # MACRO_TREND_GATE (no counter-trend > 10%)
+      # ── proven cohort: replaces condor's minSmGainSharePct / minTraderCount ──
+      # The cohort is the wallets with >= $1M LIFETIME realized PnL, which is how
+      # senpi-signals defines smart money. Direction is HEADCOUNT, so price cannot
+      # move it — unlike the 4h gain board, which agrees with whatever just happened.
+      cohortPool: 200                      # rows pulled from discovery_get_top_traders
+      cohortCap: 150                       # cap the cohort at N wallets
+      cohortMinRealizedUsd: 1000000        # the >= $1M floor
+      cohortCacheTtlSeconds: 900           # refresh every ~15 min (5 ticks at 180s)
+      minPositionedCount: 10               # minimum proven wallets positioned in a coin
+      minCohortConvictionPct: 60.0         # dominant side must hold >= 60% of them
+      stronglyTiltedConvictionPct: 80.0    # conviction tier for +4
+      convergentConvictionPct: 70.0        # conviction tier for +3
+      deepConsensusCount: 50               # cohort depth for +1
+      # ── 24h and 1h<->4h alignment scoring (new) ──
+      align24hStrongPct: 3.0               # |24h| >= 3% for +3, else +2 when merely aligned
+      align1hStrongRatio: 0.5              # |1h| >= 0.50 x |4h| for +2
+      align1hModerateRatio: 0.25           # |1h| >= 0.25 x |4h| for +1
+      recentSignalTtlSeconds: 240          # race-window dedup
+      # Flat 80% at 10x for every score at or above the floor. condor's tiers spanned
+      # 20/28/32%, a 4-point spread between a score-13 and a score-19 entry — the score
+      # was a gate, not a gradient, so this stops pretending otherwise.
+      leverageTiers: [[13, 10, 80]]
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      priceChange4hPct: { type: number, required: false }
+      priceChange1hPct: { type: number, required: false }
+      contribChange15m: { type: number, required: false }
+      priceChange24hPct: { type: number, required: false }
+      cohortConvictionPct: { type: number, required: false }
+      cohortPositioned: { type: number, required: false }
+      oiUsd: { type: number, required: false }
+      funding: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: condor_cc_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every hard gate + score floor
+    scanners: [condor_cc_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # trend-continuation cannot miss the entry
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: condor_cc_main_signals
+
+# EXIT — DSL, ported from condor v1.4.1. Wide so apex setups breathe through normal
+# wicks: Phase 1 max_loss 15% ROE (trailing disabled), Phase 2 8-rung ladder with the
+# first lock reachable at +6% ROE.
+#
+# ALL THREE CLOCKS OFF — the house default, and a deliberate change from condor, which
+# runs weak_peak_cut (5h to show +5% ROE or the slot is freed). THE COST, stated rather
+# than assumed: with ONE slot and no time cut, a position that drifts sideways without
+# reaching the 15% stop holds the only slot until it does. The strategy then goes quiet
+# because the slot is occupied, not because no setup qualified — and `max_entries_per_day:
+# 1` means it would not have taken a second trade that day anyway. There is no
+# CLOSE_POSITION scanner here, so the 15% ROE stop is the only hard floor.
+exit:
+  engine: dsl
+  interval_seconds: 60                     # 30 -> 60 (REDUCE_ONLY spam mitigation)
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # exit closes MUST happen
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: false                       # declared off, not left to a default
+      interval_in_minutes: 1440
+    weak_peak_cut:
+      enabled: false                       # no time cuts — let winners run
+      interval_in_minutes: 300
+      min_value: 5.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: false
+      max_loss_pct: 15                     # 1.50% of price at 10x = ~12% of equity at 80% margin
+      retrace_threshold: 12
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 6,   lock_hw_pct: 30 }   # 0.60% of price  <- loss reducer
+        - { trigger_pct: 20,  lock_hw_pct: 40 }   # 2.00%
+        - { trigger_pct: 25,  lock_hw_pct: 50 }   # 2.50%
+        - { trigger_pct: 30,  lock_hw_pct: 60 }   # 3.00%
+        - { trigger_pct: 40,  lock_hw_pct: 65 }   # 4.00%
+        - { trigger_pct: 50,  lock_hw_pct: 70 }   # 5.00%
+        - { trigger_pct: 70,  lock_hw_pct: 75 }   # 7.00%
+        - { trigger_pct: 100, lock_hw_pct: 85 }   # 10.00%
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 15
+    max_entries_per_day: 1                  # one amazing trade per day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 7200                  # 2h post-loss freeze
+    drawdown_halt_pct: 25                   # HARD STOP — absorbs two ~12% stop-outs
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 7200        # 2h

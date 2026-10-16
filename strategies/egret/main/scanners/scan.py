@@ -21,7 +21,7 @@ create_position.
 FIDELITY NOTES vs the v2 producer (egret-producer.py v1.0.1):
   - v2 sized margin as a FLAT FRACTION: marginUsd = account_value * marginPct
     (config marginPct=0.15). This port emits `marginPct` as a PERCENT (15) and the
-    runtime sizes (marginPct/100)*withdrawable. The defensive "<=1.0 means a pasted
+    runtime sizes (marginPct/100)*withdrawable. The defensive "<1.0 means a pasted
     fraction, x100" guard converts a config that still stores 0.15. NOT tiered by
     score (unlike bison) — v2 used a single flat marginPct for every emit.
   - v2 emitted exactly one signal (best, highest score). Preserved: scan() emits
@@ -236,7 +236,7 @@ def scan(inputs, ctx):
     min_traders = int(inputs.get("minTraderCount", _DEFAULT_MIN_TRADER_COUNT))   # 4h-board headcount floor
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
     # defensive: a config that still stores the v2 FRACTION (0.15) -> x100 (15%).
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         margin_pct = margin_pct * 100.0
     lev_default = int(inputs.get("leverage", _DEFAULT_LEVERAGE))
     leverage = min(lev_default, _MAX_LEVERAGE)   # v2 min(config.leverage, MAX_LEVERAGE)

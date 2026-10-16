@@ -108,8 +108,19 @@ def fake_call_tool(name, args, oi_btc=12000, fail=()):
     raise AssertionError(f"unexpected tool {name}")
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def state_dir(tmp_path, monkeypatch):
+    """Redirect the sweep's output directory at EVERY test in this file, requested or not.
+
+    `sweep.run()` always writes current.json + signals.md, and with SENPI_STATE_DIR unset that
+    default is `~/.openclaw/senpi-state/signals` — a real agent's live state. Three whale-age tests
+    called `sweep.run()` without asking for this fixture and so overwrote a real machine's cached
+    feed with 6-instrument fixture data stamped 2026-09-15, which any consumer reading that file
+    would have presented as a current market read.
+
+    autouse rather than three added arguments: the trap is that writing is a SIDE EFFECT of the
+    call under test, so a new test only avoids it by remembering a fixture it has no other reason
+    to want. Opting out is not a thing any test here needs."""
     monkeypatch.setenv("SENPI_STATE_DIR", str(tmp_path))
     return tmp_path
 

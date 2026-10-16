@@ -122,6 +122,65 @@ def _rows(data, *keys):
     return []
 
 
+# ──────────────────────────────────────────────────────────────── the user's saved wallets
+# A fourth home of the vendored reader below (the header names the first three); it is held to the
+# portfolio copy by senpi-trader-research/tests/test_research_saved_wallets.py.
+# ── VENDORED external-wallets reader, byte-identical in senpi-portfolio/scripts/portfolio.py,
+# ── senpi-improve-trades/scripts/review.py and quant-desk/scripts/addresses.py — skills install
+# ── standalone, so none may import another. senpi-portfolio/tests/test_name_reader_parity.py fails
+# ── the moment the copies drift.
+EXTERNAL_OK = "ok"
+EXTERNAL_UNAVAILABLE = "unavailable"
+
+
+def _external_wallets(me):
+    """(status, wallets) from a `user_get_me` payload, outer `data` already stripped.
+
+    The keys live inside `user`: `external_wallets_status` ("ok" | "unavailable") and, only when ok,
+    `external_wallets` [{address, label, added_at, access}]. status is "ok" or "unavailable";
+    wallets is a list only when status is "ok", else None. An ABSENT status key (an MCP older than
+    saved wallets) is "unavailable", never [] — unknown is never empty, so this never reads a
+    missing key with a default. `access` is the MCP's read-only line, carried verbatim."""
+    user = me.get("user") if isinstance(me, dict) and isinstance(me.get("user"), dict) else me
+    if not isinstance(user, dict) or user.get("external_wallets_status") != EXTERNAL_OK:
+        return EXTERNAL_UNAVAILABLE, None
+    rows = user.get("external_wallets")
+    if not isinstance(rows, list):
+        return EXTERNAL_UNAVAILABLE, None
+    wallets = []
+    for w in rows:
+        if isinstance(w, dict) and isinstance(w.get("address"), str) and w["address"].strip():
+            wallets.append({"address": w["address"].strip().lower(), "label": w.get("label"),
+                            "added_at": w.get("added_at"), "access": w.get("access")})
+    return EXTERNAL_OK, wallets
+# ── end external-wallets reader
+
+
+USER_GET_ME_TIMEOUT_S = 22   # user_get_me waits on moxie's saved-wallets read (MCP 20 s timeout)
+SAVED_WALLET_SAY = ("{short} is one of the wallets you added in Your wallets, so I won't vet it as a trader "
+                    "to copy. The quant desk can read it (score, leaks, protection), and I can review the "
+                    "trades on it instead.")
+
+
+def _saved_wallets(client, meta):
+    """The user's saved wallets (the ones they added in Your wallets) from `user_get_me` — a wallet they
+    trade by hand, read-only to Senpi, and never a copy candidate. Returns {lowercased address: wallet}, or
+    None when the list could not be read: unknown is never "none saved", so the caller then cannot rule an
+    address out and says so in `meta.warnings`."""
+    try:
+        me = _ok(client.mcp_call("user_get_me", timeout=USER_GET_ME_TIMEOUT_S)) or {}
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"user_get_me failed: {e}")
+        me = {}
+    status, wallets = _external_wallets(me)
+    meta["saved_wallets_status"] = status
+    if status != EXTERNAL_OK:
+        meta.setdefault("warnings", []).append(
+            "couldn't load the user's saved wallets, so an address here may be one they added in Your wallets")
+        return None
+    return {w["address"]: w for w in wallets}
+
+
 # ──────────────────────────────────────────────────────────────── client
 def _get_client():
     if HERE not in sys.path:
@@ -475,7 +534,10 @@ def _fetch_view(client, meta, time_frame, sort_by, limit):
     return [t for t in _rows(_ok(resp)) if isinstance(t, dict)]
 
 
-def find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=ENRICH_TOP_DEFAULT, blend=True):
+def find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=ENRICH_TOP_DEFAULT, blend=True,
+                     exclude=None):
+    """`exclude` = the user's saved wallets ({lowercased address: wallet}): never a copy candidate, so they
+    leave the pool before enrichment and are named in `meta.saved_wallets_excluded`."""
     if blend:
         # No single sort is smart enough for "who should I copy" — union complementary views and let a
         # trader seen in more than one (proven AND currently performing) rank higher. The user never picks.
@@ -514,6 +576,16 @@ def find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=ENRICH
             c["reliability"] = _reliability(c)
             c["seen_in"] = []
             out.append(c)
+    if exclude:
+        kept = []
+        for c in out:
+            hit = exclude.get(str(c.get("address") or "").strip().lower())
+            if hit:
+                meta.setdefault("saved_wallets_excluded", []).append({"short": _short(c["address"]),
+                                                                      "label": hit.get("label")})
+            else:
+                kept.append(c)
+        out = kept
     # Enrich the top of the pool for mirrorability (book + distance-from-entry). Momentum is NOT pulled here —
     # it's a tiebreak, and the caller fetches it for the top of the COPYABILITY-sorted shortlist (see run), so
     # the recommended row isn't `unknown` just because it fell outside blend order. `enrich_top=0` opts out.
@@ -634,11 +706,24 @@ def run(client, mode, addr=None, time_frame="MONTHLY", sort_by="RETURN_ON_INVEST
     meta = {"warnings": []}
     out = {"as_of": "live", "mode": mode, "meta": meta}
     if mode == "vet":
-        out["trader"] = vet_trader(client, meta, addr)
+        saved = _saved_wallets(client, meta)
+        hit = (saved or {}).get(str(addr or "").strip().lower())
+        if hit:
+            # One of the user's saved wallets: a wallet they added, read-only to Senpi — routed to the desk, never
+            # vetted as someone to mirror.
+            out["trader"] = None
+            out["saved_wallet"] = {"address": addr, "short": _short(addr), "label": hit.get("label"),
+                                   "access": hit.get("access"), "route": "quant-desk",
+                                   "review_route": "senpi-improve-trades",
+                                   "say": SAVED_WALLET_SAY.format(short=_short(addr))}
+        else:
+            out["trader"] = vet_trader(client, meta, addr)
     elif mode == "strategies":
         out["strategies"] = find_top_strategies(client, meta, limit)
     else:
-        cands = find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=enrich_top, blend=blend)
+        saved = _saved_wallets(client, meta)
+        cands = find_top_traders(client, meta, time_frame, sort_by, limit, enrich_top=enrich_top, blend=blend,
+                                 exclude=saved)
         out["candidates"] = cands
         # Lead the copy decision with the shortlist ranked by COPYABILITY, not the ROI table.
         enriched = [c for c in cands if "mirrorability" in c]

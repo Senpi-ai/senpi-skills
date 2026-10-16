@@ -43,9 +43,21 @@ RATE_LIMIT_MAX_SLEEP_S = 20.0
 RETRY_CODES = (429, 500, 502, 503, 504)
 BACKOFF_S = 1.5
 DEFAULT_CACHE = os.path.join(tempfile.gettempdir(), "quant-desk", "cache")
+# The cache key is sha1(request body), and `now_ms` goes INTO the body of every expensive read —
+# candleSnapshot's startTime/endTime, userFillsByTime, userFunding, the ledger. At millisecond
+# resolution every run got a unique key, so the reads that dominate runtime NEVER hit the cache the
+# module docstring promises. A desk killed at 120s therefore cost full price again on the re-run,
+# and the agent that re-ran it three more times paid four times over — into the same per-IP rate
+# bucket, which is what actually produced the 429s. (a live desk, 2026-09-23: five concurrent runs on
+# one wallet, three dead.) Flooring "now" to a 5-minute bucket makes every run inside that bucket
+# share keys, well within the 600s/900s TTLs. The cost is that the window can end up to 5 minutes
+# stale — nothing, on 90 days, and the live book is a separate 120s-TTL read that does not use it.
+NOW_BUCKET_MS = 300_000
 TTL = {"metaAndAssetCtxs::xyz": 120, "clearinghouseState": 120, "frontendOpenOrders": 120, "metaAndAssetCtxs": 120, "candleSnapshot": 900,
        "userFees": 3600, "portfolio": 600, "userNonFundingLedgerUpdates": 600, "userFillsByTime": 600,
-       "userFunding": 600, "leaderboard": 6 * 3600}
+       "userFunding": 600, "leaderboard": 6 * 3600,
+       # what an address IS does not change on a desk's timescale
+       "userRole": 7 * 24 * 3600, "vaultDetails": 7 * 24 * 3600, "userAbstraction": 600}
 
 
 def _retry_after(headers):
@@ -121,7 +133,7 @@ class HL:
     def __init__(self, cache_dir=DEFAULT_CACHE, timeout=60, now_ms=None):
         self.cache_dir = cache_dir
         self.timeout = timeout
-        self.now_ms = now_ms or int(time.time() * 1000)
+        self.now_ms = now_ms or (int(time.time() * 1000) // NOW_BUCKET_MS) * NOW_BUCKET_MS
         self.calls = 0
         if cache_dir:
             os.makedirs(cache_dir, exist_ok=True)
@@ -233,10 +245,17 @@ class HL:
         return {
             "address": addr, "now_ms": self.now_ms, "window_start_ms": win_start, "fetch_start_ms": start, "days": days,
             "clearinghouseState": self.info({"type": "clearinghouseState", "user": addr}),
-            "frontendOpenOrders": self.info({"type": "frontendOpenOrders", "user": addr}),
+            # None = the read FAILED (the audit then reads that dex's protection as unknown, never NONE);
+            # [] = no orders. Never fold a failure into [] — that is how a stop we could not see reads "naked".
+            "frontendOpenOrders": self._optional({"type": "frontendOpenOrders", "user": addr}),
+            # None = the xyz read FAILED: its positions are unknown, never none (live answers an
+            # account with no xyz collateral with an empty state, not an error).
             "clearinghouseState_xyz": self._optional({"type": "clearinghouseState", "user": addr, "dex": "xyz"}),
-            "frontendOpenOrders_xyz": self._optional({"type": "frontendOpenOrders", "user": addr, "dex": "xyz"}) or [],
+            "frontendOpenOrders_xyz": self._optional({"type": "frontendOpenOrders", "user": addr, "dex": "xyz"}),
             "spotClearinghouseState": self._optional({"type": "spotClearinghouseState", "user": addr}),
+            # the account mode ("default" / "disabled" = perps and spot are separate balances;
+            # "unifiedAccount" / "portfolioMargin" = spot holds the perps margin). None = unread.
+            "userAbstraction": self._optional({"type": "userAbstraction", "user": addr}),
             "fills": merge_fills(self.fills(addr, start), self.twap_slices(addr, start)),
             "userFunding": self.funding(addr, win_start),
             "userFees": self.info({"type": "userFees", "user": addr}),
@@ -246,6 +265,39 @@ class HL:
             "portfolio": self.info({"type": "portfolio", "user": addr}),
             "ledger": self.info({"type": "userNonFundingLedgerUpdates", "user": addr, "startTime": win_start}),
         }
+
+    def subject(self, addr):
+        """What this address IS, before the desk spends 200 reads assuming it is a trader.
+
+        `userRole` is Hyperliquid's own answer and costs one call: `user`, `vault`, `agent`,
+        `subAccount` or `missing`. It is not a heuristic and it does not guess — every senpi
+        strategy wallet and every ordinary whale comes back `user`.
+
+        This exists because of a real desk: a reader asking for their Hyperliquid score had the
+        agent point the desk at `0x31ca…974b`, which is **HLP Strategy B** — a component market
+        making strategy inside Hyperliquid's own HLP vault. 13,722 fills, 172 coins, 177 open
+        positions, 76% resting, zero fees paid. The desk spent two minutes on it and was killed
+        mid-run, and had it finished, every sentence would have been wrong: there is no entry
+        thesis to time on a quoting engine, no stop to place, and no "giving back 46% of a
+        winner's peak". One call answers it, and answers it better.
+
+        Fails OPEN: an address we cannot classify is read as an ordinary trader, which is what it
+        almost always is.
+        """
+        try:
+            role = (self.info({"type": "userRole", "user": addr}) or {}).get("role") or "user"
+        except HLError:
+            return {"role": "user", "unverified": True}
+        out = {"role": role}
+        if role == "vault":
+            try:
+                d = self.info({"type": "vaultDetails", "vaultAddress": addr}) or {}
+                out["name"] = d.get("name")
+                out["description"] = d.get("description")
+                out["leader"] = d.get("leader")
+            except HLError:
+                pass
+        return out
 
     def _optional(self, body):
         try:
@@ -284,6 +336,18 @@ class HL:
         with ThreadPoolExecutor(max_workers=workers) as ex:
             return dict(ex.map(one, addrs))
 
+    def portfolios(self, addrs, workers=6):
+        """{addr: Hyperliquid's `portfolio` reply, or None when that read failed} — one read per wallet,
+        in parallel. The SAME request `trader()` makes, so a desk run on one of these wallets inside the
+        cache TTL reuses it instead of paying for it again."""
+        def one(a):
+            try:
+                return a, self.info({"type": "portfolio", "user": a})
+            except Exception:  # noqa: BLE001 — one wallet's failure is that wallet's unknown value
+                return a, None
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            return dict(ex.map(one, addrs))
+
     def leaderboard(self):
         """Hyperliquid's public leaderboard (every account with a window performance; ~40 MB), cached."""
         path = os.path.join(self.cache_dir, "leaderboard.json") if self.cache_dir else None
@@ -315,7 +379,9 @@ class HLFixture(HL):
         req = body.get("req") or {}
         user = str(body.get("user", "")).lower(); dex = body.get("dex", "")
         if user and dex and f"hl::{t}::{user}::{dex}" not in self._r and t in ("clearinghouseState", "frontendOpenOrders"):
-            raise HLError(f"fixture has no {t} for dex {dex}")          # a fixture without an xyz view = an account with no xyz collateral
+            # a fixture without an xyz view = a FAILED read. Live answers an account with no xyz
+            # collateral with an empty state, so recordings carry that state explicitly.
+            raise HLError(f"fixture has no {t} for dex {dex}")
         for key in (f"hl::{t}::{user}::{dex}" if dex else "", f"hl::{t}::{user}", f"hl::{t}::{req.get('coin', '')}::{req.get('interval', '')}", f"hl::{t}::{req.get('coin', '')}",
                     f"hl::{t}::{dex}", f"hl::{t}"):
             if not key:
