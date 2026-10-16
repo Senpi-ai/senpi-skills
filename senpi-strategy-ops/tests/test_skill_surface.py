@@ -90,7 +90,12 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # tail that defined "Redeploy" as close → create, so it closed both wallets and funded new ones. Each head
 # line pushes a line of Step 0.75 out of what `read` delivers; fitting the body to that cut means moving
 # the middle sections into references/, which CloseIsNeverARepair does not do — it pins this rule only.
-BODY_BUDGET = {"senpi-strategy-ops": 364, "senpi-strategy-author": 430}
+# ops 364 -> 365 (2026-10-16): a healthy strategy that has never traded gets its binding gate, threshold and
+# universe count, never "being selective" — one funded account asked four times over two days and got
+# "selective" each time. It rides the "it isn't trading" route in the head, because the band `read` drops
+# (the monitor section, where the first draft put it) never reaches the agent; the depth is in
+# references/liveness-verification.md.
+BODY_BUDGET = {"senpi-strategy-ops": 365, "senpi-strategy-author": 430}
 
 
 def _skill_body(path):

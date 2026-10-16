@@ -34,11 +34,16 @@ LIVENESS = OPS / "references" / "liveness-verification.md"
 
 class TheNeverTradedAnswerIsTaught(unittest.TestCase):
     def test_the_resident_line_refuses_being_selective_as_an_answer(self):
-        """It has to fire without opening a reference — this is the whole user-facing miss."""
+        """It has to fire without opening a reference — this is the whole user-facing miss — so it must
+        sit in the ~11,800-char head OpenClaw's `read` delivers, not the middle it drops."""
         text = SKILL.read_text()
-        for needle in ("has never traded", "binding gate", "universe count",
-                       'never "being selective"'):
-            self.assertIn(needle, text, needle)
+        start = text.find("healthy but has never traded")
+        self.assertNotEqual(start, -1, "the never-traded route is gone from the ops body")
+        line = " ".join(text[start:text.index("A step verify marks", start)].split())
+        for needle in ("binding gate", "universe count", 'never "being selective"',
+                       "references/liveness-verification.md"):
+            self.assertIn(needle, line, needle)
+        self.assertLess(start + len(line), 11_000, "past the head OpenClaw's `read` delivers")
 
     def test_the_answer_names_gate_threshold_universe_and_emit_history(self):
         liveness = LIVENESS.read_text()
@@ -71,6 +76,17 @@ class TheNeverTradedAnswerIsTaught(unittest.TestCase):
         for needle in ("Selective vs. unreachable", "it is **broken**",
                        "test_entry_gate_reachability.py", "UNPROVEN"):
             self.assertIn(needle, liveness, needle)
+        # validate cannot see it: an unreachable gate reads data and stands aside, which is a PASS.
+        flat = " ".join(liveness.split())
+        self.assertIn("`openclaw senpi validate` does not catch this", flat)
+
+    def test_fired_count_reads_signal_events_not_a_tick_history(self):
+        """`senpi events` is the domain-event log (position/dsl/order/signal), not ticks; and an external
+        scanner's runCount climbs only on an emitting tick, so `(no signals yet)` never shows there."""
+        flat = " ".join(LIVENESS.read_text().split())
+        self.assertIn("its `signal.*` events in `openclaw senpi events -r <runtime_id>`", flat)
+        self.assertNotIn("for the tick history", flat)
+        self.assertIn("an external one stays at `runs=0` until a tick emits", flat)
 
     def test_no_user_identifying_detail_leaked_into_the_public_repo(self):
         """senpi-skills is public: no MIDs, no wallet addresses in the teaching or this guard."""
