@@ -531,13 +531,6 @@
    "declared_horizon": "position"
   },
   {
-   "package": "tortoise",
-   "instance": "main",
-   "cut": "hard_timeout",
-   "interval_minutes": 43200.0,
-   "declared_horizon": null
-  },
-  {
    "package": "wild-condor",
    "instance": "main",
    "cut": "weak_peak_cut",

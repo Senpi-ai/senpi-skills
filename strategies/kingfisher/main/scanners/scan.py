@@ -5,9 +5,9 @@ Per tick:
   - iterates the configured `allowedAssets` basket (held + recently-signalled filtered first),
   - fetches 1h + 4h candles and scores each via pure `scoring.build_thesis` (MACD crossover trigger +
     RSI confirmation + 4h trend context),
-  - emits EVERY candidate at/above `minScore`, best-first up to the open slots, sized by a conviction
-    margin tier; the runtime applies the slots ceiling, sizes the dollars, owns cooldowns/risk gates,
-    and trails the DSL exit.
+  - emits EVERY candidate at/above `minScore`, best-first up to the open slots, at the flat `marginPct`
+    and the constant `leverage`; the runtime applies the slots ceiling, sizes the dollars, owns
+    cooldowns/risk gates, and trails the DSL exit.
 
 Read-only + single-pass. Emits a `marginPct` INTENT (PERCENT in (0,100]) + `leverage`; no daemon, no
 push_signal, no create_position. Candle values are strings keyed o/h/l/c/v — scoring._close/_f coerce.
@@ -85,12 +85,12 @@ def _load_signaled(ctx):
 def scan(inputs, ctx):
     now = time.time()
     allowed = inputs.get("allowedAssets", _ALLOWED_ASSETS_DEFAULT)
-    min_score = float(inputs.get("minScore", 6))
-    base_margin_pct = float(inputs.get("marginPctBase", 10))   # PERCENT in (0,100]
+    min_score = float(inputs.get("minScore", 7))
+    margin_pct = float(inputs.get("marginPct", 25))        # PERCENT in (0,100], flat per slot
+    if 0 < margin_pct < 1.0:                                  # a pasted fraction (0.25) means 25%
+        margin_pct *= 100.0
     max_slots = int(inputs.get("maxSlots", 3))
-    lev_default = int(inputs.get("leverageDefault", 4))
-    lev_min = int(inputs.get("leverageMin", 3))
-    lev_max = int(inputs.get("leverageMax", 5))
+    leverage = int(inputs.get("leverage", 3))               # constant; the DSL ladder is authored for it
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
 
     account_value, positions = _get_account(ctx)
@@ -123,10 +123,8 @@ def scan(inputs, ctx):
             candidates.append(th)
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
-    leverage = max(lev_min, min(lev_default, lev_max))
     out = []
     for th in candidates[:open_slots]:
-        margin_pct = round(scoring.margin_tier_pct(th["score"], base_margin_pct), 4)
         signaled[th["coin"].upper()] = now
         out.append({
             "asset": th["coin"],

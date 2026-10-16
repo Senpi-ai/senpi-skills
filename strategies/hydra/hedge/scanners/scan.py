@@ -2,11 +2,12 @@
 LEG=hedge). Cross-asset SHORT basket. Builds the hedge blend (hedgeUniverse minus the
 thesis coin, unless hedgeIncludesThesis), computes the thesis-stress multiplier (reads the
 thesis coin's 4h), scans each blend asset's 1h/4h, scores via the pure
-`scoring.score_hedge_one`, vol-parity sizes the margin (scaled by thesis stress, total
-capped at hedgeMaxTotalPct), and emits a basket of SHORT signals with explicit per-signal
-`marginPct` (the vol-parity dollars re-expressed as a PERCENT of equity, since Runtime 3.0
-sizes off marginPct and silently drops a top-level marginUsd) + `leverage`. Read-only +
-single-pass — the runtime owns slots/dedup/risk and trails the DSL. No daemon.
+`scoring.score_hedge_one` (closed candles only), vol-parity sizes the margin (scaled by
+thesis stress, total capped at hedgeMaxTotalPct), and emits a basket of SHORT signals with
+explicit per-signal `marginPct` (the vol-parity dollars re-expressed as a PERCENT of equity,
+since Runtime 3.0 sizes off marginPct and silently drops a top-level marginUsd) +
+`leverage`. Read-only + single-pass — the runtime owns slots/dedup/risk and trails the DSL.
+No daemon.
 
 PER-COIN PARAMETERIZATION: the thesis coin is inputs.coin (mirrors v2 HYDRA_COIN env); the
 blend auto-excludes it unless inputs.hedgeIncludesThesis is true (the HYPE hybrid).
@@ -80,9 +81,8 @@ def scan(inputs, ctx):
     coin = str(inputs.get("coin", "ETH"))
     cu = coin.upper()
     min_score = float(inputs.get("minScore", 4))
-    max_slots = int(inputs.get("maxSlots", 5))
-    max_lev = int(inputs.get("maxLeverage", 3))
-    std_lev = int(inputs.get("stdLeverage", 3))
+    max_slots = int(inputs.get("maxSlots", 3))
+    leverage = max(1, int(inputs.get("leverage", 3)))     # 3x for every short (= strategy.default_leverage)
     allow_thesis = bool(inputs.get("hedgeIncludesThesis", False))
     universe_cfg = inputs.get("hedgeUniverse", [])
     min_notional_pct = float(inputs.get("minNotionalPctOfEquity", 0.01))
@@ -121,7 +121,7 @@ def scan(inputs, ctx):
 
     # thesis-stress multiplier: read the thesis coin's 4h, size the hedge UP if it's breaking
     thesis_c = _fetch_candles(ctx, coin, ["4h"])
-    mult, thesis_dd = scoring.thesis_stress_from_candles((thesis_c or {}).get("4h", []), inputs)
+    mult, thesis_dd = scoring.thesis_stress_from_candles((thesis_c or {}).get("4h", []), inputs, now)
 
     candidates = []
     scanned = 0
@@ -132,7 +132,7 @@ def scan(inputs, ctx):
         if not candles:
             continue
         scanned += 1
-        th = scoring.score_hedge_one(asset, candles.get("1h", []), candles.get("4h", []), inputs)
+        th = scoring.score_hedge_one(asset, candles.get("1h", []), candles.get("4h", []), inputs, now)
         if th and th["score"] >= min_score:
             candidates.append(th)
 
@@ -148,7 +148,6 @@ def scan(inputs, ctx):
     free_margin = max(0.0, account_value - deployed)
     total_cap = account_value * total_cap_pct
     min_notional = max(account_value * min_notional_pct, venue_min_notional)
-    leverage = scoring.clamp_lev(std_lev, max_lev)
 
     out, emitted = [], []
     slots_left = open_slots

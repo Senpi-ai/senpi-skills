@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.14.2"
+  version: "3.14.5"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -124,16 +124,16 @@ of an import-stage run. The gate is stage 9, and it takes no `--stage` flag.
 
 Before the template offer / Decision 1, read the **deployable** balance ONCE: `account_get_portfolio` → `total_in_hyperliquid` + `total_spot_usd_in_hyperliquid` + EVM stables in `token_balances[]`.
 Never `total_withdrawable`, never `total_balance_usd` — committed capital. **0 is a fact, not a missing read**: no `or` chain.
-Never say "$total free": say what is free, and that freeing the rest means withdrawing from a strategy — their call. [`references/deployable-balance.md`](references/deployable-balance.md). Deploy needs a little **over $10 USDC per wallet (~$11.50, to cover
-the ~$1.50 creation fee)** — `deploy.py create` reserves the fee first, so a wallet funded
-to exactly $10 still refuses with `[E_FUNDS_BELOW_FLOOR]`. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scan re-run on a timer is a model call per tick, not a simulation — [`references/shadow-testing.md`](references/shadow-testing.md).
+Never say "$total free": say what is free, and that freeing the rest means withdrawing from a strategy — their call. [`references/deployable-balance.md`](references/deployable-balance.md). **~$11.50/wallet opens a wallet** (`deploy.py create` reserves the
+~$1.50 fee first; exactly $10 refuses with `[E_FUNDS_BELOW_FLOOR]`) — **not what the strategy needs to trade**: under the design's own minimum it installs, scans and never opens.
+No design exists yet, so check the floor here; Handoff step 1 quotes the minimum. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scan re-run on a timer is a model call per tick, not a simulation — [`references/shadow-testing.md`](references/shadow-testing.md).
 
 - **Balance ≥ ~$11.50/wallet, or unreadable** → say nothing about funding and move on. Unreadable
   means move on too — no retry loop, no blocking; funding is re-checked at deploy anyway.
 - **Balance < ~$11.50/wallet** → tell the user NOW, in one line, then keep building:
-  > "Heads-up before we design: deploying needs a little over $10 USDC per wallet (a small
-  > creation fee sits on top of the $10 minimum), and your accessible balance is $<X>. We
-  > can build the whole strategy now and deploy the moment you've topped up — want me to
+  > "Heads-up before we design: a wallet needs a little over $10 USDC just to open, and your
+  > accessible balance is $<X> — what it needs to trade depends on the design; I'll quote it before
+  > deploy. We can build the whole strategy now and deploy the moment you've topped up — want me to
   > pull up your deposit info when we're done?"
   (deposit flow = the `senpi-deposit-withdraw-transfer` skill)
 - One heads-up total. NEVER hold the interview hostage on funding, never re-ask
@@ -426,6 +426,8 @@ loop every time:
 
 1. **Confirm with the user** — budget + "ready to deploy?" Funding a wallet is real money and one-way, so
    this is an explicit yes, not an assumption. This is the first and only time the budget is asked.
+   **Quote the design's minimum before asking** — per wallet `max($10, $12 / (smallest marginPct/100 × lowest
+   leverage) + $1.50)` (`min_budget.py`). Funded under it, it installs and never opens a position — if their balance is under it, say so.
 2. **Preflight** — you proved it runs at stage 9 (`senpi validate` → PASS). Nothing downstream
    re-establishes that a tick actually runs, so stage 9 is what stands between a broken scanner and a
    funded wallet. `deploy.py validate <path-to-package>` is the structural half — every fix in **one
