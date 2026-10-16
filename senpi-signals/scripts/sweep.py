@@ -41,6 +41,15 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
+try:
+    import hyperfeed          # the Hyperfeed Movers renderer; see hyperfeed_block()
+except ImportError:           # pragma: no cover - vendored copies ship without it, by design
+    # This file is vendored BYTE-IDENTICAL into strategies/signals-hunter and strategies/puffin as a
+    # runtime scanner (test_signals_hunter_is_offered_as_this_feeds_own_engine locks the hashes), and
+    # those packages carry no hyperfeed.py. A hard import would crash both scanners on load. The
+    # movers section is a reader-facing addition to the markdown feed, which a scanner never renders,
+    # so its absence there costs nothing.
+    hyperfeed = None
 import score  # noqa: E402 — the ranker, called in-process
 
 UNIVERSE_TOP_N = 120          # top-N by day notional volume (SKILL golden rule 6: floor + top-N)
@@ -404,11 +413,15 @@ def cohort(c, cov, metrics):
 
 # ── 3. the 4h board: crowd side + hot_4h_share + 4h price move ─────────────────
 def board(c, cov, metrics):
+    """Returns (source_trader_count, raw_rows). The rows are handed back, not just consumed, so the
+    Hyperfeed Movers section can be built from THIS read — it is the same `leaderboard_get_markets`
+    payload, so the section costs zero extra calls and can never disagree with the 4h board above
+    it."""
     data = _read(c, "leaderboard_get_markets", {"limit": BOARD_LIMIT}, cov, "board_4h")
     rows = _traders_of(data)
     if not rows:
         cov.setdefault("board_4h", "NO DATA: leaderboard_get_markets returned no markets")
-        return None
+        return None, []
     hit = 0
     for r in rows:
         tok = str(r.get("token") or "")
@@ -429,7 +442,7 @@ def board(c, cov, metrics):
     inner = data.get("markets") if isinstance(data, dict) and isinstance(data.get("markets"), dict) else data
     src = _num(inner.get("source_trader_count")) if isinstance(inner, dict) else None
     cov["board_4h"] = f"ok ({hit} universe names on the board, {src or '?'} traders aggregated)"
-    return src
+    return src, rows
 
 
 # ── 4. events: momentum (the platform's own whale feed) + cross-asset laggards ─
@@ -518,12 +531,13 @@ def gather(call_tool, top_n=UNIVERSE_TOP_N, now=None, deadline_s=FEED_DEADLINE_S
     c, cov = Client(call_tool, deadline_s=deadline_s, clock=clock), {}
     metrics = universe(c, cov, top_n)
     if metrics:
-        src = board(c, cov, metrics)
+        src, board_rows = board(c, cov, metrics)
         events = momentum_events(c, cov, metrics, now) + cross_asset(c, cov, metrics)
         cohort(c, cov, metrics)
     else:
-        src, events = None, []
+        src, events, board_rows = None, [], []
     return {"generated": now.isoformat(), "asset_metrics": metrics, "events": events,
+            "board_rows": board_rows,
             "wallets": {w: {"realized_pnl_usd": v} for w, v in c.wallet_pnl.items()},
             "coverage": cov, "source_trader_count": src, "reads": c.reads, "reads_failed": c.failed,
             "reads_skipped": c.skipped}
@@ -573,6 +587,18 @@ def run(call_tool, out_dir=None, now=None, top_n=UNIVERSE_TOP_N, top=None, lens=
         with open(run_current, "w") as f:
             json.dump(cur, f)
         res = rank(run_current, run_feed, now=now, top=top, lens=lens)
+        # The movers ride INSIDE signals.md, not just on stdout: `--print-feed` is contractually the
+        # file, byte for byte (test_print_feed_is_the_feed_and_nothing_about_the_engine), and a
+        # section that exists only in one of the two is a section half the callers never see.
+        cur["hyperfeed"] = hyperfeed_block(cur.get("board_rows") or [], now=cur["generated"])
+        hf = (cur["hyperfeed"] or {}).get("markdown")
+        if hf:
+            with open(run_feed, "a") as f:
+                f.write("\n\n---\n\n" + hf + "\n")
+            # read it BACK rather than re-concatenating: `--print-feed` must equal signals.md byte
+            # for byte, and building the same string twice is how the two drift by a newline.
+            with open(run_feed) as f:
+                res["feed_md"] = f.read()
         os.replace(run_current, os.path.join(out_dir, "current.json"))
         os.replace(run_feed, os.path.join(out_dir, "signals.md"))
     finally:
@@ -621,6 +647,41 @@ OUTAGE_LINE = ("_Senpi Signals could not read the market this run — the univer
                "a minute._")
 
 
+def hyperfeed_block(board_rows, now=None):
+    """Hyperfeed Movers from the board rows THIS sweep already read — no second MCP call, NO HISTORY.
+
+    Tier A only, and that is a constraint, not a shortcut. A sweep is ONE READING: the out dir holds
+    current.json and signals.md and nothing else, and `test_a_sweep_is_one_reading_so_a_second_sweep_
+    compares_nothing` enforces it. The rotations tier needs a stored baseline to diff against, so it
+    would make the sweep keep history — exactly what that invariant forbids. It stays in
+    `scripts/hyperfeed.py`, which owns its own ring.
+
+    That split is also the honest one: Tier A ranks on `contribution_pct_change_15m`, a delta the FEED
+    computes, so it needs nothing of ours. Rotations are inherently two reads apart.
+
+    Never raises: an extra section must not be able to take the feed down with it.
+    """
+    if not board_rows or hyperfeed is None:
+        return None
+    try:
+        markets = hyperfeed.normalize({"data": {"markets": {"markets": board_rows}}})
+        if not markets:
+            return None
+        movers = hyperfeed.tier_a(markets, 6)
+        rep = {"ok": True, "universe": len(markets), "movers": movers, "rotations": [],
+               "generated_at": (now or datetime.datetime.now(datetime.timezone.utc).isoformat()),
+               "baseline": {"band": "SWEEP", "age_s": None, "snapshots": 0},
+               "thresholds": {"min_score": hyperfeed.scoring.STRIKER_MIN_SCORE,
+                              "min_reasons": hyperfeed.scoring.STRIKER_MIN_REASONS,
+                              "min_rank_jump": hyperfeed.scoring.STRIKER_MIN_RANK_JUMP,
+                              "live_max_s": hyperfeed.LIVE_MAX_S,
+                              "wide_max_s": hyperfeed.WIDE_MAX_S}}
+        return {"report": rep, "markdown": hyperfeed.render(rep)}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[sweep] hyperfeed movers skipped: {exc!r}", file=sys.stderr)
+        return None
+
+
 def feed_text(rep):
     """The rendered feed an agent presents, verbatim, plus the not-measured line when a source failed."""
     if universe_is_dark(rep.get("coverage")):
@@ -642,6 +703,12 @@ def brief_text(rep, n):
         # had nothing to say — that is the quiet-market read, inside someone else's answer
         return OUTAGE_LINE
     text = score.render_brief((rep.get("result") or {}).get("trade") or [], n)
+    # the brief closes someone else's answer, so the movers ride as ONE line, not the whole table
+    hfr = ((rep.get("current") or {}).get("hyperfeed") or {}).get("report") or {}
+    top = (hfr.get("movers") or [])[:3]
+    if top:
+        names = " · ".join(f"{m['token']} {m['direction']}" for m in top)
+        text += f"\n- 🌊 **Hyperfeed, last 15m**: {names} — ask for Hyperfeed Movers for the full board."
     dark = not_measured(rep)
     return text + ("\n" + dark if dark else "")
 

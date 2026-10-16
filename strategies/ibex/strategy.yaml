@@ -1,0 +1,53 @@
+# Ibex — gold breakout trend follower. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. The Moose engine (byte-identical scanners, pinned by
+# tests/test_engine_parity.py) pointed at xyz:GOLD with the Donchian breakout as the default
+# trigger: a closed 4h candle beyond the 55-bar channel, with the daily trend, one position at a
+# time, leverage from gold's own volatility, DSL-only exits. STARTER tier. Install/teardown via
+# senpi-strategy-ops.
+#
+# Gold is where users most often write their own strategies, and most of what they write is fast
+# (15m fades, intraday scalps, prior-day breakouts). Replayed on 295 days of the exchange's own
+# gold candles with these exits and fees, every fast variant lost and the slow breakout was the
+# only trigger family that cleared fees — so Ibex ships one slow book, not a trend book plus a
+# fade book. The measurement is in the PR that added this package.
+schema_version: 1
+
+id: ibex
+version: "1.0.0"
+
+catalog:
+  name: "Ibex — Gold Breakout Trend Follower"
+  emoji: "🐐"
+  tagline: "A gold (xyz:GOLD) specialist on the slow clock: when a closed 4-hour candle breaks above the previous nine days' high with gold above its 50-day average it goes long; on the mirror-image break below, short. One position at a time, leverage 3-5x set from gold's own volatility so the stop sits outside normal noise, and a trailing stop that only ever moves in your favour. No fast trades, no fading — the one trigger on gold that pays its fees."
+  belief_plain: "Trades only gold, and only on a real break: a 4-hour close above the last nine days' high when gold is above its 50-day average (or below the low, below the average). It buys that break, holds one position at a time, and trails a stop behind it so a multi-day move can run while a failed break closes it. It will sit idle for a week at a time; that is the design."
+  thesis: "Gold is the market Senpi users most often build their own strategies on, and most of what they build is fast: fifteen-minute fades, intraday scalps, prior-day breakouts. Replayed on the exchange's own gold history with real exits and fees, every one of those loses — gold's fifteen-minute range is smaller than a round trip costs. The slow breakout is the only trigger that cleared the fees: a nine-day channel break with the daily trend behind it, taken once and held for days. Ibex is that trade, with the sizing and the exit the fast builds were missing."
+  group: single-asset
+  archetype: breakout_momentum
+  sub_style: range_break
+  asset_classes: [commodities]
+  asset_scope: single
+  direction: long_short
+  risk_level: moderate
+  tier: starter
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 1
+  assets: ["xyz:GOLD"]
+  # The scanner sizes a volatility spike at 3x; at 40% margin the $12 bumped notional then needs
+  # $11.50 in the wallet. min_budget.py reads default_leverage (5) and would compute $10, so raise it.
+  min_budget_floor: 15
+  tags: [gold, xau, xauusd, metals, precious-metals, commodity, commodities, breakout, donchian,
+         channel-break, turtle, trend, trend-following, daily-trend-filter, atr, volatility-sized,
+         single-asset, long-short, xyz, slow, beginner, onboarding, let-winners-run, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: IBEX_WALLET
+    funding_share: 1.0

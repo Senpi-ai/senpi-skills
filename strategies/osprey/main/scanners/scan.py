@@ -34,7 +34,7 @@ FIDELITY NOTES vs the v2 producer (osprey-producer.py v1.0.1 + osprey_config.py)
     documented signature read with the required warmup/BTC-only read-guard.
   - v2 conviction-scaled margin used marginPct=0.15 (a FRACTION) * account_value
     -> marginUsd. This port emits `marginPct` (PERCENT) and the runtime sizes
-    (marginPct/100)*withdrawable. Defensive guard: a value <= 1.0 is treated as a
+    (marginPct/100)*withdrawable. Defensive guard: a value < 1.0 is treated as a
     pasted v2 fraction and converted x100 (dire/koala pattern).
   - DROPPED v2 order-lifecycle: none. v2 Osprey had NO cancel_order /
     has_resting_orders / stale-order purge — the producer NEVER closed (DSL owns
@@ -289,11 +289,11 @@ def scan(inputs, ctx):
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
     min_traders = int(inputs.get("minTraderCount", 10))
 
-    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value <= 1
+    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value < 1
     # (an operator who pasted the v2 FRACTION 0.15) into a PERCENT so it never
     # silently sizes ~100x small (the runtime sizes (marginPct/100)*withdrawable).
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         print(f"[osprey.scan] marginPct={margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0

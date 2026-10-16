@@ -10,7 +10,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.4.0"
+  version: "1.7.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -76,7 +76,8 @@ every slice into one dict — the same output the engine always produced.
   smart_bias, smart_members, crowd_direction, crowd_bias, crowd_members}`, sorted opposite-sides
   first. **The core signal.**
 - `near_term` — the Leaderboard/Hyperfeed 4h layer (`concentration`, `hot_traders`,
-  `momentum_events`) **or `null`** if Hyperfeed is down. Use it to confirm/contradict the cohort read.
+  `momentum_events`: short `rows` lists + source counts) **or `null`** if Hyperfeed is down; a `null`
+  layer was unreadable, not empty. Use it to confirm/contradict the cohort read.
 - `cohorts` — the sample sizes (how many proven / crowd wallets were measured). Cite these so the
   user knows the sample behind the bias.
 - `meta` — `warnings`, `near_term_available`, and **`cohorts_unavailable`** — set only when the
@@ -143,9 +144,10 @@ that you can't read the proven-cohort positioning and why — don't report an em
 2. **Smart money vs the crowd** — the divergences. This is the payoff. For each: who's on which side,
    how lopsided, how many wallets. Lead with `opposite_sides` cases. "The winners are short HYPE
    (−0.8/30) while the $10–100k crowd is long it (+0.6/120) — they're on opposite sides."
-3. **Near-term flow** — the Leaderboard/Hyperfeed 4h read. Is the hot money *adding* (scale-ins in
-   `momentum_events`) or *unwinding*? Does it confirm the all-time cohort or fight it? If
-   `near_term` is null, note it and move on.
+3. **Near-term flow** — the Leaderboard/Hyperfeed 4h read. Is the hot money *adding* or *unwinding*
+   (`contribution_pct_change_*`)? Does it confirm the all-time cohort or fight it? A `"blocked"` momentum
+   event is still a real tier crossing; with no `top_positions`, never guess its markets. If `near_term`
+   is null, note it and move on.
 4. **Bottom line** — one paragraph: where the proven money is positioned, where it diverges from the
    crowd, whether the near-term flow backs it — plus a **"what to watch"** (e.g. "if the crowd
    capitulates and flips short, the divergence is resolving").
@@ -160,13 +162,48 @@ bias with its member count — conviction is the whole point.
 > **2. Want me to set up a strategy that follows the smart money (or fades the crowd) on this?**
 > **3. Want me to find one of these smart-money traders to mirror directly?**
 
-- **CTA 1 → positions read.** Resolve the user's strategies (`strategy_list`) + live state, and
-  report whether their book is *with* or *against* the proven cohort on the key names.
+- **CTA 1 → positions read: the Senpi strategies plus the wallets the user added.** Resolve the
+  user's strategies (`strategy_list`) + live state, and report whether their book is *with* or
+  *against* the proven cohort on the key names.
+  - **Saved wallets in the same read.** Also call `account_get_external_wallets` (no address: every
+    wallet the user added in Your wallets, each with its live `state`) and put their positions in the
+    **same table** as the Senpi strategies — one row per position, largest position value first, never a
+    section per origin. Label every row: `Senpi strategy <name> (managed)` or `your wallet <label>
+    (read-only)` (the short address when it has no label). Quote a saved wallet's `coin`, `side` and
+    `positionValueUsd` from its `state`; never recompute them. Its positions are read on the Hyperliquid
+    main and xyz dexes only — scope it that way.
+  - **Read-only.** Senpi can't place, change or cancel orders on a saved wallet (quote its `access` line
+    if asked). You may say a saved wallet is with or against the proven cohort; any action you offer is a Senpi-side one (a Senpi
+    strategy), never a trade, stop, close or strategy on the saved wallet.
+  - **`protection` is not "protected".** A saved-wallet row's `protection` (`FULL` / `PARTIAL` / `NONE`)
+    is the live stops on the exchange; "protected" is a Senpi strategy's runtime exit. Never merge them.
+  - **Unknown is never zero.** `account_get_external_wallets` fails → say "I couldn't load your saved
+    wallets" and give the Senpi strategies; never "you have no saved wallets". A wallet with `state: null`
+    or `state.readError` set → "couldn't load <label>", never flat, never $0, never "no positions". An
+    empty list means none added — leave them out.
+  - Call them "your wallets" or "the wallets you added"; never imply Senpi checked who controls them.
 - **CTA 2 → strategy.** Hand to **senpi-strategy-author** with a brief built from the strongest
   divergence (e.g. *"proven cohort short HYPE −0.8/30 vs crowd long +0.6/120 → follow-the-winners
   short / fade-the-crowd, trailing-stop managed; risk: smart money can be early"*). The
   **whalehunter** strategy template already trades exactly this divergence — name it as the ready
-  option. **Propose; never auto-build or trade.**
+  option. Also offer the Hyperfeed strikers, for a reader who wants the feed itself rather than a
+  divergence thesis:
+
+  > Want a feel for what senpi Hyperfeed can do? **Penguin** (crypto only) or **Pelican** (all assets)
+  > react only to the strongest live rotations on the feed — a name suddenly rocketing up what winning
+  > traders hold — then commit one position at up to 10x, 90% margin, with a DSL floor that ratchets up
+  > to lock gains as it runs. High risk, high reward, with -15% SL.
+
+  Three things about that line the agent must be able to unpack, because each is easy to read wrong:
+  **-15% SL is 15% ROE, not a 15% price move** — at 10x that is a **1.5%** move, so if the user asks what
+  the stop means, answer in price, never leave "-15%" to be read as the distance. On 90% margin it costs
+  **~13.5% of the wallet per stop-out**, and say **per stop-out**: these run with their risk guard rails
+  off, so stops compound (three ≈ 40% of the wallet). **Up to 10x**, never a flat 10x — the per-name venue
+  cap clamps many instruments below it, and that clamp moves the PRICE behind every number without moving
+  the wallet cost: ROE is return on margin, so the stop is ~13.5% at any leverage while the move it takes
+  doubles at 5x (3.0%), and tier 1's +20% ROE becomes a 4% move rather than 2%. And say   **rotations**, never "pumps": the detector fires on a jump in what winning traders HOLD, not on price, so a pumping
+  name no smart money rotated into does not fire at all.
+  **Propose; never auto-build or trade.**
 - **CTA 3 → mirror a smart-money trader.** You just surfaced the individual proven wallets — offer to
   copy one. Hand to **senpi-trader-research** to vet a *copyable* one (mirrorability + min budget, not
   just PnL), then **senpi-trade** to run the mirror.
