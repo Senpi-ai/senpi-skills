@@ -238,8 +238,8 @@
       "version": "1.1.2"
     },
     "kingfisher": {
-      "behaviour": "9df500bad4124b1a",
-      "version": "1.2.0"
+      "behaviour": "25345fea95972655",
+      "version": "1.3.0"
     },
     "kite": {
       "behaviour": "460a45e0c46760b9",
@@ -402,8 +402,8 @@
       "version": "1.1.1"
     },
     "puffer": {
-      "behaviour": "5a3762e97d750972",
-      "version": "1.0.1"
+      "behaviour": "d2845a4539747f94",
+      "version": "1.1.0"
     },
     "puffin": {
       "behaviour": "5b5d8f66c330c8cf",
@@ -514,8 +514,8 @@
       "version": "1.2.0"
     },
     "tortoise": {
-      "behaviour": "8703c9008a9e844e",
-      "version": "1.2.0"
+      "behaviour": "6866e93c6e2b8e55",
+      "version": "2.0.0"
     },
     "viper": {
       "behaviour": "6df37315776b09ff",
