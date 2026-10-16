@@ -3,20 +3,21 @@
 # runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2 Salamander
 # (SKILL.md v1.0.0): a liquid-majors basket (BTC/ETH/SOL) that LONGs a 3-7% dip
 # inside a bullish 4h trend / SHORTs a 3-7% rally inside a bearish 4h trend, gated
-# by the side of the Senpi 4h leaderboard, with an asymmetric DSL (wide Phase 1 so a
-# pullback has room to develop, wide Phase 2 to let the resumed trend run).
+# by the side of the Senpi 4h leaderboard, with an asymmetric DSL (a 12% ROE stop —
+# 2.4% of price at 5x — so a pullback has room to develop, a Phase 2 ratchet from
+# +20% ROE to let the resumed trend run, no clock cuts). One slot, 40% margin, 5x.
 # Salamander is the pullback half of the Hawk(breakouts)/Salamander(pullbacks)
 # technical-pattern pair. Install/teardown via senpi-strategy-ops.
 schema_version: 1
 
 id: salamander
-version: "1.2.2"
+version: "1.3.0"
 catalog:
   name: "Salamander — Pullback Catcher"
   emoji: "🦎"
-  tagline: "An onboarding-grade pullback trader on the liquid majors (BTC/ETH/SOL): buys a 3-7% dip inside an established bullish 4h trend (and shorts a 3-7% rally inside a bearish one) only when 4h leader momentum (which side the last four hours' winners sit on) agrees with the trend direction, then gives the entry room on a wide Phase 1 while a wide Phase 2 ratchet lets the resumed trend run."
-  belief_plain: "Watches BTC, ETH and SOL. When one is in a clear up-trend on the 4-hour chart and dips 3-7% on the 1-hour chart while the last four hours' winners are still leaning long, it buys the dip; in a down-trend it shorts a 3-7% bounce. It needs all three to line up — trend, dip-in-the-band, and the 4h leaders agreeing — then it gives the trade room to work and trails a wide stop so the trend can keep running."
-  thesis: "Pullbacks inside an established trend are one of the highest-edge setups: the trend has already proved itself, the counter-move offers a better entry, and a 4h-leader agreement filter screens out trend-break risk. The 3-7% band is the sweet spot — shallower is noise, deeper means the trend may be breaking, so you don't catch a falling knife. Because a resolved pullback resumes a trend that can run far, the exit is asymmetric: a wide Phase 1 floor lets the dip develop without a premature cut, and a wide Phase 2 ratchet (first lock only at +10% ROE) keeps the continuation that pays for the quiet weeks."
+  tagline: "An onboarding-grade pullback trader on the liquid majors (BTC/ETH/SOL): buys a 3-7% dip inside an established bullish 4h trend (and shorts a 3-7% rally inside a bearish one) only when 4h leader momentum (which side the last four hours' winners sit on) agrees with the trend direction, then gives the entry room with a 12% ROE stop (2.4% of price at 5x) while a Phase 2 ratchet, first lock at +20% ROE, lets the resumed trend run. One position at a time, 40% of the wallet at 5x."
+  belief_plain: "Watches BTC, ETH and SOL. When one is in a clear up-trend on the 4-hour chart and dips 3-7% on the 1-hour chart while the last four hours' winners are still leaning long, it buys the dip; in a down-trend it shorts a 3-7% bounce. It needs all three to line up — trend, dip-in-the-band, and the 4h leaders agreeing — then it gives the trade room to work: the stop sits 12% ROE away (2.4% of price at 5x), there is no clock, and once the trade is +20% ROE a ratchet locks in gains so the trend can keep running."
+  thesis: "Pullbacks inside an established trend are one of the highest-edge setups: the trend has already proved itself, the counter-move offers a better entry, and a 4h-leader agreement filter screens out trend-break risk. The 3-7% band is the sweet spot — shallower is noise, deeper means the trend may be breaking, so you don't catch a falling knife. Because a resolved pullback resumes a trend that can run far, the exit is asymmetric: the stop is 12% ROE (2.4% of price at 5x) so the dip can finish forming — live, six closes in 60 days were all the exchange stop, because the earlier 1.2%-of-price stop never gave a 3-7% pullback room — and a Phase 2 ratchet (first lock at +20% ROE, keeping 40% of the high-water) keeps the continuation that pays for the quiet weeks. No clock cuts: the DSL decides every exit."
   group: momentum
   archetype: breakout_momentum
   sub_style: pullback

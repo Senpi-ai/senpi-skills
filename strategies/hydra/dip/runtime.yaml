@@ -1,8 +1,10 @@
 # ── HYDRA · DIP sleeve — the TACTICAL ADD of a single-coin conviction fund ──
 # Runtime 3.0 port of v2 runtime-dip.yaml (origin/main, Hydra v2.1). LONG-only pullback
-# buyer inside a confirmed 1d+4h uptrend. DSL preserved EXACTLY: tighter entry-stop than
-# core (the dip can keep falling), then ride the bounce; weak_peak self-limiting ON,
-# time-cuts OFF; FIRST lock reachable (+6% → 30%, the retuned ladder).
+# buyer inside a confirmed 1d+4h uptrend. 1.3.0: one 30% slot at 3x; a stop tighter than
+# the core's (12% ROE = 4.0% of price at 3x — the dip can keep falling), then ride the
+# bounce; weak_peak OFF, time-cuts OFF; FIRST lock reachable (+6% ROE → lock 40% of
+# high-water). Structure and RSI are read off CLOSED candles only — the bar in progress
+# never moves a read.
 name: hydra-dip
 group: hydra
 version: 3.0.0
@@ -11,13 +13,15 @@ description: >
   per deployment): buys a PULLBACK within a confirmed 4h uptrend (1h RSI <= dipRsiMax),
   then rides the resumed move. Stands down whenever the 4h isn't bullish (and, v2.1, when
   the 1d doesn't confirm) — so it never knife-catches against the HEDGE sleeve. One
-  position. Pairs with the CORE and HEDGE sleeves on separate wallets; it presses the
-  thesis on the pullbacks the breakout-core misses.
+  position, 30% of the wallet at 3x, on a 12% ROE stop (4.0% of price) and a profit
+  ratchet from +6% ROE — no clock cuts. Pairs with the CORE and HEDGE sleeves on separate
+  wallets; it presses the thesis on the pullbacks the breakout-core misses.
 
 strategy:
   wallet: "${HYDRA_DIP_WALLET}"
   slots: 1
-  default_leverage: 3                       # fallback; scan emits per-signal leverage (std 3, clamp 4)
+  margin_pct: 30                            # per-slot margin %; 1 x 30% of the wallet (= inputs.marginPct)
+  default_leverage: 3                       # fallback; the scan emits 3 per signal (= inputs.leverage = catalog leverage_max)
   trading_risk: moderate
   enabled: true
 
@@ -39,9 +43,8 @@ scanners:
       dex: ""
       leg: "dip"
       minScore: 4
-      marginPct: 18                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
-      maxLeverage: 4
-      stdLeverage: 3
+      marginPct: 30                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      leverage: 3                           # one leverage for every signal (= strategy.default_leverage = catalog leverage_max)
       dipRsiMax: 42                         # v2.1: deeper, real RSI pullback (was 48) — not noise
       requireDailyAlign: true               # v2.1: only dip-buy inside a 1d+4h confirmed uptrend
       recentSignalTtlSeconds: 240
@@ -72,7 +75,7 @@ actions:
       - type: signal
         scanner: hydra_dip_signals
 
-# ── EXIT (DSL — tighter entry-stop, then ride the bounce; ported VERBATIM from main) ──
+# ── EXIT (DSL — the stop and the ratchet decide every exit; no clock cuts) ──
 exit:
   engine: dsl
   interval_seconds: 60
@@ -97,17 +100,16 @@ exit:
       interval_in_minutes: 720
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
-      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
-      # retrace (6% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
-      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct IS the stop (ROE %);
+      # retrace_threshold below is inert while enabled: false.
       enabled: false
-      max_loss_pct: 6
-      retrace_threshold: 6
+      max_loss_pct: 12.0   # 12% ROE = 4.0% of price at 3x (was 6 = 2.0% of price)
+      retrace_threshold: 6                   # inert while enabled: false
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 6, lock_hw_pct: 30 }    # lock earlier — winners here run small (retuned first lock)
+        - { trigger_pct: 6, lock_hw_pct: 40 }    # lock earlier — winners here run small (+6% ROE = 2% of price at 3x); locks 40% of high-water
         - { trigger_pct: 12, lock_hw_pct: 50 }
         - { trigger_pct: 25, lock_hw_pct: 65 }
         - { trigger_pct: 50, lock_hw_pct: 80 }
@@ -116,7 +118,7 @@ exit:
 risk:
   guard_rails:
     daily_loss_limit_pct: 12
-    max_entries_per_day: 3
+    max_entries_per_day: 3                   # above strategy.slots (1)
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 4
     cooldown_seconds: 7200                   # v2 cooldown_minutes 120
