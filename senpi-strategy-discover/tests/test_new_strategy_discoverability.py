@@ -24,6 +24,7 @@ def _rank(target, itn, theme):
     res = discover.match(itn, _RECORDS)
     if theme:
         discover.apply_theme(res, theme)
+    discover.fold_variants(res, _RECORDS)   # what the CLI ranks: one card per variant family
     ids = [c["id"] for c in res.get("candidates", [])]
     return (ids.index(target) + 1) if target in ids else None
 
@@ -47,7 +48,10 @@ _CASES = [
     ("ram",       _intent(assets=[("class", "commodities")]), "gold xauusd metals"),
     ("gecko",     _intent(assets=[("named", "VVV")]), "any coin"),
     # ── demand-driven builds from the 2026-08-04 verbatim-prompts doc ──
-    ("shadow",   _intent(), "mirror multiple traders fresh entry copy the top traders"),
+    # shadow was DELISTED 2026-10-12 (catalog.status=blocked): a ~2h position-state indexing lag
+    # made its fresh-entry premise unreachable. squid is the replacement and reads books live.
+    #   see strategies/shadow/DESIGN.md
+    ("squid",    _intent(), "mirror multiple traders fresh entry copy the top traders"),
     ("rotator",  _intent(), "rebalance conviction every few hours concentrated smart money"),
     ("mandate",  _intent(), "capital preservation no leverage diversified portfolio rwa"),
     ("hare",     _intent(), "scalp btc eth session quick in and out leverage"),
@@ -57,6 +61,17 @@ _CASES = [
     # ── concentrated signals variant (2026-09-25): one slot, score floor 85, 10x ──
     ("puffin",   _intent(), "one signal at a time all in high conviction"),
     ("puffin",   _intent(), "concentrated single position high leverage"),
+    # ── the xyz-inclusive striker (2026-09-25): penguin with the xyz ban lifted ──
+    ("pelican", _intent(), "rank jump striker stocks and crypto"),
+    ("pelican", _intent(), "all markets striker tradfi and perps"),
+    # ── the textbook crossover (2026-10-12): the setup users most often rebuild by hand ──
+    ("moose",   _intent(), "ema crossover moving average trend following"),
+    ("moose",   _intent(), "golden cross death cross"),
+    ("moose",   _intent(), "simple trend following for a beginner"),
+    # ── the gold breakout (2026-10-12): the market users most often build on by hand ──
+    ("ibex",    _intent(), "gold breakout"),
+    ("ibex",    _intent(), "donchian breakout gold"),
+    ("ibex",    _intent(assets=[("class", "commodities")]), "gold xauusd metals"),
 ]
 
 

@@ -63,7 +63,7 @@ def time_of_day_modifier(hour_utc):
 
 
 def score_market(market, latest_prev, oldest_available, prev_top50_tokens,
-                 recent_contribs, hour_utc):
+                 recent_contribs, hour_utc, floor=True, max_pre_move_pct=None):
     """Score a single normalized market for a Gen-1 Striker FIRST_JUMP/IMMEDIATE_MOVER.
     Returns (score, reasons, meta) or None when a hard gate rejects.
 
@@ -97,6 +97,24 @@ def score_market(market, latest_prev, oldest_available, prev_top50_tokens,
     # Hard gate: 4h trend must agree with the SM direction — v2 check_4h_alignment.
     if not check_4h_alignment(direction, market.get("price_chg_4h", 0)):
         return None
+    # Hard gate: the move must not already have HAPPENED. Direction-aware — it rejects a LONG whose
+    # price has already run up by `max_pre_move_pct` over the last hour, and a SHORT that has already
+    # fallen that far. A dip-buy (LONG after a fall) or a rally-sell (SHORT after a rise) still passes,
+    # because for those the pre-move is in the trade's favour, not spent.
+    #
+    # Quant desk, 2026-10-02, on live Penguin entries: 55% fired AFTER a >= 3% 1h pre-move, and those
+    # ran a profit factor of 0.3 against 3.3 for entries taken before the move. Same detector, same
+    # universe, same score — the difference is how much of the move was left to capture. This is the
+    # one gate that reads the PRICE rather than the rank, which is why the rank-jump model misses it:
+    # a coin can explode up the leaderboard precisely because it already moved.
+    #
+    # OFF unless the package sets `maxPreMovePct`. This scorer is vendored across packages whose own
+    # pre-move distributions have not been measured, so the default must not change their behaviour.
+    if max_pre_move_pct is not None:
+        _signed_pre_move = (1.0 if direction == "LONG" else -1.0) * safe_float(
+            market.get("price_chg_1h", 0))
+        if _signed_pre_move >= float(max_pre_move_pct):
+            return None
 
     # Need a prior observation of this exact (token,dex) to measure the jump — v2 `if not prev_market: continue`.
     prev_market = latest_prev
@@ -119,6 +137,7 @@ def score_market(market, latest_prev, oldest_available, prev_top50_tokens,
             is_first_jump = True
             reasons.append(f"FIRST_JUMP #{prev_market['rank']}->#{current_rank}")
 
+    contrib_ratio = 0.0
     if prev_market["contribution"] > 0:
         contrib_ratio = current_contrib / prev_market["contribution"]
         if contrib_ratio >= 3.0:
@@ -152,23 +171,62 @@ def score_market(market, latest_prev, oldest_available, prev_top50_tokens,
     if prev_market["rank"] >= 40:
         score += 1
         reasons.append("DEEP_CLIMBER")
-    if old_market:
-        total_climb = old_market["rank"] - current_rank
-        if total_climb >= 10:
-            score += 1
-            reasons.append(f"CLIMBING +{total_climb} over scans")
+    total_climb = (old_market["rank"] - current_rank) if old_market else 0
+    is_climbing = total_climb >= 10
+    if is_climbing:
+        score += 1
+        reasons.append(f"CLIMBING +{total_climb} over scans")
 
     tod_mod, tod_reason = time_of_day_modifier(hour_utc)
     score += tod_mod
     if tod_reason:
         reasons.append(tod_reason)
 
-    # Score + reason floor — v2 verbatim.
-    if score < STRIKER_MIN_SCORE or len(reasons) < STRIKER_MIN_REASONS:
+    # Score + reason floor — v2 verbatim, now expressed as a FLAG so a caller can ask to see
+    # the near-miss band. `floor=True` (the default, and what every existing caller uses) returns
+    # None exactly as before: same condition, same result, no behaviour change. `floor=False`
+    # returns the tuple regardless and leaves the decision to the caller, which is what lets a
+    # scanner LOG a sub-floor candidate without trading it. Callers passing floor=False MUST
+    # enforce meta["passedFloor"] themselves — it is the identical condition, precomputed.
+    passed_floor = score >= STRIKER_MIN_SCORE and len(reasons) >= STRIKER_MIN_REASONS
+    if floor and not passed_floor:
         return None
+
+    # ── scoreFine: a CONTINUOUS companion to the integer score. ANALYSIS ONLY ──
+    # `score` above is a sum of +1/+2/+3 buckets, so it is coarse: 48% of live emits land on
+    # exactly 9 and a 15-place jump scores the same as a 90-place one when they trip the same
+    # flags. scoreFine adds a fractional tiebreak in [0, 0.99) measuring HOW FAR PAST each
+    # threshold the continuous underliers sat, so "did 9.45 beat 9.01" becomes answerable.
+    #
+    # It is NOT used by any gate and NOT used to rank candidates — scan.py still sorts on the
+    # integer `score`. Changing that is a behaviour change and needs its own evidence.
+    #
+    # The fraction is the mean of the margins whose reason actually fired, each normalised onto
+    # [0,1] and clipped. The normalisers and the equal weighting are PROVISIONAL — they are a
+    # first guess, not a fitted model. Every raw component is in meta below precisely so the
+    # weighting can be re-derived from outcomes rather than defended from first principles.
+    def _m(value, floor, span):
+        return max(0.0, min(1.0, (value - floor) / span))
+
+    margins = [_m(rank_jump, STRIKER_MIN_RANK_JUMP, 45.0)]
+    if is_contrib_explosion:
+        margins.append(_m(contrib_ratio, 3.0, 12.0))
+    if abs(contrib_velocity) > 10:
+        margins.append(_m(abs(contrib_velocity), 10.0, 40.0))
+    if is_climbing:
+        margins.append(_m(total_climb, 10.0, 40.0))
+    if prev_market["rank"] >= 40:
+        margins.append(_m(prev_market["rank"], 40.0, 40.0))
+    score_fine = score + (sum(margins) / len(margins)) * 0.99
 
     meta = {
         "mode": "STRIKER",
+        "passedFloor": passed_floor,
+        "scoreFine": round(score_fine, 4),
+        "prevRank": prev_market["rank"],
+        "contribRatio": round(contrib_ratio, 4),
+        "totalClimb": total_climb,
+        "priceChg1h": market.get("price_chg_1h", 0),
         "currentRank": current_rank,
         "rankJump": rank_jump,
         "isFirstJump": is_first_jump,

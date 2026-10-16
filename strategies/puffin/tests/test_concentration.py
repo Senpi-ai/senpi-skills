@@ -210,13 +210,43 @@ def test_the_card_quotes_the_gross_exposure_the_config_actually_implies():
 def test_every_dsl_threshold_is_stated_in_roe_at_this_leverage():
     """SIGNALS-HUNTER's ladder is tuned for 5x and its own comment warns that carrying those ROE
     numbers onto a different leverage rescales every exit in price. This package is 10x, so the
-    ladder must rise monotonically and start no tighter than the stop it sits above."""
+    ladder must rise monotonically and every rung must exit at a profit.
+
+    v1.1.0 DROPPED the old `trig[0] >= max_loss_pct` assertion. It encoded the belief that a tier
+    arming inside the stop distance "locks in before risk is off" — which is true, and is now the
+    POINT. Rung 1 (10/20) is a loss reducer ported from PENGUIN, where a full 1m-bar replay of 12
+    closed positions scored it +$2,740 against the ladder without it and positive under every
+    leave-one-out deletion. It arms at +10% ROE against a -25% stop precisely so a position that
+    went green cannot round-trip through entry to the stop. What still must hold is that no rung
+    can exit at a LOSS, which is the assertion below."""
     tiers = DSL["phase2"]["tiers"]
     trig = [t["trigger_pct"] for t in tiers]
     lock = [t["lock_hw_pct"] for t in tiers]
     assert trig == sorted(trig) and len(set(trig)) == len(trig), trig
     assert lock == sorted(lock) and len(set(lock)) == len(lock), lock
-    assert trig[0] >= DSL["phase1"]["max_loss_pct"], (
-        "the first profit tier arms tighter than the stop — it would lock in before risk is off")
+    assert all(l > 0 for l in lock), (
+        f"lock_hw_pct: 0 is banned fleet-wide — a 0% floor exits flat but still pays the round "
+        f"trip, so it is a guaranteed fee loss, not a scratch. Got {lock}")
+    assert all(t * l / 100.0 > 0 for t, l in zip(trig, lock)), (
+        "every rung's floor (trigger x lock) must sit above entry — a rung that can fire below "
+        "entry is a stop wearing a profit tier's name")
     assert DSL["phase1"]["enabled"] is False and DSL["phase1"]["max_loss_pct"] > 0, (
         "phase1 trailing is off here, so max_loss_pct is the ONLY floor and must be set")
+
+
+def test_nothing_closes_this_position_on_a_clock():
+    """v1.1.0: DSL ONLY. This package follows smart-money positioning, funding dislocation and OI
+    surges — a rotation thesis that plays out over hours. A timer reads elapsed time and nothing
+    about the position, so it cannot tell a thesis that is WRONG from one that has NOT HAPPENED
+    YET, and every time cut here was closing the second case along with the first. The fleet
+    measurement behind the call is in the exit block of runtime.yaml.
+
+    This is the test that keeps a future retune from quietly reintroducing a clock. If you are
+    turning one of these back on, delete this test in the same commit and say why."""
+    for cut in ("hard_timeout", "weak_peak_cut", "dead_weight_cut"):
+        assert DSL[cut]["enabled"] is False, (
+            f"{cut} is enabled — this package exits on the DSL floor only. A clock cannot read "
+            f"the position, and a rotation thesis routinely needs longer than any of these allow.")
+    actions = {a["action_type"] for a in RT["actions"]}
+    assert "CLOSE_POSITION" not in actions, (
+        "a CLOSE_POSITION action would put a second, scanner-driven exit path beside the DSL")
